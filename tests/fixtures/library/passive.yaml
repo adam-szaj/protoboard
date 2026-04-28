@@ -1,0 +1,14 @@
+components:
+  - name: R
+    description: "Resistor (axial through-hole)"
+    footprint:
+      type: SIL
+      pins: 2
+    pin_names: {}
+
+  - name: C
+    description: "Capacitor (radial)"
+    footprint:
+      type: SIL
+      pins: 2
+    pin_names: {}
