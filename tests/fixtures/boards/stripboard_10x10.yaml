@@ -1,0 +1,86 @@
+# Stripboard 10×10: 10 horizontal copper strips, each 10 holes long.
+type: VBox
+width_policy: hug
+height_policy: hug
+gap: 1.0
+children:
+  - type: StripAtom
+    width_policy: hug
+    height_policy: hug
+    length: 10
+    orientation: horizontal
+    layers:
+      top: false
+      bottom: true
+  - type: StripAtom
+    width_policy: hug
+    height_policy: hug
+    length: 10
+    orientation: horizontal
+    layers:
+      top: false
+      bottom: true
+  - type: StripAtom
+    width_policy: hug
+    height_policy: hug
+    length: 10
+    orientation: horizontal
+    layers:
+      top: false
+      bottom: true
+  - type: StripAtom
+    width_policy: hug
+    height_policy: hug
+    length: 10
+    orientation: horizontal
+    layers:
+      top: false
+      bottom: true
+  - type: StripAtom
+    width_policy: hug
+    height_policy: hug
+    length: 10
+    orientation: horizontal
+    layers:
+      top: false
+      bottom: true
+  - type: StripAtom
+    width_policy: hug
+    height_policy: hug
+    length: 10
+    orientation: horizontal
+    layers:
+      top: false
+      bottom: true
+  - type: StripAtom
+    width_policy: hug
+    height_policy: hug
+    length: 10
+    orientation: horizontal
+    layers:
+      top: false
+      bottom: true
+  - type: StripAtom
+    width_policy: hug
+    height_policy: hug
+    length: 10
+    orientation: horizontal
+    layers:
+      top: false
+      bottom: true
+  - type: StripAtom
+    width_policy: hug
+    height_policy: hug
+    length: 10
+    orientation: horizontal
+    layers:
+      top: false
+      bottom: true
+  - type: StripAtom
+    width_policy: hug
+    height_policy: hug
+    length: 10
+    orientation: horizontal
+    layers:
+      top: false
+      bottom: true

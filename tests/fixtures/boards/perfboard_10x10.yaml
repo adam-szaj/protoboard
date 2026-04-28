@@ -1,0 +1,16 @@
+# Perfboard 10×10: regular grid of 100 plated-through pads.
+type: BoardGrid
+width_policy: hug
+height_policy: hug
+rows: 10
+cols: 10
+row_gap: 0.0
+col_gap: 0.0
+cell:
+  type: PadAtom
+  width_policy: hug
+  height_policy: hug
+  layers:
+    top: true
+    bottom: true
+    plated_through: true
