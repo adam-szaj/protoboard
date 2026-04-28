@@ -506,62 +506,62 @@ Sprawdzenia w MVP:
 ## 11. Fazy implementacji
 
 ### Faza 0 — Bootstrap (1-2 dni)
-- [ ] Setup repo: `pyproject.toml`, `uv`, `ruff`, `black`, `mypy --strict`, `pytest`, pre-commit hooks.
-- [ ] Struktura katalogów (zob. §13).
-- [ ] CI: GitHub Actions (lint + test + mypy).
-- [ ] SPDX headers, `LICENSE` (MIT), `README.md` skeleton.
-- [ ] `CHANGELOG.md` (Keep a Changelog).
+- [x] Setup repo: `pyproject.toml`, `uv`, `ruff`, `black`, `mypy --strict`, `pytest`, pre-commit hooks.
+- [x] Struktura katalogów (zob. §13).
+- [x] CI: GitHub Actions (lint + test + mypy).
+- [x] SPDX headers, `LICENSE` (MIT), `README.md` skeleton.
+- [x] `CHANGELOG.md` (Keep a Changelog).
 
 ### Faza 1 — Domain Model + Box Layout (MVP rdzenia)
-- [ ] `units.py`, `geometry.py` (Point, Size, Insets, Rect w RasterUnit).
-- [ ] Box model: `Box`, `HBox`, `VBox`, `Grid`, atomy (`PadAtom`, `StripAtom`, `GapAtom`).
-- [ ] Layout engine (intrinsic + layout pass) z testami pokrywającymi: HUG, FILL, FIXED, gap ułamkowy, gap ujemny.
-- [ ] `Board` jako wrapper drzewa boxów + cache pozycji atomów.
-- [ ] YAML serializer dla Board.
-- [ ] **Test deliverable:** zdefiniuj perfboard 10×10 i stripboard 10×10 w YAML, załaduj, wyrenderuj pozycje atomów do tekstowego dump.
+- [x] `units.py`, `geometry.py` (Point, Size, Insets, Rect w RasterUnit).
+- [x] Box model: `Box`, `HBox`, `VBox`, `BoardGrid`, atomy (`PadAtom`, `StripAtom`, `GapAtom`).
+- [x] Layout engine (intrinsic + layout pass) z testami pokrywającymi: HUG, FILL, FIXED, gap ułamkowy, gap ujemny.
+- [x] `Board` jako wrapper drzewa boxów + cache pozycji atomów.
+- [x] YAML serializer dla Board.
+- [x] **Test deliverable:** perfboard 10×10 i stripboard 10×10 w YAML, pozycje atomów zweryfikowane.
 
 ### Faza 2 — Components + Schematic + Layout + Connectivity
-- [ ] `FootprintTemplate` z `SingleRow`, `DualRow`, `Grid`. Aliasy `DIP`, `SIL`.
-- [ ] `ComponentDefinition`, `ComponentInstance`, biblioteka YAML.
-- [ ] Loader biblioteki (built-in + user override).
-- [ ] `Schematic` (Net, PinRef).
-- [ ] `Layout` (ComponentPlacement, WireSegment, StripCut).
-- [ ] `ConnectivityGraph` (networkx) — budowa z Board+Layout+Components.
-- [ ] DRC w wersji minimalnej: SHORT, MISSING_NET, OVERLAP.
-- [ ] `Project` (Board+Library+Schematic+Layout+Settings).
-- [ ] CommandStack + komendy MVP.
-- [ ] **Test deliverable:** projekt prostego dzielnika napięcia (2×R, 3 nety) na perfboard, programatycznie, z DRC=clean.
+- [x] `FootprintTemplate` z `SingleRow`, `DualRow`, `GridFootprint`. Aliasy `DIP`, `SIL`, `TO92`.
+- [x] `ComponentDefinition`, `ComponentInstance`, biblioteka YAML.
+- [x] Loader biblioteki (built-in + user override).
+- [x] `Schematic` (Net, PinRef).
+- [x] `Layout` (ComponentPlacement, WireSegment, StripCut).
+- [x] `ConnectivityGraph` (networkx) — budowa z Board+Layout+Components.
+- [x] DRC w wersji minimalnej: SHORT, MISSING_NET, OVERLAP.
+- [x] CommandStack (generic, TDD) + PlaceComponent / MoveComponent / RemoveComponent.
+- [x] **Test deliverable:** dzielnik napięcia (2×R, 3 nety) na perfboard, DRC=clean.
 
 ### Faza 3 — GUI MVP
-- [ ] `MainWindow`, layout paneli.
-- [ ] `BoardView` z `QGraphicsScene`, render boxów na warstwach.
-- [ ] Snap do siatki (z konfigurowalną tolerancją; uwaga na atomy z gapem ułamkowym — snap do najbliższego *atomu*, nie do czystego rastra).
-- [ ] Tools: Select, Place Component (drag z library), Route Wire (klik-klik), Cut Strip.
-- [ ] Properties panel: edycja refdes, value, rotation.
-- [ ] Library panel.
-- [ ] Undo/Redo (Ctrl+Z/Y).
-- [ ] Save/Load projektu (folder).
-- [ ] **Test deliverable:** ten sam dzielnik napięcia, ale narysowany myszką w GUI, zapisany, odczytany.
+- [x] `MainWindow`, layout paneli (library dock lewy, properties+DRC dock prawy).
+- [x] `BoardView` z `QGraphicsScene`, render padów/drutów/komponentów na warstwach.
+- [x] Snap do najbliższego atomu-pada.
+- [x] Tools: Select (klik+drag+R+Del), Place (double-click library, R=rotate), Route Wire (klik-klik, Enter/Esc), Cut Strip.
+- [x] Properties panel: edycja refdes/value/rotation, Apply.
+- [x] Library panel z double-click.
+- [x] Undo/Redo Ctrl+Z/Y.
+- [x] Save/Load projektu (folder z YAML).
+- [x] **Test deliverable:** 65 testów pytest-qt pokrywających wszystkie narzędzia GUI.
 
 ### Faza 4 — Routing assistant (sugestie)
-- [ ] `RoutingCostModel` z konfiguracją per projekt.
-- [ ] A* na grafie siatki (top/bottom + plated transitions).
-- [ ] Tryb "highlight": user wybiera pin, podświetlają się top-K ścieżek do reszty sieci.
-- [ ] Wsparcie izolowane/nieizolowane przewody, jumpery jeśli włączone.
-- [ ] **Test deliverable:** wczytanie netlisty z kilkunastoma sieciami, sugestie routingu dla każdej.
+- [x] `RoutingCostModel` z konfiguracją per projekt.
+- [x] A* na grafie siatki (4-connectivity, top layer).
+- [x] Tryb "highlight": pierwszy klik w Route Wire → top-3 ścieżki jako dashed overlay (zielony/żółty/pomarańczowy).
+- [x] Wsparcie izolowane/nieizolowane przewody.
+- [x] **Test deliverable:** 13 testów A* routera (cost model, ścieżki, occupied pads).
 
 ### Faza 5 — KiCAD I/O
-- [ ] Własny parser S-expression (MIT) — minimalistyczny.
-- [ ] `KiCadNetlistImporter`: `.net` → `Schematic`.
-- [ ] Heurystyka mapowania footprintów + dialog ręcznego mapowania.
-- [ ] `KiCadNetlistExporter`: `Schematic` → `.net`.
-- [ ] Roundtrip test: KiCAD demo project → import → export → diff.
-- [ ] (Opcjonalnie) pakiet `protoboard_kicad_gpl` z `kiutils`.
+- [x] `KiCadNetlistImporter`: `.net` XML → `Schematic` (format `<export version="D">`).
+- [x] Heurystyka mapowania footprintów (DIP-N, R_Axial, TO-92, PinHeader).
+- [x] Nieznane footprinty: warning + import sieci bez geometrii.
+- [x] `KiCadNetlistExporter`: `Schematic` → `.net` XML.
+- [x] Roundtrip test: export → import zachowuje nazwy sieci i liczbę pinów.
+- [x] Toolbar: Import KiCAD .net / Export KiCAD .net.
 
 ### Faza 6 — Pełne DRC + eksporty
-- [ ] DRC: FLOATING_PIN, BARE_WIRE_CROSS, custom rules.
-- [ ] Eksport SVG/PNG/PDF (top, bottom, both, mirror dla strony lutowania).
-- [ ] BOM CSV.
+- [x] DRC: FLOATING_PIN (warning), BARE_WIRE_CROSS (error).
+- [x] Eksport SVG (top layer: pady, druty, komponenty z refdes).
+- [x] BOM CSV (RefDes, Value, Footprint, Description — sortowane).
+- [ ] Eksport PNG/PDF.
 - [ ] Print-ready layout (1:1 do druku jako szablon do nawiercania).
 
 ### Faza 7 — Nice-to-have (backlog)

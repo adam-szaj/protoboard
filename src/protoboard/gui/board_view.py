@@ -46,6 +46,7 @@ class BoardView(QGraphicsView):
         self._panning = False
         self._pan_start = QPointF()
         self._active_tool: _Tool | None = None
+        session.layout_changed.connect(self.refresh)
         self.refresh()
 
     # ------------------------------------------------------------------
@@ -62,6 +63,9 @@ class BoardView(QGraphicsView):
     def refresh(self) -> None:
         """Rebuild the scene from the current session state."""
         self._scene.clear()
+        # Notify active tool that scene was wiped so it can drop stale item refs.
+        if self._active_tool is not None:
+            self._active_tool.on_scene_cleared()
         render_board(self._scene, self._session.board)
         render_wires(self._scene, self._session.layout.wires)
         render_components(
@@ -161,4 +165,8 @@ class _Tool:
         pass
 
     def on_key(self, event: QKeyEvent) -> None:
+        pass
+
+    def on_scene_cleared(self) -> None:
+        """Called after scene.clear() so tool can drop stale item references."""
         pass

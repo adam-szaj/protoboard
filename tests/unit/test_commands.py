@@ -10,9 +10,18 @@ from protoboard.domain.commands.component_cmds import (
     PlaceComponentCommand,
     RemoveComponentCommand,
 )
+from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
+
+
+class _FakeSession:
+    """Minimal ComponentState stub for command tests (no Qt dependency)."""
+
+    def __init__(self) -> None:
+        self.layout = Layout(placements={}, wires=[], cuts=[])
+        self.instances: dict[uuid.UUID, ComponentInstance] = {}
 
 
 class _Counter:
@@ -22,15 +31,13 @@ class _Counter:
         self.value = 0
 
 
-class _IncrCmd(Command):
+class _IncrCmd(Command[_Counter]):
     description = "increment"
 
-    def apply(self, state: object) -> None:
-        assert isinstance(state, _Counter)
+    def apply(self, state: _Counter) -> None:
         state.value += 1
 
-    def revert(self, state: object) -> None:
-        assert isinstance(state, _Counter)
+    def revert(self, state: _Counter) -> None:
         state.value -= 1
 
 
@@ -110,14 +117,17 @@ class TestPlaceComponentCommand:
             rotation=0,
             side="top",
         )
-        cmd = PlaceComponentCommand(component_id=comp_id, placement=pl)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        cmd = PlaceComponentCommand(component_id=comp_id, placement=pl, instance=inst)
+        sess = _FakeSession()
 
-        cmd.apply(lay)
-        assert comp_id in lay.placements
+        cmd.apply(sess)
+        assert comp_id in sess.layout.placements
+        assert comp_id in sess.instances
 
-        cmd.revert(lay)
-        assert comp_id not in lay.placements
+        cmd.revert(sess)
+        assert comp_id not in sess.layout.placements
+        assert comp_id not in sess.instances
 
     def test_description(self) -> None:
         comp_id = uuid.uuid4()
@@ -127,7 +137,8 @@ class TestPlaceComponentCommand:
             rotation=0,
             side="top",
         )
-        cmd = PlaceComponentCommand(component_id=comp_id, placement=pl)
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        cmd = PlaceComponentCommand(component_id=comp_id, placement=pl, instance=inst)
         assert "Place" in cmd.description or "place" in cmd.description
 
 
@@ -140,17 +151,22 @@ class TestRemoveComponentCommand:
             rotation=0,
             side="top",
         )
-        lay = Layout(placements={comp_id: pl}, wires=[], cuts=[])
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        sess = _FakeSession()
+        sess.layout.placements[comp_id] = pl
+        sess.instances[comp_id] = inst
 
         cmd = RemoveComponentCommand(component_id=comp_id)
-        cmd.apply(lay)
-        assert comp_id not in lay.placements
+        cmd.apply(sess)
+        assert comp_id not in sess.layout.placements
+        assert comp_id not in sess.instances
 
-        cmd.revert(lay)
-        assert comp_id in lay.placements
+        cmd.revert(sess)
+        assert comp_id in sess.layout.placements
+        assert comp_id in sess.instances
 
     def test_remove_nonexistent_raises(self) -> None:
-        lay = Layout(placements={}, wires=[], cuts=[])
+        sess = _FakeSession()
         cmd = RemoveComponentCommand(component_id=uuid.uuid4())
         with pytest.raises(KeyError):
-            cmd.apply(lay)
+            cmd.apply(sess)

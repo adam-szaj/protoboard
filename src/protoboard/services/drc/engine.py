@@ -55,6 +55,8 @@ class DRCEngine:
         issues += _check_overlap(layout, components, instances)
         issues += _check_short(schematic, graph)
         issues += _check_missing_net(schematic, graph)
+        issues += _check_floating_pins(schematic, layout)
+        issues += _check_bare_wire_cross(schematic, layout, graph)
         return issues
 
 
@@ -122,6 +124,109 @@ def _check_short(
                     affected_nets=list(net_ids),
                 )
             )
+    return issues
+
+
+def _check_floating_pins(
+    schematic: Schematic,
+    layout: Layout,
+) -> list[DRCIssue]:
+    """Warn about nets whose pins are not placed on the board at all."""
+    issues: list[DRCIssue] = []
+    for net in schematic.nets.values():
+        for ref in net.pins:
+            if ref.component_id not in layout.placements:
+                issues.append(
+                    DRCIssue(
+                        severity="warning",
+                        code="FLOATING_PIN",
+                        message=(
+                            f"Net {net.name!r}: component {ref.component_id} "
+                            f"pin {ref.pin_number} is not placed"
+                        ),
+                        locations=[],
+                        affected_nets=[net.id],
+                    )
+                )
+    return issues
+
+
+def _check_bare_wire_cross(
+    schematic: Schematic,
+    layout: Layout,
+    graph: ConnectivityGraph,
+) -> list[DRCIssue]:
+    """Detect bare wires of different nets sharing a pad (electrical cross).
+
+    A bare wire is assigned to the net whose pins it directly connects to
+    (checking the pin-world-positions against wire endpoints). Two bare wires
+    that share a pad and belong to different nets constitute an illegal cross.
+    """
+    bare_wires = [w for w in layout.wires if not w.insulated]
+    if len(bare_wires) < 2:
+        return []
+
+    # Map (x, y, side) pad → set of net IDs whose bare wires pass through it.
+    # We use the schematic-level net assignment: a pad that belongs to a net
+    # (via pin_world_position) tags every bare wire passing through it.
+    pad_net_ids: dict[tuple[float, float, str], set[uuid.UUID]] = {}
+
+    # Build pad → net mapping from placed component pins.
+    for net in schematic.nets.values():
+        node = None
+        for ref in net.pins:
+            n = graph.node_for_pin(ref)
+            if n is not None:
+                node = n
+                break
+        if node is None:
+            continue
+        nx, ny, ns = node
+        key = (nx, ny, ns)
+        pad_net_ids.setdefault(key, set()).add(net.id)
+
+    # For each bare wire path point, collect which nets are declared at that pad.
+    wire_pad_nets: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for wire in bare_wires:
+        for pt in wire.path:
+            key = (pt.x, pt.y, wire.side)
+            nets_here = pad_net_ids.get(key, set())
+            wire_pad_nets.setdefault(wire.id, set()).update(nets_here)
+
+    # Find pads shared by two bare wires from different declared nets.
+    pad_wire_ids: dict[tuple[float, float, str], list[uuid.UUID]] = {}
+    for wire in bare_wires:
+        for pt in wire.path:
+            key = (pt.x, pt.y, wire.side)
+            pad_wire_ids.setdefault(key, []).append(wire.id)
+
+    issues: list[DRCIssue] = []
+    reported: set[frozenset[uuid.UUID]] = set()
+    for (x, y, side), wids in pad_wire_ids.items():
+        if len(wids) < 2:
+            continue
+        # Collect all net IDs from wires that pass through this pad.
+        nets_at_pad: set[uuid.UUID] = set()
+        for wid in wids:
+            nets_at_pad.update(wire_pad_nets.get(wid, set()))
+        if len(nets_at_pad) < 2:
+            continue
+        key_f = frozenset(nets_at_pad)
+        if key_f in reported:
+            continue
+        reported.add(key_f)
+        issues.append(
+            DRCIssue(
+                severity="error",
+                code="BARE_WIRE_CROSS",
+                message=(
+                    f"Bare wires of different nets cross at ({x:.2f}, {y:.2f}) "
+                    f"on {side}"
+                ),
+                locations=[Point(x, y)],
+                affected_nets=list(nets_at_pad),
+            )
+        )
     return issues
 
 

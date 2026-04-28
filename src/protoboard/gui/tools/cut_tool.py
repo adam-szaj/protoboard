@@ -19,7 +19,7 @@ class CutTool(_Tool):
     def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
             return
-        # Find nearest strip atom.
+
         board = self._session.board
         best_strip: StripAtom | None = None
         best_pos_idx = 0
@@ -28,17 +28,35 @@ class CutTool(_Tool):
         for atom, pos in board.atoms():
             if not isinstance(atom, StripAtom):
                 continue
-            dx = scene_pt.x() - pos.x
-            dy = scene_pt.y() - pos.y
-            d = dx * dx + dy * dy
-            if d < best_d:
-                best_d = d
-                best_strip = atom
-                # Approximate position index (1-based) within the strip.
-                if atom.orientation == "horizontal":
-                    best_pos_idx = max(1, round(scene_pt.x() - (pos.x - pos.x)) + 1)
-                else:
-                    best_pos_idx = max(1, round(scene_pt.y()) + 1)
+            # pos is the center of the whole strip.
+            # Compute half-extent and the start of the strip.
+            if atom.orientation == "horizontal":
+                half = (atom.length if isinstance(atom.length, (int, float)) else 1) / 2
+                # Strip spans [pos.x - half + 0.5, pos.x + half - 0.5]
+                dx = scene_pt.x() - pos.x
+                dy = scene_pt.y() - pos.y
+                if abs(dy) <= 0.5:
+                    # Project onto strip axis
+                    clamped = max(-half + 0.5, min(half - 0.5, dx))
+                    d = abs(dx - clamped) + abs(dy)
+                    if d < best_d:
+                        best_d = d
+                        best_strip = atom
+                        # 1-based index from left end of strip.
+                        n = int(atom.length) if isinstance(atom.length, int) else 1
+                        best_pos_idx = max(1, min(n, int(dx + half) + 1))
+            else:
+                half = (atom.length if isinstance(atom.length, (int, float)) else 1) / 2
+                dx = scene_pt.x() - pos.x
+                dy = scene_pt.y() - pos.y
+                if abs(dx) <= 0.5:
+                    clamped = max(-half + 0.5, min(half - 0.5, dy))
+                    d = abs(dy - clamped) + abs(dx)
+                    if d < best_d:
+                        best_d = d
+                        best_strip = atom
+                        n = int(atom.length) if isinstance(atom.length, int) else 1
+                        best_pos_idx = max(1, min(n, int(dy + half) + 1))
 
         if best_strip is None or best_d > 1.0:
             return
@@ -50,4 +68,3 @@ class CutTool(_Tool):
         )
         self._session.layout.cuts.append(cut)
         self._session.layout_changed.emit()
-        self._view.refresh()

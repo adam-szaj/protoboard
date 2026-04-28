@@ -34,11 +34,11 @@ class PlaceTool(_Tool):
             rotation=self._rotation,
             side="top",
         )
-        self._session.instances[inst.id] = inst
-        cmd = PlaceComponentCommand(component_id=inst.id, placement=placement)
-        self._session.stack.execute(cmd, self._session.layout)
+        cmd = PlaceComponentCommand(
+            component_id=inst.id, placement=placement, instance=inst
+        )
+        self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
-        self._view.refresh()
 
     def on_key(self, event: object) -> None:
         from PySide6.QtCore import Qt as _Qt

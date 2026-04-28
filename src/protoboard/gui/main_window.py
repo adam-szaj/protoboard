@@ -27,6 +27,10 @@ from protoboard.gui.tools.cut_tool import CutTool
 from protoboard.gui.tools.place_tool import PlaceTool
 from protoboard.gui.tools.route_tool import RouteTool
 from protoboard.gui.tools.select_tool import SelectTool
+from protoboard.services.export.bom import export_bom_csv
+from protoboard.services.export.svg import export_svg
+from protoboard.services.kicad.exporter import KiCadNetlistExporter
+from protoboard.services.kicad.importer import ImportWarning, KiCadNetlistImporter
 from protoboard.services.persistence.project_yaml import load_project, save_project
 
 
@@ -72,6 +76,11 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
         act_save = toolbar.addAction("Save [Ctrl+S]")
         act_open = toolbar.addAction("Open [Ctrl+O]")
+        toolbar.addSeparator()
+        act_export_svg = toolbar.addAction("Export SVG")
+        act_export_bom = toolbar.addAction("Export BOM")
+        act_import_net = toolbar.addAction("Import KiCAD .net")
+        act_export_net = toolbar.addAction("Export KiCAD .net")
 
         act_select.triggered.connect(self._tool_select)
         act_route.triggered.connect(self._tool_route)
@@ -79,6 +88,10 @@ class MainWindow(QMainWindow):
         act_drc.triggered.connect(self._run_drc)
         act_save.triggered.connect(self._save)
         act_open.triggered.connect(self._open)
+        act_export_svg.triggered.connect(self._export_svg)
+        act_export_bom.triggered.connect(self._export_bom)
+        act_import_net.triggered.connect(self._import_kicad_net)
+        act_export_net.triggered.connect(self._export_kicad_net)
 
         # Status bar.
         self._status = QStatusBar(self)
@@ -183,6 +196,82 @@ class MainWindow(QMainWindow):
         )
         self._board_view.refresh()
 
+    def _export_svg(self) -> None:
+        path_str, _ = QFileDialog.getSaveFileName(
+            self, "Export SVG", "board.svg", "SVG files (*.svg)"
+        )
+        if not path_str:
+            return
+        try:
+            svg_str = export_svg(
+                self._session.board,
+                self._session.layout,
+                components=self._session.components,
+                instances=self._session.instances,
+            )
+            Path(path_str).write_text(svg_str, encoding="utf-8")
+            self._status.showMessage(f"SVG exported to {path_str}", 4000)
+        except Exception as exc:
+            QMessageBox.critical(self, "Export error", str(exc))
+
+    def _export_bom(self) -> None:
+        path_str, _ = QFileDialog.getSaveFileName(
+            self, "Export BOM", "bom.csv", "CSV files (*.csv)"
+        )
+        if not path_str:
+            return
+        try:
+            csv_str = export_bom_csv(
+                self._session.layout,
+                components=self._session.components,
+                instances=self._session.instances,
+            )
+            Path(path_str).write_text(csv_str, encoding="utf-8")
+            self._status.showMessage(f"BOM exported to {path_str}", 4000)
+        except Exception as exc:
+            QMessageBox.critical(self, "Export error", str(exc))
+
+    def _import_kicad_net(self) -> None:
+        import warnings
+
+        path_str, _ = QFileDialog.getOpenFileName(
+            self, "Import KiCAD Netlist", "", "Netlist files (*.net);;All files (*)"
+        )
+        if not path_str:
+            return
+        try:
+            imp = KiCadNetlistImporter()
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                schematic = imp.import_(Path(path_str))
+            self._session.schematic = schematic
+            self._session.layout_changed.emit()
+            warn_count = sum(1 for w in caught if issubclass(w.category, ImportWarning))
+            msg = f"Imported {len(schematic.nets)} nets from {Path(path_str).name}"
+            if warn_count:
+                msg += f" ({warn_count} unknown footprints)"
+            self._status.showMessage(msg, 6000)
+        except Exception as exc:
+            QMessageBox.critical(self, "Import error", str(exc))
+
+    def _export_kicad_net(self) -> None:
+        path_str, _ = QFileDialog.getSaveFileName(
+            self, "Export KiCAD Netlist", "netlist.net", "Netlist files (*.net)"
+        )
+        if not path_str:
+            return
+        try:
+            refdes_map = {
+                inst.id: inst.refdes for inst in self._session.instances.values()
+            }
+            exp = KiCadNetlistExporter()
+            exp.export_to_file(
+                self._session.schematic, Path(path_str), refdes_map=refdes_map
+            )
+            self._status.showMessage(f"Netlist exported to {path_str}", 4000)
+        except Exception as exc:
+            QMessageBox.critical(self, "Export error", str(exc))
+
     def _on_cursor_moved(self, x: float, y: float) -> None:
         self._cursor_label.setText(f"({x:.2f}, {y:.2f})")
 
@@ -207,11 +296,11 @@ class MainWindow(QMainWindow):
             self._open()
         elif key == Qt.Key.Key_Z and ctrl:
             if self._session.stack.can_undo():
-                self._session.stack.undo(self._session.layout)
+                self._session.stack.undo(self._session)
                 self._board_view.refresh()
         elif key == Qt.Key.Key_Y and ctrl:
             if self._session.stack.can_redo():
-                self._session.stack.redo(self._session.layout)
+                self._session.stack.redo(self._session)
                 self._board_view.refresh()
         else:
             super().keyPressEvent(event)

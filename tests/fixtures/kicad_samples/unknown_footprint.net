@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<export version="D">
+  <design>
+    <source>test.kicad_sch</source>
+    <date>2024-01-15 12:00:00</date>
+    <tool>Eeschema (5.99.0)</tool>
+  </design>
+  <components>
+    <comp ref="U1">
+      <value>SOME_EXOTIC_IC</value>
+      <footprint>SomeVendor:ExoticPackage_QFN48</footprint>
+      <libsource lib="SomeLib" part="EXOTIC" description="Unknown part"/>
+      <nets>
+        <pin num="1" name="VDD" net="VCC"/>
+        <pin num="2" name="GND" net="GND"/>
+      </nets>
+    </comp>
+  </components>
+  <nets>
+    <net code="1" name="VCC">
+      <node ref="U1" pin="1"/>
+    </net>
+    <net code="2" name="GND">
+      <node ref="U1" pin="2"/>
+    </net>
+  </nets>
+</export>

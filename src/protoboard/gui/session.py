@@ -14,6 +14,7 @@ from PySide6.QtCore import QObject, Signal
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.commands.base import CommandStack
+from protoboard.domain.commands.component_cmds import ComponentState
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
@@ -39,9 +40,12 @@ class EditorSession(QObject):
         self.library = library
         self.schematic = Schematic(nets={})
         self.layout = Layout()
-        self.components: dict[str, ComponentDefinition] = {}
+        # Pre-populate components from library so renderers can look up definitions.
+        self.components: dict[str, ComponentDefinition] = {
+            name: library.get(name) for name in library.names()
+        }
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
-        self.stack: CommandStack[Layout] = CommandStack()
+        self.stack: CommandStack[ComponentState] = CommandStack()
         self.project_path: Path | None = None
         self._drc_issues: list[DRCIssue] = []
 

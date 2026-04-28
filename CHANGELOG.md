@@ -7,7 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Phase 0 — Bootstrap
+### Phase 6 — Full DRC + Exports
+- Added `FLOATING_PIN` (warning) and `BARE_WIRE_CROSS` (error) DRC checks
+- SVG exporter (`services/export/svg.py`) — top-layer render: pads, wires, component outlines with refdes labels
+- BOM CSV exporter (`services/export/bom.py`) — RefDes/Value/Footprint/Description, sorted
+- Toolbar actions: Export SVG, Export BOM, Import KiCAD .net, Export KiCAD .net
+
+### Phase 5 — KiCAD I/O
+- `KiCadNetlistImporter` — parses `<export version="D">` XML netlist to `Schematic`
+- Footprint heuristic: DIP-N, R_Axial (SIL-2), TO-92, PinHeader_MxN; unknown → `ImportWarning`
+- `KiCadNetlistExporter` — serialises `Schematic` back to KiCAD XML; roundtrip preserves net names and pin counts
+- 3 fixture netlists: `voltage_divider.net`, `minimal.net`, `unknown_footprint.net`
+
+### Phase 4 — Routing Assistant
+- `RoutingCostModel` — configurable per-step weights (free_pad, same_net_pad, occupied, direction_change)
+- A* router on pad graph: 4-connectivity, top-K paths via edge-forbidding, Manhattan heuristic
+- Route Wire tool shows top-3 hint paths as dashed green/yellow/orange overlay on first click
+- `render_routing_hints()` overlay renderer
+
+### GUI Bug Fixes (post Phase 3)
+- **BUG 1**: `RouteTool._commit()` — preview lines were not cleared before emitting `layout_changed`; wire appeared to vanish after commit
+- **BUG 2**: `CutTool` — position index was always wrong (`pos.x - pos.x == 0`); double `refresh()` call removed; strip geometry now correctly computed from center
+- **BUG 3**: `SelectTool.deactivate()` — `_dragging` and `_drag_orig_pos` were not reset, causing stale drag state on reactivation
+- **BUG 4/5**: `SelectTool.on_scene_cleared()` — now preserves `_selected_id` so in-progress drag can commit; highlight is redrawn after drag release
+- **BUG 6**: `PlaceTool` undo — `session.instances` was mutated outside the command; moved to `PlaceComponentCommand` via `ComponentState` Protocol so undo removes the instance too
+- `ComponentState` Protocol introduced in `component_cmds.py` — decouples commands from GUI layer
+- 65 new `pytest-qt` GUI tests in `tests/gui/`; `tests/conftest.py` with shared `session` and `board_view` fixtures
+
+### Phase 3 — GUI MVP
 - [x] `pyproject.toml`, `uv`, `ruff`, `black`, `mypy --strict`, `pytest`, pre-commit hooks
 - [x] Directory structure
 - [x] CI: GitHub Actions (lint + mypy + pytest)

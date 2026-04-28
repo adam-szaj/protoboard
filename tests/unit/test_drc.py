@@ -264,3 +264,147 @@ class TestDRCIssue:
                 locations=[],
                 affected_nets=[],
             )
+
+
+class TestDRCFloatingPin:
+    """FLOATING_PIN: a pin assigned to a net but not placed on the board."""
+
+    def _setup(self) -> tuple[Board, ComponentDefinition, ComponentInstance]:
+        board = _perfboard(1, 3)
+        defn = _r_defn()
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        return board, defn, inst
+
+    def test_floating_pin_when_component_not_placed(self) -> None:
+        board, defn, inst = self._setup()
+        net = Net(
+            id=uuid.uuid4(),
+            name="VCC",
+            pins={PinRef(component_id=inst.id, pin_number=1)},
+        )
+        sch = Schematic(nets={net.id: net})
+        # Component exists in instances but NOT in placements.
+        lay = Layout(placements={}, wires=[], cuts=[])
+        engine = DRCEngine()
+        issues = engine.check(
+            board=board,
+            schematic=sch,
+            layout=lay,
+            components={defn.name: defn},
+            instances={inst.id: inst},
+        )
+        floating = [i for i in issues if i.code == "FLOATING_PIN"]
+        assert len(floating) >= 1
+        assert all(i.severity == "warning" for i in floating)
+
+    def test_no_floating_pin_when_placed(self) -> None:
+        board, defn, inst = self._setup()
+        net = Net(
+            id=uuid.uuid4(),
+            name="VCC",
+            pins={PinRef(component_id=inst.id, pin_number=1)},
+        )
+        sch = Schematic(nets={net.id: net})
+        pl = ComponentPlacement(
+            component_id=inst.id, position=Point(0.5, 0.5), rotation=90, side="top"
+        )
+        lay = Layout(placements={inst.id: pl}, wires=[], cuts=[])
+        engine = DRCEngine()
+        issues = engine.check(
+            board=board,
+            schematic=sch,
+            layout=lay,
+            components={defn.name: defn},
+            instances={inst.id: inst},
+        )
+        floating = [i for i in issues if i.code == "FLOATING_PIN"]
+        assert floating == []
+
+
+class TestDRCBareWireCross:
+    """BARE_WIRE_CROSS: two bare (non-insulated) wires from different nets
+    share a pad (physical crossing point)."""
+
+    def test_crossing_bare_wires_detected(self) -> None:
+        # 3×3 board. Wire A goes (0.5,1.5)→(2.5,1.5) horizontally (bare).
+        # Wire B goes (1.5,0.5)→(1.5,2.5) vertically (bare).
+        # They share pad (1.5,1.5) → BARE_WIRE_CROSS.
+        board = _perfboard(3, 3)
+        defn = _r_defn()
+        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="1k")
+        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="1k")
+        pl_r1 = ComponentPlacement(
+            component_id=r1.id, position=Point(0.5, 1.5), rotation=90, side="top"
+        )
+        pl_r2 = ComponentPlacement(
+            component_id=r2.id, position=Point(1.5, 0.5), rotation=0, side="top"
+        )
+        net_a = Net(
+            id=uuid.uuid4(),
+            name="NET_A",
+            pins={
+                PinRef(component_id=r1.id, pin_number=1),
+                PinRef(component_id=r1.id, pin_number=2),
+            },
+        )
+        net_b = Net(
+            id=uuid.uuid4(),
+            name="NET_B",
+            pins={
+                PinRef(component_id=r2.id, pin_number=1),
+                PinRef(component_id=r2.id, pin_number=2),
+            },
+        )
+        wire_a = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 1.5), Point(1.5, 1.5), Point(2.5, 1.5)],
+            insulated=False,
+            side="top",
+        )
+        wire_b = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(1.5, 0.5), Point(1.5, 1.5), Point(1.5, 2.5)],
+            insulated=False,
+            side="top",
+        )
+        sch = Schematic(nets={net_a.id: net_a, net_b.id: net_b})
+        lay = Layout(
+            placements={r1.id: pl_r1, r2.id: pl_r2},
+            wires=[wire_a, wire_b],
+            cuts=[],
+        )
+        engine = DRCEngine()
+        issues = engine.check(
+            board=board,
+            schematic=sch,
+            layout=lay,
+            components={defn.name: defn},
+            instances={r1.id: r1, r2.id: r2},
+        )
+        cross = [i for i in issues if i.code == "BARE_WIRE_CROSS"]
+        assert len(cross) >= 1
+        assert all(i.severity == "error" for i in cross)
+
+    def test_insulated_crossing_no_issue(self) -> None:
+        # Same geometry but both wires insulated → no BARE_WIRE_CROSS.
+        board = _perfboard(3, 3)
+        wire_a = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 1.5), Point(1.5, 1.5), Point(2.5, 1.5)],
+            insulated=True,
+            side="top",
+        )
+        wire_b = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(1.5, 0.5), Point(1.5, 1.5), Point(1.5, 2.5)],
+            insulated=True,
+            side="top",
+        )
+        sch = Schematic(nets={})
+        lay = Layout(placements={}, wires=[wire_a, wire_b], cuts=[])
+        engine = DRCEngine()
+        issues = engine.check(
+            board=board, schematic=sch, layout=lay, components={}, instances={}
+        )
+        cross = [i for i in issues if i.code == "BARE_WIRE_CROSS"]
+        assert cross == []
