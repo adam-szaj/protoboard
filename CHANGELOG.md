@@ -14,6 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [x] SPDX headers, `LICENSE` (MIT), `README.md` skeleton
 - [x] `CHANGELOG.md` (Keep a Changelog)
 
+### Phase 3 — GUI MVP
+- [x] MainWindow with library dock, properties+DRC dock, toolbar, status bar
+- [x] BoardView (QGraphicsView) — PCB-green background, gold pads, zoom/pan
+- [x] Snap to nearest pad atom center
+- [x] Tools: Select (S), Place (double-click library, R=rotate), Route Wire (W,
+      multi-segment, Enter commit/Esc cancel), Cut Strip (C)
+- [x] Properties panel — editable refdes/value/rotation per component
+- [x] Undo/Redo Ctrl+Z/Y
+- [x] Save/Load project folder (board.yaml + layout.yaml + schematic.yaml)
+- [x] DRC panel updated on F5
+- [x] Built-in component library (passive, opamps, transistors)
+
 ### Phase 2 — Components, Schematic, Layout, Connectivity, DRC, Commands
 - [x] Schematic: PinRef, Net, Schematic with pins_for_component / net_for_pin
 - [x] Physical layout: ComponentPlacement (4 rotations), WireSegment, StripCut, Layout

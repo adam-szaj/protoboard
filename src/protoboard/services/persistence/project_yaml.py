@@ -1,0 +1,173 @@
+# SPDX-License-Identifier: MIT
+"""Project persistence — save/load a project folder.
+
+Folder structure:
+    my_project/
+    ├── board.yaml
+    ├── layout.yaml     # placements, wires
+    └── schematic.yaml  # nets (currently minimal)
+"""
+
+from __future__ import annotations
+
+import io
+import uuid
+from pathlib import Path
+from typing import Any
+
+from ruamel.yaml import YAML
+
+from protoboard.domain.board.board import Board
+from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.schematic.net import Net, PinRef
+from protoboard.domain.schematic.schematic import Schematic
+from protoboard.errors import SerializationError
+from protoboard.geometry import Point
+from protoboard.services.persistence.board_yaml import board_from_yaml, board_to_yaml
+
+_yaml = YAML(typ="safe")
+_yaml.default_flow_style = False
+
+
+# ---------------------------------------------------------------------------
+# Save
+# ---------------------------------------------------------------------------
+
+
+def save_project(
+    directory: Path,
+    board: Board,
+    layout: Layout,
+    schematic: Schematic,
+) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    _write(directory / "board.yaml", board_to_yaml(board))
+    _write(directory / "layout.yaml", _layout_to_yaml(layout))
+    _write(directory / "schematic.yaml", _schematic_to_yaml(schematic))
+
+
+def _write(path: Path, text: str) -> None:
+    path.write_text(text, encoding="utf-8")
+
+
+def _layout_to_yaml(layout: Layout) -> str:
+    data: dict[str, Any] = {
+        "placements": [
+            {
+                "component_id": str(pl.component_id),
+                "position": {"x": pl.position.x, "y": pl.position.y},
+                "rotation": pl.rotation,
+                "side": pl.side,
+            }
+            for pl in layout.placements.values()
+        ],
+        "wires": [
+            {
+                "id": str(w.id),
+                "path": [{"x": p.x, "y": p.y} for p in w.path],
+                "insulated": w.insulated,
+                "side": w.side,
+                **({"color": w.color} if w.color else {}),
+            }
+            for w in layout.wires
+        ],
+    }
+    buf = io.StringIO()
+    _yaml.dump(data, buf)
+    return buf.getvalue()
+
+
+def _schematic_to_yaml(schematic: Schematic) -> str:
+    data: dict[str, Any] = {
+        "nets": [
+            {
+                "id": str(net.id),
+                "name": net.name,
+                "pins": [
+                    {
+                        "component_id": str(ref.component_id),
+                        "pin_number": ref.pin_number,
+                    }
+                    for ref in net.pins
+                ],
+            }
+            for net in schematic.nets.values()
+        ],
+    }
+    buf = io.StringIO()
+    _yaml.dump(data, buf)
+    return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Load
+# ---------------------------------------------------------------------------
+
+
+def load_project(directory: Path) -> tuple[Board, Layout, Schematic]:
+    try:
+        board = board_from_yaml((directory / "board.yaml").read_text())
+        layout = _layout_from_yaml((directory / "layout.yaml").read_text())
+        schematic = _schematic_from_yaml((directory / "schematic.yaml").read_text())
+    except FileNotFoundError as exc:
+        raise SerializationError(f"Missing project file: {exc}") from exc
+    return board, layout, schematic
+
+
+def _layout_from_yaml(text: str) -> Layout:
+    try:
+        data = _yaml.load(text)
+    except Exception as exc:
+        raise SerializationError(f"Layout YAML error: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SerializationError("layout.yaml must be a mapping")
+    placements: dict[uuid.UUID, ComponentPlacement] = {}
+    for raw in data.get("placements") or []:
+        comp_id = uuid.UUID(raw["component_id"])
+        pos = Point(float(raw["position"]["x"]), float(raw["position"]["y"]))
+        pl = ComponentPlacement(
+            component_id=comp_id,
+            position=pos,
+            rotation=int(raw["rotation"]),
+            side=raw["side"],
+        )
+        placements[comp_id] = pl
+    wires: list[WireSegment] = []
+    for raw in data.get("wires") or []:
+        path = [Point(float(p["x"]), float(p["y"])) for p in raw["path"]]
+        wires.append(
+            WireSegment(
+                id=uuid.UUID(raw["id"]),
+                path=path,
+                insulated=bool(raw["insulated"]),
+                side=raw["side"],
+                color=raw.get("color"),
+            )
+        )
+    return Layout(placements=placements, wires=wires, cuts=[])
+
+
+def _schematic_from_yaml(text: str) -> Schematic:
+    try:
+        data = _yaml.load(text)
+    except Exception as exc:
+        raise SerializationError(f"Schematic YAML error: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SerializationError("schematic.yaml must be a mapping")
+    nets: dict[uuid.UUID, Net] = {}
+    for raw in data.get("nets") or []:
+        net_id = uuid.UUID(raw["id"])
+        pins = {
+            PinRef(
+                component_id=uuid.UUID(p["component_id"]),
+                pin_number=int(p["pin_number"]),
+            )
+            for p in raw.get("pins") or []
+        }
+        nets[net_id] = Net(id=net_id, name=raw["name"], pins=pins)
+    return Schematic(nets=nets)
+
+
+__all__ = ["load_project", "save_project"]

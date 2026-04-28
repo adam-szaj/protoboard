@@ -15,7 +15,7 @@ from protoboard.gui.main_window import MainWindow
 from protoboard.gui.session import EditorSession
 from protoboard.services.library.loader import load_library
 
-_LIBRARY_DIR = Path(__file__).parent.parent.parent.parent / "library"
+_LIBRARY_DIR = Path(__file__).parent.parent.parent / "library"
 
 
 def _default_board() -> Board:
