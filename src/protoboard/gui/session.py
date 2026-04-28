@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: MIT
+"""EditorSession — mutable state shared across all GUI panels.
+
+Holds the current Board, Layout, Schematic and CommandStack. GUI
+components observe it via Qt signals and mutate it only through Commands.
+"""
+
+from __future__ import annotations
+
+import uuid
+from pathlib import Path
+
+from PySide6.QtCore import QObject, Signal
+
+from protoboard.domain.board.board import Board
+from protoboard.domain.commands.base import CommandStack
+from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.layout.layout import Layout
+from protoboard.domain.schematic.schematic import Schematic
+from protoboard.services.drc.engine import DRCEngine, DRCIssue
+from protoboard.services.library.loader import ComponentLibrary
+
+
+class EditorSession(QObject):
+    """Central state for one open project."""
+
+    layout_changed = Signal()
+    drc_changed = Signal(list)  # list[DRCIssue]
+
+    def __init__(
+        self,
+        board: Board,
+        library: ComponentLibrary,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.board = board
+        self.library = library
+        self.schematic = Schematic(nets={})
+        self.layout = Layout()
+        self.components: dict[str, ComponentDefinition] = {}
+        self.instances: dict[uuid.UUID, ComponentInstance] = {}
+        self.stack: CommandStack[Layout] = CommandStack()
+        self.project_path: Path | None = None
+        self._drc_issues: list[DRCIssue] = []
+
+    def run_drc(self) -> list[DRCIssue]:
+        engine = DRCEngine()
+        self._drc_issues = engine.check(
+            board=self.board,
+            schematic=self.schematic,
+            layout=self.layout,
+            components=self.components,
+            instances=self.instances,
+        )
+        self.drc_changed.emit(self._drc_issues)
+        return self._drc_issues
+
+    @property
+    def drc_issues(self) -> list[DRCIssue]:
+        return self._drc_issues

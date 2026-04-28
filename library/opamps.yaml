@@ -1,0 +1,15 @@
+components:
+  - name: LM358
+    description: "Dual op-amp"
+    footprint:
+      type: DIP
+      pins: 8
+    pin_names:
+      1: OUT_A
+      2: IN-_A
+      3: IN+_A
+      4: VEE
+      5: IN+_B
+      6: IN-_B
+      7: OUT_B
+      8: VCC
