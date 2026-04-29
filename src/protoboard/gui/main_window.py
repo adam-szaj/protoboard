@@ -8,12 +8,13 @@ import uuid
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtGui import QCloseEvent, QKeyEvent
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
     QLabel,
     QMainWindow,
+    QMenuBar,
     QMessageBox,
     QStatusBar,
     QTabWidget,
@@ -33,14 +34,15 @@ from protoboard.services.export.bom import export_bom_csv
 from protoboard.services.export.svg import export_svg
 from protoboard.services.kicad.exporter import KiCadNetlistExporter
 from protoboard.services.kicad.importer import ImportWarning, KiCadNetlistImporter
-from protoboard.services.persistence.project_yaml import load_project, save_project
+from protoboard.services.persistence.project_yaml import save_project
 
 
 class MainWindow(QMainWindow):
     def __init__(self, session: EditorSession) -> None:
         super().__init__()
         self._session = session
-        self.setWindowTitle("Protoboard Designer")
+        self._return_to_welcome = False
+        self._update_title()
         self.resize(1280, 800)
 
         # Central widget — board view.
@@ -69,6 +71,9 @@ class MainWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, props_dock)
 
+        # Menu bar — File menu.
+        self._build_menu()
+
         # Toolbar.
         toolbar = QToolBar("Tools", self)
         toolbar.setMovable(False)
@@ -80,9 +85,6 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
         act_drc = toolbar.addAction("Run DRC [F5]")
         toolbar.addSeparator()
-        act_save = toolbar.addAction("Save [Ctrl+S]")
-        act_open = toolbar.addAction("Open [Ctrl+O]")
-        toolbar.addSeparator()
         act_export_svg = toolbar.addAction("Export SVG")
         act_export_bom = toolbar.addAction("Export BOM")
         act_import_net = toolbar.addAction("Import KiCAD .net")
@@ -92,8 +94,6 @@ class MainWindow(QMainWindow):
         act_route.triggered.connect(self._tool_route)
         act_cut.triggered.connect(self._tool_cut)
         act_drc.triggered.connect(self._run_drc)
-        act_save.triggered.connect(self._save)
-        act_open.triggered.connect(self._open)
         act_export_svg.triggered.connect(self._export_svg)
         act_export_bom.triggered.connect(self._export_bom)
         act_import_net.triggered.connect(self._import_kicad_net)
@@ -116,8 +116,51 @@ class MainWindow(QMainWindow):
         session.drc_changed.connect(self._props_panel.update_issues)
         self._props_panel.component_changed.connect(self._on_component_changed)
 
+        # Populate netlist panel if schematic already loaded.
+        self._refresh_netlist()
+
         # Default tool.
         self._tool_select()
+
+    # ------------------------------------------------------------------
+    # Menu
+    # ------------------------------------------------------------------
+
+    def _build_menu(self) -> None:
+        mb: QMenuBar = self.menuBar()
+
+        file_menu = mb.addMenu("&File")
+
+        act_save = file_menu.addAction("&Save\tCtrl+S")
+        act_save.triggered.connect(self._save)
+
+        act_save_as = file_menu.addAction("Save &As…")
+        act_save_as.triggered.connect(self._save_as)
+
+        file_menu.addSeparator()
+
+        act_close = file_menu.addAction("&Close Project")
+        act_close.triggered.connect(self._close_project)
+
+        file_menu.addSeparator()
+
+        act_quit = file_menu.addAction("&Quit\tCtrl+Q")
+        act_quit.triggered.connect(self.close)
+
+    # ------------------------------------------------------------------
+    # Title helper
+    # ------------------------------------------------------------------
+
+    def _update_title(self) -> None:
+        p = self._session.project_path
+        if p is not None:
+            self.setWindowTitle(f"Protoboard Designer — {p.name}")
+        else:
+            self.setWindowTitle("Protoboard Designer")
+
+    # ------------------------------------------------------------------
+    # Refresh
+    # ------------------------------------------------------------------
 
     def _refresh_netlist(self) -> None:
         self._netlist_panel.refresh(self._session)
@@ -143,59 +186,66 @@ class MainWindow(QMainWindow):
         self._mode_label.setText("Cut Strip — click near a strip")
 
     # ------------------------------------------------------------------
-    # Actions
+    # File actions
+    # ------------------------------------------------------------------
+
+    def _save(self) -> None:
+        if self._session.project_path is None:
+            self._save_as()
+            return
+        self._do_save(self._session.project_path)
+
+    def _save_as(self) -> None:
+        path_str = QFileDialog.getExistingDirectory(self, "Save project folder")
+        if not path_str:
+            return
+        path = Path(path_str)
+        self._do_save(path)
+        self._session.project_path = path
+        self._update_title()
+
+    def _do_save(self, path: Path) -> None:
+        try:
+            save_project(
+                directory=path,
+                board=self._session.board,
+                layout=self._session.layout,
+                schematic=self._session.schematic,
+                instances=self._session.instances,
+            )
+            self._status.showMessage(f"Saved to {path}", 4000)
+        except Exception as exc:
+            QMessageBox.critical(self, "Save error", str(exc))
+
+    def _close_project(self) -> None:
+        """Return to the welcome screen."""
+        reply = QMessageBox.question(
+            self,
+            "Close project",
+            "Save before closing?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+        )
+        if reply == QMessageBox.StandardButton.Cancel:
+            return
+        if reply == QMessageBox.StandardButton.Save:
+            self._save()
+        self._return_to_welcome = True
+        self.hide()
+        # Quit the inner event loop in app.py so it can show the welcome dialog.
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.quit()
+
+    # ------------------------------------------------------------------
+    # Other actions
     # ------------------------------------------------------------------
 
     def _run_drc(self) -> None:
         issues = self._session.run_drc()
         n = len(issues)
         self._status.showMessage(f"DRC: {n} issue{'s' if n != 1 else ''}", 4000)
-
-    def _save(self) -> None:
-        path_str, _ = (
-            QFileDialog.getExistingDirectory(self, "Save project folder"),
-            None,
-        )
-        if not isinstance(path_str, str):
-            return
-        if not path_str:
-            path_str, _ = QFileDialog.getSaveFileName(
-                self, "Save project folder", "", "Project folder (*)"
-            )
-        if not path_str:
-            return
-        try:
-            save_project(
-                directory=Path(path_str),
-                board=self._session.board,
-                layout=self._session.layout,
-                schematic=self._session.schematic,
-                instances=self._session.instances,
-            )
-            self._session.project_path = Path(path_str)
-            self.setWindowTitle(f"Protoboard Designer — {Path(path_str).name}")
-            self._status.showMessage(f"Saved to {path_str}", 4000)
-        except Exception as exc:
-            QMessageBox.critical(self, "Save error", str(exc))
-
-    def _open(self) -> None:
-        path_str = QFileDialog.getExistingDirectory(self, "Open project folder")
-        if not path_str:
-            return
-        try:
-            board, layout, schematic, instances = load_project(Path(path_str))
-            self._session.board = board
-            self._session.layout = layout
-            self._session.schematic = schematic
-            self._session.instances = instances
-            self._session.stack = type(self._session.stack)()
-            self._session.project_path = Path(path_str)
-            self.setWindowTitle(f"Protoboard Designer — {Path(path_str).name}")
-            self._board_view.refresh()
-            self._netlist_panel.refresh(self._session)
-            self._status.showMessage(f"Loaded {path_str}", 4000)
-        except Exception as exc:
-            QMessageBox.critical(self, "Open error", str(exc))
 
     def _on_component_changed(
         self, comp_id: uuid.UUID, refdes: str, value: str, rotation: int
@@ -293,6 +343,15 @@ class MainWindow(QMainWindow):
         self._cursor_label.setText(f"({x:.2f}, {y:.2f})")
 
     # ------------------------------------------------------------------
+    # Window close
+    # ------------------------------------------------------------------
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """× button — quit entirely (not return to welcome)."""
+        self._return_to_welcome = False
+        super().closeEvent(event)
+
+    # ------------------------------------------------------------------
     # Keyboard shortcuts
     # ------------------------------------------------------------------
 
@@ -309,8 +368,8 @@ class MainWindow(QMainWindow):
             self._run_drc()
         elif key == Qt.Key.Key_S and ctrl:
             self._save()
-        elif key == Qt.Key.Key_O and ctrl:
-            self._open()
+        elif key == Qt.Key.Key_Q and ctrl:
+            self.close()
         elif key == Qt.Key.Key_Z and ctrl:
             if self._session.stack.can_undo():
                 self._session.stack.undo(self._session)
