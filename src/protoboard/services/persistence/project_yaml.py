@@ -65,6 +65,7 @@ def _instances_to_yaml(instances: dict[uuid.UUID, ComponentInstance]) -> str:
                 "definition_ref": inst.definition_ref,
                 "refdes": inst.refdes,
                 "value": inst.value,
+                **({"type": inst.type} if inst.type else {}),
             }
             for inst in instances.values()
         ]
@@ -168,6 +169,7 @@ def _instances_from_yaml(text: str) -> dict[uuid.UUID, ComponentInstance]:
             definition_ref=str(raw["definition_ref"]),
             refdes=str(raw["refdes"]),
             value=str(raw["value"]),
+            type=str(raw.get("type", "")),
         )
     return result
 

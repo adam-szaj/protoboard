@@ -16,11 +16,13 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QStatusBar,
+    QTabWidget,
     QToolBar,
 )
 
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.panels.library_panel import LibraryPanel
+from protoboard.gui.panels.netlist_panel import NetlistPanel
 from protoboard.gui.panels.properties_panel import PropertiesPanel
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.cut_tool import CutTool
@@ -45,14 +47,18 @@ class MainWindow(QMainWindow):
         self._board_view = BoardView(session, self)
         self.setCentralWidget(self._board_view)
 
-        # Library dock (left).
+        # Left dock — tabbed: Library | Netlist/BOM
         self._library_panel = LibraryPanel(session.library, self)
-        lib_dock = QDockWidget("Library", self)
-        lib_dock.setWidget(self._library_panel)
-        lib_dock.setAllowedAreas(
+        self._netlist_panel = NetlistPanel(self)
+        left_tabs = QTabWidget()
+        left_tabs.addTab(self._library_panel, "Library")
+        left_tabs.addTab(self._netlist_panel, "Netlist")
+        left_dock = QDockWidget("", self)
+        left_dock.setWidget(left_tabs)
+        left_dock.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
         )
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, lib_dock)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, left_dock)
 
         # Properties + DRC dock (right).
         self._props_panel = PropertiesPanel(self)
@@ -105,11 +111,16 @@ class MainWindow(QMainWindow):
         self._board_view.cursor_moved.connect(self._on_cursor_moved)
         self._board_view.escape_tool.connect(self._tool_select)
         self._library_panel.component_selected.connect(self._tool_place)
+        self._netlist_panel.instance_selected.connect(self._board_view.select_component)
+        session.layout_changed.connect(self._refresh_netlist)
         session.drc_changed.connect(self._props_panel.update_issues)
         self._props_panel.component_changed.connect(self._on_component_changed)
 
         # Default tool.
         self._tool_select()
+
+    def _refresh_netlist(self) -> None:
+        self._netlist_panel.refresh(self._session)
 
     # ------------------------------------------------------------------
     # Tool switches
@@ -181,6 +192,7 @@ class MainWindow(QMainWindow):
             self._session.project_path = Path(path_str)
             self.setWindowTitle(f"Protoboard Designer — {Path(path_str).name}")
             self._board_view.refresh()
+            self._netlist_panel.refresh(self._session)
             self._status.showMessage(f"Loaded {path_str}", 4000)
         except Exception as exc:
             QMessageBox.critical(self, "Open error", str(exc))
@@ -250,6 +262,7 @@ class MainWindow(QMainWindow):
                 schematic = imp.import_(Path(path_str))
             self._session.schematic = schematic
             self._session.layout_changed.emit()
+            self._netlist_panel.refresh(self._session)
             warn_count = sum(1 for w in caught if issubclass(w.category, ImportWarning))
             msg = f"Imported {len(schematic.nets)} nets from {Path(path_str).name}"
             if warn_count:

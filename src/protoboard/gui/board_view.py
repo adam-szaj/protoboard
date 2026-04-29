@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import math
+import uuid
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
@@ -15,11 +16,13 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 
+from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.geometry import Point
 from protoboard.gui.renderers.board_renderer import BOARD_BG, render_board, render_cuts
 from protoboard.gui.renderers.component_renderer import render_components
 from protoboard.gui.renderers.wire_renderer import render_wires
 from protoboard.gui.session import EditorSession
+from protoboard.services.routing.net_status import routed_net_ids
 
 # Scene units = raster units. 1 raster unit = 1 "pixel" in scene space.
 _GRID_PX = 60.0  # initial pixels-per-raster-unit
@@ -70,15 +73,37 @@ class BoardView(QGraphicsView):
         render_board(self._scene, self._session.board)
         render_cuts(self._scene, self._session.layout.cuts, self._session.board)
         render_wires(self._scene, self._session.layout.wires)
+        # Compute net routing status for pin colouring.
+        routed: set[uuid.UUID] | None = None
+        if self._session.schematic.nets:
+            graph = ConnectivityGraph(
+                board=self._session.board,
+                layout=self._session.layout,
+                components=self._session.components,
+                instances=self._session.instances,
+            )
+            routed = routed_net_ids(self._session.schematic, graph)
         render_components(
             self._scene,
             self._session.layout.placements,
             self._session.instances,
             self._session.components,
+            schematic=self._session.schematic if self._session.schematic.nets else None,
+            routed_nets=routed,
         )
         # Fit scene rect to board bounds.
         b = self._session.board.bounds
         self._scene.setSceneRect(QRectF(b.x - 1, b.y - 1, b.width + 2, b.height + 2))
+
+    def select_component(self, comp_id: uuid.UUID) -> None:
+        """Switch to SelectTool and select the given component."""
+        from protoboard.gui.tools.select_tool import SelectTool
+
+        if not isinstance(self._active_tool, SelectTool):
+            self.set_tool(SelectTool())
+        tool = self._active_tool
+        if isinstance(tool, SelectTool):
+            tool._select(comp_id)
 
     def snap(self, scene_pt: QPointF) -> Point:
         """Snap scene-space point to nearest pad center."""

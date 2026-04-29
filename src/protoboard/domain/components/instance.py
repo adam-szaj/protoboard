@@ -17,6 +17,7 @@ class ComponentInstance:
     definition_ref: str
     refdes: str
     value: str
+    type: str = ""  # optional per-instance category override (e.g. "ic", "passive")
 
     def __post_init__(self) -> None:
         if not self.definition_ref:
@@ -25,11 +26,14 @@ class ComponentInstance:
             raise ValueError("refdes must not be empty")
 
     @staticmethod
-    def new(definition_ref: str, refdes: str, value: str) -> ComponentInstance:
+    def new(
+        definition_ref: str, refdes: str, value: str, type: str = ""
+    ) -> ComponentInstance:
         """Create an instance with a freshly generated UUID."""
         return ComponentInstance(
             id=uuid.uuid4(),
             definition_ref=definition_ref,
             refdes=refdes,
             value=value,
+            type=type,
         )

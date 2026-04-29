@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Renderer for placed components (rectangle + refdes + pin dots)."""
+"""Renderer for placed components (rectangle + refdes + net-coloured pins)."""
 
 from __future__ import annotations
 
@@ -17,14 +17,32 @@ from PySide6.QtWidgets import (
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
+from protoboard.domain.schematic.net import PinRef
+from protoboard.domain.schematic.schematic import Schematic
 
 COMP_FILL = QColor(255, 255, 200, 180)  # pale yellow, semi-transparent
 COMP_BORDER = QColor("#444444")
-PIN_COLOR = QColor("#CC2222")
+PIN_COLOR = QColor("#CC2222")  # fallback when no schematic
 PIN_RADIUS = 0.18
 REFDES_COLOR = QColor("#111111")
 _REFDES_FONT = QFont("monospace", 1)
 _REFDES_FONT.setPointSizeF(0.55)
+
+# Net colour palette — distinct, moderately saturated
+_NET_COLORS = [
+    QColor("#E63B3B"),  # red
+    QColor("#3B8AE6"),  # blue
+    QColor("#2ECC71"),  # green
+    QColor("#E6A020"),  # amber
+    QColor("#A020E6"),  # purple
+    QColor("#20C8E6"),  # cyan
+    QColor("#E6207A"),  # pink
+    QColor("#7AE620"),  # lime
+]
+
+
+def _net_color(net_id: uuid.UUID) -> QColor:
+    return _NET_COLORS[abs(hash(net_id)) % len(_NET_COLORS)]
 
 
 def render_components(
@@ -32,7 +50,16 @@ def render_components(
     placements: dict[uuid.UUID, ComponentPlacement],
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
+    schematic: Schematic | None = None,
+    routed_nets: set[uuid.UUID] | None = None,
 ) -> None:
+    # Build pin→net map once for all components if schematic is available.
+    pin_net: dict[PinRef, uuid.UUID] = {}
+    if schematic is not None:
+        for net in schematic.nets.values():
+            for ref in net.pins:
+                pin_net[ref] = net.id
+
     for comp_id, placement in placements.items():
         inst = instances.get(comp_id)
         if inst is None:
@@ -40,7 +67,7 @@ def render_components(
         defn = components.get(inst.definition_ref)
         if defn is None:
             continue
-        _render_one(scene, placement, inst, defn)
+        _render_one(scene, placement, inst, defn, comp_id, pin_net, routed_nets)
 
 
 def _render_one(
@@ -48,6 +75,9 @@ def _render_one(
     placement: ComponentPlacement,
     inst: ComponentInstance,
     defn: ComponentDefinition,
+    comp_id: uuid.UUID,
+    pin_net: dict[PinRef, uuid.UUID],
+    routed_nets: set[uuid.UUID] | None,
 ) -> None:
     fp = defn.footprint
     positions = [
@@ -68,15 +98,35 @@ def _render_one(
     rect_item.setPen(QPen(COMP_BORDER, 0.06))
     scene.addItem(rect_item)
 
-    # Pin dots.
-    for pos in positions:
+    # Pin dots — coloured by net if schematic is present.
+    for pin_idx, pos in enumerate(positions):
+        pin_number = pin_idx + 1
+        ref = PinRef(component_id=comp_id, pin_number=pin_number)
+        net_id = pin_net.get(ref)
+
+        if net_id is not None:
+            color = QColor(_net_color(net_id))
+            complete = routed_nets is None or net_id in routed_nets
+            if complete:
+                fill_color = color
+                pen = QPen(color, 0.04)
+                pen.setStyle(Qt.PenStyle.SolidLine)
+            else:
+                fill_color = QColor(color)
+                fill_color.setAlpha(130)
+                pen = QPen(color, 0.06)
+                pen.setStyle(Qt.PenStyle.DashLine)
+        else:
+            fill_color = PIN_COLOR
+            pen = QPen(Qt.GlobalColor.transparent, 0)
+
         dot = QGraphicsEllipseItem(
             QRectF(
                 pos.x - PIN_RADIUS, pos.y - PIN_RADIUS, 2 * PIN_RADIUS, 2 * PIN_RADIUS
             )
         )
-        dot.setBrush(QBrush(PIN_COLOR))
-        dot.setPen(QPen(Qt.GlobalColor.transparent, 0))
+        dot.setBrush(QBrush(fill_color))
+        dot.setPen(pen)
         scene.addItem(dot)
 
     # refdes label.

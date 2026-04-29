@@ -1,6 +1,7 @@
 components:
   - name: R
     description: "Resistor (axial through-hole)"
+    category: passive
     footprint:
       type: SIL
       pins: 2
@@ -8,6 +9,7 @@ components:
 
   - name: C
     description: "Capacitor (radial)"
+    category: passive
     footprint:
       type: SIL
       pins: 2

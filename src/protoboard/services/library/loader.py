@@ -116,6 +116,7 @@ def _component_from_dict(data: Any, source: Path) -> ComponentDefinition:
             footprint=footprint,
             pin_names=pin_names,
             description=str(data.get("description", "")),
+            category=str(data.get("category", "")),
             metadata=dict(metadata_raw),
         )
     except ValueError as exc:

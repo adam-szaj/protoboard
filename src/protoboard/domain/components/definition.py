@@ -17,6 +17,7 @@ class ComponentDefinition:
     footprint: FootprintTemplate
     pin_names: dict[int, str]
     description: str = ""
+    category: str = ""  # e.g. "passive", "ic", "transistor", "connector"
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
