@@ -64,6 +64,6 @@ def make_stripboard(rows: int, cols: int) -> Board:
         width_policy=_HUG,
         height_policy=_HUG,
         children=list(row_boxes),
-        gap=1.0,
+        gap=0.0,
     )
     return Board(root=vbox)
