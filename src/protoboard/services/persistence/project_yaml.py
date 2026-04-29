@@ -4,8 +4,9 @@
 Folder structure:
     my_project/
     ├── board.yaml
-    ├── layout.yaml     # placements, wires
-    └── schematic.yaml  # nets (currently minimal)
+    ├── instances.yaml  # component instances (id, definition_ref, refdes, value)
+    ├── layout.yaml     # placements, wires, cuts
+    └── schematic.yaml  # nets
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ from typing import Any
 from ruamel.yaml import YAML
 
 from protoboard.domain.board.board import Board
+from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.layout.cut import StripCut
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import WireSegment
@@ -41,15 +44,34 @@ def save_project(
     board: Board,
     layout: Layout,
     schematic: Schematic,
+    instances: dict[uuid.UUID, ComponentInstance] | None = None,
 ) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     _write(directory / "board.yaml", board_to_yaml(board))
     _write(directory / "layout.yaml", _layout_to_yaml(layout))
     _write(directory / "schematic.yaml", _schematic_to_yaml(schematic))
+    _write(directory / "instances.yaml", _instances_to_yaml(instances or {}))
 
 
 def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
+
+
+def _instances_to_yaml(instances: dict[uuid.UUID, ComponentInstance]) -> str:
+    data: dict[str, Any] = {
+        "instances": [
+            {
+                "id": str(inst.id),
+                "definition_ref": inst.definition_ref,
+                "refdes": inst.refdes,
+                "value": inst.value,
+            }
+            for inst in instances.values()
+        ]
+    }
+    buf = io.StringIO()
+    _yaml.dump(data, buf)
+    return buf.getvalue()
 
 
 def _layout_to_yaml(layout: Layout) -> str:
@@ -72,6 +94,14 @@ def _layout_to_yaml(layout: Layout) -> str:
                 **({"color": w.color} if w.color else {}),
             }
             for w in layout.wires
+        ],
+        "cuts": [
+            {
+                "id": str(c.id),
+                "strip_atom_ref": c.strip_atom_ref,
+                "position": c.position,
+            }
+            for c in layout.cuts
         ],
     }
     buf = io.StringIO()
@@ -106,14 +136,40 @@ def _schematic_to_yaml(schematic: Schematic) -> str:
 # ---------------------------------------------------------------------------
 
 
-def load_project(directory: Path) -> tuple[Board, Layout, Schematic]:
+def load_project(
+    directory: Path,
+) -> tuple[Board, Layout, Schematic, dict[uuid.UUID, ComponentInstance]]:
     try:
         board = board_from_yaml((directory / "board.yaml").read_text())
         layout = _layout_from_yaml((directory / "layout.yaml").read_text())
         schematic = _schematic_from_yaml((directory / "schematic.yaml").read_text())
+        instances_path = directory / "instances.yaml"
+        if instances_path.exists():
+            instances = _instances_from_yaml(instances_path.read_text())
+        else:
+            instances = {}
     except FileNotFoundError as exc:
         raise SerializationError(f"Missing project file: {exc}") from exc
-    return board, layout, schematic
+    return board, layout, schematic, instances
+
+
+def _instances_from_yaml(text: str) -> dict[uuid.UUID, ComponentInstance]:
+    try:
+        data = _yaml.load(text)
+    except Exception as exc:
+        raise SerializationError(f"Instances YAML error: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SerializationError("instances.yaml must be a mapping")
+    result: dict[uuid.UUID, ComponentInstance] = {}
+    for raw in data.get("instances") or []:
+        inst_id = uuid.UUID(raw["id"])
+        result[inst_id] = ComponentInstance(
+            id=inst_id,
+            definition_ref=str(raw["definition_ref"]),
+            refdes=str(raw["refdes"]),
+            value=str(raw["value"]),
+        )
+    return result
 
 
 def _layout_from_yaml(text: str) -> Layout:
@@ -146,7 +202,16 @@ def _layout_from_yaml(text: str) -> Layout:
                 color=raw.get("color"),
             )
         )
-    return Layout(placements=placements, wires=wires, cuts=[])
+    cuts: list[StripCut] = []
+    for raw in data.get("cuts") or []:
+        cuts.append(
+            StripCut(
+                id=uuid.UUID(raw["id"]),
+                strip_atom_ref=str(raw["strip_atom_ref"]),
+                position=int(raw["position"]),
+            )
+        )
+    return Layout(placements=placements, wires=wires, cuts=cuts)
 
 
 def _schematic_from_yaml(text: str) -> Schematic:

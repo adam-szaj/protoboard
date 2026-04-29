@@ -103,6 +103,7 @@ class MainWindow(QMainWindow):
 
         # Signals.
         self._board_view.cursor_moved.connect(self._on_cursor_moved)
+        self._board_view.escape_tool.connect(self._tool_select)
         self._library_panel.component_selected.connect(self._tool_place)
         session.drc_changed.connect(self._props_panel.update_issues)
         self._props_panel.component_changed.connect(self._on_component_changed)
@@ -158,6 +159,7 @@ class MainWindow(QMainWindow):
                 board=self._session.board,
                 layout=self._session.layout,
                 schematic=self._session.schematic,
+                instances=self._session.instances,
             )
             self._session.project_path = Path(path_str)
             self.setWindowTitle(f"Protoboard Designer — {Path(path_str).name}")
@@ -170,10 +172,12 @@ class MainWindow(QMainWindow):
         if not path_str:
             return
         try:
-            board, layout, schematic = load_project(Path(path_str))
+            board, layout, schematic, instances = load_project(Path(path_str))
             self._session.board = board
             self._session.layout = layout
             self._session.schematic = schematic
+            self._session.instances = instances
+            self._session.stack = type(self._session.stack)()
             self._session.project_path = Path(path_str)
             self.setWindowTitle(f"Protoboard Designer — {Path(path_str).name}")
             self._board_view.refresh()

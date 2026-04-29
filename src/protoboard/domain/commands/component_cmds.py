@@ -16,6 +16,7 @@ from protoboard.domain.commands.base import Command
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.wire import WireSegment
 
 
 class ComponentState(Protocol):
@@ -82,3 +83,18 @@ class RemoveComponentCommand(Command[ComponentState]):
             state.layout.placements[self.component_id] = self._saved_placement
         if self._saved_instance is not None:
             state.instances[self.component_id] = self._saved_instance
+
+
+@dataclass
+class AddWireCommand(Command[ComponentState]):
+    wire: WireSegment
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Add wire"
+
+    def apply(self, state: ComponentState) -> None:
+        state.layout.wires.append(self.wire)
+
+    def revert(self, state: ComponentState) -> None:
+        state.layout.wires.remove(self.wire)

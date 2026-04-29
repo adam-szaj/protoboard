@@ -128,6 +128,29 @@ class TestRouteToolCommit:
         _enter(board_view)
         assert len(session.layout.wires) == 2
 
+    def test_wire_commit_is_undoable(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        board_view.set_tool(RouteTool())
+        _press(board_view, 0.5, 0.5)
+        _press(board_view, 1.5, 0.5)
+        _enter(board_view)
+        assert session.stack.can_undo()
+        session.stack.undo(session)
+        assert len(session.layout.wires) == 0
+
+    def test_wire_undo_redo(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        board_view.set_tool(RouteTool())
+        _press(board_view, 0.5, 0.5)
+        _press(board_view, 1.5, 0.5)
+        _enter(board_view)
+        session.stack.undo(session)
+        assert len(session.layout.wires) == 0
+        session.stack.redo(session)
+        assert len(session.layout.wires) == 1
+
 
 class TestRouteToolCancel:
     def test_cancel_does_not_add_wire(

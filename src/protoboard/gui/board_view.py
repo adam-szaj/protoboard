@@ -16,7 +16,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 
 from protoboard.geometry import Point
-from protoboard.gui.renderers.board_renderer import BOARD_BG, render_board
+from protoboard.gui.renderers.board_renderer import BOARD_BG, render_board, render_cuts
 from protoboard.gui.renderers.component_renderer import render_components
 from protoboard.gui.renderers.wire_renderer import render_wires
 from protoboard.gui.session import EditorSession
@@ -30,6 +30,7 @@ class BoardView(QGraphicsView):
 
     cursor_moved = Signal(float, float)  # raster x, y of cursor
     pad_clicked = Signal(float, float)  # snapped raster x, y
+    escape_tool = Signal()  # right-click or Esc — return to Select
 
     def __init__(self, session: EditorSession, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -67,6 +68,7 @@ class BoardView(QGraphicsView):
         if self._active_tool is not None:
             self._active_tool.on_scene_cleared()
         render_board(self._scene, self._session.board)
+        render_cuts(self._scene, self._session.layout.cuts, self._session.board)
         render_wires(self._scene, self._session.layout.wires)
         render_components(
             self._scene,
@@ -105,6 +107,8 @@ class BoardView(QGraphicsView):
             self._panning = True
             self._pan_start = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        elif event.button() == Qt.MouseButton.RightButton:
+            self.escape_tool.emit()
         elif self._active_tool is not None:
             scene_pt = self.mapToScene(event.pos())
             self._active_tool.on_press(event, scene_pt)
@@ -139,6 +143,12 @@ class BoardView(QGraphicsView):
             super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            # Let tool handle Esc first (e.g. RouteTool cancel), then go to Select.
+            if self._active_tool is not None:
+                self._active_tool.on_key(event)
+            self.escape_tool.emit()
+            return
         if self._active_tool is not None:
             self._active_tool.on_key(event)
         else:
