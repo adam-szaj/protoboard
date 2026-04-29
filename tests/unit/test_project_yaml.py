@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Tests for project save/load — instances, cuts, wires roundtrip."""
+"""Tests for project save/load — instances, wires, board roundtrip."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.cut import StripCut
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import WireSegment
@@ -41,7 +40,7 @@ class TestInstancesRoundtrip:
         board = _perfboard()
         inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
         instances = {inst.id: inst}
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         sch = Schematic(nets={})
 
         save_project(tmp_path, board, lay, sch, instances=instances)
@@ -55,7 +54,7 @@ class TestInstancesRoundtrip:
 
     def test_empty_instances_roundtrip(self, tmp_path: Path) -> None:
         board = _perfboard()
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         sch = Schematic(nets={})
         save_project(tmp_path, board, lay, sch, instances={})
         _, _, _, instances = load_project(tmp_path)
@@ -82,22 +81,81 @@ class TestInstancesRoundtrip:
         assert instances == {}
 
 
-class TestCutsRoundtrip:
-    def test_cuts_saved_and_loaded(self, tmp_path: Path) -> None:
-        board = _perfboard()
-        cut = StripCut(id=uuid.uuid4(), strip_atom_ref="ref123", position=3)
-        lay = Layout(placements={}, wires=[], cuts=[cut])
-        save_project(tmp_path, board, lay, Schematic(nets={}))
-        _, loaded_lay, _, _ = load_project(tmp_path)
-        assert len(loaded_lay.cuts) == 1
-        assert loaded_lay.cuts[0].position == 3
-        assert loaded_lay.cuts[0].strip_atom_ref == "ref123"
+class TestBoardRoundtrip:
+    def test_split_strip_preserved(self, tmp_path: Path) -> None:
+        """A board with split strip segments survives save/load via board.yaml."""
+        from protoboard.domain.board.boxes import HBox, StripAtom, VBox
+        from protoboard.domain.board.pads import PadLayers
 
-    def test_empty_cuts_roundtrip(self, tmp_path: Path) -> None:
-        board = _perfboard()
+        layers = PadLayers(top=False, bottom=True, plated_through=False)
+        seg_a = StripAtom(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            length=3,
+            orientation="horizontal",
+            layers=layers,
+        )
+        seg_b = StripAtom(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            length=4,
+            orientation="horizontal",
+            layers=layers,
+        )
+        row = HBox(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            children=[seg_a, seg_b],
+            gap=0.0,
+        )
+        board = Board(
+            root=VBox(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                children=[row],
+                gap=1.0,
+            )
+        )
         save_project(tmp_path, board, Layout(), Schematic(nets={}))
-        _, lay, _, _ = load_project(tmp_path)
-        assert lay.cuts == []
+        loaded_board, _, _, _ = load_project(tmp_path)
+        atoms = list(loaded_board.atoms())
+        strip_lengths = [
+            a.length for a, _ in atoms if isinstance(a, StripAtom)
+        ]
+        assert sorted(strip_lengths) == [3, 4]
+
+    def test_isolated_strip_roundtrip(self, tmp_path: Path) -> None:
+        from protoboard.domain.board.boxes import HBox, StripAtom, VBox
+        from protoboard.domain.board.pads import PadLayers
+
+        layers = PadLayers(top=False, bottom=True, plated_through=False)
+        iso = StripAtom(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            length=1,
+            orientation="horizontal",
+            layers=layers,
+            isolated=True,
+        )
+        row = HBox(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            children=[iso],
+            gap=0.0,
+        )
+        board = Board(
+            root=VBox(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                children=[row],
+                gap=1.0,
+            )
+        )
+        save_project(tmp_path, board, Layout(), Schematic(nets={}))
+        loaded_board, _, _, _ = load_project(tmp_path)
+        atoms = list(loaded_board.atoms())
+        iso_atoms = [a for a, _ in atoms if isinstance(a, StripAtom) and a.isolated]
+        assert len(iso_atoms) == 1
 
 
 class TestWiresRoundtrip:
@@ -109,7 +167,7 @@ class TestWiresRoundtrip:
             insulated=True,
             side="top",
         )
-        lay = Layout(placements={}, wires=[wire], cuts=[])
+        lay = Layout(placements={}, wires=[wire])
         save_project(tmp_path, board, lay, Schematic(nets={}))
         _, loaded_lay, _, _ = load_project(tmp_path)
         assert len(loaded_lay.wires) == 1
@@ -126,7 +184,7 @@ class TestWiresRoundtrip:
             side="top",
             color="#FF0000",
         )
-        lay = Layout(placements={}, wires=[wire], cuts=[])
+        lay = Layout(placements={}, wires=[wire])
         save_project(tmp_path, board, lay, Schematic(nets={}))
         _, loaded_lay, _, _ = load_project(tmp_path)
         assert loaded_lay.wires[0].color == "#FF0000"
@@ -142,7 +200,7 @@ class TestPlacementsRoundtrip:
             rotation=90,
             side="top",
         )
-        lay = Layout(placements={comp_id: pl}, wires=[], cuts=[])
+        lay = Layout(placements={comp_id: pl}, wires=[])
         save_project(tmp_path, board, lay, Schematic(nets={}))
         _, loaded_lay, _, _ = load_project(tmp_path)
         loaded_pl = loaded_lay.placements[comp_id]

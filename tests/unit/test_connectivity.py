@@ -41,7 +41,7 @@ def _perfboard(rows: int, cols: int) -> Board:
 class TestConnectivityGraphBasic:
     def test_isolated_pads_are_separate_nodes(self) -> None:
         board = _perfboard(2, 2)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         # 4 pads, plated through → each pad is one merged node (top=bottom),
         # but no wire connects them → 4 separate components.
@@ -57,7 +57,7 @@ class TestConnectivityGraphBasic:
             insulated=False,
             side="top",
         )
-        lay = Layout(placements={}, wires=[wire], cuts=[])
+        lay = Layout(placements={}, wires=[wire])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         # 3 pads; pad at (0.5,0) and pad at (1.5,0) connected → 2 components.
         assert graph.component_count() == 2
@@ -65,7 +65,7 @@ class TestConnectivityGraphBasic:
     def test_plated_through_merges_top_and_bottom(self) -> None:
         # A perfboard pad with plated=True: top and bottom are one node.
         board = _perfboard(1, 1)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         assert graph.node_count() == 1  # top+bottom merged
 
@@ -85,7 +85,7 @@ class TestConnectivityGraphBasic:
             col_gap=0.0,
         )
         board = Board(root=grid)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         assert graph.node_count() == 2
 
@@ -107,7 +107,7 @@ class TestConnectivityGraphWithComponents:
             rotation=0,
             side="top",
         )
-        lay = Layout(placements={inst.id: pl}, wires=[], cuts=[])
+        lay = Layout(placements={inst.id: pl}, wires=[])
         graph = ConnectivityGraph(
             board=board,
             layout=lay,
@@ -144,7 +144,7 @@ class TestConnectivityGraphWithComponents:
             insulated=False,
             side="top",
         )
-        lay = Layout(placements={inst.id: pl}, wires=[wire], cuts=[])
+        lay = Layout(placements={inst.id: pl}, wires=[wire])
         graph = ConnectivityGraph(
             board=board,
             layout=lay,
@@ -159,7 +159,7 @@ class TestConnectivityGraphWithComponents:
 class TestElectricalNets:
     def test_electrical_nets_empty_board(self) -> None:
         board = _perfboard(2, 2)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         nets = graph.electrical_nets()
         # 4 isolated pads → 4 nets of 0 pins each (no components placed).
@@ -174,7 +174,7 @@ class TestElectricalNets:
             insulated=False,
             side="top",
         )
-        lay = Layout(placements={}, wires=[wire], cuts=[])
+        lay = Layout(placements={}, wires=[wire])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         nets = graph.electrical_nets()
         assert len(nets) == 1
@@ -198,7 +198,7 @@ class TestStripboardConnectivity:
                 children=[strip],
             )
         )
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         # All 4 holes in the strip share one electrical node.
         assert graph.component_count() == 1

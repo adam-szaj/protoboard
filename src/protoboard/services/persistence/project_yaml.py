@@ -5,7 +5,7 @@ Folder structure:
     my_project/
     ├── board.yaml
     ├── instances.yaml  # component instances (id, definition_ref, refdes, value)
-    ├── layout.yaml     # placements, wires, cuts
+    ├── layout.yaml     # placements, wires
     └── schematic.yaml  # nets
 """
 
@@ -20,7 +20,6 @@ from ruamel.yaml import YAML
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.cut import StripCut
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import WireSegment
@@ -95,14 +94,6 @@ def _layout_to_yaml(layout: Layout) -> str:
                 **({"color": w.color} if w.color else {}),
             }
             for w in layout.wires
-        ],
-        "cuts": [
-            {
-                "id": str(c.id),
-                "strip_atom_ref": c.strip_atom_ref,
-                "position": c.position,
-            }
-            for c in layout.cuts
         ],
     }
     buf = io.StringIO()
@@ -204,16 +195,7 @@ def _layout_from_yaml(text: str) -> Layout:
                 color=raw.get("color"),
             )
         )
-    cuts: list[StripCut] = []
-    for raw in data.get("cuts") or []:
-        cuts.append(
-            StripCut(
-                id=uuid.UUID(raw["id"]),
-                strip_atom_ref=str(raw["strip_atom_ref"]),
-                position=int(raw["position"]),
-            )
-        )
-    return Layout(placements=placements, wires=wires, cuts=cuts)
+    return Layout(placements=placements, wires=wires)
 
 
 def _schematic_from_yaml(text: str) -> Schematic:

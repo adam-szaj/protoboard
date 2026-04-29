@@ -1,12 +1,11 @@
 # SPDX-License-Identifier: MIT
-"""Layout — physical realisation: placements, wires, strip cuts."""
+"""Layout — physical realisation: placements and wires."""
 
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
 
-from protoboard.domain.layout.cut import StripCut
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import WireSegment
 
@@ -15,4 +14,3 @@ from protoboard.domain.layout.wire import WireSegment
 class Layout:
     placements: dict[uuid.UUID, ComponentPlacement] = field(default_factory=dict)
     wires: list[WireSegment] = field(default_factory=list)
-    cuts: list[StripCut] = field(default_factory=list)

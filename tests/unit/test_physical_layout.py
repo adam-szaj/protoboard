@@ -211,10 +211,9 @@ class TestWireSegment:
 
 class TestLayout:
     def test_empty_layout(self) -> None:
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         assert len(lay.placements) == 0
         assert len(lay.wires) == 0
-        assert len(lay.cuts) == 0
 
     def test_add_placement(self) -> None:
         comp_id = uuid.uuid4()
@@ -224,7 +223,7 @@ class TestLayout:
             rotation=0,
             side="top",
         )
-        lay = Layout(placements={comp_id: pl}, wires=[], cuts=[])
+        lay = Layout(placements={comp_id: pl}, wires=[])
         assert comp_id in lay.placements
 
     def test_add_wire(self) -> None:
@@ -234,5 +233,5 @@ class TestLayout:
             insulated=True,
             side="top",
         )
-        lay = Layout(placements={}, wires=[w], cuts=[])
+        lay = Layout(placements={}, wires=[w])
         assert len(lay.wires) == 1

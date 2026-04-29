@@ -56,7 +56,7 @@ class TestNetIsComplete:
         board = _perfboard()
         defn = _r_defn()
         r1 = ComponentInstance.new("R", "R1", "10k")
-        lay = Layout(placements={r1.id: _place(r1.id, 0.5)}, wires=[], cuts=[])
+        lay = Layout(placements={r1.id: _place(r1.id, 0.5)}, wires=[])
         graph = ConnectivityGraph(board, lay, {defn.name: defn}, {r1.id: r1})
         net = Net(
             id=uuid.uuid4(),
@@ -80,7 +80,6 @@ class TestNetIsComplete:
         lay = Layout(
             placements={r1.id: _place(r1.id, 0.5), r2.id: _place(r2.id, 2.5)},
             wires=[wire],
-            cuts=[],
         )
         graph = ConnectivityGraph(
             board, lay, {defn.name: defn}, {r1.id: r1, r2.id: r2}
@@ -103,7 +102,6 @@ class TestNetIsComplete:
         lay = Layout(
             placements={r1.id: _place(r1.id, 0.5), r2.id: _place(r2.id, 2.5)},
             wires=[],
-            cuts=[],
         )
         graph = ConnectivityGraph(
             board, lay, {defn.name: defn}, {r1.id: r1, r2.id: r2}
@@ -123,7 +121,7 @@ class TestNetIsComplete:
         defn = _r_defn()
         r1 = ComponentInstance.new("R", "R1", "10k")
         # r1 not placed
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board, lay, {defn.name: defn}, {r1.id: r1})
         net = Net(
             id=uuid.uuid4(),
@@ -152,7 +150,6 @@ class TestRoutedNetIds:
         lay = Layout(
             placements={r1.id: _place(r1.id, 0.5), r2.id: _place(r2.id, 2.5)},
             wires=[wire],
-            cuts=[],
         )
         graph = ConnectivityGraph(
             board, lay, {defn.name: defn}, {r1.id: r1, r2.id: r2}
@@ -188,7 +185,6 @@ class TestRoutedNetIds:
         lay = Layout(
             placements={r1.id: _place(r1.id, 0.5), r2.id: _place(r2.id, 2.5)},
             wires=[],
-            cuts=[],
         )
         graph = ConnectivityGraph(
             board, lay, {defn.name: defn}, {r1.id: r1, r2.id: r2}

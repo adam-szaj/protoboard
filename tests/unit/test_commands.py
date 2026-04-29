@@ -20,7 +20,17 @@ class _FakeSession:
     """Minimal ComponentState stub for command tests (no Qt dependency)."""
 
     def __init__(self) -> None:
-        self.layout = Layout(placements={}, wires=[], cuts=[])
+        from protoboard.domain.board.board import Board
+        from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
+        from protoboard.domain.board.pads import PadLayers
+
+        self.board = Board(root=BoardGrid(
+            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            cell=PadAtom(width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+                         layers=PadLayers()),
+            rows=1, cols=1, row_gap=0.0, col_gap=0.0,
+        ))
+        self.layout = Layout(placements={}, wires=[])
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
 
 

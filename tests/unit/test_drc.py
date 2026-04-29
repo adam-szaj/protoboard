@@ -45,7 +45,7 @@ class TestDRCClean:
     def test_empty_layout_no_issues(self) -> None:
         board = _perfboard(3, 3)
         sch = Schematic(nets={})
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         engine = DRCEngine()
         issues = engine.check(
             board=board,
@@ -104,7 +104,6 @@ class TestDRCClean:
         lay = Layout(
             placements={r1.id: pl_r1, r2.id: pl_r2},
             wires=[mid_wire],
-            cuts=[],
         )
         engine = DRCEngine()
         issues = engine.check(
@@ -143,7 +142,6 @@ class TestDRCMissingNet:
         lay = Layout(
             placements={r1.id: pl_r1, r2.id: pl_r2},
             wires=[],
-            cuts=[],
         )
         engine = DRCEngine()
         issues = engine.check(
@@ -193,7 +191,6 @@ class TestDRCShort:
         lay = Layout(
             placements={r1.id: pl_r1, r2.id: pl_r2},
             wires=[bad_wire],
-            cuts=[],
         )
         engine = DRCEngine()
         issues = engine.check(
@@ -226,7 +223,6 @@ class TestDRCOverlap:
         lay = Layout(
             placements={r1.id: pl_r1, r2.id: pl_r2},
             wires=[],
-            cuts=[],
         )
         engine = DRCEngine()
         issues = engine.check(
@@ -284,7 +280,7 @@ class TestDRCFloatingPin:
         )
         sch = Schematic(nets={net.id: net})
         # Component exists in instances but NOT in placements.
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         engine = DRCEngine()
         issues = engine.check(
             board=board,
@@ -308,7 +304,7 @@ class TestDRCFloatingPin:
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=90, side="top"
         )
-        lay = Layout(placements={inst.id: pl}, wires=[], cuts=[])
+        lay = Layout(placements={inst.id: pl}, wires=[])
         engine = DRCEngine()
         issues = engine.check(
             board=board,
@@ -371,7 +367,6 @@ class TestDRCBareWireCross:
         lay = Layout(
             placements={r1.id: pl_r1, r2.id: pl_r2},
             wires=[wire_a, wire_b],
-            cuts=[],
         )
         engine = DRCEngine()
         issues = engine.check(
@@ -401,7 +396,7 @@ class TestDRCBareWireCross:
             side="top",
         )
         sch = Schematic(nets={})
-        lay = Layout(placements={}, wires=[wire_a, wire_b], cuts=[])
+        lay = Layout(placements={}, wires=[wire_a, wire_b])
         engine = DRCEngine()
         issues = engine.check(
             board=board, schematic=sch, layout=lay, components={}, instances={}

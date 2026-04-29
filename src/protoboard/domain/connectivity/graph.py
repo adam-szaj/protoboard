@@ -124,14 +124,28 @@ class ConnectivityGraph:
                     if layers.bottom:
                         self._add_node((x, y, "bottom"))
             elif isinstance(atom, StripAtom):
-                layers = atom.layers
-                if layers.plated_through:
-                    self._add_node((x, y, "top"))
-                else:
-                    if layers.bottom:
-                        self._add_node((x, y, "bottom"))
-                    if layers.top:
-                        self._add_node((x, y, "top"))
+                if atom.isolated:
+                    # Isolated pad — physical hole, no electrical connectivity.
+                    continue
+                self._build_strip_nodes(atom, pos)
+
+    def _build_strip_nodes(self, atom: StripAtom, center: Point) -> None:
+        """Add one node per hole of *atom* and connect them all (same net)."""
+        layers = atom.layers
+        n = int(atom.length) if isinstance(atom.length, int) else 1
+        side = "top" if layers.plated_through or layers.top else "bottom"
+        if atom.orientation == "horizontal":
+            start_x = center.x - n / 2.0 + 0.5
+            positions = [Point(start_x + i, center.y) for i in range(n)]
+        else:
+            start_y = center.y - n / 2.0 + 0.5
+            positions = [Point(center.x, start_y + i) for i in range(n)]
+        keys: list[_NodeKey] = [(p.x, p.y, side) for p in positions]
+        for key in keys:
+            self._add_node(key)
+        # Connect consecutive holes — same strip segment = same net.
+        for i in range(len(keys) - 1):
+            self._add_edge(keys[i], keys[i + 1])
 
     def _build_wire_edges(self, layout: Layout) -> None:
         for wire in layout.wires:

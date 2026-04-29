@@ -62,7 +62,7 @@ class TestFindPathsBasic:
     def test_direct_neighbour(self) -> None:
         # 1×3 board; source=(0.5,0.5), target=(1.5,0.5) — one step right.
         board = _perfboard(1, 3)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         source = Point(0.5, 0.5)
         target = Point(1.5, 0.5)
@@ -85,7 +85,7 @@ class TestFindPathsBasic:
         # 1×3 board; source=(0.5,0.5), target=(2.5,0.5).
         # Path must go through (1.5,0.5) — only valid intermediate pad.
         board = _perfboard(1, 3)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         results = find_paths(
             graph=graph,
@@ -105,7 +105,7 @@ class TestFindPathsBasic:
     def test_no_path_when_target_unreachable(self) -> None:
         # 1×1 board — source == target only pad, target off-board.
         board = _perfboard(1, 1)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         results = find_paths(
             graph=graph,
@@ -119,7 +119,7 @@ class TestFindPathsBasic:
 
     def test_source_equals_target_returns_trivial_path(self) -> None:
         board = _perfboard(1, 2)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         pt = Point(0.5, 0.5)
         results = find_paths(
@@ -137,7 +137,7 @@ class TestFindPathsBasic:
     def test_top_k_paths_ordered_by_cost(self) -> None:
         # 3×3 board; multiple paths from corner to corner.
         board = _perfboard(3, 3)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         results = find_paths(
             graph=graph,
@@ -156,7 +156,7 @@ class TestFindPathsBasic:
         # 1×3 board, source=(0.5,0.5), target=(2.5,0.5).
         # No turns possible → direction_change cost should NOT apply.
         board = _perfboard(1, 3)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         model_no_penalty = RoutingCostModel(direction_change=0.0)
         model_with_penalty = RoutingCostModel(direction_change=10.0)
@@ -191,7 +191,7 @@ class TestFindPathsWithOccupiedPads:
             name="OTHER",
             pins={PinRef(component_id=comp_id, pin_number=1)},
         )
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
 
         # Mark the middle pad as belonging to another net in the cost model.
@@ -214,7 +214,7 @@ class TestFindPathsWithOccupiedPads:
         # One path goes through a pad of the *same* net (lower cost).
         board = _perfboard(2, 3)
         net_id = uuid.uuid4()
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
 
         # Mark (1.5, 0.5) as same-net (discount).
@@ -244,7 +244,7 @@ class TestFindPathsWithOccupiedPads:
 class TestRoutingResult:
     def test_result_has_path_and_cost(self) -> None:
         board = _perfboard(1, 2)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         results = find_paths(
             graph=graph,
@@ -265,7 +265,7 @@ class TestRoutingResult:
         # (distance == 1.0 in Manhattan sense, i.e., differ by exactly 1
         # in x or y and 0 in the other).
         board = _perfboard(3, 3)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         results = find_paths(
             graph=graph,

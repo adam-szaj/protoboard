@@ -52,26 +52,26 @@ def _r_defn() -> ComponentDefinition:
 class TestSvgExport:
     def test_returns_string(self) -> None:
         board = _perfboard(3, 3)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         result = export_svg(board, lay, components={}, instances={})
         assert isinstance(result, str)
 
     def test_is_valid_xml(self) -> None:
         board = _perfboard(3, 3)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         result = export_svg(board, lay, components={}, instances={})
         ET.fromstring(result)  # must not raise
 
     def test_svg_root_element(self) -> None:
         board = _perfboard(3, 3)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         result = export_svg(board, lay, components={}, instances={})
         root = ET.fromstring(result)
         assert root.tag.endswith("svg") or root.tag == "svg"
 
     def test_contains_pads(self) -> None:
         board = _perfboard(2, 2)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         result = export_svg(board, lay, components={}, instances={})
         # 4 pads → at least 4 circle elements
         root = ET.fromstring(result)
@@ -87,7 +87,7 @@ class TestSvgExport:
             insulated=True,
             side="top",
         )
-        lay = Layout(placements={}, wires=[wire], cuts=[])
+        lay = Layout(placements={}, wires=[wire])
         result = export_svg(board, lay, components={}, instances={})
         assert "<line" in result or "<polyline" in result or "<path" in result
 
@@ -98,7 +98,7 @@ class TestSvgExport:
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=90, side="top"
         )
-        lay = Layout(placements={inst.id: pl}, wires=[], cuts=[])
+        lay = Layout(placements={inst.id: pl}, wires=[])
         result = export_svg(
             board, lay, components={defn.name: defn}, instances={inst.id: inst}
         )
@@ -106,7 +106,7 @@ class TestSvgExport:
 
     def test_write_to_file(self, tmp_path: Path) -> None:
         board = _perfboard(2, 2)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         out = tmp_path / "board.svg"
         svg_str = export_svg(board, lay, components={}, instances={})
         out.write_text(svg_str, encoding="utf-8")
@@ -115,7 +115,7 @@ class TestSvgExport:
 
     def test_viewbox_covers_board(self) -> None:
         board = _perfboard(5, 10)
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         result = export_svg(board, lay, components={}, instances={})
         # Board is 10 wide × 5 tall in raster units — viewBox must cover that.
         assert "viewBox" in result
@@ -149,7 +149,7 @@ class TestBomExport:
         pl_r2 = ComponentPlacement(
             component_id=r2.id, position=Point(2.5, 0.5), rotation=90, side="top"
         )
-        lay = Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=[], cuts=[])
+        lay = Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=[])
         return lay, {defn.name: defn}, {r1.id: r1, r2.id: r2}
 
     def test_returns_string(self) -> None:
@@ -203,7 +203,7 @@ class TestBomExport:
         assert out.exists()
 
     def test_empty_layout_gives_header_only(self) -> None:
-        lay = Layout(placements={}, wires=[], cuts=[])
+        lay = Layout(placements={}, wires=[])
         result = export_bom_csv(lay, components={}, instances={})
         reader = csv.DictReader(io.StringIO(result))
         rows = list(reader)

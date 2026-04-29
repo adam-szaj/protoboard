@@ -70,12 +70,19 @@ class PadAtom(Box):
 
 @dataclass(frozen=True, slots=True)
 class StripAtom(Box):
-    """A continuous strip of N galvanically connected holes."""
+    """A continuous strip of N galvanically connected holes.
+
+    When *isolated* is True the strip segment is electrically disconnected
+    from the board (the copper was drilled/scraped out). It still appears as
+    a physical hole and can be used for mechanical anchoring or to route a
+    wire through to the other layer.
+    """
 
     length: int | Literal["fill"] = 1
     orientation: Literal["horizontal", "vertical"] = "horizontal"
     layers: PadLayers = field(default_factory=PadLayers)
     cuttable: bool = True
+    isolated: bool = False
     label: str | None = None
 
     def __post_init__(self) -> None:

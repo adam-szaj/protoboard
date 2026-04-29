@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.geometry import Point
-from protoboard.gui.renderers.board_renderer import BOARD_BG, render_board, render_cuts
+from protoboard.gui.renderers.board_renderer import BOARD_BG, render_board
 from protoboard.gui.renderers.component_renderer import render_components
 from protoboard.gui.renderers.wire_renderer import render_wires
 from protoboard.gui.session import EditorSession
@@ -71,7 +71,6 @@ class BoardView(QGraphicsView):
         if self._active_tool is not None:
             self._active_tool.on_scene_cleared()
         render_board(self._scene, self._session.board)
-        render_cuts(self._scene, self._session.layout.cuts, self._session.board)
         render_wires(self._scene, self._session.layout.wires)
         # Compute net routing status for pin colouring.
         routed: set[uuid.UUID] | None = None

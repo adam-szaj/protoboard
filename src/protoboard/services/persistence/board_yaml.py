@@ -150,6 +150,7 @@ def _strip_atom_from_dict(data: dict[str, Any]) -> StripAtom:
         orientation=data["orientation"],
         layers=_layers_from_dict(data.get("layers", {})),
         cuttable=bool(data.get("cuttable", True)),
+        isolated=bool(data.get("isolated", False)),
         label=data.get("label"),
     )
 
@@ -262,6 +263,8 @@ def _box_to_dict(box: Box) -> dict[str, Any]:
             "layers": _layers_to_dict(box.layers),
             "cuttable": box.cuttable,
         }
+        if box.isolated:
+            out["isolated"] = True
         if box.label is not None:
             out["label"] = box.label
         return out

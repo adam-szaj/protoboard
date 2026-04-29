@@ -12,6 +12,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Protocol
 
+from protoboard.domain.board.board import Board
 from protoboard.domain.commands.base import Command
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
@@ -20,8 +21,9 @@ from protoboard.domain.layout.wire import WireSegment
 
 
 class ComponentState(Protocol):
-    """Minimal state needed by component commands."""
+    """Minimal state needed by all board/component commands."""
 
+    board: Board
     layout: Layout
     instances: dict[uuid.UUID, ComponentInstance]
 
