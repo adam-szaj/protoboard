@@ -7,7 +7,7 @@ import dataclasses
 import uuid
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCloseEvent, QKeyEvent
 from PySide6.QtWidgets import (
     QDockWidget,
@@ -38,10 +38,13 @@ from protoboard.services.persistence.project_yaml import save_project
 
 
 class MainWindow(QMainWindow):
+    # Emitted when user chooses File > Close Project (return to welcome screen).
+    return_to_welcome = Signal()
+
     def __init__(self, session: EditorSession) -> None:
         super().__init__()
         self._session = session
-        self._return_to_welcome = False
+        self._closing_to_welcome = False
         self._update_title()
         self.resize(1280, 800)
 
@@ -231,12 +234,8 @@ class MainWindow(QMainWindow):
             return
         if reply == QMessageBox.StandardButton.Save:
             self._save()
-        self._return_to_welcome = True
-        self.hide()
-        # Quit the inner event loop in app.py so it can show the welcome dialog.
-        from PySide6.QtWidgets import QApplication
-
-        QApplication.quit()
+        self._closing_to_welcome = True
+        self.close()
 
     # ------------------------------------------------------------------
     # Other actions
@@ -347,9 +346,15 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        """× button — quit entirely (not return to welcome)."""
-        self._return_to_welcome = False
         super().closeEvent(event)
+        if self._closing_to_welcome:
+            self._closing_to_welcome = False
+            self.return_to_welcome.emit()
+        else:
+            # × button or Alt+F4 — quit the whole application.
+            from PySide6.QtWidgets import QApplication
+
+            QApplication.quit()
 
     # ------------------------------------------------------------------
     # Keyboard shortcuts
