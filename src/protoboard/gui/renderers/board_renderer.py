@@ -7,6 +7,7 @@ from PySide6.QtCore import QRectF
 from PySide6.QtGui import QBrush, QColor, QPen
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
+    QGraphicsLineItem,
     QGraphicsRectItem,
     QGraphicsScene,
 )
@@ -19,11 +20,12 @@ from protoboard.geometry import Point
 # Visual constants (scene units = raster units)
 PAD_RADIUS = 0.35
 STRIP_RADIUS = 0.30
-PAD_COLOR = QColor("#C8A030")       # gold — active pad
-STRIP_COLOR = QColor("#C8A030")     # gold — active strip hole
-ISOLATED_COLOR = QColor("#555555")  # dark grey — drilled/isolated pad
+PAD_COLOR = QColor("#C8A030")        # gold — active pad
+STRIP_COLOR = QColor("#C8A030")      # gold — active strip hole
+STRIP_TRACK_COLOR = QColor("#A07020")  # darker gold — copper track between holes
+ISOLATED_COLOR = QColor("#444444")   # dark grey — drilled/isolated pad
 HOLE_COLOR = QColor("#1A1A1A")
-BOARD_BG = QColor("#2B6B3A")        # PCB green
+BOARD_BG = QColor("#2B6B3A")         # PCB green
 
 
 def render_board(
@@ -54,19 +56,53 @@ def render_board(
 def _render_strip_pads(
     scene: QGraphicsScene, atom: StripAtom, center: Point
 ) -> None:
-    """Draw one pad dot per hole of a strip segment."""
-    length = atom.length if isinstance(atom.length, int) else 1
-    color = ISOLATED_COLOR if atom.isolated else STRIP_COLOR
-    radius = STRIP_RADIUS
+    """Draw a copper track + one pad per hole for a strip segment.
 
+    Active segments get a filled copper-coloured rectangle connecting all
+    holes, matching the look of a real stripboard. Isolated pads get a
+    dark crossed-out dot with no track.
+    """
+    length = atom.length if isinstance(atom.length, int) else 1
+
+    if atom.isolated:
+        # Single drilled-out pad: grey dot with an X.
+        cx, cy = center.x, center.y
+        _add_pad(scene, cx, cy, STRIP_RADIUS, ISOLATED_COLOR)
+        r = STRIP_RADIUS * 0.7
+        pen = QPen(QColor("#FF4040"), 0.08)
+        for dx, dy in ((r, r), (-r, r)):
+            line = QGraphicsLineItem(cx - dx, cy - dy, cx + dx, cy + dy)
+            line.setPen(pen)
+            scene.addItem(line)
+        return
+
+    # Draw the copper track rectangle behind the pads.
+    track_h = STRIP_RADIUS * 1.1  # track height (half = track_h)
     if atom.orientation == "horizontal":
         start_x = center.x - length / 2.0 + 0.5
+        end_x = start_x + length - 1
+        track = QGraphicsRectItem(
+            QRectF(start_x - STRIP_RADIUS, center.y - track_h,
+                   (end_x - start_x) + 2 * STRIP_RADIUS, 2 * track_h)
+        )
+        track.setBrush(QBrush(STRIP_TRACK_COLOR))
+        track.setPen(QPen(QColor("#7A5010"), 0.03))
+        scene.addItem(track)
         for i in range(length):
-            _add_pad(scene, start_x + i, center.y, radius, color)
+            _add_pad(scene, start_x + i, center.y, STRIP_RADIUS, STRIP_COLOR)
     else:
         start_y = center.y - length / 2.0 + 0.5
+        end_y = start_y + length - 1
+        track_w = track_h
+        track = QGraphicsRectItem(
+            QRectF(center.x - track_w, start_y - STRIP_RADIUS,
+                   2 * track_w, (end_y - start_y) + 2 * STRIP_RADIUS)
+        )
+        track.setBrush(QBrush(STRIP_TRACK_COLOR))
+        track.setPen(QPen(QColor("#7A5010"), 0.03))
+        scene.addItem(track)
         for i in range(length):
-            _add_pad(scene, center.x, start_y + i, radius, color)
+            _add_pad(scene, center.x, start_y + i, STRIP_RADIUS, STRIP_COLOR)
 
 
 # ---------------------------------------------------------------------------
