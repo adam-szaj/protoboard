@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from protoboard.domain.components.footprints import FootprintTemplate
@@ -19,6 +19,7 @@ class ComponentPlacement:
     position: Point
     rotation: int
     side: Literal["top", "bottom"]
+    label_offset: Point = field(default_factory=lambda: Point(0.05, 0.05))
 
     def __post_init__(self) -> None:
         if self.rotation not in _VALID_ROTATIONS:

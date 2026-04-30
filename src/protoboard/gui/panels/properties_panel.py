@@ -9,8 +9,10 @@ from PySide6.QtCore import Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QComboBox,
+    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -21,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.services.drc.engine import DRCIssue
 
 _SEVERITY_COLORS = {
@@ -33,7 +36,8 @@ _SEVERITY_COLORS = {
 class PropertiesPanel(QWidget):
     """Shows editable fields for the selected component and DRC issues."""
 
-    component_changed = Signal(uuid.UUID, str, str, int)  # id, refdes, value, rotation
+    # id, refdes, value, rotation, label_offset_x, label_offset_y
+    component_changed = Signal(uuid.UUID, str, str, int, float, float)
 
     def __init__(self, parent: object = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
@@ -47,10 +51,35 @@ class PropertiesPanel(QWidget):
         self._value_edit = QLineEdit()
         self._rotation_combo = QComboBox()
         self._rotation_combo.addItems(["0°", "90°", "180°", "270°"])
+
+        self._label_x_spin = QDoubleSpinBox()
+        self._label_x_spin.setRange(-20.0, 20.0)
+        self._label_x_spin.setSingleStep(0.5)
+        self._label_x_spin.setDecimals(2)
+        self._label_x_spin.setToolTip("Label X offset relative to component bbox")
+
+        self._label_y_spin = QDoubleSpinBox()
+        self._label_y_spin.setRange(-20.0, 20.0)
+        self._label_y_spin.setSingleStep(0.5)
+        self._label_y_spin.setDecimals(2)
+        self._label_y_spin.setToolTip("Label Y offset relative to component bbox")
+
+        self._reset_label_btn = QPushButton("↺")
+        self._reset_label_btn.setFixedWidth(28)
+        self._reset_label_btn.setToolTip("Reset label offset to default (0.05, 0.05)")
+        self._reset_label_btn.clicked.connect(self._on_reset_label)
+
+        label_x_row = QHBoxLayout()
+        label_x_row.addWidget(self._label_x_spin)
+        label_x_row.addWidget(self._reset_label_btn)
+
         self._apply_btn = QPushButton("Apply")
+
         form.addRow("RefDes:", self._refdes_edit)
         form.addRow("Value:", self._value_edit)
         form.addRow("Rotation:", self._rotation_combo)
+        form.addRow("Label X:", label_x_row)
+        form.addRow("Label Y:", self._label_y_spin)
         form.addRow(self._apply_btn)
         layout.addWidget(grp)
 
@@ -65,10 +94,19 @@ class PropertiesPanel(QWidget):
         layout.addWidget(drc_grp)
         layout.addStretch()
 
-    def show_component(self, inst: ComponentInstance) -> None:
+    def show_component(
+        self,
+        inst: ComponentInstance,
+        placement: ComponentPlacement | None = None,
+    ) -> None:
         self._current_id = inst.id
         self._refdes_edit.setText(inst.refdes)
         self._value_edit.setText(inst.value)
+        if placement is not None:
+            idx = placement.rotation // 90
+            self._rotation_combo.setCurrentIndex(idx)
+            self._label_x_spin.setValue(placement.label_offset.x)
+            self._label_y_spin.setValue(placement.label_offset.y)
 
     def clear_component(self) -> None:
         self._current_id = None
@@ -87,6 +125,10 @@ class PropertiesPanel(QWidget):
             item.setForeground(_SEVERITY_COLORS.get(issue.severity, QColor()))
             self._drc_list.addItem(item)
 
+    def _on_reset_label(self) -> None:
+        self._label_x_spin.setValue(0.05)
+        self._label_y_spin.setValue(0.05)
+
     def _on_apply(self) -> None:
         if self._current_id is None:
             return
@@ -96,6 +138,8 @@ class PropertiesPanel(QWidget):
             self._refdes_edit.text(),
             self._value_edit.text(),
             rotation,
+            self._label_x_spin.value(),
+            self._label_y_spin.value(),
         )
 
 

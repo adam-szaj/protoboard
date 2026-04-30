@@ -139,9 +139,7 @@ class SelectTool(_Tool):
             return
         panel = self._props_panel()
         if panel is not None:
-            panel.show_component(inst)
-            if placement is not None:
-                panel._rotation_combo.setCurrentIndex(placement.rotation // 90)
+            panel.show_component(inst, placement)
 
     def _deselect(self) -> None:
         if self._highlight is not None:
