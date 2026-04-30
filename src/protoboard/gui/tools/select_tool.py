@@ -1,5 +1,13 @@
 # SPDX-License-Identifier: MIT
-"""Select tool — click to select, drag to move, R to rotate, Del to delete."""
+"""Select tool — click to select, drag to move, R to rotate, Del to delete.
+
+Wire editing:
+  After selecting a wire, Ctrl+click on a node (visible dot) marks the start
+  of a segment edit.  Ctrl+click on a second node marks the end.  Then:
+    - Press A to auto-route the fragment via A*.
+    - Or click new intermediate points (like RouteTool) and press Enter.
+  Esc cancels the edit and restores the original wire.
+"""
 
 from __future__ import annotations
 
@@ -8,13 +16,19 @@ import math
 import uuid
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QKeyEvent, QMouseEvent, QPen
-from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsRectItem
+from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPen
+from PySide6.QtWidgets import (
+    QGraphicsEllipseItem,
+    QGraphicsItemGroup,
+    QGraphicsLineItem,
+    QGraphicsRectItem,
+)
 
 from protoboard.domain.commands.component_cmds import (
     MoveComponentCommand,
     RemoveComponentCommand,
     RemoveWireCommand,
+    ReplaceWireSegmentCommand,
 )
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.layout.wire import WireSegment
@@ -25,10 +39,18 @@ from protoboard.gui.panels.properties_panel import PropertiesPanel
 _SELECT_PEN = QPen(Qt.GlobalColor.cyan, 0.08)
 _SELECT_PEN.setStyle(Qt.PenStyle.DashLine)
 _WIRE_SELECT_PEN = QPen(Qt.GlobalColor.yellow, 0.12)
+_NODE_PEN = QPen(Qt.GlobalColor.yellow, 0.04)
+_NODE_BRUSH = QColor(255, 220, 0, 200)
+_NODE_SELECTED_PEN = QPen(Qt.GlobalColor.red, 0.06)
+_NODE_SELECTED_BRUSH = QColor(255, 80, 0, 230)
+_EDIT_PREVIEW_PEN = QPen(QColor(255, 120, 0, 200), 0.12)
+_EDIT_PREVIEW_PEN.setStyle(Qt.PenStyle.DashLine)
 
 _HIT_RADIUS = 0.6
-_BBOX_MARGIN = 0.45  # same margin as _draw_highlight
-_WIRE_HIT_DIST = 0.35  # max distance to select a wire segment
+_BBOX_MARGIN = 0.45
+_WIRE_HIT_DIST = 0.35
+_NODE_HIT_RADIUS = 0.32  # radius for clicking on a wire node dot
+_NODE_RADIUS = 0.13       # visual radius of node dot
 
 
 class SelectTool(_Tool):
@@ -43,22 +65,32 @@ class SelectTool(_Tool):
         self._highlight: QGraphicsRectItem | None = None
         self._dragging = False
         self._drag_orig_pos: None | tuple[float, float] = None
-        # Offset from component position to click point (kept during drag).
         self._drag_offset: tuple[float, float] = (0.0, 0.0)
         # Wire selection state.
         self._selected_wire_id: uuid.UUID | None = None
-        self._wire_highlight: QGraphicsLineItem | None = None
+        self._wire_highlight: QGraphicsItemGroup | None = None
+        # Wire segment editing state.
+        self._edit_start_idx: int | None = None   # index in wire.path
+        self._edit_end_idx: int | None = None
+        self._edit_points: list[Point] = []        # new intermediate points
+        self._edit_preview_items: list[QGraphicsLineItem] = []
+        self._edit_live_line: QGraphicsLineItem | None = None
+
+    # ------------------------------------------------------------------
+    # _Tool interface
+    # ------------------------------------------------------------------
 
     def deactivate(self) -> None:
         self._dragging = False
         self._drag_orig_pos = None
+        self._cancel_wire_edit()
         self._deselect_wire()
 
     def on_scene_cleared(self) -> None:
-        # Drop stale graphics item references — scene.clear() destroyed them.
         self._highlight = None
         self._wire_highlight = None
-        # Redraw highlights after scene is rebuilt.
+        self._edit_preview_items.clear()
+        self._edit_live_line = None
         if self._selected_id is not None and not self._dragging:
             self._draw_highlight(self._selected_id)
         if self._selected_wire_id is not None:
@@ -68,41 +100,89 @@ class SelectTool(_Tool):
         if event.button() != Qt.MouseButton.LeftButton:
             return False
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
-        # With Ctrl: hit-test the full bbox (easier to grab).
-        hit = (
-            self._hit_test_bbox(scene_pt)
-            if ctrl
-            else self._hit_test(scene_pt)
-        )
+
+        # --- Wire edit mode: clicking adds intermediate points ---
+        if self._is_editing_wire():
+            if not ctrl:
+                snapped = self._view.snap(scene_pt)
+                self._edit_add_point(snapped)
+                return True
+            # Ctrl+click in edit mode = try to pick a different end node
+            idx = self._hit_test_wire_node(scene_pt)
+            if idx is not None and self._selected_wire_id is not None:
+                wire = self._get_selected_wire()
+                if wire is not None:
+                    self._set_edit_end(idx, wire)
+                return True
+            return True
+
+        # --- Ctrl+click: try component bbox drag first, then wire node ---
+        if ctrl:
+            # Check for wire node click (starts edit).
+            if self._selected_wire_id is not None:
+                idx = self._hit_test_wire_node(scene_pt)
+                if idx is not None:
+                    self._start_wire_edit(idx)
+                    return True
+
+            hit = self._hit_test_bbox(scene_pt)
+            if hit is not None:
+                self._deselect_wire()
+                self._select(hit)
+                self._dragging = True
+                placement = self._session.layout.placements.get(hit)
+                if placement is not None:
+                    self._drag_orig_pos = (
+                        placement.position.x, placement.position.y
+                    )
+                    snapped = self._view.snap(scene_pt)
+                    self._drag_offset = (
+                        placement.position.x - snapped.x,
+                        placement.position.y - snapped.y,
+                    )
+                return True
+            return False
+
+        # --- Normal left click: component or wire ---
+        hit = self._hit_test(scene_pt)
         if hit is not None:
+            self._cancel_wire_edit()
             self._deselect_wire()
             self._select(hit)
             self._dragging = True
             placement = self._session.layout.placements.get(hit)
             if placement is not None:
-                self._drag_orig_pos = (placement.position.x, placement.position.y)
+                self._drag_orig_pos = (
+                    placement.position.x, placement.position.y
+                )
                 snapped = self._view.snap(scene_pt)
                 self._drag_offset = (
                     placement.position.x - snapped.x,
                     placement.position.y - snapped.y,
                 )
-            return True  # consumed — no view pan
+            return True
 
-        # No component hit — try wire.
         wire_hit = self._hit_test_wire(scene_pt)
         if wire_hit is not None:
+            self._cancel_wire_edit()
             self._deselect()
             self._select_wire(wire_hit)
             return True
 
-        # Nothing hit.
         if not ctrl:
+            self._cancel_wire_edit()
             self._deselect()
             self._deselect_wire()
-        return False  # let board_view pan if Ctrl held
+        return False
 
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+
+        if self._is_editing_wire():
+            # Show live preview line from last edit point (or start node) to cursor.
+            self._update_edit_live(scene_pt)
+            return
+
         if self._dragging and self._selected_id is not None:
             snapped = self._view.snap(scene_pt)
             dx, dy = self._drag_offset
@@ -114,7 +194,6 @@ class SelectTool(_Tool):
                 )
                 self._session.layout_changed.emit()
         elif ctrl:
-            # Update cursor: SizeAll when hovering over a component bbox.
             hit = self._hit_test_bbox(scene_pt)
             if hit is not None:
                 self._view.setCursor(Qt.CursorShape.SizeAllCursor)
@@ -140,7 +219,6 @@ class SelectTool(_Tool):
             return
         old_pl = dataclasses.replace(placement, position=old_pos)
 
-        # Check pad conflicts at the new position before committing.
         inst = self._session.instances.get(comp_id)
         defn = self._session.components.get(inst.definition_ref) if inst else None
         if defn is not None:
@@ -154,7 +232,6 @@ class SelectTool(_Tool):
                 parent_widget=self._view.window(),
             )
             if resolved is None:
-                # Blocked — snap back to original position.
                 self._session.layout.placements[comp_id] = old_pl
                 self._session.layout_changed.emit()
                 self._select(comp_id)
@@ -169,26 +246,40 @@ class SelectTool(_Tool):
         )
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
-        # Restore selection after refresh wiped on_scene_cleared state.
         self._select(comp_id)
 
     def on_key(self, event: QKeyEvent) -> None:
-        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+        key = event.key()
+
+        if self._is_editing_wire():
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._commit_wire_edit()
+            elif key == Qt.Key.Key_Escape:
+                self._cancel_wire_edit()
+            elif key == Qt.Key.Key_A:
+                self._autoroute_wire_fragment()
+            return
+
+        if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             if self._selected_wire_id is not None:
                 self._delete_wire()
             elif self._selected_id is not None:
                 self._delete_selected()
-        elif event.key() == Qt.Key.Key_R and self._selected_id is not None:
+        elif key == Qt.Key.Key_R and self._selected_id is not None:
             self._rotate_selected()
+        elif key == Qt.Key.Key_Escape:
+            self._deselect()
+            self._deselect_wire()
 
     def on_key_release(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Control and not self._dragging:
             self._view.setCursor(Qt.CursorShape.ArrowCursor)
 
     # ------------------------------------------------------------------
+    # Component selection / highlight
+    # ------------------------------------------------------------------
 
     def _hit_test(self, scene_pt: QPointF) -> uuid.UUID | None:
-        """Hit-test by distance to nearest pin (for normal click)."""
         session = self._session
         best_id: uuid.UUID | None = None
         best_d = float("inf")
@@ -210,7 +301,6 @@ class SelectTool(_Tool):
         return best_id if best_d <= _HIT_RADIUS else None
 
     def _hit_test_bbox(self, scene_pt: QPointF) -> uuid.UUID | None:
-        """Hit-test by component bounding box (for Ctrl+click/hover)."""
         session = self._session
         px, py = scene_pt.x(), scene_pt.y()
         for comp_id, placement in session.layout.placements.items():
@@ -229,8 +319,8 @@ class SelectTool(_Tool):
             xs = [p.x for p in positions]
             ys = [p.y for p in positions]
             m = _BBOX_MARGIN
-            if (min(xs) - m <= px <= max(xs) + m and
-                    min(ys) - m <= py <= max(ys) + m):
+            if (min(xs) - m <= px <= max(xs) + m
+                    and min(ys) - m <= py <= max(ys) + m):
                 return comp_id
         return None
 
@@ -321,7 +411,6 @@ class SelectTool(_Tool):
     # ------------------------------------------------------------------
 
     def _hit_test_wire(self, scene_pt: QPointF) -> uuid.UUID | None:
-        """Return the id of the closest wire within _WIRE_HIT_DIST, or None."""
         px, py = scene_pt.x(), scene_pt.y()
         best_id: uuid.UUID | None = None
         best_d = _WIRE_HIT_DIST
@@ -338,6 +427,7 @@ class SelectTool(_Tool):
         self._draw_wire_highlight(wire_id)
 
     def _deselect_wire(self) -> None:
+        self._cancel_wire_edit()
         if self._wire_highlight is not None:
             self._view.scene().removeItem(self._wire_highlight)
             self._wire_highlight = None
@@ -352,29 +442,253 @@ class SelectTool(_Tool):
         )
         if wire is None or len(wire.path) < 2:
             return
-        # Draw highlighted polyline over the wire.
-        from PySide6.QtWidgets import QGraphicsItemGroup
         group = QGraphicsItemGroup()
         pts = wire.path
+        # Draw segments.
         for i in range(len(pts) - 1):
             seg = QGraphicsLineItem(
                 pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y
             )
             seg.setPen(_WIRE_SELECT_PEN)
             group.addToGroup(seg)
+        # Draw node dots at each vertex.
+        for i, pt in enumerate(pts):
+            r = _NODE_RADIUS
+            is_sel = (
+                i == self._edit_start_idx or i == self._edit_end_idx
+            )
+            dot = QGraphicsEllipseItem(
+                pt.x - r, pt.y - r, 2 * r, 2 * r
+            )
+            pen = _NODE_SELECTED_PEN if is_sel else _NODE_PEN
+            dot.setPen(pen)
+            dot.setBrush(
+                _NODE_SELECTED_BRUSH if is_sel else _NODE_BRUSH
+            )
+            group.addToGroup(dot)
         self._view.scene().addItem(group)
-        # Store group as _wire_highlight (typed as QGraphicsLineItem for simplicity,
-        # but it's actually a QGraphicsItemGroup — removeItem still works).
-        self._wire_highlight = group  # type: ignore[assignment]
+        self._wire_highlight = group
 
     def _delete_wire(self) -> None:
         wire_id = self._selected_wire_id
         if wire_id is None:
             return
+        self._cancel_wire_edit()
         cmd = RemoveWireCommand(wire_id=wire_id)
         self._session.stack.execute(cmd, self._session)
         self._deselect_wire()
         self._session.layout_changed.emit()
+
+    # ------------------------------------------------------------------
+    # Wire segment editing
+    # ------------------------------------------------------------------
+
+    def _hit_test_wire_node(self, scene_pt: QPointF) -> int | None:
+        """Return index of the wire node closest to scene_pt, or None."""
+        wire = self._get_selected_wire()
+        if wire is None:
+            return None
+        px, py = scene_pt.x(), scene_pt.y()
+        best_i: int | None = None
+        best_d = _NODE_HIT_RADIUS
+        for i, pt in enumerate(wire.path):
+            d = math.sqrt((px - pt.x) ** 2 + (py - pt.y) ** 2)
+            if d < best_d:
+                best_d = d
+                best_i = i
+        return best_i
+
+    def _get_selected_wire(self) -> WireSegment | None:
+        if self._selected_wire_id is None:
+            return None
+        return next(
+            (w for w in self._session.layout.wires
+             if w.id == self._selected_wire_id),
+            None,
+        )
+
+    def _start_wire_edit(self, node_idx: int) -> None:
+        """Mark node_idx as the start of a segment edit."""
+        self._cancel_wire_edit()
+        self._edit_start_idx = node_idx
+        self._edit_end_idx = None
+        self._edit_points = []
+        # Redraw highlight to show selected node.
+        if self._selected_wire_id is not None:
+            self._draw_wire_highlight(self._selected_wire_id)
+
+    def _set_edit_end(self, node_idx: int, wire: WireSegment) -> None:
+        """Set the end node of the segment being edited."""
+        start = self._edit_start_idx
+        if start is None:
+            return
+        if node_idx == start:
+            return
+        # Ensure start < end for consistent slicing.
+        if node_idx < start:
+            start, node_idx = node_idx, start
+            self._edit_start_idx = start
+        self._edit_end_idx = node_idx
+        self._edit_points = []
+        self._draw_wire_highlight(wire.id)
+
+    def _is_editing_wire(self) -> bool:
+        return (
+            self._edit_start_idx is not None
+            and self._edit_end_idx is not None
+        )
+
+    def _edit_add_point(self, pt: Point) -> None:
+        """Add intermediate point during manual edit."""
+        self._edit_points.append(pt)
+        # Draw committed preview segment.
+        if len(self._edit_points) >= 2:
+            a = self._edit_points[-2]
+            b = self._edit_points[-1]
+        else:
+            wire = self._get_selected_wire()
+            if wire is None or self._edit_start_idx is None:
+                return
+            a = wire.path[self._edit_start_idx]
+            b = self._edit_points[0]
+        line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
+        line.setPen(_EDIT_PREVIEW_PEN)
+        self._view.scene().addItem(line)
+        self._edit_preview_items.append(line)
+        # Remove old live line; new one will be drawn in on_move.
+        self._remove_edit_live()
+
+    def _update_edit_live(self, scene_pt: QPointF) -> None:
+        """Update the live (dashed) preview line to cursor."""
+        self._remove_edit_live()
+        wire = self._get_selected_wire()
+        if wire is None or self._edit_start_idx is None:
+            return
+        snapped = self._view.snap(scene_pt)
+        if self._edit_points:
+            anchor = self._edit_points[-1]
+        else:
+            anchor = wire.path[self._edit_start_idx]
+        line = QGraphicsLineItem(
+            anchor.x, anchor.y, snapped.x, snapped.y
+        )
+        line.setPen(_EDIT_PREVIEW_PEN)
+        self._view.scene().addItem(line)
+        self._edit_live_line = line
+
+    def _remove_edit_live(self) -> None:
+        if self._edit_live_line is not None:
+            self._view.scene().removeItem(self._edit_live_line)
+            self._edit_live_line = None
+
+    def _clear_edit_preview(self) -> None:
+        for item in self._edit_preview_items:
+            self._view.scene().removeItem(item)
+        self._edit_preview_items.clear()
+        self._remove_edit_live()
+
+    def _cancel_wire_edit(self) -> None:
+        self._clear_edit_preview()
+        self._edit_start_idx = None
+        self._edit_end_idx = None
+        self._edit_points = []
+
+    def _commit_wire_edit(self) -> None:
+        """Replace the edited fragment with the new path and commit."""
+        wire = self._get_selected_wire()
+        if wire is None:
+            return
+        start = self._edit_start_idx
+        end = self._edit_end_idx
+        if start is None or end is None:
+            return
+
+        # Build new full path: prefix + new middle + suffix.
+        prefix = list(wire.path[:start + 1])      # includes start node
+        suffix = list(wire.path[end:])             # includes end node
+        middle = list(self._edit_points)           # user-drawn intermediates
+
+        new_path = prefix + middle + suffix
+        # Remove duplicates at junctions (start/end node may equal first/last middle).
+        new_path = _dedupe_adjacent(new_path)
+
+        if len(new_path) < 2:
+            self._cancel_wire_edit()
+            return
+
+        self._clear_edit_preview()
+        self._cancel_wire_edit()
+
+        cmd = ReplaceWireSegmentCommand(
+            wire_id=wire.id,
+            new_path=new_path,
+        )
+        self._session.stack.execute(cmd, self._session)
+        self._session.layout_changed.emit()
+        # Reselect the wire after scene refresh.
+        self._select_wire(wire.id)
+
+    def _autoroute_wire_fragment(self) -> None:
+        """Auto-route the selected fragment via A* and immediately commit."""
+        wire = self._get_selected_wire()
+        if wire is None:
+            return
+        start = self._edit_start_idx
+        end = self._edit_end_idx
+        if start is None or end is None:
+            return
+
+        from protoboard.domain.connectivity.graph import ConnectivityGraph
+        from protoboard.services.routing.astar import find_paths
+        from protoboard.services.routing.cost_model import RoutingCostModel
+
+        session = self._session
+        graph = ConnectivityGraph(
+            board=session.board,
+            layout=session.layout,
+            components=session.components,
+            instances=session.instances,
+        )
+        source_pt = wire.path[start]
+        target_pt = wire.path[end]
+
+        results = find_paths(
+            graph=graph,
+            source=source_pt,
+            targets=[target_pt],
+            side=wire.side,
+            cost_model=RoutingCostModel(),
+            k=1,
+        )
+        if not results:
+            return  # no path found — leave edit mode open
+
+        routed_middle = results[0].path  # includes source and target
+        # Strip source and target (already in prefix/suffix).
+        middle = list(routed_middle[1:-1])
+
+        prefix = list(wire.path[:start + 1])
+        suffix = list(wire.path[end:])
+        new_path = _dedupe_adjacent(prefix + middle + suffix)
+
+        if len(new_path) < 2:
+            self._cancel_wire_edit()
+            return
+
+        self._clear_edit_preview()
+        self._cancel_wire_edit()
+
+        cmd = ReplaceWireSegmentCommand(
+            wire_id=wire.id,
+            new_path=new_path,
+        )
+        self._session.stack.execute(cmd, self._session)
+        self._session.layout_changed.emit()
+        self._select_wire(wire.id)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
     def _props_panel(self) -> PropertiesPanel | None:
         win = self._view.window()
@@ -383,12 +697,11 @@ class SelectTool(_Tool):
 
 
 # ---------------------------------------------------------------------------
-# Wire distance helper
+# Wire distance helpers
 # ---------------------------------------------------------------------------
 
 
 def _min_dist_to_wire(px: float, py: float, wire: WireSegment) -> float:
-    """Minimum distance from point (px, py) to any segment of *wire*."""
     pts = wire.path
     best = math.inf
     for i in range(len(pts) - 1):
@@ -405,7 +718,6 @@ def _dist_point_to_segment(
     ax: float, ay: float,
     bx: float, by: float,
 ) -> float:
-    """Distance from point P to segment AB."""
     dx, dy = bx - ax, by - ay
     seg_len_sq = dx * dx + dy * dy
     if seg_len_sq < 1e-12:
@@ -413,3 +725,14 @@ def _dist_point_to_segment(
     t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / seg_len_sq))
     cx, cy = ax + t * dx, ay + t * dy
     return math.sqrt((px - cx) ** 2 + (py - cy) ** 2)
+
+
+def _dedupe_adjacent(path: list[Point]) -> list[Point]:
+    """Remove consecutive duplicate points."""
+    if not path:
+        return path
+    result = [path[0]]
+    for pt in path[1:]:
+        if abs(pt.x - result[-1].x) > 1e-9 or abs(pt.y - result[-1].y) > 1e-9:
+            result.append(pt)
+    return result

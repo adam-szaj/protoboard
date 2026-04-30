@@ -226,6 +226,37 @@ class RemoveWireCommand(Command[ComponentState]):
             state.layout.wires.append(self._saved_wire)
 
 
+@dataclass
+class ReplaceWireSegmentCommand(Command[ComponentState]):
+    """Replace the path of an existing wire (for segment editing)."""
+
+    wire_id: uuid.UUID
+    new_path: list[Point]
+    _old_path: list[Point] = field(default_factory=list, init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Edit wire segment"
+
+    def apply(self, state: ComponentState) -> None:
+        from dataclasses import replace as _replace
+
+        for i, wire in enumerate(state.layout.wires):
+            if wire.id == self.wire_id:
+                object.__setattr__(self, "_old_path", list(wire.path))
+                state.layout.wires[i] = _replace(wire, path=self.new_path)
+                return
+        raise KeyError(f"Wire {self.wire_id} not found")
+
+    def revert(self, state: ComponentState) -> None:
+        from dataclasses import replace as _replace
+
+        for i, wire in enumerate(state.layout.wires):
+            if wire.id == self.wire_id:
+                state.layout.wires[i] = _replace(wire, path=self._old_path)
+                return
+
+
 # ---------------------------------------------------------------------------
 # Wire-update helper (used by MoveComponentCommand)
 # ---------------------------------------------------------------------------
