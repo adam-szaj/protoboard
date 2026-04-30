@@ -195,11 +195,14 @@ class SelectTool(_Tool):
             # redirect the selection to that group's representative ID.
             hit = self._resolve_group_hit(hit)
             self._cancel_wire_edit()
-            self._deselect_wire()
             if hit not in self._selected_ids:
+                # Fresh single-component click — clear all existing selection.
+                self._deselect_wire()
                 self._clear_multi_selection()
                 self._select_primary(hit)
             else:
+                # Click on already-selected component — keep multi-selection
+                # (including wires) and set as primary for properties panel.
                 self._select_primary(hit)
             # Begin drag.
             self._dragging = True
@@ -218,7 +221,7 @@ class SelectTool(_Tool):
                         pl.position.x - snapped.x,
                         pl.position.y - snapped.y,
                     )
-            # Also drag any selected wires.
+            # Snapshot original wire paths for any selected wires.
             for wire in self._session.layout.wires:
                 if wire.id in self._selected_wire_ids:
                     self._drag_orig_wire_paths[wire.id] = list(wire.path)
@@ -443,15 +446,16 @@ class SelectTool(_Tool):
 
         # Build wire move commands.
         for wire in self._session.layout.wires:
-            orig_path = self._drag_orig_wire_paths.get(wire.id)
-            if orig_path is None:
+            if wire.id not in self._drag_orig_wire_paths:
                 continue
-            if wire.path == orig_path:
+            orig_wire_path: list[Point] = self._drag_orig_wire_paths[wire.id]
+            if wire.path == orig_wire_path:
                 continue
             commands.append(
                 ReplaceWireSegmentCommand(
                     wire_id=wire.id,
                     new_path=list(wire.path),
+                    old_path=orig_wire_path,
                 )
             )
 

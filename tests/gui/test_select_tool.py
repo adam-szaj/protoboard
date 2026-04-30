@@ -260,3 +260,210 @@ class TestSelectToolSceneCleared:
         assert tool._selected_id == inst.id
         tool.on_scene_cleared()
         assert tool._selected_id == inst.id  # must survive for drag commit
+
+
+# ---------------------------------------------------------------------------
+# Helpers for wire-related tests
+# ---------------------------------------------------------------------------
+
+def _ctrl_press(tool: SelectTool, x: float, y: float) -> None:
+    tool.on_press(
+        QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            QPointF(x, y),
+            QPointF(x, y),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.ControlModifier,
+        ),
+        QPointF(x, y),
+    )
+
+
+def _add_wire(
+    session: EditorSession,
+    path: list[tuple[float, float]],
+) -> None:
+    """Add a WireSegment directly to the session layout."""
+    import uuid as _uuid
+
+    from protoboard.domain.layout.wire import WireSegment
+    from protoboard.geometry import Point as _Point
+
+    session.layout.wires.append(
+        WireSegment(
+            id=_uuid.uuid4(),
+            path=[_Point(x, y) for x, y in path],
+            insulated=True,
+            side="top",
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Multi-selection drag (components + wires)
+# ---------------------------------------------------------------------------
+
+
+class TestMultiSelectionDrag:
+    """Tests for rubber-band selection + drag of mixed components/wires."""
+
+    def test_rubber_band_left_to_right_selects_components_inside(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """LTR rubber-band: only fully-contained components are selected."""
+        i1 = _place_component(board_view, session, 1.5, 1.5)
+        i2 = _place_component(board_view, session, 4.5, 4.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # LTR drag from (0,0) to (3,3) — i1 bbox inside, i2 bbox outside.
+        _press(tool, 0.0, 0.0)
+        _move(tool, 3.0, 3.0)
+        _release(tool, 3.0, 3.0)
+        assert i1.id in tool._selected_ids
+        assert i2.id not in tool._selected_ids
+
+    def test_rubber_band_right_to_left_selects_touching_components(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """RTL rubber-band: components that touch the rect are selected."""
+        i1 = _place_component(board_view, session, 1.5, 1.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # RTL drag: start x > end x.
+        _press(tool, 3.0, 3.0)
+        _move(tool, 0.0, 0.0)
+        _release(tool, 0.0, 0.0)
+        assert i1.id in tool._selected_ids
+
+    def test_rubber_band_selects_wires(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """Rubber-band includes wires whose points fall inside the rect."""
+        _add_wire(session, [(1.0, 1.0), (2.0, 1.0)])
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        wire_id = session.layout.wires[0].id
+        # RTL drag to include the wire points.
+        _press(tool, 3.0, 3.0)
+        _move(tool, 0.0, 0.0)
+        _release(tool, 0.0, 0.0)
+        assert wire_id in tool._selected_wire_ids
+
+    def test_drag_component_in_multi_selection_moves_all(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """After rubber-band, dragging one selected component moves all."""
+        i1 = _place_component(board_view, session, 1.5, 1.5)
+        i2 = _place_component(board_view, session, 2.5, 1.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # Select both with RTL rubber-band.
+        _press(tool, 4.0, 3.0)
+        _move(tool, 0.0, 0.0)
+        _release(tool, 0.0, 0.0)
+        assert i1.id in tool._selected_ids
+        assert i2.id in tool._selected_ids
+        # Now click on i1 and drag by (+2, 0).
+        _press(tool, 1.5, 1.5)
+        _move(tool, 3.5, 1.5)
+        _release(tool, 3.5, 1.5)
+        assert session.layout.placements[i1.id].position == Point(3.5, 1.5)
+        assert session.layout.placements[i2.id].position == Point(4.5, 1.5)
+
+    def test_drag_multi_selection_is_undoable(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """Moving multi-selection creates a single undo entry."""
+        i1 = _place_component(board_view, session, 1.5, 1.5)
+        i2 = _place_component(board_view, session, 2.5, 1.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        _press(tool, 4.0, 3.0)
+        _move(tool, 0.0, 0.0)
+        _release(tool, 0.0, 0.0)
+        _press(tool, 1.5, 1.5)
+        _move(tool, 3.5, 1.5)
+        _release(tool, 3.5, 1.5)
+        # One undo entry for the whole move.
+        stack_depth = len(session.stack._undo)
+        session.stack.undo(session)
+        assert len(session.stack._undo) == stack_depth - 1
+        assert session.layout.placements[i1.id].position == Point(1.5, 1.5)
+        assert session.layout.placements[i2.id].position == Point(2.5, 1.5)
+
+    def test_drag_selected_wire_moves_wire(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """Clicking a selected wire and dragging moves its path."""
+        _add_wire(session, [(1.0, 1.0), (2.0, 1.0)])
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        wire_id = session.layout.wires[0].id
+        # RTL rubber-band to select wire.
+        _press(tool, 3.0, 3.0)
+        _move(tool, 0.0, 0.0)
+        _release(tool, 0.0, 0.0)
+        assert wire_id in tool._selected_wire_ids
+        # Click near wire midpoint and drag by (+1, +1).
+        _press(tool, 1.5, 1.0)
+        _move(tool, 2.5, 2.0)
+        _release(tool, 2.5, 2.0)
+        wire = session.layout.wires[0]
+        assert wire.path[0] == Point(2.0, 2.0)
+        assert wire.path[1] == Point(3.0, 2.0)
+
+    def test_drag_wire_is_undoable(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """Wire drag creates undo entry that restores original path."""
+        _add_wire(session, [(1.0, 1.0), (2.0, 1.0)])
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        wire_id = session.layout.wires[0].id
+        _press(tool, 3.0, 3.0)
+        _move(tool, 0.0, 0.0)
+        _release(tool, 0.0, 0.0)
+        assert wire_id in tool._selected_wire_ids
+        _press(tool, 1.5, 1.0)
+        _move(tool, 2.5, 2.0)
+        _release(tool, 2.5, 2.0)
+        session.stack.undo(session)
+        wire = session.layout.wires[0]
+        assert wire.path[0] == Point(1.0, 1.0)
+        assert wire.path[1] == Point(2.0, 1.0)
+
+    def test_mixed_drag_moves_both_component_and_wire(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """Selecting component + wire and dragging moves both."""
+        inst = _place_component(board_view, session, 1.5, 1.5)
+        _add_wire(session, [(1.0, 3.0), (2.0, 3.0)])
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # RTL rubber-band to select both.
+        _press(tool, 4.0, 4.0)
+        _move(tool, 0.0, 0.0)
+        _release(tool, 0.0, 0.0)
+        assert inst.id in tool._selected_ids
+        assert session.layout.wires[0].id in tool._selected_wire_ids
+        # Drag from component position by (+1, 0).
+        _press(tool, 1.5, 1.5)
+        _move(tool, 2.5, 1.5)
+        _release(tool, 2.5, 1.5)
+        assert session.layout.placements[inst.id].position == Point(2.5, 1.5)
+        wire = session.layout.wires[0]
+        assert wire.path[0] == Point(2.0, 3.0)
+        assert wire.path[1] == Point(3.0, 3.0)

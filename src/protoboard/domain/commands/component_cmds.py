@@ -228,10 +228,18 @@ class RemoveWireCommand(Command[ComponentState]):
 
 @dataclass
 class ReplaceWireSegmentCommand(Command[ComponentState]):
-    """Replace the path of an existing wire (for segment editing)."""
+    """Replace the path of an existing wire (for segment editing).
+
+    If *old_path* is provided it is used directly for undo — callers that
+    mutate the wire in-place before executing the command (e.g. drag-move)
+    must supply the original path here so that apply() does not read the
+    already-overwritten state.
+    """
 
     wire_id: uuid.UUID
     new_path: list[Point]
+    # Caller-supplied pre-mutation path; if empty, apply() reads from state.
+    old_path: list[Point] = field(default_factory=list)
     _old_path: list[Point] = field(default_factory=list, init=False, repr=False)
 
     @property
@@ -243,7 +251,10 @@ class ReplaceWireSegmentCommand(Command[ComponentState]):
 
         for i, wire in enumerate(state.layout.wires):
             if wire.id == self.wire_id:
-                object.__setattr__(self, "_old_path", list(wire.path))
+                # Use caller-supplied old_path when available (drag case),
+                # otherwise snapshot the current state (edit-commit case).
+                saved = self.old_path if self.old_path else list(wire.path)
+                object.__setattr__(self, "_old_path", saved)
                 state.layout.wires[i] = _replace(wire, path=self.new_path)
                 return
         raise KeyError(f"Wire {self.wire_id} not found")
