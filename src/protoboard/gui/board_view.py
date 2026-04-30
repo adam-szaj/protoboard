@@ -16,11 +16,12 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 
+from protoboard.domain.board.boxes import StripAtom
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.geometry import Point
 from protoboard.gui.renderers.board_renderer import BOARD_BG, render_board
 from protoboard.gui.renderers.component_renderer import render_components
-from protoboard.gui.renderers.wire_renderer import render_wires
+from protoboard.gui.renderers.wire_renderer import render_ratsnest, render_wires
 from protoboard.gui.session import EditorSession
 from protoboard.services.routing.net_status import routed_net_ids
 
@@ -90,6 +91,15 @@ class BoardView(QGraphicsView):
             schematic=self._session.schematic if self._session.schematic.nets else None,
             routed_nets=routed,
         )
+        if self._session.schematic.nets:
+            render_ratsnest(
+                self._scene,
+                self._session.schematic,
+                self._session.layout.placements,
+                self._session.instances,
+                self._session.components,
+                routed_nets=routed,
+            )
         # Fit scene rect to board bounds.
         b = self._session.board.bounds
         self._scene.setSceneRect(QRectF(b.x - 1, b.y - 1, b.width + 2, b.height + 2))
@@ -109,13 +119,30 @@ class BoardView(QGraphicsView):
         board = self._session.board
         best: Point | None = None
         best_d = math.inf
-        for _, pad_pos in board.atoms():
-            dx = scene_pt.x() - pad_pos.x
-            dy = scene_pt.y() - pad_pos.y
+
+        def _check(px: float, py: float) -> None:
+            nonlocal best, best_d
+            dx = scene_pt.x() - px
+            dy = scene_pt.y() - py
             d = dx * dx + dy * dy
             if d < best_d:
                 best_d = d
-                best = pad_pos
+                best = Point(px, py)
+
+        for atom, center in board.atoms():
+            if isinstance(atom, StripAtom):
+                n = int(atom.length) if isinstance(atom.length, int) else 1
+                if atom.orientation == "horizontal":
+                    start_x = center.x - n / 2.0 + 0.5
+                    for i in range(n):
+                        _check(start_x + i, center.y)
+                else:
+                    start_y = center.y - n / 2.0 + 0.5
+                    for i in range(n):
+                        _check(center.x, start_y + i)
+            else:
+                _check(center.x, center.y)
+
         return best if best is not None else Point(scene_pt.x(), scene_pt.y())
 
     # ------------------------------------------------------------------
