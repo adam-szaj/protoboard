@@ -125,6 +125,10 @@ class SelectTool(_Tool):
         elif event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self._delete_selected()
 
+    def on_key_release(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Control and not self._dragging:
+            self._view.setCursor(Qt.CursorShape.ArrowCursor)
+
     # ------------------------------------------------------------------
 
     def _hit_test(self, scene_pt: QPointF) -> uuid.UUID | None:

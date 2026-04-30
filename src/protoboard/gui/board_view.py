@@ -249,6 +249,16 @@ class BoardView(QGraphicsView):
         else:
             super().keyPressEvent(event)
 
+    def keyReleaseEvent(self, event: QKeyEvent) -> None:
+        if self._active_tool is not None:
+            self._active_tool.on_key_release(event)
+        super().keyReleaseEvent(event)
+
+    def leaveEvent(self, event: object) -> None:
+        """Reset cursor when mouse leaves the viewport."""
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        super().leaveEvent(event)  # type: ignore[arg-type]
+
 
 class _Tool:
     """Base class for board-view interaction tools."""
@@ -271,6 +281,9 @@ class _Tool:
         pass
 
     def on_key(self, event: QKeyEvent) -> None:
+        pass
+
+    def on_key_release(self, event: QKeyEvent) -> None:
         pass
 
     def on_scene_cleared(self) -> None:
