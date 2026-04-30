@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QCloseEvent, QKeyEvent
+from PySide6.QtGui import QAction, QCloseEvent, QKeyEvent, QKeySequence
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
@@ -129,6 +129,7 @@ class MainWindow(QMainWindow):
         self._netlist_panel.instance_selected.connect(self._board_view.select_component)
         session.layout_changed.connect(self._refresh_netlist)
         session.layout_changed.connect(self._drc_timer.start)
+        session.layout_changed.connect(self._update_undo_redo)
         session.drc_changed.connect(self._props_panel.update_issues)
         self._props_panel.component_changed.connect(self._on_component_changed)
         self._props_panel.pin_offsets_changed.connect(self._on_pin_offsets_changed)
@@ -147,13 +148,35 @@ class MainWindow(QMainWindow):
     def _build_menu(self) -> None:
         mb: QMenuBar = self.menuBar()
 
+        # ── File ──────────────────────────────────────────────────────────
         file_menu = mb.addMenu("&File")
 
-        act_save = file_menu.addAction("&Save\tCtrl+S")
+        act_save = file_menu.addAction("&Save")
+        act_save.setShortcut(QKeySequence.StandardKey.Save)
         act_save.triggered.connect(self._save)
 
         act_save_as = file_menu.addAction("Save &As…")
+        act_save_as.setShortcut(QKeySequence.StandardKey.SaveAs)
         act_save_as.triggered.connect(self._save_as)
+
+        file_menu.addSeparator()
+
+        act_import_net = file_menu.addAction("&Import KiCAD .net…")
+        act_import_net.triggered.connect(self._import_kicad_net)
+
+        act_export_net = file_menu.addAction("Export KiCAD .net…")
+        act_export_net.triggered.connect(self._export_kicad_net)
+
+        file_menu.addSeparator()
+
+        act_export_svg = file_menu.addAction("Export SVG…")
+        act_export_svg.triggered.connect(self._export_svg)
+
+        act_export_pdf = file_menu.addAction("Export PDF…")
+        act_export_pdf.triggered.connect(self._export_pdf)
+
+        act_export_bom = file_menu.addAction("Export BOM CSV…")
+        act_export_bom.triggered.connect(self._export_bom)
 
         file_menu.addSeparator()
 
@@ -162,8 +185,45 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
-        act_quit = file_menu.addAction("&Quit\tCtrl+Q")
+        act_quit = file_menu.addAction("&Quit")
+        act_quit.setShortcut(QKeySequence.StandardKey.Quit)
         act_quit.triggered.connect(self.close)
+
+        # ── Edit ──────────────────────────────────────────────────────────
+        edit_menu = mb.addMenu("&Edit")
+
+        self._act_undo: QAction = edit_menu.addAction("&Undo")
+        self._act_undo.setShortcut(QKeySequence.StandardKey.Undo)
+        self._act_undo.setEnabled(False)
+        self._act_undo.triggered.connect(self._undo)
+
+        self._act_redo: QAction = edit_menu.addAction("&Redo")
+        self._act_redo.setShortcut(QKeySequence.StandardKey.Redo)
+        self._act_redo.setEnabled(False)
+        self._act_redo.triggered.connect(self._redo)
+
+        edit_menu.addSeparator()
+
+        act_select_all = edit_menu.addAction("Select &All\tCtrl+A")
+        act_select_all.setShortcut(QKeySequence.StandardKey.SelectAll)
+        act_select_all.triggered.connect(self._select_all)
+
+        # ── Tools ─────────────────────────────────────────────────────────
+        tools_menu = mb.addMenu("&Tools")
+
+        act_tool_select = tools_menu.addAction("&Select\tS")
+        act_tool_select.triggered.connect(self._tool_select)
+
+        act_tool_route = tools_menu.addAction("Route &Wire\tW")
+        act_tool_route.triggered.connect(self._tool_route)
+
+        act_tool_cut = tools_menu.addAction("&Cut Strip\tC")
+        act_tool_cut.triggered.connect(self._tool_cut)
+
+        tools_menu.addSeparator()
+
+        act_drc = tools_menu.addAction("Run &DRC\tF5")
+        act_drc.triggered.connect(self._run_drc)
 
     # ------------------------------------------------------------------
     # Title helper
@@ -255,6 +315,53 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Other actions
     # ------------------------------------------------------------------
+
+    def _undo(self) -> None:
+        if self._session.stack.can_undo():
+            self._session.stack.undo(self._session)
+            self._board_view.refresh()
+            self._update_stats()
+            self._update_undo_redo()
+
+    def _redo(self) -> None:
+        if self._session.stack.can_redo():
+            self._session.stack.redo(self._session)
+            self._board_view.refresh()
+            self._update_stats()
+            self._update_undo_redo()
+
+    def _update_undo_redo(self) -> None:
+        """Sync Undo/Redo menu item enabled state and label."""
+        stack = self._session.stack
+        can_undo = stack.can_undo()
+        can_redo = stack.can_redo()
+        self._act_undo.setEnabled(can_undo)
+        self._act_redo.setEnabled(can_redo)
+        if can_undo:
+            desc = getattr(stack._undo[-1], "description", "")
+            self._act_undo.setText(f"&Undo  {desc}" if desc else "&Undo")
+        else:
+            self._act_undo.setText("&Undo")
+        if can_redo:
+            desc = getattr(stack._redo[-1], "description", "")
+            self._act_redo.setText(f"&Redo  {desc}" if desc else "&Redo")
+        else:
+            self._act_redo.setText("&Redo")
+
+    def _select_all(self) -> None:
+        """Select all components and wires with rubber-band across entire board."""
+        from protoboard.gui.tools.select_tool import SelectTool
+
+        if not isinstance(self._board_view._active_tool, SelectTool):
+            self._board_view.set_tool(SelectTool())
+        tool = self._board_view._active_tool
+        if not isinstance(tool, SelectTool):
+            return
+        session = self._session
+        tool._selected_ids = set(session.layout.placements.keys())
+        tool._selected_wire_ids = {w.id for w in session.layout.wires}
+        tool._redraw_multi_highlights()
+        tool._redraw_multi_wire_highlights()
 
     def _run_drc(self) -> None:
         issues = self._session.run_drc()
@@ -443,14 +550,8 @@ class MainWindow(QMainWindow):
         elif key == Qt.Key.Key_Q and ctrl:
             self.close()
         elif key == Qt.Key.Key_Z and ctrl:
-            if self._session.stack.can_undo():
-                self._session.stack.undo(self._session)
-                self._board_view.refresh()
-                self._update_stats()
+            self._undo()
         elif key == Qt.Key.Key_Y and ctrl:
-            if self._session.stack.can_redo():
-                self._session.stack.redo(self._session)
-                self._board_view.refresh()
-                self._update_stats()
+            self._redo()
         else:
             super().keyPressEvent(event)
