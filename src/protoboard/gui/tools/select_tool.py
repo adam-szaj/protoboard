@@ -47,8 +47,10 @@ class SelectTool(_Tool):
 
     def on_scene_cleared(self) -> None:
         # Drop the stale graphics item reference — scene.clear() destroyed it.
-        # Keep _selected_id so that an in-progress drag can still commit.
         self._highlight = None
+        # Redraw highlight after scene is rebuilt (called from board_view.refresh).
+        if self._selected_id is not None and not self._dragging:
+            self._draw_highlight(self._selected_id)
 
     def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:

@@ -66,7 +66,8 @@ class PlaceTool(_Tool):
             self._rebuild_ghost()
 
     def on_scene_cleared(self) -> None:
-        self._ghost = None  # scene wiped — item is gone
+        self._ghost = None  # scene wiped — rebuild immediately
+        self._rebuild_ghost()
 
     # ------------------------------------------------------------------
     # Ghost helpers
