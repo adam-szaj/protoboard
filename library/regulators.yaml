@@ -1,0 +1,78 @@
+components:
+  # -----------------------------------------------------------------------
+  # Templates
+  # -----------------------------------------------------------------------
+
+  - name: _TO92_3
+    component_class: ic
+    footprint: {type: TO92}
+    pin_names: {}
+
+  - name: _TO220_3
+    component_class: ic
+    footprint: {type: TO220}
+    pin_names: {}
+
+  # -----------------------------------------------------------------------
+  # Linear regulators — 78xx / 79xx (TO-220, pinout: 1=IN, 2=GND, 3=OUT)
+  # -----------------------------------------------------------------------
+
+  - name: _78xx
+    extends: _TO220_3
+    pin_names: {1: IN, 2: GND, 3: OUT}
+
+  - name: _79xx
+    extends: _TO220_3
+    pin_names: {1: IN, 2: GND, 3: OUT}
+
+  - name: '7805'
+    extends: _78xx
+    description: "+5V 1A linear regulator"
+
+  - name: '7809'
+    extends: _78xx
+    description: "+9V 1A linear regulator"
+
+  - name: '7812'
+    extends: _78xx
+    description: "+12V 1A linear regulator"
+
+  - name: '7815'
+    extends: _78xx
+    description: "+15V 1A linear regulator"
+
+  - name: '7905'
+    extends: _79xx
+    description: "-5V 1A linear regulator"
+
+  - name: '7912'
+    extends: _79xx
+    description: "-12V 1A linear regulator"
+
+  # -----------------------------------------------------------------------
+  # Adjustable regulators
+  # -----------------------------------------------------------------------
+
+  - name: LM317
+    extends: _TO220_3
+    pin_names: {1: ADJ, 2: OUT, 3: IN}
+    description: "Adjustable +1.25..37V 1.5A linear regulator"
+
+  - name: LM337
+    extends: _TO220_3
+    pin_names: {1: ADJ, 2: OUT, 3: IN}
+    description: "Adjustable -1.25..-37V 1.5A linear regulator"
+
+  # -----------------------------------------------------------------------
+  # Low-dropout (SOT-89 / TO-92 compatible)
+  # -----------------------------------------------------------------------
+
+  - name: LM78L05
+    extends: _TO92_3
+    pin_names: {1: OUT, 2: GND, 3: IN}
+    description: "+5V 100mA LDO (TO-92)"
+
+  - name: LM78L33
+    extends: _TO92_3
+    pin_names: {1: OUT, 2: GND, 3: IN}
+    description: "+3.3V 100mA LDO (TO-92)"

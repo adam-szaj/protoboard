@@ -1,10 +1,28 @@
 components:
-  - name: LM358
-    description: "Dual op-amp"
-    category: ic
-    footprint:
-      type: DIP
-      pins: 8
+  # -----------------------------------------------------------------------
+  # Templates
+  # -----------------------------------------------------------------------
+
+  # Dual op-amp / comparator, single supply (pin 4 = GND, pin 8 = VCC)
+  # Used by: LM358, LM393, LM2904, ...
+  - name: _DUAL_OPAMP_SS
+    component_class: ic
+    footprint: {type: DIP, pins: 8}
+    pin_names:
+      1: OUT_A
+      2: IN-_A
+      3: IN+_A
+      4: GND
+      5: IN+_B
+      6: IN-_B
+      7: OUT_B
+      8: VCC
+
+  # Dual op-amp, dual supply (pin 4 = VEE, pin 8 = VCC)
+  # Used by: TL072, NE5532, MC1458, RC4558, ...
+  - name: _DUAL_OPAMP_DS
+    component_class: ic
+    footprint: {type: DIP, pins: 8}
     pin_names:
       1: OUT_A
       2: IN-_A
@@ -14,3 +32,135 @@ components:
       6: IN-_B
       7: OUT_B
       8: VCC
+
+  # Quad op-amp (pin 4 = VCC, pin 11 = GND)
+  # Used by: LM324, TL074, MC3403, ...
+  - name: _QUAD_OPAMP
+    component_class: ic
+    footprint: {type: DIP, pins: 14}
+    pin_names:
+      1: OUT_A
+      2: IN-_A
+      3: IN+_A
+      4: VCC
+      5: IN+_B
+      6: IN-_B
+      7: OUT_B
+      8: OUT_C
+      9: IN-_C
+      10: IN+_C
+      11: GND
+      12: IN+_D
+      13: IN-_D
+      14: OUT_D
+
+  # Single op-amp, 741-style (pin 4 = VEE, offset null on pins 1/5)
+  # Used by: uA741, TL071, LM741, ...
+  - name: _SINGLE_OPAMP_741
+    component_class: ic
+    footprint: {type: DIP, pins: 8}
+    pin_names:
+      1: OFFSET_N1
+      2: IN-
+      3: IN+
+      4: VEE
+      5: OFFSET_N2
+      6: OUT
+      7: VCC
+      8: NC
+
+  # -----------------------------------------------------------------------
+  # Dual op-amps — single supply
+  # -----------------------------------------------------------------------
+
+  - name: LM358
+    extends: _DUAL_OPAMP_SS
+    description: "Dual op-amp, single supply, 3..32V"
+
+  - name: LM2904
+    extends: _DUAL_OPAMP_SS
+    description: "Dual op-amp, single supply, industrial temp range"
+
+  - name: LM393
+    extends: _DUAL_OPAMP_SS
+    description: "Dual voltage comparator, open-collector output"
+
+  - name: LM339
+    component_class: ic
+    footprint: {type: DIP, pins: 14}
+    description: "Quad voltage comparator, open-collector output"
+    pin_names:
+      1: OUT_A
+      2: OUT_B
+      3: VCC
+      4: IN+_B
+      5: IN-_B
+      6: IN+_C
+      7: IN-_C
+      8: GND
+      9: IN+_D
+      10: IN-_D
+      11: OUT_D
+      12: OUT_C
+      13: IN-_A
+      14: IN+_A
+
+  # -----------------------------------------------------------------------
+  # Dual op-amps — dual supply
+  # -----------------------------------------------------------------------
+
+  - name: TL072
+    extends: _DUAL_OPAMP_DS
+    description: "Dual JFET op-amp, low noise, low offset"
+
+  - name: TL082
+    extends: _DUAL_OPAMP_DS
+    description: "Dual JFET op-amp, wide bandwidth"
+
+  - name: NE5532
+    extends: _DUAL_OPAMP_DS
+    description: "Dual low-noise op-amp, audio grade"
+
+  - name: MC1458
+    extends: _DUAL_OPAMP_DS
+    description: "Dual general-purpose op-amp (uA741 dual)"
+
+  - name: RC4558
+    extends: _DUAL_OPAMP_DS
+    description: "Dual general-purpose op-amp"
+
+  # -----------------------------------------------------------------------
+  # Quad op-amps
+  # -----------------------------------------------------------------------
+
+  - name: LM324
+    extends: _QUAD_OPAMP
+    description: "Quad op-amp, single supply, 3..32V"
+
+  - name: TL074
+    extends: _QUAD_OPAMP
+    description: "Quad JFET op-amp, low noise"
+
+  - name: TL084
+    extends: _QUAD_OPAMP
+    description: "Quad JFET op-amp, wide bandwidth"
+
+  - name: MC3403
+    extends: _QUAD_OPAMP
+    description: "Quad op-amp, single/dual supply"
+
+  # -----------------------------------------------------------------------
+  # Single op-amps (741-style DIP-8)
+  # -----------------------------------------------------------------------
+
+  - name: uA741
+    extends: _SINGLE_OPAMP_741
+    description: "Classic single general-purpose op-amp"
+
+  - name: TL071
+    extends: _SINGLE_OPAMP_741
+    description: "Single JFET op-amp, low noise"
+
+  - name: LM741
+    extends: _SINGLE_OPAMP_741
+    description: "Single op-amp, military/industrial"

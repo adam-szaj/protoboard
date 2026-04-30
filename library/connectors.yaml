@@ -1,0 +1,119 @@
+components:
+  # -----------------------------------------------------------------------
+  # Templates
+  # -----------------------------------------------------------------------
+
+  - name: _SIL2
+    component_class: connector
+    footprint: {type: SIL, pins: 2}
+    pin_names: {1: "1", 2: "2"}
+
+  - name: _SIL3
+    component_class: connector
+    footprint: {type: SIL, pins: 3}
+    pin_names: {1: "1", 2: "2", 3: "3"}
+
+  - name: _SIL4
+    component_class: connector
+    footprint: {type: SIL, pins: 4}
+    pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
+
+  - name: _SIL5
+    component_class: connector
+    footprint: {type: SIL, pins: 5}
+    pin_names: {1: "1", 2: "2", 3: "3", 4: "4", 5: "5"}
+
+  - name: _SIL6
+    component_class: connector
+    footprint: {type: SIL, pins: 6}
+    pin_names: {1: "1", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6"}
+
+  # -----------------------------------------------------------------------
+  # Generic pin headers (2.54mm)
+  # -----------------------------------------------------------------------
+
+  - name: PinHeader_1x02
+    extends: _SIL2
+    description: "2-pin header 2.54mm"
+
+  - name: PinHeader_1x03
+    extends: _SIL3
+    description: "3-pin header 2.54mm"
+
+  - name: PinHeader_1x04
+    extends: _SIL4
+    description: "4-pin header 2.54mm"
+
+  - name: PinHeader_1x05
+    extends: _SIL5
+    description: "5-pin header 2.54mm"
+
+  - name: PinHeader_1x06
+    extends: _SIL6
+    description: "6-pin header 2.54mm"
+
+  - name: PinHeader_2x03
+    component_class: connector
+    footprint: {type: DIP, pins: 6}
+    pin_names: {1: "1", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6"}
+    description: "6-pin dual-row header 2.54mm"
+
+  - name: PinHeader_2x05
+    component_class: connector
+    footprint: {type: DIP, pins: 10}
+    pin_names: {}
+    description: "10-pin dual-row header 2.54mm (IDC)"
+
+  - name: PinHeader_2x08
+    component_class: connector
+    footprint: {type: DIP, pins: 16}
+    pin_names: {}
+    description: "16-pin dual-row header 2.54mm (IDC)"
+
+  # -----------------------------------------------------------------------
+  # Screw terminals (5.08mm pitch — 2 raster units)
+  # -----------------------------------------------------------------------
+
+  - name: Screw_Term_1x02
+    component_class: connector
+    footprint: {type: SIL, pins: 2, pitch: 2.0}
+    pin_names: {1: "+", 2: "-"}
+    description: "2-pin screw terminal 5.08mm"
+
+  - name: Screw_Term_1x03
+    component_class: connector
+    footprint: {type: SIL, pins: 3, pitch: 2.0}
+    pin_names: {1: "1", 2: "2", 3: "3"}
+    description: "3-pin screw terminal 5.08mm"
+
+  # -----------------------------------------------------------------------
+  # JST connectors (2.0mm / 2.54mm pitch)
+  # -----------------------------------------------------------------------
+
+  - name: JST_PH_2pin
+    extends: _SIL2
+    description: "JST PH 2-pin (2.0mm pitch, through-hole)"
+
+  - name: JST_PH_3pin
+    extends: _SIL3
+    description: "JST PH 3-pin (2.0mm pitch, through-hole)"
+
+  - name: JST_PH_4pin
+    extends: _SIL4
+    description: "JST PH 4-pin (2.0mm pitch, through-hole)"
+
+  - name: JST_XH_2pin
+    extends: _SIL2
+    description: "JST XH 2-pin (2.5mm pitch, through-hole)"
+
+  - name: JST_XH_3pin
+    extends: _SIL3
+    description: "JST XH 3-pin (2.5mm pitch, through-hole)"
+
+  - name: JST_XH_4pin
+    extends: _SIL4
+    description: "JST XH 4-pin (2.5mm pitch, through-hole)"
+
+  - name: JST_XH_5pin
+    extends: _SIL5
+    description: "JST XH 5-pin (2.5mm pitch, through-hole)"

@@ -1,10 +1,78 @@
 components:
+  # -----------------------------------------------------------------------
+  # Templates (prefix _ → not placeable)
+  # -----------------------------------------------------------------------
+
+  - name: _NPN
+    component_class: transistor_npn
+    footprint: {type: TO92}
+    pin_names: {}
+
+  - name: _PNP
+    component_class: transistor_pnp
+    footprint: {type: TO92}
+    pin_names: {}
+
+  - name: _TO92_NPN_CBE
+    extends: _NPN
+    pin_names: {1: C, 2: B, 3: E}
+
+  - name: _TO92_NPN_BCE
+    extends: _NPN
+    pin_names: {1: B, 2: C, 3: E}
+
+  - name: _TO92_NPN_EBC
+    extends: _NPN
+    pin_names: {1: E, 2: B, 3: C}
+
+  - name: _TO92_PNP_CBE
+    extends: _PNP
+    pin_names: {1: C, 2: B, 3: E}
+
+  - name: _TO92_PNP_EBC
+    extends: _PNP
+    pin_names: {1: E, 2: B, 3: C}
+
+  # -----------------------------------------------------------------------
+  # NPN BJT
+  # -----------------------------------------------------------------------
+
   - name: BC547
-    description: "NPN BJT (TO-92)"
-    category: transistor
-    footprint:
-      type: TO92
-    pin_names:
-      1: C
-      2: B
-      3: E
+    extends: _TO92_NPN_CBE
+    description: "NPN 45V 0.1A general purpose"
+
+  - name: BC548
+    extends: _TO92_NPN_CBE
+    description: "NPN 30V 0.1A general purpose"
+
+  - name: BC549
+    extends: _TO92_NPN_CBE
+    description: "NPN 30V 0.1A low noise"
+
+  - name: 2N2222
+    extends: _TO92_NPN_CBE
+    description: "NPN 40V 0.6A switching"
+
+  - name: 2N3904
+    extends: _TO92_NPN_EBC
+    description: "NPN 40V 0.2A general purpose"
+
+  - name: BC337
+    extends: _TO92_NPN_BCE
+    description: "NPN 45V 0.8A medium power"
+
+  # -----------------------------------------------------------------------
+  # PNP BJT
+  # -----------------------------------------------------------------------
+
+  - name: BC557
+    extends: _TO92_PNP_CBE
+    description: "PNP 45V 0.1A general purpose"
+
+  - name: BC558
+    extends: _TO92_PNP_CBE
+    description: "PNP 30V 0.1A general purpose"
+
+  - name: 2N3906
+    extends: _TO92_PNP_EBC
+    description: "PNP 40V 0.2A general purpose"
