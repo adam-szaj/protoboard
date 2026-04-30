@@ -84,6 +84,7 @@ class SelectTool(_Tool):
         # Drag state (works for both single and multi).
         self._dragging = False
         self._drag_orig_positions: dict[uuid.UUID, Point] = {}
+        self._drag_orig_wire_paths: dict[uuid.UUID, list[Point]] = {}
         self._drag_anchor_offset: tuple[float, float] = (0.0, 0.0)
         # Rubber-band state.
         self._rubber_band_start: QPointF | None = None
@@ -110,6 +111,7 @@ class SelectTool(_Tool):
     def deactivate(self) -> None:
         self._dragging = False
         self._drag_orig_positions = {}
+        self._drag_orig_wire_paths = {}
         self._cancel_wire_edit()
         self._deselect_wire()
         self._clear_multi_wire_selection()
@@ -202,7 +204,7 @@ class SelectTool(_Tool):
             # Begin drag.
             self._dragging = True
             self._drag_orig_positions = {}
-            # Determine which IDs to drag: all selected, or just this one.
+            self._drag_orig_wire_paths = {}
             drag_ids = self._selected_ids if self._selected_ids else {hit}
             snapped = self._view.snap(scene_pt)
             for cid in drag_ids:
@@ -216,15 +218,49 @@ class SelectTool(_Tool):
                         pl.position.x - snapped.x,
                         pl.position.y - snapped.y,
                     )
+            # Also drag any selected wires.
+            for wire in self._session.layout.wires:
+                if wire.id in self._selected_wire_ids:
+                    self._drag_orig_wire_paths[wire.id] = list(wire.path)
             return True
 
         wire_hit = self._hit_test_wire(scene_pt)
         if wire_hit is not None:
             self._cancel_wire_edit()
-            self._clear_multi_selection()
-            self._clear_multi_wire_selection()
-            self._deselect()
-            self._select_wire(wire_hit)
+            if wire_hit in self._selected_wire_ids:
+                # Klik na już zaznaczony drut → drag całej selekcji.
+                snapped = self._view.snap(scene_pt)
+                self._dragging = True
+                self._drag_orig_positions = {}
+                self._drag_orig_wire_paths = {}
+                # Anchor offset: użyj pierwszego punktu klikniętego drutu.
+                wire_obj = next(
+                    (w for w in self._session.layout.wires if w.id == wire_hit),
+                    None,
+                )
+                if wire_obj and wire_obj.path:
+                    self._drag_anchor_offset = (
+                        wire_obj.path[0].x - snapped.x,
+                        wire_obj.path[0].y - snapped.y,
+                    )
+                    # Use wire anchor as synthetic "selected_id" anchor.
+                    self._selected_id = None
+                for wid in self._selected_wire_ids:
+                    wobj = next(
+                        (w for w in self._session.layout.wires if w.id == wid),
+                        None,
+                    )
+                    if wobj:
+                        self._drag_orig_wire_paths[wid] = list(wobj.path)
+                for cid in self._selected_ids:
+                    pl = self._session.layout.placements.get(cid)
+                    if pl is not None:
+                        self._drag_orig_positions[cid] = pl.position
+            else:
+                self._clear_multi_selection()
+                self._clear_multi_wire_selection()
+                self._deselect()
+                self._select_wire(wire_hit)
             return True
 
         # Nothing hit — start rubber-band.
@@ -281,29 +317,58 @@ class SelectTool(_Tool):
         if self._dragging:
             snapped = self._view.snap(scene_pt)
             dx_off, dy_off = self._drag_anchor_offset
-            # Primary component position.
             anchor_new = Point(snapped.x + dx_off, snapped.y + dy_off)
+
+            # Compute delta from anchor.
             anchor_id = self._selected_id
-            if anchor_id is None:
+            delta: Point | None = None
+            if anchor_id is not None:
+                anchor_orig = self._drag_orig_positions.get(anchor_id)
+                if anchor_orig is not None:
+                    delta = Point(
+                        anchor_new.x - anchor_orig.x,
+                        anchor_new.y - anchor_orig.y,
+                    )
+            if delta is None and self._drag_orig_wire_paths:
+                # Drag started from a wire — compute delta from first wire's
+                # first point vs. anchor_new.
+                first_wid = next(iter(self._drag_orig_wire_paths))
+                first_orig = self._drag_orig_wire_paths[first_wid]
+                if first_orig:
+                    delta = Point(
+                        anchor_new.x - first_orig[0].x,
+                        anchor_new.y - first_orig[0].y,
+                    )
+            if delta is None:
                 return
-            anchor_orig = self._drag_orig_positions.get(anchor_id)
-            if anchor_orig is None:
-                return
-            delta = Point(
-                anchor_new.x - anchor_orig.x,
-                anchor_new.y - anchor_orig.y,
-            )
+            _delta: Point = delta  # narrow type for mypy
+
+            # Move components.
             drag_ids = (
-                self._selected_ids if self._selected_ids else {anchor_id}
+                self._selected_ids if self._selected_ids
+                else ({anchor_id} if anchor_id else set())
             )
             for cid in drag_ids:
                 pl = self._session.layout.placements.get(cid)
                 orig = self._drag_orig_positions.get(cid)
                 if pl is not None and orig is not None:
-                    new_pos = Point(orig.x + delta.x, orig.y + delta.y)
+                    new_pos = Point(orig.x + _delta.x, orig.y + _delta.y)
                     self._session.layout.placements[cid] = dataclasses.replace(
                         pl, position=new_pos
                     )
+
+            # Move wires (translate all path points).
+            for i, wire in enumerate(self._session.layout.wires):
+                if wire.id not in self._drag_orig_wire_paths:
+                    continue
+                orig_path: list[Point] = self._drag_orig_wire_paths[wire.id]
+                new_path = [
+                    Point(p.x + _delta.x, p.y + _delta.y) for p in orig_path
+                ]
+                self._session.layout.wires[i] = dataclasses.replace(
+                    wire, path=new_path
+                )
+
             self._session.layout_changed.emit()
             return
 
@@ -329,11 +394,14 @@ class SelectTool(_Tool):
             if self._selected_ids
             else ({self._selected_id} if self._selected_id else set())
         )
-        if not drag_ids:
+        if not drag_ids and not self._drag_orig_wire_paths:
             return
 
         # Build move commands for all dragged components.
-        commands = []
+
+        from protoboard.domain.commands.base import Command
+
+        commands: list[Command[ComponentState]] = []
         for cid in drag_ids:
             pl = self._session.layout.placements.get(cid)
             orig = self._drag_orig_positions.get(cid)
@@ -373,11 +441,27 @@ class SelectTool(_Tool):
                 )
             )
 
+        # Build wire move commands.
+        for wire in self._session.layout.wires:
+            orig_path = self._drag_orig_wire_paths.get(wire.id)
+            if orig_path is None:
+                continue
+            if wire.path == orig_path:
+                continue
+            commands.append(
+                ReplaceWireSegmentCommand(
+                    wire_id=wire.id,
+                    new_path=list(wire.path),
+                )
+            )
+
+        self._drag_orig_wire_paths = {}
+
         if commands:
             if len(commands) == 1:
                 self._session.stack.execute(commands[0], self._session)
             else:
-                macro = MacroCommand(commands, description="Move components")
+                macro = MacroCommand(commands, description="Move selection")
                 self._session.stack.execute(macro, self._session)
             self._session.layout_changed.emit()
 
