@@ -7,7 +7,7 @@ import dataclasses
 import uuid
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QCloseEvent, QKeyEvent
 from PySide6.QtWidgets import (
     QDockWidget,
@@ -109,10 +109,18 @@ class MainWindow(QMainWindow):
         # Status bar.
         self._status = QStatusBar(self)
         self.setStatusBar(self._status)
-        self._cursor_label = QLabel("(—, —)")
-        self._status.addPermanentWidget(self._cursor_label)
         self._mode_label = QLabel("Select")
         self._status.addWidget(self._mode_label)
+        self._stats_label = QLabel("")
+        self._status.addPermanentWidget(self._stats_label)
+        self._cursor_label = QLabel("(—, —)")
+        self._status.addPermanentWidget(self._cursor_label)
+
+        # Auto-DRC timer — fires 600 ms after the last layout_changed.
+        self._drc_timer = QTimer(self)
+        self._drc_timer.setSingleShot(True)
+        self._drc_timer.setInterval(600)
+        self._drc_timer.timeout.connect(self._run_drc_silent)
 
         # Signals.
         self._board_view.cursor_moved.connect(self._on_cursor_moved)
@@ -120,12 +128,14 @@ class MainWindow(QMainWindow):
         self._library_panel.component_selected.connect(self._tool_place)
         self._netlist_panel.instance_selected.connect(self._board_view.select_component)
         session.layout_changed.connect(self._refresh_netlist)
+        session.layout_changed.connect(self._drc_timer.start)
         session.drc_changed.connect(self._props_panel.update_issues)
         self._props_panel.component_changed.connect(self._on_component_changed)
         self._props_panel.pin_offsets_changed.connect(self._on_pin_offsets_changed)
 
         # Populate netlist panel if schematic already loaded.
         self._refresh_netlist()
+        self._update_stats()
 
         # Default tool.
         self._tool_select()
@@ -250,6 +260,24 @@ class MainWindow(QMainWindow):
         issues = self._session.run_drc()
         n = len(issues)
         self._status.showMessage(f"DRC: {n} issue{'s' if n != 1 else ''}", 4000)
+        self._update_stats()
+
+    def _run_drc_silent(self) -> None:
+        """Auto-DRC triggered by layout_changed — no status bar message."""
+        self._session.run_drc()
+        self._update_stats()
+
+    def _update_stats(self) -> None:
+        """Update the permanent status-bar stats label."""
+        n_comp = len(self._session.layout.placements)
+        n_nets = len(self._session.schematic.nets)
+        n_issues = len(self._session.drc_issues)
+        parts = [f"{n_comp} component{'s' if n_comp != 1 else ''}"]
+        if n_nets:
+            parts.append(f"{n_nets} net{'s' if n_nets != 1 else ''}")
+        if n_issues:
+            parts.append(f"⚠ {n_issues} DRC")
+        self._stats_label.setText("  |  ".join(parts) + "   ")
 
     def _on_component_changed(
         self,
@@ -418,9 +446,11 @@ class MainWindow(QMainWindow):
             if self._session.stack.can_undo():
                 self._session.stack.undo(self._session)
                 self._board_view.refresh()
+                self._update_stats()
         elif key == Qt.Key.Key_Y and ctrl:
             if self._session.stack.can_redo():
                 self._session.stack.redo(self._session)
                 self._board_view.refresh()
+                self._update_stats()
         else:
             super().keyPressEvent(event)

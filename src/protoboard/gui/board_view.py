@@ -116,8 +116,9 @@ class BoardView(QGraphicsView):
             tool._select(comp_id)
 
     def snap(self, scene_pt: QPointF) -> Point:
-        """Snap scene-space point to nearest pad center."""
-        board = self._session.board
+        """Snap scene-space point to nearest pad or component pin center."""
+        from protoboard.domain.layout.placement import pin_world_position
+
         best: Point | None = None
         best_d = math.inf
 
@@ -130,7 +131,8 @@ class BoardView(QGraphicsView):
                 best_d = d
                 best = Point(px, py)
 
-        for atom, center in board.atoms():
+        # Board pads / strip holes.
+        for atom, center in self._session.board.atoms():
             if isinstance(atom, StripAtom):
                 n = int(atom.length) if isinstance(atom.length, int) else 1
                 if atom.orientation == "horizontal":
@@ -143,6 +145,18 @@ class BoardView(QGraphicsView):
                         _check(center.x, start_y + i)
             else:
                 _check(center.x, center.y)
+
+        # Component pin positions (placed instances).
+        for comp_id, placement in self._session.layout.placements.items():
+            inst = self._session.instances.get(comp_id)
+            if inst is None:
+                continue
+            defn = self._session.components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            for n in range(defn.footprint.pin_count()):
+                p = pin_world_position(defn.footprint, placement, n + 1)
+                _check(p.x, p.y)
 
         return best if best is not None else Point(scene_pt.x(), scene_pt.y())
 
