@@ -9,7 +9,7 @@ from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPen
 from PySide6.QtWidgets import QGraphicsLineItem
 
-from protoboard.domain.commands.component_cmds import AddWireCommand
+from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.layout.wire import WireSegment
@@ -78,11 +78,18 @@ class RouteTool(_Tool):
             insulated=self._insulated,
             side="top",
         )
+        from protoboard.gui.wire_net_resolver import resolve_wire_nets
+
+        cmd = AddWireWithNetsCommand(wire=wire)
+        if not resolve_wire_nets(
+            self._session, wire, cmd, self._view.window()
+        ):
+            self._cancel()
+            return
         self._points.clear()
         self._clear_committed()
         self._remove_live()
         self._clear_hints()
-        cmd = AddWireCommand(wire=wire)
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
 

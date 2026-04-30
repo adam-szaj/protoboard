@@ -82,19 +82,30 @@ def _check_overlap(
 
     issues: list[DRCIssue] = []
     for (x, y, side), occupants in pad_occupancy.items():
-        if len(occupants) > 1:
-            issues.append(
-                DRCIssue(
-                    severity="error",
-                    code="OVERLAP",
-                    message=(
-                        f"Multiple components share pad ({x},{y}) on {side}: "
-                        + ", ".join(f"{iid}/{p}" for iid, p in occupants)
-                    ),
-                    locations=[Point(x, y)],
-                    affected_nets=[],
-                )
+        if len(occupants) <= 1:
+            continue
+        # Filter out pairs where every occupant has the pin in shared_pins
+        # (intentional sharing agreed by the user).
+        unshared = [
+            (cid, pnum)
+            for cid, pnum in occupants
+            if pnum not in (layout.placements[cid].shared_pins
+                            if cid in layout.placements else frozenset())
+        ]
+        if len(unshared) <= 1:
+            continue
+        issues.append(
+            DRCIssue(
+                severity="error",
+                code="OVERLAP",
+                message=(
+                    f"Multiple components share pad ({x},{y}) on {side}: "
+                    + ", ".join(f"{iid}/{p}" for iid, p in occupants)
+                ),
+                locations=[Point(x, y)],
+                affected_nets=[],
             )
+        )
     return issues
 
 

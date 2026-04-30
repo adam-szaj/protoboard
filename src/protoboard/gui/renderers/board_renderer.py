@@ -20,12 +20,12 @@ from protoboard.geometry import Point
 # Visual constants (scene units = raster units)
 PAD_RADIUS = 0.35
 STRIP_RADIUS = 0.30
-PAD_COLOR = QColor("#C8A030")        # gold — active pad
+PAD_COLOR = QColor("#333333")        # gold — active pad
 STRIP_COLOR = QColor("#C8A030")      # gold — active strip hole
 STRIP_TRACK_COLOR = QColor("#A07020")  # darker gold — copper track between holes
-ISOLATED_COLOR = QColor("#444444")   # dark grey — drilled/isolated pad
+ISOLATED_COLOR = QColor("#666666")   # dark grey — drilled/isolated pad
 HOLE_COLOR = QColor("#1A1A1A")
-BOARD_BG = QColor("#2B6B3A")         # PCB green
+BOARD_BG = QColor("#444444")         # PCB light gray
 
 
 def render_board(

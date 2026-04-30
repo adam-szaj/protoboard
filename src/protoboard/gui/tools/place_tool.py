@@ -11,6 +11,7 @@ from protoboard.domain.commands.component_cmds import PlaceComponentCommand
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.gui.board_view import _Tool
+from protoboard.gui.placement_conflict import check_and_resolve
 from protoboard.gui.renderers.component_renderer import make_ghost_item
 
 
@@ -44,6 +45,19 @@ class PlaceTool(_Tool):
             rotation=self._rotation,
             side="top",
         )
+        # Check pad conflicts before committing.
+        defn = self._session.components.get(self._definition_ref)
+        if defn is not None:
+            resolved = check_and_resolve(
+                session=self._session,
+                placement=placement,
+                defn=defn,
+                instance_id=inst.id,
+                parent_widget=self._view.window(),
+            )
+            if resolved is None:
+                return True  # blocked — don't place, but consume event
+            placement = resolved
         cmd = PlaceComponentCommand(
             component_id=inst.id, placement=placement, instance=inst
         )

@@ -112,20 +112,20 @@ def _astar(
     same_net: dict[Point, uuid.UUID],
     forbidden_edges: set[tuple[Point, Point]],
 ) -> RoutingResult | None:
-    # heap entry: (f_cost, g_cost, position, direction, path_so_far)
-    # f_cost = g_cost + heuristic (Manhattan to nearest target)
+    # heap entry: (f_cost, g_cost, seq, x, y, dir_x, dir_y, path_so_far)
+    # seq is a monotone counter that breaks ties without comparing Point objects.
     def h(p: Point) -> float:
         return min(abs(p.x - t.x) + abs(p.y - t.y) for t in target_set)
 
     start_h = h(source)
-    # (f, g, x, y, dir_x, dir_y, path)
-    heap: list[tuple[float, float, float, float, float, float, list[Point]]] = [
-        (start_h, 0.0, source.x, source.y, 0.0, 0.0, [source])
+    _seq = 0
+    heap: list[tuple[float, float, int, float, float, float, float, list[Point]]] = [
+        (start_h, 0.0, _seq, source.x, source.y, 0.0, 0.0, [source])
     ]
     visited: dict[tuple[float, float, float, float], float] = {}
 
     while heap:
-        f, g, cx, cy, dx, dy, path = heapq.heappop(heap)
+        f, g, _s, cx, cy, dx, dy, path = heapq.heappop(heap)
         pos = Point(cx, cy)
         state_key = (cx, cy, dx, dy)
         if state_key in visited and visited[state_key] <= g:
@@ -163,7 +163,10 @@ def _astar(
                 continue
 
             nf = ng + h(npos)
-            heapq.heappush(heap, (nf, ng, npos.x, npos.y, ndx, ndy, path + [npos]))
+            _seq += 1
+            heapq.heappush(
+                heap, (nf, ng, _seq, npos.x, npos.y, ndx, ndy, path + [npos])
+            )
 
     return None
 

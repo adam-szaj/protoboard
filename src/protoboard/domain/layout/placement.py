@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from protoboard.domain.components.footprints import FootprintTemplate
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Rect
 
 _VALID_ROTATIONS = frozenset({0, 90, 180, 270})
 
@@ -21,6 +21,8 @@ class ComponentPlacement:
     side: Literal["top", "bottom"]
     label_offset: Point = field(default_factory=lambda: Point(0.05, 0.05))
     pin_offsets: dict[int, Point] = field(default_factory=dict)
+    # Pin numbers (1-based) intentionally sharing a pad with another component.
+    shared_pins: frozenset[int] = field(default_factory=frozenset)
 
     def __post_init__(self) -> None:
         if self.rotation not in _VALID_ROTATIONS:
@@ -43,6 +45,35 @@ def _rotate(p: Point, rotation: int) -> Point:
         return Point(-x, -y)
     # 270
     return Point(-y, x)
+
+
+_BODY_MARGIN = 0.5  # raster units added on each side of the pin bounding box
+
+
+def component_bbox(
+    footprint: FootprintTemplate,
+    placement: ComponentPlacement,
+) -> Rect:
+    """Return the axis-aligned bounding box of the component body.
+
+    Computed as the bounding box of all pin world positions, expanded by
+    _BODY_MARGIN on every side.
+    """
+    positions = [
+        pin_world_position(footprint, placement, n + 1)
+        for n in range(footprint.pin_count())
+    ]
+    xs = [p.x for p in positions]
+    ys = [p.y for p in positions]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    m = _BODY_MARGIN
+    return Rect(
+        x=min_x - m,
+        y=min_y - m,
+        width=(max_x - min_x) + 2 * m,
+        height=(max_y - min_y) + 2 * m,
+    )
 
 
 def pin_world_position(

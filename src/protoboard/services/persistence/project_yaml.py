@@ -95,6 +95,11 @@ def _layout_to_yaml(layout: Layout) -> str:
                     if pl.pin_offsets
                     else {}
                 ),
+                **(
+                    {"shared_pins": sorted(pl.shared_pins)}
+                    if pl.shared_pins
+                    else {}
+                ),
             }
             for pl in layout.placements.values()
         ],
@@ -200,6 +205,7 @@ def _layout_from_yaml(text: str) -> Layout:
             int(k): Point(float(v["x"]), float(v["y"]))
             for k, v in raw_po.items()
         }
+        shared_pins = frozenset(int(p) for p in (raw.get("shared_pins") or []))
         pl = ComponentPlacement(
             component_id=comp_id,
             position=pos,
@@ -207,6 +213,7 @@ def _layout_from_yaml(text: str) -> Layout:
             side=raw["side"],
             label_offset=label_offset,
             pin_offsets=pin_offsets,
+            shared_pins=shared_pins,
         )
         placements[comp_id] = pl
     wires: list[WireSegment] = []

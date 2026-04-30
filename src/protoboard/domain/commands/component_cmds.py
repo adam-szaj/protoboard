@@ -10,16 +10,24 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.commands.base import Command
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
+from protoboard.domain.layout.placement import (
+    ComponentPlacement,
+    component_bbox,
+    pin_world_position,
+)
 from protoboard.domain.layout.wire import WireSegment
 from protoboard.geometry import Point
+
+if TYPE_CHECKING:
+    from protoboard.domain.schematic.net import Net
+    from protoboard.domain.schematic.schematic import Schematic
 
 
 class ComponentState(Protocol):
@@ -29,6 +37,12 @@ class ComponentState(Protocol):
     layout: Layout
     instances: dict[uuid.UUID, ComponentInstance]
     components: dict[str, ComponentDefinition]
+
+
+class SchematicState(ComponentState, Protocol):
+    """Extended state that also exposes the schematic netlist."""
+
+    schematic: Schematic
 
 
 @dataclass
@@ -127,6 +141,70 @@ class AddWireCommand(Command[ComponentState]):
 
 
 @dataclass
+class AddWireWithNetsCommand(Command[ComponentState]):
+    """Add a wire and atomically record schematic net mutations for undo/redo.
+
+    The resolver mutates session.schematic.nets BEFORE stack.execute() is
+    called.  apply() on first invocation therefore only appends the wire.
+    On redo, apply() also re-applies the net mutations recorded via
+    record_net_change().  revert() always rolls back both the wire and nets.
+
+    Typed as Command[ComponentState] so it fits the shared CommandStack, but
+    requires the concrete state to also carry a `.schematic` attribute
+    (satisfied at runtime by EditorSession).
+    """
+
+    wire: WireSegment
+    # net_id → Net before mutation (None = net did not exist yet)
+    _nets_before: dict[uuid.UUID, Net | None] = field(
+        default_factory=dict, init=False, repr=False
+    )
+    # net_id → Net after mutation (None = net was deleted)
+    _nets_after: dict[uuid.UUID, Net | None] = field(
+        default_factory=dict, init=False, repr=False
+    )
+    _first_apply: bool = field(default=True, init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Add wire (with nets)"
+
+    def record_net_change(
+        self,
+        net_id: uuid.UUID,
+        before: Net | None,
+        after: Net | None,
+    ) -> None:
+        """Called by the resolver before each schematic mutation."""
+        if net_id not in self._nets_before:
+            self._nets_before[net_id] = before
+        self._nets_after[net_id] = after
+
+    def apply(self, state: ComponentState) -> None:
+        state.layout.wires.append(self.wire)
+        if self._first_apply:
+            # Net mutations already applied by resolver — nothing more to do.
+            object.__setattr__(self, "_first_apply", False)
+            return
+        # Redo path: re-apply recorded net mutations.
+        schematic = getattr(state, "schematic")  # EditorSession always has this
+        for net_id, net_after in self._nets_after.items():
+            if net_after is None:
+                schematic.nets.pop(net_id, None)
+            else:
+                schematic.nets[net_id] = net_after
+
+    def revert(self, state: ComponentState) -> None:
+        state.layout.wires.remove(self.wire)
+        schematic = getattr(state, "schematic")
+        for net_id, net_before in self._nets_before.items():
+            if net_before is None:
+                schematic.nets.pop(net_id, None)
+            else:
+                schematic.nets[net_id] = net_before
+
+
+@dataclass
 class RemoveWireCommand(Command[ComponentState]):
     wire_id: uuid.UUID
     _saved_wire: WireSegment | None = field(default=None, init=False, repr=False)
@@ -165,7 +243,7 @@ def _move_blocked(
     old_pl: ComponentPlacement,
     new_pl: ComponentPlacement,
 ) -> bool:
-    """Return True if the move would place a pin on top of another component's pin."""
+    """Return True if the move would cause a pin overlap or body overlap."""
     inst = state.instances.get(comp_id)
     if inst is None:
         return False
@@ -173,13 +251,14 @@ def _move_blocked(
     if defn is None:
         return False
 
+    new_bbox = component_bbox(defn.footprint, new_pl)
+
     n_pins = defn.footprint.pin_count()
     new_pin_positions: set[tuple[float, float]] = set()
     for pin_num in range(1, n_pins + 1):
         p = pin_world_position(defn.footprint, new_pl, pin_num)
         new_pin_positions.add((round(p.x, 4), round(p.y, 4)))
 
-    # Check against other components' pin positions.
     for other_id, other_pl in state.layout.placements.items():
         if other_id == comp_id:
             continue
@@ -189,10 +268,19 @@ def _move_blocked(
         other_defn = state.components.get(other_inst.definition_ref)
         if other_defn is None:
             continue
-        for pin_num in range(1, other_defn.footprint.pin_count() + 1):
-            p = pin_world_position(other_defn.footprint, other_pl, pin_num)
-            if (round(p.x, 4), round(p.y, 4)) in new_pin_positions:
+
+        other_bbox = component_bbox(other_defn.footprint, other_pl)
+        if new_bbox.intersects(other_bbox):
+            # Only block when no pin of the moved component coincides with a pin
+            # of the other — that would be a shared-pad scenario which the GUI
+            # conflict resolver handles separately.
+            other_pin_positions: set[tuple[float, float]] = set()
+            for pin_num in range(1, other_defn.footprint.pin_count() + 1):
+                p = pin_world_position(other_defn.footprint, other_pl, pin_num)
+                other_pin_positions.add((round(p.x, 4), round(p.y, 4)))
+            if new_pin_positions.isdisjoint(other_pin_positions):
                 return True
+
     return False
 
 

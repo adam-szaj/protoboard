@@ -44,8 +44,8 @@ class BoardView(QGraphicsView):
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setBackgroundBrush(QBrush(BOARD_BG))
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
-        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self._scale = _GRID_PX
         self.scale(_GRID_PX, _GRID_PX)
         self._panning = False           # middle-button or Ctrl+drag pan
@@ -166,7 +166,11 @@ class BoardView(QGraphicsView):
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
+        old_pos = self.mapToScene(event.position().toPoint())
         self.scale(factor, factor)
+        new_pos = self.mapToScene(event.position().toPoint())
+        delta = new_pos - old_pos
+        self.translate(delta.x(), delta.y())
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         ctrl = event.modifiers() & Qt.KeyboardModifier.ControlModifier
@@ -213,10 +217,10 @@ class BoardView(QGraphicsView):
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if event.button() in (
-            Qt.MouseButton.MiddleButton,
-            Qt.MouseButton.LeftButton,
-        ) and self._panning:
+        if event.button() == Qt.MouseButton.MiddleButton and self._panning:
+            self._panning = False
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        elif event.button() == Qt.MouseButton.LeftButton and self._ctrl_panning:
             self._panning = False
             self._ctrl_panning = False
             self.setCursor(Qt.CursorShape.ArrowCursor)

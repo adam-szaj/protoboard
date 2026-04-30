@@ -43,6 +43,8 @@ class SelectTool(_Tool):
         self._highlight: QGraphicsRectItem | None = None
         self._dragging = False
         self._drag_orig_pos: None | tuple[float, float] = None
+        # Offset from component position to click point (kept during drag).
+        self._drag_offset: tuple[float, float] = (0.0, 0.0)
         # Wire selection state.
         self._selected_wire_id: uuid.UUID | None = None
         self._wire_highlight: QGraphicsLineItem | None = None
@@ -79,6 +81,11 @@ class SelectTool(_Tool):
             placement = self._session.layout.placements.get(hit)
             if placement is not None:
                 self._drag_orig_pos = (placement.position.x, placement.position.y)
+                snapped = self._view.snap(scene_pt)
+                self._drag_offset = (
+                    placement.position.x - snapped.x,
+                    placement.position.y - snapped.y,
+                )
             return True  # consumed — no view pan
 
         # No component hit — try wire.
@@ -98,10 +105,12 @@ class SelectTool(_Tool):
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
         if self._dragging and self._selected_id is not None:
             snapped = self._view.snap(scene_pt)
+            dx, dy = self._drag_offset
+            new_pos = Point(snapped.x + dx, snapped.y + dy)
             placement = self._session.layout.placements.get(self._selected_id)
             if placement is not None:
                 self._session.layout.placements[self._selected_id] = (
-                    dataclasses.replace(placement, position=snapped)
+                    dataclasses.replace(placement, position=new_pos)
                 )
                 self._session.layout_changed.emit()
         elif ctrl:
@@ -130,6 +139,29 @@ class SelectTool(_Tool):
         if placement.position == old_pos:
             return
         old_pl = dataclasses.replace(placement, position=old_pos)
+
+        # Check pad conflicts at the new position before committing.
+        inst = self._session.instances.get(comp_id)
+        defn = self._session.components.get(inst.definition_ref) if inst else None
+        if defn is not None:
+            from protoboard.gui.placement_conflict import check_and_resolve
+
+            resolved = check_and_resolve(
+                session=self._session,
+                placement=placement,
+                defn=defn,
+                instance_id=comp_id,
+                parent_widget=self._view.window(),
+            )
+            if resolved is None:
+                # Blocked — snap back to original position.
+                self._session.layout.placements[comp_id] = old_pl
+                self._session.layout_changed.emit()
+                self._select(comp_id)
+                return
+            placement = resolved
+            self._session.layout.placements[comp_id] = placement
+
         cmd = MoveComponentCommand(
             component_id=comp_id,
             new_placement=placement,

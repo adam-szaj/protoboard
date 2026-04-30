@@ -26,7 +26,7 @@ COMP_FILL = QColor(255, 255, 200, 180)  # pale yellow, semi-transparent
 COMP_BORDER = QColor("#444444")
 PIN_COLOR = QColor("#CC2222")  # fallback when no schematic
 PIN_RADIUS = 0.18
-REFDES_COLOR = QColor("#111111")
+REFDES_COLOR = QColor("#AAAAAA")
 _REFDES_FONT = QFont("monospace", 1)
 _REFDES_FONT.setPointSizeF(0.55)
 
