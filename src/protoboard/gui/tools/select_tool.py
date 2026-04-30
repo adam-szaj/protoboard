@@ -542,6 +542,70 @@ class SelectTool(_Tool):
         if event.key() == Qt.Key.Key_Control and not self._dragging:
             self._view.setCursor(Qt.CursorShape.ArrowCursor)
 
+    def on_right_press(self, scene_pt: QPointF) -> bool:
+        """Show context menu on right-click. Returns True if consumed."""
+        # Hit-test: prefer selected component, then any component at cursor.
+        comp_id = self._selected_id
+        if comp_id is None:
+            comp_id = self._hit_test(scene_pt)
+            if comp_id is None:
+                comp_id = self._hit_test_bbox(scene_pt)
+        if comp_id is None:
+            return False
+
+        inst = self._session.instances.get(comp_id)
+        defn = (
+            self._session.components.get(inst.definition_ref) if inst else None
+        )
+        if inst is None or defn is None:
+            return False
+
+        # Build list of pins that have a net.
+        from protoboard.domain.schematic.net import PinRef
+
+        netted_pins: list[tuple[int, str, str]] = []  # (pin_num, pin_name, net_name)
+        for pin_num in range(1, defn.footprint.pin_count() + 1):
+            ref = PinRef(component_id=comp_id, pin_number=pin_num)
+            net = self._session.schematic.net_for_pin(ref)
+            if net is not None:
+                pin_name = defn.pin_names.get(pin_num, str(pin_num))
+                netted_pins.append((pin_num, pin_name, net.name))
+
+        if not netted_pins:
+            return False  # no netted pins — nothing to show, let escape_tool fire
+
+        from PySide6.QtWidgets import QMenu
+
+        menu = QMenu(self._view)
+        menu.addSection(f"{inst.refdes} — disconnect pin from net")
+        for pin_num, pin_name, net_name in netted_pins:
+            action = menu.addAction(
+                f"Pin {pin_num} ({pin_name})  ←  {net_name}"
+            )
+            action.setData((comp_id, pin_num))
+
+        chosen = menu.exec(
+            self._view.mapToGlobal(
+                self._view.mapFromScene(scene_pt)
+            )
+        )
+        if chosen is None:
+            return True  # menu shown but dismissed — still consume the event
+
+        cid, pin_num = chosen.data()
+        from typing import cast
+
+        from protoboard.domain.commands.base import Command
+        from protoboard.domain.commands.component_cmds import DisconnectPinCommand
+
+        cmd = cast(
+            Command[ComponentState],
+            DisconnectPinCommand(component_id=cid, pin_number=pin_num),
+        )
+        self._session.stack.execute(cmd, self._session)
+        self._session.layout_changed.emit()
+        return True
+
     # ------------------------------------------------------------------
     # Single component selection
     # ------------------------------------------------------------------

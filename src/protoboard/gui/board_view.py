@@ -208,7 +208,11 @@ class BoardView(QGraphicsView):
             self._pan_start = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         elif event.button() == Qt.MouseButton.RightButton:
-            self.escape_tool.emit()
+            scene_pt = self.mapToScene(event.pos())
+            handler = getattr(self._active_tool, "on_right_press", None)
+            consumed = handler(scene_pt) if handler is not None else False
+            if not consumed:
+                self.escape_tool.emit()
         elif self._active_tool is not None:
             scene_pt = self.mapToScene(event.pos())
             self._active_tool.on_press(event, scene_pt)

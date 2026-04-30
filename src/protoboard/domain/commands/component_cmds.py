@@ -268,6 +268,47 @@ class ReplaceWireSegmentCommand(Command[ComponentState]):
                 return
 
 
+@dataclass
+class DisconnectPinCommand(Command[SchematicState]):
+    """Remove a pin from its net. Deletes the net if it becomes empty."""
+
+    component_id: uuid.UUID
+    pin_number: int
+    _saved_net_id: uuid.UUID | None = field(default=None, init=False, repr=False)
+    _saved_net: object = field(default=None, init=False, repr=False)  # Net | None
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return f"Disconnect pin {self.pin_number}"
+
+    def apply(self, state: SchematicState) -> None:
+        from protoboard.domain.schematic.net import Net, PinRef
+
+        ref = PinRef(component_id=self.component_id, pin_number=self.pin_number)
+        net = state.schematic.net_for_pin(ref)
+        if net is None:
+            return
+        object.__setattr__(self, "_saved_net_id", net.id)
+        object.__setattr__(self, "_saved_net", net)
+        new_pins = net.pins - {ref}
+        if not new_pins:
+            # Net becomes empty — remove it entirely.
+            del state.schematic.nets[net.id]
+        else:
+            state.schematic.nets[net.id] = Net(
+                id=net.id, name=net.name, pins=new_pins
+            )
+
+    def revert(self, state: SchematicState) -> None:
+        from protoboard.domain.schematic.net import Net
+
+        if self._saved_net_id is None or self._saved_net is None:
+            return
+        saved = self._saved_net
+        assert isinstance(saved, Net)
+        state.schematic.nets[self._saved_net_id] = saved
+
+
 # ---------------------------------------------------------------------------
 # Wire-update helper (used by MoveComponentCommand)
 # ---------------------------------------------------------------------------
