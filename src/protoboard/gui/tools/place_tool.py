@@ -29,9 +29,9 @@ class PlaceTool(_Tool):
     def deactivate(self) -> None:
         self._remove_ghost()
 
-    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> None:
+    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
-            return
+            return False
         snapped = self._view.snap(scene_pt)
         inst = ComponentInstance.new(
             definition_ref=self._definition_ref,
@@ -49,6 +49,7 @@ class PlaceTool(_Tool):
         )
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
+        return True
 
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         snapped = self._view.snap(scene_pt)

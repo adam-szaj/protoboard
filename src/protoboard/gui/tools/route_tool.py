@@ -38,9 +38,9 @@ class RouteTool(_Tool):
     def deactivate(self) -> None:
         self._cancel()
 
-    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> None:
+    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
-            return
+            return False
         snapped = self._view.snap(scene_pt)
         if len(self._points) == 1:
             self._show_routing_hints(snapped)
@@ -51,6 +51,7 @@ class RouteTool(_Tool):
         self._points.append(snapped)
         # Immediately show live segment from new point to current cursor.
         self._add_live_line(snapped, snapped)
+        return True
 
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         if not self._points:

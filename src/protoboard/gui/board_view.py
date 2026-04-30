@@ -48,7 +48,8 @@ class BoardView(QGraphicsView):
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self._scale = _GRID_PX
         self.scale(_GRID_PX, _GRID_PX)
-        self._panning = False
+        self._panning = False           # middle-button or Ctrl+drag pan
+        self._ctrl_panning = False      # True when panning via Ctrl+LeftButton
         self._pan_start = QPointF()
         self._active_tool: _Tool | None = None
         session.layout_changed.connect(self.refresh)
@@ -154,7 +155,21 @@ class BoardView(QGraphicsView):
         self.scale(factor, factor)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        ctrl = event.modifiers() & Qt.KeyboardModifier.ControlModifier
         if event.button() == Qt.MouseButton.MiddleButton:
+            self._panning = True
+            self._pan_start = event.position()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        elif event.button() == Qt.MouseButton.LeftButton and ctrl:
+            # Ctrl+LeftButton: check if tool wants to handle it first (component
+            # drag); if the tool consumed it (returns True), skip view pan.
+            scene_pt = self.mapToScene(event.pos())
+            if self._active_tool is not None and self._active_tool.on_press(
+                event, scene_pt
+            ):
+                return
+            # No tool consumed it — pan the view.
+            self._ctrl_panning = True
             self._panning = True
             self._pan_start = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -178,14 +193,18 @@ class BoardView(QGraphicsView):
             )
         scene_pt = self.mapToScene(event.pos())
         self.cursor_moved.emit(scene_pt.x(), scene_pt.y())
-        if self._active_tool is not None:
+        if not self._panning and self._active_tool is not None:
             self._active_tool.on_move(event, scene_pt)
-        else:
+        elif not self._panning:
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.MiddleButton:
+        if event.button() in (
+            Qt.MouseButton.MiddleButton,
+            Qt.MouseButton.LeftButton,
+        ) and self._panning:
             self._panning = False
+            self._ctrl_panning = False
             self.setCursor(Qt.CursorShape.ArrowCursor)
         elif self._active_tool is not None:
             scene_pt = self.mapToScene(event.pos())
@@ -194,11 +213,36 @@ class BoardView(QGraphicsView):
             super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.key() == Qt.Key.Key_Escape:
-            # Let tool handle Esc first (e.g. RouteTool cancel), then go to Select.
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
             if self._active_tool is not None:
                 self._active_tool.on_key(event)
             self.escape_tool.emit()
+            return
+        # Arrow keys — scroll by one raster unit (only without modifier).
+        if not event.modifiers() and key in (
+            Qt.Key.Key_Left, Qt.Key.Key_Right,
+            Qt.Key.Key_Up, Qt.Key.Key_Down,
+        ):
+            # Convert 1 raster unit to viewport pixels using current transform.
+            px = max(int(self.transform().m11()), 1)
+            py = max(int(self.transform().m22()), 1)
+            if key == Qt.Key.Key_Left:
+                self.horizontalScrollBar().setValue(
+                    self.horizontalScrollBar().value() - px
+                )
+            elif key == Qt.Key.Key_Right:
+                self.horizontalScrollBar().setValue(
+                    self.horizontalScrollBar().value() + px
+                )
+            elif key == Qt.Key.Key_Up:
+                self.verticalScrollBar().setValue(
+                    self.verticalScrollBar().value() - py
+                )
+            elif key == Qt.Key.Key_Down:
+                self.verticalScrollBar().setValue(
+                    self.verticalScrollBar().value() + py
+                )
             return
         if self._active_tool is not None:
             self._active_tool.on_key(event)
@@ -216,8 +260,9 @@ class _Tool:
     def deactivate(self) -> None:
         pass
 
-    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> None:
-        pass
+    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
+        """Handle mouse press. Return True if the event was consumed."""
+        return False
 
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         pass

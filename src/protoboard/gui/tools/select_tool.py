@@ -16,6 +16,7 @@ from protoboard.domain.commands.component_cmds import (
     RemoveComponentCommand,
 )
 from protoboard.domain.layout.placement import pin_world_position
+from protoboard.geometry import Point
 from protoboard.gui.board_view import _Tool
 from protoboard.gui.panels.properties_panel import PropertiesPanel
 
@@ -23,10 +24,15 @@ _SELECT_PEN = QPen(Qt.GlobalColor.cyan, 0.08)
 _SELECT_PEN.setStyle(Qt.PenStyle.DashLine)
 
 _HIT_RADIUS = 0.6
+_BBOX_MARGIN = 0.45  # same margin as _draw_highlight
 
 
 class SelectTool(_Tool):
-    """Click to select a component; drag to move; R to rotate 90°; Del to delete."""
+    """Click to select a component; drag to move; R to rotate 90°; Del to delete.
+
+    Ctrl+hover over a component changes cursor to SizeAll.
+    Ctrl+click anywhere inside a component's bounding box starts a drag.
+    """
 
     def __init__(self) -> None:
         self._selected_id: uuid.UUID | None = None
@@ -37,37 +43,51 @@ class SelectTool(_Tool):
     def deactivate(self) -> None:
         self._dragging = False
         self._drag_orig_pos = None
-        self._deselect()
+        # Keep _selected_id so that an in-progress drag can still commit.
 
     def on_scene_cleared(self) -> None:
         # Drop the stale graphics item reference — scene.clear() destroyed it.
         # Keep _selected_id so that an in-progress drag can still commit.
         self._highlight = None
 
-    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> None:
+    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
-            return
-        hit = self._hit_test(scene_pt)
+            return False
+        ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        # With Ctrl: hit-test the full bbox (easier to grab).
+        hit = (
+            self._hit_test_bbox(scene_pt)
+            if ctrl
+            else self._hit_test(scene_pt)
+        )
         if hit is None:
-            self._deselect()
-            return
+            if not ctrl:
+                self._deselect()
+            return False  # let board_view pan if Ctrl held
         self._select(hit)
         self._dragging = True
         placement = self._session.layout.placements.get(hit)
         if placement is not None:
             self._drag_orig_pos = (placement.position.x, placement.position.y)
+        return True  # consumed — no view pan
 
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
-        if not self._dragging or self._selected_id is None:
-            return
-        snapped = self._view.snap(scene_pt)
-        placement = self._session.layout.placements.get(self._selected_id)
-        if placement is None:
-            return
-        self._session.layout.placements[self._selected_id] = dataclasses.replace(
-            placement, position=snapped
-        )
-        self._session.layout_changed.emit()
+        ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        if self._dragging and self._selected_id is not None:
+            snapped = self._view.snap(scene_pt)
+            placement = self._session.layout.placements.get(self._selected_id)
+            if placement is not None:
+                self._session.layout.placements[self._selected_id] = (
+                    dataclasses.replace(placement, position=snapped)
+                )
+                self._session.layout_changed.emit()
+        elif ctrl:
+            # Update cursor: SizeAll when hovering over a component bbox.
+            hit = self._hit_test_bbox(scene_pt)
+            if hit is not None:
+                self._view.setCursor(Qt.CursorShape.SizeAllCursor)
+            else:
+                self._view.setCursor(Qt.CursorShape.ArrowCursor)
 
     def on_release(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         if not self._dragging or self._selected_id is None:
@@ -82,7 +102,6 @@ class SelectTool(_Tool):
         placement = self._session.layout.placements.get(comp_id)
         if placement is None:
             return
-        from protoboard.geometry import Point
 
         old_pos = Point(orig[0], orig[1])
         if placement.position == old_pos:
@@ -109,6 +128,7 @@ class SelectTool(_Tool):
     # ------------------------------------------------------------------
 
     def _hit_test(self, scene_pt: QPointF) -> uuid.UUID | None:
+        """Hit-test by distance to nearest pin (for normal click)."""
         session = self._session
         best_id: uuid.UUID | None = None
         best_d = float("inf")
@@ -128,6 +148,31 @@ class SelectTool(_Tool):
                     best_d = d
                     best_id = comp_id
         return best_id if best_d <= _HIT_RADIUS else None
+
+    def _hit_test_bbox(self, scene_pt: QPointF) -> uuid.UUID | None:
+        """Hit-test by component bounding box (for Ctrl+click/hover)."""
+        session = self._session
+        px, py = scene_pt.x(), scene_pt.y()
+        for comp_id, placement in session.layout.placements.items():
+            inst = session.instances.get(comp_id)
+            if inst is None:
+                continue
+            defn = session.components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            positions = [
+                pin_world_position(defn.footprint, placement, n + 1)
+                for n in range(defn.footprint.pin_count())
+            ]
+            if not positions:
+                continue
+            xs = [p.x for p in positions]
+            ys = [p.y for p in positions]
+            m = _BBOX_MARGIN
+            if (min(xs) - m <= px <= max(xs) + m and
+                    min(ys) - m <= py <= max(ys) + m):
+                return comp_id
+        return None
 
     def _select(self, comp_id: uuid.UUID) -> None:
         self._deselect()
@@ -168,7 +213,7 @@ class SelectTool(_Tool):
         ]
         if not positions:
             return
-        margin = 0.45
+        margin = _BBOX_MARGIN
         xs = [p.x for p in positions]
         ys = [p.y for p in positions]
         x0 = min(xs) - margin

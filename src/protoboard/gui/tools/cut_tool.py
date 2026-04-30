@@ -21,13 +21,13 @@ class CutTool(_Tool):
     - Click between two pads → cut BETWEEN them (two clean segments).
     """
 
-    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> None:
+    def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
-            return
+            return False
 
         result = _find_cut_target(self._session.board, scene_pt)
         if result is None:
-            return
+            return False
 
         atom, cut_index, cut_between = result
         cmd = SplitStripCommand(
@@ -37,6 +37,7 @@ class CutTool(_Tool):
         )
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
+        return True
 
 
 # ---------------------------------------------------------------------------
