@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -220,5 +221,59 @@ def make_ghost_item(
     label.setFont(_REFDES_FONT)
     label.setPos(x0 + 0.05, y0 + 0.05)
     group.addToGroup(label)
-
     return group
+
+
+# ---------------------------------------------------------------------------
+# Group rendering
+# ---------------------------------------------------------------------------
+
+_GROUP_PEN = QPen(QColor(100, 200, 255, 160), 0.08)
+_GROUP_PEN.setStyle(Qt.PenStyle.DotLine)
+_GROUP_FILL = QColor(100, 200, 255, 12)
+_GROUP_NAME_COLOR = QColor(100, 200, 255, 200)
+_GROUP_MARGIN = 0.6
+
+
+def render_groups(
+    scene: QGraphicsScene,
+    layout: Layout,
+    placements: dict[uuid.UUID, ComponentPlacement],
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+) -> None:
+    """Render a dotted outline around each group's bounding box."""
+    from protoboard.domain.layout.group import all_component_ids
+
+    for group in layout.groups.values():
+        comp_ids = all_component_ids(layout.groups, group.id)
+        positions: list[Point] = []
+        for cid in comp_ids:
+            pl = placements.get(cid)
+            inst = instances.get(cid)
+            if pl is None or inst is None:
+                continue
+            defn = components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            for n in range(defn.footprint.pin_count()):
+                positions.append(pin_world_position(defn.footprint, pl, n + 1))
+        if not positions:
+            continue
+        xs = [p.x for p in positions]
+        ys = [p.y for p in positions]
+        m = _GROUP_MARGIN
+        x0 = min(xs) - m
+        y0 = min(ys) - m
+        w = max(xs) - min(xs) + 2 * m
+        h = max(ys) - min(ys) + 2 * m
+        rect = QGraphicsRectItem(QRectF(x0, y0, w, h))
+        rect.setPen(_GROUP_PEN)
+        rect.setBrush(QBrush(_GROUP_FILL))
+        scene.addItem(rect)
+        # Group name label at top-left corner.
+        name_label = QGraphicsTextItem(group.name)
+        name_label.setDefaultTextColor(_GROUP_NAME_COLOR)
+        name_label.setFont(_REFDES_FONT)
+        name_label.setPos(x0 + 0.1, y0 + 0.05)
+        scene.addItem(name_label)

@@ -31,10 +31,15 @@ from PySide6.QtWidgets import (
 
 from protoboard.domain.commands.base import MacroCommand
 from protoboard.domain.commands.component_cmds import (
+    ComponentState,
     MoveComponentCommand,
     RemoveComponentCommand,
     RemoveWireCommand,
     ReplaceWireSegmentCommand,
+)
+from protoboard.domain.layout.group import (
+    all_component_ids,
+    top_level_group_for,
 )
 from protoboard.domain.layout.placement import component_bbox, pin_world_position
 from protoboard.domain.layout.wire import WireSegment
@@ -92,6 +97,8 @@ class SelectTool(_Tool):
         self._edit_points: list[Point] = []
         self._edit_preview_items: list[QGraphicsLineItem] = []
         self._edit_live_line: QGraphicsLineItem | None = None
+        # Group navigation stack: list of group IDs currently entered (innermost last).
+        self._group_stack: list[uuid.UUID] = []
 
     # ------------------------------------------------------------------
     # _Tool interface
@@ -164,14 +171,15 @@ class SelectTool(_Tool):
         # --- Normal left click: hit-test component or wire ---
         hit = self._hit_test(scene_pt)
         if hit is not None:
+            # If the hit component is in a group that we haven't entered yet,
+            # redirect the selection to that group's representative ID.
+            hit = self._resolve_group_hit(hit)
             self._cancel_wire_edit()
             self._deselect_wire()
             if hit not in self._selected_ids:
-                # Start fresh single selection.
                 self._clear_multi_selection()
                 self._select_primary(hit)
             else:
-                # Already in multi-selection — keep all, set primary.
                 self._select_primary(hit)
             # Begin drag.
             self._dragging = True
@@ -207,6 +215,38 @@ class SelectTool(_Tool):
         self._deselect_wire()
         self._rubber_band_start = scene_pt
         return True
+
+    def on_double_press(self, scene_pt: QPointF) -> bool:
+        """Called on double-click by BoardView (if forwarded). Enters a group."""
+        hit = self._hit_test(scene_pt)
+        if hit is None:
+            hit = self._hit_test_bbox(scene_pt)
+        if hit is None:
+            return False
+        # If the component belongs to a group we're inside, enter a deeper group.
+        groups = self._session.layout.groups
+        # Find which group (at current level) contains this component.
+        current_group_id = self._group_stack[-1] if self._group_stack else None
+        if current_group_id is not None:
+            parent_group = groups.get(current_group_id)
+            if parent_group is not None:
+                for child_gid in parent_group.child_group_ids:
+                    child_group = groups.get(child_gid)
+                    if child_group and hit in all_component_ids(groups, child_gid):
+                        self._group_stack.append(child_gid)
+                        self._clear_multi_selection()
+                        self._deselect()
+                        self._select_primary(hit)
+                        return True
+        else:
+            top = top_level_group_for(groups, hit)
+            if top is not None:
+                self._group_stack.append(top)
+                self._clear_multi_selection()
+                self._deselect()
+                self._select_primary(hit)
+                return True
+        return False
 
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
@@ -338,6 +378,7 @@ class SelectTool(_Tool):
                 self._autoroute_wire_fragment()
             return
 
+        ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
         if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             if self._selected_wire_id is not None:
                 self._delete_wire()
@@ -348,10 +389,15 @@ class SelectTool(_Tool):
         elif key == Qt.Key.Key_R:
             if self._selected_id is not None:
                 self._rotate_selected()
+        elif key == Qt.Key.Key_G and ctrl:
+            self._group_for_selection()
         elif key == Qt.Key.Key_Escape:
-            self._clear_multi_selection()
-            self._deselect()
-            self._deselect_wire()
+            if self._group_stack:
+                self.exit_group()
+            else:
+                self._clear_multi_selection()
+                self._deselect()
+                self._deselect_wire()
 
     def on_key_release(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Control and not self._dragging:
@@ -539,7 +585,6 @@ class SelectTool(_Tool):
         from typing import cast
 
         from protoboard.domain.commands.base import Command
-        from protoboard.domain.commands.component_cmds import ComponentState
 
         commands = cast(
             list[Command[ComponentState]],
@@ -865,6 +910,79 @@ class SelectTool(_Tool):
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
         self._select_wire(wire.id)
+
+    # ------------------------------------------------------------------
+    # Group navigation helpers
+    # ------------------------------------------------------------------
+
+    def _resolve_group_hit(self, comp_id: uuid.UUID) -> uuid.UUID:
+        """If comp_id is inside a group not yet entered, return the first
+        component ID from that group (used as proxy for the group selection).
+        The caller should treat this as a group-level selection.
+        Returns comp_id unchanged if already at the correct depth."""
+        groups = self._session.layout.groups
+        current = self._group_stack[-1] if self._group_stack else None
+        if current is not None:
+            # Inside a group — check if comp_id is a direct member.
+            g = groups.get(current)
+            if g is not None and comp_id in g.component_ids:
+                return comp_id
+            # Check if it's in a child group.
+            for child_id in (g.child_group_ids if g else frozenset()):
+                if comp_id in all_component_ids(groups, child_id):
+                    # Return first component of child group as proxy.
+                    child_g = groups.get(child_id)
+                    if child_g and child_g.component_ids:
+                        return next(iter(child_g.component_ids))
+            return comp_id
+        else:
+            top = top_level_group_for(groups, comp_id)
+            if top is not None:
+                g = groups.get(top)
+                if g and g.component_ids:
+                    return next(iter(g.component_ids))
+            return comp_id
+
+    def _current_group_component_ids(self) -> frozenset[uuid.UUID]:
+        """Return the set of all component IDs accessible at the current
+        group depth (direct members if inside a group, all if at top level)."""
+        groups = self._session.layout.groups
+        if not self._group_stack:
+            return frozenset(self._session.layout.placements.keys())
+        gid = self._group_stack[-1]
+        g = groups.get(gid)
+        if g is None:
+            return frozenset()
+        return all_component_ids(groups, gid)
+
+    def _group_for_selection(self) -> uuid.UUID | None:
+        """Create a new group from the current multi-selection and return its ID."""
+        if len(self._selected_ids) < 2 and not self._selected_id:
+            return None
+        from protoboard.domain.commands.group_cmds import CreateGroupCommand
+        from protoboard.domain.layout.group import ComponentGroup
+
+        ids = frozenset(self._selected_ids)
+        if self._selected_id and self._selected_id not in ids:
+            ids = ids | {self._selected_id}
+        if len(ids) < 1:
+            return None
+        new_group = ComponentGroup(
+            id=uuid.uuid4(),
+            name=f"Group{len(self._session.layout.groups) + 1}",
+            component_ids=ids,
+        )
+        cmd = CreateGroupCommand(group=new_group)
+        self._session.stack.execute(cmd, self._session)
+        self._session.layout_changed.emit()
+        return new_group.id
+
+    def exit_group(self) -> None:
+        """Pop the innermost group from the navigation stack (Esc)."""
+        if self._group_stack:
+            self._group_stack.pop()
+            self._clear_multi_selection()
+            self._deselect()
 
     # ------------------------------------------------------------------
 

@@ -20,7 +20,7 @@ from protoboard.domain.board.boxes import StripAtom
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.geometry import Point
 from protoboard.gui.renderers.board_renderer import BOARD_BG, render_board
-from protoboard.gui.renderers.component_renderer import render_components
+from protoboard.gui.renderers.component_renderer import render_components, render_groups
 from protoboard.gui.renderers.wire_renderer import render_ratsnest, render_wires
 from protoboard.gui.session import EditorSession
 from protoboard.services.routing.net_status import routed_net_ids
@@ -101,6 +101,14 @@ class BoardView(QGraphicsView):
                 self._session.components,
                 routed_nets=routed,
             )
+        if self._session.layout.groups:
+            render_groups(
+                self._scene,
+                self._session.layout,
+                self._session.layout.placements,
+                self._session.instances,
+                self._session.components,
+            )
         # Fit scene rect to board bounds.
         b = self._session.board.bounds
         self._scene.setSceneRect(QRectF(b.x - 1, b.y - 1, b.width + 2, b.height + 2))
@@ -171,6 +179,14 @@ class BoardView(QGraphicsView):
         new_pos = self.mapToScene(event.position().toPoint())
         delta = new_pos - old_pos
         self.translate(delta.x(), delta.y())
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        left = Qt.MouseButton.LeftButton
+        if event.button() == left and self._active_tool is not None:
+            scene_pt = self.mapToScene(event.pos())
+            handler = getattr(self._active_tool, "on_double_press", None)
+            if handler is not None:
+                handler(scene_pt)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         ctrl = event.modifiers() & Qt.KeyboardModifier.ControlModifier

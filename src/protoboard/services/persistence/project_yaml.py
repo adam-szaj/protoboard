@@ -113,6 +113,28 @@ def _layout_to_yaml(layout: Layout) -> str:
             }
             for w in layout.wires
         ],
+        **(
+            {
+                "groups": [
+                    {
+                        "id": str(g.id),
+                        "name": g.name,
+                        **(
+                            {"component_ids": [str(c) for c in sorted(g.component_ids)]}
+                            if g.component_ids else {}
+                        ),
+                        **(
+                            {"child_group_ids": [
+                                str(c) for c in sorted(g.child_group_ids)
+                            ]}
+                            if g.child_group_ids else {}
+                        ),
+                    }
+                    for g in layout.groups.values()
+                ]
+            }
+            if layout.groups else {}
+        ),
     }
     buf = io.StringIO()
     _yaml.dump(data, buf)
@@ -228,7 +250,22 @@ def _layout_from_yaml(text: str) -> Layout:
                 color=raw.get("color"),
             )
         )
-    return Layout(placements=placements, wires=wires)
+    from protoboard.domain.layout.group import ComponentGroup
+
+    groups: dict[uuid.UUID, ComponentGroup] = {}
+    for raw in data.get("groups") or []:
+        gid = uuid.UUID(raw["id"])
+        groups[gid] = ComponentGroup(
+            id=gid,
+            name=str(raw["name"]),
+            component_ids=frozenset(
+                uuid.UUID(c) for c in (raw.get("component_ids") or [])
+            ),
+            child_group_ids=frozenset(
+                uuid.UUID(c) for c in (raw.get("child_group_ids") or [])
+            ),
+        )
+    return Layout(placements=placements, wires=wires, groups=groups)
 
 
 def _schematic_from_yaml(text: str) -> Schematic:
