@@ -180,7 +180,7 @@ class TestSelectToolDrag:
         tool._dragging = True  # simulate mid-drag
         tool.deactivate()
         assert tool._dragging is False
-        assert tool._drag_orig_pos is None
+        assert tool._drag_orig_positions == {}
 
 
 class TestSelectToolRotate:

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from typing import Generic, TypeVar
 
 T = TypeVar("T")
@@ -17,6 +18,24 @@ class Command(ABC, Generic[T]):
 
     @abstractmethod
     def revert(self, state: T) -> None: ...
+
+
+class MacroCommand(Command[T], Generic[T]):
+    """Composite command — applies/reverts a list of sub-commands atomically."""
+
+    def __init__(
+        self, commands: Sequence[Command[T]], description: str = "Macro"
+    ) -> None:
+        self._commands = list(commands)
+        self.description = description
+
+    def apply(self, state: T) -> None:
+        for cmd in self._commands:
+            cmd.apply(state)
+
+    def revert(self, state: T) -> None:
+        for cmd in reversed(self._commands):
+            cmd.revert(state)
 
 
 class CommandStack(Generic[T]):

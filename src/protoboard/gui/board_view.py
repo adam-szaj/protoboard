@@ -113,7 +113,7 @@ class BoardView(QGraphicsView):
             self.set_tool(SelectTool())
         tool = self._active_tool
         if isinstance(tool, SelectTool):
-            tool._select(comp_id)
+            tool._select_primary(comp_id)
 
     def snap(self, scene_pt: QPointF) -> Point:
         """Snap scene-space point to nearest pad or component pin center."""

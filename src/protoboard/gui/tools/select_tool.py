@@ -1,11 +1,16 @@
 # SPDX-License-Identifier: MIT
 """Select tool — click to select, drag to move, R to rotate, Del to delete.
 
+Multi-selection:
+  Drag left-to-right (rubber band) = only components fully inside the rect.
+  Drag right-to-left = all components whose bbox intersects the rect.
+  Ctrl+click = add/remove one component to/from the selection.
+
 Wire editing:
-  After selecting a wire, Ctrl+click on a node (visible dot) marks the start
-  of a segment edit.  Ctrl+click on a second node marks the end.  Then:
+  After selecting a single wire, Ctrl+click on a node dot marks the edit
+  start.  Ctrl+click on a second node marks the end.  Then:
     - Press A to auto-route the fragment via A*.
-    - Or click new intermediate points (like RouteTool) and press Enter.
+    - Or click new intermediate points and press Enter.
   Esc cancels the edit and restores the original wire.
 """
 
@@ -24,13 +29,14 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem,
 )
 
+from protoboard.domain.commands.base import MacroCommand
 from protoboard.domain.commands.component_cmds import (
     MoveComponentCommand,
     RemoveComponentCommand,
     RemoveWireCommand,
     ReplaceWireSegmentCommand,
 )
-from protoboard.domain.layout.placement import pin_world_position
+from protoboard.domain.layout.placement import component_bbox, pin_world_position
 from protoboard.domain.layout.wire import WireSegment
 from protoboard.geometry import Point
 from protoboard.gui.board_view import _Tool
@@ -38,6 +44,13 @@ from protoboard.gui.panels.properties_panel import PropertiesPanel
 
 _SELECT_PEN = QPen(Qt.GlobalColor.cyan, 0.08)
 _SELECT_PEN.setStyle(Qt.PenStyle.DashLine)
+_MULTI_SELECT_PEN = QPen(Qt.GlobalColor.cyan, 0.06)
+_MULTI_SELECT_PEN.setStyle(Qt.PenStyle.DashLine)
+_RUBBER_BAND_PEN_LR = QPen(QColor(0, 200, 255, 180), 0.06)   # left-to-right: solid
+_RUBBER_BAND_PEN_RL = QPen(QColor(0, 200, 255, 180), 0.06)   # right-to-left: dashed
+_RUBBER_BAND_PEN_RL.setStyle(Qt.PenStyle.DashLine)
+_RUBBER_BAND_FILL_LR = QColor(0, 200, 255, 20)
+_RUBBER_BAND_FILL_RL = QColor(0, 200, 255, 10)
 _WIRE_SELECT_PEN = QPen(Qt.GlobalColor.yellow, 0.12)
 _NODE_PEN = QPen(Qt.GlobalColor.yellow, 0.04)
 _NODE_BRUSH = QColor(255, 220, 0, 200)
@@ -49,30 +62,34 @@ _EDIT_PREVIEW_PEN.setStyle(Qt.PenStyle.DashLine)
 _HIT_RADIUS = 0.6
 _BBOX_MARGIN = 0.45
 _WIRE_HIT_DIST = 0.35
-_NODE_HIT_RADIUS = 0.32  # radius for clicking on a wire node dot
-_NODE_RADIUS = 0.13       # visual radius of node dot
+_NODE_HIT_RADIUS = 0.32
+_NODE_RADIUS = 0.13
 
 
 class SelectTool(_Tool):
-    """Click to select a component; drag to move; R to rotate 90°; Del to delete.
-
-    Ctrl+hover over a component changes cursor to SizeAll.
-    Ctrl+click anywhere inside a component's bounding box starts a drag.
-    """
+    """Click/rubber-band to select; drag to move; R to rotate; Del to delete."""
 
     def __init__(self) -> None:
+        # Single component selection (for Properties panel and drag).
         self._selected_id: uuid.UUID | None = None
         self._highlight: QGraphicsRectItem | None = None
+        # Multi-selection.
+        self._selected_ids: set[uuid.UUID] = set()
+        self._multi_highlights: list[QGraphicsRectItem] = []
+        # Drag state (works for both single and multi).
         self._dragging = False
-        self._drag_orig_pos: None | tuple[float, float] = None
-        self._drag_offset: tuple[float, float] = (0.0, 0.0)
-        # Wire selection state.
+        self._drag_orig_positions: dict[uuid.UUID, Point] = {}
+        self._drag_anchor_offset: tuple[float, float] = (0.0, 0.0)
+        # Rubber-band state.
+        self._rubber_band_start: QPointF | None = None
+        self._rubber_band_item: QGraphicsRectItem | None = None
+        # Wire selection.
         self._selected_wire_id: uuid.UUID | None = None
         self._wire_highlight: QGraphicsItemGroup | None = None
-        # Wire segment editing state.
-        self._edit_start_idx: int | None = None   # index in wire.path
+        # Wire segment editing.
+        self._edit_start_idx: int | None = None
         self._edit_end_idx: int | None = None
-        self._edit_points: list[Point] = []        # new intermediate points
+        self._edit_points: list[Point] = []
         self._edit_preview_items: list[QGraphicsLineItem] = []
         self._edit_live_line: QGraphicsLineItem | None = None
 
@@ -82,17 +99,23 @@ class SelectTool(_Tool):
 
     def deactivate(self) -> None:
         self._dragging = False
-        self._drag_orig_pos = None
+        self._drag_orig_positions = {}
         self._cancel_wire_edit()
         self._deselect_wire()
+        self._clear_rubber_band()
 
     def on_scene_cleared(self) -> None:
         self._highlight = None
+        self._multi_highlights.clear()
         self._wire_highlight = None
         self._edit_preview_items.clear()
         self._edit_live_line = None
+        self._rubber_band_item = None
+        # Redraw highlights after scene rebuild.
         if self._selected_id is not None and not self._dragging:
             self._draw_highlight(self._selected_id)
+        for cid in self._selected_ids:
+            self._draw_multi_highlight(cid)
         if self._selected_wire_id is not None:
             self._draw_wire_highlight(self._selected_wire_id)
 
@@ -107,16 +130,14 @@ class SelectTool(_Tool):
                 snapped = self._view.snap(scene_pt)
                 self._edit_add_point(snapped)
                 return True
-            # Ctrl+click in edit mode = try to pick a different end node
             idx = self._hit_test_wire_node(scene_pt)
             if idx is not None and self._selected_wire_id is not None:
                 wire = self._get_selected_wire()
                 if wire is not None:
                     self._set_edit_end(idx, wire)
-                return True
             return True
 
-        # --- Ctrl+click: try component bbox drag first, then wire node ---
+        # --- Ctrl+click: wire node or add/remove from multi-selection ---
         if ctrl:
             # Check for wire node click (starts edit).
             if self._selected_wire_id is not None:
@@ -127,73 +148,107 @@ class SelectTool(_Tool):
 
             hit = self._hit_test_bbox(scene_pt)
             if hit is not None:
+                # Toggle in multi-selection.
+                if hit in self._selected_ids:
+                    self._selected_ids.discard(hit)
+                    self._redraw_multi_highlights()
+                else:
+                    self._selected_ids.add(hit)
+                    self._draw_multi_highlight(hit)
+                # Also set as primary for Properties panel.
                 self._deselect_wire()
-                self._select(hit)
-                self._dragging = True
-                placement = self._session.layout.placements.get(hit)
-                if placement is not None:
-                    self._drag_orig_pos = (
-                        placement.position.x, placement.position.y
-                    )
-                    snapped = self._view.snap(scene_pt)
-                    self._drag_offset = (
-                        placement.position.x - snapped.x,
-                        placement.position.y - snapped.y,
-                    )
+                self._select_primary(hit)
                 return True
             return False
 
-        # --- Normal left click: component or wire ---
+        # --- Normal left click: hit-test component or wire ---
         hit = self._hit_test(scene_pt)
         if hit is not None:
             self._cancel_wire_edit()
             self._deselect_wire()
-            self._select(hit)
+            if hit not in self._selected_ids:
+                # Start fresh single selection.
+                self._clear_multi_selection()
+                self._select_primary(hit)
+            else:
+                # Already in multi-selection — keep all, set primary.
+                self._select_primary(hit)
+            # Begin drag.
             self._dragging = True
-            placement = self._session.layout.placements.get(hit)
-            if placement is not None:
-                self._drag_orig_pos = (
-                    placement.position.x, placement.position.y
-                )
-                snapped = self._view.snap(scene_pt)
-                self._drag_offset = (
-                    placement.position.x - snapped.x,
-                    placement.position.y - snapped.y,
-                )
+            self._drag_orig_positions = {}
+            # Determine which IDs to drag: all selected, or just this one.
+            drag_ids = self._selected_ids if self._selected_ids else {hit}
+            snapped = self._view.snap(scene_pt)
+            for cid in drag_ids:
+                pl = self._session.layout.placements.get(cid)
+                if pl is not None:
+                    self._drag_orig_positions[cid] = pl.position
+            if hit in drag_ids:
+                pl = self._session.layout.placements.get(hit)
+                if pl is not None:
+                    self._drag_anchor_offset = (
+                        pl.position.x - snapped.x,
+                        pl.position.y - snapped.y,
+                    )
             return True
 
         wire_hit = self._hit_test_wire(scene_pt)
         if wire_hit is not None:
             self._cancel_wire_edit()
+            self._clear_multi_selection()
             self._deselect()
             self._select_wire(wire_hit)
             return True
 
-        if not ctrl:
-            self._cancel_wire_edit()
-            self._deselect()
-            self._deselect_wire()
-        return False
+        # Nothing hit — start rubber-band.
+        self._cancel_wire_edit()
+        self._clear_multi_selection()
+        self._deselect()
+        self._deselect_wire()
+        self._rubber_band_start = scene_pt
+        return True
 
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
 
         if self._is_editing_wire():
-            # Show live preview line from last edit point (or start node) to cursor.
             self._update_edit_live(scene_pt)
             return
 
-        if self._dragging and self._selected_id is not None:
+        if self._rubber_band_start is not None:
+            self._update_rubber_band(scene_pt)
+            return
+
+        if self._dragging:
             snapped = self._view.snap(scene_pt)
-            dx, dy = self._drag_offset
-            new_pos = Point(snapped.x + dx, snapped.y + dy)
-            placement = self._session.layout.placements.get(self._selected_id)
-            if placement is not None:
-                self._session.layout.placements[self._selected_id] = (
-                    dataclasses.replace(placement, position=new_pos)
-                )
-                self._session.layout_changed.emit()
-        elif ctrl:
+            dx_off, dy_off = self._drag_anchor_offset
+            # Primary component position.
+            anchor_new = Point(snapped.x + dx_off, snapped.y + dy_off)
+            anchor_id = self._selected_id
+            if anchor_id is None:
+                return
+            anchor_orig = self._drag_orig_positions.get(anchor_id)
+            if anchor_orig is None:
+                return
+            delta = Point(
+                anchor_new.x - anchor_orig.x,
+                anchor_new.y - anchor_orig.y,
+            )
+            drag_ids = (
+                self._selected_ids if self._selected_ids else {anchor_id}
+            )
+            for cid in drag_ids:
+                pl = self._session.layout.placements.get(cid)
+                orig = self._drag_orig_positions.get(cid)
+                if pl is not None and orig is not None:
+                    new_pos = Point(orig.x + delta.x, orig.y + delta.y)
+                    self._session.layout.placements[cid] = dataclasses.replace(
+                        pl, position=new_pos
+                    )
+            self._session.layout_changed.emit()
+            return
+
+        if ctrl:
             hit = self._hit_test_bbox(scene_pt)
             if hit is not None:
                 self._view.setCursor(Qt.CursorShape.SizeAllCursor)
@@ -201,52 +256,75 @@ class SelectTool(_Tool):
                 self._view.setCursor(Qt.CursorShape.ArrowCursor)
 
     def on_release(self, event: QMouseEvent, scene_pt: QPointF) -> None:
-        if not self._dragging or self._selected_id is None:
-            self._dragging = False
+        # Rubber-band release: apply selection.
+        if self._rubber_band_start is not None:
+            self._finish_rubber_band(scene_pt)
+            return
+
+        if not self._dragging:
             return
         self._dragging = False
-        comp_id = self._selected_id
-        orig = self._drag_orig_pos
-        self._drag_orig_pos = None
-        if orig is None:
-            return
-        placement = self._session.layout.placements.get(comp_id)
-        if placement is None:
-            return
 
-        old_pos = Point(orig[0], orig[1])
-        if placement.position == old_pos:
-            return
-        old_pl = dataclasses.replace(placement, position=old_pos)
-
-        inst = self._session.instances.get(comp_id)
-        defn = self._session.components.get(inst.definition_ref) if inst else None
-        if defn is not None:
-            from protoboard.gui.placement_conflict import check_and_resolve
-
-            resolved = check_and_resolve(
-                session=self._session,
-                placement=placement,
-                defn=defn,
-                instance_id=comp_id,
-                parent_widget=self._view.window(),
-            )
-            if resolved is None:
-                self._session.layout.placements[comp_id] = old_pl
-                self._session.layout_changed.emit()
-                self._select(comp_id)
-                return
-            placement = resolved
-            self._session.layout.placements[comp_id] = placement
-
-        cmd = MoveComponentCommand(
-            component_id=comp_id,
-            new_placement=placement,
-            old_placement=old_pl,
+        drag_ids = (
+            self._selected_ids
+            if self._selected_ids
+            else ({self._selected_id} if self._selected_id else set())
         )
-        self._session.stack.execute(cmd, self._session)
-        self._session.layout_changed.emit()
-        self._select(comp_id)
+        if not drag_ids:
+            return
+
+        # Build move commands for all dragged components.
+        commands = []
+        for cid in drag_ids:
+            pl = self._session.layout.placements.get(cid)
+            orig = self._drag_orig_positions.get(cid)
+            if pl is None or orig is None:
+                continue
+            if pl.position == orig:
+                continue
+            old_pl = dataclasses.replace(pl, position=orig)
+
+            # Check pad conflicts.
+            inst = self._session.instances.get(cid)
+            defn = (
+                self._session.components.get(inst.definition_ref)
+                if inst else None
+            )
+            if defn is not None:
+                from protoboard.gui.placement_conflict import check_and_resolve
+
+                resolved = check_and_resolve(
+                    session=self._session,
+                    placement=pl,
+                    defn=defn,
+                    instance_id=cid,
+                    parent_widget=self._view.window(),
+                )
+                if resolved is None:
+                    self._session.layout.placements[cid] = old_pl
+                    continue
+                pl = resolved
+                self._session.layout.placements[cid] = pl
+
+            commands.append(
+                MoveComponentCommand(
+                    component_id=cid,
+                    new_placement=pl,
+                    old_placement=old_pl,
+                )
+            )
+
+        if commands:
+            if len(commands) == 1:
+                self._session.stack.execute(commands[0], self._session)
+            else:
+                macro = MacroCommand(commands, description="Move components")
+                self._session.stack.execute(macro, self._session)
+            self._session.layout_changed.emit()
+
+        # Restore selection highlights.
+        if self._selected_id is not None:
+            self._select_primary(self._selected_id)
 
     def on_key(self, event: QKeyEvent) -> None:
         key = event.key()
@@ -263,11 +341,15 @@ class SelectTool(_Tool):
         if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             if self._selected_wire_id is not None:
                 self._delete_wire()
+            elif self._selected_ids:
+                self._delete_multi()
             elif self._selected_id is not None:
                 self._delete_selected()
-        elif key == Qt.Key.Key_R and self._selected_id is not None:
-            self._rotate_selected()
+        elif key == Qt.Key.Key_R:
+            if self._selected_id is not None:
+                self._rotate_selected()
         elif key == Qt.Key.Key_Escape:
+            self._clear_multi_selection()
             self._deselect()
             self._deselect_wire()
 
@@ -276,7 +358,7 @@ class SelectTool(_Tool):
             self._view.setCursor(Qt.CursorShape.ArrowCursor)
 
     # ------------------------------------------------------------------
-    # Component selection / highlight
+    # Single component selection
     # ------------------------------------------------------------------
 
     def _hit_test(self, scene_pt: QPointF) -> uuid.UUID | None:
@@ -324,7 +406,8 @@ class SelectTool(_Tool):
                 return comp_id
         return None
 
-    def _select(self, comp_id: uuid.UUID) -> None:
+    def _select_primary(self, comp_id: uuid.UUID) -> None:
+        """Set comp_id as the primary (Properties panel) selection."""
         self._deselect()
         self._selected_id = comp_id
         self._draw_highlight(comp_id)
@@ -364,14 +447,13 @@ class SelectTool(_Tool):
         ]
         if not positions:
             return
-        margin = _BBOX_MARGIN
         xs = [p.x for p in positions]
         ys = [p.y for p in positions]
-        x0 = min(xs) - margin
-        y0 = min(ys) - margin
-        w = max(xs) - min(xs) + 2 * margin
-        h = max(ys) - min(ys) + 2 * margin
-        self._highlight = QGraphicsRectItem(QRectF(x0, y0, w, h))
+        m = _BBOX_MARGIN
+        self._highlight = QGraphicsRectItem(
+            QRectF(min(xs) - m, min(ys) - m,
+                   max(xs) - min(xs) + 2 * m, max(ys) - min(ys) + 2 * m)
+        )
         self._highlight.setPen(_SELECT_PEN)
         self._highlight.setBrush(Qt.BrushStyle.NoBrush)
         self._view.scene().addItem(self._highlight)
@@ -405,6 +487,150 @@ class SelectTool(_Tool):
         self._session.stack.execute(cmd, self._session)
         self._deselect()
         self._session.layout_changed.emit()
+
+    # ------------------------------------------------------------------
+    # Multi-selection
+    # ------------------------------------------------------------------
+
+    def _draw_multi_highlight(self, comp_id: uuid.UUID) -> None:
+        session = self._session
+        inst = session.instances.get(comp_id)
+        placement = session.layout.placements.get(comp_id)
+        if inst is None or placement is None:
+            return
+        defn = session.components.get(inst.definition_ref)
+        if defn is None:
+            return
+        positions = [
+            pin_world_position(defn.footprint, placement, n + 1)
+            for n in range(defn.footprint.pin_count())
+        ]
+        if not positions:
+            return
+        xs = [p.x for p in positions]
+        ys = [p.y for p in positions]
+        m = _BBOX_MARGIN + 0.05
+        rect = QGraphicsRectItem(
+            QRectF(min(xs) - m, min(ys) - m,
+                   max(xs) - min(xs) + 2 * m, max(ys) - min(ys) + 2 * m)
+        )
+        rect.setPen(_MULTI_SELECT_PEN)
+        rect.setBrush(Qt.BrushStyle.NoBrush)
+        self._view.scene().addItem(rect)
+        self._multi_highlights.append(rect)
+
+    def _redraw_multi_highlights(self) -> None:
+        for item in self._multi_highlights:
+            self._view.scene().removeItem(item)
+        self._multi_highlights.clear()
+        for cid in self._selected_ids:
+            self._draw_multi_highlight(cid)
+
+    def _clear_multi_selection(self) -> None:
+        for item in self._multi_highlights:
+            self._view.scene().removeItem(item)
+        self._multi_highlights.clear()
+        self._selected_ids.clear()
+
+    def _delete_multi(self) -> None:
+        ids = list(self._selected_ids)
+        if not ids:
+            return
+        from typing import cast
+
+        from protoboard.domain.commands.base import Command
+        from protoboard.domain.commands.component_cmds import ComponentState
+
+        commands = cast(
+            list[Command[ComponentState]],
+            [RemoveComponentCommand(component_id=cid) for cid in ids],
+        )
+        macro = MacroCommand(commands, description="Delete components")
+        self._session.stack.execute(macro, self._session)
+        self._clear_multi_selection()
+        self._deselect()
+        self._session.layout_changed.emit()
+
+    # ------------------------------------------------------------------
+    # Rubber-band selection
+    # ------------------------------------------------------------------
+
+    def _update_rubber_band(self, scene_pt: QPointF) -> None:
+        if self._rubber_band_start is None:
+            return
+        if self._rubber_band_item is not None:
+            self._view.scene().removeItem(self._rubber_band_item)
+            self._rubber_band_item = None
+
+        start = self._rubber_band_start
+        x0 = min(start.x(), scene_pt.x())
+        y0 = min(start.y(), scene_pt.y())
+        w = abs(scene_pt.x() - start.x())
+        h = abs(scene_pt.y() - start.y())
+
+        left_to_right = scene_pt.x() >= start.x()
+        pen = _RUBBER_BAND_PEN_LR if left_to_right else _RUBBER_BAND_PEN_RL
+        fill = _RUBBER_BAND_FILL_LR if left_to_right else _RUBBER_BAND_FILL_RL
+
+        item = QGraphicsRectItem(QRectF(x0, y0, w, h))
+        item.setPen(pen)
+        item.setBrush(fill)
+        self._view.scene().addItem(item)
+        self._rubber_band_item = item
+
+    def _finish_rubber_band(self, scene_pt: QPointF) -> None:
+        self._clear_rubber_band()
+        if self._rubber_band_start is None:
+            return
+        start = self._rubber_band_start
+        self._rubber_band_start = None
+
+        left_to_right = scene_pt.x() >= start.x()
+        rx0 = min(start.x(), scene_pt.x())
+        ry0 = min(start.y(), scene_pt.y())
+        rx1 = max(start.x(), scene_pt.x())
+        ry1 = max(start.y(), scene_pt.y())
+
+        # Minimum drag size to avoid accidental selection.
+        if (rx1 - rx0) < 0.1 and (ry1 - ry0) < 0.1:
+            self._rubber_band_start = None
+            return
+
+        self._rubber_band_start = None
+        session = self._session
+        selected: set[uuid.UUID] = set()
+        for comp_id, placement in session.layout.placements.items():
+            inst = session.instances.get(comp_id)
+            if inst is None:
+                continue
+            defn = session.components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            bbox = component_bbox(defn.footprint, placement)
+            bx0 = bbox.x
+            by0 = bbox.y
+            bx1 = bbox.x + bbox.width
+            by1 = bbox.y + bbox.height
+            if left_to_right:
+                # Fully inside.
+                if bx0 >= rx0 and by0 >= ry0 and bx1 <= rx1 and by1 <= ry1:
+                    selected.add(comp_id)
+            else:
+                # Intersects.
+                if bx0 < rx1 and bx1 > rx0 and by0 < ry1 and by1 > ry0:
+                    selected.add(comp_id)
+
+        if selected:
+            self._selected_ids = selected
+            self._redraw_multi_highlights()
+            # Set first as primary.
+            first = next(iter(selected))
+            self._select_primary(first)
+
+    def _clear_rubber_band(self) -> None:
+        if self._rubber_band_item is not None:
+            self._view.scene().removeItem(self._rubber_band_item)
+            self._rubber_band_item = None
 
     # ------------------------------------------------------------------
     # Wire selection
@@ -444,27 +670,18 @@ class SelectTool(_Tool):
             return
         group = QGraphicsItemGroup()
         pts = wire.path
-        # Draw segments.
         for i in range(len(pts) - 1):
             seg = QGraphicsLineItem(
                 pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y
             )
             seg.setPen(_WIRE_SELECT_PEN)
             group.addToGroup(seg)
-        # Draw node dots at each vertex.
         for i, pt in enumerate(pts):
             r = _NODE_RADIUS
-            is_sel = (
-                i == self._edit_start_idx or i == self._edit_end_idx
-            )
-            dot = QGraphicsEllipseItem(
-                pt.x - r, pt.y - r, 2 * r, 2 * r
-            )
-            pen = _NODE_SELECTED_PEN if is_sel else _NODE_PEN
-            dot.setPen(pen)
-            dot.setBrush(
-                _NODE_SELECTED_BRUSH if is_sel else _NODE_BRUSH
-            )
+            is_sel = (i == self._edit_start_idx or i == self._edit_end_idx)
+            dot = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
+            dot.setPen(_NODE_SELECTED_PEN if is_sel else _NODE_PEN)
+            dot.setBrush(_NODE_SELECTED_BRUSH if is_sel else _NODE_BRUSH)
             group.addToGroup(dot)
         self._view.scene().addItem(group)
         self._wire_highlight = group
@@ -484,7 +701,6 @@ class SelectTool(_Tool):
     # ------------------------------------------------------------------
 
     def _hit_test_wire_node(self, scene_pt: QPointF) -> int | None:
-        """Return index of the wire node closest to scene_pt, or None."""
         wire = self._get_selected_wire()
         if wire is None:
             return None
@@ -508,23 +724,17 @@ class SelectTool(_Tool):
         )
 
     def _start_wire_edit(self, node_idx: int) -> None:
-        """Mark node_idx as the start of a segment edit."""
         self._cancel_wire_edit()
         self._edit_start_idx = node_idx
         self._edit_end_idx = None
         self._edit_points = []
-        # Redraw highlight to show selected node.
         if self._selected_wire_id is not None:
             self._draw_wire_highlight(self._selected_wire_id)
 
     def _set_edit_end(self, node_idx: int, wire: WireSegment) -> None:
-        """Set the end node of the segment being edited."""
         start = self._edit_start_idx
-        if start is None:
+        if start is None or node_idx == start:
             return
-        if node_idx == start:
-            return
-        # Ensure start < end for consistent slicing.
         if node_idx < start:
             start, node_idx = node_idx, start
             self._edit_start_idx = start
@@ -539,14 +749,12 @@ class SelectTool(_Tool):
         )
 
     def _edit_add_point(self, pt: Point) -> None:
-        """Add intermediate point during manual edit."""
         self._edit_points.append(pt)
-        # Draw committed preview segment.
+        wire = self._get_selected_wire()
         if len(self._edit_points) >= 2:
             a = self._edit_points[-2]
             b = self._edit_points[-1]
         else:
-            wire = self._get_selected_wire()
             if wire is None or self._edit_start_idx is None:
                 return
             a = wire.path[self._edit_start_idx]
@@ -555,20 +763,18 @@ class SelectTool(_Tool):
         line.setPen(_EDIT_PREVIEW_PEN)
         self._view.scene().addItem(line)
         self._edit_preview_items.append(line)
-        # Remove old live line; new one will be drawn in on_move.
         self._remove_edit_live()
 
     def _update_edit_live(self, scene_pt: QPointF) -> None:
-        """Update the live (dashed) preview line to cursor."""
         self._remove_edit_live()
         wire = self._get_selected_wire()
         if wire is None or self._edit_start_idx is None:
             return
         snapped = self._view.snap(scene_pt)
-        if self._edit_points:
-            anchor = self._edit_points[-1]
-        else:
-            anchor = wire.path[self._edit_start_idx]
+        anchor = (
+            self._edit_points[-1] if self._edit_points
+            else wire.path[self._edit_start_idx]
+        )
         line = QGraphicsLineItem(
             anchor.x, anchor.y, snapped.x, snapped.y
         )
@@ -594,7 +800,6 @@ class SelectTool(_Tool):
         self._edit_points = []
 
     def _commit_wire_edit(self) -> None:
-        """Replace the edited fragment with the new path and commit."""
         wire = self._get_selected_wire()
         if wire is None:
             return
@@ -602,34 +807,22 @@ class SelectTool(_Tool):
         end = self._edit_end_idx
         if start is None or end is None:
             return
-
-        # Build new full path: prefix + new middle + suffix.
-        prefix = list(wire.path[:start + 1])      # includes start node
-        suffix = list(wire.path[end:])             # includes end node
-        middle = list(self._edit_points)           # user-drawn intermediates
-
-        new_path = prefix + middle + suffix
-        # Remove duplicates at junctions (start/end node may equal first/last middle).
-        new_path = _dedupe_adjacent(new_path)
-
+        prefix = list(wire.path[:start + 1])
+        suffix = list(wire.path[end:])
+        new_path = _dedupe_adjacent(
+            prefix + list(self._edit_points) + suffix
+        )
         if len(new_path) < 2:
             self._cancel_wire_edit()
             return
-
         self._clear_edit_preview()
         self._cancel_wire_edit()
-
-        cmd = ReplaceWireSegmentCommand(
-            wire_id=wire.id,
-            new_path=new_path,
-        )
+        cmd = ReplaceWireSegmentCommand(wire_id=wire.id, new_path=new_path)
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
-        # Reselect the wire after scene refresh.
         self._select_wire(wire.id)
 
     def _autoroute_wire_fragment(self) -> None:
-        """Auto-route the selected fragment via A* and immediately commit."""
         wire = self._get_selected_wire()
         if wire is None:
             return
@@ -637,7 +830,6 @@ class SelectTool(_Tool):
         end = self._edit_end_idx
         if start is None or end is None:
             return
-
         from protoboard.domain.connectivity.graph import ConnectivityGraph
         from protoboard.services.routing.astar import find_paths
         from protoboard.services.routing.cost_model import RoutingCostModel
@@ -649,45 +841,31 @@ class SelectTool(_Tool):
             components=session.components,
             instances=session.instances,
         )
-        source_pt = wire.path[start]
-        target_pt = wire.path[end]
-
         results = find_paths(
             graph=graph,
-            source=source_pt,
-            targets=[target_pt],
+            source=wire.path[start],
+            targets=[wire.path[end]],
             side=wire.side,
             cost_model=RoutingCostModel(),
             k=1,
         )
         if not results:
-            return  # no path found — leave edit mode open
-
-        routed_middle = results[0].path  # includes source and target
-        # Strip source and target (already in prefix/suffix).
-        middle = list(routed_middle[1:-1])
-
-        prefix = list(wire.path[:start + 1])
-        suffix = list(wire.path[end:])
-        new_path = _dedupe_adjacent(prefix + middle + suffix)
-
+            return
+        routed = results[0].path
+        middle = list(routed[1:-1])
+        new_path = _dedupe_adjacent(
+            list(wire.path[:start + 1]) + middle + list(wire.path[end:])
+        )
         if len(new_path) < 2:
             self._cancel_wire_edit()
             return
-
         self._clear_edit_preview()
         self._cancel_wire_edit()
-
-        cmd = ReplaceWireSegmentCommand(
-            wire_id=wire.id,
-            new_path=new_path,
-        )
+        cmd = ReplaceWireSegmentCommand(wire_id=wire.id, new_path=new_path)
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
         self._select_wire(wire.id)
 
-    # ------------------------------------------------------------------
-    # Helpers
     # ------------------------------------------------------------------
 
     def _props_panel(self) -> PropertiesPanel | None:
