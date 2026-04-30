@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QToolBar,
 )
 
+from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.panels.library_panel import LibraryPanel
 from protoboard.gui.panels.netlist_panel import NetlistPanel
@@ -31,6 +32,7 @@ from protoboard.gui.tools.place_tool import PlaceTool
 from protoboard.gui.tools.route_tool import RouteTool
 from protoboard.gui.tools.select_tool import SelectTool
 from protoboard.services.export.bom import export_bom_csv
+from protoboard.services.export.pdf import export_pdf
 from protoboard.services.export.svg import export_svg
 from protoboard.services.kicad.exporter import KiCadNetlistExporter
 from protoboard.services.kicad.importer import ImportWarning, KiCadNetlistImporter
@@ -89,6 +91,7 @@ class MainWindow(QMainWindow):
         act_drc = toolbar.addAction("Run DRC [F5]")
         toolbar.addSeparator()
         act_export_svg = toolbar.addAction("Export SVG")
+        act_export_pdf = toolbar.addAction("Export PDF")
         act_export_bom = toolbar.addAction("Export BOM")
         act_import_net = toolbar.addAction("Import KiCAD .net")
         act_export_net = toolbar.addAction("Export KiCAD .net")
@@ -98,6 +101,7 @@ class MainWindow(QMainWindow):
         act_cut.triggered.connect(self._tool_cut)
         act_drc.triggered.connect(self._run_drc)
         act_export_svg.triggered.connect(self._export_svg)
+        act_export_pdf.triggered.connect(self._export_pdf)
         act_export_bom.triggered.connect(self._export_bom)
         act_import_net.triggered.connect(self._import_kicad_net)
         act_export_net.triggered.connect(self._export_kicad_net)
@@ -247,7 +251,13 @@ class MainWindow(QMainWindow):
         self._status.showMessage(f"DRC: {n} issue{'s' if n != 1 else ''}", 4000)
 
     def _on_component_changed(
-        self, comp_id: uuid.UUID, refdes: str, value: str, rotation: int
+        self,
+        comp_id: uuid.UUID,
+        refdes: str,
+        value: str,
+        rotation: int,
+        label_offset_x: float,
+        label_offset_y: float,
     ) -> None:
         inst = self._session.instances.get(comp_id)
         pl = self._session.layout.placements.get(comp_id)
@@ -257,7 +267,7 @@ class MainWindow(QMainWindow):
             inst, refdes=refdes, value=value
         )
         self._session.layout.placements[comp_id] = dataclasses.replace(
-            pl, rotation=rotation
+            pl, rotation=rotation, label_offset=Point(label_offset_x, label_offset_y)
         )
         self._board_view.refresh()
 
@@ -276,6 +286,25 @@ class MainWindow(QMainWindow):
             )
             Path(path_str).write_text(svg_str, encoding="utf-8")
             self._status.showMessage(f"SVG exported to {path_str}", 4000)
+        except Exception as exc:
+            QMessageBox.critical(self, "Export error", str(exc))
+
+    def _export_pdf(self) -> None:
+        path_str, _ = QFileDialog.getSaveFileName(
+            self, "Export PDF (print-ready 1:1)", "board.pdf", "PDF files (*.pdf)"
+        )
+        if not path_str:
+            return
+        try:
+            export_pdf(
+                Path(path_str),
+                self._session.board,
+                self._session.layout,
+                components=self._session.components,
+                instances=self._session.instances,
+                raster_pitch_mm=self._session.board.raster_pitch_mm,
+            )
+            self._status.showMessage(f"PDF exported to {path_str}", 4000)
         except Exception as exc:
             QMessageBox.critical(self, "Export error", str(exc))
 
