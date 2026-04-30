@@ -45,13 +45,20 @@ def find_paths(
     k: int,
     occupied_pads: dict[Point, uuid.UUID] | None = None,
     same_net_pads: dict[Point, uuid.UUID] | None = None,
+    near_pin_pads: set[Point] | None = None,
+    near_pin_cost: float = 3.0,
 ) -> list[RoutingResult]:
     """Find up to *k* cheapest paths from *source* to any pad in *targets*.
+
+    *near_pin_pads* — pads that are immediate neighbours of pins belonging to
+    other nets.  Stepping onto them is allowed but incurs *near_pin_cost* on
+    top of the normal step cost, discouraging corridor-stealing detours.
 
     Returns an empty list if no path exists.
     """
     occupied = occupied_pads or {}
     same_net = same_net_pads or {}
+    near_pins = near_pin_pads or set()
 
     target_set = set(targets)
 
@@ -69,14 +76,6 @@ def find_paths(
     if source not in valid_nodes:
         return []
 
-    # A* with path tracking.  State = (cost, step_count, position, direction, path).
-    # We use Yen's k-shortest-paths approach: run A* repeatedly, on each run
-    # forbidding the previously returned path's edges.
-    # For MVP simplicity we run A* once (finds the single optimal path) then
-    # perform K-1 additional runs with slight cost perturbation via spur paths.
-    # A cleaner implementation of top-K is Yen's algorithm, but for K=3 and
-    # small boards a simpler multi-run with used-path exclusion suffices.
-
     results: list[RoutingResult] = []
     forbidden_edges: set[tuple[Point, Point]] = set()
 
@@ -88,12 +87,13 @@ def find_paths(
             cost_model=cost_model,
             occupied=occupied,
             same_net=same_net,
+            near_pins=near_pins,
+            near_pin_cost=near_pin_cost,
             forbidden_edges=forbidden_edges,
         )
         if result is None:
             break
         results.append(result)
-        # Forbid the edges of the found path to force a different route next time.
         path = result.path
         for a, b in zip(path[:-1], path[1:]):
             forbidden_edges.add((a, b))
@@ -110,6 +110,8 @@ def _astar(
     cost_model: RoutingCostModel,
     occupied: dict[Point, uuid.UUID],
     same_net: dict[Point, uuid.UUID],
+    near_pins: set[Point],
+    near_pin_cost: float,
     forbidden_edges: set[tuple[Point, Point]],
 ) -> RoutingResult | None:
     # heap entry: (f_cost, g_cost, seq, x, y, dir_x, dir_y, path_so_far)
@@ -149,6 +151,8 @@ def _astar(
                 step_cost = cost_model.same_net_pad
             else:
                 step_cost = cost_model.free_pad
+                if npos in near_pins:
+                    step_cost += near_pin_cost
 
             if step_cost == float("inf"):
                 continue

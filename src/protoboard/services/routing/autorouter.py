@@ -36,7 +36,9 @@ from protoboard.geometry import Point
 from protoboard.services.routing.astar import find_paths
 from protoboard.services.routing.cost_model import RoutingCostModel
 
-_DEFAULT_COST = RoutingCostModel()
+# Higher direction_change discourages long detours and keeps wires closer
+# to straight-line paths, leaving more corridors free for other nets.
+_DEFAULT_COST = RoutingCostModel(direction_change=1.0)
 
 
 @dataclass
@@ -92,8 +94,23 @@ def autoroute(
     # the real layout.
     working_wires: list[WireSegment] = list(layout.wires)
 
-    # Sort nets: fewer pins first (simpler to route).
-    sorted_nets = sorted(schematic.nets.values(), key=lambda n: len(n.pins))
+    # Sort nets: longest manhattan distance first.  Long nets need more board
+    # space and should be planned while the board is still empty; short nets
+    # have more alternative paths and are easier to squeeze in last.
+    # Within the same distance, sort by descending pin count for stability.
+    def _net_sort_key(net: Net) -> tuple[float, int]:
+        pts = [pin_positions[r] for r in net.pins if r in pin_positions]
+        if len(pts) < 2:
+            return (0.0, -len(pts))
+        # Use the maximum pairwise manhattan distance as the primary key.
+        max_d = max(
+            abs(a.x - b.x) + abs(a.y - b.y)
+            for i, a in enumerate(pts)
+            for b in pts[i + 1:]
+        )
+        return (-max_d, -len(pts))  # negate: largest first
+
+    sorted_nets = sorted(schematic.nets.values(), key=_net_sort_key)
 
     for net in sorted_nets:
         routed = _route_net(
@@ -179,6 +196,17 @@ def _route_net(
         pt: net_id for pt in net_pts
     }
 
+    # Build near_pin_pads: 4-neighbours of all other-net pins that are not
+    # themselves a pin.  Stepping onto these pads is allowed but costs extra,
+    # discouraging a wire from snaking through corridors needed by other nets.
+    other_pin_pts = set(occupied_pads.keys())
+    near_pin_pads: set[Point] = set()
+    for pt in other_pin_pts:
+        for dx, dy in ((1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)):
+            nb = Point(pt.x + dx, pt.y + dy)
+            if nb not in other_pin_pts and nb not in net_pts:
+                near_pin_pads.add(nb)
+
     new_wires: list[WireSegment] = []
 
     # Build a connectivity graph from the current working state to detect which
@@ -228,6 +256,7 @@ def _route_net(
             max_rip_up_passes=max_rip_up_passes,
             occupied_pins=occupied_pads,
             same_net_pins=same_net_pads,
+            near_pin_pads=near_pin_pads,
         )
         if routed_wire is None:
             return None  # failed to route this net
@@ -260,11 +289,13 @@ def _route_segment_with_ripup(
     max_rip_up_passes: int,
     occupied_pins: dict[Point, uuid.UUID],
     same_net_pins: dict[Point, uuid.UUID],
+    near_pin_pads: set[Point],
 ) -> WireSegment | None:
     """Try to route *target* from any of *source_options*, with rip-up fallback.
 
     *occupied_pins* — pad positions belonging to other nets (blocked).
     *same_net_pins* — pad positions belonging to this net (discounted).
+    *near_pin_pads* — pads adjacent to other-net pins (extra cost, not blocked).
     Wire path points from other already-routed wires are also blocked.
     """
     for attempt in range(max_rip_up_passes + 1):
@@ -284,6 +315,8 @@ def _route_segment_with_ripup(
         }
         for pt in same_net_pins:
             combined_occupied.pop(pt, None)
+        # near_pin_pads: remove any that became occupied (wire or pin)
+        effective_near = near_pin_pads - set(combined_occupied.keys()) - set(same_net_pins.keys())
 
         for source in source_options:
             results = find_paths(
@@ -295,6 +328,8 @@ def _route_segment_with_ripup(
                 k=1,
                 occupied_pads=combined_occupied,
                 same_net_pads=same_net_pins,
+                near_pin_pads=effective_near,
+                near_pin_cost=10.0,
             )
             if results:
                 path = results[0].path
