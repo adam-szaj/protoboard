@@ -5,11 +5,13 @@ from __future__ import annotations
 
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QMouseEvent
+from PySide6.QtWidgets import QGraphicsItemGroup
 
 from protoboard.domain.commands.component_cmds import PlaceComponentCommand
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.gui.board_view import _Tool
+from protoboard.gui.renderers.component_renderer import make_ghost_item
 
 
 class PlaceTool(_Tool):
@@ -18,6 +20,14 @@ class PlaceTool(_Tool):
     def __init__(self, definition_ref: str) -> None:
         self._definition_ref = definition_ref
         self._rotation = 0
+        self._ghost: QGraphicsItemGroup | None = None
+
+    def activate(self, session: object, view: object) -> None:
+        super().activate(session, view)  # type: ignore[arg-type]
+        self._rebuild_ghost()
+
+    def deactivate(self) -> None:
+        self._remove_ghost()
 
     def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
@@ -40,6 +50,10 @@ class PlaceTool(_Tool):
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
 
+    def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
+        snapped = self._view.snap(scene_pt)
+        self._move_ghost(snapped.x, snapped.y)
+
     def on_key(self, event: object) -> None:
         from PySide6.QtCore import Qt as _Qt
         from PySide6.QtGui import QKeyEvent
@@ -48,12 +62,47 @@ class PlaceTool(_Tool):
             return
         if event.key() == _Qt.Key.Key_R:
             self._rotation = (self._rotation + 90) % 360
+            self._rebuild_ghost()
+
+    def on_scene_cleared(self) -> None:
+        self._ghost = None  # scene wiped — item is gone
+
+    # ------------------------------------------------------------------
+    # Ghost helpers
+    # ------------------------------------------------------------------
+
+    def _rebuild_ghost(self) -> None:
+        """Remove old ghost and create a new one with current rotation."""
+        self._remove_ghost()
+        defn = self._session.components.get(self._definition_ref)
+        if defn is None:
+            return
+        ghost = make_ghost_item(defn, rotation=self._rotation)
+        self._view.scene().addItem(ghost)
+        self._ghost = ghost
+
+    def _remove_ghost(self) -> None:
+        if self._ghost is not None:
+            self._view.scene().removeItem(self._ghost)
+            self._ghost = None
+
+    def _move_ghost(self, x: float, y: float) -> None:
+        if self._ghost is not None:
+            self._ghost.setPos(x, y)
+
+    # ------------------------------------------------------------------
 
     def _next_refdes(self) -> str:
-        prefix = self._definition_ref[0].upper()
-        existing = [
+        defn = self._session.components.get(self._definition_ref)
+        prefix = (
+            defn.refdes_prefix if defn is not None else self._definition_ref[0].upper()
+        )
+        existing = {
             inst.refdes
             for inst in self._session.instances.values()
             if inst.refdes.startswith(prefix)
-        ]
-        return f"{prefix}{len(existing) + 1}"
+        }
+        n = 1
+        while f"{prefix}{n}" in existing:
+            n += 1
+        return f"{prefix}{n}"

@@ -9,6 +9,7 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QPen
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
+    QGraphicsItemGroup,
     QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsTextItem,
@@ -19,6 +20,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
+from protoboard.geometry import Point
 
 COMP_FILL = QColor(255, 255, 200, 180)  # pale yellow, semi-transparent
 COMP_BORDER = QColor("#444444")
@@ -120,18 +122,103 @@ def _render_one(
             fill_color = PIN_COLOR
             pen = QPen(Qt.GlobalColor.transparent, 0)
 
-        dot = QGraphicsEllipseItem(
-            QRectF(
-                pos.x - PIN_RADIUS, pos.y - PIN_RADIUS, 2 * PIN_RADIUS, 2 * PIN_RADIUS
+        if pin_number == 1:
+            _add_pin1_marker(scene, pos.x, pos.y, fill_color)
+        else:
+            dot = QGraphicsEllipseItem(
+                QRectF(
+                    pos.x - PIN_RADIUS, pos.y - PIN_RADIUS,
+                    2 * PIN_RADIUS, 2 * PIN_RADIUS,
+                )
             )
-        )
-        dot.setBrush(QBrush(fill_color))
-        dot.setPen(pen)
-        scene.addItem(dot)
+            dot.setBrush(QBrush(fill_color))
+            dot.setPen(pen)
+            scene.addItem(dot)
 
-    # refdes label.
+    # refdes label — centred inside bbox unless label_offset differs from default.
     label = QGraphicsTextItem(inst.refdes)
     label.setDefaultTextColor(REFDES_COLOR)
     label.setFont(_REFDES_FONT)
-    label.setPos(x0 + 0.05, y0 + 0.05)
+    _default_offset = Point(0.05, 0.05)
+    if placement.label_offset == _default_offset:
+        # Auto-centre: place so text centre aligns with component bbox centre.
+        br = label.boundingRect()
+        cx = (x0 + x1) / 2.0 - br.width() / 2.0
+        cy = (y0 + y1) / 2.0 - br.height() / 2.0
+        label.setPos(cx, cy)
+    else:
+        label.setPos(x0 + placement.label_offset.x, y0 + placement.label_offset.y)
     scene.addItem(label)
+
+
+_PIN1_COLOR = QColor("#FFFFFF")   # white triangle — visible on any background
+_PIN1_R = PIN_RADIUS * 1.1        # slightly larger than regular pin
+
+
+def _add_pin1_marker(
+    scene: QGraphicsScene, cx: float, cy: float, fill_color: QColor
+) -> None:
+    """Draw a square marker for pin 1 (instead of the usual circle)."""
+    r = _PIN1_R
+    square = QGraphicsRectItem(QRectF(cx - r, cy - r, 2 * r, 2 * r))
+    square.setBrush(QBrush(fill_color))
+    square.setPen(QPen(_PIN1_COLOR, 0.06))
+    scene.addItem(square)
+
+
+def make_ghost_item(
+    defn: ComponentDefinition,
+    rotation: int = 0,
+) -> QGraphicsItemGroup:
+    """Return a semi-transparent QGraphicsItemGroup previewing *defn* at origin.
+
+    The group is positioned at (0, 0) — caller moves it by setting pos().
+    It is NOT added to any scene; caller must do scene.addItem(group).
+    """
+    # Synthetic placement at origin for position calculation.
+    placement = ComponentPlacement(
+        component_id=uuid.UUID(int=0),
+        position=Point(0.0, 0.0),
+        rotation=rotation,
+        side="top",
+    )
+    fp = defn.footprint
+    positions = [
+        pin_world_position(fp, placement, n + 1) for n in range(fp.pin_count())
+    ]
+    if not positions:
+        return QGraphicsItemGroup()
+
+    margin = 0.35
+    xs = [p.x for p in positions]
+    ys = [p.y for p in positions]
+    x0, y0 = min(xs) - margin, min(ys) - margin
+    x1, y1 = max(xs) + margin, max(ys) + margin
+
+    ghost_fill = QColor(255, 255, 200, 80)
+    ghost_border = QColor(255, 255, 100, 160)
+    ghost_pin = QColor(200, 80, 80, 160)
+
+    group = QGraphicsItemGroup()
+
+    rect_item = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
+    rect_item.setBrush(QBrush(ghost_fill))
+    rect_item.setPen(QPen(ghost_border, 0.06, Qt.PenStyle.DashLine))
+    group.addToGroup(rect_item)
+
+    for pos in positions:
+        r = PIN_RADIUS
+        dot = QGraphicsEllipseItem(
+            QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r)
+        )
+        dot.setBrush(QBrush(ghost_pin))
+        dot.setPen(QPen(Qt.GlobalColor.transparent, 0))
+        group.addToGroup(dot)
+
+    label = QGraphicsTextItem(defn.name)
+    label.setDefaultTextColor(QColor(220, 220, 100, 180))
+    label.setFont(_REFDES_FONT)
+    label.setPos(x0 + 0.05, y0 + 0.05)
+    group.addToGroup(label)
+
+    return group
