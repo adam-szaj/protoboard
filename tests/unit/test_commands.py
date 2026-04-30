@@ -32,6 +32,8 @@ class _FakeSession:
         ))
         self.layout = Layout(placements={}, wires=[])
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
+        from protoboard.domain.components.definition import ComponentDefinition
+        self.components: dict[str, ComponentDefinition] = {}
 
 
 class _Counter:
