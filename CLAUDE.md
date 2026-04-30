@@ -395,6 +395,36 @@ Gdy komponent jest stawiany lub przeciągany, GUI sprawdza konflikty w dwóch wa
 
 **Przepływ**: `RouteTool._commit()` → tworzy `AddWireWithNetsCommand` → `resolve_wire_nets()` (mutuje nety, rejestruje diff) → `stack.execute(cmd)` (dołącza drut).
 
+### 4.9. Grupy komponentów (ComponentGroup)
+
+**`domain/layout/group.py`** — model domenowy:
+
+```python
+@dataclass(frozen=True)
+class ComponentGroup:
+    id: uuid.UUID
+    name: str
+    component_ids: frozenset[uuid.UUID]   # bezpośrednie komponenty (nie z podgrup)
+    child_group_ids: frozenset[uuid.UUID]  # bezpośrednie podgrupy
+```
+
+Pomocnicze funkcje modułu:
+- `all_component_ids(groups, group_id)` — rekurencyjnie zbiera wszystkie component_ids z grupy i jej podgrup.
+- `top_level_group_for(groups, component_id)` — zwraca UUID grupy najwyższego poziomu zawierającej komponent (lub `None`).
+- `would_create_cycle(groups, parent_id, child_id)` — walidacja DAG przed operacją `AddToGroupCommand`.
+
+**`domain/layout/layout.py`** — `Layout` ma pole `groups: dict[uuid.UUID, ComponentGroup] = field(default_factory=dict)`.
+
+**GUI:** `SelectTool` zarządza stosem `_group_stack: list[UUID]`:
+- `[]` (pusty) — tryb globalny, klik na komponencie należącym do grupy zaznacza najwyższą grupę.
+- `[g1]` — wewnątrz grupy g1, klik na podgrupie zaznacza tę podgrupę.
+- Double-click (lub `on_double_press`) → push na stos (wejście do grupy).
+- `Esc` → pop ze stosu (wyjście z grupy) lub resetuje zaznaczenie.
+
+**Render:** `render_groups()` w `component_renderer.py` rysuje niebieską obwiednię z etykietą nazwy grupy dla każdej grupy widocznej na bieżącym poziomie nawigacji.
+
+**Persistence:** layout.yaml serializuje grupy jako lista rekordów z `id`, `name`, `component_ids`, `child_group_ids`.
+
 ## 5. Routing — sugestie
 
 ### 5.1. Model przeszkód i kosztów
@@ -461,9 +491,17 @@ class CommandStack:
     def can_redo(self) -> bool: ...
 ```
 
-Komendy MVP: `PlaceComponent`, `MoveComponent`, `RotateComponent`, `RemoveComponent`, `AddWire`, `AddWireWithNetsCommand`, `RemoveWire`, `AddStripCut`, `RemoveStripCut`, `RenameNet`, `Macro` (kompozycja).
+Komendy MVP: `PlaceComponent`, `MoveComponent`, `RotateComponent`, `RemoveComponent`, `AddWire`, `AddWireWithNetsCommand`, `RemoveWire`, `ReplaceWireSegmentCommand`, `DisconnectPinCommand`, `AddStripCut`, `RemoveStripCut`, `RenameNet`, `MacroCommand` (kompozycja), `CreateGroupCommand`, `DisbandGroupCommand`, `AddToGroupCommand`, `RemoveFromGroupCommand`, `RenameGroupCommand`.
 
 `AddWireWithNetsCommand` zastępuje `AddWireCommand` w `RouteTool` — atomowo commituje drut i towarzyszące mu mutacje schematu (create/extend/merge net). `AddWireCommand` pozostaje jako prostszy wariant (używany przy wczytywaniu projektu). Komendy mutujące schematic wymagają stanu implementującego `SchematicState(ComponentState)` z polem `schematic: Schematic`.
+
+**`MacroCommand`** — kompozytowa komenda grupująca listę `Command[T]`; `apply()` wykonuje po kolei, `revert()` cofa w odwrotnej kolejności. Używana do operacji multi-selection (move/delete wielu komponentów jednym undo-krokiem).
+
+**`ReplaceWireSegmentCommand(wire_id, new_path, old_path=[])`** — zastępuje `path` istniejącego drutu. Parametr `old_path` pozwala przekazać oryginalną ścieżkę gdy drut jest mutowany przed wykonaniem komendy (np. podczas live drag — bez tego undo czytałoby już nadpisaną wartość).
+
+**`DisconnectPinCommand(component_id, pin_number)`** — usuwa `PinRef` z netu. Jeśli net staje się pusty, usuwa go całkowicie. `revert()` przywraca zapisany net.
+
+**Komendy grupowania** — `CreateGroupCommand`, `DisbandGroupCommand`, `AddToGroupCommand`, `RemoveFromGroupCommand`, `RenameGroupCommand` — wszystkie operują na `Layout.groups: dict[UUID, ComponentGroup]`.
 
 ## 7. Persistence — struktura projektu (folder)
 
@@ -549,7 +587,31 @@ Sprawdzenia w MVP:
 
 **Tryby (tools):** Select, Place Component, Route Wire, Cut Strip, Measure.
 
-**Skróty klawiaturowe** w stylu KiCAD: `M` move, `R` rotate, `Del` delete, `Ctrl+Z/Y` undo/redo, `Esc` cancel.
+**Menu bar:**
+- **File:** New, Open, Save, Save As, Import KiCAD .net, Export KiCAD .net, Export SVG, Export BOM CSV, Export PNG, Print, Close Project, Exit.
+- **Edit:** Undo (Ctrl+Z, dynamiczny label z opisem komendy), Redo (Ctrl+Y), Select All (Ctrl+A).
+- **Tools:** Select (S), Route Wire (W), Cut Strip, DRC.
+
+**Skróty klawiaturowe** w stylu KiCAD: `M` move, `R` rotate, `Del` delete, `Ctrl+Z/Y` undo/redo, `Esc` cancel, `S` select, `W` route wire, `Ctrl+A` zaznacz wszystko, `Ctrl+G` group selection.
+
+**Multi-selection w SelectTool:**
+- `_selected_ids: set[UUID]` (komponenty) + `_selected_wire_ids: set[UUID]` (druty).
+- Rubber-band drag:
+  - **LTR (lewo→prawo):** bbox komponentu musi być *w całości* wewnątrz prostokąta; dla drutów wszystkie punkty ścieżki muszą leżeć wewnątrz.
+  - **RTL (prawo→lewo):** bbox komponentu musi *przecinać* prostokąt; dla drutów Cohen-Sutherland clip test na każdym odcinku.
+- Shift+klik dodaje/usuwa z zaznaczenia.
+- Multi-drag: `MacroCommand` z `MoveComponentCommand` per komponent + live-drag drutów (endpoint śledzący przesunięcie).
+- Multi-delete: `MacroCommand` z `RemoveComponentCommand` + `RemoveWireCommand` per element.
+- `on_right_press(scene_pt) -> bool` — pokazuje kontekstowe QMenu dla pinu pod kursorem: lista netów, możliwość "Disconnect pin from net" przez `DisconnectPinCommand`.
+
+**Wire editing w SelectTool:**
+- Po zaznaczeniu drutu widoczne węzły (małe kółka) na każdym punkcie ścieżki.
+- Ctrl+klik na węźle → ustawia start edycji fragmentu.
+- Ctrl+klik na innym węźle → fragment zaznaczony (start_idx..end_idx).
+- `A` → autoroute fragmentu przez A* (`find_paths` między dwoma punktami).
+- Lub ręczne rysowanie nowej trasy jak RouteTool, Enter = zatwierdź.
+- Zatwierdzenie: `ReplaceWireSegmentCommand` z pełnym undo.
+- Live drag węzła: Ctrl+drag przesuwa pojedynczy węzeł, `_drag_orig_wire_paths` przechowuje oryginalne ścieżki dla undo.
 
 ## 11. Fazy implementacji
 
@@ -595,7 +657,12 @@ Sprawdzenia w MVP:
 - [x] Pin-na-drucie: `find_wire_conflicts` wykrywa gdy pin komponentu trafia na punkt `WireSegment`; auto-join lub auto-create net.
 - [x] Auto-tworzenie netów przy rysowaniu drutu: `wire_net_ops`, `wire_net_resolver`, `AddWireWithNetsCommand` z pełnym undo/redo.
 - [x] A* router: tie-breaker int w heap zapobiega porównywaniu `Point` bez `__lt__`.
-- [x] **Test deliverable:** 505 testów (17 pad-conflict, 10 wire-net-ops, 8 wire-cmd, pozostałe domenowe i GUI).
+- [x] Multi-selection z rubber-band (LTR/RTL), Shift+klik, multi-drag, multi-delete.
+- [x] Wire editing: edycja fragmentu ścieżki, autoroute fragmentu (A*), `ReplaceWireSegmentCommand`.
+- [x] Grupy komponentów: zagnieżdżalne, nawigacja stack-based, Ctrl+G, render obrysu, pełne undo/redo.
+- [x] Disconnect pin from net: kontekstowe QMenu prawy-klik, `DisconnectPinCommand`.
+- [x] Menu bar: File/Edit (Undo z opisem, Redo, Select All)/Tools + Ctrl+G w Edit.
+- [x] **Test deliverable:** 563 testów (unit: wire-edit 11, macro 7, groups 21, disconnect-pin 6, autorouter 4; GUI: multi-selection 9).
 
 ### Faza 4 — Routing assistant (sugestie)
 - [x] `RoutingCostModel` z konfiguracją per projekt.
@@ -616,16 +683,19 @@ Sprawdzenia w MVP:
 - [x] DRC: FLOATING_PIN (warning), BARE_WIRE_CROSS (error).
 - [x] Eksport SVG (top layer: pady, druty, komponenty z refdes).
 - [x] BOM CSV (RefDes, Value, Footprint, Description — sortowane).
-- [ ] Eksport PNG/PDF.
-- [ ] Print-ready layout (1:1 do druku jako szablon do nawiercania).
+- [x] Eksport PDF (print-ready 1:1 via Qt SVG→PDF, `export_pdf()`).
+- [x] Eksport PNG (`export_png()` — rasteryzacja SVG przez QSvgRenderer + QImage).
+- [ ] Print-ready layout (1:1 do druku jako szablon do nawiercania) — PDF już to robi, pozostaje UI.
 
-### Faza 7 — Nice-to-have (backlog)
-- Autorouter (cała netlista naraz, np. Lee algorithm z rip-up & retry).
-- Breadboard, custom matrix boards, definicje user-defined.
-- Cross-platform (Windows, macOS).
-- 3D preview (przez VPython/three.js w QtWebEngine).
-- Plugin API (Python plugins w `~/.config/protoboard-designer/plugins/`).
-- Wsparcie dla Eagle/Fritzing netlist.
+### Faza 7 — Nice-to-have
+- [x] Autorouter: `services/routing/autorouter.py` — pełna netlista, A* z rip-up & retry, zwraca `AutorouteResult(wires, unrouted_nets)`. Dostępny przez Tools → Autoroute All Nets (F6). Wynik w `MacroCommand` → pełne undo.
+- [x] Groups panel (`panels/groups_panel.py`) — drzewo grup z Rename i Disband; odświeżany przy każdym `layout_changed`.
+- [x] Ctrl+G Group Selection + Ungroup w menu Edit.
+- [ ] Breadboard, custom matrix boards, definicje user-defined.
+- [ ] Plugin API (Python plugins w `~/.config/protoboard-designer/plugins/`).
+- [ ] Wsparcie dla Eagle/Fritzing netlist.
+- [ ] Undo/redo dla `check_and_resolve` — mutacje schematu przy placement/drag nie są w CommandStack.
+- [ ] Klawiaturowe modyfikatory (Shift/Ctrl/Alt) do bypass-u polityki pad-conflict.
 
 ## 12. Testy — strategia
 
@@ -672,14 +742,15 @@ protoboard-designer/
 │       │   │   ├── placement.py
 │       │   │   ├── wire.py
 │       │   │   ├── cut.py
+│       │   │   ├── group.py             # ComponentGroup + helpers
 │       │   │   └── layout.py
 │       │   ├── connectivity/
 │       │   │   └── graph.py         # ConnectivityGraph
 │       │   ├── project.py
 │       │   └── commands/
-│       │       ├── base.py          # Command, CommandStack
-│       │       ├── component_cmds.py
-│       │       ├── wire_cmds.py
+│       │       ├── base.py          # Command, CommandStack, MacroCommand
+│       │       ├── component_cmds.py  # Place/Move/Remove/AddWire/DisconnectPin/ReplaceWireSegment
+│       │       ├── group_cmds.py    # CreateGroup/Disband/AddTo/RemoveFrom/Rename
 │       │       └── ...
 │       ├── services/
 │       │   ├── drc/

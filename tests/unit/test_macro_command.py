@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 
 from protoboard.domain.commands.base import Command, CommandStack, MacroCommand
 
-
 # ---------------------------------------------------------------------------
 # Simple counter state + command for testing
 # ---------------------------------------------------------------------------

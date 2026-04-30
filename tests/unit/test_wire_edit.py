@@ -13,7 +13,6 @@ from protoboard.domain.layout.wire import WireSegment
 from protoboard.geometry import Point
 from protoboard.gui.tools.select_tool import _dedupe_adjacent
 
-
 # ---------------------------------------------------------------------------
 # Minimal state stub
 # ---------------------------------------------------------------------------

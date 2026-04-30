@@ -12,6 +12,7 @@ from PySide6.QtGui import QAction, QCloseEvent, QKeyEvent, QKeySequence
 from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMenuBar,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
+from protoboard.gui.panels.groups_panel import GroupsPanel
 from protoboard.gui.panels.library_panel import LibraryPanel
 from protoboard.gui.panels.netlist_panel import NetlistPanel
 from protoboard.gui.panels.properties_panel import PropertiesPanel
@@ -33,6 +35,7 @@ from protoboard.gui.tools.route_tool import RouteTool
 from protoboard.gui.tools.select_tool import SelectTool
 from protoboard.services.export.bom import export_bom_csv
 from protoboard.services.export.pdf import export_pdf
+from protoboard.services.export.png import export_png
 from protoboard.services.export.svg import export_svg
 from protoboard.services.kicad.exporter import KiCadNetlistExporter
 from protoboard.services.kicad.importer import ImportWarning, KiCadNetlistImporter
@@ -54,12 +57,14 @@ class MainWindow(QMainWindow):
         self._board_view = BoardView(session, self)
         self.setCentralWidget(self._board_view)
 
-        # Left dock — tabbed: Library | Netlist/BOM
+        # Left dock — tabbed: Library | Netlist/BOM | Groups
         self._library_panel = LibraryPanel(session.library, self)
         self._netlist_panel = NetlistPanel(self)
+        self._groups_panel = GroupsPanel(self)
         left_tabs = QTabWidget()
         left_tabs.addTab(self._library_panel, "Library")
         left_tabs.addTab(self._netlist_panel, "Netlist")
+        left_tabs.addTab(self._groups_panel, "Groups")
         left_dock = QDockWidget("", self)
         left_dock.setWidget(left_tabs)
         left_dock.setAllowedAreas(
@@ -128,14 +133,21 @@ class MainWindow(QMainWindow):
         self._library_panel.component_selected.connect(self._tool_place)
         self._netlist_panel.instance_selected.connect(self._board_view.select_component)
         session.layout_changed.connect(self._refresh_netlist)
+        session.layout_changed.connect(self._refresh_groups)
         session.layout_changed.connect(self._drc_timer.start)
         session.layout_changed.connect(self._update_undo_redo)
         session.drc_changed.connect(self._props_panel.update_issues)
         self._props_panel.component_changed.connect(self._on_component_changed)
         self._props_panel.pin_offsets_changed.connect(self._on_pin_offsets_changed)
 
-        # Populate netlist panel if schematic already loaded.
+        self._groups_panel.group_disbanded.connect(lambda _: self._board_view.refresh())
+        self._groups_panel.group_disbanded.connect(lambda _: self._update_undo_redo())
+        self._groups_panel.group_renamed.connect(lambda _: self._board_view.refresh())
+        self._groups_panel.group_renamed.connect(lambda _: self._update_undo_redo())
+
+        # Populate panels if project already loaded.
         self._refresh_netlist()
+        self._refresh_groups()
         self._update_stats()
 
         # Default tool.
@@ -175,6 +187,9 @@ class MainWindow(QMainWindow):
         act_export_pdf = file_menu.addAction("Export PDF…")
         act_export_pdf.triggered.connect(self._export_pdf)
 
+        act_export_png = file_menu.addAction("Export PNG…")
+        act_export_png.triggered.connect(self._export_png)
+
         act_export_bom = file_menu.addAction("Export BOM CSV…")
         act_export_bom.triggered.connect(self._export_bom)
 
@@ -208,6 +223,15 @@ class MainWindow(QMainWindow):
         act_select_all.setShortcut(QKeySequence.StandardKey.SelectAll)
         act_select_all.triggered.connect(self._select_all)
 
+        edit_menu.addSeparator()
+
+        act_group = edit_menu.addAction("&Group Selection\tCtrl+G")
+        act_group.setShortcut(QKeySequence("Ctrl+G"))
+        act_group.triggered.connect(self._group_selection)
+
+        act_ungroup = edit_menu.addAction("&Ungroup")
+        act_ungroup.triggered.connect(self._ungroup_selection)
+
         # ── Tools ─────────────────────────────────────────────────────────
         tools_menu = mb.addMenu("&Tools")
 
@@ -219,6 +243,11 @@ class MainWindow(QMainWindow):
 
         act_tool_cut = tools_menu.addAction("&Cut Strip\tC")
         act_tool_cut.triggered.connect(self._tool_cut)
+
+        tools_menu.addSeparator()
+
+        act_autoroute = tools_menu.addAction("&Autoroute All Nets…\tF6")
+        act_autoroute.triggered.connect(self._autoroute)
 
         tools_menu.addSeparator()
 
@@ -242,6 +271,9 @@ class MainWindow(QMainWindow):
 
     def _refresh_netlist(self) -> None:
         self._netlist_panel.refresh(self._session)
+
+    def _refresh_groups(self) -> None:
+        self._groups_panel.refresh(self._session)
 
     # ------------------------------------------------------------------
     # Tool switches
@@ -363,6 +395,107 @@ class MainWindow(QMainWindow):
         tool._redraw_multi_highlights()
         tool._redraw_multi_wire_highlights()
 
+    def _group_selection(self) -> None:
+        """Group the current multi-selection via Ctrl+G."""
+        from protoboard.domain.commands.group_cmds import CreateGroupCommand
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.gui.tools.select_tool import SelectTool
+
+        tool = self._board_view._active_tool
+        if not isinstance(tool, SelectTool):
+            return
+        selected = tool._selected_ids.copy()
+        if len(selected) < 2:
+            self._status.showMessage("Select 2+ components to group", 2000)
+            return
+        name, ok = QInputDialog.getText(
+            self, "Group Name", "Group name:", text="Group"
+        )
+        if not ok or not name.strip():
+            return
+        group = ComponentGroup(
+            id=uuid.uuid4(),
+            name=name.strip(),
+            component_ids=frozenset(selected),
+            child_group_ids=frozenset(),
+        )
+        cmd = CreateGroupCommand(group=group)
+        self._session.stack.execute(cmd, self._session)
+        self._board_view.refresh()
+        self._update_undo_redo()
+
+    def _ungroup_selection(self) -> None:
+        """Disband the group currently entered, or the group matching the selection."""
+        from protoboard.domain.commands.group_cmds import DisbandGroupCommand
+        from protoboard.gui.tools.select_tool import SelectTool
+
+        tool = self._board_view._active_tool
+        if not isinstance(tool, SelectTool):
+            return
+        # If we're inside a group (navigated via double-click), disband that group.
+        group_id: uuid.UUID | None = None
+        if tool._group_stack:
+            group_id = tool._group_stack[-1]
+        else:
+            # Otherwise find a group that wholly contains the selected components.
+            selected = tool._selected_ids
+            for gid, grp in self._session.layout.groups.items():
+                if grp.component_ids == frozenset(selected):
+                    group_id = gid
+                    break
+        if group_id is None:
+            self._status.showMessage("No group selected", 2000)
+            return
+        cmd = DisbandGroupCommand(group_id=group_id)
+        self._session.stack.execute(cmd, self._session)
+        # Exit the group if we were inside it.
+        if tool._group_stack and tool._group_stack[-1] == group_id:
+            tool._group_stack.pop()
+        self._board_view.refresh()
+        self._update_undo_redo()
+
+    def _autoroute(self) -> None:
+        """Run full-netlist autorouter and add resulting wires to the layout."""
+        from protoboard.domain.commands.base import MacroCommand
+        from protoboard.domain.commands.component_cmds import AddWireCommand
+        from protoboard.services.routing.autorouter import autoroute
+
+        if not self._session.schematic.nets:
+            QMessageBox.information(self, "Autoroute", "No nets to route.")
+            return
+
+        result = autoroute(
+            board=self._session.board,
+            layout=self._session.layout,
+            schematic=self._session.schematic,
+            components=self._session.components,
+            instances=self._session.instances,
+        )
+
+        if not result.wires and not result.unrouted_nets:
+            QMessageBox.information(
+                self, "Autoroute", "Nothing to route (all nets already connected)."
+            )
+            return
+
+        if result.wires:
+            from typing import cast
+            cmds = [cast(object, AddWireCommand(wire=w)) for w in result.wires]
+            from protoboard.domain.commands.base import Command
+            from protoboard.domain.commands.component_cmds import ComponentState
+            macro: MacroCommand[ComponentState] = MacroCommand(
+                commands=[cast(Command[ComponentState], c) for c in cmds],
+                description=f"Autoroute ({len(result.wires)} wires)",
+            )
+            self._session.stack.execute(macro, self._session)
+            self._board_view.refresh()
+            self._update_undo_redo()
+
+        msg = f"Autorouted {len(result.wires)} wire(s)."
+        if result.unrouted_nets:
+            msg += f"\nUnrouted nets: {', '.join(result.unrouted_nets)}"
+        QMessageBox.information(self, "Autoroute", msg)
+
     def _run_drc(self) -> None:
         issues = self._session.run_drc()
         n = len(issues)
@@ -450,6 +583,24 @@ class MainWindow(QMainWindow):
                 raster_pitch_mm=self._session.board.raster_pitch_mm,
             )
             self._status.showMessage(f"PDF exported to {path_str}", 4000)
+        except Exception as exc:
+            QMessageBox.critical(self, "Export error", str(exc))
+
+    def _export_png(self) -> None:
+        path_str, _ = QFileDialog.getSaveFileName(
+            self, "Export PNG", "board.png", "PNG files (*.png)"
+        )
+        if not path_str:
+            return
+        try:
+            export_png(
+                Path(path_str),
+                self._session.board,
+                self._session.layout,
+                components=self._session.components,
+                instances=self._session.instances,
+            )
+            self._status.showMessage(f"PNG exported to {path_str}", 4000)
         except Exception as exc:
             QMessageBox.critical(self, "Export error", str(exc))
 

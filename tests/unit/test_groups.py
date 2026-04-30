@@ -12,7 +12,6 @@ from protoboard.domain.commands.group_cmds import (
     AddToGroupCommand,
     CreateGroupCommand,
     DisbandGroupCommand,
-    RemoveFromGroupCommand,
     RenameGroupCommand,
 )
 from protoboard.domain.layout.group import (
@@ -22,9 +21,6 @@ from protoboard.domain.layout.group import (
     would_create_cycle,
 )
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.geometry import Point
-
 
 # ---------------------------------------------------------------------------
 # Minimal state stub
