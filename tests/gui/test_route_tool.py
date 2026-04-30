@@ -104,7 +104,7 @@ class TestRouteToolCommit:
         _press(board_view, 0.5, 0.5)
         _press(board_view, 1.5, 0.5)
         _enter(board_view)
-        assert tool._preview_lines == []
+        assert tool._committed_lines == [] and tool._live_line is None
         assert tool._hint_items == []
 
     def test_fewer_than_two_points_does_not_commit(
@@ -171,7 +171,7 @@ class TestRouteToolCancel:
         _press(board_view, 0.5, 0.5)
         _press(board_view, 1.5, 0.5)
         _escape(board_view)
-        assert tool._preview_lines == []
+        assert tool._committed_lines == [] and tool._live_line is None
 
     def test_points_cleared_after_cancel(
         self, board_view: BoardView, session: EditorSession

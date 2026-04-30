@@ -29,7 +29,10 @@ class RouteTool(_Tool):
     def __init__(self, insulated: bool = True) -> None:
         self._insulated = insulated
         self._points: list[Point] = []
-        self._preview_lines: list[QGraphicsLineItem] = []
+        # Committed segments (between clicked points).
+        self._committed_lines: list[QGraphicsLineItem] = []
+        # Single live segment from last point to cursor — None when not active.
+        self._live_line: QGraphicsLineItem | None = None
         self._hint_items: list[QGraphicsLineItem] = []
 
     def deactivate(self) -> None:
@@ -39,19 +42,22 @@ class RouteTool(_Tool):
         if event.button() != Qt.MouseButton.LeftButton:
             return
         snapped = self._view.snap(scene_pt)
-        self._points.append(snapped)
         if len(self._points) == 1:
             self._show_routing_hints(snapped)
-        self._update_preview()
+        # Turn the live segment into a committed segment.
+        if len(self._points) >= 1:
+            self._remove_live()
+            self._add_committed_line(self._points[-1], snapped)
+        self._points.append(snapped)
+        # Immediately show live segment from new point to current cursor.
+        self._add_live_line(snapped, snapped)
 
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         if not self._points:
             return
-        # Draw a live preview from the last committed point to the cursor.
-        self._clear_preview_last()
+        self._remove_live()
         snapped = self._view.snap(scene_pt)
-        last = self._points[-1]
-        self._add_preview_line(last, snapped)
+        self._add_live_line(self._points[-1], snapped)
 
     def on_key(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
@@ -72,14 +78,16 @@ class RouteTool(_Tool):
             side="top",
         )
         self._points.clear()
-        self._clear_all_preview()
+        self._clear_committed()
+        self._remove_live()
         self._clear_hints()
         cmd = AddWireCommand(wire=wire)
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
 
     def _cancel(self) -> None:
-        self._clear_all_preview()
+        self._clear_committed()
+        self._remove_live()
         self._clear_hints()
         self._points.clear()
 
@@ -145,8 +153,9 @@ class RouteTool(_Tool):
         self._hint_items = render_routing_hints(self._view.scene(), results)
 
     def on_scene_cleared(self) -> None:
-        # scene.clear() already destroyed all items — just drop the references.
-        self._preview_lines.clear()
+        # scene.clear() already destroyed all items — just drop references.
+        self._committed_lines.clear()
+        self._live_line = None
         self._hint_items.clear()
 
     def _clear_hints(self) -> None:
@@ -154,25 +163,27 @@ class RouteTool(_Tool):
             self._view.scene().removeItem(item)
         self._hint_items.clear()
 
-    def _update_preview(self) -> None:
-        self._clear_all_preview()
-        pts = self._points
-        for i in range(len(pts) - 1):
-            self._add_preview_line(pts[i], pts[i + 1])
-
-    def _add_preview_line(self, a: Point, b: Point) -> None:
+    def _add_committed_line(self, a: Point, b: Point) -> None:
         pen = QPen(_PREVIEW_COLOR, _PREVIEW_WIDTH)
         line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
         line.setPen(pen)
         self._view.scene().addItem(line)
-        self._preview_lines.append(line)
+        self._committed_lines.append(line)
 
-    def _clear_preview_last(self) -> None:
-        if self._preview_lines:
-            item = self._preview_lines.pop()
-            self._view.scene().removeItem(item)
+    def _add_live_line(self, a: Point, b: Point) -> None:
+        pen = QPen(_PREVIEW_COLOR, _PREVIEW_WIDTH)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
+        line.setPen(pen)
+        self._view.scene().addItem(line)
+        self._live_line = line
 
-    def _clear_all_preview(self) -> None:
-        for item in self._preview_lines:
+    def _remove_live(self) -> None:
+        if self._live_line is not None:
+            self._view.scene().removeItem(self._live_line)
+            self._live_line = None
+
+    def _clear_committed(self) -> None:
+        for item in self._committed_lines:
             self._view.scene().removeItem(item)
-        self._preview_lines.clear()
+        self._committed_lines.clear()
