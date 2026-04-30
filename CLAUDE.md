@@ -349,6 +349,52 @@ class ConnectivityGraph:
 
 **DRC = porównanie `Schematic.nets` z `ConnectivityGraph.electrical_nets()`.**
 
+### 4.8. Pad-conflict i auto-tworzenie netów
+
+#### Konflikt przy placement/drag (pad-na-pad i pin-na-drucie)
+
+Gdy komponent jest stawiany lub przeciągany, GUI sprawdza konflikty w dwóch warstwach:
+
+**`domain/layout/pad_conflict.py`** — czyste funkcje domenowe:
+- `find_conflicts()` — wykrywa gdy pin nowego komponentu trafia na pad istniejącego.
+- `find_wire_conflicts()` — wykrywa gdy pin nowego komponentu trafia na punkt `WireSegment.path`. Net drutu jest określany przez skanowanie wszystkich punktów ścieżki w mapie `point_to_net` (zbudowanej przez GUI z pozycji pładnych pinów z netem).
+
+`ConflictKind` enum — klasyfikacja konfliktu:
+
+| Wartość | Znaczenie | Akcja |
+|---|---|---|
+| `SAME_NET` | Oba piny w tej samej sieci | Auto-OK |
+| `DIFFERENT_NETS` | Różne sieci | Blokada |
+| `ONE_UNCONNECTED` | Jeden pin bez sieci | Dialog z pytaniem |
+| `BOTH_UNCONNECTED` | Oba bez sieci | Dialog — tworzy nowy net |
+| `PIN_ON_WIRE_SAME_NET` | Pin i drut w tej samej sieci | Auto-OK |
+| `PIN_ON_WIRE_DIFFERENT_NET` | Pin i drut w różnych sieciach | Blokada |
+| `PIN_ON_WIRE_WITH_NET` | Drut ma net, pin nie (lub odwrotnie) | Auto-join bez dialogu |
+| `PIN_ON_WIRE_UNCONNECTED` | Ani pin ani drut nie mają netu | Auto-tworzy nowy net |
+
+`PadConflict.shared_pins: frozenset[int]` na `ComponentPlacement` oznacza które piny zostały świadomie współdzielone.
+
+**`gui/placement_conflict.py`** — orchestracja GUI:
+- `check_and_resolve()` wywołuje obie funkcje domenowe, pokazuje `PadConflictDialog` gdy potrzebna decyzja, mutuje `session.schematic.nets` bezpośrednio i zwraca zaktualizowany `ComponentPlacement` (z `shared_pins`) lub `None` przy blokadzie.
+- Sprawdzenie body-overlap (bbox komponentów) poprzedza pad-conflict — blokuje tylko gdy żaden pin się nie pokrywa (czyste nakładanie się obudów).
+
+#### Auto-tworzenie netów przy rysowaniu drutu
+
+**`domain/schematic/wire_net_ops.py`** — czyste funkcje:
+- `find_pin_at(pt, session)` — zwraca `(comp_id, pin_num)` jeśli punkt trafia w pin komponentu (tolerancja 1e-4).
+- `classify_wire_nets(wire, session)` — klasyfikuje parę endpoints drutu jako `WireNetKind` (NO_PINS, BOTH_UNCONNECTED, ONE_UNCONNECTED, SAME_NET, DIFFERENT_NETS).
+
+**`gui/wire_net_resolver.py`** — `resolve_wire_nets(session, wire, cmd)`:
+- Wywołuje `classify_wire_nets`, mutuje `session.schematic.nets` i rejestruje każdą zmianę w `cmd.record_net_change()` przed mutacją.
+- Zwraca `False` (drut nie jest commitowany) tylko przy DIFFERENT_NETS gdy user anuluje merge dialog.
+
+**`domain/commands/component_cmds.py`** — `AddWireWithNetsCommand`:
+- Pierwsza aplikacja: dołącza drut do layoutu (nety już zmutowane przez resolver).
+- Redo: przywraca `_nets_after` z powrotem.
+- Revert (undo): usuwa drut i przywraca `_nets_before`.
+
+**Przepływ**: `RouteTool._commit()` → tworzy `AddWireWithNetsCommand` → `resolve_wire_nets()` (mutuje nety, rejestruje diff) → `stack.execute(cmd)` (dołącza drut).
+
 ## 5. Routing — sugestie
 
 ### 5.1. Model przeszkód i kosztów
@@ -415,7 +461,9 @@ class CommandStack:
     def can_redo(self) -> bool: ...
 ```
 
-Komendy MVP: `PlaceComponent`, `MoveComponent`, `RotateComponent`, `RemoveComponent`, `AddWire`, `RemoveWire`, `AddStripCut`, `RemoveStripCut`, `RenameNet`, `Macro` (kompozycja).
+Komendy MVP: `PlaceComponent`, `MoveComponent`, `RotateComponent`, `RemoveComponent`, `AddWire`, `AddWireWithNetsCommand`, `RemoveWire`, `AddStripCut`, `RemoveStripCut`, `RenameNet`, `Macro` (kompozycja).
+
+`AddWireWithNetsCommand` zastępuje `AddWireCommand` w `RouteTool` — atomowo commituje drut i towarzyszące mu mutacje schematu (create/extend/merge net). `AddWireCommand` pozostaje jako prostszy wariant (używany przy wczytywaniu projektu). Komendy mutujące schematic wymagają stanu implementującego `SchematicState(ComponentState)` z polem `schematic: Schematic`.
 
 ## 7. Persistence — struktura projektu (folder)
 
@@ -534,13 +582,20 @@ Sprawdzenia w MVP:
 ### Faza 3 — GUI MVP
 - [x] `MainWindow`, layout paneli (library dock lewy, properties+DRC dock prawy).
 - [x] `BoardView` z `QGraphicsScene`, render padów/drutów/komponentów na warstwach.
-- [x] Snap do najbliższego atomu-pada.
+- [x] Snap do najbliższego atomu-pada i pinu komponentu.
 - [x] Tools: Select (klik+drag+R+Del), Place (double-click library, R=rotate), Route Wire (klik-klik, Enter/Esc), Cut Strip.
 - [x] Properties panel: edycja refdes/value/rotation, Apply.
 - [x] Library panel z double-click.
 - [x] Undo/Redo Ctrl+Z/Y.
 - [x] Save/Load projektu (folder z YAML).
-- [x] **Test deliverable:** 65 testów pytest-qt pokrywających wszystkie narzędzia GUI.
+- [x] Zoom z centrowaniem na kursora (wheelEvent: `mapToScene` przed/po `scale` + `translate`).
+- [x] Pan środkowym przyciskiem i Ctrl+drag; `NoAnchor` zapobiega resetowi pozycji przy `setSceneRect`.
+- [x] Pad-conflict detection i resolution: `find_conflicts`, `ConflictKind`, `PadConflictDialog`, `shared_pins` na `ComponentPlacement`.
+- [x] Body-overlap blocking: sprawdzenie bbox komponentów przed pad-conflict; blokada tylko gdy żaden pin się nie pokrywa.
+- [x] Pin-na-drucie: `find_wire_conflicts` wykrywa gdy pin komponentu trafia na punkt `WireSegment`; auto-join lub auto-create net.
+- [x] Auto-tworzenie netów przy rysowaniu drutu: `wire_net_ops`, `wire_net_resolver`, `AddWireWithNetsCommand` z pełnym undo/redo.
+- [x] A* router: tie-breaker int w heap zapobiega porównywaniu `Point` bez `__lt__`.
+- [x] **Test deliverable:** 505 testów (17 pad-conflict, 10 wire-net-ops, 8 wire-cmd, pozostałe domenowe i GUI).
 
 ### Faza 4 — Routing assistant (sugestie)
 - [x] `RoutingCostModel` z konfiguracją per projekt.
