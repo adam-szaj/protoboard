@@ -186,9 +186,10 @@ class SelectTool(_Tool):
         placement = self._session.layout.placements.get(comp_id)
         if inst is None:
             return
+        defn = self._session.components.get(inst.definition_ref)
         panel = self._props_panel()
         if panel is not None:
-            panel.show_component(inst, placement)
+            panel.show_component(inst, placement, defn)
 
     def _deselect(self) -> None:
         if self._highlight is not None:

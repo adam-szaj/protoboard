@@ -87,6 +87,14 @@ def _layout_to_yaml(layout: Layout) -> str:
                     if pl.label_offset != Point(0.05, 0.05)
                     else {}
                 ),
+                **(
+                    {"pin_offsets": {
+                        str(pin): {"x": off.x, "y": off.y}
+                        for pin, off in pl.pin_offsets.items()
+                    }}
+                    if pl.pin_offsets
+                    else {}
+                ),
             }
             for pl in layout.placements.values()
         ],
@@ -187,12 +195,18 @@ def _layout_from_yaml(text: str) -> Layout:
             if raw_lo
             else Point(0.05, 0.05)
         )
+        raw_po = raw.get("pin_offsets") or {}
+        pin_offsets = {
+            int(k): Point(float(v["x"]), float(v["y"]))
+            for k, v in raw_po.items()
+        }
         pl = ComponentPlacement(
             component_id=comp_id,
             position=pos,
             rotation=int(raw["rotation"]),
             side=raw["side"],
             label_offset=label_offset,
+            pin_offsets=pin_offsets,
         )
         placements[comp_id] = pl
     wires: list[WireSegment] = []

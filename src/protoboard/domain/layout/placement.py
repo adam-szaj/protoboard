@@ -20,6 +20,7 @@ class ComponentPlacement:
     rotation: int
     side: Literal["top", "bottom"]
     label_offset: Point = field(default_factory=lambda: Point(0.05, 0.05))
+    pin_offsets: dict[int, Point] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.rotation not in _VALID_ROTATIONS:
@@ -49,8 +50,17 @@ def pin_world_position(
     placement: ComponentPlacement,
     pin_number: int,
 ) -> Point:
-    """Return the absolute world position of the given pin (1-indexed)."""
+    """Return the absolute world position of the given pin (1-indexed).
+
+    If ``placement.pin_offsets`` contains an entry for *pin_number*, that
+    offset is applied in the component's local frame *before* rotation so
+    that bending a lead "outward" means the same regardless of component
+    orientation.
+    """
     rel = footprint.pin_positions()[pin_number - 1]
+    off = placement.pin_offsets.get(pin_number)
+    if off is not None:
+        rel = Point(rel.x + off.x, rel.y + off.y)
     rotated = _rotate(rel, placement.rotation)
     return Point(
         placement.position.x + rotated.x,

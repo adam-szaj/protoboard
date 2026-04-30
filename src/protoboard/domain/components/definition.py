@@ -76,6 +76,10 @@ class ComponentDefinition:
     description: str = ""
     component_class: ComponentClass = ComponentClass.OTHER
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Per-pin allowed offsets (local frame, before rotation).
+    # Key = pin number (1-based). Value = list of allowed Point offsets.
+    # Empty list = pin not bendable.
+    bendable_pins: dict[int, list[Any]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.name:

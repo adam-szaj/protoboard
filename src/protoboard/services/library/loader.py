@@ -171,6 +171,34 @@ def _component_from_dict(data: Any, source: Path) -> ComponentDefinition:
             f"{source}: unknown component_class {raw_class!r} for {data['name']!r}"
         )
 
+    # bendable_pins: {pin_number: [[dx, dy], ...]}
+    from protoboard.geometry import Point as _Point
+    bendable_raw = data.get("bendable_pins") or {}
+    bendable_pins: dict[int, list[Any]] = {}
+    if isinstance(bendable_raw, dict):
+        for k, offsets in bendable_raw.items():
+            try:
+                pin_num = int(k)
+            except (TypeError, ValueError) as exc:
+                raise SerializationError(
+                    f"{source}: bendable_pins key {k!r} is not an integer"
+                ) from exc
+            if not isinstance(offsets, list):
+                raise SerializationError(
+                    f"{source}: bendable_pins[{pin_num}] must be a list"
+                )
+            parsed: list[Any] = []
+            for off in offsets:
+                if isinstance(off, dict):
+                    parsed.append(_Point(float(off["x"]), float(off["y"])))
+                elif isinstance(off, (list, tuple)) and len(off) == 2:
+                    parsed.append(_Point(float(off[0]), float(off[1])))
+                else:
+                    raise SerializationError(
+                        f"{source}: invalid offset {off!r} in bendable_pins[{pin_num}]"
+                    )
+            bendable_pins[pin_num] = parsed
+
     try:
         return ComponentDefinition(
             name=data["name"],
@@ -179,6 +207,7 @@ def _component_from_dict(data: Any, source: Path) -> ComponentDefinition:
             description=str(data.get("description", "")),
             component_class=comp_class,
             metadata=dict(metadata_raw),
+            bendable_pins=bendable_pins,
         )
     except ValueError as exc:
         raise SerializationError(

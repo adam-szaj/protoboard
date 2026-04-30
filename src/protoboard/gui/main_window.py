@@ -122,6 +122,7 @@ class MainWindow(QMainWindow):
         session.layout_changed.connect(self._refresh_netlist)
         session.drc_changed.connect(self._props_panel.update_issues)
         self._props_panel.component_changed.connect(self._on_component_changed)
+        self._props_panel.pin_offsets_changed.connect(self._on_pin_offsets_changed)
 
         # Populate netlist panel if schematic already loaded.
         self._refresh_netlist()
@@ -268,6 +269,15 @@ class MainWindow(QMainWindow):
         )
         self._session.layout.placements[comp_id] = dataclasses.replace(
             pl, rotation=rotation, label_offset=Point(label_offset_x, label_offset_y)
+        )
+        self._board_view.refresh()
+
+    def _on_pin_offsets_changed(self, comp_id: uuid.UUID, offsets: object) -> None:
+        pl = self._session.layout.placements.get(comp_id)
+        if pl is None:
+            return
+        self._session.layout.placements[comp_id] = dataclasses.replace(
+            pl, pin_offsets=offsets  # type: ignore[arg-type]
         )
         self._board_view.refresh()
 
