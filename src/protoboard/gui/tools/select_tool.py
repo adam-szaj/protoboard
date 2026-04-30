@@ -88,9 +88,12 @@ class SelectTool(_Tool):
         # Rubber-band state.
         self._rubber_band_start: QPointF | None = None
         self._rubber_band_item: QGraphicsRectItem | None = None
-        # Wire selection.
+        # Wire selection (single — for editing).
         self._selected_wire_id: uuid.UUID | None = None
         self._wire_highlight: QGraphicsItemGroup | None = None
+        # Multi-wire selection.
+        self._selected_wire_ids: set[uuid.UUID] = set()
+        self._wire_multi_highlights: list[QGraphicsItemGroup] = []
         # Wire segment editing.
         self._edit_start_idx: int | None = None
         self._edit_end_idx: int | None = None
@@ -109,12 +112,14 @@ class SelectTool(_Tool):
         self._drag_orig_positions = {}
         self._cancel_wire_edit()
         self._deselect_wire()
+        self._clear_multi_wire_selection()
         self._clear_rubber_band()
 
     def on_scene_cleared(self) -> None:
         self._highlight = None
         self._multi_highlights.clear()
         self._wire_highlight = None
+        self._wire_multi_highlights.clear()
         self._edit_preview_items.clear()
         self._edit_live_line = None
         self._rubber_band_item = None
@@ -125,6 +130,8 @@ class SelectTool(_Tool):
             self._draw_multi_highlight(cid)
         if self._selected_wire_id is not None:
             self._draw_wire_highlight(self._selected_wire_id)
+        for wid in self._selected_wire_ids:
+            self._draw_multi_wire_highlight(wid)
 
     def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
@@ -146,26 +153,37 @@ class SelectTool(_Tool):
 
         # --- Ctrl+click: wire node or add/remove from multi-selection ---
         if ctrl:
-            # Check for wire node click (starts edit).
+            # Check for wire node click on the single-selected wire (starts edit).
             if self._selected_wire_id is not None:
                 idx = self._hit_test_wire_node(scene_pt)
                 if idx is not None:
                     self._start_wire_edit(idx)
                     return True
 
+            # Check component bbox.
             hit = self._hit_test_bbox(scene_pt)
             if hit is not None:
-                # Toggle in multi-selection.
                 if hit in self._selected_ids:
                     self._selected_ids.discard(hit)
                     self._redraw_multi_highlights()
                 else:
                     self._selected_ids.add(hit)
                     self._draw_multi_highlight(hit)
-                # Also set as primary for Properties panel.
                 self._deselect_wire()
                 self._select_primary(hit)
                 return True
+
+            # Check wire.
+            wire_hit = self._hit_test_wire(scene_pt)
+            if wire_hit is not None:
+                if wire_hit in self._selected_wire_ids:
+                    self._selected_wire_ids.discard(wire_hit)
+                    self._redraw_multi_wire_highlights()
+                else:
+                    self._selected_wire_ids.add(wire_hit)
+                    self._draw_multi_wire_highlight(wire_hit)
+                return True
+
             return False
 
         # --- Normal left click: hit-test component or wire ---
@@ -204,6 +222,7 @@ class SelectTool(_Tool):
         if wire_hit is not None:
             self._cancel_wire_edit()
             self._clear_multi_selection()
+            self._clear_multi_wire_selection()
             self._deselect()
             self._select_wire(wire_hit)
             return True
@@ -380,7 +399,9 @@ class SelectTool(_Tool):
 
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
         if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
-            if self._selected_wire_id is not None:
+            if self._selected_wire_ids:
+                self._delete_multi_wires()
+            elif self._selected_wire_id is not None:
                 self._delete_wire()
             elif self._selected_ids:
                 self._delete_multi()
@@ -665,12 +686,34 @@ class SelectTool(_Tool):
                 if bx0 < rx1 and bx1 > rx0 and by0 < ry1 and by1 > ry0:
                     selected.add(comp_id)
 
-        if selected:
+        # Wires.
+        selected_wires: set[uuid.UUID] = set()
+        for wire in session.layout.wires:
+            pts = wire.path
+            if left_to_right:
+                # Fully inside: all points within rect.
+                if all(rx0 <= p.x <= rx1 and ry0 <= p.y <= ry1 for p in pts):
+                    selected_wires.add(wire.id)
+            else:
+                # Intersects: any point inside OR any segment crosses rect.
+                if any(rx0 <= p.x <= rx1 and ry0 <= p.y <= ry1 for p in pts):
+                    selected_wires.add(wire.id)
+                elif any(
+                    _segment_intersects_rect(
+                        pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y,
+                        rx0, ry0, rx1, ry1,
+                    )
+                    for i in range(len(pts) - 1)
+                ):
+                    selected_wires.add(wire.id)
+
+        if selected or selected_wires:
             self._selected_ids = selected
             self._redraw_multi_highlights()
-            # Set first as primary.
-            first = next(iter(selected))
-            self._select_primary(first)
+            self._selected_wire_ids = selected_wires
+            self._redraw_multi_wire_highlights()
+            if selected:
+                self._select_primary(next(iter(selected)))
 
     def _clear_rubber_band(self) -> None:
         if self._rubber_band_item is not None:
@@ -703,6 +746,7 @@ class SelectTool(_Tool):
             self._view.scene().removeItem(self._wire_highlight)
             self._wire_highlight = None
         self._selected_wire_id = None
+        self._clear_multi_wire_selection()
 
     def _draw_wire_highlight(self, wire_id: uuid.UUID) -> None:
         if self._wire_highlight is not None:
@@ -739,6 +783,56 @@ class SelectTool(_Tool):
         cmd = RemoveWireCommand(wire_id=wire_id)
         self._session.stack.execute(cmd, self._session)
         self._deselect_wire()
+        self._session.layout_changed.emit()
+
+    def _draw_multi_wire_highlight(self, wire_id: uuid.UUID) -> None:
+        wire = next(
+            (w for w in self._session.layout.wires if w.id == wire_id), None
+        )
+        if wire is None or len(wire.path) < 2:
+            return
+        group = QGraphicsItemGroup()
+        pts = wire.path
+        for i in range(len(pts) - 1):
+            seg = QGraphicsLineItem(
+                pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y
+            )
+            seg.setPen(_WIRE_SELECT_PEN)
+            group.addToGroup(seg)
+        self._view.scene().addItem(group)
+        self._wire_multi_highlights.append(group)
+
+    def _redraw_multi_wire_highlights(self) -> None:
+        for item in self._wire_multi_highlights:
+            self._view.scene().removeItem(item)
+        self._wire_multi_highlights.clear()
+        for wid in self._selected_wire_ids:
+            self._draw_multi_wire_highlight(wid)
+
+    def _clear_multi_wire_selection(self) -> None:
+        for item in self._wire_multi_highlights:
+            self._view.scene().removeItem(item)
+        self._wire_multi_highlights.clear()
+        self._selected_wire_ids.clear()
+
+    def _delete_multi_wires(self) -> None:
+        ids = list(self._selected_wire_ids)
+        if not ids:
+            return
+        from typing import cast
+
+        from protoboard.domain.commands.base import Command
+
+        commands = cast(
+            list[Command[ComponentState]],
+            [RemoveWireCommand(wire_id=wid) for wid in ids],
+        )
+        if len(commands) == 1:
+            self._session.stack.execute(commands[0], self._session)
+        else:
+            macro = MacroCommand(commands, description="Delete wires")
+            self._session.stack.execute(macro, self._session)
+        self._clear_multi_wire_selection()
         self._session.layout_changed.emit()
 
     # ------------------------------------------------------------------
@@ -1032,3 +1126,45 @@ def _dedupe_adjacent(path: list[Point]) -> list[Point]:
         if abs(pt.x - result[-1].x) > 1e-9 or abs(pt.y - result[-1].y) > 1e-9:
             result.append(pt)
     return result
+
+
+def _segment_intersects_rect(
+    ax: float, ay: float, bx: float, by: float,
+    rx0: float, ry0: float, rx1: float, ry1: float,
+) -> bool:
+    """Cohen-Sutherland clip: True if segment AB intersects rect."""
+    def _code(x: float, y: float) -> int:
+        c = 0
+        if x < rx0:
+            c |= 1
+        elif x > rx1:
+            c |= 2
+        if y < ry0:
+            c |= 4
+        elif y > ry1:
+            c |= 8
+        return c
+
+    c0, c1 = _code(ax, ay), _code(bx, by)
+    while True:
+        if not (c0 | c1):
+            return True   # both inside
+        if c0 & c1:
+            return False  # both outside same half-plane
+        c = c0 if c0 else c1
+        if c & 1:
+            y = ay + (by - ay) * (rx0 - ax) / (bx - ax + 1e-15)
+            x = rx0
+        elif c & 2:
+            y = ay + (by - ay) * (rx1 - ax) / (bx - ax + 1e-15)
+            x = rx1
+        elif c & 4:
+            x = ax + (bx - ax) * (ry0 - ay) / (by - ay + 1e-15)
+            y = ry0
+        else:
+            x = ax + (bx - ax) * (ry1 - ay) / (by - ay + 1e-15)
+            y = ry1
+        if c == c0:
+            ax, ay, c0 = x, y, _code(x, y)
+        else:
+            bx, by, c1 = x, y, _code(x, y)
