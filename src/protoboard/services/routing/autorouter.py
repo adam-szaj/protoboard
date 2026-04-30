@@ -79,6 +79,15 @@ def autoroute(
             if pt is not None:
                 point_to_net[pt] = net.id
 
+    # Also collect ALL placed pin positions — including floating pins that
+    # belong to no net.  These must be blocked too (any wire passing through
+    # a component pin creates an unintended electrical connection).
+    _FLOATING = uuid.UUID("00000000-0000-0000-0000-000000000002")
+    all_pin_positions: dict[Point, uuid.UUID] = {}
+    for pt in pin_positions.values():
+        # Use net id if known, otherwise mark as floating (still blocked).
+        all_pin_positions[pt] = point_to_net.get(pt, _FLOATING)
+
     # Work on a *mutable copy* of wires so we can do rip-up without touching
     # the real layout.
     working_wires: list[WireSegment] = list(layout.wires)
@@ -90,7 +99,7 @@ def autoroute(
         routed = _route_net(
             net=net,
             pin_positions=pin_positions,
-            point_to_net=point_to_net,
+            all_pin_positions=all_pin_positions,
             board=board,
             layout=layout,
             working_wires=working_wires,
@@ -135,7 +144,7 @@ def _build_pin_positions(
 def _route_net(
     net: Net,
     pin_positions: dict[PinRef, Point],
-    point_to_net: dict[Point, uuid.UUID],
+    all_pin_positions: dict[Point, uuid.UUID],
     board: Board,
     layout: Layout,
     working_wires: list[WireSegment],
@@ -152,16 +161,23 @@ def _route_net(
         return []  # nothing to route
 
     # Build pad occupancy maps for this net:
-    # - occupied: pads belonging to a *different* net → INF cost (blocked)
+    # - occupied: ALL placed pin pads except those of *this* net → blocked
+    #   (includes other-net pins AND floating pins — routing through any
+    #   component pin that is not part of this net creates a short or
+    #   unintended connection)
     # - same_net: pads belonging to *this* net → discounted cost
     net_id = net.id
-    occupied_pads: dict[Point, uuid.UUID] = {}
-    same_net_pads: dict[Point, uuid.UUID] = {}
-    for pt, nid in point_to_net.items():
-        if nid == net_id:
-            same_net_pads[pt] = nid
-        else:
-            occupied_pads[pt] = nid
+    net_pts: set[Point] = {
+        pin_positions[ref] for ref in net.pins if ref in pin_positions
+    }
+    occupied_pads: dict[Point, uuid.UUID] = {
+        pt: nid
+        for pt, nid in all_pin_positions.items()
+        if pt not in net_pts
+    }
+    same_net_pads: dict[Point, uuid.UUID] = {
+        pt: net_id for pt in net_pts
+    }
 
     new_wires: list[WireSegment] = []
 

@@ -203,6 +203,41 @@ class TestAutorouter:
         # No new wires — the connection already exists.
         assert result.wires == []
 
+    def test_router_avoids_floating_component_pins(self) -> None:
+        """Wire must not pass through pins of a component not in any net.
+
+        R1(rot=90)@(0.5,0.5): pin2=(1.5,0.5) → R2(rot=90)@(3.5,0.5): pin1=(3.5,0.5)
+        R3(rot=90)@(2.5,0.5): pin1=(2.5,0.5), pin2=(3.5,0.5) — floating, blocks row 0.
+        Router must detour through row 1.
+        """
+        board = _perfboard(2, 5)
+        defn = _sil2_def()
+        cid_a, cid_b, cid_c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value="")
+        inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value="")
+        inst_c = ComponentInstance(id=cid_c, definition_ref="COMP", refdes="R3", value="")
+        layout = Layout(placements={
+            cid_a: _place(cid_a, 0.5, 0.5),   # pin1=(0.5,0.5) pin2=(1.5,0.5)
+            cid_b: _place(cid_b, 3.5, 0.5),   # pin1=(3.5,0.5) pin2=(4.5,0.5)
+            cid_c: _place(cid_c, 2.5, 0.5),   # pin1=(2.5,0.5) pin2=(3.5,0.5) — blocker
+        })
+        ref_a2 = PinRef(component_id=cid_a, pin_number=2)
+        ref_b1 = PinRef(component_id=cid_b, pin_number=1)
+        net = Net(id=uuid.uuid4(), name="N1", pins={ref_a2, ref_b1})
+        schematic = Schematic(nets={net.id: net})  # R3 not in any net
+        components = {"COMP": defn}
+        instances = {cid_a: inst_a, cid_b: inst_b, cid_c: inst_c}
+
+        result = autoroute(board, layout, schematic, components, instances)
+
+        assert result.unrouted_nets == []
+        floating_pts = {Point(2.5, 0.5), Point(3.5, 0.5)}
+        for wire in result.wires:
+            for pt in wire.path[1:-1]:
+                assert pt not in floating_pts, (
+                    f"Wire passes through floating pin {pt}: {wire.path}"
+                )
+
     def test_already_routed_net_same_component(self) -> None:
         """Two pins on the same placed component — already adjacent, nothing to route."""
         board = _perfboard(5, 5)
