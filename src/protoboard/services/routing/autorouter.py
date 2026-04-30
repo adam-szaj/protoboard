@@ -67,8 +67,17 @@ def autoroute(
     """
     result = AutorouteResult()
 
-    # Build pin-position lookup.
+    # Build pin-position lookup: PinRef → world position.
     pin_positions = _build_pin_positions(layout, components, instances)
+
+    # Build a map: world position → net_id for every placed pin that belongs
+    # to a net.  Used to mark pads as occupied (other net) or same-net.
+    point_to_net: dict[Point, uuid.UUID] = {}
+    for net in schematic.nets.values():
+        for ref in net.pins:
+            pt = pin_positions.get(ref)
+            if pt is not None:
+                point_to_net[pt] = net.id
 
     # Work on a *mutable copy* of wires so we can do rip-up without touching
     # the real layout.
@@ -81,6 +90,7 @@ def autoroute(
         routed = _route_net(
             net=net,
             pin_positions=pin_positions,
+            point_to_net=point_to_net,
             board=board,
             layout=layout,
             working_wires=working_wires,
@@ -125,6 +135,7 @@ def _build_pin_positions(
 def _route_net(
     net: Net,
     pin_positions: dict[PinRef, Point],
+    point_to_net: dict[Point, uuid.UUID],
     board: Board,
     layout: Layout,
     working_wires: list[WireSegment],
@@ -143,6 +154,18 @@ def _route_net(
     ]
     if len(net_points) < 2:
         return []  # nothing to route
+
+    # Build pad occupancy maps for this net:
+    # - occupied: pads belonging to a *different* net → INF cost (blocked)
+    # - same_net: pads belonging to *this* net → discounted cost
+    net_id = net.id
+    occupied_pads: dict[Point, uuid.UUID] = {}
+    same_net_pads: dict[Point, uuid.UUID] = {}
+    for pt, nid in point_to_net.items():
+        if nid == net_id:
+            same_net_pads[pt] = nid
+        else:
+            occupied_pads[pt] = nid
 
     new_wires: list[WireSegment] = []
     # Use a spanning-tree approach: connect each point to the nearest already-
@@ -163,6 +186,8 @@ def _route_net(
             side=side,
             cost_model=cost_model,
             max_rip_up_passes=max_rip_up_passes,
+            occupied_pins=occupied_pads,
+            same_net_pins=same_net_pads,
         )
         if routed_wire is None:
             return None  # failed to route this net
@@ -185,8 +210,15 @@ def _route_segment_with_ripup(
     side: Literal["top", "bottom"],
     cost_model: RoutingCostModel,
     max_rip_up_passes: int,
+    occupied_pins: dict[Point, uuid.UUID],
+    same_net_pins: dict[Point, uuid.UUID],
 ) -> WireSegment | None:
-    """Try to route *target* from any of *source_options*, with rip-up fallback."""
+    """Try to route *target* from any of *source_options*, with rip-up fallback.
+
+    *occupied_pins* — pad positions belonging to other nets (blocked).
+    *same_net_pins* — pad positions belonging to this net (discounted).
+    Wire path points from other already-routed wires are also blocked.
+    """
     for attempt in range(max_rip_up_passes + 1):
         graph = ConnectivityGraph(
             board=board,
@@ -194,7 +226,16 @@ def _route_segment_with_ripup(
             components=components,
             instances=instances,
         )
-        occupied = _build_occupied_map(working_wires, exclude_wire_id=None)
+        # Merge occupied_pins with wire-path occupancy; same_net_pins take
+        # precedence over wire occupancy for this net's own pads.
+        wire_occupied = _build_occupied_map(working_wires, exclude_wire_id=None)
+        # Wire points that happen to coincide with same-net pins are not blocked.
+        combined_occupied: dict[Point, uuid.UUID] = {
+            **wire_occupied,
+            **occupied_pins,
+        }
+        for pt in same_net_pins:
+            combined_occupied.pop(pt, None)
 
         for source in source_options:
             results = find_paths(
@@ -204,7 +245,8 @@ def _route_segment_with_ripup(
                 side=side,
                 cost_model=cost_model,
                 k=1,
-                occupied_pads=occupied,
+                occupied_pads=combined_occupied,
+                same_net_pads=same_net_pins,
             )
             if results:
                 path = results[0].path

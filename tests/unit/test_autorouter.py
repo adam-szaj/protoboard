@@ -109,6 +109,51 @@ class TestAutorouter:
         assert result.wires == []
         assert result.unrouted_nets == []
 
+    def test_router_avoids_pads_of_other_nets(self) -> None:
+        """Wire path must not pass through pads that belong to a different net."""
+        # Board: 1×7 row.  Two nets:
+        #   NET1: comp_a pin2 (1.5,0.5) → comp_b pin1 (5.5,0.5)
+        #   NET2: comp_c pin1 (3.5,0.5)  — sits in the middle of the direct path
+        # The router must go around (0.5,0.5)→(1.5,0.5) then detour, or report
+        # unrouted; it must NOT route through (3.5,0.5) which belongs to NET2.
+        board = _perfboard(3, 7)
+        defn = _sil2_def()
+        cid_a, cid_b, cid_c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+        inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value="")
+        inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value="")
+        inst_c = ComponentInstance(id=cid_c, definition_ref="COMP", refdes="R3", value="")
+
+        layout = Layout(placements={
+            cid_a: _place(cid_a, 0.5, 0.5),  # pins at (0.5,0.5),(1.5,0.5)
+            cid_b: _place(cid_b, 4.5, 0.5),  # pins at (4.5,0.5),(5.5,0.5)
+            cid_c: _place(cid_c, 2.5, 0.5),  # pins at (2.5,0.5),(3.5,0.5) — blocker
+        })
+
+        ref_a2 = PinRef(component_id=cid_a, pin_number=2)  # (1.5,0.5)
+        ref_b1 = PinRef(component_id=cid_b, pin_number=1)  # (4.5,0.5)
+        ref_c1 = PinRef(component_id=cid_c, pin_number=1)  # (2.5,0.5)
+        ref_c2 = PinRef(component_id=cid_c, pin_number=2)  # (3.5,0.5)
+
+        net1 = Net(id=uuid.uuid4(), name="NET1", pins={ref_a2, ref_b1})
+        net2 = Net(id=uuid.uuid4(), name="NET2", pins={ref_c1, ref_c2})
+        schematic = Schematic(nets={net1.id: net1, net2.id: net2})
+        components = {"COMP": defn}
+        instances = {cid_a: inst_a, cid_b: inst_b, cid_c: inst_c}
+
+        result = autoroute(board, layout, schematic, components, instances)
+
+        # All wires produced for NET1 must not pass through NET2 pads.
+        net2_pts = {
+            Point(2.5, 0.5), Point(3.5, 0.5),
+        }
+        for wire in result.wires:
+            interior = wire.path[1:-1]  # endpoints may coincide with own net pads
+            for pt in interior:
+                assert pt not in net2_pts, (
+                    f"Wire passes through NET2 pad {pt}: {wire.path}"
+                )
+
     def test_already_routed_net_produces_no_extra_wires(self) -> None:
         """If source and target are the same point, no wire should be added."""
         board = _perfboard(5, 5)
