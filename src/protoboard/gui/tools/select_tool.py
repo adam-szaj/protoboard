@@ -266,6 +266,36 @@ class SelectTool(_Tool):
                 self._select_wire(wire_hit)
             return True
 
+        # Check if click is inside bbox of an already-selected component.
+        # This allows dragging a multi-selection by clicking anywhere inside
+        # a selected component's body, not just near a pin.
+        bbox_hit = self._hit_test_bbox(scene_pt)
+        if bbox_hit is not None and (
+            bbox_hit in self._selected_ids
+            or bbox_hit == self._selected_id
+        ):
+            self._cancel_wire_edit()
+            self._select_primary(bbox_hit)
+            self._dragging = True
+            self._drag_orig_positions = {}
+            self._drag_orig_wire_paths = {}
+            drag_ids = self._selected_ids if self._selected_ids else {bbox_hit}
+            snapped = self._view.snap(scene_pt)
+            for cid in drag_ids:
+                pl = self._session.layout.placements.get(cid)
+                if pl is not None:
+                    self._drag_orig_positions[cid] = pl.position
+            pl = self._session.layout.placements.get(bbox_hit)
+            if pl is not None:
+                self._drag_anchor_offset = (
+                    pl.position.x - snapped.x,
+                    pl.position.y - snapped.y,
+                )
+            for wire in self._session.layout.wires:
+                if wire.id in self._selected_wire_ids:
+                    self._drag_orig_wire_paths[wire.id] = list(wire.path)
+            return True
+
         # Nothing hit — start rubber-band.
         self._cancel_wire_edit()
         self._clear_multi_selection()

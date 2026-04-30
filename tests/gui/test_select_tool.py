@@ -467,3 +467,34 @@ class TestMultiSelectionDrag:
         wire = session.layout.wires[0]
         assert wire.path[0] == Point(2.0, 3.0)
         assert wire.path[1] == Point(3.0, 3.0)
+
+    def test_wires_stay_selected_during_drag_from_bbox(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """Regression: clicking inside component bbox (not near pin) must not
+        deselect wires — wires should remain in selection and move with drag."""
+        inst = _place_component(board_view, session, 1.5, 1.5)
+        _add_wire(session, [(0.5, 3.0), (2.5, 3.0)])
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # RTL rubber-band to select both.
+        _press(tool, 4.0, 4.0)
+        _move(tool, 0.0, 0.0)
+        _release(tool, 0.0, 0.0)
+        wire_id = session.layout.wires[0].id
+        assert inst.id in tool._selected_ids
+        assert wire_id in tool._selected_wire_ids
+        # Click in the middle of the component bbox — far from pins.
+        # SIL(2) rot=90: pins at (1.5, 1.5) and (2.5, 1.5); bbox centre ≈ (2, 1.5).
+        # Click at (2.0, 1.5) — inside bbox but not within _HIT_RADIUS of any pin.
+        _press(tool, 2.0, 1.5)
+        # Wires must still be selected after the press.
+        assert wire_id in tool._selected_wire_ids
+        # Move and release — wire should move together with component.
+        _move(tool, 3.0, 1.5)
+        _release(tool, 3.0, 1.5)
+        wire = session.layout.wires[0]
+        assert wire.path[0] == Point(1.5, 3.0)
+        assert wire.path[1] == Point(3.5, 3.0)
