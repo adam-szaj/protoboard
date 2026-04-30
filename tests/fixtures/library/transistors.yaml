@@ -1,9 +1,9 @@
 components:
+  - name: _TO92_NPN_CBE
+    component_class: transistor_npn
+    footprint: {type: TO92}
+    pin_names: {1: C, 2: B, 3: E}
+
   - name: BC547
+    extends: _TO92_NPN_CBE
     description: "NPN BJT (TO-92)"
-    footprint:
-      type: TO92
-    pin_names:
-      1: C
-      2: B
-      3: E

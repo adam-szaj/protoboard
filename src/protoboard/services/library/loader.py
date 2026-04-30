@@ -16,7 +16,7 @@ from typing import Any
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
-from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.definition import ComponentClass, ComponentDefinition
 from protoboard.domain.components.footprints import (
     DIP,
     SIL,
@@ -71,7 +71,60 @@ def _load_file(path: Path) -> list[ComponentDefinition]:
     components_raw = data.get("components", [])
     if not isinstance(components_raw, list):
         raise SerializationError(f"{path}: 'components' must be a list")
-    return [_component_from_dict(c, source=path) for c in components_raw]
+
+    # Build a name→raw-dict index for extends-resolution (templates included).
+    raw_by_name: dict[str, Any] = {}
+    for raw in components_raw:
+        if isinstance(raw, dict) and isinstance(raw.get("name"), str):
+            raw_by_name[raw["name"]] = raw
+
+    result: list[ComponentDefinition] = []
+    for raw in components_raw:
+        if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
+            raise SerializationError(
+                f"{path}: each component must be a mapping with 'name'"
+            )
+        name: str = raw["name"]
+        if name.startswith("_"):
+            continue  # template — not placeable, skip
+        resolved = _resolve_extends(raw, raw_by_name, source=path, chain=[])
+        result.append(_component_from_dict(resolved, source=path))
+    return result
+
+
+def _resolve_extends(
+    raw: dict[str, Any],
+    index: dict[str, Any],
+    source: Path,
+    chain: list[str],
+) -> dict[str, Any]:
+    """Return a raw dict with all 'extends' fields merged (child overrides parent)."""
+    name = raw.get("name", "<unknown>")
+    if name in chain:
+        raise SerializationError(
+            f"{source}: circular extends detected: {' -> '.join(chain + [name])}"
+        )
+    parent_name = raw.get("extends")
+    if parent_name is None:
+        return raw
+    if not isinstance(parent_name, str):
+        raise SerializationError(f"{source}: 'extends' must be a string in {name!r}")
+    parent_raw = index.get(parent_name)
+    if parent_raw is None:
+        raise SerializationError(
+            f"{source}: {name!r} extends unknown template {parent_name!r}"
+        )
+    # Recursively resolve the parent first.
+    resolved_parent = _resolve_extends(parent_raw, index, source, chain + [name])
+    # Child fields override parent; 'extends' key is dropped.
+    merged: dict[str, Any] = {**resolved_parent, **raw}
+    merged.pop("extends", None)
+    # pin_names: child overrides individual entries (not whole dict replacement).
+    parent_pins: dict[str, Any] = resolved_parent.get("pin_names") or {}
+    child_pins: dict[str, Any] = raw.get("pin_names") or {}
+    if parent_pins or child_pins:
+        merged["pin_names"] = {**parent_pins, **child_pins}
+    return merged
 
 
 def _component_from_dict(data: Any, source: Path) -> ComponentDefinition:
@@ -110,13 +163,21 @@ def _component_from_dict(data: Any, source: Path) -> ComponentDefinition:
             f"{source}: metadata for {data['name']!r} must be a mapping"
         )
 
+    raw_class = str(data.get("component_class", "other"))
+    try:
+        comp_class = ComponentClass(raw_class)
+    except ValueError:
+        raise SerializationError(
+            f"{source}: unknown component_class {raw_class!r} for {data['name']!r}"
+        )
+
     try:
         return ComponentDefinition(
             name=data["name"],
             footprint=footprint,
             pin_names=pin_names,
             description=str(data.get("description", "")),
-            category=str(data.get("category", "")),
+            component_class=comp_class,
             metadata=dict(metadata_raw),
         )
     except ValueError as exc:
