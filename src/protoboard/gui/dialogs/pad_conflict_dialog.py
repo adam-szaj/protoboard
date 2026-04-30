@@ -36,13 +36,22 @@ class PadConflictDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
+        _BLOCKED_KINDS = {
+            ConflictKind.DIFFERENT_NETS, ConflictKind.PIN_ON_WIRE_DIFFERENT_NET
+        }
+        _AUTO_OK_KINDS = {ConflictKind.SAME_NET, ConflictKind.PIN_ON_WIRE_SAME_NET}
+        _AUTO_WIRE_KINDS = {
+            ConflictKind.PIN_ON_WIRE_UNCONNECTED, ConflictKind.PIN_ON_WIRE_WITH_NET
+        }
+
         # Classify conflicts.
-        blocked = [c for c in conflicts if c.kind == ConflictKind.DIFFERENT_NETS]
-        auto_ok = [c for c in conflicts if c.kind == ConflictKind.SAME_NET]
+        blocked = [c for c in conflicts if c.kind in _BLOCKED_KINDS]
+        auto_ok = [c for c in conflicts if c.kind in _AUTO_OK_KINDS]
         needs_decision = [
             c for c in conflicts
             if c.kind in (ConflictKind.ONE_UNCONNECTED, ConflictKind.BOTH_UNCONNECTED)
         ]
+        auto_wire = [c for c in conflicts if c.kind in _AUTO_WIRE_KINDS]
 
         self._can_accept = len(blocked) == 0
 
@@ -51,14 +60,21 @@ class PadConflictDialog(QDialog):
             title.setStyleSheet("color: #c00;")
             layout.addWidget(title)
             for c in blocked:
-                ex_ref = existing_refdes_map.get(id(c), "?")
-                msg = (
-                    f"  Pin {c.incoming_pin} of <b>{incoming_refdes}</b> "
-                    f"({c.incoming_net_name or 'no net'}) would share pad "
-                    f"({c.position.x:.2f}, {c.position.y:.2f}) with "
-                    f"pin {c.existing_pin} of <b>{ex_ref}</b> "
-                    f"({c.existing_net_name or 'no net'}) — different nets."
-                )
+                if c.kind == ConflictKind.PIN_ON_WIRE_DIFFERENT_NET:
+                    msg = (
+                        f"  Pin {c.incoming_pin} of <b>{incoming_refdes}</b> "
+                        f"({c.incoming_net_name or 'no net'}) would land on a wire "
+                        f"carrying net <b>{c.existing_net_name}</b> — different nets."
+                    )
+                else:
+                    ex_ref = existing_refdes_map.get(id(c), "?")
+                    msg = (
+                        f"  Pin {c.incoming_pin} of <b>{incoming_refdes}</b> "
+                        f"({c.incoming_net_name or 'no net'}) would share pad "
+                        f"({c.position.x:.2f}, {c.position.y:.2f}) with "
+                        f"pin {c.existing_pin} of <b>{ex_ref}</b> "
+                        f"({c.existing_net_name or 'no net'}) — different nets."
+                    )
                 lbl = QLabel(msg)
                 lbl.setWordWrap(True)
                 lbl.setTextFormat(Qt.TextFormat.RichText)
@@ -71,6 +87,24 @@ class PadConflictDialog(QDialog):
             info.setStyleSheet("color: #080;")
             info.setTextFormat(Qt.TextFormat.RichText)
             layout.addWidget(info)
+
+        if auto_wire and not blocked:
+            for c in auto_wire:
+                if c.kind == ConflictKind.PIN_ON_WIRE_WITH_NET:
+                    msg = (
+                        f"  Pin {c.incoming_pin} of <b>{incoming_refdes}</b> "
+                        f"will join net <b>{c.existing_net_name}</b> via wire."
+                    )
+                else:
+                    msg = (
+                        f"  Pin {c.incoming_pin} of <b>{incoming_refdes}</b> "
+                        f"lands on a wire — new net will be created."
+                    )
+                lbl = QLabel(msg)
+                lbl.setWordWrap(True)
+                lbl.setStyleSheet("color: #080;")
+                lbl.setTextFormat(Qt.TextFormat.RichText)
+                layout.addWidget(lbl)
 
         if needs_decision and not blocked:
             q = QLabel(

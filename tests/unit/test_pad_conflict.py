@@ -12,8 +12,13 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.pad_conflict import ConflictKind, find_conflicts
+from protoboard.domain.layout.pad_conflict import (
+    ConflictKind,
+    find_conflicts,
+    find_wire_conflicts,
+)
 from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.wire import WireSegment
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
@@ -337,3 +342,170 @@ class TestDRCOverlapSharedPins:
         pl_r2 = _placement(r2, 0.5, 0.5, shared_pins=frozenset({1}))
         codes = self._run_drc(r1, r2, defn, pl_r1, pl_r2)
         assert "OVERLAP" in codes
+
+
+# ---------------------------------------------------------------------------
+# find_wire_conflicts
+# ---------------------------------------------------------------------------
+
+def _wire(path: list[Point]) -> WireSegment:
+    return WireSegment(
+        id=uuid.uuid4(), path=path, insulated=True, side="top"
+    )
+
+
+class TestFindWireConflicts:
+    """Tests for find_wire_conflicts — pin of incoming component lands on wire."""
+
+    def test_no_wire_no_conflict(self) -> None:
+        defn = _r_defn()
+        r1 = _make_inst("R1")
+        pl = _placement(r1, 0.5, 0.5)
+        sch = Schematic(nets={})
+        conflicts = find_wire_conflicts(
+            incoming_placement=pl,
+            incoming_defn=defn,
+            incoming_instance_id=r1.id,
+            wires=[],
+            schematic=sch,
+            point_to_net={},
+            already_conflicted=set(),
+        )
+        assert conflicts == []
+
+    def test_pin_on_wire_unconnected(self) -> None:
+        """Wire has no net, pin has no net → PIN_ON_WIRE_UNCONNECTED."""
+        defn = _r_defn()
+        r1 = _make_inst("R1")
+        # SIL(2) rot=0: pin1 at (0.5,0.5), pin2 at (1.5,0.5)
+        pl = _placement(r1, 0.5, 0.5, rot=0)
+        # Wire passes through pin 1 position (0.5, 0.5)
+        wire = _wire([Point(0.5, 0.5), Point(0.5, 2.5)])
+        sch = Schematic(nets={})
+        conflicts = find_wire_conflicts(
+            incoming_placement=pl,
+            incoming_defn=defn,
+            incoming_instance_id=r1.id,
+            wires=[wire],
+            schematic=sch,
+            point_to_net={},
+            already_conflicted=set(),
+        )
+        assert len(conflicts) == 1
+        assert conflicts[0].kind == ConflictKind.PIN_ON_WIRE_UNCONNECTED
+        assert conflicts[0].wire_id == wire.id
+        assert conflicts[0].incoming_pin == 1
+
+    def test_pin_on_wire_with_net(self) -> None:
+        """Wire point has a net, incoming pin has no net → PIN_ON_WIRE_WITH_NET."""
+        defn = _r_defn()
+        r1 = _make_inst("R1")
+        r2 = _make_inst("R2")
+        pl_r1 = _placement(r1, 0.5, 0.5, rot=0)  # r1 pin1 at (0.5, 0.5)
+        net_a = Net(
+            id=uuid.uuid4(),
+            name="NET_A",
+            pins={PinRef(component_id=r2.id, pin_number=1)},
+        )
+        sch = Schematic(nets={net_a.id: net_a})
+        # Wire starts at (0.5, 2.5) — which has net_a in point_to_net —
+        # and passes through r1's pin1 position (0.5, 0.5).
+        wire = _wire([Point(0.5, 2.5), Point(0.5, 0.5)])
+        point_to_net: dict[tuple[float, float], tuple[uuid.UUID, str]] = {
+            (round(0.5, 4), round(2.5, 4)): (net_a.id, net_a.name),
+        }
+        conflicts = find_wire_conflicts(
+            incoming_placement=pl_r1,
+            incoming_defn=defn,
+            incoming_instance_id=r1.id,
+            wires=[wire],
+            schematic=sch,
+            point_to_net=point_to_net,
+            already_conflicted=set(),
+        )
+        assert len(conflicts) == 1
+        assert conflicts[0].kind == ConflictKind.PIN_ON_WIRE_WITH_NET
+        assert conflicts[0].existing_net_name == "NET_A"
+        assert conflicts[0].incoming_net_id is None
+
+    def test_pin_on_wire_same_net(self) -> None:
+        """Wire point and incoming pin are in the same net → auto-ok."""
+        defn = _r_defn()
+        r1 = _make_inst("R1")
+        r2 = _make_inst("R2")
+        pl_r1 = _placement(r1, 0.5, 0.5, rot=0)
+        net_a = Net(
+            id=uuid.uuid4(),
+            name="NET_A",
+            pins={
+                PinRef(component_id=r1.id, pin_number=1),
+                PinRef(component_id=r2.id, pin_number=1),
+            },
+        )
+        sch = Schematic(nets={net_a.id: net_a})
+        wire = _wire([Point(0.5, 2.5), Point(0.5, 0.5)])
+        point_to_net: dict[tuple[float, float], tuple[uuid.UUID, str]] = {
+            (round(0.5, 4), round(2.5, 4)): (net_a.id, net_a.name),
+        }
+        conflicts = find_wire_conflicts(
+            incoming_placement=pl_r1,
+            incoming_defn=defn,
+            incoming_instance_id=r1.id,
+            wires=[wire],
+            schematic=sch,
+            point_to_net=point_to_net,
+            already_conflicted=set(),
+        )
+        assert len(conflicts) == 1
+        assert conflicts[0].kind == ConflictKind.PIN_ON_WIRE_SAME_NET
+
+    def test_pin_on_wire_different_net(self) -> None:
+        """Wire has net_a, incoming pin has net_b → PIN_ON_WIRE_DIFFERENT_NET."""
+        defn = _r_defn()
+        r1 = _make_inst("R1")
+        r2 = _make_inst("R2")
+        pl_r1 = _placement(r1, 0.5, 0.5, rot=0)
+        net_a = Net(
+            id=uuid.uuid4(),
+            name="NET_A",
+            pins={PinRef(component_id=r2.id, pin_number=1)},
+        )
+        net_b = Net(
+            id=uuid.uuid4(),
+            name="NET_B",
+            pins={PinRef(component_id=r1.id, pin_number=1)},
+        )
+        sch = Schematic(nets={net_a.id: net_a, net_b.id: net_b})
+        wire = _wire([Point(0.5, 2.5), Point(0.5, 0.5)])
+        point_to_net: dict[tuple[float, float], tuple[uuid.UUID, str]] = {
+            (round(0.5, 4), round(2.5, 4)): (net_a.id, net_a.name),
+        }
+        conflicts = find_wire_conflicts(
+            incoming_placement=pl_r1,
+            incoming_defn=defn,
+            incoming_instance_id=r1.id,
+            wires=[wire],
+            schematic=sch,
+            point_to_net=point_to_net,
+            already_conflicted=set(),
+        )
+        assert len(conflicts) == 1
+        assert conflicts[0].kind == ConflictKind.PIN_ON_WIRE_DIFFERENT_NET
+
+    def test_already_conflicted_position_skipped(self) -> None:
+        """Position in already_conflicted is not reported again."""
+        defn = _r_defn()
+        r1 = _make_inst("R1")
+        pl = _placement(r1, 0.5, 0.5, rot=0)
+        wire = _wire([Point(0.5, 0.5), Point(0.5, 2.5)])
+        sch = Schematic(nets={})
+        conflicts = find_wire_conflicts(
+            incoming_placement=pl,
+            incoming_defn=defn,
+            incoming_instance_id=r1.id,
+            wires=[wire],
+            schematic=sch,
+            point_to_net={},
+            already_conflicted={(round(0.5, 4), round(0.5, 4))},
+        )
+        assert conflicts == []
