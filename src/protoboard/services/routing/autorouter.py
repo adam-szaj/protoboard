@@ -147,12 +147,8 @@ def _route_net(
 ) -> list[WireSegment] | None:
     """Route all connections for *net*.  Returns new wires or None on failure."""
     # Collect pin positions for this net (skip unplaced pins).
-    net_points = [
-        pin_positions[ref]
-        for ref in net.pins
-        if ref in pin_positions
-    ]
-    if len(net_points) < 2:
+    placed_refs = [ref for ref in net.pins if ref in pin_positions]
+    if len(placed_refs) < 2:
         return []  # nothing to route
 
     # Build pad occupancy maps for this net:
@@ -168,14 +164,42 @@ def _route_net(
             occupied_pads[pt] = nid
 
     new_wires: list[WireSegment] = []
-    # Use a spanning-tree approach: connect each point to the nearest already-
-    # connected point, starting with the first two.
-    connected: list[Point] = [net_points[0]]
-    remaining: list[Point] = list(net_points[1:])
 
-    for target_pt in remaining:
+    # Build a connectivity graph from the current working state to detect which
+    # pin pairs are already physically connected — skip those.
+    current_graph = ConnectivityGraph(
+        board=board,
+        layout=_layout_with_wires(layout, working_wires),
+        components=components,
+        instances=instances,
+    )
+
+    # Spanning-tree approach: maintain a set of already-connected refs.
+    # Start with the first placed pin; add each remaining pin only if it is
+    # not yet in the same electrical component as any connected pin.
+    connected_refs: list[PinRef] = [placed_refs[0]]
+    connected_pts: list[Point] = [pin_positions[placed_refs[0]]]
+
+    for ref in placed_refs[1:]:
+        target_pt = pin_positions[ref]
+        target_node = current_graph.node_for_pin(ref)
+
+        # Check if *ref* is already connected to any of the connected pins.
+        already_connected = False
+        if target_node is not None:
+            for conn_ref in connected_refs:
+                conn_node = current_graph.node_for_pin(conn_ref)
+                if conn_node is not None and conn_node == target_node:
+                    already_connected = True
+                    break
+
+        if already_connected:
+            connected_refs.append(ref)
+            connected_pts.append(target_pt)
+            continue
+
         routed_wire = _route_segment_with_ripup(
-            source_options=connected,
+            source_options=connected_pts,
             target=target_pt,
             board=board,
             layout=layout,
@@ -193,7 +217,15 @@ def _route_net(
             return None  # failed to route this net
         new_wires.append(routed_wire)
         working_wires.append(routed_wire)
-        connected.append(target_pt)
+        # Rebuild graph so next iteration sees the new wire.
+        current_graph = ConnectivityGraph(
+            board=board,
+            layout=_layout_with_wires(layout, working_wires),
+            components=components,
+            instances=instances,
+        )
+        connected_refs.append(ref)
+        connected_pts.append(target_pt)
 
     return new_wires
 
