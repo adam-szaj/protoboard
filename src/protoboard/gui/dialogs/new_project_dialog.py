@@ -22,9 +22,13 @@ from PySide6.QtWidgets import (
 )
 
 from protoboard.domain.board.board import Board
-from protoboard.domain.board.templates import make_perfboard, make_stripboard
+from protoboard.domain.board.templates import (
+    make_breadboard,
+    make_perfboard,
+    make_stripboard,
+)
 
-_BOARD_TYPES = ["Perfboard", "Stripboard"]
+_BOARD_TYPES = ["Perfboard", "Stripboard", "Breadboard"]
 
 _DESCRIPTIONS = {
     "Perfboard": (
@@ -32,14 +36,26 @@ _DESCRIPTIONS = {
         " Connections made with wire on top or bottom."
     ),
     "Stripboard": (
-        "Horizontal copper strips on bottom layer. Cut strips to isolate nets."
+        "Horizontal copper strips on bottom layer."
+        " Cut strips to isolate sections of a net."
+    ),
+    "Breadboard": (
+        "Solderless breadboard layout."
+        " 2 horizontal power rails (top + bottom),"
+        " 2 terminal blocks of 5-row × N-column vertical strips"
+        " with a centre DIP gap."
     ),
 }
 
-_DEFAULTS: dict[str, tuple[int, int]] = {
+# (rows, cols) or (None, cols) for breadboard
+_DEFAULTS: dict[str, tuple[int | None, int]] = {
     "Perfboard": (20, 30),
     "Stripboard": (20, 30),
+    "Breadboard": (None, 30),
 }
+
+# Which board types use rows (vs just cols)
+_HAS_ROWS = {"Perfboard", "Stripboard"}
 
 
 class NewProjectDialog(QDialog):
@@ -48,7 +64,7 @@ class NewProjectDialog(QDialog):
     def __init__(self, parent: object = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
         self.setWindowTitle("New Project")
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(440)
         self.setModal(True)
 
         outer = QVBoxLayout(self)
@@ -76,7 +92,8 @@ class NewProjectDialog(QDialog):
 
         self._rows_spin = QSpinBox()
         self._rows_spin.setRange(2, 200)
-        size_form.addRow("Rows:", self._rows_spin)
+        self._rows_label = QLabel("Rows:")
+        size_form.addRow(self._rows_label, self._rows_spin)
 
         self._cols_spin = QSpinBox()
         self._cols_spin.setRange(2, 200)
@@ -127,6 +144,8 @@ class NewProjectDialog(QDialog):
         cols = self._cols_spin.value()
         if board_type == "Perfboard":
             return make_perfboard(rows, cols)
+        if board_type == "Breadboard":
+            return make_breadboard(cols)
         return make_stripboard(rows, cols)
 
     def project_path(self) -> Path:
@@ -139,7 +158,11 @@ class NewProjectDialog(QDialog):
     def _on_type_changed(self, text: str) -> None:
         self._desc_label.setText(_DESCRIPTIONS.get(text, ""))
         rows, cols = _DEFAULTS.get(text, (20, 30))
-        self._rows_spin.setValue(rows)
+        show_rows = text in _HAS_ROWS
+        self._rows_spin.setVisible(show_rows)
+        self._rows_label.setVisible(show_rows)
+        if rows is not None:
+            self._rows_spin.setValue(rows)
         self._cols_spin.setValue(cols)
 
     def _browse(self) -> None:
@@ -157,7 +180,6 @@ class NewProjectDialog(QDialog):
             self._path_warning.setText("Please choose a project folder.")
             return
         path = Path(path_str)
-        # Warn if the folder already contains project files.
         if path.exists() and any(path.glob("board.yaml")):
             self._path_warning.setText(
                 "This folder already contains a project. Choose an empty folder."

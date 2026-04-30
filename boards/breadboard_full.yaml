@@ -1,0 +1,31 @@
+# Standard full-size solderless breadboard layout.
+# 2 power rails (top+bottom) + 2 terminal blocks (a–e, f–j) of 30 columns.
+# Physical pitch: 2.54mm = 1 raster unit.
+#
+# Raster layout (Y axis, top to bottom):
+#   row 0  – power rail + (top)
+#   row 1  – power rail – (top)
+#   gap    – 0.5 raster (half-row gap between rail and terminal block)
+#   rows 2–6  – terminal block A (5 rows × cols)
+#   gap    – centre gap (DIP straddle), 2 raster
+#   rows 7–11 – terminal block B (5 rows × cols)
+#   gap    – 0.5 raster
+#   row 12 – power rail – (bottom)
+#   row 13 – power rail + (bottom)
+#
+# Each column of terminal block A is internally connected (strip of 5),
+# as is each column of block B — modelled as vertical StripAtoms of length 5.
+# Power rails are horizontal StripAtoms spanning all columns.
+
+name: "Breadboard (full-size, 30 columns)"
+description: >
+  Standard full-size solderless breadboard.
+  Power rails: 2 × horizontal strips top and bottom.
+  Terminal blocks: 2 × 5-row × 30-column vertical strips (DIP-straddling gap).
+parameters:
+  cols:
+    default: 30
+    min: 5
+    max: 120
+    label: "Columns"
+type: breadboard
