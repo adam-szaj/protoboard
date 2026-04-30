@@ -335,14 +335,38 @@ def _build_occupied_map(
     wires: list[WireSegment],
     exclude_wire_id: uuid.UUID | None,
 ) -> dict[Point, uuid.UUID]:
-    """Map each wire path point → a sentinel UUID (just marks as occupied)."""
+    """Map every grid point covered by existing wires → sentinel UUID.
+
+    For each H/V segment we interpolate *all* integer grid points lying on
+    the segment, not just the listed path points.  This prevents a new wire
+    from crossing an existing segment at a grid point that happens not to
+    appear explicitly in the path list.
+    """
     occupied: dict[Point, uuid.UUID] = {}
     _sentinel = uuid.UUID("00000000-0000-0000-0000-000000000001")
     for wire in wires:
         if wire.id == exclude_wire_id:
             continue
-        for pt in wire.path:
-            occupied[pt] = _sentinel
+        for i in range(len(wire.path) - 1):
+            p1 = wire.path[i]
+            p2 = wire.path[i + 1]
+            occupied[p1] = _sentinel
+            occupied[p2] = _sentinel
+            # Interpolate all grid points strictly between p1 and p2.
+            if p1.x == p2.x:  # vertical segment
+                step = 1.0 if p2.y > p1.y else -1.0
+                y = p1.y + step
+                while (step > 0 and y < p2.y) or (step < 0 and y > p2.y):
+                    occupied[Point(p1.x, y)] = _sentinel
+                    y += step
+            elif p1.y == p2.y:  # horizontal segment
+                step = 1.0 if p2.x > p1.x else -1.0
+                x = p1.x + step
+                while (step > 0 and x < p2.x) or (step < 0 and x > p2.x):
+                    occupied[Point(x, p1.y)] = _sentinel
+                    x += step
+            # Diagonal segments are not expected (A* uses 4-connectivity)
+            # but if they occur, only endpoints are marked.
     return occupied
 
 

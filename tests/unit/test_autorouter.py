@@ -238,6 +238,67 @@ class TestAutorouter:
                     f"Wire passes through floating pin {pt}: {wire.path}"
                 )
 
+    def test_no_wire_crosses_existing_wire_segment(self) -> None:
+        """New wire must not cross a previously routed wire mid-segment.
+
+        Layout:
+          NET1: (1.5,1.5) → (4.5,1.5)  — horizontal, routed first
+          NET2: (3.5,0.5) → (3.5,2.5)  — vertical, must NOT cross NET1 midway
+        The only crossing-free path for NET2 goes around NET1.
+        """
+        board = _perfboard(4, 6)
+        defn = _sil2_def()
+        # Use 4 components to get 4 pins in two separate nets.
+        # Place them so NET1 forces a horizontal wire and NET2 a vertical one.
+        cid_a, cid_b, cid_c, cid_d = (uuid.uuid4() for _ in range(4))
+        inst = lambda cid, ref: ComponentInstance(
+            id=cid, definition_ref="COMP", refdes=ref, value=""
+        )
+        # rot=90: pin1=(x,y), pin2=(x+1,y)
+        layout = Layout(placements={
+            cid_a: _place(cid_a, 0.5, 1.5),  # pin2=(1.5,1.5) ← NET1 source
+            cid_b: _place(cid_b, 3.5, 1.5),  # pin2=(4.5,1.5) ← NET1 target
+            cid_c: _place(cid_c, 3.5, 0.5),  # pin1=(3.5,0.5) ← NET2 source
+            cid_d: _place(cid_d, 2.5, 2.5),  # pin2=(3.5,2.5) ← NET2 target
+        })
+        ref_a2 = PinRef(component_id=cid_a, pin_number=2)
+        ref_b2 = PinRef(component_id=cid_b, pin_number=2)
+        ref_c1 = PinRef(component_id=cid_c, pin_number=1)
+        ref_d2 = PinRef(component_id=cid_d, pin_number=2)
+        net1 = Net(id=uuid.uuid4(), name="NET1", pins={ref_a2, ref_b2})
+        net2 = Net(id=uuid.uuid4(), name="NET2", pins={ref_c1, ref_d2})
+        schematic = Schematic(nets={net1.id: net1, net2.id: net2})
+        components = {"COMP": defn}
+        instances = {cid_a: inst(cid_a,"R1"), cid_b: inst(cid_b,"R2"),
+                     cid_c: inst(cid_c,"R3"), cid_d: inst(cid_d,"R4")}
+
+        result = autoroute(board, layout, schematic, components, instances)
+
+        # Check no pair of wires crosses each other mid-segment.
+        def seg_cross(ax1,ay1,ax2,ay2,bx1,by1,bx2,by2):  # type: ignore[return]
+            a_h = ay1==ay2; b_h = by1==by2
+            if a_h and not b_h:
+                if min(ax1,ax2)<bx1<max(ax1,ax2) and min(by1,by2)<ay1<max(by1,by2):
+                    return (bx1,ay1)
+            elif not a_h and b_h:
+                if min(bx1,bx2)<ax1<max(bx1,bx2) and min(ay1,ay2)<by1<max(ay1,ay2):
+                    return (ax1,by1)
+
+        wires = result.wires
+        for i, wa in enumerate(wires):
+            for wb in wires[i+1:]:
+                for k in range(len(wa.path)-1):
+                    for l in range(len(wb.path)-1):
+                        pt = seg_cross(
+                            wa.path[k].x, wa.path[k].y,
+                            wa.path[k+1].x, wa.path[k+1].y,
+                            wb.path[l].x, wb.path[l].y,
+                            wb.path[l+1].x, wb.path[l+1].y,
+                        )
+                        assert pt is None, (
+                            f"Wires cross at {pt}: {wa.path} x {wb.path}"
+                        )
+
     def test_already_routed_net_same_component(self) -> None:
         """Two pins on the same placed component — already adjacent, nothing to route."""
         board = _perfboard(5, 5)
