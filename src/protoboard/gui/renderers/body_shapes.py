@@ -171,8 +171,12 @@ class SvgBodyShape(BodyShape):
 
         p1 = positions[0]
         p2 = positions[1]
-        dist = math.hypot(p2.x - p1.x, p2.y - p1.y)
-        angle_deg = math.degrees(math.atan2(p2.y - p1.y, p2.x - p1.x))
+        dx = p2.x - p1.x
+        dy = p2.y - p1.y
+        dist = math.hypot(dx, dy)
+        # SVG Y-axis aligns with the pin-1→pin-2 direction.
+        # Qt rotate(a) in screen coords (Y↓): angle = -atan2(dx, dy).
+        angle_deg = -math.degrees(math.atan2(dx, dy))
 
         self._patch_leads(root, dist, theme)
         self._patch_body_colour(root, fill, border, alpha)
@@ -182,12 +186,18 @@ class SvgBodyShape(BodyShape):
         xml_bytes = ET.tostring(root, encoding="unicode",
                                 xml_declaration=False).encode("utf-8")
 
-        renderer = QSvgRenderer(QByteArray(xml_bytes))
+        # QGraphicsSvgItem.setSharedRenderer does NOT take ownership — the
+        # renderer must outlive the item.  Make the item the renderer's Qt
+        # parent so they share lifetime, and keep the Python reference alive
+        # by storing it as an attribute on the item.
         item = QGraphicsSvgItem()
+        renderer = QSvgRenderer(QByteArray(xml_bytes), item)  # item = Qt parent
         item.setSharedRenderer(renderer)
+        item._svg_renderer = renderer  # keep Python ref alive
         item.setZValue(z)
 
-        # Position: translate to pin-1 world, rotate toward pin-2.
+        # viewBox starts at (0,0) and pin 1 is at SVG (0,0), so
+        # item-coord (0,0) == pin 1.  Simple translate + rotate suffices.
         t = QTransform()
         t.translate(p1.x, p1.y)
         t.rotate(angle_deg)
@@ -284,11 +294,19 @@ class SvgBodyShape(BodyShape):
                 marker.set("fill-opacity", f"{alpha:.3f}")
 
     def _patch_viewbox(self, root: ET.Element, dist: float) -> None:
-        """Expand viewBox to cover actual pin distance."""
+        """Update viewBox to match actual pin distance.
+
+        Pin 1 is at SVG (0, 0).  viewBox starts at (0, 0) so that
+        QGraphicsSvgItem item-coordinate (0, 0) == SVG (0, 0) == pin 1.
+        A small margin is added to the right and bottom only.
+        """
         margin = 0.5
-        root.set("viewBox", f"{-margin} {-margin} {1.0} {dist + 2 * margin}")
-        root.set("width",  f"{1.0}")
-        root.set("height", f"{dist + 2 * margin:.4f}")
+        half_w = 0.5 + margin
+        total_h = dist + margin
+
+        root.set("viewBox", f"0 0 {half_w * 2:.4f} {total_h:.4f}")
+        root.set("width",   f"{half_w * 2:.4f}")
+        root.set("height",  f"{total_h:.4f}")
 
 
 # ---------------------------------------------------------------------------
@@ -368,9 +386,10 @@ class SvgDIPBody(BodyShape):
 </svg>"""
 
         xml_bytes = svg.encode("utf-8")
-        renderer = QSvgRenderer(QByteArray(xml_bytes))
         item = QGraphicsSvgItem()
+        renderer = QSvgRenderer(QByteArray(xml_bytes), item)
         item.setSharedRenderer(renderer)
+        item._svg_renderer = renderer
         item.setZValue(z)
 
         # DIP: pin 1 at positions[0], no rotation needed (layout already world).
@@ -457,20 +476,18 @@ class SvgSILBody(BodyShape):
 </svg>"""
 
         xml_bytes = svg.encode("utf-8")
-        renderer = QSvgRenderer(QByteArray(xml_bytes))
         item = QGraphicsSvgItem()
+        renderer = QSvgRenderer(QByteArray(xml_bytes), item)
         item.setSharedRenderer(renderer)
+        item._svg_renderer = renderer
         item.setZValue(z)
 
         p1 = positions[0]
-        # Rotate to align with pin row direction
+        # SVG Y-axis aligns with pin row direction; angle = -atan2(dx, dy).
         if n >= 2:
-            angle_deg = math.degrees(
-                math.atan2(
-                    positions[1].y - p1.y,
-                    positions[1].x - p1.x,
-                )
-            )
+            dx = positions[1].x - p1.x
+            dy = positions[1].y - p1.y
+            angle_deg = -math.degrees(math.atan2(dx, dy))
         else:
             angle_deg = 0.0
         t = QTransform()
