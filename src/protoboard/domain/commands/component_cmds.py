@@ -103,26 +103,71 @@ class MoveComponentCommand(Command[ComponentState]):
 
 
 @dataclass
-class RemoveComponentCommand(Command[ComponentState]):
+class RemoveComponentCommand(Command[SchematicState]):
+    """Remove a component from the layout and clean up its pins from all nets.
+
+    Any net that becomes empty after pin removal is also deleted.
+    All mutations are recorded for full undo/redo.
+    """
+
     component_id: uuid.UUID
-    _saved_placement: ComponentPlacement | None = None
-    _saved_instance: ComponentInstance | None = None
+    _saved_placement: ComponentPlacement | None = field(
+        default=None, init=False, repr=False
+    )
+    _saved_instance: ComponentInstance | None = field(
+        default=None, init=False, repr=False
+    )
+    # net_id → Net before mutation (None = net did not exist)
+    _nets_before: dict[uuid.UUID, "Net | None"] = field(
+        default_factory=dict, init=False, repr=False
+    )
+    # net_id → Net after mutation (None = net was deleted)
+    _nets_after: dict[uuid.UUID, "Net | None"] = field(
+        default_factory=dict, init=False, repr=False
+    )
 
     @property
     def description(self) -> str:  # type: ignore[override]
         return f"Remove component {self.component_id}"
 
-    def apply(self, state: ComponentState) -> None:
+    def apply(self, state: SchematicState) -> None:
+        from protoboard.domain.schematic.net import Net, PinRef
+
         saved = state.layout.placements.pop(self.component_id)
         object.__setattr__(self, "_saved_placement", saved)
         inst = state.instances.pop(self.component_id, None)
         object.__setattr__(self, "_saved_instance", inst)
 
-    def revert(self, state: ComponentState) -> None:
+        # Remove all pins of this component from every net they appear in.
+        nets_before: dict[uuid.UUID, Net | None] = {}
+        nets_after: dict[uuid.UUID, Net | None] = {}
+        for net_id, net in list(state.schematic.nets.items()):
+            new_pins = {
+                p for p in net.pins if p.component_id != self.component_id
+            }
+            if len(new_pins) == len(net.pins):
+                continue  # this net had no pins for this component
+            nets_before[net_id] = net
+            if not new_pins:
+                del state.schematic.nets[net_id]
+                nets_after[net_id] = None
+            else:
+                updated = Net(id=net.id, name=net.name, pins=new_pins)
+                state.schematic.nets[net_id] = updated
+                nets_after[net_id] = updated
+        object.__setattr__(self, "_nets_before", nets_before)
+        object.__setattr__(self, "_nets_after", nets_after)
+
+    def revert(self, state: SchematicState) -> None:
         if self._saved_placement is not None:
             state.layout.placements[self.component_id] = self._saved_placement
         if self._saved_instance is not None:
             state.instances[self.component_id] = self._saved_instance
+        for net_id, net_before in self._nets_before.items():
+            if net_before is None:
+                state.schematic.nets.pop(net_id, None)
+            else:
+                state.schematic.nets[net_id] = net_before
 
 
 @dataclass

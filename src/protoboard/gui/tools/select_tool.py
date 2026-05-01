@@ -776,7 +776,9 @@ class SelectTool(_Tool):
         comp_id = self._selected_id
         if comp_id is None:
             return
-        cmd = RemoveComponentCommand(component_id=comp_id)
+        from typing import cast
+        from protoboard.domain.commands.base import Command
+        cmd = cast(Command[ComponentState], RemoveComponentCommand(component_id=comp_id))
         self._session.stack.execute(cmd, self._session)
         self._deselect()
         self._session.layout_changed.emit()
@@ -833,11 +835,16 @@ class SelectTool(_Tool):
 
         from protoboard.domain.commands.base import Command
 
+        from protoboard.domain.commands.component_cmds import SchematicState
+
         commands = cast(
-            list[Command[ComponentState]],
+            list[Command[SchematicState]],
             [RemoveComponentCommand(component_id=cid) for cid in ids],
         )
-        macro = MacroCommand(commands, description="Delete components")
+        macro = cast(
+            Command[ComponentState],
+            MacroCommand(commands, description="Delete components"),
+        )
         self._session.stack.execute(macro, self._session)
         self._clear_multi_selection()
         self._deselect()

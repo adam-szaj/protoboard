@@ -34,6 +34,8 @@ class _FakeSession:
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         from protoboard.domain.components.definition import ComponentDefinition
         self.components: dict[str, ComponentDefinition] = {}
+        from protoboard.domain.schematic.schematic import Schematic
+        self.schematic = Schematic(nets={})
 
 
 class _Counter:
@@ -182,3 +184,54 @@ class TestRemoveComponentCommand:
         cmd = RemoveComponentCommand(component_id=uuid.uuid4())
         with pytest.raises(KeyError):
             cmd.apply(sess)
+
+    def test_removes_pins_from_nets(self) -> None:
+        """Removing a component also removes its pins from all nets."""
+        from protoboard.domain.schematic.net import Net, PinRef
+        comp_id = uuid.uuid4()
+        other_id = uuid.uuid4()
+        pl = ComponentPlacement(
+            component_id=comp_id, position=Point(1.0, 1.0), rotation=0, side="top"
+        )
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+        ref_a = PinRef(component_id=comp_id, pin_number=1)
+        ref_b = PinRef(component_id=other_id, pin_number=1)
+        net = Net(id=uuid.uuid4(), name="N1", pins={ref_a, ref_b})
+        sess = _FakeSession()
+        sess.layout.placements[comp_id] = pl
+        sess.instances[comp_id] = inst
+        sess.schematic.nets[net.id] = net
+
+        cmd = RemoveComponentCommand(component_id=comp_id)
+        cmd.apply(sess)
+
+        # Net should still exist but without comp_id's pin.
+        assert net.id in sess.schematic.nets
+        assert ref_a not in sess.schematic.nets[net.id].pins
+        assert ref_b in sess.schematic.nets[net.id].pins
+
+        cmd.revert(sess)
+        assert ref_a in sess.schematic.nets[net.id].pins
+
+    def test_removes_empty_net(self) -> None:
+        """Net with only one component's pins is deleted entirely on remove."""
+        from protoboard.domain.schematic.net import Net, PinRef
+        comp_id = uuid.uuid4()
+        pl = ComponentPlacement(
+            component_id=comp_id, position=Point(1.0, 1.0), rotation=0, side="top"
+        )
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+        ref = PinRef(component_id=comp_id, pin_number=1)
+        net = Net(id=uuid.uuid4(), name="SOLO", pins={ref})
+        sess = _FakeSession()
+        sess.layout.placements[comp_id] = pl
+        sess.instances[comp_id] = inst
+        sess.schematic.nets[net.id] = net
+
+        cmd = RemoveComponentCommand(component_id=comp_id)
+        cmd.apply(sess)
+        assert net.id not in sess.schematic.nets
+
+        cmd.revert(sess)
+        assert net.id in sess.schematic.nets
+        assert ref in sess.schematic.nets[net.id].pins
