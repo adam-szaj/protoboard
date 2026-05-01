@@ -52,12 +52,34 @@ class BoardView(QGraphicsView):
         self._ctrl_panning = False      # True when panning via Ctrl+LeftButton
         self._pan_start = QPointF()
         self._active_tool: _Tool | None = None
+        self._mirrored: bool = False
         session.layout_changed.connect(self.refresh)
         self.refresh()
 
     # ------------------------------------------------------------------
     # Public
     # ------------------------------------------------------------------
+
+    @property
+    def is_mirrored(self) -> bool:
+        return self._mirrored
+
+    def toggle_mirror(self) -> None:
+        """Flip the view horizontally (mirror around the vertical axis)."""
+        self._mirrored = not self._mirrored
+        t = self.transform()
+        # Negate the x-scale component to flip left↔right.
+        from PySide6.QtGui import QTransform
+        self.setTransform(QTransform(-t.m11(), t.m12(), t.m21(), t.m22(), 0.0, 0.0))
+        self.refresh()
+
+    def fit_board(self) -> None:
+        """Scale and center the view to fit the board bounds."""
+        b = self._session.board.bounds
+        self.fitInView(
+            QRectF(b.x - 1, b.y - 1, b.width + 2, b.height + 2),
+            Qt.AspectRatioMode.KeepAspectRatio,
+        )
 
     def set_tool(self, tool: _Tool | None) -> None:
         if self._active_tool is not None:
@@ -122,6 +144,17 @@ class BoardView(QGraphicsView):
         # Fit scene rect to board bounds.
         b = self._session.board.bounds
         self._scene.setSceneRect(QRectF(b.x - 1, b.y - 1, b.width + 2, b.height + 2))
+
+        # When mirrored, counter-transform all text items so labels stay readable.
+        if self._mirrored:
+            from PySide6.QtGui import QTransform
+            from PySide6.QtWidgets import QGraphicsTextItem
+            for item in self._scene.items():
+                if isinstance(item, QGraphicsTextItem):
+                    br = item.boundingRect()
+                    item.setTransform(
+                        QTransform().scale(-1.0, 1.0).translate(-br.width(), 0.0)
+                    )
 
     def select_component(self, comp_id: uuid.UUID) -> None:
         """Switch to SelectTool and select the given component."""
