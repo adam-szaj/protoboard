@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Welcome screen shown at startup — New Project or Open Project."""
+"""Welcome screen shown at startup — New Project, Open Project, Recent Projects."""
 
 from __future__ import annotations
 
@@ -10,13 +10,17 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
+    QFrame,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QVBoxLayout,
 )
 
 from protoboard.domain.board.board import Board
 from protoboard.gui.dialogs.new_project_dialog import NewProjectDialog
+from protoboard.gui import recent_projects
 
 
 class WelcomeDialog(QDialog):
@@ -32,7 +36,7 @@ class WelcomeDialog(QDialog):
         super().__init__(parent)  # type: ignore[arg-type]
         self.setWindowTitle("Protoboard Designer")
         self.setModal(True)
-        self.setMinimumWidth(340)
+        self.setMinimumWidth(420)
         self.setWindowFlags(
             self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
         )
@@ -42,7 +46,7 @@ class WelcomeDialog(QDialog):
         self._project_path: Path | None = None
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(16)
+        layout.setSpacing(12)
         layout.setContentsMargins(32, 32, 32, 32)
 
         title = QLabel("Protoboard Designer")
@@ -70,6 +74,38 @@ class WelcomeDialog(QDialog):
         open_btn.setFixedHeight(40)
         open_btn.clicked.connect(self._open_project)
         layout.addWidget(open_btn)
+
+        # ── Recent Projects ──────────────────────────────────────────────
+        recents = recent_projects.load()
+        if recents:
+            sep = QFrame()
+            sep.setFrameShape(QFrame.Shape.HLine)
+            sep.setStyleSheet("color: #444;")
+            layout.addWidget(sep)
+
+            recent_label = QLabel("Recent Projects")
+            recent_label.setStyleSheet("color: #888; font-size: 11px;")
+            layout.addWidget(recent_label)
+
+            self._recent_list = QListWidget()
+            self._recent_list.setMaximumHeight(min(len(recents), 6) * 28 + 4)
+            self._recent_list.setAlternatingRowColors(True)
+            for path in recents:
+                item = QListWidgetItem(path.name)
+                item.setToolTip(str(path))
+                item.setData(Qt.ItemDataRole.UserRole, path)
+                self._recent_list.addItem(item)
+            self._recent_list.itemDoubleClicked.connect(self._open_recent)
+            self._recent_list.itemClicked.connect(self._on_recent_selected)
+            layout.addWidget(self._recent_list)
+
+            self._open_recent_btn = QPushButton("Open Selected")
+            self._open_recent_btn.setEnabled(False)
+            self._open_recent_btn.clicked.connect(self._open_recent_selected)
+            layout.addWidget(self._open_recent_btn)
+        else:
+            self._recent_list = None  # type: ignore[assignment]
+            self._open_recent_btn = None  # type: ignore[assignment]
 
         layout.addSpacing(4)
 
@@ -113,3 +149,21 @@ class WelcomeDialog(QDialog):
             self._result_action = "open"
             self._project_path = Path(folder)
             self.accept()
+
+    def _on_recent_selected(self, item: QListWidgetItem) -> None:
+        if self._open_recent_btn is not None:
+            self._open_recent_btn.setEnabled(True)
+
+    def _open_recent(self, item: QListWidgetItem) -> None:
+        path = item.data(Qt.ItemDataRole.UserRole)
+        if isinstance(path, Path) and path.exists():
+            self._result_action = "open"
+            self._project_path = path
+            self.accept()
+
+    def _open_recent_selected(self) -> None:
+        if self._recent_list is None:
+            return
+        item = self._recent_list.currentItem()
+        if item is not None:
+            self._open_recent(item)

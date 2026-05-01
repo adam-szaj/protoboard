@@ -35,12 +35,17 @@ _yaml = YAML(typ="safe")
 @dataclass
 class ComponentLibrary:
     _by_name: dict[str, ComponentDefinition] = field(default_factory=dict)
+    _source: dict[str, Path] = field(default_factory=dict)
 
     def names(self) -> Iterable[str]:
         return self._by_name.keys()
 
     def get(self, name: str) -> ComponentDefinition:
         return self._by_name[name]
+
+    def source_path(self, name: str) -> Path | None:
+        """Return the YAML file that defines *name*, or None if unknown."""
+        return self._source.get(name)
 
     def __contains__(self, name: object) -> bool:
         return isinstance(name, str) and name in self._by_name
@@ -52,10 +57,11 @@ def load_library(directories: Iterable[Path]) -> ComponentLibrary:
     for directory in directories:
         if not directory.exists():
             raise FileNotFoundError(f"Library directory not found: {directory}")
-        for yaml_path in sorted(directory.glob("*.yaml")):
+        for yaml_path in sorted(directory.glob("**/*.yaml")):
             for defn in _load_file(yaml_path):
                 # First directory wins → only set if not already present.
-                lib._by_name.setdefault(defn.name, defn)
+                if lib._by_name.setdefault(defn.name, defn) is defn:
+                    lib._source[defn.name] = yaml_path
     return lib
 
 

@@ -151,6 +151,15 @@ class BoardView(QGraphicsView):
             Qt.AspectRatioMode.KeepAspectRatio,
         )
 
+    def set_session(self, session: EditorSession) -> None:
+        """Replace the current session (used when opening a recent project)."""
+        if self._active_tool is not None:
+            self._active_tool.deactivate()
+            self._active_tool = None
+        self._session = session
+        session.layout_changed.connect(self.refresh)
+        self.refresh()
+
     def set_tool(self, tool: _Tool | None) -> None:
         if self._active_tool is not None:
             self._active_tool.deactivate()

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QMainWindow,
+    QMenu,
     QMenuBar,
     QMessageBox,
     QStatusBar,
@@ -23,8 +24,10 @@ from PySide6.QtWidgets import (
 )
 
 from protoboard.geometry import Point
+from protoboard.gui import recent_projects
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.panels.groups_panel import GroupsPanel
+from protoboard.gui.panels.layers_panel import LayersPanel
 from protoboard.gui.panels.library_panel import LibraryPanel
 from protoboard.gui.panels.netlist_panel import NetlistPanel
 from protoboard.gui.panels.nets_editor_panel import NetsEditorPanel
@@ -40,7 +43,7 @@ from protoboard.services.export.png import export_png
 from protoboard.services.export.svg import export_svg
 from protoboard.services.kicad.exporter import KiCadNetlistExporter
 from protoboard.services.kicad.importer import ImportWarning, KiCadNetlistImporter
-from protoboard.services.persistence.project_yaml import save_project
+from protoboard.services.persistence.project_yaml import load_project, save_project
 
 
 class MainWindow(QMainWindow):
@@ -94,6 +97,16 @@ class MainWindow(QMainWindow):
         # Per-layer manual visibility overrides.
         from protoboard.gui.layer_state import LayerOverrides
         self._layer_overrides = LayerOverrides()
+
+        # Layers dock (right, tabified with Properties).
+        self._layers_panel = LayersPanel(self._layer_overrides, self)
+        layers_dock = QDockWidget("Layers", self)
+        layers_dock.setWidget(self._layers_panel)
+        layers_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, layers_dock)
+        self.tabifyDockWidget(props_dock, layers_dock)
 
         # Toolbar — tools | analysis | view
         toolbar = QToolBar("Tools", self)
@@ -163,6 +176,7 @@ class MainWindow(QMainWindow):
         self._groups_panel.group_renamed.connect(lambda _: self._update_undo_redo())
 
         self._nets_editor_panel.nets_changed.connect(self._on_nets_editor_changed)
+        self._layers_panel.overrides_changed.connect(self._on_layer_panel_changed)
 
         # Populate panels if project already loaded.
         self._refresh_netlist()
@@ -191,6 +205,11 @@ class MainWindow(QMainWindow):
         act_save_as = file_menu.addAction("Save &As…")
         act_save_as.setShortcut(QKeySequence.StandardKey.SaveAs)
         act_save_as.triggered.connect(self._save_as)
+
+        file_menu.addSeparator()
+
+        self._recent_menu: QMenu = file_menu.addMenu("Open &Recent")
+        self._populate_recent_menu()
 
         file_menu.addSeparator()
 
@@ -363,6 +382,76 @@ class MainWindow(QMainWindow):
         act_drc.triggered.connect(self._run_drc)
 
     # ------------------------------------------------------------------
+    # Recent projects
+    # ------------------------------------------------------------------
+
+    def _populate_recent_menu(self) -> None:
+        """Rebuild the Open Recent submenu from the persisted list."""
+        self._recent_menu.clear()
+        recents = recent_projects.load()
+        if not recents:
+            placeholder = self._recent_menu.addAction("(no recent projects)")
+            placeholder.setEnabled(False)
+            return
+        for path in recents:
+            act = self._recent_menu.addAction(str(path))
+            act.triggered.connect(
+                lambda _checked, p=path: self._open_recent_path(p)
+            )
+
+    def _open_recent_path(self, path: Path) -> None:
+        """Open a recent project, prompting to save unsaved changes first."""
+        if not path.exists():
+            QMessageBox.warning(self, "Not found", f"Project not found:\n{path}")
+            self._populate_recent_menu()
+            return
+        reply = QMessageBox.question(
+            self,
+            "Open recent project",
+            "Save current project before opening?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+        )
+        if reply == QMessageBox.StandardButton.Cancel:
+            return
+        if reply == QMessageBox.StandardButton.Save:
+            self._save()
+        try:
+            board, layout, schematic, instances = load_project(path)
+        except Exception as exc:
+            QMessageBox.critical(self, "Open error", str(exc))
+            return
+        session = EditorSession(board=board, library=self._session.library)
+        session.layout = layout
+        session.schematic = schematic
+        session.instances = instances
+        session.project_path = path
+        recent_projects.add(path)
+        # Reconnect signals from the old session.
+        self._session.layout_changed.disconnect(self._refresh_netlist)
+        self._session.layout_changed.disconnect(self._refresh_groups)
+        self._session.layout_changed.disconnect(self._refresh_nets_editor)
+        self._session.layout_changed.disconnect(self._drc_timer.start)
+        self._session.layout_changed.disconnect(self._update_undo_redo)
+        self._session.drc_changed.disconnect(self._props_panel.update_issues)
+        self._session = session
+        session.layout_changed.connect(self._refresh_netlist)
+        session.layout_changed.connect(self._refresh_groups)
+        session.layout_changed.connect(self._refresh_nets_editor)
+        session.layout_changed.connect(self._drc_timer.start)
+        session.layout_changed.connect(self._update_undo_redo)
+        session.drc_changed.connect(self._props_panel.update_issues)
+        self._board_view.set_session(session)
+        self._refresh_netlist()
+        self._refresh_groups()
+        self._refresh_nets_editor()
+        self._update_stats()
+        self._update_undo_redo()
+        self._update_title()
+        self._populate_recent_menu()
+
+    # ------------------------------------------------------------------
     # Title helper
     # ------------------------------------------------------------------
 
@@ -376,10 +465,18 @@ class MainWindow(QMainWindow):
         setattr(self._layer_overrides, field_name, current.cycle())
         self._board_view._layer_overrides = self._layer_overrides
         self._refresh_layer_menu()
+        self._layers_panel.sync()
         self._board_view.refresh()
 
     def _reset_layers(self) -> None:
         self._layer_overrides.reset()
+        self._board_view._layer_overrides = self._layer_overrides
+        self._refresh_layer_menu()
+        self._layers_panel.sync()
+        self._board_view.refresh()
+
+    def _on_layer_panel_changed(self) -> None:
+        """Called when user clicks a button in the Layers panel."""
         self._board_view._layer_overrides = self._layer_overrides
         self._refresh_layer_menu()
         self._board_view.refresh()
@@ -540,6 +637,7 @@ class MainWindow(QMainWindow):
                 schematic=self._session.schematic,
                 instances=self._session.instances,
             )
+            recent_projects.add(path)
             self._status.showMessage(f"Saved to {path}", 4000)
         except Exception as exc:
             QMessageBox.critical(self, "Save error", str(exc))
