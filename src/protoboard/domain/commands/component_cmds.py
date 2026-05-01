@@ -269,6 +269,37 @@ class ReplaceWireSegmentCommand(Command[ComponentState]):
 
 
 @dataclass
+class SetWireInsulatedCommand(Command[ComponentState]):
+    """Toggle the insulated flag of a wire."""
+
+    wire_id: uuid.UUID
+    insulated: bool
+    _old_insulated: bool = field(default=True, init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Set wire insulated" if self.insulated else "Set wire bare"
+
+    def apply(self, state: ComponentState) -> None:
+        from dataclasses import replace as _replace
+
+        for i, wire in enumerate(state.layout.wires):
+            if wire.id == self.wire_id:
+                object.__setattr__(self, "_old_insulated", wire.insulated)
+                state.layout.wires[i] = _replace(wire, insulated=self.insulated)
+                return
+        raise KeyError(f"Wire {self.wire_id} not found")
+
+    def revert(self, state: ComponentState) -> None:
+        from dataclasses import replace as _replace
+
+        for i, wire in enumerate(state.layout.wires):
+            if wire.id == self.wire_id:
+                state.layout.wires[i] = _replace(wire, insulated=self._old_insulated)
+                return
+
+
+@dataclass
 class DisconnectPinCommand(Command[SchematicState]):
     """Remove a pin from its net. Deletes the net if it becomes empty."""
 

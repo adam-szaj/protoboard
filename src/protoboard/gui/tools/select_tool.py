@@ -544,6 +544,18 @@ class SelectTool(_Tool):
 
     def on_right_press(self, scene_pt: QPointF) -> bool:
         """Show context menu on right-click. Returns True if consumed."""
+        # --- Wire context menu (insulated toggle) ---
+        wire_id = self._selected_wire_id
+        if wire_id is None:
+            wire_id = self._hit_test_wire(scene_pt)
+        if wire_id is not None:
+            wire = next(
+                (w for w in self._session.layout.wires if w.id == wire_id), None
+            )
+            if wire is not None:
+                return self._show_wire_menu(wire, scene_pt)
+
+        # --- Component context menu (disconnect pin) ---
         # Hit-test: prefer selected component, then any component at cursor.
         comp_id = self._selected_id
         if comp_id is None:
@@ -603,6 +615,38 @@ class SelectTool(_Tool):
             DisconnectPinCommand(component_id=cid, pin_number=pin_num),
         )
         self._session.stack.execute(cmd, self._session)
+        self._session.layout_changed.emit()
+        return True
+
+    def _show_wire_menu(
+        self, wire: "WireSegment", scene_pt: QPointF
+    ) -> bool:
+        from PySide6.QtWidgets import QMenu
+        from protoboard.domain.commands.component_cmds import SetWireInsulatedCommand
+
+        menu = QMenu(self._view)
+        label = "insulated" if wire.insulated else "bare"
+        menu.addSection(f"Wire — currently {label}")
+        if wire.insulated:
+            act_bare = menu.addAction("Set bare (no insulation)")
+            act_bare.setData(("insulated", False))
+        else:
+            act_ins = menu.addAction("Set insulated (add insulation jacket)")
+            act_ins.setData(("insulated", True))
+
+        chosen = menu.exec(
+            self._view.mapToGlobal(self._view.mapFromScene(scene_pt))
+        )
+        if chosen is None:
+            return True
+
+        _, new_insulated = chosen.data()
+        cmd = SetWireInsulatedCommand(wire_id=wire.id, insulated=new_insulated)
+        from typing import cast
+        from protoboard.domain.commands.base import Command
+        self._session.stack.execute(
+            cast(Command[ComponentState], cmd), self._session
+        )
         self._session.layout_changed.emit()
         return True
 
