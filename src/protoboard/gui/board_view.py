@@ -327,8 +327,9 @@ class BoardView(QGraphicsView):
             return
         if self._active_tool is not None:
             self._active_tool.on_key(event)
-        else:
-            super().keyPressEvent(event)
+        # Always forward to the main window so global shortcuts (S/W/C/H/F5/F6…)
+        # work regardless of which widget has focus.
+        self.window().keyPressEvent(event)
 
     def keyReleaseEvent(self, event: QKeyEvent) -> None:
         if self._active_tool is not None:
