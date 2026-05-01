@@ -132,6 +132,8 @@ class MainWindow(QMainWindow):
         self._status.addWidget(self._mode_label)
         self._stats_label = QLabel("")
         self._status.addPermanentWidget(self._stats_label)
+        self._view_label = QLabel("")
+        self._status.addPermanentWidget(self._view_label)
         self._cursor_label = QLabel("(—, —)")
         self._status.addPermanentWidget(self._cursor_label)
 
@@ -167,6 +169,7 @@ class MainWindow(QMainWindow):
         self._refresh_groups()
         self._refresh_nets_editor()
         self._update_stats()
+        self._update_view_label()
 
         # Default tool.
         self._tool_select()
@@ -494,6 +497,13 @@ class MainWindow(QMainWindow):
         self._act_camera_top.setChecked(not bottom)
         self._act_camera_bottom.setChecked(bottom)
         self._act_camera_tb.setChecked(bottom)
+        self._update_view_label()
+
+    def _update_view_label(self) -> None:
+        camera = self._board_view.camera_side.capitalize()   # "Top" | "Bottom"
+        transform = self._board_view.view_transform          # "normal"|"mirror_h"|"mirror_v"
+        mirror_tag = {"normal": "N", "mirror_h": "H", "mirror_v": "V"}[transform]
+        self._view_label.setText(f"{camera}  Mirror:{mirror_tag}   ")
 
     def _fit_board(self) -> None:
         self._board_view.fit_board()
