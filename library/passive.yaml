@@ -3,11 +3,30 @@ components:
   # Resistors
   # -----------------------------------------------------------------------
 
+  # Axial resistor — pin 1 anchor, pin 2 może trafić w dowolny pad
+  # w promieniu euklidesowym 3–23 rastery (≈ 1/4W leżący: 4–24 rastery rozstawu).
   - name: R
-    description: "Resistor (axial through-hole)"
+    description: "Resistor (axial through-hole, variable pitch)"
     component_class: resistor
     footprint: {type: SIL, pins: 2}
     pin_names: {}
+    bendable_pins:
+      2:
+        min_reach: 3
+        max_reach: 23
+        default: {x: 0, y: 3}
+
+  # Montaż pionowy — ciało stoi, jedna nóżka zgięta pod spód.
+  - name: R_vert
+    description: "Resistor (vertical mount, pitch 1–6)"
+    component_class: resistor
+    footprint: {type: SIL, pins: 2}
+    pin_names: {}
+    bendable_pins:
+      2:
+        min_reach: 0
+        max_reach: 5
+        default: {x: 0, y: 0}
 
   - name: R_Net_4
     description: "4-resistor SIL network (common bus pin 1)"
@@ -32,32 +51,52 @@ components:
   # -----------------------------------------------------------------------
 
   - name: C
-    description: "Capacitor (radial, non-polar)"
+    description: "Capacitor (radial, non-polar, variable pitch)"
     component_class: capacitor_nonpolar
     footprint: {type: SIL, pins: 2}
     pin_names: {}
+    bendable_pins:
+      2:
+        min_reach: 1
+        max_reach: 5
+        default: {x: 0, y: 1}
 
   - name: C_POL
-    description: "Capacitor (electrolytic, polar)"
+    description: "Capacitor (electrolytic, polar, variable pitch)"
     component_class: capacitor_polar
     footprint: {type: SIL, pins: 2}
     pin_names: {1: "+", 2: "-"}
+    bendable_pins:
+      2:
+        min_reach: 1
+        max_reach: 5
+        default: {x: 0, y: 1}
 
   - name: C_Disc
-    description: "Disc ceramic capacitor"
+    description: "Disc ceramic capacitor (variable pitch)"
     component_class: capacitor_nonpolar
     footprint: {type: SIL, pins: 2}
     pin_names: {}
+    bendable_pins:
+      2:
+        min_reach: 1
+        max_reach: 3
+        default: {x: 0, y: 1}
 
   # -----------------------------------------------------------------------
   # Inductors / transformers
   # -----------------------------------------------------------------------
 
   - name: L
-    description: "Inductor (axial/radial)"
+    description: "Inductor (axial/radial, variable pitch)"
     component_class: inductor
     footprint: {type: SIL, pins: 2}
     pin_names: {}
+    bendable_pins:
+      2:
+        min_reach: 1
+        max_reach: 7
+        default: {x: 0, y: 1}
 
   - name: T
     description: "Transformer (4-pin: primary + secondary)"
@@ -74,6 +113,11 @@ components:
     component_class: fuse
     footprint: {type: SIL, pins: 2}
     pin_names: {1: A, 2: B}
+    bendable_pins:
+      2:
+        min_reach: 3
+        max_reach: 9
+        default: {x: 0, y: 3}
 
   # -----------------------------------------------------------------------
   # Switches

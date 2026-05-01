@@ -3,11 +3,14 @@
 
 from __future__ import annotations
 
+import math
+import math
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
 from protoboard.domain.components.footprints import FootprintTemplate
+from protoboard.geometry import Point
 
 
 class ComponentClass(StrEnum):
@@ -67,6 +70,33 @@ REFDES_PREFIX: dict[ComponentClass, str] = {
 
 
 @dataclass(frozen=True, slots=True)
+class PinBendSpec:
+    """Specyfikacja gięcia jednego pinu.
+
+    Dwa tryby (wzajemnie wykluczające się):
+    - dyskretny: ``discrete`` niepusty — lista dozwolonych offsetów (np. TO-92).
+    - swobodny 2D: ``max_reach > 0`` — pin może trafić w dowolny pad siatki
+      w promieniu euklidesowym [min_reach, max_reach] od swojej pozycji bazowej.
+
+    Offset zawsze w lokalnym układzie komponentu (przed rotacją).
+    """
+
+    discrete: tuple[Point, ...] = ()
+    min_reach: float = 0.0   # min odległość euklidesowa od pinu 1 (rastery)
+    max_reach: float = 0.0   # max odległość od pinu 1; 0 = brak trybu swobodnego
+    default_offset: Point = field(default_factory=lambda: Point(0.0, 0.0))
+
+    def is_free(self) -> bool:
+        """True gdy tryb swobodny 2D (dowolny pad w promieniu od pinu 1)."""
+        return self.max_reach > 0.0
+
+    def is_reachable_from_pin1(self, pin1_world: Point, target_world: Point) -> bool:
+        """Czy docelowy pad mieści się w dozwolonym promieniu od pinu 1."""
+        d = math.hypot(target_world.x - pin1_world.x, target_world.y - pin1_world.y)
+        return self.min_reach <= d <= self.max_reach
+
+
+@dataclass(frozen=True, slots=True)
 class ComponentDefinition:
     """Static definition of a component (a "type")."""
 
@@ -76,10 +106,9 @@ class ComponentDefinition:
     description: str = ""
     component_class: ComponentClass = ComponentClass.OTHER
     metadata: dict[str, Any] = field(default_factory=dict)
-    # Per-pin allowed offsets (local frame, before rotation).
-    # Key = pin number (1-based). Value = list of allowed Point offsets.
-    # Empty list = pin not bendable.
-    bendable_pins: dict[int, list[Any]] = field(default_factory=dict)
+    # Per-pin bend specifications (local frame, before rotation).
+    # Key = pin number (1-based). Value = PinBendSpec (discrete or continuous).
+    bendable_pins: dict[int, PinBendSpec] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.name:

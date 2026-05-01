@@ -3,25 +3,48 @@ components:
   # Templates
   # -----------------------------------------------------------------------
 
+  # DO-35 — małe diody sygnałowe (1N4148): nóżki ~30mm ≈ 12 rastrów.
   - name: _DO35
     component_class: diode
     footprint: {type: SIL, pins: 2}
     pin_names: {1: A, 2: K}
+    bendable_pins:
+      2:
+        min_reach: 2
+        max_reach: 11
+        default: {x: 0, y: 2}
 
+  # DO-41 — diody prostownicze (1N4007): nóżki ~45mm ≈ 18 rastrów.
   - name: _DO41
     component_class: diode
     footprint: {type: SIL, pins: 2}
     pin_names: {1: A, 2: K}
+    bendable_pins:
+      2:
+        min_reach: 3
+        max_reach: 17
+        default: {x: 0, y: 3}
 
   - name: _DO35_Z
     component_class: diode_zener
     footprint: {type: SIL, pins: 2}
     pin_names: {1: A, 2: K}
+    bendable_pins:
+      2:
+        min_reach: 2
+        max_reach: 11
+        default: {x: 0, y: 2}
 
+  # LED 5mm T-1 3/4: nóżki ~25mm ≈ 10 rastrów.
   - name: _LED_T1_75
     component_class: diode_led
     footprint: {type: SIL, pins: 2}
     pin_names: {1: A, 2: K}
+    bendable_pins:
+      2:
+        min_reach: 1
+        max_reach: 9
+        default: {x: 0, y: 1}
 
   # -----------------------------------------------------------------------
   # Rectifier / switching diodes

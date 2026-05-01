@@ -23,6 +23,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPen
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
+    QGraphicsItem,
     QGraphicsItemGroup,
     QGraphicsLineItem,
     QGraphicsRectItem,
@@ -40,7 +41,7 @@ from protoboard.domain.layout.group import (
     all_component_ids,
     top_level_group_for,
 )
-from protoboard.domain.layout.placement import component_bbox, pin_world_position
+from protoboard.domain.layout.placement import component_bbox, pin_world_position, unrotate
 from protoboard.domain.layout.wire import WireSegment
 from protoboard.geometry import Point
 from protoboard.gui.board_view import _Tool
@@ -104,12 +105,17 @@ class SelectTool(_Tool):
         self._edit_live_line: QGraphicsLineItem | None = None
         # Group navigation stack: list of group IDs currently entered (innermost last).
         self._group_stack: list[uuid.UUID] = []
+        # Re-drag state (Ctrl+R on a component with bendable_pins).
+        self._redrag_comp_id: uuid.UUID | None = None
+        self._redrag_pin_num: int | None = None
+        self._redrag_items: list[QGraphicsItem] = []
 
     # ------------------------------------------------------------------
     # _Tool interface
     # ------------------------------------------------------------------
 
     def deactivate(self) -> None:
+        self._cancel_redrag()
         self._dragging = False
         self._drag_orig_positions = {}
         self._drag_orig_wire_paths = {}
@@ -126,6 +132,7 @@ class SelectTool(_Tool):
         self._edit_preview_items.clear()
         self._edit_live_line = None
         self._rubber_band_item = None
+        self._redrag_items = []  # scene wiped, items gone
         # Redraw highlights after scene rebuild.
         if self._selected_id is not None and not self._dragging:
             self._draw_highlight(self._selected_id)
@@ -140,6 +147,12 @@ class SelectTool(_Tool):
         if event.button() != Qt.MouseButton.LeftButton:
             return False
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+
+        # --- Re-drag mode: confirm new pin2 position ---
+        if self._redrag_comp_id is not None:
+            snapped = self._view.snap(scene_pt)
+            self._commit_redrag(snapped)
+            return True
 
         # --- Wire edit mode: clicking adds intermediate points ---
         if self._is_editing_wire():
@@ -340,6 +353,11 @@ class SelectTool(_Tool):
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
 
+        if self._redrag_comp_id is not None:
+            snapped = self._view.snap(scene_pt)
+            self._update_redrag(snapped)
+            return
+
         if self._is_editing_wire():
             self._update_edit_live(scene_pt)
             return
@@ -512,6 +530,14 @@ class SelectTool(_Tool):
             return
 
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+
+        # Re-drag mode: Esc cancels
+        if self._redrag_comp_id is not None:
+            if key == Qt.Key.Key_Escape:
+                self._cancel_redrag()
+            return
+
         if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             if self._selected_wire_ids:
                 self._delete_multi_wires()
@@ -521,9 +547,12 @@ class SelectTool(_Tool):
                 self._delete_multi()
             elif self._selected_id is not None:
                 self._delete_selected()
-        elif key == Qt.Key.Key_R:
+        elif key == Qt.Key.Key_R and ctrl:
             if self._selected_id is not None:
-                self._rotate_selected()
+                self._start_redrag(self._selected_id)
+        elif key == Qt.Key.Key_R and not ctrl:
+            if self._selected_id is not None:
+                self._rotate_selected(delta=-90 if shift else 90)
         elif key == Qt.Key.Key_G and ctrl:
             self._group_for_selection()
         elif key == Qt.Key.Key_Escape:
@@ -800,14 +829,14 @@ class SelectTool(_Tool):
         self._highlight.setBrush(Qt.BrushStyle.NoBrush)
         self._view.scene().addItem(self._highlight)
 
-    def _rotate_selected(self) -> None:
+    def _rotate_selected(self, delta: int = 90) -> None:
         comp_id = self._selected_id
         if comp_id is None:
             return
         placement = self._session.layout.placements.get(comp_id)
         if placement is None:
             return
-        new_rot = (placement.rotation + 90) % 360
+        new_rot = (placement.rotation + delta) % 360
         old_pl = placement.copy()
         new_pl = placement.copy()
         new_pl.rotation = new_rot
@@ -833,6 +862,148 @@ class SelectTool(_Tool):
         self._session.stack.execute(cmd, self._session)
         self._deselect()
         self._session.layout_changed.emit()
+
+    # ------------------------------------------------------------------
+    # Ctrl+R re-drag — reposition pin 2 interactively
+    # ------------------------------------------------------------------
+
+    def _start_redrag(self, comp_id: uuid.UUID) -> None:
+        """Enter re-drag mode: pin 1 frozen, cursor picks new pad for pin 2."""
+        placement = self._session.layout.placements.get(comp_id)
+        inst = self._session.instances.get(comp_id)
+        if placement is None or inst is None:
+            return
+        defn = self._session.components.get(inst.definition_ref)
+        if defn is None or not defn.bendable_pins:
+            return
+        # Pick the first free-range bendable pin.
+        pin_num = next(
+            (p for p, s in sorted(defn.bendable_pins.items()) if s.is_free()),
+            None,
+        )
+        if pin_num is None:
+            return
+        self._redrag_comp_id = comp_id
+        self._redrag_pin_num = pin_num
+        self._draw_redrag_overlay(comp_id, pin_num, placement)
+
+    def _draw_redrag_overlay(
+        self,
+        comp_id: uuid.UUID,
+        pin_num: int,
+        placement: "ComponentPlacement",  # type: ignore[name-defined]
+    ) -> None:
+        self._clear_redrag_overlay()
+        inst = self._session.instances.get(comp_id)
+        if inst is None:
+            return
+        defn = self._session.components.get(inst.definition_ref)
+        if defn is None:
+            return
+        spec = defn.bendable_pins.get(pin_num)
+        if spec is None or not spec.is_free():
+            return
+        # Reach is measured from pin 1 (the anchor).
+        pin1_world = placement.position
+        r = 0.18
+        from PySide6.QtGui import QBrush, QPen
+        from PySide6.QtWidgets import QGraphicsEllipseItem
+        green = QColor(0, 200, 80, 120)
+        for pt in self._view.board_pad_positions():
+            if spec.is_reachable_from_pin1(pin1_world, pt):
+                item = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
+                item.setBrush(QBrush(green))
+                item.setPen(QPen(Qt.GlobalColor.transparent, 0))
+                item.setZValue(20.0)
+                self._view.scene().addItem(item)
+                self._redrag_items.append(item)
+
+    def _update_redrag(self, cursor: Point) -> None:
+        """Update the feedback line during re-drag."""
+        comp_id = self._redrag_comp_id
+        pin_num = self._redrag_pin_num
+        if comp_id is None or pin_num is None:
+            return
+        # Remove old feedback line (last item if it's a line).
+        if self._redrag_items and isinstance(self._redrag_items[-1], QGraphicsLineItem):
+            self._view.scene().removeItem(self._redrag_items.pop())
+        placement = self._session.layout.placements.get(comp_id)
+        inst = self._session.instances.get(comp_id)
+        if placement is None or inst is None:
+            return
+        defn = self._session.components.get(inst.definition_ref)
+        if defn is None:
+            return
+        # Feedback line from pin 1 (anchor) to cursor.
+        pin1_world = placement.position
+        line = QGraphicsLineItem(pin1_world.x, pin1_world.y, cursor.x, cursor.y)
+        from PySide6.QtGui import QPen
+        pen = QPen(QColor(0, 200, 80, 180), 0.05)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        line.setPen(pen)
+        line.setZValue(20.0)
+        self._view.scene().addItem(line)
+        self._redrag_items.append(line)
+
+    def _commit_redrag(self, cursor: Point) -> None:
+        """Commit the re-drag: compute new pin_offsets and save via command."""
+        comp_id = self._redrag_comp_id
+        pin_num = self._redrag_pin_num
+        if comp_id is None or pin_num is None:
+            self._cancel_redrag()
+            return
+        placement = self._session.layout.placements.get(comp_id)
+        inst = self._session.instances.get(comp_id)
+        if placement is None or inst is None:
+            self._cancel_redrag()
+            return
+        defn = self._session.components.get(inst.definition_ref)
+        if defn is None:
+            self._cancel_redrag()
+            return
+        spec = defn.bendable_pins.get(pin_num)
+        pin1_world = placement.position
+        # Snap to nearest board pad
+        from PySide6.QtCore import QPointF as _QPointF
+        snapped = self._view.snap(_QPointF(cursor.x, cursor.y))
+        # Validate reach from pin 1
+        if spec is not None and spec.is_free() and not spec.is_reachable_from_pin1(pin1_world, snapped):
+            self._cancel_redrag()
+            return
+        # Convert snapped world position to local offset for the pin.
+        temp_no_off = placement.copy()
+        temp_no_off.pin_offsets = {k: v for k, v in placement.pin_offsets.items()
+                                   if k != pin_num}
+        baseline = pin_world_position(defn.footprint, temp_no_off, pin_num)
+        world_delta = Point(snapped.x - baseline.x, snapped.y - baseline.y)
+        local_off = unrotate(world_delta, placement.rotation)
+        # Build new placement
+        old_pl = placement.copy()
+        new_pl = placement.copy()
+        new_offsets = dict(placement.pin_offsets)
+        if local_off.x == 0.0 and local_off.y == 0.0:
+            new_offsets.pop(pin_num, None)
+        else:
+            new_offsets[pin_num] = local_off
+        new_pl.pin_offsets = new_offsets
+        cmd = MoveComponentCommand(
+            component_id=comp_id,
+            new_placement=new_pl,
+            old_placement=old_pl,
+        )
+        self._session.stack.execute(cmd, self._session)
+        self._cancel_redrag()
+        self._session.layout_changed.emit()
+
+    def _cancel_redrag(self) -> None:
+        self._clear_redrag_overlay()
+        self._redrag_comp_id = None
+        self._redrag_pin_num = None
+
+    def _clear_redrag_overlay(self) -> None:
+        for item in self._redrag_items:
+            self._view.scene().removeItem(item)
+        self._redrag_items = []
 
     # ------------------------------------------------------------------
     # Multi-selection

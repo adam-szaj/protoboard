@@ -179,6 +179,7 @@ def make_ghost_item(
     defn: ComponentDefinition,
     rotation: int = 0,
     theme: Theme = DEFAULT_THEME,
+    pin_offsets: dict[int, Point] | None = None,
 ) -> QGraphicsItemGroup:
     """Return a semi-transparent QGraphicsItemGroup previewing *defn* at origin."""
     placement = ComponentPlacement(
@@ -186,6 +187,7 @@ def make_ghost_item(
         position=Point(0.0, 0.0),
         rotation=rotation,
         side="top",
+        pin_offsets=pin_offsets or {},
     )
     fp = defn.footprint
     positions = [

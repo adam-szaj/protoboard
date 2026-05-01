@@ -66,6 +66,11 @@ def _rotate(p: Point, rotation: int) -> Point:
     return Point(-y, x)
 
 
+def unrotate(p: Point, rotation: int) -> Point:
+    """Reverse a clockwise rotation — equivalent to rotating by -rotation."""
+    return _rotate(p, (360 - rotation) % 360)
+
+
 _BODY_MARGIN = 0.5  # raster units added on each side of the pin bounding box
 
 

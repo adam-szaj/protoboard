@@ -57,6 +57,7 @@ class BoardView(QGraphicsView):
         self._camera_side: str = "top"           # "top" | "bottom"
         self._view_transform: str = "normal"     # "normal" | "mirror_h" | "mirror_v"
         self._layer_overrides: LayerOverrides = LayerOverrides()
+        self._pad_positions: list[Point] = []
         session.layout_changed.connect(self.refresh)
         self.refresh()
 
@@ -167,8 +168,33 @@ class BoardView(QGraphicsView):
         if tool is not None:
             tool.activate(self._session, self)
 
+    def board_pad_positions(self) -> list[Point]:
+        """Cached list of all board pad positions (raster units)."""
+        return self._pad_positions
+
+    def _rebuild_pad_cache(self) -> None:
+        """Rebuild _pad_positions from the current board layout."""
+        positions: list[Point] = []
+        for atom, center in self._session.board.atoms():
+            if isinstance(atom, StripAtom):
+                n = int(atom.length) if atom.length != "fill" else 0
+                if atom.orientation == "horizontal":
+                    start_x = center.x - n / 2.0 + 0.5
+                    for i in range(n):
+                        positions.append(Point(start_x + i, center.y))
+                else:
+                    start_y = center.y - n / 2.0 + 0.5
+                    for i in range(n):
+                        positions.append(Point(center.x, start_y + i))
+            else:
+                from protoboard.domain.board.boxes import GapAtom
+                if not isinstance(atom, GapAtom):
+                    positions.append(center)
+        self._pad_positions = positions
+
     def refresh(self) -> None:
         """Rebuild the scene from the current session state."""
+        self._rebuild_pad_cache()
         self._scene.clear()
         # Notify active tool that scene was wiped so it can drop stale item refs.
         if self._active_tool is not None:

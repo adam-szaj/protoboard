@@ -12,17 +12,20 @@ from protoboard.gui.tools.place_tool import PlaceTool
 
 
 def _left_click(tool: PlaceTool, x: float, y: float) -> None:
-    tool.on_press(
-        QMouseEvent(
-            QMouseEvent.Type.MouseButtonPress,
-            QPointF(x, y),
-            QPointF(x, y),
-            Qt.MouseButton.LeftButton,
-            Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
-        ),
+    """Click once (anchor). If the tool enters drag_pin phase, click again to confirm."""
+    ev = QMouseEvent(
+        QMouseEvent.Type.MouseButtonPress,
         QPointF(x, y),
+        QPointF(x, y),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
     )
+    tool.on_press(ev, QPointF(x, y))
+    # If the component has bendable pins, confirm each drag pin with a click at
+    # the same position (accepts the default offset).
+    while tool._phase == "drag_pin":
+        tool.on_press(ev, QPointF(x, y))
 
 
 def _key_r(tool: PlaceTool) -> None:

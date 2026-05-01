@@ -16,7 +16,11 @@ from typing import Any
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
-from protoboard.domain.components.definition import ComponentClass, ComponentDefinition
+from protoboard.domain.components.definition import (
+    ComponentClass,
+    ComponentDefinition,
+    PinBendSpec,
+)
 from protoboard.domain.components.footprints import (
     DIP,
     SIL,
@@ -177,33 +181,79 @@ def _component_from_dict(data: Any, source: Path) -> ComponentDefinition:
             f"{source}: unknown component_class {raw_class!r} for {data['name']!r}"
         )
 
-    # bendable_pins: {pin_number: [[dx, dy], ...]}
     from protoboard.geometry import Point as _Point
+
+    def _parse_point(raw: Any, ctx: str) -> _Point:
+        if isinstance(raw, dict):
+            return _Point(float(raw["x"]), float(raw["y"]))
+        if isinstance(raw, (list, tuple)) and len(raw) == 2:
+            return _Point(float(raw[0]), float(raw[1]))
+        raise SerializationError(f"{source}: invalid Point {raw!r} in {ctx}")
+
     bendable_raw = data.get("bendable_pins") or {}
-    bendable_pins: dict[int, list[Any]] = {}
+    bendable_pins: dict[int, PinBendSpec] = {}
     if isinstance(bendable_raw, dict):
-        for k, offsets in bendable_raw.items():
+        for k, spec_raw in bendable_raw.items():
             try:
                 pin_num = int(k)
             except (TypeError, ValueError) as exc:
                 raise SerializationError(
                     f"{source}: bendable_pins key {k!r} is not an integer"
                 ) from exc
-            if not isinstance(offsets, list):
-                raise SerializationError(
-                    f"{source}: bendable_pins[{pin_num}] must be a list"
+
+            ctx = f"bendable_pins[{pin_num}]"
+            if isinstance(spec_raw, list):
+                # Format A — lista dyskretnych punktów (TO-92 itp.)
+                pts = tuple(_parse_point(off, ctx) for off in spec_raw)
+                default = pts[0] if pts else _Point(0.0, 0.0)
+                bendable_pins[pin_num] = PinBendSpec(
+                    discrete=pts, default_offset=default
                 )
-            parsed: list[Any] = []
-            for off in offsets:
-                if isinstance(off, dict):
-                    parsed.append(_Point(float(off["x"]), float(off["y"])))
-                elif isinstance(off, (list, tuple)) and len(off) == 2:
-                    parsed.append(_Point(float(off[0]), float(off[1])))
+            elif isinstance(spec_raw, dict):
+                if "min_reach" in spec_raw or "max_reach" in spec_raw:
+                    # Format C — zakres 2D swobodny (nowy)
+                    import math as _math
+                    bendable_pins[pin_num] = PinBendSpec(
+                        min_reach=float(spec_raw.get("min_reach", 0.0)),
+                        max_reach=float(spec_raw.get("max_reach", 0.0)),
+                        default_offset=_parse_point(
+                            spec_raw["default"], ctx + ".default"
+                        ) if "default" in spec_raw else _Point(0.0, 0.0),
+                    )
+                elif "min" in spec_raw and "max" in spec_raw:
+                    # Format B — stary zakres kierunkowy; konwertuj do reach
+                    import math as _math
+                    min_pt = _parse_point(spec_raw["min"], ctx + ".min")
+                    max_pt = _parse_point(spec_raw["max"], ctx + ".max")
+                    bendable_pins[pin_num] = PinBendSpec(
+                        min_reach=_math.hypot(min_pt.x, min_pt.y),
+                        max_reach=_math.hypot(max_pt.x, max_pt.y),
+                        default_offset=_parse_point(
+                            spec_raw["default"], ctx + ".default"
+                        ) if "default" in spec_raw else _Point(0.0, 0.0),
+                    )
+                elif "discrete" in spec_raw:
+                    pts = tuple(
+                        _parse_point(off, ctx) for off in spec_raw["discrete"]
+                    )
+                    default = (
+                        _parse_point(spec_raw["default"], ctx + ".default")
+                        if "default" in spec_raw
+                        else (pts[0] if pts else _Point(0.0, 0.0))
+                    )
+                    bendable_pins[pin_num] = PinBendSpec(
+                        discrete=pts, default_offset=default
+                    )
                 else:
                     raise SerializationError(
-                        f"{source}: invalid offset {off!r} in bendable_pins[{pin_num}]"
+                        f"{source}: {ctx} dict must have 'min_reach'/'max_reach',"
+                        " 'min'+'max', or 'discrete'"
                     )
-            bendable_pins[pin_num] = parsed
+            else:
+                raise SerializationError(
+                    f"{source}: {ctx} must be a list or dict,"
+                    f" got {type(spec_raw).__name__}"
+                )
 
     try:
         return ComponentDefinition(

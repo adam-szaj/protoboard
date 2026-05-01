@@ -1,18 +1,52 @@
 # SPDX-License-Identifier: MIT
-"""Place component tool — click to place the selected component."""
+"""Place component tool — click to place the selected component.
+
+Flow for components without bendable_pins:
+  - Move mouse → ghost follows cursor (pin 1 = snap point).
+  - Left-click → commit placement.
+
+Flow for components with bendable_pins (two-phase):
+  Phase ANCHOR:
+    - Ghost follows cursor (pin 1 = snap point, pins use default offsets).
+    - Left-click → fix pin 1 position, enter PIN_DRAG phase.
+    - Ctrl+R → also enters PIN_DRAG (re-drag after previous placement).
+  Phase PIN_DRAG (one step per bendable pin, in pin-number order):
+    - Pin 1 is frozen.
+    - For is_free specs: cursor snaps to any board pad in reach; ring overlay
+      highlights reachable pads.
+    - For discrete specs: cursor snaps to nearest allowed offset.
+    - Ghost updates live.
+    - Left-click → confirm this pin's offset, advance to next pin (or commit).
+    - Ctrl+R → reset current pin to default_offset and restart drag for it.
+    - Esc → return to ANCHOR phase (discard offsets, resume normal ghost).
+    - R / Shift+R → standard rotation ±90° (pin_offsets unchanged).
+"""
 
 from __future__ import annotations
 
+import math
+import uuid
+from typing import Literal
+
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QMouseEvent
-from PySide6.QtWidgets import QGraphicsItemGroup
+from PySide6.QtGui import QKeyEvent, QMouseEvent
+from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem
 
 from protoboard.domain.commands.component_cmds import PlaceComponentCommand
+from protoboard.domain.components.definition import PinBendSpec
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position, unrotate
+from protoboard.geometry import Point
 from protoboard.gui.board_view import _Tool
 from protoboard.gui.placement_conflict import check_and_resolve
 from protoboard.gui.renderers.component_renderer import make_ghost_item
+
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QGraphicsItemGroup
+
+_REACH_PAD_COLOR = QColor(0, 200, 80, 120)     # zielone kółka — pady w zasięgu
+_REACH_LINE_COLOR = QColor(0, 200, 80, 180)    # linia pin1→kursor
+_REACH_PAD_RADIUS = 0.18
 
 
 class PlaceTool(_Tool):
@@ -22,65 +56,132 @@ class PlaceTool(_Tool):
         self._definition_ref = definition_ref
         self._rotation = 0
         self._ghost: QGraphicsItemGroup | None = None
+        # Two-phase state
+        self._phase: Literal["anchor", "drag_pin"] = "anchor"
+        self._anchor_pos: Point | None = None
+        self._pin_offsets: dict[int, Point] = {}
+        self._drag_pin_queue: list[int] = []
+        self._current_drag_pin: int | None = None
+        # Reach overlay items
+        self._reach_items: list[QGraphicsItem] = []
 
     def activate(self, session: object, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
+        self._reset_phase()
         self._rebuild_ghost()
 
     def deactivate(self) -> None:
+        self._clear_reach_overlay()
         self._remove_ghost()
+        self._reset_phase()
+
+    # ------------------------------------------------------------------
+    # Mouse events
+    # ------------------------------------------------------------------
 
     def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
             return False
         snapped = self._view.snap(scene_pt)
-        inst = ComponentInstance.new(
-            definition_ref=self._definition_ref,
-            refdes=self._next_refdes(),
-            value=self._definition_ref,
-        )
-        placement = ComponentPlacement(
-            component_id=inst.id,
-            position=snapped,
-            rotation=self._rotation,
-            side="top",
-        )
-        # Check pad conflicts before committing.
+
         defn = self._session.components.get(self._definition_ref)
-        if defn is not None:
-            resolved = check_and_resolve(
-                session=self._session,
-                placement=placement,
-                defn=defn,
-                instance_id=inst.id,
-                parent_widget=self._view.window(),
-            )
-            if resolved is None:
-                return True  # blocked — don't place, but consume event
-            placement = resolved
-        cmd = PlaceComponentCommand(
-            component_id=inst.id, placement=placement, instance=inst
-        )
-        self._session.stack.execute(cmd, self._session)
-        self._session.layout_changed.emit()
-        return True
+        bendable = sorted(defn.bendable_pins.keys()) if defn else []
+
+        if self._phase == "anchor":
+            if not bendable:
+                self._commit(snapped, pin_offsets={})
+            else:
+                self._anchor_pos = snapped
+                self._pin_offsets = {
+                    p: defn.bendable_pins[p].default_offset  # type: ignore[union-attr]
+                    for p in bendable
+                }
+                self._drag_pin_queue = bendable[1:]
+                self._current_drag_pin = bendable[0]
+                self._phase = "drag_pin"
+                self._rebuild_ghost_at_anchor()
+                self._update_reach_overlay()
+            return True
+
+        if self._phase == "drag_pin":
+            assert self._anchor_pos is not None and self._current_drag_pin is not None
+            new_off = self._compute_drag_offset(snapped)
+            if new_off is not None:
+                self._pin_offsets[self._current_drag_pin] = new_off
+            if self._drag_pin_queue:
+                self._current_drag_pin = self._drag_pin_queue.pop(0)
+                self._rebuild_ghost_at_anchor()
+                self._update_reach_overlay()
+            else:
+                self._clear_reach_overlay()
+                self._commit(self._anchor_pos, pin_offsets=dict(self._pin_offsets))
+                self._reset_phase()
+            return True
+
+        return False
 
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         snapped = self._view.snap(scene_pt)
-        self._move_ghost(snapped.x, snapped.y)
+        if self._phase == "anchor":
+            self._move_ghost(snapped.x, snapped.y)
+        elif self._phase == "drag_pin":
+            assert self._anchor_pos is not None and self._current_drag_pin is not None
+            new_off = self._compute_drag_offset(snapped)
+            if new_off is not None:
+                self._pin_offsets[self._current_drag_pin] = new_off
+                self._rebuild_ghost_at_anchor()
+            self._update_reach_line(snapped)
 
     def on_key(self, event: object) -> None:
-        from PySide6.QtCore import Qt as _Qt
-        from PySide6.QtGui import QKeyEvent
-
         if not isinstance(event, QKeyEvent):
             return
-        if event.key() == _Qt.Key.Key_R:
-            self._rotation = (self._rotation + 90) % 360
+        key = event.key()
+        mods = event.modifiers()
+        ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+        shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+
+        if key == Qt.Key.Key_R and not ctrl:
+            delta = -90 if shift else 90
+            self._rotation = (self._rotation + delta) % 360
+            if self._phase == "drag_pin":
+                self._rebuild_ghost_at_anchor()
+                self._update_reach_overlay()
+            else:
+                self._rebuild_ghost()
+
+        elif key == Qt.Key.Key_R and ctrl:
+            # Ctrl+R — restart drag for the current bendable pin from default.
+            defn = self._session.components.get(self._definition_ref)
+            if not defn or not defn.bendable_pins:
+                return
+            bendable = sorted(defn.bendable_pins.keys())
+            if self._phase == "anchor" and self._anchor_pos is None:
+                return  # nothng to re-drag yet
+            if self._phase == "anchor":
+                # anchor already fixed (e.g. after phase reset), start drag
+                self._pin_offsets = {
+                    p: defn.bendable_pins[p].default_offset for p in bendable
+                }
+                self._drag_pin_queue = bendable[1:]
+                self._current_drag_pin = bendable[0]
+                self._phase = "drag_pin"
+            else:
+                # Reset current drag pin to default
+                assert self._current_drag_pin is not None
+                spec = defn.bendable_pins.get(self._current_drag_pin)
+                if spec:
+                    self._pin_offsets[self._current_drag_pin] = spec.default_offset
+            self._rebuild_ghost_at_anchor()
+            self._update_reach_overlay()
+
+        elif key == Qt.Key.Key_Escape and self._phase == "drag_pin":
+            self._clear_reach_overlay()
+            self._reset_phase()
             self._rebuild_ghost()
 
     def on_scene_cleared(self) -> None:
-        self._ghost = None  # scene wiped — rebuild immediately
+        self._ghost = None
+        self._reach_items = []
         self._rebuild_ghost()
 
     # ------------------------------------------------------------------
@@ -88,14 +189,23 @@ class PlaceTool(_Tool):
     # ------------------------------------------------------------------
 
     def _rebuild_ghost(self) -> None:
-        """Remove old ghost and create a new one with current rotation."""
         self._remove_ghost()
         defn = self._session.components.get(self._definition_ref)
         if defn is None:
             return
-        ghost = make_ghost_item(defn, rotation=self._rotation)
+        offsets: dict[int, Point] = {}
+        if self._phase == "drag_pin":
+            offsets = dict(self._pin_offsets)
+        elif defn.bendable_pins:
+            offsets = {p: spec.default_offset for p, spec in defn.bendable_pins.items()}
+        ghost = make_ghost_item(defn, rotation=self._rotation, pin_offsets=offsets)
         self._view.scene().addItem(ghost)
         self._ghost = ghost
+
+    def _rebuild_ghost_at_anchor(self) -> None:
+        self._rebuild_ghost()
+        if self._anchor_pos is not None and self._ghost is not None:
+            self._ghost.setPos(self._anchor_pos.x, self._anchor_pos.y)
 
     def _remove_ghost(self) -> None:
         if self._ghost is not None:
@@ -105,6 +215,181 @@ class PlaceTool(_Tool):
     def _move_ghost(self, x: float, y: float) -> None:
         if self._ghost is not None:
             self._ghost.setPos(x, y)
+
+    # ------------------------------------------------------------------
+    # Reach overlay
+    # ------------------------------------------------------------------
+
+    def _update_reach_overlay(self) -> None:
+        """Draw green dots on all board pads reachable by the active pin."""
+        self._clear_reach_overlay()
+        if self._phase != "drag_pin" or self._anchor_pos is None:
+            return
+        defn = self._session.components.get(self._definition_ref)
+        if defn is None or self._current_drag_pin is None:
+            return
+        spec = defn.bendable_pins.get(self._current_drag_pin)
+        if spec is None or not spec.is_free():
+            return
+
+        pin1 = self._anchor_pos  # reach measured from pin 1
+
+        r = _REACH_PAD_RADIUS
+        for pt in self._view.board_pad_positions():
+            if spec.is_reachable_from_pin1(pin1, pt):
+                item = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
+                from PySide6.QtGui import QBrush, QPen
+                item.setBrush(QBrush(_REACH_PAD_COLOR))
+                item.setPen(QPen(Qt.GlobalColor.transparent, 0))
+                item.setZValue(20.0)
+                self._view.scene().addItem(item)
+                self._reach_items.append(item)
+
+    def _update_reach_line(self, cursor: Point) -> None:
+        """Update the feedback line from pin baseline to cursor."""
+        # Remove old line (last item if it's a line)
+        if self._reach_items and isinstance(self._reach_items[-1], QGraphicsLineItem):
+            self._view.scene().removeItem(self._reach_items.pop())
+
+        if self._phase != "drag_pin" or self._anchor_pos is None:
+            return
+        defn = self._session.components.get(self._definition_ref)
+        if defn is None or self._current_drag_pin is None:
+            return
+        spec = defn.bendable_pins.get(self._current_drag_pin)
+        if spec is None or not spec.is_free():
+            return
+
+        pin1 = self._anchor_pos  # feedback line from pin 1
+
+        line = QGraphicsLineItem(pin1.x, pin1.y, cursor.x, cursor.y)
+        from PySide6.QtGui import QPen
+        pen = QPen(_REACH_LINE_COLOR, 0.05)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        line.setPen(pen)
+        line.setZValue(20.0)
+        self._view.scene().addItem(line)
+        self._reach_items.append(line)
+
+    def _clear_reach_overlay(self) -> None:
+        for item in self._reach_items:
+            self._view.scene().removeItem(item)
+        self._reach_items = []
+
+    # ------------------------------------------------------------------
+    # Offset computation
+    # ------------------------------------------------------------------
+
+    def _pin_baseline_world(self, pin_number: int) -> Point | None:
+        """World position of the pin ignoring any current offset."""
+        if self._anchor_pos is None:
+            return None
+        defn = self._session.components.get(self._definition_ref)
+        if defn is None:
+            return None
+        temp = ComponentPlacement(
+            component_id=uuid.UUID(int=0),
+            position=self._anchor_pos,
+            rotation=self._rotation,
+            side="top",
+            pin_offsets={},
+        )
+        return pin_world_position(defn.footprint, temp, pin_number)
+
+    def _compute_drag_offset(self, cursor: Point) -> Point | None:
+        """Return the clamped/snapped local offset for the active drag pin."""
+        assert self._anchor_pos is not None and self._current_drag_pin is not None
+        defn = self._session.components.get(self._definition_ref)
+        if defn is None:
+            return None
+        spec: PinBendSpec | None = defn.bendable_pins.get(self._current_drag_pin)
+        if spec is None:
+            return None
+
+        baseline = self._pin_baseline_world(self._current_drag_pin)
+        if baseline is None:
+            return None
+
+        if spec.is_free():
+            # Snap to nearest board pad; reject if outside reach from pin 1.
+            snapped = self._view.snap(QPointF(cursor.x, cursor.y))
+            if not spec.is_reachable_from_pin1(self._anchor_pos, snapped):
+                return None
+            # Convert world position of snapped pad to local offset for pin.
+            world_delta = Point(snapped.x - baseline.x, snapped.y - baseline.y)
+            local_off = unrotate(world_delta, self._rotation)
+            return local_off
+
+        if spec.discrete:
+            # Snap to nearest discrete option (in world space).
+            best: Point = spec.discrete[0]
+            best_dist = math.inf
+            temp_no_off = ComponentPlacement(
+                component_id=uuid.UUID(int=0),
+                position=self._anchor_pos,
+                rotation=self._rotation,
+                side="top",
+                pin_offsets={},
+            )
+            for pt in spec.discrete:
+                candidate_pl = ComponentPlacement(
+                    component_id=uuid.UUID(int=0),
+                    position=self._anchor_pos,
+                    rotation=self._rotation,
+                    side="top",
+                    pin_offsets={self._current_drag_pin: pt},
+                )
+                world_pos = pin_world_position(
+                    defn.footprint, candidate_pl, self._current_drag_pin
+                )
+                d = math.hypot(cursor.x - world_pos.x, cursor.y - world_pos.y)
+                if d < best_dist:
+                    best, best_dist = pt, d
+            return best
+
+        return None
+
+    # ------------------------------------------------------------------
+    # Commit
+    # ------------------------------------------------------------------
+
+    def _commit(self, position: Point, pin_offsets: dict[int, Point]) -> None:
+        defn = self._session.components.get(self._definition_ref)
+        inst = ComponentInstance.new(
+            definition_ref=self._definition_ref,
+            refdes=self._next_refdes(),
+            value=self._definition_ref,
+        )
+        placement = ComponentPlacement(
+            component_id=inst.id,
+            position=position,
+            rotation=self._rotation,
+            side="top",
+            pin_offsets=pin_offsets,
+        )
+        if defn is not None:
+            resolved = check_and_resolve(
+                session=self._session,
+                placement=placement,
+                defn=defn,
+                instance_id=inst.id,
+                parent_widget=self._view.window(),
+            )
+            if resolved is None:
+                return
+            placement = resolved
+        cmd = PlaceComponentCommand(
+            component_id=inst.id, placement=placement, instance=inst
+        )
+        self._session.stack.execute(cmd, self._session)
+        self._session.layout_changed.emit()
+
+    def _reset_phase(self) -> None:
+        self._phase = "anchor"
+        self._anchor_pos = None
+        self._pin_offsets = {}
+        self._drag_pin_queue = []
+        self._current_drag_pin = None
 
     # ------------------------------------------------------------------
 

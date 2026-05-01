@@ -15,7 +15,7 @@ from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.services.library.loader import load_library
 
-_LIBRARY_DIR = Path(__file__).parent.parent / "library"
+_LIBRARY_DIR = Path(__file__).parent / "fixtures" / "library"
 
 
 def _make_perfboard(rows: int = 5, cols: int = 5) -> Board:

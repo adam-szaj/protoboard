@@ -21,17 +21,19 @@ def _place_component(
     board_view.set_tool(PlaceTool("R"))
     tool = board_view._active_tool
     assert isinstance(tool, PlaceTool)
-    tool.on_press(
-        QMouseEvent(
-            QMouseEvent.Type.MouseButtonPress,
-            QPointF(x, y),
-            QPointF(x, y),
-            Qt.MouseButton.LeftButton,
-            Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
-        ),
+    ev = QMouseEvent(
+        QMouseEvent.Type.MouseButtonPress,
         QPointF(x, y),
+        QPointF(x, y),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
     )
+    tool.on_press(ev, QPointF(x, y))
+    # If the component has bendable pins, confirm each drag pin with a click at
+    # the same position (accepts the default offset).
+    while tool._phase == "drag_pin":
+        tool.on_press(ev, QPointF(x, y))
     return list(session.instances.values())[-1]
 
 
