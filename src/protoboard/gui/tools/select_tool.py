@@ -16,7 +16,6 @@ Wire editing:
 
 from __future__ import annotations
 
-import dataclasses
 import math
 import uuid
 
@@ -385,22 +384,16 @@ class SelectTool(_Tool):
                 pl = self._session.layout.placements.get(cid)
                 orig = self._drag_orig_positions.get(cid)
                 if pl is not None and orig is not None:
-                    new_pos = Point(orig.x + _delta.x, orig.y + _delta.y)
-                    self._session.layout.placements[cid] = dataclasses.replace(
-                        pl, position=new_pos
-                    )
+                    pl.position = Point(orig.x + _delta.x, orig.y + _delta.y)
 
             # Move wires (translate all path points).
-            for i, wire in enumerate(self._session.layout.wires):
+            for wire in self._session.layout.wires:
                 if wire.id not in self._drag_orig_wire_paths:
                     continue
                 orig_path: list[Point] = self._drag_orig_wire_paths[wire.id]
-                new_path = [
+                wire.path = [
                     Point(p.x + _delta.x, p.y + _delta.y) for p in orig_path
                 ]
-                self._session.layout.wires[i] = dataclasses.replace(
-                    wire, path=new_path
-                )
 
             self._session.layout_changed.emit()
             return
@@ -442,7 +435,8 @@ class SelectTool(_Tool):
                 continue
             if pl.position == orig:
                 continue
-            old_pl = dataclasses.replace(pl, position=orig)
+            old_pl = pl.copy()
+            old_pl.position = orig
 
             # Check pad conflicts.
             inst = self._session.instances.get(cid)
@@ -759,11 +753,13 @@ class SelectTool(_Tool):
         if placement is None:
             return
         new_rot = (placement.rotation + 90) % 360
-        new_pl = dataclasses.replace(placement, rotation=new_rot)
+        old_pl = placement.copy()
+        new_pl = placement.copy()
+        new_pl.rotation = new_rot
         cmd = MoveComponentCommand(
             component_id=comp_id,
             new_placement=new_pl,
-            old_placement=placement,
+            old_placement=old_pl,
         )
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()

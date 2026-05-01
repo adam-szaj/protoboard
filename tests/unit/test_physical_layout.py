@@ -3,7 +3,6 @@
 pin world-position resolution (including rotation).
 """
 
-import dataclasses
 import uuid
 
 import pytest
@@ -55,15 +54,15 @@ class TestComponentPlacement:
                 side="middle",  # type: ignore[arg-type]
             )
 
-    def test_frozen(self) -> None:
+    def test_mutable(self) -> None:
         pl = ComponentPlacement(
             component_id=uuid.uuid4(),
             position=Point(0.0, 0.0),
             rotation=0,
             side="top",
         )
-        with pytest.raises(dataclasses.FrozenInstanceError):
-            pl.rotation = 90  # type: ignore[misc]
+        pl.rotation = 90
+        assert pl.rotation == 90
 
 
 class TestPinWorldPosition:
@@ -198,15 +197,15 @@ class TestWireSegment:
                 side="both",  # type: ignore[arg-type]
             )
 
-    def test_frozen(self) -> None:
+    def test_mutable(self) -> None:
         w = WireSegment(
             id=uuid.uuid4(),
             path=[Point(0.0, 0.0), Point(1.0, 0.0)],
             insulated=False,
             side="top",
         )
-        with pytest.raises(dataclasses.FrozenInstanceError):
-            w.insulated = True  # type: ignore[misc]
+        w.insulated = True
+        assert w.insulated is True
 
 
 class TestLayout:

@@ -10,13 +10,21 @@ from typing import Literal
 from protoboard.geometry import Point
 
 
-@dataclass(frozen=True)
+@dataclass
 class WireSegment:
     id: uuid.UUID
     path: list[Point]
     insulated: bool
     side: Literal["top", "bottom"]
     color: str | None = None
+
+    def __hash__(self) -> int:
+        return hash(self.id)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, WireSegment):
+            return NotImplemented
+        return self.id == other.id
 
     def __post_init__(self) -> None:
         if self.side not in ("top", "bottom"):

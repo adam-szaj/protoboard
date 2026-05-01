@@ -27,6 +27,7 @@ from protoboard.gui.board_view import BoardView
 from protoboard.gui.panels.groups_panel import GroupsPanel
 from protoboard.gui.panels.library_panel import LibraryPanel
 from protoboard.gui.panels.netlist_panel import NetlistPanel
+from protoboard.gui.panels.nets_editor_panel import NetsEditorPanel
 from protoboard.gui.panels.properties_panel import PropertiesPanel
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.cut_tool import CutTool
@@ -57,14 +58,16 @@ class MainWindow(QMainWindow):
         self._board_view = BoardView(session, self)
         self.setCentralWidget(self._board_view)
 
-        # Left dock — tabbed: Library | Netlist/BOM | Groups
+        # Left dock — tabbed: Library | Netlist/BOM | Groups | Nets
         self._library_panel = LibraryPanel(session.library, self)
         self._netlist_panel = NetlistPanel(self)
         self._groups_panel = GroupsPanel(self)
+        self._nets_editor_panel = NetsEditorPanel(self)
         left_tabs = QTabWidget()
         left_tabs.addTab(self._library_panel, "Library")
         left_tabs.addTab(self._netlist_panel, "Netlist")
         left_tabs.addTab(self._groups_panel, "Groups")
+        left_tabs.addTab(self._nets_editor_panel, "Nets")
         left_dock = QDockWidget("", self)
         left_dock.setWidget(left_tabs)
         left_dock.setAllowedAreas(
@@ -134,6 +137,7 @@ class MainWindow(QMainWindow):
         self._netlist_panel.instance_selected.connect(self._board_view.select_component)
         session.layout_changed.connect(self._refresh_netlist)
         session.layout_changed.connect(self._refresh_groups)
+        session.layout_changed.connect(self._refresh_nets_editor)
         session.layout_changed.connect(self._drc_timer.start)
         session.layout_changed.connect(self._update_undo_redo)
         session.drc_changed.connect(self._props_panel.update_issues)
@@ -145,9 +149,12 @@ class MainWindow(QMainWindow):
         self._groups_panel.group_renamed.connect(lambda _: self._board_view.refresh())
         self._groups_panel.group_renamed.connect(lambda _: self._update_undo_redo())
 
+        self._nets_editor_panel.nets_changed.connect(self._on_nets_editor_changed)
+
         # Populate panels if project already loaded.
         self._refresh_netlist()
         self._refresh_groups()
+        self._refresh_nets_editor()
         self._update_stats()
 
         # Default tool.
@@ -274,6 +281,16 @@ class MainWindow(QMainWindow):
 
     def _refresh_groups(self) -> None:
         self._groups_panel.refresh(self._session)
+
+    def _refresh_nets_editor(self) -> None:
+        self._nets_editor_panel.refresh(self._session)
+
+    def _on_nets_editor_changed(self) -> None:
+        self._refresh_netlist()
+        self._update_undo_redo()
+        self._update_stats()
+        self._board_view.refresh()
+        self._drc_timer.start()
 
     # ------------------------------------------------------------------
     # Tool switches
@@ -535,18 +552,15 @@ class MainWindow(QMainWindow):
         self._session.instances[comp_id] = dataclasses.replace(
             inst, refdes=refdes, value=value
         )
-        self._session.layout.placements[comp_id] = dataclasses.replace(
-            pl, rotation=rotation, label_offset=Point(label_offset_x, label_offset_y)
-        )
+        pl.rotation = rotation
+        pl.label_offset = Point(label_offset_x, label_offset_y)
         self._board_view.refresh()
 
     def _on_pin_offsets_changed(self, comp_id: uuid.UUID, offsets: object) -> None:
         pl = self._session.layout.placements.get(comp_id)
         if pl is None:
             return
-        self._session.layout.placements[comp_id] = dataclasses.replace(
-            pl, pin_offsets=offsets  # type: ignore[arg-type]
-        )
+        pl.pin_offsets = offsets  # type: ignore[assignment]
         self._board_view.refresh()
 
     def _export_svg(self) -> None:

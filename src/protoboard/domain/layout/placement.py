@@ -13,7 +13,7 @@ from protoboard.geometry import Point, Rect
 _VALID_ROTATIONS = frozenset({0, 90, 180, 270})
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass
 class ComponentPlacement:
     component_id: uuid.UUID
     position: Point
@@ -23,6 +23,25 @@ class ComponentPlacement:
     pin_offsets: dict[int, Point] = field(default_factory=dict)
     # Pin numbers (1-based) intentionally sharing a pad with another component.
     shared_pins: frozenset[int] = field(default_factory=frozenset)
+
+    def __hash__(self) -> int:
+        return hash(self.component_id)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ComponentPlacement):
+            return NotImplemented
+        return self.component_id == other.component_id
+
+    def copy(self) -> ComponentPlacement:
+        return ComponentPlacement(
+            component_id=self.component_id,
+            position=self.position,
+            rotation=self.rotation,
+            side=self.side,
+            label_offset=self.label_offset,
+            pin_offsets=dict(self.pin_offsets),
+            shared_pins=self.shared_pins,
+        )
 
     def __post_init__(self) -> None:
         if self.rotation not in _VALID_ROTATIONS:

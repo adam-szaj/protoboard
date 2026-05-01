@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import uuid
 from typing import TYPE_CHECKING
 
@@ -161,7 +160,9 @@ def check_and_resolve(
     if all_resolved:
         _update_schematic(session, all_resolved, placement, defn, instance_id)
 
-    return dataclasses.replace(placement, shared_pins=frozenset(new_shared))
+    result = placement.copy()
+    result.shared_pins = frozenset(new_shared)
+    return result
 
 
 def _show_dialog(
@@ -225,43 +226,26 @@ def _update_schematic(
                 component_id=c.existing_comp_id, pin_number=c.existing_pin
             )
             if c.existing_net_id is not None:
-                # Add incoming pin to existing net.
-                net = session.schematic.nets[c.existing_net_id]
-                session.schematic.nets[c.existing_net_id] = Net(
-                    id=net.id, name=net.name, pins=net.pins | {incoming_ref}
-                )
+                session.schematic.nets[c.existing_net_id].pins.add(incoming_ref)
             elif c.incoming_net_id is not None:
-                # Add existing pin to incoming's net.
-                net = session.schematic.nets[c.incoming_net_id]
-                session.schematic.nets[c.incoming_net_id] = Net(
-                    id=net.id, name=net.name, pins=net.pins | {existing_ref}
-                )
+                session.schematic.nets[c.incoming_net_id].pins.add(existing_ref)
             else:
-                # Both unconnected — create new net.
                 inst = session.instances.get(instance_id)
-                name = f"Net-({inst.refdes if inst else '?'}-{c.incoming_pin})"
                 new_net_id = _uuid.uuid4()
                 session.schematic.nets[new_net_id] = Net(
                     id=new_net_id,
-                    name=name,
+                    name=f"Net-({inst.refdes if inst else '?'}-{c.incoming_pin})",
                     pins={incoming_ref, existing_ref},
                 )
 
         elif c.kind in _WIRE_KINDS:
             if c.existing_net_id is not None:
-                # Wire point has a net — add incoming pin to it.
-                net = session.schematic.nets[c.existing_net_id]
-                session.schematic.nets[c.existing_net_id] = Net(
-                    id=net.id, name=net.name, pins=net.pins | {incoming_ref}
-                )
+                session.schematic.nets[c.existing_net_id].pins.add(incoming_ref)
             else:
-                # Wire has no net — create new net with just the incoming pin.
-                # The wire becomes part of the net implicitly via ConnectivityGraph.
                 inst = session.instances.get(instance_id)
-                name = f"Net-({inst.refdes if inst else '?'}-{c.incoming_pin})"
                 new_net_id = _uuid.uuid4()
                 session.schematic.nets[new_net_id] = Net(
                     id=new_net_id,
-                    name=name,
+                    name=f"Net-({inst.refdes if inst else '?'}-{c.incoming_pin})",
                     pins={incoming_ref},
                 )

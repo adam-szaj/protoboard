@@ -61,6 +61,11 @@ def resolve_wire_nets(
 # ---------------------------------------------------------------------------
 
 
+def _snapshot(net: Net) -> Net:
+    """Return a deep copy of *net* for use as an undo snapshot."""
+    return Net(id=net.id, name=net.name, pins=net.pins.copy())
+
+
 def _create_new_net(
     session: EditorSession,
     cmd: AddWireWithNetsCommand,
@@ -79,7 +84,7 @@ def _create_new_net(
             PinRef(component_id=cl.pin_b[0], pin_number=cl.pin_b[1]),
         },
     )
-    cmd.record_net_change(new_id, before=None, after=new_net)
+    cmd.record_net_change(new_id, before=None, after=_snapshot(new_net))
     session.schematic.nets[new_id] = new_net
 
 
@@ -89,18 +94,13 @@ def _extend_net(
     cl: WireNetClassification,
 ) -> None:
     assert cl.pin_a is not None and cl.pin_b is not None
-    # Identify which side has the net and which is unconnected.
-    if cl.net_a is not None:
-        net = cl.net_a
-        unconnected = cl.pin_b
-    else:
-        assert cl.net_b is not None
-        net = cl.net_b
-        unconnected = cl.pin_a
+    net = cl.net_a if cl.net_a is not None else cl.net_b
+    assert net is not None
+    unconnected = cl.pin_b if cl.net_a is not None else cl.pin_a
     new_ref = PinRef(component_id=unconnected[0], pin_number=unconnected[1])
-    updated = Net(id=net.id, name=net.name, pins=net.pins | {new_ref})
-    cmd.record_net_change(net.id, before=net, after=updated)
-    session.schematic.nets[net.id] = updated
+    cmd.record_net_change(net.id, before=_snapshot(net), after=None)
+    net.pins.add(new_ref)
+    cmd._nets_after[net.id] = _snapshot(net)
 
 
 def _merge_nets(
@@ -119,14 +119,13 @@ def _merge_nets(
         return False
 
     chosen_name = dlg.chosen_name or net_a.name
-    merged = Net(
-        id=net_a.id,
-        name=chosen_name,
-        pins=net_a.pins | net_b.pins,
-    )
-    # net_a survives (with merged pins + chosen name); net_b is deleted.
-    cmd.record_net_change(net_a.id, before=net_a, after=merged)
-    cmd.record_net_change(net_b.id, before=net_b, after=None)
-    session.schematic.nets[net_a.id] = merged
+    # Record snapshots before mutating.
+    cmd.record_net_change(net_a.id, before=_snapshot(net_a), after=None)
+    cmd.record_net_change(net_b.id, before=_snapshot(net_b), after=None)
+    # Merge net_b into net_a in-place, then delete net_b.
+    net_a.name = chosen_name
+    net_a.pins |= net_b.pins
     del session.schematic.nets[net_b.id]
+    cmd._nets_after[net_a.id] = _snapshot(net_a)
+    cmd._nets_after[net_b.id] = None
     return True

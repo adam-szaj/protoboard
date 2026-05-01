@@ -117,12 +117,8 @@ class RemoveComponentCommand(Command[SchematicState]):
     _saved_instance: ComponentInstance | None = field(
         default=None, init=False, repr=False
     )
-    # net_id → Net before mutation (None = net did not exist)
-    _nets_before: dict[uuid.UUID, "Net | None"] = field(
-        default_factory=dict, init=False, repr=False
-    )
-    # net_id → Net after mutation (None = net was deleted)
-    _nets_after: dict[uuid.UUID, "Net | None"] = field(
+    # net_id → (net_name, removed_pins) for every net touched by this remove
+    _nets_before: dict[uuid.UUID, "tuple[str, set[object]]"] = field(
         default_factory=dict, init=False, repr=False
     )
 
@@ -131,43 +127,35 @@ class RemoveComponentCommand(Command[SchematicState]):
         return f"Remove component {self.component_id}"
 
     def apply(self, state: SchematicState) -> None:
-        from protoboard.domain.schematic.net import Net, PinRef
+        self._saved_placement = state.layout.placements.pop(self.component_id)
+        self._saved_instance = state.instances.pop(self.component_id, None)
 
-        saved = state.layout.placements.pop(self.component_id)
-        object.__setattr__(self, "_saved_placement", saved)
-        inst = state.instances.pop(self.component_id, None)
-        object.__setattr__(self, "_saved_instance", inst)
-
-        # Remove all pins of this component from every net they appear in.
-        nets_before: dict[uuid.UUID, Net | None] = {}
-        nets_after: dict[uuid.UUID, Net | None] = {}
+        nets_before: dict[uuid.UUID, tuple[str, set[object]]] = {}
         for net_id, net in list(state.schematic.nets.items()):
-            new_pins = {
-                p for p in net.pins if p.component_id != self.component_id
-            }
-            if len(new_pins) == len(net.pins):
-                continue  # this net had no pins for this component
-            nets_before[net_id] = net
-            if not new_pins:
+            removed = {p for p in net.pins if p.component_id == self.component_id}
+            if not removed:
+                continue
+            nets_before[net_id] = (net.name, removed)
+            net.pins -= removed
+            if not net.pins:
                 del state.schematic.nets[net_id]
-                nets_after[net_id] = None
-            else:
-                updated = Net(id=net.id, name=net.name, pins=new_pins)
-                state.schematic.nets[net_id] = updated
-                nets_after[net_id] = updated
-        object.__setattr__(self, "_nets_before", nets_before)
-        object.__setattr__(self, "_nets_after", nets_after)
+        self._nets_before = nets_before
 
     def revert(self, state: SchematicState) -> None:
+        from protoboard.domain.schematic.net import Net
+
         if self._saved_placement is not None:
             state.layout.placements[self.component_id] = self._saved_placement
         if self._saved_instance is not None:
             state.instances[self.component_id] = self._saved_instance
-        for net_id, net_before in self._nets_before.items():
-            if net_before is None:
-                state.schematic.nets.pop(net_id, None)
+        for net_id, (net_name, removed_pins) in self._nets_before.items():
+            net = state.schematic.nets.get(net_id)
+            if net is not None:
+                net.pins |= removed_pins  # type: ignore[arg-type]
             else:
-                state.schematic.nets[net_id] = net_before
+                state.schematic.nets[net_id] = Net(
+                    id=net_id, name=net_name, pins=set(removed_pins)  # type: ignore[arg-type]
+                )
 
 
 @dataclass
@@ -292,24 +280,17 @@ class ReplaceWireSegmentCommand(Command[ComponentState]):
         return "Edit wire segment"
 
     def apply(self, state: ComponentState) -> None:
-        from dataclasses import replace as _replace
-
-        for i, wire in enumerate(state.layout.wires):
+        for wire in state.layout.wires:
             if wire.id == self.wire_id:
-                # Use caller-supplied old_path when available (drag case),
-                # otherwise snapshot the current state (edit-commit case).
-                saved = self.old_path if self.old_path else list(wire.path)
-                object.__setattr__(self, "_old_path", saved)
-                state.layout.wires[i] = _replace(wire, path=self.new_path)
+                self._old_path = self.old_path if self.old_path else list(wire.path)
+                wire.path = self.new_path
                 return
         raise KeyError(f"Wire {self.wire_id} not found")
 
     def revert(self, state: ComponentState) -> None:
-        from dataclasses import replace as _replace
-
-        for i, wire in enumerate(state.layout.wires):
+        for wire in state.layout.wires:
             if wire.id == self.wire_id:
-                state.layout.wires[i] = _replace(wire, path=self._old_path)
+                wire.path = self._old_path
                 return
 
 
@@ -326,21 +307,17 @@ class SetWireInsulatedCommand(Command[ComponentState]):
         return "Set wire insulated" if self.insulated else "Set wire bare"
 
     def apply(self, state: ComponentState) -> None:
-        from dataclasses import replace as _replace
-
-        for i, wire in enumerate(state.layout.wires):
+        for wire in state.layout.wires:
             if wire.id == self.wire_id:
-                object.__setattr__(self, "_old_insulated", wire.insulated)
-                state.layout.wires[i] = _replace(wire, insulated=self.insulated)
+                self._old_insulated = wire.insulated
+                wire.insulated = self.insulated
                 return
         raise KeyError(f"Wire {self.wire_id} not found")
 
     def revert(self, state: ComponentState) -> None:
-        from dataclasses import replace as _replace
-
-        for i, wire in enumerate(state.layout.wires):
+        for wire in state.layout.wires:
             if wire.id == self.wire_id:
-                state.layout.wires[i] = _replace(wire, insulated=self._old_insulated)
+                wire.insulated = self._old_insulated
                 return
 
 
@@ -351,38 +328,45 @@ class DisconnectPinCommand(Command[SchematicState]):
     component_id: uuid.UUID
     pin_number: int
     _saved_net_id: uuid.UUID | None = field(default=None, init=False, repr=False)
-    _saved_net: object = field(default=None, init=False, repr=False)  # Net | None
+    _saved_net_name: str = field(default="", init=False, repr=False)
+    _saved_pins: object = field(default=None, init=False, repr=False)  # set[PinRef]|None
 
     @property
     def description(self) -> str:  # type: ignore[override]
         return f"Disconnect pin {self.pin_number}"
 
     def apply(self, state: SchematicState) -> None:
-        from protoboard.domain.schematic.net import Net, PinRef
+        from protoboard.domain.schematic.net import PinRef
 
         ref = PinRef(component_id=self.component_id, pin_number=self.pin_number)
         net = state.schematic.net_for_pin(ref)
         if net is None:
             return
-        object.__setattr__(self, "_saved_net_id", net.id)
-        object.__setattr__(self, "_saved_net", net)
-        new_pins = net.pins - {ref}
-        if not new_pins:
-            # Net becomes empty — remove it entirely.
+        self._saved_net_id = net.id
+        self._saved_net_name = net.name
+        self._saved_pins = net.pins.copy()
+        net.pins.discard(ref)
+        if not net.pins:
             del state.schematic.nets[net.id]
-        else:
-            state.schematic.nets[net.id] = Net(
-                id=net.id, name=net.name, pins=new_pins
-            )
 
     def revert(self, state: SchematicState) -> None:
-        from protoboard.domain.schematic.net import Net
+        from protoboard.domain.schematic.net import Net, PinRef
 
-        if self._saved_net_id is None or self._saved_net is None:
+        if self._saved_net_id is None or self._saved_pins is None:
             return
-        saved = self._saved_net
-        assert isinstance(saved, Net)
-        state.schematic.nets[self._saved_net_id] = saved
+        ref = PinRef(component_id=self.component_id, pin_number=self.pin_number)
+        net = state.schematic.nets.get(self._saved_net_id)
+        if net is not None:
+            net.pins.add(ref)
+        else:
+            # Net was deleted (became empty) — restore it.
+            saved = self._saved_pins
+            assert isinstance(saved, set)
+            state.schematic.nets[self._saved_net_id] = Net(
+                id=self._saved_net_id,
+                name=self._saved_net_name,
+                pins=saved,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -488,8 +472,7 @@ def _update_wires_for_move(
                 not _pts_equal(new_path[i], wire.path[i])
                 for i in range(len(new_path))
             ):
-                from dataclasses import replace as _replace
-                wire = _replace(wire, path=new_path)
+                wire.path = new_path
         new_wires.append(wire)
 
     state.layout.wires[:] = new_wires

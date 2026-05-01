@@ -19,13 +19,21 @@ class PinRef:
             raise ValueError(f"pin_number must be >= 1; got {self.pin_number}")
 
 
-@dataclass(frozen=True)
+@dataclass
 class Net:
     """A logical network: the set of pins that must be electrically connected."""
 
     id: uuid.UUID
     name: str
     pins: set[PinRef] = field(default_factory=set)
+
+    def __hash__(self) -> int:
+        return hash(self.id)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Net):
+            return NotImplemented
+        return self.id == other.id
 
     def __post_init__(self) -> None:
         if not self.name:
