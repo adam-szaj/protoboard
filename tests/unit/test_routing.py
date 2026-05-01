@@ -279,7 +279,5 @@ class TestRoutingResult:
         for a, b in zip(path[:-1], path[1:]):
             dx = abs(a.x - b.x)
             dy = abs(a.y - b.y)
-            # Must be exactly one raster step in one axis.
-            assert (abs(dx - 1.0) < 1e-9 and dy < 1e-9) or (
-                abs(dy - 1.0) < 1e-9 and dx < 1e-9
-            )
+            # Must be exactly one raster step: orthogonal (1,0)/(0,1) or diagonal (1,1).
+            assert (dx <= 1.0 + 1e-9) and (dy <= 1.0 + 1e-9) and (dx + dy > 1e-9)

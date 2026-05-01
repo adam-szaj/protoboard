@@ -58,8 +58,16 @@ def autoroute(
     side: Literal["top", "bottom"] = "top",
     cost_model: RoutingCostModel = _DEFAULT_COST,
     max_rip_up_passes: int = 3,
+    insulated: bool = True,
 ) -> AutorouteResult:
     """Route all unrouted nets in *schematic* and return new wire segments.
+
+    Parameters
+    ----------
+    insulated:
+        Whether newly created wires should be insulated.  Insulated wires may
+        cross bare wires (acting as jumpers) at extra cost; bare wires cannot
+        cross other bare wires (short circuit).
 
     Already-routed connections (where a physical path already exists) are
     skipped.  Only completely *missing* connections are routed.
@@ -125,6 +133,7 @@ def autoroute(
             side=side,
             cost_model=cost_model,
             max_rip_up_passes=max_rip_up_passes,
+            insulated=insulated,
         )
         if routed is None:
             result.unrouted_nets.append(net.name)
@@ -170,6 +179,7 @@ def _route_net(
     side: Literal["top", "bottom"],
     cost_model: RoutingCostModel,
     max_rip_up_passes: int,
+    insulated: bool = True,
 ) -> list[WireSegment] | None:
     """Route all connections for *net*.  Returns new wires or None on failure."""
     # Collect pin positions for this net (skip unplaced pins).
@@ -257,6 +267,7 @@ def _route_net(
             occupied_pins=occupied_pads,
             same_net_pins=same_net_pads,
             near_pin_pads=near_pin_pads,
+            insulated=insulated,
         )
         if routed_wire is None:
             return None  # failed to route this net
@@ -290,13 +301,16 @@ def _route_segment_with_ripup(
     occupied_pins: dict[Point, uuid.UUID],
     same_net_pins: dict[Point, uuid.UUID],
     near_pin_pads: set[Point],
+    insulated: bool = True,
 ) -> WireSegment | None:
     """Try to route *target* from any of *source_options*, with rip-up fallback.
 
     *occupied_pins* — pad positions belonging to other nets (blocked).
     *same_net_pins* — pad positions belonging to this net (discounted).
     *near_pin_pads* — pads adjacent to other-net pins (extra cost, not blocked).
-    Wire path points from other already-routed wires are also blocked.
+    *insulated* — whether the wire is insulated (affects crossing cost).
+    Wire path points from other already-routed wires are also blocked for
+    bare wires; insulated wires may cross bare wires at extra cost.
     """
     for attempt in range(max_rip_up_passes + 1):
         graph = ConnectivityGraph(
@@ -305,18 +319,27 @@ def _route_segment_with_ripup(
             components=components,
             instances=instances,
         )
-        # Merge occupied_pins with wire-path occupancy; same_net_pins take
-        # precedence over wire occupancy for this net's own pads.
+        # Build bare-wire segment set for crossing-cost computation.
+        bare_segs = _build_bare_wire_segments(working_wires)
+
+        # Merge occupied_pins with wire-path occupancy.
+        # Insulated wires are NOT blocked by existing wire paths — they can
+        # cross them (paying crossing_insulated_bare).  Bare wires ARE blocked
+        # by bare wire paths (crossing_bare_bare = INF).
         wire_occupied = _build_occupied_map(working_wires, exclude_wire_id=None)
-        # Wire points that happen to coincide with same-net pins are not blocked.
-        combined_occupied: dict[Point, uuid.UUID] = {
-            **wire_occupied,
-            **occupied_pins,
-        }
+        if insulated:
+            # Insulated wire: only pin pads of other nets block us.
+            # Wire paths are handled via bare_segs crossing cost instead.
+            combined_occupied: dict[Point, uuid.UUID] = dict(occupied_pins)
+        else:
+            # Bare wire: wire paths of any existing wire block us too.
+            combined_occupied = {**wire_occupied, **occupied_pins}
         for pt in same_net_pins:
             combined_occupied.pop(pt, None)
-        # near_pin_pads: remove any that became occupied (wire or pin)
-        effective_near = near_pin_pads - set(combined_occupied.keys()) - set(same_net_pins.keys())
+        # near_pin_pads: remove any that became hard-occupied
+        effective_near = (
+            near_pin_pads - set(combined_occupied.keys()) - set(same_net_pins.keys())
+        )
 
         for source in source_options:
             results = find_paths(
@@ -326,17 +349,19 @@ def _route_segment_with_ripup(
                 side=side,
                 cost_model=cost_model,
                 k=1,
+                insulated=insulated,
                 occupied_pads=combined_occupied,
                 same_net_pads=same_net_pins,
                 near_pin_pads=effective_near,
                 near_pin_cost=10.0,
+                bare_wire_segments=bare_segs,
             )
             if results:
                 path = results[0].path
                 wire = WireSegment(
                     id=uuid.uuid4(),
                     path=path,
-                    insulated=True,
+                    insulated=insulated,
                     side=side,
                 )
                 return wire
@@ -400,9 +425,32 @@ def _build_occupied_map(
                 while (step > 0 and x < p2.x) or (step < 0 and x > p2.x):
                     occupied[Point(x, p1.y)] = _sentinel
                     x += step
-            # Diagonal segments are not expected (A* uses 4-connectivity)
-            # but if they occur, only endpoints are marked.
+            # For diagonal segments (new with 8-connectivity) mark both
+            # endpoints; intermediate grid points are handled via bare_segs.
     return occupied
+
+
+def _build_bare_wire_segments(
+    wires: list[WireSegment],
+) -> set[tuple[Point, Point]]:
+    """Return the set of (p1, p2) segment pairs for all *bare* (non-insulated) wires.
+
+    Only bare wires contribute crossing costs; insulated wires can be freely
+    crossed by other insulated wires (they already pay their own crossing cost
+    when first laid down).
+    """
+    segs: set[tuple[Point, Point]] = set()
+    for wire in wires:
+        if wire.insulated:
+            continue
+        for i in range(len(wire.path) - 1):
+            p1, p2 = wire.path[i], wire.path[i + 1]
+            # Normalise order so (a,b) and (b,a) are the same entry.
+            if (p1.x, p1.y) <= (p2.x, p2.y):
+                segs.add((p1, p2))
+            else:
+                segs.add((p2, p1))
+    return segs
 
 
 def _find_wire_to_rip(
