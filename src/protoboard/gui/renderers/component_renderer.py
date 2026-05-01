@@ -76,6 +76,9 @@ def _render_one(
 ) -> None:
     side = placement.side  # type: ignore[assignment]
     alpha = layers.alpha_for_component(side)
+    if alpha == 0.0:
+        return
+    alpha_label = layers.alpha_for_label(side)
     z_comp = layers.z_for_component(side)
     z_label = layers.z_for_label(side)
 
@@ -139,8 +142,10 @@ def _render_one(
             dot.setZValue(z_comp + 0.05)
             scene.addItem(dot)
 
+    if alpha_label == 0.0:
+        return
     label_color = QColor(theme.refdes_color)
-    label_color.setAlphaF(alpha)
+    label_color.setAlphaF(alpha_label)
     label = QGraphicsTextItem(inst.refdes)
     label.setDefaultTextColor(label_color)
     label.setFont(_REFDES_FONT)

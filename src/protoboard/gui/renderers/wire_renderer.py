@@ -70,6 +70,8 @@ def _draw_wire(
     pts = wire.path
     side = wire.side  # type: ignore[assignment]
     alpha = layers.alpha_for_wire(side)
+    if alpha == 0.0:
+        return
     z_base = layers.z_for_wire(side)
 
     color = _net_color(net_id, color_override, theme)

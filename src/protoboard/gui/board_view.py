@@ -19,7 +19,7 @@ from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 from protoboard.domain.board.boxes import StripAtom
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.geometry import Point
-from protoboard.gui.layer_state import LayerState, layer_state_for_tool
+from protoboard.gui.layer_state import LayerOverrides, LayerState, layer_state_for_tool
 from protoboard.gui.renderers.board_renderer import BOARD_BG, render_board
 from protoboard.gui.renderers.component_renderer import render_components, render_groups
 from protoboard.gui.renderers.wire_renderer import render_ratsnest, render_wires_with_nets
@@ -56,6 +56,7 @@ class BoardView(QGraphicsView):
         # View state — camera side and visual transform are independent.
         self._camera_side: str = "top"           # "top" | "bottom"
         self._view_transform: str = "normal"     # "normal" | "mirror_h" | "mirror_v"
+        self._layer_overrides: LayerOverrides = LayerOverrides()
         session.layout_changed.connect(self.refresh)
         self.refresh()
 
@@ -169,6 +170,7 @@ class BoardView(QGraphicsView):
             self._active_tool,
             self._camera_side,  # type: ignore[arg-type]
             self._view_transform,  # type: ignore[arg-type]
+            overrides=self._layer_overrides,
         )
 
         render_board(self._scene, self._session.board, layers=layers)

@@ -15,10 +15,10 @@ view_transform : "normal" | "mirror_h" | "mirror_v"
     mirror_v — flip around horizontal axis (top↔bottom, i.e. negate Y scale).
     These can be combined with either camera side → 6 distinct views.
 
-QTransform matrix for each combination:
-    scale_x = -1 if mirror_h else +1
-    scale_y = -1 if mirror_v else +1
-    QTransform(scale_x * base_px, 0, 0, scale_y * base_px, 0, 0)
+overrides : LayerOverrides
+    Per-layer manual visibility overrides set from the View → Layers menu.
+    AUTO means "let the tool decide"; other states override the automatic alpha.
+    Manual overrides take priority over automatic ghost_components logic.
 
 Z-value stack (back → front):
     0   back labels          4   front wires
@@ -30,7 +30,8 @@ Z-value stack (back → front):
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Literal
 
 ViewTransform = Literal["normal", "mirror_h", "mirror_v"]
@@ -49,11 +50,67 @@ Z_FRONT_LABELS     = 6.0
 Z_OVERLAY          = 7.0
 Z_SELECTION        = 10.0
 
-# Alpha constants
+# Automatic alpha constants (used when override is AUTO)
 BACK_ALPHA        = 0.30
 BOARD_GHOST_ALPHA = 0.55
 GHOST_COMP_ALPHA  = 0.25
 
+# Alpha values per LayerVisibility state
+_VIS_ALPHA = {
+    "full":   1.0,
+    "ghost":  GHOST_COMP_ALPHA,
+    "hidden": 0.0,
+}
+
+
+# ---------------------------------------------------------------------------
+# Per-layer manual visibility
+# ---------------------------------------------------------------------------
+
+class LayerVisibility(str, Enum):
+    AUTO   = "auto"    # automatic (tool-driven)
+    FULL   = "full"    # always 100%
+    GHOST  = "ghost"   # always ~25%
+    HIDDEN = "hidden"  # 0% (not drawn, not hit-tested)
+
+    def cycle(self) -> LayerVisibility:
+        """Cycle: AUTO → FULL → GHOST → HIDDEN → AUTO."""
+        order = [LayerVisibility.AUTO, LayerVisibility.FULL,
+                 LayerVisibility.GHOST, LayerVisibility.HIDDEN]
+        idx = order.index(self)
+        return order[(idx + 1) % len(order)]
+
+    def label(self) -> str:
+        """Short label for menu display; empty string when AUTO."""
+        return "" if self == LayerVisibility.AUTO else f"[{self.value.capitalize()}]"
+
+
+@dataclass
+class LayerOverrides:
+    """Manual per-layer visibility overrides.  AUTO = no override (tool decides)."""
+    components_top:    LayerVisibility = LayerVisibility.AUTO
+    components_bottom: LayerVisibility = LayerVisibility.AUTO
+    wires_top:         LayerVisibility = LayerVisibility.AUTO
+    wires_bottom:      LayerVisibility = LayerVisibility.AUTO
+    labels_top:        LayerVisibility = LayerVisibility.AUTO
+    labels_bottom:     LayerVisibility = LayerVisibility.AUTO
+    board:             LayerVisibility = LayerVisibility.AUTO
+
+    def reset(self) -> None:
+        """Reset all overrides to AUTO."""
+        for f in self.__dataclass_fields__:
+            setattr(self, f, LayerVisibility.AUTO)
+
+    def all_auto(self) -> bool:
+        return all(
+            getattr(self, f) == LayerVisibility.AUTO
+            for f in self.__dataclass_fields__
+        )
+
+
+# ---------------------------------------------------------------------------
+# LayerState
+# ---------------------------------------------------------------------------
 
 @dataclass
 class LayerState:
@@ -62,9 +119,10 @@ class LayerState:
     camera_side: Literal["top", "bottom"] = "top"
     view_transform: ViewTransform = "normal"
     ghost_components: bool = False
+    overrides: LayerOverrides = field(default_factory=LayerOverrides)
 
     # ------------------------------------------------------------------
-    # Derived helpers
+    # Z-value helpers
     # ------------------------------------------------------------------
 
     def front_side(self) -> Literal["top", "bottom"]:
@@ -82,30 +140,62 @@ class LayerState:
     def z_for_label(self, side: Literal["top", "bottom"]) -> float:
         return Z_FRONT_LABELS if side == self.camera_side else Z_BACK_LABELS
 
+    # ------------------------------------------------------------------
+    # Alpha helpers — manual override takes priority over automatic logic
+    # ------------------------------------------------------------------
+
+    def _override_alpha(self, vis: LayerVisibility, auto_value: float) -> float:
+        if vis == LayerVisibility.AUTO:
+            return auto_value
+        return _VIS_ALPHA[vis.value]
+
     def alpha_for_component(self, side: Literal["top", "bottom"]) -> float:
+        ov = (self.overrides.components_top
+              if side == "top" else self.overrides.components_bottom)
         if side != self.camera_side:
-            return BACK_ALPHA
-        return GHOST_COMP_ALPHA if self.ghost_components else 1.0
+            return self._override_alpha(ov, BACK_ALPHA)
+        return self._override_alpha(
+            ov, GHOST_COMP_ALPHA if self.ghost_components else 1.0
+        )
 
     def alpha_for_wire(self, side: Literal["top", "bottom"]) -> float:
-        return 1.0 if side == self.camera_side else BACK_ALPHA
+        ov = self.overrides.wires_top if side == "top" else self.overrides.wires_bottom
+        auto = 1.0 if side == self.camera_side else BACK_ALPHA
+        return self._override_alpha(ov, auto)
+
+    def alpha_for_label(self, side: Literal["top", "bottom"]) -> float:
+        ov = self.overrides.labels_top if side == "top" else self.overrides.labels_bottom
+        # Labels follow component alpha by default when AUTO.
+        auto = self.alpha_for_component(side)
+        return self._override_alpha(ov, auto)
+
+    def alpha_for_board(self) -> float:
+        auto = BOARD_GHOST_ALPHA if self.ghost_components else 1.0
+        return self._override_alpha(self.overrides.board, auto)
+
+    # ------------------------------------------------------------------
+    # Hit-testing
+    # ------------------------------------------------------------------
 
     def hit_priority_component(self, side: Literal["top", "bottom"]) -> int:
-        """Higher = checked first during hit-testing."""
+        """Higher = checked first.  Hidden components return -1 (skip)."""
+        if self.alpha_for_component(side) == 0.0:
+            return -1
         if side != self.camera_side:
             return 0
         return 1 if self.ghost_components else 2
 
+    # ------------------------------------------------------------------
+    # View transform helpers
+    # ------------------------------------------------------------------
+
     def scene_scale_x(self) -> float:
-        """X scale factor for QGraphicsView (±1)."""
         return -1.0 if self.view_transform == "mirror_h" else 1.0
 
     def scene_scale_y(self) -> float:
-        """Y scale factor for QGraphicsView (±1)."""
         return -1.0 if self.view_transform == "mirror_v" else 1.0
 
     def needs_text_counter_transform(self) -> bool:
-        """True when the scene is flipped and text items need un-mirroring."""
         return self.view_transform != "normal"
 
 
@@ -118,6 +208,7 @@ def layer_state_for_tool(
     tool: object,
     camera_side: Literal["top", "bottom"],
     view_transform: ViewTransform = "normal",
+    overrides: LayerOverrides | None = None,
 ) -> LayerState:
     """Derive LayerState from the active tool, camera side and view transform."""
     from protoboard.gui.tools.route_tool import RouteTool
@@ -128,4 +219,5 @@ def layer_state_for_tool(
         camera_side=camera_side,
         view_transform=view_transform,
         ghost_components=ghost,
+        overrides=overrides if overrides is not None else LayerOverrides(),
     )

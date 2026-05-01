@@ -654,21 +654,33 @@ class SelectTool(_Tool):
         """Return the current camera side from the parent BoardView."""
         return getattr(self._view, "_camera_side", "top")
 
+    def _layer_state(self) -> object:
+        """Return a minimal LayerState for hit-test alpha checks."""
+        from protoboard.gui.layer_state import LayerState, LayerOverrides
+        overrides = getattr(self._view, "_layer_overrides", LayerOverrides())
+        camera = self._camera_side()
+        return LayerState(
+            camera_side=camera,  # type: ignore[arg-type]
+            overrides=overrides,
+        )
+
     def _hit_test(self, scene_pt: QPointF) -> uuid.UUID | None:
         """Return the nearest component within _HIT_RADIUS.
 
-        Front-side (camera-side) components are always preferred over
-        back-side components.  When the active tool ghosts components, a
-        back-side hit is only returned if nothing was found on the front side.
+        Front-side components are preferred.  Hidden components (alpha==0) are skipped.
         """
         session = self._session
         camera = self._camera_side()
+        layers = self._layer_state()
         front_best: uuid.UUID | None = None
         front_best_d = float("inf")
         back_best: uuid.UUID | None = None
         back_best_d = float("inf")
 
         for comp_id, placement in session.layout.placements.items():
+            side = placement.side  # type: ignore[assignment]
+            if layers.alpha_for_component(side) == 0.0:  # type: ignore[union-attr]
+                continue
             inst = session.instances.get(comp_id)
             if inst is None:
                 continue
@@ -698,15 +710,18 @@ class SelectTool(_Tool):
     def _hit_test_bbox(self, scene_pt: QPointF) -> uuid.UUID | None:
         """Return the first component whose bbox contains scene_pt.
 
-        Front-side components are checked before back-side ones.
+        Front-side first; hidden components skipped.
         """
         session = self._session
         camera = self._camera_side()
+        layers = self._layer_state()
         px, py = scene_pt.x(), scene_pt.y()
 
         def _check(comp_id: uuid.UUID, placement: object) -> bool:
             from protoboard.domain.layout.placement import ComponentPlacement as CP
             assert isinstance(placement, CP)
+            if layers.alpha_for_component(placement.side) == 0.0:  # type: ignore[union-attr]
+                return False
             inst = session.instances.get(comp_id)
             if inst is None:
                 return False
@@ -725,11 +740,9 @@ class SelectTool(_Tool):
             return (min(xs) - m <= px <= max(xs) + m
                     and min(ys) - m <= py <= max(ys) + m)
 
-        # Front side first.
         for comp_id, placement in session.layout.placements.items():
             if placement.side == camera and _check(comp_id, placement):
                 return comp_id
-        # Then back side.
         for comp_id, placement in session.layout.placements.items():
             if placement.side != camera and _check(comp_id, placement):
                 return comp_id

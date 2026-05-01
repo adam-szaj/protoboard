@@ -45,7 +45,9 @@ def render_board(
     also rendered with reduced alpha so back-side elements remain readable
     underneath it.
     """
-    board_alpha = BOARD_GHOST_ALPHA if layers.ghost_components else 1.0
+    board_alpha = layers.alpha_for_board()
+    if board_alpha == 0.0:
+        return
 
     pad_color = _apply_alpha(QColor(theme.pad_color), board_alpha)
     strip_color = _apply_alpha(QColor(theme.strip_color), board_alpha)

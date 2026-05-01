@@ -91,6 +91,10 @@ class MainWindow(QMainWindow):
         self._wire_insulated: bool = True
         self._wire_side: str = "top"
 
+        # Per-layer manual visibility overrides.
+        from protoboard.gui.layer_state import LayerOverrides
+        self._layer_overrides = LayerOverrides()
+
         # Toolbar — tools | analysis | view
         toolbar = QToolBar("Tools", self)
         toolbar.setMovable(False)
@@ -272,6 +276,31 @@ class MainWindow(QMainWindow):
 
         view_menu.addSeparator()
 
+        # ── Layers submenu ────────────────────────────────────────────
+        layers_menu = view_menu.addMenu("&Layers")
+        # Each entry: (field_name, display_name)
+        _LAYER_ENTRIES = [
+            ("components_top",    "Components Top"),
+            ("components_bottom", "Components Bottom"),
+            ("wires_top",         "Wires Top"),
+            ("wires_bottom",      "Wires Bottom"),
+            ("labels_top",        "Labels Top"),
+            ("labels_bottom",     "Labels Bottom"),
+            ("board",             "Board"),
+        ]
+        self._layer_actions: dict[str, QAction] = {}
+        for field_name, display_name in _LAYER_ENTRIES:
+            act = layers_menu.addAction(display_name)
+            act.triggered.connect(
+                lambda _checked, fn=field_name: self._cycle_layer(fn)
+            )
+            self._layer_actions[field_name] = act
+        layers_menu.addSeparator()
+        act_reset_layers = layers_menu.addAction("Reset All Layers")
+        act_reset_layers.triggered.connect(self._reset_layers)
+
+        view_menu.addSeparator()
+
         act_zoom_in = view_menu.addAction("Zoom &In\tCtrl++")
         act_zoom_in.setShortcut(QKeySequence("Ctrl++"))
         act_zoom_in.triggered.connect(lambda: self._board_view.scale(1.3, 1.3))
@@ -328,6 +357,43 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------
     # Title helper
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Layer visibility
+    # ------------------------------------------------------------------
+
+    def _cycle_layer(self, field_name: str) -> None:
+        """Cycle the named layer override: AUTO → FULL → GHOST → HIDDEN → AUTO."""
+        current = getattr(self._layer_overrides, field_name)
+        setattr(self._layer_overrides, field_name, current.cycle())
+        self._board_view._layer_overrides = self._layer_overrides
+        self._refresh_layer_menu()
+        self._board_view.refresh()
+
+    def _reset_layers(self) -> None:
+        self._layer_overrides.reset()
+        self._board_view._layer_overrides = self._layer_overrides
+        self._refresh_layer_menu()
+        self._board_view.refresh()
+
+    def _refresh_layer_menu(self) -> None:
+        """Update layer menu action labels to reflect current override states."""
+        _NAMES = {
+            "components_top":    "Components Top",
+            "components_bottom": "Components Bottom",
+            "wires_top":         "Wires Top",
+            "wires_bottom":      "Wires Bottom",
+            "labels_top":        "Labels Top",
+            "labels_bottom":     "Labels Bottom",
+            "board":             "Board",
+        }
+        for field_name, act in self._layer_actions.items():
+            vis = getattr(self._layer_overrides, field_name)
+            suffix = vis.label()
+            base = _NAMES[field_name]
+            act.setText(f"{base}  {suffix}" if suffix else base)
+
     # ------------------------------------------------------------------
 
     def _update_title(self) -> None:
