@@ -87,7 +87,11 @@ class MainWindow(QMainWindow):
         # Menu bar — File menu.
         self._build_menu()
 
-        # Toolbar.
+        # Wire routing state (persisted across tool switches).
+        self._wire_insulated: bool = True
+        self._wire_side: str = "top"
+
+        # Toolbar — tools | analysis | view
         toolbar = QToolBar("Tools", self)
         toolbar.setMovable(False)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
@@ -96,23 +100,18 @@ class MainWindow(QMainWindow):
         act_route = toolbar.addAction("Route Wire [W]")
         act_cut = toolbar.addAction("Cut Strip [C]")
         toolbar.addSeparator()
-        act_drc = toolbar.addAction("Run DRC [F5]")
+        act_drc = toolbar.addAction("DRC [F5]")
+        act_autoroute_tb = toolbar.addAction("Autoroute [F6]")
         toolbar.addSeparator()
-        act_export_svg = toolbar.addAction("Export SVG")
-        act_export_pdf = toolbar.addAction("Export PDF")
-        act_export_bom = toolbar.addAction("Export BOM")
-        act_import_net = toolbar.addAction("Import KiCAD .net")
-        act_export_net = toolbar.addAction("Export KiCAD .net")
+        self._act_mirror_tb = toolbar.addAction("⟺ Mirror [H]")
+        self._act_mirror_tb.setCheckable(True)
 
         act_select.triggered.connect(self._tool_select)
         act_route.triggered.connect(self._tool_route)
         act_cut.triggered.connect(self._tool_cut)
         act_drc.triggered.connect(self._run_drc)
-        act_export_svg.triggered.connect(self._export_svg)
-        act_export_pdf.triggered.connect(self._export_pdf)
-        act_export_bom.triggered.connect(self._export_bom)
-        act_import_net.triggered.connect(self._import_kicad_net)
-        act_export_net.triggered.connect(self._export_kicad_net)
+        act_autoroute_tb.triggered.connect(self._autoroute)
+        self._act_mirror_tb.triggered.connect(self._mirror_view)
 
         # Status bar.
         self._status = QStatusBar(self)
@@ -239,6 +238,27 @@ class MainWindow(QMainWindow):
         act_ungroup = edit_menu.addAction("&Ungroup")
         act_ungroup.triggered.connect(self._ungroup_selection)
 
+        # ── View ──────────────────────────────────────────────────────────
+        view_menu = mb.addMenu("&View")
+
+        self._act_mirror: QAction = view_menu.addAction("Mirror &Horizontal\tH")
+        self._act_mirror.setCheckable(True)
+        self._act_mirror.triggered.connect(self._mirror_view)
+
+        view_menu.addSeparator()
+
+        act_zoom_in = view_menu.addAction("Zoom &In\tCtrl++")
+        act_zoom_in.setShortcut(QKeySequence("Ctrl++"))
+        act_zoom_in.triggered.connect(lambda: self._board_view.scale(1.3, 1.3))
+
+        act_zoom_out = view_menu.addAction("Zoom &Out\tCtrl+-")
+        act_zoom_out.setShortcut(QKeySequence("Ctrl+-"))
+        act_zoom_out.triggered.connect(lambda: self._board_view.scale(1 / 1.3, 1 / 1.3))
+
+        act_fit = view_menu.addAction("&Fit Board\tCtrl+0")
+        act_fit.setShortcut(QKeySequence("Ctrl+0"))
+        act_fit.triggered.connect(self._fit_board)
+
         # ── Tools ─────────────────────────────────────────────────────────
         tools_menu = mb.addMenu("&Tools")
 
@@ -247,6 +267,26 @@ class MainWindow(QMainWindow):
 
         act_tool_route = tools_menu.addAction("Route &Wire\tW")
         act_tool_route.triggered.connect(self._tool_route)
+
+        wire_sub = tools_menu.addMenu("  Wire options")
+
+        self._act_wire_insulated: QAction = wire_sub.addAction("&Insulated\tI")
+        self._act_wire_insulated.setCheckable(True)
+        self._act_wire_insulated.setChecked(True)
+        self._act_wire_insulated.triggered.connect(
+            lambda checked: self._set_wire_insulated(checked)
+        )
+
+        wire_side_group_top: QAction = wire_sub.addAction("Side: &Top\tT")
+        wire_side_group_top.setCheckable(True)
+        wire_side_group_top.setChecked(True)
+        wire_side_group_top.triggered.connect(lambda: self._set_wire_side("top"))
+        self._act_wire_top = wire_side_group_top
+
+        wire_side_group_bot: QAction = wire_sub.addAction("Side: &Bottom\tB")
+        wire_side_group_bot.setCheckable(True)
+        wire_side_group_bot.triggered.connect(lambda: self._set_wire_side("bottom"))
+        self._act_wire_bottom = wire_side_group_bot
 
         act_tool_cut = tools_menu.addAction("&Cut Strip\tC")
         act_tool_cut.triggered.connect(self._tool_cut)
@@ -305,8 +345,42 @@ class MainWindow(QMainWindow):
         self._mode_label.setText(f"Place {definition_ref}  [R] rotate")
 
     def _tool_route(self) -> None:
-        self._board_view.set_tool(RouteTool(insulated=True))
-        self._mode_label.setText("Route Wire  [Enter] commit  [Esc] cancel")
+        self._board_view.set_tool(
+            RouteTool(insulated=self._wire_insulated, side=self._wire_side)
+        )
+        self._update_route_status(self._wire_insulated, self._wire_side)
+
+    def _set_wire_insulated(self, insulated: bool) -> None:
+        self._wire_insulated = insulated
+        self._act_wire_insulated.setChecked(insulated)
+        tool = self._board_view._active_tool
+        if isinstance(tool, RouteTool):
+            tool._insulated = insulated
+            self._update_route_status(insulated, self._wire_side)
+
+    def _set_wire_side(self, side: str) -> None:
+        self._wire_side = side
+        self._act_wire_top.setChecked(side == "top")
+        self._act_wire_bottom.setChecked(side == "bottom")
+        tool = self._board_view._active_tool
+        if isinstance(tool, RouteTool):
+            tool._side = side
+            self._update_route_status(self._wire_insulated, side)
+
+    def _update_route_status(self, insulated: bool, side: str) -> None:
+        style = "Insulated" if insulated else "Bare"
+        self._mode_label.setText(
+            f"Route Wire  {style} [{side}]  [I] toggle  [T/B] side  [Enter] commit  [Esc] cancel"
+        )
+
+    def _mirror_view(self) -> None:
+        self._board_view.toggle_mirror()
+        mirrored = self._board_view.is_mirrored
+        self._act_mirror.setChecked(mirrored)
+        self._act_mirror_tb.setChecked(mirrored)
+
+    def _fit_board(self) -> None:
+        self._board_view.fit_board()
 
     def _tool_cut(self) -> None:
         self._board_view.set_tool(CutTool())
@@ -704,12 +778,16 @@ class MainWindow(QMainWindow):
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
         if key == Qt.Key.Key_S and not ctrl:
             self._tool_select()
-        elif key == Qt.Key.Key_W:
+        elif key == Qt.Key.Key_W and not ctrl:
             self._tool_route()
         elif key == Qt.Key.Key_C and not ctrl:
             self._tool_cut()
+        elif key == Qt.Key.Key_H and not ctrl:
+            self._mirror_view()
         elif key == Qt.Key.Key_F5:
             self._run_drc()
+        elif key == Qt.Key.Key_F6:
+            self._autoroute()
         elif key == Qt.Key.Key_S and ctrl:
             self._save()
         elif key == Qt.Key.Key_Q and ctrl:
@@ -718,5 +796,7 @@ class MainWindow(QMainWindow):
             self._undo()
         elif key == Qt.Key.Key_Y and ctrl:
             self._redo()
+        elif key == Qt.Key.Key_0 and ctrl:
+            self._fit_board()
         else:
             super().keyPressEvent(event)
