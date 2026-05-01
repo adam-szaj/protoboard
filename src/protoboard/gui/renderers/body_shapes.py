@@ -1,14 +1,26 @@
 # SPDX-License-Identifier: MIT
 """Per-package body shape renderers.
 
-Each BodyShape subclass draws the physical outline of a component package
-(axial resistor, radial capacitor, TO-92 transistor, DIP IC, SIL header …)
-into a QGraphicsScene using the pin world positions already computed by the
-caller.
+Two rendering backends are available and selected automatically:
+
+SvgBodyShape (preferred)
+    Loads a parametric SVG template from ``assets/components/``, patches
+    lead lengths, body colour, and per-pin net colours in-place via
+    ElementTree, then hands the modified XML to QSvgRenderer →
+    QGraphicsSvgItem.  A single QTransform (translate pin-1 world pos +
+    rotate to pin-2 direction) positions the item on the scene.
+
+    Templates live in  <project_root>/assets/components/<name>.svg
+    and follow the id/data-* conventions documented in that directory's
+    README.md.
+
+QPainterPath fallback (GenericBody and friends)
+    Used when no SVG template is found or when the package type is not
+    mapped.  These are the original hand-coded shapes.
 
 Usage::
 
-    shape = body_shape_for(defn, placement)
+    shape = body_shape_for(defn)
     items = shape.draw(positions, fill, border, alpha, z, theme)
     for item in items:
         scene.addItem(item)
@@ -17,10 +29,14 @@ Usage::
 from __future__ import annotations
 
 import math
+import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
+from pathlib import Path
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QByteArray, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
+from PySide6.QtSvg import QSvgRenderer
+from PySide6.QtSvgWidgets import QGraphicsSvgItem
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsItem,
@@ -34,6 +50,24 @@ from protoboard.domain.components.footprints import DualRow, SingleRow
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
 from protoboard.gui.theme import DEFAULT_THEME, Theme
+
+# ---------------------------------------------------------------------------
+# Assets directory
+# ---------------------------------------------------------------------------
+
+_ASSETS_DIR = Path(__file__).parent.parent.parent.parent.parent.parent / "assets" / "components"
+# Resolves to <project_root>/assets/components regardless of install layout.
+# Fallback: walk up until we find the directory.
+def _find_assets() -> Path:
+    candidate = Path(__file__).resolve()
+    for _ in range(8):
+        candidate = candidate.parent
+        d = candidate / "assets" / "components"
+        if d.is_dir():
+            return d
+    return _ASSETS_DIR
+
+_ASSETS: Path = _find_assets()
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +106,378 @@ def _body_pen(border: QColor, alpha: float, width: float = 0.06) -> QPen:
     c = QColor(border)
     c.setAlphaF(alpha)
     return QPen(c, width)
+
+
+# ---------------------------------------------------------------------------
+# SVG namespace helper
+# ---------------------------------------------------------------------------
+
+_SVG_NS = "http://www.w3.org/2000/svg"
+ET.register_namespace("", _SVG_NS)
+
+
+def _svg_tag(local: str) -> str:
+    return f"{{{_SVG_NS}}}{local}"
+
+
+def _find_id(root: ET.Element, elem_id: str) -> ET.Element | None:
+    """Find first element with matching id anywhere in the tree."""
+    for el in root.iter():
+        if el.get("id") == elem_id:
+            return el
+    return None
+
+
+# ---------------------------------------------------------------------------
+# SvgBodyShape — SVG-template based renderer
+# ---------------------------------------------------------------------------
+
+class SvgBodyShape(BodyShape):
+    """Render a component using a parametric SVG template.
+
+    The template is loaded once, deep-copied per draw call, then patched:
+    - lead endpoints adjusted for actual pin_offsets distance
+    - body fill/stroke set from theme colours
+    - pin circles coloured per net
+    - viewBox updated to match actual geometry
+    The result is passed to QSvgRenderer → QGraphicsSvgItem with a
+    QTransform that places and rotates it in world space.
+    """
+
+    def __init__(self, template_path: Path) -> None:
+        self._path = template_path
+        # Parse once; draw() works on a deep copy each time.
+        self._template: ET.ElementTree = ET.parse(template_path)
+
+    # ------------------------------------------------------------------
+    # BodyShape interface
+    # ------------------------------------------------------------------
+
+    def draw(
+        self,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme = DEFAULT_THEME,
+    ) -> list[QGraphicsItem]:
+        import copy
+        tree = copy.deepcopy(self._template)
+        root = tree.getroot()
+
+        if len(positions) < 2:
+            return GenericBody().draw(positions, fill, border, alpha, z, theme)
+
+        p1 = positions[0]
+        p2 = positions[1]
+        dist = math.hypot(p2.x - p1.x, p2.y - p1.y)
+        angle_deg = math.degrees(math.atan2(p2.y - p1.y, p2.x - p1.x))
+
+        self._patch_leads(root, dist, theme)
+        self._patch_body_colour(root, fill, border, alpha)
+        self._patch_pins(root, positions, fill, alpha)
+        self._patch_viewbox(root, dist)
+
+        xml_bytes = ET.tostring(root, encoding="unicode",
+                                xml_declaration=False).encode("utf-8")
+
+        renderer = QSvgRenderer(QByteArray(xml_bytes))
+        item = QGraphicsSvgItem()
+        item.setSharedRenderer(renderer)
+        item.setZValue(z)
+
+        # Position: translate to pin-1 world, rotate toward pin-2.
+        t = QTransform()
+        t.translate(p1.x, p1.y)
+        t.rotate(angle_deg)
+        item.setTransform(t)
+
+        return [item]
+
+    # ------------------------------------------------------------------
+    # Patching helpers
+    # ------------------------------------------------------------------
+
+    def _patch_leads(self, root: ET.Element, dist: float, theme: Theme) -> None:
+        """Adjust lead-1 and lead-2 endpoints to match actual pin distance."""
+        body_len = dist * theme.axial_body_length_ratio
+        attach1 = (dist - body_len) / 2.0   # y2 of lead-1 (pin-1 side)
+        attach2 = dist - attach1              # y1 of lead-2 (pin-2 side)
+
+        lead1 = _find_id(root, "lead-1")
+        if lead1 is not None:
+            lead1.set("y2", f"{attach1:.4f}")
+
+        lead2 = _find_id(root, "lead-2")
+        if lead2 is not None:
+            lead2.set("y1", f"{attach2:.4f}")
+            lead2.set("y2", f"{dist:.4f}")
+
+        # Update body position to stay centred
+        body = _find_id(root, "body")
+        if body is not None and body.tag in (_svg_tag("rect"), "rect"):
+            body_h = dist - 2 * (dist - body_len) / 2.0
+            body.set("y", f"{attach1:.4f}")
+            body.set("height", f"{body_h:.4f}")
+
+        # Update pin-2 circle position
+        pin2 = _find_id(root, "pin-2")
+        if pin2 is not None:
+            pin2.set("cy", f"{dist:.4f}")
+
+    def _patch_body_colour(
+        self, root: ET.Element, fill: QColor, border: QColor, alpha: float
+    ) -> None:
+        fill_hex = fill.name()          # "#rrggbb"
+        fill_a = fill.alphaF() * alpha
+        border_hex = border.name()
+        border_a = border.alphaF() * alpha
+
+        body = _find_id(root, "body")
+        if body is not None:
+            body.set("fill", fill_hex)
+            body.set("fill-opacity", f"{fill_a:.3f}")
+            body.set("stroke", border_hex)
+            body.set("stroke-opacity", f"{border_a:.3f}")
+
+        # Leads share the lead_color from theme, but respect alpha
+        lead_hex = QColor(DEFAULT_THEME.lead_color).name()
+        for lead_id in ("lead-1", "lead-2", "lead-3"):
+            lead = _find_id(root, lead_id)
+            if lead is not None:
+                lead.set("stroke", lead_hex)
+                lead.set("stroke-opacity", f"{alpha:.3f}")
+
+    def _patch_pins(
+        self,
+        root: ET.Element,
+        positions: list[Point],
+        fallback: QColor,
+        alpha: float,
+    ) -> None:
+        """Set pin circle colours; pin1-marker gets the same colour as pin-1."""
+        fallback_hex = fallback.name()
+        for i in range(len(positions)):
+            pin_id = f"pin-{i + 1}"
+            el = _find_id(root, pin_id)
+            if el is not None:
+                el.set("fill", fallback_hex)
+                el.set("fill-opacity", f"{alpha:.3f}")
+        marker = _find_id(root, "pin1-marker")
+        if marker is not None:
+            marker.set("fill", fallback_hex)
+            marker.set("fill-opacity", f"{alpha:.3f}")
+
+    def patch_pin_net_color(
+        self, root: ET.Element, pin_number: int, color: QColor, alpha: float
+    ) -> None:
+        """Update a single pin's colour after net assignment is known."""
+        el = _find_id(root, f"pin-{pin_number}")
+        if el is not None:
+            el.set("fill", color.name())
+            el.set("fill-opacity", f"{alpha:.3f}")
+        if pin_number == 1:
+            marker = _find_id(root, "pin1-marker")
+            if marker is not None:
+                marker.set("fill", color.name())
+                marker.set("fill-opacity", f"{alpha:.3f}")
+
+    def _patch_viewbox(self, root: ET.Element, dist: float) -> None:
+        """Expand viewBox to cover actual pin distance."""
+        margin = 0.5
+        root.set("viewBox", f"{-margin} {-margin} {1.0} {dist + 2 * margin}")
+        root.set("width",  f"{1.0}")
+        root.set("height", f"{dist + 2 * margin:.4f}")
+
+
+# ---------------------------------------------------------------------------
+# SVG-based DIP renderer (generates SVG programmatically for any N)
+# ---------------------------------------------------------------------------
+
+class SvgDIPBody(BodyShape):
+    """Generate DIP SVG on the fly for any n_per_row × rows_spacing."""
+
+    def __init__(self, n_per_row: int, rows_spacing: float = 3.0) -> None:
+        self._n = n_per_row
+        self._rs = rows_spacing
+
+    def draw(
+        self,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme = DEFAULT_THEME,
+    ) -> list[QGraphicsItem]:
+        n = self._n
+        rs = self._rs
+        if len(positions) < 2 * n:
+            return GenericBody().draw(positions, fill, border, alpha, z, theme)
+
+        fill_hex = fill.name()
+        fill_a = f"{fill.alphaF() * alpha:.3f}"
+        border_hex = border.name()
+        border_a = f"{border.alphaF() * alpha:.3f}"
+        pin_hex = fill.name()  # placeholder; caller patches per-net
+
+        margin = 0.5
+        body_h = (n - 1) + 2 * margin
+        notch_r = theme.dip_notch_radius
+        r = theme.body_corner_radius
+        mid_x = rs / 2.0
+
+        # Build SVG string directly
+        pin_circles = []
+        # Left column: pins 1..n at x=0, y=0..(n-1)
+        for i in range(n):
+            pin_circles.append(
+                f'<circle id="pin-{i+1}" cx="0" cy="{i}" r="0.14"'
+                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="none"/>'
+            )
+        # Right column: pins n+1..2n at x=rs, y=(n-1)..0
+        for i in range(n):
+            pid = n + i + 1
+            pin_circles.append(
+                f'<circle id="pin-{pid}" cx="{rs}" cy="{n-1-i}" r="0.14"'
+                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="none"/>'
+            )
+
+        pin1_marker = (
+            f'<rect id="pin1-marker" x="-0.12" y="-0.12" width="0.24" height="0.24"'
+            f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="none"/>'
+        )
+
+        svg = f"""<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="{-margin} {-margin} {rs + 2*margin:.3f} {body_h:.3f}"
+     width="{rs + 2*margin:.3f}" height="{body_h:.3f}"
+     data-pin-count="{2*n}" data-n-per-row="{n}" data-rows-spacing="{rs}">
+  <path id="body" fill-rule="evenodd"
+        d="M {r},{-margin}
+           L {rs-r},{-margin} Q {rs},{-margin} {rs},{-margin+r}
+           L {rs},{n-1+margin-r} Q {rs},{n-1+margin} {rs-r},{n-1+margin}
+           L {r},{n-1+margin} Q {0},{n-1+margin} {0},{n-1+margin-r}
+           L {0},{-margin+r} Q {0},{-margin} {r},{-margin} Z
+           M {mid_x},{-margin}
+           A {notch_r},{notch_r} 0 1,0 {mid_x},{-margin+0.001} Z"
+        fill="{fill_hex}" fill-opacity="{fill_a}"
+        stroke="{border_hex}" stroke-opacity="{border_a}" stroke-width="0.05"/>
+  {pin1_marker}
+  {"".join(pin_circles)}
+</svg>"""
+
+        xml_bytes = svg.encode("utf-8")
+        renderer = QSvgRenderer(QByteArray(xml_bytes))
+        item = QGraphicsSvgItem()
+        item.setSharedRenderer(renderer)
+        item.setZValue(z)
+
+        # DIP: pin 1 at positions[0], no rotation needed (layout already world).
+        # The SVG local frame matches DualRow pin_positions() exactly.
+        p1 = positions[0]
+        t = QTransform()
+        t.translate(p1.x, p1.y)
+        item.setTransform(t)
+        return [item]
+
+
+# ---------------------------------------------------------------------------
+# SVG-based SIL renderer (generates SVG programmatically for any N)
+# ---------------------------------------------------------------------------
+
+class SvgSILBody(BodyShape):
+    """Generate SIL header SVG on the fly for any pin count."""
+
+    def draw(
+        self,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme = DEFAULT_THEME,
+    ) -> list[QGraphicsItem]:
+        if not positions:
+            return []
+
+        n = len(positions)
+        pitch = 1.0  # SingleRow default; close enough for all SIL headers
+        # Determine actual pitch from positions if possible
+        if n >= 2:
+            pitch = math.hypot(
+                positions[1].x - positions[0].x,
+                positions[1].y - positions[0].y,
+            )
+            if pitch < 1e-6:
+                pitch = 1.0
+
+        fill_hex = fill.name()
+        fill_a = f"{fill.alphaF() * alpha:.3f}"
+        border_hex = border.name()
+        border_a = f"{border.alphaF() * alpha:.3f}"
+        pin_hex = fill.name()
+        slot = theme.sil_slot_size
+        m = slot / 2 + 0.05
+        body_h = (n - 1) * pitch + 2 * m
+        r = theme.body_corner_radius
+
+        slots = []
+        pin_circles = []
+        for i in range(n):
+            y = i * pitch
+            hs = slot / 2
+            slots.append(
+                f'<rect id="slot-{i+1}" x="{-hs:.3f}" y="{y-hs:.3f}"'
+                f' width="{slot:.3f}" height="{slot:.3f}"'
+                f' fill="{fill_hex}" fill-opacity="0.5"'
+                f' stroke="{border_hex}" stroke-width="0.03"/>'
+            )
+            pin_circles.append(
+                f'<circle id="pin-{i+1}" cx="0" cy="{y:.3f}" r="0.14"'
+                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="none"/>'
+            )
+
+        pin1_marker = (
+            f'<rect id="pin1-marker" x="-0.12" y="-0.12" width="0.24" height="0.24"'
+            f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="none"/>'
+        )
+
+        svg = f"""<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="{-m:.3f} {-m:.3f} {2*m:.3f} {body_h:.3f}"
+     data-pin-count="{n}" data-pitch="{pitch:.3f}">
+  <rect id="housing"
+        x="{-m:.3f}" y="{-m:.3f}" width="{2*m:.3f}" height="{body_h:.3f}"
+        rx="{r}" ry="{r}"
+        fill="{fill_hex}" fill-opacity="{fill_a}"
+        stroke="{border_hex}" stroke-opacity="{border_a}" stroke-width="0.05"/>
+  {"".join(slots)}
+  {pin1_marker}
+  {"".join(pin_circles)}
+</svg>"""
+
+        xml_bytes = svg.encode("utf-8")
+        renderer = QSvgRenderer(QByteArray(xml_bytes))
+        item = QGraphicsSvgItem()
+        item.setSharedRenderer(renderer)
+        item.setZValue(z)
+
+        p1 = positions[0]
+        # Rotate to align with pin row direction
+        if n >= 2:
+            angle_deg = math.degrees(
+                math.atan2(
+                    positions[1].y - p1.y,
+                    positions[1].x - p1.x,
+                )
+            )
+        else:
+            angle_deg = 0.0
+        t = QTransform()
+        t.translate(p1.x, p1.y)
+        t.rotate(angle_deg)
+        item.setTransform(t)
+        return [item]
 
 
 # ---------------------------------------------------------------------------
@@ -379,8 +785,9 @@ class DIPBody(BodyShape):
         mid_x = (lx + rx) / 2.0
 
         path = QPainterPath()
+        path.setFillRule(Qt.FillRule.OddEvenFill)
         path.addRoundedRect(QRectF(lx, ty, rx - lx, by - ty), r, r)
-        # Subtract notch (addEllipse subtracts in even-odd fill rule)
+        # Subtract notch via even-odd fill rule
         path.addEllipse(QRectF(
             mid_x - notch_r, ty - notch_r,
             2 * notch_r, 2 * notch_r
@@ -389,7 +796,6 @@ class DIPBody(BodyShape):
         body = QGraphicsPathItem(path)
         body.setBrush(QBrush(fill))
         body.setPen(bp)
-        body.setFillRule(Qt.FillRule.OddEvenFill)
         body.setZValue(z)
         items.append(body)
 
@@ -474,25 +880,37 @@ _TRANSISTOR_CLASSES = frozenset({
 })
 
 
+def _svg_shape(name: str) -> BodyShape | None:
+    """Load SvgBodyShape from assets, return None if file missing."""
+    path = _ASSETS / f"{name}.svg"
+    if path.exists():
+        return SvgBodyShape(path)
+    return None
+
+
 def body_shape_for(defn: ComponentDefinition) -> BodyShape:
-    """Return the appropriate BodyShape for *defn*."""
+    """Return the appropriate BodyShape for *defn*.
+
+    Prefers SVG-based renderers (parametric, editable in Inkscape).
+    Falls back to QPainterPath renderers when no SVG template is found.
+    """
     fp = defn.footprint
     cls = defn.component_class
 
     if isinstance(fp, SingleRow):
         if fp.n == 2:
             if cls in _AXIAL_CLASSES:
-                return AxialBody()
+                return _svg_shape("axial") or AxialBody()
             if cls in _DIODE_CLASSES:
-                return DiodeBody()
+                return _svg_shape("diode") or DiodeBody()
             if cls in _RADIAL_CLASSES:
-                return RadialBody()
+                return _svg_shape("radial") or RadialBody()
         if fp.n == 3 and cls in _TRANSISTOR_CLASSES:
-            return TO92Body()
-        # Generic single-row connector / switch / other
-        return SILBody()
+            return _svg_shape("to92") or TO92Body()
+        # Generic single-row: connector / switch / other
+        return SvgSILBody()
 
     if isinstance(fp, DualRow):
-        return DIPBody(fp.n_per_row)
+        return SvgDIPBody(fp.n_per_row, fp.rows_spacing)
 
     return GenericBody()

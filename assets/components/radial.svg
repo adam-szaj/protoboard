@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Radial through-hole component (capacitor: ceramic, electrolytic, disc).
+  Pin 1 = (+) or left, Pin 2 = (-) or right.
+
+  Layout: pins side by side (pin 1 at 0,0 ; pin 2 at 1,0 by default).
+  Body is a circle centred above the midpoint between pins.
+
+  Modifiable elements:
+    lead-1    lead from pin 1 upward to body edge
+    lead-2    lead from pin 2 upward to body edge
+    body      circular body (electrolytic) or rounded rect (ceramic)
+    pin-1     pin 1 circle
+    pin-2     pin 2 circle
+    pin1-marker square at pin 1
+
+  data-body-cy: Y coordinate of body centre (negative = above pins in Qt coords
+                where Y increases downward; rendered scene has Y↓, so we use
+                negative Y to place body "above" = visually above the pin row).
+
+  Default: pitch = 1 raster, body radius = 0.55, centred at (0.5, -0.9).
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="-0.2 -1.8 1.4 2.5"
+     width="1.4" height="2.5"
+     data-pin-count="2"
+     data-pin1="0,0"
+     data-pin2="1,0"
+     data-body-cx="0.5"
+     data-body-cy="-0.9">
+
+  <!-- Lead from pin 1 to body -->
+  <line id="lead-1"
+        x1="0" y1="0"
+        x2="0.5" y2="-0.9"
+        stroke="#888888" stroke-width="0.06"
+        stroke-linecap="round"/>
+
+  <!-- Lead from pin 2 to body -->
+  <line id="lead-2"
+        x1="1" y1="0"
+        x2="0.5" y2="-0.9"
+        stroke="#888888" stroke-width="0.06"
+        stroke-linecap="round"/>
+
+  <!-- Body: circle -->
+  <circle id="body"
+          cx="0.5" cy="-0.9" r="0.55"
+          fill="#FFFFC8" fill-opacity="0.85"
+          stroke="#444444" stroke-width="0.05"/>
+
+  <!-- Polarity stripe for polar caps (right side = minus, hidden for non-polar) -->
+  <rect id="polarity-stripe"
+        x="0.80" y="-1.45"
+        width="0.24" height="1.10"
+        rx="0.06"
+        fill="#888888" fill-opacity="0.5"
+        stroke="none"/>
+
+  <!-- Pin 1 square marker -->
+  <rect id="pin1-marker"
+        x="-0.12" y="-0.12"
+        width="0.24" height="0.24"
+        fill="#CC2222" stroke="none"/>
+
+  <!-- Pin 2 circle -->
+  <circle id="pin-2"
+          cx="1" cy="0" r="0.14"
+          fill="#CC2222" stroke="none"/>
+
+</svg>

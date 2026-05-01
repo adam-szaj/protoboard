@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SIL (Single In-Line) header / connector — parametric template.
+
+  This is a template for SIL-4.  Renderer re-generates for other counts.
+
+  Pin layout: pins 1..n at (0,0), (0,1), …, (0,n-1).
+  Housing: tight rectangle with per-pin square slots.
+
+  Modifiable elements:
+    housing      outer rectangle
+    slot-N       per-pin inset square (N = 1..n)
+    pin-N        circle at each pin
+    pin1-marker  square at pin 1
+
+  Default: SIL-4, pitch=1.
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="-0.4 -0.4 0.8 4.8"
+     width="0.8" height="4.8"
+     data-pin-count="4"
+     data-pitch="1">
+
+  <!-- Housing rectangle -->
+  <rect id="housing"
+        x="-0.30" y="-0.30"
+        width="0.60" height="4.60"
+        rx="0.08" ry="0.08"
+        fill="#FFFFC8" fill-opacity="0.85"
+        stroke="#444444" stroke-width="0.05"/>
+
+  <!-- Per-pin slots -->
+  <rect id="slot-1" x="-0.15" y="-0.15" width="0.30" height="0.30"
+        fill="#FFFF90" fill-opacity="0.6" stroke="#666666" stroke-width="0.03"/>
+  <rect id="slot-2" x="-0.15" y="0.85" width="0.30" height="0.30"
+        fill="#FFFF90" fill-opacity="0.6" stroke="#666666" stroke-width="0.03"/>
+  <rect id="slot-3" x="-0.15" y="1.85" width="0.30" height="0.30"
+        fill="#FFFF90" fill-opacity="0.6" stroke="#666666" stroke-width="0.03"/>
+  <rect id="slot-4" x="-0.15" y="2.85" width="0.30" height="0.30"
+        fill="#FFFF90" fill-opacity="0.6" stroke="#666666" stroke-width="0.03"/>
+
+  <!-- Pin 1 square marker -->
+  <rect id="pin1-marker"
+        x="-0.12" y="-0.12"
+        width="0.24" height="0.24"
+        fill="#CC2222" stroke="none"/>
+
+  <!-- Pin circles -->
+  <circle id="pin-1" cx="0" cy="0" r="0.14" fill="#CC2222" stroke="none"/>
+  <circle id="pin-2" cx="0" cy="1" r="0.14" fill="#CC2222" stroke="none"/>
+  <circle id="pin-3" cx="0" cy="2" r="0.14" fill="#CC2222" stroke="none"/>
+  <circle id="pin-4" cx="0" cy="3" r="0.14" fill="#CC2222" stroke="none"/>
+
+</svg>
