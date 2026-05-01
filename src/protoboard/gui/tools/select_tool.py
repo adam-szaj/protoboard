@@ -55,7 +55,9 @@ _RUBBER_BAND_PEN_RL = QPen(QColor(0, 200, 255, 180), 0.06)   # right-to-left: da
 _RUBBER_BAND_PEN_RL.setStyle(Qt.PenStyle.DashLine)
 _RUBBER_BAND_FILL_LR = QColor(0, 200, 255, 20)
 _RUBBER_BAND_FILL_RL = QColor(0, 200, 255, 10)
-_WIRE_SELECT_PEN = QPen(Qt.GlobalColor.yellow, 0.12)
+_WIRE_SELECT_PEN = QPen(QColor(255, 220, 0, 200), 0.38)
+_WIRE_SELECT_PEN.setCapStyle(Qt.PenCapStyle.RoundCap)
+_WIRE_SELECT_PEN.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
 _NODE_PEN = QPen(Qt.GlobalColor.yellow, 0.04)
 _NODE_BRUSH = QColor(255, 220, 0, 200)
 _NODE_SELECTED_PEN = QPen(Qt.GlobalColor.red, 0.06)
@@ -1001,6 +1003,7 @@ class SelectTool(_Tool):
             dot.setPen(_NODE_SELECTED_PEN if is_sel else _NODE_PEN)
             dot.setBrush(_NODE_SELECTED_BRUSH if is_sel else _NODE_BRUSH)
             group.addToGroup(dot)
+        group.setZValue(2.0)
         self._view.scene().addItem(group)
         self._wire_highlight = group
 
@@ -1028,6 +1031,7 @@ class SelectTool(_Tool):
             )
             seg.setPen(_WIRE_SELECT_PEN)
             group.addToGroup(seg)
+        group.setZValue(2.0)
         self._view.scene().addItem(group)
         self._wire_multi_highlights.append(group)
 

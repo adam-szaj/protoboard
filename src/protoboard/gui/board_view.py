@@ -21,7 +21,7 @@ from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.geometry import Point
 from protoboard.gui.renderers.board_renderer import BOARD_BG, render_board
 from protoboard.gui.renderers.component_renderer import render_components, render_groups
-from protoboard.gui.renderers.wire_renderer import render_ratsnest, render_wires
+from protoboard.gui.renderers.wire_renderer import render_ratsnest, render_wires_with_nets
 from protoboard.gui.session import EditorSession
 from protoboard.services.routing.net_status import routed_net_ids
 
@@ -73,7 +73,11 @@ class BoardView(QGraphicsView):
         if self._active_tool is not None:
             self._active_tool.on_scene_cleared()
         render_board(self._scene, self._session.board)
-        render_wires(self._scene, self._session.layout.wires)
+        render_wires_with_nets(
+            self._scene,
+            self._session.layout.wires,
+            _build_wire_net_map(self._session),
+        )
         # Compute net routing status for pin colouring.
         routed: set[uuid.UUID] | None = None
         if self._session.schematic.nets:
@@ -296,6 +300,38 @@ class BoardView(QGraphicsView):
         """Reset cursor when mouse leaves the viewport."""
         self.setCursor(Qt.CursorShape.ArrowCursor)
         super().leaveEvent(event)  # type: ignore[arg-type]
+
+
+def _build_wire_net_map(session: EditorSession) -> dict[uuid.UUID, uuid.UUID]:
+    """Return a mapping wire.id → net.id for every wire whose endpoint lies on
+    a placed pin that belongs to a net."""
+    from protoboard.domain.layout.placement import pin_world_position
+
+    _EPS = 1e-4
+
+    # Build point → net_id from placed pins.
+    point_to_net: dict[tuple[float, float], uuid.UUID] = {}
+    for net in session.schematic.nets.values():
+        for ref in net.pins:
+            pl = session.layout.placements.get(ref.component_id)
+            inst = session.instances.get(ref.component_id)
+            if pl is None or inst is None:
+                continue
+            defn = session.components.get(inst.definition_ref)
+            if defn is None or ref.pin_number > defn.pin_count:
+                continue
+            p = pin_world_position(defn.footprint, pl, ref.pin_number)
+            point_to_net[(round(p.x, 4), round(p.y, 4))] = net.id
+
+    result: dict[uuid.UUID, uuid.UUID] = {}
+    for wire in session.layout.wires:
+        for pt in (wire.path[0], wire.path[-1]):
+            key = (round(pt.x, 4), round(pt.y, 4))
+            net_id = point_to_net.get(key)
+            if net_id is not None:
+                result[wire.id] = net_id
+                break
+    return result
 
 
 class _Tool:
