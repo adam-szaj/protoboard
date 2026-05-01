@@ -23,6 +23,7 @@ from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.gui.layer_state import LayerState, Z_FRONT_COMPONENTS, Z_FRONT_LABELS
+from protoboard.gui.renderers.body_shapes import body_shape_for
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 
 _REFDES_FONT = QFont("monospace", 1)
@@ -89,6 +90,7 @@ def _render_one(
     if not positions:
         return
 
+    # Bbox used for label positioning.
     margin = 0.35
     xs = [p.x for p in positions]
     ys = [p.y for p in positions]
@@ -102,11 +104,10 @@ def _render_one(
                        theme.comp_fill_b, _a(theme.comp_fill_a))
     comp_border = QColor(theme.comp_border)
     comp_border.setAlphaF(alpha)
-    rect_item = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
-    rect_item.setBrush(QBrush(comp_fill))
-    rect_item.setPen(QPen(comp_border, 0.06))
-    rect_item.setZValue(z_comp)
-    scene.addItem(rect_item)
+
+    shape = body_shape_for(defn)
+    for item in shape.draw(positions, comp_fill, comp_border, alpha, z_comp, theme):
+        scene.addItem(item)
 
     pin_color_fallback = QColor(theme.pin_color_fallback)
     pin_color_fallback.setAlphaF(alpha)
@@ -210,10 +211,16 @@ def make_ghost_item(
 
     group = QGraphicsItemGroup()
 
-    rect_item = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
-    rect_item.setBrush(QBrush(ghost_fill))
-    rect_item.setPen(QPen(ghost_border, 0.06, Qt.PenStyle.DashLine))
-    group.addToGroup(rect_item)
+    # Use the same body shape as the real component, semi-transparent.
+    ghost_alpha = ghost_fill.alphaF()
+    shape = body_shape_for(defn)
+    for item in shape.draw(positions, ghost_fill, ghost_border, ghost_alpha, 0.0, theme):
+        # Ghost body: dashed border
+        if hasattr(item, 'pen'):
+            pen = item.pen()
+            pen.setStyle(Qt.PenStyle.DashLine)
+            item.setPen(pen)
+        group.addToGroup(item)
 
     r = theme.pin_radius
     for pos in positions:
@@ -222,10 +229,13 @@ def make_ghost_item(
         dot.setPen(QPen(Qt.GlobalColor.transparent, 0))
         group.addToGroup(dot)
 
+    # Label positioned near first pin or bbox top-left
+    xs = [p.x for p in positions]
+    ys = [p.y for p in positions]
     label = QGraphicsTextItem(defn.name)
     label.setDefaultTextColor(ghost_label)
     label.setFont(_REFDES_FONT)
-    label.setPos(x0 + 0.05, y0 + 0.05)
+    label.setPos(min(xs) + 0.05, min(ys) + 0.05)
     group.addToGroup(label)
     return group
 

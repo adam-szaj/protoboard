@@ -87,6 +87,20 @@ class Theme:
     refdes_color: str = "#AAAAAA"
     refdes_font_size: float = 0.55
 
+    # Component lead lines (wire between pins and body)
+    lead_color: str = "#888888"
+    lead_width: float = 0.06
+
+    # Body shape geometry
+    body_corner_radius: float = 0.15
+    axial_body_length_ratio: float = 0.50   # body length / pin-to-pin distance
+    axial_body_width: float = 0.40          # body "diameter"
+    radial_body_radius: float = 0.35        # circular body radius
+    to92_body_width: float = 2.4
+    to92_body_height: float = 1.4
+    dip_notch_radius: float = 0.25
+    sil_slot_size: float = 0.40             # per-pin slot square size
+
     ghost_fill_r: int = 255
     ghost_fill_g: int = 255
     ghost_fill_b: int = 200
