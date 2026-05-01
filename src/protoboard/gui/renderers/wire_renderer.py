@@ -34,7 +34,9 @@ _NET_COLORS = [
 
 # Bare wire: thin, no jacket.  Drawn as a dashed line over grey tint so it is
 # visually lighter than an insulated wire of the same colour.
-_BARE_WIDTH        = 0.08
+_BARE_WIDTH        = 0.16
+_BARE_OUTLINE_COLOR = QColor("#888888")
+_BARE_OUTLINE_WIDTH = 0.20
 _BARE_TINT         = QColor(255, 255, 255, 60)   # white overlay on colour
 _BARE_TINT_WIDTH   = _BARE_WIDTH + 0.04
 
@@ -143,12 +145,21 @@ def _draw_bare(
     z_base: float,
 ) -> None:
     # Bare wire: dashed line in net colour, thin, with flat caps.
+
+    outline_pen = QPen(_BARE_OUTLINE_COLOR, _BARE_OUTLINE_WIDTH)
+    outline_pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+    outline_pen.setJoinStyle(Qt.PenJoinStyle.BevelJoin)
     pen = QPen(color, _BARE_WIDTH)
-    pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-    pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
-    pen.setStyle(Qt.PenStyle.DashLine)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     for i in range(len(pts) - 1):
-        line = QGraphicsLineItem(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y)
+        x1, y1 = pts[i].x, pts[i].y
+        x2, y2 = pts[i + 1].x, pts[i + 1].y
+        outline = QGraphicsLineItem(x1, y1, x2, y2)
+        outline.setPen(outline_pen)
+        outline.setZValue(z_base + _Z_OUTLINE_OFFSET)
+        scene.addItem(outline)
+        line = QGraphicsLineItem(x1, y1, x2, y2)
         line.setPen(pen)
         line.setZValue(z_base - 0.05)
         scene.addItem(line)
