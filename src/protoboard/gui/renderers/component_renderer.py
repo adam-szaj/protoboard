@@ -22,10 +22,13 @@ from protoboard.domain.layout.placement import ComponentPlacement, pin_world_pos
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
+from protoboard.gui.layer_state import LayerState, Z_FRONT_COMPONENTS, Z_FRONT_LABELS
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 
 _REFDES_FONT = QFont("monospace", 1)
 _REFDES_FONT.setPointSizeF(DEFAULT_THEME.refdes_font_size)
+
+_DEFAULT_LAYERS = LayerState()
 
 
 def _net_color(net_id: uuid.UUID, theme: Theme = DEFAULT_THEME) -> QColor:
@@ -41,6 +44,7 @@ def render_components(
     schematic: Schematic | None = None,
     routed_nets: set[uuid.UUID] | None = None,
     theme: Theme = DEFAULT_THEME,
+    layers: LayerState = _DEFAULT_LAYERS,
 ) -> None:
     pin_net: dict[PinRef, uuid.UUID] = {}
     if schematic is not None:
@@ -55,7 +59,8 @@ def render_components(
         defn = components.get(inst.definition_ref)
         if defn is None:
             continue
-        _render_one(scene, placement, inst, defn, comp_id, pin_net, routed_nets, theme)
+        _render_one(scene, placement, inst, defn, comp_id, pin_net,
+                    routed_nets, theme, layers)
 
 
 def _render_one(
@@ -67,7 +72,13 @@ def _render_one(
     pin_net: dict[PinRef, uuid.UUID],
     routed_nets: set[uuid.UUID] | None,
     theme: Theme,
+    layers: LayerState,
 ) -> None:
+    side = placement.side  # type: ignore[assignment]
+    alpha = layers.alpha_for_component(side)
+    z_comp = layers.z_for_component(side)
+    z_label = layers.z_for_label(side)
+
     fp = defn.footprint
     positions = [
         pin_world_position(fp, placement, n + 1) for n in range(fp.pin_count())
@@ -81,14 +92,21 @@ def _render_one(
     x0, y0 = min(xs) - margin, min(ys) - margin
     x1, y1 = max(xs) + margin, max(ys) + margin
 
-    comp_fill = QColor(theme.comp_fill_r, theme.comp_fill_g, theme.comp_fill_b, theme.comp_fill_a)
+    def _a(base_alpha: int) -> int:
+        return max(0, min(255, int(base_alpha * alpha)))
+
+    comp_fill = QColor(theme.comp_fill_r, theme.comp_fill_g,
+                       theme.comp_fill_b, _a(theme.comp_fill_a))
     comp_border = QColor(theme.comp_border)
+    comp_border.setAlphaF(alpha)
     rect_item = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
     rect_item.setBrush(QBrush(comp_fill))
     rect_item.setPen(QPen(comp_border, 0.06))
+    rect_item.setZValue(z_comp)
     scene.addItem(rect_item)
 
     pin_color_fallback = QColor(theme.pin_color_fallback)
+    pin_color_fallback.setAlphaF(alpha)
     for pin_idx, pos in enumerate(positions):
         pin_number = pin_idx + 1
         ref = PinRef(component_id=comp_id, pin_number=pin_number)
@@ -96,6 +114,7 @@ def _render_one(
 
         if net_id is not None:
             color = _net_color(net_id, theme)
+            color.setAlphaF(color.alphaF() * alpha)
             complete = routed_nets is None or net_id in routed_nets
             if complete:
                 fill_color = color
@@ -103,7 +122,7 @@ def _render_one(
                 pen.setStyle(Qt.PenStyle.SolidLine)
             else:
                 fill_color = QColor(color)
-                fill_color.setAlpha(130)
+                fill_color.setAlpha(_a(130))
                 pen = QPen(color, 0.06)
                 pen.setStyle(Qt.PenStyle.DashLine)
         else:
@@ -111,16 +130,19 @@ def _render_one(
             pen = QPen(Qt.GlobalColor.transparent, 0)
 
         if pin_number == 1:
-            _add_pin1_marker(scene, pos.x, pos.y, fill_color, theme)
+            _add_pin1_marker(scene, pos.x, pos.y, fill_color, theme, z=z_comp + 0.05)
         else:
             r = theme.pin_radius
             dot = QGraphicsEllipseItem(QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r))
             dot.setBrush(QBrush(fill_color))
             dot.setPen(pen)
+            dot.setZValue(z_comp + 0.05)
             scene.addItem(dot)
 
+    label_color = QColor(theme.refdes_color)
+    label_color.setAlphaF(alpha)
     label = QGraphicsTextItem(inst.refdes)
-    label.setDefaultTextColor(QColor(theme.refdes_color))
+    label.setDefaultTextColor(label_color)
     label.setFont(_REFDES_FONT)
     _default_offset = Point(0.05, 0.05)
     if placement.label_offset == _default_offset:
@@ -130,16 +152,21 @@ def _render_one(
         label.setPos(cx, cy)
     else:
         label.setPos(x0 + placement.label_offset.x, y0 + placement.label_offset.y)
+    label.setZValue(z_label)
     scene.addItem(label)
 
 
 def _add_pin1_marker(
-    scene: QGraphicsScene, cx: float, cy: float, fill_color: QColor, theme: Theme
+    scene: QGraphicsScene, cx: float, cy: float, fill_color: QColor,
+    theme: Theme, z: float = Z_FRONT_COMPONENTS,
 ) -> None:
     r = theme.pin_radius * 1.1
     square = QGraphicsRectItem(QRectF(cx - r, cy - r, 2 * r, 2 * r))
     square.setBrush(QBrush(fill_color))
-    square.setPen(QPen(QColor("#FFFFFF"), 0.06))
+    white = QColor("#FFFFFF")
+    white.setAlphaF(fill_color.alphaF())
+    square.setPen(QPen(white, 0.06))
+    square.setZValue(z)
     scene.addItem(square)
 
 

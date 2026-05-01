@@ -16,10 +16,19 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.board.layout_engine import LayoutNode
 from protoboard.geometry import Point
+from protoboard.gui.layer_state import BOARD_GHOST_ALPHA, Z_BOARD, LayerState
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 
 # Re-export BOARD_BG so board_view.py can import it without knowing about theme.
 BOARD_BG = QColor(DEFAULT_THEME.board_bg)
+
+_DEFAULT_LAYERS = LayerState()
+
+
+def _apply_alpha(color: QColor, alpha: float) -> QColor:
+    c = QColor(color)
+    c.setAlphaF(alpha)
+    return c
 
 
 def render_board(
@@ -28,18 +37,30 @@ def render_board(
     *,
     show_frames: bool = True,
     theme: Theme = DEFAULT_THEME,
+    layers: LayerState = _DEFAULT_LAYERS,
 ) -> None:
-    """Add board pad/strip items to the scene (does not clear first)."""
+    """Add board pad/strip items to the scene (does not clear first).
+
+    When the active tool ghosts components (routing / placement) the board is
+    also rendered with reduced alpha so back-side elements remain readable
+    underneath it.
+    """
+    board_alpha = BOARD_GHOST_ALPHA if layers.ghost_components else 1.0
+
+    pad_color = _apply_alpha(QColor(theme.pad_color), board_alpha)
+    strip_color = _apply_alpha(QColor(theme.strip_color), board_alpha)
+    isolated_color = _apply_alpha(QColor(theme.isolated_color), board_alpha)
+
     if show_frames:
-        _render_frames(scene, board.layout, is_root=True, theme=theme)
-    pad_color = QColor(theme.pad_color)
-    strip_color = QColor(theme.strip_color)
-    isolated_color = QColor(theme.isolated_color)
+        _render_frames(scene, board.layout, is_root=True, theme=theme,
+                       z=Z_BOARD, alpha=board_alpha)
     for atom, pos in board.atoms():
         if isinstance(atom, PadAtom):
-            _add_pad(scene, pos.x, pos.y, theme.pad_radius, pad_color, theme)
+            _add_pad(scene, pos.x, pos.y, theme.pad_radius, pad_color, theme,
+                     z=Z_BOARD)
         elif isinstance(atom, StripAtom):
-            _render_strip_pads(scene, atom, pos, strip_color, isolated_color, theme)
+            _render_strip_pads(scene, atom, pos, strip_color, isolated_color,
+                               theme, z=Z_BOARD)
 
 
 # ---------------------------------------------------------------------------
@@ -54,22 +75,24 @@ def _render_strip_pads(
     strip_color: QColor,
     isolated_color: QColor,
     theme: Theme,
+    z: float = Z_BOARD,
 ) -> None:
     length = atom.length if isinstance(atom.length, int) else 1
 
     if atom.isolated:
         cx, cy = center.x, center.y
-        _add_pad(scene, cx, cy, theme.strip_radius, isolated_color, theme)
+        _add_pad(scene, cx, cy, theme.strip_radius, isolated_color, theme, z=z)
         r = theme.strip_radius * 0.7
         pen = QPen(QColor(theme.isolated_x_color), theme.isolated_x_width)
         for dx, dy in ((r, r), (-r, r)):
             line = QGraphicsLineItem(cx - dx, cy - dy, cx + dx, cy + dy)
             line.setPen(pen)
+            line.setZValue(z)
             scene.addItem(line)
         return
 
     track_h = theme.strip_radius * 1.1
-    track_color = QColor(theme.strip_track_color)
+    track_color = QColor(strip_color)
     track_pen = QPen(QColor(theme.strip_track_outline), theme.strip_track_outline_width)
     if atom.orientation == "horizontal":
         start_x = center.x - length / 2.0 + 0.5
@@ -80,9 +103,11 @@ def _render_strip_pads(
         )
         track.setBrush(QBrush(track_color))
         track.setPen(track_pen)
+        track.setZValue(z - 0.1)
         scene.addItem(track)
         for i in range(length):
-            _add_pad(scene, start_x + i, center.y, theme.strip_radius, strip_color, theme)
+            _add_pad(scene, start_x + i, center.y, theme.strip_radius,
+                     strip_color, theme, z=z)
     else:
         start_y = center.y - length / 2.0 + 0.5
         end_y = start_y + length - 1
@@ -93,9 +118,11 @@ def _render_strip_pads(
         )
         track.setBrush(QBrush(track_color))
         track.setPen(track_pen)
+        track.setZValue(z - 0.1)
         scene.addItem(track)
         for i in range(length):
-            _add_pad(scene, center.x, start_y + i, theme.strip_radius, strip_color, theme)
+            _add_pad(scene, center.x, start_y + i, theme.strip_radius,
+                     strip_color, theme, z=z)
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +131,8 @@ def _render_strip_pads(
 
 
 def _render_frames(
-    scene: QGraphicsScene, node: LayoutNode, *, is_root: bool, theme: Theme
+    scene: QGraphicsScene, node: LayoutNode, *, is_root: bool, theme: Theme,
+    z: float = Z_BOARD, alpha: float = 1.0,
 ) -> None:
     from protoboard.domain.board.boxes import BoardGrid, HBox, VBox
 
@@ -116,16 +144,20 @@ def _render_frames(
         )
         rect.setBrush(QBrush(QColor(0, 0, 0, 0)))
         if is_root:
-            pen = QPen(QColor(theme.board_frame_color), theme.board_frame_width)
+            c = QColor(theme.board_frame_color)
+            c.setAlphaF(alpha)
+            pen = QPen(c, theme.board_frame_width)
         else:
             c = QColor(theme.board_sub_frame_color)
+            c.setAlphaF(c.alphaF() * alpha)
             pen = QPen(c, theme.board_sub_frame_width)
             pen.setStyle(Qt.PenStyle.DashLine)
         rect.setPen(pen)
+        rect.setZValue(z - 0.2)
         scene.addItem(rect)
 
     for child in node.children:
-        _render_frames(scene, child, is_root=False, theme=theme)
+        _render_frames(scene, child, is_root=False, theme=theme, z=z, alpha=alpha)
 
 
 # ---------------------------------------------------------------------------
@@ -135,14 +167,20 @@ def _render_frames(
 
 def _add_pad(
     scene: QGraphicsScene, cx: float, cy: float, r: float, color: QColor,
-    theme: Theme,
+    theme: Theme, z: float = Z_BOARD,
 ) -> None:
     ring = QGraphicsEllipseItem(QRectF(cx - r, cy - r, 2 * r, 2 * r))
     ring.setBrush(QBrush(color))
-    ring.setPen(QPen(QColor(theme.pad_outline_color), theme.pad_outline_width))
+    outline = QColor(theme.pad_outline_color)
+    outline.setAlphaF(color.alphaF())
+    ring.setPen(QPen(outline, theme.pad_outline_width))
+    ring.setZValue(z)
     scene.addItem(ring)
     hr = r * 0.45
     hole = QGraphicsEllipseItem(QRectF(cx - hr, cy - hr, 2 * hr, 2 * hr))
-    hole.setBrush(QBrush(QColor(theme.hole_color)))
-    hole.setPen(QPen(QColor(theme.pad_outline_color), 0))
+    hole_color = QColor(theme.hole_color)
+    hole_color.setAlphaF(color.alphaF())
+    hole.setBrush(QBrush(hole_color))
+    hole.setPen(QPen(outline, 0))
+    hole.setZValue(z + 0.05)
     scene.addItem(hole)

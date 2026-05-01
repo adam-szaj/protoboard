@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 from protoboard.domain.board.boxes import StripAtom
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.geometry import Point
+from protoboard.gui.layer_state import LayerState, layer_state_for_tool
 from protoboard.gui.renderers.board_renderer import BOARD_BG, render_board
 from protoboard.gui.renderers.component_renderer import render_components, render_groups
 from protoboard.gui.renderers.wire_renderer import render_ratsnest, render_wires_with_nets
@@ -65,12 +66,27 @@ class BoardView(QGraphicsView):
         return self._mirrored
 
     def toggle_mirror(self) -> None:
-        """Flip the view horizontally (mirror around the vertical axis)."""
+        """Flip the view horizontally (mirror = looking from the bottom side).
+
+        Camera side and active editing side are always in sync:
+        mirrored → camera=bottom → RouteTool switches to bottom automatically.
+        """
         self._mirrored = not self._mirrored
         t = self.transform()
-        # Negate the x-scale component to flip left↔right.
         from PySide6.QtGui import QTransform
         self.setTransform(QTransform(-t.m11(), t.m12(), t.m21(), t.m22(), 0.0, 0.0))
+
+        # Synchronise RouteTool._side with the new camera side.
+        from protoboard.gui.tools.route_tool import RouteTool
+        new_side = "bottom" if self._mirrored else "top"
+        if isinstance(self._active_tool, RouteTool):
+            self._active_tool._side = new_side  # type: ignore[assignment]
+        # Notify main window to update its wire-side state and status bar.
+        win = self.window()
+        updater = getattr(win, "_set_wire_side", None)
+        if updater is not None:
+            updater(new_side)
+
         self.refresh()
 
     def fit_board(self) -> None:
@@ -94,7 +110,13 @@ class BoardView(QGraphicsView):
         # Notify active tool that scene was wiped so it can drop stale item refs.
         if self._active_tool is not None:
             self._active_tool.on_scene_cleared()
-        render_board(self._scene, self._session.board)
+
+        # Derive rendering context from camera side and active tool.
+        camera_side = "bottom" if self._mirrored else "top"
+        layers = layer_state_for_tool(self._active_tool, camera_side)  # type: ignore[arg-type]
+
+        render_board(self._scene, self._session.board, layers=layers)
+
         wire_net_map = _build_wire_net_map(self._session)
         net_color_map = {
             net_id: net.color
@@ -105,6 +127,7 @@ class BoardView(QGraphicsView):
             self._session.layout.wires,
             wire_net_map,
             net_color_map,
+            layers=layers,
         )
         # Compute net routing status for pin colouring.
         routed: set[uuid.UUID] | None = None
@@ -123,6 +146,7 @@ class BoardView(QGraphicsView):
             self._session.components,
             schematic=self._session.schematic if self._session.schematic.nets else None,
             routed_nets=routed,
+            layers=layers,
         )
         if self._session.schematic.nets:
             render_ratsnest(

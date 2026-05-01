@@ -650,10 +650,24 @@ class SelectTool(_Tool):
     # Single component selection
     # ------------------------------------------------------------------
 
+    def _camera_side(self) -> str:
+        """Return the current camera side from the parent BoardView."""
+        return "bottom" if getattr(self._view, "_mirrored", False) else "top"
+
     def _hit_test(self, scene_pt: QPointF) -> uuid.UUID | None:
+        """Return the nearest component within _HIT_RADIUS.
+
+        Front-side (camera-side) components are always preferred over
+        back-side components.  When the active tool ghosts components, a
+        back-side hit is only returned if nothing was found on the front side.
+        """
         session = self._session
-        best_id: uuid.UUID | None = None
-        best_d = float("inf")
+        camera = self._camera_side()
+        front_best: uuid.UUID | None = None
+        front_best_d = float("inf")
+        back_best: uuid.UUID | None = None
+        back_best_d = float("inf")
+
         for comp_id, placement in session.layout.placements.items():
             inst = session.instances.get(comp_id)
             if inst is None:
@@ -666,32 +680,58 @@ class SelectTool(_Tool):
                 dx = scene_pt.x() - pos.x
                 dy = scene_pt.y() - pos.y
                 d = math.sqrt(dx * dx + dy * dy)
-                if d < best_d:
-                    best_d = d
-                    best_id = comp_id
-        return best_id if best_d <= _HIT_RADIUS else None
+                if placement.side == camera:
+                    if d < front_best_d:
+                        front_best_d = d
+                        front_best = comp_id
+                else:
+                    if d < back_best_d:
+                        back_best_d = d
+                        back_best = comp_id
+
+        if front_best is not None and front_best_d <= _HIT_RADIUS:
+            return front_best
+        if back_best is not None and back_best_d <= _HIT_RADIUS:
+            return back_best
+        return None
 
     def _hit_test_bbox(self, scene_pt: QPointF) -> uuid.UUID | None:
+        """Return the first component whose bbox contains scene_pt.
+
+        Front-side components are checked before back-side ones.
+        """
         session = self._session
+        camera = self._camera_side()
         px, py = scene_pt.x(), scene_pt.y()
-        for comp_id, placement in session.layout.placements.items():
+
+        def _check(comp_id: uuid.UUID, placement: object) -> bool:
+            from protoboard.domain.layout.placement import ComponentPlacement as CP
+            assert isinstance(placement, CP)
             inst = session.instances.get(comp_id)
             if inst is None:
-                continue
+                return False
             defn = session.components.get(inst.definition_ref)
             if defn is None:
-                continue
+                return False
             positions = [
                 pin_world_position(defn.footprint, placement, n + 1)
                 for n in range(defn.footprint.pin_count())
             ]
             if not positions:
-                continue
+                return False
             xs = [p.x for p in positions]
             ys = [p.y for p in positions]
             m = _BBOX_MARGIN
-            if (min(xs) - m <= px <= max(xs) + m
-                    and min(ys) - m <= py <= max(ys) + m):
+            return (min(xs) - m <= px <= max(xs) + m
+                    and min(ys) - m <= py <= max(ys) + m)
+
+        # Front side first.
+        for comp_id, placement in session.layout.placements.items():
+            if placement.side == camera and _check(comp_id, placement):
+                return comp_id
+        # Then back side.
+        for comp_id, placement in session.layout.placements.items():
+            if placement.side != camera and _check(comp_id, placement):
                 return comp_id
         return None
 

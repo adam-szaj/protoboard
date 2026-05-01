@@ -16,12 +16,11 @@ from protoboard.domain.layout.wire import WireSegment
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
+from protoboard.gui.layer_state import LayerState, Z_FRONT_WIRES
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 
-# Z-values — bottom wires sit below board pads; top wires above.
-_Z_BOTTOM = 0.6
-_Z_TOP = 1.0
 _Z_OUTLINE_OFFSET = -0.05
+_DEFAULT_LAYERS = LayerState()
 
 
 def _net_color(
@@ -49,18 +48,15 @@ def render_wires_with_nets(
     wire_net_map: dict[uuid.UUID, uuid.UUID],
     net_color_map: dict[uuid.UUID, str | None] | None = None,
     theme: Theme = DEFAULT_THEME,
+    layers: LayerState = _DEFAULT_LAYERS,
 ) -> None:
-    """Render wires with correct per-net colouring.
-
-    *wire_net_map* maps wire.id → net.id.
-    *net_color_map* maps net.id → user-set hex color (or None for auto palette).
-    """
+    """Render wires with correct per-net colouring and layer z-values."""
     for wire in wires:
         net_id = wire_net_map.get(wire.id)
         color_override: str | None = None
         if net_id is not None and net_color_map:
             color_override = net_color_map.get(net_id)
-        _draw_wire(scene, wire, net_id, color_override, theme)
+        _draw_wire(scene, wire, net_id, color_override, theme, layers)
 
 
 def _draw_wire(
@@ -69,13 +65,16 @@ def _draw_wire(
     net_id: uuid.UUID | None,
     color_override: str | None = None,
     theme: Theme = DEFAULT_THEME,
+    layers: LayerState = _DEFAULT_LAYERS,
 ) -> None:
     pts = wire.path
+    side = wire.side  # type: ignore[assignment]
+    alpha = layers.alpha_for_wire(side)
+    z_base = layers.z_for_wire(side)
+
     color = _net_color(net_id, color_override, theme)
-    is_bottom = wire.side == "bottom"
-    z_base = _Z_BOTTOM if is_bottom else _Z_TOP
-    if is_bottom:
-        color = _dim(color, theme.bottom_opacity)
+    if alpha < 1.0:
+        color = _dim(color, alpha)
 
     if wire.insulated:
         _draw_insulated(scene, pts, color, z_base, theme)
