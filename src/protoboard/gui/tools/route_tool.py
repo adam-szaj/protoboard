@@ -26,8 +26,13 @@ _PREVIEW_WIDTH = 0.12
 class RouteTool(_Tool):
     """Multi-segment wire routing: click to add points, Enter/Esc to commit."""
 
-    def __init__(self, insulated: bool = True) -> None:
+    def __init__(
+        self,
+        insulated: bool = True,
+        side: str = "top",
+    ) -> None:
         self._insulated = insulated
+        self._side = side
         self._points: list[Point] = []
         # Committed segments (between clicked points).
         self._committed_lines: list[QGraphicsLineItem] = []
@@ -61,10 +66,27 @@ class RouteTool(_Tool):
         self._add_live_line(self._points[-1], snapped)
 
     def on_key(self, event: QKeyEvent) -> None:
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+        key = event.key()
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self._commit()
-        elif event.key() == Qt.Key.Key_Escape:
+        elif key == Qt.Key.Key_Escape:
             self._cancel()
+        elif key == Qt.Key.Key_I:
+            self._insulated = not self._insulated
+            self._notify_status()
+        elif key == Qt.Key.Key_T:
+            self._side = "top"
+            self._notify_status()
+        elif key == Qt.Key.Key_B:
+            self._side = "bottom"
+            self._notify_status()
+
+    def _notify_status(self) -> None:
+        """Update the main window status bar with current wire options."""
+        win = self._view.window()
+        updater = getattr(win, "_update_route_status", None)
+        if updater is not None:
+            updater(self._insulated, self._side)
 
     # ------------------------------------------------------------------
 
@@ -76,7 +98,7 @@ class RouteTool(_Tool):
             id=uuid.uuid4(),
             path=list(self._points),
             insulated=self._insulated,
-            side="top",
+            side=self._side,  # type: ignore[arg-type]
         )
         from protoboard.gui.wire_net_resolver import resolve_wire_nets
 
