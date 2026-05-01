@@ -279,22 +279,26 @@ class MainWindow(QMainWindow):
         # ── Layers submenu ────────────────────────────────────────────
         layers_menu = view_menu.addMenu("&Layers")
         # Each entry: (field_name, display_name)
+        # Order matches keyboard shortcuts 1–7.
         _LAYER_ENTRIES = [
-            ("components_top",    "Components Top"),
-            ("components_bottom", "Components Bottom"),
-            ("wires_top",         "Wires Top"),
-            ("wires_bottom",      "Wires Bottom"),
-            ("labels_top",        "Labels Top"),
-            ("labels_bottom",     "Labels Bottom"),
-            ("board",             "Board"),
+            ("components_top",    "Components Top",    "1"),
+            ("components_bottom", "Components Bottom", "2"),
+            ("wires_top",         "Wires Top",         "3"),
+            ("wires_bottom",      "Wires Bottom",      "4"),
+            ("labels_top",        "Labels Top",        "5"),
+            ("labels_bottom",     "Labels Bottom",     "6"),
+            ("board",             "Board",             "7"),
         ]
+        # Keep ordered list for keyPressEvent (index 0 = key 1).
+        self._layer_field_order: list[str] = []
         self._layer_actions: dict[str, QAction] = {}
-        for field_name, display_name in _LAYER_ENTRIES:
-            act = layers_menu.addAction(display_name)
+        for field_name, display_name, key in _LAYER_ENTRIES:
+            act = layers_menu.addAction(f"{display_name}\t{key}")
             act.triggered.connect(
                 lambda _checked, fn=field_name: self._cycle_layer(fn)
             )
             self._layer_actions[field_name] = act
+            self._layer_field_order.append(field_name)
         layers_menu.addSeparator()
         act_reset_layers = layers_menu.addAction("Reset All Layers")
         act_reset_layers.triggered.connect(self._reset_layers)
@@ -916,5 +920,9 @@ class MainWindow(QMainWindow):
             self._redo()
         elif key == Qt.Key.Key_0 and ctrl:
             self._fit_board()
+        elif not ctrl and Qt.Key.Key_1 <= key <= Qt.Key.Key_7:
+            idx = key - Qt.Key.Key_1
+            if idx < len(self._layer_field_order):
+                self._cycle_layer(self._layer_field_order[idx])
         else:
             super().keyPressEvent(event)
