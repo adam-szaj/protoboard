@@ -44,6 +44,32 @@ class RenameNetCommand(Command[NetState]):
 
 
 # ---------------------------------------------------------------------------
+# SetNetColorCommand
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SetNetColorCommand(Command[NetState]):
+    """Set (or clear) the display colour of a net."""
+
+    net_id: uuid.UUID
+    new_color: str | None  # hex string or None to revert to auto palette
+    _old_color: str | None = field(default=None, init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Set net color" if self.new_color else "Clear net color"
+
+    def apply(self, state: NetState) -> None:
+        net = state.schematic.nets[self.net_id]
+        self._old_color = net.color
+        net.color = self.new_color
+
+    def revert(self, state: NetState) -> None:
+        state.schematic.nets[self.net_id].color = self._old_color
+
+
+# ---------------------------------------------------------------------------
 # CreateNetCommand
 # ---------------------------------------------------------------------------
 

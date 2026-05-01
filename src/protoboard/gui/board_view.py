@@ -73,10 +73,16 @@ class BoardView(QGraphicsView):
         if self._active_tool is not None:
             self._active_tool.on_scene_cleared()
         render_board(self._scene, self._session.board)
+        wire_net_map = _build_wire_net_map(self._session)
+        net_color_map = {
+            net_id: net.color
+            for net_id, net in self._session.schematic.nets.items()
+        }
         render_wires_with_nets(
             self._scene,
             self._session.layout.wires,
-            _build_wire_net_map(self._session),
+            wire_net_map,
+            net_color_map,
         )
         # Compute net routing status for pin colouring.
         routed: set[uuid.UUID] | None = None

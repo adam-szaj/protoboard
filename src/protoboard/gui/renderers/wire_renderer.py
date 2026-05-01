@@ -52,8 +52,14 @@ _Z_TOP    = 1.0
 _Z_OUTLINE_OFFSET = -0.05   # outline slightly behind fill
 
 
-def _net_color(net_id: uuid.UUID | None) -> QColor:
-    """Return the colour assigned to *net_id*, or a neutral grey for None."""
+def _net_color(net_id: uuid.UUID | None, override: str | None = None) -> QColor:
+    """Return the display colour for a net.
+
+    *override* is a hex string set by the user on the Net object; if absent
+    the colour is chosen from the auto palette keyed by *net_id*.
+    """
+    if override:
+        return QColor(override)
     if net_id is None:
         return QColor("#A0A0A0")
     idx = abs(hash(net_id)) % len(_NET_COLORS)
@@ -70,24 +76,30 @@ def render_wires_with_nets(
     scene: QGraphicsScene,
     wires: list[WireSegment],
     wire_net_map: dict[uuid.UUID, uuid.UUID],
+    net_color_map: dict[uuid.UUID, str | None] | None = None,
 ) -> None:
     """Render wires with correct per-net colouring.
 
-    *wire_net_map* maps wire.id → net.id and is built by the caller who has
-    access to both the schematic and the layout.
+    *wire_net_map* maps wire.id → net.id.
+    *net_color_map* maps net.id → user-set hex color (or None for auto palette).
+    Both are built by the caller who has access to the schematic and layout.
     """
     for wire in wires:
         net_id = wire_net_map.get(wire.id)
-        _draw_wire(scene, wire, net_id)
+        color_override: str | None = None
+        if net_id is not None and net_color_map:
+            color_override = net_color_map.get(net_id)
+        _draw_wire(scene, wire, net_id, color_override)
 
 
 def _draw_wire(
     scene: QGraphicsScene,
     wire: WireSegment,
     net_id: uuid.UUID | None,
+    color_override: str | None = None,
 ) -> None:
     pts = wire.path
-    color = _net_color(net_id)
+    color = _net_color(net_id, color_override)
     is_bottom = wire.side == "bottom"
     z_base = _Z_BOTTOM if is_bottom else _Z_TOP
     if is_bottom:

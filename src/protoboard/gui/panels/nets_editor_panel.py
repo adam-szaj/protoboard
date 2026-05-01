@@ -7,7 +7,9 @@ import uuid
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
+    QColorDialog,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -31,6 +33,7 @@ if TYPE_CHECKING:
 # Column indices for the net list tree.
 _NET_COL_NAME = 0
 _NET_COL_PINS = 1
+_NET_COL_COLOR = 2
 
 # Column indices for the pins tree.
 _PIN_COL_INST = 0
@@ -63,20 +66,25 @@ class NetsEditorPanel(QWidget):
         net_layout.setSpacing(2)
 
         self._net_tree = QTreeWidget()
-        self._net_tree.setHeaderLabels(["Net name", "Pins"])
-        self._net_tree.setColumnWidth(_NET_COL_NAME, 140)
+        self._net_tree.setHeaderLabels(["Net name", "Pins", "Color"])
+        self._net_tree.setColumnWidth(_NET_COL_NAME, 120)
+        self._net_tree.setColumnWidth(_NET_COL_PINS, 35)
+        self._net_tree.setColumnWidth(_NET_COL_COLOR, 50)
         self._net_tree.setAlternatingRowColors(True)
         self._net_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._net_tree.customContextMenuRequested.connect(self._on_net_context_menu)
+        self._net_tree.itemDoubleClicked.connect(self._on_net_double_clicked)
         net_layout.addWidget(self._net_tree)
 
         net_btn_row = QHBoxLayout()
         self._btn_add_net = QPushButton("Add net")
         self._btn_rename_net = QPushButton("Rename")
         self._btn_delete_net = QPushButton("Delete")
+        self._btn_set_color = QPushButton("Color…")
         net_btn_row.addWidget(self._btn_add_net)
         net_btn_row.addWidget(self._btn_rename_net)
         net_btn_row.addWidget(self._btn_delete_net)
+        net_btn_row.addWidget(self._btn_set_color)
         net_layout.addLayout(net_btn_row)
         splitter.addWidget(net_widget)
 
@@ -111,6 +119,7 @@ class NetsEditorPanel(QWidget):
         self._btn_add_net.clicked.connect(self._on_add_net)
         self._btn_rename_net.clicked.connect(self._on_rename_net)
         self._btn_delete_net.clicked.connect(self._on_delete_net)
+        self._btn_set_color.clicked.connect(self._on_set_color)
         self._btn_assign.clicked.connect(self._on_assign_pin)
         self._btn_unassign.clicked.connect(self._on_unassign_pin)
 
@@ -141,8 +150,16 @@ class NetsEditorPanel(QWidget):
         if self._session is None:
             return
         for net in sorted(self._session.schematic.nets.values(), key=lambda n: n.name):
-            item = QTreeWidgetItem([net.name, str(len(net.pins))])
+            color_label = net.color if net.color else "auto"
+            item = QTreeWidgetItem([net.name, str(len(net.pins)), color_label])
             item.setData(_NET_COL_NAME, _ROLE, str(net.id))
+            if net.color:
+                bg = QColor(net.color)
+                item.setBackground(_NET_COL_COLOR, QBrush(bg))
+                # Use black or white text depending on luminance.
+                lum = 0.299 * bg.redF() + 0.587 * bg.greenF() + 0.114 * bg.blueF()
+                fg = QColor("#000000") if lum > 0.5 else QColor("#ffffff")
+                item.setForeground(_NET_COL_COLOR, QBrush(fg))
             self._net_tree.addTopLevelItem(item)
 
     def _rebuild_pins(self) -> None:
@@ -296,6 +313,43 @@ class NetsEditorPanel(QWidget):
         self._rebuild()
         self.nets_changed.emit()
 
+    def _on_set_color(self) -> None:
+        net_id = self._current_net_id()
+        if net_id is None or self._session is None:
+            return
+        net = self._session.schematic.nets.get(net_id)
+        if net is None:
+            return
+        initial = QColor(net.color) if net.color else QColor("#E03030")
+        color = QColorDialog.getColor(
+            initial,
+            self,  # type: ignore[arg-type]
+            f"Color for net '{net.name}'",
+            QColorDialog.ColorDialogOption.DontUseNativeDialog,
+        )
+        if not color.isValid():
+            return
+        self._apply_color(net_id, color.name())
+
+    def _on_clear_color(self) -> None:
+        net_id = self._current_net_id()
+        if net_id is None or self._session is None:
+            return
+        self._apply_color(net_id, None)
+
+    def _apply_color(self, net_id: uuid.UUID, color: str | None) -> None:
+        from protoboard.domain.commands.net_cmds import SetNetColorCommand
+
+        cmd = SetNetColorCommand(net_id=net_id, new_color=color)
+        self._session.stack.execute(cmd, self._session)  # type: ignore[union-attr]
+        self._rebuild()
+        self.nets_changed.emit()
+
+    def _on_net_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
+        if column == _NET_COL_COLOR:
+            self._net_tree.setCurrentItem(item)
+            self._on_set_color()
+
     def _on_net_context_menu(self, pos: object) -> None:
         from PySide6.QtCore import QPoint
 
@@ -306,6 +360,9 @@ class NetsEditorPanel(QWidget):
         self._net_tree.setCurrentItem(item)
         menu = QMenu(self)  # type: ignore[arg-type]
         menu.addAction("Rename", self._on_rename_net)
+        menu.addAction("Set color…", self._on_set_color)
+        menu.addAction("Clear color", self._on_clear_color)
+        menu.addSeparator()
         menu.addAction("Delete", self._on_delete_net)
         menu.exec(self._net_tree.mapToGlobal(pos))
 

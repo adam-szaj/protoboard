@@ -147,6 +147,7 @@ def _schematic_to_yaml(schematic: Schematic) -> str:
             {
                 "id": str(net.id),
                 "name": net.name,
+                **({"color": net.color} if net.color else {}),
                 "pins": [
                     {
                         "component_id": str(ref.component_id),
@@ -285,7 +286,12 @@ def _schematic_from_yaml(text: str) -> Schematic:
             )
             for p in raw.get("pins") or []
         }
-        nets[net_id] = Net(id=net_id, name=raw["name"], pins=pins)
+        nets[net_id] = Net(
+            id=net_id,
+            name=raw["name"],
+            pins=pins,
+            color=raw.get("color") or None,
+        )
     return Schematic(nets=nets)
 
 

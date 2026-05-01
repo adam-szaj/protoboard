@@ -26,6 +26,7 @@ class Net:
     id: uuid.UUID
     name: str
     pins: set[PinRef] = field(default_factory=set)
+    color: str | None = None  # hex color string e.g. "#E03030"; None = auto from palette
 
     def __hash__(self) -> int:
         return hash(self.id)
