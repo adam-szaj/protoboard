@@ -327,8 +327,12 @@ class BoardView(QGraphicsView):
             return
         if self._active_tool is not None:
             self._active_tool.on_key(event)
-        # Always forward to the main window so global shortcuts (S/W/C/H/F5/F6…)
-        # work regardless of which widget has focus.
+        # Forward to MainWindow so global shortcuts (S/W/C/H/F5/F6/Ctrl+0…) work
+        # regardless of which widget has focus.  Keys handled exclusively by tools
+        # (R, Del, A, Enter) are not claimed by MainWindow.keyPressEvent, so they
+        # fall through to its super() call harmlessly.  If a new MainWindow handler
+        # is ever added for a key that tools also use, the tool must call
+        # event.accept() to prevent the double-dispatch from causing side-effects.
         self.window().keyPressEvent(event)
 
     def keyReleaseEvent(self, event: QKeyEvent) -> None:
