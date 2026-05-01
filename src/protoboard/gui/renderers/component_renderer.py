@@ -22,30 +22,15 @@ from protoboard.domain.layout.placement import ComponentPlacement, pin_world_pos
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
+from protoboard.gui.theme import DEFAULT_THEME, Theme
 
-COMP_FILL = QColor(255, 255, 200, 180)  # pale yellow, semi-transparent
-COMP_BORDER = QColor("#444444")
-PIN_COLOR = QColor("#CC2222")  # fallback when no schematic
-PIN_RADIUS = 0.18
-REFDES_COLOR = QColor("#AAAAAA")
 _REFDES_FONT = QFont("monospace", 1)
-_REFDES_FONT.setPointSizeF(0.55)
-
-# Net colour palette — distinct, moderately saturated
-_NET_COLORS = [
-    QColor("#E63B3B"),  # red
-    QColor("#3B8AE6"),  # blue
-    QColor("#2ECC71"),  # green
-    QColor("#E6A020"),  # amber
-    QColor("#A020E6"),  # purple
-    QColor("#20C8E6"),  # cyan
-    QColor("#E6207A"),  # pink
-    QColor("#7AE620"),  # lime
-]
+_REFDES_FONT.setPointSizeF(DEFAULT_THEME.refdes_font_size)
 
 
-def _net_color(net_id: uuid.UUID) -> QColor:
-    return _NET_COLORS[abs(hash(net_id)) % len(_NET_COLORS)]
+def _net_color(net_id: uuid.UUID, theme: Theme = DEFAULT_THEME) -> QColor:
+    colors = theme.pin_net_colors
+    return QColor(colors[abs(hash(net_id)) % len(colors)])
 
 
 def render_components(
@@ -55,8 +40,8 @@ def render_components(
     components: dict[str, ComponentDefinition],
     schematic: Schematic | None = None,
     routed_nets: set[uuid.UUID] | None = None,
+    theme: Theme = DEFAULT_THEME,
 ) -> None:
-    # Build pin→net map once for all components if schematic is available.
     pin_net: dict[PinRef, uuid.UUID] = {}
     if schematic is not None:
         for net in schematic.nets.values():
@@ -70,7 +55,7 @@ def render_components(
         defn = components.get(inst.definition_ref)
         if defn is None:
             continue
-        _render_one(scene, placement, inst, defn, comp_id, pin_net, routed_nets)
+        _render_one(scene, placement, inst, defn, comp_id, pin_net, routed_nets, theme)
 
 
 def _render_one(
@@ -81,6 +66,7 @@ def _render_one(
     comp_id: uuid.UUID,
     pin_net: dict[PinRef, uuid.UUID],
     routed_nets: set[uuid.UUID] | None,
+    theme: Theme,
 ) -> None:
     fp = defn.footprint
     positions = [
@@ -89,26 +75,27 @@ def _render_one(
     if not positions:
         return
 
-    # Bounding box of all pins (with a small margin).
     margin = 0.35
     xs = [p.x for p in positions]
     ys = [p.y for p in positions]
     x0, y0 = min(xs) - margin, min(ys) - margin
     x1, y1 = max(xs) + margin, max(ys) + margin
 
+    comp_fill = QColor(theme.comp_fill_r, theme.comp_fill_g, theme.comp_fill_b, theme.comp_fill_a)
+    comp_border = QColor(theme.comp_border)
     rect_item = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
-    rect_item.setBrush(QBrush(COMP_FILL))
-    rect_item.setPen(QPen(COMP_BORDER, 0.06))
+    rect_item.setBrush(QBrush(comp_fill))
+    rect_item.setPen(QPen(comp_border, 0.06))
     scene.addItem(rect_item)
 
-    # Pin dots — coloured by net if schematic is present.
+    pin_color_fallback = QColor(theme.pin_color_fallback)
     for pin_idx, pos in enumerate(positions):
         pin_number = pin_idx + 1
         ref = PinRef(component_id=comp_id, pin_number=pin_number)
         net_id = pin_net.get(ref)
 
         if net_id is not None:
-            color = QColor(_net_color(net_id))
+            color = _net_color(net_id, theme)
             complete = routed_nets is None or net_id in routed_nets
             if complete:
                 fill_color = color
@@ -120,29 +107,23 @@ def _render_one(
                 pen = QPen(color, 0.06)
                 pen.setStyle(Qt.PenStyle.DashLine)
         else:
-            fill_color = PIN_COLOR
+            fill_color = pin_color_fallback
             pen = QPen(Qt.GlobalColor.transparent, 0)
 
         if pin_number == 1:
-            _add_pin1_marker(scene, pos.x, pos.y, fill_color)
+            _add_pin1_marker(scene, pos.x, pos.y, fill_color, theme)
         else:
-            dot = QGraphicsEllipseItem(
-                QRectF(
-                    pos.x - PIN_RADIUS, pos.y - PIN_RADIUS,
-                    2 * PIN_RADIUS, 2 * PIN_RADIUS,
-                )
-            )
+            r = theme.pin_radius
+            dot = QGraphicsEllipseItem(QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r))
             dot.setBrush(QBrush(fill_color))
             dot.setPen(pen)
             scene.addItem(dot)
 
-    # refdes label — centred inside bbox unless label_offset differs from default.
     label = QGraphicsTextItem(inst.refdes)
-    label.setDefaultTextColor(REFDES_COLOR)
+    label.setDefaultTextColor(QColor(theme.refdes_color))
     label.setFont(_REFDES_FONT)
     _default_offset = Point(0.05, 0.05)
     if placement.label_offset == _default_offset:
-        # Auto-centre: place so text centre aligns with component bbox centre.
         br = label.boundingRect()
         cx = (x0 + x1) / 2.0 - br.width() / 2.0
         cy = (y0 + y1) / 2.0 - br.height() / 2.0
@@ -152,31 +133,22 @@ def _render_one(
     scene.addItem(label)
 
 
-_PIN1_COLOR = QColor("#FFFFFF")   # white triangle — visible on any background
-_PIN1_R = PIN_RADIUS * 1.1        # slightly larger than regular pin
-
-
 def _add_pin1_marker(
-    scene: QGraphicsScene, cx: float, cy: float, fill_color: QColor
+    scene: QGraphicsScene, cx: float, cy: float, fill_color: QColor, theme: Theme
 ) -> None:
-    """Draw a square marker for pin 1 (instead of the usual circle)."""
-    r = _PIN1_R
+    r = theme.pin_radius * 1.1
     square = QGraphicsRectItem(QRectF(cx - r, cy - r, 2 * r, 2 * r))
     square.setBrush(QBrush(fill_color))
-    square.setPen(QPen(_PIN1_COLOR, 0.06))
+    square.setPen(QPen(QColor("#FFFFFF"), 0.06))
     scene.addItem(square)
 
 
 def make_ghost_item(
     defn: ComponentDefinition,
     rotation: int = 0,
+    theme: Theme = DEFAULT_THEME,
 ) -> QGraphicsItemGroup:
-    """Return a semi-transparent QGraphicsItemGroup previewing *defn* at origin.
-
-    The group is positioned at (0, 0) — caller moves it by setting pos().
-    It is NOT added to any scene; caller must do scene.addItem(group).
-    """
-    # Synthetic placement at origin for position calculation.
+    """Return a semi-transparent QGraphicsItemGroup previewing *defn* at origin."""
     placement = ComponentPlacement(
         component_id=uuid.UUID(int=0),
         position=Point(0.0, 0.0),
@@ -196,9 +168,11 @@ def make_ghost_item(
     x0, y0 = min(xs) - margin, min(ys) - margin
     x1, y1 = max(xs) + margin, max(ys) + margin
 
-    ghost_fill = QColor(255, 255, 200, 80)
-    ghost_border = QColor(255, 255, 100, 160)
-    ghost_pin = QColor(200, 80, 80, 160)
+    t = theme
+    ghost_fill = QColor(t.ghost_fill_r, t.ghost_fill_g, t.ghost_fill_b, t.ghost_fill_a)
+    ghost_border = QColor(t.ghost_border_r, t.ghost_border_g, t.ghost_border_b, t.ghost_border_a)
+    ghost_pin = QColor(t.ghost_pin_r, t.ghost_pin_g, t.ghost_pin_b, t.ghost_pin_a)
+    ghost_label = QColor(t.ghost_label_r, t.ghost_label_g, t.ghost_label_b, t.ghost_label_a)
 
     group = QGraphicsItemGroup()
 
@@ -207,17 +181,15 @@ def make_ghost_item(
     rect_item.setPen(QPen(ghost_border, 0.06, Qt.PenStyle.DashLine))
     group.addToGroup(rect_item)
 
+    r = theme.pin_radius
     for pos in positions:
-        r = PIN_RADIUS
-        dot = QGraphicsEllipseItem(
-            QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r)
-        )
+        dot = QGraphicsEllipseItem(QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r))
         dot.setBrush(QBrush(ghost_pin))
         dot.setPen(QPen(Qt.GlobalColor.transparent, 0))
         group.addToGroup(dot)
 
     label = QGraphicsTextItem(defn.name)
-    label.setDefaultTextColor(QColor(220, 220, 100, 180))
+    label.setDefaultTextColor(ghost_label)
     label.setFont(_REFDES_FONT)
     label.setPos(x0 + 0.05, y0 + 0.05)
     group.addToGroup(label)
@@ -228,12 +200,6 @@ def make_ghost_item(
 # Group rendering
 # ---------------------------------------------------------------------------
 
-_GROUP_PEN = QPen(QColor(100, 200, 255, 160), 0.08)
-_GROUP_PEN.setStyle(Qt.PenStyle.DotLine)
-_GROUP_FILL = QColor(100, 200, 255, 12)
-_GROUP_NAME_COLOR = QColor(100, 200, 255, 200)
-_GROUP_MARGIN = 0.6
-
 
 def render_groups(
     scene: QGraphicsScene,
@@ -241,9 +207,19 @@ def render_groups(
     placements: dict[uuid.UUID, ComponentPlacement],
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
+    theme: Theme = DEFAULT_THEME,
 ) -> None:
     """Render a dotted outline around each group's bounding box."""
     from protoboard.domain.layout.group import all_component_ids
+
+    t = theme
+    group_pen = QPen(
+        QColor(t.group_pen_r, t.group_pen_g, t.group_pen_b, t.group_pen_a),
+        t.group_pen_width,
+    )
+    group_pen.setStyle(Qt.PenStyle.DotLine)
+    group_fill = QColor(t.group_fill_r, t.group_fill_g, t.group_fill_b, t.group_fill_a)
+    group_name_color = QColor(t.group_name_r, t.group_name_g, t.group_name_b, t.group_name_a)
 
     for group in layout.groups.values():
         comp_ids = all_component_ids(layout.groups, group.id)
@@ -262,18 +238,17 @@ def render_groups(
             continue
         xs = [p.x for p in positions]
         ys = [p.y for p in positions]
-        m = _GROUP_MARGIN
+        m = t.group_margin
         x0 = min(xs) - m
         y0 = min(ys) - m
         w = max(xs) - min(xs) + 2 * m
         h = max(ys) - min(ys) + 2 * m
         rect = QGraphicsRectItem(QRectF(x0, y0, w, h))
-        rect.setPen(_GROUP_PEN)
-        rect.setBrush(QBrush(_GROUP_FILL))
+        rect.setPen(group_pen)
+        rect.setBrush(QBrush(group_fill))
         scene.addItem(rect)
-        # Group name label at top-left corner.
         name_label = QGraphicsTextItem(group.name)
-        name_label.setDefaultTextColor(_GROUP_NAME_COLOR)
+        name_label.setDefaultTextColor(group_name_color)
         name_label.setFont(_REFDES_FONT)
         name_label.setPos(x0 + 0.1, y0 + 0.05)
         scene.addItem(name_label)

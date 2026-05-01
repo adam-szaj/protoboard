@@ -16,56 +16,25 @@ from protoboard.domain.layout.wire import WireSegment
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
+from protoboard.gui.theme import DEFAULT_THEME, Theme
 
-# ── Visual constants ─────────────────────────────────────────────────────────
-
-# Net colours — same colour used for all wires of the same net, regardless of
-# insulation or side.  Palette is cycle-indexed by net UUID hash.
-_NET_COLORS = [
-    QColor("#E03030"),  # red
-    QColor("#3060E0"),  # blue
-    QColor("#30A030"),  # green
-    QColor("#E0A020"),  # amber
-    QColor("#A030A0"),  # purple
-    QColor("#20B0B0"),  # cyan
-    QColor("#E06020"),  # orange
-    QColor("#B08020"),  # olive
-]
-
-# Bare wire: thin, no jacket.  Drawn as a dashed line over grey tint so it is
-# visually lighter than an insulated wire of the same colour.
-_BARE_WIDTH        = 0.16
-_BARE_OUTLINE_COLOR = QColor("#888888")
-_BARE_OUTLINE_WIDTH = 0.20
-_BARE_TINT         = QColor(255, 255, 255, 60)   # white overlay on colour
-_BARE_TINT_WIDTH   = _BARE_WIDTH + 0.04
-
-# Insulated wire: thicker, solid, with a thin black outline.
-_INS_WIDTH         = 0.18
-_INS_OUTLINE_COLOR = QColor("#000000")
-_INS_OUTLINE_WIDTH = 0.28
-
-# Bottom-side wires: same style but dimmed (lower opacity).
-_BOTTOM_OPACITY    = 0.45   # applied to colour alpha
-
-# Z-values.  Bottom wires sit below board pads; top wires above.
+# Z-values — bottom wires sit below board pads; top wires above.
 _Z_BOTTOM = 0.6
-_Z_TOP    = 1.0
-_Z_OUTLINE_OFFSET = -0.05   # outline slightly behind fill
+_Z_TOP = 1.0
+_Z_OUTLINE_OFFSET = -0.05
 
 
-def _net_color(net_id: uuid.UUID | None, override: str | None = None) -> QColor:
-    """Return the display colour for a net.
-
-    *override* is a hex string set by the user on the Net object; if absent
-    the colour is chosen from the auto palette keyed by *net_id*.
-    """
+def _net_color(
+    net_id: uuid.UUID | None,
+    override: str | None = None,
+    theme: Theme = DEFAULT_THEME,
+) -> QColor:
     if override:
         return QColor(override)
     if net_id is None:
-        return QColor("#A0A0A0")
-    idx = abs(hash(net_id)) % len(_NET_COLORS)
-    return _NET_COLORS[idx]
+        return QColor(theme.net_color_unassigned)
+    idx = abs(hash(net_id)) % len(theme.net_colors)
+    return QColor(theme.net_colors[idx])
 
 
 def _dim(color: QColor, opacity: float) -> QColor:
@@ -79,19 +48,19 @@ def render_wires_with_nets(
     wires: list[WireSegment],
     wire_net_map: dict[uuid.UUID, uuid.UUID],
     net_color_map: dict[uuid.UUID, str | None] | None = None,
+    theme: Theme = DEFAULT_THEME,
 ) -> None:
     """Render wires with correct per-net colouring.
 
     *wire_net_map* maps wire.id → net.id.
     *net_color_map* maps net.id → user-set hex color (or None for auto palette).
-    Both are built by the caller who has access to the schematic and layout.
     """
     for wire in wires:
         net_id = wire_net_map.get(wire.id)
         color_override: str | None = None
         if net_id is not None and net_color_map:
             color_override = net_color_map.get(net_id)
-        _draw_wire(scene, wire, net_id, color_override)
+        _draw_wire(scene, wire, net_id, color_override, theme)
 
 
 def _draw_wire(
@@ -99,18 +68,19 @@ def _draw_wire(
     wire: WireSegment,
     net_id: uuid.UUID | None,
     color_override: str | None = None,
+    theme: Theme = DEFAULT_THEME,
 ) -> None:
     pts = wire.path
-    color = _net_color(net_id, color_override)
+    color = _net_color(net_id, color_override, theme)
     is_bottom = wire.side == "bottom"
     z_base = _Z_BOTTOM if is_bottom else _Z_TOP
     if is_bottom:
-        color = _dim(color, _BOTTOM_OPACITY)
+        color = _dim(color, theme.bottom_opacity)
 
     if wire.insulated:
-        _draw_insulated(scene, pts, color, z_base)
+        _draw_insulated(scene, pts, color, z_base, theme)
     else:
-        _draw_bare(scene, pts, color, z_base)
+        _draw_bare(scene, pts, color, z_base, theme)
 
 
 def _draw_insulated(
@@ -118,11 +88,12 @@ def _draw_insulated(
     pts: list[Point],
     color: QColor,
     z_base: float,
+    theme: Theme,
 ) -> None:
-    outline_pen = QPen(_INS_OUTLINE_COLOR, _INS_OUTLINE_WIDTH)
+    outline_pen = QPen(QColor(theme.ins_outline_color), theme.ins_outline_width)
     outline_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     outline_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-    core_pen = QPen(color, _INS_WIDTH)
+    core_pen = QPen(color, theme.ins_width)
     core_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     core_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     for i in range(len(pts) - 1):
@@ -143,13 +114,12 @@ def _draw_bare(
     pts: list[Point],
     color: QColor,
     z_base: float,
+    theme: Theme,
 ) -> None:
-    # Bare wire: dashed line in net colour, thin, with flat caps.
-
-    outline_pen = QPen(_BARE_OUTLINE_COLOR, _BARE_OUTLINE_WIDTH)
+    outline_pen = QPen(QColor(theme.bare_outline_color), theme.bare_outline_width)
     outline_pen.setCapStyle(Qt.PenCapStyle.FlatCap)
     outline_pen.setJoinStyle(Qt.PenJoinStyle.BevelJoin)
-    pen = QPen(color, _BARE_WIDTH)
+    pen = QPen(color, theme.bare_width)
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     for i in range(len(pts) - 1):
@@ -167,9 +137,6 @@ def _draw_bare(
 
 # ── Ratsnest ─────────────────────────────────────────────────────────────────
 
-_RATSNEST_COLOR = QColor(255, 80, 80, 160)
-_RATSNEST_WIDTH = 0.08
-
 
 def render_ratsnest(
     scene: QGraphicsScene,
@@ -178,12 +145,15 @@ def render_ratsnest(
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
     routed_nets: set[uuid.UUID] | None,
+    theme: Theme = DEFAULT_THEME,
 ) -> None:
     """Draw crow-flies lines for unrouted pin pairs in incomplete nets."""
     if routed_nets is None:
         return
 
-    pen = QPen(_RATSNEST_COLOR, _RATSNEST_WIDTH)
+    color = QColor(theme.ratsnest_color)
+    color.setAlpha(theme.ratsnest_alpha)
+    pen = QPen(color, theme.ratsnest_width)
     pen.setStyle(Qt.PenStyle.DotLine)
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
 

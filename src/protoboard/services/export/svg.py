@@ -14,18 +14,9 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.domain.layout.wire import WireSegment
+from protoboard.gui.theme import DEFAULT_THEME, Theme
 
 _NS = "http://www.w3.org/2000/svg"
-_SCALE = 10.0  # raster units → SVG user units (px)
-
-_BG_COLOR = "#2B6B3A"
-_PAD_COLOR = "#C8A030"
-_HOLE_COLOR = "#1A1A1A"
-_WIRE_COLORS = ["#E03030", "#3060E0", "#30A030", "#E0A020", "#A030A0"]
-_WIRE_BARE = "#888888"
-_COMP_FILL = "rgba(255,255,200,0.7)"
-_COMP_BORDER = "#444444"
-_TEXT_COLOR = "#111111"
 
 
 def export_svg(
@@ -33,9 +24,12 @@ def export_svg(
     layout: Layout,
     components: dict[str, ComponentDefinition],
     instances: dict[uuid.UUID, ComponentInstance],
-    scale: float = _SCALE,
+    scale: float | None = None,
+    theme: Theme = DEFAULT_THEME,
 ) -> str:
     """Render the top layer of the board to an SVG string."""
+    if scale is None:
+        scale = theme.svg_scale
     bounds = board.bounds
     w = (bounds.width + 2) * scale
     h = (bounds.height + 2) * scale
@@ -59,11 +53,12 @@ def export_svg(
 
     # Background rect.
     ET.SubElement(
-        svg, "rect", x="0", y="0", width=f"{w:.0f}", height=f"{h:.0f}", fill=_BG_COLOR
+        svg, "rect", x="0", y="0", width=f"{w:.0f}", height=f"{h:.0f}",
+        fill=theme.svg_bg,
     )
 
     # Pads.
-    pad_r = 0.35 * scale
+    pad_r = theme.pad_radius * scale
     hole_r = pad_r * 0.45
     for atom, pos in board.atoms():
         if isinstance(atom, (PadAtom, StripAtom)):
@@ -74,9 +69,9 @@ def export_svg(
                     "cx": sx(pos.x),
                     "cy": sy(pos.y),
                     "r": f"{pad_r:.3f}",
-                    "fill": _PAD_COLOR,
+                    "fill": theme.strip_color,
                     "stroke": "#000",
-                    "stroke-width": f"{0.04 * scale:.3f}",
+                    "stroke-width": f"{theme.pad_outline_width * scale:.3f}",
                 },
             )
             ET.SubElement(
@@ -85,14 +80,14 @@ def export_svg(
                 cx=sx(pos.x),
                 cy=sy(pos.y),
                 r=f"{hole_r:.3f}",
-                fill=_HOLE_COLOR,
+                fill=theme.hole_color,
             )
 
     # Wires.
     for wire in layout.wires:
         if wire.side != "top":
             continue
-        color = _wire_color(wire)
+        color = _wire_color(wire, theme)
         pts = wire.path
         for i in range(len(pts) - 1):
             ET.SubElement(
@@ -104,7 +99,7 @@ def export_svg(
                     "x2": sx(pts[i + 1].x),
                     "y2": sy(pts[i + 1].y),
                     "stroke": color,
-                    "stroke-width": f"{0.15 * scale:.3f}",
+                    "stroke-width": f"{theme.ins_width * scale:.3f}",
                     "stroke-linecap": "round",
                 },
             )
@@ -119,7 +114,7 @@ def export_svg(
         defn = components.get(inst.definition_ref)
         if defn is None:
             continue
-        _render_component(svg, placement, inst, defn, sx, sy, scale)
+        _render_component(svg, placement, inst, defn, sx, sy, scale, theme)
 
     ET.indent(svg)
     return ET.tostring(svg, encoding="unicode", xml_declaration=False)
@@ -133,8 +128,8 @@ def _render_component(
     sx: Callable[[float], str],
     sy: Callable[[float], str],
     scale: float,
+    theme: Theme,
 ) -> None:
-
     positions = [
         pin_world_position(defn.footprint, placement, n + 1)
         for n in range(defn.footprint.pin_count())
@@ -150,6 +145,10 @@ def _render_component(
     rw = max(xs) - min(xs) + 2 * margin
     rh = max(ys) - min(ys) + 2 * margin
 
+    comp_fill = (
+        f"rgba({theme.comp_fill_r},{theme.comp_fill_g},"
+        f"{theme.comp_fill_b},{theme.comp_fill_a / 255:.2f})"
+    )
     ET.SubElement(
         svg,
         "rect",
@@ -158,8 +157,8 @@ def _render_component(
             "y": sy(y0),
             "width": f"{rw * scale:.3f}",
             "height": f"{rh * scale:.3f}",
-            "fill": _COMP_FILL,
-            "stroke": _COMP_BORDER,
+            "fill": comp_fill,
+            "stroke": theme.comp_border,
             "stroke-width": f"{0.06 * scale:.3f}",
         },
     )
@@ -169,18 +168,18 @@ def _render_component(
         attrib={
             "x": sx(x0 + 0.05),
             "y": sy(y0 + 0.6),
-            "fill": _TEXT_COLOR,
-            "font-size": f"{0.55 * scale:.1f}",
+            "fill": theme.svg_text_color,
+            "font-size": f"{theme.refdes_font_size * scale:.1f}",
             "font-family": "monospace",
         },
     )
     text.text = inst.refdes
 
 
-def _wire_color(wire: WireSegment) -> str:
+def _wire_color(wire: WireSegment, theme: Theme) -> str:
     if not wire.insulated:
-        return _WIRE_BARE
+        return theme.bare_outline_color
     if wire.color:
         return wire.color
-    idx = abs(hash(wire.id)) % len(_WIRE_COLORS)
-    return _WIRE_COLORS[idx]
+    idx = abs(hash(wire.id)) % len(theme.net_colors)
+    return theme.net_colors[idx]
