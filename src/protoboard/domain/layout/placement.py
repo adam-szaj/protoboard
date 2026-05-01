@@ -111,6 +111,12 @@ def pin_world_position(
     off = placement.pin_offsets.get(pin_number)
     if off is not None:
         rel = Point(rel.x + off.x, rel.y + off.y)
+    # Components mounted on the bottom side are physically flipped — their
+    # local X axis is mirrored relative to the top view.  We apply this flip
+    # before rotation so that rotation=0 on bottom means "same anchor point,
+    # mirrored geometry", matching real-world PCB conventions.
+    if placement.side == "bottom":
+        rel = Point(-rel.x, rel.y)
     rotated = _rotate(rel, placement.rotation)
     return Point(
         placement.position.x + rotated.x,

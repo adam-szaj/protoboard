@@ -49,11 +49,13 @@ class BoardView(QGraphicsView):
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self._scale = _GRID_PX
         self.scale(_GRID_PX, _GRID_PX)
-        self._panning = False           # middle-button or Ctrl+drag pan
-        self._ctrl_panning = False      # True when panning via Ctrl+LeftButton
+        self._panning = False
+        self._ctrl_panning = False
         self._pan_start = QPointF()
         self._active_tool: _Tool | None = None
-        self._mirrored: bool = False
+        # View state — camera side and visual transform are independent.
+        self._camera_side: str = "top"           # "top" | "bottom"
+        self._view_transform: str = "normal"     # "normal" | "mirror_h" | "mirror_v"
         session.layout_changed.connect(self.refresh)
         self.refresh()
 
@@ -62,32 +64,83 @@ class BoardView(QGraphicsView):
     # ------------------------------------------------------------------
 
     @property
-    def is_mirrored(self) -> bool:
-        return self._mirrored
+    def camera_side(self) -> str:
+        return self._camera_side
 
-    def toggle_mirror(self) -> None:
-        """Flip the view horizontally (mirror = looking from the bottom side).
+    @property
+    def view_transform(self) -> str:
+        return self._view_transform
 
-        Camera side and active editing side are always in sync:
-        mirrored → camera=bottom → RouteTool switches to bottom automatically.
-        """
-        self._mirrored = not self._mirrored
-        t = self.transform()
+    # ------------------------------------------------------------------
+    # View control — camera and transform are independent.
+    # ------------------------------------------------------------------
+
+    def set_camera_side(self, side: str) -> None:
+        """Switch between top and bottom camera.  Syncs tool side."""
+        if side == self._camera_side:
+            return
+        self._camera_side = side
+        self._sync_tool_side(side)
+        self._apply_view_transform()
+        self.refresh()
+
+    def set_view_transform(self, transform: str) -> None:
+        """Set the visual transform: 'normal', 'mirror_h', or 'mirror_v'."""
+        if transform == self._view_transform:
+            return
+        self._view_transform = transform
+        self._apply_view_transform()
+        self.refresh()
+
+    def _apply_view_transform(self) -> None:
+        """Recompute the QGraphicsView scale matrix from current state."""
+        sx = -1.0 if self._view_transform == "mirror_h" else 1.0
+        sy = -1.0 if self._view_transform == "mirror_v" else 1.0
+        # Preserve current zoom magnitude, apply sign flips.
+        mag = abs(self.transform().m11()) or _GRID_PX
         from PySide6.QtGui import QTransform
-        self.setTransform(QTransform(-t.m11(), t.m12(), t.m21(), t.m22(), 0.0, 0.0))
+        self.setTransform(QTransform(sx * mag, 0.0, 0.0, sy * mag, 0.0, 0.0))
 
-        # Synchronise RouteTool._side with the new camera side.
+    def _sync_tool_side(self, side: str) -> None:
         from protoboard.gui.tools.route_tool import RouteTool
-        new_side = "bottom" if self._mirrored else "top"
         if isinstance(self._active_tool, RouteTool):
-            self._active_tool._side = new_side  # type: ignore[assignment]
-        # Notify main window to update its wire-side state and status bar.
+            self._active_tool._side = side  # type: ignore[assignment]
         win = self.window()
         updater = getattr(win, "_set_wire_side", None)
         if updater is not None:
-            updater(new_side)
+            updater(side)
 
-        self.refresh()
+    # Convenience toggles (used by menu/keyboard).
+    def toggle_mirror_h(self) -> None:
+        self.set_view_transform(
+            "normal" if self._view_transform == "mirror_h" else "mirror_h"
+        )
+
+    def toggle_mirror_v(self) -> None:
+        self.set_view_transform(
+            "normal" if self._view_transform == "mirror_v" else "mirror_v"
+        )
+
+    def toggle_camera(self) -> None:
+        self.set_camera_side(
+            "bottom" if self._camera_side == "top" else "top"
+        )
+
+    # Legacy alias used by MainWindow._mirror_view (now means Mirror H).
+    def toggle_mirror(self) -> None:
+        self.toggle_mirror_h()
+
+    @property
+    def is_mirrored(self) -> bool:
+        return self._view_transform == "mirror_h"
+
+    def fit_board(self) -> None:
+        """Scale and center the view to fit the board bounds."""
+        b = self._session.board.bounds
+        self.fitInView(
+            QRectF(b.x - 1, b.y - 1, b.width + 2, b.height + 2),
+            Qt.AspectRatioMode.KeepAspectRatio,
+        )
 
     def fit_board(self) -> None:
         """Scale and center the view to fit the board bounds."""
@@ -111,9 +164,12 @@ class BoardView(QGraphicsView):
         if self._active_tool is not None:
             self._active_tool.on_scene_cleared()
 
-        # Derive rendering context from camera side and active tool.
-        camera_side = "bottom" if self._mirrored else "top"
-        layers = layer_state_for_tool(self._active_tool, camera_side)  # type: ignore[arg-type]
+        # Derive rendering context from camera side, view transform and tool.
+        layers = layer_state_for_tool(
+            self._active_tool,
+            self._camera_side,  # type: ignore[arg-type]
+            self._view_transform,  # type: ignore[arg-type]
+        )
 
         render_board(self._scene, self._session.board, layers=layers)
 
@@ -169,15 +225,21 @@ class BoardView(QGraphicsView):
         b = self._session.board.bounds
         self._scene.setSceneRect(QRectF(b.x - 1, b.y - 1, b.width + 2, b.height + 2))
 
-        # When mirrored, counter-transform all text items so labels stay readable.
-        if self._mirrored:
+        # When the scene is flipped, apply a counter-transform to text items so
+        # labels remain readable.  Mirror H flips X → counter-scale X by -1.
+        # Mirror V flips Y → counter-scale Y by -1.  Both may be combined.
+        if layers.needs_text_counter_transform():
             from PySide6.QtGui import QTransform
             from PySide6.QtWidgets import QGraphicsTextItem
+            sx = layers.scene_scale_x()   # ±1
+            sy = layers.scene_scale_y()   # ±1
             for item in self._scene.items():
                 if isinstance(item, QGraphicsTextItem):
                     br = item.boundingRect()
+                    tx = -br.width() if sx < 0 else 0.0
+                    ty = -br.height() if sy < 0 else 0.0
                     item.setTransform(
-                        QTransform().scale(-1.0, 1.0).translate(-br.width(), 0.0)
+                        QTransform().scale(sx, sy).translate(tx, ty)
                     )
 
     def select_component(self, comp_id: uuid.UUID) -> None:

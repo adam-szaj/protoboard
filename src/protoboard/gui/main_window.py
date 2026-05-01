@@ -103,8 +103,12 @@ class MainWindow(QMainWindow):
         act_drc = toolbar.addAction("DRC [F5]")
         act_autoroute_tb = toolbar.addAction("Autoroute [F6]")
         toolbar.addSeparator()
-        self._act_mirror_tb = toolbar.addAction("⟺ Mirror [H]")
+        self._act_mirror_tb = toolbar.addAction("⟺H [H]")
         self._act_mirror_tb.setCheckable(True)
+        self._act_mirror_v_tb = toolbar.addAction("⟺V [V]")
+        self._act_mirror_v_tb.setCheckable(True)
+        self._act_camera_tb = toolbar.addAction("⊙ Bottom [X]")
+        self._act_camera_tb.setCheckable(True)
 
         act_select.triggered.connect(self._tool_select)
         act_route.triggered.connect(self._tool_route)
@@ -112,6 +116,10 @@ class MainWindow(QMainWindow):
         act_drc.triggered.connect(self._run_drc)
         act_autoroute_tb.triggered.connect(self._autoroute)
         self._act_mirror_tb.triggered.connect(self._mirror_view)
+        self._act_mirror_v_tb.triggered.connect(self._mirror_view_v)
+        self._act_camera_tb.triggered.connect(lambda: self._set_camera(
+            "top" if self._board_view.camera_side == "bottom" else "bottom"
+        ))
 
         # Status bar.
         self._status = QStatusBar(self)
@@ -241,9 +249,26 @@ class MainWindow(QMainWindow):
         # ── View ──────────────────────────────────────────────────────────
         view_menu = mb.addMenu("&View")
 
+        # Camera side (which physical side is in front).
+        self._act_camera_top: QAction = view_menu.addAction("Camera: &Top")
+        self._act_camera_top.setCheckable(True)
+        self._act_camera_top.setChecked(True)
+        self._act_camera_top.triggered.connect(lambda: self._set_camera("top"))
+
+        self._act_camera_bottom: QAction = view_menu.addAction("Camera: &Bottom\tX")
+        self._act_camera_bottom.setCheckable(True)
+        self._act_camera_bottom.triggered.connect(lambda: self._set_camera("bottom"))
+
+        view_menu.addSeparator()
+
+        # Visual transform (independent of camera).
         self._act_mirror: QAction = view_menu.addAction("Mirror &Horizontal\tH")
         self._act_mirror.setCheckable(True)
         self._act_mirror.triggered.connect(self._mirror_view)
+
+        self._act_mirror_v: QAction = view_menu.addAction("Mirror &Vertical\tV")
+        self._act_mirror_v.setCheckable(True)
+        self._act_mirror_v.triggered.connect(self._mirror_view_v)
 
         view_menu.addSeparator()
 
@@ -374,10 +399,31 @@ class MainWindow(QMainWindow):
         )
 
     def _mirror_view(self) -> None:
-        self._board_view.toggle_mirror()
-        mirrored = self._board_view.is_mirrored
-        self._act_mirror.setChecked(mirrored)
-        self._act_mirror_tb.setChecked(mirrored)
+        self._board_view.toggle_mirror_h()
+        self._sync_view_actions()
+
+    def _mirror_view_v(self) -> None:
+        self._board_view.toggle_mirror_v()
+        self._sync_view_actions()
+
+    def _set_camera(self, side: str) -> None:
+        self._board_view.set_camera_side(side)
+        self._sync_view_actions()
+        # Keep wire side in sync.
+        self._set_wire_side(side)
+
+    def _sync_view_actions(self) -> None:
+        """Synchronise all view-related checkable actions with BoardView state."""
+        mh = self._board_view.view_transform == "mirror_h"
+        mv = self._board_view.view_transform == "mirror_v"
+        bottom = self._board_view.camera_side == "bottom"
+        self._act_mirror.setChecked(mh)
+        self._act_mirror_tb.setChecked(mh)
+        self._act_mirror_v.setChecked(mv)
+        self._act_mirror_v_tb.setChecked(mv)
+        self._act_camera_top.setChecked(not bottom)
+        self._act_camera_bottom.setChecked(bottom)
+        self._act_camera_tb.setChecked(bottom)
 
     def _fit_board(self) -> None:
         self._board_view.fit_board()
@@ -784,6 +830,12 @@ class MainWindow(QMainWindow):
             self._tool_cut()
         elif key == Qt.Key.Key_H and not ctrl:
             self._mirror_view()
+        elif key == Qt.Key.Key_V and not ctrl:
+            self._mirror_view_v()
+        elif key == Qt.Key.Key_X and not ctrl:
+            self._set_camera(
+                "top" if self._board_view.camera_side == "bottom" else "bottom"
+            )
         elif key == Qt.Key.Key_F5:
             self._run_drc()
         elif key == Qt.Key.Key_F6:

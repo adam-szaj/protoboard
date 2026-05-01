@@ -652,7 +652,7 @@ class SelectTool(_Tool):
 
     def _camera_side(self) -> str:
         """Return the current camera side from the parent BoardView."""
-        return "bottom" if getattr(self._view, "_mirrored", False) else "top"
+        return getattr(self._view, "_camera_side", "top")
 
     def _hit_test(self, scene_pt: QPointF) -> uuid.UUID | None:
         """Return the nearest component within _HIT_RADIUS.
