@@ -35,7 +35,7 @@ from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsLine
 from protoboard.domain.commands.component_cmds import PlaceComponentCommand
 from protoboard.domain.components.definition import PinBendSpec
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position, unrotate
+from protoboard.domain.layout.placement import ComponentPlacement, flip_component, pin_world_position, unrotate
 from protoboard.geometry import Point
 from protoboard.gui.board_view import _Tool
 from protoboard.gui.placement_conflict import check_and_resolve
@@ -137,10 +137,30 @@ class PlaceTool(_Tool):
             return
         key = event.key()
         mods = event.modifiers()
-        ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+        ctrl  = bool(mods & Qt.KeyboardModifier.ControlModifier)
         shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+        alt   = bool(mods & Qt.KeyboardModifier.AltModifier)
 
-        if key == Qt.Key.Key_R and not ctrl:
+        if key == Qt.Key.Key_R and alt and not ctrl and self._phase == "drag_pin":
+            # Alt+R: flip pin1/pin2 — anchor moves to old pin2 pad.
+            defn = self._session.components.get(self._definition_ref)
+            if defn and defn.footprint.pin_count() == 2 and self._anchor_pos is not None:
+                import uuid as _uuid
+                tmp_pl = ComponentPlacement(
+                    component_id=_uuid.UUID(int=0),
+                    position=self._anchor_pos,
+                    rotation=self._rotation,
+                    side="top",
+                    pin_offsets=dict(self._pin_offsets),
+                )
+                flipped = flip_component(defn.footprint, tmp_pl)
+                self._anchor_pos  = flipped.position
+                self._rotation    = flipped.rotation
+                self._pin_offsets = flipped.pin_offsets
+                self._rebuild_ghost_at_anchor()
+                self._update_reach_overlay()
+
+        elif key == Qt.Key.Key_R and not ctrl and not alt:
             delta = -90 if shift else 90
             self._rotation = (self._rotation + delta) % 360
             if self._phase == "drag_pin":

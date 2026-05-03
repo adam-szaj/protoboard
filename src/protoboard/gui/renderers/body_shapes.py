@@ -45,8 +45,17 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem,
 )
 
-from protoboard.domain.components.definition import ComponentClass, ComponentDefinition
-from protoboard.domain.components.footprints import DualRow, SingleRow
+from protoboard.domain.components.body_type import BodyTypeSpec, BodyVariant
+from protoboard.domain.components.definition import (
+    ComponentClass,
+    ComponentDefinition,
+)
+from protoboard.domain.components.footprints import (
+    DualRow,
+    SingleRow,
+    TO220Footprint,
+)
+from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
 from protoboard.gui.theme import DEFAULT_THEME, Theme
@@ -87,14 +96,23 @@ class BodyShape(ABC):
     ) -> list[QGraphicsItem]:
         """Return scene items (not yet added to scene)."""
 
+    def drawn_pin_numbers(
+        self,
+        positions: list[Point],
+        theme: Theme = DEFAULT_THEME,
+    ) -> frozenset[int]:
+        """Pin numbers whose markers are already drawn by this shape.
+
+        component_renderer skips its own pin markers for these pins to avoid
+        double-drawing (e.g. CylinderBody in vertical mode draws the circle
+        itself and does not want the generic dot on top).
+        """
+        return frozenset()
+
 
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
-
-def _a(base_alpha: int, alpha: float) -> int:
-    return max(0, min(255, int(base_alpha * alpha)))
-
 
 def _lead_pen(theme: Theme, alpha: float) -> QPen:
     c = QColor(theme.lead_color)
@@ -116,10 +134,6 @@ _SVG_NS = "http://www.w3.org/2000/svg"
 ET.register_namespace("", _SVG_NS)
 
 
-def _svg_tag(local: str) -> str:
-    return f"{{{_SVG_NS}}}{local}"
-
-
 def _find_id(root: ET.Element, elem_id: str) -> ET.Element | None:
     """Find first element with matching id anywhere in the tree."""
     for el in root.iter():
@@ -135,19 +149,22 @@ def _find_id(root: ET.Element, elem_id: str) -> ET.Element | None:
 class SvgBodyShape(BodyShape):
     """Render a component using a parametric SVG template.
 
-    The template is loaded once, deep-copied per draw call, then patched:
-    - lead endpoints adjusted for actual pin_offsets distance
-    - body fill/stroke set from theme colours
-    - pin circles coloured per net
-    - viewBox updated to match actual geometry
-    The result is passed to QSvgRenderer → QGraphicsSvgItem with a
-    QTransform that places and rotates it in world space.
+    SVG units are millimetres.  The template encodes only the physical body
+    (no leads, no pin markers).  ``data-body-width-mm`` and
+    ``data-body-height-mm`` attributes on the root ``<svg>`` element carry the
+    canvas dimensions so the renderer can convert mm → raster units.
+
+    Leads are drawn as ``QGraphicsLineItem`` objects in code; their length
+    adjusts to the actual pin spacing so the body size stays physically constant
+    regardless of how far apart the pins are placed.
     """
 
     def __init__(self, template_path: Path) -> None:
         self._path = template_path
-        # Parse once; draw() works on a deep copy each time.
         self._template: ET.ElementTree = ET.parse(template_path)
+        root = self._template.getroot()
+        self._body_w_mm = float(root.get("data-body-width-mm", "4"))
+        self._body_h_mm = float(root.get("data-body-height-mm", "10"))
 
     # ------------------------------------------------------------------
     # BodyShape interface
@@ -163,8 +180,6 @@ class SvgBodyShape(BodyShape):
         theme: Theme = DEFAULT_THEME,
     ) -> list[QGraphicsItem]:
         import copy
-        tree = copy.deepcopy(self._template)
-        root = tree.getroot()
 
         if len(positions) < 2:
             return GenericBody().draw(positions, fill, border, alpha, z, theme)
@@ -174,139 +189,100 @@ class SvgBodyShape(BodyShape):
         dx = p2.x - p1.x
         dy = p2.y - p1.y
         dist = math.hypot(dx, dy)
-        # SVG Y-axis aligns with the pin-1→pin-2 direction.
-        # Qt rotate(a) in screen coords (Y↓): angle = -atan2(dx, dy).
-        angle_deg = -math.degrees(math.atan2(dx, dy))
+        if dist < 1e-9:
+            return GenericBody().draw(positions, fill, border, alpha, z, theme)
 
-        self._patch_leads(root, dist, theme)
+        mm = theme.raster_pitch_mm
+        body_len_r = self._body_h_mm / mm   # body height in raster units
+        half       = body_len_r / 2.0
+
+        mid_x = (p1.x + p2.x) / 2.0
+        mid_y = (p1.y + p2.y) / 2.0
+        # SVG long axis is Y (height).  To align it with pin1→pin2 we need the
+        # Y axis to point in the (dx, dy) direction, which requires rotating
+        # the X axis there first (+90° extra vs the standard atan2 formula).
+        angle_deg = math.degrees(math.atan2(dy, dx)) + 90.0
+
+        items: list[QGraphicsItem] = []
+
+        # ------------------------------------------------------------------
+        # Leads — only when pins are farther apart than the body length
+        # ------------------------------------------------------------------
+        if dist > body_len_r + 1e-6:
+            unit_x = dx / dist
+            unit_y = dy / dist
+            attach = dist / 2.0 - half   # lead length on each side
+
+            lead_pen = _lead_pen(theme, alpha)
+            l1 = QGraphicsLineItem(
+                p1.x, p1.y,
+                p1.x + unit_x * attach, p1.y + unit_y * attach,
+            )
+            l2 = QGraphicsLineItem(
+                p2.x - unit_x * attach, p2.y - unit_y * attach,
+                p2.x, p2.y,
+            )
+            for ln in (l1, l2):
+                ln.setPen(lead_pen)
+                ln.setZValue(z - 0.01)
+            items.extend([l1, l2])
+
+        # ------------------------------------------------------------------
+        # SVG body — fixed physical size, placed at midpoint
+        # ------------------------------------------------------------------
+        tree = copy.deepcopy(self._template)
+        root = tree.getroot()
         self._patch_body_colour(root, fill, border, alpha)
-        self._patch_pins(root, positions, fill, alpha)
-        self._patch_viewbox(root, dist)
 
         xml_bytes = ET.tostring(root, encoding="unicode",
                                 xml_declaration=False).encode("utf-8")
 
-        # QGraphicsSvgItem.setSharedRenderer does NOT take ownership — the
-        # renderer must outlive the item.  Make the item the renderer's Qt
-        # parent so they share lifetime, and keep the Python reference alive
-        # by storing it as an attribute on the item.
         item = QGraphicsSvgItem()
-        renderer = QSvgRenderer(QByteArray(xml_bytes), item)  # item = Qt parent
+        renderer = QSvgRenderer(QByteArray(xml_bytes), item)
         item.setSharedRenderer(renderer)
-        item._svg_renderer = renderer  # keep Python ref alive
+        item._svg_renderer = renderer
         item.setZValue(z)
 
-        # viewBox starts at (0,0) and pin 1 is at SVG (0,0), so
-        # item-coord (0,0) == pin 1.  Simple translate + rotate suffices.
+        # SVG is in mm; scene is in raster units.
+        # scale = raster / mm so 1 mm → 1/mm raster.
+        # SVG canvas centre is at (body_w_mm/2, body_h_mm/2).
+        # We want that point at world (mid_x, mid_y) after rotation.
+        #
+        # Transform chain (Qt applies right-to-left):
+        #   translate(mid)                   — place centre at midpoint
+        #   rotate(angle_deg)                — align body with pin axis
+        #   scale(1/mm, 1/mm)                — mm → raster units
+        #   translate(-w_mm/2, -h_mm/2)      — SVG origin to canvas centre
+        s = 1.0 / mm
         t = QTransform()
-        t.translate(p1.x, p1.y)
+        t.translate(mid_x, mid_y)
         t.rotate(angle_deg)
+        t.scale(s, s)
+        t.translate(-self._body_w_mm / 2.0, -self._body_h_mm / 2.0)
         item.setTransform(t)
 
-        return [item]
+        items.append(item)
+        return items
 
     # ------------------------------------------------------------------
     # Patching helpers
     # ------------------------------------------------------------------
 
-    def _patch_leads(self, root: ET.Element, dist: float, theme: Theme) -> None:
-        """Adjust lead-1 and lead-2 endpoints to match actual pin distance."""
-        body_len = dist * theme.axial_body_length_ratio
-        attach1 = (dist - body_len) / 2.0   # y2 of lead-1 (pin-1 side)
-        attach2 = dist - attach1              # y1 of lead-2 (pin-2 side)
-
-        lead1 = _find_id(root, "lead-1")
-        if lead1 is not None:
-            lead1.set("y2", f"{attach1:.4f}")
-
-        lead2 = _find_id(root, "lead-2")
-        if lead2 is not None:
-            lead2.set("y1", f"{attach2:.4f}")
-            lead2.set("y2", f"{dist:.4f}")
-
-        # Update body position to stay centred
-        body = _find_id(root, "body")
-        if body is not None and body.tag in (_svg_tag("rect"), "rect"):
-            body_h = dist - 2 * (dist - body_len) / 2.0
-            body.set("y", f"{attach1:.4f}")
-            body.set("height", f"{body_h:.4f}")
-
-        # Update pin-2 circle position
-        pin2 = _find_id(root, "pin-2")
-        if pin2 is not None:
-            pin2.set("cy", f"{dist:.4f}")
-
     def _patch_body_colour(
         self, root: ET.Element, fill: QColor, border: QColor, alpha: float
     ) -> None:
-        fill_hex = fill.name()          # "#rrggbb"
-        fill_a = fill.alphaF() * alpha
+        fill_hex  = fill.name()
+        fill_a    = fill.alphaF() * alpha
         border_hex = border.name()
-        border_a = border.alphaF() * alpha
+        border_a  = border.alphaF() * alpha
 
-        body = _find_id(root, "body")
-        if body is not None:
-            body.set("fill", fill_hex)
-            body.set("fill-opacity", f"{fill_a:.3f}")
-            body.set("stroke", border_hex)
-            body.set("stroke-opacity", f"{border_a:.3f}")
-
-        # Leads share the lead_color from theme, but respect alpha
-        lead_hex = QColor(DEFAULT_THEME.lead_color).name()
-        for lead_id in ("lead-1", "lead-2", "lead-3"):
-            lead = _find_id(root, lead_id)
-            if lead is not None:
-                lead.set("stroke", lead_hex)
-                lead.set("stroke-opacity", f"{alpha:.3f}")
-
-    def _patch_pins(
-        self,
-        root: ET.Element,
-        positions: list[Point],
-        fallback: QColor,
-        alpha: float,
-    ) -> None:
-        """Set pin circle colours; pin1-marker gets the same colour as pin-1."""
-        fallback_hex = fallback.name()
-        for i in range(len(positions)):
-            pin_id = f"pin-{i + 1}"
-            el = _find_id(root, pin_id)
+        for elem_id in ("body",):
+            el = _find_id(root, elem_id)
             if el is not None:
-                el.set("fill", fallback_hex)
-                el.set("fill-opacity", f"{alpha:.3f}")
-        marker = _find_id(root, "pin1-marker")
-        if marker is not None:
-            marker.set("fill", fallback_hex)
-            marker.set("fill-opacity", f"{alpha:.3f}")
-
-    def patch_pin_net_color(
-        self, root: ET.Element, pin_number: int, color: QColor, alpha: float
-    ) -> None:
-        """Update a single pin's colour after net assignment is known."""
-        el = _find_id(root, f"pin-{pin_number}")
-        if el is not None:
-            el.set("fill", color.name())
-            el.set("fill-opacity", f"{alpha:.3f}")
-        if pin_number == 1:
-            marker = _find_id(root, "pin1-marker")
-            if marker is not None:
-                marker.set("fill", color.name())
-                marker.set("fill-opacity", f"{alpha:.3f}")
-
-    def _patch_viewbox(self, root: ET.Element, dist: float) -> None:
-        """Update viewBox to match actual pin distance.
-
-        Pin 1 is at SVG (0, 0).  viewBox starts at (0, 0) so that
-        QGraphicsSvgItem item-coordinate (0, 0) == SVG (0, 0) == pin 1.
-        A small margin is added to the right and bottom only.
-        """
-        margin = 0.5
-        half_w = 0.5 + margin
-        total_h = dist + margin
-
-        root.set("viewBox", f"0 0 {half_w * 2:.4f} {total_h:.4f}")
-        root.set("width",   f"{half_w * 2:.4f}")
-        root.set("height",  f"{total_h:.4f}")
+                el.set("fill",         fill_hex)
+                el.set("fill-opacity", f"{fill_a:.3f}")
+                el.set("stroke",       border_hex)
+                el.set("stroke-opacity", f"{border_a:.3f}")
 
 
 # ---------------------------------------------------------------------------
@@ -349,7 +325,7 @@ class SvgDIPBody(BodyShape):
         # Build SVG string directly
         pin_circles = []
         # Left column: pins 1..n at x=0, y=0..(n-1)
-        for i in range(n):
+        for i in range(1,n):
             pin_circles.append(
                 f'<circle id="pin-{i+1}" cx="0" cy="{i}" r="0.14"'
                 f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="none"/>'
@@ -363,22 +339,27 @@ class SvgDIPBody(BodyShape):
             )
 
         pin1_marker = (
-            f'<rect id="pin1-marker" x="-0.12" y="-0.12" width="0.24" height="0.24"'
+            f'<rect id="pin1-marker" x="-0.08" y="-0.08" width="0.16" height="0.16"'
             f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="none"/>'
         )
 
+        # Notch: semicircle cut into the top edge at pin-1 side.
+        # Two-arc technique: start at left edge of notch, arc through top,
+        # end at right edge — both points on the body top edge (y=-margin).
+        nx0 = mid_x - notch_r   # left notch point
+        nx1 = mid_x + notch_r   # right notch point
         svg = f"""<svg xmlns="http://www.w3.org/2000/svg"
      viewBox="{-margin} {-margin} {rs + 2*margin:.3f} {body_h:.3f}"
      width="{rs + 2*margin:.3f}" height="{body_h:.3f}"
      data-pin-count="{2*n}" data-n-per-row="{n}" data-rows-spacing="{rs}">
   <path id="body" fill-rule="evenodd"
         d="M {r},{-margin}
+           L {nx0},{-margin}
+           A {notch_r},{notch_r} 0 1,1 {nx1},{-margin}
            L {rs-r},{-margin} Q {rs},{-margin} {rs},{-margin+r}
            L {rs},{n-1+margin-r} Q {rs},{n-1+margin} {rs-r},{n-1+margin}
            L {r},{n-1+margin} Q {0},{n-1+margin} {0},{n-1+margin-r}
-           L {0},{-margin+r} Q {0},{-margin} {r},{-margin} Z
-           M {mid_x},{-margin}
-           A {notch_r},{notch_r} 0 1,0 {mid_x},{-margin+0.001} Z"
+           L {0},{-margin+r} Q {0},{-margin} {r},{-margin} Z"
         fill="{fill_hex}" fill-opacity="{fill_a}"
         stroke="{border_hex}" stroke-opacity="{border_a}" stroke-width="0.05"/>
   {pin1_marker}
@@ -393,10 +374,12 @@ class SvgDIPBody(BodyShape):
         item.setZValue(z)
 
         # DIP: pin 1 at positions[0], no rotation needed (layout already world).
-        # The SVG local frame matches DualRow pin_positions() exactly.
+        # viewBox=(-margin,-margin,...): item_coord(pin1) = (margin, margin),
+        # so translate(p1) then translate(-margin,-margin) = translate(vb_x, vb_y).
         p1 = positions[0]
         t = QTransform()
         t.translate(p1.x, p1.y)
+        t.translate(-margin, -margin)  # compensate for viewBox origin (-margin, -margin)
         item.setTransform(t)
         return [item]
 
@@ -458,7 +441,7 @@ class SvgSILBody(BodyShape):
             )
 
         pin1_marker = (
-            f'<rect id="pin1-marker" x="-0.12" y="-0.12" width="0.24" height="0.24"'
+            f'<rect id="pin1-marker" x="-0.08" y="-0.08" width="0.16" height="0.16"'
             f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="none"/>'
         )
 
@@ -493,6 +476,7 @@ class SvgSILBody(BodyShape):
         t = QTransform()
         t.translate(p1.x, p1.y)
         t.rotate(angle_deg)
+        t.translate(-m, -m)  # compensate for viewBox origin (-m, -m)
         item.setTransform(t)
         return [item]
 
@@ -552,8 +536,8 @@ class AxialBody(BodyShape):
         items.append(line)
 
         # Body rectangle in local frame, then transformed
-        body_len = dist * theme.axial_body_length_ratio
-        body_w = theme.axial_body_width
+        body_len = dist * 0.50   # fallback: 50% of pin distance
+        body_w   = 0.40
         path = QPainterPath()
         r = theme.body_corner_radius
         path.addRoundedRect(
@@ -647,8 +631,8 @@ class DiodeBody(BodyShape):
         items.append(line)
 
         # Diode body: small cylinder (rounded rect) with cathode bar
-        body_len = dist * theme.axial_body_length_ratio
-        body_w = theme.axial_body_width * 0.85
+        body_len = dist * 0.50
+        body_w   = 0.40 * 0.85
         r = theme.body_corner_radius
 
         path = QPainterPath()
@@ -712,9 +696,10 @@ class TO92Body(BodyShape):
         perp_x = -row_dy / perp_len
         perp_y = row_dx / perp_len
 
-        w = theme.to92_body_width
-        h = theme.to92_body_height
-        body_offset = 0.7   # distance from pin row to bottom edge of body
+        mm = theme.raster_pitch_mm
+        w = theme.to92_body_width_mm  / mm
+        h = theme.to92_body_height_mm / mm
+        body_offset = 1.0 / mm   # ~1 mm gap from pin row to body edge
 
         # Body centre
         cx = p_mid.x + perp_x * (body_offset + h / 2)
@@ -760,6 +745,95 @@ class TO92Body(BodyShape):
             items.append(line)
 
         items.append(body)
+        return items
+
+
+# ---------------------------------------------------------------------------
+# TO220Body — voltage regulator / power transistor in TO-220
+#
+#  [1] [2] [3]
+#   |   |   |
+#  ╔═══════════╗
+#  ║           ║  ← rectangular body + flat metal tab on top
+#  ╚═══════════╝
+#  ════════════    ← tab (thinner rect)
+# ---------------------------------------------------------------------------
+
+class TO220Body(BodyShape):
+    def draw(self, positions, fill, border, alpha, z, theme=DEFAULT_THEME):
+        if len(positions) < 3:
+            return GenericBody().draw(positions, fill, border, alpha, z, theme)
+
+        row_dx = positions[2].x - positions[0].x
+        row_dy = positions[2].y - positions[0].y
+        perp_len = math.hypot(row_dx, row_dy)
+        if perp_len < 1e-6:
+            return GenericBody().draw(positions, fill, border, alpha, z, theme)
+
+        # Perpendicular unit vector pointing "away" from user (left of row dir)
+        perp_x = -row_dy / perp_len
+        perp_y =  row_dx / perp_len
+
+        p_mid = positions[1]
+        row_angle = math.degrees(math.atan2(row_dy, row_dx))
+
+        mm = theme.raster_pitch_mm
+        w     = theme.to220_body_width_mm  / mm
+        h     = theme.to220_body_height_mm / mm
+        tab_h = theme.to220_tab_height_mm  / mm
+        body_offset = 1.0 / mm   # ~1 mm gap from pin row to body edge
+
+        # Body centre (rectangular, no D-shape)
+        cx = p_mid.x + perp_x * (body_offset + h / 2)
+        cy = p_mid.y + perp_y * (body_offset + h / 2)
+
+        # Tab centre (behind body)
+        tx = p_mid.x + perp_x * (body_offset + h + tab_h / 2)
+        ty = p_mid.y + perp_y * (body_offset + h + tab_h / 2)
+
+        items: list[QGraphicsItem] = []
+        lead = _lead_pen(theme, alpha)
+        bp = _body_pen(border, alpha)
+        r = theme.body_corner_radius
+
+        # Lead lines
+        for p in positions:
+            ex = p.x + perp_x * body_offset
+            ey = p.y + perp_y * body_offset
+            line = QGraphicsLineItem(p.x, p.y, ex, ey)
+            line.setPen(lead)
+            line.setZValue(z - 0.01)
+            items.append(line)
+
+        # Metal tab (slightly wider, darker)
+        tab_path = QPainterPath()
+        overhang = 0.25 / mm
+        tab_path.addRoundedRect(QRectF(-w / 2 - overhang, -tab_h / 2, w + 2 * overhang, tab_h), 0.1 / mm, 0.1 / mm)
+        tab = QGraphicsPathItem(tab_path)
+        tab_color = QColor(border)
+        tab_color.setAlphaF(alpha * 0.6)
+        tab.setBrush(QBrush(tab_color))
+        tab.setPen(_body_pen(border, alpha, width=0.04))
+        tab.setZValue(z - 0.005)
+        t_tab = QTransform()
+        t_tab.translate(tx, ty)
+        t_tab.rotate(row_angle)
+        tab.setTransform(t_tab)
+        items.append(tab)
+
+        # Main body (rectangular)
+        body_path = QPainterPath()
+        body_path.addRoundedRect(QRectF(-w / 2, -h / 2, w, h), r, r)
+        body = QGraphicsPathItem(body_path)
+        body.setBrush(QBrush(fill))
+        body.setPen(bp)
+        body.setZValue(z)
+        t_body = QTransform()
+        t_body.translate(cx, cy)
+        t_body.rotate(row_angle)
+        body.setTransform(t_body)
+        items.append(body)
+
         return items
 
 
@@ -869,6 +943,237 @@ class SILBody(BodyShape):
 
 
 # ---------------------------------------------------------------------------
+# CylinderBody — axial cylindrical component (resistor, diode, inductor, cap)
+#
+# Renders either horizontally (body between leads) or vertically (cylinder
+# seen from above, one lead from centre to second pad).
+# ---------------------------------------------------------------------------
+
+class CylinderBody(BodyShape):
+    """Render a cylindrical axial component with fixed physical dimensions.
+
+    Horizontal mode (dist >= threshold):
+      anchor_pin ─── lead ─── [body] ─── lead ─── other_pin
+
+    Vertical mode (dist < threshold):
+      Cylinder viewed from above: filled circle on the anchor_pin pad,
+      thin lead from circle centre to the other pad.
+    """
+
+    def __init__(self, variant: BodyVariant, polar: bool, vertical_flipped: bool = False) -> None:
+        self._variant = variant
+        self._polar = polar
+        self._vertical_flipped = vertical_flipped
+
+    def drawn_pin_numbers(
+        self,
+        positions: list[Point],
+        theme: Theme = DEFAULT_THEME,
+    ) -> frozenset[int]:
+        # In vertical mode only the cylinder-pad pin is drawn by this shape;
+        # the lead-end pin is left for component_renderer so it gets net colour.
+        if len(positions) >= 2:
+            mm = theme.raster_pitch_mm
+            dist = math.hypot(positions[1].x - positions[0].x,
+                              positions[1].y - positions[0].y)
+            threshold = (self._variant.length_mm + 1.0) / mm
+            if dist < threshold:
+                cylinder_pin = 2 if self._vertical_flipped else 1
+                return frozenset({cylinder_pin})
+        return frozenset()
+
+    def draw(
+        self,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme = DEFAULT_THEME,
+    ) -> list[QGraphicsItem]:
+        if len(positions) < 2:
+            return GenericBody().draw(positions, fill, border, alpha, z, theme)
+
+        if self._vertical_flipped:
+            p1, p2 = positions[1], positions[0]  # cylinder over pin2
+        else:
+            p1, p2 = positions[0], positions[1]  # cylinder over pin1 (default)
+        dx = p2.x - p1.x
+        dy = p2.y - p1.y
+        dist = math.hypot(dx, dy)
+        if dist < 1e-9:
+            return GenericBody().draw(positions, fill, border, alpha, z, theme)
+
+        mm      = theme.raster_pitch_mm
+        v       = self._variant
+        len_r   = v.length_mm   / mm   # body length in raster units
+        diam_r  = v.diameter_mm / mm   # body diameter in raster units
+
+        threshold = (v.length_mm + 1.0) / mm   # 0.5 mm margin each side
+        if dist < threshold:
+            return self._draw_vertical(p1, p2, diam_r, fill, border, alpha, z, theme)
+        else:
+            return self._draw_horizontal(
+                p1, p2, dx, dy, dist, len_r, diam_r, fill, border, alpha, z, theme
+            )
+
+    # ------------------------------------------------------------------
+    # Horizontal rendering
+    # ------------------------------------------------------------------
+
+    def _draw_horizontal(
+        self,
+        p1: Point, p2: Point,
+        dx: float, dy: float, dist: float,
+        len_r: float, diam_r: float,
+        fill: QColor, border: QColor, alpha: float, z: float,
+        theme: Theme,
+    ) -> list[QGraphicsItem]:
+        half = len_r / 2.0
+        mid_x = (p1.x + p2.x) / 2.0
+        mid_y = (p1.y + p2.y) / 2.0
+        angle_deg = math.degrees(math.atan2(dy, dx))
+
+        items: list[QGraphicsItem] = []
+        lead_pen = _lead_pen(theme, alpha)
+        bp = _body_pen(border, alpha)
+
+        # Leads — only when pins are farther apart than the body length
+        if dist > len_r + 1e-6:
+            unit_x = dx / dist
+            unit_y = dy / dist
+            attach = dist / 2.0 - half
+            l1 = QGraphicsLineItem(
+                p1.x, p1.y,
+                p1.x + unit_x * attach, p1.y + unit_y * attach,
+            )
+            l2 = QGraphicsLineItem(
+                p2.x - unit_x * attach, p2.y - unit_y * attach,
+                p2.x, p2.y,
+            )
+            for ln in (l1, l2):
+                ln.setPen(lead_pen)
+                ln.setZValue(z - 0.01)
+            items.extend([l1, l2])
+
+        # Body — rounded rectangle (cylinder cross-section)
+        r = min(diam_r / 2.0, theme.body_corner_radius)
+        body_path = QPainterPath()
+        body_path.addRoundedRect(
+            QRectF(-len_r / 2.0, -diam_r / 2.0, len_r, diam_r), r, r
+        )
+
+        # Polar marker: dark stripe at cathode end.
+        # p1→p2 direction: p2 side is at +len_r/2 in local frame.
+        # When vertical_flipped, p1↔p2 were swapped, so cathode (pin2) is now p1 → left side.
+        stripe_x = -len_r / 2.0 if self._vertical_flipped else len_r / 2.0 - min(len_r * 0.12, diam_r * 0.4)
+        if self._polar:
+            stripe_w = min(len_r * 0.12, diam_r * 0.4)
+            body_path.addRect(
+                QRectF(stripe_x, -diam_r / 2.0, stripe_w, diam_r)
+            )
+
+        body = QGraphicsPathItem(body_path)
+        fill_c = QColor(fill)
+        fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        body.setBrush(QBrush(fill_c))
+        body.setPen(bp)
+        body.setZValue(z)
+
+        if self._polar:
+            # Paint cathode stripe dark
+            stripe_w = min(len_r * 0.12, diam_r * 0.4)
+            stripe_path = QPainterPath()
+            stripe_path.addRect(
+                QRectF(stripe_x, -diam_r / 2.0, stripe_w, diam_r)
+            )
+            stripe = QGraphicsPathItem(stripe_path)
+            dark = QColor("#444444")
+            dark.setAlphaF(alpha)
+            stripe.setBrush(QBrush(dark))
+            stripe.setPen(_body_pen(border, alpha, width=0.0))
+            stripe.setZValue(z + 0.01)
+            t_stripe = QTransform()
+            t_stripe.translate(mid_x, mid_y)
+            t_stripe.rotate(angle_deg)
+            stripe.setTransform(t_stripe)
+            items.append(stripe)
+
+        t = QTransform()
+        t.translate(mid_x, mid_y)
+        t.rotate(angle_deg)
+        body.setTransform(t)
+        items.append(body)
+        return items
+
+    # ------------------------------------------------------------------
+    # Vertical rendering — cylinder seen from above
+    # ------------------------------------------------------------------
+
+    def _draw_vertical(
+        self,
+        p1: Point, p2: Point,
+        diam_r: float,
+        fill: QColor, border: QColor, alpha: float, z: float,
+        theme: Theme,
+    ) -> list[QGraphicsItem]:
+        # p1/p2 are already swapped by draw() when vertical_flipped=True, so
+        # p1 is always the pad where the cylinder sits, p2 is the lead end.
+        # upper_pin_number tells which real pin number is at the lead end (top).
+        bottom_pin_pos = p1
+        top_pin_pos    = p2
+        # When not flipped: cylinder over pin1 (anoda), lead to pin2 (katoda) → katoda on top
+        # When flipped:     cylinder over pin2 (katoda), lead to pin1 (anoda) → anoda on top
+        upper_pin_number = 1 if self._vertical_flipped else 2
+
+        items: list[QGraphicsItem] = []
+        lead_pen = _lead_pen(theme, alpha)
+
+        # Thin lead from circle centre to top-pin pad
+        lead = QGraphicsLineItem(
+            bottom_pin_pos.x, bottom_pin_pos.y,
+            top_pin_pos.x, top_pin_pos.y,
+        )
+        lead.setPen(lead_pen)
+        lead.setZValue(z - 0.01)
+        items.append(lead)
+
+        # Circle on bottom-pin pad
+        r = diam_r / 2.0
+        circle = QGraphicsEllipseItem(QRectF(
+            bottom_pin_pos.x - r, bottom_pin_pos.y - r, diam_r, diam_r
+        ))
+        circle.setZValue(z)
+
+        if not self._polar:
+            # Non-polar: plain filled circle with thin border
+            fill_c = QColor(fill)
+            fill_c.setAlphaF(fill_c.alphaF() * alpha)
+            circle.setBrush(QBrush(fill_c))
+            circle.setPen(_body_pen(border, alpha))
+        elif upper_pin_number == 2:
+            # Cathode/(-) visible from above → solid dark circle
+            dark = QColor("#202028")
+            dark.setAlphaF(alpha)
+            circle.setBrush(QBrush(dark))
+            circle.setPen(_body_pen(border, alpha))
+        else:
+            # Anode/(+) visible from above → hollow ring (polarity indicator)
+            # circle.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            dark = QColor("#808088")
+            circle.setBrush(QBrush(dark))
+            thick_pen = QPen(border, diam_r * 0.15)
+            thick_pen.setColor(border)
+            c = QColor(border)
+            c.setAlphaF(alpha)
+            thick_pen.setColor(c)
+            circle.setPen(thick_pen)
+
+        items.append(circle)
+        return items
+
+
+# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -897,34 +1202,87 @@ _TRANSISTOR_CLASSES = frozenset({
 })
 
 
-def _svg_shape(name: str) -> BodyShape | None:
-    """Load SvgBodyShape from assets, return None if file missing."""
-    path = _ASSETS / f"{name}.svg"
-    if path.exists():
-        return SvgBodyShape(path)
-    return None
+def _resolve_cylinder(
+    defn: ComponentDefinition,
+    instance: ComponentInstance | None,
+    body_types: dict[str, BodyTypeSpec],
+    polar: bool,
+    vertical_flipped: bool = False,
+) -> CylinderBody | None:
+    """Look up a BodyVariant and return CylinderBody, or None if not found."""
+    family_key = _CLASS_TO_FAMILY.get(defn.component_class)
+    if family_key is None:
+        return None
+    spec = body_types.get(family_key)
+    if spec is None:
+        return None
+
+    variant: BodyVariant | None = None
+    if instance and instance.body_variant:
+        parts = instance.body_variant.split("/", 1)
+        if len(parts) == 2 and parts[0] == family_key:
+            variant = spec.get_variant(parts[1])
+    if variant is None:
+        variant = spec.default_variant()
+
+    return CylinderBody(variant, polar, vertical_flipped=vertical_flipped)
 
 
-def body_shape_for(defn: ComponentDefinition) -> BodyShape:
+# Map component class → body-type family name
+_CLASS_TO_FAMILY: dict[ComponentClass, str] = {
+    ComponentClass.RESISTOR:           "resistor_axial",
+    ComponentClass.INDUCTOR:           "inductor_axial",
+    ComponentClass.FUSE:               "resistor_axial",   # same shape as resistor
+    ComponentClass.CAPACITOR_POLAR:    "capacitor_axial",
+    ComponentClass.CAPACITOR_NONPOLAR: "capacitor_axial",
+    ComponentClass.DIODE:              "diode_axial",
+    ComponentClass.DIODE_ZENER:        "diode_axial",
+    ComponentClass.DIODE_LED:          "diode_axial",
+}
+
+_POLAR_CLASSES = frozenset({
+    ComponentClass.CAPACITOR_POLAR,
+    ComponentClass.DIODE,
+    ComponentClass.DIODE_ZENER,
+    ComponentClass.DIODE_LED,
+})
+
+
+def body_shape_for(
+    defn: ComponentDefinition,
+    placement: ComponentPlacement | None = None,
+    instance: ComponentInstance | None = None,
+    body_types: dict[str, BodyTypeSpec] | None = None,
+) -> BodyShape:
     """Return the appropriate BodyShape for *defn*.
 
-    Prefers SVG-based renderers (parametric, editable in Inkscape).
-    Falls back to QPainterPath renderers when no SVG template is found.
+    When *body_types* is provided, cylindrical 2-pin components use
+    ``CylinderBody`` with the correct physical variant.  Otherwise falls
+    back to QPainterPath renderers.
     """
-    fp = defn.footprint
+    fp  = defn.footprint
     cls = defn.component_class
+    bt  = body_types or {}
+
+    if isinstance(fp, TO220Footprint):
+        return TO220Body()
 
     if isinstance(fp, SingleRow):
-        if fp.n == 2:
+        if fp.n == 2 and cls in (_AXIAL_CLASSES | _DIODE_CLASSES | _RADIAL_CLASSES):
+            polar = cls in _POLAR_CLASSES
+            vf = placement.vertical_flipped if placement is not None else False
+            cyl = _resolve_cylinder(defn, instance, bt, polar, vertical_flipped=vf)
+            if cyl is not None:
+                return cyl
+            # Fallback when no body_types loaded
             if cls in _AXIAL_CLASSES:
-                return _svg_shape("axial") or AxialBody()
+                return AxialBody()
             if cls in _DIODE_CLASSES:
-                return _svg_shape("diode") or DiodeBody()
-            if cls in _RADIAL_CLASSES:
-                return _svg_shape("radial") or RadialBody()
+                return DiodeBody()
+            return RadialBody()
+
         if fp.n == 3 and cls in _TRANSISTOR_CLASSES:
-            return _svg_shape("to92") or TO92Body()
-        # Generic single-row: connector / switch / other
+            return TO92Body()
         return SvgSILBody()
 
     if isinstance(fp, DualRow):

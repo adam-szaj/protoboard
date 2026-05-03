@@ -3,25 +3,26 @@ components:
   # Templates
   # -----------------------------------------------------------------------
 
-  # DO-35 — małe diody sygnałowe (1N4148): nóżki ~30mm ≈ 12 rastrów.
+  # DO-35 — małe diody sygnałowe (1N4148).
+  # min_reach=1: pionowy montaż dozwolony (dist=1 raster).
   - name: _DO35
     component_class: diode
     footprint: {type: SIL, pins: 2}
     pin_names: {1: A, 2: K}
     bendable_pins:
       2:
-        min_reach: 2
+        min_reach: 1
         max_reach: 11
         default: {x: 0, y: 2}
 
-  # DO-41 — diody prostownicze (1N4007): nóżki ~45mm ≈ 18 rastrów.
+  # DO-41 — diody prostownicze (1N4007).
   - name: _DO41
     component_class: diode
     footprint: {type: SIL, pins: 2}
     pin_names: {1: A, 2: K}
     bendable_pins:
       2:
-        min_reach: 3
+        min_reach: 1
         max_reach: 17
         default: {x: 0, y: 3}
 
@@ -31,7 +32,7 @@ components:
     pin_names: {1: A, 2: K}
     bendable_pins:
       2:
-        min_reach: 2
+        min_reach: 1
         max_reach: 11
         default: {x: 0, y: 2}
 

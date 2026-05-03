@@ -23,6 +23,7 @@ class ComponentPlacement:
     pin_offsets: dict[int, Point] = field(default_factory=dict)
     # Pin numbers (1-based) intentionally sharing a pad with another component.
     shared_pins: frozenset[int] = field(default_factory=frozenset)
+    vertical_flipped: bool = False
 
     def __hash__(self) -> int:
         return hash(self.component_id)
@@ -41,6 +42,7 @@ class ComponentPlacement:
             label_offset=self.label_offset,
             pin_offsets=dict(self.pin_offsets),
             shared_pins=self.shared_pins,
+            vertical_flipped=self.vertical_flipped,
         )
 
     def __post_init__(self) -> None:
@@ -98,6 +100,40 @@ def component_bbox(
         width=(max_x - min_x) + 2 * m,
         height=(max_y - min_y) + 2 * m,
     )
+
+
+def flip_component(
+    footprint: FootprintTemplate,
+    placement: ComponentPlacement,
+) -> ComponentPlacement:
+    """Swap pin1 and pin2 world positions; both pads are exchanged.
+
+    Only valid for 2-pin footprints.  After flip:
+      pin_world_position(fp, result, 1) == old pin2 world pos
+      pin_world_position(fp, result, 2) == old pin1 world pos
+    rotation is adjusted by +180° so the component geometry is preserved.
+    Net assignments follow the pin numbers, so the electrical connections
+    physically swap sides — which is the intended behaviour.
+    """
+    assert footprint.pin_count() == 2, "flip_component requires a 2-pin footprint"
+    p1_world = pin_world_position(footprint, placement, 1)
+    p2_world = pin_world_position(footprint, placement, 2)
+    new_rotation = (placement.rotation + 180) % 360
+    fp_pos2 = footprint.pin_positions()[1]
+    # Solve: new_pos + rotate(fp_pos2 + new_off2, new_rotation) == p1_world
+    delta = unrotate(
+        Point(p1_world.x - p2_world.x, p1_world.y - p2_world.y),
+        new_rotation,
+    )
+    new_off2 = Point(delta.x - fp_pos2.x, delta.y - fp_pos2.y)
+    new_pl = placement.copy()
+    new_pl.position = p2_world
+    new_pl.rotation = new_rotation
+    new_pl.pin_offsets = dict(placement.pin_offsets)
+    new_pl.pin_offsets[2] = new_off2
+    new_pl.pin_offsets.pop(1, None)
+    new_pl.vertical_flipped = not placement.vertical_flipped
+    return new_pl
 
 
 def pin_world_position(

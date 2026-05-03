@@ -7,8 +7,14 @@ fields by loading an optional ``~/.config/protoboard-designer/theme.yaml``.
 
 from __future__ import annotations
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from protoboard.domain.components.body_type import BodyTypeSpec
 
 
 @dataclass
@@ -17,12 +23,12 @@ class Theme:
     board_bg: str = "#444444"
     board_frame_color: str = "#FFFFFF"        # root box outline
     board_frame_width: float = 0.06
-    board_sub_frame_color: str = "#FFFFFF3C"  # non-root box outline (AARRGGBB → alpha 60)
+    board_sub_frame_color: str = "#FFFFFF80"  # non-root box outline (AARRGGBB → alpha 60)
     board_sub_frame_width: float = 0.04
 
-    pad_color: str = "#333333"
+    pad_color: str = "#666666"
     pad_radius: float = 0.35
-    pad_outline_color: str = "#000000"
+    pad_outline_color: str = "#222222"
     pad_outline_width: float = 0.04
     hole_color: str = "#1A1A1A"
 
@@ -48,9 +54,9 @@ class Theme:
     ])
     net_color_unassigned: str = "#A0A0A0"
 
-    bare_width: float = 0.16
+    bare_width: float = 0.12
     bare_outline_color: str = "#888888"
-    bare_outline_width: float = 0.20
+    bare_outline_width: float = 0.24
 
     ins_width: float = 0.18
     ins_outline_color: str = "#000000"
@@ -63,11 +69,11 @@ class Theme:
     ratsnest_width: float = 0.08
 
     # ── Components ───────────────────────────────────────────────────────────
-    comp_fill_r: int = 255
-    comp_fill_g: int = 255
+    comp_fill_r: int = 225
+    comp_fill_g: int = 225
     comp_fill_b: int = 200
-    comp_fill_a: int = 180
-    comp_border: str = "#444444"
+    comp_fill_a: int = 225
+    comp_border: str = "#222222"
 
     pin_color_fallback: str = "#CC2222"  # when no schematic loaded
     pin_radius: float = 0.18
@@ -91,20 +97,27 @@ class Theme:
     lead_color: str = "#888888"
     lead_width: float = 0.06
 
+    # Raster calibration — used to convert SVG mm dimensions to raster units
+    raster_pitch_mm: float = 2.54
+
     # Body shape geometry
     body_corner_radius: float = 0.15
-    axial_body_length_ratio: float = 0.50   # body length / pin-to-pin distance
-    axial_body_width: float = 0.40          # body "diameter"
     radial_body_radius: float = 0.35        # circular body radius
-    to92_body_width: float = 2.4
-    to92_body_height: float = 1.4
+    to92_body_width_mm: float = 4.5    # TO-92 body width  ≈4.5 mm
+    to92_body_height_mm: float = 4.0   # TO-92 body height ≈4.0 mm
+    to220_body_width_mm: float = 9.0   # TO-220 body width  ≈9 mm
+    to220_body_height_mm: float = 4.5  # TO-220 body height ≈4.5 mm
+    to220_tab_height_mm: float = 1.5   # metal mounting tab extension
     dip_notch_radius: float = 0.25
     sil_slot_size: float = 0.40             # per-pin slot square size
+
+    # Body-type definitions loaded at startup; keyed by family name
+    body_types: dict[str, BodyTypeSpec] = field(default_factory=dict)
 
     ghost_fill_r: int = 255
     ghost_fill_g: int = 255
     ghost_fill_b: int = 200
-    ghost_fill_a: int = 80
+    ghost_fill_a: int = 180
     ghost_border_r: int = 255
     ghost_border_g: int = 255
     ghost_border_b: int = 100
@@ -126,7 +139,8 @@ class Theme:
     group_fill_r: int = 100
     group_fill_g: int = 200
     group_fill_b: int = 255
-    group_fill_a: int = 12
+    group_fill_a: int = 64
+
     group_name_r: int = 100
     group_name_g: int = 200
     group_name_b: int = 255

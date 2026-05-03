@@ -17,7 +17,8 @@ class ComponentInstance:
     definition_ref: str
     refdes: str
     value: str
-    type: str = ""  # optional per-instance category override (e.g. "ic", "passive")
+    type: str = ""          # optional per-instance category override
+    body_variant: str | None = None  # "{family}/{variant_id}" or None → default
 
     def __post_init__(self) -> None:
         if not self.definition_ref:
@@ -27,7 +28,8 @@ class ComponentInstance:
 
     @staticmethod
     def new(
-        definition_ref: str, refdes: str, value: str, type: str = ""
+        definition_ref: str, refdes: str, value: str, type: str = "",
+        body_variant: str | None = None,
     ) -> ComponentInstance:
         """Create an instance with a freshly generated UUID."""
         return ComponentInstance(
@@ -36,4 +38,5 @@ class ComponentInstance:
             refdes=refdes,
             value=value,
             type=type,
+            body_variant=body_variant,
         )

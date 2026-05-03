@@ -20,6 +20,8 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.services.drc.engine import DRCEngine, DRCIssue
+from protoboard.domain.components.body_type import BodyTypeSpec
+from protoboard.services.library.body_type_loader import load_body_types
 from protoboard.services.library.loader import ComponentLibrary
 
 
@@ -45,6 +47,7 @@ class EditorSession(QObject):
             name: library.get(name) for name in library.names()
         }
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
+        self.body_types: dict[str, BodyTypeSpec] = load_body_types()
         self.stack: CommandStack[ComponentState] = CommandStack()
         self.project_path: Path | None = None
         self._drc_issues: list[DRCIssue] = []

@@ -1,62 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Axial through-hole component (resistor, inductor, fuse).
+  Axial through-hole component body (resistor, inductor, fuse).
 
-  Coordinate system: 1 unit = 1 raster (2.54 mm).
-  Pin 1 is at SVG (0, 0).  viewBox starts at (0, 0) so that
-  QGraphicsSvgItem item-coord (0,0) == SVG (0,0) == pin 1 world position.
-  The renderer applies QTransform.translate(pin1_world).rotate(angle).
+  Units: mm.  1 SVG unit = 1 mm.
+  Canvas: 4 × 10 mm  (viewBox "0 0 4 10").
+  Body:   3.6 × 9.5 mm, centred in canvas with 0.2 mm margin.
 
-  Default geometry: 4-raster pitch, body length ~2.0, body width 0.40.
-  Pin 2 at (0, 4).  Body centred at (0, 2).
+  Renderer reads data-body-width-mm / data-body-height-mm to convert
+  mm → raster units.  Leads are drawn in code; this SVG contains only
+  the physical body outline.
 
-  Modifiable elements:
-    lead-1      line from pin 1 to body bottom  — renderer patches y2
-    lead-2      line from pin 2 to body top     — renderer patches y1, y2
-    body        rounded rect body               — renderer patches fill/stroke/y/height
-    pin1-marker square marker at pin 1
-    pin-2       circle at pin 2                 — renderer patches cy
+  Modifiable elements (renderer patches fill/stroke only):
+    body   — main barrel rect
 -->
 <svg xmlns="http://www.w3.org/2000/svg"
-     viewBox="0 0 1.0 5.0"
-     width="1.0" height="5.0"
-     data-pin-count="2"
-     data-pin1="0,0"
-     data-pin2="0,4"
-     data-lead-attach-y1="0.8"
-     data-lead-attach-y2="3.2">
+     viewBox="0 0 4 10" width="4" height="10"
+     data-body-width-mm="4"
+     data-body-height-mm="10">
 
-  <!-- Lead from pin 1 to body bottom edge -->
-  <line id="lead-1"
-        x1="0" y1="0"
-        x2="0" y2="0.8"
-        stroke="#888888" stroke-width="0.06"
-        stroke-linecap="round"/>
-
-  <!-- Lead from pin 2 to body top edge -->
-  <line id="lead-2"
-        x1="0" y1="3.2"
-        x2="0" y2="4"
-        stroke="#888888" stroke-width="0.06"
-        stroke-linecap="round"/>
-
-  <!-- Component body: rounded rectangle centred between pins -->
   <rect id="body"
-        x="-0.20" y="0.80"
-        width="0.40" height="2.40"
-        rx="0.10" ry="0.10"
+        x="0.20" y="0.25"
+        width="3.60" height="9.50"
+        rx="0.50" ry="0.50"
         fill="#FFFFC8" fill-opacity="0.85"
-        stroke="#444444" stroke-width="0.05"/>
-
-  <!-- Pin 1 square marker -->
-  <rect id="pin1-marker"
-        x="-0.12" y="-0.12"
-        width="0.24" height="0.24"
-        fill="#CC2222" stroke="none"/>
-
-  <!-- Pin 2 circle -->
-  <circle id="pin-2"
-          cx="0" cy="4" r="0.14"
-          fill="#CC2222" stroke="none"/>
+        stroke="#444444" stroke-width="0.25"/>
 
 </svg>

@@ -3,30 +3,18 @@ components:
   # Resistors
   # -----------------------------------------------------------------------
 
-  # Axial resistor — pin 1 anchor, pin 2 może trafić w dowolny pad
-  # w promieniu euklidesowym 3–23 rastery (≈ 1/4W leżący: 4–24 rastery rozstawu).
+  # Axial resistor — pin 2 swings from 1 raster (vertical mount) up to 23.
+  # Renderer auto-detects horizontal vs vertical from the actual pin spacing.
   - name: R
-    description: "Resistor (axial through-hole, variable pitch)"
+    description: "Resistor (axial through-hole)"
     component_class: resistor
     footprint: {type: SIL, pins: 2}
     pin_names: {}
     bendable_pins:
       2:
-        min_reach: 3
+        min_reach: 1
         max_reach: 23
-        default: {x: 0, y: 3}
-
-  # Montaż pionowy — ciało stoi, jedna nóżka zgięta pod spód.
-  - name: R_vert
-    description: "Resistor (vertical mount, pitch 1–6)"
-    component_class: resistor
-    footprint: {type: SIL, pins: 2}
-    pin_names: {}
-    bendable_pins:
-      2:
-        min_reach: 0
-        max_reach: 5
-        default: {x: 0, y: 0}
+        default: {x: 0, y: 4}
 
   - name: R_Net_4
     description: "4-resistor SIL network (common bus pin 1)"

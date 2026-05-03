@@ -24,6 +24,7 @@ from protoboard.gui.renderers.board_renderer import BOARD_BG, render_board
 from protoboard.gui.renderers.component_renderer import render_components, render_groups
 from protoboard.gui.renderers.wire_renderer import render_ratsnest, render_wires_with_nets
 from protoboard.gui.session import EditorSession
+from protoboard.gui.theme import DEFAULT_THEME
 from protoboard.services.routing.net_status import routed_net_ids
 
 # Scene units = raster units. 1 raster unit = 1 "pixel" in scene space.
@@ -232,6 +233,10 @@ class BoardView(QGraphicsView):
                 instances=self._session.instances,
             )
             routed = routed_net_ids(self._session.schematic, graph)
+        from dataclasses import replace as _dc_replace
+        _theme = _dc_replace(DEFAULT_THEME,
+                             raster_pitch_mm=self._session.board.raster_pitch_mm,
+                             body_types=self._session.body_types)
         render_components(
             self._scene,
             self._session.layout.placements,
@@ -240,6 +245,7 @@ class BoardView(QGraphicsView):
             schematic=self._session.schematic if self._session.schematic.nets else None,
             routed_nets=routed,
             layers=layers,
+            theme=_theme,
         )
         if self._session.schematic.nets:
             render_ratsnest(

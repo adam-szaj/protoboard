@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!--
   DIP IC package — parametric template for DIP-N (any even pin count).
 
@@ -20,52 +20,112 @@
 
   Default: DIP-8, n_per_row=4, rows_spacing=3.
 -->
-<svg xmlns="http://www.w3.org/2000/svg"
-     viewBox="-0.5 -0.8 4.0 5.1"
-     width="4.0" height="5.1"
-     data-pin-count="8"
-     data-n-per-row="4"
-     data-rows-spacing="3">
 
+<svg
+   viewBox="-0.5 -0.8 4.0 5.1"
+   width="4.0"
+   height="5.1"
+   data-pin-count="8"
+   data-n-per-row="4"
+   data-rows-spacing="3"
+   version="1.1"
+   id="svg1"
+   sodipodi:docname="dip.svg"
+   inkscape:version="1.4.2 (ebf0e940d0, 2025-05-08)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1" />
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#505050"
+     bordercolor="#eeeeee"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="256"
+     inkscape:cx="2"
+     inkscape:cy="1.9257812"
+     inkscape:window-width="4096"
+     inkscape:window-height="1659"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg1" />
   <!--
     Body: rounded rect between rows, with even-odd notch cutout.
     Use a <path> with fill-rule="evenodd" so the notch subtracts.
   -->
-  <path id="body"
-        fill-rule="evenodd"
-        d="M 0.1,-0.5
-           L 2.9,-0.5
-           Q 3.0,-0.5 3.0,-0.4
-           L 3.0, 3.4
-           Q 3.0, 3.5 2.9, 3.5
-           L 0.1, 3.5
-           Q 0.0, 3.5 0.0, 3.4
-           L 0.0,-0.4
-           Q 0.0,-0.5 0.1,-0.5
-           Z
-           M 1.5,-0.5
-           A 0.25,0.25 0 0,0 1.5,-0.0
-           A 0.25,0.25 0 0,0 1.5,-0.5
-           Z"
-        fill="#FFFFC8" fill-opacity="0.85"
-        stroke="#444444" stroke-width="0.05"/>
-
+  <path
+     id="body"
+     fill-rule="evenodd"
+     d="M 0.10657769,-0.30210426 H 2.9090473 q 0.1000882,0 0.1000882,0.0896169 V 3.1929561 q 0,0.089617 -0.1000882,0.089617 H 0.10657769 q -0.1000882,0 -0.1000882,-0.089617 v -3.40544343 q 0,-0.0896169 0.1000882,-0.0896169 z m 1.40123481,0 a 0.25022052,0.22404234 0 0 0 0,0.44808466 0.25022052,0.22404234 0 0 0 0,-0.44808466 z"
+     fill="#ffffc8"
+     fill-opacity="0.85"
+     stroke="#444444"
+     stroke-width="0.047354" />
   <!-- Pin 1 square marker -->
-  <rect id="pin1-marker"
-        x="-0.12" y="-0.12"
-        width="0.24" height="0.24"
-        fill="#CC2222" stroke="none"/>
-
+  <rect
+     id="pin1-marker"
+     x="-0.12"
+     y="-0.12"
+     width="0.24"
+     height="0.24"
+     fill="#CC2222"
+     stroke="none" />
   <!-- Left column: pins 1-4 at x=0, y=0..3 -->
-  <circle id="pin-1" cx="0" cy="0" r="0.14" fill="#CC2222" stroke="none"/>
-  <circle id="pin-2" cx="0" cy="1" r="0.14" fill="#CC2222" stroke="none"/>
-  <circle id="pin-3" cx="0" cy="2" r="0.14" fill="#CC2222" stroke="none"/>
-  <circle id="pin-4" cx="0" cy="3" r="0.14" fill="#CC2222" stroke="none"/>
-
+  <circle
+     id="pin-2"
+     cx="0"
+     cy="1"
+     r="0.14"
+     fill="#CC2222"
+     stroke="none" />
+  <circle
+     id="pin-3"
+     cx="0"
+     cy="2"
+     r="0.14"
+     fill="#CC2222"
+     stroke="none" />
+  <circle
+     id="pin-4"
+     cx="0"
+     cy="3"
+     r="0.14"
+     fill="#CC2222"
+     stroke="none" />
   <!-- Right column: pins 5-8 at x=3, y=3..0 -->
-  <circle id="pin-5" cx="3" cy="3" r="0.14" fill="#CC2222" stroke="none"/>
-  <circle id="pin-6" cx="3" cy="2" r="0.14" fill="#CC2222" stroke="none"/>
-  <circle id="pin-7" cx="3" cy="1" r="0.14" fill="#CC2222" stroke="none"/>
-  <circle id="pin-8" cx="3" cy="0" r="0.14" fill="#CC2222" stroke="none"/>
-
+  <circle
+     id="pin-5"
+     cx="3"
+     cy="3"
+     r="0.14"
+     fill="#CC2222"
+     stroke="none" />
+  <circle
+     id="pin-6"
+     cx="3"
+     cy="2"
+     r="0.14"
+     fill="#CC2222"
+     stroke="none" />
+  <circle
+     id="pin-7"
+     cx="3"
+     cy="1"
+     r="0.14"
+     fill="#CC2222"
+     stroke="none" />
+  <circle
+     id="pin-8"
+     cx="3"
+     cy="0"
+     r="0.14"
+     fill="#CC2222"
+     stroke="none" />
 </svg>

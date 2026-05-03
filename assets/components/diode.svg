@@ -1,66 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Axial diode (DO-35, DO-41, Zener, LED).
+  Axial diode body (DO-35, DO-41, Zener, LED).
   Pin 1 = Anode (A), Pin 2 = Cathode (K).
 
-  Modifiable elements:
-    lead-1       anode lead (pin 1 to body)
-    lead-2       cathode lead (body to pin 2)
-    body         diode barrel (rounded rect)
-    cathode-bar  cathode end marker (narrow rect, darker fill)
-    pin-1        anode pin circle (net colour)
-    pin-2        cathode pin circle (net colour)
-    pin1-marker  anode square marker
+  Units: mm.  Canvas: 2.5 × 5 mm  (viewBox "0 0 2.5 5").
+  Body:  2.2 × 4.7 mm — typical DO-35 barrel.
+  Cathode bar: dark stripe at pin-2 end (top 0.6 mm of body).
 
-  Default: 4-raster pitch, body length 2.4 rasters.
+  Renderer reads data-body-width-mm / data-body-height-mm.
+  Leads and pin markers drawn in code.
+
+  Modifiable elements:
+    body         — barrel (renderer patches fill/stroke)
+    cathode-bar  — dark stripe (renderer leaves fill as-is)
 -->
 <svg xmlns="http://www.w3.org/2000/svg"
-     viewBox="-0.5 -0.5 1.0 5.0"
-     width="1.0" height="5.0"
-     data-pin-count="2"
-     data-pin1="0,0"
-     data-pin2="0,4"
-     data-lead-attach-y1="0.8"
-     data-lead-attach-y2="3.2">
+     viewBox="0 0 2.5 5" width="2.5" height="5"
+     data-body-width-mm="2.5"
+     data-body-height-mm="5">
 
-  <!-- Anode lead -->
-  <line id="lead-1"
-        x1="0" y1="0"
-        x2="0" y2="0.8"
-        stroke="#888888" stroke-width="0.06"
-        stroke-linecap="round"/>
-
-  <!-- Cathode lead -->
-  <line id="lead-2"
-        x1="0" y1="3.2"
-        x2="0" y2="4"
-        stroke="#888888" stroke-width="0.06"
-        stroke-linecap="round"/>
-
-  <!-- Diode body -->
   <rect id="body"
-        x="-0.18" y="0.80"
-        width="0.36" height="2.40"
-        rx="0.09" ry="0.09"
+        x="0.15" y="0.15"
+        width="2.20" height="4.70"
+        rx="0.35" ry="0.35"
         fill="#FFFFC8" fill-opacity="0.85"
-        stroke="#444444" stroke-width="0.05"/>
+        stroke="#444444" stroke-width="0.20"/>
 
-  <!-- Cathode bar (dark stripe at pin-2 end) -->
   <rect id="cathode-bar"
-        x="-0.18" y="3.00"
-        width="0.36" height="0.20"
+        x="0.15" y="4.10"
+        width="2.20" height="0.60"
         rx="0" ry="0"
         fill="#333333" stroke="none"/>
-
-  <!-- Anode marker (square, pin 1) -->
-  <rect id="pin1-marker"
-        x="-0.12" y="-0.12"
-        width="0.24" height="0.24"
-        fill="#CC2222" stroke="none"/>
-
-  <!-- Cathode pin circle -->
-  <circle id="pin-2"
-          cx="0" cy="4" r="0.14"
-          fill="#CC2222" stroke="none"/>
 
 </svg>

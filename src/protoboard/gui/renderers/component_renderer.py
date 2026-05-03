@@ -22,7 +22,7 @@ from protoboard.domain.layout.placement import ComponentPlacement, pin_world_pos
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
-from protoboard.gui.layer_state import LayerState, Z_FRONT_COMPONENTS, Z_FRONT_LABELS
+from protoboard.gui.layer_state import Z_FRONT_WIRES, LayerState, Z_FRONT_COMPONENTS, Z_FRONT_LABELS
 from protoboard.gui.renderers.body_shapes import body_shape_for
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 
@@ -105,14 +105,17 @@ def _render_one(
     comp_border = QColor(theme.comp_border)
     comp_border.setAlphaF(alpha)
 
-    shape = body_shape_for(defn)
+    shape = body_shape_for(defn, placement, inst, theme.body_types)
     for item in shape.draw(positions, comp_fill, comp_border, alpha, z_comp, theme):
         scene.addItem(item)
+    skip_pins = shape.drawn_pin_numbers(positions, theme)
 
     pin_color_fallback = QColor(theme.pin_color_fallback)
     pin_color_fallback.setAlphaF(alpha)
     for pin_idx, pos in enumerate(positions):
         pin_number = pin_idx + 1
+        if pin_number in skip_pins:
+            continue
         ref = PinRef(component_id=comp_id, pin_number=pin_number)
         net_id = pin_net.get(ref)
 
@@ -134,13 +137,13 @@ def _render_one(
             pen = QPen(Qt.GlobalColor.transparent, 0)
 
         if pin_number == 1:
-            _add_pin1_marker(scene, pos.x, pos.y, fill_color, theme, z=z_comp + 0.05)
+            _add_pin1_marker(scene, pos.x, pos.y, fill_color, theme, z=z_comp - 0.05)
         else:
             r = theme.pin_radius
             dot = QGraphicsEllipseItem(QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r))
             dot.setBrush(QBrush(fill_color))
             dot.setPen(pen)
-            dot.setZValue(z_comp + 0.05)
+            dot.setZValue(z_comp - 0.05)
             scene.addItem(dot)
 
     if alpha_label == 0.0:
@@ -164,13 +167,13 @@ def _render_one(
 
 def _add_pin1_marker(
     scene: QGraphicsScene, cx: float, cy: float, fill_color: QColor,
-    theme: Theme, z: float = Z_FRONT_COMPONENTS,
+    theme: Theme, z: float = Z_FRONT_WIRES,
 ) -> None:
     r = theme.pin_radius * 1.1
     square = QGraphicsRectItem(QRectF(cx - r, cy - r, 2 * r, 2 * r))
     square.setBrush(QBrush(fill_color))
-    white = QColor("#FFFFFF")
-    white.setAlphaF(fill_color.alphaF())
+    white = QColor("#888888")
+    white.setAlphaF(fill_color.alphaF()*0.5)
     square.setPen(QPen(white, 0.06))
     square.setZValue(z)
     scene.addItem(square)

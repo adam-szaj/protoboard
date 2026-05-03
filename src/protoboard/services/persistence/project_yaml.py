@@ -65,6 +65,7 @@ def _instances_to_yaml(instances: dict[uuid.UUID, ComponentInstance]) -> str:
                 "refdes": inst.refdes,
                 "value": inst.value,
                 **({"type": inst.type} if inst.type else {}),
+                **({"body_variant": inst.body_variant} if inst.body_variant else {}),
             }
             for inst in instances.values()
         ]
@@ -100,6 +101,7 @@ def _layout_to_yaml(layout: Layout) -> str:
                     if pl.shared_pins
                     else {}
                 ),
+                **({"vertical_flipped": True} if pl.vertical_flipped else {}),
             }
             for pl in layout.placements.values()
         ],
@@ -202,6 +204,7 @@ def _instances_from_yaml(text: str) -> dict[uuid.UUID, ComponentInstance]:
             refdes=str(raw["refdes"]),
             value=str(raw["value"]),
             type=str(raw.get("type", "")),
+            body_variant=str(raw["body_variant"]) if raw.get("body_variant") else None,
         )
     return result
 
@@ -237,6 +240,7 @@ def _layout_from_yaml(text: str) -> Layout:
             label_offset=label_offset,
             pin_offsets=pin_offsets,
             shared_pins=shared_pins,
+            vertical_flipped=bool(raw.get("vertical_flipped", False)),
         )
         placements[comp_id] = pl
     wires: list[WireSegment] = []

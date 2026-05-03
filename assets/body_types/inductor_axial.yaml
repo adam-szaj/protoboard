@@ -1,0 +1,14 @@
+family: inductor_axial
+shape: cylinder
+polar: false
+variants:
+  - id: small
+    label: "Small"
+    diameter_mm: 3.0
+    length_mm: 5.0
+    lead_diameter_mm: 0.5
+  - id: medium
+    label: "Medium"
+    diameter_mm: 5.0
+    length_mm: 9.0
+    lead_diameter_mm: 0.6

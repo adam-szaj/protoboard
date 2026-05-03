@@ -41,7 +41,7 @@ from protoboard.domain.layout.group import (
     all_component_ids,
     top_level_group_for,
 )
-from protoboard.domain.layout.placement import component_bbox, pin_world_position, unrotate
+from protoboard.domain.layout.placement import component_bbox, flip_component, pin_world_position, unrotate
 from protoboard.domain.layout.wire import WireSegment
 from protoboard.geometry import Point
 from protoboard.gui.board_view import _Tool
@@ -529,8 +529,9 @@ class SelectTool(_Tool):
                 self._autoroute_wire_fragment()
             return
 
-        ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        ctrl  = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        alt   = bool(event.modifiers() & Qt.KeyboardModifier.AltModifier)
 
         # Re-drag mode: Esc cancels
         if self._redrag_comp_id is not None:
@@ -550,7 +551,10 @@ class SelectTool(_Tool):
         elif key == Qt.Key.Key_R and ctrl:
             if self._selected_id is not None:
                 self._start_redrag(self._selected_id)
-        elif key == Qt.Key.Key_R and not ctrl:
+        elif key == Qt.Key.Key_R and alt and not ctrl:
+            if self._selected_id is not None:
+                self._flip_selected()
+        elif key == Qt.Key.Key_R and not ctrl and not alt:
             if self._selected_id is not None:
                 self._rotate_selected(delta=-90 if shift else 90)
         elif key == Qt.Key.Key_G and ctrl:
@@ -828,6 +832,28 @@ class SelectTool(_Tool):
         self._highlight.setPen(_SELECT_PEN)
         self._highlight.setBrush(Qt.BrushStyle.NoBrush)
         self._view.scene().addItem(self._highlight)
+
+    def _flip_selected(self) -> None:
+        """Alt+R: geometrically swap pin1 and pin2 (anchor moves to old pin2 pad)."""
+        comp_id = self._selected_id
+        if comp_id is None:
+            return
+        placement = self._session.layout.placements.get(comp_id)
+        inst = self._session.instances.get(comp_id)
+        if placement is None or inst is None:
+            return
+        defn = self._session.components.get(inst.definition_ref)
+        if defn is None or defn.footprint.pin_count() != 2:
+            return
+        new_pl = flip_component(defn.footprint, placement)
+        cmd = MoveComponentCommand(
+            component_id=comp_id,
+            new_placement=new_pl,
+            old_placement=placement.copy(),
+        )
+        self._session.stack.execute(cmd, self._session)
+        self._session.layout_changed.emit()
+        self._draw_highlight(comp_id)
 
     def _rotate_selected(self, delta: int = 90) -> None:
         comp_id = self._selected_id

@@ -126,9 +126,15 @@ def SIL(n: int, pitch: float = 1.0) -> SingleRow:
     return SingleRow(n=n, pitch=pitch)
 
 
-# Mechanical constants — different packages, same connectivity-wise as SIL(3).
+@dataclass(frozen=True, slots=True)
+class TO220Footprint(SingleRow):
+    """TO-220 package — same 3-pin SIL geometry as TO-92, but distinct type
+    so renderers can draw the wider metal-tab body."""
+
+
+# Mechanical constants — same pin geometry, different package types.
 TO92: SingleRow = SIL(3)
-TO220: SingleRow = SIL(3)
+TO220: TO220Footprint = TO220Footprint(n=3)
 
 
 __all__ = [
@@ -136,6 +142,7 @@ __all__ = [
     "SIL",
     "TO92",
     "TO220",
+    "TO220Footprint",
     "DualRow",
     "FootprintTemplate",
     "GridFootprint",
