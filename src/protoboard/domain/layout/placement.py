@@ -10,6 +10,17 @@ from typing import Literal
 from protoboard.domain.components.footprints import FootprintTemplate
 from protoboard.geometry import Point, Rect
 
+# Component classes whose leads can be bent freely — only the pads matter for
+# collision/selection purposes, not the floating body between them.
+_FLEXIBLE_LEAD_CLASSES: frozenset[str] = frozenset({
+    "resistor", "capacitor_polar", "capacitor_nonpolar", "inductor",
+    "diode", "diode_zener", "diode_led",
+    "transistor_npn", "transistor_pnp",
+    "transistor_nmos", "transistor_pmos",
+    "transistor_njfet", "transistor_pjfet",
+    "fuse",
+})
+
 _VALID_ROTATIONS = frozenset({0, 90, 180, 270})
 
 
@@ -73,17 +84,21 @@ def unrotate(p: Point, rotation: int) -> Point:
     return _rotate(p, (360 - rotation) % 360)
 
 
-_BODY_MARGIN = 0.5  # raster units added on each side of the pin bounding box
+_BODY_MARGIN = 0.5      # raster units — rigid packages (DIP, SIL, connectors)
+_PAD_MARGIN  = 0.1      # raster units — flexible-lead parts (axial, TO-92, …)
 
 
 def component_bbox(
     footprint: FootprintTemplate,
     placement: ComponentPlacement,
+    component_class: str = "",
 ) -> Rect:
     """Return the axis-aligned bounding box of the component body.
 
-    Computed as the bounding box of all pin world positions, expanded by
-    _BODY_MARGIN on every side.
+    For components with flexible leads (resistors, diodes, transistors, …)
+    only the pad positions matter — the body floats above the board and does
+    not block neighbouring components.  A small _PAD_MARGIN is used instead
+    of _BODY_MARGIN so that 45° placements don't reserve an oversized area.
     """
     positions = [
         pin_world_position(footprint, placement, n + 1)
@@ -93,7 +108,7 @@ def component_bbox(
     ys = [p.y for p in positions]
     min_x, max_x = min(xs), max(xs)
     min_y, max_y = min(ys), max(ys)
-    m = _BODY_MARGIN
+    m = _PAD_MARGIN if component_class in _FLEXIBLE_LEAD_CLASSES else _BODY_MARGIN
     return Rect(
         x=min_x - m,
         y=min_y - m,
@@ -106,32 +121,31 @@ def flip_component(
     footprint: FootprintTemplate,
     placement: ComponentPlacement,
 ) -> ComponentPlacement:
-    """Swap pin1 and pin2 world positions; both pads are exchanged.
+    """Swap pin1 and pin2 local positions via pin_offsets.
 
     Only valid for 2-pin footprints.  After flip:
       pin_world_position(fp, result, 1) == old pin2 world pos
       pin_world_position(fp, result, 2) == old pin1 world pos
-    rotation is adjusted by +180° so the component geometry is preserved.
-    Net assignments follow the pin numbers, so the electrical connections
-    physically swap sides — which is the intended behaviour.
+
+    placement.position and rotation are untouched — the anchor (local origin)
+    stays fixed, and only the pin_offsets are updated so that each pin lands
+    on the other pin's previous local position.
     """
     assert footprint.pin_count() == 2, "flip_component requires a 2-pin footprint"
-    p1_world = pin_world_position(footprint, placement, 1)
-    p2_world = pin_world_position(footprint, placement, 2)
-    new_rotation = (placement.rotation + 180) % 360
-    fp_pos2 = footprint.pin_positions()[1]
-    # Solve: new_pos + rotate(fp_pos2 + new_off2, new_rotation) == p1_world
-    delta = unrotate(
-        Point(p1_world.x - p2_world.x, p1_world.y - p2_world.y),
-        new_rotation,
-    )
-    new_off2 = Point(delta.x - fp_pos2.x, delta.y - fp_pos2.y)
+    fp1, fp2 = footprint.pin_positions()[0], footprint.pin_positions()[1]
+    off1 = placement.pin_offsets.get(1, Point(0.0, 0.0))
+    off2 = placement.pin_offsets.get(2, Point(0.0, 0.0))
+    # local position of each pin = fp_pos + offset
+    loc1 = Point(fp1.x + off1.x, fp1.y + off1.y)
+    loc2 = Point(fp2.x + off2.x, fp2.y + off2.y)
+    # new offset for pin n = (other pin's old local pos) - fp_pos[n]
+    new_off1 = Point(loc2.x - fp1.x, loc2.y - fp1.y)
+    new_off2 = Point(loc1.x - fp2.x, loc1.y - fp2.y)
+
     new_pl = placement.copy()
-    new_pl.position = p2_world
-    new_pl.rotation = new_rotation
     new_pl.pin_offsets = dict(placement.pin_offsets)
+    new_pl.pin_offsets[1] = new_off1
     new_pl.pin_offsets[2] = new_off2
-    new_pl.pin_offsets.pop(1, None)
     new_pl.vertical_flipped = not placement.vertical_flipped
     return new_pl
 
@@ -143,10 +157,12 @@ def pin_world_position(
 ) -> Point:
     """Return the absolute world position of the given pin (1-indexed).
 
-    If ``placement.pin_offsets`` contains an entry for *pin_number*, that
-    offset is applied in the component's local frame *before* rotation so
-    that bending a lead "outward" means the same regardless of component
-    orientation.
+    ``placement.position`` is the world coordinate of the footprint origin
+    (pin 1 at local (0,0), *without* any pin_offset).  Rotation is always
+    around that origin, so changing rotation never moves the anchor.
+
+    Pipeline: local_pos = fp_pos + pin_offset → X-mirror (if bottom) →
+    clockwise rotation → + placement.position.
     """
     rel = footprint.pin_positions()[pin_number - 1]
     off = placement.pin_offsets.get(pin_number)

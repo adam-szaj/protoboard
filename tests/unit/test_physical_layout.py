@@ -144,6 +144,130 @@ class TestPinWorldPosition:
         assert _approx_point(pin_world_position(fp, pl, 8), Point(8.0, 5.0))
 
 
+class TestFlipComponent:
+    """flip_component swaps pin-1 and pin-2 pads.
+
+    Key invariant: after flip, rotation is always around the new pin-1 pad
+    (i.e. the old pin-2 pad), because placement.position is always the
+    footprint origin = pin-1-without-offset anchor.
+    """
+
+    def _make_pl(
+        self,
+        position: Point,
+        rotation: int = 0,
+        pin_offsets: dict[int, Point] | None = None,
+    ) -> ComponentPlacement:
+        return ComponentPlacement(
+            component_id=uuid.uuid4(),
+            position=position,
+            rotation=rotation,
+            side="top",
+            pin_offsets=pin_offsets or {},
+        )
+
+    # ------------------------------------------------------------------
+    # Basic swap
+    # ------------------------------------------------------------------
+
+    def test_flip_swaps_pad_positions(self) -> None:
+        from protoboard.domain.layout.placement import flip_component, pin_world_position
+
+        fp = SIL(2)
+        pl = self._make_pl(Point(2.0, 3.0), rotation=0)
+        # rotation=0, SIL(2): pin1=(2,3), pin2=(2,4)
+        p1_before = pin_world_position(fp, pl, 1)
+        p2_before = pin_world_position(fp, pl, 2)
+
+        flipped = flip_component(fp, pl)
+
+        assert _approx_point(pin_world_position(fp, flipped, 1), p2_before)
+        assert _approx_point(pin_world_position(fp, flipped, 2), p1_before)
+
+    def test_flip_swaps_pad_positions_rotation90(self) -> None:
+        from protoboard.domain.layout.placement import flip_component, pin_world_position
+
+        fp = SIL(2)
+        pl = self._make_pl(Point(5.0, 5.0), rotation=90)
+        # rotation=90: pin1=(5,5), pin2=(6,5)
+        p1_before = pin_world_position(fp, pl, 1)
+        p2_before = pin_world_position(fp, pl, 2)
+
+        flipped = flip_component(fp, pl)
+
+        assert _approx_point(pin_world_position(fp, flipped, 1), p2_before)
+        assert _approx_point(pin_world_position(fp, flipped, 2), p1_before)
+
+    # ------------------------------------------------------------------
+    # Rotation anchor: before flip → around pin-1; after flip → around pin-2
+    # ------------------------------------------------------------------
+
+    def test_before_flip_rotation_is_around_pin1(self) -> None:
+        """Changing rotation leaves pin-1 world position fixed."""
+        from protoboard.domain.layout.placement import pin_world_position
+
+        fp = SIL(2)
+        pl = self._make_pl(Point(3.0, 4.0), rotation=0)
+        p1_rot0 = pin_world_position(fp, pl, 1)
+
+        pl.rotation = 90
+        p1_rot90 = pin_world_position(fp, pl, 1)
+
+        pl.rotation = 180
+        p1_rot180 = pin_world_position(fp, pl, 1)
+
+        # pin-1 world position must not change with rotation
+        assert _approx_point(p1_rot0, Point(3.0, 4.0))
+        assert _approx_point(p1_rot90, Point(3.0, 4.0))
+        assert _approx_point(p1_rot180, Point(3.0, 4.0))
+
+    def test_after_flip_rotation_is_around_local_origin(self) -> None:
+        """After flip, rotation is still around placement.position (local origin),
+        not around either pad.  placement.position is unchanged by flip."""
+        from protoboard.domain.layout.placement import flip_component
+
+        fp = SIL(2)
+        pl = self._make_pl(Point(3.0, 4.0), rotation=0)
+        origin = pl.position
+
+        flipped = flip_component(fp, pl)
+
+        assert _approx_point(flipped.position, origin)
+
+    # ------------------------------------------------------------------
+    # Flip with pin_offsets
+    # ------------------------------------------------------------------
+
+    def test_flip_with_offset_on_pin2(self) -> None:
+        """pin_offsets on pin-2 are carried over and still hit the correct pad."""
+        from protoboard.domain.layout.placement import flip_component, pin_world_position
+
+        fp = SIL(2)
+        # pin2 offset shifts it 1 raster right in local frame (rotation=90 → world +y)
+        pl = self._make_pl(Point(2.0, 3.0), rotation=0, pin_offsets={2: Point(1.0, 0.0)})
+        p1_before = pin_world_position(fp, pl, 1)  # (2, 3)
+        p2_before = pin_world_position(fp, pl, 2)  # pin2 local=(1,1) → world (2, 4) + offset → (3, 4)? let's check
+
+        flipped = flip_component(fp, pl)
+
+        assert _approx_point(pin_world_position(fp, flipped, 1), p2_before)
+        assert _approx_point(pin_world_position(fp, flipped, 2), p1_before)
+
+    def test_flip_twice_restores_original_pad_positions(self) -> None:
+        """Double flip is identity on pad positions."""
+        from protoboard.domain.layout.placement import flip_component, pin_world_position
+
+        fp = SIL(2)
+        pl = self._make_pl(Point(1.0, 1.0), rotation=90)
+        p1_orig = pin_world_position(fp, pl, 1)
+        p2_orig = pin_world_position(fp, pl, 2)
+
+        double_flipped = flip_component(fp, flip_component(fp, pl))
+
+        assert _approx_point(pin_world_position(fp, double_flipped, 1), p1_orig)
+        assert _approx_point(pin_world_position(fp, double_flipped, 2), p2_orig)
+
+
 class TestWireSegment:
     def test_construct(self) -> None:
         wire_id = uuid.uuid4()

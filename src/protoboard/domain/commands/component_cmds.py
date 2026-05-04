@@ -394,7 +394,7 @@ def _move_blocked(
     if defn is None:
         return False
 
-    new_bbox = component_bbox(defn.footprint, new_pl)
+    new_bbox = component_bbox(defn.footprint, new_pl, defn.component_class)
 
     n_pins = defn.footprint.pin_count()
     new_pin_positions: set[tuple[float, float]] = set()
@@ -412,7 +412,7 @@ def _move_blocked(
         if other_defn is None:
             continue
 
-        other_bbox = component_bbox(other_defn.footprint, other_pl)
+        other_bbox = component_bbox(other_defn.footprint, other_pl, other_defn.component_class)
         if new_bbox.intersects(other_bbox):
             # Only block when no pin of the moved component coincides with a pin
             # of the other — that would be a shared-pad scenario which the GUI

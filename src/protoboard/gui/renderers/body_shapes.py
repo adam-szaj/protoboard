@@ -314,7 +314,7 @@ class SvgDIPBody(BodyShape):
         fill_a = f"{fill.alphaF() * alpha:.3f}"
         border_hex = border.name()
         border_a = f"{border.alphaF() * alpha:.3f}"
-        pin_hex = fill.name()  # placeholder; caller patches per-net
+        pin_hex = "#606060" #fill.name()  # placeholder; caller patches per-net
 
         margin = 0.5
         body_h = (n - 1) + 2 * margin
@@ -328,19 +328,19 @@ class SvgDIPBody(BodyShape):
         for i in range(1,n):
             pin_circles.append(
                 f'<circle id="pin-{i+1}" cx="0" cy="{i}" r="0.14"'
-                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="none"/>'
+                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="{border_hex}" stroke-width="0.05"/>'
             )
         # Right column: pins n+1..2n at x=rs, y=(n-1)..0
         for i in range(n):
             pid = n + i + 1
             pin_circles.append(
                 f'<circle id="pin-{pid}" cx="{rs}" cy="{n-1-i}" r="0.14"'
-                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="none"/>'
+                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="{border_hex}" stroke-width="0.05"/>'
             )
 
         pin1_marker = (
-            f'<rect id="pin1-marker" x="-0.08" y="-0.08" width="0.16" height="0.16"'
-            f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="none"/>'
+            f'<rect id="pin1-marker" x="-0.12" y="-0.12" width="0.24" height="0.24"'
+            f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="{border_hex}" stroke-width="0.05"/>'
         )
 
         # Notch: semicircle cut into the top edge at pin-1 side.
@@ -355,7 +355,7 @@ class SvgDIPBody(BodyShape):
   <path id="body" fill-rule="evenodd"
         d="M {r},{-margin}
            L {nx0},{-margin}
-           A {notch_r},{notch_r} 0 1,1 {nx1},{-margin}
+           A {notch_r},{notch_r} 0 0,0 {nx1},{-margin}
            L {rs-r},{-margin} Q {rs},{-margin} {rs},{-margin+r}
            L {rs},{n-1+margin-r} Q {rs},{n-1+margin} {rs-r},{n-1+margin}
            L {r},{n-1+margin} Q {0},{n-1+margin} {0},{n-1+margin-r}
@@ -373,13 +373,31 @@ class SvgDIPBody(BodyShape):
         item._svg_renderer = renderer
         item.setZValue(z)
 
-        # DIP: pin 1 at positions[0], no rotation needed (layout already world).
-        # viewBox=(-margin,-margin,...): item_coord(pin1) = (margin, margin),
-        # so translate(p1) then translate(-margin,-margin) = translate(vb_x, vb_y).
+        # Scale: QSvgRenderer rounds viewBox to integer pixels, so we must
+        # compensate to keep 1 raster unit == 1 scene unit.
+        vb = renderer.viewBoxF()
+        br = item.boundingRect()
+        sx = vb.width()  / br.width()  if br.width()  > 1e-9 else 1.0
+        sy = vb.height() / br.height() if br.height() > 1e-9 else 1.0
+
+        # pin-1 in item-pixel space is at (margin, margin); scale to raster.
+        pin1_item_x = margin / sx
+        pin1_item_y = margin / sy
+
+        # Derive rotation from the direction pin1→pin2 (first column).
         p1 = positions[0]
+        if len(positions) >= 2:
+            dx = positions[1].x - p1.x
+            dy = positions[1].y - p1.y
+            angle_deg = -math.degrees(math.atan2(dx, dy))
+        else:
+            angle_deg = 0.0
+
         t = QTransform()
         t.translate(p1.x, p1.y)
-        t.translate(-margin, -margin)  # compensate for viewBox origin (-margin, -margin)
+        t.rotate(angle_deg)
+        t.scale(sx, sy)
+        t.translate(-pin1_item_x, -pin1_item_y)
         item.setTransform(t)
         return [item]
 
@@ -447,6 +465,7 @@ class SvgSILBody(BodyShape):
 
         svg = f"""<svg xmlns="http://www.w3.org/2000/svg"
      viewBox="{-m:.3f} {-m:.3f} {2*m:.3f} {body_h:.3f}"
+     width="{2*m:.3f}" height="{body_h:.3f}"
      data-pin-count="{n}" data-pitch="{pitch:.3f}">
   <rect id="housing"
         x="{-m:.3f}" y="{-m:.3f}" width="{2*m:.3f}" height="{body_h:.3f}"
@@ -465,8 +484,19 @@ class SvgSILBody(BodyShape):
         item._svg_renderer = renderer
         item.setZValue(z)
 
+        # QSvgRenderer.defaultSize() rounds viewBox dimensions to integer pixels,
+        # so QGraphicsSvgItem.boundingRect() is in pixels, not raster units.
+        # We must scale the item so that 1 item-pixel == 1 raster unit.
+        # viewBoxF gives the true SVG dimensions; boundingRect gives the pixel size.
+        vb = renderer.viewBoxF()
+        br = item.boundingRect()
+        sx = vb.width()  / br.width()  if br.width()  > 1e-9 else 1.0
+        sy = vb.height() / br.height() if br.height() > 1e-9 else 1.0
+        # pin1 in item-space: (m, m) in pixels, which maps to (m*sx, m*sy) in raster
+        pin1_item_x = m / sx
+        pin1_item_y = m / sy
+
         p1 = positions[0]
-        # SVG Y-axis aligns with pin row direction; angle = -atan2(dx, dy).
         if n >= 2:
             dx = positions[1].x - p1.x
             dy = positions[1].y - p1.y
@@ -476,7 +506,8 @@ class SvgSILBody(BodyShape):
         t = QTransform()
         t.translate(p1.x, p1.y)
         t.rotate(angle_deg)
-        t.translate(-m, -m)  # compensate for viewBox origin (-m, -m)
+        t.scale(sx, sy)
+        t.translate(-pin1_item_x, -pin1_item_y)
         item.setTransform(t)
         return [item]
 
