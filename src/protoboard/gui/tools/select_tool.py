@@ -651,17 +651,27 @@ class SelectTool(_Tool):
         self, wire: "WireSegment", scene_pt: QPointF
     ) -> bool:
         from PySide6.QtWidgets import QMenu
-        from protoboard.domain.commands.component_cmds import SetWireInsulatedCommand
+        from protoboard.domain.commands.component_cmds import (
+            SetWireInsulatedCommand,
+            SetWireSideCommand,
+        )
+        from typing import cast
+        from protoboard.domain.commands.base import Command
 
+        ins_label = "insulated" if wire.insulated else "bare"
         menu = QMenu(self._view)
-        label = "insulated" if wire.insulated else "bare"
-        menu.addSection(f"Wire — currently {label}")
+        menu.addSection(f"Wire — {ins_label}, {wire.side}")
+
         if wire.insulated:
-            act_bare = menu.addAction("Set bare (no insulation)")
-            act_bare.setData(("insulated", False))
+            act = menu.addAction("Set bare (no insulation)")
+            act.setData(("insulated", False))
         else:
-            act_ins = menu.addAction("Set insulated (add insulation jacket)")
-            act_ins.setData(("insulated", True))
+            act = menu.addAction("Set insulated (add insulation jacket)")
+            act.setData(("insulated", True))
+
+        other_side = "bottom" if wire.side == "top" else "top"
+        act_side = menu.addAction(f"Move to {other_side} layer")
+        act_side.setData(("side", other_side))
 
         chosen = menu.exec(
             self._view.mapToGlobal(self._view.mapFromScene(scene_pt))
@@ -669,13 +679,18 @@ class SelectTool(_Tool):
         if chosen is None:
             return True
 
-        _, new_insulated = chosen.data()
-        cmd = SetWireInsulatedCommand(wire_id=wire.id, insulated=new_insulated)
-        from typing import cast
-        from protoboard.domain.commands.base import Command
-        self._session.stack.execute(
-            cast(Command[ComponentState], cmd), self._session
-        )
+        action, value = chosen.data()
+        if action == "insulated":
+            cmd: Command[ComponentState] = cast(
+                Command[ComponentState],
+                SetWireInsulatedCommand(wire_id=wire.id, insulated=value),
+            )
+        else:
+            cmd = cast(
+                Command[ComponentState],
+                SetWireSideCommand(wire_id=wire.id, side=value),
+            )
+        self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
         return True
 
@@ -1153,7 +1168,7 @@ class SelectTool(_Tool):
             defn = session.components.get(inst.definition_ref)
             if defn is None:
                 continue
-            bbox = component_bbox(defn.footprint, placement)
+            bbox = component_bbox(defn.footprint, placement, defn.component_class)
             bx0 = bbox.x
             by0 = bbox.y
             bx1 = bbox.x + bbox.width

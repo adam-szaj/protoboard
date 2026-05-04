@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from protoboard.geometry import Point
 from protoboard.gui import recent_projects
 from protoboard.gui.board_view import BoardView
+from protoboard.gui import keybindings as KB
 from protoboard.gui.panels.groups_panel import GroupsPanel
 from protoboard.gui.panels.layers_panel import LayersPanel
 from protoboard.gui.panels.library_panel import LibraryPanel
@@ -54,6 +55,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._session = session
         self._closing_to_welcome = False
+        self._keybindings = KB.KeyBindings.load()
         self._update_title()
         self.resize(1280, 800)
 
@@ -192,6 +194,11 @@ class MainWindow(QMainWindow):
     # Menu
     # ------------------------------------------------------------------
 
+    def _ks(self, action_id: str) -> QKeySequence:
+        """Return a QKeySequence for *action_id* (empty if no shortcut set)."""
+        s = self._keybindings.get(action_id)
+        return QKeySequence(s) if s else QKeySequence()
+
     def _build_menu(self) -> None:
         mb: QMenuBar = self.menuBar()
 
@@ -199,11 +206,11 @@ class MainWindow(QMainWindow):
         file_menu = mb.addMenu("&File")
 
         act_save = file_menu.addAction("&Save")
-        act_save.setShortcut(QKeySequence.StandardKey.Save)
+        act_save.setShortcut(self._ks(KB.ACTION_SAVE))
         act_save.triggered.connect(self._save)
 
         act_save_as = file_menu.addAction("Save &As…")
-        act_save_as.setShortcut(QKeySequence.StandardKey.SaveAs)
+        act_save_as.setShortcut(self._ks(KB.ACTION_SAVE_AS))
         act_save_as.triggered.connect(self._save_as)
 
         file_menu.addSeparator()
@@ -241,36 +248,68 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
 
         act_quit = file_menu.addAction("&Quit")
-        act_quit.setShortcut(QKeySequence.StandardKey.Quit)
+        act_quit.setShortcut(self._ks(KB.ACTION_QUIT))
         act_quit.triggered.connect(self.close)
 
         # ── Edit ──────────────────────────────────────────────────────────
         edit_menu = mb.addMenu("&Edit")
 
         self._act_undo: QAction = edit_menu.addAction("&Undo")
-        self._act_undo.setShortcut(QKeySequence.StandardKey.Undo)
+        self._act_undo.setShortcut(self._ks(KB.ACTION_UNDO))
         self._act_undo.setEnabled(False)
         self._act_undo.triggered.connect(self._undo)
 
         self._act_redo: QAction = edit_menu.addAction("&Redo")
-        self._act_redo.setShortcut(QKeySequence.StandardKey.Redo)
+        self._act_redo.setShortcut(self._ks(KB.ACTION_REDO))
         self._act_redo.setEnabled(False)
         self._act_redo.triggered.connect(self._redo)
 
         edit_menu.addSeparator()
 
-        act_select_all = edit_menu.addAction("Select &All\tCtrl+A")
-        act_select_all.setShortcut(QKeySequence.StandardKey.SelectAll)
-        act_select_all.triggered.connect(self._select_all)
-
-        edit_menu.addSeparator()
-
-        act_group = edit_menu.addAction("&Group Selection\tCtrl+G")
-        act_group.setShortcut(QKeySequence("Ctrl+G"))
+        act_group = edit_menu.addAction("&Group Selection")
+        act_group.setShortcut(self._ks(KB.ACTION_GROUP))
         act_group.triggered.connect(self._group_selection)
 
         act_ungroup = edit_menu.addAction("&Ungroup")
+        act_ungroup.setShortcut(self._ks(KB.ACTION_UNGROUP))
         act_ungroup.triggered.connect(self._ungroup_selection)
+
+        edit_menu.addSeparator()
+
+        generate_menu = edit_menu.addMenu("&Generate")
+        act_gen_shortcuts = generate_menu.addAction("Shortcut Config &File")
+        act_gen_shortcuts.triggered.connect(self._generate_shortcut_config)
+
+        # ── Select ────────────────────────────────────────────────────────
+        select_menu = mb.addMenu("&Select")
+
+        act_sel_all = select_menu.addAction("Select &All")
+        act_sel_all.setShortcut(self._ks(KB.ACTION_SELECT_ALL))
+        act_sel_all.triggered.connect(self._select_all)
+
+        act_desel_all = select_menu.addAction("&Deselect All")
+        act_desel_all.setShortcut(self._ks(KB.ACTION_DESELECT_ALL))
+        act_desel_all.triggered.connect(self._deselect_all)
+
+        select_menu.addSeparator()
+
+        act_sel_comps = select_menu.addAction("Select All &Components")
+        act_sel_comps.setShortcut(self._ks(KB.ACTION_SELECT_ALL_COMPONENTS))
+        act_sel_comps.triggered.connect(self._select_all_components)
+
+        act_desel_comps = select_menu.addAction("Deselect All C&omponents")
+        act_desel_comps.setShortcut(self._ks(KB.ACTION_DESELECT_ALL_COMPONENTS))
+        act_desel_comps.triggered.connect(self._deselect_all_components)
+
+        select_menu.addSeparator()
+
+        act_sel_wires = select_menu.addAction("Select All &Wires")
+        act_sel_wires.setShortcut(self._ks(KB.ACTION_SELECT_ALL_WIRES))
+        act_sel_wires.triggered.connect(self._select_all_wires)
+
+        act_desel_wires = select_menu.addAction("Deselect All Wi&res")
+        act_desel_wires.setShortcut(self._ks(KB.ACTION_DESELECT_ALL_WIRES))
+        act_desel_wires.triggered.connect(self._deselect_all_wires)
 
         # ── View ──────────────────────────────────────────────────────────
         view_menu = mb.addMenu("&View")
@@ -281,41 +320,42 @@ class MainWindow(QMainWindow):
         self._act_camera_top.setChecked(True)
         self._act_camera_top.triggered.connect(lambda: self._set_camera("top"))
 
-        self._act_camera_bottom: QAction = view_menu.addAction("Camera: &Bottom\tX")
+        self._act_camera_bottom: QAction = view_menu.addAction("Camera: &Bottom")
         self._act_camera_bottom.setCheckable(True)
+        self._act_camera_bottom.setShortcut(self._ks(KB.ACTION_CAMERA_TOGGLE))
         self._act_camera_bottom.triggered.connect(lambda: self._set_camera("bottom"))
 
         view_menu.addSeparator()
 
         # Visual transform (independent of camera).
-        self._act_mirror: QAction = view_menu.addAction("Mirror &Horizontal\tH")
+        self._act_mirror: QAction = view_menu.addAction("Mirror &Horizontal")
         self._act_mirror.setCheckable(True)
+        self._act_mirror.setShortcut(self._ks(KB.ACTION_MIRROR_H))
         self._act_mirror.triggered.connect(self._mirror_view)
 
-        self._act_mirror_v: QAction = view_menu.addAction("Mirror &Vertical\tV")
+        self._act_mirror_v: QAction = view_menu.addAction("Mirror &Vertical")
         self._act_mirror_v.setCheckable(True)
+        self._act_mirror_v.setShortcut(self._ks(KB.ACTION_MIRROR_V))
         self._act_mirror_v.triggered.connect(self._mirror_view_v)
 
         view_menu.addSeparator()
 
         # ── Layers submenu ────────────────────────────────────────────
         layers_menu = view_menu.addMenu("&Layers")
-        # Each entry: (field_name, display_name)
-        # Order matches keyboard shortcuts 1–7.
         _LAYER_ENTRIES = [
-            ("components_top",    "Components Top",    "1"),
-            ("components_bottom", "Components Bottom", "2"),
-            ("wires_top",         "Wires Top",         "3"),
-            ("wires_bottom",      "Wires Bottom",      "4"),
-            ("labels_top",        "Labels Top",        "5"),
-            ("labels_bottom",     "Labels Bottom",     "6"),
-            ("board",             "Board",             "7"),
+            ("components_top",    "Components Top",    KB.ACTION_LAYER_1),
+            ("components_bottom", "Components Bottom", KB.ACTION_LAYER_2),
+            ("wires_top",         "Wires Top",         KB.ACTION_LAYER_3),
+            ("wires_bottom",      "Wires Bottom",      KB.ACTION_LAYER_4),
+            ("labels_top",        "Labels Top",        KB.ACTION_LAYER_5),
+            ("labels_bottom",     "Labels Bottom",     KB.ACTION_LAYER_6),
+            ("board",             "Board",             KB.ACTION_LAYER_7),
         ]
-        # Keep ordered list for keyPressEvent (index 0 = key 1).
         self._layer_field_order: list[str] = []
         self._layer_actions: dict[str, QAction] = {}
-        for field_name, display_name, key in _LAYER_ENTRIES:
-            act = layers_menu.addAction(f"{display_name}\t{key}")
+        for field_name, display_name, action_id in _LAYER_ENTRIES:
+            act = layers_menu.addAction(display_name)
+            act.setShortcut(self._ks(action_id))
             act.triggered.connect(
                 lambda _checked, fn=field_name: self._cycle_layer(fn)
             )
@@ -327,58 +367,66 @@ class MainWindow(QMainWindow):
 
         view_menu.addSeparator()
 
-        act_zoom_in = view_menu.addAction("Zoom &In\tCtrl++")
-        act_zoom_in.setShortcut(QKeySequence("Ctrl++"))
+        act_zoom_in = view_menu.addAction("Zoom &In")
+        act_zoom_in.setShortcut(self._ks(KB.ACTION_ZOOM_IN))
         act_zoom_in.triggered.connect(lambda: self._board_view.scale(1.3, 1.3))
 
-        act_zoom_out = view_menu.addAction("Zoom &Out\tCtrl+-")
-        act_zoom_out.setShortcut(QKeySequence("Ctrl+-"))
+        act_zoom_out = view_menu.addAction("Zoom &Out")
+        act_zoom_out.setShortcut(self._ks(KB.ACTION_ZOOM_OUT))
         act_zoom_out.triggered.connect(lambda: self._board_view.scale(1 / 1.3, 1 / 1.3))
 
-        act_fit = view_menu.addAction("&Fit Board\tCtrl+0")
-        act_fit.setShortcut(QKeySequence("Ctrl+0"))
+        act_fit = view_menu.addAction("&Fit Board")
+        act_fit.setShortcut(self._ks(KB.ACTION_FIT_BOARD))
         act_fit.triggered.connect(self._fit_board)
 
         # ── Tools ─────────────────────────────────────────────────────────
         tools_menu = mb.addMenu("&Tools")
 
-        act_tool_select = tools_menu.addAction("&Select\tS")
+        act_tool_select = tools_menu.addAction("&Select")
+        act_tool_select.setShortcut(self._ks(KB.ACTION_TOOL_SELECT))
         act_tool_select.triggered.connect(self._tool_select)
 
-        act_tool_route = tools_menu.addAction("Route &Wire\tW")
+        act_tool_route = tools_menu.addAction("Route &Wire")
+        act_tool_route.setShortcut(self._ks(KB.ACTION_TOOL_ROUTE))
         act_tool_route.triggered.connect(self._tool_route)
 
         wire_sub = tools_menu.addMenu("  Wire options")
 
-        self._act_wire_insulated: QAction = wire_sub.addAction("&Insulated\tI")
+        self._act_wire_insulated: QAction = wire_sub.addAction("&Insulated")
         self._act_wire_insulated.setCheckable(True)
         self._act_wire_insulated.setChecked(True)
+        self._act_wire_insulated.setShortcut(self._ks(KB.ACTION_WIRE_TOGGLE_INSULATED))
         self._act_wire_insulated.triggered.connect(
             lambda checked: self._set_wire_insulated(checked)
         )
 
-        wire_side_group_top: QAction = wire_sub.addAction("Side: &Top\tT")
+        wire_side_group_top: QAction = wire_sub.addAction("Side: &Top")
         wire_side_group_top.setCheckable(True)
         wire_side_group_top.setChecked(True)
+        wire_side_group_top.setShortcut(self._ks(KB.ACTION_WIRE_SIDE_TOP))
         wire_side_group_top.triggered.connect(lambda: self._set_wire_side("top"))
         self._act_wire_top = wire_side_group_top
 
-        wire_side_group_bot: QAction = wire_sub.addAction("Side: &Bottom\tB")
+        wire_side_group_bot: QAction = wire_sub.addAction("Side: &Bottom")
         wire_side_group_bot.setCheckable(True)
+        wire_side_group_bot.setShortcut(self._ks(KB.ACTION_WIRE_SIDE_BOTTOM))
         wire_side_group_bot.triggered.connect(lambda: self._set_wire_side("bottom"))
         self._act_wire_bottom = wire_side_group_bot
 
-        act_tool_cut = tools_menu.addAction("&Cut Strip\tC")
+        act_tool_cut = tools_menu.addAction("&Cut Strip")
+        act_tool_cut.setShortcut(self._ks(KB.ACTION_TOOL_CUT))
         act_tool_cut.triggered.connect(self._tool_cut)
 
         tools_menu.addSeparator()
 
-        act_autoroute = tools_menu.addAction("&Autoroute All Nets…\tF6")
+        act_autoroute = tools_menu.addAction("&Autoroute All Nets…")
+        act_autoroute.setShortcut(self._ks(KB.ACTION_AUTOROUTE))
         act_autoroute.triggered.connect(self._autoroute)
 
         tools_menu.addSeparator()
 
-        act_drc = tools_menu.addAction("Run &DRC\tF5")
+        act_drc = tools_menu.addAction("Run &DRC")
+        act_drc.setShortcut(self._ks(KB.ACTION_RUN_DRC))
         act_drc.triggered.connect(self._run_drc)
 
     # ------------------------------------------------------------------
@@ -695,20 +743,63 @@ class MainWindow(QMainWindow):
         else:
             self._act_redo.setText("&Redo")
 
-    def _select_all(self) -> None:
-        """Select all components and wires with rubber-band across entire board."""
-        from protoboard.gui.tools.select_tool import SelectTool
-
+    def _ensure_select_tool(self) -> SelectTool | None:
+        """Switch to SelectTool if not already active and return it."""
         if not isinstance(self._board_view._active_tool, SelectTool):
             self._board_view.set_tool(SelectTool())
         tool = self._board_view._active_tool
-        if not isinstance(tool, SelectTool):
+        return tool if isinstance(tool, SelectTool) else None
+
+    def _select_all(self) -> None:
+        """Select all components and wires."""
+        tool = self._ensure_select_tool()
+        if tool is None:
             return
         session = self._session
         tool._selected_ids = set(session.layout.placements.keys())
         tool._selected_wire_ids = {w.id for w in session.layout.wires}
         tool._redraw_multi_highlights()
         tool._redraw_multi_wire_highlights()
+
+    def _deselect_all(self) -> None:
+        """Deselect all components and wires."""
+        tool = self._ensure_select_tool()
+        if tool is None:
+            return
+        tool._clear_multi_selection()
+        tool._deselect()
+        tool._deselect_wire()
+
+    def _select_all_components(self) -> None:
+        """Select all components, keep wire selection unchanged."""
+        tool = self._ensure_select_tool()
+        if tool is None:
+            return
+        tool._selected_ids = set(self._session.layout.placements.keys())
+        tool._redraw_multi_highlights()
+
+    def _deselect_all_components(self) -> None:
+        """Deselect all components, keep wire selection unchanged."""
+        tool = self._ensure_select_tool()
+        if tool is None:
+            return
+        tool._clear_multi_selection()
+        tool._deselect()
+
+    def _select_all_wires(self) -> None:
+        """Select all wires, keep component selection unchanged."""
+        tool = self._ensure_select_tool()
+        if tool is None:
+            return
+        tool._selected_wire_ids = {w.id for w in self._session.layout.wires}
+        tool._redraw_multi_wire_highlights()
+
+    def _deselect_all_wires(self) -> None:
+        """Deselect all wires, keep component selection unchanged."""
+        tool = self._ensure_select_tool()
+        if tool is None:
+            return
+        tool._deselect_wire()
 
     def _group_selection(self) -> None:
         """Group the current multi-selection via Ctrl+G."""
@@ -975,6 +1066,21 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "Export error", str(exc))
 
+    def _generate_shortcut_config(self) -> None:
+        """Write a full keybindings.yaml with all actions and their current shortcuts."""
+        try:
+            self._keybindings.generate_full_config()
+            path = str(KB._KEYBINDINGS_PATH)
+            self._status.showMessage(f"Shortcut config written to {path}", 6000)
+            QMessageBox.information(
+                self,
+                "Shortcut Config",
+                f"Shortcut configuration written to:\n{path}\n\n"
+                "Edit the file and restart the application to apply changes.",
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", str(exc))
+
     def _on_cursor_moved(self, x: float, y: float) -> None:
         self._cursor_label.setText(f"({x:.2f}, {y:.2f})")
 
@@ -997,40 +1103,48 @@ class MainWindow(QMainWindow):
     # Keyboard shortcuts
     # ------------------------------------------------------------------
 
+    def _matches(self, event: QKeyEvent, action_id: str) -> bool:
+        """Return True if *event* matches the shortcut assigned to *action_id*."""
+        shortcut = self._keybindings.get(action_id)
+        if not shortcut:
+            return False
+        return QKeySequence(event.keyCombination()) == QKeySequence(shortcut)
+
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        key = event.key()
-        ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
-        if key == Qt.Key.Key_S and not ctrl:
+        # QActions with setShortcut() are handled automatically by Qt.
+        # This method only handles actions that lack a dedicated QAction
+        # (tool switching, mirror, camera) which are shown in menus as
+        # hint text only, and layer cycling which is dynamically indexed.
+        if self._matches(event, KB.ACTION_TOOL_SELECT):
             self._tool_select()
-        elif key == Qt.Key.Key_W and not ctrl:
+        elif self._matches(event, KB.ACTION_TOOL_ROUTE):
             self._tool_route()
-        elif key == Qt.Key.Key_C and not ctrl:
+        elif self._matches(event, KB.ACTION_TOOL_CUT):
             self._tool_cut()
-        elif key == Qt.Key.Key_H and not ctrl:
+        elif self._matches(event, KB.ACTION_MIRROR_H):
             self._mirror_view()
-        elif key == Qt.Key.Key_V and not ctrl:
+        elif self._matches(event, KB.ACTION_MIRROR_V):
             self._mirror_view_v()
-        elif key == Qt.Key.Key_X and not ctrl:
+        elif self._matches(event, KB.ACTION_CAMERA_TOGGLE):
             self._set_camera(
                 "top" if self._board_view.camera_side == "bottom" else "bottom"
             )
-        elif key == Qt.Key.Key_F5:
-            self._run_drc()
-        elif key == Qt.Key.Key_F6:
-            self._autoroute()
-        elif key == Qt.Key.Key_S and ctrl:
-            self._save()
-        elif key == Qt.Key.Key_Q and ctrl:
-            self.close()
-        elif key == Qt.Key.Key_Z and ctrl:
-            self._undo()
-        elif key == Qt.Key.Key_Y and ctrl:
-            self._redo()
-        elif key == Qt.Key.Key_0 and ctrl:
-            self._fit_board()
-        elif not ctrl and Qt.Key.Key_1 <= key <= Qt.Key.Key_7:
-            idx = key - Qt.Key.Key_1
-            if idx < len(self._layer_field_order):
-                self._cycle_layer(self._layer_field_order[idx])
+        elif self._matches(event, KB.ACTION_WIRE_TOGGLE_INSULATED):
+            self._set_wire_insulated(not self._wire_insulated)
+        elif self._matches(event, KB.ACTION_WIRE_SIDE_TOP):
+            self._set_wire_side("top")
+        elif self._matches(event, KB.ACTION_WIRE_SIDE_BOTTOM):
+            self._set_wire_side("bottom")
         else:
+            # Layer shortcuts: dynamically check ACTION_LAYER_1..7.
+            _layer_actions = [
+                KB.ACTION_LAYER_1, KB.ACTION_LAYER_2, KB.ACTION_LAYER_3,
+                KB.ACTION_LAYER_4, KB.ACTION_LAYER_5, KB.ACTION_LAYER_6,
+                KB.ACTION_LAYER_7,
+            ]
+            for idx, layer_action_id in enumerate(_layer_actions):
+                if self._matches(event, layer_action_id):
+                    if idx < len(self._layer_field_order):
+                        self._cycle_layer(self._layer_field_order[idx])
+                    return
             super().keyPressEvent(event)

@@ -134,7 +134,10 @@ def _render_one(
                 pen.setStyle(Qt.PenStyle.DashLine)
         else:
             fill_color = pin_color_fallback
-            pen = QPen(Qt.GlobalColor.transparent, 0)
+
+            white = QColor("#777777")
+            white.setAlphaF(fill_color.alphaF())
+            pen = QPen(white, 0.06)
 
         if pin_number == 1:
             _add_pin1_marker(scene, pos.x, pos.y, fill_color, theme, z=z_comp - 0.05)
@@ -172,8 +175,8 @@ def _add_pin1_marker(
     r = theme.pin_radius * 1.1
     square = QGraphicsRectItem(QRectF(cx - r, cy - r, 2 * r, 2 * r))
     square.setBrush(QBrush(fill_color))
-    white = QColor("#888888")
-    white.setAlphaF(fill_color.alphaF()*0.5)
+    white = QColor("#777777")
+    white.setAlphaF(fill_color.alphaF())
     square.setPen(QPen(white, 0.06))
     square.setZValue(z)
     scene.addItem(square)

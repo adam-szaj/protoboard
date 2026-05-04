@@ -117,19 +117,19 @@ class Theme:
     ghost_fill_r: int = 255
     ghost_fill_g: int = 255
     ghost_fill_b: int = 200
-    ghost_fill_a: int = 180
+    ghost_fill_a: int = 225
     ghost_border_r: int = 255
     ghost_border_g: int = 255
     ghost_border_b: int = 100
-    ghost_border_a: int = 160
+    ghost_border_a: int = 225
     ghost_pin_r: int = 200
     ghost_pin_g: int = 80
     ghost_pin_b: int = 80
-    ghost_pin_a: int = 160
+    ghost_pin_a: int = 225
     ghost_label_r: int = 220
     ghost_label_g: int = 220
     ghost_label_b: int = 100
-    ghost_label_a: int = 180
+    ghost_label_a: int = 128
 
     group_pen_r: int = 100
     group_pen_g: int = 200

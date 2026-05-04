@@ -76,7 +76,7 @@
      width="0.24"
      height="0.24"
      fill="#CC2222"
-     stroke="none" />
+     stroke="#FFFFFF" />
   <!-- Left column: pins 1-4 at x=0, y=0..3 -->
   <circle
      id="pin-2"
@@ -84,21 +84,21 @@
      cy="1"
      r="0.14"
      fill="#CC2222"
-     stroke="none" />
+     stroke="#FFFFFF" />
   <circle
      id="pin-3"
      cx="0"
      cy="2"
      r="0.14"
      fill="#CC2222"
-     stroke="none" />
+     stroke="#FFFFFF" />
   <circle
      id="pin-4"
      cx="0"
      cy="3"
      r="0.14"
      fill="#CC2222"
-     stroke="none" />
+     stroke="#FFFFFF" />
   <!-- Right column: pins 5-8 at x=3, y=3..0 -->
   <circle
      id="pin-5"
@@ -106,26 +106,26 @@
      cy="3"
      r="0.14"
      fill="#CC2222"
-     stroke="none" />
+     stroke="#FFFFFF" />
   <circle
      id="pin-6"
      cx="3"
      cy="2"
      r="0.14"
      fill="#CC2222"
-     stroke="none" />
+     stroke="#FFFFFF" />
   <circle
      id="pin-7"
      cx="3"
      cy="1"
      r="0.14"
      fill="#CC2222"
-     stroke="none" />
+     stroke="#FFFFFF" />
   <circle
      id="pin-8"
      cx="3"
      cy="0"
      r="0.14"
      fill="#CC2222"
-     stroke="none" />
+     stroke="#FFFFFF" />
 </svg>

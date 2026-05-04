@@ -322,6 +322,33 @@ class SetWireInsulatedCommand(Command[ComponentState]):
 
 
 @dataclass
+class SetWireSideCommand(Command[ComponentState]):
+    """Move a wire to the top or bottom layer."""
+
+    wire_id: uuid.UUID
+    side: str  # "top" or "bottom"
+    _old_side: str = field(default="top", init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return f"Move wire to {self.side}"
+
+    def apply(self, state: ComponentState) -> None:
+        for wire in state.layout.wires:
+            if wire.id == self.wire_id:
+                self._old_side = wire.side
+                wire.side = self.side  # type: ignore[assignment]
+                return
+        raise KeyError(f"Wire {self.wire_id} not found")
+
+    def revert(self, state: ComponentState) -> None:
+        for wire in state.layout.wires:
+            if wire.id == self.wire_id:
+                wire.side = self._old_side  # type: ignore[assignment]
+                return
+
+
+@dataclass
 class DisconnectPinCommand(Command[SchematicState]):
     """Remove a pin from its net. Deletes the net if it becomes empty."""
 
