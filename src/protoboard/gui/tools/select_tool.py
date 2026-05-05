@@ -169,6 +169,15 @@ class SelectTool(_Tool):
                     self._set_edit_end(idx, wire)
             return True
 
+        # --- First node selected, waiting for second (Ctrl+click sets end) ---
+        if self._edit_start_idx is not None and ctrl:
+            idx = self._hit_test_wire_node(scene_pt)
+            if idx is not None and self._selected_wire_id is not None:
+                wire = self._get_selected_wire()
+                if wire is not None:
+                    self._set_edit_end(idx, wire)
+            return True
+
         # --- Ctrl+click: wire node or add/remove from multi-selection ---
         if ctrl:
             # Check for wire node click on the single-selected wire (starts edit).
@@ -1383,6 +1392,7 @@ class SelectTool(_Tool):
         )
         if wire is None or len(wire.path) < 2:
             return
+        from protoboard.gui.layer_state import Z_SELECTION
         group = QGraphicsItemGroup()
         pts = wire.path
         for i in range(len(pts) - 1):
@@ -1398,7 +1408,7 @@ class SelectTool(_Tool):
             dot.setPen(_NODE_SELECTED_PEN if is_sel else _NODE_PEN)
             dot.setBrush(_NODE_SELECTED_BRUSH if is_sel else _NODE_BRUSH)
             group.addToGroup(dot)
-        group.setZValue(2.0)
+        group.setZValue(Z_SELECTION)
         self._view.scene().addItem(group)
         self._wire_highlight = group
 
@@ -1418,6 +1428,7 @@ class SelectTool(_Tool):
         )
         if wire is None or len(wire.path) < 2:
             return
+        from protoboard.gui.layer_state import Z_SELECTION
         group = QGraphicsItemGroup()
         pts = wire.path
         for i in range(len(pts) - 1):
@@ -1426,7 +1437,7 @@ class SelectTool(_Tool):
             )
             seg.setPen(_WIRE_SELECT_PEN)
             group.addToGroup(seg)
-        group.setZValue(2.0)
+        group.setZValue(Z_SELECTION)
         self._view.scene().addItem(group)
         self._wire_multi_highlights.append(group)
 
