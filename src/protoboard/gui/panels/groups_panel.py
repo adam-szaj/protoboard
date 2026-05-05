@@ -64,30 +64,34 @@ class GroupsPanel(QWidget):
 
     def refresh(self, session: EditorSession) -> None:
         """Rebuild tree from *session.layout.groups*."""
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+
         self._session = session
         self._tree.clear()
 
         groups = session.layout.groups
-        if not groups:
+        # Exclude root group from display.
+        visible = {gid: g for gid, g in groups.items() if gid != ROOT_GROUP_ID}
+        if not visible:
             return
 
         # Build a map: group_id → item, for wiring parent↔child.
         items: dict[uuid.UUID, QTreeWidgetItem] = {}
         child_ids: set[uuid.UUID] = set()
-        for g in groups.values():
+        for g in visible.values():
             child_ids.update(g.child_group_ids)
 
-        for gid, grp in groups.items():
+        for gid, grp in visible.items():
             items[gid] = self._make_item(grp, session)
 
         # Wire children under parents.
-        for gid, grp in groups.items():
+        for gid, grp in visible.items():
             for cid in grp.child_group_ids:
                 if cid in items:
                     items[gid].addChild(items[cid])
 
-        # Add top-level groups (those not referenced as children).
-        for gid in groups:
+        # Add top-level groups (those not referenced as children of visible groups).
+        for gid in visible:
             if gid not in child_ids:
                 self._tree.addTopLevelItem(items[gid])
 
@@ -103,7 +107,9 @@ class GroupsPanel(QWidget):
         from protoboard.domain.layout.group import all_component_ids
 
         total = len(all_component_ids(session.layout.groups, grp.id))
-        item = QTreeWidgetItem([grp.name, str(total)])
+        exported = len(grp.exported_pins)
+        col1 = f"{total} ({exported} exp.)" if exported else str(total)
+        item = QTreeWidgetItem([grp.name or "(unnamed)", col1])
         item.setData(0, Qt.ItemDataRole.UserRole, grp.id)
         return item
 

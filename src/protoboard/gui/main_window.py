@@ -62,6 +62,8 @@ class MainWindow(QMainWindow):
         # Central widget — board view.
         self._board_view = BoardView(session, self)
         self.setCentralWidget(self._board_view)
+        # Single persistent SelectTool instance — preserves group navigation state.
+        self._select_tool = SelectTool()
 
         # Left dock — tabbed: Library | Netlist/BOM | Groups | Nets
         self._library_panel = LibraryPanel(session.library, self)
@@ -545,7 +547,10 @@ class MainWindow(QMainWindow):
         session.layout_changed.connect(self._drc_timer.start)
         session.layout_changed.connect(self._update_undo_redo)
         session.drc_changed.connect(self._props_panel.update_issues)
+        # Reset select tool state (group stack etc.) for the new session.
+        self._select_tool = SelectTool()
         self._board_view.set_session(session)
+        self._tool_select()
         self._refresh_netlist()
         self._refresh_groups()
         self._refresh_nets_editor()
@@ -635,7 +640,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _tool_select(self) -> None:
-        self._board_view.set_tool(SelectTool())
+        self._board_view.set_tool(self._select_tool)
         self._mode_label.setText("Select")
 
     def _tool_place(self, definition_ref: str) -> None:
@@ -805,7 +810,7 @@ class MainWindow(QMainWindow):
     def _ensure_select_tool(self) -> SelectTool | None:
         """Switch to SelectTool if not already active and return it."""
         if not isinstance(self._board_view._active_tool, SelectTool):
-            self._board_view.set_tool(SelectTool())
+            self._board_view.set_tool(self._select_tool)
         tool = self._board_view._active_tool
         return tool if isinstance(tool, SelectTool) else None
 

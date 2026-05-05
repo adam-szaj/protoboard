@@ -8,7 +8,18 @@ from dataclasses import dataclass, field
 
 from protoboard.domain.commands.base import Command
 from protoboard.domain.commands.component_cmds import ComponentState
-from protoboard.domain.layout.group import ComponentGroup, would_create_cycle
+from protoboard.domain.layout.group import ComponentGroup, ExportedPin, would_create_cycle
+
+
+def _replace_group(g: ComponentGroup, **kwargs: object) -> ComponentGroup:
+    """Return a copy of *g* with the given fields replaced."""
+    return ComponentGroup(
+        id=kwargs.get("id", g.id),  # type: ignore[arg-type]
+        name=kwargs.get("name", g.name),  # type: ignore[arg-type]
+        component_ids=kwargs.get("component_ids", g.component_ids),  # type: ignore[arg-type]
+        child_group_ids=kwargs.get("child_group_ids", g.child_group_ids),  # type: ignore[arg-type]
+        exported_pins=kwargs.get("exported_pins", g.exported_pins),  # type: ignore[arg-type]
+    )
 
 
 @dataclass
@@ -52,11 +63,8 @@ class DisbandGroupCommand(Command[ComponentState]):
         for gid, g in state.layout.groups.items():
             if self.group_id in g.child_group_ids:
                 object.__setattr__(self, "_saved_parent_id", gid)
-                state.layout.groups[gid] = ComponentGroup(
-                    id=g.id,
-                    name=g.name,
-                    component_ids=g.component_ids,
-                    child_group_ids=g.child_group_ids - {self.group_id},
+                state.layout.groups[gid] = _replace_group(
+                    g, child_group_ids=g.child_group_ids - {self.group_id}
                 )
                 break
 
@@ -66,11 +74,8 @@ class DisbandGroupCommand(Command[ComponentState]):
         if self._saved_parent_id is not None:
             parent = state.layout.groups.get(self._saved_parent_id)
             if parent is not None:
-                state.layout.groups[self._saved_parent_id] = ComponentGroup(
-                    id=parent.id,
-                    name=parent.name,
-                    component_ids=parent.component_ids,
-                    child_group_ids=parent.child_group_ids | {self.group_id},
+                state.layout.groups[self._saved_parent_id] = _replace_group(
+                    parent, child_group_ids=parent.child_group_ids | {self.group_id}
                 )
 
 
@@ -100,9 +105,8 @@ class AddToGroupCommand(Command[ComponentState]):
                     f"Adding group {child_id} to {self.group_id} would create a cycle"
                 )
         object.__setattr__(self, "_old_group", group)
-        state.layout.groups[self.group_id] = ComponentGroup(
-            id=group.id,
-            name=group.name,
+        state.layout.groups[self.group_id] = _replace_group(
+            group,
             component_ids=group.component_ids | self.component_ids,
             child_group_ids=group.child_group_ids | self.child_group_ids,
         )
@@ -132,9 +136,8 @@ class RemoveFromGroupCommand(Command[ComponentState]):
         if group is None:
             raise KeyError(f"Group {self.group_id} not found")
         object.__setattr__(self, "_old_group", group)
-        state.layout.groups[self.group_id] = ComponentGroup(
-            id=group.id,
-            name=group.name,
+        state.layout.groups[self.group_id] = _replace_group(
+            group,
             component_ids=group.component_ids - self.component_ids,
             child_group_ids=group.child_group_ids - self.child_group_ids,
         )
@@ -159,19 +162,40 @@ class RenameGroupCommand(Command[ComponentState]):
         if group is None:
             raise KeyError(f"Group {self.group_id} not found")
         object.__setattr__(self, "_old_name", group.name)
-        state.layout.groups[self.group_id] = ComponentGroup(
-            id=group.id,
-            name=self.new_name,
-            component_ids=group.component_ids,
-            child_group_ids=group.child_group_ids,
+        state.layout.groups[self.group_id] = _replace_group(group, name=self.new_name)
+
+    def revert(self, state: ComponentState) -> None:
+        group = state.layout.groups.get(self.group_id)
+        if group is not None:
+            state.layout.groups[self.group_id] = _replace_group(group, name=self._old_name)
+
+
+@dataclass
+class SetExportedPinsCommand(Command[ComponentState]):
+    """Atomically replace the exported_pins of a group (supports undo)."""
+
+    group_id: uuid.UUID
+    new_exported: frozenset[ExportedPin]
+    _old_exported: frozenset[ExportedPin] = field(
+        default_factory=frozenset, init=False, repr=False
+    )
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Set exported pins"
+
+    def apply(self, state: ComponentState) -> None:
+        group = state.layout.groups.get(self.group_id)
+        if group is None:
+            raise KeyError(f"Group {self.group_id} not found")
+        object.__setattr__(self, "_old_exported", group.exported_pins)
+        state.layout.groups[self.group_id] = _replace_group(
+            group, exported_pins=self.new_exported
         )
 
     def revert(self, state: ComponentState) -> None:
         group = state.layout.groups.get(self.group_id)
         if group is not None:
-            state.layout.groups[self.group_id] = ComponentGroup(
-                id=group.id,
-                name=self._old_name,
-                component_ids=group.component_ids,
-                child_group_ids=group.child_group_ids,
+            state.layout.groups[self.group_id] = _replace_group(
+                group, exported_pins=self._old_exported
             )

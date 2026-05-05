@@ -131,6 +131,13 @@ def _layout_to_yaml(layout: Layout) -> str:
                             ]}
                             if g.child_group_ids else {}
                         ),
+                        **(
+                            {"exported_pins": [
+                                {"component_id": str(ep.component_id), "pin_number": ep.pin_number}
+                                for ep in sorted(g.exported_pins, key=lambda e: (str(e.component_id), e.pin_number))
+                            ]}
+                            if g.exported_pins else {}
+                        ),
                     }
                     for g in layout.groups.values()
                 ]
@@ -255,11 +262,18 @@ def _layout_from_yaml(text: str) -> Layout:
                 color=raw.get("color"),
             )
         )
-    from protoboard.domain.layout.group import ComponentGroup
+    from protoboard.domain.layout.group import ComponentGroup, ExportedPin
 
     groups: dict[uuid.UUID, ComponentGroup] = {}
     for raw in data.get("groups") or []:
         gid = uuid.UUID(raw["id"])
+        exported_pins: frozenset[ExportedPin] = frozenset(
+            ExportedPin(
+                component_id=uuid.UUID(ep["component_id"]),
+                pin_number=int(ep["pin_number"]),
+            )
+            for ep in (raw.get("exported_pins") or [])
+        )
         groups[gid] = ComponentGroup(
             id=gid,
             name=str(raw["name"]),
@@ -269,8 +283,11 @@ def _layout_from_yaml(text: str) -> Layout:
             child_group_ids=frozenset(
                 uuid.UUID(c) for c in (raw.get("child_group_ids") or [])
             ),
+            exported_pins=exported_pins,
         )
-    return Layout(placements=placements, wires=wires, groups=groups)
+    layout = Layout(placements=placements, wires=wires, groups=groups)
+    layout.ensure_root_group()
+    return layout
 
 
 def _schematic_from_yaml(text: str) -> Schematic:

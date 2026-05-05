@@ -42,6 +42,7 @@ class EditorSession(QObject):
         self.library = library
         self.schematic = Schematic(nets={})
         self.layout = Layout()
+        self.layout.ensure_root_group()
         # Pre-populate components from library so renderers can look up definitions.
         self.components: dict[str, ComponentDefinition] = {
             name: library.get(name) for name in library.names()

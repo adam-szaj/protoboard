@@ -59,6 +59,9 @@ class BoardView(QGraphicsView):
         self._view_transform: str = "normal"     # "normal" | "mirror_h" | "mirror_v"
         self._layer_overrides: LayerOverrides = LayerOverrides()
         self._pad_positions: list[Point] = []
+        # Active group for rendering context (set by SelectTool on navigation).
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        self._active_group_id: uuid.UUID = ROOT_GROUP_ID
         session.layout_changed.connect(self.refresh)
         self.refresh()
 
@@ -73,6 +76,15 @@ class BoardView(QGraphicsView):
     @property
     def view_transform(self) -> str:
         return self._view_transform
+
+    @property
+    def active_group_id(self) -> uuid.UUID:
+        return self._active_group_id
+
+    def set_active_group(self, group_id: uuid.UUID) -> None:
+        """Called by SelectTool on group navigation to trigger a re-render."""
+        self._active_group_id = group_id
+        self.refresh()
 
     # ------------------------------------------------------------------
     # View control — camera and transform are independent.
@@ -246,6 +258,8 @@ class BoardView(QGraphicsView):
             routed_nets=routed,
             layers=layers,
             theme=_theme,
+            active_group_id=self._active_group_id,
+            layout=self._session.layout,
         )
         if self._session.schematic.nets:
             render_ratsnest(
@@ -263,6 +277,7 @@ class BoardView(QGraphicsView):
                 self._session.layout.placements,
                 self._session.instances,
                 self._session.components,
+                active_group_id=self._active_group_id,
             )
         # Fit scene rect to board bounds.
         b = self._session.board.bounds

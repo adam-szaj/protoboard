@@ -105,7 +105,9 @@ class SelectTool(_Tool):
         self._edit_preview_items: list[QGraphicsLineItem] = []
         self._edit_live_line: QGraphicsLineItem | None = None
         # Group navigation stack: list of group IDs currently entered (innermost last).
-        self._group_stack: list[uuid.UUID] = []
+        # Starts at root group; never empty.
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID as _ROOT_GID
+        self._group_stack: list[uuid.UUID] = [_ROOT_GID]
         # Re-drag state (Ctrl+R on a component with bendable_pins).
         self._redrag_comp_id: uuid.UUID | None = None
         self._redrag_pin_num: int | None = None
@@ -114,6 +116,13 @@ class SelectTool(_Tool):
     # ------------------------------------------------------------------
     # _Tool interface
     # ------------------------------------------------------------------
+
+    def activate(self, session: object, view: object) -> None:
+        super().activate(session, view)  # type: ignore[arg-type]
+        # Ensure group stack is never empty (guard against stale instances).
+        if not self._group_stack:
+            from protoboard.domain.layout.layout import ROOT_GROUP_ID
+            self._group_stack = [ROOT_GROUP_ID]
 
     def deactivate(self) -> None:
         self._cancel_redrag()
@@ -213,9 +222,43 @@ class SelectTool(_Tool):
 
             return False
 
+        # --- Klik na obrysie grupy — zaznacz grupę jako całość ---
+        group_outline_hit = self._hit_test_group_outline(scene_pt)
+        if group_outline_hit is not None:
+            self._cancel_wire_edit()
+            self._deselect_wire()
+            groups = self._session.layout.groups
+            grp_members = frozenset(all_component_ids(groups, group_outline_hit))
+            if grp_members:
+                self._clear_multi_selection()
+                self._selected_ids = set(grp_members)
+                first = next(iter(grp_members))
+                self._select_primary(first)
+                for cid in grp_members - {first}:
+                    self._draw_multi_highlight(cid)
+                # Begin drag of all group members.
+                self._dragging = True
+                self._drag_orig_positions = {}
+                self._drag_orig_wire_paths = {}
+                snapped = self._view.snap(scene_pt)
+                for cid in grp_members:
+                    pl = self._session.layout.placements.get(cid)
+                    if pl is not None:
+                        self._drag_orig_positions[cid] = pl.position
+                pl_first = self._session.layout.placements.get(first)
+                if pl_first is not None:
+                    self._drag_anchor_offset = (
+                        pl_first.position.x - snapped.x,
+                        pl_first.position.y - snapped.y,
+                    )
+            return True
+
         # --- Normal left click: hit-test component or wire ---
         hit = self._hit_test(scene_pt)
         if hit is not None:
+            # Block interaction with components outside the active group context.
+            if not self._is_accessible(hit):
+                return False
             # If the hit component is in a group that we haven't entered yet,
             # redirect the selection to that group's representative ID.
             hit = self._resolve_group_hit(hit)
@@ -336,29 +379,19 @@ class SelectTool(_Tool):
             hit = self._hit_test_bbox(scene_pt)
         if hit is None:
             return False
-        # If the component belongs to a group we're inside, enter a deeper group.
+        # Find which child group of the current group contains this component.
         groups = self._session.layout.groups
-        # Find which group (at current level) contains this component.
-        current_group_id = self._group_stack[-1] if self._group_stack else None
-        if current_group_id is not None:
-            parent_group = groups.get(current_group_id)
-            if parent_group is not None:
-                for child_gid in parent_group.child_group_ids:
-                    child_group = groups.get(child_gid)
-                    if child_group and hit in all_component_ids(groups, child_gid):
-                        self._group_stack.append(child_gid)
-                        self._clear_multi_selection()
-                        self._deselect()
-                        self._select_primary(hit)
-                        return True
-        else:
-            top = top_level_group_for(groups, hit)
-            if top is not None:
-                self._group_stack.append(top)
-                self._clear_multi_selection()
-                self._deselect()
-                self._select_primary(hit)
-                return True
+        current_group_id = self._group_stack[-1]
+        parent_group = groups.get(current_group_id)
+        if parent_group is not None:
+            for child_gid in parent_group.child_group_ids:
+                if hit in all_component_ids(groups, child_gid):
+                    self._group_stack.append(child_gid)
+                    self._clear_multi_selection()
+                    self._deselect()
+                    self._select_primary(hit)
+                    self._notify_active_group()
+                    return True
         return False
 
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
@@ -575,7 +608,8 @@ class SelectTool(_Tool):
         elif key == Qt.Key.Key_G and ctrl:
             self._group_for_selection()
         elif key == Qt.Key.Key_Escape:
-            if self._group_stack:
+            from protoboard.domain.layout.layout import ROOT_GROUP_ID
+            if len(self._group_stack) > 1:  # inside a subgroup
                 self.exit_group()
             else:
                 self._clear_multi_selection()
@@ -627,13 +661,39 @@ class SelectTool(_Tool):
                 pin_name = defn.pin_names.get(pin_num, str(pin_num))
                 netted_pins.append((pin_num, pin_name, net.name))
 
-        if not netted_pins:
-            return False  # no netted pins — nothing to show, let escape_tool fire
-
         from PySide6.QtWidgets import QMenu
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
         menu = QMenu(self._view)
-        menu.addSection(f"{inst.refdes} — disconnect pin from net")
+
+        # --- Export pin submenu (only when inside a non-root group) ---
+        active_gid = self._group_stack[-1] if self._group_stack else ROOT_GROUP_ID
+        if active_gid != ROOT_GROUP_ID:
+            active_grp = self._session.layout.groups.get(active_gid)
+            if active_grp is not None and comp_id in all_component_ids(
+                self._session.layout.groups, active_gid
+            ):
+                from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
+                from protoboard.domain.layout.group import ExportedPin
+
+                menu.addSection(f"{inst.refdes} — export/unexport pins")
+                for pin_num in range(1, defn.footprint.pin_count() + 1):
+                    ep = ExportedPin(component_id=comp_id, pin_number=pin_num)
+                    pin_name = defn.pin_names.get(pin_num, str(pin_num))
+                    already = ep in active_grp.exported_pins
+                    label = (
+                        f"✓ Unexport pin {pin_num} ({pin_name})"
+                        if already
+                        else f"  Export pin {pin_num} ({pin_name})"
+                    )
+                    act = menu.addAction(label)
+                    act.setData(("export_pin", active_gid, ep, already))
+
+        if not netted_pins and active_gid == ROOT_GROUP_ID:
+            return False  # no netted pins and not in a group — nothing to show
+
+        if netted_pins:
+            menu.addSection(f"{inst.refdes} — disconnect pin from net")
         for pin_num, pin_name, net_name in netted_pins:
             action = menu.addAction(
                 f"Pin {pin_num} ({pin_name})  ←  {net_name}"
@@ -648,9 +708,25 @@ class SelectTool(_Tool):
         if chosen is None:
             return True  # menu shown but dismissed — still consume the event
 
-        cid, pin_num = chosen.data()
-        from typing import cast
+        data = chosen.data()
+        if isinstance(data, tuple) and data[0] == "export_pin":
+            _, group_id, ep, already = data
+            from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
+            grp = self._session.layout.groups.get(group_id)
+            if grp is not None:
+                if already:
+                    new_exported = grp.exported_pins - {ep}
+                else:
+                    new_exported = grp.exported_pins | {ep}
+                cmd_exp = SetExportedPinsCommand(
+                    group_id=group_id, new_exported=new_exported
+                )
+                self._session.stack.execute(cmd_exp, self._session)
+                self._session.layout_changed.emit()
+            return True
 
+        cid, pin_num = data
+        from typing import cast
         from protoboard.domain.commands.base import Command
         from protoboard.domain.commands.component_cmds import DisconnectPinCommand
 
@@ -1648,74 +1724,154 @@ class SelectTool(_Tool):
     # Group navigation helpers
     # ------------------------------------------------------------------
 
+    def _hit_test_group_outline(self, scene_pt: QPointF) -> uuid.UUID | None:
+        """Return group_id if the click landed on a group outline rect item."""
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        for item in self._view.scene().items(scene_pt):
+            tag = item.data(1) if hasattr(item, "data") else None
+            if tag == "group_outline":
+                raw = item.data(0)
+                if raw:
+                    gid = uuid.UUID(str(raw))
+                    # Only outline-clicks for child groups of active group.
+                    groups = self._session.layout.groups
+                    active = groups.get(self._group_stack[-1])
+                    if active and gid in active.child_group_ids:
+                        return gid
+        return None
+
     def _resolve_group_hit(self, comp_id: uuid.UUID) -> uuid.UUID:
-        """If comp_id is inside a group not yet entered, return the first
-        component ID from that group (used as proxy for the group selection).
-        The caller should treat this as a group-level selection.
-        Returns comp_id unchanged if already at the correct depth."""
+        """If comp_id is inside a child group not yet entered, return the first
+        component ID from that child group as a proxy for group-level selection.
+        Returns comp_id unchanged if it's a direct member at the current depth."""
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
         groups = self._session.layout.groups
-        current = self._group_stack[-1] if self._group_stack else None
-        if current is not None:
-            # Inside a group — check if comp_id is a direct member.
-            g = groups.get(current)
-            if g is not None and comp_id in g.component_ids:
-                return comp_id
-            # Check if it's in a child group.
-            for child_id in (g.child_group_ids if g else frozenset()):
-                if comp_id in all_component_ids(groups, child_id):
-                    # Return first component of child group as proxy.
-                    child_g = groups.get(child_id)
-                    if child_g and child_g.component_ids:
-                        return next(iter(child_g.component_ids))
-            return comp_id
-        else:
-            top = top_level_group_for(groups, comp_id)
-            if top is not None:
-                g = groups.get(top)
-                if g and g.component_ids:
-                    return next(iter(g.component_ids))
-            return comp_id
+        current = self._group_stack[-1]
+        g = groups.get(current)
+        # Check if comp_id is directly in a child group — redirect to proxy.
+        for child_id in (g.child_group_ids if g else frozenset()):
+            if comp_id in all_component_ids(groups, child_id):
+                child_g = groups.get(child_id)
+                if child_g and child_g.component_ids:
+                    return next(iter(child_g.component_ids))
+        return comp_id
 
     def _current_group_component_ids(self) -> frozenset[uuid.UUID]:
-        """Return the set of all component IDs accessible at the current
-        group depth (direct members if inside a group, all if at top level)."""
+        """Return the set of all component IDs accessible at the current group depth."""
         groups = self._session.layout.groups
-        if not self._group_stack:
-            return frozenset(self._session.layout.placements.keys())
         gid = self._group_stack[-1]
         g = groups.get(gid)
         if g is None:
             return frozenset()
         return all_component_ids(groups, gid)
 
-    def _group_for_selection(self) -> uuid.UUID | None:
-        """Create a new group from the current multi-selection and return its ID."""
-        if len(self._selected_ids) < 2 and not self._selected_id:
-            return None
-        from protoboard.domain.commands.group_cmds import CreateGroupCommand
-        from protoboard.domain.layout.group import ComponentGroup
+    def _is_accessible(self, comp_id: uuid.UUID) -> bool:
+        """True if comp_id can be interacted with at the current group depth.
 
+        Root group is special: its direct members are all components NOT inside
+        any child group (components float freely at root level).
+        Non-root groups: component must be in component_ids or a child group.
+        """
+        if not self._group_stack:
+            return True
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        groups = self._session.layout.groups
+        active_gid = self._group_stack[-1]
+        active = groups.get(active_gid)
+        if active is None:
+            return True  # no group info — allow all
+
+        if active_gid == ROOT_GROUP_ID:
+            # At root level: accessible if NOT inside any child group of root.
+            for child_gid in active.child_group_ids:
+                if comp_id in all_component_ids(groups, child_gid):
+                    return True  # in a child group — selectable as proxy
+            # Not in any child group = free component at root level.
+            return True
+
+        # Inside a non-root group: must be a direct member or in a child group.
+        if comp_id in active.component_ids:
+            return True
+        for child_gid in active.child_group_ids:
+            if comp_id in all_component_ids(groups, child_gid):
+                return True
+        return False
+
+    def _group_for_selection(self) -> uuid.UUID | None:
+        """Group the current selection: show dialog to create new or add to existing."""
         ids = frozenset(self._selected_ids)
         if self._selected_id and self._selected_id not in ids:
             ids = ids | {self._selected_id}
-        if len(ids) < 1:
+        if not ids:
             return None
-        new_group = ComponentGroup(
-            id=uuid.uuid4(),
-            name=f"Group{len(self._session.layout.groups) + 1}",
-            component_ids=ids,
+
+        from protoboard.domain.commands.group_cmds import AddToGroupCommand, CreateGroupCommand
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.gui.dialogs.group_target_dialog import GroupTargetDialog
+
+        # Collect groups at the current level (child groups of active group),
+        # excluding root.
+        groups = self._session.layout.groups
+        active_gid = self._group_stack[-1]
+        active = groups.get(active_gid)
+        child_groups = [
+            groups[gid]
+            for gid in (active.child_group_ids if active else frozenset())
+            if gid in groups and gid != ROOT_GROUP_ID
+        ]
+
+        default_name = f"Group{len(groups) + 1}"
+        dlg = GroupTargetDialog(
+            existing_groups=child_groups,
+            default_name=default_name,
+            parent=self._view.window(),  # type: ignore[arg-type]
         )
-        cmd = CreateGroupCommand(group=new_group)
-        self._session.stack.execute(cmd, self._session)
-        self._session.layout_changed.emit()
-        return new_group.id
+        if dlg.exec() != GroupTargetDialog.DialogCode.Accepted:
+            return None
+
+        if dlg.mode == "new":
+            new_group = ComponentGroup(
+                id=uuid.uuid4(),
+                name=dlg.new_name or default_name,
+                component_ids=ids,
+            )
+            cmd = CreateGroupCommand(group=new_group)
+            self._session.stack.execute(cmd, self._session)
+            # Register new group as a child of the active group.
+            cmd_attach = AddToGroupCommand(
+                group_id=active_gid,
+                child_group_ids=frozenset({new_group.id}),
+            )
+            self._session.stack.execute(cmd_attach, self._session)
+            self._session.layout_changed.emit()
+            return new_group.id
+        else:
+            # Add to existing group.
+            target_id = dlg.target_group_id
+            if target_id is None:
+                return None
+            cmd_add = AddToGroupCommand(
+                group_id=target_id,
+                component_ids=ids,
+            )
+            self._session.stack.execute(cmd_add, self._session)
+            self._session.layout_changed.emit()
+            return target_id
 
     def exit_group(self) -> None:
         """Pop the innermost group from the navigation stack (Esc)."""
-        if self._group_stack:
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        if len(self._group_stack) > 1:  # never pop root
             self._group_stack.pop()
             self._clear_multi_selection()
             self._deselect()
+            self._notify_active_group()
+
+    def _notify_active_group(self) -> None:
+        """Inform BoardView of the current active group for rendering."""
+        if hasattr(self._view, "set_active_group"):
+            self._view.set_active_group(self._group_stack[-1])  # type: ignore[union-attr]
 
     # ------------------------------------------------------------------
 

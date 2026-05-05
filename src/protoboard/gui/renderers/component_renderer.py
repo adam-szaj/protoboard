@@ -17,7 +17,8 @@ from PySide6.QtWidgets import (
 
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.group import all_component_ids
+from protoboard.domain.layout.layout import Layout, ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -25,6 +26,40 @@ from protoboard.geometry import Point
 from protoboard.gui.layer_state import Z_FRONT_WIRES, LayerState, Z_FRONT_COMPONENTS, Z_FRONT_LABELS
 from protoboard.gui.renderers.body_shapes import body_shape_for
 from protoboard.gui.theme import DEFAULT_THEME, Theme
+
+_ALPHA_ACTIVE = 1.0      # components in the active group
+_ALPHA_SUBGROUP = 0.45   # components inside a child group of the active group
+_ALPHA_INACTIVE = 0.2    # components outside the active group (parent/siblings)
+
+
+def _group_alpha_map(
+    layout: Layout,
+    active_group_id: uuid.UUID,
+) -> dict[uuid.UUID, float]:
+    """Return a map of comp_id → alpha multiplier based on group context."""
+    groups = layout.groups
+    active = groups.get(active_group_id)
+    if active is None:
+        return {}  # No active group — all normal alpha
+
+    # Direct members of active group: full alpha.
+    direct: frozenset[uuid.UUID] = active.component_ids
+
+    # Members of child groups: subgroup alpha.
+    subgroup: set[uuid.UUID] = set()
+    for child_gid in active.child_group_ids:
+        subgroup |= all_component_ids(groups, child_gid)
+
+    # Everyone else (in parent or sibling groups): inactive alpha.
+    result: dict[uuid.UUID, float] = {}
+    for comp_id in layout.placements:
+        if comp_id in direct:
+            result[comp_id] = _ALPHA_ACTIVE
+        elif comp_id in subgroup:
+            result[comp_id] = _ALPHA_SUBGROUP
+        else:
+            result[comp_id] = _ALPHA_INACTIVE
+    return result
 
 _REFDES_FONT = QFont("monospace", 1)
 _REFDES_FONT.setPointSizeF(DEFAULT_THEME.refdes_font_size)
@@ -46,12 +81,20 @@ def render_components(
     routed_nets: set[uuid.UUID] | None = None,
     theme: Theme = DEFAULT_THEME,
     layers: LayerState = _DEFAULT_LAYERS,
+    active_group_id: uuid.UUID | None = None,
+    layout: Layout | None = None,
 ) -> None:
     pin_net: dict[PinRef, uuid.UUID] = {}
     if schematic is not None:
         for net in schematic.nets.values():
             for ref in net.pins:
                 pin_net[ref] = net.id
+
+    # Build group alpha map when root-level group context is given.
+    alpha_map: dict[uuid.UUID, float] = {}
+    effective_gid = active_group_id if active_group_id is not None else ROOT_GROUP_ID
+    if layout is not None and effective_gid != ROOT_GROUP_ID:
+        alpha_map = _group_alpha_map(layout, effective_gid)
 
     for comp_id, placement in placements.items():
         inst = instances.get(comp_id)
@@ -60,8 +103,9 @@ def render_components(
         defn = components.get(inst.definition_ref)
         if defn is None:
             continue
+        group_alpha = alpha_map.get(comp_id, 1.0)
         _render_one(scene, placement, inst, defn, comp_id, pin_net,
-                    routed_nets, theme, layers)
+                    routed_nets, theme, layers, group_alpha=group_alpha)
 
 
 def _render_one(
@@ -74,12 +118,13 @@ def _render_one(
     routed_nets: set[uuid.UUID] | None,
     theme: Theme,
     layers: LayerState,
+    group_alpha: float = 1.0,
 ) -> None:
     side = placement.side  # type: ignore[assignment]
-    alpha = layers.alpha_for_component(side)
+    alpha = layers.alpha_for_component(side) * group_alpha
     if alpha == 0.0:
         return
-    alpha_label = layers.alpha_for_label(side)
+    alpha_label = layers.alpha_for_label(side) * group_alpha
     z_comp = layers.z_for_component(side)
     z_label = layers.z_for_label(side)
 
@@ -258,20 +303,35 @@ def render_groups(
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
     theme: Theme = DEFAULT_THEME,
+    active_group_id: uuid.UUID | None = None,
 ) -> None:
-    """Render a dotted outline around each group's bounding box."""
-    from protoboard.domain.layout.group import all_component_ids
+    """Render a dotted outline around each group's bounding box.
 
+    Only groups that are direct children of *active_group_id* (or top-level
+    non-root groups when active == root) are rendered at full opacity.
+    The root group itself is never rendered.
+    """
     t = theme
-    group_pen = QPen(
+    effective_active = active_group_id if active_group_id is not None else ROOT_GROUP_ID
+    active_grp = layout.groups.get(effective_active)
+    # IDs of child groups visible at the current level.
+    visible_child_ids: frozenset[uuid.UUID] = (
+        active_grp.child_group_ids if active_grp is not None else frozenset()
+    )
+
+    group_pen_full = QPen(
         QColor(t.group_pen_r, t.group_pen_g, t.group_pen_b, t.group_pen_a),
         t.group_pen_width,
     )
-    group_pen.setStyle(Qt.PenStyle.DotLine)
-    group_fill = QColor(t.group_fill_r, t.group_fill_g, t.group_fill_b, t.group_fill_a)
+    group_pen_full.setStyle(Qt.PenStyle.DotLine)
+    group_fill_full = QColor(t.group_fill_r, t.group_fill_g, t.group_fill_b, t.group_fill_a)
     group_name_color = QColor(t.group_name_r, t.group_name_g, t.group_name_b, t.group_name_a)
 
     for group in layout.groups.values():
+        # Root group and active group itself: no outline.
+        if group.id == ROOT_GROUP_ID or group.id == effective_active:
+            continue
+
         comp_ids = all_component_ids(layout.groups, group.id)
         positions: list[Point] = []
         for cid in comp_ids:
@@ -293,12 +353,59 @@ def render_groups(
         y0 = min(ys) - m
         w = max(xs) - min(xs) + 2 * m
         h = max(ys) - min(ys) + 2 * m
+
+        # Choose opacity: child of active group = full; others = dimmed.
+        if group.id in visible_child_ids:
+            pen = group_pen_full
+            fill = group_fill_full
+            name_col = group_name_color
+        else:
+            dim_pen_color = QColor(t.group_pen_r, t.group_pen_g, t.group_pen_b, 60)
+            pen = QPen(dim_pen_color, t.group_pen_width)
+            pen.setStyle(Qt.PenStyle.DotLine)
+            fill = QColor(t.group_fill_r, t.group_fill_g, t.group_fill_b, 20)
+            name_col = QColor(t.group_name_r, t.group_name_g, t.group_name_b, 60)
+
         rect = QGraphicsRectItem(QRectF(x0, y0, w, h))
-        rect.setPen(group_pen)
-        rect.setBrush(QBrush(group_fill))
+        rect.setPen(pen)
+        rect.setBrush(QBrush(fill))
+        # Tag the rect so SelectTool can identify it as a group outline.
+        rect.setData(0, str(group.id))
+        rect.setData(1, "group_outline")
+        rect.setZValue(1.0)
         scene.addItem(rect)
-        name_label = QGraphicsTextItem(group.name)
-        name_label.setDefaultTextColor(group_name_color)
-        name_label.setFont(_REFDES_FONT)
-        name_label.setPos(x0 + 0.1, y0 + 0.05)
-        scene.addItem(name_label)
+        if group.name:
+            name_label = QGraphicsTextItem(group.name)
+            name_label.setDefaultTextColor(name_col)
+            name_label.setFont(_REFDES_FONT)
+            name_label.setPos(x0 + 0.1, y0 + 0.05)
+            name_label.setZValue(1.1)
+            scene.addItem(name_label)
+
+        # Render exported pins as small green diamonds (visible from parent).
+        if group.id in visible_child_ids and group.exported_pins:
+            from PySide6.QtGui import QPainterPath
+            from PySide6.QtWidgets import QGraphicsPathItem
+            ep_fill = QColor(0, 200, 80, 200)
+            ep_pen = QPen(QColor(0, 140, 50), 0.03)
+            r = 0.18
+            for ep in group.exported_pins:
+                pl = placements.get(ep.component_id)
+                inst = instances.get(ep.component_id)
+                if pl is None or inst is None:
+                    continue
+                defn = components.get(inst.definition_ref)
+                if defn is None:
+                    continue
+                wp = pin_world_position(defn.footprint, pl, ep.pin_number)
+                diamond = QPainterPath()
+                diamond.moveTo(wp.x, wp.y - r)
+                diamond.lineTo(wp.x + r, wp.y)
+                diamond.lineTo(wp.x, wp.y + r)
+                diamond.lineTo(wp.x - r, wp.y)
+                diamond.closeSubpath()
+                item = QGraphicsPathItem(diamond)
+                item.setBrush(QBrush(ep_fill))
+                item.setPen(ep_pen)
+                item.setZValue(12.0)
+                scene.addItem(item)

@@ -8,6 +8,14 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
+class ExportedPin:
+    """A pin exposed by a group as an external connection point."""
+
+    component_id: uuid.UUID
+    pin_number: int
+
+
+@dataclass(frozen=True)
 class ComponentGroup:
     """A named group of component instances and/or child groups.
 
@@ -15,12 +23,16 @@ class ComponentGroup:
     *direct* members; child groups are referenced by ``child_group_ids``.
     To collect all component IDs recursively use
     ``groups_all_component_ids(groups, group_id)``.
+
+    ``exported_pins`` declares which pins are visible as connection points from
+    the parent group's editing context.
     """
 
     id: uuid.UUID
     name: str
     component_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
     child_group_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
+    exported_pins: frozenset[ExportedPin] = field(default_factory=frozenset)
 
 
 def all_component_ids(
