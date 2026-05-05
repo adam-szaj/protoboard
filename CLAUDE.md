@@ -401,11 +401,17 @@ Gdy komponent jest stawiany lub przeciągany, GUI sprawdza konflikty w dwóch wa
 
 ```python
 @dataclass(frozen=True)
+class ExportedPin:
+    component_id: uuid.UUID
+    pin_number: int
+
+@dataclass(frozen=True)
 class ComponentGroup:
     id: uuid.UUID
     name: str
-    component_ids: frozenset[uuid.UUID]   # bezpośrednie komponenty (nie z podgrup)
+    component_ids: frozenset[uuid.UUID]    # bezpośrednie komponenty (nie z podgrup)
     child_group_ids: frozenset[uuid.UUID]  # bezpośrednie podgrupy
+    exported_pins: frozenset[ExportedPin]  # piny widoczne z zewnątrz grupy
 ```
 
 Pomocnicze funkcje modułu:
@@ -413,17 +419,28 @@ Pomocnicze funkcje modułu:
 - `top_level_group_for(groups, component_id)` — zwraca UUID grupy najwyższego poziomu zawierającej komponent (lub `None`).
 - `would_create_cycle(groups, parent_id, child_id)` — walidacja DAG przed operacją `AddToGroupCommand`.
 
-**`domain/layout/layout.py`** — `Layout` ma pole `groups: dict[uuid.UUID, ComponentGroup] = field(default_factory=dict)`.
+**Root group:** `domain/layout/layout.py` eksportuje `ROOT_GROUP_ID = UUID("00000000-0000-0000-0000-000000000001")`. Każdy projekt ma dokładnie jedną root group — tworzony przez `Layout.ensure_root_group()` (wywoływane w `EditorSession.__init__` i po wczytaniu z YAML). Root group nie jest wyświetlana w GroupsPanel ani renderowana jako obrys. Wszystkie nowo tworzone grupy są children root group.
 
 **GUI:** `SelectTool` zarządza stosem `_group_stack: list[UUID]`:
-- `[]` (pusty) — tryb globalny, klik na komponencie należącym do grupy zaznacza najwyższą grupę.
-- `[g1]` — wewnątrz grupy g1, klik na podgrupie zaznacza tę podgrupę.
-- Double-click (lub `on_double_press`) → push na stos (wejście do grupy).
-- `Esc` → pop ze stosu (wyjście z grupy) lub resetuje zaznaczenie.
+- `[ROOT_GROUP_ID]` — tryb globalny (root level); wszystkie komponenty i child groups root są interaktywne.
+- `[ROOT_GROUP_ID, g1]` — wewnątrz grupy g1; tylko bezpośrednie members i child groups g1 są interaktywne; reszta wyszarzona (alpha 0.2 / 0.45).
+- Double-click na komponencie → wejście do jego child group (push na stos) + `_notify_active_group()`.
+- `Esc` → pop ze stosu (nigdy nie usuwa ROOT_GROUP_ID); `_notify_active_group()` wywołuje `BoardView.set_active_group()` → refresh renderera.
+- Klik na obrysie grupy (tageowany `"group_outline"`) → zaznacza wszystkich members jako multi-selection i inicjuje drag.
 
-**Render:** `render_groups()` w `component_renderer.py` rysuje niebieską obwiednię z etykietą nazwy grupy dla każdej grupy widocznej na bieżącym poziomie nawigacji.
+**Enkapsulacja i blokada:** `_is_accessible(comp_id)` — na root level: zawsze True; wewnątrz podgrupy: True tylko dla bezpośrednich members i proxy child groups.
 
-**Persistence:** layout.yaml serializuje grupy jako lista rekordów z `id`, `name`, `component_ids`, `child_group_ids`.
+**Eksport padów:** prawy klik na komponencie wewnątrz grupy → menu "Export/Unexport pin N". Eksportowane pady widoczne z poziomu rodzica jako zielone romby. `SetExportedPinsCommand` z pełnym undo/redo.
+
+**Render:** `render_groups()` w `component_renderer.py`:
+- Rysuje obrys tylko dla child groups aktywnej grupy (full opacity) i innych grup (dimmed).
+- Root group i aktywna grupa same nie mają obrysu.
+- Eksportowane pady child groups aktywnej grupy: zielone romby (Z=12.0).
+- `BoardView._active_group_id` przekazywane do `render_components()` i `render_groups()` przy każdym refresh.
+
+**Ctrl+G:** pokazuje `GroupTargetDialog` — wybór "Utwórz nową grupę" (nazwa edytowalna) lub "Dodaj do istniejącej" (lista child groups aktywnej grupy). Nowa grupa jest automatycznie rejestrowana jako child aktywnej grupy przez `AddToGroupCommand`.
+
+**Persistence:** layout.yaml serializuje grupy jako lista rekordów z `id`, `name`, `component_ids`, `child_group_ids`, `exported_pins`. `ensure_root_group()` wywoływane po wczytaniu zapewnia że root group zawsze istnieje.
 
 ## 5. Routing — sugestie
 
@@ -491,7 +508,7 @@ class CommandStack:
     def can_redo(self) -> bool: ...
 ```
 
-Komendy MVP: `PlaceComponent`, `MoveComponent`, `RotateComponent`, `RemoveComponent`, `AddWire`, `AddWireWithNetsCommand`, `RemoveWire`, `ReplaceWireSegmentCommand`, `DisconnectPinCommand`, `AddStripCut`, `RemoveStripCut`, `RenameNet`, `MacroCommand` (kompozycja), `CreateGroupCommand`, `DisbandGroupCommand`, `AddToGroupCommand`, `RemoveFromGroupCommand`, `RenameGroupCommand`.
+Komendy MVP: `PlaceComponent`, `MoveComponent`, `RotateComponent`, `RemoveComponent`, `AddWire`, `AddWireWithNetsCommand`, `RemoveWire`, `ReplaceWireSegmentCommand`, `DisconnectPinCommand`, `AddStripCut`, `RemoveStripCut`, `RenameNet`, `MacroCommand` (kompozycja), `CreateGroupCommand`, `DisbandGroupCommand`, `AddToGroupCommand`, `RemoveFromGroupCommand`, `RenameGroupCommand`, `SetExportedPinsCommand`.
 
 `AddWireWithNetsCommand` zastępuje `AddWireCommand` w `RouteTool` — atomowo commituje drut i towarzyszące mu mutacje schematu (create/extend/merge net). `AddWireCommand` pozostaje jako prostszy wariant (używany przy wczytywaniu projektu). Komendy mutujące schematic wymagają stanu implementującego `SchematicState(ComponentState)` z polem `schematic: Schematic`.
 
@@ -501,7 +518,7 @@ Komendy MVP: `PlaceComponent`, `MoveComponent`, `RotateComponent`, `RemoveCompon
 
 **`DisconnectPinCommand(component_id, pin_number)`** — usuwa `PinRef` z netu. Jeśli net staje się pusty, usuwa go całkowicie. `revert()` przywraca zapisany net.
 
-**Komendy grupowania** — `CreateGroupCommand`, `DisbandGroupCommand`, `AddToGroupCommand`, `RemoveFromGroupCommand`, `RenameGroupCommand` — wszystkie operują na `Layout.groups: dict[UUID, ComponentGroup]`.
+**Komendy grupowania** — `CreateGroupCommand`, `DisbandGroupCommand`, `AddToGroupCommand`, `RemoveFromGroupCommand`, `RenameGroupCommand`, `SetExportedPinsCommand` — wszystkie operują na `Layout.groups: dict[UUID, ComponentGroup]`. Pomocniczy `_replace_group(g, **kwargs)` w `group_cmds.py` tworzy kopię grupy z nadpisanymi polami (frozen dataclass).
 
 ## 7. Persistence — struktura projektu (folder)
 
@@ -691,6 +708,16 @@ Sprawdzenia w MVP:
 - [x] Autorouter: `services/routing/autorouter.py` — pełna netlista, A* z rip-up & retry, zwraca `AutorouteResult(wires, unrouted_nets)`. Dostępny przez Tools → Autoroute All Nets (F6). Wynik w `MacroCommand` → pełne undo.
 - [x] Groups panel (`panels/groups_panel.py`) — drzewo grup z Rename i Disband; odświeżany przy każdym `layout_changed`.
 - [x] Ctrl+G Group Selection + Ungroup w menu Edit.
+- [x] Grupy — enkapsulacja (root group, tryb edycji z wyszarzeniem, blokada ruchu, eksport padów):
+  - `ROOT_GROUP_ID` + `ensure_root_group()` — każdy projekt ma zawsze root group.
+  - Tryb edycji: `_group_stack` zawsze zaczyna od `[ROOT_GROUP_ID]`; double-click wchodzi w podgrupę; Esc wychodzi.
+  - Wyszarzenie: komponenty poza aktywną grupą renderowane z alpha 0.2/0.45; obrysy podgrup — full/dim.
+  - Klik na obrysie podgrupy → zaznacza całą grupę + inicjuje drag wszystkich members.
+  - `ExportedPin` + `exported_pins` na `ComponentGroup`; `SetExportedPinsCommand` z undo.
+  - Prawy klik na pinie wewnątrz grupy → Export/Unexport; zielone romby na eksportowanych padach widoczne z rodzica.
+  - `GroupTargetDialog` — Ctrl+G pyta: nowa grupa lub dodaj do istniejącej.
+  - `MainWindow` trzyma jedną trwałą instancję `SelectTool` (singleton) — stan `_group_stack` zachowany między przełączeniami narzędzi.
+- [ ] Instancje grup (wielokrotne użycie tego samego sub-układu) — architektura przewiduje, nie implementuje.
 - [ ] Breadboard, custom matrix boards, definicje user-defined.
 - [ ] Plugin API (Python plugins w `~/.config/protoboard-designer/plugins/`).
 - [ ] Wsparcie dla Eagle/Fritzing netlist.
@@ -750,7 +777,7 @@ protoboard-designer/
 │       │   └── commands/
 │       │       ├── base.py          # Command, CommandStack, MacroCommand
 │       │       ├── component_cmds.py  # Place/Move/Remove/AddWire/DisconnectPin/ReplaceWireSegment
-│       │       ├── group_cmds.py    # CreateGroup/Disband/AddTo/RemoveFrom/Rename
+│       │       ├── group_cmds.py    # CreateGroup/Disband/AddTo/RemoveFrom/Rename/SetExportedPins
 │       │       └── ...
 │       ├── services/
 │       │   ├── drc/
@@ -772,17 +799,22 @@ protoboard-designer/
 │       │       └── exporter.py
 │       ├── gui/
 │       │   ├── main_window.py
-│       │   ├── board_view.py
+│       │   ├── board_view.py          # _active_group_id, set_active_group()
 │       │   ├── renderers/
 │       │   │   ├── board_renderer.py
-│       │   │   ├── component_renderer.py
+│       │   │   ├── component_renderer.py  # render_components (group alpha), render_groups
 │       │   │   └── wire_renderer.py
+│       │   ├── dialogs/
+│       │   │   ├── group_target_dialog.py  # Ctrl+G: nowa grupa / dodaj do istniejącej
+│       │   │   ├── pad_conflict_dialog.py
+│       │   │   └── ...
 │       │   ├── panels/
 │       │   │   ├── library_panel.py
 │       │   │   ├── properties_panel.py
+│       │   │   ├── groups_panel.py    # drzewo grup; filtruje root group
 │       │   │   └── drc_panel.py
 │       │   └── tools/
-│       │       ├── select_tool.py
+│       │       ├── select_tool.py     # singleton w MainWindow; _group_stack z ROOT_GROUP_ID
 │       │       ├── place_tool.py
 │       │       ├── route_tool.py
 │       │       └── cut_tool.py
