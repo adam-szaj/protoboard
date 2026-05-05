@@ -36,8 +36,23 @@ ACTION_DESELECT_ALL_COMPONENTS = "deselect_all_components"
 ACTION_SELECT_ALL_WIRES = "select_all_wires"
 ACTION_DESELECT_ALL_WIRES = "deselect_all_wires"
 
+ACTION_DELETE = "delete"
+ACTION_ROTATE_CW = "rotate_cw"
+ACTION_ROTATE_CCW = "rotate_ccw"
+ACTION_FLIP = "flip"
+
 ACTION_GROUP = "group"
 ACTION_UNGROUP = "ungroup"
+ACTION_EXIT_GROUP = "exit_group"
+
+ACTION_REDRAG_PINS = "redrag_pins"
+
+ACTION_WIRE_SET_INSULATED = "wire_set_insulated"
+ACTION_WIRE_SET_BARE = "wire_set_bare"
+ACTION_WIRE_MOVE_TO_TOP = "wire_move_to_top"
+ACTION_WIRE_MOVE_TO_BOTTOM = "wire_move_to_bottom"
+
+ACTION_DISCONNECT_PIN = "disconnect_pin"
 
 ACTION_TOOL_SELECT = "tool_select"
 ACTION_TOOL_ROUTE = "tool_route"
@@ -82,8 +97,19 @@ DEFAULTS: dict[str, str] = {
     ACTION_DESELECT_ALL_COMPONENTS: "",
     ACTION_SELECT_ALL_WIRES: "",
     ACTION_DESELECT_ALL_WIRES: "",
+    ACTION_DELETE: "Del",
+    ACTION_ROTATE_CW: "R",
+    ACTION_ROTATE_CCW: "Shift+R",
+    ACTION_FLIP: "Alt+R",
     ACTION_GROUP: "Ctrl+G",
     ACTION_UNGROUP: "",
+    ACTION_EXIT_GROUP: "",
+    ACTION_REDRAG_PINS: "Ctrl+R",
+    ACTION_WIRE_SET_INSULATED: "",
+    ACTION_WIRE_SET_BARE: "",
+    ACTION_WIRE_MOVE_TO_TOP: "",
+    ACTION_WIRE_MOVE_TO_BOTTOM: "",
+    ACTION_DISCONNECT_PIN: "",
     ACTION_TOOL_SELECT: "S",
     ACTION_TOOL_ROUTE: "W",
     ACTION_TOOL_CUT: "C",
@@ -120,8 +146,19 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_DESELECT_ALL_COMPONENTS: "Deselect All Components",
     ACTION_SELECT_ALL_WIRES: "Select All Wires",
     ACTION_DESELECT_ALL_WIRES: "Deselect All Wires",
+    ACTION_DELETE: "Delete",
+    ACTION_ROTATE_CW: "Rotate CW 90°",
+    ACTION_ROTATE_CCW: "Rotate CCW 90°",
+    ACTION_FLIP: "Flip (2-pin)",
     ACTION_GROUP: "Group Selection",
     ACTION_UNGROUP: "Ungroup",
+    ACTION_EXIT_GROUP: "Exit Group",
+    ACTION_REDRAG_PINS: "Re-drag Pins",
+    ACTION_WIRE_SET_INSULATED: "Wire: Set Insulated",
+    ACTION_WIRE_SET_BARE: "Wire: Set Bare",
+    ACTION_WIRE_MOVE_TO_TOP: "Wire: Move to Top Layer",
+    ACTION_WIRE_MOVE_TO_BOTTOM: "Wire: Move to Bottom Layer",
+    ACTION_DISCONNECT_PIN: "Disconnect Pin from Net",
     ACTION_TOOL_SELECT: "Select Tool",
     ACTION_TOOL_ROUTE: "Route Wire Tool",
     ACTION_TOOL_CUT: "Cut Strip Tool",

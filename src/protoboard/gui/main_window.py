@@ -136,9 +136,7 @@ class MainWindow(QMainWindow):
         act_autoroute_tb.triggered.connect(self._autoroute)
         self._act_mirror_tb.triggered.connect(self._mirror_view)
         self._act_mirror_v_tb.triggered.connect(self._mirror_view_v)
-        self._act_camera_tb.triggered.connect(lambda: self._set_camera(
-            "top" if self._board_view.camera_side == "bottom" else "bottom"
-        ))
+        self._act_camera_tb.triggered.connect(lambda: self._set_camera("toggle"))
 
         # Status bar.
         self._status = QStatusBar(self)
@@ -266,6 +264,26 @@ class MainWindow(QMainWindow):
 
         edit_menu.addSeparator()
 
+        act_delete = edit_menu.addAction("&Delete")
+        act_delete.setShortcut(self._ks(KB.ACTION_DELETE))
+        act_delete.triggered.connect(self._delete_selection)
+
+        edit_menu.addSeparator()
+
+        act_rotate_cw = edit_menu.addAction("Rotate &CW")
+        act_rotate_cw.setShortcut(self._ks(KB.ACTION_ROTATE_CW))
+        act_rotate_cw.triggered.connect(self._rotate_cw)
+
+        act_rotate_ccw = edit_menu.addAction("Rotate CC&W")
+        act_rotate_ccw.setShortcut(self._ks(KB.ACTION_ROTATE_CCW))
+        act_rotate_ccw.triggered.connect(self._rotate_ccw)
+
+        act_flip = edit_menu.addAction("&Flip")
+        act_flip.setShortcut(self._ks(KB.ACTION_FLIP))
+        act_flip.triggered.connect(self._flip_selection)
+
+        edit_menu.addSeparator()
+
         act_group = edit_menu.addAction("&Group Selection")
         act_group.setShortcut(self._ks(KB.ACTION_GROUP))
         act_group.triggered.connect(self._group_selection)
@@ -273,6 +291,10 @@ class MainWindow(QMainWindow):
         act_ungroup = edit_menu.addAction("&Ungroup")
         act_ungroup.setShortcut(self._ks(KB.ACTION_UNGROUP))
         act_ungroup.triggered.connect(self._ungroup_selection)
+
+        act_exit_group = edit_menu.addAction("&Exit Group")
+        act_exit_group.setShortcut(self._ks(KB.ACTION_EXIT_GROUP))
+        act_exit_group.triggered.connect(self._exit_group)
 
         edit_menu.addSeparator()
 
@@ -322,8 +344,11 @@ class MainWindow(QMainWindow):
 
         self._act_camera_bottom: QAction = view_menu.addAction("Camera: &Bottom")
         self._act_camera_bottom.setCheckable(True)
-        self._act_camera_bottom.setShortcut(self._ks(KB.ACTION_CAMERA_TOGGLE))
         self._act_camera_bottom.triggered.connect(lambda: self._set_camera("bottom"))
+
+        self._act_camera_toggle: QAction = view_menu.addAction("Camera: To&ggle")
+        self._act_camera_toggle.setShortcut(self._ks(KB.ACTION_CAMERA_TOGGLE))
+        self._act_camera_toggle.triggered.connect(lambda: self._set_camera("toggle"))
 
         view_menu.addSeparator()
 
@@ -393,22 +418,22 @@ class MainWindow(QMainWindow):
         wire_sub = tools_menu.addMenu("  Wire options")
 
         self._act_wire_insulated: QAction = wire_sub.addAction("&Insulated")
-        self._act_wire_insulated.setCheckable(True)
-        self._act_wire_insulated.setChecked(True)
+        # self._act_wire_insulated.setCheckable(True)
+        # self._act_wire_insulated.setChecked(True)
         self._act_wire_insulated.setShortcut(self._ks(KB.ACTION_WIRE_TOGGLE_INSULATED))
         self._act_wire_insulated.triggered.connect(
             lambda checked: self._set_wire_insulated(checked)
         )
 
         wire_side_group_top: QAction = wire_sub.addAction("Side: &Top")
-        wire_side_group_top.setCheckable(True)
-        wire_side_group_top.setChecked(True)
+        # wire_side_group_top.setCheckable(True)
+        # wire_side_group_top.setChecked(True)
         wire_side_group_top.setShortcut(self._ks(KB.ACTION_WIRE_SIDE_TOP))
         wire_side_group_top.triggered.connect(lambda: self._set_wire_side("top"))
         self._act_wire_top = wire_side_group_top
 
         wire_side_group_bot: QAction = wire_sub.addAction("Side: &Bottom")
-        wire_side_group_bot.setCheckable(True)
+        # wire_side_group_bot.setCheckable(True)
         wire_side_group_bot.setShortcut(self._ks(KB.ACTION_WIRE_SIDE_BOTTOM))
         wire_side_group_bot.triggered.connect(lambda: self._set_wire_side("bottom"))
         self._act_wire_bottom = wire_side_group_bot
@@ -416,6 +441,36 @@ class MainWindow(QMainWindow):
         act_tool_cut = tools_menu.addAction("&Cut Strip")
         act_tool_cut.setShortcut(self._ks(KB.ACTION_TOOL_CUT))
         act_tool_cut.triggered.connect(self._tool_cut)
+
+        tools_menu.addSeparator()
+
+        act_redrag = tools_menu.addAction("Re-drag &Pins")
+        act_redrag.setShortcut(self._ks(KB.ACTION_REDRAG_PINS))
+        act_redrag.triggered.connect(self._redrag_pins)
+
+        tools_menu.addSeparator()
+
+        act_wire_set_ins = tools_menu.addAction("Wire: Set &Insulated")
+        act_wire_set_ins.setShortcut(self._ks(KB.ACTION_WIRE_SET_INSULATED))
+        act_wire_set_ins.triggered.connect(lambda: self._set_selected_wire_insulated(True))
+
+        act_wire_set_bare = tools_menu.addAction("Wire: Set &Bare")
+        act_wire_set_bare.setShortcut(self._ks(KB.ACTION_WIRE_SET_BARE))
+        act_wire_set_bare.triggered.connect(lambda: self._set_selected_wire_insulated(False))
+
+        act_wire_to_top = tools_menu.addAction("Wire: Move to &Top Layer")
+        act_wire_to_top.setShortcut(self._ks(KB.ACTION_WIRE_MOVE_TO_TOP))
+        act_wire_to_top.triggered.connect(lambda: self._move_selected_wires_to_side("top"))
+
+        act_wire_to_bot = tools_menu.addAction("Wire: Move to &Bottom Layer")
+        act_wire_to_bot.setShortcut(self._ks(KB.ACTION_WIRE_MOVE_TO_BOTTOM))
+        act_wire_to_bot.triggered.connect(lambda: self._move_selected_wires_to_side("bottom"))
+
+        tools_menu.addSeparator()
+
+        act_disconnect = tools_menu.addAction("&Disconnect Pin from Net…")
+        act_disconnect.setShortcut(self._ks(KB.ACTION_DISCONNECT_PIN))
+        act_disconnect.triggered.connect(self._disconnect_pin)
 
         tools_menu.addSeparator()
 
@@ -625,6 +680,10 @@ class MainWindow(QMainWindow):
         self._sync_view_actions()
 
     def _set_camera(self, side: str) -> None:
+        if side == "toggle":
+            current_side = self._board_view.camera_side
+            side = "top" if current_side == "bottom" else "bottom"
+
         self._board_view.set_camera_side(side)
         self._sync_view_actions()
         # Keep wire side in sync.
@@ -749,6 +808,174 @@ class MainWindow(QMainWindow):
             self._board_view.set_tool(SelectTool())
         tool = self._board_view._active_tool
         return tool if isinstance(tool, SelectTool) else None
+
+    def _get_select_tool(self) -> SelectTool | None:
+        """Return current SelectTool without switching, or None."""
+        tool = self._board_view._active_tool
+        return tool if isinstance(tool, SelectTool) else None
+
+    # ------------------------------------------------------------------
+    # Edit actions — delete, rotate, flip, exit group
+    # ------------------------------------------------------------------
+
+    def _delete_selection(self) -> None:
+        tool = self._get_select_tool()
+        if tool is None:
+            return
+        from PySide6.QtGui import QKeyEvent
+        from PySide6.QtCore import QEvent
+        # Simulate Del key through SelectTool's handler.
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier)
+        tool.on_key(event)
+
+    def _rotate_cw(self) -> None:
+        tool = self._get_select_tool()
+        if tool is None:
+            return
+        if tool._selected_ids:
+            tool._rotate_multi(delta=90)
+        elif tool._selected_id is not None:
+            tool._rotate_selected(delta=90)
+
+    def _rotate_ccw(self) -> None:
+        tool = self._get_select_tool()
+        if tool is None:
+            return
+        if tool._selected_ids:
+            tool._rotate_multi(delta=-90)
+        elif tool._selected_id is not None:
+            tool._rotate_selected(delta=-90)
+
+    def _flip_selection(self) -> None:
+        tool = self._get_select_tool()
+        if tool is None:
+            return
+        if tool._selected_ids:
+            tool._flip_multi()
+        elif tool._selected_id is not None:
+            tool._flip_selected()
+
+    def _exit_group(self) -> None:
+        tool = self._get_select_tool()
+        if tool is None:
+            return
+        if tool._group_stack:
+            tool.exit_group()
+
+    # ------------------------------------------------------------------
+    # Tools actions — re-drag, wire properties, disconnect pin
+    # ------------------------------------------------------------------
+
+    def _redrag_pins(self) -> None:
+        tool = self._get_select_tool()
+        if tool is None or tool._selected_id is None:
+            return
+        tool._start_redrag(tool._selected_id)
+
+    def _get_selected_wire_ids(self) -> set[uuid.UUID]:
+        """Collect effective wire selection (multi + primary single)."""
+        tool = self._get_select_tool()
+        if tool is None:
+            return set()
+        ids: set[uuid.UUID] = set(tool._selected_wire_ids)
+        if tool._selected_wire_id is not None:
+            ids.add(tool._selected_wire_id)
+        return ids
+
+    def _set_selected_wire_insulated(self, insulated: bool) -> None:
+        from protoboard.domain.commands.base import Command, MacroCommand
+        from protoboard.domain.commands.component_cmds import (
+            ComponentState,
+            SetWireInsulatedCommand,
+        )
+        from typing import cast
+
+        wire_ids = self._get_selected_wire_ids()
+        if not wire_ids:
+            return
+        cmds = [
+            cast(Command[ComponentState], SetWireInsulatedCommand(wire_id=wid, insulated=insulated))
+            for wid in wire_ids
+        ]
+        cmd: Command[ComponentState] = (
+            cmds[0] if len(cmds) == 1
+            else MacroCommand(cmds, description=f"Set {len(cmds)} wires {'insulated' if insulated else 'bare'}")
+        )
+        self._session.stack.execute(cmd, self._session)
+        self._session.layout_changed.emit()
+
+    def _move_selected_wires_to_side(self, side: str) -> None:
+        from protoboard.domain.commands.base import Command, MacroCommand
+        from protoboard.domain.commands.component_cmds import (
+            ComponentState,
+            SetWireSideCommand,
+        )
+        from typing import cast
+
+        wire_ids = self._get_selected_wire_ids()
+        if not wire_ids:
+            return
+        cmds = [
+            cast(Command[ComponentState], SetWireSideCommand(wire_id=wid, side=side))
+            for wid in wire_ids
+        ]
+        cmd: Command[ComponentState] = (
+            cmds[0] if len(cmds) == 1
+            else MacroCommand(cmds, description=f"Move {len(cmds)} wires to {side}")
+        )
+        self._session.stack.execute(cmd, self._session)
+        self._session.layout_changed.emit()
+
+    def _disconnect_pin(self) -> None:
+        """Disconnect pin — shows submenu if SelectTool has a component selected."""
+        tool = self._get_select_tool()
+        comp_id = tool._selected_id if tool is not None else None
+        if comp_id is None:
+            self._status.showMessage("Select a component first", 2000)
+            return
+        inst = self._session.instances.get(comp_id)
+        defn = self._session.components.get(inst.definition_ref) if inst else None
+        if inst is None or defn is None:
+            return
+
+        from protoboard.domain.commands.component_cmds import (
+            ComponentState,
+            DisconnectPinCommand,
+        )
+        from protoboard.domain.commands.base import Command
+        from typing import cast
+
+        # Build list of netted pins for this component.
+        netted: list[tuple[int, str]] = []
+        for net in self._session.schematic.nets.values():
+            for pr in net.pins:
+                if pr.component_id == comp_id:
+                    netted.append((pr.pin_number, net.name))
+
+        if not netted:
+            self._status.showMessage("No netted pins on selected component", 2000)
+            return
+
+        if len(netted) == 1:
+            pin_num, net_name = netted[0]
+        else:
+            from PySide6.QtWidgets import QInputDialog
+            items = [f"Pin {p} — {n}" for p, n in netted]
+            item, ok = QInputDialog.getItem(
+                self, "Disconnect Pin", "Choose pin to disconnect:", items, 0, False
+            )
+            if not ok:
+                return
+            idx = items.index(item)
+            pin_num, net_name = netted[idx]
+
+        cmd = cast(
+            Command[ComponentState],
+            DisconnectPinCommand(component_id=comp_id, pin_number=pin_num),
+        )
+        self._session.stack.execute(cmd, self._session)
+        self._session.layout_changed.emit()
+        self._update_undo_redo()
 
     def _select_all(self) -> None:
         """Select all components and wires."""
@@ -1126,9 +1353,7 @@ class MainWindow(QMainWindow):
         elif self._matches(event, KB.ACTION_MIRROR_V):
             self._mirror_view_v()
         elif self._matches(event, KB.ACTION_CAMERA_TOGGLE):
-            self._set_camera(
-                "top" if self._board_view.camera_side == "bottom" else "bottom"
-            )
+            self._set_camera("toggle")
         elif self._matches(event, KB.ACTION_WIRE_TOGGLE_INSULATED):
             self._set_wire_insulated(not self._wire_insulated)
         elif self._matches(event, KB.ACTION_WIRE_SIDE_TOP):
