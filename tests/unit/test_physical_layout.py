@@ -9,7 +9,7 @@ import pytest
 
 from protoboard.domain.components.footprints import DIP, SIL
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.domain.layout.wire import WireSegment
 from protoboard.geometry import Point
 
@@ -266,6 +266,100 @@ class TestFlipComponent:
 
         assert _approx_point(pin_world_position(fp, double_flipped, 1), p1_orig)
         assert _approx_point(pin_world_position(fp, double_flipped, 2), p2_orig)
+
+
+class TestRedragOffsetInverse:
+    """Verify that the world→local offset inversion used by _commit_redrag is correct.
+
+    The forward pipeline is:
+        local = fp_pos + offset  →  X-mirror (bottom)  →  rotate  →  + position
+
+    The inverse (computing offset from a target world position) must be:
+        world_delta = target - baseline_world  →  unrotate  →  unmirror (bottom)
+
+    This test checks that applying the computed offset to pin_world_position
+    reproduces the original target world position.
+    """
+
+    def _make_pl(
+        self,
+        position: Point,
+        rotation: int = 0,
+        side: str = "top",
+        pin_offsets: dict[int, Point] | None = None,
+    ) -> ComponentPlacement:
+        return ComponentPlacement(
+            component_id=uuid.uuid4(),
+            position=position,
+            rotation=rotation,
+            side=side,  # type: ignore[arg-type]
+            pin_offsets=pin_offsets or {},
+        )
+
+    def _compute_offset(
+        self, target_world: Point, baseline_world: Point, rotation: int, side: str
+    ) -> Point:
+        from protoboard.domain.layout.placement import unrotate
+        delta = Point(target_world.x - baseline_world.x, target_world.y - baseline_world.y)
+        off = unrotate(delta, rotation)
+        if side == "bottom":
+            off = Point(-off.x, off.y)
+        return off
+
+    def test_top_rotation0(self) -> None:
+        fp = SIL(2)
+        pl = self._make_pl(Point(5.0, 5.0), rotation=0, side="top")
+        baseline = pin_world_position(fp, pl, 2)  # (5, 6) — no offset
+
+        target = Point(5.0, 8.0)
+        off = self._compute_offset(target, baseline, pl.rotation, pl.side)
+        pl2 = self._make_pl(Point(5.0, 5.0), rotation=0, side="top", pin_offsets={2: off})
+        assert _approx_point(pin_world_position(fp, pl2, 2), target)
+
+    def test_top_rotation90(self) -> None:
+        fp = SIL(2)
+        pl = self._make_pl(Point(5.0, 5.0), rotation=90, side="top")
+        baseline = pin_world_position(fp, pl, 2)  # rotation90: (6, 5)
+
+        target = Point(8.0, 5.0)
+        off = self._compute_offset(target, baseline, pl.rotation, pl.side)
+        pl2 = self._make_pl(Point(5.0, 5.0), rotation=90, side="top", pin_offsets={2: off})
+        assert _approx_point(pin_world_position(fp, pl2, 2), target)
+
+    def test_bottom_rotation0(self) -> None:
+        fp = SIL(2)
+        # bottom, rotation=0: pin2 fp_pos=(0,1) → X-mirror→(0,1) → rotate→(0,1) → +(5,5) = (5,6)
+        pl = self._make_pl(Point(5.0, 5.0), rotation=0, side="bottom")
+        baseline = pin_world_position(fp, pl, 2)
+
+        target = Point(5.0, 8.0)
+        off = self._compute_offset(target, baseline, pl.rotation, pl.side)
+        pl2 = self._make_pl(Point(5.0, 5.0), rotation=0, side="bottom", pin_offsets={2: off})
+        assert _approx_point(pin_world_position(fp, pl2, 2), target)
+
+    def test_bottom_rotation90(self) -> None:
+        fp = SIL(2)
+        pl = self._make_pl(Point(5.0, 5.0), rotation=90, side="bottom")
+        baseline = pin_world_position(fp, pl, 2)
+
+        target = Point(8.0, 5.0)
+        off = self._compute_offset(target, baseline, pl.rotation, pl.side)
+        pl2 = self._make_pl(Point(5.0, 5.0), rotation=90, side="bottom", pin_offsets={2: off})
+        assert _approx_point(pin_world_position(fp, pl2, 2), target)
+
+    def test_both_pins_stay_at_origin_after_offset(self) -> None:
+        """Verify oba piny mają tę samą world position gdy offset sprowadza je do (0,0)."""
+        fp = SIL(2)
+        pl = self._make_pl(Point(3.0, 3.0), rotation=0, side="top")
+        # Without offset pin1=(3,3), pin2=(3,4).
+        # Force pin2 to world (3,3) — same as pin1.
+        baseline = pin_world_position(fp, pl, 2)
+        target = Point(3.0, 3.0)
+        off = self._compute_offset(target, baseline, pl.rotation, pl.side)
+        pl2 = self._make_pl(Point(3.0, 3.0), rotation=0, side="top", pin_offsets={2: off})
+        assert _approx_point(pin_world_position(fp, pl2, 2), target)
+        # off should be (0, -1) to cancel the (0,1) footprint position of pin2
+        assert _approx(off.x, 0.0) and _approx(off.y, -1.0)
 
 
 class TestWireSegment:

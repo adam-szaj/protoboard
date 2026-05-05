@@ -19,13 +19,15 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
 from protoboard.domain.components.definition import ComponentDefinition, PinBendSpec
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.geometry import Point
 from protoboard.services.drc.engine import DRCIssue
 
@@ -99,6 +101,22 @@ class PropertiesPanel(QWidget):
         layout.addWidget(self._pin_offsets_grp)
         self._pin_offsets_grp.setVisible(False)
 
+        # Geometry debug table — read-only, shown when component selected.
+        self._geo_grp = QGroupBox("Geometry")
+        geo_layout = QVBoxLayout(self._geo_grp)
+        geo_layout.setContentsMargins(2, 2, 2, 2)
+        self._geo_table = QTableWidget(0, 2)
+        self._geo_table.setHorizontalHeaderLabels(["Parameter", "Value"])
+        self._geo_table.horizontalHeader().setStretchLastSection(True)
+        self._geo_table.verticalHeader().setVisible(False)
+        self._geo_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._geo_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._geo_table.setAlternatingRowColors(True)
+        self._geo_table.setMinimumHeight(120)
+        geo_layout.addWidget(self._geo_table)
+        layout.addWidget(self._geo_grp)
+        self._geo_grp.setVisible(False)
+
         # DRC group.
         drc_grp = QGroupBox("DRC")
         drc_layout = QVBoxLayout(drc_grp)
@@ -127,12 +145,15 @@ class PropertiesPanel(QWidget):
             defn,
             placement.pin_offsets if placement is not None else {},
         )
+        self._update_geometry_table(placement, defn)
 
     def clear_component(self) -> None:
         self._current_id = None
         self._refdes_edit.clear()
         self._value_edit.clear()
         self._rebuild_pin_offsets(None, {})
+        self._geo_table.setRowCount(0)
+        self._geo_grp.setVisible(False)
 
     def update_issues(self, issues: list[DRCIssue]) -> None:
         self._drc_list.clear()
@@ -158,8 +179,7 @@ class PropertiesPanel(QWidget):
         while self._pin_offsets_form.rowCount():
             self._pin_offsets_form.removeRow(0)
         self._pin_offset_spins.clear()
-        # _pin_bend_widgets: pin_num → widget that reads current Point value
-        self._pin_bend_widgets: dict[int, _BendWidget] = {}
+        self._pin_bend_widgets = {}
 
         if defn is None or not defn.bendable_pins:
             self._pin_offsets_grp.setVisible(False)
@@ -182,6 +202,55 @@ class PropertiesPanel(QWidget):
             self._pin_offsets_form.addRow(f"Pin {pin_num} ({pin_name}):", widget)
 
         self._pin_offsets_grp.setVisible(bool(self._pin_bend_widgets))
+
+    def _update_geometry_table(
+        self,
+        placement: ComponentPlacement | None,
+        defn: ComponentDefinition | None,
+    ) -> None:
+        self._geo_table.setRowCount(0)
+        if placement is None:
+            self._geo_grp.setVisible(False)
+            return
+
+        rows: list[tuple[str, str]] = []
+
+        # Placement fields.
+        rows.append(("origin.x", f"{placement.position.x:.4f}"))
+        rows.append(("origin.y", f"{placement.position.y:.4f}"))
+        rows.append(("rotation", f"{placement.rotation}°"))
+        rows.append(("side", placement.side))
+        rows.append(("vertical_flipped", str(placement.vertical_flipped)))
+
+        # Per-pin geometry.
+        if defn is not None:
+            fp_positions = defn.footprint.pin_positions()
+            for i, fp_pos in enumerate(fp_positions):
+                pin_num = i + 1
+                off = placement.pin_offsets.get(pin_num, Point(0.0, 0.0))
+                world = pin_world_position(defn.footprint, placement, pin_num)
+                rows.append((f"── pin {pin_num} fp_pos", f"({fp_pos.x:g}, {fp_pos.y:g})"))
+                if off.x != 0.0 or off.y != 0.0:
+                    rows.append((f"   pin {pin_num} offset", f"({off.x:g}, {off.y:g})"))
+                rows.append((f"   pin {pin_num} world", f"({world.x:.3f}, {world.y:.3f})"))
+
+        self._geo_table.setRowCount(len(rows))
+        for row_idx, (param, value) in enumerate(rows):
+            param_item = QTableWidgetItem(param)
+            param_item.setFont(self._geo_table.font())
+            value_item = QTableWidgetItem(value)
+            self._geo_table.setItem(row_idx, 0, param_item)
+            self._geo_table.setItem(row_idx, 1, value_item)
+
+        self._geo_table.resizeColumnToContents(0)
+        self._geo_table.resizeRowsToContents()
+        # Resize table height to fit content (capped at 400px).
+        row_h = sum(
+            self._geo_table.rowHeight(r) for r in range(self._geo_table.rowCount())
+        )
+        header_h = self._geo_table.horizontalHeader().height()
+        self._geo_table.setMaximumHeight(min(row_h + header_h + 4, 400))
+        self._geo_grp.setVisible(True)
 
     def _on_bend_changed(self) -> None:
         if self._current_id is not None:

@@ -80,6 +80,7 @@ class SelectTool(_Tool):
         # Single component selection (for Properties panel and drag).
         self._selected_id: uuid.UUID | None = None
         self._highlight: QGraphicsRectItem | None = None
+        self._origin_cross: list[QGraphicsLineItem] = []
         # Multi-selection.
         self._selected_ids: set[uuid.UUID] = set()
         self._multi_highlights: list[QGraphicsRectItem] = []
@@ -126,6 +127,7 @@ class SelectTool(_Tool):
 
     def on_scene_cleared(self) -> None:
         self._highlight = None
+        self._origin_cross.clear()
         self._multi_highlights.clear()
         self._wire_highlight = None
         self._wire_multi_highlights.clear()
@@ -552,10 +554,14 @@ class SelectTool(_Tool):
             if self._selected_id is not None:
                 self._start_redrag(self._selected_id)
         elif key == Qt.Key.Key_R and alt and not ctrl:
-            if self._selected_id is not None:
+            if self._selected_ids:
+                self._flip_multi()
+            elif self._selected_id is not None:
                 self._flip_selected()
         elif key == Qt.Key.Key_R and not ctrl and not alt:
-            if self._selected_id is not None:
+            if self._selected_ids:
+                self._rotate_multi(delta=-90 if shift else 90)
+            elif self._selected_id is not None:
                 self._rotate_selected(delta=-90 if shift else 90)
         elif key == Qt.Key.Key_G and ctrl:
             self._group_for_selection()
@@ -658,9 +664,24 @@ class SelectTool(_Tool):
         from typing import cast
         from protoboard.domain.commands.base import Command
 
+        # Build the effective selection: rubber-band/_selected_wire_ids (multi)
+        # plus _selected_wire_id (primary single click).  If the clicked wire
+        # belongs to that combined set, act on the whole set; otherwise act
+        # only on the clicked wire.
+        effective_ids: set[uuid.UUID] = set(self._selected_wire_ids)
+        if self._selected_wire_id is not None:
+            effective_ids.add(self._selected_wire_id)
+
         ins_label = "insulated" if wire.insulated else "bare"
+        if wire.id in effective_ids and len(effective_ids) > 1:
+            target_ids = effective_ids
+            section = f"Wires ({len(target_ids)}) — {ins_label}, {wire.side}"
+        else:
+            target_ids = {wire.id}
+            section = f"Wire — {ins_label}, {wire.side}"
+
         menu = QMenu(self._view)
-        menu.addSection(f"Wire — {ins_label}, {wire.side}")
+        menu.addSection(section)
 
         if wire.insulated:
             act = menu.addAction("Set bare (no insulation)")
@@ -680,16 +701,24 @@ class SelectTool(_Tool):
             return True
 
         action, value = chosen.data()
+        raw_cmds: list[Command[ComponentState]]
         if action == "insulated":
-            cmd: Command[ComponentState] = cast(
-                Command[ComponentState],
-                SetWireInsulatedCommand(wire_id=wire.id, insulated=value),
-            )
+            raw_cmds = [
+                cast(Command[ComponentState],
+                     SetWireInsulatedCommand(wire_id=wid, insulated=value))
+                for wid in target_ids
+            ]
         else:
-            cmd = cast(
-                Command[ComponentState],
-                SetWireSideCommand(wire_id=wire.id, side=value),
-            )
+            raw_cmds = [
+                cast(Command[ComponentState],
+                     SetWireSideCommand(wire_id=wid, side=value))
+                for wid in target_ids
+            ]
+
+        if len(raw_cmds) == 1:
+            cmd: Command[ComponentState] = raw_cmds[0]
+        else:
+            cmd = MacroCommand(raw_cmds, description=f"Set {len(raw_cmds)} wires")
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
         return True
@@ -814,6 +843,9 @@ class SelectTool(_Tool):
         if self._highlight is not None:
             self._view.scene().removeItem(self._highlight)
             self._highlight = None
+        for line in self._origin_cross:
+            self._view.scene().removeItem(line)
+        self._origin_cross.clear()
         self._selected_id = None
         panel = self._props_panel()
         if panel is not None:
@@ -848,6 +880,21 @@ class SelectTool(_Tool):
         self._highlight.setBrush(Qt.BrushStyle.NoBrush)
         self._view.scene().addItem(self._highlight)
 
+        # Draw a cross at the component origin (placement.position = local (0,0)).
+        for line in self._origin_cross:
+            self._view.scene().removeItem(line)
+        self._origin_cross.clear()
+        ox, oy = placement.position.x, placement.position.y
+        arm = 0.35
+        cross_pen = QPen(QColor(255, 100, 0, 220), 0.07)
+        h_line = QGraphicsLineItem(ox - arm, oy, ox + arm, oy)
+        h_line.setPen(cross_pen)
+        v_line = QGraphicsLineItem(ox, oy - arm, ox, oy + arm)
+        v_line.setPen(cross_pen)
+        self._view.scene().addItem(h_line)
+        self._view.scene().addItem(v_line)
+        self._origin_cross = [h_line, v_line]
+
     def _flip_selected(self) -> None:
         """Alt+R: geometrically swap pin1 and pin2 (anchor moves to old pin2 pad)."""
         comp_id = self._selected_id
@@ -869,6 +916,65 @@ class SelectTool(_Tool):
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
         self._draw_highlight(comp_id)
+
+    def _rotate_multi(self, delta: int = 90) -> None:
+        ids = list(self._selected_ids)
+        if not ids:
+            return
+        cmds: list[MoveComponentCommand] = []
+        for cid in ids:
+            placement = self._session.layout.placements.get(cid)
+            if placement is None:
+                continue
+            new_pl = placement.copy()
+            new_pl.rotation = (placement.rotation + delta) % 360
+            cmds.append(MoveComponentCommand(
+                component_id=cid,
+                new_placement=new_pl,
+                old_placement=placement.copy(),
+            ))
+        if not cmds:
+            return
+        from typing import cast
+        from protoboard.domain.commands.base import Command
+        macro = MacroCommand(
+            cast(list[Command[ComponentState]], cmds),
+            description=f"Rotate {len(cmds)} components",
+        )
+        self._session.stack.execute(macro, self._session)
+        self._session.layout_changed.emit()
+        self._redraw_multi_highlights()
+
+    def _flip_multi(self) -> None:
+        ids = list(self._selected_ids)
+        if not ids:
+            return
+        cmds: list[MoveComponentCommand] = []
+        for cid in ids:
+            placement = self._session.layout.placements.get(cid)
+            inst = self._session.instances.get(cid)
+            if placement is None or inst is None:
+                continue
+            defn = self._session.components.get(inst.definition_ref)
+            if defn is None or defn.footprint.pin_count() != 2:
+                continue
+            new_pl = flip_component(defn.footprint, placement)
+            cmds.append(MoveComponentCommand(
+                component_id=cid,
+                new_placement=new_pl,
+                old_placement=placement.copy(),
+            ))
+        if not cmds:
+            return
+        from typing import cast
+        from protoboard.domain.commands.base import Command
+        macro = MacroCommand(
+            cast(list[Command[ComponentState]], cmds),
+            description=f"Flip {len(cmds)} components",
+        )
+        self._session.stack.execute(macro, self._session)
+        self._session.layout_changed.emit()
+        self._redraw_multi_highlights()
 
     def _rotate_selected(self, delta: int = 90) -> None:
         comp_id = self._selected_id
@@ -909,7 +1015,13 @@ class SelectTool(_Tool):
     # ------------------------------------------------------------------
 
     def _start_redrag(self, comp_id: uuid.UUID) -> None:
-        """Enter re-drag mode: pin 1 frozen, cursor picks new pad for pin 2."""
+        """Enter re-drag mode: the anchor pin is frozen, cursor picks a new pad
+        for the bendable (free-range) pin.
+
+        For 2-pin components after flip (vertical_flipped=True) pin 1 holds the
+        bend offset, so we redrag pin 1 instead of pin 2.  This keeps the
+        semantics consistent: the user always moves the "far" end of the lead.
+        """
         placement = self._session.layout.placements.get(comp_id)
         inst = self._session.instances.get(comp_id)
         if placement is None or inst is None:
@@ -917,13 +1029,22 @@ class SelectTool(_Tool):
         defn = self._session.components.get(inst.definition_ref)
         if defn is None or not defn.bendable_pins:
             return
-        # Pick the first free-range bendable pin.
-        pin_num = next(
-            (p for p, s in sorted(defn.bendable_pins.items()) if s.is_free()),
-            None,
-        )
-        if pin_num is None:
-            return
+
+        if placement.vertical_flipped and defn.footprint.pin_count() == 2:
+            # After flip the bend offset lives on pin 1 — that is the "far" end
+            # the user wants to reposition.  Use pin 2's spec for reach limits
+            # (the library only declares bendable_pins[2] for axial parts).
+            pin_num: int = 1
+            spec = defn.bendable_pins.get(1) or defn.bendable_pins.get(2)
+            if spec is None or not spec.is_free():
+                return
+        else:
+            free_pin = next(
+                (p for p, s in sorted(defn.bendable_pins.items()) if s.is_free()), None
+            )
+            if free_pin is None:
+                return
+            pin_num = free_pin
         self._redrag_comp_id = comp_id
         self._redrag_pin_num = pin_num
         self._draw_redrag_overlay(comp_id, pin_num, placement)
@@ -941,17 +1062,20 @@ class SelectTool(_Tool):
         defn = self._session.components.get(inst.definition_ref)
         if defn is None:
             return
-        spec = defn.bendable_pins.get(pin_num)
+        spec = defn.bendable_pins.get(pin_num) or next(
+            (s for s in defn.bendable_pins.values() if s.is_free()), None
+        )
         if spec is None or not spec.is_free():
             return
-        # Reach is measured from pin 1 (the anchor).
-        pin1_world = placement.position
+        # Reach is measured from the component origin (placement.position = local
+        # (0,0) = rotation centre), not from any specific pin world position.
+        origin_world = placement.position
         r = 0.18
         from PySide6.QtGui import QBrush, QPen
         from PySide6.QtWidgets import QGraphicsEllipseItem
         green = QColor(0, 200, 80, 120)
         for pt in self._view.board_pad_positions():
-            if spec.is_reachable_from_pin1(pin1_world, pt):
+            if spec.is_reachable_from_origin(origin_world, pt):
                 item = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
                 item.setBrush(QBrush(green))
                 item.setPen(QPen(Qt.GlobalColor.transparent, 0))
@@ -975,9 +1099,9 @@ class SelectTool(_Tool):
         defn = self._session.components.get(inst.definition_ref)
         if defn is None:
             return
-        # Feedback line from pin 1 (anchor) to cursor.
-        pin1_world = placement.position
-        line = QGraphicsLineItem(pin1_world.x, pin1_world.y, cursor.x, cursor.y)
+        # Feedback line from component origin to cursor.
+        origin = placement.position
+        line = QGraphicsLineItem(origin.x, origin.y, cursor.x, cursor.y)
         from PySide6.QtGui import QPen
         pen = QPen(QColor(0, 200, 80, 180), 0.05)
         pen.setStyle(Qt.PenStyle.DashLine)
@@ -1002,13 +1126,16 @@ class SelectTool(_Tool):
         if defn is None:
             self._cancel_redrag()
             return
-        spec = defn.bendable_pins.get(pin_num)
-        pin1_world = placement.position
+        spec = defn.bendable_pins.get(pin_num) or next(
+            (s for s in defn.bendable_pins.values() if s.is_free()), None
+        )
+        # Reach is measured from the component origin (placement.position).
+        origin_world = placement.position
         # Snap to nearest board pad
         from PySide6.QtCore import QPointF as _QPointF
         snapped = self._view.snap(_QPointF(cursor.x, cursor.y))
-        # Validate reach from pin 1
-        if spec is not None and spec.is_free() and not spec.is_reachable_from_pin1(pin1_world, snapped):
+        # Validate reach from origin
+        if spec is not None and spec.is_free() and not spec.is_reachable_from_origin(origin_world, snapped):
             self._cancel_redrag()
             return
         # Convert snapped world position to local offset for the pin.
@@ -1017,7 +1144,10 @@ class SelectTool(_Tool):
                                    if k != pin_num}
         baseline = pin_world_position(defn.footprint, temp_no_off, pin_num)
         world_delta = Point(snapped.x - baseline.x, snapped.y - baseline.y)
+        # Invert the full pipeline: unrotate, then undo X-mirror for bottom side.
         local_off = unrotate(world_delta, placement.rotation)
+        if placement.side == "bottom":
+            local_off = Point(-local_off.x, local_off.y)
         # Build new placement
         old_pl = placement.copy()
         new_pl = placement.copy()

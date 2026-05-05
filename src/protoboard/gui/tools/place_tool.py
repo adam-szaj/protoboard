@@ -252,11 +252,11 @@ class PlaceTool(_Tool):
         if spec is None or not spec.is_free():
             return
 
-        pin1 = self._anchor_pos  # reach measured from pin 1
+        origin = self._anchor_pos  # placement.position = component (0,0) = reach centre
 
         r = _REACH_PAD_RADIUS
         for pt in self._view.board_pad_positions():
-            if spec.is_reachable_from_pin1(pin1, pt):
+            if spec.is_reachable_from_origin(origin, pt):
                 item = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
                 from PySide6.QtGui import QBrush, QPen
                 item.setBrush(QBrush(_REACH_PAD_COLOR))
@@ -280,9 +280,9 @@ class PlaceTool(_Tool):
         if spec is None or not spec.is_free():
             return
 
-        pin1 = self._anchor_pos  # feedback line from pin 1
+        origin = self._anchor_pos  # component (0,0) = reach centre
 
-        line = QGraphicsLineItem(pin1.x, pin1.y, cursor.x, cursor.y)
+        line = QGraphicsLineItem(origin.x, origin.y, cursor.x, cursor.y)
         from PySide6.QtGui import QPen
         pen = QPen(_REACH_LINE_COLOR, 0.05)
         pen.setStyle(Qt.PenStyle.DashLine)
@@ -331,9 +331,9 @@ class PlaceTool(_Tool):
             return None
 
         if spec.is_free():
-            # Snap to nearest board pad; reject if outside reach from pin 1.
+            # Snap to nearest board pad; reject if outside reach from origin.
             snapped = self._view.snap(QPointF(cursor.x, cursor.y))
-            if not spec.is_reachable_from_pin1(self._anchor_pos, snapped):
+            if not spec.is_reachable_from_origin(self._anchor_pos, snapped):
                 return None
             # Convert world position of snapped pad to local offset for pin.
             world_delta = Point(snapped.x - baseline.x, snapped.y - baseline.y)

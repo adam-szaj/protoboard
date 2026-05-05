@@ -76,24 +76,29 @@ class PinBendSpec:
     Dwa tryby (wzajemnie wykluczające się):
     - dyskretny: ``discrete`` niepusty — lista dozwolonych offsetów (np. TO-92).
     - swobodny 2D: ``max_reach > 0`` — pin może trafić w dowolny pad siatki
-      w promieniu euklidesowym [min_reach, max_reach] od swojej pozycji bazowej.
+      w promieniu euklidesowym [min_reach, max_reach] od punktu (0,0) komponentu
+      (placement.position — punkt obrotu, niezależny od offsetów pinów).
 
     Offset zawsze w lokalnym układzie komponentu (przed rotacją).
     """
 
     discrete: tuple[Point, ...] = ()
-    min_reach: float = 0.0   # min odległość euklidesowa od pinu 1 (rastery)
-    max_reach: float = 0.0   # max odległość od pinu 1; 0 = brak trybu swobodnego
+    min_reach: float = 0.0   # min odległość euklidesowa od punktu (0,0) komponentu
+    max_reach: float = 0.0   # max odległość; 0 = brak trybu swobodnego
     default_offset: Point = field(default_factory=lambda: Point(0.0, 0.0))
 
     def is_free(self) -> bool:
-        """True gdy tryb swobodny 2D (dowolny pad w promieniu od pinu 1)."""
+        """True gdy tryb swobodny 2D (dowolny pad w dozwolonym promieniu)."""
         return self.max_reach > 0.0
 
-    def is_reachable_from_pin1(self, pin1_world: Point, target_world: Point) -> bool:
-        """Czy docelowy pad mieści się w dozwolonym promieniu od pinu 1."""
-        d = math.hypot(target_world.x - pin1_world.x, target_world.y - pin1_world.y)
+    def is_reachable_from_origin(self, origin_world: Point, target_world: Point) -> bool:
+        """Czy docelowy pad mieści się w dozwolonym promieniu od punktu (0,0) komponentu."""
+        d = math.hypot(target_world.x - origin_world.x, target_world.y - origin_world.y)
         return self.min_reach <= d <= self.max_reach
+
+    def is_reachable_from_pin1(self, pin1_world: Point, target_world: Point) -> bool:
+        """Backward-compat alias — delegates to is_reachable_from_origin."""
+        return self.is_reachable_from_origin(pin1_world, target_world)
 
 
 @dataclass(frozen=True, slots=True)
