@@ -10,18 +10,18 @@ components:
     footprint: {type: TO92}
     pin_names: {}
     bendable_pins:
-      1: [{x: -1, y: 0}, {x: 1, y: 0}]
-      2: [{x: -1, y: 0}, {x: 1, y: 0}]
-      3: [{x: -1, y: 0}, {x: 1, y: 0}]
+      1: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
+      2: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
+      3: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
 
   - name: _PNP
     component_class: transistor_pnp
     footprint: {type: TO92}
     pin_names: {}
     bendable_pins:
-      1: [{x: -1, y: 0}, {x: 1, y: 0}]
-      2: [{x: -1, y: 0}, {x: 1, y: 0}]
-      3: [{x: -1, y: 0}, {x: 1, y: 0}]
+      1: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
+      2: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
+      3: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
 
   - name: _TO92_NPN_CBE
     extends: _NPN
