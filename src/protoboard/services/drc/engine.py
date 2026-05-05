@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from itertools import combinations
 from typing import Literal
 
+import structlog
 from protoboard.domain.board.board import Board
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
@@ -17,6 +18,7 @@ from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 
+_log = structlog.get_logger(__name__)
 _Severity = Literal["error", "warning", "info"]
 _VALID_SEVERITIES = frozenset({"error", "warning", "info"})
 
@@ -57,6 +59,17 @@ class DRCEngine:
         issues += _check_missing_net(schematic, graph)
         issues += _check_floating_pins(schematic, layout)
         issues += _check_bare_wire_cross(schematic, layout, graph)
+        counts: dict[str, int] = {"error": 0, "warning": 0, "info": 0}
+        for iss in issues:
+            counts[iss.severity] = counts.get(iss.severity, 0) + 1
+        _log.info(
+            "drc.complete",
+            total=len(issues),
+            errors=counts["error"],
+            warnings=counts["warning"],
+            infos=counts["info"],
+            codes=[iss.code for iss in issues],
+        )
         return issues
 
 

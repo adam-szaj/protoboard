@@ -19,6 +19,7 @@ from __future__ import annotations
 import math
 import uuid
 
+import structlog
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPen
 from PySide6.QtWidgets import (
@@ -71,6 +72,8 @@ _BBOX_MARGIN = 0.45
 _WIRE_HIT_DIST = 0.35
 _NODE_HIT_RADIUS = 0.32
 _NODE_RADIUS = 0.13
+
+_log = structlog.get_logger(__name__)
 
 
 class SelectTool(_Tool):
@@ -387,6 +390,7 @@ class SelectTool(_Tool):
             for child_gid in parent_group.child_group_ids:
                 if hit in all_component_ids(groups, child_gid):
                     self._group_stack.append(child_gid)
+                    _log.debug("group.entered", group_id=str(child_gid), stack_depth=len(self._group_stack))
                     self._clear_multi_selection()
                     self._deselect()
                     self._select_primary(hit)
@@ -916,6 +920,7 @@ class SelectTool(_Tool):
         self._selected_id = comp_id
         self._draw_highlight(comp_id)
         inst = self._session.instances.get(comp_id)
+        _log.debug("selection.component", comp_id=str(comp_id), refdes=inst.refdes if inst else "?")
         placement = self._session.layout.placements.get(comp_id)
         if inst is None:
             return
@@ -1419,6 +1424,9 @@ class SelectTool(_Tool):
                     selected_wires.add(wire.id)
 
         if selected or selected_wires:
+            _log.debug("selection.rubber_band",
+                       mode="ltr" if left_to_right else "rtl",
+                       components=len(selected), wires=len(selected_wires))
             self._selected_ids = selected
             self._redraw_multi_highlights()
             self._selected_wire_ids = selected_wires
@@ -1449,6 +1457,7 @@ class SelectTool(_Tool):
     def _select_wire(self, wire_id: uuid.UUID) -> None:
         self._deselect_wire()
         self._selected_wire_id = wire_id
+        _log.debug("selection.wire", wire_id=str(wire_id))
         self._draw_wire_highlight(wire_id)
 
     def _deselect_wire(self) -> None:
@@ -1795,6 +1804,7 @@ class SelectTool(_Tool):
         for child_gid in active.child_group_ids:
             if comp_id in all_component_ids(groups, child_gid):
                 return True
+        _log.debug("selection.blocked", comp_id=str(comp_id), active_group=str(active_gid))
         return False
 
     def _group_for_selection(self) -> uuid.UUID | None:
@@ -1863,6 +1873,7 @@ class SelectTool(_Tool):
         """Pop the innermost group from the navigation stack (Esc)."""
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         if len(self._group_stack) > 1:  # never pop root
+            _log.debug("group.exited", group_id=str(self._group_stack[-1]), remaining=len(self._group_stack) - 1)
             self._group_stack.pop()
             self._clear_multi_selection()
             self._deselect()

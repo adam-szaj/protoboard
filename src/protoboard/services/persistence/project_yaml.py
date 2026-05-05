@@ -27,8 +27,10 @@ from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.errors import SerializationError
 from protoboard.geometry import Point
+import structlog
 from protoboard.services.persistence.board_yaml import board_from_yaml, board_to_yaml
 
+_log = structlog.get_logger(__name__)
 _yaml = YAML(typ="safe")
 _yaml.default_flow_style = False
 
@@ -45,11 +47,19 @@ def save_project(
     schematic: Schematic,
     instances: dict[uuid.UUID, ComponentInstance] | None = None,
 ) -> None:
+    _log.info("project.saving", path=str(directory))
     directory.mkdir(parents=True, exist_ok=True)
     _write(directory / "board.yaml", board_to_yaml(board))
     _write(directory / "layout.yaml", _layout_to_yaml(layout))
     _write(directory / "schematic.yaml", _schematic_to_yaml(schematic))
     _write(directory / "instances.yaml", _instances_to_yaml(instances or {}))
+    _log.info(
+        "project.saved",
+        path=str(directory),
+        placements=len(layout.placements),
+        wires=len(layout.wires),
+        nets=len(schematic.nets),
+    )
 
 
 def _write(path: Path, text: str) -> None:
@@ -181,6 +191,7 @@ def _schematic_to_yaml(schematic: Schematic) -> str:
 def load_project(
     directory: Path,
 ) -> tuple[Board, Layout, Schematic, dict[uuid.UUID, ComponentInstance]]:
+    _log.info("project.loading", path=str(directory))
     try:
         board = board_from_yaml((directory / "board.yaml").read_text())
         layout = _layout_from_yaml((directory / "layout.yaml").read_text())
@@ -191,7 +202,16 @@ def load_project(
         else:
             instances = {}
     except FileNotFoundError as exc:
+        _log.warning("project.load_failed", path=str(directory), error=str(exc))
         raise SerializationError(f"Missing project file: {exc}") from exc
+    _log.info(
+        "project.loaded",
+        path=str(directory),
+        placements=len(layout.placements),
+        wires=len(layout.wires),
+        nets=len(schematic.nets),
+        instances=len(instances),
+    )
     return board, layout, schematic, instances
 
 

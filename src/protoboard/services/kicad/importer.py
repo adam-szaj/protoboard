@@ -14,6 +14,7 @@ import warnings
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import structlog
 from protoboard.domain.components.footprints import (
     DualRow,
     FootprintTemplate,
@@ -21,6 +22,9 @@ from protoboard.domain.components.footprints import (
 )
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
+
+
+_log = structlog.get_logger(__name__)
 
 
 class ImportWarning(UserWarning):
@@ -31,6 +35,7 @@ class KiCadNetlistImporter:
     """Parse KiCAD legacy XML netlist into a `Schematic`."""
 
     def import_(self, path: Path) -> Schematic:
+        _log.info("kicad.import_start", path=str(path))
         return self.import_from_string(path.read_text(encoding="utf-8"))
 
     def import_from_string(self, xml: str) -> Schematic:
@@ -53,9 +58,15 @@ class KiCadNetlistImporter:
             if fp_el is not None and fp_el.text:
                 fp_str = fp_el.text.strip()
                 if fp_str and self.resolve_footprint(fp_str) is None:
+                    comp_ref = comp_el.get("ref", "?")
+                    _log.warning(
+                        "kicad.unknown_footprint",
+                        footprint=fp_str,
+                        component=comp_ref,
+                    )
                     warnings.warn(
                         f"Unknown footprint '{fp_str}' for component "
-                        f"'{comp_el.get('ref', '?')}' — skipping footprint mapping.",
+                        f"'{comp_ref}' — skipping footprint mapping.",
                         ImportWarning,
                         stacklevel=2,
                     )
@@ -80,6 +91,7 @@ class KiCadNetlistImporter:
             net_id = uuid.uuid4()
             nets[net_id] = Net(id=net_id, name=name, pins=pins)
 
+        _log.info("kicad.import_complete", nets=len(nets), components=len(refdes_to_id))
         return Schematic(nets=nets)
 
     def resolve_footprint(self, fp_string: str) -> FootprintTemplate | None:

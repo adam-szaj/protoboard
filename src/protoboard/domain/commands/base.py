@@ -7,6 +7,10 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import Generic, TypeVar
 
+import structlog
+
+_log = structlog.get_logger(__name__)
+
 T = TypeVar("T")
 
 
@@ -45,6 +49,7 @@ class CommandStack(Generic[T]):
 
     def execute(self, cmd: Command[T], state: T) -> None:
         cmd.apply(state)
+        _log.info("cmd.execute", cmd=type(cmd).__name__, desc=cmd.description)
         self._undo.append(cmd)
         self._redo.clear()
 
@@ -53,6 +58,7 @@ class CommandStack(Generic[T]):
             raise IndexError("nothing to undo")
         cmd = self._undo.pop()
         cmd.revert(state)
+        _log.info("cmd.undo", cmd=type(cmd).__name__, desc=cmd.description)
         self._redo.append(cmd)
 
     def redo(self, state: T) -> None:
@@ -60,6 +66,7 @@ class CommandStack(Generic[T]):
             raise IndexError("nothing to redo")
         cmd = self._redo.pop()
         cmd.apply(state)
+        _log.info("cmd.redo", cmd=type(cmd).__name__, desc=cmd.description)
         self._undo.append(cmd)
 
     def can_undo(self) -> bool:

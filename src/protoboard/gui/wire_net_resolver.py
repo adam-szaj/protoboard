@@ -7,6 +7,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
+import structlog
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.wire_net_ops import (
     WireNetKind,
@@ -18,6 +19,8 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import WireSegment
     from protoboard.domain.schematic.wire_net_ops import WireNetClassification
     from protoboard.gui.session import EditorSession
+
+_log = structlog.get_logger(__name__)
 
 
 def resolve_wire_nets(
@@ -35,6 +38,7 @@ def resolve_wire_nets(
     (only possible for DIFFERENT_NETS when the merge dialog is rejected).
     """
     cl = classify_wire_nets(wire, session)
+    _log.debug("wire_net.classified", kind=cl.kind.name)
 
     if cl.kind == WireNetKind.NO_PINS:
         return True
@@ -86,6 +90,7 @@ def _create_new_net(
     )
     cmd.record_net_change(new_id, before=None, after=_snapshot(new_net))
     session.schematic.nets[new_id] = new_net
+    _log.info("wire_net.created", net_name=name)
 
 
 def _extend_net(
@@ -101,6 +106,7 @@ def _extend_net(
     cmd.record_net_change(net.id, before=_snapshot(net), after=None)
     net.pins.add(new_ref)
     cmd._nets_after[net.id] = _snapshot(net)
+    _log.info("wire_net.extended", net=net.name)
 
 
 def _merge_nets(
@@ -116,6 +122,7 @@ def _merge_nets(
 
     dlg = NetMergeDialog(net_a=net_a, net_b=net_b, parent=parent_widget)
     if dlg.exec() != QDialog.DialogCode.Accepted:
+        _log.debug("wire_net.merge_cancelled", net_a=net_a.name, net_b=net_b.name)
         return False
 
     chosen_name = dlg.chosen_name or net_a.name
@@ -128,4 +135,5 @@ def _merge_nets(
     del session.schematic.nets[net_b.id]
     cmd._nets_after[net_a.id] = _snapshot(net_a)
     cmd._nets_after[net_b.id] = None
+    _log.info("wire_net.merged", survivor=net_a.name, merged=net_b.name)
     return True

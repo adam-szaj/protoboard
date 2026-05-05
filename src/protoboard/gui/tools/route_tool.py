@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import uuid
 
+import structlog
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPen
 from PySide6.QtWidgets import QGraphicsLineItem
@@ -19,6 +20,7 @@ from protoboard.gui.renderers.routing_overlay import render_routing_hints
 from protoboard.services.routing.astar import find_paths
 from protoboard.services.routing.cost_model import RoutingCostModel
 
+_log = structlog.get_logger(__name__)
 _PREVIEW_COLOR = QColor(255, 100, 0, 180)
 _PREVIEW_WIDTH = 0.12
 
@@ -54,6 +56,8 @@ class RouteTool(_Tool):
             self._remove_live()
             self._add_committed_line(self._points[-1], snapped)
         self._points.append(snapped)
+        if len(self._points) == 1:
+            _log.debug("route.started", start=(snapped.x, snapped.y), insulated=self._insulated, side=self._side)
         # Immediately show live segment from new point to current cursor.
         self._add_live_line(snapped, snapped)
         return True
@@ -106,6 +110,7 @@ class RouteTool(_Tool):
         if not resolve_wire_nets(
             self._session, wire, cmd, self._view.window()
         ):
+            _log.debug("route.cancelled", reason="net_merge_rejected")
             self._cancel()
             return
         self._points.clear()
@@ -113,6 +118,7 @@ class RouteTool(_Tool):
         self._remove_live()
         self._clear_hints()
         self._session.stack.execute(cmd, self._session)
+        _log.info("route.committed", wire_id=str(wire.id), points=len(wire.path), insulated=wire.insulated)
         self._session.layout_changed.emit()
 
     def _cancel(self) -> None:
@@ -180,6 +186,7 @@ class RouteTool(_Tool):
             cost_model=RoutingCostModel(),
             k=3,
         )
+        _log.debug("route.hints", paths_found=len(results), targets=len(targets))
         self._hint_items = render_routing_hints(self._view.scene(), results)
 
     def on_scene_cleared(self) -> None:

@@ -28,6 +28,7 @@ import math
 import uuid
 from typing import Literal
 
+import structlog
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem
@@ -44,6 +45,7 @@ from protoboard.gui.renderers.component_renderer import make_ghost_item
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsItemGroup
 
+_log = structlog.get_logger(__name__)
 _REACH_PAD_COLOR = QColor(0, 200, 80, 120)     # zielone kółka — pady w zasięgu
 _REACH_LINE_COLOR = QColor(0, 200, 80, 180)    # linia pin1→kursor
 _REACH_PAD_RADIUS = 0.18
@@ -374,6 +376,7 @@ class PlaceTool(_Tool):
     # ------------------------------------------------------------------
 
     def _commit(self, position: Point, pin_offsets: dict[int, Point]) -> None:
+        _log.debug("place.attempt", definition=self._definition_ref, pos=(position.x, position.y), rotation=self._rotation)
         defn = self._session.components.get(self._definition_ref)
         inst = ComponentInstance.new(
             definition_ref=self._definition_ref,
@@ -396,12 +399,14 @@ class PlaceTool(_Tool):
                 parent_widget=self._view.window(),
             )
             if resolved is None:
+                _log.info("place.blocked", definition=self._definition_ref, pos=(position.x, position.y))
                 return
             placement = resolved
         cmd = PlaceComponentCommand(
             component_id=inst.id, placement=placement, instance=inst
         )
         self._session.stack.execute(cmd, self._session)
+        _log.info("place.committed", definition=self._definition_ref, refdes=inst.refdes, pos=(position.x, position.y))
         self._session.layout_changed.emit()
 
     def _reset_phase(self) -> None:

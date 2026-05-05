@@ -3,17 +3,22 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
+import structlog as _structlog
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from protoboard.gui import recent_projects
 from protoboard.gui.dialogs.welcome_dialog import WelcomeDialog
 from protoboard.gui.main_window import MainWindow
 from protoboard.gui.session import EditorSession
+from protoboard.logging_config import configure_logging
 from protoboard.services.library.loader import load_library
 from protoboard.services.persistence.project_yaml import load_project, save_project
+
+_log = _structlog.get_logger(__name__)
 
 _LIBRARY_DIR = Path(__file__).parent.parent.parent / "library"
 
@@ -50,8 +55,10 @@ def _open_session(
                 instances={},
             )
         except Exception as exc:
+            _log.warning("project.open_failed", path=str(project_path), error=str(exc))
             QMessageBox.critical(None, "Error", f"Cannot create project:\n{exc}")
             return None
+        _log.info("project.created", path=str(project_path))
         session = EditorSession(board=board, library=library)
         session.project_path = project_path
         recent_projects.add(project_path)
@@ -63,8 +70,10 @@ def _open_session(
         try:
             board, layout, schematic, instances = load_project(project_path)
         except Exception as exc:
+            _log.warning("project.open_failed", path=str(project_path), error=str(exc))
             QMessageBox.critical(None, "Open error", str(exc))
             return None
+        _log.info("project.opened", path=str(project_path))
         session = EditorSession(board=board, library=library)
         session.layout = layout
         session.schematic = schematic
@@ -77,7 +86,13 @@ def _open_session(
 
 
 def main() -> None:
-    app = QApplication(sys.argv)
+    parser = argparse.ArgumentParser(prog="protoboard", add_help=False)
+    parser.add_argument("--verbose", "-v", action="store_true", default=False)
+    args, remaining = parser.parse_known_args(sys.argv[1:])
+    configure_logging(verbose=args.verbose)
+    _log.info("protoboard.starting", verbose=args.verbose)
+
+    app = QApplication([sys.argv[0]] + remaining)
     app.setApplicationName("Protoboard Designer")
     # Prevent automatic quit when the last dialog closes before the main
     # window appears (welcome screen → new project dialog chain).

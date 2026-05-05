@@ -11,7 +11,10 @@ import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import structlog
 from protoboard.domain.schematic.schematic import Schematic
+
+_log = structlog.get_logger(__name__)
 
 
 class KiCadNetlistExporter:
@@ -77,4 +80,6 @@ class KiCadNetlistExporter:
         refdes_map: dict[uuid.UUID, str] | None = None,
     ) -> None:
         """Write the netlist XML to *path*."""
+        _log.info("kicad.export_start", path=str(path))
         path.write_text(self.export(schematic, refdes_map=refdes_map), encoding="utf-8")
+        _log.info("kicad.export_done", path=str(path), nets=len(schematic.nets))

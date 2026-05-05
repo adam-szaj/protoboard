@@ -6,6 +6,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
+import structlog
 from protoboard.domain.layout.pad_conflict import (
     ConflictKind,
     PadConflict,
@@ -21,6 +22,8 @@ from protoboard.domain.layout.placement import (
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.gui.session import EditorSession
+
+_log = structlog.get_logger(__name__)
 
 
 def _round(v: float) -> float:
@@ -74,6 +77,7 @@ def check_and_resolve(
             if has_pin_overlap:
                 break
         if not has_pin_overlap:
+            _log.debug("conflict.body_overlap_blocked", incoming=str(instance_id))
             return None
 
     pad_conflicts = find_conflicts(
@@ -137,6 +141,7 @@ def check_and_resolve(
     auto_wire = [c for c in conflicts if c.kind in _AUTO_CREATE_KINDS]
 
     if blocked:
+        _log.info("conflict.blocked", kinds=[c.kind.name for c in blocked], incoming=str(instance_id))
         # Show blocking dialog (no accept button).
         _show_dialog(session, conflicts, placement, defn, instance_id, parent_widget)
         return None
@@ -232,11 +237,13 @@ def _update_schematic(
             else:
                 inst = session.instances.get(instance_id)
                 new_net_id = _uuid.uuid4()
+                net_name = f"Net-({inst.refdes if inst else '?'}-{c.incoming_pin})"
                 session.schematic.nets[new_net_id] = Net(
                     id=new_net_id,
-                    name=f"Net-({inst.refdes if inst else '?'}-{c.incoming_pin})",
+                    name=net_name,
                     pins={incoming_ref, existing_ref},
                 )
+                _log.info("conflict.net_created", net_name=net_name, kind=c.kind.name)
 
         elif c.kind in _WIRE_KINDS:
             if c.existing_net_id is not None:
