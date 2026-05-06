@@ -75,6 +75,7 @@ def autoroute(
     insulated: bool = True,
     allow_layer_change: bool = True,
     max_optimize_iterations: int = 10,
+    preferred_side: Literal["top", "bottom"] = "bottom",
 ) -> AutorouteResult:
     """Route all unrouted nets in *schematic* and return new wire segments.
 
@@ -94,6 +95,11 @@ def autoroute(
         the global wire state from the previous iteration, so early nets benefit
         from knowing where later nets actually ended up.  Stops early when the
         wire layout converges (no path changed).  Set to 0 to disable.
+    preferred_side:
+        When two paths have equal cost (one on top, one on bottom), the one on
+        this side wins the tie-break.  Defaults to ``"bottom"`` — bottom-layer
+        routing is generally preferred because it leaves the top layer clear for
+        component inspection and rework.
 
     Already-routed connections (where a physical path already exists) are
     skipped.  Only completely *missing* connections are routed.
@@ -188,6 +194,7 @@ def autoroute(
         skip_net_ids=set(),
         components=components,
         instances=instances,
+        preferred_side=preferred_side,
     )
 
     # Nets that failed the initial pass are permanently skipped in optimization —
@@ -216,6 +223,7 @@ def autoroute(
             skip_net_ids=failed_net_ids,
             components=components,
             instances=instances,
+            preferred_side=preferred_side,
         )
         new_fp = _wire_fingerprint(next_wires)
         current_wires = next_wires
@@ -273,6 +281,7 @@ def _run_one_pass(
     skip_net_ids: set[uuid.UUID],
     components: dict[str, ComponentDefinition],
     instances: dict[uuid.UUID, ComponentInstance],
+    preferred_side: Literal["top", "bottom"] = "bottom",
 ) -> tuple[list[WireSegment], list[str]]:
     """Run one full greedy routing pass over *sorted_nets*.
 
@@ -305,6 +314,7 @@ def _run_one_pass(
             insulated=insulated,
             plated_through_pads=plated_through_pads,
             under_component_penalty=under_component_penalty,
+            preferred_side=preferred_side,
         )
         if routed is None:
             unrouted.append(net.name)
@@ -370,6 +380,7 @@ def _route_net(
     insulated: bool,
     plated_through_pads: set[Point],
     under_component_penalty: dict[tuple[Point, str], float],
+    preferred_side: Literal["top", "bottom"] = "bottom",
 ) -> list[WireSegment] | None:
     """Route all connections for *net*.  Returns new wires or None on failure."""
     placed_refs = [ref for ref in net.pins if ref in pin_positions]
@@ -584,6 +595,7 @@ def _route_net(
             plated_through_pads=plated_through_pads,
             cur_net_wire_points=cur_net_wire_points,
             under_component_penalty=under_component_penalty,
+            preferred_side=preferred_side,
         )
         if routed_wires is None:
             if _DEEP_DEBUG:
@@ -653,6 +665,7 @@ def _route_segment_with_ripup(
     plated_through_pads: set[Point],
     cur_net_wire_points: set[tuple[Point, str]],
     under_component_penalty: dict[tuple[Point, str], float],
+    preferred_side: Literal["top", "bottom"] = "bottom",
 ) -> list[WireSegment] | None:
     """Try to route *target* from any of *source_options*, with rip-up fallback.
 
@@ -691,11 +704,12 @@ def _route_segment_with_ripup(
         # Collect best result across all source options and both starting sides.
         # Try each source from both top and bottom so the router can pick the
         # globally cheapest path (e.g. straight bottom layer vs. top detour).
+        # Tie-break: when two paths have equal cost, preferred_side wins.
         best: tuple[float, list[PathStep]] | None = None
+        best_is_preferred = False  # whether current best starts on preferred_side
         sides_to_try = ["top", "bottom"] if plated_through_pads else [source_options[0][1]]
         for src_pt, _src_side in source_options:
             for start_side in sides_to_try:
-                # Skip if this side has no valid node at the source position.
                 results = find_paths(
                     graph=graph,
                     source=src_pt,
@@ -712,8 +726,17 @@ def _route_segment_with_ripup(
                     plated_through_pads=plated_through_pads,
                     penalised_pads=under_component_penalty,
                 )
-                if results and (best is None or results[0].cost < best[0]):
-                    best = (results[0].cost, results[0].path)
+                if not results:
+                    continue
+                cost = results[0].cost
+                is_preferred = start_side == preferred_side
+                if (
+                    best is None
+                    or cost < best[0]
+                    or (cost == best[0] and is_preferred and not best_is_preferred)
+                ):
+                    best = (cost, results[0].path)
+                    best_is_preferred = is_preferred
         if best is not None:
             path = _truncate_at_same_net_wire(best[1], cur_net_wire_points, target)
             wires = _path_to_wires(path, insulated)
