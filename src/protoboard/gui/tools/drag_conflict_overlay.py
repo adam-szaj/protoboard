@@ -3,12 +3,11 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPen
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsScene
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsLineItem, QGraphicsRectItem, QGraphicsScene
 
 if TYPE_CHECKING:
     from protoboard.domain.layout.pad_conflict import MoveConflictResult
@@ -25,18 +24,26 @@ _COLOR_BLOCKED   = QColor(220, 50,  30, 220)  # red
 class DragConflictOverlay:
     """Manages Qt scene items that give live conflict feedback during drag.
 
+    Remembers the last conflict result so it can be re-rendered after a
+    scene rebuild (scene.clear() destroys all items).
+
     Usage::
 
         overlay = DragConflictOverlay()
         # in on_move():
-        overlay.update(scene, result, drag_bbox, blocking_pads)
-        # in on_release() / deactivate():
-        overlay.clear(scene)
+        overlay.update(scene, result, drag_bbox, snapped)
+        # after scene rebuild (on_scene_cleared):
+        overlay.rerender(scene)
+        # on deactivate / after successful move:
+        overlay.reset(scene)
     """
 
     def __init__(self) -> None:
         self._items: list[QGraphicsItem] = []
         self._last_snapped: Point | None = None
+        # Remembered for rerender after scene rebuild.
+        self._last_result: MoveConflictResult | None = None
+        self._last_bbox: tuple[float, float, float, float] | None = None
 
     # ------------------------------------------------------------------
 
@@ -53,16 +60,43 @@ class DragConflictOverlay:
         drag_bbox: tuple[float, float, float, float] | None,
         snapped: Point,
     ) -> None:
-        """Redraw overlay for current conflict result.
-
-        *drag_bbox* is (x0, y0, x1, y1) in scene coordinates — bounding box of
-        the dragged selection for drawing the outline.
-        *blocking_pad_positions* are taken from result.blocking_pad_positions.
-        """
-        from protoboard.domain.layout.pad_conflict import MoveConflictSeverity
-
-        self.clear(scene)
+        """Redraw overlay for current conflict result."""
+        self._drop_items(scene)
         self._last_snapped = snapped
+        self._last_result = result
+        self._last_bbox = drag_bbox
+        self._render(scene, result, drag_bbox)
+
+    def rerender(self, scene: QGraphicsScene | None) -> None:
+        """Re-add overlay items after a scene rebuild. No-op if no result stored."""
+        self._items.clear()   # old C++ objects are gone after scene.clear()
+        if scene is not None and self._last_result is not None:
+            self._render(scene, self._last_result, self._last_bbox)
+
+    def reset(self, scene: QGraphicsScene) -> None:
+        """Clear overlay and forget all state."""
+        self._drop_items(scene)
+        self._last_snapped = None
+        self._last_result = None
+        self._last_bbox = None
+
+    # ------------------------------------------------------------------
+
+    def _drop_items(self, scene: QGraphicsScene) -> None:
+        for item in self._items:
+            try:
+                scene.removeItem(item)
+            except RuntimeError:
+                pass  # C++ object already deleted by scene.clear()
+        self._items.clear()
+
+    def _render(
+        self,
+        scene: QGraphicsScene,
+        result: MoveConflictResult,
+        drag_bbox: tuple[float, float, float, float] | None,
+    ) -> None:
+        from protoboard.domain.layout.pad_conflict import MoveConflictSeverity
 
         if result.severity == MoveConflictSeverity.CLEAR:
             return
@@ -73,11 +107,13 @@ class DragConflictOverlay:
             else _COLOR_BLOCKED
         )
 
-        # Outline rectangle around dragged selection.
         if drag_bbox is not None:
             x0, y0, x1, y1 = drag_bbox
             pad = 0.2
-            rect = QGraphicsRectItem(QRectF(x0 - pad, y0 - pad, (x1 - x0) + 2 * pad, (y1 - y0) + 2 * pad))
+            rect = QGraphicsRectItem(QRectF(
+                x0 - pad, y0 - pad,
+                (x1 - x0) + 2 * pad, (y1 - y0) + 2 * pad,
+            ))
             pen = QPen(color, _OUTLINE_WIDTH)
             pen.setStyle(Qt.PenStyle.DashLine)
             rect.setPen(pen)
@@ -86,24 +122,13 @@ class DragConflictOverlay:
             scene.addItem(rect)
             self._items.append(rect)
 
-        # Crosses on blocking pad positions.
         if result.severity == MoveConflictSeverity.BLOCKED:
             for pad_pos in result.blocking_pad_positions:
                 self._add_cross(scene, pad_pos.x, pad_pos.y, color)
 
-    def clear(self, scene: QGraphicsScene) -> None:
-        for item in self._items:
-            scene.removeItem(item)
-        self._items.clear()
-        self._last_snapped = None
-
-    # ------------------------------------------------------------------
-
     def _add_cross(
         self, scene: QGraphicsScene, cx: float, cy: float, color: QColor
     ) -> None:
-        from PySide6.QtWidgets import QGraphicsLineItem
-
         r = _MARKER_RADIUS
         pen = QPen(color, 0.08)
         for x1, y1, x2, y2 in [

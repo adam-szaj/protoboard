@@ -144,7 +144,7 @@ class SelectTool(_Tool):
         self._drag_orig_positions = {}
         self._drag_orig_wire_paths = {}
         if self._view is not None:
-            self._drag_overlay.clear(self._view.scene())
+            self._drag_overlay.reset(self._view.scene())
         self._cancel_wire_edit()
         self._deselect_wire()
         self._clear_multi_wire_selection()
@@ -160,7 +160,8 @@ class SelectTool(_Tool):
         self._edit_live_line = None
         self._rubber_band_item = None
         self._redrag_items = []  # scene wiped, items gone
-        self._drag_overlay._items.clear()  # scene wiped, refs invalid
+        # Scene wiped — rerender overlay if drag is in progress.
+        self._drag_overlay.rerender(self._view.scene() if self._view is not None else None)  # type: ignore[arg-type]
         # Redraw highlights after scene rebuild.
         if self._selected_id is not None and not self._dragging:
             self._draw_highlight(self._selected_id)
@@ -255,6 +256,7 @@ class SelectTool(_Tool):
                 for cid in grp_members - {first}:
                     self._draw_multi_highlight(cid)
                 # Begin drag of all group members.
+                self._drag_overlay.reset(self._view.scene())
                 self._dragging = True
                 self._drag_orig_positions = {}
                 self._drag_orig_wire_paths = {}
@@ -303,6 +305,7 @@ class SelectTool(_Tool):
                 # (including wires) and set as primary for properties panel.
                 self._select_primary(hit)
             # Begin drag.
+            self._drag_overlay.reset(self._view.scene())
             self._dragging = True
             self._drag_orig_positions = {}
             self._drag_orig_wire_paths = {}
@@ -534,9 +537,26 @@ class SelectTool(_Tool):
 
         commands: list[Command[ComponentState]] = []
 
-        if self._selected_group_id is not None:
+        # Resolve effective group for this drag (either from outline-click or
+        # by detecting that all drag_ids belong to the same group).
+        effective_group_id = self._selected_group_id
+        if effective_group_id is None and drag_ids:
+            effective_group_id = self._common_group_for(drag_ids)
+
+        if effective_group_id is not None:
             # --- Atomic group drag: check all conflicts first, revert all on block ---
-            commands = self._build_group_drag_commands(drag_ids) or []
+            # Ensure drag_ids covers ALL members of the group (not just a subset).
+            from protoboard.domain.layout.group import all_component_ids
+            full_ids = set(all_component_ids(
+                self._session.layout.groups, effective_group_id
+            ))
+            # Keep only those that actually moved.
+            full_ids &= set(self._drag_orig_positions.keys())
+            effective_drag = full_ids if full_ids else drag_ids
+            _saved_group_id = self._selected_group_id
+            self._selected_group_id = effective_group_id
+            commands = self._build_group_drag_commands(effective_drag) or []
+            self._selected_group_id = _saved_group_id
         else:
             # --- Per-component conflict check (non-group drag) ---
             for cid in drag_ids:
@@ -597,7 +617,6 @@ class SelectTool(_Tool):
             commands.extend(self._remove_crossing_wires(drag_ids))
 
         self._drag_orig_wire_paths = {}
-        self._drag_overlay.clear(self._view.scene())
 
         if commands:
             if len(commands) == 1:
@@ -606,6 +625,18 @@ class SelectTool(_Tool):
                 macro = MacroCommand(commands, description="Move selection")
                 self._session.stack.execute(macro, self._session)
             self._session.layout_changed.emit()
+            # After successful layout rebuild, overlay was rerendered by
+            # on_scene_cleared → rerender(). Reset it now (move done).
+            self._drag_overlay.reset(self._view.scene())
+        else:
+            # No commands: either nothing moved, or a blocked group drag
+            # that already reverted (and emitted layout_changed internally).
+            # If overlay shows a block, leave it visible briefly; it will
+            # be reset on the next drag start or deactivate.
+            from protoboard.domain.layout.pad_conflict import MoveConflictSeverity
+            last = self._drag_overlay._last_result
+            if last is None or last.severity != MoveConflictSeverity.BLOCKED:
+                self._drag_overlay.reset(self._view.scene())
 
         # Restore selection highlights.
         if self._selected_id is not None:
@@ -1182,6 +1213,31 @@ class SelectTool(_Tool):
         if panel is not None:
             panel._rotation_combo.setCurrentIndex(new_rot // 90)
 
+    def _common_group_for(self, comp_ids: set[uuid.UUID]) -> uuid.UUID | None:
+        """Return the group ID if ALL comp_ids belong to the same non-root group, else None."""
+        from protoboard.domain.layout.group import all_component_ids
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        groups = self._session.layout.groups
+        # Find which group directly contains each component.
+        comp_to_group: dict[uuid.UUID, uuid.UUID] = {}
+        for gid, g in groups.items():
+            if gid == ROOT_GROUP_ID:
+                continue
+            for cid in g.component_ids:
+                if cid in comp_ids:
+                    comp_to_group[cid] = gid
+        if not comp_to_group:
+            return None
+        group_ids = set(comp_to_group.values())
+        if len(group_ids) != 1:
+            return None  # components from different groups
+        gid = next(iter(group_ids))
+        # Check that ALL drag_ids are members of this group (recursively).
+        all_members = all_component_ids(groups, gid)
+        if comp_ids <= set(all_members):
+            return gid
+        return None
+
     def _update_drag_overlay(
         self, drag_ids: set[uuid.UUID], snapped: Point
     ) -> None:
@@ -1195,7 +1251,7 @@ class SelectTool(_Tool):
         )
         active_gid = self._selected_group_id
         if active_gid is None and not drag_ids:
-            self._drag_overlay.clear(self._view.scene())
+            self._drag_overlay.reset(self._view.scene())
             return
 
         if active_gid is not None:
