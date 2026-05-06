@@ -447,46 +447,75 @@ Pomocnicze funkcje modułu:
 ### 5.1. Model przeszkód i kosztów
 
 ```python
+@dataclass(frozen=True)
 class RoutingCostModel:
-    """Konfigurowalny model kosztów dla A*."""
     free_pad: float = 1.0
-    same_net_pad: float = 0.1          # zachęta do "sklejania" sieci
-    occupied_by_other_net: float = INF  # kolizja
-    crossing_bare_wire: float = INF     # goły × goły = zwarcie
-    crossing_with_jumper: float = 5.0   # jeśli user pozwala na jumpery
-    strip_cut_cost: float = 3.0
-    direction_change: float = 0.2       # delikatna kara za zakręty (estetyka)
+    same_net_pad: float = 0.1
+    occupied_by_other_net: float = inf
+    direction_change: float = 1.0
+    diagonal_multiplier: float = sqrt(2)
+    crossing_bare_bare: float = inf       # goły × goły = zwarcie
+    crossing_insulated_bare: float = 5.0  # izolowany × goły = jumper
+    layer_change: float = 2.0            # koszt przejścia top↔bottom
+    under_component_top: float = 3.0     # kara za top pod obudową komponentu
 ```
 
-**Reguła izolacji (kluczowa):**
-- przewód izolowany może krzyżować dowolny inny — koszt = `crossing_with_jumper` (jeśli dozwolone w projekcie),
-- przewód goły × pad innej sieci → kolizja (INF),
-- przewód goły leżący na padzie `plated_through` jednej sieci na warstwie A → connectivity rozprzestrzenia się na warstwę B (intencjonalnie lub jako zwarcie).
+Konfiguracja per projekt zapisywana w `routing.yaml` w folderze projektu:
+
+```yaml
+preferred_side: bottom       # tie-breaker przy równych kosztach
+allow_layer_change: true
+max_rip_up_passes: 3
+max_optimize_iterations: 10
+cost_model:
+  direction_change: 1.0
+  crossing_insulated_bare: 5.0
+  layer_change: 2.0
+  under_component_top: 3.0
+```
+
+Edycja przez **Edit → Preferences → Routing** (4. zakładka `_RoutingPage`).
+`RoutingSettings` (frozen dataclass, `domain/routing_settings.py`) trzyma
+parametry i udostępnia metodę `cost_model() → RoutingCostModel`.
+`EditorSession.routing_settings` ładowane z pliku przy otwarciu projektu.
 
 ### 5.2. Algorytm
 
 A* na grafie siatki gdzie:
 - węzły = (x, y, side) dla każdego dostępnego punktu siatki,
-- krawędzie = sąsiednie pozycje (4- lub 8-connectivity, konfigurowalne),
-- przejście top↔bottom przez `plated_through` pad za darmo,
-- heurystyka = manhattan distance,
+- krawędzie = sąsiednie pozycje (8-connectivity: 4 ortogonalne + 4 diagonalne),
+- przejście top↔bottom przez pad `plated_through` za koszt `layer_change`,
+- heurystyka = odległość euklidesowa do najbliższego targetu,
 - cel = którykolwiek pad z target net.
 
-**Tryb sugestii (Faza 4):** podświetl top-K najtańszych ścieżek między aktualnie wybranym pinem a wszystkimi padami docelowej sieci. User wybiera klikiem.
+**Wielowarstwowość:** router próbuje startować zarówno z top jak i bottom,
+wybiera globalnie najtańszą ścieżkę. `PathStep = (Point, side)`.
+`split_path_by_side()` dzieli wynik na `WireSegment` per warstwa.
 
-### 5.3. Project setting
+**Tie-breaker `preferred_side`:** przy równym koszcie ścieżki top i bottom,
+wygrywa strona z `RoutingSettings.preferred_side` (domyślnie bottom).
 
-```yaml
-# w project.yaml
-routing:
-  allow_jumpers: true       # czy izolowane przewody mogą krzyżować inne
-  allow_top_routing: true
-  allow_bottom_routing: true
-  default_wire_insulated: true
-  cost_model:
-    crossing_with_jumper: 5.0
-    # ... override
-```
+**Iteracyjna optymalizacja:** po pierwszym zachłannym przebiegu autorouter
+uruchamia do `max_optimize_iterations` kolejnych przebiegów od czystego stanu
+(tylko druty użytkownika). Przebiegi zatrzymują się przy konwergencji
+(fingerprint układu drutów niezmieniony). Wczesne sieci korzystają z
+globalnego kontekstu późnych.
+
+**Steiner tree (greedy nearest-neighbour):** seed = pin z pary o minimalnej
+odległości manhattanskiej; w każdym kroku wybierana para (connected, unconnected)
+o minimalnej odległości; A* dostaje tylko jeden konkretny source — nie całą
+listę połączonych pinów.
+
+**near_pin_pads:** kara korytarzowa wokół pinów niekompletnych sieci. Wykluczane
+są piny komponentów już reprezentowanych w bieżącej sieci (te same obudowy nie
+mogą blokować tras wewnątrz obudowy, np. Panama Canal przez DIP8).
+
+### 5.3. Narzędzia domenowe — wire_utils
+
+`domain/layout/wire_utils.py`:
+- `board_pads_for_side(board, side)` → `set[Point]` — wszystkie pady dostępne po danej stronie (PadAtom + otwory StripAtom).
+- `plated_through_pads(board)` → `set[Point]` — pady przelotowe (wymagane jako via przy zmianie warstwy).
+- `insert_pad_nodes(path, pad_positions)` → `list[Point]` — wstawia do ścieżki drutu brakujące pady leżące na odcinkach (koliniarne punkty wewnętrzne), posortowane wg odległości od początku segmentu.
 
 ## 6. Undo/Redo
 
@@ -508,7 +537,7 @@ class CommandStack:
     def can_redo(self) -> bool: ...
 ```
 
-Komendy MVP: `PlaceComponent`, `MoveComponent`, `RotateComponent`, `RemoveComponent`, `AddWire`, `AddWireWithNetsCommand`, `RemoveWire`, `ReplaceWireSegmentCommand`, `DisconnectPinCommand`, `AddStripCut`, `RemoveStripCut`, `RenameNet`, `MacroCommand` (kompozycja), `CreateGroupCommand`, `DisbandGroupCommand`, `AddToGroupCommand`, `RemoveFromGroupCommand`, `RenameGroupCommand`, `SetExportedPinsCommand`.
+Komendy MVP: `PlaceComponent`, `MoveComponent`, `RotateComponent`, `RemoveComponent`, `AddWire`, `AddWireWithNetsCommand`, `RemoveWire`, `ReplaceWireSegmentCommand`, `DisconnectPinCommand`, `AddStripCut`, `RemoveStripCut`, `RenameNet`, `MacroCommand` (kompozycja), `CreateGroupCommand`, `DisbandGroupCommand`, `AddToGroupCommand`, `RemoveFromGroupCommand`, `RenameGroupCommand`, `SetExportedPinsCommand`, `SetWireSideCommand`, `SetWireInsulatedCommand`, `FlipWireFragmentCommand`.
 
 `AddWireWithNetsCommand` zastępuje `AddWireCommand` w `RouteTool` — atomowo commituje drut i towarzyszące mu mutacje schematu (create/extend/merge net). `AddWireCommand` pozostaje jako prostszy wariant (używany przy wczytywaniu projektu). Komendy mutujące schematic wymagają stanu implementującego `SchematicState(ComponentState)` z polem `schematic: Schematic`.
 
@@ -518,16 +547,19 @@ Komendy MVP: `PlaceComponent`, `MoveComponent`, `RotateComponent`, `RemoveCompon
 
 **`DisconnectPinCommand(component_id, pin_number)`** — usuwa `PinRef` z netu. Jeśli net staje się pusty, usuwa go całkowicie. `revert()` przywraca zapisany net.
 
+**`FlipWireFragmentCommand(wire_id, start_idx, end_idx, target_side)`** — przenosi fragment ścieżki na drugą stronę płytki. Jeśli fragment to cały drut (`start==0, end==last`): zmienia `wire.side` bez podziału. Jeśli fragment częściowy: usuwa oryginalny drut i tworzy do 3 nowych segmentów (prefix/środek/suffix). `revert()` przywraca oryginalny drut. Wymaga plated-through padów na endpoints fragmentu częściowego.
+
 **Komendy grupowania** — `CreateGroupCommand`, `DisbandGroupCommand`, `AddToGroupCommand`, `RemoveFromGroupCommand`, `RenameGroupCommand`, `SetExportedPinsCommand` — wszystkie operują na `Layout.groups: dict[UUID, ComponentGroup]`. Pomocniczy `_replace_group(g, **kwargs)` w `group_cmds.py` tworzy kopię grupy z nadpisanymi polami (frozen dataclass).
 
 ## 7. Persistence — struktura projektu (folder)
 
 ```
 my_project/
-├── project.yaml          # metadane, settings, raster, licencja na board
 ├── board.yaml            # definicja box-model płytki
 ├── schematic.yaml        # netlist (logical)
-├── layout.yaml           # placements, wires, cuts (physical)
+├── layout.yaml           # placements, wires, groups (physical)
+├── instances.yaml        # instancje komponentów (id, refdes, value)
+├── routing.yaml          # ustawienia autorouter per projekt (opcjonalny)
 ├── library/              # nadpisania/dodatki do globalnej biblioteki
 │   └── custom_parts.yaml
 └── exports/              # generowane (gitignored opcjonalnie)
@@ -536,7 +568,7 @@ my_project/
     └── render.svg
 ```
 
-`ProjectSerializer` ładuje folder atomowo, zapisuje przez tymczasowy katalog + atomowy `rename`.
+`load_project()` zwraca 5-krotkę `(board, layout, schematic, instances, routing_settings)`. Brak `routing.yaml` → domyślne `RoutingSettings()` (backward compatible).
 
 ## 8. KiCAD I/O
 
@@ -609,7 +641,7 @@ Sprawdzenia w MVP:
 - **Edit:** Undo (Ctrl+Z, dynamiczny label z opisem komendy), Redo (Ctrl+Y), Select All (Ctrl+A).
 - **Tools:** Select (S), Route Wire (W), Cut Strip, DRC.
 
-**Skróty klawiaturowe** w stylu KiCAD: `M` move, `R` rotate, `Del` delete, `Ctrl+Z/Y` undo/redo, `Esc` cancel, `S` select, `W` route wire, `Ctrl+A` zaznacz wszystko, `Ctrl+G` group selection.
+**Skróty klawiaturowe** w stylu KiCAD: `M` move, `R` rotate, `Del` delete, `Ctrl+Z/Y` undo/redo, `Esc` cancel, `S` select, `W` route wire, `Ctrl+A` zaznacz wszystko, `Ctrl+G` group selection. W trybie edycji fragmentu drutu: `Enter` zatwierdź, `Esc` anuluj, `A` autoroute, `F` flip side.
 
 **Multi-selection w SelectTool:**
 - `_selected_ids: set[UUID]` (komponenty) + `_selected_wire_ids: set[UUID]` (druty).
@@ -623,12 +655,14 @@ Sprawdzenia w MVP:
 
 **Wire editing w SelectTool:**
 - Po zaznaczeniu drutu widoczne węzły (małe kółka) na każdym punkcie ścieżki.
-- Ctrl+klik na węźle → ustawia start edycji fragmentu.
-- Ctrl+klik na innym węźle → fragment zaznaczony (start_idx..end_idx).
+- Ctrl+klik na węźle → ustawia start edycji fragmentu (`_edit_start_idx`).
+- Ctrl+klik na innym węźle → fragment zaznaczony (`start_idx..end_idx`, węzły czerwone).
 - `A` → autoroute fragmentu przez A* (`find_paths` między dwoma punktami).
+- `F` → flip fragmentu na drugą stronę płytki (`FlipWireFragmentCommand`); wymaga plated-through padów na endpoints fragmentu częściowego; sprawdza kolizje z pinami i istniejącymi drutami.
 - Lub ręczne rysowanie nowej trasy jak RouteTool, Enter = zatwierdź.
 - Zatwierdzenie: `ReplaceWireSegmentCommand` z pełnym undo.
 - Live drag węzła: Ctrl+drag przesuwa pojedynczy węzeł, `_drag_orig_wire_paths` przechowuje oryginalne ścieżki dla undo.
+- Prawy klik na drucie → menu "Flip fragment to ... [F]" (gdy fragment zaznaczony), "Move to ... layer", "Set bare/insulated".
 
 ## 11. Fazy implementacji
 
@@ -717,6 +751,17 @@ Sprawdzenia w MVP:
   - Prawy klik na pinie wewnątrz grupy → Export/Unexport; zielone romby na eksportowanych padach widoczne z rodzica.
   - `GroupTargetDialog` — Ctrl+G pyta: nowa grupa lub dodaj do istniejącej.
   - `MainWindow` trzyma jedną trwałą instancję `SelectTool` (singleton) — stan `_group_stack` zachowany między przełączeniami narzędzi.
+- [x] Wielowarstwowy routing (top+bottom): A* na przestrzeni `(x,y,side)`, zmiana warstwy przez plated-through pad za koszt `layer_change`. `PathStep = (Point, side)`, wynik dzielony przez `split_path_by_side()` na `WireSegment` per warstwa.
+- [x] Preferowana strona routingu (`preferred_side`): tie-breaker przy równych kosztach; domyślnie bottom.
+- [x] Kara za routing pod komponentem (`under_component_top`): `_build_under_component_penalty()` w autorouter.
+- [x] Iteracyjna optymalizacja autorouter (`max_optimize_iterations=10`): przebiegi od czystego stanu, konwergencja na fingerprint układu drutów.
+- [x] Greedy nearest-neighbour Steiner tree: seed od pary o minimalnej odległości; w każdym kroku wybierana para (src,tgt) o min dystansie, A* dostaje jeden konkretny source.
+- [x] `near_pin_pads` wykluczające piny tego samego komponentu co bieżąca sieć (umożliwia Panama Canal przez DIP8).
+- [x] Blokowanie nakładania drutów izolowanych: `_build_wire_occupied()` side-aware — insulated blokuje tylko swoją stronę, bare blokuje obie.
+- [x] `RoutingSettings` + `routing.yaml` per projekt: `domain/routing_settings.py`, wczytywane przez `load_project()`, edytowane przez Preferences → Routing.
+- [x] Wstawianie węzłów na padach przy zatwierdzeniu drutu: `insert_pad_nodes()` w `wire_utils.py`; każdy pad leżący na odcinku trasy staje się węzłem `path` umożliwiającym edycję fragmentu.
+- [x] Flip fragmentu drutu (klawisz `F`): `FlipWireFragmentCommand` — przenosi zaznaczony fragment na drugą stronę; sprawdza via, dostępność padów, kolizje z pinami i drutami.
+- [x] Logi diagnostyczne autorouter za flagą `_DEEP_DEBUG` w `autorouter.py`.
 - [ ] Instancje grup (wielokrotne użycie tego samego sub-układu) — architektura przewiduje, nie implementuje.
 - [ ] Breadboard, custom matrix boards, definicje user-defined.
 - [ ] Plugin API (Python plugins w `~/.config/protoboard-designer/plugins/`).
@@ -768,15 +813,16 @@ protoboard-designer/
 │       │   ├── layout/
 │       │   │   ├── placement.py
 │       │   │   ├── wire.py
+│       │   │   ├── wire_utils.py        # insert_pad_nodes, board_pads_for_side, plated_through_pads
 │       │   │   ├── cut.py
 │       │   │   ├── group.py             # ComponentGroup + helpers
 │       │   │   └── layout.py
 │       │   ├── connectivity/
 │       │   │   └── graph.py         # ConnectivityGraph
-│       │   ├── project.py
+│       │   ├── routing_settings.py  # RoutingSettings + ROUTING_DEFAULTS
 │       │   └── commands/
 │       │       ├── base.py          # Command, CommandStack, MacroCommand
-│       │       ├── component_cmds.py  # Place/Move/Remove/AddWire/DisconnectPin/ReplaceWireSegment
+│       │       ├── component_cmds.py  # Place/Move/Remove/AddWire/Flip/DisconnectPin/ReplaceWireSegment
 │       │       ├── group_cmds.py    # CreateGroup/Disband/AddTo/RemoveFrom/Rename/SetExportedPins
 │       │       └── ...
 │       ├── services/
@@ -785,12 +831,12 @@ protoboard-designer/
 │       │   │   └── checks.py
 │       │   ├── routing/
 │       │   │   ├── cost_model.py
-│       │   │   └── astar.py
+│       │   │   ├── astar.py         # find_paths, split_path_by_side, PathStep
+│       │   │   └── autorouter.py    # autoroute(), _run_one_pass, _DEEP_DEBUG
 │       │   ├── persistence/
-│       │   │   ├── serializer.py
 │       │   │   ├── board_yaml.py
-│       │   │   ├── schematic_yaml.py
-│       │   │   └── layout_yaml.py
+│       │   │   ├── project_yaml.py  # load/save_project (5-tuple), routing.yaml
+│       │   │   └── ...
 │       │   ├── library/
 │       │   │   └── loader.py
 │       │   └── kicad/
@@ -799,13 +845,15 @@ protoboard-designer/
 │       │       └── exporter.py
 │       ├── gui/
 │       │   ├── main_window.py
+│       │   ├── session.py           # EditorSession: board, layout, schematic, routing_settings
 │       │   ├── board_view.py          # _active_group_id, set_active_group()
 │       │   ├── renderers/
 │       │   │   ├── board_renderer.py
 │       │   │   ├── component_renderer.py  # render_components (group alpha), render_groups
 │       │   │   └── wire_renderer.py
 │       │   ├── dialogs/
-│       │   │   ├── group_target_dialog.py  # Ctrl+G: nowa grupa / dodaj do istniejącej
+│       │   │   ├── preferences_dialog.py  # 4 strony: Shortcuts/Colours/Paths/Routing
+│       │   │   ├── group_target_dialog.py
 │       │   │   ├── pad_conflict_dialog.py
 │       │   │   └── ...
 │       │   ├── panels/
@@ -814,9 +862,9 @@ protoboard-designer/
 │       │   │   ├── groups_panel.py    # drzewo grup; filtruje root group
 │       │   │   └── drc_panel.py
 │       │   └── tools/
-│       │       ├── select_tool.py     # singleton w MainWindow; _group_stack z ROOT_GROUP_ID
+│       │       ├── select_tool.py     # singleton; _flip_wire_fragment (F), _group_stack
 │       │       ├── place_tool.py
-│       │       ├── route_tool.py
+│       │       ├── route_tool.py      # _commit(): insert_pad_nodes przed WireSegment
 │       │       └── cut_tool.py
 │       └── app.py                   # entry point
 ├── library/                         # built-in komponenty
