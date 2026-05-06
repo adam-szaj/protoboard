@@ -43,9 +43,10 @@ class TestConnectivityGraphBasic:
         board = _perfboard(2, 2)
         lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
-        # 4 pads, plated through → each pad is one merged node (top=bottom),
-        # but no wire connects them → 4 separate components.
-        assert graph.node_count() == 4
+        # 4 pads, plated-through → each pad has top+bottom nodes connected by an
+        # edge (2 nodes per pad = 8 total), but no wire connects different pads
+        # → 4 separate electrical components.
+        assert graph.node_count() == 8
         assert graph.component_count() == 4
 
     def test_wire_joins_two_pads(self) -> None:
@@ -63,11 +64,13 @@ class TestConnectivityGraphBasic:
         assert graph.component_count() == 2
 
     def test_plated_through_merges_top_and_bottom(self) -> None:
-        # A perfboard pad with plated=True: top and bottom are one node.
+        # A perfboard pad with plated=True: top and bottom are electrically one
+        # component (connected by an edge), but represented as 2 graph nodes.
         board = _perfboard(1, 1)
         lay = Layout(placements={}, wires=[])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
-        assert graph.node_count() == 1  # top+bottom merged
+        assert graph.node_count() == 2  # one top node + one bottom node
+        assert graph.component_count() == 1  # electrically one component
 
     def test_non_plated_pad_has_two_nodes(self) -> None:
         # A pad with top=True, bottom=True, plated=False → 2 independent nodes.

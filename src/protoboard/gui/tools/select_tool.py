@@ -2130,7 +2130,7 @@ class SelectTool(_Tool):
         )
         if not results:
             return
-        routed = results[0].path
+        routed = [pt for pt, _ in results[0].path]
         middle = list(routed[1:-1])
         new_path = _dedupe_adjacent(
             list(wire.path[:start + 1]) + middle + list(wire.path[end:])

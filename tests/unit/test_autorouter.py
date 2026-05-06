@@ -154,13 +154,16 @@ class TestAutorouter:
 
         result = autoroute(board, layout, schematic, components, instances)
 
-        # All wires produced for NET1 must not pass through NET2 pads.
-        net2_pts = {Point(3.5, 0.5), Point(4.5, 0.5)}
+        # All wires produced for NET1 must not pass through NET2 pads on the same layer.
+        # (Bottom-layer wires may share X,Y with top-layer pins without creating a short.)
+        net2_pts_top = {Point(3.5, 0.5), Point(4.5, 0.5)}
         for wire in result.wires:
-            interior = wire.path[1:-1]  # endpoints may coincide with own net pads
+            if wire.side != "top":
+                continue
+            interior = wire.path[1:-1]
             for pt in interior:
-                assert pt not in net2_pts, (
-                    f"Wire passes through NET2 pad {pt}: {wire.path}"
+                assert pt not in net2_pts_top, (
+                    f"Top wire passes through NET2 pad {pt}: {wire.path}"
                 )
 
     def test_skips_already_connected_pairs(self) -> None:
@@ -231,11 +234,15 @@ class TestAutorouter:
         result = autoroute(board, layout, schematic, components, instances)
 
         assert result.unrouted_nets == []
-        floating_pts = {Point(2.5, 0.5), Point(3.5, 0.5)}
+        # Floating pins R3 are on "top" side.  A wire on "bottom" may legally
+        # share the same (x,y) coordinates — only top-layer wires must avoid them.
+        floating_pts_top = {Point(2.5, 0.5), Point(3.5, 0.5)}
         for wire in result.wires:
+            if wire.side != "top":
+                continue
             for pt in wire.path[1:-1]:
-                assert pt not in floating_pts, (
-                    f"Wire passes through floating pin {pt}: {wire.path}"
+                assert pt not in floating_pts_top, (
+                    f"Top wire passes through floating pin {pt}: {wire.path}"
                 )
 
     def test_no_wire_crosses_existing_wire_segment(self) -> None:
@@ -312,3 +319,81 @@ class TestAutorouter:
         schematic = Schematic(nets={net.id: net})
         result = autoroute(board, layout, schematic, {"COMP": defn}, {cid: inst})
         assert result.unrouted_nets == []
+
+    def test_under_dip_routes_on_bottom(self) -> None:
+        """pin1→pin5 of a DIP8 should go through the bottom layer (Panama Canal).
+
+        The direct top path is penalised by under_component_top; the same-length
+        bottom path is not penalised.  Router must choose bottom.
+
+        DIP8 at (2.5,1.5): pin1=(2.5,1.5), pin5=(5.5,4.5).
+        Bottom diagonal: (2.5,1.5)→(3.5,2.5)→(4.5,3.5)→(5.5,4.5) — 3 steps.
+        """
+        from protoboard.domain.components.footprints import DualRow
+
+        board = _perfboard(8, 10)
+        fp = DualRow(n_per_row=4, pitch=1.0, rows_spacing=3.0)
+        defn = ComponentDefinition(
+            name="DIP8", footprint=fp, pin_names={i: str(i) for i in range(1, 9)}
+        )
+        cid = uuid.uuid4()
+        inst = ComponentInstance(id=cid, definition_ref="DIP8", refdes="U1", value="")
+        layout = Layout(placements={
+            cid: ComponentPlacement(
+                component_id=cid, position=Point(2.5, 1.5), rotation=0, side="top"
+            )
+        })
+        ref_1 = PinRef(component_id=cid, pin_number=1)
+        ref_5 = PinRef(component_id=cid, pin_number=5)
+        net = Net(id=uuid.uuid4(), name="N1", pins={ref_1, ref_5})
+        schematic = Schematic(nets={net.id: net})
+
+        result = autoroute(board, layout, schematic, {"DIP8": defn}, {cid: inst})
+
+        assert result.unrouted_nets == []
+        # All produced wires must be on the bottom layer.
+        for wire in result.wires:
+            assert wire.side == "bottom", (
+                f"Expected bottom routing, got side={wire.side}: {wire.path}"
+            )
+
+    def test_bottom_routing_avoids_component_pins(self) -> None:
+        """Wires routed on the bottom layer must not pass through component pin holes.
+
+        A component pin occupies a plated-through hole — it is blocked on
+        BOTH layers, not just the component's mounting side.
+
+        Layout: 1×5 board.
+          R3 (floating) at (2.5, 0.5): pin1=(2.5,0.5), pin2=(3.5,0.5) — blocker
+          Net to route: (1.5,0.5) → (4.5,0.5)
+        Without two-sided blocking the router would route through bottom via
+        (2.5,0.5) and (3.5,0.5).  With proper blocking it must detour.
+        """
+        board = _perfboard(3, 6)
+        defn = _sil2_def()
+        cid_a, cid_b, cid_c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value="")
+        inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value="")
+        inst_c = ComponentInstance(id=cid_c, definition_ref="COMP", refdes="R3", value="")
+
+        # rot=90: pin1=(x,y), pin2=(x+1,y)
+        layout = Layout(placements={
+            cid_a: _place(cid_a, 0.5, 0.5),   # pin2=(1.5,0.5) ← net source
+            cid_b: _place(cid_b, 3.5, 0.5),   # pin2=(4.5,0.5) ← net target
+            cid_c: _place(cid_c, 2.5, 0.5),   # pin1=(2.5,0.5), pin2=(3.5,0.5) — floating
+        })
+        ref_a2 = PinRef(component_id=cid_a, pin_number=2)
+        ref_b2 = PinRef(component_id=cid_b, pin_number=2)
+        net = Net(id=uuid.uuid4(), name="N1", pins={ref_a2, ref_b2})
+        schematic = Schematic(nets={net.id: net})
+
+        result = autoroute(board, layout, schematic,
+                           {"COMP": defn}, {cid_a: inst_a, cid_b: inst_b, cid_c: inst_c})
+
+        assert result.unrouted_nets == []
+        blocked_pts = {Point(2.5, 0.5), Point(3.5, 0.5)}
+        for wire in result.wires:
+            for pt in wire.path[1:-1]:
+                assert pt not in blocked_pts, (
+                    f"Wire (side={wire.side}) passes through floating pin hole {pt}"
+                )

@@ -25,7 +25,7 @@ def render_routing_hints(
         pen.setStyle(Qt.PenStyle.DashLine)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         path = result.path
-        for a_pt, b_pt in zip(path[:-1], path[1:]):
+        for (a_pt, _a_side), (b_pt, _b_side) in zip(path[:-1], path[1:]):
             line = QGraphicsLineItem(a_pt.x, a_pt.y, b_pt.x, b_pt.y)
             line.setPen(pen)
             scene.addItem(line)

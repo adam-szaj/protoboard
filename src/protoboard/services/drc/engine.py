@@ -196,18 +196,16 @@ def _check_bare_wire_cross(
     pad_net_ids: dict[tuple[float, float, str], set[uuid.UUID]] = {}
 
     # Build pad → net mapping from placed component pins.
+    # Register both sides for each pad so that plated-through pads (where top
+    # and bottom are one electrical node) are found regardless of wire side.
     for net in schematic.nets.values():
-        node = None
         for ref in net.pins:
             n = graph.node_for_pin(ref)
-            if n is not None:
-                node = n
-                break
-        if node is None:
-            continue
-        nx, ny, ns = node
-        key = (nx, ny, ns)
-        pad_net_ids.setdefault(key, set()).add(net.id)
+            if n is None:
+                continue
+            nx, ny, _ = n
+            for s in ("top", "bottom"):
+                pad_net_ids.setdefault((nx, ny, s), set()).add(net.id)
 
     # For each bare wire path point, collect which nets are declared at that pad.
     wire_pad_nets: dict[uuid.UUID, set[uuid.UUID]] = {}

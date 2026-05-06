@@ -32,3 +32,10 @@ class RoutingCostModel:
     # Crossing costs — applied when a wire passes over an existing wire segment.
     crossing_bare_bare: float = float("inf")      # bare × bare = short
     crossing_insulated_bare: float = 5.0          # insulated × bare = jumper OK
+    # Layer-change cost — paid once per top↔bottom via on a plated-through pad.
+    layer_change: float = 2.0
+    # Extra cost per step on the top layer beneath a component body.
+    # Routing under a component on top is legal but undesirable — it makes
+    # physical inspection and rework harder.  A bottom-layer detour is
+    # preferred when it is not significantly longer.
+    under_component_top: float = 3.0

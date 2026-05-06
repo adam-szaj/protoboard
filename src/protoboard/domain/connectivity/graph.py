@@ -117,9 +117,10 @@ class ConnectivityGraph:
             if isinstance(atom, PadAtom):
                 layers = atom.layers
                 if layers.plated_through:
-                    # Plated-through: top and bottom are one electrical node.
-                    # We use (x, y, "top") as the canonical key for both sides.
-                    self._add_node((x, y, "top"))
+                    # Plated-through: top and bottom are electrically one node.
+                    # Add both side-nodes and connect them so the router can
+                    # switch layers here while keeping a single connected component.
+                    self._add_edge((x, y, "top"), (x, y, "bottom"))
                 else:
                     if layers.top:
                         self._add_node((x, y, "top"))
