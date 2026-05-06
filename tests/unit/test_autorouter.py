@@ -511,6 +511,77 @@ class TestAutorouterOptimization:
 
         assert result.unrouted_nets.count("BLOCKED_NET") == 1
 
+    def test_insulated_wires_do_not_share_pads_on_same_side(self) -> None:
+        """Two insulated wires of different nets must not occupy the same pad.
+
+        Physical wires cannot share a pad even when both are insulated —
+        two conductors cannot occupy the same physical point.
+
+        Layout: 5×3 board, two horizontal nets forced to cross the same row.
+          NET1: (0.5,1.5) → (4.5,1.5)  routed first (long, high priority)
+          NET2: (1.5,0.5) → (1.5,2.5)  routed second (vertical through middle)
+        NET2 must detour around the pad occupied by NET1's wire on row 1.
+        """
+        board = _perfboard(3, 5)
+        defn = _sil2_def()
+
+        def _place_v(cid: uuid.UUID, x: float, y: float) -> ComponentPlacement:
+            return ComponentPlacement(
+                component_id=cid, position=Point(x, y), rotation=0, side="top"
+            )
+
+        cid_a, cid_b, cid_c, cid_d = (uuid.uuid4() for _ in range(4))
+        inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value="")
+        inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value="")
+        inst_c = ComponentInstance(id=cid_c, definition_ref="COMP", refdes="R3", value="")
+        inst_d = ComponentInstance(id=cid_d, definition_ref="COMP", refdes="R4", value="")
+
+        # rot=90: pin1=(x,y), pin2=(x+1,y); rot=0: pin1=(x,y), pin2=(x,y+1)
+        layout = Layout(placements={
+            cid_a: _place(cid_a, 0.5, 1.5),   # pin1=(0.5,1.5) — NET1 source (rot90)
+            cid_b: _place(cid_b, 3.5, 1.5),   # pin2=(4.5,1.5) — NET1 target (rot90)
+            cid_c: _place_v(cid_c, 1.5, 0.5), # pin1=(1.5,0.5) — NET2 source (rot0)
+            cid_d: _place_v(cid_d, 1.5, 1.5), # pin2=(1.5,2.5) — NET2 target (rot0)
+        })
+        ref_a1 = PinRef(component_id=cid_a, pin_number=1)  # (0.5, 1.5)
+        ref_b2 = PinRef(component_id=cid_b, pin_number=2)  # (4.5, 1.5)
+        ref_c1 = PinRef(component_id=cid_c, pin_number=1)  # (1.5, 0.5)
+        ref_d2 = PinRef(component_id=cid_d, pin_number=2)  # (1.5, 2.5)
+
+        net1 = Net(id=uuid.uuid4(), name="NET1", pins={ref_a1, ref_b2})
+        net2 = Net(id=uuid.uuid4(), name="NET2", pins={ref_c1, ref_d2})
+        schematic = Schematic(nets={net1.id: net1, net2.id: net2})
+        components = {"COMP": defn}
+        instances = {cid_a: inst_a, cid_b: inst_b, cid_c: inst_c, cid_d: inst_d}
+
+        result = autoroute(board, layout, schematic, components, instances)
+
+        # Collect all (Point, side) positions used by each net's wires.
+        def wire_pads(wires: list[WireSegment]) -> set[tuple[Point, str]]:
+            pads: set[tuple[Point, str]] = set()
+            for w in wires:
+                for pt in w.path:
+                    pads.add((pt, w.side))
+            return pads
+
+        all_wires = result.wires
+        # For each pair of wires from different nets, check no pad overlap on same side.
+        for i, wa in enumerate(all_wires):
+            pads_a = {(pt, wa.side) for pt in wa.path}
+            for wb in all_wires[i + 1:]:
+                pads_b = {(pt, wb.side) for pt in wb.path}
+                shared = pads_a & pads_b
+                # Endpoints touching is allowed (same-net merge point or via),
+                # but interior overlap of different nets is not.
+                # We allow endpoint collisions here; check only interior points.
+                interior_a = {(pt, wa.side) for pt in wa.path[1:-1]}
+                interior_b = {(pt, wb.side) for pt in wb.path[1:-1]}
+                bad = (interior_a & pads_b) | (interior_b & pads_a)
+                assert not bad, (
+                    f"Wires share pad(s) {bad}: {wa.path} (side={wa.side}) "
+                    f"vs {wb.path} (side={wb.side})"
+                )
+
     def test_optimization_reduces_or_maintains_wire_length(self) -> None:
         """Optimization must not make total wire length worse.
 

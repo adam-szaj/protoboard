@@ -507,18 +507,20 @@ def _route_segment_with_ripup(
         )
         bare_segs = _build_bare_wire_segments(working_wires)
 
-        wire_occupied = _build_occupied_map(working_wires, exclude_wire_id=None)
-        if insulated:
-            combined_occupied: dict[tuple[Point, str], uuid.UUID] = dict(occupied_pins)
-        else:
-            # Bare wire: also block all wire path points.
-            # wire_occupied uses Point keys; expand to (Point, side) for both layers.
-            combined_occupied = dict(occupied_pins)
-            for pt, nid in wire_occupied.items():
-                for s in ("top", "bottom"):
-                    key = (pt, s)
-                    if key not in combined_occupied:
-                        combined_occupied[key] = nid
+        # Build pad-occupancy from existing wires.
+        # - Insulated wire: blocks only its own side (two insulated wires on
+        #   opposite sides can share the same (x,y) position without conflict).
+        # - Bare wire: blocks both sides (bare metal in a plated-through hole
+        #   creates an electrical contact on both layers).
+        wire_occupied = _build_wire_occupied(
+            working_wires,
+            exclude_wire_id=None,
+            both_sides=not insulated,
+        )
+        combined_occupied: dict[tuple[Point, str], uuid.UUID] = dict(occupied_pins)
+        for ps, nid in wire_occupied.items():
+            if ps not in combined_occupied:
+                combined_occupied[ps] = nid
         for ps in same_net_pins:
             combined_occupied.pop(ps, None)
         effective_near = {
@@ -671,11 +673,60 @@ def _layout_with_wires(layout: Layout, wires: list[WireSegment]) -> Layout:
     return replace(layout, wires=wires)
 
 
+def _build_wire_occupied(
+    wires: list[WireSegment],
+    exclude_wire_id: uuid.UUID | None,
+    both_sides: bool = False,
+) -> dict[tuple[Point, str], uuid.UUID]:
+    """Map every grid point covered by existing wires → (Point, side) → sentinel UUID.
+
+    Parameters
+    ----------
+    both_sides:
+        When True, each wire point blocks *both* ``"top"`` and ``"bottom"``
+        (used for bare wires, which are bare metal in a plated-through hole).
+        When False (default), each wire point blocks only ``wire.side``
+        (used for insulated wires, which do not electrically contact the
+        opposite layer).
+    """
+    occupied: dict[tuple[Point, str], uuid.UUID] = {}
+    _sentinel = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    for wire in wires:
+        if wire.id == exclude_wire_id:
+            continue
+        sides: tuple[str, ...] = ("top", "bottom") if both_sides else (wire.side,)
+        for i in range(len(wire.path) - 1):
+            p1 = wire.path[i]
+            p2 = wire.path[i + 1]
+            for pt in (p1, p2):
+                for s in sides:
+                    occupied[(pt, s)] = _sentinel
+            if p1.x == p2.x:
+                step = 1.0 if p2.y > p1.y else -1.0
+                y = p1.y + step
+                while (step > 0 and y < p2.y) or (step < 0 and y > p2.y):
+                    for s in sides:
+                        occupied[(Point(p1.x, y), s)] = _sentinel
+                    y += step
+            elif p1.y == p2.y:
+                step = 1.0 if p2.x > p1.x else -1.0
+                x = p1.x + step
+                while (step > 0 and x < p2.x) or (step < 0 and x > p2.x):
+                    for s in sides:
+                        occupied[(Point(x, p1.y), s)] = _sentinel
+                    x += step
+    return occupied
+
+
 def _build_occupied_map(
     wires: list[WireSegment],
     exclude_wire_id: uuid.UUID | None,
 ) -> dict[Point, uuid.UUID]:
-    """Map every grid point covered by existing wires → sentinel UUID."""
+    """Map every grid point covered by existing wires → sentinel UUID.
+
+    Legacy interface (Point-keyed, side-unaware).  Used only internally by
+    the rip-up logic that doesn't need per-side resolution.
+    """
     occupied: dict[Point, uuid.UUID] = {}
     _sentinel = uuid.UUID("00000000-0000-0000-0000-000000000001")
     for wire in wires:
