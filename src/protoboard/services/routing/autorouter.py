@@ -454,20 +454,29 @@ def _route_net(
             break
         unconnected_refs = still_unconnected
 
-        # Pick the unconnected pin nearest to any connected pin.
-        def _min_dist(ref: PinRef) -> float:
-            rpt, _ = pin_positions[ref]
-            return min(
-                abs(rpt.x - cpt.x) + abs(rpt.y - cpt.y)
-                for cpt, _ in connected_pts
-            )
+        # Pick the (source, target) pair with minimum manhattan distance across
+        # all connected×unconnected combinations.  Pass only that specific source
+        # to A* — not the full connected_pts list — so the router is forced to
+        # route the geometrically closest segment rather than sneaking through an
+        # already-routed wire to reach a distant target from a different origin.
+        best_src_pt: tuple[Point, str] = connected_pts[0]
+        best_tgt_ref: PinRef = unconnected_refs[0]
+        best_pair_dist = float("inf")
+        for cpt, cside in connected_pts:
+            for uref in unconnected_refs:
+                upt, _ = pin_positions[uref]
+                d = abs(upt.x - cpt.x) + abs(upt.y - cpt.y)
+                if d < best_pair_dist:
+                    best_pair_dist = d
+                    best_src_pt = (cpt, cside)
+                    best_tgt_ref = uref
 
-        unconnected_refs.sort(key=_min_dist)
-        ref = unconnected_refs.pop(0)
+        ref = best_tgt_ref
+        unconnected_refs.remove(ref)
         target_pt, _ = pin_positions[ref]
 
         routed_wires = _route_segment_with_ripup(
-            source_options=connected_pts,
+            source_options=[best_src_pt],
             target=target_pt,
             board=board,
             layout=layout,
