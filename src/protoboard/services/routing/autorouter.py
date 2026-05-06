@@ -411,15 +411,27 @@ def _route_net(
 
     cur_net_wire_points: set[tuple[Point, str]] = set()
 
-    connected_refs: list[PinRef] = [placed_refs[0]]
-    first_pt, first_side = pin_positions[placed_refs[0]]
-    connected_pts: list[tuple[Point, str]] = [(first_pt, first_side)]
+    # Greedy nearest-neighbour Steiner tree.
+    # Seed the tree with the pin that belongs to the closest pair — this avoids
+    # starting from a skewed outlier and immediately forcing a long first wire.
+    def _manhattan(ra: PinRef, rb: PinRef) -> float:
+        pa, _ = pin_positions[ra]
+        pb, _ = pin_positions[rb]
+        return abs(pa.x - pb.x) + abs(pa.y - pb.y)
 
-    # Greedy nearest-neighbour Steiner tree: at each step pick the unconnected
-    # pin closest (manhattan) to any already-connected pin.  This prevents all
-    # connections from radiating from one skewed starting pin and produces
-    # shorter, more balanced wire runs.
-    unconnected_refs: list[PinRef] = list(placed_refs[1:])
+    best_seed = placed_refs[0]
+    best_dist = float("inf")
+    for i, ra in enumerate(placed_refs):
+        for rb in placed_refs[i + 1:]:
+            d = _manhattan(ra, rb)
+            if d < best_dist:
+                best_dist = d
+                best_seed = ra
+
+    seed_pt, seed_side = pin_positions[best_seed]
+    connected_refs: list[PinRef] = [best_seed]
+    connected_pts: list[tuple[Point, str]] = [(seed_pt, seed_side)]
+    unconnected_refs: list[PinRef] = [r for r in placed_refs if r != best_seed]
 
     while unconnected_refs:
         # Absorb any refs already physically connected (e.g. adjacent component pins).
