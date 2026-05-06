@@ -69,6 +69,8 @@ class MoveComponentCommand(Command[ComponentState]):
     component_id: uuid.UUID
     new_placement: ComponentPlacement
     old_placement: ComponentPlacement
+    # When True, skip the _move_blocked() check (caller already verified).
+    skip_conflict_check: bool = field(default=False)
     # Wires before the move — saved for undo.
     _saved_wires: list[WireSegment] = field(
         default_factory=list, init=False, repr=False
@@ -80,14 +82,15 @@ class MoveComponentCommand(Command[ComponentState]):
         return f"Move component {self.component_id}"
 
     def apply(self, state: ComponentState) -> None:
-        blocked = _move_blocked(
-            state, self.component_id, self.old_placement, self.new_placement
-        )
-        if blocked:
-            # Conflict — silently keep old position; mark as no-op for undo.
-            object.__setattr__(self, "_applied", False)
-            state.layout.placements[self.component_id] = self.old_placement
-            return
+        if not self.skip_conflict_check:
+            blocked = _move_blocked(
+                state, self.component_id, self.old_placement, self.new_placement
+            )
+            if blocked:
+                # Conflict — silently keep old position; mark as no-op for undo.
+                object.__setattr__(self, "_applied", False)
+                state.layout.placements[self.component_id] = self.old_placement
+                return
         object.__setattr__(self, "_applied", True)
         object.__setattr__(self, "_saved_wires", list(state.layout.wires))
         state.layout.placements[self.component_id] = self.new_placement

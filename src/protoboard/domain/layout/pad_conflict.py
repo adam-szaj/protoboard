@@ -450,7 +450,9 @@ def check_group_move_conflicts(
                        pos=(c.position.x, c.position.y),
                        in_net=c.incoming_net_name,
                        ex_net=c.existing_net_name)
-            if c.kind == ConflictKind.DIFFERENT_NETS:
+            # Block on ANY pin overlap during group drag — same-net is already
+            # excluded by find_conflicts (it only returns conflicting pins).
+            if c.kind != ConflictKind.SAME_NET:
                 blocking_pads.append(c.position)
 
     if blocking_pads:

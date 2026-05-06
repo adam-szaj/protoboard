@@ -1441,6 +1441,7 @@ class SelectTool(_Tool):
                 component_id=cid,
                 new_placement=pl,
                 old_placement=old_pl,
+                skip_conflict_check=True,  # already verified by check_group_move_conflicts
             ))
 
         for wire in self._session.layout.wires:
