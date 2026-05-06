@@ -544,7 +544,7 @@ class MainWindow(QMainWindow):
         if not self._check_unsaved_changes("opening another project"):
             return
         try:
-            board, layout, schematic, instances = load_project(path)
+            board, layout, schematic, instances, routing_settings = load_project(path)
         except Exception as exc:
             QMessageBox.critical(self, "Open error", str(exc))
             return
@@ -552,6 +552,7 @@ class MainWindow(QMainWindow):
         session.layout = layout
         session.schematic = schematic
         session.instances = instances
+        session.routing_settings = routing_settings
         session.project_path = path
         recent_projects.add(path)
         # Reconnect signals from the old session.
@@ -774,6 +775,7 @@ class MainWindow(QMainWindow):
                 layout=self._session.layout,
                 schematic=self._session.schematic,
                 instances=self._session.instances,
+                routing_settings=self._session.routing_settings,
             )
             recent_projects.add(path)
             self._session.mark_clean()
@@ -1126,12 +1128,18 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Autoroute", "No nets to route.")
             return
 
+        rs = self._session.routing_settings
         result = autoroute(
             board=self._session.board,
             layout=self._session.layout,
             schematic=self._session.schematic,
             components=self._session.components,
             instances=self._session.instances,
+            cost_model=rs.cost_model(),
+            preferred_side=rs.preferred_side,
+            allow_layer_change=rs.allow_layer_change,
+            max_rip_up_passes=rs.max_rip_up_passes,
+            max_optimize_iterations=rs.max_optimize_iterations,
         )
 
         if not result.wires and not result.unrouted_nets:
@@ -1349,6 +1357,7 @@ class MainWindow(QMainWindow):
             on_keybindings_applied=self._apply_all_keybindings,
             on_theme_applied=self._on_theme_applied,
             on_paths_applied=self._on_paths_applied,
+            session=self._session,
             parent=self,
         )
         dlg.exec()

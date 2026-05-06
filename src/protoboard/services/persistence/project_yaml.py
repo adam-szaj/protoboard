@@ -23,6 +23,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.errors import SerializationError
@@ -46,6 +47,7 @@ def save_project(
     layout: Layout,
     schematic: Schematic,
     instances: dict[uuid.UUID, ComponentInstance] | None = None,
+    routing_settings: RoutingSettings | None = None,
 ) -> None:
     _log.info("project.saving", path=str(directory))
     directory.mkdir(parents=True, exist_ok=True)
@@ -53,6 +55,8 @@ def save_project(
     _write(directory / "layout.yaml", _layout_to_yaml(layout))
     _write(directory / "schematic.yaml", _schematic_to_yaml(schematic))
     _write(directory / "instances.yaml", _instances_to_yaml(instances or {}))
+    if routing_settings is not None:
+        _write(directory / "routing.yaml", _routing_settings_to_yaml(routing_settings))
     _log.info(
         "project.saved",
         path=str(directory),
@@ -192,7 +196,7 @@ def _schematic_to_yaml(schematic: Schematic) -> str:
 
 def load_project(
     directory: Path,
-) -> tuple[Board, Layout, Schematic, dict[uuid.UUID, ComponentInstance]]:
+) -> tuple[Board, Layout, Schematic, dict[uuid.UUID, ComponentInstance], RoutingSettings]:
     _log.info("project.loading", path=str(directory))
     try:
         board = board_from_yaml((directory / "board.yaml").read_text())
@@ -203,6 +207,11 @@ def load_project(
             instances = _instances_from_yaml(instances_path.read_text())
         else:
             instances = {}
+        routing_path = directory / "routing.yaml"
+        if routing_path.exists():
+            routing_settings = _routing_settings_from_yaml(routing_path.read_text())
+        else:
+            routing_settings = RoutingSettings()
     except FileNotFoundError as exc:
         _log.warning("project.load_failed", path=str(directory), error=str(exc))
         raise SerializationError(f"Missing project file: {exc}") from exc
@@ -214,7 +223,7 @@ def load_project(
         nets=len(schematic.nets),
         instances=len(instances),
     )
-    return board, layout, schematic, instances
+    return board, layout, schematic, instances, routing_settings
 
 
 def _instances_from_yaml(text: str) -> dict[uuid.UUID, ComponentInstance]:
@@ -341,6 +350,44 @@ def _schematic_from_yaml(text: str) -> Schematic:
             color=raw.get("color") or None,
         )
     return Schematic(nets=nets)
+
+
+def _routing_settings_to_yaml(s: RoutingSettings) -> str:
+    data: dict[str, Any] = {
+        "preferred_side": s.preferred_side,
+        "allow_layer_change": s.allow_layer_change,
+        "max_rip_up_passes": s.max_rip_up_passes,
+        "max_optimize_iterations": s.max_optimize_iterations,
+        "cost_model": {
+            "direction_change": s.direction_change,
+            "crossing_insulated_bare": s.crossing_insulated_bare,
+            "layer_change": s.layer_change,
+            "under_component_top": s.under_component_top,
+        },
+    }
+    buf = io.StringIO()
+    _yaml.dump(data, buf)
+    return buf.getvalue()
+
+
+def _routing_settings_from_yaml(text: str) -> RoutingSettings:
+    try:
+        data = _yaml.load(text)
+    except Exception as exc:
+        raise SerializationError(f"Routing YAML error: {exc}") from exc
+    if not isinstance(data, dict):
+        return RoutingSettings()
+    cm = data.get("cost_model") or {}
+    return RoutingSettings(
+        preferred_side=data.get("preferred_side", "bottom"),
+        allow_layer_change=bool(data.get("allow_layer_change", True)),
+        max_rip_up_passes=int(data.get("max_rip_up_passes", 3)),
+        max_optimize_iterations=int(data.get("max_optimize_iterations", 10)),
+        direction_change=float(cm.get("direction_change", 1.0)),
+        crossing_insulated_bare=float(cm.get("crossing_insulated_bare", 5.0)),
+        layer_change=float(cm.get("layer_change", 2.0)),
+        under_component_top=float(cm.get("under_component_top", 3.0)),
+    )
 
 
 __all__ = ["load_project", "save_project"]

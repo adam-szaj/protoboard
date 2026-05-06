@@ -474,11 +474,137 @@ class _PathsPage(QWidget):
 
 
 # ---------------------------------------------------------------------------
+# Page — Routing
+# ---------------------------------------------------------------------------
+
+
+class _RoutingPage(QWidget):
+    """Routing settings page — cost model and general routing parameters."""
+
+    def __init__(self, session: object, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        # Import here to avoid circular dependency with domain layer.
+        from protoboard.domain.routing_settings import ROUTING_DEFAULTS, RoutingSettings
+        from protoboard.gui.session import EditorSession
+
+        self._session: EditorSession = session  # type: ignore[assignment]
+        self._defaults = ROUTING_DEFAULTS
+
+        vbox = QVBoxLayout(self)
+        vbox.setSpacing(10)
+        vbox.setContentsMargins(8, 8, 8, 8)
+
+        # --- General group ---
+        gen_grp = QGroupBox("General")
+        gen_form = _RoutingFormLayout(gen_grp)
+
+        from PySide6.QtWidgets import QCheckBox, QComboBox
+        self._preferred_side = QComboBox()
+        self._preferred_side.addItems(["bottom", "top"])
+        gen_form.addRow("Preferred layer", self._preferred_side)
+
+        self._allow_layer_change = QCheckBox()
+        gen_form.addRow("Allow layer change", self._allow_layer_change)
+
+        self._max_rip_up = QSpinBox()
+        self._max_rip_up.setRange(0, 20)
+        gen_form.addRow("Rip-up passes", self._max_rip_up)
+
+        self._max_optimize = QSpinBox()
+        self._max_optimize.setRange(0, 50)
+        gen_form.addRow("Optimize iterations", self._max_optimize)
+
+        gen_grp.setLayout(gen_form)
+        vbox.addWidget(gen_grp)
+
+        # --- Cost model group ---
+        cost_grp = QGroupBox("Cost model")
+        cost_form = _RoutingFormLayout(cost_grp)
+
+        self._direction_change = _cost_spinbox(0.0, 20.0, 0.1, 2)
+        cost_form.addRow("Direction change", self._direction_change)
+
+        self._crossing_insulated_bare = _cost_spinbox(0.0, 50.0, 0.5, 1)
+        cost_form.addRow("Insulated × bare wire", self._crossing_insulated_bare)
+
+        self._layer_change = _cost_spinbox(0.0, 20.0, 0.5, 1)
+        cost_form.addRow("Layer change (via)", self._layer_change)
+
+        self._under_component_top = _cost_spinbox(0.0, 20.0, 0.5, 1)
+        cost_form.addRow("Under component (top)", self._under_component_top)
+
+        cost_grp.setLayout(cost_form)
+        vbox.addWidget(cost_grp)
+
+        # --- Restore defaults button ---
+        restore_row = QHBoxLayout()
+        restore_row.addStretch()
+        restore_btn = QPushButton("Restore defaults")
+        restore_btn.clicked.connect(self._restore_defaults)
+        restore_row.addWidget(restore_btn)
+        vbox.addLayout(restore_row)
+
+        vbox.addStretch()
+
+        self._load_from_settings(self._session.routing_settings)
+
+    def _load_from_settings(self, s: object) -> None:
+        from protoboard.domain.routing_settings import RoutingSettings
+        rs: RoutingSettings = s  # type: ignore[assignment]
+        idx = self._preferred_side.findText(rs.preferred_side)
+        self._preferred_side.setCurrentIndex(max(idx, 0))
+        self._allow_layer_change.setChecked(rs.allow_layer_change)
+        self._max_rip_up.setValue(rs.max_rip_up_passes)
+        self._max_optimize.setValue(rs.max_optimize_iterations)
+        self._direction_change.setValue(rs.direction_change)
+        self._crossing_insulated_bare.setValue(rs.crossing_insulated_bare)
+        self._layer_change.setValue(rs.layer_change)
+        self._under_component_top.setValue(rs.under_component_top)
+
+    def _restore_defaults(self) -> None:
+        self._load_from_settings(self._defaults)
+
+    def apply(self) -> None:
+        from protoboard.domain.routing_settings import RoutingSettings
+        new_settings = RoutingSettings(
+            preferred_side=self._preferred_side.currentText(),  # type: ignore[arg-type]
+            allow_layer_change=self._allow_layer_change.isChecked(),
+            max_rip_up_passes=self._max_rip_up.value(),
+            max_optimize_iterations=self._max_optimize.value(),
+            direction_change=self._direction_change.value(),
+            crossing_insulated_bare=self._crossing_insulated_bare.value(),
+            layer_change=self._layer_change.value(),
+            under_component_top=self._under_component_top.value(),
+        )
+        self._session.routing_settings = new_settings
+        self._session.mark_dirty()
+
+
+def _RoutingFormLayout(parent: QWidget) -> "QFormLayout":
+    from PySide6.QtWidgets import QFormLayout
+    form = QFormLayout()
+    form.setSpacing(6)
+    form.setContentsMargins(8, 8, 8, 8)
+    return form
+
+
+def _cost_spinbox(
+    min_val: float, max_val: float, step: float, decimals: int
+) -> QDoubleSpinBox:
+    sb = QDoubleSpinBox()
+    sb.setRange(min_val, max_val)
+    sb.setSingleStep(step)
+    sb.setDecimals(decimals)
+    sb.setFixedWidth(80)
+    return sb
+
+
+# ---------------------------------------------------------------------------
 # Main dialog
 # ---------------------------------------------------------------------------
 
 class PreferencesDialog(QDialog):
-    """Application preferences — Shortcuts, Colours, Paths."""
+    """Application preferences — Shortcuts, Colours, Paths, Routing."""
 
     def __init__(
         self,
@@ -488,6 +614,7 @@ class PreferencesDialog(QDialog):
         on_keybindings_applied: Callable[[], None] | None = None,
         on_theme_applied: Callable[[Theme], None] | None = None,
         on_paths_applied: Callable[[AppSettings], None] | None = None,
+        session: object | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -508,7 +635,7 @@ class PreferencesDialog(QDialog):
         self._nav = QListWidget()
         self._nav.setFixedWidth(140)
         self._nav.setSpacing(2)
-        for label in ("Shortcuts", "Colours", "Paths"):
+        for label in ("Shortcuts", "Colours", "Paths", "Routing"):
             item = QListWidgetItem(label)
             item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             self._nav.addItem(item)
@@ -519,9 +646,19 @@ class PreferencesDialog(QDialog):
         self._shortcuts_page = _ShortcutsPage(keybindings)
         self._colors_page = _ColorsPage(theme)
         self._paths_page = _PathsPage(app_settings)
+        self._routing_page: _RoutingPage | None = (
+            _RoutingPage(session, self) if session is not None else None
+        )
         self._stack.addWidget(self._shortcuts_page)
         self._stack.addWidget(self._colors_page)
         self._stack.addWidget(self._paths_page)
+        if self._routing_page is not None:
+            self._stack.addWidget(self._routing_page)
+        else:
+            # Placeholder when no session (e.g. no project open)
+            placeholder = QLabel("Open a project to configure routing settings.")
+            placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._stack.addWidget(placeholder)
         outer.addWidget(self._stack)
 
         self._nav.currentRowChanged.connect(self._stack.setCurrentIndex)
@@ -558,6 +695,8 @@ class PreferencesDialog(QDialog):
             self._paths_page.apply()
             if self._on_paths_applied:
                 self._on_paths_applied(self._paths_page._settings)
+        elif idx == 3 and self._routing_page is not None:
+            self._routing_page.apply()
 
     def _on_ok(self) -> None:
         # Apply all pages
@@ -570,4 +709,6 @@ class PreferencesDialog(QDialog):
         self._paths_page.apply()
         if self._on_paths_applied:
             self._on_paths_applied(self._paths_page._settings)
+        if self._routing_page is not None:
+            self._routing_page.apply()
         self.accept()

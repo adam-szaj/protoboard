@@ -23,6 +23,7 @@ from protoboard.services.drc.engine import DRCEngine, DRCIssue
 from protoboard.domain.components.body_type import BodyTypeSpec
 from protoboard.services.library.body_type_loader import load_body_types
 from protoboard.services.library.loader import ComponentLibrary
+from protoboard.domain.routing_settings import RoutingSettings
 
 
 class EditorSession(QObject):
@@ -51,6 +52,7 @@ class EditorSession(QObject):
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         self.body_types: dict[str, BodyTypeSpec] = load_body_types()
         self.stack: CommandStack[ComponentState] = CommandStack()
+        self.routing_settings: RoutingSettings = RoutingSettings()
         self.project_path: Path | None = None
         self._drc_issues: list[DRCIssue] = []
         self._dirty: bool = False
