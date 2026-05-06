@@ -416,11 +416,29 @@ def _route_net(
     #      route so no corridor will ever be needed near them.
     #   2. Its net is not yet fully connected in the current working graph —
     #      once a net is complete its pins no longer need reserved space.
+    # Component IDs that already appear in this net — their other pins share
+    # an enclosure with the route and must not block intra-component paths.
+    net_component_ids: set[uuid.UUID] = {
+        ref.component_id for ref in net.pins if ref in pin_positions
+    }
+    # Reverse map: (Point, side) → PinRef, for component_id lookup below.
+    point_to_ref: dict[tuple[Point, str], PinRef] = {
+        (pt, s): ref
+        for ref, (pt, _pin_side) in pin_positions.items()
+        for s in ("top", "bottom")
+    }
+
     net_pts = {ps[0] for ps in net_ps}
     near_pin_pads: set[tuple[Point, str]] = set()
     pending_pin_pts: set[Point] = set()
     for (pin_pt, _pin_side), nid in occupied_pads.items():
         if nid == _FLOATING:
+            continue
+        # Skip pins from components already represented in this net — those
+        # pins share an enclosure with the route and their 4-adjacent neighbours
+        # inevitably lie on the only viable intra-component path (Panama Canal).
+        candidate_ref = point_to_ref.get((pin_pt, _pin_side))
+        if candidate_ref is not None and candidate_ref.component_id in net_component_ids:
             continue
         net_obj = schematic.nets.get(nid)
         if net_obj is None:

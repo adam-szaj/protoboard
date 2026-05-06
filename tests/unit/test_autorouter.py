@@ -357,6 +357,61 @@ class TestAutorouter:
                 f"Expected bottom routing, got side={wire.side}: {wire.path}"
             )
 
+    def test_panama_canal_not_blocked_by_same_component_near_pin_penalty(self) -> None:
+        """Panama Canal must stay short even when other nets use remaining DIP8 pins.
+
+        If other pins of the same DIP8 belong to different nets that are not yet
+        routed, their 4-adjacent neighbours (which lie on the diagonal Panama Canal
+        path) must NOT generate near_pin corridor penalties for the current net.
+
+        Setup: DIP8 with pin1↔pin5 in NET1, pins 2,3,4 each in separate nets.
+        Pins 2,3,4 are at (2.5,2.5),(2.5,3.5),(2.5,4.5) — their neighbours
+        (3.5,2.5),(3.5,3.5),(3.5,4.5) lie exactly on the 3-hop diagonal bottom
+        path pin1→pin5.  Without the fix, near_pin_pads would penalise those pads
+        by +10/hop and the router would take a long detour.
+
+        We assert the pin1→pin5 wire uses ≤ 5 hops (optimal=3, allowing small slack).
+        """
+        from protoboard.domain.components.footprints import DualRow
+
+        board = _perfboard(8, 10)
+        fp = DualRow(n_per_row=4, pitch=1.0, rows_spacing=3.0)
+        defn = ComponentDefinition(
+            name="DIP8", footprint=fp, pin_names={i: str(i) for i in range(1, 9)}
+        )
+        cid = uuid.uuid4()
+        inst = ComponentInstance(id=cid, definition_ref="DIP8", refdes="U1", value="")
+        layout = Layout(placements={
+            cid: ComponentPlacement(
+                component_id=cid, position=Point(2.5, 1.5), rotation=0, side="top"
+            )
+        })
+
+        ref_1 = PinRef(component_id=cid, pin_number=1)   # (2.5,1.5)
+        ref_5 = PinRef(component_id=cid, pin_number=5)   # (5.5,4.5)
+        ref_2 = PinRef(component_id=cid, pin_number=2)   # (2.5,2.5)
+        ref_3 = PinRef(component_id=cid, pin_number=3)   # (2.5,3.5)
+        ref_4 = PinRef(component_id=cid, pin_number=4)   # (2.5,4.5)
+
+        net1 = Net(id=uuid.uuid4(), name="NET1", pins={ref_1, ref_5})
+        # Each remaining pin in its own 1-pin net (unroutable, but generates pending)
+        net2 = Net(id=uuid.uuid4(), name="NET2", pins={ref_2})
+        net3 = Net(id=uuid.uuid4(), name="NET3", pins={ref_3})
+        net4 = Net(id=uuid.uuid4(), name="NET4", pins={ref_4})
+
+        schematic = Schematic(nets={
+            net1.id: net1, net2.id: net2, net3.id: net3, net4.id: net4
+        })
+
+        result = autoroute(board, layout, schematic, {"DIP8": defn}, {cid: inst})
+
+        assert result.unrouted_nets == []
+        total_hops = sum(len(w.path) - 1 for w in result.wires)
+        assert total_hops <= 5, (
+            f"Panama Canal should be ≤5 hops, got {total_hops}: "
+            + str([(w.path, w.side) for w in result.wires])
+        )
+
     def test_bottom_routing_avoids_component_pins(self) -> None:
         """Wires routed on the bottom layer must not pass through component pin holes.
 
