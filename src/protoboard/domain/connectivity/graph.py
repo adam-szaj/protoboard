@@ -75,7 +75,7 @@ class ConnectivityGraph:
         node = self._pin_to_node.get(ref)
         if node is None:
             return None
-        return self._canonical(node)
+        return self._canonical(node)  # returns None if node not in graph
 
     def node_for_pad(self, position: Point, side: str) -> _NodeKey | None:
         key: _NodeKey = (position.x, position.y, side)
@@ -87,8 +87,10 @@ class ConnectivityGraph:
     # Build
     # ------------------------------------------------------------------
 
-    def _canonical(self, node: _NodeKey) -> _NodeKey:
-        """Return the representative node in the connected component."""
+    def _canonical(self, node: _NodeKey) -> _NodeKey | None:
+        """Return the representative node in the connected component, or None if absent."""
+        if not self._g.has_node(node):
+            return None
         for component in nx.connected_components(self._g):
             if node in component:
                 result: _NodeKey = min(component)

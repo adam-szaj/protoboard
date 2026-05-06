@@ -92,15 +92,17 @@ class TestConnectivityGraphBasic:
 
 class TestConnectivityGraphWithComponents:
     def test_placed_component_pins_on_pads(self) -> None:
-        # Pad centers at (0.5,0), (1.5,0), (2.5,0).
-        board = _perfboard(1, 3)
+        # SIL(2) places pins vertically: pin1 at position, pin2 at position+(0,1).
+        # Use a 2-row × 1-col board so both pads exist.
+        # gap=0 → pad centers at (0.5, 0.5) and (0.5, 1.5).
+        board = _perfboard(2, 1)
         comp_defn = ComponentDefinition(
             name="R",
             footprint=SIL(2),
             pin_names={1: "A", 2: "B"},
         )
         inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
-        # SIL(2): pin1=(0,0), pin2=(0,1) → place pin1 on pad center (0.5,0).
+        # Place pin1 on pad (0.5, 0.5), pin2 on pad (0.5, 1.5).
         pl = ComponentPlacement(
             component_id=inst.id,
             position=Point(0.5, 0.5),
@@ -114,7 +116,6 @@ class TestConnectivityGraphWithComponents:
             components={comp_defn.name: comp_defn},
             instances={inst.id: inst},
         )
-        # Pin 1 of R1 sits on pad(0,0), pin 2 on pad(0,1).
         node_pin1 = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=1))
         node_pin2 = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=2))
         assert node_pin1 is not None
