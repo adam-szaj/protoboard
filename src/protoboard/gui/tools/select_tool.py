@@ -642,14 +642,9 @@ class SelectTool(_Tool):
             # on_scene_cleared → rerender(). Reset it now (move done).
             self._drag_overlay.reset(self._view.scene())
         else:
-            # No commands: either nothing moved, or a blocked group drag
-            # that already reverted (and emitted layout_changed internally).
-            # If overlay shows a block, leave it visible briefly; it will
-            # be reset on the next drag start or deactivate.
-            from protoboard.domain.layout.pad_conflict import MoveConflictSeverity
-            last = self._drag_overlay._last_result
-            if last is None or last.severity != MoveConflictSeverity.BLOCKED:
-                self._drag_overlay.reset(self._view.scene())
+            # No commands: nothing moved, or blocked group drag already reverted.
+            # Group is back at original position — overlay location is stale.
+            self._drag_overlay.reset(self._view.scene())
 
         # Restore selection highlights.
         if self._selected_id is not None:
