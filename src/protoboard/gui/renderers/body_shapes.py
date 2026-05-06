@@ -64,19 +64,9 @@ from protoboard.gui.theme import DEFAULT_THEME, Theme
 # Assets directory
 # ---------------------------------------------------------------------------
 
-_ASSETS_DIR = Path(__file__).parent.parent.parent.parent.parent.parent / "assets" / "components"
-# Resolves to <project_root>/assets/components regardless of install layout.
-# Fallback: walk up until we find the directory.
-def _find_assets() -> Path:
-    candidate = Path(__file__).resolve()
-    for _ in range(8):
-        candidate = candidate.parent
-        d = candidate / "assets" / "components"
-        if d.is_dir():
-            return d
-    return _ASSETS_DIR
+from protoboard.paths import BUILTIN_ASSETS_DIR as _BUILTIN_ASSETS_DIR
 
-_ASSETS: Path = _find_assets()
+_ASSETS: Path = _BUILTIN_ASSETS_DIR / "components"
 
 
 # ---------------------------------------------------------------------------

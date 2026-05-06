@@ -61,8 +61,9 @@ _HAS_ROWS = {"Perfboard", "Stripboard"}
 class NewProjectDialog(QDialog):
     """Modal dialog that collects board type, size, and project folder path."""
 
-    def __init__(self, parent: object = None) -> None:
+    def __init__(self, parent: object = None, default_dir: Path | None = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
+        self._default_dir = default_dir
         self.setWindowTitle("New Project")
         self.setMinimumWidth(440)
         self.setModal(True)
@@ -166,10 +167,11 @@ class NewProjectDialog(QDialog):
         self._cols_spin.setValue(cols)
 
     def _browse(self) -> None:
+        start = str(self._default_dir) if self._default_dir else str(Path.home())
         folder = QFileDialog.getExistingDirectory(
             self,
             "Choose project folder",
-            str(Path.home()),
+            start,
         )
         if folder:
             self._path_edit.setText(folder)

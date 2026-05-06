@@ -319,18 +319,16 @@ def render_groups(
         active_grp.child_group_ids if active_grp is not None else frozenset()
     )
 
-    group_pen_full = QPen(
-        QColor(t.group_pen_r, t.group_pen_g, t.group_pen_b, t.group_pen_a),
-        t.group_pen_width,
-    )
+    _pen_col = QColor(t.group_pen_color)
+    group_pen_full = QPen(_pen_col, t.group_pen_width)
     group_pen_full.setStyle(Qt.PenStyle.DotLine)
-    group_fill_full = QColor(t.group_fill_r, t.group_fill_g, t.group_fill_b, t.group_fill_a)
-    group_name_color = QColor(t.group_name_r, t.group_name_g, t.group_name_b, t.group_name_a)
+    group_fill_full = QColor(t.group_fill_color)
+    group_name_color = QColor(t.group_name_color)
 
     for group in layout.groups.values():
-        # Root group and active group itself: no outline.
-        if group.id == ROOT_GROUP_ID or group.id == effective_active:
+        if group.id == ROOT_GROUP_ID:
             continue
+        is_active = group.id == effective_active
 
         comp_ids = all_component_ids(layout.groups, group.id)
         positions: list[Point] = []
@@ -354,17 +352,25 @@ def render_groups(
         w = max(xs) - min(xs) + 2 * m
         h = max(ys) - min(ys) + 2 * m
 
-        # Choose opacity: child of active group = full; others = dimmed.
-        if group.id in visible_child_ids:
+        # Choose style: active group = red solid; child = normal; others = dimmed.
+        if is_active:
+            pen = QPen(QColor(220, 50, 50, 200), t.group_pen_width)
+            pen.setStyle(Qt.PenStyle.SolidLine)
+            fill = QColor(220, 50, 50, 15)
+            name_col = QColor(220, 50, 50, 200)
+        elif group.id in visible_child_ids:
             pen = group_pen_full
             fill = group_fill_full
             name_col = group_name_color
         else:
-            dim_pen_color = QColor(t.group_pen_r, t.group_pen_g, t.group_pen_b, 60)
+            dim_pen_color = QColor(t.group_pen_color)
+            dim_pen_color.setAlpha(60)
             pen = QPen(dim_pen_color, t.group_pen_width)
             pen.setStyle(Qt.PenStyle.DotLine)
-            fill = QColor(t.group_fill_r, t.group_fill_g, t.group_fill_b, 20)
-            name_col = QColor(t.group_name_r, t.group_name_g, t.group_name_b, 60)
+            fill = QColor(t.group_fill_color)
+            fill.setAlpha(20)
+            name_col = QColor(t.group_name_color)
+            name_col.setAlpha(60)
 
         rect = QGraphicsRectItem(QRectF(x0, y0, w, h))
         rect.setPen(pen)

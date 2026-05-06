@@ -156,6 +156,11 @@ class LibraryPanel(QWidget):
 
     # ------------------------------------------------------------------
 
+    def set_library(self, library: ComponentLibrary) -> None:
+        """Replace the library and repopulate the tree."""
+        self._library = library
+        self._populate(self._search.text())
+
     def _on_search(self, text: str) -> None:
         self._populate(text)
 

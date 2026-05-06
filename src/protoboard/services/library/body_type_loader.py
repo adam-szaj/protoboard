@@ -14,17 +14,9 @@ _yaml = YAML()
 _yaml.preserve_quotes = True
 
 
-def _find_body_types_dir() -> Path:
-    candidate = Path(__file__).resolve()
-    for _ in range(8):
-        candidate = candidate.parent
-        d = candidate / "assets" / "body_types"
-        if d.is_dir():
-            return d
-    return Path(__file__).parent.parent.parent.parent.parent.parent / "assets" / "body_types"
+from protoboard.paths import BUILTIN_ASSETS_DIR as _BUILTIN_ASSETS_DIR
 
-
-_BUILTIN_DIR: Path = _find_body_types_dir()
+_BUILTIN_DIR: Path = _BUILTIN_ASSETS_DIR / "body_types"
 
 
 def load_body_types(directory: Path | None = None) -> dict[str, BodyTypeSpec]:

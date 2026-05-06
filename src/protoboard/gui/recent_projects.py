@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: MIT
-"""Recent projects list — persisted to ~/.config/protoboard-designer/recent.json."""
+"""Recent projects list — persisted to ~/.config/protoboard/recent.json."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-_CONFIG_DIR = Path.home() / ".config" / "protoboard-designer"
-_RECENT_FILE = _CONFIG_DIR / "recent.json"
+from protoboard.paths import CONFIG_DIR as _CONFIG_DIR, RECENT_PROJECTS_FILE as _RECENT_FILE
+
 _MAX = 10
 
 

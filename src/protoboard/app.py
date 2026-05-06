@@ -5,22 +5,21 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
 import structlog as _structlog
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from protoboard.gui import recent_projects
+from protoboard.gui.app_settings import AppSettings, load_app_settings
 from protoboard.gui.dialogs.welcome_dialog import WelcomeDialog
 from protoboard.gui.main_window import MainWindow
 from protoboard.gui.session import EditorSession
 from protoboard.logging_config import configure_logging
+from protoboard.paths import BUILTIN_LIBRARY_DIR
 from protoboard.services.library.loader import load_library
 from protoboard.services.persistence.project_yaml import load_project, save_project
 
 _log = _structlog.get_logger(__name__)
-
-_LIBRARY_DIR = Path(__file__).parent.parent.parent / "library"
 
 
 def _open_session(
@@ -89,7 +88,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="protoboard", add_help=False)
     parser.add_argument("--verbose", "-v", action="store_true", default=False)
     args, remaining = parser.parse_known_args(sys.argv[1:])
-    configure_logging(verbose=args.verbose)
+    import logging as _logging
+    configure_logging(
+        verbose=args.verbose,
+        module_overrides={"protoboard.gui": _logging.INFO},
+    )
     _log.info("protoboard.starting", verbose=args.verbose)
 
     app = QApplication([sys.argv[0]] + remaining)
@@ -98,14 +101,16 @@ def main() -> None:
     # window appears (welcome screen → new project dialog chain).
     app.setQuitOnLastWindowClosed(False)
 
-    library_dirs = [_LIBRARY_DIR] if _LIBRARY_DIR.exists() else []
+    app_settings = load_app_settings()
+    extra_dirs = [d for d in app_settings.component_library_dirs if d.exists()]
+    library_dirs = ([BUILTIN_LIBRARY_DIR] if BUILTIN_LIBRARY_DIR.exists() else []) + extra_dirs
     library = load_library(library_dirs)
 
     window: MainWindow | None = None
 
     def show_welcome() -> None:
         nonlocal window
-        dlg = WelcomeDialog()
+        dlg = WelcomeDialog(default_dir=app_settings.default_projects_dir)
         if dlg.exec() != WelcomeDialog.DialogCode.Accepted:
             # User clicked Quit on the welcome screen.
             app.quit()
@@ -117,7 +122,7 @@ def main() -> None:
             show_welcome()
             return
 
-        window = MainWindow(session)
+        window = MainWindow(session, app_settings=app_settings)
         # When the window is hidden by "Close Project", loop back to welcome.
         window.return_to_welcome.connect(show_welcome)
         window.show()

@@ -131,20 +131,10 @@ class Theme:
     ghost_label_b: int = 100
     ghost_label_a: int = 128
 
-    group_pen_r: int = 100
-    group_pen_g: int = 200
-    group_pen_b: int = 255
-    group_pen_a: int = 160
+    group_pen_color: str = "#a064c8ff"   # #AARRGGBB
     group_pen_width: float = 0.08
-    group_fill_r: int = 100
-    group_fill_g: int = 200
-    group_fill_b: int = 255
-    group_fill_a: int = 64
-
-    group_name_r: int = 100
-    group_name_g: int = 200
-    group_name_b: int = 255
-    group_name_a: int = 200
+    group_fill_color: str = "#4064c8ff"  # #AARRGGBB
+    group_name_color: str = "#c864c8ff"  # #AARRGGBB
     group_margin: float = 0.6
 
     # ── Routing overlay ──────────────────────────────────────────────────────
@@ -155,6 +145,11 @@ class Theme:
     ])
     hint_width: float = 0.10
 
+    # ── Layer automatic alphas ───────────────────────────────────────────────
+    back_alpha: float = 0.30         # non-camera-side layers
+    board_ghost_alpha: float = 0.55  # board while placing/routing
+    ghost_comp_alpha: float = 0.25   # components while placing/routing
+
     # ── Export SVG ───────────────────────────────────────────────────────────
     svg_scale: float = 10.0
     svg_bg: str = "#2B6B3A"
@@ -164,14 +159,41 @@ class Theme:
 DEFAULT_THEME = Theme()
 
 
+def save_theme(theme: Theme, path: Path | None = None) -> None:
+    """Persist *theme* to YAML, writing only fields that differ from defaults."""
+    from protoboard.paths import THEME_FILE
+    if path is None:
+        path = THEME_FILE
+    try:
+        from ruamel.yaml import YAML  # type: ignore[import-untyped]
+
+        defaults = Theme()
+        data: dict[str, object] = {}
+        for f in theme.__dataclass_fields__:
+            if f == "body_types":
+                continue
+            val = getattr(theme, f)
+            if val != getattr(defaults, f):
+                data[f] = val
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        yaml = YAML()
+        yaml.default_flow_style = False
+        with path.open("w", encoding="utf-8") as fh:
+            yaml.dump(data, fh)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def load_theme(path: Path | None = None) -> Theme:
     """Load a Theme from a YAML file, falling back to DEFAULT_THEME on any error.
 
-    If *path* is None, looks for ``~/.config/protoboard-designer/theme.yaml``.
+    If *path* is None, looks for ``~/.config/protoboard/theme.yaml``.
     Unknown keys are silently ignored so partial overrides work.
     """
+    from protoboard.paths import THEME_FILE
     if path is None:
-        path = Path.home() / ".config" / "protoboard-designer" / "theme.yaml"
+        path = THEME_FILE
     if not path.exists():
         return DEFAULT_THEME
     try:

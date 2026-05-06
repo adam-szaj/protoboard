@@ -7,6 +7,9 @@ import dataclasses
 import uuid
 from pathlib import Path
 
+from protoboard.gui.app_settings import AppSettings
+from protoboard.gui.window_state import load_window_state, save_window_state
+
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QKeyEvent, QKeySequence
 from PySide6.QtWidgets import (
@@ -51,19 +54,29 @@ class MainWindow(QMainWindow):
     # Emitted when user chooses File > Close Project (return to welcome screen).
     return_to_welcome = Signal()
 
-    def __init__(self, session: EditorSession) -> None:
+    def __init__(
+        self,
+        session: EditorSession,
+        app_settings: AppSettings | None = None,
+    ) -> None:
         super().__init__()
         self._session = session
+        self._app_settings = app_settings if app_settings is not None else AppSettings()
         self._closing_to_welcome = False
         self._keybindings = KB.KeyBindings.load()
+        from protoboard.gui.theme import load_theme, Theme as _Theme
+        self._theme: _Theme = load_theme()
         self._update_title()
         self.resize(1280, 800)
 
         # Central widget — board view.
         self._board_view = BoardView(session, self)
+        self._board_view.set_theme(self._theme)
+        self._board_view.setMinimumSize(200, 200)
         self.setCentralWidget(self._board_view)
         # Single persistent SelectTool instance — preserves group navigation state.
         self._select_tool = SelectTool()
+        self._board_view._permanent_tools.append(self._select_tool)
 
         # Left dock — tabbed: Library | Netlist/BOM | Groups | Nets
         self._library_panel = LibraryPanel(session.library, self)
@@ -76,19 +89,23 @@ class MainWindow(QMainWindow):
         left_tabs.addTab(self._groups_panel, "Groups")
         left_tabs.addTab(self._nets_editor_panel, "Nets")
         left_dock = QDockWidget("", self)
+        left_dock.setObjectName("left_dock")
         left_dock.setWidget(left_tabs)
         left_dock.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
         )
+        left_dock.setMinimumWidth(150)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, left_dock)
 
         # Properties + DRC dock (right).
         self._props_panel = PropertiesPanel(self)
         props_dock = QDockWidget("Properties / DRC", self)
+        props_dock.setObjectName("props_dock")
         props_dock.setWidget(self._props_panel)
         props_dock.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
         )
+        props_dock.setMinimumWidth(150)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, props_dock)
 
         # Menu bar — File menu.
@@ -105,6 +122,7 @@ class MainWindow(QMainWindow):
         # Layers dock (right, tabified with Properties).
         self._layers_panel = LayersPanel(self._layer_overrides, self)
         layers_dock = QDockWidget("Layers", self)
+        layers_dock.setObjectName("layers_dock")
         layers_dock.setWidget(self._layers_panel)
         layers_dock.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
@@ -168,14 +186,18 @@ class MainWindow(QMainWindow):
         session.layout_changed.connect(self._refresh_nets_editor)
         session.layout_changed.connect(self._drc_timer.start)
         session.layout_changed.connect(self._update_undo_redo)
+        session.layout_changed.connect(session.mark_dirty)
+        session.dirty_changed.connect(self._update_title)
         session.drc_changed.connect(self._props_panel.update_issues)
         self._props_panel.component_changed.connect(self._on_component_changed)
         self._props_panel.pin_offsets_changed.connect(self._on_pin_offsets_changed)
 
         self._groups_panel.group_disbanded.connect(lambda _: self._board_view.refresh())
         self._groups_panel.group_disbanded.connect(lambda _: self._update_undo_redo())
+        self._groups_panel.group_disbanded.connect(lambda _: self._session.mark_dirty())
         self._groups_panel.group_renamed.connect(lambda _: self._board_view.refresh())
         self._groups_panel.group_renamed.connect(lambda _: self._update_undo_redo())
+        self._groups_panel.group_renamed.connect(lambda _: self._session.mark_dirty())
 
         self._nets_editor_panel.nets_changed.connect(self._on_nets_editor_changed)
         self._layers_panel.overrides_changed.connect(self._on_layer_panel_changed)
@@ -189,6 +211,9 @@ class MainWindow(QMainWindow):
 
         # Default tool.
         self._tool_select()
+
+        # Restore window geometry and dock layout from previous session.
+        load_window_state(self)
 
     # ------------------------------------------------------------------
     # Menu
@@ -297,6 +322,12 @@ class MainWindow(QMainWindow):
         act_exit_group = edit_menu.addAction("&Exit Group")
         act_exit_group.setShortcut(self._ks(KB.ACTION_EXIT_GROUP))
         act_exit_group.triggered.connect(self._exit_group)
+
+        edit_menu.addSeparator()
+
+        act_prefs = edit_menu.addAction("&Preferences…")
+        act_prefs.setShortcut(QKeySequence("Ctrl+,"))
+        act_prefs.triggered.connect(self._open_preferences)
 
         edit_menu.addSeparator()
 
@@ -510,18 +541,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Not found", f"Project not found:\n{path}")
             self._populate_recent_menu()
             return
-        reply = QMessageBox.question(
-            self,
-            "Open recent project",
-            "Save current project before opening?",
-            QMessageBox.StandardButton.Save
-            | QMessageBox.StandardButton.Discard
-            | QMessageBox.StandardButton.Cancel,
-        )
-        if reply == QMessageBox.StandardButton.Cancel:
+        if not self._check_unsaved_changes("opening another project"):
             return
-        if reply == QMessageBox.StandardButton.Save:
-            self._save()
         try:
             board, layout, schematic, instances = load_project(path)
         except Exception as exc:
@@ -539,6 +560,8 @@ class MainWindow(QMainWindow):
         self._session.layout_changed.disconnect(self._refresh_nets_editor)
         self._session.layout_changed.disconnect(self._drc_timer.start)
         self._session.layout_changed.disconnect(self._update_undo_redo)
+        self._session.layout_changed.disconnect(self._session.mark_dirty)
+        self._session.dirty_changed.disconnect(self._update_title)
         self._session.drc_changed.disconnect(self._props_panel.update_issues)
         self._session = session
         session.layout_changed.connect(self._refresh_netlist)
@@ -546,9 +569,12 @@ class MainWindow(QMainWindow):
         session.layout_changed.connect(self._refresh_nets_editor)
         session.layout_changed.connect(self._drc_timer.start)
         session.layout_changed.connect(self._update_undo_redo)
+        session.layout_changed.connect(session.mark_dirty)
+        session.dirty_changed.connect(self._update_title)
         session.drc_changed.connect(self._props_panel.update_issues)
         # Reset select tool state (group stack etc.) for the new session.
         self._select_tool = SelectTool()
+        self._board_view._permanent_tools = [self._select_tool]
         self._board_view.set_session(session)
         self._tool_select()
         self._refresh_netlist()
@@ -608,12 +634,11 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------
 
-    def _update_title(self) -> None:
+    def _update_title(self, _dirty: bool = False) -> None:
         p = self._session.project_path
-        if p is not None:
-            self.setWindowTitle(f"Protoboard Designer — {p.name}")
-        else:
-            self.setWindowTitle("Protoboard Designer")
+        name = p.name if p is not None else "Protoboard Designer"
+        self.setWindowTitle(f"{name}[*]")
+        self.setWindowModified(self._session.is_dirty)
 
     # ------------------------------------------------------------------
     # Refresh
@@ -629,6 +654,7 @@ class MainWindow(QMainWindow):
         self._nets_editor_panel.refresh(self._session)
 
     def _on_nets_editor_changed(self) -> None:
+        self._session.mark_dirty()
         self._refresh_netlist()
         self._update_undo_redo()
         self._update_stats()
@@ -750,24 +776,35 @@ class MainWindow(QMainWindow):
                 instances=self._session.instances,
             )
             recent_projects.add(path)
+            self._session.mark_clean()
             self._status.showMessage(f"Saved to {path}", 4000)
         except Exception as exc:
             QMessageBox.critical(self, "Save error", str(exc))
 
-    def _close_project(self) -> None:
-        """Return to the welcome screen."""
+    def _check_unsaved_changes(self, action: str = "continuing") -> bool:
+        """Return True if safe to proceed; prompts to save when dirty."""
+        if not self._session.is_dirty:
+            return True
         reply = QMessageBox.question(
             self,
-            "Close project",
-            "Save before closing?",
+            "Unsaved changes",
+            f"The project has unsaved changes. Save before {action}?",
             QMessageBox.StandardButton.Save
             | QMessageBox.StandardButton.Discard
             | QMessageBox.StandardButton.Cancel,
         )
         if reply == QMessageBox.StandardButton.Cancel:
-            return
+            return False
         if reply == QMessageBox.StandardButton.Save:
             self._save()
+            if self._session.is_dirty:
+                return False
+        return True
+
+    def _close_project(self) -> None:
+        """Return to the welcome screen."""
+        if not self._check_unsaved_changes("closing"):
+            return
         self._closing_to_welcome = True
         self.close()
 
@@ -778,6 +815,7 @@ class MainWindow(QMainWindow):
     def _undo(self) -> None:
         if self._session.stack.can_undo():
             self._session.stack.undo(self._session)
+            self._session.mark_dirty()
             self._board_view.refresh()
             self._update_stats()
             self._update_undo_redo()
@@ -785,6 +823,7 @@ class MainWindow(QMainWindow):
     def _redo(self) -> None:
         if self._session.stack.can_redo():
             self._session.stack.redo(self._session)
+            self._session.mark_dirty()
             self._board_view.refresh()
             self._update_stats()
             self._update_undo_redo()
@@ -1034,33 +1073,17 @@ class MainWindow(QMainWindow):
         tool._deselect_wire()
 
     def _group_selection(self) -> None:
-        """Group the current multi-selection via Ctrl+G."""
-        from protoboard.domain.commands.group_cmds import CreateGroupCommand
-        from protoboard.domain.layout.group import ComponentGroup
+        """Group the current selection via Ctrl+G — delegates to SelectTool dialog."""
         from protoboard.gui.tools.select_tool import SelectTool
-
         tool = self._board_view._active_tool
         if not isinstance(tool, SelectTool):
             return
-        selected = tool._selected_ids.copy()
-        if len(selected) < 2:
-            self._status.showMessage("Select 2+ components to group", 2000)
+        # Require at least one component selected (single or multi).
+        has_selection = bool(tool._selected_ids) or tool._selected_id is not None
+        if not has_selection:
+            self._status.showMessage("Select at least one component to group", 2000)
             return
-        name, ok = QInputDialog.getText(
-            self, "Group Name", "Group name:", text="Group"
-        )
-        if not ok or not name.strip():
-            return
-        group = ComponentGroup(
-            id=uuid.uuid4(),
-            name=name.strip(),
-            component_ids=frozenset(selected),
-            child_group_ids=frozenset(),
-        )
-        cmd = CreateGroupCommand(group=group)
-        self._session.stack.execute(cmd, self._session)
-        self._board_view.refresh()
-        self._update_undo_redo()
+        tool._group_for_selection()
 
     def _ungroup_selection(self) -> None:
         """Disband the group currently entered, or the group matching the selection."""
@@ -1089,6 +1112,7 @@ class MainWindow(QMainWindow):
         # Exit the group if we were inside it.
         if tool._group_stack and tool._group_stack[-1] == group_id:
             tool._group_stack.pop()
+        self._session.mark_dirty()
         self._board_view.refresh()
         self._update_undo_redo()
 
@@ -1126,6 +1150,7 @@ class MainWindow(QMainWindow):
                 description=f"Autoroute ({len(result.wires)} wires)",
             )
             self._session.stack.execute(macro, self._session)
+            self._session.mark_dirty()
             self._board_view.refresh()
             self._update_undo_redo()
 
@@ -1175,6 +1200,7 @@ class MainWindow(QMainWindow):
         )
         pl.rotation = rotation
         pl.label_offset = Point(label_offset_x, label_offset_y)
+        self._session.mark_dirty()
         self._board_view.refresh()
 
     def _on_pin_offsets_changed(self, comp_id: uuid.UUID, offsets: object) -> None:
@@ -1182,6 +1208,7 @@ class MainWindow(QMainWindow):
         if pl is None:
             return
         pl.pin_offsets = offsets  # type: ignore[assignment]
+        self._session.mark_dirty()
         self._board_view.refresh()
 
     def _export_svg(self) -> None:
@@ -1313,6 +1340,47 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "Error", str(exc))
 
+    def _open_preferences(self) -> None:
+        from protoboard.gui.dialogs.preferences_dialog import PreferencesDialog
+        dlg = PreferencesDialog(
+            keybindings=self._keybindings,
+            theme=self._theme,
+            app_settings=self._app_settings,
+            on_keybindings_applied=self._apply_all_keybindings,
+            on_theme_applied=self._on_theme_applied,
+            on_paths_applied=self._on_paths_applied,
+            parent=self,
+        )
+        dlg.exec()
+
+    def _apply_all_keybindings(self) -> None:
+        """Re-apply QAction shortcuts from the current KeyBindings table."""
+        self._act_undo.setShortcut(self._ks(KB.ACTION_UNDO))
+        self._act_redo.setShortcut(self._ks(KB.ACTION_REDO))
+
+    def _on_theme_applied(self, theme: object) -> None:
+        from protoboard.gui.theme import Theme
+        if isinstance(theme, Theme):
+            self._theme = theme
+            self._board_view.set_theme(theme)
+
+    def _on_paths_applied(self, settings: object) -> None:
+        from protoboard.gui.app_settings import AppSettings
+        from protoboard.paths import BUILTIN_LIBRARY_DIR
+        from protoboard.services.library.loader import load_library
+        if not isinstance(settings, AppSettings):
+            return
+        self._app_settings = settings
+        extra_dirs = [d for d in settings.component_library_dirs if d.exists()]
+        library_dirs = ([BUILTIN_LIBRARY_DIR] if BUILTIN_LIBRARY_DIR.exists() else []) + extra_dirs
+        new_library = load_library(library_dirs)
+        self._session.library = new_library
+        self._session.components = {
+            name: new_library.get(name) for name in new_library.names()
+        }
+        self._library_panel.set_library(new_library)
+        self._board_view.refresh()
+
     def _on_cursor_moved(self, x: float, y: float) -> None:
         self._cursor_label.setText(f"({x:.2f}, {y:.2f})")
 
@@ -1320,16 +1388,45 @@ class MainWindow(QMainWindow):
     # Window close
     # ------------------------------------------------------------------
 
+    def resizeEvent(self, event: "QResizeEvent") -> None:  # type: ignore[override]
+        old = event.oldSize()
+        new = event.size()
+        if abs(new.width() - old.width()) >= 10 or abs(new.height() - old.height()) >= 10:
+            import structlog
+            _log = structlog.get_logger()
+            bv = self._board_view
+            _log.info(
+                "main_window.resize",
+                window=(new.width(), new.height()),
+                board_view=(bv.width(), bv.height()),
+                board_view_min=(bv.minimumWidth(), bv.minimumHeight()),
+                hbar=(bv.horizontalScrollBar().minimum(),
+                      bv.horizontalScrollBar().value(),
+                      bv.horizontalScrollBar().maximum()),
+                vbar=(bv.verticalScrollBar().minimum(),
+                      bv.verticalScrollBar().value(),
+                      bv.verticalScrollBar().maximum()),
+                scene_rect=(round(bv.sceneRect().x(), 2), round(bv.sceneRect().y(), 2),
+                            round(bv.sceneRect().width(), 2), round(bv.sceneRect().height(), 2)),
+            )
+        super().resizeEvent(event)
+
     def closeEvent(self, event: QCloseEvent) -> None:
-        super().closeEvent(event)
         if self._closing_to_welcome:
             self._closing_to_welcome = False
+            save_window_state(self)
+            super().closeEvent(event)
             self.return_to_welcome.emit()
-        else:
-            # × button or Alt+F4 — quit the whole application.
-            from PySide6.QtWidgets import QApplication
+            return
+        # × button or Alt+F4 — prompt if dirty, then quit.
+        if not self._check_unsaved_changes("quitting"):
+            event.ignore()
+            return
+        save_window_state(self)
+        super().closeEvent(event)
+        from PySide6.QtWidgets import QApplication
 
-            QApplication.quit()
+        QApplication.quit()
 
     # ------------------------------------------------------------------
     # Keyboard shortcuts

@@ -148,6 +148,8 @@ def _layout_to_yaml(layout: Layout) -> str:
                             ]}
                             if g.exported_pins else {}
                         ),
+                        **({"rotation": g.rotation} if g.rotation != 0 else {}),
+                        **({"origin": {"x": g.origin.x, "y": g.origin.y}} if g.origin is not None else {}),
                     }
                     for g in layout.groups.values()
                 ]
@@ -294,6 +296,9 @@ def _layout_from_yaml(text: str) -> Layout:
             )
             for ep in (raw.get("exported_pins") or [])
         )
+        raw_origin = raw.get("origin")
+        from protoboard.geometry import Point as _Point
+        origin = _Point(float(raw_origin["x"]), float(raw_origin["y"])) if raw_origin else None
         groups[gid] = ComponentGroup(
             id=gid,
             name=str(raw["name"]),
@@ -304,6 +309,8 @@ def _layout_from_yaml(text: str) -> Layout:
                 uuid.UUID(c) for c in (raw.get("child_group_ids") or [])
             ),
             exported_pins=exported_pins,
+            rotation=int(raw.get("rotation", 0)),
+            origin=origin,
         )
     layout = Layout(placements=placements, wires=wires, groups=groups)
     layout.ensure_root_group()

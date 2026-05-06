@@ -17,7 +17,6 @@ GUI integration (future Preferences dialog) only needs to call
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Action IDs
@@ -186,8 +185,7 @@ DISPLAY_NAMES: dict[str, str] = {
 # Config path
 # ---------------------------------------------------------------------------
 
-_CONFIG_DIR = Path.home() / ".config" / "protoboard-designer"
-_KEYBINDINGS_PATH = _CONFIG_DIR / "keybindings.yaml"
+from protoboard.paths import CONFIG_DIR as _CONFIG_DIR, KEYBINDINGS_FILE as _KEYBINDINGS_PATH
 
 # ---------------------------------------------------------------------------
 # KeyBindings class

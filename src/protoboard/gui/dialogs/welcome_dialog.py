@@ -32,8 +32,9 @@ class WelcomeDialog(QDialog):
       - ``""``     → user closed / cancelled (quit)
     """
 
-    def __init__(self, parent: object = None) -> None:
+    def __init__(self, parent: object = None, default_dir: Path | None = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
+        self._default_dir = default_dir
         self.setWindowTitle("Protoboard Designer")
         self.setModal(True)
         self.setMinimumWidth(420)
@@ -132,7 +133,7 @@ class WelcomeDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _new_project(self) -> None:
-        dlg = NewProjectDialog(self)
+        dlg = NewProjectDialog(self, default_dir=self._default_dir)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._result_action = "new"
             self._board = dlg.board()
@@ -140,10 +141,11 @@ class WelcomeDialog(QDialog):
             self.accept()
 
     def _open_project(self) -> None:
+        start = str(self._default_dir) if self._default_dir else str(Path.home())
         folder = QFileDialog.getExistingDirectory(
             self,
             "Open project folder",
-            str(Path.home()),
+            start,
         )
         if folder:
             self._result_action = "open"

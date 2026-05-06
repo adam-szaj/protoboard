@@ -6,6 +6,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
+from protoboard.geometry import Point
+
 
 @dataclass(frozen=True)
 class ExportedPin:
@@ -33,6 +35,8 @@ class ComponentGroup:
     component_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
     child_group_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
     exported_pins: frozenset[ExportedPin] = field(default_factory=frozenset)
+    rotation: int = 0
+    origin: Point | None = None
 
 
 def all_component_ids(

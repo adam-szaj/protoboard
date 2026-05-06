@@ -6,7 +6,7 @@ from __future__ import annotations
 import math
 import uuid
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QKeyEvent,
@@ -47,13 +47,16 @@ class BoardView(QGraphicsView):
         self.setBackgroundBrush(QBrush(BOARD_BG))
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
-        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self._scale = _GRID_PX
         self.scale(_GRID_PX, _GRID_PX)
         self._panning = False
         self._ctrl_panning = False
         self._pan_start = QPointF()
         self._active_tool: _Tool | None = None
+        self._permanent_tools: list[_Tool] = []  # always notified on scene_cleared
         # View state — camera side and visual transform are independent.
         self._camera_side: str = "top"           # "top" | "bottom"
         self._view_transform: str = "normal"     # "normal" | "mirror_h" | "mirror_v"
@@ -62,8 +65,10 @@ class BoardView(QGraphicsView):
         # Active group for rendering context (set by SelectTool on navigation).
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         self._active_group_id: uuid.UUID = ROOT_GROUP_ID
+        # Theme — overridden by MainWindow after Preferences apply.
+        from protoboard.gui.theme import Theme
+        self._theme_override: Theme | None = None
         session.layout_changed.connect(self.refresh)
-        self.refresh()
 
     # ------------------------------------------------------------------
     # Public
@@ -85,6 +90,12 @@ class BoardView(QGraphicsView):
         """Called by SelectTool on group navigation to trigger a re-render."""
         self._active_group_id = group_id
         self.refresh()
+
+    def set_theme(self, theme: object) -> None:
+        from protoboard.gui.theme import Theme
+        if isinstance(theme, Theme):
+            self._theme_override = theme
+            self.refresh()
 
     # ------------------------------------------------------------------
     # View control — camera and transform are independent.
@@ -209,8 +220,12 @@ class BoardView(QGraphicsView):
         """Rebuild the scene from the current session state."""
         self._rebuild_pad_cache()
         self._scene.clear()
-        # Notify active tool that scene was wiped so it can drop stale item refs.
-        if self._active_tool is not None:
+        # Notify active tool and permanent tools that scene was wiped.
+        notified: set[int] = set()
+        for tool in self._permanent_tools:
+            tool.on_scene_cleared()
+            notified.add(id(tool))
+        if self._active_tool is not None and id(self._active_tool) not in notified:
             self._active_tool.on_scene_cleared()
 
         # Derive rendering context from camera side, view transform and tool.
@@ -246,7 +261,8 @@ class BoardView(QGraphicsView):
             )
             routed = routed_net_ids(self._session.schematic, graph)
         from dataclasses import replace as _dc_replace
-        _theme = _dc_replace(DEFAULT_THEME,
+        _base = self._theme_override if self._theme_override is not None else DEFAULT_THEME
+        _theme = _dc_replace(_base,
                              raster_pitch_mm=self._session.board.raster_pitch_mm,
                              body_types=self._session.body_types)
         render_components(
@@ -277,11 +293,14 @@ class BoardView(QGraphicsView):
                 self._session.layout.placements,
                 self._session.instances,
                 self._session.components,
+                theme=_theme,
                 active_group_id=self._active_group_id,
             )
-        # Fit scene rect to board bounds.
+        # Extend scene rect by 50% of board dimensions on each side so any point
+        # on the board (including corners) can be scrolled to the viewport centre.
         b = self._session.board.bounds
-        self._scene.setSceneRect(QRectF(b.x - 1, b.y - 1, b.width + 2, b.height + 2))
+        mx, my = b.width * 0.5, b.height * 0.5
+        self._scene.setSceneRect(QRectF(b.x - mx, b.y - my, b.width + 2 * mx, b.height + 2 * my))
 
         # When the scene is flipped, apply a counter-transform to text items so
         # labels remain readable.  Mirror H flips X → counter-scale X by -1.
@@ -311,8 +330,30 @@ class BoardView(QGraphicsView):
             tool._select_primary(comp_id)
 
     def snap(self, scene_pt: QPointF) -> Point:
-        """Snap scene-space point to nearest pad or component pin center."""
+        """Snap scene-space point to nearest accessible pad or component pin.
+
+        Pins belonging to child groups are only accessible if they are exported.
+        """
+        from protoboard.domain.layout.group import all_component_ids
+        from protoboard.domain.layout.group import ExportedPin
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.domain.layout.placement import pin_world_position
+
+        # Build set of component IDs that are locked inside child groups,
+        # and their exported pins.
+        groups = self._session.layout.groups
+        active_group = groups.get(self._active_group_id)
+        locked_comp_ids: set[uuid.UUID] = set()
+        exported_pins: set[tuple[uuid.UUID, int]] = set()
+        if active_group is not None:
+            for child_gid in active_group.child_group_ids:
+                child_group = groups.get(child_gid)
+                if child_group is None:
+                    continue
+                for cid in all_component_ids(groups, child_gid):
+                    locked_comp_ids.add(cid)
+                for ep in child_group.exported_pins:
+                    exported_pins.add((ep.component_id, ep.pin_number))
 
         best: Point | None = None
         best_d = math.inf
@@ -326,7 +367,7 @@ class BoardView(QGraphicsView):
                 best_d = d
                 best = Point(px, py)
 
-        # Board pads / strip holes.
+        # Board pads / strip holes — always accessible.
         for atom, center in self._session.board.atoms():
             if isinstance(atom, StripAtom):
                 n = int(atom.length) if isinstance(atom.length, int) else 1
@@ -341,7 +382,7 @@ class BoardView(QGraphicsView):
             else:
                 _check(center.x, center.y)
 
-        # Component pin positions (placed instances).
+        # Component pin positions — skip locked pins unless exported.
         for comp_id, placement in self._session.layout.placements.items():
             inst = self._session.instances.get(comp_id)
             if inst is None:
@@ -350,22 +391,96 @@ class BoardView(QGraphicsView):
             if defn is None:
                 continue
             for n in range(defn.footprint.pin_count()):
-                p = pin_world_position(defn.footprint, placement, n + 1)
+                pin_num = n + 1
+                if comp_id in locked_comp_ids and (comp_id, pin_num) not in exported_pins:
+                    continue
+                p = pin_world_position(defn.footprint, placement, pin_num)
                 _check(p.x, p.y)
 
         return best if best is not None else Point(scene_pt.x(), scene_pt.y())
+
+    def is_locked_pin(self, scene_pt: QPointF, tol: float = 0.6) -> bool:
+        """Return True if *scene_pt* is near a pin locked inside a child group
+        (i.e. not exported). Used by RouteTool to show a status message."""
+        from protoboard.domain.layout.group import all_component_ids
+        from protoboard.domain.layout.placement import pin_world_position
+        groups = self._session.layout.groups
+        active_group = groups.get(self._active_group_id)
+        if active_group is None:
+            return False
+        locked_comp_ids: set[uuid.UUID] = set()
+        exported_pins: set[tuple[uuid.UUID, int]] = set()
+        for child_gid in active_group.child_group_ids:
+            child_group = groups.get(child_gid)
+            if child_group is None:
+                continue
+            for cid in all_component_ids(groups, child_gid):
+                locked_comp_ids.add(cid)
+            for ep in child_group.exported_pins:
+                exported_pins.add((ep.component_id, ep.pin_number))
+        if not locked_comp_ids:
+            return False
+        for comp_id in locked_comp_ids:
+            placement = self._session.layout.placements.get(comp_id)
+            inst = self._session.instances.get(comp_id)
+            if placement is None or inst is None:
+                continue
+            defn = self._session.components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            for n in range(defn.footprint.pin_count()):
+                pin_num = n + 1
+                if (comp_id, pin_num) in exported_pins:
+                    continue
+                p = pin_world_position(defn.footprint, placement, pin_num)
+                if (scene_pt.x() - p.x) ** 2 + (scene_pt.y() - p.y) ** 2 < tol ** 2:
+                    return True
+        return False
+
+    def center_on_scene_point(self, scene_pt: QPointF) -> None:
+        """Scroll the view so that scene_pt appears at the centre of the viewport."""
+        vp = self.viewport()
+        cx = vp.width() / 2.0
+        cy = vp.height() / 2.0
+        current = self.mapToScene(int(cx), int(cy))
+        delta_scene = scene_pt - current
+        scale = self.transform().m11()
+        hbar = self.horizontalScrollBar()
+        vbar = self.verticalScrollBar()
+        hbar.setValue(hbar.value() + round(delta_scene.x() * scale))
+        vbar.setValue(vbar.value() + round(delta_scene.y() * scale))
+
+    def _show_canvas_menu(self, vp_pos: QPoint, scene_pt: QPointF) -> None:
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu(self)
+        act_center = menu.addAction("Wyśrodkuj widok tutaj")
+        act_escape = menu.addAction("Anuluj narzędzie (Esc)")
+        chosen = menu.exec(self.mapToGlobal(vp_pos))
+        if chosen is act_center:
+            self.center_on_scene_point(scene_pt)
+        elif chosen is act_escape:
+            self.escape_tool.emit()
 
     # ------------------------------------------------------------------
     # Qt event handlers
     # ------------------------------------------------------------------
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
-        old_pos = self.mapToScene(event.position().toPoint())
+        factor = 1.1 if event.angleDelta().y() > 0 else 1.0 / 1.08
+        cursor_vp = event.position().toPoint()
+        old_scene = self.mapToScene(cursor_vp)
         self.scale(factor, factor)
-        new_pos = self.mapToScene(event.position().toPoint())
-        delta = new_pos - old_pos
-        self.translate(delta.x(), delta.y())
+        # After scale, mapToScene shifts because Qt rescaled around scene origin.
+        # Compensate by scrolling so the scene point under the cursor stays fixed.
+        # sceneRect is kept large enough that scrollbars always exist (no Qt
+        # auto-centering that would make this correction arrive too late).
+        new_scene = self.mapToScene(cursor_vp)
+        delta_scene = new_scene - old_scene
+        new_scale = self.transform().m11()
+        hbar = self.horizontalScrollBar()
+        vbar = self.verticalScrollBar()
+        hbar.setValue(hbar.value() - round(delta_scene.x() * new_scale))
+        vbar.setValue(vbar.value() - round(delta_scene.y() * new_scale))
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         left = Qt.MouseButton.LeftButton
@@ -399,7 +514,7 @@ class BoardView(QGraphicsView):
             handler = getattr(self._active_tool, "on_right_press", None)
             consumed = handler(scene_pt) if handler is not None else False
             if not consumed:
-                self.escape_tool.emit()
+                self._show_canvas_menu(event.pos(), scene_pt)
         elif self._active_tool is not None:
             scene_pt = self.mapToScene(event.pos())
             self._active_tool.on_press(event, scene_pt)

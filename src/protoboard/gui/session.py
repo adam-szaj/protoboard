@@ -30,6 +30,7 @@ class EditorSession(QObject):
 
     layout_changed = Signal()
     drc_changed = Signal(list)  # list[DRCIssue]
+    dirty_changed = Signal(bool)
 
     def __init__(
         self,
@@ -52,6 +53,7 @@ class EditorSession(QObject):
         self.stack: CommandStack[ComponentState] = CommandStack()
         self.project_path: Path | None = None
         self._drc_issues: list[DRCIssue] = []
+        self._dirty: bool = False
 
     def run_drc(self) -> list[DRCIssue]:
         engine = DRCEngine()
@@ -68,3 +70,17 @@ class EditorSession(QObject):
     @property
     def drc_issues(self) -> list[DRCIssue]:
         return self._drc_issues
+
+    @property
+    def is_dirty(self) -> bool:
+        return self._dirty
+
+    def mark_dirty(self) -> None:
+        if not self._dirty:
+            self._dirty = True
+            self.dirty_changed.emit(True)
+
+    def mark_clean(self) -> None:
+        if self._dirty:
+            self._dirty = False
+            self.dirty_changed.emit(False)

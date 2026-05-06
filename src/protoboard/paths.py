@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: MIT
+"""Canonical filesystem paths for the application.
+
+All runtime paths are derived from XDG-style conventions:
+  - Config:  ~/.config/protoboard/
+  - Data:    ~/.local/share/protoboard/
+
+Built-in read-only assets (library/, assets/) are located relative to the
+installed package using importlib.resources / walk-up fallback so they work
+both in-source and after ``pip install``.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# App name
+# ---------------------------------------------------------------------------
+
+APP_NAME = "protoboard"
+
+# ---------------------------------------------------------------------------
+# User config directory  (~/.config/protoboard/)
+# ---------------------------------------------------------------------------
+
+CONFIG_DIR: Path = Path.home() / ".config" / APP_NAME
+
+# Individual config files
+KEYBINDINGS_FILE: Path = CONFIG_DIR / "keybindings.yaml"
+THEME_FILE: Path        = CONFIG_DIR / "theme.yaml"
+WINDOW_STATE_FILE: Path = CONFIG_DIR / "window_state.yaml"
+APP_SETTINGS_FILE: Path = CONFIG_DIR / "app_settings.yaml"
+RECENT_PROJECTS_FILE: Path = CONFIG_DIR / "recent.json"
+
+# ---------------------------------------------------------------------------
+# User data directory  (~/.local/share/protoboard/)
+# ---------------------------------------------------------------------------
+
+DATA_DIR: Path = Path.home() / ".local" / "share" / APP_NAME
+
+# User-installed component libraries land here by convention
+USER_LIBRARY_DIR: Path = DATA_DIR / "library"
+
+# User-installed module definitions land here
+USER_MODULES_DIR: Path = DATA_DIR / "modules"
+
+# ---------------------------------------------------------------------------
+# Built-in read-only assets (shipped with the package)
+# ---------------------------------------------------------------------------
+
+def _find_package_root() -> Path:
+    """Walk up from this file until we find the project root (has 'library/' subdir)."""
+    candidate = Path(__file__).resolve().parent
+    for _ in range(8):
+        if (candidate / "library").is_dir():
+            return candidate
+        candidate = candidate.parent
+    return Path(__file__).resolve().parent
+
+
+_PKG_ROOT: Path = _find_package_root()
+
+BUILTIN_LIBRARY_DIR: Path = _PKG_ROOT / "library"
+BUILTIN_ASSETS_DIR: Path   = _PKG_ROOT / "assets"

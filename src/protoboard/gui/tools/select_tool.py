@@ -111,6 +111,8 @@ class SelectTool(_Tool):
         # Starts at root group; never empty.
         from protoboard.domain.layout.layout import ROOT_GROUP_ID as _ROOT_GID
         self._group_stack: list[uuid.UUID] = [_ROOT_GID]
+        # Set when the user clicks a group outline — enables group-as-monolith rotation.
+        self._selected_group_id: uuid.UUID | None = None
         # Re-drag state (Ctrl+R on a component with bendable_pins).
         self._redrag_comp_id: uuid.UUID | None = None
         self._redrag_pin_num: int | None = None
@@ -234,6 +236,7 @@ class SelectTool(_Tool):
             grp_members = frozenset(all_component_ids(groups, group_outline_hit))
             if grp_members:
                 self._clear_multi_selection()
+                self._selected_group_id = group_outline_hit
                 self._selected_ids = set(grp_members)
                 first = next(iter(grp_members))
                 self._select_primary(first)
@@ -254,6 +257,18 @@ class SelectTool(_Tool):
                         pl_first.position.x - snapped.x,
                         pl_first.position.y - snapped.y,
                     )
+                # Collect internal wires (all path points on group pads).
+                from protoboard.domain.commands.group_cmds import _group_bbox, _wire_is_internal
+                bbox = _group_bbox(
+                    grp_members,
+                    self._session.layout.placements,
+                    self._session.instances,
+                    self._session.components,
+                )
+                if bbox is not None:
+                    for wire in self._session.layout.wires:
+                        if _wire_is_internal(wire, bbox):
+                            self._drag_orig_wire_paths[wire.id] = list(wire.path)
             return True
 
         # --- Normal left click: hit-test component or wire ---
@@ -380,22 +395,31 @@ class SelectTool(_Tool):
         hit = self._hit_test(scene_pt)
         if hit is None:
             hit = self._hit_test_bbox(scene_pt)
-        if hit is None:
-            return False
-        # Find which child group of the current group contains this component.
         groups = self._session.layout.groups
         current_group_id = self._group_stack[-1]
         parent_group = groups.get(current_group_id)
+        _log.info(
+            "group.double_click",
+            hit=str(hit) if hit else None,
+            current_group=str(current_group_id),
+            child_group_ids=[str(g) for g in (parent_group.child_group_ids if parent_group else [])],
+            group_stack_depth=len(self._group_stack),
+        )
+        if hit is None:
+            return False
+        # Find which child group of the current group contains this component.
         if parent_group is not None:
             for child_gid in parent_group.child_group_ids:
-                if hit in all_component_ids(groups, child_gid):
+                members = all_component_ids(groups, child_gid)
+                if hit in members:
                     self._group_stack.append(child_gid)
-                    _log.debug("group.entered", group_id=str(child_gid), stack_depth=len(self._group_stack))
+                    _log.info("group.entered", group_id=str(child_gid), stack_depth=len(self._group_stack))
                     self._clear_multi_selection()
                     self._deselect()
                     self._select_primary(hit)
                     self._notify_active_group()
                     return True
+        _log.info("group.double_click_no_entry", reason="hit not in any child group")
         return False
 
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
@@ -931,10 +955,16 @@ class SelectTool(_Tool):
 
     def _deselect(self) -> None:
         if self._highlight is not None:
-            self._view.scene().removeItem(self._highlight)
+            try:
+                self._view.scene().removeItem(self._highlight)
+            except RuntimeError:
+                pass  # C++ object already deleted by scene.clear()
             self._highlight = None
         for line in self._origin_cross:
-            self._view.scene().removeItem(line)
+            try:
+                self._view.scene().removeItem(line)
+            except RuntimeError:
+                pass
         self._origin_cross.clear()
         self._selected_id = None
         panel = self._props_panel()
@@ -1008,6 +1038,13 @@ class SelectTool(_Tool):
         self._draw_highlight(comp_id)
 
     def _rotate_multi(self, delta: int = 90) -> None:
+        if self._selected_group_id is not None:
+            from protoboard.domain.commands.group_cmds import RotateGroupCommand
+            cmd = RotateGroupCommand(group_id=self._selected_group_id, delta=delta % 360)
+            self._session.stack.execute(cmd, self._session)
+            self._session.layout_changed.emit()
+            self._redraw_multi_highlights()
+            return
         ids = list(self._selected_ids)
         if not ids:
             return
@@ -1309,6 +1346,7 @@ class SelectTool(_Tool):
             self._view.scene().removeItem(item)
         self._multi_highlights.clear()
         self._selected_ids.clear()
+        self._selected_group_id = None
 
     def _delete_multi(self) -> None:
         ids = list(self._selected_ids)
@@ -1873,11 +1911,38 @@ class SelectTool(_Tool):
         """Pop the innermost group from the navigation stack (Esc)."""
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         if len(self._group_stack) > 1:  # never pop root
-            _log.debug("group.exited", group_id=str(self._group_stack[-1]), remaining=len(self._group_stack) - 1)
+            exiting_gid = self._group_stack[-1]
+            _log.debug("group.exited", group_id=str(exiting_gid), remaining=len(self._group_stack) - 1)
             self._group_stack.pop()
             self._clear_multi_selection()
             self._deselect()
+            self._reset_group_metadata(exiting_gid)
             self._notify_active_group()
+
+    def _reset_group_metadata(self, group_id: uuid.UUID) -> None:
+        """Recompute origin and zero rotation after editing a group. Physical positions unchanged."""
+        from protoboard.domain.commands.group_cmds import _group_origin
+        from protoboard.domain.layout.group import all_component_ids as _all_ids
+        group = self._session.layout.groups.get(group_id)
+        if group is None:
+            return
+        comp_ids = _all_ids(self._session.layout.groups, group_id)
+        new_origin = _group_origin(
+            comp_ids,
+            self._session.layout.placements,
+            self._session.instances,
+            self._session.components,
+        )
+        from protoboard.domain.layout.group import ComponentGroup
+        self._session.layout.groups[group_id] = ComponentGroup(
+            id=group.id,
+            name=group.name,
+            component_ids=group.component_ids,
+            child_group_ids=group.child_group_ids,
+            exported_pins=group.exported_pins,
+            rotation=0,
+            origin=new_origin,
+        )
 
     def _notify_active_group(self) -> None:
         """Inform BoardView of the current active group for rendering."""

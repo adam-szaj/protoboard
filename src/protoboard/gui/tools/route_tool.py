@@ -48,6 +48,11 @@ class RouteTool(_Tool):
     def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
             return False
+        if self._view.is_locked_pin(scene_pt):
+            sb = self._view.window().statusBar()
+            if sb is not None:
+                sb.showMessage("Pad należy do grupy — wyeksportuj go najpierw (prawy klik → Export pin)", 3000)
+            return True  # consume event, block routing
         snapped = self._view.snap(scene_pt)
         if len(self._points) == 1:
             self._show_routing_hints(snapped)

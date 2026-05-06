@@ -50,7 +50,11 @@ Z_FRONT_LABELS     = 6.0
 Z_OVERLAY          = 7.0
 Z_SELECTION        = 10.0
 
-# Automatic alpha constants (used when override is AUTO)
+# Automatic alpha constants (used when override is AUTO).
+# These are default values; the active theme may override them.
+# Use theme.back_alpha / theme.board_ghost_alpha / theme.ghost_comp_alpha
+# when you have a Theme instance.  These module-level names are kept for
+# backward compatibility and for code that does not have a theme reference.
 BACK_ALPHA        = 0.30
 BOARD_GHOST_ALPHA = 0.55
 GHOST_COMP_ALPHA  = 0.25
