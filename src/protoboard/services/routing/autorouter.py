@@ -415,23 +415,44 @@ def _route_net(
     first_pt, first_side = pin_positions[placed_refs[0]]
     connected_pts: list[tuple[Point, str]] = [(first_pt, first_side)]
 
-    for ref in placed_refs[1:]:
+    # Greedy nearest-neighbour Steiner tree: at each step pick the unconnected
+    # pin closest (manhattan) to any already-connected pin.  This prevents all
+    # connections from radiating from one skewed starting pin and produces
+    # shorter, more balanced wire runs.
+    unconnected_refs: list[PinRef] = list(placed_refs[1:])
+
+    while unconnected_refs:
+        # Absorb any refs already physically connected (e.g. adjacent component pins).
+        still_unconnected: list[PinRef] = []
+        for ref in unconnected_refs:
+            target_node = current_graph.node_for_pin(ref)
+            already = False
+            if target_node is not None:
+                for conn_ref in connected_refs:
+                    if current_graph.node_for_pin(conn_ref) == target_node:
+                        already = True
+                        break
+            if already:
+                connected_refs.append(ref)
+                rpt, rside = pin_positions[ref]
+                connected_pts.append((rpt, rside))
+            else:
+                still_unconnected.append(ref)
+        if not still_unconnected:
+            break
+        unconnected_refs = still_unconnected
+
+        # Pick the unconnected pin nearest to any connected pin.
+        def _min_dist(ref: PinRef) -> float:
+            rpt, _ = pin_positions[ref]
+            return min(
+                abs(rpt.x - cpt.x) + abs(rpt.y - cpt.y)
+                for cpt, _ in connected_pts
+            )
+
+        unconnected_refs.sort(key=_min_dist)
+        ref = unconnected_refs.pop(0)
         target_pt, _ = pin_positions[ref]
-        target_node = current_graph.node_for_pin(ref)
-
-        already_connected = False
-        if target_node is not None:
-            for conn_ref in connected_refs:
-                conn_node = current_graph.node_for_pin(conn_ref)
-                if conn_node is not None and conn_node == target_node:
-                    already_connected = True
-                    break
-
-        if already_connected:
-            connected_refs.append(ref)
-            target_pt2, target_side2 = pin_positions[ref]
-            connected_pts.append((target_pt2, target_side2))
-            continue
 
         routed_wires = _route_segment_with_ripup(
             source_options=connected_pts,
@@ -468,8 +489,8 @@ def _route_net(
             instances=instances,
         )
         connected_refs.append(ref)
-        target_pt3, target_side3 = pin_positions[ref]
-        connected_pts.append((target_pt3, target_side3))
+        rpt2, rside2 = pin_positions[ref]
+        connected_pts.append((rpt2, rside2))
 
     return new_wires
 

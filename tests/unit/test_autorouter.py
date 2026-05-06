@@ -511,6 +511,51 @@ class TestAutorouterOptimization:
 
         assert result.unrouted_nets.count("BLOCKED_NET") == 1
 
+    def test_four_pin_net_routes_nearest_neighbour(self) -> None:
+        """4-pin net in a row must connect via nearest neighbours, not all from one end.
+
+        Pins: A(0.5,0.5) — B(2.5,0.5) — C(4.5,0.5) — D(6.5,0.5)
+        Optimal Steiner tree: A-B, B-C, C-D  (total 6 hops)
+        Bad all-from-A tree:  A-B, A-C, A-D  (total 12 hops, 3 separate long wires)
+
+        We assert total wire hops ≤ 7 (optimal + 1 slack for board edges).
+        """
+        board = _perfboard(3, 8)
+        defn = _sil2_def()
+        cid_a, cid_b, cid_c, cid_d = (uuid.uuid4() for _ in range(4))
+        inst = lambda cid, ref: ComponentInstance(
+            id=cid, definition_ref="COMP", refdes=ref, value=""
+        )
+        # rot=0 → vertical: pin1=(x,y), pin2=(x,y+1) — use pin1 only in the net
+        layout = Layout(placements={
+            cid_a: ComponentPlacement(component_id=cid_a, position=Point(0.5, 0.5),
+                                      rotation=0, side="top"),
+            cid_b: ComponentPlacement(component_id=cid_b, position=Point(2.5, 0.5),
+                                      rotation=0, side="top"),
+            cid_c: ComponentPlacement(component_id=cid_c, position=Point(4.5, 0.5),
+                                      rotation=0, side="top"),
+            cid_d: ComponentPlacement(component_id=cid_d, position=Point(6.5, 0.5),
+                                      rotation=0, side="top"),
+        })
+        refs = [PinRef(component_id=cid, pin_number=1)
+                for cid in (cid_a, cid_b, cid_c, cid_d)]
+        net = Net(id=uuid.uuid4(), name="BUS", pins=set(refs))
+        schematic = Schematic(nets={net.id: net})
+        components = {"COMP": defn}
+        instances = {cid: inst(cid, f"R{i+1}")
+                     for i, cid in enumerate((cid_a, cid_b, cid_c, cid_d))}
+
+        result = autoroute(board, layout, schematic, components, instances)
+
+        assert result.unrouted_nets == []
+        total_hops = sum(len(w.path) - 1 for w in result.wires)
+        # Optimal nearest-neighbour: 3 segments × 2 hops = 6.
+        # Allow 7 for minor board-edge detours.
+        assert total_hops <= 7, (
+            f"Expected ≤7 hops (nearest-neighbour), got {total_hops}: "
+            + str([(w.path, w.side) for w in result.wires])
+        )
+
     def test_insulated_wires_do_not_share_pads_on_same_side(self) -> None:
         """Two insulated wires of different nets must not occupy the same pad.
 
