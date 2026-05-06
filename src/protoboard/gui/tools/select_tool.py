@@ -123,6 +123,9 @@ class SelectTool(_Tool):
         self._redrag_comp_id: uuid.UUID | None = None
         self._redrag_pin_num: int | None = None
         self._redrag_items: list[QGraphicsItem] = []
+        # Live drag conflict overlay.
+        from protoboard.gui.tools.drag_conflict_overlay import DragConflictOverlay
+        self._drag_overlay = DragConflictOverlay()
 
     # ------------------------------------------------------------------
     # _Tool interface
@@ -140,6 +143,8 @@ class SelectTool(_Tool):
         self._dragging = False
         self._drag_orig_positions = {}
         self._drag_orig_wire_paths = {}
+        if self._view is not None:
+            self._drag_overlay.clear(self._view.scene())
         self._cancel_wire_edit()
         self._deselect_wire()
         self._clear_multi_wire_selection()
@@ -155,6 +160,7 @@ class SelectTool(_Tool):
         self._edit_live_line = None
         self._rubber_band_item = None
         self._redrag_items = []  # scene wiped, items gone
+        self._drag_overlay._items.clear()  # scene wiped, refs invalid
         # Redraw highlights after scene rebuild.
         if self._selected_id is not None and not self._dragging:
             self._draw_highlight(self._selected_id)
@@ -494,6 +500,7 @@ class SelectTool(_Tool):
                 ]
 
             self._session.layout_changed.emit()
+            self._update_drag_overlay(drag_ids, snapped)
             return
 
         if ctrl:
@@ -526,65 +533,71 @@ class SelectTool(_Tool):
         from protoboard.domain.commands.base import Command
 
         commands: list[Command[ComponentState]] = []
-        for cid in drag_ids:
-            pl = self._session.layout.placements.get(cid)
-            orig = self._drag_orig_positions.get(cid)
-            if pl is None or orig is None:
-                continue
-            if pl.position == orig:
-                continue
-            old_pl = pl.copy()
-            old_pl.position = orig
 
-            # Check pad conflicts.
-            inst = self._session.instances.get(cid)
-            defn = (
-                self._session.components.get(inst.definition_ref)
-                if inst else None
-            )
-            if defn is not None:
-                from protoboard.gui.placement_conflict import check_and_resolve
-
-                resolved = check_and_resolve(
-                    session=self._session,
-                    placement=pl,
-                    defn=defn,
-                    instance_id=cid,
-                    parent_widget=self._view.window(),
-                )
-                if resolved is None:
-                    self._session.layout.placements[cid] = old_pl
+        if self._selected_group_id is not None:
+            # --- Atomic group drag: check all conflicts first, revert all on block ---
+            commands = self._build_group_drag_commands(drag_ids) or []
+        else:
+            # --- Per-component conflict check (non-group drag) ---
+            for cid in drag_ids:
+                pl = self._session.layout.placements.get(cid)
+                orig = self._drag_orig_positions.get(cid)
+                if pl is None or orig is None:
                     continue
-                pl = resolved
-                self._session.layout.placements[cid] = pl
+                if pl.position == orig:
+                    continue
+                old_pl = pl.copy()
+                old_pl.position = orig
 
-            commands.append(
-                MoveComponentCommand(
-                    component_id=cid,
-                    new_placement=pl,
-                    old_placement=old_pl,
+                inst = self._session.instances.get(cid)
+                defn = (
+                    self._session.components.get(inst.definition_ref)
+                    if inst else None
                 )
-            )
+                if defn is not None:
+                    from protoboard.gui.placement_conflict import check_and_resolve
 
-        # Build wire move commands.
-        for wire in self._session.layout.wires:
-            if wire.id not in self._drag_orig_wire_paths:
-                continue
-            orig_wire_path: list[Point] = self._drag_orig_wire_paths[wire.id]
-            if wire.path == orig_wire_path:
-                continue
-            commands.append(
-                ReplaceWireSegmentCommand(
-                    wire_id=wire.id,
-                    new_path=list(wire.path),
-                    old_path=orig_wire_path,
+                    resolved = check_and_resolve(
+                        session=self._session,
+                        placement=pl,
+                        defn=defn,
+                        instance_id=cid,
+                        parent_widget=self._view.window(),
+                    )
+                    if resolved is None:
+                        self._session.layout.placements[cid] = old_pl
+                        continue
+                    pl = resolved
+                    self._session.layout.placements[cid] = pl
+
+                commands.append(
+                    MoveComponentCommand(
+                        component_id=cid,
+                        new_placement=pl,
+                        old_placement=old_pl,
+                    )
                 )
-            )
+
+            # Build wire move commands.
+            for wire in self._session.layout.wires:
+                if wire.id not in self._drag_orig_wire_paths:
+                    continue
+                orig_wire_path: list[Point] = self._drag_orig_wire_paths[wire.id]
+                if wire.path == orig_wire_path:
+                    continue
+                commands.append(
+                    ReplaceWireSegmentCommand(
+                        wire_id=wire.id,
+                        new_path=list(wire.path),
+                        old_path=orig_wire_path,
+                    )
+                )
+
+            # Remove wires that now cross alien pads.
+            commands.extend(self._remove_crossing_wires(drag_ids))
 
         self._drag_orig_wire_paths = {}
-
-        # Remove wires that now cross alien pads after the move.
-        commands.extend(self._remove_crossing_wires(drag_ids))
+        self._drag_overlay.clear(self._view.scene())
 
         if commands:
             if len(commands) == 1:
@@ -1168,6 +1181,194 @@ class SelectTool(_Tool):
         panel = self._props_panel()
         if panel is not None:
             panel._rotation_combo.setCurrentIndex(new_rot // 90)
+
+    def _update_drag_overlay(
+        self, drag_ids: set[uuid.UUID], snapped: Point
+    ) -> None:
+        """Recompute and redraw drag conflict overlay (throttled to snapped grid)."""
+        if not self._drag_overlay.needs_update(snapped):
+            return
+        from protoboard.domain.layout.pad_conflict import (
+            MoveConflictSeverity,
+            MoveConflictResult,
+            check_group_move_conflicts,
+        )
+        active_gid = self._selected_group_id
+        if active_gid is None and not drag_ids:
+            self._drag_overlay.clear(self._view.scene())
+            return
+
+        if active_gid is not None:
+            result = check_group_move_conflicts(
+                moved_ids=drag_ids,
+                active_group_id=active_gid,
+                layout_placements=self._session.layout.placements,
+                layout_wires=self._session.layout.wires,
+                layout_groups=self._session.layout.groups,
+                instances=self._session.instances,
+                components=self._session.components,
+                schematic=self._session.schematic,
+            )
+        else:
+            # Non-group drag: quick check via find_wires_crossing_pads + find_conflicts
+            from protoboard.domain.layout.pad_conflict import (
+                find_wires_crossing_pads, find_conflicts, ConflictKind,
+            )
+            from protoboard.geometry import Point as _Point
+            blocking: list[_Point] = []
+            for cid in drag_ids:
+                pl = self._session.layout.placements.get(cid)
+                inst = self._session.instances.get(cid)
+                if pl is None or inst is None:
+                    continue
+                defn = self._session.components.get(inst.definition_ref)
+                if defn is None:
+                    continue
+                for c in find_conflicts(
+                    pl, defn, cid,
+                    self._session.layout.placements,
+                    self._session.instances,
+                    self._session.components,
+                    self._session.schematic,
+                ):
+                    if c.kind == ConflictKind.DIFFERENT_NETS:
+                        blocking.append(c.position)
+            crossing = find_wires_crossing_pads(
+                wires=self._session.layout.wires,
+                moved_comp_ids=drag_ids,
+                layout_placements=self._session.layout.placements,
+                instances=self._session.instances,
+                components=self._session.components,
+                schematic=self._session.schematic,
+            )
+            if blocking:
+                result = MoveConflictResult(
+                    severity=MoveConflictSeverity.BLOCKED,
+                    blocking_pad_positions=blocking,
+                    removable_wire_ids=[],
+                )
+            elif crossing:
+                result = MoveConflictResult(
+                    severity=MoveConflictSeverity.REMOVABLE,
+                    blocking_pad_positions=[],
+                    removable_wire_ids=crossing,
+                )
+            else:
+                result = MoveConflictResult(
+                    severity=MoveConflictSeverity.CLEAR,
+                    blocking_pad_positions=[],
+                    removable_wire_ids=[],
+                )
+
+        # Compute drag bbox for outline.
+        bbox = self._drag_bbox(drag_ids)
+        self._drag_overlay.update(self._view.scene(), result, bbox, snapped)
+
+    def _drag_bbox(
+        self, drag_ids: set[uuid.UUID]
+    ) -> tuple[float, float, float, float] | None:
+        """Current bounding box of all dragged component pads."""
+        from protoboard.domain.layout.pad_conflict import _compute_bbox
+        from protoboard.domain.components.definition import ComponentDefinition
+        from protoboard.domain.components.instance import ComponentInstance
+        return _compute_bbox(
+            frozenset(drag_ids),
+            self._session.layout.placements,
+            self._session.instances,
+            self._session.components,
+        )
+
+    def _build_group_drag_commands(
+        self, drag_ids: set[uuid.UUID]
+    ) -> list[object] | None:
+        """Build commands for an atomic group drag.
+
+        Returns the command list (possibly including RemoveWireCommands for
+        removable wire conflicts), or None when the move is fully blocked and
+        all components have been reverted to their original positions.
+        """
+        from protoboard.domain.commands.base import Command
+        from protoboard.domain.layout.pad_conflict import (
+            MoveConflictSeverity,
+            check_group_move_conflicts,
+        )
+
+        active_gid = self._selected_group_id
+        if active_gid is None:
+            return []
+
+        result = check_group_move_conflicts(
+            moved_ids=drag_ids,
+            active_group_id=active_gid,
+            layout_placements=self._session.layout.placements,
+            layout_wires=self._session.layout.wires,
+            layout_groups=self._session.layout.groups,
+            instances=self._session.instances,
+            components=self._session.components,
+            schematic=self._session.schematic,
+        )
+
+        if result.severity == MoveConflictSeverity.BLOCKED:
+            # Revert ALL group members atomically.
+            for cid in drag_ids:
+                orig = self._drag_orig_positions.get(cid)
+                if orig is not None:
+                    pl = self._session.layout.placements.get(cid)
+                    if pl is not None:
+                        pl.position = orig
+            # Revert internal wire paths.
+            for wire in self._session.layout.wires:
+                if wire.id in self._drag_orig_wire_paths:
+                    wire.path = list(self._drag_orig_wire_paths[wire.id])
+            sb = getattr(self._view.window(), "statusBar", lambda: None)()
+            if sb is not None:
+                sb.showMessage("Przesunięcie grupy zablokowane — konflikt sieci.", 4000)
+            self._session.layout_changed.emit()
+            return None
+
+        # Build move + wire-replace commands.
+        cmds: list[Command[ComponentState]] = []
+        for cid in drag_ids:
+            pl = self._session.layout.placements.get(cid)
+            orig = self._drag_orig_positions.get(cid)
+            if pl is None or orig is None:
+                continue
+            if pl.position == orig:
+                continue
+            old_pl = pl.copy()
+            old_pl.position = orig
+            cmds.append(MoveComponentCommand(
+                component_id=cid,
+                new_placement=pl,
+                old_placement=old_pl,
+            ))
+
+        for wire in self._session.layout.wires:
+            if wire.id not in self._drag_orig_wire_paths:
+                continue
+            orig_path = self._drag_orig_wire_paths[wire.id]
+            if wire.path == orig_path:
+                continue
+            cmds.append(ReplaceWireSegmentCommand(
+                wire_id=wire.id,
+                new_path=list(wire.path),
+                old_path=orig_path,
+            ))
+
+        # Add removal commands for removable crossing wires.
+        if result.severity == MoveConflictSeverity.REMOVABLE:
+            id_set = set(result.removable_wire_ids)
+            for wire in self._session.layout.wires:
+                if wire.id in id_set:
+                    cmds.append(RemoveWireCommand(wire_id=wire.id))
+            sb = getattr(self._view.window(), "statusBar", lambda: None)()
+            if sb is not None:
+                sb.showMessage(
+                    f"Usunięto {len(result.removable_wire_ids)} drut(ów) kolidujących po przesunięciu grupy.",
+                    4000,
+                )
+
+        return cmds  # type: ignore[return-value]
 
     def _remove_crossing_wires(
         self, moved_comp_ids: set[uuid.UUID]

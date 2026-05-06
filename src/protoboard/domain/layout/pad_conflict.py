@@ -13,13 +13,13 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
+from protoboard.geometry import Point
 
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.wire import WireSegment
     from protoboard.domain.schematic.schematic import Schematic
-    from protoboard.geometry import Point
 
 
 class ConflictKind(Enum):
@@ -343,3 +343,176 @@ def find_wires_crossing_pads(
             conflicting.append(wire.id)
 
     return conflicting
+
+
+# ---------------------------------------------------------------------------
+# Group-move conflict classification
+# ---------------------------------------------------------------------------
+
+class MoveConflictSeverity(Enum):
+    CLEAR = "clear"          # no conflict
+    REMOVABLE = "removable"  # only wire conflicts removable without asking
+    BLOCKED = "blocked"      # hard block (pad-pad different-net or subgroup wire)
+
+
+@dataclass(frozen=True)
+class MoveConflictResult:
+    severity: MoveConflictSeverity
+    blocking_pad_positions: list[Point]  # positions of hard-blocked pads (for overlay)
+    removable_wire_ids: list[uuid.UUID]  # wire IDs safe to remove
+
+
+def check_group_move_conflicts(
+    moved_ids: set[uuid.UUID],
+    active_group_id: uuid.UUID,
+    layout_placements: dict[uuid.UUID, ComponentPlacement],
+    layout_wires: list[WireSegment],
+    layout_groups: dict[uuid.UUID, object],
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+    schematic: Schematic,
+) -> MoveConflictResult:
+    """Classify conflicts that arise when *moved_ids* are at their current (post-drag) positions.
+
+    Returns a MoveConflictResult describing:
+    - CLEAR: move is fine as-is.
+    - REMOVABLE: only wires belonging to the active group or its ancestors conflict;
+      those wire IDs are listed in removable_wire_ids.
+    - BLOCKED: a hard pad-pad conflict exists, or a wire belonging to a subgroup
+      of the active group conflicts (user chose "block" for that case).
+    """
+    from protoboard.domain.layout.group import ComponentGroup, all_component_ids
+
+    blocking_pads: list[Point] = []
+    removable_ids: list[uuid.UUID] = []
+
+    # --- 1. Pad-on-pad conflicts for every moved component ---
+    for comp_id in moved_ids:
+        pl = layout_placements.get(comp_id)
+        inst = instances.get(comp_id)
+        if pl is None or inst is None:
+            continue
+        defn = components.get(inst.definition_ref)
+        if defn is None:
+            continue
+        conflicts = find_conflicts(
+            incoming_placement=pl,
+            incoming_defn=defn,
+            incoming_instance_id=comp_id,
+            layout_placements=layout_placements,
+            instances=instances,
+            components=components,
+            schematic=schematic,
+        )
+        for c in conflicts:
+            if c.kind == ConflictKind.DIFFERENT_NETS:
+                blocking_pads.append(c.position)
+
+    if blocking_pads:
+        return MoveConflictResult(
+            severity=MoveConflictSeverity.BLOCKED,
+            blocking_pad_positions=blocking_pads,
+            removable_wire_ids=[],
+        )
+
+    # --- 2. Wire crossings after the move ---
+    crossing_ids = find_wires_crossing_pads(
+        wires=layout_wires,
+        moved_comp_ids=moved_ids,
+        layout_placements=layout_placements,
+        instances=instances,
+        components=components,
+        schematic=schematic,
+    )
+    if not crossing_ids:
+        return MoveConflictResult(
+            severity=MoveConflictSeverity.CLEAR,
+            blocking_pad_positions=[],
+            removable_wire_ids=[],
+        )
+
+    # --- 3. Classify each crossing wire ---
+    # Collect subgroup component IDs (direct child groups of active group).
+    active_group = layout_groups.get(active_group_id)
+    subgroup_comp_ids: set[uuid.UUID] = set()
+    if isinstance(active_group, ComponentGroup):
+        for child_gid in active_group.child_group_ids:
+            subgroup_comp_ids |= set(all_component_ids(
+                layout_groups,  # type: ignore[arg-type]
+                child_gid,
+            ))
+
+    # Build bboxes for subgroups to identify internal wires.
+    subgroup_bboxes: list[tuple[float, float, float, float]] = []
+    if isinstance(active_group, ComponentGroup):
+        for child_gid in active_group.child_group_ids:
+            child_ids = all_component_ids(layout_groups, child_gid)  # type: ignore[arg-type]
+            bbox = _compute_bbox(child_ids, layout_placements, instances, components)
+            if bbox is not None:
+                subgroup_bboxes.append(bbox)
+
+    for wire_id in crossing_ids:
+        wire = next((w for w in layout_wires if w.id == wire_id), None)
+        if wire is None:
+            continue
+        # Is this wire internal to any subgroup?
+        is_subgroup_wire = any(
+            _wire_is_internal_bbox(wire, bbox) for bbox in subgroup_bboxes
+        )
+        if is_subgroup_wire:
+            # Subgroup wire crossing → hard block
+            return MoveConflictResult(
+                severity=MoveConflictSeverity.BLOCKED,
+                blocking_pad_positions=[],
+                removable_wire_ids=[],
+            )
+        removable_ids.append(wire_id)
+
+    if removable_ids:
+        return MoveConflictResult(
+            severity=MoveConflictSeverity.REMOVABLE,
+            blocking_pad_positions=[],
+            removable_wire_ids=removable_ids,
+        )
+    return MoveConflictResult(
+        severity=MoveConflictSeverity.CLEAR,
+        blocking_pad_positions=[],
+        removable_wire_ids=[],
+    )
+
+
+def _compute_bbox(
+    comp_ids: frozenset[uuid.UUID],
+    placements: dict[uuid.UUID, ComponentPlacement],
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+) -> tuple[float, float, float, float] | None:
+    xs: list[float] = []
+    ys: list[float] = []
+    for cid in comp_ids:
+        pl = placements.get(cid)
+        inst = instances.get(cid)
+        if pl is None or inst is None:
+            continue
+        defn = components.get(inst.definition_ref)
+        if defn is None:
+            continue
+        for n in range(1, defn.footprint.pin_count() + 1):
+            p = pin_world_position(defn.footprint, pl, n)
+            xs.append(p.x)
+            ys.append(p.y)
+    if not xs:
+        return None
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _wire_is_internal_bbox(
+    wire: WireSegment,
+    bbox: tuple[float, float, float, float],
+    tol: float = 0.5,
+) -> bool:
+    x0, y0, x1, y1 = bbox
+    return len(wire.path) >= 2 and all(
+        x0 - tol <= p.x <= x1 + tol and y0 - tol <= p.y <= y1 + tol
+        for p in wire.path
+    )
