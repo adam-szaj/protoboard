@@ -583,6 +583,9 @@ class SelectTool(_Tool):
 
         self._drag_orig_wire_paths = {}
 
+        # Remove wires that now cross alien pads after the move.
+        commands.extend(self._remove_crossing_wires(drag_ids))
+
         if commands:
             if len(commands) == 1:
                 self._session.stack.execute(commands[0], self._session)
@@ -1051,9 +1054,25 @@ class SelectTool(_Tool):
 
     def _rotate_multi(self, delta: int = 90) -> None:
         if self._selected_group_id is not None:
+            from protoboard.domain.commands.base import Command
             from protoboard.domain.commands.group_cmds import RotateGroupCommand
-            cmd = RotateGroupCommand(group_id=self._selected_group_id, delta=delta % 360)
-            self._session.stack.execute(cmd, self._session)
+            from typing import cast
+            rotate_cmd: Command[ComponentState] = cast(
+                Command[ComponentState],
+                RotateGroupCommand(group_id=self._selected_group_id, delta=delta % 360),
+            )
+            # Collect group member IDs for crossing-wire check after rotation.
+            from protoboard.domain.layout.group import all_component_ids
+            grp_comp_ids = all_component_ids(
+                self._session.layout.groups, self._selected_group_id
+            )
+            self._session.stack.execute(rotate_cmd, self._session)
+            remove_cmds = self._remove_crossing_wires(grp_comp_ids)
+            if remove_cmds:
+                self._session.stack.execute(
+                    MacroCommand(remove_cmds, description="Remove crossing wires"),
+                    self._session,
+                )
             self._session.layout_changed.emit()
             self._redraw_multi_highlights()
             return
@@ -1081,6 +1100,12 @@ class SelectTool(_Tool):
             description=f"Rotate {len(cmds)} components",
         )
         self._session.stack.execute(macro, self._session)
+        remove_cmds = self._remove_crossing_wires(set(ids))
+        if remove_cmds:
+            self._session.stack.execute(
+                MacroCommand(remove_cmds, description="Remove crossing wires"),
+                self._session,
+            )
         self._session.layout_changed.emit()
         self._redraw_multi_highlights()
 
@@ -1132,11 +1157,50 @@ class SelectTool(_Tool):
             old_placement=old_pl,
         )
         self._session.stack.execute(cmd, self._session)
+        remove_cmds = self._remove_crossing_wires({comp_id})
+        if remove_cmds:
+            self._session.stack.execute(
+                MacroCommand(remove_cmds, description="Remove crossing wires"),
+                self._session,
+            )
         self._session.layout_changed.emit()
         self._draw_highlight(comp_id)
         panel = self._props_panel()
         if panel is not None:
             panel._rotation_combo.setCurrentIndex(new_rot // 90)
+
+    def _remove_crossing_wires(
+        self, moved_comp_ids: set[uuid.UUID]
+    ) -> list[RemoveWireCommand]:
+        """Return RemoveWireCommand list for wires that cross alien pads after a move.
+
+        Does not execute the commands — caller folds them into a MacroCommand or
+        executes them directly.  Shows a status-bar message when wires are removed.
+        """
+        from protoboard.domain.layout.pad_conflict import find_wires_crossing_pads
+
+        bad_ids = find_wires_crossing_pads(
+            wires=self._session.layout.wires,
+            moved_comp_ids=moved_comp_ids,
+            layout_placements=self._session.layout.placements,
+            instances=self._session.instances,
+            components=self._session.components,
+            schematic=self._session.schematic,
+        )
+        if not bad_ids:
+            return []
+        id_set = set(bad_ids)
+        cmds = [
+            RemoveWireCommand(wire_id=w.id)
+            for w in self._session.layout.wires
+            if w.id in id_set
+        ]
+        sb = getattr(self._view.window(), "statusBar", lambda: None)()
+        if sb is not None:
+            sb.showMessage(
+                f"Usunięto {len(cmds)} drut(ów) kolidujących po przesunięciu.", 4000
+            )
+        return cmds
 
     def _delete_selected(self) -> None:
         comp_id = self._selected_id

@@ -6,6 +6,7 @@ Pure functions — no Qt, no side effects.
 
 from __future__ import annotations
 
+import math
 import uuid
 from dataclasses import dataclass
 from enum import Enum
@@ -236,3 +237,109 @@ def find_wire_conflicts(
 
 def _round(v: float) -> float:
     return round(v, 4)
+
+
+# ---------------------------------------------------------------------------
+# Wire-segment crossing detection
+# ---------------------------------------------------------------------------
+
+_CROSS_EPS = 0.5  # half-raster tolerance — pad radius in raster units
+
+
+def _seg_point_dist(px: float, py: float,
+                    ax: float, ay: float,
+                    bx: float, by: float) -> float:
+    """Shortest distance from point (px, py) to segment (ax, ay)→(bx, by)."""
+    dx, dy = bx - ax, by - ay
+    if dx == 0.0 and dy == 0.0:
+        return math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+    return math.hypot(px - ax - t * dx, py - ay - t * dy)
+
+
+def find_wires_crossing_pads(
+    wires: list[WireSegment],
+    moved_comp_ids: set[uuid.UUID],
+    layout_placements: dict[uuid.UUID, ComponentPlacement],
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+    schematic: Schematic,
+) -> list[uuid.UUID]:
+    """Return IDs of wires whose path passes within _CROSS_EPS of an alien pad.
+
+    Checks every *line segment* of wire.path — not only the vertices.
+    A wire routed diagonally from (1,1) to (3,3) that passes within
+    half-raster of a pad at (2, 2.1) is considered conflicting even though
+    no vertex coincides with that pad.
+
+    "Alien pad" means a pad belonging to a net different from the wire's net,
+    or a pad with a net when the wire is unconnected (and vice-versa).
+    Pads belonging to `moved_comp_ids` are the new (post-move) positions.
+
+    Returns a list of wire IDs that should be removed.
+    """
+    # Build pad_pos → net_id | None for ALL pins (moved comps already updated
+    # in layout_placements before this function is called).
+    pad_net: dict[tuple[float, float], uuid.UUID | None] = {}
+    pin_net_map: dict[tuple[uuid.UUID, int], uuid.UUID] = {}
+    for net in schematic.nets.values():
+        for ref in net.pins:
+            pin_net_map[(ref.component_id, ref.pin_number)] = net.id
+    for comp_id, pl in layout_placements.items():
+        inst = instances.get(comp_id)
+        if inst is None:
+            continue
+        defn = components.get(inst.definition_ref)
+        if defn is None:
+            continue
+        for pin_num in range(1, defn.footprint.pin_count() + 1):
+            p = pin_world_position(defn.footprint, pl, pin_num)
+            net_id = pin_net_map.get((comp_id, pin_num))
+            pad_net[(_round(p.x), _round(p.y))] = net_id
+
+    if not pad_net:
+        return []
+
+    # Pre-extract pad positions as floats for distance calculations.
+    pad_positions: list[tuple[float, float, uuid.UUID | None]] = [
+        (float(k[0]), float(k[1]), v) for k, v in pad_net.items()
+    ]
+
+    # Build wire → net map: first pad in wire.path that has a net wins.
+    wire_net: dict[uuid.UUID, uuid.UUID | None] = {}
+    for wire in wires:
+        found: uuid.UUID | None = None
+        for pt in wire.path:
+            info = pad_net.get((_round(pt.x), _round(pt.y)))
+            if info is not None:
+                found = info
+                break
+        wire_net[wire.id] = found
+
+    conflicting: list[uuid.UUID] = []
+    for wire in wires:
+        w_net = wire_net.get(wire.id)
+        path = wire.path
+        if len(path) < 2:
+            continue
+        bad = False
+        for i in range(len(path) - 1):
+            ax, ay = path[i].x, path[i].y
+            bx, by = path[i + 1].x, path[i + 1].y
+            for px, py, p_net in pad_positions:
+                if _seg_point_dist(px, py, ax, ay, bx, by) < _CROSS_EPS:
+                    # Same net on both sides → OK (intentional contact).
+                    if w_net is not None and p_net is not None and w_net == p_net:
+                        continue
+                    # Both unconnected → no conflict (free wire passing free pad).
+                    if w_net is None and p_net is None:
+                        continue
+                    # Otherwise: alien pad encountered.
+                    bad = True
+                    break
+            if bad:
+                break
+        if bad:
+            conflicting.append(wire.id)
+
+    return conflicting
