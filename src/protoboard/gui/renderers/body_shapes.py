@@ -832,9 +832,9 @@ class TO220Body(BodyShape):
         tab_path.addRoundedRect(QRectF(-w / 2 - overhang, -tab_h / 2, w + 2 * overhang, tab_h), 0.1 / mm, 0.1 / mm)
         tab = QGraphicsPathItem(tab_path)
         tab_color = QColor(border)
-        tab_color.setAlphaF(alpha * 0.6)
+        tab_color.setAlphaF(alpha * theme.body_tab_opacity)
         tab.setBrush(QBrush(tab_color))
-        tab.setPen(_body_pen(border, alpha, width=0.04))
+        tab.setPen(_body_pen(border, alpha, width=theme.body_tab_pen_width))
         tab.setZValue(z - 0.005)
         t_tab = QTransform()
         t_tab.translate(tx, ty)
@@ -948,10 +948,10 @@ class SILBody(BodyShape):
 
         # Per-pin slot (small inset square)
         slot_fill = QColor(fill)
-        slot_fill.setAlphaF(slot_fill.alphaF() * 0.5)
+        slot_fill.setAlphaF(slot_fill.alphaF() * theme.body_slot_opacity)
         slot_border = QColor(border)
-        slot_border.setAlphaF(alpha * 0.7)
-        slot_pen = QPen(slot_border, 0.04)
+        slot_border.setAlphaF(alpha * theme.body_slot_opacity)
+        slot_pen = QPen(slot_border, theme.body_slot_pen_width)
         hs = slot / 2
         for p in positions:
             sq = QGraphicsRectItem(QRectF(p.x - hs, p.y - hs, slot, slot))
@@ -1109,7 +1109,7 @@ class CylinderBody(BodyShape):
                 QRectF(stripe_x, -diam_r / 2.0, stripe_w, diam_r)
             )
             stripe = QGraphicsPathItem(stripe_path)
-            dark = QColor("#444444")
+            dark = QColor(theme.body_led_stripe_color)
             dark.setAlphaF(alpha)
             stripe.setBrush(QBrush(dark))
             stripe.setPen(_body_pen(border, alpha, width=0.0))
@@ -1174,14 +1174,13 @@ class CylinderBody(BodyShape):
             circle.setPen(_body_pen(border, alpha))
         elif upper_pin_number == 2:
             # Cathode/(-) visible from above → solid dark circle
-            dark = QColor("#202028")
+            dark = QColor(theme.body_diode_cathode_color)
             dark.setAlphaF(alpha)
             circle.setBrush(QBrush(dark))
             circle.setPen(_body_pen(border, alpha))
         else:
             # Anode/(+) visible from above → hollow ring (polarity indicator)
-            # circle.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-            dark = QColor("#808088")
+            dark = QColor(theme.body_diode_anode_color)
             circle.setBrush(QBrush(dark))
             thick_pen = QPen(border, diam_r * 0.15)
             thick_pen.setColor(border)

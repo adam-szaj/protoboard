@@ -124,6 +124,9 @@ class LayerState:
     view_transform: ViewTransform = "normal"
     ghost_components: bool = False
     overrides: LayerOverrides = field(default_factory=LayerOverrides)
+    back_alpha: float = BACK_ALPHA
+    board_ghost_alpha: float = BOARD_GHOST_ALPHA
+    ghost_comp_alpha: float = GHOST_COMP_ALPHA
 
     # ------------------------------------------------------------------
     # Z-value helpers
@@ -151,20 +154,22 @@ class LayerState:
     def _override_alpha(self, vis: LayerVisibility, auto_value: float) -> float:
         if vis == LayerVisibility.AUTO:
             return auto_value
+        if vis == LayerVisibility.GHOST:
+            return self.ghost_comp_alpha
         return _VIS_ALPHA[vis.value]
 
     def alpha_for_component(self, side: Literal["top", "bottom"]) -> float:
         ov = (self.overrides.components_top
               if side == "top" else self.overrides.components_bottom)
         if side != self.camera_side:
-            return self._override_alpha(ov, BACK_ALPHA)
+            return self._override_alpha(ov, self.back_alpha)
         return self._override_alpha(
-            ov, GHOST_COMP_ALPHA if self.ghost_components else 1.0
+            ov, self.ghost_comp_alpha if self.ghost_components else 1.0
         )
 
     def alpha_for_wire(self, side: Literal["top", "bottom"]) -> float:
         ov = self.overrides.wires_top if side == "top" else self.overrides.wires_bottom
-        auto = 1.0 if side == self.camera_side else BACK_ALPHA
+        auto = 1.0 if side == self.camera_side else self.back_alpha
         return self._override_alpha(ov, auto)
 
     def alpha_for_label(self, side: Literal["top", "bottom"]) -> float:
@@ -174,7 +179,7 @@ class LayerState:
         return self._override_alpha(ov, auto)
 
     def alpha_for_board(self) -> float:
-        auto = BOARD_GHOST_ALPHA if self.ghost_components else 1.0
+        auto = self.board_ghost_alpha if self.ghost_components else 1.0
         return self._override_alpha(self.overrides.board, auto)
 
     # ------------------------------------------------------------------
@@ -213,15 +218,27 @@ def layer_state_for_tool(
     camera_side: Literal["top", "bottom"],
     view_transform: ViewTransform = "normal",
     overrides: LayerOverrides | None = None,
+    theme: object = None,
 ) -> LayerState:
     """Derive LayerState from the active tool, camera side and view transform."""
     from protoboard.gui.tools.route_tool import RouteTool
     from protoboard.gui.tools.place_tool import PlaceTool
 
     ghost = isinstance(tool, (RouteTool, PlaceTool))
-    return LayerState(
+    state = LayerState(
         camera_side=camera_side,
         view_transform=view_transform,
         ghost_components=ghost,
         overrides=overrides if overrides is not None else LayerOverrides(),
     )
+    if theme is not None:
+        import dataclasses
+        from protoboard.gui.theme import Theme
+        if isinstance(theme, Theme):
+            state = dataclasses.replace(
+                state,
+                back_alpha=theme.back_alpha,
+                board_ghost_alpha=theme.board_ghost_alpha,
+                ghost_comp_alpha=theme.ghost_comp_alpha,
+            )
+    return state

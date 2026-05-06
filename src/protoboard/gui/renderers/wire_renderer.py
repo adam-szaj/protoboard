@@ -153,7 +153,6 @@ def render_ratsnest(
         return
 
     color = QColor(theme.ratsnest_color)
-    color.setAlpha(theme.ratsnest_alpha)
     pen = QPen(color, theme.ratsnest_width)
     pen.setStyle(Qt.PenStyle.DotLine)
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)

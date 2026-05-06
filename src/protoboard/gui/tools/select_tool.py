@@ -52,6 +52,12 @@ _SELECT_PEN = QPen(Qt.GlobalColor.cyan, 0.08)
 _SELECT_PEN.setStyle(Qt.PenStyle.DashLine)
 _MULTI_SELECT_PEN = QPen(Qt.GlobalColor.cyan, 0.06)
 _MULTI_SELECT_PEN.setStyle(Qt.PenStyle.DashLine)
+
+
+def _make_select_pen(color_str: str, width: float) -> QPen:
+    pen = QPen(QColor(color_str), width)
+    pen.setStyle(Qt.PenStyle.DashLine)
+    return pen
 _RUBBER_BAND_PEN_LR = QPen(QColor(0, 200, 255, 180), 0.06)   # left-to-right: solid
 _RUBBER_BAND_PEN_RL = QPen(QColor(0, 200, 255, 180), 0.06)   # right-to-left: dashed
 _RUBBER_BAND_PEN_RL.setStyle(Qt.PenStyle.DashLine)
@@ -996,7 +1002,12 @@ class SelectTool(_Tool):
             QRectF(min(xs) - m, min(ys) - m,
                    max(xs) - min(xs) + 2 * m, max(ys) - min(ys) + 2 * m)
         )
-        self._highlight.setPen(_SELECT_PEN)
+        theme = getattr(self._view, "_theme_override", None)
+        if theme is not None:
+            pen = _make_select_pen(theme.select_color, theme.select_width)
+        else:
+            pen = _SELECT_PEN
+        self._highlight.setPen(pen)
         self._highlight.setBrush(Qt.BrushStyle.NoBrush)
         self._view.scene().addItem(self._highlight)
 
@@ -1006,7 +1017,8 @@ class SelectTool(_Tool):
         self._origin_cross.clear()
         ox, oy = placement.position.x, placement.position.y
         arm = 0.35
-        cross_pen = QPen(QColor(255, 100, 0, 220), 0.07)
+        t = self._theme()
+        cross_pen = QPen(QColor(t.component_origin_cross_color), t.component_origin_cross_width)
         h_line = QGraphicsLineItem(ox - arm, oy, ox + arm, oy)
         h_line.setPen(cross_pen)
         v_line = QGraphicsLineItem(ox, oy - arm, ox, oy + arm)
@@ -1329,7 +1341,12 @@ class SelectTool(_Tool):
             QRectF(min(xs) - m, min(ys) - m,
                    max(xs) - min(xs) + 2 * m, max(ys) - min(ys) + 2 * m)
         )
-        rect.setPen(_MULTI_SELECT_PEN)
+        theme = getattr(self._view, "_theme_override", None)
+        if theme is not None:
+            multi_pen = _make_select_pen(theme.multi_select_color, theme.multi_select_width)
+        else:
+            multi_pen = _MULTI_SELECT_PEN
+        rect.setPen(multi_pen)
         rect.setBrush(Qt.BrushStyle.NoBrush)
         self._view.scene().addItem(rect)
         self._multi_highlights.append(rect)

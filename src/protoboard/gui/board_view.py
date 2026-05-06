@@ -191,6 +191,7 @@ class BoardView(QGraphicsView):
         self._active_tool = tool
         if tool is not None:
             tool.activate(self._session, self)
+        self.refresh()
 
     def board_pad_positions(self) -> list[Point]:
         """Cached list of all board pad positions (raster units)."""
@@ -229,11 +230,13 @@ class BoardView(QGraphicsView):
             self._active_tool.on_scene_cleared()
 
         # Derive rendering context from camera side, view transform and tool.
+        _base_early = self._theme_override if self._theme_override is not None else DEFAULT_THEME
         layers = layer_state_for_tool(
             self._active_tool,
             self._camera_side,  # type: ignore[arg-type]
             self._view_transform,  # type: ignore[arg-type]
             overrides=self._layer_overrides,
+            theme=_base_early,
         )
 
         render_board(self._scene, self._session.board, layers=layers)
@@ -643,6 +646,11 @@ class _Tool:
     def activate(self, session: EditorSession, view: BoardView) -> None:
         self._session = session
         self._view = view
+
+    def _theme(self) -> "Theme":
+        from protoboard.gui.theme import DEFAULT_THEME, Theme
+        t = getattr(self._view, "_theme_override", None)
+        return t if isinstance(t, Theme) else DEFAULT_THEME
 
     def deactivate(self) -> None:
         pass

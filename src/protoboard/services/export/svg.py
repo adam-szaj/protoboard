@@ -145,10 +145,9 @@ def _render_component(
     rw = max(xs) - min(xs) + 2 * margin
     rh = max(ys) - min(ys) + 2 * margin
 
-    comp_fill = (
-        f"rgba({theme.comp_fill_r},{theme.comp_fill_g},"
-        f"{theme.comp_fill_b},{theme.comp_fill_a / 255:.2f})"
-    )
+    from PySide6.QtGui import QColor as _QColor
+    _cf = _QColor(theme.comp_fill_color)
+    comp_fill = f"rgba({_cf.red()},{_cf.green()},{_cf.blue()},{_cf.alpha() / 255:.2f})"
     ET.SubElement(
         svg,
         "rect",

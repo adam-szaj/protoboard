@@ -62,17 +62,11 @@ class Theme:
     ins_outline_color: str = "#000000"
     ins_outline_width: float = 0.28
 
-    bottom_opacity: float = 0.45
-
-    ratsnest_color: str = "#FF5050"
-    ratsnest_alpha: int = 160           # 0-255
+    ratsnest_color: str = "#a0ff5050"   # #AARRGGBB
     ratsnest_width: float = 0.08
 
     # ── Components ───────────────────────────────────────────────────────────
-    comp_fill_r: int = 225
-    comp_fill_g: int = 225
-    comp_fill_b: int = 200
-    comp_fill_a: int = 225
+    comp_fill_color: str = "#e1e1e1c8"  # #AARRGGBB
     comp_border: str = "#222222"
 
     pin_color_fallback: str = "#CC2222"  # when no schematic loaded
@@ -136,6 +130,43 @@ class Theme:
     group_fill_color: str = "#4064c8ff"  # #AARRGGBB
     group_name_color: str = "#c864c8ff"  # #AARRGGBB
     group_margin: float = 0.6
+    group_active_color: str = "#c8dc3232"      # active group outline (red)
+    group_active_fill_color: str = "#0fdc3232"  # active group fill
+    group_dim_pen_alpha: int = 60    # alpha for dimmed child group outline
+    group_dim_fill_alpha: int = 20   # alpha for dimmed child group fill
+    group_dim_name_alpha: int = 60   # alpha for dimmed child group label
+
+    select_color: str = "#ff00ffff"      # single selection outline
+    select_width: float = 0.08
+    multi_select_color: str = "#ff00ffff"  # multi selection outline
+    multi_select_width: float = 0.06
+
+    # ── Tool feedback ────────────────────────────────────────────────────────
+    placement_reach_color: str = "#7800c850"      # reachable pad highlight
+    placement_reach_line_color: str = "#b400c850"  # pin1→cursor line
+    routing_preview_color: str = "#b4ff6400"       # route wire preview
+
+    # ── Component pins & markers ─────────────────────────────────────────────
+    pin_width_complete: float = 0.04    # pin with assigned net (solid)
+    pin_width_incomplete: float = 0.06  # pin without net (dashed)
+    pin_label_fallback_color: str = "#ff777777"
+    pin1_marker_color: str = "#ff777777"
+    component_origin_cross_color: str = "#dcc86400"
+    component_origin_cross_width: float = 0.07
+
+    # ── Exported pins ────────────────────────────────────────────────────────
+    exported_pin_color: str = "#c800c850"
+    exported_pin_pen_color: str = "#ff008c32"
+    exported_pin_pen_width: float = 0.03
+
+    # ── Component body details ────────────────────────────────────────────────
+    body_led_stripe_color: str = "#ff444444"
+    body_diode_cathode_color: str = "#ff202028"
+    body_diode_anode_color: str = "#ff808088"
+    body_slot_opacity: float = 0.5
+    body_tab_opacity: float = 0.6
+    body_slot_pen_width: float = 0.04
+    body_tab_pen_width: float = 0.04
 
     # ── Routing overlay ──────────────────────────────────────────────────────
     hint_colors: list[tuple[int, int, int, int]] = field(default_factory=lambda: [

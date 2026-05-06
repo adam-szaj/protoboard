@@ -30,7 +30,7 @@ from typing import Literal
 
 import structlog
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QKeyEvent, QMouseEvent
+from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem
 
 from protoboard.domain.commands.component_cmds import PlaceComponentCommand
@@ -46,8 +46,6 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsItemGroup
 
 _log = structlog.get_logger(__name__)
-_REACH_PAD_COLOR = QColor(0, 200, 80, 120)     # zielone kółka — pady w zasięgu
-_REACH_LINE_COLOR = QColor(0, 200, 80, 180)    # linia pin1→kursor
 _REACH_PAD_RADIUS = 0.18
 
 
@@ -261,7 +259,7 @@ class PlaceTool(_Tool):
             if spec.is_reachable_from_origin(origin, pt):
                 item = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
                 from PySide6.QtGui import QBrush, QPen
-                item.setBrush(QBrush(_REACH_PAD_COLOR))
+                item.setBrush(QBrush(QColor(self._theme().placement_reach_color)))
                 item.setPen(QPen(Qt.GlobalColor.transparent, 0))
                 item.setZValue(20.0)
                 self._view.scene().addItem(item)
@@ -286,7 +284,7 @@ class PlaceTool(_Tool):
 
         line = QGraphicsLineItem(origin.x, origin.y, cursor.x, cursor.y)
         from PySide6.QtGui import QPen
-        pen = QPen(_REACH_LINE_COLOR, 0.05)
+        pen = QPen(QColor(self._theme().placement_reach_line_color), 0.05)
         pen.setStyle(Qt.PenStyle.DashLine)
         line.setPen(pen)
         line.setZValue(20.0)

@@ -21,7 +21,6 @@ from protoboard.services.routing.astar import find_paths
 from protoboard.services.routing.cost_model import RoutingCostModel
 
 _log = structlog.get_logger(__name__)
-_PREVIEW_COLOR = QColor(255, 100, 0, 180)
 _PREVIEW_WIDTH = 0.12
 
 
@@ -206,14 +205,14 @@ class RouteTool(_Tool):
         self._hint_items.clear()
 
     def _add_committed_line(self, a: Point, b: Point) -> None:
-        pen = QPen(_PREVIEW_COLOR, _PREVIEW_WIDTH)
+        pen = QPen(QColor(self._theme().routing_preview_color), _PREVIEW_WIDTH)
         line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
         line.setPen(pen)
         self._view.scene().addItem(line)
         self._committed_lines.append(line)
 
     def _add_live_line(self, a: Point, b: Point) -> None:
-        pen = QPen(_PREVIEW_COLOR, _PREVIEW_WIDTH)
+        pen = QPen(QColor(self._theme().routing_preview_color), _PREVIEW_WIDTH)
         pen.setStyle(Qt.PenStyle.DashLine)
         line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
         line.setPen(pen)

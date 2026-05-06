@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSlider,
     QSpinBox,
     QStackedWidget,
     QTableWidget,
@@ -138,6 +139,23 @@ def _color_row(label: str, initial: str) -> tuple[QHBoxLayout, _ColorButton]:
     return _row(label, btn), btn
 
 
+def _opacity_row(label: str, initial: float) -> tuple[QHBoxLayout, QSlider]:
+    """Slider 0–100 representing opacity 0.0–1.0, with a live numeric label."""
+    slider = QSlider(Qt.Orientation.Horizontal)
+    slider.setRange(0, 100)
+    slider.setValue(int(round(initial * 100)))
+    slider.setFixedWidth(120)
+    value_label = QLabel(f"{initial:.2f}")
+    value_label.setFixedWidth(35)
+    slider.valueChanged.connect(lambda v, lbl=value_label: lbl.setText(f"{v/100:.2f}"))
+    row = QHBoxLayout()
+    row.addWidget(QLabel(label))
+    row.addStretch()
+    row.addWidget(slider)
+    row.addWidget(value_label)
+    return row, slider
+
+
 def _alpha_row(label: str, initial: float, is_int: bool = False
                ) -> tuple[QHBoxLayout, QDoubleSpinBox | QSpinBox]:
     if is_int:
@@ -170,7 +188,7 @@ class _ColorsPage(QWidget):
         vbox = QVBoxLayout(inner)
         vbox.setSpacing(12)
 
-        self._widgets: dict[str, _ColorButton | QDoubleSpinBox | QSpinBox] = {}
+        self._widgets: dict[str, _ColorButton | QDoubleSpinBox | QSpinBox | QSlider] = {}
 
         def add_section(title: str, rows: list[tuple[str, str, object]]) -> None:
             """rows: (field_name, label, initial_value)"""
@@ -187,6 +205,16 @@ class _ColorsPage(QWidget):
                 self._widgets[field_name] = w
             vbox.addWidget(grp)
 
+        def add_opacity_section(title: str, rows: list[tuple[str, str, float]]) -> None:
+            """rows: (field_name, label, initial_float_0_1) — rendered as sliders."""
+            grp = QGroupBox(title)
+            gl = QVBoxLayout(grp)
+            for field_name, label, init in rows:
+                row_layout, slider = _opacity_row(label, init)
+                gl.addLayout(row_layout)
+                self._widgets[field_name] = slider
+            vbox.addWidget(grp)
+
         add_section("Board & Pads", [
             ("board_bg",         "Board background",    theme.board_bg),
             ("pad_color",        "Pad colour",          theme.pad_color),
@@ -196,11 +224,13 @@ class _ColorsPage(QWidget):
         ])
 
         add_section("Wires", [
-            ("bare_outline_color",  "Bare wire outline",    theme.bare_outline_color),
-            ("ins_outline_color",   "Insulated wire outline", theme.ins_outline_color),
-            ("bottom_opacity",      "Back-layer opacity (0–1)", theme.bottom_opacity),
-            ("ratsnest_color",      "Ratsnest colour",      theme.ratsnest_color),
-            ("ratsnest_alpha",      "Ratsnest alpha (0–255)", theme.ratsnest_alpha),
+            ("bare_outline_color",  "Bare wire outline colour",      theme.bare_outline_color),
+            ("bare_width",          "Bare wire fill width",           theme.bare_width),
+            ("bare_outline_width",  "Bare wire outline width",        theme.bare_outline_width),
+            ("ins_outline_color",   "Insulated wire outline colour",  theme.ins_outline_color),
+            ("ins_width",           "Insulated wire fill width",      theme.ins_width),
+            ("ins_outline_width",   "Insulated wire outline width",   theme.ins_outline_width),
+            ("ratsnest_color",      "Ratsnest colour",                theme.ratsnest_color),
         ])
 
         # net_colors palette (8 entries)
@@ -214,25 +244,64 @@ class _ColorsPage(QWidget):
         vbox.addWidget(net_grp)
 
         add_section("Components", [
-            ("comp_fill_r",   "Component fill R (0–255)", theme.comp_fill_r),
-            ("comp_fill_g",   "Component fill G (0–255)", theme.comp_fill_g),
-            ("comp_fill_b",   "Component fill B (0–255)", theme.comp_fill_b),
-            ("comp_fill_a",   "Component fill A (0–255)", theme.comp_fill_a),
-            ("comp_border",   "Component border colour",  theme.comp_border),
+            ("comp_fill_color", "Component fill colour",  theme.comp_fill_color),
+            ("comp_border",     "Component border colour", theme.comp_border),
             ("refdes_color",  "RefDes label colour",      theme.refdes_color),
             ("lead_color",    "Component lead colour",    theme.lead_color),
         ])
 
-        add_section("Layer automatic alphas", [
-            ("back_alpha",        "Back-side alpha (0–1)",      theme.back_alpha),
-            ("board_ghost_alpha", "Board ghost alpha (0–1)",    theme.board_ghost_alpha),
-            ("ghost_comp_alpha",  "Component ghost alpha (0–1)", theme.ghost_comp_alpha),
+        add_opacity_section("Layer opacity", [
+            ("back_alpha",        "Back-side opacity",       theme.back_alpha),
+            ("board_ghost_alpha", "Board ghost opacity",     theme.board_ghost_alpha),
+            ("ghost_comp_alpha",  "Component ghost opacity", theme.ghost_comp_alpha),
         ])
 
         add_section("Groups", [
             ("group_pen_color",  "Group outline colour", theme.group_pen_color),
+            ("group_pen_width",  "Group outline width",  theme.group_pen_width),
             ("group_fill_color", "Group fill colour",    theme.group_fill_color),
             ("group_name_color", "Group label colour",   theme.group_name_color),
+        ])
+
+        add_section("Selection", [
+            ("select_color",       "Selection outline colour",       theme.select_color),
+            ("select_width",       "Selection outline width",        theme.select_width),
+            ("multi_select_color", "Multi-selection outline colour", theme.multi_select_color),
+            ("multi_select_width", "Multi-selection outline width",  theme.multi_select_width),
+        ])
+
+        add_section("Active group", [
+            ("group_active_color",      "Active group outline colour", theme.group_active_color),
+            ("group_active_fill_color", "Active group fill colour",    theme.group_active_fill_color),
+        ])
+
+        add_section("Tool feedback", [
+            ("placement_reach_color",      "Reachable pad colour",    theme.placement_reach_color),
+            ("placement_reach_line_color", "Reach line colour",       theme.placement_reach_line_color),
+            ("routing_preview_color",      "Route preview colour",    theme.routing_preview_color),
+        ])
+
+        add_section("Component pins & markers", [
+            ("pin_width_complete",           "Pin width (with net)",      theme.pin_width_complete),
+            ("pin_width_incomplete",         "Pin width (no net)",        theme.pin_width_incomplete),
+            ("pin_label_fallback_color",     "Pin label fallback colour", theme.pin_label_fallback_color),
+            ("pin1_marker_color",            "Pin 1 marker colour",       theme.pin1_marker_color),
+            ("component_origin_cross_color", "Origin cross colour",       theme.component_origin_cross_color),
+            ("component_origin_cross_width", "Origin cross width",        theme.component_origin_cross_width),
+        ])
+
+        add_section("Component body", [
+            ("body_led_stripe_color",    "LED stripe colour",       theme.body_led_stripe_color),
+            ("body_diode_cathode_color", "Diode cathode colour",    theme.body_diode_cathode_color),
+            ("body_diode_anode_color",   "Diode anode colour",      theme.body_diode_anode_color),
+            ("exported_pin_color",       "Exported pin colour",     theme.exported_pin_color),
+            ("exported_pin_pen_color",   "Exported pin pen colour", theme.exported_pin_pen_color),
+            ("exported_pin_pen_width",   "Exported pin pen width",  theme.exported_pin_pen_width),
+        ])
+
+        add_opacity_section("Component body opacity", [
+            ("body_tab_opacity",  "Tab opacity",  theme.body_tab_opacity),
+            ("body_slot_opacity", "Slot opacity", theme.body_slot_opacity),
         ])
 
         reset_btn = QPushButton("Restore Defaults")
@@ -244,6 +313,8 @@ class _ColorsPage(QWidget):
         for field_name, widget in self._widgets.items():
             if isinstance(widget, _ColorButton):
                 setattr(self._theme, field_name, widget.color_hex())
+            elif isinstance(widget, QSlider):
+                setattr(self._theme, field_name, widget.value() / 100.0)
             elif isinstance(widget, QSpinBox):
                 setattr(self._theme, field_name, widget.value())
             else:
@@ -258,6 +329,8 @@ class _ColorsPage(QWidget):
             default_val = getattr(defaults, field_name)
             if isinstance(widget, _ColorButton):
                 widget.set_color(str(default_val))
+            elif isinstance(widget, QSlider):
+                widget.setValue(int(round(float(default_val) * 100)))
             elif isinstance(widget, QSpinBox):
                 widget.setValue(int(default_val))
             else:

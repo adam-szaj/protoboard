@@ -145,8 +145,9 @@ def _render_one(
     def _a(base_alpha: int) -> int:
         return max(0, min(255, int(base_alpha * alpha)))
 
-    comp_fill = QColor(theme.comp_fill_r, theme.comp_fill_g,
-                       theme.comp_fill_b, _a(theme.comp_fill_a))
+    _base_fill = QColor(theme.comp_fill_color)
+    comp_fill = QColor(_base_fill.red(), _base_fill.green(), _base_fill.blue(),
+                       _a(_base_fill.alpha()))
     comp_border = QColor(theme.comp_border)
     comp_border.setAlphaF(alpha)
 
@@ -170,19 +171,19 @@ def _render_one(
             complete = routed_nets is None or net_id in routed_nets
             if complete:
                 fill_color = color
-                pen = QPen(color, 0.04)
+                pen = QPen(color, theme.pin_width_complete)
                 pen.setStyle(Qt.PenStyle.SolidLine)
             else:
                 fill_color = QColor(color)
                 fill_color.setAlpha(_a(130))
-                pen = QPen(color, 0.06)
+                pen = QPen(color, theme.pin_width_incomplete)
                 pen.setStyle(Qt.PenStyle.DashLine)
         else:
             fill_color = pin_color_fallback
 
-            white = QColor("#777777")
-            white.setAlphaF(fill_color.alphaF())
-            pen = QPen(white, 0.06)
+            fallback_pen_color = QColor(theme.pin_label_fallback_color)
+            fallback_pen_color.setAlphaF(fill_color.alphaF())
+            pen = QPen(fallback_pen_color, theme.pin_width_incomplete)
 
         if pin_number == 1:
             _add_pin1_marker(scene, pos.x, pos.y, fill_color, theme, z=z_comp - 0.05)
@@ -220,9 +221,9 @@ def _add_pin1_marker(
     r = theme.pin_radius * 1.1
     square = QGraphicsRectItem(QRectF(cx - r, cy - r, 2 * r, 2 * r))
     square.setBrush(QBrush(fill_color))
-    white = QColor("#777777")
-    white.setAlphaF(fill_color.alphaF())
-    square.setPen(QPen(white, 0.06))
+    marker_col = QColor(theme.pin1_marker_color)
+    marker_col.setAlphaF(fill_color.alphaF())
+    square.setPen(QPen(marker_col, theme.pin_width_incomplete))
     square.setZValue(z)
     scene.addItem(square)
 
@@ -352,25 +353,25 @@ def render_groups(
         w = max(xs) - min(xs) + 2 * m
         h = max(ys) - min(ys) + 2 * m
 
-        # Choose style: active group = red solid; child = normal; others = dimmed.
+        # Choose style: active group = solid; child = normal; others = dimmed.
         if is_active:
-            pen = QPen(QColor(220, 50, 50, 200), t.group_pen_width)
+            pen = QPen(QColor(t.group_active_color), t.group_pen_width)
             pen.setStyle(Qt.PenStyle.SolidLine)
-            fill = QColor(220, 50, 50, 15)
-            name_col = QColor(220, 50, 50, 200)
+            fill = QColor(t.group_active_fill_color)
+            name_col = QColor(t.group_active_color)
         elif group.id in visible_child_ids:
             pen = group_pen_full
             fill = group_fill_full
             name_col = group_name_color
         else:
             dim_pen_color = QColor(t.group_pen_color)
-            dim_pen_color.setAlpha(60)
+            dim_pen_color.setAlpha(t.group_dim_pen_alpha)
             pen = QPen(dim_pen_color, t.group_pen_width)
             pen.setStyle(Qt.PenStyle.DotLine)
             fill = QColor(t.group_fill_color)
-            fill.setAlpha(20)
+            fill.setAlpha(t.group_dim_fill_alpha)
             name_col = QColor(t.group_name_color)
-            name_col.setAlpha(60)
+            name_col.setAlpha(t.group_dim_name_alpha)
 
         rect = QGraphicsRectItem(QRectF(x0, y0, w, h))
         rect.setPen(pen)
@@ -392,8 +393,8 @@ def render_groups(
         if group.id in visible_child_ids and group.exported_pins:
             from PySide6.QtGui import QPainterPath
             from PySide6.QtWidgets import QGraphicsPathItem
-            ep_fill = QColor(0, 200, 80, 200)
-            ep_pen = QPen(QColor(0, 140, 50), 0.03)
+            ep_fill = QColor(t.exported_pin_color)
+            ep_pen = QPen(QColor(t.exported_pin_pen_color), t.exported_pin_pen_width)
             r = 0.18
             for ep in group.exported_pins:
                 pl = placements.get(ep.component_id)
