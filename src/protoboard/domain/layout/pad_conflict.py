@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import structlog
 _log = structlog.get_logger(__name__)
 
-from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
+from protoboard.domain.layout.placement import ComponentPlacement, component_bbox, pin_world_position
 from protoboard.geometry import Point
 
 if TYPE_CHECKING:
@@ -393,7 +393,7 @@ def check_group_move_conflicts(
                moved_ids=[str(i) for i in moved_ids],
                active_group_id=str(active_group_id))
 
-    # --- 1. Pad-on-pad conflicts for every moved component ---
+    # --- 1. Pad-on-pad AND bbox conflicts for every moved component ---
     for comp_id in moved_ids:
         pl = layout_placements.get(comp_id)
         inst = instances.get(comp_id)
@@ -402,6 +402,38 @@ def check_group_move_conflicts(
         defn = components.get(inst.definition_ref)
         if defn is None:
             continue
+        # Bbox overlap with external (non-moved) components — same logic as
+        # _move_blocked() in component_cmds.py.
+        new_bbox = component_bbox(defn.footprint, pl, defn.component_class)
+        moved_pin_positions: set[tuple[float, float]] = set()
+        for pn in range(1, defn.footprint.pin_count() + 1):
+            p2 = pin_world_position(defn.footprint, pl, pn)
+            moved_pin_positions.add((_round(p2.x), _round(p2.y)))
+
+        for other_id, other_pl in layout_placements.items():
+            if other_id in moved_ids:
+                continue  # skip fellow group members
+            other_inst = instances.get(other_id)
+            if other_inst is None:
+                continue
+            other_defn = components.get(other_inst.definition_ref)
+            if other_defn is None:
+                continue
+            other_bbox = component_bbox(other_defn.footprint, other_pl, other_defn.component_class)
+            if new_bbox.intersects(other_bbox):
+                other_pins: set[tuple[float, float]] = set()
+                for pn in range(1, other_defn.footprint.pin_count() + 1):
+                    p2 = pin_world_position(other_defn.footprint, other_pl, pn)
+                    other_pins.add((_round(p2.x), _round(p2.y)))
+                if moved_pin_positions.isdisjoint(other_pins):
+                    # Pure body overlap — blocking (mirrors _move_blocked behaviour).
+                    _log.debug("group_move.bbox_conflict",
+                               comp_id=str(comp_id), other_id=str(other_id),
+                               bbox=str(new_bbox), other_bbox=str(other_bbox))
+                    # Use any pin of the moved component as blocking position indicator.
+                    first_pin = pin_world_position(defn.footprint, pl, 1)
+                    blocking_pads.append(first_pin)
+
         conflicts = find_conflicts(
             incoming_placement=pl,
             incoming_defn=defn,
