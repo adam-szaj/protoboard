@@ -543,6 +543,15 @@ class SelectTool(_Tool):
         if effective_group_id is None and drag_ids:
             effective_group_id = self._common_group_for(drag_ids)
 
+        _log.debug("drag.release",
+                   drag_ids=[str(i) for i in drag_ids],
+                   selected_group_id=str(self._selected_group_id) if self._selected_group_id else None,
+                   effective_group_id=str(effective_group_id) if effective_group_id else None,
+                   orig_positions={str(k): (v.x, v.y) for k, v in self._drag_orig_positions.items()},
+                   current_positions={str(k): (v.position.x, v.position.y)
+                                      for k, v in self._session.layout.placements.items()
+                                      if k in drag_ids})
+
         if effective_group_id is not None:
             # --- Atomic group drag: check all conflicts first, revert all on block ---
             # Ensure drag_ids covers ALL members of the group (not just a subset).
@@ -553,10 +562,14 @@ class SelectTool(_Tool):
             # Keep only those that actually moved.
             full_ids &= set(self._drag_orig_positions.keys())
             effective_drag = full_ids if full_ids else drag_ids
+            _log.debug("drag.group_path",
+                       full_group_ids=[str(i) for i in full_ids],
+                       effective_drag=[str(i) for i in effective_drag])
             _saved_group_id = self._selected_group_id
             self._selected_group_id = effective_group_id
             commands = self._build_group_drag_commands(effective_drag) or []
             self._selected_group_id = _saved_group_id
+            _log.debug("drag.group_commands", count=len(commands))
         else:
             # --- Per-component conflict check (non-group drag) ---
             for cid in drag_ids:
@@ -1226,16 +1239,25 @@ class SelectTool(_Tool):
             for cid in g.component_ids:
                 if cid in comp_ids:
                     comp_to_group[cid] = gid
+        _log.debug("common_group_for",
+                   comp_ids=[str(i) for i in comp_ids],
+                   comp_to_group={str(k): str(v) for k, v in comp_to_group.items()})
         if not comp_to_group:
+            _log.debug("common_group_for.result", result=None, reason="no_group_members")
             return None
         group_ids = set(comp_to_group.values())
         if len(group_ids) != 1:
+            _log.debug("common_group_for.result", result=None, reason="multiple_groups",
+                       group_ids=[str(i) for i in group_ids])
             return None  # components from different groups
         gid = next(iter(group_ids))
         # Check that ALL drag_ids are members of this group (recursively).
         all_members = all_component_ids(groups, gid)
         if comp_ids <= set(all_members):
+            _log.debug("common_group_for.result", result=str(gid))
             return gid
+        _log.debug("common_group_for.result", result=None, reason="not_all_members",
+                   missing=[str(i) for i in comp_ids - set(all_members)])
         return None
 
     def _update_drag_overlay(
@@ -1351,7 +1373,12 @@ class SelectTool(_Tool):
 
         active_gid = self._selected_group_id
         if active_gid is None:
+            _log.debug("build_group_drag.no_group")
             return []
+
+        _log.debug("build_group_drag.start",
+                   drag_ids=[str(i) for i in drag_ids],
+                   active_gid=str(active_gid))
 
         result = check_group_move_conflicts(
             moved_ids=drag_ids,
@@ -1364,18 +1391,35 @@ class SelectTool(_Tool):
             schematic=self._session.schematic,
         )
 
+        _log.info("build_group_drag.conflict_result",
+                  severity=result.severity.value,
+                  blocking_pads=[(p.x, p.y) for p in result.blocking_pad_positions],
+                  removable_wires=[str(i) for i in result.removable_wire_ids])
+
         if result.severity == MoveConflictSeverity.BLOCKED:
+            _log.info("build_group_drag.reverting",
+                      drag_ids=[str(i) for i in drag_ids],
+                      orig_positions={str(k): (v.x, v.y)
+                                      for k, v in self._drag_orig_positions.items()
+                                      if k in drag_ids})
             # Revert ALL group members atomically.
             for cid in drag_ids:
                 orig = self._drag_orig_positions.get(cid)
                 if orig is not None:
                     pl = self._session.layout.placements.get(cid)
                     if pl is not None:
+                        _log.debug("build_group_drag.revert_component",
+                                   cid=str(cid),
+                                   from_pos=(pl.position.x, pl.position.y),
+                                   to_pos=(orig.x, orig.y))
                         pl.position = orig
             # Revert internal wire paths.
+            reverted_wires = 0
             for wire in self._session.layout.wires:
                 if wire.id in self._drag_orig_wire_paths:
                     wire.path = list(self._drag_orig_wire_paths[wire.id])
+                    reverted_wires += 1
+            _log.info("build_group_drag.reverted", wires=reverted_wires)
             sb = getattr(self._view.window(), "statusBar", lambda: None)()
             if sb is not None:
                 sb.showMessage("Przesunięcie grupy zablokowane — konflikt sieci.", 4000)

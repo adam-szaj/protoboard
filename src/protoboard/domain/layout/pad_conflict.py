@@ -12,6 +12,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
+import structlog
+_log = structlog.get_logger(__name__)
+
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.geometry import Point
 
@@ -386,6 +389,10 @@ def check_group_move_conflicts(
     blocking_pads: list[Point] = []
     removable_ids: list[uuid.UUID] = []
 
+    _log.debug("group_move.check.start",
+               moved_ids=[str(i) for i in moved_ids],
+               active_group_id=str(active_group_id))
+
     # --- 1. Pad-on-pad conflicts for every moved component ---
     for comp_id in moved_ids:
         pl = layout_placements.get(comp_id)
@@ -405,10 +412,17 @@ def check_group_move_conflicts(
             schematic=schematic,
         )
         for c in conflicts:
+            _log.debug("group_move.pad_conflict",
+                       comp_id=str(comp_id),
+                       kind=c.kind.value,
+                       pos=(c.position.x, c.position.y),
+                       in_net=c.incoming_net_name,
+                       ex_net=c.existing_net_name)
             if c.kind == ConflictKind.DIFFERENT_NETS:
                 blocking_pads.append(c.position)
 
     if blocking_pads:
+        _log.info("group_move.blocked.pad", blocking_positions=[(p.x, p.y) for p in blocking_pads])
         return MoveConflictResult(
             severity=MoveConflictSeverity.BLOCKED,
             blocking_pad_positions=blocking_pads,
@@ -424,7 +438,10 @@ def check_group_move_conflicts(
         components=components,
         schematic=schematic,
     )
+    _log.debug("group_move.wire_crossings", count=len(crossing_ids),
+               wire_ids=[str(i) for i in crossing_ids])
     if not crossing_ids:
+        _log.debug("group_move.result", severity="CLEAR")
         return MoveConflictResult(
             severity=MoveConflictSeverity.CLEAR,
             blocking_pad_positions=[],
@@ -450,6 +467,7 @@ def check_group_move_conflicts(
             bbox = _compute_bbox(child_ids, layout_placements, instances, components)
             if bbox is not None:
                 subgroup_bboxes.append(bbox)
+    _log.debug("group_move.subgroup_bboxes", count=len(subgroup_bboxes), bboxes=subgroup_bboxes)
 
     for wire_id in crossing_ids:
         wire = next((w for w in layout_wires if w.id == wire_id), None)
@@ -459,7 +477,12 @@ def check_group_move_conflicts(
         is_subgroup_wire = any(
             _wire_is_internal_bbox(wire, bbox) for bbox in subgroup_bboxes
         )
+        _log.debug("group_move.wire_classify",
+                   wire_id=str(wire_id),
+                   is_subgroup_wire=is_subgroup_wire,
+                   path=[(p.x, p.y) for p in wire.path])
         if is_subgroup_wire:
+            _log.info("group_move.blocked.subgroup_wire", wire_id=str(wire_id))
             # Subgroup wire crossing → hard block
             return MoveConflictResult(
                 severity=MoveConflictSeverity.BLOCKED,
@@ -469,11 +492,14 @@ def check_group_move_conflicts(
         removable_ids.append(wire_id)
 
     if removable_ids:
+        _log.info("group_move.result", severity="REMOVABLE",
+                  removable_wire_ids=[str(i) for i in removable_ids])
         return MoveConflictResult(
             severity=MoveConflictSeverity.REMOVABLE,
             blocking_pad_positions=[],
             removable_wire_ids=removable_ids,
         )
+    _log.debug("group_move.result", severity="CLEAR")
     return MoveConflictResult(
         severity=MoveConflictSeverity.CLEAR,
         blocking_pad_positions=[],
