@@ -352,6 +352,97 @@ class SetWireSideCommand(Command[ComponentState]):
 
 
 @dataclass
+class FlipWireFragmentCommand(Command[ComponentState]):
+    """Flip a contiguous fragment of a wire to the opposite layer.
+
+    The fragment is identified by *start_idx* and *end_idx* (inclusive) in
+    the wire's current path.  If the fragment spans the whole wire, the wire's
+    ``side`` attribute is toggled and no splitting occurs.  Otherwise the
+    original wire is replaced by up to three new wires:
+
+    - prefix  : path[:start_idx+1]  on the original side  (omitted if start==0)
+    - middle  : path[start_idx:end_idx+1]  on the target side
+    - suffix  : path[end_idx:]  on the original side  (omitted if end==last)
+
+    Undo restores the original single wire.
+    """
+
+    wire_id: uuid.UUID
+    start_idx: int
+    end_idx: int
+    target_side: str  # "top" or "bottom"
+    # Filled on first apply for undo:
+    _original_wire: object = field(default=None, init=False, repr=False)
+    _added_ids: list[uuid.UUID] = field(default_factory=list, init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return f"Flip wire fragment to {self.target_side}"
+
+    def apply(self, state: ComponentState) -> None:
+        from protoboard.domain.layout.wire import WireSegment
+
+        wire: WireSegment | None = next(
+            (w for w in state.layout.wires if w.id == self.wire_id), None
+        )
+        if wire is None:
+            raise KeyError(f"Wire {self.wire_id} not found")
+
+        self._original_wire = wire
+        path = wire.path
+        start, end = self.start_idx, self.end_idx
+        original_side = wire.side
+
+        # Remove the original wire
+        state.layout.wires = [w for w in state.layout.wires if w.id != self.wire_id]
+        self._added_ids.clear()
+
+        if start == 0 and end == len(path) - 1:
+            # Whole wire — just change side, no split
+            new_wire = WireSegment(
+                id=self.wire_id,
+                path=list(path),
+                insulated=wire.insulated,
+                side=self.target_side,  # type: ignore[arg-type]
+                color=wire.color,
+            )
+            state.layout.wires.append(new_wire)
+            self._added_ids.append(new_wire.id)
+            return
+
+        # Split into up to 3 segments
+        segments: list[tuple[list, str]] = []
+        if start > 0:
+            segments.append((path[:start + 1], original_side))
+        segments.append((path[start:end + 1], self.target_side))
+        if end < len(path) - 1:
+            segments.append((path[end:], original_side))
+
+        for seg_path, seg_side in segments:
+            if len(seg_path) < 2:
+                continue
+            new_wire = WireSegment(
+                id=uuid.uuid4(),
+                path=list(seg_path),
+                insulated=wire.insulated,
+                side=seg_side,  # type: ignore[arg-type]
+                color=wire.color,
+            )
+            state.layout.wires.append(new_wire)
+            self._added_ids.append(new_wire.id)
+
+    def revert(self, state: ComponentState) -> None:
+        from protoboard.domain.layout.wire import WireSegment
+
+        # Remove added wires
+        added = set(self._added_ids)
+        state.layout.wires = [w for w in state.layout.wires if w.id not in added]
+        # Restore original
+        if self._original_wire is not None:
+            state.layout.wires.append(self._original_wire)  # type: ignore[arg-type]
+
+
+@dataclass
 class DisconnectPinCommand(Command[SchematicState]):
     """Remove a pin from its net. Deletes the net if it becomes empty."""
 

@@ -660,6 +660,8 @@ class SelectTool(_Tool):
                 self._cancel_wire_edit()
             elif key == Qt.Key.Key_A:
                 self._autoroute_wire_fragment()
+            elif key == Qt.Key.Key_F:
+                self._flip_wire_fragment()
             return
 
         ctrl  = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
@@ -868,6 +870,13 @@ class SelectTool(_Tool):
         act_side = menu.addAction(f"Move to {other_side} layer")
         act_side.setData(("side", other_side))
 
+        # Fragment flip — only available when a fragment is selected (start+end)
+        if (wire.id in target_ids and len(target_ids) == 1
+                and self._is_editing_wire()
+                and self._selected_wire_id == wire.id):
+            act_flip = menu.addAction(f"Flip fragment to {other_side} layer  [F]")
+            act_flip.setData(("flip_fragment", other_side))
+
         chosen = menu.exec(
             self._view.mapToGlobal(self._view.mapFromScene(scene_pt))
         )
@@ -875,6 +884,9 @@ class SelectTool(_Tool):
             return True
 
         action, value = chosen.data()
+        if action == "flip_fragment":
+            self._flip_wire_fragment()
+            return True
         raw_cmds: list[Command[ComponentState]]
         if action == "insulated":
             raw_cmds = [
@@ -2100,6 +2112,145 @@ class SelectTool(_Tool):
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
         self._select_wire(wire.id)
+
+    def _flip_wire_fragment(self) -> None:
+        """Flip the selected wire fragment to the opposite layer (F key).
+
+        Prerequisites:
+        - A single wire is selected (_selected_wire_id set).
+        - A fragment is marked (_edit_start_idx and _edit_end_idx both set).
+        - The fragment endpoints must lie on plated-through pads (vias) when
+          the fragment does not span the whole wire — otherwise layer change is
+          physically impossible.
+        - No pads occupied by a different net on the target layer.
+        - No existing wire on the target layer shares interior points with the
+          fragment.
+
+        On success executes FlipWireFragmentCommand (full undo/redo).
+        On failure shows a status-bar message and does nothing.
+        """
+        from PySide6.QtWidgets import QMessageBox
+        from protoboard.domain.commands.component_cmds import FlipWireFragmentCommand
+        from protoboard.domain.layout.wire_utils import (
+            board_pads_for_side,
+            plated_through_pads,
+        )
+        from protoboard.domain.layout.placement import pin_world_position
+
+        wire = self._get_selected_wire()
+        if wire is None or self._edit_start_idx is None or self._edit_end_idx is None:
+            return
+
+        start = self._edit_start_idx
+        end = self._edit_end_idx
+        path = wire.path
+        target_side: str = "bottom" if wire.side == "top" else "top"
+        fragment = path[start:end + 1]
+        is_whole_wire = (start == 0 and end == len(path) - 1)
+
+        session = self._session
+
+        # --- Check 1: endpoints must be plated-through if not whole wire ---
+        if not is_whole_wire:
+            vias = plated_through_pads(session.board)
+            for idx, label in ((start, "start"), (end, "end")):
+                pt = path[idx]
+                if pt not in vias:
+                    self._status_msg(
+                        f"Cannot flip: {label} point ({pt.x:.1f},{pt.y:.1f}) "
+                        f"is not a plated-through pad (via required for layer change)."
+                    )
+                    return
+
+        # --- Check 2: all fragment points must exist on target_side ---
+        target_pads = board_pads_for_side(session.board, target_side)
+        for pt in fragment:
+            if pt not in target_pads:
+                self._status_msg(
+                    f"Cannot flip: pad ({pt.x:.1f},{pt.y:.1f}) "
+                    f"is not available on {target_side} layer."
+                )
+                return
+
+        # --- Check 3: no pin of another net on target_side ---
+        # Build (Point, side) → net_id from placed component pins
+        pin_net: dict[tuple[float, float], "uuid.UUID | None"] = {}
+        for net in session.schematic.nets.values():
+            for ref in net.pins:
+                placement = session.layout.placements.get(ref.component_id)
+                if placement is None:
+                    continue
+                defn = session.components.get(
+                    session.instances[ref.component_id].definition_ref
+                )
+                if defn is None:
+                    continue
+                wp = pin_world_position(defn.footprint, placement, ref.pin_number)
+                pin_net[(wp.x, wp.y)] = net.id
+
+        # Determine which net this wire belongs to (if any)
+        wire_net_id: "uuid.UUID | None" = None
+        for net in session.schematic.nets.values():
+            for ref in net.pins:
+                placement = session.layout.placements.get(ref.component_id)
+                if placement is None:
+                    continue
+                defn = session.components.get(
+                    session.instances[ref.component_id].definition_ref
+                )
+                if defn is None:
+                    continue
+                wp = pin_world_position(defn.footprint, placement, ref.pin_number)
+                if any(abs(wp.x - p.x) < 1e-4 and abs(wp.y - p.y) < 1e-4
+                       for p in wire.path):
+                    wire_net_id = net.id
+                    break
+            if wire_net_id is not None:
+                break
+
+        for pt in fragment:
+            nid = pin_net.get((pt.x, pt.y))
+            if nid is not None and nid != wire_net_id:
+                self._status_msg(
+                    f"Cannot flip: pad ({pt.x:.1f},{pt.y:.1f}) is occupied "
+                    f"by a different net on {target_side} layer."
+                )
+                return
+
+        # --- Check 4: no existing wire on target_side overlaps interior points ---
+        interior = set(fragment[1:-1])
+        if interior:
+            for other in session.layout.wires:
+                if other.id == wire.id or other.side != target_side:
+                    continue
+                other_pts = set(other.path)
+                overlap = interior & other_pts
+                if overlap:
+                    pt = next(iter(overlap))
+                    self._status_msg(
+                        f"Cannot flip: interior point ({pt.x:.1f},{pt.y:.1f}) "
+                        f"is already occupied by another wire on {target_side}."
+                    )
+                    return
+
+        # --- All checks passed — execute ---
+        cmd = FlipWireFragmentCommand(
+            wire_id=wire.id,
+            start_idx=start,
+            end_idx=end,
+            target_side=target_side,
+        )
+        self._cancel_wire_edit()
+        self._session.stack.execute(cmd, self._session)
+        self._session.layout_changed.emit()
+        self._status_msg(f"Fragment flipped to {target_side} layer.")
+
+    def _status_msg(self, msg: str, timeout_ms: int = 4000) -> None:
+        """Show a message in the main window status bar."""
+        win = self._view.window()
+        status = getattr(win, "_status", None)
+        if status is not None:
+            status.showMessage(msg, timeout_ms)
 
     def _autoroute_wire_fragment(self) -> None:
         wire = self._get_selected_wire()

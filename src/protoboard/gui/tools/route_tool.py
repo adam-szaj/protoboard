@@ -102,9 +102,16 @@ class RouteTool(_Tool):
         if len(self._points) < 2:
             self._cancel()
             return
+        from protoboard.domain.layout.wire_utils import (
+            board_pads_for_side,
+            insert_pad_nodes,
+        )
+        raw_path = list(self._points)
+        pads = board_pads_for_side(self._session.board, self._side)
+        enriched_path = insert_pad_nodes(raw_path, pads)
         wire = WireSegment(
             id=uuid.uuid4(),
-            path=list(self._points),
+            path=enriched_path,
             insulated=self._insulated,
             side=self._side,  # type: ignore[arg-type]
         )
