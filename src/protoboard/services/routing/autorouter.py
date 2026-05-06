@@ -25,6 +25,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Literal
 
+import structlog
+
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.components.definition import ComponentDefinition
@@ -45,6 +47,8 @@ _DEFAULT_COST = RoutingCostModel(direction_change=1.0)
 
 # Sentinel net-id used for floating pins (not in any net).
 _FLOATING = uuid.UUID("00000000-0000-0000-0000-000000000002")
+
+_log = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -153,6 +157,15 @@ def autoroute(
     # Snapshot of user-placed wires — never mutated; each pass starts from here.
     user_wires: list[WireSegment] = list(layout.wires)
 
+    _log.info(
+        "autoroute.start",
+        nets=len(sorted_nets),
+        existing_wires=len(user_wires),
+        allow_layer_change=allow_layer_change,
+        max_optimize_iterations=max_optimize_iterations,
+        net_order=[n.name for n in sorted_nets],
+    )
+
     # --- Initial greedy pass ---
     current_wires, unrouted_names = _run_one_pass(
         sorted_nets=sorted_nets,
@@ -181,7 +194,7 @@ def autoroute(
 
     # --- Iterative optimization passes ---
     prev_fp = _wire_fingerprint(current_wires)
-    for _ in range(max_optimize_iterations):
+    for opt_iter in range(max_optimize_iterations):
         next_wires, _ = _run_one_pass(
             sorted_nets=sorted_nets,
             pin_positions=pin_positions,
@@ -203,11 +216,18 @@ def autoroute(
         new_fp = _wire_fingerprint(next_wires)
         current_wires = next_wires
         if new_fp == prev_fp:
+            _log.debug("autoroute.optimize.converged", iteration=opt_iter + 1)
             break
+        _log.debug("autoroute.optimize.improved", iteration=opt_iter + 1)
         prev_fp = new_fp
 
     result.wires = current_wires
     result.unrouted_nets = unrouted_names
+    _log.info(
+        "autoroute.done",
+        routed_wires=len(current_wires),
+        unrouted_nets=unrouted_names,
+    )
     return result
 
 
@@ -348,7 +368,19 @@ def _route_net(
     """Route all connections for *net*.  Returns new wires or None on failure."""
     placed_refs = [ref for ref in net.pins if ref in pin_positions]
     if len(placed_refs) < 2:
+        _log.debug("autoroute.net.skip", net=net.name, reason="fewer than 2 placed pins")
         return []
+
+    _log.debug(
+        "autoroute.net.start",
+        net=net.name,
+        pins=[
+            {"cid": str(r.component_id)[:8], "pin": r.pin_number,
+             "pos": f"({pin_positions[r][0].x},{pin_positions[r][0].y})",
+             "side": pin_positions[r][1]}
+            for r in placed_refs
+        ],
+    )
 
     net_id = net.id
     # Own-net pad positions on BOTH layers (plated-through hole).
@@ -433,6 +465,17 @@ def _route_net(
     connected_pts: list[tuple[Point, str]] = [(seed_pt, seed_side)]
     unconnected_refs: list[PinRef] = [r for r in placed_refs if r != best_seed]
 
+    _log.debug(
+        "autoroute.net.seed",
+        net=net.name,
+        seed_pin=best_seed.pin_number,
+        seed_cid=str(best_seed.component_id)[:8],
+        seed_pos=f"({seed_pt.x},{seed_pt.y})",
+        seed_side=seed_side,
+        closest_pair_dist=best_dist,
+    )
+
+    seg_index = 0
     while unconnected_refs:
         # Absorb any refs already physically connected (e.g. adjacent component pins).
         still_unconnected: list[PinRef] = []
@@ -445,6 +488,12 @@ def _route_net(
                         already = True
                         break
             if already:
+                _log.debug(
+                    "autoroute.net.already_connected",
+                    net=net.name,
+                    pin=ref.pin_number,
+                    cid=str(ref.component_id)[:8],
+                )
                 connected_refs.append(ref)
                 rpt, rside = pin_positions[ref]
                 connected_pts.append((rpt, rside))
@@ -475,6 +524,18 @@ def _route_net(
         unconnected_refs.remove(ref)
         target_pt, _ = pin_positions[ref]
 
+        _log.debug(
+            "autoroute.net.segment",
+            net=net.name,
+            seg=seg_index,
+            src_pos=f"({best_src_pt[0].x},{best_src_pt[0].y})",
+            src_side=best_src_pt[1],
+            tgt_pin=ref.pin_number,
+            tgt_cid=str(ref.component_id)[:8],
+            tgt_pos=f"({target_pt.x},{target_pt.y})",
+            pair_dist=best_pair_dist,
+        )
+
         routed_wires = _route_segment_with_ripup(
             source_options=[best_src_pt],
             target=target_pt,
@@ -496,7 +557,25 @@ def _route_net(
             under_component_penalty=under_component_penalty,
         )
         if routed_wires is None:
+            _log.warning(
+                "autoroute.net.segment_failed",
+                net=net.name,
+                seg=seg_index,
+                src_pos=f"({best_src_pt[0].x},{best_src_pt[0].y})",
+                tgt_pos=f"({target_pt.x},{target_pt.y})",
+            )
             return None
+        _log.debug(
+            "autoroute.net.segment_ok",
+            net=net.name,
+            seg=seg_index,
+            wires=[
+                {"side": w.side, "hops": len(w.path) - 1,
+                 "from": f"({w.path[0].x},{w.path[0].y})",
+                 "to": f"({w.path[-1].x},{w.path[-1].y})"}
+                for w in routed_wires
+            ],
+        )
         new_wires.extend(routed_wires)
         working_wires.extend(routed_wires)
         for w in routed_wires:
@@ -512,7 +591,14 @@ def _route_net(
         connected_refs.append(ref)
         rpt2, rside2 = pin_positions[ref]
         connected_pts.append((rpt2, rside2))
+        seg_index += 1
 
+    _log.debug(
+        "autoroute.net.done",
+        net=net.name,
+        new_wires=len(new_wires),
+        total_hops=sum(len(w.path) - 1 for w in new_wires),
+    )
     return new_wires
 
 
@@ -599,7 +685,29 @@ def _route_segment_with_ripup(
         if best is not None:
             path = _truncate_at_same_net_wire(best[1], cur_net_wire_points, target)
             wires = _path_to_wires(path, insulated)
+            _log.debug(
+                "autoroute.astar.ok",
+                attempt=attempt,
+                cost=round(best[0], 2),
+                path_pts=len(best[1]),
+                truncated=len(path) < len(best[1]),
+                result_wires=[
+                    {"side": w.side, "hops": len(w.path) - 1,
+                     "from": f"({w.path[0].x},{w.path[0].y})",
+                     "to": f"({w.path[-1].x},{w.path[-1].y})"}
+                    for w in wires
+                ],
+            )
             return wires
+
+        _log.debug(
+            "autoroute.astar.no_path",
+            attempt=attempt,
+            src=f"({source_options[0][0].x},{source_options[0][0].y})",
+            tgt=f"({target.x},{target.y})",
+            blocked_pads=len(combined_occupied),
+            near_pads=len(effective_near),
+        )
 
         if attempt >= max_rip_up_passes:
             break
@@ -612,7 +720,18 @@ def _route_segment_with_ripup(
             working_wires, nearest_source[0], target, additional_wires
         )
         if ripped is None:
+            _log.debug("autoroute.ripup.nothing_to_rip",
+                       src=f"({nearest_source[0].x},{nearest_source[0].y})",
+                       tgt=f"({target.x},{target.y})")
             break
+        _log.warning(
+            "autoroute.ripup",
+            attempt=attempt,
+            ripped_wire_id=str(ripped.id)[:8],
+            ripped_side=ripped.side,
+            ripped_from=f"({ripped.path[0].x},{ripped.path[0].y})",
+            ripped_to=f"({ripped.path[-1].x},{ripped.path[-1].y})",
+        )
         working_wires.remove(ripped)
 
     return None
