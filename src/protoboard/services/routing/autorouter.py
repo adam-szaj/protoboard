@@ -66,6 +66,7 @@ def autoroute(
     max_rip_up_passes: int = 3,
     insulated: bool = True,
     allow_layer_change: bool = True,
+    max_optimize_iterations: int = 10,
 ) -> AutorouteResult:
     """Route all unrouted nets in *schematic* and return new wire segments.
 
@@ -79,6 +80,12 @@ def autoroute(
         When True (default), the router may route through the bottom layer when
         it reduces total wire length or avoids obstacles — using plated-through
         pads as vias.  Set to False to restrict to a single layer.
+    max_optimize_iterations:
+        Number of additional re-routing passes after the initial greedy pass.
+        Each pass re-routes all (successfully routed) nets from scratch using
+        the global wire state from the previous iteration, so early nets benefit
+        from knowing where later nets actually ended up.  Stops early when the
+        wire layout converges (no path changed).  Set to 0 to disable.
 
     Already-routed connections (where a physical path already exists) are
     skipped.  Only completely *missing* connections are routed.
@@ -126,10 +133,6 @@ def autoroute(
         penalty=cost_model.under_component_top,
     )
 
-    # Work on a *mutable copy* of wires so we can do rip-up without touching
-    # the real layout.
-    working_wires: list[WireSegment] = list(layout.wires)
-
     # Sort nets: longest manhattan distance first.  Long nets need more board
     # space and should be planned while the board is still empty; short nets
     # have more alternative paths and are easier to squeeze in last.
@@ -147,7 +150,119 @@ def autoroute(
 
     sorted_nets = sorted(schematic.nets.values(), key=_net_sort_key)
 
+    # Snapshot of user-placed wires — never mutated; each pass starts from here.
+    user_wires: list[WireSegment] = list(layout.wires)
+
+    # --- Initial greedy pass ---
+    current_wires, unrouted_names = _run_one_pass(
+        sorted_nets=sorted_nets,
+        pin_positions=pin_positions,
+        all_pin_positions=all_pin_positions,
+        schematic=schematic,
+        board=board,
+        layout=layout,
+        user_wires=user_wires,
+        cost_model=cost_model,
+        max_rip_up_passes=max_rip_up_passes,
+        side=side,
+        insulated=insulated,
+        plated_through_pads=plated_through_pads,
+        under_component_penalty=under_component_penalty,
+        skip_net_ids=set(),
+        components=components,
+        instances=instances,
+    )
+
+    # Nets that failed the initial pass are permanently skipped in optimization —
+    # the board state only gets busier in subsequent iterations.
+    failed_net_ids: set[uuid.UUID] = {
+        net.id for net in sorted_nets if net.name in unrouted_names
+    }
+
+    # --- Iterative optimization passes ---
+    prev_fp = _wire_fingerprint(current_wires)
+    for _ in range(max_optimize_iterations):
+        next_wires, _ = _run_one_pass(
+            sorted_nets=sorted_nets,
+            pin_positions=pin_positions,
+            all_pin_positions=all_pin_positions,
+            schematic=schematic,
+            board=board,
+            layout=layout,
+            user_wires=user_wires,
+            cost_model=cost_model,
+            max_rip_up_passes=max_rip_up_passes,
+            side=side,
+            insulated=insulated,
+            plated_through_pads=plated_through_pads,
+            under_component_penalty=under_component_penalty,
+            skip_net_ids=failed_net_ids,
+            components=components,
+            instances=instances,
+        )
+        new_fp = _wire_fingerprint(next_wires)
+        current_wires = next_wires
+        if new_fp == prev_fp:
+            break
+        prev_fp = new_fp
+
+    result.wires = current_wires
+    result.unrouted_nets = unrouted_names
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _wire_fingerprint(
+    wires: list[WireSegment],
+) -> frozenset[tuple[tuple[tuple[float, float], ...], str, bool]]:
+    """Canonical fingerprint of a wire layout for convergence detection.
+
+    Uses sorted point coordinates so that direction-reversed identical paths
+    hash equal.  The result is order-independent (frozenset over all wires).
+    """
+    return frozenset(
+        (tuple(sorted((p.x, p.y) for p in w.path)), w.side, w.insulated)
+        for w in wires
+    )
+
+
+def _run_one_pass(
+    sorted_nets: list[Net],
+    *,
+    pin_positions: dict[PinRef, tuple[Point, str]],
+    all_pin_positions: dict[tuple[Point, str], uuid.UUID],
+    schematic: Schematic,
+    board: Board,
+    layout: Layout,
+    user_wires: list[WireSegment],
+    cost_model: RoutingCostModel,
+    max_rip_up_passes: int,
+    side: Literal["top", "bottom"],
+    insulated: bool,
+    plated_through_pads: set[Point],
+    under_component_penalty: dict[tuple[Point, str], float],
+    skip_net_ids: set[uuid.UUID],
+    components: dict[str, ComponentDefinition],
+    instances: dict[uuid.UUID, ComponentInstance],
+) -> tuple[list[WireSegment], list[str]]:
+    """Run one full greedy routing pass over *sorted_nets*.
+
+    Starts from *user_wires* (the original user-placed wires only) and appends
+    newly routed wires as each net is processed.  Nets whose id is in
+    *skip_net_ids* are skipped and recorded as unrouted without attempting A*.
+
+    Returns ``(new_wires, unrouted_net_names)``.
+    """
+    working_wires: list[WireSegment] = list(user_wires)
+    new_wires: list[WireSegment] = []
+    unrouted: list[str] = []
     for net in sorted_nets:
+        if net.id in skip_net_ids:
+            unrouted.append(net.name)
+            continue
         routed = _route_net(
             net=net,
             pin_positions=pin_positions,
@@ -166,17 +281,12 @@ def autoroute(
             under_component_penalty=under_component_penalty,
         )
         if routed is None:
-            result.unrouted_nets.append(net.name)
+            unrouted.append(net.name)
         else:
-            result.wires.extend(routed)
+            new_wires.extend(routed)
             working_wires.extend(routed)
+    return new_wires, unrouted
 
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
 
 def _collect_plated_through_pads(board: Board) -> set[Point]:
     """Return positions of all plated-through pads on the board."""

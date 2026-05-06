@@ -397,3 +397,174 @@ class TestAutorouter:
                 assert pt not in blocked_pts, (
                     f"Wire (side={wire.side}) passes through floating pin hole {pt}"
                 )
+
+
+class TestAutorouterOptimization:
+    """Tests for the iterative re-routing optimization pass."""
+
+    def test_zero_optimize_iterations_still_routes(self) -> None:
+        """max_optimize_iterations=0 disables optimization but routing must still work."""
+        board = _perfboard(5, 5)
+        defn = _sil2_def()
+        cid_a = uuid.uuid4()
+        cid_b = uuid.uuid4()
+        inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value="")
+        inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value="")
+        layout = Layout(placements={
+            cid_a: _place(cid_a, 0.5, 0.5),  # pin2=(1.5,0.5)
+            cid_b: _place(cid_b, 3.5, 0.5),  # pin1=(3.5,0.5)
+        })
+        ref_a2 = PinRef(component_id=cid_a, pin_number=2)
+        ref_b1 = PinRef(component_id=cid_b, pin_number=1)
+        net = Net(id=uuid.uuid4(), name="N1", pins={ref_a2, ref_b1})
+        schematic = Schematic(nets={net.id: net})
+        components = {"COMP": defn}
+        instances = {cid_a: inst_a, cid_b: inst_b}
+
+        result = autoroute(board, layout, schematic, components, instances,
+                           max_optimize_iterations=0)
+
+        assert result.unrouted_nets == []
+        assert len(result.wires) >= 1
+        wire = result.wires[0]
+        endpoints = {wire.path[0], wire.path[-1]}
+        assert Point(1.5, 0.5) in endpoints
+        assert Point(3.5, 0.5) in endpoints
+
+    def test_optimization_converges_trivial_board(self) -> None:
+        """On a simple open board, optimization must not change the wire endpoints.
+
+        A trivial two-pin net on an open board is already optimal after the
+        first pass; the optimization loop must converge immediately and return
+        the same logical connection.
+        """
+        board = _perfboard(5, 5)
+        defn = _sil2_def()
+        cid_a = uuid.uuid4()
+        cid_b = uuid.uuid4()
+        inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value="")
+        inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value="")
+        layout = Layout(placements={
+            cid_a: _place(cid_a, 0.5, 0.5),  # pin2=(1.5,0.5)
+            cid_b: _place(cid_b, 3.5, 0.5),  # pin1=(3.5,0.5)
+        })
+        ref_a2 = PinRef(component_id=cid_a, pin_number=2)
+        ref_b1 = PinRef(component_id=cid_b, pin_number=1)
+        net = Net(id=uuid.uuid4(), name="N1", pins={ref_a2, ref_b1})
+        schematic = Schematic(nets={net.id: net})
+        components = {"COMP": defn}
+        instances = {cid_a: inst_a, cid_b: inst_b}
+
+        result_no_opt = autoroute(board, layout, schematic, components, instances,
+                                  max_optimize_iterations=0)
+        result_opt = autoroute(board, layout, schematic, components, instances,
+                               max_optimize_iterations=10)
+
+        def endpoints(result: object) -> set[frozenset[Point]]:
+            from protoboard.services.routing.autorouter import AutorouteResult
+            assert isinstance(result, AutorouteResult)
+            return {frozenset([w.path[0], w.path[-1]]) for w in result.wires}
+
+        assert endpoints(result_no_opt) == endpoints(result_opt)
+        assert result_opt.unrouted_nets == []
+
+    def test_unrouted_net_stays_unrouted_through_optimization(self) -> None:
+        """A net that cannot be routed must appear exactly once in unrouted_nets.
+
+        Build a 1×3 board where the only path between pin A and pin B is through
+        a pin of a different net — impossible to route.  The optimization passes
+        must not retry the failed net and must not duplicate it in unrouted_nets.
+        """
+        board = _perfboard(1, 3)
+        defn = _sil2_def()
+        # Three components in a 1×3 board.
+        # pin positions (rot=90): pin1=(x,0.5), pin2=(x+1,0.5)
+        cid_a = uuid.uuid4()
+        cid_b = uuid.uuid4()
+        cid_c = uuid.uuid4()
+        inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value="")
+        inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value="")
+        inst_c = ComponentInstance(id=cid_c, definition_ref="COMP", refdes="R3", value="")
+        # pin1 on col 0.5, pin2 on col 1.5
+        # Arrange: R1-pin2=(0.5,0.5), blocker at (1.5,0.5), R2-pin1=(2.5,0.5)
+        layout = Layout(placements={
+            cid_a: ComponentPlacement(component_id=cid_a, position=Point(0.5, 0.5),
+                                      rotation=0, side="top"),   # pin1=(0.5,0.5)
+            cid_b: ComponentPlacement(component_id=cid_b, position=Point(1.5, 0.5),
+                                      rotation=0, side="top"),   # pin1=(1.5,0.5) — blocker
+            cid_c: ComponentPlacement(component_id=cid_c, position=Point(2.5, 0.5),
+                                      rotation=0, side="top"),   # pin1=(2.5,0.5)
+        })
+        ref_a1 = PinRef(component_id=cid_a, pin_number=1)  # (0.5, 0.5)
+        ref_c1 = PinRef(component_id=cid_c, pin_number=1)  # (2.5, 0.5)
+        ref_b1 = PinRef(component_id=cid_b, pin_number=1)  # (1.5, 0.5) blocker net
+
+        # BLOCKED_NET must route (0.5,0.5)→(2.5,0.5) but (1.5,0.5) is occupied by OTHER_NET
+        blocked_net = Net(id=uuid.uuid4(), name="BLOCKED_NET", pins={ref_a1, ref_c1})
+        other_net = Net(id=uuid.uuid4(), name="OTHER_NET", pins={ref_b1})
+        schematic = Schematic(nets={blocked_net.id: blocked_net, other_net.id: other_net})
+        components = {"COMP": defn}
+        instances = {cid_a: inst_a, cid_b: inst_b, cid_c: inst_c}
+
+        result = autoroute(board, layout, schematic, components, instances,
+                           max_optimize_iterations=10)
+
+        assert result.unrouted_nets.count("BLOCKED_NET") == 1
+
+    def test_optimization_reduces_or_maintains_wire_length(self) -> None:
+        """Optimization must not make total wire length worse.
+
+        On a board with two nets where early routing decisions interact with
+        corridor penalties, the iterative pass must produce wire paths that are
+        at most as long as the unoptimized single pass.
+
+        Three components, two nets:
+          NET1: R1-pin2=(1.5,0.5) → R3-pin1=(3.5,0.5)  (long horizontal)
+          NET2: R2-pin1=(2.5,0.5) → R2-pin2=(2.5,1.5)  (short vertical)
+        """
+        board = _perfboard(5, 6)
+        defn = _sil2_def()
+
+        # SIL2 rot=0 → vertical: pin1=(x,y), pin2=(x,y+1)
+        def _place_v(cid: uuid.UUID, x: float, y: float) -> ComponentPlacement:
+            return ComponentPlacement(
+                component_id=cid, position=Point(x, y), rotation=0, side="top"
+            )
+
+        cid_a, cid_b, cid_c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value="")
+        inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value="")
+        inst_c = ComponentInstance(id=cid_c, definition_ref="COMP", refdes="R3", value="")
+
+        layout = Layout(placements={
+            cid_a: _place(cid_a, 0.5, 0.5),   # pin1=(0.5,0.5) pin2=(1.5,0.5)
+            cid_b: _place_v(cid_b, 2.5, 0.5), # pin1=(2.5,0.5) pin2=(2.5,1.5)
+            cid_c: _place(cid_c, 2.5, 0.5),   # pin1=(2.5,0.5) pin2=(3.5,0.5) — shares col
+        })
+
+        # Use distinct pins so they don't collide in the net graph:
+        # NET1 connects R1-pin2 → R3-pin2
+        ref_a2 = PinRef(component_id=cid_a, pin_number=2)  # (1.5, 0.5)
+        ref_c2 = PinRef(component_id=cid_c, pin_number=2)  # (3.5, 0.5)
+        # NET2 connects R2-pin1 → R2-pin2 (same component, already adjacent — skipped)
+        ref_b1 = PinRef(component_id=cid_b, pin_number=1)  # (2.5, 0.5)
+        ref_b2 = PinRef(component_id=cid_b, pin_number=2)  # (2.5, 1.5)
+
+        net1 = Net(id=uuid.uuid4(), name="NET1", pins={ref_a2, ref_c2})
+        net2 = Net(id=uuid.uuid4(), name="NET2", pins={ref_b1, ref_b2})
+        schematic = Schematic(nets={net1.id: net1, net2.id: net2})
+        components = {"COMP": defn}
+        instances = {cid_a: inst_a, cid_b: inst_b, cid_c: inst_c}
+
+        def total_hops(result: object) -> int:
+            from protoboard.services.routing.autorouter import AutorouteResult
+            assert isinstance(result, AutorouteResult)
+            return sum(len(w.path) - 1 for w in result.wires)
+
+        result_no_opt = autoroute(board, layout, schematic, components, instances,
+                                  max_optimize_iterations=0)
+        result_opt = autoroute(board, layout, schematic, components, instances,
+                               max_optimize_iterations=5)
+
+        assert result_opt.unrouted_nets == []
+        assert total_hops(result_opt) <= total_hops(result_no_opt)
