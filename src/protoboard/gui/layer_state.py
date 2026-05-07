@@ -99,6 +99,8 @@ class LayerOverrides:
     labels_top:        LayerVisibility = LayerVisibility.AUTO
     labels_bottom:     LayerVisibility = LayerVisibility.AUTO
     board:             LayerVisibility = LayerVisibility.AUTO
+    pin_names:         LayerVisibility = LayerVisibility.AUTO
+    connectness:       LayerVisibility = LayerVisibility.AUTO
 
     def reset(self) -> None:
         """Reset all overrides to AUTO."""
@@ -181,6 +183,16 @@ class LayerState:
     def alpha_for_board(self) -> float:
         auto = self.board_ghost_alpha if self.ghost_components else 1.0
         return self._override_alpha(self.overrides.board, auto)
+
+    def alpha_for_pin_names(self, side: Literal["top", "bottom"]) -> float:
+        """Pin-name labels follow component alpha when AUTO."""
+        auto = self.alpha_for_component(side)
+        return self._override_alpha(self.overrides.pin_names, auto)
+
+    @property
+    def connectness_enabled(self) -> bool:
+        """True when connectivity highlighting is active (not explicitly hidden)."""
+        return self.overrides.connectness != LayerVisibility.HIDDEN
 
     # ------------------------------------------------------------------
     # Hit-testing

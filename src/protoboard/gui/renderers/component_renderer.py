@@ -64,6 +64,9 @@ def _group_alpha_map(
 _REFDES_FONT = QFont("monospace", 1)
 _REFDES_FONT.setPointSizeF(DEFAULT_THEME.refdes_font_size)
 
+_PIN_NAME_FONT = QFont("monospace", 1)
+_PIN_NAME_FONT.setPointSizeF(0.18)
+
 _DEFAULT_LAYERS = LayerState()
 
 
@@ -212,6 +215,23 @@ def _render_one(
         label.setPos(x0 + placement.label_offset.x, y0 + placement.label_offset.y)
     label.setZValue(z_label)
     scene.addItem(label)
+
+    # Pin-name labels (controlled by the pin_names layer).
+    alpha_pin_names = layers.alpha_for_pin_names(side) * group_alpha
+    if alpha_pin_names > 0.0 and defn.pin_names:
+        pin_name_color = QColor(theme.pin_label_fallback_color)
+        pin_name_color.setAlphaF(alpha_pin_names)
+        for pin_idx, pos in enumerate(positions):
+            pin_number = pin_idx + 1
+            name = defn.pin_names.get(pin_number)
+            if not name:
+                continue
+            pn_item = QGraphicsTextItem(name)
+            pn_item.setFont(_PIN_NAME_FONT)
+            pn_item.setDefaultTextColor(pin_name_color)
+            pn_item.setPos(pos.x + 0.18, pos.y - 0.28)
+            pn_item.setZValue(z_label + 0.1)
+            scene.addItem(pn_item)
 
 
 def _add_pin1_marker(

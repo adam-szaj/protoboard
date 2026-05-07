@@ -92,6 +92,12 @@ class BoardView(QGraphicsView):
         self._active_group_id = group_id
         self.refresh()
 
+    @property
+    def connectness_enabled(self) -> bool:
+        """True when the Connectness layer is not explicitly hidden."""
+        from protoboard.gui.layer_state import LayerVisibility
+        return self._layer_overrides.connectness != LayerVisibility.HIDDEN
+
     def set_theme(self, theme: object) -> None:
         from protoboard.gui.theme import Theme
         if isinstance(theme, Theme):

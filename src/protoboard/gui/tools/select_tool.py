@@ -126,6 +126,10 @@ class SelectTool(_Tool):
         # Live drag conflict overlay.
         from protoboard.gui.tools.drag_conflict_overlay import DragConflictOverlay
         self._drag_overlay = DragConflictOverlay()
+        # Connectivity highlight state.
+        self._highlight_net_id: uuid.UUID | None = None
+        self._highlight_comp_ids: set[uuid.UUID] = set()
+        self._highlight_items: list[QGraphicsItem] = []
 
     # ------------------------------------------------------------------
     # _Tool interface
@@ -160,6 +164,7 @@ class SelectTool(_Tool):
         self._edit_live_line = None
         self._rubber_band_item = None
         self._redrag_items = []  # scene wiped, items gone
+        self._highlight_items.clear()  # scene wiped — items are gone
         # Scene wiped — rerender overlay if drag is in progress.
         self._drag_overlay.rerender(self._view.scene() if self._view is not None else None)  # type: ignore[arg-type]
         # Redraw highlights after scene rebuild.
@@ -291,6 +296,14 @@ class SelectTool(_Tool):
             # Block interaction with components outside the active group context.
             if not self._is_accessible(hit):
                 return False
+            # Connectivity highlight: try pin-level hit first, fall back to body.
+            if self._view is not None and self._view.connectness_enabled:
+                pin_hit = self._hit_test_pin(scene_pt)
+                if pin_hit is not None:
+                    pin_comp_id, pin_number = pin_hit
+                    self._activate_net_highlight(pin_comp_id, pin_number)
+                else:
+                    self._activate_component_highlight(hit)
             # If the hit component is in a group that we haven't entered yet,
             # redirect the selection to that group's representative ID.
             hit = self._resolve_group_hit(hit)
@@ -397,11 +410,12 @@ class SelectTool(_Tool):
                     self._drag_orig_wire_paths[wire.id] = list(wire.path)
             return True
 
-        # Nothing hit — start rubber-band.
+        # Nothing hit — clear connectivity highlight and start rubber-band.
         self._cancel_wire_edit()
         self._clear_multi_selection()
         self._deselect()
         self._deselect_wire()
+        self._clear_connectivity_highlight()
         self._rubber_band_start = scene_pt
         return True
 
@@ -706,6 +720,7 @@ class SelectTool(_Tool):
                 self._clear_multi_selection()
                 self._deselect()
                 self._deselect_wire()
+                self._clear_connectivity_highlight()
 
     def on_key_release(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Control and not self._dragging:
@@ -2484,6 +2499,167 @@ class SelectTool(_Tool):
         win = self._view.window()
         panel = getattr(win, "_props_panel", None)
         return panel if isinstance(panel, PropertiesPanel) else None
+
+    # ------------------------------------------------------------------
+    # Connectivity highlight
+    # ------------------------------------------------------------------
+
+    def _hit_test_pin(
+        self, scene_pt: QPointF
+    ) -> tuple[uuid.UUID, int] | None:
+        """Return (comp_id, pin_number) if click lands within _HIT_RADIUS of a pin."""
+        session = self._session
+        best_d = _HIT_RADIUS
+        best: tuple[uuid.UUID, int] | None = None
+        camera = self._camera_side()
+        layers = self._layer_state()
+        for comp_id, placement in session.layout.placements.items():
+            side = placement.side  # type: ignore[assignment]
+            if layers.alpha_for_component(side) == 0.0:  # type: ignore[union-attr]
+                continue
+            inst = session.instances.get(comp_id)
+            if inst is None:
+                continue
+            defn = session.components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            for n in range(defn.footprint.pin_count()):
+                pos = pin_world_position(defn.footprint, placement, n + 1)
+                d = math.hypot(scene_pt.x() - pos.x, scene_pt.y() - pos.y)
+                # Prefer front-side pins.
+                effective_d = d if placement.side == camera else d + _HIT_RADIUS * 0.5
+                if effective_d < best_d:
+                    best_d = effective_d
+                    best = (comp_id, n + 1)
+        return best
+
+    def _activate_net_highlight(self, comp_id: uuid.UUID, pin_number: int) -> None:
+        """Highlight all pads and wires belonging to the net of the given pin."""
+        scene = self._view.scene() if self._view is not None else None
+        if scene is None:
+            return
+        session = self._session
+        from protoboard.domain.schematic.net import PinRef
+        from protoboard.gui.layer_state import Z_OVERLAY
+        self._clear_connectivity_highlight()
+
+        net = session.schematic.net_for_pin(PinRef(comp_id, pin_number))
+        if net is None:
+            return
+        self._highlight_net_id = net.id
+
+        # Highlight pads of all pins in the net.
+        for ref in net.pins:
+            pl = session.layout.placements.get(ref.component_id)
+            if pl is None:
+                continue
+            inst = session.instances.get(ref.component_id)
+            if inst is None:
+                continue
+            defn = session.components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            try:
+                pos = pin_world_position(defn.footprint, pl, ref.pin_number)
+            except (IndexError, ValueError):
+                continue
+            r = 0.24
+            circle = QGraphicsEllipseItem(QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r))
+            circle.setBrush(QBrush(QColor(255, 255, 0, 150)))
+            circle.setPen(QPen(QColor(255, 200, 0, 220), 0.05))
+            circle.setZValue(Z_OVERLAY + 1.0)
+            scene.addItem(circle)
+            self._highlight_items.append(circle)
+
+        # Highlight wires belonging to this net.
+        wire_net_map: dict[uuid.UUID, uuid.UUID] = {}
+        for wire in session.layout.wires:
+            for ref2 in net.pins:
+                if any(
+                    math.hypot(p.x - pos2.x, p.y - pos2.y) < 1e-4
+                    for p in wire.path
+                    for pos2 in self._pin_positions_for_ref(ref2)
+                ):
+                    wire_net_map[wire.id] = net.id
+                    break
+        for wire in session.layout.wires:
+            if wire.id not in wire_net_map:
+                continue
+            for i in range(len(wire.path) - 1):
+                a, b = wire.path[i], wire.path[i + 1]
+                line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
+                pen = QPen(QColor(255, 220, 0, 180), 0.25)
+                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                line.setPen(pen)
+                line.setZValue(Z_OVERLAY + 0.5)
+                scene.addItem(line)
+                self._highlight_items.append(line)
+
+    def _pin_positions_for_ref(self, ref: object) -> list[object]:
+        """Helper: get world positions for a PinRef."""
+        from protoboard.domain.schematic.net import PinRef
+        if not isinstance(ref, PinRef):
+            return []
+        pl = self._session.layout.placements.get(ref.component_id)
+        if pl is None:
+            return []
+        inst = self._session.instances.get(ref.component_id)
+        if inst is None:
+            return []
+        defn = self._session.components.get(inst.definition_ref)
+        if defn is None:
+            return []
+        try:
+            return [pin_world_position(defn.footprint, pl, ref.pin_number)]
+        except (IndexError, ValueError):
+            return []
+
+    def _activate_component_highlight(self, comp_id: uuid.UUID) -> None:
+        """Highlight bboxes of all components directly connected to comp_id."""
+        scene = self._view.scene() if self._view is not None else None
+        if scene is None:
+            return
+        session = self._session
+        from protoboard.domain.layout.placement import component_bbox
+        from protoboard.gui.layer_state import Z_OVERLAY
+        self._clear_connectivity_highlight()
+
+        # Collect connected component IDs (any shared net).
+        connected: set[uuid.UUID] = set()
+        for net in session.schematic.nets.values():
+            comp_ids_in_net = {pr.component_id for pr in net.pins}
+            if comp_id in comp_ids_in_net:
+                connected.update(comp_ids_in_net - {comp_id})
+
+        self._highlight_comp_ids = connected
+
+        for other_id in connected:
+            pl = session.layout.placements.get(other_id)
+            if pl is None:
+                continue
+            inst = session.instances.get(other_id)
+            if inst is None:
+                continue
+            defn = session.components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            bbox = component_bbox(defn.footprint, pl, defn.component_class.value)
+            rect = QGraphicsRectItem(QRectF(bbox.x, bbox.y, bbox.width, bbox.height))
+            rect.setPen(QPen(QColor(0, 255, 120, 210), 0.07))
+            rect.setBrush(QBrush(QColor(0, 255, 120, 25)))
+            rect.setZValue(Z_OVERLAY + 1.0)
+            scene.addItem(rect)
+            self._highlight_items.append(rect)
+
+    def _clear_connectivity_highlight(self) -> None:
+        """Remove all connectivity overlay items from the scene."""
+        scene = self._view.scene() if self._view is not None else None
+        if scene is not None:
+            for item in self._highlight_items:
+                scene.removeItem(item)
+        self._highlight_items.clear()
+        self._highlight_net_id = None
+        self._highlight_comp_ids = set()
 
 
 # ---------------------------------------------------------------------------

@@ -135,33 +135,83 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, layers_dock)
         self.tabifyDockWidget(props_dock, layers_dock)
 
-        # Toolbar — tools | analysis | view
-        toolbar = QToolBar("Tools", self)
-        toolbar.setMovable(False)
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+        # ── Toolbar: Tools ──────────────────────────────────────────────
+        tb_tools = QToolBar("Tools", self)
+        tb_tools.setMovable(False)
+        tb_tools.setObjectName("tb_tools")
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_tools)
 
-        act_select = toolbar.addAction("Select [S]")
-        act_route = toolbar.addAction("Route Wire [W]")
-        act_cut = toolbar.addAction("Cut Strip [C]")
-        toolbar.addSeparator()
-        act_drc = toolbar.addAction("DRC [F5]")
-        act_autoroute_tb = toolbar.addAction("Autoroute [F6]")
-        toolbar.addSeparator()
-        self._act_mirror_tb = toolbar.addAction("⟺H [H]")
-        self._act_mirror_tb.setCheckable(True)
-        self._act_mirror_v_tb = toolbar.addAction("⟺V [V]")
-        self._act_mirror_v_tb.setCheckable(True)
-        self._act_camera_tb = toolbar.addAction("⊙ Bottom [X]")
-        self._act_camera_tb.setCheckable(True)
-
+        act_select = tb_tools.addAction("Select [S]")
+        act_route  = tb_tools.addAction("Route Wire [W]")
+        act_cut    = tb_tools.addAction("Cut Strip [C]")
         act_select.triggered.connect(self._tool_select)
         act_route.triggered.connect(self._tool_route)
         act_cut.triggered.connect(self._tool_cut)
-        act_drc.triggered.connect(self._run_drc)
-        act_autoroute_tb.triggered.connect(self._autoroute)
+
+        # ── Toolbar: View ────────────────────────────────────────────────
+        tb_view = QToolBar("View", self)
+        tb_view.setMovable(False)
+        tb_view.setObjectName("tb_view")
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_view)
+
+        self._act_camera_tb = tb_view.addAction("⊙ Bottom [X]")
+        self._act_camera_tb.setCheckable(True)
+        self._act_mirror_tb = tb_view.addAction("⟺H [H]")
+        self._act_mirror_tb.setCheckable(True)
+        self._act_mirror_v_tb = tb_view.addAction("⟺V [V]")
+        self._act_mirror_v_tb.setCheckable(True)
+        self._act_camera_tb.triggered.connect(lambda: self._set_camera("toggle"))
         self._act_mirror_tb.triggered.connect(self._mirror_view)
         self._act_mirror_v_tb.triggered.connect(self._mirror_view_v)
-        self._act_camera_tb.triggered.connect(lambda: self._set_camera("toggle"))
+
+        # ── Toolbar: Wire ────────────────────────────────────────────────
+        tb_wire = QToolBar("Wire", self)
+        tb_wire.setMovable(True)
+        tb_wire.setObjectName("tb_wire")
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_wire)
+
+        self._act_tb_insulated = tb_wire.addAction("Ins [I]")
+        self._act_tb_insulated.setCheckable(True)
+        self._act_tb_insulated.setChecked(self._wire_insulated)
+        self._act_tb_top = tb_wire.addAction("Top [T]")
+        self._act_tb_top.setCheckable(True)
+        self._act_tb_top.setChecked(self._wire_side == "top")
+        self._act_tb_bottom = tb_wire.addAction("Bottom [B]")
+        self._act_tb_bottom.setCheckable(True)
+        self._act_tb_bottom.setChecked(self._wire_side == "bottom")
+        self._act_tb_insulated.triggered.connect(
+            lambda checked: self._set_wire_insulated(checked)
+        )
+        self._act_tb_top.triggered.connect(lambda: self._set_wire_side("top"))
+        self._act_tb_bottom.triggered.connect(lambda: self._set_wire_side("bottom"))
+
+        # ── Toolbar: Component ───────────────────────────────────────────
+        tb_comp = QToolBar("Component", self)
+        tb_comp.setMovable(True)
+        tb_comp.setObjectName("tb_comp")
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_comp)
+
+        act_comp_add = tb_comp.addAction("+ Add")
+        act_comp_del = tb_comp.addAction("− Del")
+        act_comp_cw  = tb_comp.addAction("↻ CW")
+        act_comp_ccw = tb_comp.addAction("↺ CCW")
+        act_comp_add.triggered.connect(self._focus_library_for_add)
+        act_comp_del.triggered.connect(self._delete_selection)
+        act_comp_cw.triggered.connect(self._rotate_cw)
+        act_comp_ccw.triggered.connect(self._rotate_ccw)
+
+        # ── Toolbar: Analysis ────────────────────────────────────────────
+        tb_analysis = QToolBar("Analysis", self)
+        tb_analysis.setMovable(False)
+        tb_analysis.setObjectName("tb_analysis")
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_analysis)
+
+        act_drc          = tb_analysis.addAction("DRC [F5]")
+        act_autoroute_tb = tb_analysis.addAction("Autoroute [F6]")
+        act_spread_tb    = tb_analysis.addAction("Spread")
+        act_drc.triggered.connect(self._run_drc)
+        act_autoroute_tb.triggered.connect(self._autoroute)
+        act_spread_tb.triggered.connect(self._spread_components)
 
         # Status bar.
         self._status = QStatusBar(self)
@@ -897,6 +947,7 @@ class MainWindow(QMainWindow):
     def _set_wire_insulated(self, insulated: bool) -> None:
         self._wire_insulated = insulated
         self._act_wire_insulated.setChecked(insulated)
+        self._act_tb_insulated.setChecked(insulated)
         tool = self._board_view._active_tool
         if isinstance(tool, RouteTool):
             tool._insulated = insulated
@@ -906,10 +957,22 @@ class MainWindow(QMainWindow):
         self._wire_side = side
         self._act_wire_top.setChecked(side == "top")
         self._act_wire_bottom.setChecked(side == "bottom")
+        self._act_tb_top.setChecked(side == "top")
+        self._act_tb_bottom.setChecked(side == "bottom")
         tool = self._board_view._active_tool
         if isinstance(tool, RouteTool):
             tool._side = side
             self._update_route_status(self._wire_insulated, side)
+
+    def _focus_library_for_add(self) -> None:
+        """Switch to library tab and focus search, so user can pick a component."""
+        # Find the left dock tab widget and switch to Library tab.
+        for child in self.findChildren(QTabWidget):
+            for i in range(child.count()):
+                if child.tabText(i) == "Library":
+                    child.setCurrentIndex(i)
+                    self._library_panel.setFocus()
+                    break
 
     def _update_route_status(self, insulated: bool, side: str) -> None:
         style = "Insulated" if insulated else "Bare"

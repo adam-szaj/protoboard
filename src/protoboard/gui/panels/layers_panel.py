@@ -25,6 +25,8 @@ _LAYER_DEFS = [
     ("labels_top",        "Labels Top",        "5"),
     ("labels_bottom",     "Labels Bottom",     "6"),
     ("board",             "Board",             "7"),
+    ("pin_names",         "Pin Names",         "8"),
+    ("connectness",       "Connectness",       "9"),
 ]
 
 # Background colours per visibility state.
