@@ -49,6 +49,7 @@ from protoboard.services.export.svg import export_svg
 from protoboard.services.kicad.exporter import KiCadNetlistExporter
 from protoboard.services.kicad.importer import ImportWarning, KiCadNetlistImporter
 from protoboard.services.placement.auto_placer import auto_place
+from protoboard.services.placement.spreader import spread_components
 from protoboard.services.persistence.project_yaml import load_project, save_project
 
 
@@ -183,6 +184,7 @@ class MainWindow(QMainWindow):
         # Signals.
         self._board_view.cursor_moved.connect(self._on_cursor_moved)
         self._board_view.escape_tool.connect(self._tool_select)
+        self._board_view.spread_requested.connect(self._spread_components)
         self._library_panel.component_selected.connect(self._tool_place)
         self._netlist_panel.instance_selected.connect(self._board_view.select_component)
         self._components_panel.instance_selected.connect(self._board_view.select_component)
@@ -526,6 +528,9 @@ class MainWindow(QMainWindow):
         act_autoroute.setShortcut(self._ks(KB.ACTION_AUTOROUTE))
         act_autoroute.triggered.connect(self._autoroute)
 
+        act_spread = tools_menu.addAction("S&pread Components")
+        act_spread.triggered.connect(self._spread_components)
+
         tools_menu.addSeparator()
 
         act_drc = tools_menu.addAction("Run &DRC")
@@ -800,6 +805,88 @@ class MainWindow(QMainWindow):
         self._status.showMessage(msg, 8000)
         if n_outside:
             QMessageBox.information(self, "Auto-place", msg)
+
+    def _spread_components(self) -> None:
+        """Spread placed components more evenly using force-directed relaxation."""
+        from typing import cast
+
+        from protoboard.domain.commands.base import Command, MacroCommand
+        from protoboard.domain.commands.component_cmds import (
+            ComponentState,
+            MoveComponentCommand,
+        )
+
+        tool = self._get_select_tool()
+        selected: set[uuid.UUID] = set()
+        if tool is not None:
+            selected.update(tool._selected_ids)
+            if tool._selected_id is not None:
+                selected.add(tool._selected_id)
+
+        if selected:
+            comp_ids = [
+                cid for cid in selected if cid in self._session.layout.placements
+            ]
+            scope_label = f"{len(comp_ids)} selected component"
+        else:
+            comp_ids = list(self._session.layout.placements.keys())
+            scope_label = f"all {len(comp_ids)} component"
+
+        if len(comp_ids) < 2:
+            self._status.showMessage(
+                "Need at least 2 placed components to spread.", 3000
+            )
+            return
+
+        result = spread_components(comp_ids, self._session)
+
+        if not result.moved_ids:
+            self._status.showMessage(
+                "Spread: components are already well-distributed.", 4000
+            )
+            return
+
+        cmds: list[Command[ComponentState]] = []
+        for cid in result.moved_ids:
+            old_pl = self._session.layout.placements[cid]
+            new_pl = result.new_placements[cid]
+            cmds.append(
+                cast(
+                    Command[ComponentState],
+                    MoveComponentCommand(
+                        component_id=cid,
+                        new_placement=new_pl,
+                        old_placement=old_pl.copy(),
+                        skip_conflict_check=True,
+                    ),
+                )
+            )
+
+        n = len(cmds)
+        macro: Command[ComponentState] = (
+            cmds[0]
+            if n == 1
+            else cast(
+                Command[ComponentState],
+                MacroCommand(
+                    commands=cmds,
+                    description=f"Spread {scope_label}{'s' if n != 1 else ''}",
+                ),
+            )
+        )
+
+        self._session.stack.execute(macro, self._session)
+        self._session.layout_changed.emit()
+        self._board_view.refresh()
+        self._update_stats()
+        self._update_undo_redo()
+
+        msg = f"Spread {n} component{'s' if n != 1 else ''}."
+        n_unchanged = len(result.unchanged_ids)
+        if n_unchanged:
+            msg += f" {n_unchanged} could not move (no free slot)."
+        msg += " Consider re-routing wires."
+        self._status.showMessage(msg, 6000)
 
     def _tool_route(self) -> None:
         self._board_view.set_tool(
