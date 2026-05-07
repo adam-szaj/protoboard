@@ -21,7 +21,10 @@ Multi-layer routing:
 
 from __future__ import annotations
 
+import threading
 import uuid
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -54,6 +57,15 @@ _log = structlog.get_logger(__name__)
 # Useful for diagnosing suboptimal paths; too noisy for normal use.
 _DEEP_DEBUG = False
 
+# Module-level thread pool for parallel A* side evaluation.
+# Shared across all autoroute calls; daemon threads so they don't block exit.
+import os as _os
+_ASTAR_POOL = ThreadPoolExecutor(max_workers=max(2, (_os.cpu_count() or 2)))
+
+
+class AutorouteCancelled(Exception):
+    """Raised when the cancel_flag is set during routing."""
+
 
 @dataclass
 class AutorouteResult:
@@ -76,6 +88,8 @@ def autoroute(
     allow_layer_change: bool = True,
     max_optimize_iterations: int = 10,
     preferred_side: Literal["top", "bottom"] = "bottom",
+    progress_callback: Callable[[int, str, int], None] | None = None,
+    cancel_flag: threading.Event | None = None,
 ) -> AutorouteResult:
     """Route all unrouted nets in *schematic* and return new wire segments.
 
@@ -176,6 +190,8 @@ def autoroute(
         net_order=[n.name for n in sorted_nets],
     )
 
+    n_nets = len(sorted_nets)
+
     # --- Initial greedy pass ---
     current_wires, unrouted_names = _run_one_pass(
         sorted_nets=sorted_nets,
@@ -195,6 +211,10 @@ def autoroute(
         components=components,
         instances=instances,
         preferred_side=preferred_side,
+        progress_callback=progress_callback,
+        cancel_flag=cancel_flag,
+        pass_num=0,
+        n_nets=n_nets,
     )
 
     # Nets that failed the initial pass are permanently skipped in optimization —
@@ -206,6 +226,8 @@ def autoroute(
     # --- Iterative optimization passes ---
     prev_fp = _wire_fingerprint(current_wires)
     for opt_iter in range(max_optimize_iterations):
+        if cancel_flag is not None and cancel_flag.is_set():
+            raise AutorouteCancelled
         next_wires, _ = _run_one_pass(
             sorted_nets=sorted_nets,
             pin_positions=pin_positions,
@@ -224,6 +246,10 @@ def autoroute(
             components=components,
             instances=instances,
             preferred_side=preferred_side,
+            progress_callback=progress_callback,
+            cancel_flag=cancel_flag,
+            pass_num=opt_iter + 1,
+            n_nets=n_nets,
         )
         new_fp = _wire_fingerprint(next_wires)
         current_wires = next_wires
@@ -282,6 +308,10 @@ def _run_one_pass(
     components: dict[str, ComponentDefinition],
     instances: dict[uuid.UUID, ComponentInstance],
     preferred_side: Literal["top", "bottom"] = "bottom",
+    progress_callback: Callable[[int, str, int], None] | None = None,
+    cancel_flag: threading.Event | None = None,
+    pass_num: int = 0,
+    n_nets: int = 0,
 ) -> tuple[list[WireSegment], list[str]]:
     """Run one full greedy routing pass over *sorted_nets*.
 
@@ -294,7 +324,12 @@ def _run_one_pass(
     working_wires: list[WireSegment] = list(user_wires)
     new_wires: list[WireSegment] = []
     unrouted: list[str] = []
-    for net in sorted_nets:
+    for net_idx, net in enumerate(sorted_nets):
+        if cancel_flag is not None and cancel_flag.is_set():
+            raise AutorouteCancelled
+        if progress_callback is not None and n_nets > 0:
+            pct = int(net_idx * 100 / n_nets)
+            progress_callback(pass_num, net.name, pct)
         if net.id in skip_net_ids:
             unrouted.append(net.name)
             continue
@@ -705,11 +740,51 @@ def _route_segment_with_ripup(
         # Try each source from both top and bottom so the router can pick the
         # globally cheapest path (e.g. straight bottom layer vs. top detour).
         # Tie-break: when two paths have equal cost, preferred_side wins.
+        # When two sides are available, run the two A* calls in parallel.
         best: tuple[float, list[PathStep]] | None = None
         best_is_preferred = False  # whether current best starts on preferred_side
         sides_to_try = ["top", "bottom"] if plated_through_pads else [source_options[0][1]]
+
+        def _astar_call(src_pt: Point, start_side: str) -> tuple[str, list]:  # type: ignore[type-arg]
+            return start_side, find_paths(
+                graph=graph,
+                source=src_pt,
+                targets=[target],
+                side=start_side,
+                cost_model=cost_model,
+                k=1,
+                insulated=insulated,
+                occupied_pads=combined_occupied,
+                same_net_pads=same_net_pins,
+                near_pin_pads=effective_near,
+                near_pin_cost=10.0,
+                bare_wire_segments=bare_segs,
+                plated_through_pads=plated_through_pads,
+                penalised_pads=under_component_penalty,
+            )
+
         for src_pt, _src_side in source_options:
-            for start_side in sides_to_try:
+            if len(sides_to_try) > 1:
+                # Run both sides in parallel and pick the cheaper result.
+                futures = {
+                    _ASTAR_POOL.submit(_astar_call, src_pt, s): s
+                    for s in sides_to_try
+                }
+                for fut in as_completed(futures):
+                    start_side, results = fut.result()
+                    if not results:
+                        continue
+                    cost = results[0].cost
+                    is_preferred = start_side == preferred_side
+                    if (
+                        best is None
+                        or cost < best[0]
+                        or (cost == best[0] and is_preferred and not best_is_preferred)
+                    ):
+                        best = (cost, results[0].path)
+                        best_is_preferred = is_preferred
+            else:
+                start_side = sides_to_try[0]
                 results = find_paths(
                     graph=graph,
                     source=src_pt,
@@ -726,17 +801,16 @@ def _route_segment_with_ripup(
                     plated_through_pads=plated_through_pads,
                     penalised_pads=under_component_penalty,
                 )
-                if not results:
-                    continue
-                cost = results[0].cost
-                is_preferred = start_side == preferred_side
-                if (
-                    best is None
-                    or cost < best[0]
-                    or (cost == best[0] and is_preferred and not best_is_preferred)
-                ):
-                    best = (cost, results[0].path)
-                    best_is_preferred = is_preferred
+                if results:
+                    cost = results[0].cost
+                    is_preferred = start_side == preferred_side
+                    if (
+                        best is None
+                        or cost < best[0]
+                        or (cost == best[0] and is_preferred and not best_is_preferred)
+                    ):
+                        best = (cost, results[0].path)
+                        best_is_preferred = is_preferred
         if best is not None:
             path = _truncate_at_same_net_wire(best[1], cur_net_wire_points, target)
             wires = _path_to_wires(path, insulated)

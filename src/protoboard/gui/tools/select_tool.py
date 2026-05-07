@@ -516,7 +516,7 @@ class SelectTool(_Tool):
                     Point(p.x + _delta.x, p.y + _delta.y) for p in orig_path
                 ]
 
-            self._session.layout_changed.emit()
+            self._session.drag_moved.emit()
             self._update_drag_overlay(drag_ids, snapped)
             return
 

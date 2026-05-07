@@ -1396,28 +1396,57 @@ class MainWindow(QMainWindow):
         self._update_undo_redo()
 
     def _autoroute(self) -> None:
-        """Run full-netlist autorouter and add resulting wires to the layout."""
-        from protoboard.domain.commands.base import MacroCommand
-        from protoboard.domain.commands.component_cmds import AddWireCommand
-        from protoboard.services.routing.autorouter import autoroute
+        """Start the autorouter in a background thread with a progress dialog."""
+        from protoboard.gui.workers.autoroute_worker import AutorouteWorker
+        from PySide6.QtWidgets import QProgressDialog
 
         if not self._session.schematic.nets:
             QMessageBox.information(self, "Autoroute", "No nets to route.")
             return
 
-        rs = self._session.routing_settings
-        result = autoroute(
+        dlg = QProgressDialog("Initialising autorouter…", "Cancel", 0, 100, self)
+        dlg.setWindowTitle("Autoroute")
+        dlg.setWindowModality(Qt.WindowModality.WindowModal)
+        dlg.setMinimumDuration(300)
+        dlg.setValue(0)
+
+        worker = AutorouteWorker(
             board=self._session.board,
             layout=self._session.layout,
             schematic=self._session.schematic,
             components=self._session.components,
             instances=self._session.instances,
-            cost_model=rs.cost_model(),
-            preferred_side=rs.preferred_side,
-            allow_layer_change=rs.allow_layer_change,
-            max_rip_up_passes=rs.max_rip_up_passes,
-            max_optimize_iterations=rs.max_optimize_iterations,
+            routing_settings=self._session.routing_settings,
+            parent=self,
         )
+
+        def _on_progress(pass_num: int, net_name: str, pct: int) -> None:
+            if dlg.wasCanceled():
+                return
+            label = f"Pass {pass_num + 1} — routing {net_name}…"
+            dlg.setLabelText(label)
+            dlg.setValue(pct)
+
+        worker.progress.connect(_on_progress)
+        worker.finished.connect(self._on_autoroute_done)
+        worker.finished.connect(dlg.close)
+        worker.error.connect(
+            lambda msg: QMessageBox.critical(self, "Autoroute error", msg)
+        )
+        worker.error.connect(dlg.close)
+        dlg.canceled.connect(worker.cancel)
+
+        worker.start()
+
+    def _on_autoroute_done(self, result: object) -> None:
+        """Apply autoroute result to the session (called on the main thread)."""
+        from protoboard.services.routing.autorouter import AutorouteResult
+        from protoboard.domain.commands.base import Command, MacroCommand
+        from protoboard.domain.commands.component_cmds import AddWireCommand, ComponentState
+        from typing import cast
+
+        if not isinstance(result, AutorouteResult):
+            return
 
         if not result.wires and not result.unrouted_nets:
             QMessageBox.information(
@@ -1426,10 +1455,7 @@ class MainWindow(QMainWindow):
             return
 
         if result.wires:
-            from typing import cast
             cmds = [cast(object, AddWireCommand(wire=w)) for w in result.wires]
-            from protoboard.domain.commands.base import Command
-            from protoboard.domain.commands.component_cmds import ComponentState
             macro: MacroCommand[ComponentState] = MacroCommand(
                 commands=[cast(Command[ComponentState], c) for c in cmds],
                 description=f"Autoroute ({len(result.wires)} wires)",
@@ -1438,6 +1464,10 @@ class MainWindow(QMainWindow):
             self._session.mark_dirty()
             self._board_view.refresh()
             self._update_undo_redo()
+
+        if not result.wires:
+            # Cancelled — no message
+            return
 
         msg = f"Autorouted {len(result.wires)} wire(s)."
         if result.unrouted_nets:

@@ -30,6 +30,7 @@ class EditorSession(QObject):
     """Central state for one open project."""
 
     layout_changed = Signal()
+    drag_moved = Signal()       # emitted on every drag step; does NOT trigger panels/DRC
     drc_changed = Signal(list)  # list[DRCIssue]
     dirty_changed = Signal(bool)
 

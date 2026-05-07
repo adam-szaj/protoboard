@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import math
+import time
 import uuid
+
+_DRAG_REFRESH_INTERVAL = 0.033  # 30 fps max during live drag
 
 from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
@@ -69,7 +72,9 @@ class BoardView(QGraphicsView):
         # Theme — overridden by MainWindow after Preferences apply.
         from protoboard.gui.theme import Theme
         self._theme_override: Theme | None = None
+        self._last_drag_refresh: float = 0.0
         session.layout_changed.connect(self.refresh)
+        session.drag_moved.connect(self._on_drag_moved)
 
     # ------------------------------------------------------------------
     # Public
@@ -90,6 +95,14 @@ class BoardView(QGraphicsView):
     def set_active_group(self, group_id: uuid.UUID) -> None:
         """Called by SelectTool on group navigation to trigger a re-render."""
         self._active_group_id = group_id
+        self.refresh()
+
+    def _on_drag_moved(self) -> None:
+        """Throttled refresh for live drag — at most 30 fps, no panel updates."""
+        now = time.monotonic()
+        if now - self._last_drag_refresh < _DRAG_REFRESH_INTERVAL:
+            return
+        self._last_drag_refresh = now
         self.refresh()
 
     @property
@@ -190,6 +203,7 @@ class BoardView(QGraphicsView):
             self._active_tool = None
         self._session = session
         session.layout_changed.connect(self.refresh)
+        session.drag_moved.connect(self._on_drag_moved)
         self.refresh()
 
     def set_tool(self, tool: _Tool | None) -> None:

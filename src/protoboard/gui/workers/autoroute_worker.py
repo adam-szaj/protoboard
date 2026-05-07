@@ -1,0 +1,110 @@
+# SPDX-License-Identifier: MIT
+"""Background QThread worker for the autorouter."""
+
+from __future__ import annotations
+
+import threading
+import uuid
+from typing import TYPE_CHECKING
+
+from PySide6.QtCore import QThread, Signal
+
+if TYPE_CHECKING:
+    from protoboard.domain.board.board import Board
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.layout.layout import Layout
+    from protoboard.domain.routing_settings import RoutingSettings
+    from protoboard.domain.schematic.schematic import Schematic
+    from protoboard.services.routing.autorouter import AutorouteResult
+
+
+class AutorouteWorker(QThread):
+    """Runs :func:`autoroute` in a background thread.
+
+    Signals
+    -------
+    progress(pass_num, net_name, pct)
+        Emitted at the start of each net being routed.
+        ``pct`` is 0–100 across the current pass.
+    finished(result)
+        Emitted on successful completion with an :class:`AutorouteResult`.
+    error(message)
+        Emitted if an unexpected exception occurs.
+    """
+
+    progress: Signal = Signal(int, str, int)   # pass_num, net_name, pct
+    finished: Signal = Signal(object)          # AutorouteResult
+    error: Signal = Signal(str)
+
+    def __init__(
+        self,
+        *,
+        board: Board,
+        layout: Layout,
+        schematic: Schematic,
+        components: dict[str, ComponentDefinition],
+        instances: dict[uuid.UUID, ComponentInstance],
+        routing_settings: RoutingSettings,
+        parent: object = None,
+    ) -> None:
+        super().__init__(parent)  # type: ignore[call-arg]
+        # Snapshot read-only inputs — the worker thread must not touch the
+        # live session while routing.
+        self._board = board
+        self._layout = layout
+        self._schematic = schematic
+        self._components = components
+        self._instances = instances
+        self._rs = routing_settings
+        self._cancel_flag = threading.Event()
+
+    # ------------------------------------------------------------------
+    # Public
+    # ------------------------------------------------------------------
+
+    def cancel(self) -> None:
+        """Signal the worker to stop at the next cancellation checkpoint."""
+        self._cancel_flag.set()
+
+    # ------------------------------------------------------------------
+    # QThread
+    # ------------------------------------------------------------------
+
+    def run(self) -> None:
+        from protoboard.services.routing.autorouter import autoroute, AutorouteCancelled
+
+        try:
+            rs = self._rs
+            result: AutorouteResult = autoroute(
+                board=self._board,
+                layout=self._layout,
+                schematic=self._schematic,
+                components=self._components,
+                instances=self._instances,
+                cost_model=rs.cost_model(),
+                preferred_side=rs.preferred_side,
+                allow_layer_change=rs.allow_layer_change,
+                max_rip_up_passes=rs.max_rip_up_passes,
+                max_optimize_iterations=rs.max_optimize_iterations,
+                progress_callback=self._report,
+                cancel_flag=self._cancel_flag,
+            )
+        except AutorouteCancelled:
+            # Return empty result — caller interprets as user cancellation.
+            from protoboard.services.routing.autorouter import AutorouteResult
+            self.finished.emit(AutorouteResult())
+            return
+        except Exception as exc:  # noqa: BLE001
+            self.error.emit(str(exc))
+            return
+
+        self.finished.emit(result)
+
+    # ------------------------------------------------------------------
+    # Private
+    # ------------------------------------------------------------------
+
+    def _report(self, pass_num: int, net_name: str, pct: int) -> None:
+        """Called from the worker thread — emits cross-thread signal."""
+        self.progress.emit(pass_num, net_name, pct)
