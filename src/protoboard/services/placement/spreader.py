@@ -1,15 +1,25 @@
 # SPDX-License-Identifier: MIT
-"""Force-directed component spreader.
+"""Grid-cell component spreader.
 
 Two-phase algorithm:
-  Phase 1 — Force-directed relaxation in continuous space.  Spring attraction
-             between net-connected mobile component pairs and mutual repulsion
-             between all mobile pairs.  Fixed (unselected) components contribute
-             one-directional anchor pulls only.
+  Phase 1 — Grid-cell assignment.  The board is divided into N equal cells
+             (one per mobile component).  Components are assigned to cells so
+             that net-connected pairs land in adjacent or nearby cells.
+             Assignment is done via a greedy BFS walk ordered by net-degree:
+             the most-connected component is placed first at the cell nearest
+             its current position; each subsequent component claims the nearest
+             free cell to its already-assigned net-neighbours.  The centre of
+             the assigned cell becomes the ideal target for Phase 2.
 
   Phase 2 — Greedy snap to discrete pad grid.  Each component's ideal float
-             position from Phase 1 is mapped to the nearest valid board pad
-             with no body collisions, using the same slot-finder as auto_placer.
+             position is mapped to the nearest valid board pad with no body
+             collisions, reusing _find_free_slot from auto_placer.
+
+Why grid-cell assignment beats force-directed for uniform distribution:
+  Force-directed has a well-known clustering problem — repulsion decays as
+  1/d², so pairs far apart barely feel each other and naturally form groups.
+  Grid cells give every component an exclusive zone by construction, so the
+  result is always evenly distributed regardless of the number of components.
 
 User decisions preserved:
   - Rotation: never changed.
@@ -30,27 +40,13 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import (
-    ComponentPlacement,
-    component_bbox,
-    pin_world_position,
-)
+from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire_utils import board_pads_for_side
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect
-from protoboard.services.placement.auto_placer import _find_free_slot, _has_collision
+from protoboard.services.placement.auto_placer import _find_free_slot
 
 _log = structlog.get_logger(__name__)
-
-# ---------------------------------------------------------------------------
-# Tuning constants
-# ---------------------------------------------------------------------------
-
-_SPRING_K: float = 0.15        # spring attraction coefficient
-_REPULSE_K: float = 3.0        # repulsion coefficient
-_NEUTRAL_ZONE: float = 2.0     # RU — no spring attraction within this distance
-_MIN_REPULSE_DIST: float = 0.5 # RU — clamp to avoid singularity
-_ANCHOR_K: float = 0.08        # one-sided pull toward fixed net-neighbors
 
 
 # ---------------------------------------------------------------------------
@@ -85,22 +81,16 @@ class SpreadState(Protocol):
 def spread_components(
     component_ids: list[uuid.UUID],
     session: SpreadState,
-    max_iterations: int = 200,
-    temperature: float = 1.0,
-    max_net_distance: float = 16.0,
 ) -> SpreadResult:
-    """Spread *component_ids* more evenly using force-directed relaxation.
+    """Spread *component_ids* evenly using grid-cell assignment.
+
+    The board is divided into N equal cells (one per mobile component).
+    Net-connected components are assigned to adjacent cells.  The centre of
+    each assigned cell becomes the snap target for Phase 2.
 
     Components NOT in *component_ids* that are already placed are treated as
     immovable obstacles during the snap phase.  Rotations and sides are never
     changed.
-
-    Args:
-        component_ids: UUIDs of placed components to spread.
-        session: Editor session providing board, layout, schematic, etc.
-        max_iterations: Force simulation steps (Phase 1).
-        temperature: Initial force scale; decays linearly to 0.
-        max_net_distance: Spring force is disabled beyond this distance (RU).
 
     Returns:
         :class:`SpreadResult` with ``new_placements``, ``moved_ids``, and
@@ -122,50 +112,33 @@ def spread_components(
         return SpreadResult()
 
     # Fixed obstacles: placed but not being spread.
+    mobile_set = set(mobile_ids)
     fixed: dict[uuid.UUID, tuple[ComponentPlacement, ComponentDefinition]] = {}
     for cid, pl in session.layout.placements.items():
-        if cid in set(mobile_ids):
+        if cid in mobile_set:
             continue
         inst = session.instances.get(cid)
         defn = session.components.get(inst.definition_ref) if inst else None
         if defn is not None:
             fixed[cid] = (pl, defn)
 
-    # Separate board-pads per side so bottom-side components use correct pads.
     pads_top: set[Point] = board_pads_for_side(session.board, "top")
     pads_bottom: set[Point] = board_pads_for_side(session.board, "bottom")
-
-    net_graph = _build_net_graph(set(mobile_ids), session.schematic)
-    anchors = _anchor_forces_map(set(mobile_ids), fixed, session)
-
-    # Starting positions: current placement positions (float).
-    positions: dict[uuid.UUID, Point] = {
-        cid: session.layout.placements[cid].position for cid in mobile_ids
-    }
-
-    # Bbox radii for repulsion distance correction.
-    bbox_radii: dict[uuid.UUID, float] = {
-        cid: _bbox_radius(cid, session, session.layout.placements[cid])
-        for cid in mobile_ids
-    }
-
     board_bounds = session.board.bounds
 
-    # Phase 1 — force simulation.
-    positions = _run_force_simulation(
-        positions=positions,
+    net_graph = _build_net_graph(mobile_set, session.schematic)
+
+    # Phase 1 — assign each component a unique grid cell.
+    ideal_positions = _assign_grid_cells(
+        mobile_ids=mobile_ids,
         net_graph=net_graph,
-        anchor_pulls=anchors,
-        bbox_radii=bbox_radii,
+        current_positions={cid: session.layout.placements[cid].position for cid in mobile_ids},
         board_bounds=board_bounds,
-        max_iterations=max_iterations,
-        temperature=temperature,
-        max_net_distance=max_net_distance,
     )
 
     # Phase 2 — snap to discrete pad grid.
     new_placements = _snap_to_grid(
-        ideal_positions=positions,
+        ideal_positions=ideal_positions,
         mobile_ids=mobile_ids,
         original_placements={cid: session.layout.placements[cid] for cid in mobile_ids},
         fixed_obstacles=fixed,
@@ -187,100 +160,84 @@ def spread_components(
 
 
 # ---------------------------------------------------------------------------
-# Phase 1 — Force-directed relaxation
+# Phase 1 — Grid-cell assignment
 # ---------------------------------------------------------------------------
 
 
-def _run_force_simulation(
-    positions: dict[uuid.UUID, Point],
+def _assign_grid_cells(
+    mobile_ids: list[uuid.UUID],
     net_graph: dict[uuid.UUID, dict[uuid.UUID, float]],
-    anchor_pulls: dict[uuid.UUID, list[Point]],
-    bbox_radii: dict[uuid.UUID, float],
+    current_positions: dict[uuid.UUID, Point],
     board_bounds: Rect,
-    max_iterations: int,
-    temperature: float,
-    max_net_distance: float,
 ) -> dict[uuid.UUID, Point]:
-    """Return positions after force-directed relaxation (pure function)."""
-    comp_ids = list(positions.keys())
-    n = len(comp_ids)
-    # Work with mutable lists for speed.
-    xs = [positions[c].x for c in comp_ids]
-    ys = [positions[c].y for c in comp_ids]
-    idx = {c: i for i, c in enumerate(comp_ids)}
-    radii = [bbox_radii.get(c, 0.5) for c in comp_ids]
+    """Assign each component a unique grid cell; return cell-centre targets.
 
-    bx, by = board_bounds.x, board_bounds.y
-    bw, bh = board_bounds.width, board_bounds.height
+    The board is divided into a grid with as many cells as there are mobile
+    components.  Cells are laid out in a rectangle whose aspect ratio matches
+    the board.
 
-    for iteration in range(max_iterations):
-        t = temperature * (1.0 - iteration / max_iterations)
-        fx = [0.0] * n
-        fy = [0.0] * n
+    Assignment strategy (greedy BFS by net-degree):
+    1. Sort components by net-degree descending — most-connected goes first.
+    2. The first component claims the cell nearest its current position.
+    3. Each subsequent unassigned component claims the free cell nearest the
+       centroid of already-assigned net-neighbours (gravity), falling back to
+       the free cell nearest its own current position.
+    """
+    n = len(mobile_ids)
 
-        # Repulsion between all mobile pairs.
-        for i in range(n):
-            for j in range(i + 1, n):
-                dx = xs[j] - xs[i]
-                dy = ys[j] - ys[i]
-                dist = math.hypot(dx, dy)
-                effective = max(_MIN_REPULSE_DIST, dist - radii[i] - radii[j])
-                f = _REPULSE_K / (effective * effective)
-                if dist < 1e-6:
-                    # Exactly coincident: push in a deterministic direction.
-                    dx, dy = 1.0, 0.0
-                    dist = 1.0
-                ux, uy = dx / dist, dy / dist
-                fx[i] -= f * ux
-                fy[i] -= f * uy
-                fx[j] += f * ux
-                fy[j] += f * uy
+    # Compute grid dimensions matching board aspect ratio.
+    aspect = board_bounds.width / max(board_bounds.height, 1e-6)
+    cols = max(1, round(math.sqrt(n * aspect)))
+    rows = max(1, math.ceil(n / cols))
+    # Ensure we have at least n cells.
+    while rows * cols < n:
+        cols += 1
 
-        # Spring attraction between net-connected mobile pairs.
-        for ci, neighbors in net_graph.items():
-            i = idx[ci]
-            for cj, weight in neighbors.items():
-                if cj not in idx:
-                    continue
-                j = idx[cj]
-                if j <= i:
-                    continue  # avoid double-counting
-                dx = xs[j] - xs[i]
-                dy = ys[j] - ys[i]
-                dist = math.hypot(dx, dy)
-                if dist < 1e-6 or dist <= _NEUTRAL_ZONE or dist > max_net_distance:
-                    continue
-                pull = _SPRING_K * weight * (dist - _NEUTRAL_ZONE)
-                ux, uy = dx / dist, dy / dist
-                fx[i] += pull * ux
-                fy[i] += pull * uy
-                fx[j] -= pull * ux
-                fy[j] -= pull * uy
+    cell_w = board_bounds.width / cols
+    cell_h = board_bounds.height / rows
 
-        # Anchor pull toward fixed net-neighbors.
-        for ci, anchor_pts in anchor_pulls.items():
-            i = idx.get(ci)
-            if i is None or not anchor_pts:
-                continue
-            for apt in anchor_pts:
-                dx = apt.x - xs[i]
-                dy = apt.y - ys[i]
-                dist = math.hypot(dx, dy)
-                if dist < 1e-6 or dist <= _NEUTRAL_ZONE:
-                    continue
-                pull = _ANCHOR_K * (dist - _NEUTRAL_ZONE)
-                ux, uy = dx / dist, dy / dist
-                fx[i] += pull * ux
-                fy[i] += pull * uy
+    # Pre-compute all cell centres (row-major).
+    all_cells: list[Point] = []
+    for r in range(rows):
+        for c in range(cols):
+            cx = board_bounds.x + (c + 0.5) * cell_w
+            cy = board_bounds.y + (r + 0.5) * cell_h
+            all_cells.append(Point(cx, cy))
 
-        # Apply forces with temperature cooling + board boundary clamping.
-        for i in range(n):
-            new_x = xs[i] + fx[i] * t
-            new_y = ys[i] + fy[i] * t
-            xs[i] = max(bx, min(bx + bw, new_x))
-            ys[i] = max(by, min(by + bh, new_y))
+    free_cells: list[Point] = list(all_cells[:n])  # only as many as components
 
-    return {comp_ids[i]: Point(xs[i], ys[i]) for i in range(n)}
+    # Sort by net-degree (descending), tie-break by index for stability.
+    net_degrees = {cid: sum(net_graph[cid].values()) for cid in mobile_ids}
+    ordered = sorted(
+        range(n),
+        key=lambda i: (-net_degrees.get(mobile_ids[i], 0.0), i),
+    )
+
+    assigned_cell: dict[uuid.UUID, Point] = {}
+    free_set: list[Point] = list(free_cells)  # mutable free-cell pool
+
+    for idx in ordered:
+        cid = mobile_ids[idx]
+
+        # Gravity: centroid of cells already assigned to net-neighbours.
+        neighbour_cells: list[Point] = []
+        for nbr_id in net_graph.get(cid, {}):
+            if nbr_id in assigned_cell:
+                neighbour_cells.append(assigned_cell[nbr_id])
+
+        if neighbour_cells:
+            gx = sum(p.x for p in neighbour_cells) / len(neighbour_cells)
+            gy = sum(p.y for p in neighbour_cells) / len(neighbour_cells)
+            gravity = Point(gx, gy)
+        else:
+            gravity = current_positions[cid]
+
+        # Claim the free cell nearest the gravity point.
+        best = min(free_set, key=lambda p: math.hypot(p.x - gravity.x, p.y - gravity.y))
+        assigned_cell[cid] = best
+        free_set.remove(best)
+
+    return assigned_cell
 
 
 # ---------------------------------------------------------------------------
@@ -379,45 +336,3 @@ def _build_net_graph(
     return graph
 
 
-def _anchor_forces_map(
-    mobile_ids: set[uuid.UUID],
-    fixed: dict[uuid.UUID, tuple[ComponentPlacement, ComponentDefinition]],
-    session: SpreadState,
-) -> dict[uuid.UUID, list[Point]]:
-    """Return per-mobile-component lists of pull-points from fixed net-neighbors."""
-    anchor_map: dict[uuid.UUID, list[Point]] = {cid: [] for cid in mobile_ids}
-    for net in session.schematic.nets.values():
-        mobile_in_net = [pr for pr in net.pins if pr.component_id in mobile_ids]
-        fixed_in_net = [pr for pr in net.pins if pr.component_id in fixed]
-        if not mobile_in_net or not fixed_in_net:
-            continue
-        for fpr in fixed_in_net:
-            fpl, fdefn = fixed[fpr.component_id]
-            try:
-                pt = pin_world_position(fdefn.footprint, fpl, fpr.pin_number)
-            except (IndexError, ValueError):
-                continue
-            for mpr in mobile_in_net:
-                anchor_map[mpr.component_id].append(pt)
-    return anchor_map
-
-
-# ---------------------------------------------------------------------------
-# Bbox radius helper
-# ---------------------------------------------------------------------------
-
-
-def _bbox_radius(
-    comp_id: uuid.UUID,
-    session: SpreadState,
-    placement: ComponentPlacement,
-) -> float:
-    """Half-diagonal of the component's bounding box (RU)."""
-    inst = session.instances.get(comp_id)
-    if inst is None:
-        return 0.5
-    defn = session.components.get(inst.definition_ref)
-    if defn is None:
-        return 0.5
-    bbox = component_bbox(defn.footprint, placement, defn.component_class.value)
-    return math.hypot(bbox.width, bbox.height) / 2.0
