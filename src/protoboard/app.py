@@ -123,10 +123,17 @@ def main() -> None:
             show_welcome()
             return
 
+        # Destroy the old window before creating the new one so Qt doesn't
+        # keep the closed window alive and raise it instead of the new one.
+        if window is not None:
+            window.deleteLater()
+
         window = MainWindow(session, app_settings=app_settings)
         # When the window is hidden by "Close Project", loop back to welcome.
         window.return_to_welcome.connect(show_welcome)
         window.show()
+        window.raise_()
+        window.activateWindow()
 
     show_welcome()
     sys.exit(app.exec())
