@@ -21,7 +21,7 @@ import uuid
 
 import structlog
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPen
+from PySide6.QtGui import QBrush, QColor, QKeyEvent, QMouseEvent, QPen
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsItem,
