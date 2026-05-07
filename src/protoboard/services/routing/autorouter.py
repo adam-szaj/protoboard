@@ -60,7 +60,9 @@ _DEEP_DEBUG = False
 # Module-level thread pool for parallel A* side evaluation.
 # Shared across all autoroute calls; daemon threads so they don't block exit.
 import os as _os
-_ASTAR_POOL = ThreadPoolExecutor(max_workers=max(2, (_os.cpu_count() or 2)))
+_CPU_COUNT = max(2, (_os.cpu_count() or 2))
+# Thread pool for parallel A* side evaluation within one segment.
+_ASTAR_POOL = ThreadPoolExecutor(max_workers=_CPU_COUNT)
 
 
 class AutorouteCancelled(Exception):
@@ -223,43 +225,89 @@ def autoroute(
         net.id for net in sorted_nets if net.name in unrouted_names
     }
 
-    # --- Iterative optimization passes ---
-    prev_fp = _wire_fingerprint(current_wires)
-    for opt_iter in range(max_optimize_iterations):
-        if cancel_flag is not None and cancel_flag.is_set():
-            raise AutorouteCancelled
-        next_wires, _ = _run_one_pass(
-            sorted_nets=sorted_nets,
-            pin_positions=pin_positions,
-            all_pin_positions=all_pin_positions,
-            schematic=schematic,
-            board=board,
-            layout=layout,
-            user_wires=user_wires,
-            cost_model=cost_model,
-            max_rip_up_passes=max_rip_up_passes,
-            side=side,
-            insulated=insulated,
-            plated_through_pads=plated_through_pads,
-            under_component_penalty=under_component_penalty,
-            skip_net_ids=failed_net_ids,
-            components=components,
-            instances=instances,
-            preferred_side=preferred_side,
-            progress_callback=progress_callback,
-            cancel_flag=cancel_flag,
-            pass_num=opt_iter + 1,
-            n_nets=n_nets,
+    # --- Iterative optimization passes (parallel across iterations) ---
+    # Each optimization pass is independent — it starts from user_wires and
+    # explores different net orderings. Run them in parallel using processes
+    # (bypasses GIL) and keep the result with fewest unrouted nets.
+    if max_optimize_iterations > 0:
+        _pass_args = (
+            sorted_nets, pin_positions, all_pin_positions, schematic, board,
+            layout, user_wires, cost_model, max_rip_up_passes, side, insulated,
+            plated_through_pads, under_component_penalty, failed_net_ids,
+            components, instances, preferred_side,
         )
-        new_fp = _wire_fingerprint(next_wires)
-        current_wires = next_wires
-        if new_fp == prev_fp:
-            if _DEEP_DEBUG:
-                _log.debug("autoroute.optimize.converged", iteration=opt_iter + 1)
-            break
-        if _DEEP_DEBUG:
-            _log.debug("autoroute.optimize.improved", iteration=opt_iter + 1)
-        prev_fp = new_fp
+        n_parallel = min(max_optimize_iterations, _CPU_COUNT)
+        _log.info("autoroute.optimize.parallel", passes=max_optimize_iterations, workers=n_parallel)
+
+        from concurrent.futures import ProcessPoolExecutor
+        best_wires = current_wires
+        best_unrouted_count = len(unrouted_names)
+
+        try:
+            with ProcessPoolExecutor(max_workers=n_parallel) as pool:
+                futures = [
+                    pool.submit(_run_opt_pass_in_process, _pass_args + (seed,))
+                    for seed in range(max_optimize_iterations)
+                ]
+                for fut in as_completed(futures):
+                    if cancel_flag is not None and cancel_flag.is_set():
+                        pool.shutdown(wait=False, cancel_futures=True)
+                        raise AutorouteCancelled
+                    try:
+                        opt_wires, opt_unrouted = fut.result()
+                    except Exception:
+                        continue
+                    if len(opt_unrouted) < best_unrouted_count or (
+                        len(opt_unrouted) == best_unrouted_count
+                        and len(opt_wires) >= len(best_wires)
+                    ):
+                        best_wires = opt_wires
+                        best_unrouted_count = len(opt_unrouted)
+                        unrouted_names = opt_unrouted
+        except (OSError, RuntimeError) as e:
+            # ProcessPoolExecutor may fail in some environments (e.g. no fork).
+            # Fall back to sequential optimization.
+            _log.warning("autoroute.optimize.fallback_sequential", reason=str(e))
+            prev_fp = _wire_fingerprint(current_wires)
+            for opt_iter in range(max_optimize_iterations):
+                if cancel_flag is not None and cancel_flag.is_set():
+                    raise AutorouteCancelled
+                next_wires, next_unrouted = _run_one_pass(
+                    sorted_nets=sorted_nets,
+                    pin_positions=pin_positions,
+                    all_pin_positions=all_pin_positions,
+                    schematic=schematic,
+                    board=board,
+                    layout=layout,
+                    user_wires=user_wires,
+                    cost_model=cost_model,
+                    max_rip_up_passes=max_rip_up_passes,
+                    side=side,
+                    insulated=insulated,
+                    plated_through_pads=plated_through_pads,
+                    under_component_penalty=under_component_penalty,
+                    skip_net_ids=failed_net_ids,
+                    components=components,
+                    instances=instances,
+                    preferred_side=preferred_side,
+                    progress_callback=progress_callback,
+                    cancel_flag=cancel_flag,
+                    pass_num=opt_iter + 1,
+                    n_nets=n_nets,
+                )
+                new_fp = _wire_fingerprint(next_wires)
+                if len(next_unrouted) < best_unrouted_count or (
+                    len(next_unrouted) == best_unrouted_count
+                    and new_fp != prev_fp
+                ):
+                    best_wires = next_wires
+                    best_unrouted_count = len(next_unrouted)
+                    unrouted_names = next_unrouted
+                if new_fp == prev_fp:
+                    break
+                prev_fp = new_fp
+
+        current_wires = best_wires
 
     result.wires = current_wires
     result.unrouted_nets = unrouted_names
@@ -269,6 +317,49 @@ def autoroute(
         unrouted_nets=unrouted_names,
     )
     return result
+
+
+# ---------------------------------------------------------------------------
+# Process-pool helpers (module-level so pickle works)
+# ---------------------------------------------------------------------------
+
+
+def _run_opt_pass_in_process(args: tuple) -> tuple[list[WireSegment], list[str]]:  # type: ignore[type-arg]
+    """Top-level wrapper for ProcessPoolExecutor — one optimization pass.
+
+    Takes a tuple of arguments because ProcessPoolExecutor.submit requires
+    picklable callables and arguments.
+    """
+    (sorted_nets, pin_positions, all_pin_positions, schematic, board, layout,
+     user_wires, cost_model, max_rip_up_passes, side, insulated,
+     plated_through_pads, under_component_penalty, failed_net_ids,
+     components, instances, preferred_side, seed_offset) = args
+
+    # Shuffle net order by seed_offset to explore different routing strategies.
+    import random as _rnd
+    nets = list(sorted_nets)
+    if seed_offset > 0:
+        _rnd.Random(seed_offset).shuffle(nets)
+
+    return _run_one_pass(
+        sorted_nets=nets,
+        pin_positions=pin_positions,
+        all_pin_positions=all_pin_positions,
+        schematic=schematic,
+        board=board,
+        layout=layout,
+        user_wires=user_wires,
+        cost_model=cost_model,
+        max_rip_up_passes=max_rip_up_passes,
+        side=side,
+        insulated=insulated,
+        plated_through_pads=plated_through_pads,
+        under_component_penalty=under_component_penalty,
+        skip_net_ids=failed_net_ids,
+        components=components,
+        instances=instances,
+        preferred_side=preferred_side,
+    )
 
 
 # ---------------------------------------------------------------------------
