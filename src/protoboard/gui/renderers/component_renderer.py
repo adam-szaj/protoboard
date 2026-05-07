@@ -65,7 +65,8 @@ _REFDES_FONT = QFont("monospace", 1)
 _REFDES_FONT.setPointSizeF(DEFAULT_THEME.refdes_font_size)
 
 _PIN_NAME_FONT = QFont("monospace", 1)
-_PIN_NAME_FONT.setPointSizeF(0.18)
+_PIN_NAME_FONT.setPointSizeF(DEFAULT_THEME.refdes_font_size)
+_PIN_NAME_SCALE = 0.6   # scale-down relative to refdes size
 
 _DEFAULT_LAYERS = LayerState()
 
@@ -229,7 +230,8 @@ def _render_one(
             pn_item = QGraphicsTextItem(name)
             pn_item.setFont(_PIN_NAME_FONT)
             pn_item.setDefaultTextColor(pin_name_color)
-            pn_item.setPos(pos.x + 0.18, pos.y - 0.28)
+            pn_item.setScale(_PIN_NAME_SCALE)
+            pn_item.setPos(pos.x + 0.12, pos.y - 0.32)
             pn_item.setZValue(z_label + 0.1)
             scene.addItem(pn_item)
 
