@@ -427,15 +427,41 @@ def _run_one_pass(
     working_wires: list[WireSegment] = list(user_wires)
     new_wires: list[WireSegment] = []
     unrouted: list[str] = []
+
+    # Pre-compute total segment count for sub-net progress granularity.
+    # A net with k placed pins needs k-1 segments (Steiner spanning tree).
+    total_segments = max(1, sum(
+        max(0, len([r for r in net.pins if r in pin_positions]) - 1)
+        for net in sorted_nets
+        if net.id not in skip_net_ids
+    ))
+    segs_done = 0
+
     for net_idx, net in enumerate(sorted_nets):
         if cancel_flag is not None and cancel_flag.is_set():
             raise AutorouteCancelled
-        if progress_callback is not None and n_nets > 0:
-            pct = int(net_idx * 100 / n_nets)
+        if progress_callback is not None:
+            pct = int(segs_done * 100 / total_segments)
             progress_callback(pass_num, net.name, pct)
         if net.id in skip_net_ids:
             unrouted.append(net.name)
             continue
+
+        net_placed = len([r for r in net.pins if r in pin_positions])
+        net_segs = max(0, net_placed - 1)
+
+        if progress_callback is not None:
+            _cb = progress_callback
+            _pass = pass_num
+            _base = segs_done
+            _total = total_segments
+
+            def _seg_cb(net_name: str, seg_idx: int, seg_total: int) -> None:
+                pct = int((_base + seg_idx) * 100 / _total)
+                _cb(_pass, net_name, pct)
+        else:
+            _seg_cb = None  # type: ignore[assignment]
+
         routed = _route_net(
             net=net,
             pin_positions=pin_positions,
@@ -453,7 +479,10 @@ def _run_one_pass(
             plated_through_pads=plated_through_pads,
             under_component_penalty=under_component_penalty,
             preferred_side=preferred_side,
+            segment_callback=_seg_cb,
+            cancel_flag=cancel_flag,
         )
+        segs_done += net_segs
         if routed is None:
             unrouted.append(net.name)
         else:
@@ -519,6 +548,8 @@ def _route_net(
     plated_through_pads: set[Point],
     under_component_penalty: dict[tuple[Point, str], float],
     preferred_side: Literal["top", "bottom"] = "bottom",
+    segment_callback: Callable[[str, int, int], None] | None = None,
+    cancel_flag: threading.Event | None = None,
 ) -> list[WireSegment] | None:
     """Route all connections for *net*.  Returns new wires or None on failure."""
     placed_refs = [ref for ref in net.pins if ref in pin_positions]
@@ -558,12 +589,17 @@ def _route_net(
 
     new_wires: list[WireSegment] = []
 
+    # Build the connectivity graph once and update it incrementally.
+    # We pass a layout without wires and then add working_wires via add_wire(),
+    # which is O(path_len) per wire rather than O(full_graph) per rebuild.
     current_graph = ConnectivityGraph(
         board=board,
-        layout=_layout_with_wires(layout, working_wires),
+        layout=layout,
         components=components,
         instances=instances,
     )
+    for _w in working_wires:
+        current_graph.add_wire(_w)
 
     # near_pin_pads: pads adjacent (on both layers) to pins that still need
     # routing.  The penalty discourages stealing corridors from other nets.
@@ -652,7 +688,12 @@ def _route_net(
         )
 
     seg_index = 0
+    total_segments = len(placed_refs) - 1  # upper bound for progress
     while unconnected_refs:
+        if cancel_flag is not None and cancel_flag.is_set():
+            raise AutorouteCancelled
+        if segment_callback is not None and total_segments > 0:
+            segment_callback(net.name, seg_index, total_segments)
         # Absorb any refs already physically connected (e.g. adjacent component pins).
         still_unconnected: list[PinRef] = []
         for ref in unconnected_refs:
@@ -723,6 +764,7 @@ def _route_net(
             additional_wires=new_wires,
             components=components,
             instances=instances,
+            connectivity_graph=current_graph,
             side=side,
             cost_model=cost_model,
             max_rip_up_passes=max_rip_up_passes,
@@ -762,13 +804,9 @@ def _route_net(
         for w in routed_wires:
             for pt in w.path:
                 cur_net_wire_points.add((pt, w.side))
+            # Incremental update — O(path_len) instead of O(full_graph_rebuild).
+            current_graph.add_wire(w)
 
-        current_graph = ConnectivityGraph(
-            board=board,
-            layout=_layout_with_wires(layout, working_wires),
-            components=components,
-            instances=instances,
-        )
         connected_refs.append(ref)
         rpt2, rside2 = pin_positions[ref]
         connected_pts.append((rpt2, rside2))
@@ -793,6 +831,7 @@ def _route_segment_with_ripup(
     additional_wires: list[WireSegment],
     components: dict[str, ComponentDefinition],
     instances: dict[uuid.UUID, ComponentInstance],
+    connectivity_graph: ConnectivityGraph,
     side: Literal["top", "bottom"],
     cost_model: RoutingCostModel,
     max_rip_up_passes: int,
@@ -810,12 +849,7 @@ def _route_segment_with_ripup(
     Returns a list of WireSegments (may be more than one when path crosses layers).
     """
     for attempt in range(max_rip_up_passes + 1):
-        graph = ConnectivityGraph(
-            board=board,
-            layout=_layout_with_wires(layout, working_wires),
-            components=components,
-            instances=instances,
-        )
+        graph = connectivity_graph
         bare_segs = _build_bare_wire_segments(working_wires)
 
         # Build pad-occupancy from existing wires.
@@ -969,6 +1003,7 @@ def _route_segment_with_ripup(
                 ripped_to=f"({ripped.path[-1].x},{ripped.path[-1].y})",
             )
         working_wires.remove(ripped)
+        connectivity_graph.remove_wire(ripped)
 
     return None
 

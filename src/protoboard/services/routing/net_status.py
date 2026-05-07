@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import uuid
 
-import networkx as nx
-
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import Schematic
@@ -21,9 +19,9 @@ def net_is_complete(net: Net, graph: ConnectivityGraph) -> bool:
     placed = [n for n in nodes if n is not None]
     if len(placed) < 2:
         return True
-    # All placed nodes must share a connected component.
+    # node_for_pin() returns the canonical key of the ElectricSet — equal iff connected.
     first = placed[0]
-    return all(nx.has_path(graph._g, first, n) for n in placed[1:])
+    return all(n == first for n in placed[1:])
 
 
 def routed_net_ids(
