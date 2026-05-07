@@ -46,9 +46,8 @@ class AutorouteWorker(QThread):
         components: dict[str, ComponentDefinition],
         instances: dict[uuid.UUID, ComponentInstance],
         routing_settings: RoutingSettings,
-        parent: object = None,
     ) -> None:
-        super().__init__(parent)  # type: ignore[call-arg]
+        super().__init__()
         # Snapshot read-only inputs — the worker thread must not touch the
         # live session while routing.
         self._board = board
@@ -72,6 +71,13 @@ class AutorouteWorker(QThread):
     # ------------------------------------------------------------------
 
     def run(self) -> None:
+        import threading as _t
+        import structlog as _sl
+        _sl.get_logger(__name__).info(
+            "autoroute_worker.run",
+            thread_id=_t.get_ident(),
+            is_main=_t.current_thread() is _t.main_thread(),
+        )
         from protoboard.services.routing.autorouter import autoroute, AutorouteCancelled
 
         try:

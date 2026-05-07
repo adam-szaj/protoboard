@@ -1417,8 +1417,9 @@ class MainWindow(QMainWindow):
             components=self._session.components,
             instances=self._session.instances,
             routing_settings=self._session.routing_settings,
-            parent=self,
         )
+        # Keep a reference so the worker isn't garbage-collected before finishing.
+        self._autoroute_worker = worker
 
         def _on_progress(pass_num: int, net_name: str, pct: int) -> None:
             if dlg.wasCanceled():
