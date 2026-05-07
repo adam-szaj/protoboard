@@ -87,7 +87,12 @@ def render_components(
     layers: LayerState = _DEFAULT_LAYERS,
     active_group_id: uuid.UUID | None = None,
     layout: Layout | None = None,
-) -> None:
+) -> dict[uuid.UUID, QGraphicsItemGroup]:
+    """Render all placed components and return a map of comp_id → scene group.
+
+    Each component's items are wrapped in a ``QGraphicsItemGroup`` so that
+    live drag can call ``group.setPos()`` without rebuilding the scene.
+    """
     pin_net: dict[PinRef, uuid.UUID] = {}
     if schematic is not None:
         for net in schematic.nets.values():
@@ -100,6 +105,7 @@ def render_components(
     if layout is not None and effective_gid != ROOT_GROUP_ID:
         alpha_map = _group_alpha_map(layout, effective_gid)
 
+    comp_groups: dict[uuid.UUID, QGraphicsItemGroup] = {}
     for comp_id, placement in placements.items():
         inst = instances.get(comp_id)
         if inst is None:
@@ -108,8 +114,11 @@ def render_components(
         if defn is None:
             continue
         group_alpha = alpha_map.get(comp_id, 1.0)
-        _render_one(scene, placement, inst, defn, comp_id, pin_net,
-                    routed_nets, theme, layers, group_alpha=group_alpha)
+        grp = _render_one(scene, placement, inst, defn, comp_id, pin_net,
+                          routed_nets, theme, layers, group_alpha=group_alpha)
+        if grp is not None:
+            comp_groups[comp_id] = grp
+    return comp_groups
 
 
 def _render_one(
@@ -123,11 +132,12 @@ def _render_one(
     theme: Theme,
     layers: LayerState,
     group_alpha: float = 1.0,
-) -> None:
+) -> QGraphicsItemGroup | None:
+    """Render one component; return a scene group (for live drag) or None."""
     side = placement.side  # type: ignore[assignment]
     alpha = layers.alpha_for_component(side) * group_alpha
     if alpha == 0.0:
-        return
+        return None
     alpha_label = layers.alpha_for_label(side) * group_alpha
     z_comp = layers.z_for_component(side)
     z_label = layers.z_for_label(side)
@@ -137,7 +147,11 @@ def _render_one(
         pin_world_position(fp, placement, n + 1) for n in range(fp.pin_count())
     ]
     if not positions:
-        return
+        return None
+
+    # Wrap all items in a group so live drag can move them with setPos().
+    grp = QGraphicsItemGroup()
+    grp.setZValue(z_comp)
 
     # Bbox used for label positioning.
     margin = 0.35
@@ -157,7 +171,7 @@ def _render_one(
 
     shape = body_shape_for(defn, placement, inst, theme.body_types)
     for item in shape.draw(positions, comp_fill, comp_border, alpha, z_comp, theme):
-        scene.addItem(item)
+        grp.addToGroup(item)
     skip_pins = shape.drawn_pin_numbers(positions, theme)
 
     pin_color_fallback = QColor(theme.pin_color_fallback)
@@ -184,60 +198,61 @@ def _render_one(
                 pen.setStyle(Qt.PenStyle.DashLine)
         else:
             fill_color = pin_color_fallback
-
             fallback_pen_color = QColor(theme.pin_label_fallback_color)
             fallback_pen_color.setAlphaF(fill_color.alphaF())
             pen = QPen(fallback_pen_color, theme.pin_width_incomplete)
 
         if pin_number == 1:
-            _add_pin1_marker(scene, pos.x, pos.y, fill_color, theme, z=z_comp - 0.05)
+            _add_pin1_marker(grp, pos.x, pos.y, fill_color, theme, z=z_comp - 0.05)
         else:
             r = theme.pin_radius
             dot = QGraphicsEllipseItem(QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r))
             dot.setBrush(QBrush(fill_color))
             dot.setPen(pen)
             dot.setZValue(z_comp - 0.05)
-            scene.addItem(dot)
+            grp.addToGroup(dot)
 
-    if alpha_label == 0.0:
-        return
-    label_color = QColor(theme.refdes_color)
-    label_color.setAlphaF(alpha_label)
-    label = QGraphicsTextItem(inst.refdes)
-    label.setDefaultTextColor(label_color)
-    label.setFont(_REFDES_FONT)
-    _default_offset = Point(0.05, 0.05)
-    if placement.label_offset == _default_offset:
-        br = label.boundingRect()
-        cx = (x0 + x1) / 2.0 - br.width() / 2.0
-        cy = (y0 + y1) / 2.0 - br.height() / 2.0
-        label.setPos(cx, cy)
-    else:
-        label.setPos(x0 + placement.label_offset.x, y0 + placement.label_offset.y)
-    label.setZValue(z_label)
-    scene.addItem(label)
+    if alpha_label > 0.0:
+        label_color = QColor(theme.refdes_color)
+        label_color.setAlphaF(alpha_label)
+        label = QGraphicsTextItem(inst.refdes)
+        label.setDefaultTextColor(label_color)
+        label.setFont(_REFDES_FONT)
+        _default_offset = Point(0.05, 0.05)
+        if placement.label_offset == _default_offset:
+            br = label.boundingRect()
+            cx = (x0 + x1) / 2.0 - br.width() / 2.0
+            cy = (y0 + y1) / 2.0 - br.height() / 2.0
+            label.setPos(cx, cy)
+        else:
+            label.setPos(x0 + placement.label_offset.x, y0 + placement.label_offset.y)
+        label.setZValue(z_label)
+        grp.addToGroup(label)
 
-    # Pin-name labels (controlled by the pin_names layer).
-    alpha_pin_names = layers.alpha_for_pin_names(side) * group_alpha
-    if alpha_pin_names > 0.0 and defn.pin_names:
-        pin_name_color = QColor(theme.pin_label_fallback_color)
-        pin_name_color.setAlphaF(alpha_pin_names)
-        for pin_idx, pos in enumerate(positions):
-            pin_number = pin_idx + 1
-            name = defn.pin_names.get(pin_number)
-            if not name:
-                continue
-            pn_item = QGraphicsTextItem(name)
-            pn_item.setFont(_PIN_NAME_FONT)
-            pn_item.setDefaultTextColor(pin_name_color)
-            pn_item.setScale(_PIN_NAME_SCALE)
-            pn_item.setPos(pos.x + 0.12, pos.y - 0.32)
-            pn_item.setZValue(z_label + 0.1)
-            scene.addItem(pn_item)
+        # Pin-name labels (controlled by the pin_names layer).
+        alpha_pin_names = layers.alpha_for_pin_names(side) * group_alpha
+        if alpha_pin_names > 0.0 and defn.pin_names:
+            pin_name_color = QColor(theme.pin_label_fallback_color)
+            pin_name_color.setAlphaF(alpha_pin_names)
+            for pin_idx, pos in enumerate(positions):
+                pin_number = pin_idx + 1
+                name = defn.pin_names.get(pin_number)
+                if not name:
+                    continue
+                pn_item = QGraphicsTextItem(name)
+                pn_item.setFont(_PIN_NAME_FONT)
+                pn_item.setDefaultTextColor(pin_name_color)
+                pn_item.setScale(_PIN_NAME_SCALE)
+                pn_item.setPos(pos.x + 0.12, pos.y - 0.32)
+                pn_item.setZValue(z_label + 0.1)
+                grp.addToGroup(pn_item)
+
+    scene.addItem(grp)
+    return grp
 
 
 def _add_pin1_marker(
-    scene: QGraphicsScene, cx: float, cy: float, fill_color: QColor,
+    grp: QGraphicsItemGroup, cx: float, cy: float, fill_color: QColor,
     theme: Theme, z: float = Z_FRONT_WIRES,
 ) -> None:
     r = theme.pin_radius * 1.1
@@ -247,7 +262,7 @@ def _add_pin1_marker(
     marker_col.setAlphaF(fill_color.alphaF())
     square.setPen(QPen(marker_col, theme.pin_width_incomplete))
     square.setZValue(z)
-    scene.addItem(square)
+    grp.addToGroup(square)
 
 
 def make_ghost_item(

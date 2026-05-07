@@ -73,6 +73,10 @@ class BoardView(QGraphicsView):
         from protoboard.gui.theme import Theme
         self._theme_override: Theme | None = None
         self._last_drag_refresh: float = 0.0
+        # comp_id → QGraphicsItemGroup; populated by refresh(), used by drag.
+        self._comp_groups: dict[uuid.UUID, object] = {}
+        # comp_id → placement.position at last full refresh (drag delta origin).
+        self._drag_orig_group_pos: dict[uuid.UUID, object] = {}
         session.layout_changed.connect(self.refresh)
         session.drag_moved.connect(self._on_drag_moved)
 
@@ -98,12 +102,26 @@ class BoardView(QGraphicsView):
         self.refresh()
 
     def _on_drag_moved(self) -> None:
-        """Throttled refresh for live drag — at most 30 fps, no panel updates."""
-        now = time.monotonic()
-        if now - self._last_drag_refresh < _DRAG_REFRESH_INTERVAL:
-            return
-        self._last_drag_refresh = now
-        self.refresh()
+        """Live drag: move scene groups to current placement positions (no rebuild).
+
+        Items inside each group are rendered at absolute world coordinates, so the
+        group itself sits at (0,0).  We track the *last rendered* position per group
+        and call moveBy(delta) when the placement changes — this translates all child
+        items without rebuilding the scene.
+        """
+        from PySide6.QtWidgets import QGraphicsItemGroup
+        placements = self._session.layout.placements
+        for comp_id, grp in self._comp_groups.items():
+            if not isinstance(grp, QGraphicsItemGroup):
+                continue
+            pl = placements.get(comp_id)
+            orig = self._drag_orig_group_pos.get(comp_id)
+            if pl is None or orig is None:
+                continue
+            # Delta from the position when items were baked into the scene.
+            dx = pl.position.x - orig.x
+            dy = pl.position.y - orig.y
+            grp.setPos(dx, dy)
 
     @property
     def connectness_enabled(self) -> bool:
@@ -289,7 +307,12 @@ class BoardView(QGraphicsView):
         _theme = _dc_replace(_base,
                              raster_pitch_mm=self._session.board.raster_pitch_mm,
                              body_types=self._session.body_types)
-        render_components(
+        # Snapshot positions so _on_drag_moved can compute deltas.
+        self._drag_orig_group_pos = {
+            cid: pl.position
+            for cid, pl in self._session.layout.placements.items()
+        }
+        self._comp_groups = render_components(
             self._scene,
             self._session.layout.placements,
             self._session.instances,
