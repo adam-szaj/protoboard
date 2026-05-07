@@ -244,18 +244,25 @@ def autoroute(
         best_unrouted_count = len(unrouted_names)
 
         try:
+            _log.info("autoroute.optimize.pool_start",
+                      n_parallel=n_parallel, iterations=max_optimize_iterations)
             with ProcessPoolExecutor(max_workers=n_parallel) as pool:
+                _log.info("autoroute.optimize.pool_created")
                 futures = [
                     pool.submit(_run_opt_pass_in_process, _pass_args + (seed,))
                     for seed in range(max_optimize_iterations)
                 ]
+                _log.info("autoroute.optimize.futures_submitted", count=len(futures))
                 for fut in as_completed(futures):
                     if cancel_flag is not None and cancel_flag.is_set():
                         pool.shutdown(wait=False, cancel_futures=True)
                         raise AutorouteCancelled
                     try:
                         opt_wires, opt_unrouted = fut.result()
-                    except Exception:
+                        _log.info("autoroute.optimize.future_done",
+                                  wires=len(opt_wires), unrouted=len(opt_unrouted))
+                    except Exception as _fe:
+                        _log.warning("autoroute.optimize.future_error", error=str(_fe))
                         continue
                     if len(opt_unrouted) < best_unrouted_count or (
                         len(opt_unrouted) == best_unrouted_count
@@ -264,10 +271,13 @@ def autoroute(
                         best_wires = opt_wires
                         best_unrouted_count = len(opt_unrouted)
                         unrouted_names = opt_unrouted
-        except (OSError, RuntimeError) as e:
-            # ProcessPoolExecutor may fail in some environments (e.g. no fork).
-            # Fall back to sequential optimization.
-            _log.warning("autoroute.optimize.fallback_sequential", reason=str(e))
+            _log.info("autoroute.optimize.pool_done",
+                      best_wires=len(best_wires), best_unrouted=best_unrouted_count)
+        except Exception as e:
+            # ProcessPoolExecutor may fail in some environments (e.g. no fork,
+            # pickle error). Catch ALL exceptions and fall back to sequential.
+            _log.warning("autoroute.optimize.fallback_sequential",
+                         exc_type=type(e).__name__, reason=str(e))
             prev_fp = _wire_fingerprint(current_wires)
             for opt_iter in range(max_optimize_iterations):
                 if cancel_flag is not None and cancel_flag.is_set():
@@ -325,11 +335,13 @@ def autoroute(
 
 
 def _run_opt_pass_in_process(args: tuple) -> tuple[list[WireSegment], list[str]]:  # type: ignore[type-arg]
-    """Top-level wrapper for ProcessPoolExecutor — one optimization pass.
+    """Top-level wrapper for ProcessPoolExecutor — one optimization pass."""
+    import os as _os2, threading as _th
+    _log.info("autoroute.subprocess.start",
+              pid=_os2.getpid(),
+              thread_id=_th.get_ident(),
+              is_main=_th.current_thread() is _th.main_thread())
 
-    Takes a tuple of arguments because ProcessPoolExecutor.submit requires
-    picklable callables and arguments.
-    """
     (sorted_nets, pin_positions, all_pin_positions, schematic, board, layout,
      user_wires, cost_model, max_rip_up_passes, side, insulated,
      plated_through_pads, under_component_penalty, failed_net_ids,
