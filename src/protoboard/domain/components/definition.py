@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import math
-import math
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -102,6 +101,23 @@ class PinBendSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class PinVariant:
+    """An alternative pin-name mapping for a component.
+
+    A variant overrides a subset (or all) of the base ``pin_names``.
+    The footprint geometry is unchanged — only signal labels differ.
+
+    Example: a 4-pin SIL header shared between I2C and UART applications
+    can have one variant ``{1: VCC, 2: GND, 3: SDA, 4: SCL}`` and another
+    ``{1: VCC, 2: GND, 3: TX, 4: RX}``.
+    """
+
+    id: str
+    label: str
+    pin_names: dict[int, str]
+
+
+@dataclass(frozen=True, slots=True)
 class ComponentDefinition:
     """Static definition of a component (a "type")."""
 
@@ -114,6 +130,8 @@ class ComponentDefinition:
     # Per-pin bend specifications (local frame, before rotation).
     # Key = pin number (1-based). Value = PinBendSpec (discrete or continuous).
     bendable_pins: dict[int, PinBendSpec] = field(default_factory=dict)
+    # Alternative pin-name mappings (same footprint, different signal labelling).
+    variants: tuple[PinVariant, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -139,3 +157,12 @@ class ComponentDefinition:
         if pin_number < 1 or pin_number > self.pin_count:
             raise ValueError(f"pin {pin_number} out of range (1..{self.pin_count})")
         return self.pin_names.get(pin_number, f"P{pin_number}")
+
+    def effective_pin_names(self, pin_variant: str | None = None) -> dict[int, str]:
+        """Return pin_names with variant overrides applied."""
+        if pin_variant is None or not self.variants:
+            return self.pin_names
+        for v in self.variants:
+            if v.id == pin_variant:
+                return {**self.pin_names, **v.pin_names}
+        return self.pin_names

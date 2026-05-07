@@ -14,6 +14,9 @@ components:
         min_reach: 1
         max_reach: 11
         default: {x: 0, y: 2}
+    aliases:
+      - D_DO_35_SOD27
+      - D_DO35_SOD27
 
   # DO-41 — diody prostownicze (1N4007).
   - name: _DO41
@@ -25,6 +28,9 @@ components:
         min_reach: 1
         max_reach: 17
         default: {x: 0, y: 3}
+    aliases:
+      - D_DO_201
+      - D_DO41
 
   - name: _DO35_Z
     component_class: diode_zener

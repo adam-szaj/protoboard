@@ -86,3 +86,35 @@ components:
   - name: 2N3906
     extends: _TO92_PNP_EBC
     description: "PNP 40V 0.2A general purpose"
+
+  # -----------------------------------------------------------------------
+  # Generic 3-pin packages — placeholders for KiCAD-imported transistors
+  # whose exact pin ordering is unknown at import time.
+  # -----------------------------------------------------------------------
+
+  - name: Q_SOT23
+    description: "Generic SOT-23 transistor (3-pin SMD, treated as SIL)"
+    component_class: transistor_npn
+    footprint: {type: SIL, pins: 3}
+    pin_names: {1: "1", 2: "2", 3: "3"}
+    aliases:
+      - SOT_23
+      - SOT-23
+
+  - name: Q_TO126
+    description: "Generic TO-126 transistor (3-pin THT)"
+    component_class: transistor_npn
+    footprint: {type: SIL, pins: 3}
+    pin_names: {1: "1", 2: "2", 3: "3"}
+    aliases:
+      - TO_126_3_Vertical
+      - TO-126-3
+
+  - name: Q_TO92
+    description: "Generic TO-92 transistor (pin order unknown)"
+    component_class: transistor_npn
+    footprint: {type: TO92}
+    pin_names: {1: "1", 2: "2", 3: "3"}
+    aliases:
+      - TO_92_Inline
+      - TO-92_Inline

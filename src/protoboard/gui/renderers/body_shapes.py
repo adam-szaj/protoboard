@@ -52,6 +52,7 @@ from protoboard.domain.components.definition import (
 )
 from protoboard.domain.components.footprints import (
     DualRow,
+    QuadRow,
     SingleRow,
     TO220Footprint,
 )
@@ -493,6 +494,184 @@ class SvgSILBody(BodyShape):
             angle_deg = -math.degrees(math.atan2(dx, dy))
         else:
             angle_deg = 0.0
+        t = QTransform()
+        t.translate(p1.x, p1.y)
+        t.rotate(angle_deg)
+        t.scale(sx, sy)
+        t.translate(-pin1_item_x, -pin1_item_y)
+        item.setTransform(t)
+        return [item]
+
+
+# ---------------------------------------------------------------------------
+# SVG-based Quad-DIP renderer (4 columns: L_outer, L_inner, R_inner, R_outer)
+# ---------------------------------------------------------------------------
+
+
+class SvgQuadDIPBody(BodyShape):
+    """Renderer for QuadRow footprints (QIL / quad in-line modules).
+
+    Draws:
+    - 4 columns of pad circles, positions taken directly from pin_positions()
+    - A filled rectangle covering the main PCB body (between inner columns)
+      with rounded corners and a notch at the top (pin-1 side)
+    - Two thin strip rectangles flanking the body (outer goldpin rows)
+    - Pin-1 corner marker
+    """
+
+    def __init__(
+        self,
+        n_per_col: int,
+        col_spacings: tuple[float, float, float],
+        pitch: float = 1.0,
+    ) -> None:
+        self._n = n_per_col
+        self._s0, self._s1, self._s2 = col_spacings
+        self._pitch = pitch
+
+    def draw(
+        self,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme = DEFAULT_THEME,
+    ) -> list[QGraphicsItem]:
+        n = self._n
+        s0, s1, s2 = self._s0, self._s1, self._s2
+        pitch = self._pitch
+
+        if len(positions) < 4 * n:
+            return GenericBody().draw(positions, fill, border, alpha, z, theme)
+
+        fill_hex = fill.name()
+        fill_a = f"{fill.alphaF() * alpha:.3f}"
+        border_hex = border.name()
+        border_a = f"{border.alphaF() * alpha:.3f}"
+        pin_hex = "#606060"
+
+        # Column x-positions (in raster units)
+        x0 = 0.0
+        x1 = s0
+        x2 = s0 + s1
+        x3 = s0 + s1 + s2
+
+        body_margin = 0.5
+        y_top = -body_margin
+        y_bot = (n - 1) * pitch + body_margin
+        body_h = y_bot - y_top
+        total_w = x3
+
+        # Body covers the inner columns (x1..x2) — main PCB chip area
+        r = theme.body_corner_radius
+        notch_r = theme.dip_notch_radius
+        mid_x = (x1 + x2) / 2.0
+        nx0 = mid_x - notch_r
+        nx1 = mid_x + notch_r
+
+        # Outer strip width: fits snugly around the goldpin rows
+        strip_w = 0.3
+
+        # --- Build pin circles ---
+        circles: list[str] = []
+
+        # L_outer (pins 1..n): col x0, y top→bottom
+        for i in range(n):
+            pid = i + 1
+            cx = f"{i}" if i > 0 else "0"
+            circles.append(
+                f'<circle id="pin-{pid}" cx="{x0}" cy="{i * pitch}" r="0.14"'
+                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}"'
+                f' stroke="{border_hex}" stroke-width="0.05"/>'
+            )
+
+        # L_inner (pins n+1..2n): col x1, y top→bottom
+        for i in range(n):
+            pid = n + i + 1
+            circles.append(
+                f'<circle id="pin-{pid}" cx="{x1}" cy="{i * pitch}" r="0.14"'
+                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}"'
+                f' stroke="{border_hex}" stroke-width="0.05"/>'
+            )
+
+        # R_inner (pins 2n+1..3n): col x2, y bottom→top
+        for i in range(n):
+            pid = 2 * n + i + 1
+            circles.append(
+                f'<circle id="pin-{pid}" cx="{x2}" cy="{(n - 1 - i) * pitch}" r="0.14"'
+                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}"'
+                f' stroke="{border_hex}" stroke-width="0.05"/>'
+            )
+
+        # R_outer (pins 3n+1..4n): col x3, y bottom→top
+        for i in range(n):
+            pid = 3 * n + i + 1
+            circles.append(
+                f'<circle id="pin-{pid}" cx="{x3}" cy="{(n - 1 - i) * pitch}" r="0.14"'
+                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}"'
+                f' stroke="{border_hex}" stroke-width="0.05"/>'
+            )
+
+        pin1_marker = (
+            f'<rect id="pin1-marker" x="{x0 - 0.12}" y="-0.12" width="0.24" height="0.24"'
+            f' fill="{pin_hex}" fill-opacity="{alpha:.3f}"'
+            f' stroke="{border_hex}" stroke-width="0.05"/>'
+        )
+
+        svg = f"""<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="{x0 - body_margin} {y_top} {total_w + 2 * body_margin:.3f} {body_h:.3f}"
+     width="{total_w + 2 * body_margin:.3f}" height="{body_h:.3f}">
+  <!-- Left outer goldpin strip -->
+  <rect x="{x0 - strip_w / 2:.3f}" y="{y_top:.3f}"
+        width="{strip_w:.3f}" height="{body_h:.3f}" rx="0.15"
+        fill="{fill_hex}" fill-opacity="{fill.alphaF() * alpha * 0.6:.3f}"
+        stroke="{border_hex}" stroke-opacity="{border_a}" stroke-width="0.04"/>
+  <!-- Right outer goldpin strip -->
+  <rect x="{x3 - strip_w / 2:.3f}" y="{y_top:.3f}"
+        width="{strip_w:.3f}" height="{body_h:.3f}" rx="0.15"
+        fill="{fill_hex}" fill-opacity="{fill.alphaF() * alpha * 0.6:.3f}"
+        stroke="{border_hex}" stroke-opacity="{border_a}" stroke-width="0.04"/>
+  <!-- Main PCB body (between inner columns, with notch) -->
+  <path id="body" fill-rule="evenodd"
+        d="M {x1 + r},{y_top}
+           L {nx0},{y_top}
+           A {notch_r},{notch_r} 0 0,0 {nx1},{y_top}
+           L {x2 - r},{y_top} Q {x2},{y_top} {x2},{y_top + r}
+           L {x2},{y_bot - r} Q {x2},{y_bot} {x2 - r},{y_bot}
+           L {x1 + r},{y_bot} Q {x1},{y_bot} {x1},{y_bot - r}
+           L {x1},{y_top + r} Q {x1},{y_top} {x1 + r},{y_top} Z"
+        fill="{fill_hex}" fill-opacity="{fill_a}"
+        stroke="{border_hex}" stroke-opacity="{border_a}" stroke-width="0.05"/>
+  {pin1_marker}
+  {"".join(circles)}
+</svg>"""
+
+        xml_bytes = svg.encode("utf-8")
+        item = QGraphicsSvgItem()
+        renderer = QSvgRenderer(QByteArray(xml_bytes), item)
+        item.setSharedRenderer(renderer)
+        item._svg_renderer = renderer  # type: ignore[attr-defined]
+        item.setZValue(z)
+
+        vb = renderer.viewBoxF()
+        br = item.boundingRect()
+        sx = vb.width()  / br.width()  if br.width()  > 1e-9 else 1.0
+        sy = vb.height() / br.height() if br.height() > 1e-9 else 1.0
+
+        # pin-1 in item-pixel space
+        pin1_item_x = (x0 - (x0 - body_margin)) / sx  # = body_margin / sx
+        pin1_item_y = body_margin / sy
+
+        # Rotation from pin1→pin2 direction (both in L_outer column, y increases)
+        p1 = positions[0]
+        if len(positions) >= 2:
+            dx = positions[1].x - p1.x
+            dy = positions[1].y - p1.y
+            angle_deg = -math.degrees(math.atan2(dx, dy))
+        else:
+            angle_deg = 0.0
+
         t = QTransform()
         t.translate(p1.x, p1.y)
         t.rotate(angle_deg)
@@ -1307,5 +1486,8 @@ def body_shape_for(
 
     if isinstance(fp, DualRow):
         return SvgDIPBody(fp.n_per_row, fp.rows_spacing)
+
+    if isinstance(fp, QuadRow):
+        return SvgQuadDIPBody(fp.n_per_col, fp.col_spacings, fp.pitch)
 
     return GenericBody()

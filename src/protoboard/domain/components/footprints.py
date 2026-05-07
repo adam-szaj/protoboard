@@ -109,6 +109,62 @@ class GridFootprint(FootprintTemplate):
         ]
 
 
+@dataclass(frozen=True, slots=True)
+class QuadRow(FootprintTemplate):
+    """Four parallel columns of n pins each (QIL / quad in-line).
+
+    Intended for wide development modules that expose two pairs of pin rows
+    (outer + inner on each side), such as the WeAct STM32G4 CoreBoard.
+
+    Column layout (left to right):
+
+    ::
+
+        col 0        col 1         col 2          col 3
+        (L outer)    (L inner)     (R inner)      (R outer)
+        |            |             |              |
+        x=0          x=inner_spacing  x=inner_spacing+outer_gap  x=inner_spacing+outer_gap+inner_spacing
+
+    The ``col_spacings`` tuple gives the *gap between adjacent columns* in
+    raster units, so for a [1, 8, 1] board:
+    ``col_spacings=(1, 8, 1)`` → column x-positions: 0, 1, 9, 10.
+
+    Pin numbering (CW from top-left):
+
+    * Pins ``1 … n``: left-outer column, top → bottom.
+    * Pins ``n+1 … 2n``: left-inner column, top → bottom.
+    * Pins ``2n+1 … 3n``: right-inner column, bottom → top.
+    * Pins ``3n+1 … 4n``: right-outer column, bottom → top.
+    """
+
+    n_per_col: int
+    col_spacings: tuple[float, float, float] = (1.0, 8.0, 1.0)
+    pitch: float = 1.0
+
+    def __post_init__(self) -> None:
+        _validate_positive_int(self.n_per_col, "n_per_col")
+        _validate_positive(self.pitch, "pitch")
+        if len(self.col_spacings) != 3:
+            raise ValueError("col_spacings must have exactly 3 values")
+        for s in self.col_spacings:
+            _validate_positive(s, "col_spacings entry")
+
+    def pin_count(self) -> int:
+        return self.n_per_col * 4
+
+    def pin_positions(self) -> list[Point]:
+        n = self.n_per_col
+        p = self.pitch
+        s0, s1, s2 = self.col_spacings
+        x0, x1, x2, x3 = 0.0, s0, s0 + s1, s0 + s1 + s2
+
+        left_outer = [Point(x0, i * p) for i in range(n)]
+        left_inner = [Point(x1, i * p) for i in range(n)]
+        right_inner = [Point(x2, (n - 1 - i) * p) for i in range(n)]
+        right_outer = [Point(x3, (n - 1 - i) * p) for i in range(n)]
+        return left_outer + left_inner + right_inner + right_outer
+
+
 # ---------------------------------------------------------------------------
 # Aliases
 # ---------------------------------------------------------------------------
@@ -146,5 +202,6 @@ __all__ = [
     "DualRow",
     "FootprintTemplate",
     "GridFootprint",
+    "QuadRow",
     "SingleRow",
 ]

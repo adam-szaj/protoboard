@@ -98,19 +98,18 @@ class TestKiCadNetlistImporter:
         assert frozenset({1, 2}) in pin_sets
 
     def test_unknown_footprint_emits_warning(self) -> None:
+        # Warnings are emitted by import_full, not by legacy import_()
         imp = KiCadNetlistImporter()
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            imp.import_(_FIXTURES / "unknown_footprint.net")
+            imp.import_full(_FIXTURES / "unknown_footprint.net")
         import_warnings = [w for w in caught if issubclass(w.category, ImportWarning)]
         assert len(import_warnings) >= 1
         assert "ExoticPackage_QFN48" in str(import_warnings[0].message)
 
     def test_unknown_footprint_nets_still_imported(self) -> None:
         imp = KiCadNetlistImporter()
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            sch = imp.import_(_FIXTURES / "unknown_footprint.net")
+        sch = imp.import_(_FIXTURES / "unknown_footprint.net")
         names = {n.name for n in sch.nets.values()}
         assert {"VCC", "GND"} == names
 
@@ -372,3 +371,274 @@ class TestVoltgeDividerEndToEnd:
         # At least 3 distinct component_ids (R1, R2, U1).
         comp_ids = {p.component_id for p in mid.pins}
         assert len(comp_ids) >= 2
+
+
+# ---------------------------------------------------------------------------
+# S-expression parser unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestSexpParser:
+    def test_simple_list(self) -> None:
+        from protoboard.services.kicad.sexp_parser import parse
+
+        node = parse("(net (code 1) (name GND))")
+        assert node[0] == "net"
+        assert isinstance(node[1], list)
+        assert node[1][0] == "code"
+
+    def test_quoted_string_with_spaces(self) -> None:
+        from protoboard.services.kicad.sexp_parser import parse
+
+        node = parse('(name "Net-(J1-Pad1)")')
+        assert node[0] == "name"
+        assert node[1] == "Net-(J1-Pad1)"
+
+    def test_nested_lists(self) -> None:
+        from protoboard.services.kicad.sexp_parser import parse
+
+        node = parse("(export (version D) (nets (net (code 1) (name VCC))))")
+        assert node[0] == "export"
+        # find nets child
+        nets = next(c for c in node[1:] if isinstance(c, list) and c[0] == "nets")
+        assert nets is not None
+        net = next(c for c in nets[1:] if isinstance(c, list) and c[0] == "net")
+        assert net[0] == "net"
+
+    def test_attr_helper(self) -> None:
+        from protoboard.services.kicad.sexp_parser import attr, parse
+
+        node = parse("(net (code 5) (name podswietlenieWOD))")
+        assert attr(node, "name") == "podswietlenieWOD"
+        assert attr(node, "code") == "5"
+        assert attr(node, "missing") is None
+
+    def test_children_helper(self) -> None:
+        from protoboard.services.kicad.sexp_parser import attr, children, parse
+
+        node = parse(
+            "(net (code 6) (name GND)"
+            " (node (ref R1) (pin 1))"
+            " (node (ref R2) (pin 2)))"
+        )
+        nodes = children(node, "node")
+        assert len(nodes) == 2
+        refs = [attr(n, "ref") for n in nodes]
+        assert set(refs) == {"R1", "R2"}
+
+    def test_escaped_quote_in_string(self) -> None:
+        from protoboard.services.kicad.sexp_parser import parse
+
+        node = parse('(title "say \\"hello\\"")')
+        assert node[1] == 'say "hello"'
+
+
+# ---------------------------------------------------------------------------
+# S-expression importer
+# ---------------------------------------------------------------------------
+
+_SEXP_MINIMAL = """\
+(export (version D)
+  (design
+    (source test.sch)
+    (date "2026-01-01")
+    (tool "Eeschema"))
+  (components
+    (comp (ref J1)
+      (value Conn)
+      (footprint "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical")))
+  (nets
+    (net (code 1) (name VCC)
+      (node (ref J1) (pin 1)))
+    (net (code 2) (name GND)
+      (node (ref J1) (pin 2)))))
+"""
+
+_SEXP_WITH_SPACES_IN_NAMES = """\
+(export (version D)
+  (design (source x) (date "") (tool t))
+  (components
+    (comp (ref R5)
+      (value 470)
+      (footprint Resistor_SMD:R_0603_1608Metric)))
+  (nets
+    (net (code 1) (name "Net-(J1-Pad1)")
+      (node (ref R5) (pin 2))
+      (node (ref J1) (pin 1)))
+    (net (code 2) (name GND)
+      (node (ref J1) (pin 2)))))
+"""
+
+
+class TestSexpImporter:
+    def test_auto_detect_sexp(self) -> None:
+        imp = KiCadNetlistImporter()
+        sch = imp.import_from_string(_SEXP_MINIMAL)
+        assert isinstance(sch, Schematic)
+
+    def test_sexp_net_names(self) -> None:
+        imp = KiCadNetlistImporter()
+        sch = imp.import_from_string(_SEXP_MINIMAL)
+        names = {n.name for n in sch.nets.values()}
+        assert names == {"VCC", "GND"}
+
+    def test_sexp_pin_count(self) -> None:
+        imp = KiCadNetlistImporter()
+        sch = imp.import_from_string(_SEXP_MINIMAL)
+        for net in sch.nets.values():
+            assert len(net.pins) == 1
+
+    def test_sexp_component_ids_consistent(self) -> None:
+        imp = KiCadNetlistImporter()
+        sch = imp.import_from_string(_SEXP_MINIMAL)
+        all_comp_ids = {p.component_id for net in sch.nets.values() for p in net.pins}
+        # J1 appears in both nets — same UUID must be reused.
+        assert len(all_comp_ids) == 1
+
+    def test_sexp_net_name_with_spaces(self) -> None:
+        imp = KiCadNetlistImporter()
+        sch = imp.import_from_string(_SEXP_WITH_SPACES_IN_NAMES)
+        names = {n.name for n in sch.nets.values()}
+        assert "Net-(J1-Pad1)" in names
+
+    def test_sexp_net_with_multiple_pins(self) -> None:
+        imp = KiCadNetlistImporter()
+        sch = imp.import_from_string(_SEXP_WITH_SPACES_IN_NAMES)
+        net = next(n for n in sch.nets.values() if n.name == "Net-(J1-Pad1)")
+        assert len(net.pins) == 2
+
+    def test_sexp_unknown_footprint_warning(self) -> None:
+        # Warnings are emitted by import_full, not by legacy import_from_string
+        sexp = """\
+(export (version D)
+  (design (source x) (date "") (tool t))
+  (components
+    (comp (ref U99)
+      (value Thing)
+      (footprint "Exotic:QFN-48_7x7mm")))
+  (nets
+    (net (code 1) (name VCC)
+      (node (ref U99) (pin 1)))))
+"""
+        imp = KiCadNetlistImporter()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = imp.import_full_from_string(sexp)
+        import_warnings = [w for w in caught if issubclass(w.category, ImportWarning)]
+        assert len(import_warnings) >= 1
+        # Net is still imported despite unknown footprint.
+        assert len(result.schematic.nets) == 1
+
+    def test_sexp_wrong_root_raises(self) -> None:
+        imp = KiCadNetlistImporter()
+        with pytest.raises(ValueError, match="export"):
+            imp.import_from_string("(something (version D))")
+
+    def test_sexp_unrecognised_format_raises(self) -> None:
+        imp = KiCadNetlistImporter()
+        with pytest.raises(ValueError, match="Unrecognised"):
+            imp.import_from_string("not valid at all")
+
+    def test_sexp_ogrod_slawe_net(self) -> None:
+        """Import the real-world ogrod_slawe.net fixture."""
+        path = Path(__file__).parent.parent.parent / "docs" / "ogrod_slawe.net"
+        if not path.exists():
+            pytest.skip("ogrod_slawe.net not available")
+        imp = KiCadNetlistImporter()
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            sch = imp.import_(path)
+        assert len(sch.nets) > 10
+        net_names = {n.name for n in sch.nets.values()}
+        assert "GND" in net_names
+
+
+# ---------------------------------------------------------------------------
+# S-expression exporter
+# ---------------------------------------------------------------------------
+
+
+class TestSexpExporter:
+    def _make_schematic(self) -> tuple[Schematic, dict[uuid.UUID, str]]:
+        r1_id = uuid.uuid4()
+        vcc_id = uuid.uuid4()
+        gnd_id = uuid.uuid4()
+        nets = {
+            vcc_id: Net(
+                id=vcc_id,
+                name="VCC",
+                pins={PinRef(component_id=r1_id, pin_number=1)},
+            ),
+            gnd_id: Net(
+                id=gnd_id,
+                name="GND",
+                pins={PinRef(component_id=r1_id, pin_number=2)},
+            ),
+        }
+        return Schematic(nets=nets), {r1_id: "R1"}
+
+    def test_sexp_export_returns_string(self) -> None:
+        sch, rdm = self._make_schematic()
+        out = KiCadNetlistExporter().export(sch, refdes_map=rdm, fmt="sexp")
+        assert isinstance(out, str)
+
+    def test_sexp_export_starts_with_export(self) -> None:
+        sch, rdm = self._make_schematic()
+        out = KiCadNetlistExporter().export(sch, refdes_map=rdm, fmt="sexp")
+        assert out.lstrip().startswith("(export")
+
+    def test_sexp_export_contains_net_names(self) -> None:
+        sch, rdm = self._make_schematic()
+        out = KiCadNetlistExporter().export(sch, refdes_map=rdm, fmt="sexp")
+        assert "VCC" in out
+        assert "GND" in out
+
+    def test_sexp_export_contains_refdes(self) -> None:
+        sch, rdm = self._make_schematic()
+        out = KiCadNetlistExporter().export(sch, refdes_map=rdm, fmt="sexp")
+        assert "R1" in out
+
+    def test_sexp_export_contains_pin_numbers(self) -> None:
+        sch, rdm = self._make_schematic()
+        out = KiCadNetlistExporter().export(sch, refdes_map=rdm, fmt="sexp")
+        assert "(pin 1)" in out
+        assert "(pin 2)" in out
+
+    def test_sexp_roundtrip_net_names(self) -> None:
+        sch, rdm = self._make_schematic()
+        sexp_str = KiCadNetlistExporter().export(sch, refdes_map=rdm, fmt="sexp")
+        sch2 = KiCadNetlistImporter().import_from_string(sexp_str)
+        assert {n.name for n in sch2.nets.values()} == {"VCC", "GND"}
+
+    def test_sexp_roundtrip_pin_count(self) -> None:
+        sch, rdm = self._make_schematic()
+        sexp_str = KiCadNetlistExporter().export(sch, refdes_map=rdm, fmt="sexp")
+        sch2 = KiCadNetlistImporter().import_from_string(sexp_str)
+        for net in sch2.nets.values():
+            assert len(net.pins) == 1
+
+    def test_sexp_net_with_spaces_in_name(self) -> None:
+        cid = uuid.uuid4()
+        net_id = uuid.uuid4()
+        sch = Schematic(
+            nets={
+                net_id: Net(
+                    id=net_id,
+                    name="Net-(J1-Pad1)",
+                    pins={PinRef(component_id=cid, pin_number=1)},
+                )
+            }
+        )
+        out = KiCadNetlistExporter().export(sch, fmt="sexp")
+        assert '"Net-(J1-Pad1)"' in out
+        # Re-import and check name survived.
+        sch2 = KiCadNetlistImporter().import_from_string(out)
+        assert "Net-(J1-Pad1)" in {n.name for n in sch2.nets.values()}
+
+    def test_sexp_export_to_file(self, tmp_path: Path) -> None:
+        sch, rdm = self._make_schematic()
+        out = tmp_path / "out.net"
+        KiCadNetlistExporter().export_to_file(sch, out, refdes_map=rdm, fmt="sexp")
+        assert out.exists()
+        text = out.read_text()
+        assert text.lstrip().startswith("(export")

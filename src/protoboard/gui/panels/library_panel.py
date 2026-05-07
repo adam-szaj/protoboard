@@ -19,7 +19,8 @@ from protoboard.services.library.loader import ComponentLibrary
 
 
 class LibraryPanel(QWidget):
-    component_selected = Signal(str)  # emits definition_ref name
+    # emits (definition_ref, pin_variant_id_or_None)
+    component_selected = Signal(str, object)
 
     def __init__(self, library: ComponentLibrary, parent: object = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
@@ -126,11 +127,22 @@ class LibraryPanel(QWidget):
                     defn = self._library.get(name)
                     desc = defn.description
                     tooltip = f"{name}  —  {desc}" if desc else name
+                    variants = defn.variants
                 except KeyError:
                     tooltip = name
+                    variants = ()
                 child = QTreeWidgetItem(file_item, [name])
                 child.setToolTip(0, tooltip)
-                child.setData(0, Qt.ItemDataRole.UserRole, name)
+                child.setData(0, Qt.ItemDataRole.UserRole, (name, None))
+                if variants:
+                    child.setFlags(child.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                    font2 = child.font(0)
+                    font2.setItalic(True)
+                    child.setFont(0, font2)
+                    for v in variants:
+                        v_item = QTreeWidgetItem(child, [v.label])
+                        v_item.setToolTip(0, f"{name}  [{v.id}]")
+                        v_item.setData(0, Qt.ItemDataRole.UserRole, (name, v.id))
 
         for subdir in all_subdirs:
             file_map = tree[subdir]
@@ -165,6 +177,7 @@ class LibraryPanel(QWidget):
         self._populate(text)
 
     def _on_double_click(self, item: QTreeWidgetItem, _column: int) -> None:
-        name = item.data(0, Qt.ItemDataRole.UserRole)
-        if name:
-            self.component_selected.emit(name)
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data:
+            name, pin_variant = data
+            self.component_selected.emit(name, pin_variant)

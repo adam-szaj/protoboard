@@ -352,6 +352,30 @@ class SetWireSideCommand(Command[ComponentState]):
 
 
 @dataclass
+class SetPinVariantCommand(Command[ComponentState]):
+    """Change the pin-name variant of a component instance."""
+
+    component_id: uuid.UUID
+    new_variant: str | None
+    _old_variant: str | None = field(default=None, init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return f"Set pin variant to {self.new_variant or 'default'}"
+
+    def apply(self, state: ComponentState) -> None:
+        inst = state.instances[self.component_id]
+        self._old_variant = inst.pin_variant
+        import dataclasses as _dc
+        state.instances[self.component_id] = _dc.replace(inst, pin_variant=self.new_variant)
+
+    def revert(self, state: ComponentState) -> None:
+        inst = state.instances[self.component_id]
+        import dataclasses as _dc
+        state.instances[self.component_id] = _dc.replace(inst, pin_variant=self._old_variant)
+
+
+@dataclass
 class FlipWireFragmentCommand(Command[ComponentState]):
     """Flip a contiguous fragment of a wire to the opposite layer.
 

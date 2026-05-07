@@ -30,6 +30,7 @@ from protoboard.geometry import Point
 from protoboard.gui import recent_projects
 from protoboard.gui.board_view import BoardView
 from protoboard.gui import keybindings as KB
+from protoboard.gui.panels.components_panel import ComponentsPanel
 from protoboard.gui.panels.groups_panel import GroupsPanel
 from protoboard.gui.panels.layers_panel import LayersPanel
 from protoboard.gui.panels.library_panel import LibraryPanel
@@ -47,6 +48,7 @@ from protoboard.services.export.png import export_png
 from protoboard.services.export.svg import export_svg
 from protoboard.services.kicad.exporter import KiCadNetlistExporter
 from protoboard.services.kicad.importer import ImportWarning, KiCadNetlistImporter
+from protoboard.services.placement.auto_placer import auto_place
 from protoboard.services.persistence.project_yaml import load_project, save_project
 
 
@@ -78,16 +80,18 @@ class MainWindow(QMainWindow):
         self._select_tool = SelectTool()
         self._board_view._permanent_tools.append(self._select_tool)
 
-        # Left dock — tabbed: Library | Netlist/BOM | Groups | Nets
+        # Left dock — tabbed: Library | Netlist/BOM | Groups | Nets | Components
         self._library_panel = LibraryPanel(session.library, self)
         self._netlist_panel = NetlistPanel(self)
         self._groups_panel = GroupsPanel(self)
         self._nets_editor_panel = NetsEditorPanel(self)
+        self._components_panel = ComponentsPanel(self)
         left_tabs = QTabWidget()
         left_tabs.addTab(self._library_panel, "Library")
         left_tabs.addTab(self._netlist_panel, "Netlist")
         left_tabs.addTab(self._groups_panel, "Groups")
         left_tabs.addTab(self._nets_editor_panel, "Nets")
+        left_tabs.addTab(self._components_panel, "Components")
         left_dock = QDockWidget("", self)
         left_dock.setObjectName("left_dock")
         left_dock.setWidget(left_tabs)
@@ -181,9 +185,18 @@ class MainWindow(QMainWindow):
         self._board_view.escape_tool.connect(self._tool_select)
         self._library_panel.component_selected.connect(self._tool_place)
         self._netlist_panel.instance_selected.connect(self._board_view.select_component)
+        self._components_panel.instance_selected.connect(self._board_view.select_component)
+        self._components_panel.place_requested.connect(self._tool_place_instance)
+        self._components_panel.auto_place_selected_requested.connect(
+            self._auto_place_instances
+        )
+        self._components_panel.auto_place_all_requested.connect(
+            self._auto_place_instances
+        )
         session.layout_changed.connect(self._refresh_netlist)
         session.layout_changed.connect(self._refresh_groups)
         session.layout_changed.connect(self._refresh_nets_editor)
+        session.layout_changed.connect(self._refresh_components)
         session.layout_changed.connect(self._drc_timer.start)
         session.layout_changed.connect(self._update_undo_redo)
         session.layout_changed.connect(session.mark_dirty)
@@ -191,6 +204,7 @@ class MainWindow(QMainWindow):
         session.drc_changed.connect(self._props_panel.update_issues)
         self._props_panel.component_changed.connect(self._on_component_changed)
         self._props_panel.pin_offsets_changed.connect(self._on_pin_offsets_changed)
+        self._props_panel.pin_variant_changed.connect(self._on_pin_variant_changed)
 
         self._groups_panel.group_disbanded.connect(lambda _: self._board_view.refresh())
         self._groups_panel.group_disbanded.connect(lambda _: self._update_undo_redo())
@@ -206,6 +220,7 @@ class MainWindow(QMainWindow):
         self._refresh_netlist()
         self._refresh_groups()
         self._refresh_nets_editor()
+        self._refresh_components()
         self._update_stats()
         self._update_view_label()
 
@@ -559,6 +574,7 @@ class MainWindow(QMainWindow):
         self._session.layout_changed.disconnect(self._refresh_netlist)
         self._session.layout_changed.disconnect(self._refresh_groups)
         self._session.layout_changed.disconnect(self._refresh_nets_editor)
+        self._session.layout_changed.disconnect(self._refresh_components)
         self._session.layout_changed.disconnect(self._drc_timer.start)
         self._session.layout_changed.disconnect(self._update_undo_redo)
         self._session.layout_changed.disconnect(self._session.mark_dirty)
@@ -568,6 +584,7 @@ class MainWindow(QMainWindow):
         session.layout_changed.connect(self._refresh_netlist)
         session.layout_changed.connect(self._refresh_groups)
         session.layout_changed.connect(self._refresh_nets_editor)
+        session.layout_changed.connect(self._refresh_components)
         session.layout_changed.connect(self._drc_timer.start)
         session.layout_changed.connect(self._update_undo_redo)
         session.layout_changed.connect(session.mark_dirty)
@@ -581,6 +598,7 @@ class MainWindow(QMainWindow):
         self._refresh_netlist()
         self._refresh_groups()
         self._refresh_nets_editor()
+        self._refresh_components()
         self._update_stats()
         self._update_undo_redo()
         self._update_title()
@@ -654,6 +672,9 @@ class MainWindow(QMainWindow):
     def _refresh_nets_editor(self) -> None:
         self._nets_editor_panel.refresh(self._session)
 
+    def _refresh_components(self) -> None:
+        self._components_panel.refresh(self._session)
+
     def _on_nets_editor_changed(self) -> None:
         self._session.mark_dirty()
         self._refresh_netlist()
@@ -670,9 +691,115 @@ class MainWindow(QMainWindow):
         self._board_view.set_tool(self._select_tool)
         self._mode_label.setText("Select")
 
-    def _tool_place(self, definition_ref: str) -> None:
-        self._board_view.set_tool(PlaceTool(definition_ref))
-        self._mode_label.setText(f"Place {definition_ref}  [R] rotate")
+    def _tool_place(self, definition_ref: str, pin_variant: object = None) -> None:
+        variant_str = str(pin_variant) if pin_variant is not None else None
+        self._board_view.set_tool(PlaceTool(definition_ref, pin_variant=variant_str))
+        label = definition_ref
+        if variant_str:
+            label = f"{definition_ref} [{variant_str}]"
+        self._mode_label.setText(f"Place {label}  [R] rotate")
+
+    def _tool_place_instance(self, instance_id: uuid.UUID) -> None:
+        """Activate PlaceTool for a specific netlist-imported instance."""
+        inst = self._session.instances.get(instance_id)
+        if inst is None:
+            return
+        if instance_id in self._session.layout.placements:
+            self._status.showMessage(
+                f"{inst.refdes} is already placed on the board.", 3000
+            )
+            return
+        tool = PlaceTool(inst.definition_ref, existing_instance=inst)
+        self._board_view.set_tool(tool)
+        self._mode_label.setText(
+            f"Place {inst.refdes} ({inst.value})  [R] rotate"
+        )
+
+    def _auto_place_instances(self, instance_ids: list[uuid.UUID]) -> None:
+        """Auto-place a list of component instances using net-gravity heuristic."""
+        from protoboard.domain.commands.base import Command, MacroCommand
+        from protoboard.domain.commands.component_cmds import (
+            ComponentState,
+            PlaceComponentCommand,
+        )
+        from typing import cast
+
+        to_place = [
+            inst
+            for iid in instance_ids
+            if (inst := self._session.instances.get(iid)) is not None
+            and iid not in self._session.layout.placements
+        ]
+        if not to_place:
+            self._status.showMessage("No unplaced components to place.", 3000)
+            return
+
+        result = auto_place(to_place, self._session, side="top")
+
+        if not result.placements:
+            self._status.showMessage(
+                "Auto-place: no free positions found on the board.", 4000
+            )
+            return
+
+        cmds: list[Command[ComponentState]] = []
+        for pl in result.placements:
+            inst = self._session.instances.get(pl.component_id)
+            if inst is None:
+                continue
+            cmds.append(
+                cast(
+                    Command[ComponentState],
+                    PlaceComponentCommand(
+                        component_id=pl.component_id,
+                        placement=pl,
+                        instance=inst,
+                    ),
+                )
+            )
+
+        if not cmds:
+            return
+
+        n = len(cmds)
+        macro: Command[ComponentState] = (
+            cmds[0]
+            if n == 1
+            else cast(
+                Command[ComponentState],
+                MacroCommand(
+                    commands=cmds,
+                    description=f"Auto-place {n} component{'s' if n != 1 else ''}",
+                ),
+            )
+        )
+
+        self._session.stack.execute(macro, self._session)
+        self._session.layout_changed.emit()
+        self._board_view.refresh()
+        self._update_stats()
+        self._update_undo_redo()
+
+        n_outside = len(result.outside_board)
+        n_skipped = len(result.skipped)
+        msg = f"Auto-placed {n} component{'s' if n != 1 else ''}."
+        if n_outside:
+            n_inst = {pl.component_id for pl in result.placements}
+            outside_refs = [
+                self._session.instances[iid].refdes
+                for iid in result.outside_board
+                if iid in self._session.instances
+            ]
+            msg += (
+                f" {n_outside} placed outside board bounds"
+                f" ({', '.join(outside_refs[:5])}{'…' if n_outside > 5 else ''})"
+                " — consider resizing the board."
+            )
+        if n_skipped:
+            msg += f" {n_skipped} could not be placed (unknown footprint or no space)."
+        self._status.showMessage(msg, 8000)
+        if n_outside:
+            QMessageBox.information(self, "Auto-place", msg)
 
     def _tool_route(self) -> None:
         self._board_view.set_tool(
@@ -1219,6 +1346,18 @@ class MainWindow(QMainWindow):
         self._session.mark_dirty()
         self._board_view.refresh()
 
+    def _on_pin_variant_changed(self, comp_id: uuid.UUID, pin_variant: object) -> None:
+        from typing import cast
+        from protoboard.domain.commands.component_cmds import (
+            ComponentState,
+            SetPinVariantCommand,
+        )
+        variant_str = str(pin_variant) if pin_variant is not None else None
+        cmd = SetPinVariantCommand(component_id=comp_id, new_variant=variant_str)
+        self._session.stack.execute(cmd, cast(ComponentState, self._session))
+        self._session.mark_dirty()
+        self._board_view.refresh()
+
     def _export_svg(self) -> None:
         path_str, _ = QFileDialog.getSaveFileName(
             self, "Export SVG", "board.svg", "SVG files (*.svg)"
@@ -1293,25 +1432,78 @@ class MainWindow(QMainWindow):
 
     def _import_kicad_net(self) -> None:
         import warnings
+        from protoboard.services.kicad.footprint_map import FootprintMap
 
         path_str, _ = QFileDialog.getOpenFileName(
             self, "Import KiCAD Netlist", "", "Netlist files (*.net);;All files (*)"
         )
         if not path_str:
             return
+        net_path = Path(path_str)
         try:
             imp = KiCadNetlistImporter()
+
+            # Load existing footprint_map.yaml from project dir if available.
+            user_map: FootprintMap | None = None
+            if self._session.project_path:
+                map_path = self._session.project_path / "footprint_map.yaml"
+                if map_path.exists():
+                    try:
+                        user_map = FootprintMap.load(map_path)
+                    except Exception:
+                        pass
+
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
-                schematic = imp.import_(Path(path_str))
-            self._session.schematic = schematic
+                result = imp.import_full(net_path, footprint_map=user_map)
+
+            # Update session state.
+            self._session.schematic = result.schematic
+            # Merge imported instances: keep existing placed ones, add/update rest.
+            placed_ids = set(self._session.layout.placements.keys())
+            for refdes, inst in result.instances.items():
+                if inst.id not in placed_ids:
+                    self._session.instances[inst.id] = inst
+
+            # Save footprint_map.yaml next to the project.
+            if self._session.project_path:
+                map_path = self._session.project_path / "footprint_map.yaml"
+                result.footprint_map.save(map_path)
+
             self._session.layout_changed.emit()
-            self._netlist_panel.refresh(self._session)
+
+            # Status message.
             warn_count = sum(1 for w in caught if issubclass(w.category, ImportWarning))
-            msg = f"Imported {len(schematic.nets)} nets from {Path(path_str).name}"
-            if warn_count:
-                msg += f" ({warn_count} unknown footprints)"
-            self._status.showMessage(msg, 6000)
+            unplaced = sum(
+                1 for iid in result.instances
+                if iid not in self._session.layout.placements
+            )
+            msg = (
+                f"Imported {len(result.schematic.nets)} nets, "
+                f"{len(result.instances)} components "
+                f"({unplaced} unplaced) from {net_path.name}"
+            )
+            if result.unresolved_fps:
+                msg += f" — {len(result.unresolved_fps)} unknown footprints"
+                if self._session.project_path:
+                    msg += ", see footprint_map.yaml"
+            if warn_count and not result.unresolved_fps:
+                msg += f" ({warn_count} warnings)"
+            self._status.showMessage(msg, 8000)
+
+            if result.unresolved_fps and self._session.project_path:
+                QMessageBox.information(
+                    self,
+                    "Unknown footprints",
+                    f"{len(result.unresolved_fps)} footprint(s) could not be resolved "
+                    f"automatically:\n\n"
+                    + "\n".join(f"  • {fp}" for fp in result.unresolved_fps[:10])
+                    + ("\n  …" if len(result.unresolved_fps) > 10 else "")
+                    + f"\n\nA footprint_map.yaml has been written to:\n"
+                    f"{self._session.project_path}\n\n"
+                    "Fill in the missing definition_ref and pin_count fields, "
+                    "then re-import the netlist.",
+                )
         except Exception as exc:
             QMessageBox.critical(self, "Import error", str(exc))
 

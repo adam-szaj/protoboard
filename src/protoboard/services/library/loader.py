@@ -20,6 +20,7 @@ from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
     PinBendSpec,
+    PinVariant,
 )
 from protoboard.domain.components.footprints import (
     DIP,
@@ -29,6 +30,7 @@ from protoboard.domain.components.footprints import (
     DualRow,
     FootprintTemplate,
     GridFootprint,
+    QuadRow,
     SingleRow,
 )
 from protoboard.errors import SerializationError
@@ -98,7 +100,23 @@ def _load_file(path: Path) -> list[ComponentDefinition]:
         if name.startswith("_"):
             continue  # template — not placeable, skip
         resolved = _resolve_extends(raw, raw_by_name, source=path, chain=[])
-        result.append(_component_from_dict(resolved, source=path))
+        defn = _component_from_dict(resolved, source=path)
+        result.append(defn)
+
+        # aliases: list of extra names that resolve to the same definition.
+        for alias in resolved.get("aliases") or []:
+            if isinstance(alias, str) and alias:
+                alias_defn = ComponentDefinition(
+                    name=alias,
+                    footprint=defn.footprint,
+                    pin_names=defn.pin_names,
+                    description=defn.description,
+                    component_class=defn.component_class,
+                    metadata=defn.metadata,
+                    bendable_pins=defn.bendable_pins,
+                )
+                result.append(alias_defn)
+
     return result
 
 
@@ -255,6 +273,32 @@ def _component_from_dict(data: Any, source: Path) -> ComponentDefinition:
                     f" got {type(spec_raw).__name__}"
                 )
 
+    variants_raw = data.get("variants") or []
+    variants: list[PinVariant] = []
+    if isinstance(variants_raw, list):
+        for v in variants_raw:
+            if not isinstance(v, dict):
+                raise SerializationError(
+                    f"{source}: each variant for {data['name']!r} must be a mapping"
+                )
+            if "id" not in v:
+                raise SerializationError(
+                    f"{source}: variant for {data['name']!r} requires 'id'"
+                )
+            v_pins: dict[int, str] = {}
+            for k, val in (v.get("pin_names") or {}).items():
+                try:
+                    v_pins[int(k)] = str(val)
+                except (TypeError, ValueError) as exc:
+                    raise SerializationError(
+                        f"{source}: variant pin_names key {k!r} is not an integer"
+                    ) from exc
+            variants.append(PinVariant(
+                id=str(v["id"]),
+                label=str(v.get("label", v["id"])),
+                pin_names=v_pins,
+            ))
+
     try:
         return ComponentDefinition(
             name=data["name"],
@@ -264,6 +308,7 @@ def _component_from_dict(data: Any, source: Path) -> ComponentDefinition:
             component_class=comp_class,
             metadata=dict(metadata_raw),
             bendable_pins=bendable_pins,
+            variants=tuple(variants),
         )
     except ValueError as exc:
         raise SerializationError(
@@ -333,6 +378,19 @@ def _build_to220(_: dict[str, Any]) -> FootprintTemplate:
     return TO220
 
 
+def _build_quad_row(data: dict[str, Any]) -> FootprintTemplate:
+    if "n_per_col" not in data:
+        raise SerializationError("QuadRow footprint requires 'n_per_col'")
+    raw_spacings = data.get("col_spacings", [1.0, 8.0, 1.0])
+    if not isinstance(raw_spacings, (list, tuple)) or len(raw_spacings) != 3:
+        raise SerializationError("QuadRow 'col_spacings' must be a list of 3 values")
+    return QuadRow(
+        n_per_col=int(data["n_per_col"]),
+        col_spacings=(float(raw_spacings[0]), float(raw_spacings[1]), float(raw_spacings[2])),
+        pitch=float(data.get("pitch", 1.0)),
+    )
+
+
 _FOOTPRINT_BUILDERS: dict[str, Callable[[dict[str, Any]], FootprintTemplate]] = {
     "DIP": _build_dip,
     "SIL": _build_sil,
@@ -340,6 +398,7 @@ _FOOTPRINT_BUILDERS: dict[str, Callable[[dict[str, Any]], FootprintTemplate]] = 
     "SingleRow": _build_single_row,
     "Grid": _build_grid,
     "GridFootprint": _build_grid,
+    "QuadRow": _build_quad_row,
     "TO92": _build_to92,
     "TO220": _build_to220,
 }

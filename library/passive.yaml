@@ -15,6 +15,15 @@ components:
         min_reach: 1
         max_reach: 23
         default: {x: 0, y: 4}
+    aliases:
+      # KiCAD SMD footprint strings → same 2-pin resistor body for perfboard
+      - R_0603_1608Metric
+      - R_0805_2012Metric
+      - R_1206_3216Metric
+      - R_2010_5025Metric
+      - R_2512_6332Metric
+      - R_2816_7142Metric_Pad3_20x4_45mm_HandSolder
+      - R_Axial_DIN0207
 
   - name: R_Net_4
     description: "4-resistor SIL network (common bus pin 1)"
@@ -48,6 +57,11 @@ components:
         min_reach: 1
         max_reach: 5
         default: {x: 0, y: 1}
+    aliases:
+      - C_0603_1608Metric
+      - C_0805_2012Metric
+      - C_1206_3216Metric
+      - C_Disc_D3.0mm
 
   - name: C_POL
     description: "Capacitor (electrolytic, polar, variable pitch)"
@@ -59,6 +73,10 @@ components:
         min_reach: 1
         max_reach: 5
         default: {x: 0, y: 1}
+    aliases:
+      - CP_Elec_5x11
+      - CP_Elec_6.3x11
+      - CP_Elec_8x11
 
   - name: C_Disc
     description: "Disc ceramic capacitor (variable pitch)"
@@ -122,6 +140,26 @@ components:
     component_class: switch
     footprint: {type: SIL, pins: 3}
     pin_names: {1: COM, 2: NC, 3: NO}
+    aliases:
+      - SW_SPDT_2
+
+  - name: SW_SPST
+    description: "SPST switch (2-pin)"
+    component_class: switch
+    footprint: {type: SIL, pins: 2}
+    pin_names: {1: A, 2: B}
+
+  - name: SW_DPST
+    description: "DPST switch (4-pin: two independent SPST)"
+    component_class: switch
+    footprint: {type: DIP, pins: 4}
+    pin_names: {1: A1, 2: B1, 3: A2, 4: B2}
+
+  - name: SW_DPDT
+    description: "DPDT switch (6-pin: two independent SPDT)"
+    component_class: switch
+    footprint: {type: SIL, pins: 6}
+    pin_names: {1: COM1, 2: NC1, 3: NO1, 4: COM2, 5: NC2, 6: NO2}
 
   - name: SW_DIP_4
     description: "4-position DIP switch"

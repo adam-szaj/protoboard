@@ -50,10 +50,24 @@ _REACH_PAD_RADIUS = 0.18
 
 
 class PlaceTool(_Tool):
-    """Places a component at the snapped cursor position on left-click."""
+    """Places a component at the snapped cursor position on left-click.
 
-    def __init__(self, definition_ref: str) -> None:
+    Two construction modes:
+    - ``PlaceTool(definition_ref)``      — create a brand-new instance from library.
+    - ``PlaceTool(definition_ref, existing_instance=inst)`` — place a specific
+      instance imported from netlist (keeps its UUID, refdes, value, nets).
+    """
+
+    def __init__(
+        self,
+        definition_ref: str,
+        existing_instance: object | None = None,
+        pin_variant: str | None = None,
+    ) -> None:
         self._definition_ref = definition_ref
+        # When placing a netlist-imported instance, keep its identity.
+        self._existing_instance = existing_instance  # ComponentInstance | None
+        self._pin_variant = pin_variant
         self._rotation = 0
         self._ghost: QGraphicsItemGroup | None = None
         # Two-phase state
@@ -376,11 +390,19 @@ class PlaceTool(_Tool):
     def _commit(self, position: Point, pin_offsets: dict[int, Point]) -> None:
         _log.debug("place.attempt", definition=self._definition_ref, pos=(position.x, position.y), rotation=self._rotation)
         defn = self._session.components.get(self._definition_ref)
-        inst = ComponentInstance.new(
-            definition_ref=self._definition_ref,
-            refdes=self._next_refdes(),
-            value=self._definition_ref,
-        )
+
+        # Netlist-imported instance: reuse its identity (UUID, refdes, value, nets).
+        if self._existing_instance is not None:
+            from protoboard.domain.components.instance import ComponentInstance as _CI
+            inst: _CI = self._existing_instance  # type: ignore[assignment]
+        else:
+            inst = ComponentInstance.new(
+                definition_ref=self._definition_ref,
+                refdes=self._next_refdes(),
+                value=self._definition_ref,
+                pin_variant=self._pin_variant,
+            )
+
         placement = ComponentPlacement(
             component_id=inst.id,
             position=position,
