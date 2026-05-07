@@ -64,6 +64,8 @@ ACTION_CAMERA_TOGGLE = "camera_toggle"
 ACTION_ZOOM_IN = "zoom_in"
 ACTION_ZOOM_OUT = "zoom_out"
 ACTION_FIT_BOARD = "fit_board"
+ACTION_FIT_AREA = "fit_area"
+ACTION_FIT_SELECTION = "fit_selection"
 
 ACTION_WIRE_TOGGLE_INSULATED = "wire_toggle_insulated"
 ACTION_WIRE_SIDE_TOP = "wire_side_top"
@@ -118,6 +120,8 @@ DEFAULTS: dict[str, str] = {
     ACTION_ZOOM_IN: "Ctrl++",
     ACTION_ZOOM_OUT: "Ctrl+-",
     ACTION_FIT_BOARD: "Ctrl+0",
+    ACTION_FIT_AREA: "Ctrl+Shift+0",
+    ACTION_FIT_SELECTION: "Ctrl+Shift+F",
     ACTION_WIRE_TOGGLE_INSULATED: "I",
     ACTION_WIRE_SIDE_TOP: "T",
     ACTION_WIRE_SIDE_BOTTOM: "B",
@@ -167,6 +171,8 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_ZOOM_IN: "Zoom In",
     ACTION_ZOOM_OUT: "Zoom Out",
     ACTION_FIT_BOARD: "Fit Board",
+    ACTION_FIT_AREA: "Fit Area",
+    ACTION_FIT_SELECTION: "Fit Selection",
     ACTION_WIRE_TOGGLE_INSULATED: "Toggle Wire Insulation",
     ACTION_WIRE_SIDE_TOP: "Wire Side: Top",
     ACTION_WIRE_SIDE_BOTTOM: "Wire Side: Bottom",

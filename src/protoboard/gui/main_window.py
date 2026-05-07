@@ -164,6 +164,24 @@ class MainWindow(QMainWindow):
         self._act_mirror_tb.triggered.connect(self._mirror_view)
         self._act_mirror_v_tb.triggered.connect(self._mirror_view_v)
 
+        # ── Toolbar: Zoom ────────────────────────────────────────────────
+        tb_zoom = QToolBar("Zoom", self)
+        tb_zoom.setMovable(False)
+        tb_zoom.setObjectName("tb_zoom")
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_zoom)
+
+        act_zoom_in_tb  = tb_zoom.addAction("+ Zoom In")
+        act_zoom_out_tb = tb_zoom.addAction("− Zoom Out")
+        tb_zoom.addSeparator()
+        act_fit_area_tb  = tb_zoom.addAction("⊡ Fit Area")
+        act_fit_board_tb = tb_zoom.addAction("⊞ Fit Board")
+        act_fit_sel_tb   = tb_zoom.addAction("⊟ Fit Sel")
+        act_zoom_in_tb.triggered.connect(lambda: self._board_view.scale(1.3, 1.3))
+        act_zoom_out_tb.triggered.connect(lambda: self._board_view.scale(1 / 1.3, 1 / 1.3))
+        act_fit_area_tb.triggered.connect(self._fit_area)
+        act_fit_board_tb.triggered.connect(self._fit_board)
+        act_fit_sel_tb.triggered.connect(self._fit_selection)
+
         # ── Toolbar: Wire ────────────────────────────────────────────────
         tb_wire = QToolBar("Wire", self)
         tb_wire.setMovable(True)
@@ -231,6 +249,14 @@ class MainWindow(QMainWindow):
         self._drc_timer.setInterval(600)
         self._drc_timer.timeout.connect(self._run_drc_silent)
 
+        # Panel-refresh timer — debounces sidebar rebuilds to avoid blocking UI
+        # on every drag-commit.  100 ms is fast enough to feel instant after a
+        # move, but prevents rebuilding all trees on every keystroke/undo/redo.
+        self._panels_timer = QTimer(self)
+        self._panels_timer.setSingleShot(True)
+        self._panels_timer.setInterval(100)
+        self._panels_timer.timeout.connect(self._refresh_panels)
+
         # Signals.
         self._board_view.cursor_moved.connect(self._on_cursor_moved)
         self._board_view.escape_tool.connect(self._tool_select)
@@ -245,10 +271,8 @@ class MainWindow(QMainWindow):
         self._components_panel.auto_place_all_requested.connect(
             self._auto_place_instances
         )
-        session.layout_changed.connect(self._refresh_netlist)
-        session.layout_changed.connect(self._refresh_groups)
-        session.layout_changed.connect(self._refresh_nets_editor)
-        session.layout_changed.connect(self._refresh_components)
+        session.layout_changed.connect(session.invalidate_graph)
+        session.layout_changed.connect(self._panels_timer.start)
         session.layout_changed.connect(self._drc_timer.start)
         session.layout_changed.connect(self._update_undo_redo)
         session.layout_changed.connect(session.mark_dirty)
@@ -504,6 +528,14 @@ class MainWindow(QMainWindow):
         act_fit.setShortcut(self._ks(KB.ACTION_FIT_BOARD))
         act_fit.triggered.connect(self._fit_board)
 
+        act_fit_area = view_menu.addAction("Fit &Area")
+        act_fit_area.setShortcut(self._ks(KB.ACTION_FIT_AREA))
+        act_fit_area.triggered.connect(self._fit_area)
+
+        act_fit_sel = view_menu.addAction("Fit &Selection")
+        act_fit_sel.setShortcut(self._ks(KB.ACTION_FIT_SELECTION))
+        act_fit_sel.triggered.connect(self._fit_selection)
+
         # ── Tools ─────────────────────────────────────────────────────────
         tools_menu = mb.addMenu("&Tools")
 
@@ -626,20 +658,16 @@ class MainWindow(QMainWindow):
         session.project_path = path
         recent_projects.add(path)
         # Reconnect signals from the old session.
-        self._session.layout_changed.disconnect(self._refresh_netlist)
-        self._session.layout_changed.disconnect(self._refresh_groups)
-        self._session.layout_changed.disconnect(self._refresh_nets_editor)
-        self._session.layout_changed.disconnect(self._refresh_components)
+        self._session.layout_changed.disconnect(self._session.invalidate_graph)
+        self._session.layout_changed.disconnect(self._panels_timer.start)
         self._session.layout_changed.disconnect(self._drc_timer.start)
         self._session.layout_changed.disconnect(self._update_undo_redo)
         self._session.layout_changed.disconnect(self._session.mark_dirty)
         self._session.dirty_changed.disconnect(self._update_title)
         self._session.drc_changed.disconnect(self._props_panel.update_issues)
         self._session = session
-        session.layout_changed.connect(self._refresh_netlist)
-        session.layout_changed.connect(self._refresh_groups)
-        session.layout_changed.connect(self._refresh_nets_editor)
-        session.layout_changed.connect(self._refresh_components)
+        session.layout_changed.connect(session.invalidate_graph)
+        session.layout_changed.connect(self._panels_timer.start)
         session.layout_changed.connect(self._drc_timer.start)
         session.layout_changed.connect(self._update_undo_redo)
         session.layout_changed.connect(session.mark_dirty)
@@ -729,6 +757,13 @@ class MainWindow(QMainWindow):
 
     def _refresh_components(self) -> None:
         self._components_panel.refresh(self._session)
+
+    def _refresh_panels(self) -> None:
+        """Debounced refresh of all sidebar panels — called via _panels_timer."""
+        self._refresh_netlist()
+        self._refresh_groups()
+        self._refresh_nets_editor()
+        self._refresh_components()
 
     def _on_nets_editor_changed(self) -> None:
         self._session.mark_dirty()
@@ -1020,6 +1055,12 @@ class MainWindow(QMainWindow):
 
     def _fit_board(self) -> None:
         self._board_view.fit_board()
+
+    def _fit_area(self) -> None:
+        self._board_view.fit_area()
+
+    def _fit_selection(self) -> None:
+        self._board_view.fit_selection()
 
     def _tool_cut(self) -> None:
         self._board_view.set_tool(CutTool())

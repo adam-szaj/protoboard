@@ -53,6 +53,22 @@ class DRCEngine:
             components=components,
             instances=instances,
         )
+        return self.check_with_graph(
+            schematic=schematic,
+            layout=layout,
+            components=components,
+            instances=instances,
+            graph=graph,
+        )
+
+    def check_with_graph(
+        self,
+        schematic: Schematic,
+        layout: Layout,
+        components: dict[str, ComponentDefinition],
+        instances: dict[uuid.UUID, ComponentInstance],
+        graph: ConnectivityGraph,
+    ) -> list[DRCIssue]:
         issues: list[DRCIssue] = []
         issues += _check_overlap(layout, components, instances)
         issues += _check_short(schematic, graph)

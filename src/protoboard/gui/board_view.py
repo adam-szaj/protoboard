@@ -206,11 +206,92 @@ class BoardView(QGraphicsView):
             Qt.AspectRatioMode.KeepAspectRatio,
         )
 
-    def fit_board(self) -> None:
-        """Scale and center the view to fit the board bounds."""
-        b = self._session.board.bounds
+    def fit_area(self) -> None:
+        """Fit view to the active group's components; falls back to fit_board() for ROOT."""
+        from protoboard.domain.layout.group import all_component_ids
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.domain.layout.placement import component_bbox
+
+        session = self._session
+        active = self._active_group_id
+
+        import uuid as _uuid
+        if active == ROOT_GROUP_ID:
+            comp_ids: frozenset[_uuid.UUID] = frozenset(session.layout.placements.keys())
+        else:
+            comp_ids = all_component_ids(session.layout.groups, active)
+
+        xs: list[float] = []
+        ys: list[float] = []
+        for cid in comp_ids:
+            pl = session.layout.placements.get(cid)
+            inst = session.instances.get(cid)
+            if pl is None or inst is None:
+                continue
+            defn = session.components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            bbox = component_bbox(defn.footprint, pl, defn.component_class)
+            xs += [bbox.x, bbox.x + bbox.width]
+            ys += [bbox.y, bbox.y + bbox.height]
+
+        if not xs:
+            self.fit_board()
+            return
+
+        margin = 1.0
         self.fitInView(
-            QRectF(b.x - 1, b.y - 1, b.width + 2, b.height + 2),
+            QRectF(min(xs) - margin, min(ys) - margin,
+                   max(xs) - min(xs) + 2 * margin,
+                   max(ys) - min(ys) + 2 * margin),
+            Qt.AspectRatioMode.KeepAspectRatio,
+        )
+
+    def fit_selection(self) -> None:
+        """Fit view to the bounding box of selected components and wires."""
+        from protoboard.domain.layout.placement import component_bbox
+
+        tool = self._active_tool
+        sel_comp_ids: set = getattr(tool, "_selected_ids", set())
+        sel_wire_ids: set = getattr(tool, "_selected_wire_ids", set())
+
+        if not sel_comp_ids and not sel_wire_ids:
+            self.fit_area()
+            return
+
+        session = self._session
+        xs: list[float] = []
+        ys: list[float] = []
+
+        for cid in sel_comp_ids:
+            pl = session.layout.placements.get(cid)
+            inst = session.instances.get(cid)
+            if pl is None or inst is None:
+                continue
+            defn = session.components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            bbox = component_bbox(defn.footprint, pl, defn.component_class)
+            xs += [bbox.x, bbox.x + bbox.width]
+            ys += [bbox.y, bbox.y + bbox.height]
+
+        for wid in sel_wire_ids:
+            wire = next((w for w in session.layout.wires if w.id == wid), None)
+            if wire is None:
+                continue
+            for pt in wire.path:
+                xs.append(pt.x)
+                ys.append(pt.y)
+
+        if not xs:
+            self.fit_area()
+            return
+
+        margin = 1.0
+        self.fitInView(
+            QRectF(min(xs) - margin, min(ys) - margin,
+                   max(xs) - min(xs) + 2 * margin,
+                   max(ys) - min(ys) + 2 * margin),
             Qt.AspectRatioMode.KeepAspectRatio,
         )
 

@@ -17,6 +17,7 @@ from protoboard.domain.commands.base import CommandStack
 from protoboard.domain.commands.component_cmds import ComponentState
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.services.drc.engine import DRCEngine, DRCIssue
@@ -57,15 +58,31 @@ class EditorSession(QObject):
         self.project_path: Path | None = None
         self._drc_issues: list[DRCIssue] = []
         self._dirty: bool = False
+        self._graph: ConnectivityGraph | None = None  # rebuilt lazily; None = stale
+
+    def invalidate_graph(self) -> None:
+        """Mark the cached ConnectivityGraph as stale. Called on every layout_changed."""
+        self._graph = None
+
+    def connectivity_graph(self) -> ConnectivityGraph:
+        """Return the cached graph, rebuilding it if stale."""
+        if self._graph is None:
+            self._graph = ConnectivityGraph(
+                board=self.board,
+                layout=self.layout,
+                components=self.components,
+                instances=self.instances,
+            )
+        return self._graph
 
     def run_drc(self) -> list[DRCIssue]:
         engine = DRCEngine()
-        self._drc_issues = engine.check(
-            board=self.board,
+        self._drc_issues = engine.check_with_graph(
             schematic=self.schematic,
             layout=self.layout,
             components=self.components,
             instances=self.instances,
+            graph=self.connectivity_graph(),
         )
         self.drc_changed.emit(self._drc_issues)
         return self._drc_issues
