@@ -13,6 +13,7 @@ from protoboard.gui.window_state import load_window_state, save_window_state
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QKeyEvent, QKeySequence
 from PySide6.QtWidgets import (
+    QDialog,
     QDockWidget,
     QFileDialog,
     QInputDialog,
