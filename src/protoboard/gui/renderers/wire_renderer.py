@@ -57,12 +57,10 @@ def render_wires_with_nets(
         color_override: str | None = None
         if net_id is not None and net_color_map:
             color_override = net_color_map.get(net_id)
-        net_alpha = (
-            1.0
-            if highlighted_net_id is None or net_id == highlighted_net_id
-            else theme.highlight_dim_wires
-        )
-        _draw_wire(scene, wire, net_id, color_override, theme, layers, net_alpha=net_alpha)
+        is_highlighted = highlighted_net_id is not None and net_id == highlighted_net_id
+        net_alpha = 1.0 if highlighted_net_id is None or is_highlighted else theme.highlight_dim_wires
+        _draw_wire(scene, wire, net_id, color_override, theme, layers,
+                   net_alpha=net_alpha, glow=is_highlighted)
 
 
 def _draw_wire(
@@ -73,6 +71,7 @@ def _draw_wire(
     theme: Theme = DEFAULT_THEME,
     layers: LayerState = _DEFAULT_LAYERS,
     net_alpha: float = 1.0,
+    glow: bool = False,
 ) -> None:
     pts = wire.path
     side = wire.side  # type: ignore[assignment]
@@ -84,6 +83,20 @@ def _draw_wire(
     color = _net_color(net_id, color_override, theme)
     if alpha < 1.0:
         color = _dim(color, alpha)
+
+    if glow:
+        glow_color = _net_color(net_id, color_override, theme)
+        glow_color.setAlphaF(theme.route_glow_wire_alpha * layers.alpha_for_wire(side))
+        glow_pen = QPen(glow_color, theme.route_glow_wire_width)
+        glow_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        glow_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        for i in range(len(pts) - 1):
+            x1, y1 = pts[i].x, pts[i].y
+            x2, y2 = pts[i + 1].x, pts[i + 1].y
+            g = QGraphicsLineItem(x1, y1, x2, y2)
+            g.setPen(glow_pen)
+            g.setZValue(z_base - 0.1)
+            scene.addItem(g)
 
     if wire.insulated:
         _draw_insulated(scene, pts, color, z_base, theme)

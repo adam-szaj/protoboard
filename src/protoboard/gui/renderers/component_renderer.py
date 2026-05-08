@@ -126,7 +126,8 @@ def render_components(
             net_dim = 1.0 if comp_id in highlighted_comp_ids else theme.highlight_dim_components
             group_alpha = max(0.04, group_alpha * net_dim)
         grp = _render_one(scene, placement, inst, defn, comp_id, pin_net,
-                          routed_nets, theme, layers, group_alpha=group_alpha)
+                          routed_nets, theme, layers, group_alpha=group_alpha,
+                          highlighted_net_id=highlighted_net_id)
         if grp is not None:
             comp_groups[comp_id] = grp
     return comp_groups
@@ -143,6 +144,7 @@ def _render_one(
     theme: Theme,
     layers: LayerState,
     group_alpha: float = 1.0,
+    highlighted_net_id: uuid.UUID | None = None,
 ) -> QGraphicsItemGroup | None:
     """Render one component; return a scene group (for live drag) or None."""
     side = placement.side  # type: ignore[assignment]
@@ -212,6 +214,19 @@ def _render_one(
             fallback_pen_color = QColor(theme.pin_label_fallback_color)
             fallback_pen_color.setAlphaF(fill_color.alphaF())
             pen = QPen(fallback_pen_color, theme.pin_width_incomplete)
+
+        # Glow ring for highlighted net pins.
+        if highlighted_net_id is not None and net_id == highlighted_net_id:
+            gr = theme.route_glow_pin_radius
+            glow_color = _net_color(net_id, theme)
+            glow_color.setAlphaF(theme.route_glow_pin_alpha * alpha)
+            glow_pen = QPen(glow_color, gr * 0.55)
+            glow_pen.setStyle(Qt.PenStyle.SolidLine)
+            halo = QGraphicsEllipseItem(QRectF(pos.x - gr, pos.y - gr, 2 * gr, 2 * gr))
+            halo.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            halo.setPen(glow_pen)
+            halo.setZValue(z_comp - 0.08)
+            grp.addToGroup(halo)
 
         if pin_number == 1:
             _add_pin1_marker(grp, pos.x, pos.y, fill_color, theme, z=z_comp - 0.05)

@@ -184,6 +184,11 @@ class Theme:
     # ── Net / group highlight dim ────────────────────────────────────────────
     highlight_dim_components: float = 0.20  # alpha for dimmed components
     highlight_dim_wires: float = 0.20       # alpha for dimmed wires
+    # ── Routing highlight glow ───────────────────────────────────────────────
+    route_glow_wire_width: float = 0.55     # extra glow halo width around highlighted wires
+    route_glow_wire_alpha: float = 0.35     # alpha of the glow halo
+    route_glow_pin_radius: float = 0.28     # radius of glow ring around highlighted pins
+    route_glow_pin_alpha: float = 0.55      # alpha of the glow ring
 
     # ── Export SVG ───────────────────────────────────────────────────────────
     svg_scale: float = 10.0
