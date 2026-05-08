@@ -184,7 +184,7 @@ class SelectTool(_Tool):
         for wid in self._selected_wire_ids:
             self._draw_multi_wire_highlight(wid)
         if self._net_pad_highlight_positions:
-            self._draw_net_pad_highlights(self._net_pad_highlight_positions)
+            self._draw_net_pad_highlights(list(self._net_pad_highlight_positions))
 
     def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
@@ -2079,7 +2079,10 @@ class SelectTool(_Tool):
 
     def _clear_net_pad_highlights(self) -> None:
         for item in self._net_pad_highlight_items:
-            self._view.scene().removeItem(item)
+            try:
+                self._view.scene().removeItem(item)
+            except RuntimeError:
+                pass  # C++ object already deleted by scene.clear()
         self._net_pad_highlight_items.clear()
         self._net_pad_highlight_positions.clear()
 

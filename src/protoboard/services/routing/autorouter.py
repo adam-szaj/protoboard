@@ -93,6 +93,7 @@ def autoroute(
     wire_mode: Literal["bare", "insulated", "auto"] = "insulated",
     max_detour_factor: float = 0.0,
     progress_callback: Callable[[int, str, int], None] | None = None,
+    optimize_progress_callback: Callable[[int, int], None] | None = None,
     cancel_flag: threading.Event | None = None,
 ) -> AutorouteResult:
     """Route all unrouted nets in *schematic* and return new wire segments.
@@ -270,10 +271,13 @@ def autoroute(
                     for seed in range(max_optimize_iterations)
                 ]
                 _log.info("autoroute.optimize.futures_submitted", count=len(futures))
-                for fut in as_completed(futures):
+                n_futures = len(futures)
+                for done_count, fut in enumerate(as_completed(futures), start=1):
                     if cancel_flag is not None and cancel_flag.is_set():
                         pool.shutdown(wait=False, cancel_futures=True)
                         raise AutorouteCancelled
+                    if optimize_progress_callback is not None:
+                        optimize_progress_callback(done_count, n_futures)
                     try:
                         opt_wires, opt_unrouted = fut.result()
                         _log.info("autoroute.optimize.future_done",

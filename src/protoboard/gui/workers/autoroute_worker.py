@@ -34,6 +34,7 @@ class AutorouteWorker(QThread):
     """
 
     progress: Signal = Signal(int, str, int)   # pass_num, net_name, pct
+    optimize_progress: Signal = Signal(int, int)  # done, total
     finished: Signal = Signal(object)          # AutorouteResult
     error: Signal = Signal(str)
 
@@ -96,6 +97,7 @@ class AutorouteWorker(QThread):
                 wire_mode=rs.wire_mode,
                 max_detour_factor=rs.max_detour_factor,
                 progress_callback=self._report,
+                optimize_progress_callback=self._report_optimize,
                 cancel_flag=self._cancel_flag,
             )
         except AutorouteCancelled:
@@ -116,3 +118,7 @@ class AutorouteWorker(QThread):
     def _report(self, pass_num: int, net_name: str, pct: int) -> None:
         """Called from the worker thread — emits cross-thread signal."""
         self.progress.emit(pass_num, net_name, pct)
+
+    def _report_optimize(self, done: int, total: int) -> None:
+        """Called from the worker thread after each optimization pass completes."""
+        self.optimize_progress.emit(done, total)

@@ -1625,7 +1625,14 @@ class MainWindow(QMainWindow):
             dlg.setLabelText(label)
             dlg.setValue(pct)
 
+        def _on_optimize_progress(done: int, total: int) -> None:
+            if dlg.wasCanceled():
+                return
+            dlg.setLabelText(f"Optimising… ({done}/{total})")
+            dlg.setValue(int(done * 100 / total))
+
         worker.progress.connect(_on_progress)
+        worker.optimize_progress.connect(_on_optimize_progress)
         worker.finished.connect(self._on_autoroute_done)
         worker.finished.connect(dlg.close)
         worker.error.connect(
