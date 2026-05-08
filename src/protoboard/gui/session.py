@@ -34,6 +34,9 @@ class EditorSession(QObject):
     drag_moved = Signal()       # emitted on every drag step; does NOT trigger panels/DRC
     drc_changed = Signal(list)  # list[DRCIssue]
     dirty_changed = Signal(bool)
+    # Carries (frozenset[UUID] comp_ids, frozenset[UUID] wire_ids, UUID|None net_id).
+    # Emitted by SelectTool after any selection change so panels can sync.
+    selection_changed = Signal(object, object, object)
 
     def __init__(
         self,
@@ -59,6 +62,15 @@ class EditorSession(QObject):
         self._drc_issues: list[DRCIssue] = []
         self._dirty: bool = False
         self._graph: ConnectivityGraph | None = None  # rebuilt lazily; None = stale
+
+    def notify_selection(
+        self,
+        comp_ids: "frozenset[uuid.UUID]",
+        wire_ids: "frozenset[uuid.UUID]",
+        net_id: "uuid.UUID | None",
+    ) -> None:
+        """Called by SelectTool to broadcast selection state to all panels."""
+        self.selection_changed.emit(comp_ids, wire_ids, net_id)
 
     def invalidate_graph(self) -> None:
         """Mark the cached ConnectivityGraph as stale. Called on every layout_changed."""

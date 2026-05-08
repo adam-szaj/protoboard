@@ -121,6 +121,7 @@ class ComponentsPanel(QWidget):
         layout.addLayout(auto_row)
 
         self._session: EditorSession | None = None
+        self._syncing: bool = False
 
         self._search.textChanged.connect(self._on_filter)
         self._tree.itemSelectionChanged.connect(self._on_selection_changed)
@@ -190,7 +191,37 @@ class ComponentsPanel(QWidget):
     def _on_filter(self) -> None:
         self._rebuild()
 
+    def sync_selection(
+        self,
+        comp_ids: object,
+        _wire_ids: object,
+        _net_id: object,
+    ) -> None:
+        """Highlight rows matching comp_ids. Called by MainWindow on board selection."""
+        if not self.isVisible():
+            return
+        self._syncing = True
+        try:
+            self._tree.clearSelection()
+            first_match: QTreeWidgetItem | None = None
+            for raw_id in (comp_ids if isinstance(comp_ids, frozenset) else frozenset()):
+                for i in range(self._tree.topLevelItemCount()):
+                    item = self._tree.topLevelItem(i)
+                    if item is None:
+                        continue
+                    if item.data(_COL_REFDES, Qt.ItemDataRole.UserRole) == str(raw_id):
+                        item.setSelected(True)
+                        if first_match is None:
+                            first_match = item
+                        break
+            if first_match is not None:
+                self._tree.scrollToItem(first_match)
+        finally:
+            self._syncing = False
+
     def _on_selection_changed(self) -> None:
+        if self._syncing:
+            return
         items = self._tree.selectedItems()
         if not items:
             self._place_btn.setEnabled(False)

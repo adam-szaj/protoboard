@@ -153,6 +153,20 @@ class SelectTool(_Tool):
             from protoboard.domain.layout.layout import ROOT_GROUP_ID
             self._group_stack = [ROOT_GROUP_ID]
 
+    def _notify_selection(self) -> None:
+        """Broadcast current selection state to all panels via session signal."""
+        if self._session is None:
+            return
+        comp_ids: frozenset[uuid.UUID] = frozenset(
+            self._selected_ids | ({self._selected_id} if self._selected_id else set())
+        )
+        wire_ids: frozenset[uuid.UUID] = frozenset(
+            self._selected_wire_ids | (
+                {self._selected_wire_id} if self._selected_wire_id else set()
+            )
+        )
+        self._session.notify_selection(comp_ids, wire_ids, self._highlight_net_id)
+
     def set_filter_components(self, enabled: bool) -> None:
         self._filter_components = enabled
 
@@ -442,6 +456,7 @@ class SelectTool(_Tool):
         self._deselect()
         self._deselect_wire()
         self._clear_connectivity_highlight()
+        self._notify_selection()
         self._rubber_band_start = scene_pt
         return True
 
@@ -747,6 +762,7 @@ class SelectTool(_Tool):
                 self._deselect()
                 self._deselect_wire()
                 self._clear_connectivity_highlight()
+                self._notify_selection()
 
     def on_key_release(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Control and not self._dragging:
@@ -1115,6 +1131,7 @@ class SelectTool(_Tool):
         panel = self._props_panel()
         if panel is not None:
             panel.show_component(inst, placement, defn)
+        self._notify_selection()
 
     def _deselect(self) -> None:
         if self._highlight is not None:
@@ -1133,6 +1150,8 @@ class SelectTool(_Tool):
         panel = self._props_panel()
         if panel is not None:
             panel.clear_component()
+        # Note: no _notify_selection() here — callers that need it call it themselves
+        # (e.g. _select_primary calls _deselect then _notify_selection at the end).
 
     def _draw_highlight(self, comp_id: uuid.UUID) -> None:
         if self._highlight is not None:
@@ -1953,6 +1972,8 @@ class SelectTool(_Tool):
             self._redraw_multi_wire_highlights()
             if selected:
                 self._select_primary(next(iter(selected)))
+            else:
+                self._notify_selection()
 
     def _clear_rubber_band(self) -> None:
         if self._rubber_band_item is not None:
@@ -2087,6 +2108,8 @@ class SelectTool(_Tool):
                             pin_world_position(defn.footprint, placement, pin_num)
                         )
             self._draw_net_pad_highlights(pad_positions)
+
+        self._notify_selection()
 
     def _draw_net_pad_highlights(self, positions: "list[Point]") -> None:
         """Draw red circles on pin positions connected to the selected net (cycle 1)."""
@@ -2809,6 +2832,7 @@ class SelectTool(_Tool):
                 line.setZValue(Z_OVERLAY + 0.5)
                 scene.addItem(line)
                 self._highlight_items.append(line)
+        self._notify_selection()
 
     def _pin_positions_for_ref(self, ref: object) -> list[object]:
         """Helper: get world positions for a PinRef."""

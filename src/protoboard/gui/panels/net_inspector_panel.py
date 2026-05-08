@@ -72,6 +72,7 @@ class NetInspectorPanel(QWidget):
         root_layout.addWidget(self._tree)
 
         self._tree.itemClicked.connect(self._on_item_clicked)
+        self._syncing: bool = False
 
     # ------------------------------------------------------------------
     # Public
@@ -80,6 +81,30 @@ class NetInspectorPanel(QWidget):
     def refresh(self, session: "EditorSession") -> None:
         self._session = session
         self._rebuild()
+
+    def sync_selection(
+        self,
+        _comp_ids: object,
+        _wire_ids: object,
+        net_id: object,
+    ) -> None:
+        """Highlight the row matching net_id. Called by MainWindow on board selection."""
+        if not self.isVisible():
+            return
+        self._syncing = True
+        try:
+            self._tree.clearSelection()
+            if net_id is not None:
+                for i in range(self._tree.topLevelItemCount()):
+                    item = self._tree.topLevelItem(i)
+                    if item is None:
+                        continue
+                    if item.data(_COL_NAME, _ROLE) == str(net_id):
+                        item.setSelected(True)
+                        self._tree.scrollToItem(item)
+                        break
+        finally:
+            self._syncing = False
 
     def clear_highlight(self) -> None:
         self._board_view.set_highlighted_net(None)
@@ -122,6 +147,8 @@ class NetInspectorPanel(QWidget):
             self._tree.addTopLevelItem(item)
 
     def _on_item_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
+        if self._syncing:
+            return
         raw = item.data(_COL_NAME, _ROLE)
         if not isinstance(raw, str):
             return

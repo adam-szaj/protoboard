@@ -47,7 +47,8 @@ _ROLE = Qt.ItemDataRole.UserRole
 class NetsEditorPanel(QWidget):
     """Panel for managing logical nets: add, delete, rename, and assign pins."""
 
-    nets_changed = Signal()  # emitted after any command that mutates the schematic
+    nets_changed = Signal()   # emitted after any command that mutates the schematic
+    net_selected = Signal(object)  # uuid.UUID — emitted when user clicks a net row
 
     def __init__(self, parent: object = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
@@ -76,6 +77,7 @@ class NetsEditorPanel(QWidget):
         self._net_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._net_tree.customContextMenuRequested.connect(self._on_net_context_menu)
         self._net_tree.itemDoubleClicked.connect(self._on_net_double_clicked)
+        self._net_tree.itemClicked.connect(self._on_net_item_clicked)
         net_layout.addWidget(self._net_tree)
 
         net_btn_row = QHBoxLayout()
@@ -126,10 +128,46 @@ class NetsEditorPanel(QWidget):
         self._btn_unassign.clicked.connect(self._on_unassign_pin)
 
         self._session: EditorSession | None = None
+        self._syncing: bool = False
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def sync_selection(
+        self,
+        comp_ids: object,
+        _wire_ids: object,
+        net_id: object,
+    ) -> None:
+        """Highlight net row matching net_id, or pins matching comp_ids."""
+        if not self.isVisible():
+            return
+        self._syncing = True
+        try:
+            self._net_tree.clearSelection()
+            if net_id is not None:
+                for i in range(self._net_tree.topLevelItemCount()):
+                    item = self._net_tree.topLevelItem(i)
+                    if item is None:
+                        continue
+                    if item.data(_NET_COL_NAME, _ROLE) == str(net_id):
+                        item.setSelected(True)
+                        self._net_tree.scrollToItem(item)
+                        break
+        finally:
+            self._syncing = False
+
+    def _on_net_item_clicked(self, item: "QTreeWidgetItem", _col: int) -> None:
+        if self._syncing:
+            return
+        import uuid as _uuid
+        raw = item.data(_NET_COL_NAME, _ROLE)
+        if isinstance(raw, str):
+            try:
+                self.net_selected.emit(_uuid.UUID(raw))
+            except ValueError:
+                pass
 
     def refresh(self, session: EditorSession) -> None:
         self._session = session

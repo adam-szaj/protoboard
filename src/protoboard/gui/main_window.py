@@ -299,7 +299,9 @@ class MainWindow(QMainWindow):
         self._groups_panel.group_renamed.connect(lambda _: self._session.mark_dirty())
 
         self._nets_editor_panel.nets_changed.connect(self._on_nets_editor_changed)
+        self._nets_editor_panel.net_selected.connect(self._board_view.set_highlighted_net)
         self._layers_panel.overrides_changed.connect(self._on_layer_panel_changed)
+        self._session.selection_changed.connect(self._on_selection_changed)
 
         # Populate panels if project already loaded.
         self._refresh_netlist()
@@ -692,6 +694,7 @@ class MainWindow(QMainWindow):
         self._select_tool = SelectTool()
         self._board_view._permanent_tools = [self._select_tool]
         self._sel_filter_widget.set_tool(self._select_tool)
+        session.selection_changed.connect(self._on_selection_changed)
         self._board_view.set_session(session)
         self._tool_select()
         self._refresh_netlist()
@@ -777,6 +780,15 @@ class MainWindow(QMainWindow):
 
     def _refresh_net_inspector(self) -> None:
         self._net_inspector_panel.refresh(self._session)
+
+    def _on_selection_changed(
+        self, comp_ids: object, wire_ids: object, net_id: object
+    ) -> None:
+        """Broadcast board selection state to all panels."""
+        self._netlist_panel.sync_selection(comp_ids, wire_ids, net_id)
+        self._components_panel.sync_selection(comp_ids, wire_ids, net_id)
+        self._nets_editor_panel.sync_selection(comp_ids, wire_ids, net_id)
+        self._net_inspector_panel.sync_selection(comp_ids, wire_ids, net_id)
 
     def _refresh_panels(self) -> None:
         """Debounced refresh of all sidebar panels — called via _panels_timer."""
