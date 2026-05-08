@@ -364,6 +364,9 @@ def _routing_settings_to_yaml(s: RoutingSettings) -> str:
         "allow_layer_change": s.allow_layer_change,
         "max_rip_up_passes": s.max_rip_up_passes,
         "max_optimize_iterations": s.max_optimize_iterations,
+        "wire_mode": s.wire_mode,
+        "allow_jumpers": s.allow_jumpers,
+        "max_detour_factor": s.max_detour_factor,
         "cost_model": {
             "direction_change": s.direction_change,
             "crossing_insulated_bare": s.crossing_insulated_bare,
@@ -384,6 +387,9 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
     if not isinstance(data, dict):
         return RoutingSettings()
     cm = data.get("cost_model") or {}
+    wire_mode = data.get("wire_mode", "auto")
+    if wire_mode not in ("bare", "insulated", "auto"):
+        wire_mode = "auto"
     return RoutingSettings(
         preferred_side=data.get("preferred_side", "bottom"),
         allow_layer_change=bool(data.get("allow_layer_change", True)),
@@ -393,6 +399,9 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
         crossing_insulated_bare=float(cm.get("crossing_insulated_bare", 5.0)),
         layer_change=float(cm.get("layer_change", 2.0)),
         under_component_top=float(cm.get("under_component_top", 3.0)),
+        wire_mode=wire_mode,
+        allow_jumpers=bool(data.get("allow_jumpers", True)),
+        max_detour_factor=float(data.get("max_detour_factor", 0.0)),
     )
 
 

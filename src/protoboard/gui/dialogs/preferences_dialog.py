@@ -514,6 +514,17 @@ class _RoutingPage(QWidget):
         self._max_optimize.setRange(0, 50)
         gen_form.addRow("Optimize iterations", self._max_optimize)
 
+        self._wire_mode = QComboBox()
+        self._wire_mode.addItems(["auto", "bare", "insulated"])
+        gen_form.addRow("Wire mode", self._wire_mode)
+
+        self._allow_jumpers = QCheckBox()
+        gen_form.addRow("Allow jumpers", self._allow_jumpers)
+
+        self._max_detour = _cost_spinbox(0.0, 20.0, 0.5, 1)
+        self._max_detour.setSpecialValueText("unlimited")
+        gen_form.addRow("Max detour factor", self._max_detour)
+
         gen_grp.setLayout(gen_form)
         vbox.addWidget(gen_grp)
 
@@ -560,6 +571,10 @@ class _RoutingPage(QWidget):
         self._crossing_insulated_bare.setValue(rs.crossing_insulated_bare)
         self._layer_change.setValue(rs.layer_change)
         self._under_component_top.setValue(rs.under_component_top)
+        idx = self._wire_mode.findText(rs.wire_mode)
+        self._wire_mode.setCurrentIndex(max(idx, 0))
+        self._allow_jumpers.setChecked(rs.allow_jumpers)
+        self._max_detour.setValue(rs.max_detour_factor)
 
     def _restore_defaults(self) -> None:
         self._load_from_settings(self._defaults)
@@ -575,6 +590,9 @@ class _RoutingPage(QWidget):
             crossing_insulated_bare=self._crossing_insulated_bare.value(),
             layer_change=self._layer_change.value(),
             under_component_top=self._under_component_top.value(),
+            wire_mode=self._wire_mode.currentText(),  # type: ignore[arg-type]
+            allow_jumpers=self._allow_jumpers.isChecked(),
+            max_detour_factor=self._max_detour.value(),
         )
         self._session.routing_settings = new_settings
         self._session.mark_dirty()

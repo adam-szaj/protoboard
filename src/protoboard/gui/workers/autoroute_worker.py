@@ -93,6 +93,8 @@ class AutorouteWorker(QThread):
                 allow_layer_change=rs.allow_layer_change,
                 max_rip_up_passes=rs.max_rip_up_passes,
                 max_optimize_iterations=rs.max_optimize_iterations,
+                wire_mode=rs.wire_mode,
+                max_detour_factor=rs.max_detour_factor,
                 progress_callback=self._report,
                 cancel_flag=self._cancel_flag,
             )

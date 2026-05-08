@@ -1583,13 +1583,23 @@ class MainWindow(QMainWindow):
         self._update_undo_redo()
 
     def _autoroute(self) -> None:
-        """Start the autorouter in a background thread with a progress dialog."""
+        """Open the autoroute dialog, then start the router in a background thread."""
+        from protoboard.gui.dialogs.autoroute_dialog import AutorouteDialog
         from protoboard.gui.workers.autoroute_worker import AutorouteWorker
         from PySide6.QtWidgets import QProgressDialog
 
         if not self._session.schematic.nets:
             QMessageBox.information(self, "Autoroute", "No nets to route.")
             return
+
+        # Show pre-flight dialog — user can adjust all parameters.
+        cfg_dlg = AutorouteDialog(self._session.routing_settings, parent=self)
+        if cfg_dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        run_settings = cfg_dlg.routing_settings()
+        if cfg_dlg.save_as_default():
+            self._session.routing_settings = run_settings
 
         dlg = QProgressDialog("Initialising autorouter…", "Cancel", 0, 100, self)
         dlg.setWindowTitle("Autoroute")
@@ -1603,7 +1613,7 @@ class MainWindow(QMainWindow):
             schematic=self._session.schematic,
             components=self._session.components,
             instances=self._session.instances,
-            routing_settings=self._session.routing_settings,
+            routing_settings=run_settings,
         )
         # Keep a reference so the worker isn't garbage-collected before finishing.
         self._autoroute_worker = worker

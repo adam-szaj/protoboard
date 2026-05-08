@@ -90,6 +90,8 @@ def autoroute(
     allow_layer_change: bool = True,
     max_optimize_iterations: int = 10,
     preferred_side: Literal["top", "bottom"] = "bottom",
+    wire_mode: Literal["bare", "insulated", "auto"] = "insulated",
+    max_detour_factor: float = 0.0,
     progress_callback: Callable[[int, str, int], None] | None = None,
     cancel_flag: threading.Event | None = None,
 ) -> AutorouteResult:
@@ -97,10 +99,19 @@ def autoroute(
 
     Parameters
     ----------
+    wire_mode:
+        Strategy for choosing wire insulation:
+        ``"bare"`` — always route as bare wire;
+        ``"insulated"`` — always route as insulated wire (legacy default);
+        ``"auto"`` — try bare first, fall back to insulated if no bare path exists.
+        The legacy ``insulated`` parameter is ignored when ``wire_mode`` is set
+        to anything other than its default ``"insulated"``.
+    max_detour_factor:
+        If > 0, reject any routed path whose length exceeds
+        ``manhattan_distance * max_detour_factor``.  Rejected paths are treated
+        as unrouted (rip-up retry applies).  ``0.0`` means no limit.
     insulated:
-        Whether newly created wires should be insulated.  Insulated wires may
-        cross bare wires (acting as jumpers) at extra cost; bare wires cannot
-        cross other bare wires (short circuit).
+        Deprecated — use ``wire_mode`` instead.  Kept for backward compatibility.
     allow_layer_change:
         When True (default), the router may route through the bottom layer when
         it reduces total wire length or avoids obstacles — using plated-through
@@ -210,6 +221,8 @@ def autoroute(
         max_rip_up_passes=max_rip_up_passes,
         side=side,
         insulated=insulated,
+        wire_mode=wire_mode,
+        max_detour_factor=max_detour_factor,
         plated_through_pads=plated_through_pads,
         under_component_penalty=under_component_penalty,
         skip_net_ids=set(),
@@ -236,6 +249,7 @@ def autoroute(
         _pass_args = (
             sorted_nets, pin_positions, all_pin_positions, schematic, board,
             layout, user_wires, cost_model, max_rip_up_passes, side, insulated,
+            wire_mode, max_detour_factor,
             plated_through_pads, under_component_penalty, failed_net_ids,
             components, instances, preferred_side,
         )
@@ -297,6 +311,8 @@ def autoroute(
                     max_rip_up_passes=max_rip_up_passes,
                     side=side,
                     insulated=insulated,
+                    wire_mode=wire_mode,
+                    max_detour_factor=max_detour_factor,
                     plated_through_pads=plated_through_pads,
                     under_component_penalty=under_component_penalty,
                     skip_net_ids=failed_net_ids,
@@ -347,6 +363,7 @@ def _run_opt_pass_in_process(args: tuple) -> tuple[list[WireSegment], list[str]]
 
     (sorted_nets, pin_positions, all_pin_positions, schematic, board, layout,
      user_wires, cost_model, max_rip_up_passes, side, insulated,
+     wire_mode, max_detour_factor,
      plated_through_pads, under_component_penalty, failed_net_ids,
      components, instances, preferred_side, seed_offset) = args
 
@@ -368,6 +385,8 @@ def _run_opt_pass_in_process(args: tuple) -> tuple[list[WireSegment], list[str]]
         max_rip_up_passes=max_rip_up_passes,
         side=side,
         insulated=insulated,
+        wire_mode=wire_mode,
+        max_detour_factor=max_detour_factor,
         plated_through_pads=plated_through_pads,
         under_component_penalty=under_component_penalty,
         skip_net_ids=failed_net_ids,
@@ -408,11 +427,13 @@ def _run_one_pass(
     max_rip_up_passes: int,
     side: Literal["top", "bottom"],
     insulated: bool,
-    plated_through_pads: set[Point],
-    under_component_penalty: dict[tuple[Point, str], float],
-    skip_net_ids: set[uuid.UUID],
-    components: dict[str, ComponentDefinition],
-    instances: dict[uuid.UUID, ComponentInstance],
+    wire_mode: Literal["bare", "insulated", "auto"] = "insulated",
+    max_detour_factor: float = 0.0,
+    plated_through_pads: set[Point] = set(),
+    under_component_penalty: dict[tuple[Point, str], float] = {},
+    skip_net_ids: set[uuid.UUID] = set(),
+    components: dict[str, ComponentDefinition] = {},
+    instances: dict[uuid.UUID, ComponentInstance] = {},
     preferred_side: Literal["top", "bottom"] = "bottom",
     progress_callback: Callable[[int, str, int], None] | None = None,
     cancel_flag: threading.Event | None = None,
@@ -479,6 +500,8 @@ def _run_one_pass(
             cost_model=cost_model,
             max_rip_up_passes=max_rip_up_passes,
             insulated=insulated,
+            wire_mode=wire_mode,
+            max_detour_factor=max_detour_factor,
             plated_through_pads=plated_through_pads,
             under_component_penalty=under_component_penalty,
             preferred_side=preferred_side,
@@ -548,8 +571,10 @@ def _route_net(
     cost_model: RoutingCostModel,
     max_rip_up_passes: int,
     insulated: bool,
-    plated_through_pads: set[Point],
-    under_component_penalty: dict[tuple[Point, str], float],
+    wire_mode: Literal["bare", "insulated", "auto"] = "insulated",
+    max_detour_factor: float = 0.0,
+    plated_through_pads: set[Point] = set(),
+    under_component_penalty: dict[tuple[Point, str], float] = {},
     preferred_side: Literal["top", "bottom"] = "bottom",
     segment_callback: Callable[[str, int, int], None] | None = None,
     cancel_flag: threading.Event | None = None,
@@ -761,6 +786,7 @@ def _route_net(
         routed_wires = _route_segment_with_ripup(
             source_options=[best_src_pt],
             target=target_pt,
+            manhattan_dist=best_pair_dist,
             board=board,
             layout=layout,
             working_wires=working_wires,
@@ -771,6 +797,8 @@ def _route_net(
             side=side,
             cost_model=cost_model,
             max_rip_up_passes=max_rip_up_passes,
+            wire_mode=wire_mode,
+            max_detour_factor=max_detour_factor,
             occupied_pins=occupied_pads,
             same_net_pins=same_net_pads,
             near_pin_pads=near_pin_pads,
@@ -846,6 +874,9 @@ def _route_segment_with_ripup(
     cur_net_wire_points: set[tuple[Point, str]],
     under_component_penalty: dict[tuple[Point, str], float],
     preferred_side: Literal["top", "bottom"] = "bottom",
+    wire_mode: Literal["bare", "insulated", "auto"] = "insulated",
+    max_detour_factor: float = 0.0,
+    manhattan_dist: float = 0.0,
 ) -> list[WireSegment] | None:
     """Try to route *target* from any of *source_options*, with rip-up fallback.
 
@@ -855,87 +886,63 @@ def _route_segment_with_ripup(
         graph = connectivity_graph
         bare_segs = _build_bare_wire_segments(working_wires)
 
-        # Build pad-occupancy from existing wires.
-        # - Insulated wire: blocks only its own side (two insulated wires on
-        #   opposite sides can share the same (x,y) position without conflict).
-        # - Bare wire: blocks both sides (bare metal in a plated-through hole
-        #   creates an electrical contact on both layers).
-        wire_occupied = _build_wire_occupied(
-            working_wires,
-            exclude_wire_id=None,
-            both_sides=not insulated,
+        # Determine which insulation modes to attempt for this segment.
+        # wire_mode="auto": try bare first, fall back to insulated.
+        # wire_mode="bare" / "insulated": single attempt only.
+        import dataclasses as _dc
+        if wire_mode == "bare":
+            insulation_attempts = [False]
+        elif wire_mode == "insulated":
+            insulation_attempts = [True]
+        else:  # "auto"
+            insulation_attempts = [False, True]
+
+        # For bare-wire attempt: forbid all crossings (bare×bare = short,
+        # insulated×bare also not wanted on first try).
+        bare_only_cm = _dc.replace(
+            cost_model,
+            crossing_bare_bare=float("inf"),
+            crossing_insulated_bare=float("inf"),
         )
-        combined_occupied: dict[tuple[Point, str], uuid.UUID] = dict(occupied_pins)
-        for ps, nid in wire_occupied.items():
-            if ps not in combined_occupied:
-                combined_occupied[ps] = nid
-        for ps in same_net_pins:
-            combined_occupied.pop(ps, None)
-        effective_near = {
-            ps for ps in near_pin_pads
-            if ps not in combined_occupied and ps not in same_net_pins
-        }
 
-        # Collect best result across all source options and both starting sides.
-        # Try each source from both top and bottom so the router can pick the
-        # globally cheapest path (e.g. straight bottom layer vs. top detour).
-        # Tie-break: when two paths have equal cost, preferred_side wins.
-        # When two sides are available, run the two A* calls in parallel.
         best: tuple[float, list[PathStep]] | None = None
-        best_is_preferred = False  # whether current best starts on preferred_side
-        sides_to_try = ["top", "bottom"] if plated_through_pads else [source_options[0][1]]
+        best_is_preferred = False
+        result_insulated: bool = insulation_attempts[-1]  # default to last attempt
 
-        def _astar_call(src_pt: Point, start_side: str) -> tuple[str, list]:  # type: ignore[type-arg]
-            # Expand target to all pads already in the same ElectricSet —
-            # A* can stop at any wire of the same net, not just the target pin.
-            target_pads = graph.pads_in_same_electric_set(target, start_side)
-            return start_side, find_paths(
-                graph=graph,
-                source=src_pt,
-                targets=target_pads,
-                side=start_side,
-                cost_model=cost_model,
-                k=1,
-                insulated=insulated,
-                occupied_pads=combined_occupied,
-                same_net_pads=same_net_pins,
-                near_pin_pads=effective_near,
-                near_pin_cost=10.0,
-                bare_wire_segments=bare_segs,
-                plated_through_pads=plated_through_pads,
-                penalised_pads=under_component_penalty,
+        for try_insulated in insulation_attempts:
+            active_cm = bare_only_cm if not try_insulated else cost_model
+
+            # Build pad-occupancy from existing wires.
+            # - Insulated wire: blocks only its own side.
+            # - Bare wire: blocks both sides.
+            wire_occupied = _build_wire_occupied(
+                working_wires,
+                exclude_wire_id=None,
+                both_sides=not try_insulated,
             )
+            combined_occupied: dict[tuple[Point, str], uuid.UUID] = dict(occupied_pins)
+            for ps, nid in wire_occupied.items():
+                if ps not in combined_occupied:
+                    combined_occupied[ps] = nid
+            for ps in same_net_pins:
+                combined_occupied.pop(ps, None)
+            effective_near = {
+                ps for ps in near_pin_pads
+                if ps not in combined_occupied and ps not in same_net_pins
+            }
 
-        for src_pt, _src_side in source_options:
-            if len(sides_to_try) > 1:
-                # Run both sides in parallel and pick the cheaper result.
-                futures = {
-                    _ASTAR_POOL.submit(_astar_call, src_pt, s): s
-                    for s in sides_to_try
-                }
-                for fut in as_completed(futures):
-                    start_side, results = fut.result()
-                    if not results:
-                        continue
-                    cost = results[0].cost
-                    is_preferred = start_side == preferred_side
-                    if (
-                        best is None
-                        or cost < best[0]
-                        or (cost == best[0] and is_preferred and not best_is_preferred)
-                    ):
-                        best = (cost, results[0].path)
-                        best_is_preferred = is_preferred
-            else:
-                start_side = sides_to_try[0]
-                results = find_paths(
+            sides_to_try = ["top", "bottom"] if plated_through_pads else [source_options[0][1]]
+
+            def _astar_call(src_pt: Point, start_side: str, _ins: bool = try_insulated, _cm: RoutingCostModel = active_cm) -> tuple[str, list]:  # type: ignore[type-arg]
+                target_pads = graph.pads_in_same_electric_set(target, start_side)
+                return start_side, find_paths(
                     graph=graph,
                     source=src_pt,
-                    targets=[target],
+                    targets=target_pads,
                     side=start_side,
-                    cost_model=cost_model,
+                    cost_model=_cm,
                     k=1,
-                    insulated=insulated,
+                    insulated=_ins,
                     occupied_pads=combined_occupied,
                     same_net_pads=same_net_pins,
                     near_pin_pads=effective_near,
@@ -944,19 +951,72 @@ def _route_segment_with_ripup(
                     plated_through_pads=plated_through_pads,
                     penalised_pads=under_component_penalty,
                 )
-                if results:
-                    cost = results[0].cost
-                    is_preferred = start_side == preferred_side
-                    if (
-                        best is None
-                        or cost < best[0]
-                        or (cost == best[0] and is_preferred and not best_is_preferred)
-                    ):
-                        best = (cost, results[0].path)
-                        best_is_preferred = is_preferred
+
+            attempt_best: tuple[float, list[PathStep]] | None = None
+            attempt_best_is_preferred = False
+
+            for src_pt, _src_side in source_options:
+                if len(sides_to_try) > 1:
+                    futures = {
+                        _ASTAR_POOL.submit(_astar_call, src_pt, s): s
+                        for s in sides_to_try
+                    }
+                    for fut in as_completed(futures):
+                        start_side, results = fut.result()
+                        if not results:
+                            continue
+                        cost = results[0].cost
+                        is_preferred = start_side == preferred_side
+                        if (
+                            attempt_best is None
+                            or cost < attempt_best[0]
+                            or (cost == attempt_best[0] and is_preferred and not attempt_best_is_preferred)
+                        ):
+                            attempt_best = (cost, results[0].path)
+                            attempt_best_is_preferred = is_preferred
+                else:
+                    start_side = sides_to_try[0]
+                    results = find_paths(
+                        graph=graph,
+                        source=src_pt,
+                        targets=[target],
+                        side=start_side,
+                        cost_model=active_cm,
+                        k=1,
+                        insulated=try_insulated,
+                        occupied_pads=combined_occupied,
+                        same_net_pads=same_net_pins,
+                        near_pin_pads=effective_near,
+                        near_pin_cost=10.0,
+                        bare_wire_segments=bare_segs,
+                        plated_through_pads=plated_through_pads,
+                        penalised_pads=under_component_penalty,
+                    )
+                    if results:
+                        cost = results[0].cost
+                        is_preferred = start_side == preferred_side
+                        if (
+                            attempt_best is None
+                            or cost < attempt_best[0]
+                            or (cost == attempt_best[0] and is_preferred and not attempt_best_is_preferred)
+                        ):
+                            attempt_best = (cost, results[0].path)
+                            attempt_best_is_preferred = is_preferred
+
+            # Apply max_detour_factor filter.
+            if attempt_best is not None and max_detour_factor > 0.0 and manhattan_dist > 0.0:
+                if len(attempt_best[1]) > manhattan_dist * max_detour_factor:
+                    attempt_best = None  # path too long — try next insulation mode
+
+            if attempt_best is not None:
+                best = attempt_best
+                best_is_preferred = attempt_best_is_preferred
+                result_insulated = try_insulated
+                break  # found a valid path — no need for fallback
+
         if best is not None:
             path = _truncate_at_same_net_wire(best[1], cur_net_wire_points, target)
-            wires = _path_to_wires(path, insulated)
+            wires = _path_to_wires(path, result_insulated)
             if _DEEP_DEBUG:
                 _log.debug(
                     "autoroute.astar.ok",

@@ -27,12 +27,23 @@ class RoutingSettings:
     crossing_insulated_bare: float = 5.0
     layer_change: float = 2.0
     under_component_top: float = 3.0
+    # Wire type strategy.
+    # "bare"      — always route as bare wire (no insulation)
+    # "insulated" — always route as insulated wire (legacy behaviour)
+    # "auto"      — try bare first; fall back to insulated if no bare path exists
+    wire_mode: Literal["bare", "insulated", "auto"] = "auto"
+    # When False, insulated wires may not cross bare wires (crossing_insulated_bare=inf).
+    allow_jumpers: bool = True
+    # Maximum allowed path length relative to Manhattan distance.
+    # 0.0 means no limit.  E.g. 3.0 rejects any path longer than 3× Manhattan.
+    max_detour_factor: float = 0.0
 
     def cost_model(self) -> RoutingCostModel:
         """Build a RoutingCostModel from these settings."""
+        cib = self.crossing_insulated_bare if self.allow_jumpers else float("inf")
         return RoutingCostModel(
             direction_change=self.direction_change,
-            crossing_insulated_bare=self.crossing_insulated_bare,
+            crossing_insulated_bare=cib,
             layer_change=self.layer_change,
             under_component_top=self.under_component_top,
         )
