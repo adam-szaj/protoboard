@@ -757,34 +757,43 @@ class BoardView(QGraphicsView):
 
 
 def _build_wire_net_map(session: EditorSession) -> dict[uuid.UUID, uuid.UUID]:
-    """Return a mapping wire.id → net.id for every wire whose endpoint lies on
-    a placed pin that belongs to a net."""
-    from protoboard.domain.layout.placement import pin_world_position
+    """Return a mapping wire.id → net.id using ConnectivityGraph.
 
-    _EPS = 1e-4
+    Uses the cached graph so strips, bare-wire chains, and plated-through
+    holes are all handled correctly — not just wires whose endpoints happen
+    to land directly on a component pin.
+    """
+    from protoboard.domain.schematic.net import PinRef
 
-    # Build point → net_id from placed pins.
-    point_to_net: dict[tuple[float, float], uuid.UUID] = {}
+    if not session.schematic.nets or not session.layout.wires:
+        return {}
+
+    graph = session.connectivity_graph()
+
+    # canonical_key → net.id  (one net per electric set that has named pins)
+    canonical_to_net: dict[object, uuid.UUID] = {}
     for net in session.schematic.nets.values():
         for ref in net.pins:
-            pl = session.layout.placements.get(ref.component_id)
-            inst = session.instances.get(ref.component_id)
-            if pl is None or inst is None:
-                continue
-            defn = session.components.get(inst.definition_ref)
-            if defn is None or ref.pin_number > defn.pin_count:
-                continue
-            p = pin_world_position(defn.footprint, pl, ref.pin_number)
-            point_to_net[(round(p.x, 4), round(p.y, 4))] = net.id
+            ck = graph.node_for_pin(ref)
+            if ck is not None:
+                canonical_to_net[ck] = net.id
 
     result: dict[uuid.UUID, uuid.UUID] = {}
     for wire in session.layout.wires:
-        for pt in (wire.path[0], wire.path[-1]):
-            key = (round(pt.x, 4), round(pt.y, 4))
-            net_id = point_to_net.get(key)
-            if net_id is not None:
-                result[wire.id] = net_id
-                break
+        # Insulated wires only make electrical contact at their two endpoints;
+        # bare wires contact every pad they pass through.
+        contact_pts = (
+            ([wire.path[0], wire.path[-1]] if len(wire.path) >= 2 else wire.path)
+            if wire.insulated
+            else wire.path
+        )
+        for pt in contact_pts:
+            ck = graph.node_for_pad(pt, wire.side)
+            if ck is not None:
+                net_id = canonical_to_net.get(ck)
+                if net_id is not None:
+                    result[wire.id] = net_id
+                    break
     return result
 
 
