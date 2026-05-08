@@ -181,6 +181,10 @@ class Theme:
     board_ghost_alpha: float = 0.55  # board while placing/routing
     ghost_comp_alpha: float = 0.25   # components while placing/routing
 
+    # ── Net / group highlight dim ────────────────────────────────────────────
+    highlight_dim_components: float = 0.20  # alpha for dimmed components
+    highlight_dim_wires: float = 0.20       # alpha for dimmed wires
+
     # ── Export SVG ───────────────────────────────────────────────────────────
     svg_scale: float = 10.0
     svg_bg: str = "#2B6B3A"

@@ -256,6 +256,11 @@ class _ColorsPage(QWidget):
             ("ghost_comp_alpha",  "Component ghost opacity", theme.ghost_comp_alpha),
         ])
 
+        add_opacity_section("Net / group highlight dim", [
+            ("highlight_dim_components", "Dimmed components opacity", theme.highlight_dim_components),
+            ("highlight_dim_wires",      "Dimmed wires opacity",      theme.highlight_dim_wires),
+        ])
+
         add_section("Groups", [
             ("group_pen_color",  "Group outline colour", theme.group_pen_color),
             ("group_pen_width",  "Group outline width",  theme.group_pen_width),

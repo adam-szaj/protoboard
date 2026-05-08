@@ -42,9 +42,6 @@ def _dim(color: QColor, opacity: float) -> QColor:
     return c
 
 
-_DIM_ALPHA = 0.2
-
-
 def render_wires_with_nets(
     scene: QGraphicsScene,
     wires: list[WireSegment],
@@ -63,7 +60,7 @@ def render_wires_with_nets(
         net_alpha = (
             1.0
             if highlighted_net_id is None or net_id == highlighted_net_id
-            else _DIM_ALPHA
+            else theme.highlight_dim_wires
         )
         _draw_wire(scene, wire, net_id, color_override, theme, layers, net_alpha=net_alpha)
 

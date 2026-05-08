@@ -123,7 +123,7 @@ def render_components(
             continue
         group_alpha = alpha_map.get(comp_id, 1.0)
         if highlighted_net_id is not None:
-            net_dim = 1.0 if comp_id in highlighted_comp_ids else _ALPHA_INACTIVE
+            net_dim = 1.0 if comp_id in highlighted_comp_ids else theme.highlight_dim_components
             group_alpha = max(0.04, group_alpha * net_dim)
         grp = _render_one(scene, placement, inst, defn, comp_id, pin_net,
                           routed_nets, theme, layers, group_alpha=group_alpha)
