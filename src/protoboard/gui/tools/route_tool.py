@@ -62,6 +62,7 @@ class RouteTool(_Tool):
         self._points.append(snapped)
         if len(self._points) == 1:
             _log.debug("route.started", start=(snapped.x, snapped.y), insulated=self._insulated, side=self._side)
+            self._highlight_start_net(snapped)
         # Immediately show live segment from new point to current cursor.
         self._add_live_line(snapped, snapped)
         return True
@@ -99,6 +100,7 @@ class RouteTool(_Tool):
     # ------------------------------------------------------------------
 
     def _commit(self) -> None:
+        self._view.set_highlighted_net(None)
         if len(self._points) < 2:
             self._cancel()
             return
@@ -133,6 +135,7 @@ class RouteTool(_Tool):
         self._session.layout_changed.emit()
 
     def _cancel(self) -> None:
+        self._view.set_highlighted_net(None)
         self._clear_committed()
         self._remove_live()
         self._clear_hints()
@@ -199,6 +202,18 @@ class RouteTool(_Tool):
         )
         _log.debug("route.hints", paths_found=len(results), targets=len(targets))
         self._hint_items = render_routing_hints(self._view.scene(), results)
+
+    def _highlight_start_net(self, source: Point) -> None:
+        """Dim everything except the net of the starting pad."""
+        graph = self._session.connectivity_graph()
+        source_node = graph.node_for_pad(source, self._side)
+        if source_node is None:
+            return
+        for net in self._session.schematic.nets.values():
+            for ref in net.pins:
+                if graph.node_for_pin(ref) == source_node:
+                    self._view.set_highlighted_net(net.id)
+                    return
 
     def on_scene_cleared(self) -> None:
         # scene.clear() already destroyed all items — just drop references.
