@@ -87,12 +87,15 @@ class MainWindow(QMainWindow):
         self._groups_panel = GroupsPanel(self)
         self._nets_editor_panel = NetsEditorPanel(self)
         self._components_panel = ComponentsPanel(self)
+        from protoboard.gui.panels.net_inspector_panel import NetInspectorPanel
+        self._net_inspector_panel = NetInspectorPanel(self._board_view, self)
         left_tabs = QTabWidget()
         left_tabs.addTab(self._library_panel, "Library")
         left_tabs.addTab(self._netlist_panel, "Netlist")
         left_tabs.addTab(self._groups_panel, "Groups")
         left_tabs.addTab(self._nets_editor_panel, "Nets")
         left_tabs.addTab(self._components_panel, "Components")
+        left_tabs.addTab(self._net_inspector_panel, "Inspector")
         left_dock = QDockWidget("", self)
         left_dock.setObjectName("left_dock")
         left_dock.setWidget(left_tabs)
@@ -244,6 +247,10 @@ class MainWindow(QMainWindow):
         self._status.addPermanentWidget(self._view_label)
         self._cursor_label = QLabel("(—, —)")
         self._status.addPermanentWidget(self._cursor_label)
+        from protoboard.gui.panels.selection_filter_widget import SelectionFilterWidget
+        self._sel_filter_widget = SelectionFilterWidget(self)
+        self._sel_filter_widget.set_tool(self._select_tool)
+        self._status.addPermanentWidget(self._sel_filter_widget)
 
         # Auto-DRC timer — fires 600 ms after the last layout_changed.
         self._drc_timer = QTimer(self)
@@ -299,6 +306,7 @@ class MainWindow(QMainWindow):
         self._refresh_groups()
         self._refresh_nets_editor()
         self._refresh_components()
+        self._refresh_net_inspector()
         self._update_stats()
         self._update_view_label()
 
@@ -683,12 +691,14 @@ class MainWindow(QMainWindow):
         # Reset select tool state (group stack etc.) for the new session.
         self._select_tool = SelectTool()
         self._board_view._permanent_tools = [self._select_tool]
+        self._sel_filter_widget.set_tool(self._select_tool)
         self._board_view.set_session(session)
         self._tool_select()
         self._refresh_netlist()
         self._refresh_groups()
         self._refresh_nets_editor()
         self._refresh_components()
+        self._refresh_net_inspector()
         self._update_stats()
         self._update_undo_redo()
         self._update_title()
@@ -765,12 +775,16 @@ class MainWindow(QMainWindow):
     def _refresh_components(self) -> None:
         self._components_panel.refresh(self._session)
 
+    def _refresh_net_inspector(self) -> None:
+        self._net_inspector_panel.refresh(self._session)
+
     def _refresh_panels(self) -> None:
         """Debounced refresh of all sidebar panels — called via _panels_timer."""
         self._refresh_netlist()
         self._refresh_groups()
         self._refresh_nets_editor()
         self._refresh_components()
+        self._refresh_net_inspector()
 
     def _on_nets_editor_changed(self) -> None:
         self._session.mark_dirty()

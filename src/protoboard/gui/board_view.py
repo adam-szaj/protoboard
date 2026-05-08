@@ -69,6 +69,8 @@ class BoardView(QGraphicsView):
         # Active group for rendering context (set by SelectTool on navigation).
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         self._active_group_id: uuid.UUID = ROOT_GROUP_ID
+        # Net highlight: when set, all other objects are dimmed to 0.2 alpha.
+        self._highlighted_net_id: uuid.UUID | None = None
         # Theme — overridden by MainWindow after Preferences apply.
         from protoboard.gui.theme import Theme
         self._theme_override: Theme | None = None
@@ -99,6 +101,11 @@ class BoardView(QGraphicsView):
     def set_active_group(self, group_id: uuid.UUID) -> None:
         """Called by SelectTool on group navigation to trigger a re-render."""
         self._active_group_id = group_id
+        self.refresh()
+
+    def set_highlighted_net(self, net_id: uuid.UUID | None) -> None:
+        """Highlight one net and dim everything else. None clears the dim."""
+        self._highlighted_net_id = net_id
         self.refresh()
 
     def _on_drag_moved(self) -> None:
@@ -308,6 +315,7 @@ class BoardView(QGraphicsView):
             self._active_tool.deactivate()
             self._active_tool = None
         self._session = session
+        self._highlighted_net_id = None
         session.layout_changed.connect(self.refresh)
         session.drag_moved.connect(self._on_drag_moved)
         self.refresh()
@@ -316,6 +324,7 @@ class BoardView(QGraphicsView):
         if self._active_tool is not None:
             self._active_tool.deactivate()
         self._active_tool = tool
+        self._highlighted_net_id = None
         if tool is not None:
             tool.activate(self._session, self)
         self.refresh()
@@ -379,6 +388,7 @@ class BoardView(QGraphicsView):
             wire_net_map,
             net_color_map,
             layers=layers,
+            highlighted_net_id=self._highlighted_net_id,
         )
         # Compute net routing status for pin colouring.
         routed: set[uuid.UUID] | None = None
@@ -411,6 +421,7 @@ class BoardView(QGraphicsView):
             theme=_theme,
             active_group_id=self._active_group_id,
             layout=self._session.layout,
+            highlighted_net_id=self._highlighted_net_id,
         )
         if self._session.schematic.nets:
             render_ratsnest(

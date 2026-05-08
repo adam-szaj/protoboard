@@ -137,6 +137,10 @@ class SelectTool(_Tool):
         self._highlight_net_id: uuid.UUID | None = None
         self._highlight_comp_ids: set[uuid.UUID] = set()
         self._highlight_items: list[QGraphicsItem] = []
+        # Selection filter: controls what types of objects are selectable.
+        self._filter_components: bool = True
+        self._filter_wires: bool = True
+        self._filter_groups: bool = True
 
     # ------------------------------------------------------------------
     # _Tool interface
@@ -148,6 +152,15 @@ class SelectTool(_Tool):
         if not self._group_stack:
             from protoboard.domain.layout.layout import ROOT_GROUP_ID
             self._group_stack = [ROOT_GROUP_ID]
+
+    def set_filter_components(self, enabled: bool) -> None:
+        self._filter_components = enabled
+
+    def set_filter_wires(self, enabled: bool) -> None:
+        self._filter_wires = enabled
+
+    def set_filter_groups(self, enabled: bool) -> None:
+        self._filter_groups = enabled
 
     def deactivate(self) -> None:
         self._cancel_redrag()
@@ -229,7 +242,7 @@ class SelectTool(_Tool):
                     return True
 
             # Check component bbox.
-            hit = self._hit_test_bbox(scene_pt)
+            hit = self._hit_test_bbox(scene_pt) if self._filter_components else None
             if hit is not None:
                 if hit in self._selected_ids:
                     self._selected_ids.discard(hit)
@@ -242,7 +255,9 @@ class SelectTool(_Tool):
                 return True
 
             # Check wire.
-            wire_hit = self._hit_test_wire(scene_pt)
+            wire_hit = (
+                self._hit_test_wire(scene_pt) if self._filter_wires else None
+            )
             if wire_hit is not None:
                 if wire_hit in self._selected_wire_ids:
                     self._selected_wire_ids.discard(wire_hit)
@@ -255,7 +270,9 @@ class SelectTool(_Tool):
             return False
 
         # --- Klik na obrysie grupy — zaznacz grupę jako całość ---
-        group_outline_hit = self._hit_test_group_outline(scene_pt)
+        group_outline_hit = (
+            self._hit_test_group_outline(scene_pt) if self._filter_groups else None
+        )
         if group_outline_hit is not None:
             self._cancel_wire_edit()
             self._deselect_wire()
@@ -300,7 +317,7 @@ class SelectTool(_Tool):
             return True
 
         # --- Normal left click: hit-test component or wire ---
-        hit = self._hit_test(scene_pt)
+        hit = self._hit_test(scene_pt) if self._filter_components else None
         if hit is not None:
             # Block interaction with components outside the active group context.
             if not self._is_accessible(hit):
@@ -350,7 +367,7 @@ class SelectTool(_Tool):
                     self._drag_orig_wire_paths[wire.id] = list(wire.path)
             return True
 
-        wire_hit = self._hit_test_wire(scene_pt)
+        wire_hit = self._hit_test_wire(scene_pt) if self._filter_wires else None
         if wire_hit is not None:
             self._cancel_wire_edit()
             if wire_hit in self._selected_wire_ids:
@@ -392,7 +409,7 @@ class SelectTool(_Tool):
         # Check if click is inside bbox of an already-selected component.
         # This allows dragging a multi-selection by clicking anywhere inside
         # a selected component's body, not just near a pin.
-        bbox_hit = self._hit_test_bbox(scene_pt)
+        bbox_hit = self._hit_test_bbox(scene_pt) if self._filter_components else None
         if bbox_hit is not None and (
             bbox_hit in self._selected_ids
             or bbox_hit == self._selected_id
@@ -1882,30 +1899,32 @@ class SelectTool(_Tool):
         self._rubber_band_start = None
         session = self._session
         selected: set[uuid.UUID] = set()
-        for comp_id, placement in session.layout.placements.items():
-            inst = session.instances.get(comp_id)
-            if inst is None:
-                continue
-            defn = session.components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            bbox = component_bbox(defn.footprint, placement, defn.component_class)
-            bx0 = bbox.x
-            by0 = bbox.y
-            bx1 = bbox.x + bbox.width
-            by1 = bbox.y + bbox.height
-            if left_to_right:
-                # Fully inside.
-                if bx0 >= rx0 and by0 >= ry0 and bx1 <= rx1 and by1 <= ry1:
-                    selected.add(comp_id)
-            else:
-                # Intersects.
-                if bx0 < rx1 and bx1 > rx0 and by0 < ry1 and by1 > ry0:
-                    selected.add(comp_id)
+        if self._filter_components:
+            for comp_id, placement in session.layout.placements.items():
+                inst = session.instances.get(comp_id)
+                if inst is None:
+                    continue
+                defn = session.components.get(inst.definition_ref)
+                if defn is None:
+                    continue
+                bbox = component_bbox(defn.footprint, placement, defn.component_class)
+                bx0 = bbox.x
+                by0 = bbox.y
+                bx1 = bbox.x + bbox.width
+                by1 = bbox.y + bbox.height
+                if left_to_right:
+                    # Fully inside.
+                    if bx0 >= rx0 and by0 >= ry0 and bx1 <= rx1 and by1 <= ry1:
+                        selected.add(comp_id)
+                else:
+                    # Intersects.
+                    if bx0 < rx1 and bx1 > rx0 and by0 < ry1 and by1 > ry0:
+                        selected.add(comp_id)
 
         # Wires.
         selected_wires: set[uuid.UUID] = set()
-        for wire in session.layout.wires:
+        _wires_to_check = session.layout.wires if self._filter_wires else []
+        for wire in _wires_to_check:
             pts = wire.path
             if left_to_right:
                 # Fully inside: all points within rect.
@@ -1984,11 +2003,12 @@ class SelectTool(_Tool):
             return
 
         if self._wire_click_cycle == 3:
-            # Segment only — original behaviour.
+            # Segment only — original behaviour; clear net highlight.
             self._select_wire(wire_id)
-            # Restore cycle state so the next click wraps back to cycle 1.
             self._wire_click_id = wire_id
             self._wire_click_cycle = 3
+            if self._view is not None:
+                self._view.set_highlighted_net(None)
             return
 
         # Cycles 1 and 2: select all wires in the same electric net.
@@ -2038,6 +2058,13 @@ class SelectTool(_Tool):
             if wid != wire_id:
                 self._selected_wire_ids.add(wid)
                 self._draw_multi_wire_highlight(wid)
+
+        # Activate net highlight + dim for cycles 1 and 2.
+        if self._view is not None:
+            from protoboard.gui.board_view import _build_wire_net_map
+            _wnm = _build_wire_net_map(self._session)
+            _net_id = _wnm.get(wire_id)
+            self._view.set_highlighted_net(_net_id)
 
         if self._wire_click_cycle == 1:
             # Highlight component pins electrically connected to this net
@@ -2733,6 +2760,8 @@ class SelectTool(_Tool):
         if net is None:
             return
         self._highlight_net_id = net.id
+        if self._view is not None:
+            self._view.set_highlighted_net(net.id)
 
         # Highlight pads of all pins in the net.
         for ref in net.pins:
@@ -2846,6 +2875,8 @@ class SelectTool(_Tool):
         self._highlight_items.clear()
         self._highlight_net_id = None
         self._highlight_comp_ids = set()
+        if self._view is not None:
+            self._view.set_highlighted_net(None)
 
 
 # ---------------------------------------------------------------------------

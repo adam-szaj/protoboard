@@ -42,6 +42,9 @@ def _dim(color: QColor, opacity: float) -> QColor:
     return c
 
 
+_DIM_ALPHA = 0.2
+
+
 def render_wires_with_nets(
     scene: QGraphicsScene,
     wires: list[WireSegment],
@@ -49,6 +52,7 @@ def render_wires_with_nets(
     net_color_map: dict[uuid.UUID, str | None] | None = None,
     theme: Theme = DEFAULT_THEME,
     layers: LayerState = _DEFAULT_LAYERS,
+    highlighted_net_id: uuid.UUID | None = None,
 ) -> None:
     """Render wires with correct per-net colouring and layer z-values."""
     for wire in wires:
@@ -56,7 +60,12 @@ def render_wires_with_nets(
         color_override: str | None = None
         if net_id is not None and net_color_map:
             color_override = net_color_map.get(net_id)
-        _draw_wire(scene, wire, net_id, color_override, theme, layers)
+        net_alpha = (
+            1.0
+            if highlighted_net_id is None or net_id == highlighted_net_id
+            else _DIM_ALPHA
+        )
+        _draw_wire(scene, wire, net_id, color_override, theme, layers, net_alpha=net_alpha)
 
 
 def _draw_wire(
@@ -66,10 +75,11 @@ def _draw_wire(
     color_override: str | None = None,
     theme: Theme = DEFAULT_THEME,
     layers: LayerState = _DEFAULT_LAYERS,
+    net_alpha: float = 1.0,
 ) -> None:
     pts = wire.path
     side = wire.side  # type: ignore[assignment]
-    alpha = layers.alpha_for_wire(side)
+    alpha = layers.alpha_for_wire(side) * net_alpha
     if alpha == 0.0:
         return
     z_base = layers.z_for_wire(side)

@@ -87,6 +87,7 @@ def render_components(
     layers: LayerState = _DEFAULT_LAYERS,
     active_group_id: uuid.UUID | None = None,
     layout: Layout | None = None,
+    highlighted_net_id: uuid.UUID | None = None,
 ) -> dict[uuid.UUID, QGraphicsItemGroup]:
     """Render all placed components and return a map of comp_id → scene group.
 
@@ -105,6 +106,13 @@ def render_components(
     if layout is not None and effective_gid != ROOT_GROUP_ID:
         alpha_map = _group_alpha_map(layout, effective_gid)
 
+    # Build set of component IDs that are part of the highlighted net.
+    highlighted_comp_ids: set[uuid.UUID] = set()
+    if highlighted_net_id is not None and schematic is not None:
+        net = schematic.nets.get(highlighted_net_id)
+        if net is not None:
+            highlighted_comp_ids = {ref.component_id for ref in net.pins}
+
     comp_groups: dict[uuid.UUID, QGraphicsItemGroup] = {}
     for comp_id, placement in placements.items():
         inst = instances.get(comp_id)
@@ -114,6 +122,9 @@ def render_components(
         if defn is None:
             continue
         group_alpha = alpha_map.get(comp_id, 1.0)
+        if highlighted_net_id is not None:
+            net_dim = 1.0 if comp_id in highlighted_comp_ids else _ALPHA_INACTIVE
+            group_alpha = max(0.04, group_alpha * net_dim)
         grp = _render_one(scene, placement, inst, defn, comp_id, pin_net,
                           routed_nets, theme, layers, group_alpha=group_alpha)
         if grp is not None:
