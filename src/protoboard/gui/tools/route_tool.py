@@ -100,7 +100,7 @@ class RouteTool(_Tool):
     # ------------------------------------------------------------------
 
     def _commit(self) -> None:
-        self._view.set_highlighted_net(None)
+        self._view.set_highlighted_net_silent(None)
         if len(self._points) < 2:
             self._cancel()
             return
@@ -204,7 +204,7 @@ class RouteTool(_Tool):
         self._hint_items = render_routing_hints(self._view.scene(), results)
 
     def _highlight_start_net(self, source: Point) -> None:
-        """Dim everything except the net of the starting pad."""
+        """Set dim for the net of the starting pad — silent (no refresh)."""
         graph = self._session.connectivity_graph()
         source_node = graph.node_for_pad(source, self._side)
         if source_node is None:
@@ -212,14 +212,28 @@ class RouteTool(_Tool):
         for net in self._session.schematic.nets.values():
             for ref in net.pins:
                 if graph.node_for_pin(ref) == source_node:
-                    self._view.set_highlighted_net(net.id)
+                    self._view.set_highlighted_net_silent(net.id)
                     return
 
     def on_scene_cleared(self) -> None:
-        # scene.clear() already destroyed all items — just drop references.
+        """Called after every refresh() — redraw committed and live lines."""
+        old_committed = self._committed_lines[:]
+        old_live_pts: tuple[Point, Point] | None = None
+        if self._live_line is not None:
+            l = self._live_line.line()
+            old_live_pts = (Point(l.x1(), l.y1()), Point(l.x2(), l.y2()))
+
         self._committed_lines.clear()
         self._live_line = None
         self._hint_items.clear()
+
+        # Redraw committed segments from stored point sequence.
+        if len(self._points) >= 2:
+            for i in range(len(self._points) - 1):
+                self._add_committed_line(self._points[i], self._points[i + 1])
+        # Redraw live segment if we had one.
+        if old_live_pts is not None and self._points:
+            self._add_live_line(self._points[-1], old_live_pts[1])
 
     def _clear_hints(self) -> None:
         for item in self._hint_items:

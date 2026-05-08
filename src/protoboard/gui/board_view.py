@@ -110,6 +110,14 @@ class BoardView(QGraphicsView):
         self._highlighted_net_id = net_id
         self.refresh()
 
+    def set_highlighted_net_silent(self, net_id: uuid.UUID | None) -> None:
+        """Set the highlighted net without triggering a refresh.
+
+        Use when the caller will redraw overlays itself (e.g. RouteTool) and
+        wants the dim to take effect on the *next* natural refresh only.
+        """
+        self._highlighted_net_id = net_id
+
     def _on_drag_moved(self) -> None:
         """Live drag: move scene groups to current placement positions (no rebuild).
 
