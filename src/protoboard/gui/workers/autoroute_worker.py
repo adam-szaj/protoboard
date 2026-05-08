@@ -47,6 +47,7 @@ class AutorouteWorker(QThread):
         components: dict[str, ComponentDefinition],
         instances: dict[uuid.UUID, ComponentInstance],
         routing_settings: RoutingSettings,
+        net_ids: set[uuid.UUID] | None = None,
     ) -> None:
         super().__init__()
         # Snapshot read-only inputs — the worker thread must not touch the
@@ -57,6 +58,7 @@ class AutorouteWorker(QThread):
         self._components = components
         self._instances = instances
         self._rs = routing_settings
+        self._net_ids = net_ids
         self._cancel_flag = threading.Event()
 
     # ------------------------------------------------------------------
@@ -99,6 +101,7 @@ class AutorouteWorker(QThread):
                 progress_callback=self._report,
                 optimize_progress_callback=self._report_optimize,
                 cancel_flag=self._cancel_flag,
+                net_ids=self._net_ids,
             )
         except AutorouteCancelled:
             # Return empty result — caller interprets as user cancellation.

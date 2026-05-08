@@ -95,6 +95,7 @@ def autoroute(
     progress_callback: Callable[[int, str, int], None] | None = None,
     optimize_progress_callback: Callable[[int, int], None] | None = None,
     cancel_flag: threading.Event | None = None,
+    net_ids: set[uuid.UUID] | None = None,
 ) -> AutorouteResult:
     """Route all unrouted nets in *schematic* and return new wire segments.
 
@@ -128,6 +129,11 @@ def autoroute(
         this side wins the tie-break.  Defaults to ``"bottom"`` — bottom-layer
         routing is generally preferred because it leaves the top layer clear for
         component inspection and rework.
+
+    net_ids:
+        When provided, only route nets whose UUID is in this set.  All other
+        nets are left untouched (existing wires for those nets are preserved as
+        obstacles).  ``None`` (default) routes all nets.
 
     Already-routed connections (where a physical path already exists) are
     skipped.  Only completely *missing* connections are routed.
@@ -193,7 +199,12 @@ def autoroute(
         )
         return (global_penalty, -max_d, -len(pts))
 
-    sorted_nets = sorted(schematic.nets.values(), key=_net_sort_key)
+    all_nets = (
+        [n for n in schematic.nets.values() if n.id in net_ids]
+        if net_ids is not None
+        else list(schematic.nets.values())
+    )
+    sorted_nets = sorted(all_nets, key=_net_sort_key)
 
     # Snapshot of user-placed wires — never mutated; each pass starts from here.
     user_wires: list[WireSegment] = list(layout.wires)

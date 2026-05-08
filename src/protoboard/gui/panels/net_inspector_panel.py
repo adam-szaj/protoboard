@@ -81,7 +81,7 @@ class NetInspectorPanel(QWidget):
             _COL_NAME, QHeaderView.ResizeMode.Stretch
         )
         self._tree.setAlternatingRowColors(True)
-        self._tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
+        self._tree.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
         root_layout.addWidget(self._tree)
 
         self._tree.itemClicked.connect(self._on_item_clicked)
@@ -122,6 +122,18 @@ class NetInspectorPanel(QWidget):
     def clear_highlight(self) -> None:
         self._board_view.set_highlighted_net(None)
         self._tree.clearSelection()
+
+    def selected_net_ids(self) -> set[uuid.UUID]:
+        """Return UUIDs of all nets currently selected in the panel."""
+        result: set[uuid.UUID] = set()
+        for item in self._tree.selectedItems():
+            raw = item.data(_COL_NAME, _ROLE)
+            if isinstance(raw, str):
+                try:
+                    result.add(uuid.UUID(raw))
+                except ValueError:
+                    pass
+        return result
 
     # ------------------------------------------------------------------
     # Private

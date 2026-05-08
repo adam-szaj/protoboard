@@ -230,6 +230,10 @@ class MainWindow(QMainWindow):
 
         act_drc          = tb_analysis.addAction("DRC [F5]")
         act_autoroute_tb = tb_analysis.addAction("Autoroute [F6]")
+        act_autoroute_tb.setToolTip(
+            "Autoroute all nets (F6).\n"
+            "Select nets in the Inspector panel first to route only those nets."
+        )
         act_spread_tb    = tb_analysis.addAction("Spread")
         act_hug_tb       = tb_analysis.addAction("Hug")
         act_drc.triggered.connect(self._run_drc)
@@ -624,7 +628,7 @@ class MainWindow(QMainWindow):
 
         tools_menu.addSeparator()
 
-        act_autoroute = tools_menu.addAction("&Autoroute All Nets…")
+        act_autoroute = tools_menu.addAction("&Autoroute Nets… [Inspector selection or all]")
         act_autoroute.setShortcut(self._ks(KB.ACTION_AUTOROUTE))
         act_autoroute.triggered.connect(self._autoroute)
 
@@ -1619,6 +1623,11 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Autoroute", "No nets to route.")
             return
 
+        # Collect any net-inspector selection — route only those nets when non-empty.
+        selected_net_ids = self._net_inspector_panel.selected_net_ids()
+        net_ids = selected_net_ids if selected_net_ids else None
+        title_suffix = f" ({len(net_ids)} nets)" if net_ids else " (all nets)"
+
         # Show pre-flight dialog — user can adjust all parameters.
         cfg_dlg = AutorouteDialog(self._session.routing_settings, parent=self)
         if cfg_dlg.exec() != QDialog.DialogCode.Accepted:
@@ -1629,7 +1638,7 @@ class MainWindow(QMainWindow):
             self._session.routing_settings = run_settings
 
         dlg = QProgressDialog("Initialising autorouter…", "Cancel", 0, 100, self)
-        dlg.setWindowTitle("Autoroute")
+        dlg.setWindowTitle(f"Autoroute{title_suffix}")
         dlg.setWindowModality(Qt.WindowModality.WindowModal)
         dlg.setMinimumDuration(300)
         dlg.setValue(0)
@@ -1641,6 +1650,7 @@ class MainWindow(QMainWindow):
             components=self._session.components,
             instances=self._session.instances,
             routing_settings=run_settings,
+            net_ids=net_ids,
         )
         # Keep a reference so the worker isn't garbage-collected before finishing.
         self._autoroute_worker = worker
