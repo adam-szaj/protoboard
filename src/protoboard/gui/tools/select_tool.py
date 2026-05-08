@@ -717,6 +717,8 @@ class SelectTool(_Tool):
                 self._autoroute_wire_fragment()
             elif key == Qt.Key.Key_F:
                 self._flip_wire_fragment()
+            elif key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+                self._delete_wire_fragment()
             return
 
         ctrl  = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
@@ -2500,6 +2502,38 @@ class SelectTool(_Tool):
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
         self._status_msg(f"Fragment flipped to {target_side} layer.")
+
+    def _delete_wire_fragment(self) -> None:
+        """Delete the selected fragment [start_idx:end_idx] from the current wire.
+
+        If the fragment spans the whole wire, the wire is removed entirely.
+        Otherwise the fragment is excised and the endpoints are connected directly
+        (path[:start+1] + path[end:]).
+        """
+        wire = self._get_selected_wire()
+        if wire is None or self._edit_start_idx is None or self._edit_end_idx is None:
+            return
+
+        start = self._edit_start_idx
+        end   = self._edit_end_idx
+        path  = wire.path
+        is_whole = (start == 0 and end == len(path) - 1)
+
+        self._cancel_wire_edit()
+
+        if is_whole:
+            cmd: object = RemoveWireCommand(wire_id=wire.id)
+        else:
+            new_path = path[:start + 1] + path[end:]
+            cmd = ReplaceWireSegmentCommand(
+                wire_id=wire.id,
+                new_path=new_path,
+                old_path=list(path),
+            )
+
+        self._session.stack.execute(cmd, self._session)  # type: ignore[arg-type]
+        self._deselect_wire()
+        self._session.layout_changed.emit()
 
     def _status_msg(self, msg: str, timeout_ms: int = 4000) -> None:
         """Show a message in the main window status bar."""
