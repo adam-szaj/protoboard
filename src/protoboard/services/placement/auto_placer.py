@@ -299,10 +299,22 @@ def _has_collision(
     new_pl: ComponentPlacement,
     new_defn: ComponentDefinition,
     existing: dict[uuid.UUID, tuple[ComponentPlacement, ComponentDefinition]],
+    extra_gap: float = 0.0,
 ) -> bool:
-    """True when *new_pl* body-overlaps any existing placement."""
-    new_bbox = component_bbox(
-        new_defn.footprint, new_pl, new_defn.component_class.value
+    """True when *new_pl* body-overlaps any existing placement.
+
+    *extra_gap* enforces a minimum clearance between component bounding boxes:
+    the new component's bbox is inflated by *extra_gap* on all sides before the
+    intersection test.  This makes the gap between any two bbox edges at least
+    *extra_gap* raster units, regardless of each component's individual body
+    margin (rigid vs. flexible leads).
+    """
+    raw_new = component_bbox(new_defn.footprint, new_pl, new_defn.component_class.value)
+    new_bbox = Rect(
+        x=raw_new.x - extra_gap,
+        y=raw_new.y - extra_gap,
+        width=raw_new.width + 2 * extra_gap,
+        height=raw_new.height + 2 * extra_gap,
     )
     for other_pl, other_defn in existing.values():
         other_bbox = component_bbox(
@@ -325,8 +337,13 @@ def _find_free_slot(
     rotations: list[int],
     side: str,
     existing: dict[uuid.UUID, tuple[ComponentPlacement, ComponentDefinition]],
+    extra_gap: float = 0.0,
 ) -> ComponentPlacement | None:
-    """Try each candidate position with each rotation; return first free slot."""
+    """Try each candidate position with each rotation; return first free slot.
+
+    *extra_gap* is forwarded to :func:`_has_collision` to enforce a minimum
+    clearance beyond the component body margins.
+    """
     for pt in candidates:
         for rot in rotations:
             pl = ComponentPlacement(
@@ -335,6 +352,6 @@ def _find_free_slot(
                 rotation=rot,
                 side=side,  # type: ignore[arg-type]
             )
-            if not _has_collision(pl, defn, existing):
+            if not _has_collision(pl, defn, existing, extra_gap=extra_gap):
                 return pl
     return None

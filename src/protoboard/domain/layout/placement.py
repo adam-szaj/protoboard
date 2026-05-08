@@ -35,6 +35,7 @@ class ComponentPlacement:
     # Pin numbers (1-based) intentionally sharing a pad with another component.
     shared_pins: frozenset[int] = field(default_factory=frozenset)
     vertical_flipped: bool = False
+    locked: bool = False
 
     def __hash__(self) -> int:
         return hash(self.component_id)
@@ -54,6 +55,7 @@ class ComponentPlacement:
             pin_offsets=dict(self.pin_offsets),
             shared_pins=self.shared_pins,
             vertical_flipped=self.vertical_flipped,
+            locked=self.locked,
         )
 
     def __post_init__(self) -> None:

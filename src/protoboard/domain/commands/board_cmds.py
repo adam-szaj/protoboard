@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Commands that modify the Board structure (strip cuts)."""
+"""Commands that modify the Board structure (strip cuts, resize)."""
 
 from __future__ import annotations
 
@@ -137,6 +137,31 @@ class SplitStripCommand(Command[ComponentState]):
             l_seg, iso, r_seg = split_strip_on_pad(self.target, self.cut_index)
             replacements = [s for s in (l_seg, iso, r_seg) if s is not None]
         state.board = replace_strip_in_board(state.board, self.target, replacements)
+
+    def revert(self, state: ComponentState) -> None:
+        state.board = self._old_board
+
+
+@dataclass
+class ResizeBoardCommand(Command[ComponentState]):
+    """Replace the board with a new one of different dimensions.
+
+    Only supports boards built from make_perfboard / make_stripboard /
+    make_breadboard (the root must be a BoardGrid or a VBox of strips).
+    Caller is responsible for verifying no components fall outside the
+    new bounds before executing.
+    """
+
+    new_board: Board
+    _old_board: Board = field(init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Resize board"
+
+    def apply(self, state: ComponentState) -> None:
+        self._old_board = state.board
+        state.board = self.new_board
 
     def revert(self, state: ComponentState) -> None:
         state.board = self._old_board

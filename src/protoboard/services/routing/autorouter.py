@@ -167,16 +167,19 @@ def autoroute(
     # space and should be planned while the board is still empty; short nets
     # have more alternative paths and are easier to squeeze in last.
     # Within the same distance, sort by descending pin count for stability.
-    def _net_sort_key(net: Net) -> tuple[float, int]:
+    def _net_sort_key(net: Net) -> tuple[int, float, int]:
+        # Global nets (GND, VCC, etc.) are sorted last — they typically have many
+        # pins spread across the board and auto-route poorly without manual help.
+        global_penalty = 1 if net.global_net else 0
         pts = [pin_positions[r][0] for r in net.pins if r in pin_positions]
         if len(pts) < 2:
-            return (0.0, -len(pts))
+            return (global_penalty, 0.0, -len(pts))
         max_d = max(
             abs(a.x - b.x) + abs(a.y - b.y)
             for i, a in enumerate(pts)
             for b in pts[i + 1:]
         )
-        return (-max_d, -len(pts))
+        return (global_penalty, -max_d, -len(pts))
 
     sorted_nets = sorted(schematic.nets.values(), key=_net_sort_key)
 
@@ -883,10 +886,13 @@ def _route_segment_with_ripup(
         sides_to_try = ["top", "bottom"] if plated_through_pads else [source_options[0][1]]
 
         def _astar_call(src_pt: Point, start_side: str) -> tuple[str, list]:  # type: ignore[type-arg]
+            # Expand target to all pads already in the same ElectricSet —
+            # A* can stop at any wire of the same net, not just the target pin.
+            target_pads = graph.pads_in_same_electric_set(target, start_side)
             return start_side, find_paths(
                 graph=graph,
                 source=src_pt,
-                targets=[target],
+                targets=target_pads,
                 side=start_side,
                 cost_model=cost_model,
                 k=1,

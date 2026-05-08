@@ -107,6 +107,13 @@ class SelectTool(_Tool):
         # Multi-wire selection.
         self._selected_wire_ids: set[uuid.UUID] = set()
         self._wire_multi_highlights: list[QGraphicsItemGroup] = []
+        # Wire click cycling: track last-clicked wire and cycle count.
+        # 1st click = full net + pads, 2nd = full net only, 3rd = segment only.
+        self._wire_click_id: uuid.UUID | None = None   # wire hit on last click
+        self._wire_click_cycle: int = 0                # 1, 2, or 3
+        # Net-pad highlights shown on cycle 1 (red circles on connected pins).
+        self._net_pad_highlight_items: list[QGraphicsEllipseItem] = []
+        self._net_pad_highlight_positions: list[Point] = []
         # Wire segment editing.
         self._edit_start_idx: int | None = None
         self._edit_end_idx: int | None = None
@@ -176,6 +183,8 @@ class SelectTool(_Tool):
             self._draw_wire_highlight(self._selected_wire_id)
         for wid in self._selected_wire_ids:
             self._draw_multi_wire_highlight(wid)
+        if self._net_pad_highlight_positions:
+            self._draw_net_pad_highlights(self._net_pad_highlight_positions)
 
     def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
@@ -377,7 +386,7 @@ class SelectTool(_Tool):
                 self._clear_multi_selection()
                 self._clear_multi_wire_selection()
                 self._deselect()
-                self._select_wire(wire_hit)
+                self._select_wire_cycled(wire_hit, scene_pt)
             return True
 
         # Check if click is inside bbox of an already-selected component.
@@ -756,6 +765,13 @@ class SelectTool(_Tool):
         if inst is None or defn is None:
             return False
 
+        # Determine full lock-target set: clicked component + any other selected.
+        lock_targets: set[uuid.UUID] = set()
+        lock_targets.add(comp_id)
+        lock_targets.update(self._selected_ids)
+        if self._selected_id is not None:
+            lock_targets.add(self._selected_id)
+
         # Build list of pins that have a net.
         from protoboard.domain.schematic.net import PinRef
 
@@ -769,8 +785,34 @@ class SelectTool(_Tool):
 
         from PySide6.QtWidgets import QMenu
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.domain.commands.component_cmds import LockComponentCommand
 
         menu = QMenu(self._view)
+
+        # --- Lock / Unlock ---
+        pl_clicked = self._session.layout.placements.get(comp_id)
+        any_locked = any(
+            self._session.layout.placements[t].locked
+            for t in lock_targets
+            if t in self._session.layout.placements
+        )
+        all_locked = all(
+            self._session.layout.placements[t].locked
+            for t in lock_targets
+            if t in self._session.layout.placements
+        )
+        if len(lock_targets) == 1:
+            lock_label = ("Unlock" if pl_clicked and pl_clicked.locked else "Lock")
+            act_lock = menu.addAction(f"\U0001f512 {lock_label}")
+            act_lock.setData(("lock", lock_targets, not (pl_clicked and pl_clicked.locked)))
+        else:
+            act_lock_all = menu.addAction(f"\U0001f512 Lock all ({len(lock_targets)})")
+            act_lock_all.setData(("lock", lock_targets, True))
+            act_unlock_all = menu.addAction(f"\U0001f513 Unlock all ({len(lock_targets)})")
+            act_unlock_all.setData(("lock", lock_targets, False))
+            act_lock_all.setEnabled(not all_locked)
+            act_unlock_all.setEnabled(any_locked)
+        menu.addSeparator()
 
         # --- Export pin submenu (only when inside a non-root group) ---
         active_gid = self._group_stack[-1] if self._group_stack else ROOT_GROUP_ID
@@ -795,8 +837,7 @@ class SelectTool(_Tool):
                     act = menu.addAction(label)
                     act.setData(("export_pin", active_gid, ep, already))
 
-        if not netted_pins and active_gid == ROOT_GROUP_ID:
-            return False  # no netted pins and not in a group — nothing to show
+        # Menu always shown (at minimum has Lock/Unlock action).
 
         if netted_pins:
             menu.addSection(f"{inst.refdes} — disconnect pin from net")
@@ -815,6 +856,23 @@ class SelectTool(_Tool):
             return True  # menu shown but dismissed — still consume the event
 
         data = chosen.data()
+        if isinstance(data, tuple) and data[0] == "lock":
+            _, target_ids, new_locked = data
+            from protoboard.domain.commands.base import MacroCommand
+            cmds_lock = [
+                LockComponentCommand(component_id=t, locked=new_locked)
+                for t in target_ids
+                if t in self._session.layout.placements
+            ]
+            if cmds_lock:
+                cmd_lock = cmds_lock[0] if len(cmds_lock) == 1 else MacroCommand(
+                    cmds_lock,
+                    description=f"{'Lock' if new_locked else 'Unlock'} {len(cmds_lock)} component(s)",
+                )
+                self._session.stack.execute(cmd_lock, self._session)
+                self._session.layout_changed.emit()
+            return True
+
         if isinstance(data, tuple) and data[0] == "export_pin":
             _, group_id, ep, already = data
             from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
@@ -1903,6 +1961,128 @@ class SelectTool(_Tool):
         _log.debug("selection.wire", wire_id=str(wire_id))
         self._draw_wire_highlight(wire_id)
 
+    def _select_wire_cycled(self, wire_id: uuid.UUID, scene_pt: "QPointF") -> None:
+        """Cycle wire selection mode on repeated clicks on the same wire.
+
+        Cycle:
+          1st click → full electric net (all wires of the net) + component pads
+          2nd click → full electric net, no component pads
+          3rd click → only the clicked wire segment
+          4th click → wraps back to 1st
+        """
+        if self._wire_click_id == wire_id:
+            self._wire_click_cycle = (self._wire_click_cycle % 3) + 1
+        else:
+            self._wire_click_id = wire_id
+            self._wire_click_cycle = 1
+
+        wire = next(
+            (w for w in self._session.layout.wires if w.id == wire_id), None
+        )
+        if wire is None:
+            self._select_wire(wire_id)
+            return
+
+        if self._wire_click_cycle == 3:
+            # Segment only — original behaviour.
+            self._select_wire(wire_id)
+            # Restore cycle state so the next click wraps back to cycle 1.
+            self._wire_click_id = wire_id
+            self._wire_click_cycle = 3
+            return
+
+        # Cycles 1 and 2: select all wires in the same electric net.
+        graph = self._session.connectivity_graph()
+
+        # Collect canonical keys for the electrically-active points of this wire.
+        # Insulated wires only make contact at their two endpoints — intermediate
+        # points float above the board and must not be used to match other wires.
+        # Bare wires contact every pad they pass through.
+        wire_canonical: set[object] = set()
+        if wire.insulated:
+            contact_pts = [wire.path[0], wire.path[-1]] if len(wire.path) >= 2 else wire.path
+        else:
+            contact_pts = wire.path
+        for pt in contact_pts:
+            ck = graph.node_for_pad(pt, wire.side)
+            if ck is not None:
+                wire_canonical.add(ck)
+
+        if not wire_canonical:
+            # Wire not in graph — fall back to segment.
+            self._select_wire(wire_id)
+            return
+
+        # All wires whose electrically-active points share a canonical key.
+        net_wire_ids: set[uuid.UUID] = set()
+        for w in self._session.layout.wires:
+            check_pts = (
+                ([w.path[0], w.path[-1]] if len(w.path) >= 2 else w.path)
+                if w.insulated
+                else w.path
+            )
+            for pt in check_pts:
+                ck = graph.node_for_pad(pt, w.side)
+                if ck in wire_canonical:
+                    net_wire_ids.add(w.id)
+                    break
+
+        # Select the clicked wire as primary, rest as multi-selection.
+        # _select_wire calls _deselect_wire which resets _wire_click_id/_wire_click_cycle,
+        # so restore cycle state immediately after.
+        cycle = self._wire_click_cycle
+        self._select_wire(wire_id)
+        self._wire_click_id = wire_id
+        self._wire_click_cycle = cycle
+        for wid in net_wire_ids:
+            if wid != wire_id:
+                self._selected_wire_ids.add(wid)
+                self._draw_multi_wire_highlight(wid)
+
+        if self._wire_click_cycle == 1:
+            # Highlight component pins electrically connected to this net
+            # as red circles (cycle 1 only — cleared on cycle 2/3/deselect).
+            from protoboard.domain.schematic.net import PinRef
+            from protoboard.domain.layout.placement import pin_world_position
+            pad_positions: list[Point] = []
+            for comp_id in list(self._session.layout.placements):
+                inst = self._session.instances.get(comp_id)
+                defn = (
+                    self._session.components.get(inst.definition_ref) if inst else None
+                )
+                placement = self._session.layout.placements.get(comp_id)
+                if defn is None or placement is None:
+                    continue
+                for pin_num in range(1, defn.footprint.pin_count() + 1):
+                    ck = graph.node_for_pin(PinRef(component_id=comp_id, pin_number=pin_num))
+                    if ck in wire_canonical:
+                        pad_positions.append(
+                            pin_world_position(defn.footprint, placement, pin_num)
+                        )
+            self._draw_net_pad_highlights(pad_positions)
+
+    def _draw_net_pad_highlights(self, positions: "list[Point]") -> None:
+        """Draw red circles on pin positions connected to the selected net (cycle 1)."""
+        from protoboard.gui.layer_state import Z_SELECTION
+        self._clear_net_pad_highlights()
+        self._net_pad_highlight_positions = list(positions)
+        r = 0.38
+        pen = QPen(QColor(220, 40, 40), 0.12)
+        brush = QBrush(QColor(220, 40, 40, 160))
+        for pt in positions:
+            item = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
+            item.setPen(pen)
+            item.setBrush(brush)
+            item.setZValue(Z_SELECTION + 1.0)
+            self._view.scene().addItem(item)
+            self._net_pad_highlight_items.append(item)
+
+    def _clear_net_pad_highlights(self) -> None:
+        for item in self._net_pad_highlight_items:
+            self._view.scene().removeItem(item)
+        self._net_pad_highlight_items.clear()
+        self._net_pad_highlight_positions.clear()
+
     def _deselect_wire(self) -> None:
         self._cancel_wire_edit()
         if self._wire_highlight is not None:
@@ -1910,6 +2090,9 @@ class SelectTool(_Tool):
             self._wire_highlight = None
         self._selected_wire_id = None
         self._clear_multi_wire_selection()
+        self._clear_net_pad_highlights()
+        self._wire_click_id = None
+        self._wire_click_cycle = 0
 
     def _draw_wire_highlight(self, wire_id: uuid.UUID) -> None:
         if self._wire_highlight is not None:

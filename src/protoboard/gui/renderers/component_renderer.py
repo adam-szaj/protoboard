@@ -247,6 +247,17 @@ def _render_one(
                 pn_item.setZValue(z_label + 0.1)
                 grp.addToGroup(pn_item)
 
+    if placement.locked and alpha > 0.05:
+        lock = QGraphicsTextItem("\U0001f512")
+        lock_font = _REFDES_FONT
+        lock.setFont(lock_font)
+        lock_col = QColor("#e07000")
+        lock_col.setAlphaF(min(alpha, 1.0))
+        lock.setDefaultTextColor(lock_col)
+        lock.setPos(x1 - 0.55, y0 - 0.05)
+        lock.setZValue(z_label + 0.5)
+        grp.addToGroup(lock)
+
     scene.addItem(grp)
     return grp
 

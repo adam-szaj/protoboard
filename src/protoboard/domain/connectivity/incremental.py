@@ -170,6 +170,26 @@ class ConnectivityGraph:
         """Iterate over all pad keys — replaces ``graph._g.nodes`` in astar.py."""
         return iter(self._pad_index)
 
+    def pads_in_same_electric_set(self, position: Point, side: str) -> list[Point]:
+        """All pad positions (same side) in the same ElectricSet as (position, side).
+
+        Returns [position] if the pad is isolated or not in the graph, so the
+        caller always gets a non-empty target list for A*.
+
+        Used by the autorouter: instead of routing to a single target pin, A*
+        can stop at any pad already electrically connected to that pin — i.e.
+        any existing wire of the same net is a valid endpoint.
+        """
+        key: _NodeKey = (position.x, position.y, side)
+        entry = self._pad_index.get(key)
+        if entry is None:
+            return [position]
+        return [
+            Point(k[0], k[1])
+            for k in (e.key for e in entry.electric_set._items)
+            if k[2] == side
+        ]
+
     # ------------------------------------------------------------------
     # Incremental operations
     # ------------------------------------------------------------------
@@ -183,14 +203,32 @@ class ConnectivityGraph:
 
         intermediate: list[_NodeKey] = []
         path_entries: list[NodeEntry] = []
-        for pt in path:
+        n_pts = len(path)
+        for i, pt in enumerate(path):
             key: _NodeKey = (pt.x, pt.y, side)
+            # An insulated wire only makes electrical contact at its two
+            # endpoints (where it is soldered to a pad).  Intermediate points
+            # float above the board and must not merge with pads they cross.
+            is_endpoint = (i == 0 or i == n_pts - 1)
             entry = self._pad_index.get(key)
-            if entry is None:
-                # Wire passes through a point that is not a board pad —
-                # create a transient "wire-only" node.
-                entry = self._make_node(key)
-                intermediate.append(key)
+            if wire.insulated and not is_endpoint:
+                # Intermediate point of an insulated wire: the wire floats
+                # above the board and makes no electrical contact here.
+                # Create a private node (not reachable via node_for_pad) so
+                # no other wire can accidentally share it.
+                private_key: _NodeKey = (pt.x, pt.y, side + f"_ins_{wire.id.int}")
+                private_entry = self._make_node(private_key)
+                intermediate.append(private_key)
+                entry = private_entry
+            elif entry is None:
+                # Point not on a board pad (e.g. diagonal mid-step between
+                # pads).  Create a private transient node per wire so that two
+                # bare wires crossing at the same off-pad point do NOT get
+                # merged — those wires don't actually share an electrical
+                # contact unless they both land on the same board pad.
+                transient_key: _NodeKey = (pt.x, pt.y, side + f"_tr_{wire.id.int}")
+                entry = self._make_node(transient_key)
+                intermediate.append(transient_key)
             path_entries.append(entry)
 
         merges: list[MergeRecord] = []

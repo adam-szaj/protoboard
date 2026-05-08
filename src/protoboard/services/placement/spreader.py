@@ -96,10 +96,11 @@ def spread_components(
         :class:`SpreadResult` with ``new_placements``, ``moved_ids``, and
         ``unchanged_ids``.
     """
-    # Filter to only those IDs that are actually placed and have a definition.
+    # Filter to only those IDs that are actually placed, have a definition, and are unlocked.
     mobile_ids: list[uuid.UUID] = []
     for cid in component_ids:
-        if cid not in session.layout.placements:
+        pl = session.layout.placements.get(cid)
+        if pl is None or pl.locked:
             continue
         inst = session.instances.get(cid)
         if inst is None:
@@ -260,6 +261,8 @@ def _snap_to_grid(
     for cid in mobile_ids:
         degree = 0
         for net in session.schematic.nets.values():
+            if net.global_net:
+                continue
             comp_ids_in_net = {pr.component_id for pr in net.pins}
             if cid in comp_ids_in_net and len(comp_ids_in_net) > 1:
                 degree += 1
@@ -326,6 +329,8 @@ def _build_net_graph(
     """Build weighted adjacency map for mobile components only."""
     graph: dict[uuid.UUID, dict[uuid.UUID, float]] = {cid: {} for cid in component_ids}
     for net in schematic.nets.values():
+        if net.global_net:
+            continue
         members = [pr.component_id for pr in net.pins if pr.component_id in component_ids]
         for i, a in enumerate(members):
             for b in members[i + 1:]:

@@ -27,6 +27,7 @@ class Net:
     name: str
     pins: set[PinRef] = field(default_factory=set)
     color: str | None = None  # hex color string e.g. "#E03030"; None = auto from palette
+    global_net: bool = False  # True = exclude from hug/spread neighbour graph and autorouter priority
 
     def __hash__(self) -> int:
         return hash(self.id)

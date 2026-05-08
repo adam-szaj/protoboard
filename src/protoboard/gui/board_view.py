@@ -162,8 +162,15 @@ class BoardView(QGraphicsView):
         sy = -1.0 if self._view_transform == "mirror_v" else 1.0
         # Preserve current zoom magnitude, apply sign flips.
         mag = abs(self.transform().m11()) or _GRID_PX
+        # Remember the scene point currently at the viewport centre so we can
+        # restore it after setTransform (which resets scroll position).
+        vp = self.viewport()
+        cx, cy = vp.width() / 2, vp.height() / 2
+        center_scene = self.mapToScene(int(cx), int(cy))
         from PySide6.QtGui import QTransform
         self.setTransform(QTransform(sx * mag, 0.0, 0.0, sy * mag, 0.0, 0.0))
+        # Re-centre on the same scene point.
+        self.centerOn(center_scene)
 
     def _sync_tool_side(self, side: str) -> None:
         from protoboard.gui.tools.route_tool import RouteTool

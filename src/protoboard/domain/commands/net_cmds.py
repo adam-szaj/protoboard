@@ -44,6 +44,36 @@ class RenameNetCommand(Command[NetState]):
 
 
 # ---------------------------------------------------------------------------
+# SetNetGlobalCommand
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SetNetGlobalCommand(Command[NetState]):
+    """Mark or unmark a net as global (excluded from hug/spread neighbour graph)."""
+
+    net_id: uuid.UUID
+    global_net: bool
+    _old_global: bool = field(default=False, init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Mark net as global" if self.global_net else "Unmark net as global"
+
+    def apply(self, state: NetState) -> None:
+        net = state.schematic.nets.get(self.net_id)
+        if net is None:
+            return
+        self._old_global = net.global_net
+        net.global_net = self.global_net
+
+    def revert(self, state: NetState) -> None:
+        net = state.schematic.nets.get(self.net_id)
+        if net is None:
+            return
+        net.global_net = self._old_global
+
+
 # SetNetColorCommand
 # ---------------------------------------------------------------------------
 

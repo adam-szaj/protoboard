@@ -227,9 +227,11 @@ class MainWindow(QMainWindow):
         act_drc          = tb_analysis.addAction("DRC [F5]")
         act_autoroute_tb = tb_analysis.addAction("Autoroute [F6]")
         act_spread_tb    = tb_analysis.addAction("Spread")
+        act_hug_tb       = tb_analysis.addAction("Hug")
         act_drc.triggered.connect(self._run_drc)
         act_autoroute_tb.triggered.connect(self._autoroute)
         act_spread_tb.triggered.connect(self._spread_components)
+        act_hug_tb.triggered.connect(self._hug_components)
 
         # Status bar.
         self._status = QStatusBar(self)
@@ -606,6 +608,11 @@ class MainWindow(QMainWindow):
 
         tools_menu.addSeparator()
 
+        act_resize_board = tools_menu.addAction("&Resize Board…")
+        act_resize_board.triggered.connect(self._resize_board)
+
+        tools_menu.addSeparator()
+
         act_autoroute = tools_menu.addAction("&Autoroute All Nets…")
         act_autoroute.setShortcut(self._ks(KB.ACTION_AUTOROUTE))
         act_autoroute.triggered.connect(self._autoroute)
@@ -812,6 +819,7 @@ class MainWindow(QMainWindow):
             ComponentState,
             PlaceComponentCommand,
         )
+        from protoboard.gui.workers.operation_worker import run_with_progress
         from typing import cast
 
         to_place = [
@@ -824,7 +832,14 @@ class MainWindow(QMainWindow):
             self._status.showMessage("No unplaced components to place.", 3000)
             return
 
-        result = auto_place(to_place, self._session, side="top")
+        result = run_with_progress(
+            parent=self,
+            title="Auto-place",
+            fn=lambda: auto_place(to_place, self._session, side="top"),
+            label=f"Placing {len(to_place)} component{'s' if len(to_place) != 1 else ''}…",
+        )
+        if result is None:
+            return
 
         if not result.placements:
             self._status.showMessage(
@@ -900,6 +915,7 @@ class MainWindow(QMainWindow):
             ComponentState,
             MoveComponentCommand,
         )
+        from protoboard.gui.workers.operation_worker import run_with_progress
 
         tool = self._get_select_tool()
         selected: set[uuid.UUID] = set()
@@ -923,7 +939,14 @@ class MainWindow(QMainWindow):
             )
             return
 
-        result = spread_components(comp_ids, self._session)
+        result = run_with_progress(
+            parent=self,
+            title="Spread",
+            fn=lambda: spread_components(comp_ids, self._session),
+            label=f"Spreading {len(comp_ids)} component{'s' if len(comp_ids) != 1 else ''}…",
+        )
+        if result is None:
+            return
 
         if not result.moved_ids:
             self._status.showMessage(
@@ -972,6 +995,107 @@ class MainWindow(QMainWindow):
             msg += f" {n_unchanged} could not move (no free slot)."
         msg += " Consider re-routing wires."
         self._status.showMessage(msg, 6000)
+
+    def _hug_components(self) -> None:
+        """Pull selected components and their net-neighbours closer together."""
+        from typing import cast
+
+        from protoboard.domain.commands.base import Command, MacroCommand
+        from protoboard.domain.commands.component_cmds import (
+            ComponentState,
+            MoveComponentCommand,
+        )
+        from protoboard.gui.workers.operation_worker import run_with_progress
+        from protoboard.services.placement.hugger import hug_components
+
+        tool = self._get_select_tool()
+        selected: set[uuid.UUID] = set()
+        if tool is not None:
+            selected.update(tool._selected_ids)
+            if tool._selected_id is not None:
+                selected.add(tool._selected_id)
+
+        if not selected:
+            self._status.showMessage("Select components to hug first.", 3000)
+            return
+
+        # Snapshot session state for the worker thread.
+        board = self._session.board
+        layout = self._session.layout
+        schematic = self._session.schematic
+        components = self._session.components
+        instances = self._session.instances
+        selected_frozen = frozenset(selected)
+
+        class _State:
+            pass
+        state = _State()
+        state.board = board          # type: ignore[attr-defined]
+        state.layout = layout        # type: ignore[attr-defined]
+        state.schematic = schematic  # type: ignore[attr-defined]
+        state.components = components  # type: ignore[attr-defined]
+        state.instances = instances  # type: ignore[attr-defined]
+
+        r = run_with_progress(
+            parent=self,
+            title="Hug",
+            fn=lambda cb: hug_components(set(selected_frozen), state, progress_callback=cb),  # type: ignore[arg-type]
+            label="Hugging components…",
+            with_progress=True,
+        )
+        if r is None:
+            return
+
+        if not r.moved_ids:
+            self._status.showMessage("Hug: nothing to move.", 2000)
+            return
+
+        cmds: list[Command[ComponentState]] = []
+        for cid in r.moved_ids:
+            old_pl = self._session.layout.placements.get(cid)
+            new_pl = r.new_placements.get(cid)
+            if old_pl is None or new_pl is None:
+                continue
+            cmds.append(
+                cast(
+                    Command[ComponentState],
+                    MoveComponentCommand(
+                        component_id=cid,
+                        new_placement=new_pl,
+                        old_placement=old_pl.copy(),
+                        skip_conflict_check=True,
+                    ),
+                )
+            )
+
+        if not cmds:
+            self._status.showMessage("Hug: nothing to move.", 2000)
+            return
+
+        n = len(cmds)
+        macro: Command[ComponentState] = (
+            cmds[0]
+            if n == 1
+            else cast(
+                Command[ComponentState],
+                MacroCommand(
+                    commands=cmds,
+                    description=f"Hug {n} component{'s' if n != 1 else ''}",
+                ),
+            )
+        )
+
+        self._session.stack.execute(macro, self._session)
+        self._session.layout_changed.emit()
+        self._board_view.refresh()
+        self._update_stats()
+        self._update_undo_redo()
+
+        msg = f"Hug: moved {n} component{'s' if n != 1 else ''}."
+        n_unchanged = len(r.unchanged_ids)
+        if n_unchanged:
+            msg += f" {n_unchanged} could not move (no free slot or locked)."
+        self._status.showMessage(msg, 4000)
 
     def _tool_route(self) -> None:
         self._board_view.set_tool(
@@ -1052,6 +1176,28 @@ class MainWindow(QMainWindow):
         transform = self._board_view.view_transform          # "normal"|"mirror_h"|"mirror_v"
         mirror_tag = {"normal": "N", "mirror_h": "H", "mirror_v": "V"}[transform]
         self._view_label.setText(f"{camera}  Mirror:{mirror_tag}   ")
+
+    def _resize_board(self) -> None:
+        from protoboard.domain.commands.board_cmds import ResizeBoardCommand
+        from protoboard.gui.dialogs.resize_board_dialog import ResizeBoardDialog
+
+        dlg = ResizeBoardDialog(
+            board=self._session.board,
+            layout=self._session.layout,
+            instances=self._session.instances,
+            components=self._session.components,
+            parent=self,
+        )
+        if dlg.exec() != ResizeBoardDialog.DialogCode.Accepted:
+            return
+
+        new_board = dlg.new_board()
+        cmd = ResizeBoardCommand(new_board=new_board)
+        self._session.stack.execute(cmd, self._session)
+        self._session.invalidate_graph()
+        self._session.layout_changed.emit()
+        self._board_view.fit_board()
+        self._update_undo_redo()
 
     def _fit_board(self) -> None:
         self._board_view.fit_board()

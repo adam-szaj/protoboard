@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 _NET_COL_NAME = 0
 _NET_COL_PINS = 1
 _NET_COL_COLOR = 2
+_NET_COL_GLOBAL = 3
 
 # Column indices for the pins tree.
 _PIN_COL_INST = 0
@@ -66,10 +67,11 @@ class NetsEditorPanel(QWidget):
         net_layout.setSpacing(2)
 
         self._net_tree = QTreeWidget()
-        self._net_tree.setHeaderLabels(["Net name", "Pins", "Color"])
-        self._net_tree.setColumnWidth(_NET_COL_NAME, 120)
+        self._net_tree.setHeaderLabels(["Net name", "Pins", "Color", "Global"])
+        self._net_tree.setColumnWidth(_NET_COL_NAME, 110)
         self._net_tree.setColumnWidth(_NET_COL_PINS, 35)
         self._net_tree.setColumnWidth(_NET_COL_COLOR, 50)
+        self._net_tree.setColumnWidth(_NET_COL_GLOBAL, 50)
         self._net_tree.setAlternatingRowColors(True)
         self._net_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._net_tree.customContextMenuRequested.connect(self._on_net_context_menu)
@@ -151,7 +153,8 @@ class NetsEditorPanel(QWidget):
             return
         for net in sorted(self._session.schematic.nets.values(), key=lambda n: n.name):
             color_label = net.color if net.color else "auto"
-            item = QTreeWidgetItem([net.name, str(len(net.pins)), color_label])
+            global_label = "✓" if net.global_net else ""
+            item = QTreeWidgetItem([net.name, str(len(net.pins)), color_label, global_label])
             item.setData(_NET_COL_NAME, _ROLE, str(net.id))
             if net.color:
                 bg = QColor(net.color)
@@ -160,6 +163,8 @@ class NetsEditorPanel(QWidget):
                 lum = 0.299 * bg.redF() + 0.587 * bg.greenF() + 0.114 * bg.blueF()
                 fg = QColor("#000000") if lum > 0.5 else QColor("#ffffff")
                 item.setForeground(_NET_COL_COLOR, QBrush(fg))
+            if net.global_net:
+                item.setForeground(_NET_COL_GLOBAL, QBrush(QColor("#888888")))
             self._net_tree.addTopLevelItem(item)
 
     def _rebuild_pins(self) -> None:
@@ -345,10 +350,27 @@ class NetsEditorPanel(QWidget):
         self._rebuild()
         self.nets_changed.emit()
 
+    def _on_toggle_global(self) -> None:
+        net_id = self._current_net_id()
+        if net_id is None or self._session is None:
+            return
+        net = self._session.schematic.nets.get(net_id)
+        if net is None:
+            return
+        from protoboard.domain.commands.net_cmds import SetNetGlobalCommand
+
+        cmd = SetNetGlobalCommand(net_id=net_id, global_net=not net.global_net)
+        self._session.stack.execute(cmd, self._session)
+        self._rebuild()
+        self.nets_changed.emit()
+
     def _on_net_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         if column == _NET_COL_COLOR:
             self._net_tree.setCurrentItem(item)
             self._on_set_color()
+        elif column == _NET_COL_GLOBAL:
+            self._net_tree.setCurrentItem(item)
+            self._on_toggle_global()
 
     def _on_net_context_menu(self, pos: object) -> None:
         from PySide6.QtCore import QPoint
@@ -358,10 +380,15 @@ class NetsEditorPanel(QWidget):
         if item is None:
             return
         self._net_tree.setCurrentItem(item)
+        net_id = self._current_net_id()
+        net = self._session.schematic.nets.get(net_id) if (net_id and self._session) else None
+        global_label = "Unmark as global" if (net and net.global_net) else "Mark as global"
+
         menu = QMenu(self)  # type: ignore[arg-type]
         menu.addAction("Rename", self._on_rename_net)
         menu.addAction("Set color…", self._on_set_color)
         menu.addAction("Clear color", self._on_clear_color)
+        menu.addAction(global_label, self._on_toggle_global)
         menu.addSeparator()
         menu.addAction("Delete", self._on_delete_net)
         menu.exec(self._net_tree.mapToGlobal(pos))

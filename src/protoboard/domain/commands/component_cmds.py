@@ -82,6 +82,10 @@ class MoveComponentCommand(Command[ComponentState]):
         return f"Move component {self.component_id}"
 
     def apply(self, state: ComponentState) -> None:
+        # Locked components never move — silently treat as no-op.
+        if state.layout.placements.get(self.component_id, self.old_placement).locked:
+            object.__setattr__(self, "_applied", False)
+            return
         if not self.skip_conflict_check:
             blocked = _move_blocked(
                 state, self.component_id, self.old_placement, self.new_placement
@@ -512,6 +516,32 @@ class DisconnectPinCommand(Command[SchematicState]):
                 name=self._saved_net_name,
                 pins=saved,
             )
+
+
+@dataclass
+class LockComponentCommand(Command[ComponentState]):
+    """Toggle the locked flag on a component placement."""
+
+    component_id: uuid.UUID
+    locked: bool
+    _old_locked: bool = field(default=False, init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Lock component" if self.locked else "Unlock component"
+
+    def apply(self, state: ComponentState) -> None:
+        pl = state.layout.placements.get(self.component_id)
+        if pl is None:
+            return
+        self._old_locked = pl.locked
+        pl.locked = self.locked
+
+    def revert(self, state: ComponentState) -> None:
+        pl = state.layout.placements.get(self.component_id)
+        if pl is None:
+            return
+        pl.locked = self._old_locked
 
 
 # ---------------------------------------------------------------------------

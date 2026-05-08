@@ -184,6 +184,100 @@ class TestElectricalNets:
         assert len(nets) == 1
 
 
+class TestInsulatedWireIsolation:
+    """Insulated wires must not electrically connect pads they cross over."""
+
+    def test_insulated_wire_does_not_merge_intermediate_pads(self) -> None:
+        # 1×3 perfboard, pads at x=0.5, 1.5, 2.5 (y=0.5).
+        # An insulated wire runs from (0.5,0.5) to (2.5,0.5), crossing over the
+        # middle pad at (1.5,0.5).  The middle pad must remain in its own set.
+        board = _perfboard(1, 3)
+        wire = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
+            insulated=True,
+            side="top",
+        )
+        lay = Layout(placements={}, wires=[wire])
+        graph = ConnectivityGraph(board=board, layout=lay, components={})
+        # Wire endpoints (0.5,0.5) and (2.5,0.5) should be in the same set.
+        # Middle pad (1.5,0.5) must be in a DIFFERENT set.
+        node_left = graph.node_for_pad(Point(0.5, 0.5), "top")
+        node_mid = graph.node_for_pad(Point(1.5, 0.5), "top")
+        node_right = graph.node_for_pad(Point(2.5, 0.5), "top")
+        assert node_left is not None
+        assert node_mid is not None
+        assert node_right is not None
+        assert node_left == node_right, "Wire endpoints must be electrically connected"
+        assert node_mid != node_left, "Crossed pad must NOT be merged into wire's set"
+
+    def test_two_insulated_wires_crossing_same_pad_stay_isolated(self) -> None:
+        # 1×3 perfboard. Two insulated wires both pass through (1.5,0.5).
+        # They must NOT be merged together via the shared intermediate pad.
+        board = _perfboard(1, 3)
+        wire_a = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
+            insulated=True,
+            side="top",
+        )
+        wire_b = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
+            insulated=True,
+            side="top",
+        )
+        lay = Layout(placements={}, wires=[wire_a, wire_b])
+        graph = ConnectivityGraph(board=board, layout=lay, components={})
+        # Middle pad must still be isolated from the wire endpoints.
+        node_mid = graph.node_for_pad(Point(1.5, 0.5), "top")
+        node_end = graph.node_for_pad(Point(0.5, 0.5), "top")
+        assert node_mid != node_end, "Intermediate pad must not merge with endpoints"
+
+    def test_bare_wire_does_connect_intermediate_pads(self) -> None:
+        # Sanity check: a bare (non-insulated) wire crossing a pad SHOULD merge it.
+        board = _perfboard(1, 3)
+        wire = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
+            insulated=False,
+            side="top",
+        )
+        lay = Layout(placements={}, wires=[wire])
+        graph = ConnectivityGraph(board=board, layout=lay, components={})
+        node_left = graph.node_for_pad(Point(0.5, 0.5), "top")
+        node_mid = graph.node_for_pad(Point(1.5, 0.5), "top")
+        node_right = graph.node_for_pad(Point(2.5, 0.5), "top")
+        assert node_left == node_mid == node_right, "Bare wire merges all pads"
+
+    def test_two_bare_wires_crossing_off_pad_stay_isolated(self) -> None:
+        # 2×2 perfboard, pads at (0.5,0.5), (1.5,0.5), (0.5,1.5), (1.5,1.5).
+        # Wire A: (0.5,0.5) → (1.0,0.5) → (1.5,0.5)  — mid-step at (1.0,0.5)
+        # Wire B: (0.5,1.5) → (1.0,0.5) → (1.5,1.5)  — same off-pad mid-step
+        # Both are bare.  They share the off-pad point (1.0,0.5) but that is
+        # NOT a board pad, so they must NOT be merged electrically.
+        board = _perfboard(2, 2)
+        wire_a = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(1.0, 0.5), Point(1.5, 0.5)],
+            insulated=False,
+            side="top",
+        )
+        wire_b = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 1.5), Point(1.0, 0.5), Point(1.5, 1.5)],
+            insulated=False,
+            side="top",
+        )
+        lay = Layout(placements={}, wires=[wire_a, wire_b])
+        graph = ConnectivityGraph(board=board, layout=lay, components={})
+        node_a_left = graph.node_for_pad(Point(0.5, 0.5), "top")
+        node_b_left = graph.node_for_pad(Point(0.5, 1.5), "top")
+        assert node_a_left != node_b_left, (
+            "Bare wires sharing an off-pad crossing point must remain in separate ElectricSets"
+        )
+
+
 class TestStripboardConnectivity:
     def test_strip_connects_all_holes(self) -> None:
         from protoboard.domain.board.boxes import StripAtom

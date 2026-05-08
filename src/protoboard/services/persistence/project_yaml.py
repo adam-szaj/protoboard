@@ -117,6 +117,7 @@ def _layout_to_yaml(layout: Layout) -> str:
                     else {}
                 ),
                 **({"vertical_flipped": True} if pl.vertical_flipped else {}),
+                **({"locked": True} if pl.locked else {}),
             }
             for pl in layout.placements.values()
         ],
@@ -174,6 +175,7 @@ def _schematic_to_yaml(schematic: Schematic) -> str:
                 "id": str(net.id),
                 "name": net.name,
                 **({"color": net.color} if net.color else {}),
+                **({"global_net": True} if net.global_net else {}),
                 "pins": [
                     {
                         "component_id": str(ref.component_id),
@@ -281,6 +283,7 @@ def _layout_from_yaml(text: str) -> Layout:
             pin_offsets=pin_offsets,
             shared_pins=shared_pins,
             vertical_flipped=bool(raw.get("vertical_flipped", False)),
+            locked=bool(raw.get("locked", False)),
         )
         placements[comp_id] = pl
     wires: list[WireSegment] = []
@@ -350,6 +353,7 @@ def _schematic_from_yaml(text: str) -> Schematic:
             name=raw["name"],
             pins=pins,
             color=raw.get("color") or None,
+            global_net=bool(raw.get("global_net", False)),
         )
     return Schematic(nets=nets)
 
