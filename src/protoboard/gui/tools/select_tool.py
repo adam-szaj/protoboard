@@ -730,10 +730,8 @@ class SelectTool(_Tool):
             return
 
         if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
-            if self._selected_wire_ids:
+            if self._selected_wire_ids or self._selected_wire_id is not None:
                 self._delete_multi_wires()
-            elif self._selected_wire_id is not None:
-                self._delete_wire()
             elif self._selected_ids:
                 self._delete_multi()
             elif self._selected_id is not None:
@@ -2222,7 +2220,11 @@ class SelectTool(_Tool):
         self._selected_wire_ids.clear()
 
     def _delete_multi_wires(self) -> None:
-        ids = list(self._selected_wire_ids)
+        # Include primary wire (_selected_wire_id) alongside multi-selection.
+        all_ids = set(self._selected_wire_ids)
+        if self._selected_wire_id is not None:
+            all_ids.add(self._selected_wire_id)
+        ids = list(all_ids)
         if not ids:
             return
         from typing import cast
