@@ -105,6 +105,8 @@ class BoardView(QGraphicsView):
 
     def set_highlighted_net(self, net_id: uuid.UUID | None) -> None:
         """Highlight one net and dim everything else. None clears the dim."""
+        if net_id == self._highlighted_net_id:
+            return
         self._highlighted_net_id = net_id
         self.refresh()
 
