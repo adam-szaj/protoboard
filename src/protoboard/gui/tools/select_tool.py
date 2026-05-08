@@ -2021,6 +2021,7 @@ class SelectTool(_Tool):
         )
         if wire is None:
             self._select_wire(wire_id)
+            self._notify_selection()
             return
 
         if self._wire_click_cycle == 3:
@@ -2030,6 +2031,7 @@ class SelectTool(_Tool):
             self._wire_click_cycle = 3
             if self._view is not None:
                 self._view.set_highlighted_net(None)
+            self._notify_selection()
             return
 
         # Cycles 1 and 2: select all wires in the same electric net.
@@ -2085,6 +2087,7 @@ class SelectTool(_Tool):
             from protoboard.gui.board_view import _build_wire_net_map
             _wnm = _build_wire_net_map(self._session)
             _net_id = _wnm.get(wire_id)
+            self._highlight_net_id = _net_id  # keep in sync so _notify_selection sees it
             self._view.set_highlighted_net(_net_id)
 
         if self._wire_click_cycle == 1:
