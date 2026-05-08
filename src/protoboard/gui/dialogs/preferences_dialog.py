@@ -456,6 +456,16 @@ class _PathsPage(QWidget):
         mod_layout.addWidget(self._mod_list)
         vbox.addWidget(mod_grp)
 
+        # Placement behaviour
+        place_grp = QGroupBox("Placement")
+        place_layout = QVBoxLayout(place_grp)
+        self._auto_accept_cb = QCheckBox(
+            "Auto-accept when no conflict (no Enter required)"
+        )
+        self._auto_accept_cb.setChecked(settings.auto_accept_placement)
+        place_layout.addWidget(self._auto_accept_cb)
+        vbox.addWidget(place_grp)
+
         vbox.addStretch()
 
         self._default_projects_dir: Path | None = settings.default_projects_dir
@@ -464,6 +474,7 @@ class _PathsPage(QWidget):
         self._settings.default_projects_dir = self._default_projects_dir
         self._settings.component_library_dirs = self._lib_list.paths()
         self._settings.module_dirs = self._mod_list.paths()
+        self._settings.auto_accept_placement = self._auto_accept_cb.isChecked()
         save_app_settings(self._settings)
 
     def _pick_projects_dir(self) -> None:

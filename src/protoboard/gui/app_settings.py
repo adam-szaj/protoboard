@@ -19,6 +19,7 @@ class AppSettings:
     default_projects_dir: Path | None = None
     component_library_dirs: list[Path] = field(default_factory=list)
     module_dirs: list[Path] = field(default_factory=list)
+    auto_accept_placement: bool = True
 
 
 def load_app_settings() -> AppSettings:
@@ -38,6 +39,8 @@ def load_app_settings() -> AppSettings:
             s.component_library_dirs = [Path(d).expanduser() for d in dirs if d]
         if mdirs := data.get("module_dirs"):
             s.module_dirs = [Path(d).expanduser() for d in mdirs if d]
+        if (aap := data.get("auto_accept_placement")) is not None:
+            s.auto_accept_placement = bool(aap)
         return s
     except Exception:  # noqa: BLE001
         return AppSettings()
@@ -53,6 +56,7 @@ def save_app_settings(settings: AppSettings) -> None:
             data["default_projects_dir"] = str(settings.default_projects_dir)
         data["component_library_dirs"] = [str(p) for p in settings.component_library_dirs]
         data["module_dirs"] = [str(p) for p in settings.module_dirs]
+        data["auto_accept_placement"] = settings.auto_accept_placement
 
         _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         yaml = YAML()

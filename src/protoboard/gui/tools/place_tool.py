@@ -71,13 +71,17 @@ class PlaceTool(_Tool):
         self._rotation = 0
         self._ghost: QGraphicsItemGroup | None = None
         # Two-phase state
-        self._phase: Literal["anchor", "drag_pin"] = "anchor"
+        self._phase: Literal["anchor", "drag_pin", "floating"] = "anchor"
         self._anchor_pos: Point | None = None
         self._pin_offsets: dict[int, Point] = {}
         self._drag_pin_queue: list[int] = []
         self._current_drag_pin: int | None = None
         # Reach overlay items
         self._reach_items: list[QGraphicsItem] = []
+        # Floating state (placed but not committed)
+        self._pending_inst: object = None
+        self._pending_placement: object = None
+        self._pending_wire_cmds: list[object] = []
 
     def activate(self, session: object, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
@@ -85,6 +89,8 @@ class PlaceTool(_Tool):
         self._rebuild_ghost()
 
     def deactivate(self) -> None:
+        if self._phase == "floating":
+            self._cancel_floating_place()
         self._clear_reach_overlay()
         self._remove_ghost()
         self._reset_phase()
@@ -97,6 +103,10 @@ class PlaceTool(_Tool):
         if event.button() != Qt.MouseButton.LeftButton:
             return False
         snapped = self._view.snap(scene_pt)
+
+        if self._phase == "floating":
+            self._commit_floating_place()
+            return True
 
         defn = self._session.components.get(self._definition_ref)
         bendable = sorted(defn.bendable_pins.keys()) if defn else []
@@ -154,6 +164,15 @@ class PlaceTool(_Tool):
         ctrl  = bool(mods & Qt.KeyboardModifier.ControlModifier)
         shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
         alt   = bool(mods & Qt.KeyboardModifier.AltModifier)
+
+        # Floating phase: Enter commits, Esc cancels.
+        if self._phase == "floating":
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._commit_floating_place()
+            elif key == Qt.Key.Key_Escape:
+                self._cancel_floating_place()
+                self._rebuild_ghost()
+            return
 
         if key == Qt.Key.Key_R and alt and not ctrl and self._phase == "drag_pin":
             # Alt+R: flip pin1/pin2 — anchor moves to old pin2 pad.
@@ -410,6 +429,8 @@ class PlaceTool(_Tool):
             side="top",
             pin_offsets=pin_offsets,
         )
+        has_wire_conflict = False
+        wire_cmds: list[object] = []
         if defn is not None:
             resolved = check_and_resolve(
                 session=self._session,
@@ -421,13 +442,80 @@ class PlaceTool(_Tool):
             if resolved is None:
                 _log.info("place.blocked", definition=self._definition_ref, pos=(position.x, position.y))
                 return
+            wire_cmds = getattr(resolved, "_wire_cmds", [])
+            has_wire_conflict = bool(wire_cmds)
             placement = resolved
+
+        from protoboard.gui.app_settings import load_app_settings
+        auto_accept = load_app_settings().auto_accept_placement
+
+        if auto_accept and not has_wire_conflict:
+            self._do_place(inst, placement, wire_cmds)
+        else:
+            # Enter floating — show component on board, wait for Enter/Esc.
+            self._pending_inst = inst
+            self._pending_placement = placement
+            self._pending_wire_cmds = wire_cmds
+            self._session.layout.placements[inst.id] = placement
+            self._session.instances[inst.id] = inst
+            self._phase = "floating"
+            self._session.layout_changed.emit()
+            win = self._view.window() if self._view is not None else None
+            sb = win.statusBar() if win is not None else None
+            if sb is not None:
+                sb.showMessage("[Enter] Accept placement  ·  [Esc] Cancel", 0)
+
+    def _do_place(
+        self, inst: object, placement: object, wire_cmds: list[object]
+    ) -> None:
+        """Execute PlaceComponentCommand (and any wire commands) immediately."""
+        from protoboard.domain.commands.component_cmds import PlaceComponentCommand
+        from protoboard.domain.commands.base import MacroCommand
+
         cmd = PlaceComponentCommand(
-            component_id=inst.id, placement=placement, instance=inst
+            component_id=inst.id,  # type: ignore[union-attr]
+            placement=placement,  # type: ignore[arg-type]
+            instance=inst,  # type: ignore[arg-type]
         )
-        self._session.stack.execute(cmd, self._session)
-        _log.info("place.committed", definition=self._definition_ref, refdes=inst.refdes, pos=(position.x, position.y))
+        if wire_cmds:
+            all_cmds = [cmd] + wire_cmds  # type: ignore[operator]
+            macro = MacroCommand(all_cmds, description="Place component")  # type: ignore[arg-type]
+            self._session.stack.execute(macro, self._session)
+        else:
+            self._session.stack.execute(cmd, self._session)
+        _log.info("place.committed", definition=self._definition_ref,
+                  refdes=inst.refdes, pos=(placement.position.x, placement.position.y))  # type: ignore[union-attr]
         self._session.layout_changed.emit()
+
+    def _commit_floating_place(self) -> None:
+        """Commit the pending floating placement."""
+        if self._pending_inst is None or self._pending_placement is None:
+            return
+        self._do_place(self._pending_inst, self._pending_placement, self._pending_wire_cmds)
+        self._pending_inst = None
+        self._pending_placement = None
+        self._pending_wire_cmds = []
+        self._phase = "anchor"
+        win = self._view.window() if self._view is not None else None
+        sb = win.statusBar() if win is not None else None
+        if sb is not None:
+            sb.clearMessage()
+
+    def _cancel_floating_place(self) -> None:
+        """Remove the pending floating placement from layout without a command."""
+        if self._pending_inst is not None:
+            inst_id = self._pending_inst.id  # type: ignore[union-attr]
+            self._session.layout.placements.pop(inst_id, None)
+            self._session.instances.pop(inst_id, None)
+            self._session.layout_changed.emit()
+        self._pending_inst = None
+        self._pending_placement = None
+        self._pending_wire_cmds = []
+        self._phase = "anchor"
+        win = self._view.window() if self._view is not None else None
+        sb = win.statusBar() if win is not None else None
+        if sb is not None:
+            sb.clearMessage()
 
     def _reset_phase(self) -> None:
         self._phase = "anchor"

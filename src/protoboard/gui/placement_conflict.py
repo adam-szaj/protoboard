@@ -118,55 +118,67 @@ def check_and_resolve(
         already_conflicted=already_conflicted,
     )
 
-    conflicts = pad_conflicts + wire_conflicts
-
-    if not conflicts:
-        return placement
-
-    # Check for hard blocks (different nets).
-    _BLOCKED_KINDS = {
-        ConflictKind.DIFFERENT_NETS, ConflictKind.PIN_ON_WIRE_DIFFERENT_NET
+    # --- Separate pad conflicts from wire conflicts ---
+    _WIRE_KINDS = {
+        ConflictKind.PIN_ON_WIRE_DIFFERENT_NET,
+        ConflictKind.PIN_ON_WIRE_SAME_NET,
+        ConflictKind.PIN_ON_WIRE_WITH_NET,
+        ConflictKind.PIN_ON_WIRE_UNCONNECTED,
     }
-    _AUTO_OK_KINDS = {ConflictKind.SAME_NET, ConflictKind.PIN_ON_WIRE_SAME_NET}
-    _AUTO_CREATE_KINDS = {
-        ConflictKind.PIN_ON_WIRE_UNCONNECTED, ConflictKind.PIN_ON_WIRE_WITH_NET
-    }
+    pure_pad = [c for c in pad_conflicts if c.kind not in _WIRE_KINDS]
+    wire_only = wire_conflicts  # all wire_conflicts are already wire-kind
 
-    blocked = [c for c in conflicts if c.kind in _BLOCKED_KINDS]
-    auto_ok = [c for c in conflicts if c.kind in _AUTO_OK_KINDS]
-    needs_decision = [
-        c for c in conflicts
-        if c.kind in (ConflictKind.ONE_UNCONNECTED, ConflictKind.BOTH_UNCONNECTED)
-    ]
-    auto_wire = [c for c in conflicts if c.kind in _AUTO_CREATE_KINDS]
+    # --- Pad-on-pad conflict resolution (unchanged logic) ---
+    _PAD_BLOCKED = {ConflictKind.DIFFERENT_NETS}
+    _PAD_AUTO_OK = {ConflictKind.SAME_NET}
+    _PAD_DECISION = {ConflictKind.ONE_UNCONNECTED, ConflictKind.BOTH_UNCONNECTED}
 
-    if blocked:
-        _log.info("conflict.blocked", kinds=[c.kind.name for c in blocked], incoming=str(instance_id))
-        # Show blocking dialog (no accept button).
-        _show_dialog(session, conflicts, placement, defn, instance_id, parent_widget)
+    pad_blocked = [c for c in pure_pad if c.kind in _PAD_BLOCKED]
+    pad_auto_ok = [c for c in pure_pad if c.kind in _PAD_AUTO_OK]
+    pad_decision = [c for c in pure_pad if c.kind in _PAD_DECISION]
+
+    if pad_blocked:
+        _log.info("conflict.pad_blocked", kinds=[c.kind.name for c in pad_blocked])
+        _show_dialog(session, pad_blocked + pad_decision, placement, defn, instance_id, parent_widget)
         return None
 
-    # Conflicts that need explicit user confirmation (pad-on-pad with unconnected pins).
-    if needs_decision:
+    if pad_decision:
         accepted = _show_dialog(
-            session, conflicts, placement, defn, instance_id, parent_widget
+            session, pure_pad, placement, defn, instance_id, parent_widget
         )
         if not accepted:
             return None
 
-    # Build updated placement with shared_pins (pad-on-pad only).
-    resolvable_pads = auto_ok + needs_decision
     new_shared = set(placement.shared_pins)
-    for c in resolvable_pads:
+    for c in pad_auto_ok + pad_decision:
         new_shared.add(c.incoming_pin)
+    if pad_decision:
+        _update_schematic(session, pad_decision, placement, defn, instance_id)
 
-    # Update schematic for all resolved conflicts.
-    all_resolved = needs_decision + auto_wire
-    if all_resolved:
-        _update_schematic(session, all_resolved, placement, defn, instance_id)
+    # --- Wire conflict resolution (new: dialog with choices) ---
+    wire_action_cmds: list[object] = []
+    if wire_only:
+        _wire_same = [c for c in wire_only if c.kind == ConflictKind.PIN_ON_WIRE_SAME_NET]
+        _wire_needs = [c for c in wire_only if c.kind != ConflictKind.PIN_ON_WIRE_SAME_NET]
+
+        if _wire_needs:
+            result_pl, wire_action_cmds = _resolve_wire_conflicts(
+                session=session,
+                wire_conflicts=_wire_needs,
+                placement=placement,
+                defn=defn,
+                instance_id=instance_id,
+                parent_widget=parent_widget,
+            )
+            if result_pl is None:
+                # Revert shared_pins already applied to pad conflicts.
+                return None
+            placement = result_pl
 
     result = placement.copy()
     result.shared_pins = frozenset(new_shared)
+    # Attach extra wire commands as an attribute so callers can retrieve them.
+    result._wire_cmds = wire_action_cmds  # type: ignore[attr-defined]
     return result
 
 
@@ -256,3 +268,122 @@ def _update_schematic(
                     name=f"Net-({inst.refdes if inst else '?'}-{c.incoming_pin})",
                     pins={incoming_ref},
                 )
+
+
+def _resolve_wire_conflicts(
+    session: "EditorSession",
+    wire_conflicts: list[PadConflict],
+    placement: ComponentPlacement,
+    defn: "ComponentDefinition",
+    instance_id: uuid.UUID,
+    parent_widget: object,
+) -> tuple[ComponentPlacement | None, list[object]]:
+    """Show WireConflictDialog and build commands for chosen action.
+
+    Returns (resolved_placement, extra_commands) or (None, []) on cancel.
+    """
+    import uuid as _uuid
+    from protoboard.domain.schematic.net import Net, PinRef
+    from protoboard.gui.dialogs.wire_conflict_dialog import (
+        WireConflictAction,
+        WireConflictDialog,
+    )
+    from PySide6.QtWidgets import QDialog
+
+    inst = session.instances.get(instance_id)
+    incoming_refdes = inst.refdes if inst else defn.name
+
+    dlg = WireConflictDialog(
+        conflicts=wire_conflicts,
+        incoming_refdes=incoming_refdes,
+        parent=parent_widget,
+    )
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return None, []
+
+    action = dlg.chosen_action()
+    cmds: list[object] = []
+
+    if action == WireConflictAction.CANCEL:
+        return None, []
+
+    if action == WireConflictAction.REMOVE_AND_REROUTE:
+        # Collect unique wire IDs to remove.
+        from protoboard.domain.commands.component_cmds import RemoveWireCommand
+        seen: set[uuid.UUID] = set()
+        for c in wire_conflicts:
+            if c.wire_id is not None and c.wire_id not in seen:
+                seen.add(c.wire_id)
+                wire_obj = next(
+                    (w for w in session.layout.wires if w.id == c.wire_id), None
+                )
+                cmds.append(RemoveWireCommand(wire_id=c.wire_id))
+                if wire_obj is not None:
+                    reroute_cmd = _try_reroute_wire(session, wire_obj, placement)
+                    if reroute_cmd is not None:
+                        cmds.append(reroute_cmd)
+        return placement, cmds
+
+    if action == WireConflictAction.ADD_TO_NET:
+        for c in wire_conflicts:
+            ref = PinRef(component_id=instance_id, pin_number=c.incoming_pin)
+            if c.existing_net_id is not None:
+                session.schematic.nets[c.existing_net_id].pins.add(ref)
+        return placement, []
+
+    if action == WireConflictAction.CREATE_NET:
+        for c in wire_conflicts:
+            ref = PinRef(component_id=instance_id, pin_number=c.incoming_pin)
+            new_net_id = _uuid.uuid4()
+            net_name = f"Net-({incoming_refdes}-{c.incoming_pin})"
+            session.schematic.nets[new_net_id] = Net(
+                id=new_net_id, name=net_name, pins={ref}
+            )
+        return placement, []
+
+    return None, []
+
+
+def _try_reroute_wire(
+    session: "EditorSession",
+    wire: object,
+    blocker_placement: ComponentPlacement,
+) -> object | None:
+    """Attempt A* reroute for *wire* after its removal.
+
+    Returns an AddWireWithNetsCommand if a path is found, else None.
+    """
+    from protoboard.domain.layout.wire import WireSegment
+    from protoboard.services.routing.astar import find_paths
+    from protoboard.services.routing.cost_model import RoutingCostModel
+
+    if not isinstance(wire, WireSegment) or len(wire.path) < 2:
+        return None
+
+    source = wire.path[0]
+    target = wire.path[-1]
+
+    graph = session.connectivity_graph()
+    results = find_paths(
+        graph=graph,
+        source=source,
+        targets=[target],
+        side=wire.side,
+        cost_model=RoutingCostModel(),
+        k=1,
+        insulated=wire.insulated,
+    )
+    if not results:
+        return None
+
+    best = results[0]
+    from protoboard.domain.layout.wire import WireSegment as WS
+    import uuid as _uuid
+    new_wire = WS(
+        id=_uuid.uuid4(),
+        path=[pt for pt, _side in best.path],
+        insulated=wire.insulated,
+        side=wire.side,  # type: ignore[arg-type]
+    )
+    from protoboard.domain.commands.component_cmds import AddWireCommand
+    return AddWireCommand(wire=new_wire)

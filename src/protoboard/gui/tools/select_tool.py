@@ -141,6 +141,11 @@ class SelectTool(_Tool):
         self._filter_components: bool = True
         self._filter_wires: bool = True
         self._filter_groups: bool = True
+        # Floating state: component placed but not yet committed to CommandStack.
+        self._floating_ids: set[uuid.UUID] = set()
+        self._floating_orig_placements: dict[uuid.UUID, ComponentPlacement] = {}
+        self._floating_extra_cmds: list[object] = []
+        self._floating_highlight_items: list[QGraphicsItem] = []
 
     # ------------------------------------------------------------------
     # _Tool interface
@@ -175,6 +180,117 @@ class SelectTool(_Tool):
 
     def set_filter_groups(self, enabled: bool) -> None:
         self._filter_groups = enabled
+
+    # ------------------------------------------------------------------
+    # Floating state
+    # ------------------------------------------------------------------
+
+    def _is_floating(self) -> bool:
+        return bool(self._floating_ids)
+
+    def _enter_floating(
+        self,
+        comp_ids: set[uuid.UUID],
+        orig_placements: dict[uuid.UUID, ComponentPlacement],
+        extra_cmds: list[object] | None = None,
+    ) -> None:
+        """Enter floating state — component is in new position but not committed."""
+        self._floating_ids = comp_ids
+        self._floating_orig_placements = orig_placements
+        self._floating_extra_cmds = extra_cmds or []
+        self._draw_floating_highlights()
+        self._update_floating_status()
+
+    def _commit_floating(self) -> None:
+        """Commit floating state to CommandStack."""
+        if not self._floating_ids:
+            return
+        from protoboard.domain.commands.base import Command
+
+        cmds: list[Command[ComponentState]] = []
+        for cid in self._floating_ids:
+            new_pl = self._session.layout.placements.get(cid)
+            old_pl = self._floating_orig_placements.get(cid)
+            if new_pl is None or old_pl is None:
+                continue
+            cmds.append(
+                MoveComponentCommand(
+                    component_id=cid,
+                    new_placement=new_pl,
+                    old_placement=old_pl,
+                    skip_conflict_check=True,
+                )
+            )
+        for cmd in self._floating_extra_cmds:
+            cmds.append(cmd)  # type: ignore[arg-type]
+        self._clear_floating_highlights()
+        self._floating_ids = set()
+        self._floating_orig_placements = {}
+        self._floating_extra_cmds = []
+        if cmds:
+            if len(cmds) == 1:
+                self._session.stack.execute(cmds[0], self._session)
+            else:
+                macro = MacroCommand(cmds, description="Move component")
+                self._session.stack.execute(macro, self._session)
+            self._session.layout_changed.emit()
+
+    def _cancel_floating(self) -> None:
+        """Revert floating state — restore original positions without a command."""
+        for cid, orig_pl in self._floating_orig_placements.items():
+            self._session.layout.placements[cid] = orig_pl
+        self._clear_floating_highlights()
+        self._floating_ids = set()
+        self._floating_orig_placements = {}
+        self._floating_extra_cmds = []
+        self._session.layout_changed.emit()
+
+    def _clear_floating(self) -> None:
+        self._clear_floating_highlights()
+        self._floating_ids = set()
+        self._floating_orig_placements = {}
+        self._floating_extra_cmds = []
+
+    def _draw_floating_highlights(self) -> None:
+        if self._view is None:
+            return
+        self._clear_floating_highlights()
+        from protoboard.domain.layout.placement import component_bbox
+        from protoboard.gui.layer_state import Z_SELECTION
+        scene = self._view.scene()
+        for cid in self._floating_ids:
+            pl = self._session.layout.placements.get(cid)
+            inst = self._session.instances.get(cid)
+            if pl is None or inst is None:
+                continue
+            defn = self._session.components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            bbox = component_bbox(defn.footprint, pl, defn.component_class)
+            rect = QGraphicsRectItem(QRectF(bbox.x, bbox.y, bbox.width, bbox.height))
+            pen = QPen(QColor(255, 200, 0, 200), 0.08)
+            pen.setStyle(Qt.PenStyle.DashLine)
+            rect.setPen(pen)
+            rect.setBrush(QBrush(QColor(255, 200, 0, 20)))
+            rect.setZValue(Z_SELECTION + 0.5)
+            scene.addItem(rect)
+            self._floating_highlight_items.append(rect)
+
+    def _clear_floating_highlights(self) -> None:
+        if self._view is not None:
+            scene = self._view.scene()
+            for item in self._floating_highlight_items:
+                try:
+                    scene.removeItem(item)
+                except RuntimeError:
+                    pass
+        self._floating_highlight_items.clear()
+
+    def _update_floating_status(self) -> None:
+        win = self._view.window() if self._view is not None else None
+        sb = win.statusBar() if win is not None else None
+        if sb is not None:
+            sb.showMessage("[Enter] Accept  ·  [Esc] Cancel  ·  [R] Rotate", 0)
 
     def deactivate(self) -> None:
         self._cancel_redrag()
@@ -212,11 +328,28 @@ class SelectTool(_Tool):
             self._draw_multi_wire_highlight(wid)
         if self._net_pad_highlight_positions:
             self._draw_net_pad_highlights(list(self._net_pad_highlight_positions))
+        # Redraw floating highlights after scene rebuild.
+        self._floating_highlight_items.clear()  # items deleted by scene.clear()
+        if self._is_floating():
+            self._draw_floating_highlights()
 
     def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
             return False
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+
+        # --- Floating state: click commits (same as Enter) ---
+        if self._is_floating() and not ctrl:
+            hit = self._hit_test(scene_pt)
+            if hit is not None and hit in self._floating_ids:
+                # Click on a floating component — allow drag from current position.
+                # Silently discard floating (keep current placement, no commit yet).
+                self._clear_floating()
+                # Fall through to normal press handling.
+            else:
+                # Click elsewhere — commit floating then handle click normally.
+                self._commit_floating()
+                # Fall through to process the click.
 
         # --- Re-drag mode: confirm new pin2 position ---
         if self._redrag_comp_id is not None:
@@ -462,6 +595,10 @@ class SelectTool(_Tool):
 
     def on_double_press(self, scene_pt: QPointF) -> bool:
         """Called on double-click by BoardView (if forwarded). Enters a group."""
+        # Floating state: double-click anywhere commits.
+        if self._is_floating():
+            self._commit_floating()
+            return True
         hit = self._hit_test(scene_pt)
         if hit is None:
             hit = self._hit_test_bbox(scene_pt)
@@ -627,6 +764,13 @@ class SelectTool(_Tool):
             _log.debug("drag.group_commands", count=len(commands))
         else:
             # --- Per-component conflict check (non-group drag) ---
+            from protoboard.gui.placement_conflict import check_and_resolve
+
+            any_conflict = False
+            extra_cmds: list[object] = []
+            floating_orig: dict[uuid.UUID, ComponentPlacement] = {}
+            floating_moved: set[uuid.UUID] = set()
+
             for cid in drag_ids:
                 pl = self._session.layout.placements.get(cid)
                 orig = self._drag_orig_positions.get(cid)
@@ -636,6 +780,7 @@ class SelectTool(_Tool):
                     continue
                 old_pl = pl.copy()
                 old_pl.position = orig
+                floating_orig[cid] = old_pl
 
                 inst = self._session.instances.get(cid)
                 defn = (
@@ -643,8 +788,6 @@ class SelectTool(_Tool):
                     if inst else None
                 )
                 if defn is not None:
-                    from protoboard.gui.placement_conflict import check_and_resolve
-
                     resolved = check_and_resolve(
                         session=self._session,
                         placement=pl,
@@ -655,25 +798,24 @@ class SelectTool(_Tool):
                     if resolved is None:
                         self._session.layout.placements[cid] = old_pl
                         continue
+                    wire_cmds = getattr(resolved, "_wire_cmds", [])
+                    if wire_cmds:
+                        extra_cmds.extend(wire_cmds)
+                        any_conflict = True
                     pl = resolved
                     self._session.layout.placements[cid] = pl
 
-                commands.append(
-                    MoveComponentCommand(
-                        component_id=cid,
-                        new_placement=pl,
-                        old_placement=old_pl,
-                    )
-                )
+                floating_moved.add(cid)
 
             # Build wire move commands.
+            wire_move_cmds: list[object] = []
             for wire in self._session.layout.wires:
                 if wire.id not in self._drag_orig_wire_paths:
                     continue
                 orig_wire_path: list[Point] = self._drag_orig_wire_paths[wire.id]
                 if wire.path == orig_wire_path:
                     continue
-                commands.append(
+                wire_move_cmds.append(
                     ReplaceWireSegmentCommand(
                         wire_id=wire.id,
                         new_path=list(wire.path),
@@ -681,8 +823,53 @@ class SelectTool(_Tool):
                     )
                 )
 
-            # Remove wires that now cross alien pads.
-            commands.extend(self._remove_crossing_wires(drag_ids))
+            crossing_cmds = list(self._remove_crossing_wires(drag_ids))
+            extra_cmds = list(wire_move_cmds) + crossing_cmds + extra_cmds
+
+            self._drag_orig_wire_paths = {}
+
+            if floating_moved:
+                # Check auto-accept: skip floating if no wire conflicts and setting enabled.
+                from protoboard.gui.app_settings import load_app_settings
+                auto_accept = load_app_settings().auto_accept_placement
+                if auto_accept and not any_conflict:
+                    # Directly commit without entering floating state.
+                    all_cmds: list[object] = []
+                    for cid in floating_moved:
+                        new_pl = self._session.layout.placements.get(cid)
+                        old_pl = floating_orig.get(cid)
+                        if new_pl and old_pl:
+                            all_cmds.append(MoveComponentCommand(
+                                component_id=cid,
+                                new_placement=new_pl,
+                                old_placement=old_pl,
+                                skip_conflict_check=True,
+                            ))
+                    all_cmds.extend(extra_cmds)
+                    if all_cmds:
+                        if len(all_cmds) == 1:
+                            self._session.stack.execute(all_cmds[0], self._session)  # type: ignore[arg-type]
+                        else:
+                            macro = MacroCommand(all_cmds, description="Move selection")  # type: ignore[arg-type]
+                            self._session.stack.execute(macro, self._session)
+                        self._session.layout_changed.emit()
+                else:
+                    self._enter_floating(floating_moved, floating_orig, extra_cmds)
+                    self._session.layout_changed.emit()
+            else:
+                # Wire-only drag (no components moved): commit wire path changes directly.
+                if extra_cmds:
+                    if len(extra_cmds) == 1:
+                        self._session.stack.execute(extra_cmds[0], self._session)  # type: ignore[arg-type]
+                    else:
+                        macro = MacroCommand(extra_cmds, description="Move wires")  # type: ignore[arg-type]
+                        self._session.stack.execute(macro, self._session)
+                    self._session.layout_changed.emit()
+
+            self._drag_overlay.reset(self._view.scene())
+            if self._selected_id is not None and not self._is_floating():
+                self._select_primary(self._selected_id)
+            return
 
         self._drag_orig_wire_paths = {}
 
@@ -693,12 +880,8 @@ class SelectTool(_Tool):
                 macro = MacroCommand(commands, description="Move selection")
                 self._session.stack.execute(macro, self._session)
             self._session.layout_changed.emit()
-            # After successful layout rebuild, overlay was rerendered by
-            # on_scene_cleared → rerender(). Reset it now (move done).
             self._drag_overlay.reset(self._view.scene())
         else:
-            # No commands: nothing moved, or blocked group drag already reverted.
-            # Group is back at original position — overlay location is stale.
             self._drag_overlay.reset(self._view.scene())
 
         # Restore selection highlights.
@@ -719,6 +902,20 @@ class SelectTool(_Tool):
                 self._flip_wire_fragment()
             elif key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
                 self._delete_wire_fragment()
+            return
+
+        # Floating state: Enter commits, Esc cancels, R rotates.
+        if self._is_floating():
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._commit_floating()
+            elif key == Qt.Key.Key_Escape:
+                self._cancel_floating()
+            elif key == Qt.Key.Key_R:
+                delta = -90 if bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier) else 90
+                if self._selected_ids:
+                    self._rotate_multi(delta=delta)
+                elif self._selected_id is not None:
+                    self._rotate_selected(delta=delta)
             return
 
         ctrl  = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
@@ -1321,21 +1518,40 @@ class SelectTool(_Tool):
         if placement is None:
             return
         new_rot = (placement.rotation + delta) % 360
-        old_pl = placement.copy()
-        new_pl = placement.copy()
-        new_pl.rotation = new_rot
-        cmd = MoveComponentCommand(
-            component_id=comp_id,
-            new_placement=new_pl,
-            old_placement=old_pl,
-        )
-        self._session.stack.execute(cmd, self._session)
-        remove_cmds = self._remove_crossing_wires({comp_id})
-        if remove_cmds:
-            self._session.stack.execute(
-                MacroCommand(remove_cmds, description="Remove crossing wires"),
-                self._session,
-            )
+
+        if self._is_floating() and comp_id in self._floating_ids:
+            # Already floating — rotate in-place, keep original for cancel.
+            new_pl = placement.copy()
+            new_pl.rotation = new_rot
+            self._session.layout.placements[comp_id] = new_pl
+            # Refresh floating highlights.
+            self._clear_floating_highlights()
+            self._draw_floating_highlights()
+        else:
+            # Enter floating after rotation.
+            old_pl = placement.copy()
+            new_pl = placement.copy()
+            new_pl.rotation = new_rot
+            self._session.layout.placements[comp_id] = new_pl
+            crossing = list(self._remove_crossing_wires({comp_id}))
+            from protoboard.gui.app_settings import load_app_settings
+            auto_accept = load_app_settings().auto_accept_placement
+            if auto_accept and not crossing:
+                cmd = MoveComponentCommand(
+                    component_id=comp_id,
+                    new_placement=new_pl,
+                    old_placement=old_pl,
+                    skip_conflict_check=True,
+                )
+                self._session.stack.execute(cmd, self._session)
+                if crossing:
+                    self._session.stack.execute(
+                        MacroCommand(crossing, description="Remove crossing wires"),
+                        self._session,
+                    )
+            else:
+                self._enter_floating({comp_id}, {comp_id: old_pl}, crossing)
+
         self._session.layout_changed.emit()
         self._draw_highlight(comp_id)
         panel = self._props_panel()
