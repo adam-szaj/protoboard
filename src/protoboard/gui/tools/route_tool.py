@@ -135,11 +135,13 @@ class RouteTool(_Tool):
         self._session.layout_changed.emit()
 
     def _cancel(self) -> None:
-        self._view.set_highlighted_net(None)
+        # Clear state first so on_scene_cleared() (triggered by refresh below)
+        # sees empty _points and does not try to redraw deleted C++ objects.
+        self._points.clear()
         self._clear_committed()
         self._remove_live()
         self._clear_hints()
-        self._points.clear()
+        self._view.set_highlighted_net(None)
 
     def _show_routing_hints(self, source: Point) -> None:
         """Compute and render top-3 routing hint paths from source."""
@@ -216,24 +218,17 @@ class RouteTool(_Tool):
                     return
 
     def on_scene_cleared(self) -> None:
-        """Called after every refresh() — redraw committed and live lines."""
-        old_committed = self._committed_lines[:]
-        old_live_pts: tuple[Point, Point] | None = None
-        if self._live_line is not None:
-            l = self._live_line.line()
-            old_live_pts = (Point(l.x1(), l.y1()), Point(l.x2(), l.y2()))
-
+        """Called after every refresh() — redraw committed lines from _points."""
         self._committed_lines.clear()
-        self._live_line = None
+        self._live_line = None   # C++ object deleted by scene.clear(); drop ref
         self._hint_items.clear()
 
         # Redraw committed segments from stored point sequence.
         if len(self._points) >= 2:
             for i in range(len(self._points) - 1):
                 self._add_committed_line(self._points[i], self._points[i + 1])
-        # Redraw live segment if we had one.
-        if old_live_pts is not None and self._points:
-            self._add_live_line(self._points[-1], old_live_pts[1])
+        # Live line is NOT redrawn here — it will be recreated on the next
+        # mouseMoveEvent via on_move() → _add_live_line().
 
     def _clear_hints(self) -> None:
         for item in self._hint_items:
@@ -257,7 +252,10 @@ class RouteTool(_Tool):
 
     def _remove_live(self) -> None:
         if self._live_line is not None:
-            self._view.scene().removeItem(self._live_line)
+            try:
+                self._view.scene().removeItem(self._live_line)
+            except RuntimeError:
+                pass  # C++ object already deleted by scene.clear()
             self._live_line = None
 
     def _clear_committed(self) -> None:
