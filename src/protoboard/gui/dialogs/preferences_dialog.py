@@ -10,6 +10,7 @@ from typing import Callable
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QKeySequence
 from PySide6.QtWidgets import (
+    QCheckBox,
     QColorDialog,
     QDialog,
     QDialogButtonBox,
@@ -514,7 +515,7 @@ class _RoutingPage(QWidget):
         gen_grp = QGroupBox("General")
         gen_form = _RoutingFormLayout(gen_grp)
 
-        from PySide6.QtWidgets import QCheckBox, QComboBox
+        from PySide6.QtWidgets import QComboBox
         self._preferred_side = QComboBox()
         self._preferred_side.addItems(["bottom", "top"])
         gen_form.addRow("Preferred layer", self._preferred_side)
