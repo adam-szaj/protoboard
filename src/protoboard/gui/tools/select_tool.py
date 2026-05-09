@@ -827,7 +827,17 @@ class SelectTool(_Tool):
                 )
 
             crossing_cmds = list(self._remove_crossing_wires(drag_ids))
-            extra_cmds = list(wire_move_cmds) + crossing_cmds + extra_cmds
+            # Deduplicate RemoveWireCommands: a wire that is both a crossing wire
+            # and a wire-conflict target must only be removed once.
+            _seen_remove: set[uuid.UUID] = set()
+            deduped: list[object] = []
+            for cmd in list(wire_move_cmds) + crossing_cmds + list(extra_cmds):
+                if isinstance(cmd, RemoveWireCommand):
+                    if cmd.wire_id in _seen_remove:
+                        continue
+                    _seen_remove.add(cmd.wire_id)
+                deduped.append(cmd)
+            extra_cmds = deduped
 
             self._drag_orig_wire_paths = {}
 
