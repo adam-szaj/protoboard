@@ -210,6 +210,12 @@ class SelectTool(_Tool):
         from protoboard.domain.commands.base import Command
 
         cmds: list[Command[ComponentState]] = []
+        # Wire commands (remove/add) must run BEFORE MoveComponentCommand so that
+        # _update_wires_for_move (called inside MoveComponentCommand.apply) does not
+        # encounter wires that are about to be removed and accidentally drop them
+        # from layout.wires before RemoveWireCommand can find them by ID.
+        for cmd in self._floating_extra_cmds:
+            cmds.append(cmd)  # type: ignore[arg-type]
         for cid in self._floating_ids:
             new_pl = self._session.layout.placements.get(cid)
             old_pl = self._floating_orig_placements.get(cid)
@@ -223,8 +229,6 @@ class SelectTool(_Tool):
                     skip_conflict_check=True,
                 )
             )
-        for cmd in self._floating_extra_cmds:
-            cmds.append(cmd)  # type: ignore[arg-type]
         self._clear_floating_highlights()
         self._floating_ids = set()
         self._floating_orig_placements = {}
