@@ -1708,6 +1708,7 @@ class MainWindow(QMainWindow):
             self._session.mark_dirty()
             self._board_view.refresh()
             self._update_undo_redo()
+            self._session.layout_changed.emit()
 
         if not result.wires:
             # Cancelled — no message
