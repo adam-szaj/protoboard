@@ -115,6 +115,8 @@ class SelectTool(_Tool):
         self._net_pad_highlight_items: list[QGraphicsEllipseItem] = []
         self._net_pad_highlight_positions: list[Point] = []
         # Wire segment editing.
+        self._edit_start_wire_id: uuid.UUID | None = None  # wire containing the start node
+        self._edit_end_wire_id: uuid.UUID | None = None    # wire containing the end node (may differ)
         self._edit_start_idx: int | None = None
         self._edit_end_idx: int | None = None
         self._edit_points: list[Point] = []
@@ -363,20 +365,17 @@ class SelectTool(_Tool):
                 snapped = self._view.snap(scene_pt)
                 self._edit_add_point(snapped)
                 return True
-            idx = self._hit_test_wire_node(scene_pt)
-            if idx is not None and self._selected_wire_id is not None:
-                wire = self._get_selected_wire()
-                if wire is not None:
-                    self._set_edit_end(idx, wire)
+            # Ctrl+click while editing: re-set the end node (any wire in the net).
+            hit_wire, hit_idx = self._hit_test_wire_node_any(scene_pt)
+            if hit_wire is not None and hit_idx is not None:
+                self._set_edit_end(hit_idx, hit_wire)
             return True
 
         # --- First node selected, waiting for second (Ctrl+click sets end) ---
         if self._edit_start_idx is not None and ctrl:
-            idx = self._hit_test_wire_node(scene_pt)
-            if idx is not None and self._selected_wire_id is not None:
-                wire = self._get_selected_wire()
-                if wire is not None:
-                    self._set_edit_end(idx, wire)
+            hit_wire, hit_idx = self._hit_test_wire_node_any(scene_pt)
+            if hit_wire is not None and hit_idx is not None:
+                self._set_edit_end(hit_idx, hit_wire)
             return True
 
         # --- Ctrl+click: wire node or add/remove from multi-selection ---
@@ -2386,7 +2385,9 @@ class SelectTool(_Tool):
             group.addToGroup(seg)
         for i, pt in enumerate(pts):
             r = _NODE_RADIUS
-            is_sel = (i == self._edit_start_idx or i == self._edit_end_idx)
+            is_start = (wire_id == self._edit_start_wire_id and i == self._edit_start_idx)
+            is_end = (wire_id == self._edit_end_wire_id and i == self._edit_end_idx)
+            is_sel = is_start or is_end
             dot = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
             dot.setPen(_NODE_SELECTED_PEN if is_sel else _NODE_PEN)
             dot.setBrush(_NODE_SELECTED_BRUSH if is_sel else _NODE_BRUSH)
@@ -2488,8 +2489,244 @@ class SelectTool(_Tool):
             None,
         )
 
+    def _hit_test_wire_node_any(
+        self, scene_pt: QPointF
+    ) -> tuple[WireSegment | None, int | None]:
+        """Hit-test wire nodes across all wires of the same net as the start node.
+
+        Returns (wire, node_idx) of the closest node within _NODE_HIT_RADIUS,
+        or (None, None) if nothing is close enough.  When a start node is already
+        set, the search is limited to wires belonging to the same net.
+        """
+        from protoboard.gui.board_view import _build_wire_net_map
+
+        px, py = scene_pt.x(), scene_pt.y()
+        wire_net_map = _build_wire_net_map(self._session)
+
+        # Determine which net to limit the search to (None = any wire).
+        start_net_id: uuid.UUID | None = None
+        if self._edit_start_wire_id is not None:
+            start_net_id = wire_net_map.get(self._edit_start_wire_id)
+
+        best_wire: WireSegment | None = None
+        best_idx: int | None = None
+        best_d = _NODE_HIT_RADIUS
+
+        for wire in self._session.layout.wires:
+            if start_net_id is not None and wire_net_map.get(wire.id) != start_net_id:
+                continue
+            for i, pt in enumerate(wire.path):
+                d = math.sqrt((px - pt.x) ** 2 + (py - pt.y) ** 2)
+                if d < best_d:
+                    best_d = d
+                    best_wire = wire
+                    best_idx = i
+
+        if best_wire is None:
+            # Fallback: allow any wire when no net context yet.
+            if start_net_id is None:
+                for wire in self._session.layout.wires:
+                    for i, pt in enumerate(wire.path):
+                        d = math.sqrt((px - pt.x) ** 2 + (py - pt.y) ** 2)
+                        if d < best_d:
+                            best_d = d
+                            best_wire = wire
+                            best_idx = i
+
+        return best_wire, best_idx
+
+    def _net_wires_ordered(
+        self,
+        start_wire_id: uuid.UUID,
+        end_wire_id: uuid.UUID,
+        net_id: uuid.UUID,
+    ) -> list[WireSegment] | None:
+        """BFS through wires of *net_id* from start_wire to end_wire.
+
+        Two wires are adjacent if any point of one wire lies within 1e-4 of any
+        point of the other (shared pad / endpoint).
+
+        Returns ordered list [start_wire, ..., end_wire] or None when not connected.
+        """
+        from protoboard.gui.board_view import _build_wire_net_map
+
+        wire_net_map = _build_wire_net_map(self._session)
+        net_wires = [
+            w for w in self._session.layout.wires
+            if wire_net_map.get(w.id) == net_id
+        ]
+        wire_by_id = {w.id: w for w in net_wires}
+
+        if start_wire_id not in wire_by_id or end_wire_id not in wire_by_id:
+            return None
+        if start_wire_id == end_wire_id:
+            return [wire_by_id[start_wire_id]]
+
+        _EPS = 1e-4
+
+        def _shares_point(a: WireSegment, b: WireSegment) -> bool:
+            for pa in a.path:
+                for pb in b.path:
+                    if abs(pa.x - pb.x) < _EPS and abs(pa.y - pb.y) < _EPS:
+                        return True
+            return False
+
+        # Build adjacency list.
+        adj: dict[uuid.UUID, list[uuid.UUID]] = {w.id: [] for w in net_wires}
+        for i, wa in enumerate(net_wires):
+            for wb in net_wires[i + 1:]:
+                if _shares_point(wa, wb):
+                    adj[wa.id].append(wb.id)
+                    adj[wb.id].append(wa.id)
+
+        # BFS from start to end — record predecessors.
+        from collections import deque
+        pred: dict[uuid.UUID, uuid.UUID | None] = {start_wire_id: None}
+        queue: deque[uuid.UUID] = deque([start_wire_id])
+        while queue:
+            cur = queue.popleft()
+            if cur == end_wire_id:
+                break
+            for nxt in adj[cur]:
+                if nxt not in pred:
+                    pred[nxt] = cur
+                    queue.append(nxt)
+
+        if end_wire_id not in pred:
+            return None
+
+        # Reconstruct path.
+        path: list[uuid.UUID] = []
+        cur_id: uuid.UUID | None = end_wire_id
+        while cur_id is not None:
+            path.append(cur_id)
+            cur_id = pred[cur_id]
+        path.reverse()
+        return [wire_by_id[wid] for wid in path]
+
+    def _excise_cross_wire_range(
+        self,
+    ) -> tuple[object, Point, Point] | None:
+        """Build a MacroCommand that excises the selected cross-wire fragment.
+
+        Returns (macro_cmd, start_pt, end_pt) where start_pt and end_pt are the
+        physical points at the edit boundaries (useful for re-routing afterwards).
+        Returns None when the range is invalid or wires are not connected.
+        """
+        from protoboard.gui.board_view import _build_wire_net_map
+
+        start_wire_id = self._edit_start_wire_id
+        end_wire_id = self._edit_end_wire_id
+        start_idx = self._edit_start_idx
+        end_idx = self._edit_end_idx
+
+        if (start_wire_id is None or end_wire_id is None
+                or start_idx is None or end_idx is None):
+            return None
+
+        wire_net_map = _build_wire_net_map(self._session)
+        net_id = wire_net_map.get(start_wire_id)
+
+        ordered = self._net_wires_ordered(start_wire_id, end_wire_id, net_id)  # type: ignore[arg-type]
+        if ordered is None:
+            self._status_msg("Cannot excise: nodes are not connected within the net.")
+            return None
+
+        start_wire = ordered[0]
+        end_wire = ordered[-1]
+        start_pt = start_wire.path[start_idx]
+        end_pt = end_wire.path[end_idx]
+
+        cmds: list[object] = []
+
+        # --- Start wire: keep prefix [0 .. start_idx] ---
+        if start_idx == 0:
+            cmds.append(RemoveWireCommand(wire_id=start_wire.id))
+        else:
+            new_path = list(start_wire.path[:start_idx + 1])
+            cmds.append(ReplaceWireSegmentCommand(
+                wire_id=start_wire.id,
+                new_path=new_path,
+                old_path=list(start_wire.path),
+            ))
+
+        # --- Intermediate wires: remove entirely ---
+        for mid_wire in ordered[1:-1]:
+            cmds.append(RemoveWireCommand(wire_id=mid_wire.id))
+
+        # --- End wire: keep suffix [end_idx .. end] ---
+        if len(ordered) > 1:
+            if end_idx == len(end_wire.path) - 1:
+                cmds.append(RemoveWireCommand(wire_id=end_wire.id))
+            else:
+                new_path_end = list(end_wire.path[end_idx:])
+                cmds.append(ReplaceWireSegmentCommand(
+                    wire_id=end_wire.id,
+                    new_path=new_path_end,
+                    old_path=list(end_wire.path),
+                ))
+
+        macro = MacroCommand(cmds, description="Excise wire fragment")  # type: ignore[arg-type]
+        return macro, start_pt, end_pt
+
+    def _draw_cross_wire_highlight(self) -> None:
+        """Draw wire node highlights for a cross-wire edit selection.
+
+        Shows nodes on start wire and end wire; marks start/end nodes red.
+        If wires are connected, also dims intermediate wires.
+        """
+        # Remove existing primary highlight.
+        if self._wire_highlight is not None:
+            self._view.scene().removeItem(self._wire_highlight)
+            self._wire_highlight = None
+
+        start_wire_id = self._edit_start_wire_id
+        end_wire_id = self._edit_end_wire_id
+        if start_wire_id is None:
+            return
+
+        from protoboard.gui.layer_state import Z_SELECTION
+
+        def _make_wire_group(wire: WireSegment, start_i: int | None, end_i: int | None) -> QGraphicsItemGroup:
+            group = QGraphicsItemGroup()
+            pts = wire.path
+            for i in range(len(pts) - 1):
+                seg = QGraphicsLineItem(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y)
+                seg.setPen(_WIRE_SELECT_PEN)
+                group.addToGroup(seg)
+            for i, pt in enumerate(pts):
+                r = _NODE_RADIUS
+                is_sel = (i == start_i or i == end_i)
+                dot = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
+                dot.setPen(_NODE_SELECTED_PEN if is_sel else _NODE_PEN)
+                dot.setBrush(_NODE_SELECTED_BRUSH if is_sel else _NODE_BRUSH)
+                group.addToGroup(dot)
+            group.setZValue(Z_SELECTION)
+            return group
+
+        if end_wire_id is None or end_wire_id == start_wire_id:
+            # Single-wire selection — use standard highlight.
+            self._draw_wire_highlight(start_wire_id)
+            return
+
+        # Two different wires — draw both.
+        start_wire = next((w for w in self._session.layout.wires if w.id == start_wire_id), None)
+        end_wire = next((w for w in self._session.layout.wires if w.id == end_wire_id), None)
+
+        group_start = _make_wire_group(start_wire, self._edit_start_idx, None) if start_wire else None
+        group_end = _make_wire_group(end_wire, None, self._edit_end_idx) if end_wire else None
+
+        if group_start is not None:
+            self._view.scene().addItem(group_start)
+            self._wire_highlight = group_start  # keep primary reference for cleanup
+
+        if group_end is not None:
+            self._view.scene().addItem(group_end)
+            self._wire_multi_highlights.append(group_end)
+
     def _start_wire_edit(self, node_idx: int) -> None:
         self._cancel_wire_edit()
+        self._edit_start_wire_id = self._selected_wire_id
         self._edit_start_idx = node_idx
         self._edit_end_idx = None
         self._edit_points = []
@@ -2498,14 +2735,18 @@ class SelectTool(_Tool):
 
     def _set_edit_end(self, node_idx: int, wire: WireSegment) -> None:
         start = self._edit_start_idx
-        if start is None or node_idx == start:
+        if start is None:
             return
-        if node_idx < start:
+        same_wire = (wire.id == self._edit_start_wire_id)
+        if same_wire and node_idx == start:
+            return
+        if same_wire and node_idx < start:
             start, node_idx = node_idx, start
             self._edit_start_idx = start
+        self._edit_end_wire_id = wire.id
         self._edit_end_idx = node_idx
         self._edit_points = []
-        self._draw_wire_highlight(wire.id)
+        self._draw_cross_wire_highlight()
 
     def _is_editing_wire(self) -> bool:
         return (
@@ -2560,17 +2801,59 @@ class SelectTool(_Tool):
 
     def _cancel_wire_edit(self) -> None:
         self._clear_edit_preview()
+        self._edit_start_wire_id = None
+        self._edit_end_wire_id = None
         self._edit_start_idx = None
         self._edit_end_idx = None
         self._edit_points = []
 
     def _commit_wire_edit(self) -> None:
-        wire = self._get_selected_wire()
-        if wire is None:
-            return
         start = self._edit_start_idx
         end = self._edit_end_idx
         if start is None or end is None:
+            return
+
+        cross = (
+            self._edit_start_wire_id is not None
+            and self._edit_end_wire_id is not None
+            and self._edit_start_wire_id != self._edit_end_wire_id
+        )
+
+        if cross:
+            # Cross-wire: excise the range then stitch in the hand-drawn points.
+            from protoboard.domain.commands.component_cmds import AddWireCommand
+            from protoboard.domain.layout.wire import WireSegment as WS
+
+            # Resolve side before cancel_wire_edit clears the IDs.
+            _sw = next(
+                (w for w in self._session.layout.wires
+                 if w.id == self._edit_start_wire_id),
+                None,
+            ) if self._edit_start_wire_id else None
+            _side = _sw.side if _sw else "top"
+
+            excise_result = self._excise_cross_wire_range()
+            if excise_result is None:
+                return
+            excise_macro, start_pt, end_pt = excise_result
+            new_path = _dedupe_adjacent([start_pt] + list(self._edit_points) + [end_pt])
+            self._clear_edit_preview()
+            self._cancel_wire_edit()
+            if len(new_path) < 2:
+                self._session.stack.execute(excise_macro, self._session)
+            else:
+                new_wire = WS(id=uuid.uuid4(), path=new_path,
+                              insulated=True, side=_side)  # type: ignore[arg-type]
+                add_cmd = AddWireCommand(wire=new_wire)
+                macro = MacroCommand([excise_macro, add_cmd], description="Reroute wire fragment")  # type: ignore[arg-type]
+                self._session.stack.execute(macro, self._session)
+            self._deselect_wire()
+            self._session.layout_changed.emit()
+            return
+
+        # Same-wire path (original behaviour).
+        wire = self._get_selected_wire()
+        if wire is None:
             return
         prefix = list(wire.path[:start + 1])
         suffix = list(wire.path[end:])
@@ -2720,14 +3003,34 @@ class SelectTool(_Tool):
         self._status_msg(f"Fragment flipped to {target_side} layer.")
 
     def _delete_wire_fragment(self) -> None:
-        """Delete the selected fragment [start_idx:end_idx] from the current wire.
+        """Delete the selected fragment from the wire(s).
 
-        If the fragment spans the whole wire, the wire is removed entirely.
-        Otherwise the fragment is excised and the endpoints are connected directly
-        (path[:start+1] + path[end:]).
+        Cross-wire: excises the range across multiple wire segments (MacroCommand).
+        Same-wire: if whole wire → RemoveWireCommand; else → ReplaceWireSegmentCommand.
         """
+        if self._edit_start_idx is None or self._edit_end_idx is None:
+            return
+
+        cross = (
+            self._edit_start_wire_id is not None
+            and self._edit_end_wire_id is not None
+            and self._edit_start_wire_id != self._edit_end_wire_id
+        )
+
+        if cross:
+            excise_result = self._excise_cross_wire_range()
+            if excise_result is None:
+                return
+            excise_macro, _sp, _ep = excise_result
+            self._cancel_wire_edit()
+            self._session.stack.execute(excise_macro, self._session)
+            self._deselect_wire()
+            self._session.layout_changed.emit()
+            return
+
+        # Same-wire path (original behaviour).
         wire = self._get_selected_wire()
-        if wire is None or self._edit_start_idx is None or self._edit_end_idx is None:
+        if wire is None:
             return
 
         start = self._edit_start_idx
@@ -2759,17 +3062,74 @@ class SelectTool(_Tool):
             status.showMessage(msg, timeout_ms)
 
     def _autoroute_wire_fragment(self) -> None:
-        wire = self._get_selected_wire()
-        if wire is None:
-            return
         start = self._edit_start_idx
         end = self._edit_end_idx
         if start is None or end is None:
             return
+
         from protoboard.domain.connectivity.graph import ConnectivityGraph
         from protoboard.services.routing.astar import find_paths
         from protoboard.services.routing.cost_model import RoutingCostModel
 
+        cross = (
+            self._edit_start_wire_id is not None
+            and self._edit_end_wire_id is not None
+            and self._edit_start_wire_id != self._edit_end_wire_id
+        )
+
+        if cross:
+            from protoboard.domain.commands.component_cmds import AddWireCommand
+            from protoboard.domain.layout.wire import WireSegment as WS
+
+            excise_result = self._excise_cross_wire_range()
+            if excise_result is None:
+                return
+            excise_macro, start_pt, end_pt = excise_result
+
+            # Determine side from start wire.
+            start_wire = next(
+                (w for w in self._session.layout.wires
+                 if w.id == self._edit_start_wire_id),
+                None,
+            ) if self._edit_start_wire_id else None
+            side = start_wire.side if start_wire else "top"
+
+            self._cancel_wire_edit()
+
+            session = self._session
+            graph = ConnectivityGraph(
+                board=session.board,
+                layout=session.layout,
+                components=session.components,
+                instances=session.instances,
+            )
+            results = find_paths(
+                graph=graph,
+                source=start_pt,
+                targets=[end_pt],
+                side=side,
+                cost_model=RoutingCostModel(),
+                k=1,
+            )
+            if results:
+                routed = [pt for pt, _ in results[0].path]
+                new_wire = WS(id=uuid.uuid4(), path=routed,
+                              insulated=True, side=side)  # type: ignore[arg-type]
+                add_cmd = AddWireCommand(wire=new_wire)
+                macro = MacroCommand([excise_macro, add_cmd], description="Autoroute wire fragment")  # type: ignore[arg-type]
+                self._session.stack.execute(macro, self._session)
+            else:
+                # No path found — just excise without reconnecting.
+                self._session.stack.execute(excise_macro, self._session)
+                self._status_msg("No path found — fragment removed without rerouting.")
+            self._deselect_wire()
+            self._session.layout_changed.emit()
+            return
+
+        # Same-wire path (original behaviour).
+        wire = self._get_selected_wire()
+        if wire is None:
+            return
         session = self._session
         graph = ConnectivityGraph(
             board=session.board,
