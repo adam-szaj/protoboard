@@ -283,6 +283,8 @@ def autoroute(
                 ]
                 _log.info("autoroute.optimize.futures_submitted", count=len(futures))
                 n_futures = len(futures)
+                if optimize_progress_callback is not None:
+                    optimize_progress_callback(0, n_futures)
                 for done_count, fut in enumerate(as_completed(futures), start=1):
                     if cancel_flag is not None and cancel_flag.is_set():
                         pool.shutdown(wait=False, cancel_futures=True)

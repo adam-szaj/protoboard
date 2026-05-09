@@ -1641,6 +1641,8 @@ class MainWindow(QMainWindow):
         dlg.setWindowTitle(f"Autoroute{title_suffix}")
         dlg.setWindowModality(Qt.WindowModality.WindowModal)
         dlg.setMinimumDuration(300)
+        dlg.setAutoClose(False)
+        dlg.setAutoReset(False)
         dlg.setValue(0)
 
         worker = AutorouteWorker(
@@ -1666,7 +1668,7 @@ class MainWindow(QMainWindow):
             if dlg.wasCanceled():
                 return
             dlg.setLabelText(f"Optimising… ({done}/{total})")
-            dlg.setValue(int(done * 100 / total))
+            dlg.setValue(int(done * 100 / total) if total else 0)
 
         worker.progress.connect(_on_progress)
         worker.optimize_progress.connect(_on_optimize_progress)
