@@ -902,7 +902,7 @@ class TO92Body(BodyShape):
         body_offset = 1.0 / mm   # ~1 mm gap from pin row to body edge
 
         # Body centre
-        cx = p_mid.x + perp_x * (body_offset + h / 2)
+        cx = p_mid.x + perp_x * (body_offset + h / 2) + 2
         cy = p_mid.y + perp_y * (body_offset + h / 2)
 
         # Angle of the pin row

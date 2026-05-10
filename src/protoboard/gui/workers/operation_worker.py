@@ -156,6 +156,9 @@ def run_with_progress(
     worker.start()
     loop.exec()
 
+    # Disconnect canceled signal before close() — QProgressDialog emits canceled
+    # when programmatically closed, which would wrongly set cancelled[0]=True.
+    dlg.canceled.disconnect(_on_cancel)
     dlg.close()
     worker.wait()
 

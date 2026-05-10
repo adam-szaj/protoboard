@@ -156,6 +156,10 @@ class AutorouteDialog(QDialog):
         self._chk_save = QCheckBox("Save as project default")
         root.addWidget(self._chk_save)
 
+        self._chk_skip = QCheckBox("Don't show this dialog next time")
+        self._chk_skip.setChecked(rs.skip_autoroute_dialog)
+        root.addWidget(self._chk_skip)
+
         buttons = QDialogButtonBox()
         self._route_btn = buttons.addButton("Route", QDialogButtonBox.ButtonRole.AcceptRole)
         buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
@@ -190,6 +194,7 @@ class AutorouteDialog(QDialog):
             wire_mode=wire_mode,  # type: ignore[arg-type]
             allow_jumpers=self._chk_jumpers.isChecked(),
             max_detour_factor=self._spin_detour.value(),
+            skip_autoroute_dialog=self._chk_skip.isChecked(),
         )
 
     def save_as_default(self) -> bool:

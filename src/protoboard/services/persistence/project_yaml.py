@@ -24,6 +24,7 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import WireSegment
 from protoboard.domain.routing_settings import RoutingSettings
+from protoboard.gui.layer_state import LayerOverrides, LayerVisibility
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.errors import SerializationError
@@ -48,6 +49,7 @@ def save_project(
     schematic: Schematic,
     instances: dict[uuid.UUID, ComponentInstance] | None = None,
     routing_settings: RoutingSettings | None = None,
+    layer_overrides: LayerOverrides | None = None,
 ) -> None:
     _log.info("project.saving", path=str(directory))
     directory.mkdir(parents=True, exist_ok=True)
@@ -57,6 +59,12 @@ def save_project(
     _write(directory / "instances.yaml", _instances_to_yaml(instances or {}))
     if routing_settings is not None:
         _write(directory / "routing.yaml", _routing_settings_to_yaml(routing_settings))
+    if layer_overrides is not None and not layer_overrides.all_auto():
+        _write(directory / "layers.yaml", _layer_overrides_to_yaml(layer_overrides))
+    else:
+        layers_path = directory / "layers.yaml"
+        if layers_path.exists():
+            layers_path.unlink()
     _log.info(
         "project.saved",
         path=str(directory),
@@ -199,7 +207,7 @@ def _schematic_to_yaml(schematic: Schematic) -> str:
 
 def load_project(
     directory: Path,
-) -> tuple[Board, Layout, Schematic, dict[uuid.UUID, ComponentInstance], RoutingSettings]:
+) -> tuple[Board, Layout, Schematic, dict[uuid.UUID, ComponentInstance], RoutingSettings, LayerOverrides]:
     _log.info("project.loading", path=str(directory))
     try:
         board = board_from_yaml((directory / "board.yaml").read_text())
@@ -215,6 +223,11 @@ def load_project(
             routing_settings = _routing_settings_from_yaml(routing_path.read_text())
         else:
             routing_settings = RoutingSettings()
+        layers_path = directory / "layers.yaml"
+        if layers_path.exists():
+            layer_overrides = _layer_overrides_from_yaml(layers_path.read_text())
+        else:
+            layer_overrides = LayerOverrides()
     except FileNotFoundError as exc:
         _log.warning("project.load_failed", path=str(directory), error=str(exc))
         raise SerializationError(f"Missing project file: {exc}") from exc
@@ -226,7 +239,7 @@ def load_project(
         nets=len(schematic.nets),
         instances=len(instances),
     )
-    return board, layout, schematic, instances, routing_settings
+    return board, layout, schematic, instances, routing_settings, layer_overrides
 
 
 def _instances_from_yaml(text: str) -> dict[uuid.UUID, ComponentInstance]:
@@ -367,6 +380,7 @@ def _routing_settings_to_yaml(s: RoutingSettings) -> str:
         "wire_mode": s.wire_mode,
         "allow_jumpers": s.allow_jumpers,
         "max_detour_factor": s.max_detour_factor,
+        "skip_autoroute_dialog": s.skip_autoroute_dialog,
         "cost_model": {
             "direction_change": s.direction_change,
             "crossing_insulated_bare": s.crossing_insulated_bare,
@@ -402,7 +416,34 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
         wire_mode=wire_mode,
         allow_jumpers=bool(data.get("allow_jumpers", True)),
         max_detour_factor=float(data.get("max_detour_factor", 0.0)),
+        skip_autoroute_dialog=bool(data.get("skip_autoroute_dialog", False)),
     )
+
+
+def _layer_overrides_to_yaml(overrides: LayerOverrides) -> str:
+    data: dict[str, str] = {
+        f: getattr(overrides, f).value
+        for f in overrides.__dataclass_fields__
+    }
+    buf = io.StringIO()
+    _yaml.dump(data, buf)
+    return buf.getvalue()
+
+
+def _layer_overrides_from_yaml(text: str) -> LayerOverrides:
+    try:
+        data = _yaml.load(text)
+    except Exception as exc:
+        raise SerializationError(f"Layers YAML error: {exc}") from exc
+    if not isinstance(data, dict):
+        return LayerOverrides()
+    valid = {v.value for v in LayerVisibility}
+    overrides = LayerOverrides()
+    for f in overrides.__dataclass_fields__:
+        raw = data.get(f)
+        if isinstance(raw, str) and raw in valid:
+            setattr(overrides, f, LayerVisibility(raw))
+    return overrides
 
 
 __all__ = ["load_project", "save_project"]

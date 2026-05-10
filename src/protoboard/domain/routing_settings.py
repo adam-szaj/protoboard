@@ -37,6 +37,8 @@ class RoutingSettings:
     # Maximum allowed path length relative to Manhattan distance.
     # 0.0 means no limit.  E.g. 3.0 rejects any path longer than 3× Manhattan.
     max_detour_factor: float = 0.0
+    # When True, skip the pre-flight dialog on next autoroute (use last settings).
+    skip_autoroute_dialog: bool = False
 
     def cost_model(self) -> RoutingCostModel:
         """Build a RoutingCostModel from these settings."""

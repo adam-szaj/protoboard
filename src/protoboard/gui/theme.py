@@ -144,7 +144,8 @@ class Theme:
     # ── Tool feedback ────────────────────────────────────────────────────────
     placement_reach_color: str = "#7800c850"      # reachable pad highlight
     placement_reach_line_color: str = "#b400c850"  # pin1→cursor line
-    routing_preview_color: str = "#b4ff6400"       # route wire preview
+    routing_preview_color: str = "#b4ff6400"       # route wire preview (basic [W])
+    routing_net_aware_color: str = "#b400c853"     # route wire preview (net-aware [Shift+W])
 
     # ── Component pins & markers ─────────────────────────────────────────────
     pin_width_complete: float = 0.04    # pin with assigned net (solid)

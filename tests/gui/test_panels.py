@@ -12,18 +12,25 @@ from protoboard.gui.session import EditorSession
 
 
 def _all_leaf_names(panel: LibraryPanel) -> list[str]:
-    """Collect all component names (leaf items) from the tree."""
+    """Collect all component names (leaf items) from the tree (any depth)."""
     from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QTreeWidgetItem
 
     names: list[str] = []
+
+    def _collect(item: QTreeWidgetItem) -> None:
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if data is not None:
+            # UserRole stores (name, variant_id_or_None); collect unique names.
+            name = data[0] if isinstance(data, tuple) else data
+            if name and name not in names:
+                names.append(name)
+        for i in range(item.childCount()):
+            _collect(item.child(i))
+
     root = panel._tree.invisibleRootItem()
     for i in range(root.childCount()):
-        group = root.child(i)
-        for j in range(group.childCount()):
-            child = group.child(j)
-            name = child.data(0, Qt.ItemDataRole.UserRole)
-            if name:
-                names.append(name)
+        _collect(root.child(i))
     return names
 
 
@@ -47,18 +54,33 @@ class TestLibraryPanel:
         assert isinstance(qtbot, QtBot)
         panel = LibraryPanel(session.library)
         qtbot.addWidget(panel)
-        received: list[str] = []
-        panel.component_selected.connect(received.append)
-        # Find "R" leaf item and simulate double-click.
+        received: list[tuple[str, object]] = []
+        panel.component_selected.connect(lambda name, variant: received.append((name, variant)))
+        # Find "R" leaf item (any depth) and simulate double-click.
+        from PySide6.QtWidgets import QTreeWidgetItem
+
+        def _find_item(item: QTreeWidgetItem, target: str) -> QTreeWidgetItem | None:
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if data is not None:
+                name = data[0] if isinstance(data, tuple) else data
+                if name == target:
+                    return item
+            for i in range(item.childCount()):
+                found = _find_item(item.child(i), target)
+                if found is not None:
+                    return found
+            return None
+
         root = panel._tree.invisibleRootItem()
+        r_item: QTreeWidgetItem | None = None
         for i in range(root.childCount()):
-            group = root.child(i)
-            for j in range(group.childCount()):
-                child = group.child(j)
-                if child.data(0, Qt.ItemDataRole.UserRole) == "R":
-                    panel._tree.itemDoubleClicked.emit(child, 0)
-                    break
-        assert received == ["R"]
+            r_item = _find_item(root.child(i), "R")
+            if r_item is not None:
+                break
+        assert r_item is not None, "'R' item not found in tree"
+        panel._tree.itemDoubleClicked.emit(r_item, 0)
+        assert len(received) == 1
+        assert received[0][0] == "R"
 
     def test_all_library_components_shown(
         self, qtbot: object, session: EditorSession

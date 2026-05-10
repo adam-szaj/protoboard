@@ -106,6 +106,11 @@ class ConnectivityGraph:
 
     Supports the same public API as the old ConnectivityGraph plus two new
     incremental methods: ``add_wire`` and ``remove_wire``.
+
+    ``user_data_map`` is a free-form dict keyed by ElectricSet.id that callers
+    (e.g. the GUI renderer) can use to attach arbitrary data — for example a
+    reference to the QGraphicsItem representing that net's highlight overlay.
+    The graph never reads or writes this dict itself.
     """
 
     def __init__(
@@ -125,6 +130,8 @@ class ConnectivityGraph:
         self._all_sets: set[ElectricSet] = set()
         # board pad keys (keys that must NOT be removed when a wire is removed)
         self._board_pad_keys: set[_NodeKey] = set()
+        # Free-form per-ElectricSet data for external use (e.g. GUI item refs).
+        self.user_data_map: dict[int, object] = {}
 
         self._components = components
         self._instances = instances or {}

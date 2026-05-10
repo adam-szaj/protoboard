@@ -67,7 +67,7 @@ class TestToolManagement:
         assert board_view._active_tool is None
 
     def test_layout_changed_triggers_refresh(
-        self, board_view: BoardView, session: EditorSession
+        self, board_view: BoardView, session: EditorSession, qtbot: object
     ) -> None:
         # Manually count items before and after adding a wire via layout_changed.
         import uuid
@@ -83,6 +83,10 @@ class TestToolManagement:
         )
         session.layout.wires.append(wire)
         session.layout_changed.emit()
+        # layout_changed is debounced via a 16ms timer — wait for it to fire.
+        from pytestqt.qtbot import QtBot
+        assert isinstance(qtbot, QtBot)
+        qtbot.wait(50)
         # After refresh there should be wire line items in addition to pad circles.
         items = board_view.scene().items()
         assert len(items) > 50  # 25 pads×2 circles + at least 1 wire line

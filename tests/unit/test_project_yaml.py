@@ -44,7 +44,7 @@ class TestInstancesRoundtrip:
         sch = Schematic(nets={})
 
         save_project(tmp_path, board, lay, sch, instances=instances)
-        _, _, _, loaded_instances, _ = load_project(tmp_path)
+        _, _, _, loaded_instances, _, _ = load_project(tmp_path)
 
         assert inst.id in loaded_instances
         loaded = loaded_instances[inst.id]
@@ -57,7 +57,7 @@ class TestInstancesRoundtrip:
         lay = Layout(placements={}, wires=[])
         sch = Schematic(nets={})
         save_project(tmp_path, board, lay, sch, instances={})
-        _, _, _, instances, _ = load_project(tmp_path)
+        _, _, _, instances, _, _ = load_project(tmp_path)
         assert instances == {}
 
     def test_multiple_instances_preserved(self, tmp_path: Path) -> None:
@@ -66,7 +66,7 @@ class TestInstancesRoundtrip:
         i2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="4k7")
         instances = {i1.id: i1, i2.id: i2}
         save_project(tmp_path, board, Layout(), Schematic(nets={}), instances=instances)
-        _, _, _, loaded, _ = load_project(tmp_path)
+        _, _, _, loaded, _, _ = load_project(tmp_path)
         assert set(loaded.keys()) == {i1.id, i2.id}
 
     def test_project_without_instances_file_loads_empty(self, tmp_path: Path) -> None:
@@ -77,7 +77,7 @@ class TestInstancesRoundtrip:
         instances_file = tmp_path / "instances.yaml"
         if instances_file.exists():
             instances_file.unlink()
-        _, _, _, instances, _ = load_project(tmp_path)
+        _, _, _, instances, _, _ = load_project(tmp_path)
         assert instances == {}
 
 
@@ -117,7 +117,7 @@ class TestBoardRoundtrip:
             )
         )
         save_project(tmp_path, board, Layout(), Schematic(nets={}))
-        loaded_board, _, _, _, _ = load_project(tmp_path)
+        loaded_board, _, _, _, _, _ = load_project(tmp_path)
         atoms = list(loaded_board.atoms())
         strip_lengths = [
             a.length for a, _ in atoms if isinstance(a, StripAtom)
@@ -152,7 +152,7 @@ class TestBoardRoundtrip:
             )
         )
         save_project(tmp_path, board, Layout(), Schematic(nets={}))
-        loaded_board, _, _, _, _ = load_project(tmp_path)
+        loaded_board, _, _, _, _, _ = load_project(tmp_path)
         atoms = list(loaded_board.atoms())
         iso_atoms = [a for a, _ in atoms if isinstance(a, StripAtom) and a.isolated]
         assert len(iso_atoms) == 1
@@ -169,7 +169,7 @@ class TestWiresRoundtrip:
         )
         lay = Layout(placements={}, wires=[wire])
         save_project(tmp_path, board, lay, Schematic(nets={}))
-        _, loaded_lay, _, _, _ = load_project(tmp_path)
+        _, loaded_lay, _, _, _, _ = load_project(tmp_path)
         assert len(loaded_lay.wires) == 1
         loaded_wire = loaded_lay.wires[0]
         assert loaded_wire.path == wire.path
@@ -186,7 +186,7 @@ class TestWiresRoundtrip:
         )
         lay = Layout(placements={}, wires=[wire])
         save_project(tmp_path, board, lay, Schematic(nets={}))
-        _, loaded_lay, _, _, _ = load_project(tmp_path)
+        _, loaded_lay, _, _, _, _ = load_project(tmp_path)
         assert loaded_lay.wires[0].color == "#FF0000"
 
 
@@ -202,7 +202,7 @@ class TestPlacementsRoundtrip:
         )
         lay = Layout(placements={comp_id: pl}, wires=[])
         save_project(tmp_path, board, lay, Schematic(nets={}))
-        _, loaded_lay, _, _, _ = load_project(tmp_path)
+        _, loaded_lay, _, _, _, _ = load_project(tmp_path)
         loaded_pl = loaded_lay.placements[comp_id]
         assert loaded_pl.position == Point(2.5, 1.5)
         assert loaded_pl.rotation == 90
@@ -219,7 +219,7 @@ class TestPinVariantRoundtrip:
         )
         instances = {inst.id: inst}
         save_project(tmp_path, board, Layout(placements={}, wires=[]), Schematic(nets={}), instances)
-        _, _, _, loaded_instances, _ = load_project(tmp_path)
+        _, _, _, loaded_instances, _, _ = load_project(tmp_path)
         loaded = loaded_instances[inst.id]
         assert loaded.pin_variant == "i2c_vcc_gnd_sda_scl"
 
@@ -233,6 +233,6 @@ class TestPinVariantRoundtrip:
         )
         instances = {inst.id: inst}
         save_project(tmp_path, board, Layout(placements={}, wires=[]), Schematic(nets={}), instances)
-        _, _, _, loaded_instances, _ = load_project(tmp_path)
+        _, _, _, loaded_instances, _, _ = load_project(tmp_path)
         loaded = loaded_instances[inst.id]
         assert loaded.pin_variant is None

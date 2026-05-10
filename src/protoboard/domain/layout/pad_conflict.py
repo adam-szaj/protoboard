@@ -267,6 +267,7 @@ def find_wires_crossing_pads(
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
     schematic: Schematic,
+    moved_wire_ids: set[uuid.UUID] | None = None,
 ) -> list[uuid.UUID]:
     """Return IDs of wires whose path passes within _CROSS_EPS of an alien pad.
 
@@ -279,8 +280,13 @@ def find_wires_crossing_pads(
     or a pad with a net when the wire is unconnected (and vice-versa).
     Pads belonging to `moved_comp_ids` are the new (post-move) positions.
 
+    `moved_wire_ids`: wire IDs that were translated together with the moved
+    components.  These are skipped — they are internal to the moved group and
+    their new positions are already consistent with the new pad positions.
+
     Returns a list of wire IDs that should be removed.
     """
+    _moved_wires: set[uuid.UUID] = moved_wire_ids or set()
     # Build pad_pos → net_id | None for ALL pins (moved comps already updated
     # in layout_placements before this function is called).
     pad_net: dict[tuple[float, float], uuid.UUID | None] = {}
@@ -303,10 +309,30 @@ def find_wires_crossing_pads(
     if not pad_net:
         return []
 
-    # Pre-extract pad positions as floats for distance calculations.
-    pad_positions: list[tuple[float, float, uuid.UUID | None]] = [
-        (float(k[0]), float(k[1]), v) for k, v in pad_net.items()
-    ]
+    # Build a spatial grid for fast candidate lookup.
+    # Key = (int(floor(px)), int(floor(py))), value = list of (px, py, net_id).
+    # For a segment (ax,ay)→(bx,by) we only check grid cells that overlap the
+    # segment's bounding box expanded by _CROSS_EPS (= 0.5 raster).  This
+    # reduces the inner loop from O(all_pads) to O(pads_near_segment) — typically
+    # 0–4 pads per cell × a handful of cells vs. ~1100 pads for every segment.
+    from collections import defaultdict
+    pad_grid: dict[tuple[int, int], list[tuple[float, float, uuid.UUID | None]]] = defaultdict(list)
+    for (kx, ky), net_id in pad_net.items():
+        px_f, py_f = float(kx), float(ky)
+        pad_grid[(int(math.floor(px_f)), int(math.floor(py_f)))].append((px_f, py_f, net_id))
+
+    def _pads_near_segment(
+        ax: float, ay: float, bx: float, by: float
+    ) -> list[tuple[float, float, uuid.UUID | None]]:
+        x0 = int(math.floor(min(ax, bx) - _CROSS_EPS))
+        x1 = int(math.floor(max(ax, bx) + _CROSS_EPS))
+        y0 = int(math.floor(min(ay, by) - _CROSS_EPS))
+        y1 = int(math.floor(max(ay, by) + _CROSS_EPS))
+        result: list[tuple[float, float, uuid.UUID | None]] = []
+        for cx in range(x0, x1 + 1):
+            for cy in range(y0, y1 + 1):
+                result.extend(pad_grid.get((cx, cy), []))
+        return result
 
     # Build wire → net map: first pad in wire.path that has a net wins.
     wire_net: dict[uuid.UUID, uuid.UUID | None] = {}
@@ -321,6 +347,8 @@ def find_wires_crossing_pads(
 
     conflicting: list[uuid.UUID] = []
     for wire in wires:
+        if wire.id in _moved_wires:
+            continue  # translated with the group — consistent with new pad positions
         w_net = wire_net.get(wire.id)
         path = wire.path
         if len(path) < 2:
@@ -329,15 +357,23 @@ def find_wires_crossing_pads(
         for i in range(len(path) - 1):
             ax, ay = path[i].x, path[i].y
             bx, by = path[i + 1].x, path[i + 1].y
-            for px, py, p_net in pad_positions:
+            # For insulated wires only the two endpoints make physical contact
+            # (where the wire is soldered to a pad). The body of the wire
+            # floats above the board and cannot short-circuit a pad it passes
+            # over — but it CAN conflict if an endpoint lands on an alien pad.
+            # We therefore only check pads near the endpoints, not mid-segments.
+            is_endpoint_seg = wire.insulated and (i == 0 or i == len(path) - 2)
+            if wire.insulated and not is_endpoint_seg:
+                continue
+            for px, py, p_net in _pads_near_segment(ax, ay, bx, by):
                 if _seg_point_dist(px, py, ax, ay, bx, by) < _CROSS_EPS:
                     # Same net on both sides → OK (intentional contact).
                     if w_net is not None and p_net is not None and w_net == p_net:
                         continue
-                    # Both unconnected → no conflict (free wire passing free pad).
+                    # Both unconnected → no conflict.
                     if w_net is None and p_net is None:
                         continue
-                    # Otherwise: alien pad encountered.
+                    # Alien pad: bare wire or insulated wire endpoint on alien pad.
                     bad = True
                     break
             if bad:
@@ -374,6 +410,7 @@ def check_group_move_conflicts(
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
     schematic: Schematic,
+    moved_wire_ids: set[uuid.UUID] | None = None,
 ) -> MoveConflictResult:
     """Classify conflicts that arise when *moved_ids* are at their current (post-drag) positions.
 
@@ -471,6 +508,7 @@ def check_group_move_conflicts(
         instances=instances,
         components=components,
         schematic=schematic,
+        moved_wire_ids=moved_wire_ids,
     )
     _log.debug("group_move.wire_crossings", count=len(crossing_ids),
                wire_ids=[str(i) for i in crossing_ids])

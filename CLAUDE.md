@@ -777,6 +777,7 @@ Sprawdzenia w MVP:
 - **Property-based:** `hypothesis` dla layout engine (random box trees → invariants: pozycje atomów monotoniczne, brak nakładek poza intencjonalnymi gapami ujemnymi).
 - **Snapshot:** rendery YAML projektów porównywane z baseline.
 - **Pokrycie:** target 80% dla `domain/` i `services/`, GUI nie liczone.
+- **Performance:** `pytest-benchmark` w `tests/benchmarks/` — zob. §17.
 
 ## 13. Struktura katalogów
 
@@ -923,6 +924,98 @@ Te punkty zostawiam jako TODO do dyskusji w trakcie implementacji — Claude Cod
 4. **Render izolacji przewodu**: jak wizualnie odróżnić goły od izolowanego? Propozycja: izolowany ciągła kolorowa linia, goły szara z czarnymi end-capami.
 5. **Stripboard cuts**: wizualnie jako "X" na padzie, czy jako przerwa między padami? Druga opcja czytelniejsza, pierwsza zgodna z konwencją drukowanych szablonów.
 6. **Format `.net` KiCAD**: są warianty (legacy, new XML, S-expression). Decyzja w Fazie 5 po przejrzeniu, co eksportuje aktualna wersja KiCAD (8.x/9.x).
+
+## 17. Profilowanie i benchmarki wydajności
+
+### 17.1. Profilowanie aplikacji (live)
+
+**Py-Spy** — rekomendowane. Attach do działającego procesu bez restartów, nie blokuje Qt event loop.
+
+```bash
+uv run python -m protoboard &
+py-spy record -o profile.svg --pid $(pgrep -f protoboard) --duration 30
+# Otwórz profile.svg w przeglądarce — interaktywny flamegraph
+py-spy top --pid $(pgrep -f protoboard)   # live top-like view
+```
+
+**cProfile + SnakeViz** — szczegóły na poziomie funkcji, uruchom i zamknij aplikację:
+
+```bash
+uv run python -m cProfile -o profile.out -m protoboard
+uv run snakeviz profile.out
+```
+
+Oba narzędzia są w zależnościach dev (`pyproject.toml`).
+
+### 17.2. Benchmarki automatyczne
+
+`tests/benchmarks/` zawiera `pytest-benchmark` testy kluczowych ścieżek hot-path.
+Używają projektu `m4/` (139 komponentów, 597 drutów) jako reprezentatywnego przypadku.
+
+**Uruchomienie:**
+```bash
+uv run pytest tests/benchmarks/ --benchmark-only -v
+```
+
+**Zapisanie baseline po celowej optymalizacji:**
+```bash
+uv run pytest tests/benchmarks/ --benchmark-only --benchmark-save=baseline
+```
+
+**Weryfikacja regresji (fail przy >20% wolniej):**
+```bash
+uv run pytest tests/benchmarks/ --benchmark-only \
+    --benchmark-compare=baseline \
+    --benchmark-compare-fail=mean:20%
+```
+
+Baseline jest zapisany w `.benchmarks/Linux-CPython-3.14-64bit/0001_baseline.json`.
+
+### 17.3. Pokryte ścieżki i oczekiwane wartości (projekt m4)
+
+| Test | Oczekiwany rząd wielkości | Co mierzy |
+|---|---|---|
+| `test_bench_hit_test_component` | < 50 µs | Spatial index — klik na komponent |
+| `test_bench_hit_test_pin_for_comp` | < 20 µs | Scan pinów jednego komponentu |
+| `test_bench_hit_test_wire` | < 200 µs | Spatial index — klik na drut |
+| `test_bench_set_highlighted_net` | < 5 ms | setOpacity na grupach, bez rebuildu |
+| `test_bench_spatial_index_build` | < 10 ms | Budowa indeksów po layout_changed |
+| `test_bench_connectivity_graph_build` | < 200 ms | Pełny rebuild grafu |
+| `test_bench_refresh_warm_nothing_changed` | < 150 ms | Warm refresh, grupy reużyte |
+| `test_bench_refresh_warm_one_comp_moved` | < 200 ms | Warm refresh, 1 grupa przebudowana |
+
+### 17.4. Architektura optymalizacji GUI (historia decyzji)
+
+Kluczowe optymalizacje zaimplementowane, które należy zachować przy refaktoringu:
+
+**Spatial index** (`session.comp_spatial_index()`, `session.wire_spatial_index()`):
+- Budowany leniwie po `layout_changed`, unieważniany razem z grafem.
+- `_hit_test()` i `_hit_test_wire()` skanują tylko komórki ±1 wokół kursora.
+- `_hit_test_pin_for_comp()` skanuje tylko piny jednego już znalezionego komponentu.
+
+**Group reuse** (`board_view.py` → `update_component_groups`, `update_wire_groups`):
+- `QGraphicsItemGroup` per komponent i per drut przeżywa między refreshami.
+- Fingerprint = (pozycja, rotacja, sieć, warstwa) — bez `highlighted_net_id`.
+- Highlight stosowany przez `setOpacity()` na istniejących grupach, nie przez rebuild.
+- `set_highlighted_net()` → `_apply_highlight_opacity()` — O(N) setOpacity, zero kreacji itemów.
+
+**Board layer caching** (`_board_layer_dirty` flag):
+- `render_board()` (pady, paski — ~9600 items na m4) wywoływany tylko gdy zmienia się
+  temat, strona kamery, transform lub alpha płytki.
+
+**Debounce refresh** (`_refresh_timer`, 16ms):
+- `layout_changed` → `_schedule_refresh()` zamiast bezpośrednio `refresh()`.
+- Seria szybkich mutacji (np. autoroute) triggeruje tylko jeden refresh.
+
+**Cached ConnectivityGraph** (`session.connectivity_graph()`):
+- Unieważniany przez `invalidate_graph()` (podłączony do `layout_changed`).
+- Budowany leniwie przy pierwszym dostępie (DRC, ratsnest, wire net map).
+- `board_view.refresh()` używa `session.connectivity_graph()`, nie tworzy nowego.
+
+**`user_data_map`** w `ConnectivityGraph`:
+- `graph.user_data_map: dict[int, object]` — klucz = `ElectricSet.id`.
+- Przeznaczony do przechowywania referencji do QGraphicsItem per sieć elektryczną.
+- Nie jest jeszcze używany — przygotowany do przyszłych optymalizacji highlight.
 
 ## 16. Rekomendacje dla Claude Code
 

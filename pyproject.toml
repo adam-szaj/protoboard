@@ -27,6 +27,7 @@ dev = [
     "black>=24.0",
     "pre-commit>=3.7",
     "hypothesis>=6.100",
+    "pytest-benchmark>=4.0",
 ]
 
 [project.scripts]
@@ -38,6 +39,7 @@ packages = ["src/protoboard"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
+
 
 [tool.mypy]
 strict = true
@@ -55,3 +57,9 @@ select = ["E", "W", "F", "I", "UP"]
 [tool.black]
 target-version = ["py311"]
 line-length = 88
+
+[dependency-groups]
+dev = [
+    "py-spy>=0.4.2",
+    "snakeviz>=2.2.2",
+]

@@ -67,7 +67,7 @@ def _open_session(
         if project_path is None:
             return None
         try:
-            board, layout, schematic, instances, routing_settings = load_project(project_path)
+            board, layout, schematic, instances, routing_settings, layer_overrides = load_project(project_path)
         except Exception as exc:
             _log.warning("project.open_failed", path=str(project_path), error=str(exc))
             QMessageBox.critical(None, "Open error", str(exc))
@@ -79,6 +79,7 @@ def _open_session(
         session.instances = instances
         session.routing_settings = routing_settings
         session.project_path = project_path
+        session.layer_overrides = layer_overrides
         recent_projects.add(project_path)
         return session
 
@@ -111,17 +112,22 @@ def main() -> None:
 
     def show_welcome() -> None:
         nonlocal window
-        dlg = WelcomeDialog(default_dir=app_settings.default_projects_dir)
-        if dlg.exec() != WelcomeDialog.DialogCode.Accepted:
-            # User clicked Quit on the welcome screen.
-            app.quit()
-            return
+        # Loop instead of recursing so we never nest QDialog.exec() event loops.
+        # Recursion caused app.quit() to only exit the innermost local loop,
+        # leaving the process alive after the window was closed.
+        while True:
+            dlg = WelcomeDialog(default_dir=app_settings.default_projects_dir)
+            if dlg.exec() != WelcomeDialog.DialogCode.Accepted:
+                # User clicked Quit on the welcome screen.
+                app.quit()
+                return
 
-        session = _open_session(dlg.result_action, dlg, library)
-        if session is None:
-            # Setup failed; show welcome again.
-            show_welcome()
-            return
+            session = _open_session(dlg.result_action, dlg, library)
+            if session is None:
+                # Setup failed — show welcome again (loop, not recurse).
+                continue
+
+            break
 
         # Destroy the old window before creating the new one so Qt doesn't
         # keep the closed window alive and raise it instead of the new one.
@@ -134,6 +140,12 @@ def main() -> None:
         window.show()
         window.raise_()
         window.activateWindow()
+
+    def _shutdown_pools() -> None:
+        from protoboard.services.routing.autorouter import _ASTAR_POOL
+        _ASTAR_POOL.shutdown(wait=False, cancel_futures=True)
+
+    app.aboutToQuit.connect(_shutdown_pools)
 
     show_welcome()
     sys.exit(app.exec())

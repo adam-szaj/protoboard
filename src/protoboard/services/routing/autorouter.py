@@ -57,12 +57,13 @@ _log = structlog.get_logger(__name__)
 # Useful for diagnosing suboptimal paths; too noisy for normal use.
 _DEEP_DEBUG = False
 
-# Module-level thread pool for parallel A* side evaluation.
-# Shared across all autoroute calls; daemon threads so they don't block exit.
+import atexit as _atexit
 import os as _os
 _CPU_COUNT = max(2, (_os.cpu_count() or 2))
-# Thread pool for parallel A* side evaluation within one segment.
-_ASTAR_POOL = ThreadPoolExecutor(max_workers=_CPU_COUNT)
+
+# Module-level thread pool for parallel A* side evaluation.
+_ASTAR_POOL = ThreadPoolExecutor(max_workers=_CPU_COUNT, thread_name_prefix="astar")
+_atexit.register(lambda: _ASTAR_POOL.shutdown(wait=False, cancel_futures=True))
 
 
 class AutorouteCancelled(Exception):

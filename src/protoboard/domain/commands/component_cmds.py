@@ -71,6 +71,9 @@ class MoveComponentCommand(Command[ComponentState]):
     old_placement: ComponentPlacement
     # When True, skip the _move_blocked() check (caller already verified).
     skip_conflict_check: bool = field(default=False)
+    # Wire IDs already translated by live drag — skip in _update_wires_for_move
+    # to prevent double-translation when old_pin_pos == new_pin_pos of another component.
+    exclude_wire_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
     # Wires before the move — saved for undo.
     _saved_wires: list[WireSegment] = field(
         default_factory=list, init=False, repr=False
@@ -99,7 +102,8 @@ class MoveComponentCommand(Command[ComponentState]):
         object.__setattr__(self, "_saved_wires", list(state.layout.wires))
         state.layout.placements[self.component_id] = self.new_placement
         _update_wires_for_move(
-            state, self.component_id, self.old_placement, self.new_placement
+            state, self.component_id, self.old_placement, self.new_placement,
+            self.exclude_wire_ids,
         )
 
     def revert(self, state: ComponentState) -> None:
@@ -607,6 +611,7 @@ def _update_wires_for_move(
     comp_id: uuid.UUID,
     old_pl: ComponentPlacement,
     new_pl: ComponentPlacement,
+    exclude_ids: frozenset[uuid.UUID] = frozenset(),
 ) -> None:
     """Adjust wire endpoints that coincide with pins of the moved component.
 
@@ -614,6 +619,10 @@ def _update_wires_for_move(
     position, move it to the new pin position.  If the resulting path
     collapses (start == end) or has fewer than 2 distinct points, the
     wire is removed.
+
+    exclude_ids: wire IDs already translated by live drag — skipped here to
+    avoid double-translation when old_pin_pos of this component coincides with
+    the (already-shifted) position of another component's pin.
     """
     inst = state.instances.get(comp_id)
     if inst is None:
@@ -636,6 +645,9 @@ def _update_wires_for_move(
 
     new_wires: list[WireSegment] = []
     for wire in state.layout.wires:
+        if wire.id in exclude_ids:
+            new_wires.append(wire)
+            continue
         new_path: list[Point] = []
         for pt in wire.path:
             key = (round(pt.x, 6), round(pt.y, 6))
