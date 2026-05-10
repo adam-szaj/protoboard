@@ -9,7 +9,7 @@ import uuid
 
 _DRAG_REFRESH_INTERVAL = 0.033  # 30 fps max during live drag
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QPoint, QPointF, QRectF, QTimer, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QKeyEvent,
@@ -24,8 +24,17 @@ from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.geometry import Point
 from protoboard.gui.layer_state import LayerOverrides, LayerState, layer_state_for_tool
 from protoboard.gui.renderers.board_renderer import BOARD_BG, render_board
-from protoboard.gui.renderers.component_renderer import render_components, render_groups
-from protoboard.gui.renderers.wire_renderer import render_ratsnest, render_wires_with_nets
+from protoboard.gui.renderers.component_renderer import (
+    render_components,
+    render_groups,
+    update_component_groups,
+)
+from protoboard.gui.renderers.wire_renderer import (
+    render_ratsnest,
+    render_wires_with_nets,
+    update_wire_groups,
+)
+from PySide6.QtWidgets import QGraphicsItem as _QGItem  # noqa: E402 – used in refresh()
 from protoboard.gui.session import EditorSession
 from protoboard.gui.theme import DEFAULT_THEME
 from protoboard.services.routing.net_status import routed_net_ids
@@ -71,15 +80,34 @@ class BoardView(QGraphicsView):
         self._active_group_id: uuid.UUID = ROOT_GROUP_ID
         # Net highlight: when set, all other objects are dimmed to 0.2 alpha.
         self._highlighted_net_id: uuid.UUID | None = None
+        # Optional highlight profile from InteractionMode (overrides theme defaults).
+        self._highlight_profile: object | None = None
         # Theme — overridden by MainWindow after Preferences apply.
         from protoboard.gui.theme import Theme
         self._theme_override: Theme | None = None
         self._last_drag_refresh: float = 0.0
-        # comp_id → QGraphicsItemGroup; populated by refresh(), used by drag.
+        # comp_id → QGraphicsItemGroup; persists across refreshes for reuse.
         self._comp_groups: dict[uuid.UUID, object] = {}
+        self._comp_fingerprints: dict[uuid.UUID, tuple[object, ...]] = {}
+        # wire_id → QGraphicsItemGroup; persists across refreshes for reuse.
+        self._wire_groups: dict[uuid.UUID, object] = {}
+        self._wire_fingerprints: dict[uuid.UUID, tuple[object, ...]] = {}
         # comp_id → placement.position at last full refresh (drag delta origin).
         self._drag_orig_group_pos: dict[uuid.UUID, object] = {}
-        session.layout_changed.connect(self.refresh)
+        # Board layer: rebuilt only when board geometry / theme / alpha changes.
+        self._board_layer_dirty: bool = True
+        self._last_board_alpha: float = -1.0   # sentinel: never matches
+        # Spatial index over board pad positions for fast snap().
+        self._pad_spatial: dict[tuple[int, int], list[Point]] = {}
+        # Overlay items (ratsnest + group outlines) for targeted removal.
+        self._overlay_items: list[object] = []
+        # Debounce refresh so rapid layout_changed bursts only redraw once.
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.setInterval(16)   # ~1 frame
+        self._refresh_timer.timeout.connect(self.refresh)
+        session.layout_changed.connect(self._schedule_refresh)
+        session.layout_changed.connect(session.invalidate_graph)
         session.drag_moved.connect(self._on_drag_moved)
 
     # ------------------------------------------------------------------
@@ -104,11 +132,62 @@ class BoardView(QGraphicsView):
         self.refresh()
 
     def set_highlighted_net(self, net_id: uuid.UUID | None) -> None:
-        """Highlight one net and dim everything else. None clears the dim."""
-        if net_id == self._highlighted_net_id:
+        """Highlight one net — dims other groups via setOpacity(), no full rebuild."""
+        if net_id == self._highlighted_net_id and self._highlight_profile is None:
             return
         self._highlighted_net_id = net_id
-        self.refresh()
+        self._highlight_profile = None
+        self._apply_highlight_opacity()
+
+    def set_highlighted_net_with_profile(
+        self, net_id: uuid.UUID | None, profile: object
+    ) -> None:
+        """Like set_highlighted_net() but uses dim values from a HighlightProfile."""
+        self._highlighted_net_id = net_id
+        self._highlight_profile = profile
+        self._apply_highlight_opacity()
+
+    def _apply_highlight_opacity(self) -> None:
+        """Apply dimming to existing comp/wire groups without a full refresh."""
+        net_id = self._highlighted_net_id
+        session = self._session
+        _base = self._theme_override if self._theme_override is not None else DEFAULT_THEME
+
+        if net_id is None:
+            for grp in self._comp_groups.values():
+                from PySide6.QtWidgets import QGraphicsItemGroup
+                if isinstance(grp, QGraphicsItemGroup):
+                    grp.setOpacity(1.0)
+            for grp in self._wire_groups.values():
+                if isinstance(grp, QGraphicsItemGroup):
+                    grp.setOpacity(1.0)
+            return
+
+        # Collect highlighted component IDs.
+        highlighted_comp_ids: set[uuid.UUID] = set()
+        net_obj = session.schematic.nets.get(net_id)
+        if net_obj is not None:
+            highlighted_comp_ids = {ref.component_id for ref in net_obj.pins}
+
+        # Build wire→net map (cached graph).
+        wire_net_map = _build_wire_net_map(session)
+
+        from PySide6.QtWidgets import QGraphicsItemGroup
+        from protoboard.gui.interaction_mode import HighlightProfile
+        if isinstance(self._highlight_profile, HighlightProfile):
+            dim_c = self._highlight_profile.dim_components
+            dim_w = self._highlight_profile.dim_wires
+        else:
+            dim_c = _base.highlight_dim_components
+            dim_w = _base.highlight_dim_wires
+        for comp_id, grp in self._comp_groups.items():
+            if isinstance(grp, QGraphicsItemGroup):
+                opacity = 1.0 if comp_id in highlighted_comp_ids else max(0.04, dim_c)
+                grp.setOpacity(opacity)
+        for wire_id, grp in self._wire_groups.items():
+            if isinstance(grp, QGraphicsItemGroup):
+                is_hl = wire_net_map.get(wire_id) == net_id
+                grp.setOpacity(1.0 if is_hl else dim_w)
 
     def set_highlighted_net_silent(self, net_id: uuid.UUID | None) -> None:
         """Set the highlighted net without triggering a refresh.
@@ -150,6 +229,7 @@ class BoardView(QGraphicsView):
         from protoboard.gui.theme import Theme
         if isinstance(theme, Theme):
             self._theme_override = theme
+            self._board_layer_dirty = True
             self.refresh()
 
     # ------------------------------------------------------------------
@@ -161,6 +241,7 @@ class BoardView(QGraphicsView):
         if side == self._camera_side:
             return
         self._camera_side = side
+        self._board_layer_dirty = True
         self._sync_tool_side(side)
         self._apply_view_transform()
         self.refresh()
@@ -170,6 +251,7 @@ class BoardView(QGraphicsView):
         if transform == self._view_transform:
             return
         self._view_transform = transform
+        self._board_layer_dirty = True
         self._apply_view_transform()
         self.refresh()
 
@@ -326,7 +408,9 @@ class BoardView(QGraphicsView):
             self._active_tool = None
         self._session = session
         self._highlighted_net_id = None
-        session.layout_changed.connect(self.refresh)
+        self._board_layer_dirty = True
+        session.layout_changed.connect(self._schedule_refresh)
+        session.layout_changed.connect(session.invalidate_graph)
         session.drag_moved.connect(self._on_drag_moved)
         self.refresh()
 
@@ -335,6 +419,8 @@ class BoardView(QGraphicsView):
             self._active_tool.deactivate()
         self._active_tool = tool
         self._highlighted_net_id = None
+        # Tool change may affect board_alpha (e.g. ghost mode) — rebuild board layer.
+        self._board_layer_dirty = True
         if tool is not None:
             tool.activate(self._session, self)
         self.refresh()
@@ -344,7 +430,8 @@ class BoardView(QGraphicsView):
         return self._pad_positions
 
     def _rebuild_pad_cache(self) -> None:
-        """Rebuild _pad_positions from the current board layout."""
+        """Rebuild _pad_positions and _pad_spatial from the current board layout."""
+        from collections import defaultdict
         positions: list[Point] = []
         for atom, center in self._session.board.atoms():
             if isinstance(atom, StripAtom):
@@ -362,12 +449,19 @@ class BoardView(QGraphicsView):
                 if not isinstance(atom, GapAtom):
                     positions.append(center)
         self._pad_positions = positions
+        # Build spatial index: grid cell → pad points (for fast snap).
+        spatial: dict[tuple[int, int], list[Point]] = defaultdict(list)
+        for p in positions:
+            spatial[(int(round(p.x)), int(round(p.y)))].append(p)
+        self._pad_spatial = dict(spatial)
 
-    def refresh(self) -> None:
-        """Rebuild the scene from the current session state."""
-        self._rebuild_pad_cache()
-        self._scene.clear()
-        # Notify active tool and permanent tools that scene was wiped.
+    def _schedule_refresh(self) -> None:
+        """Schedule a refresh for the next event-loop tick (debounce)."""
+        if not self._refresh_timer.isActive():
+            self._refresh_timer.start()
+
+    def _fire_on_scene_cleared(self) -> None:
+        """Notify tools that the scene was wiped (board layer rebuild)."""
         notified: set[int] = set()
         for tool in self._permanent_tools:
             tool.on_scene_cleared()
@@ -375,75 +469,119 @@ class BoardView(QGraphicsView):
         if self._active_tool is not None and id(self._active_tool) not in notified:
             self._active_tool.on_scene_cleared()
 
-        # Derive rendering context from camera side, view transform and tool.
-        _base_early = self._theme_override if self._theme_override is not None else DEFAULT_THEME
+    def _invalidate_all_groups(self) -> None:
+        """Drop all persistent group caches (called when scene is fully cleared)."""
+        self._comp_groups.clear()
+        self._comp_fingerprints.clear()
+        self._wire_groups.clear()
+        self._wire_fingerprints.clear()
+        self._overlay_items.clear()
+
+    def refresh(self) -> None:
+        """Update the scene to reflect current session state.
+
+        On the warm path (most layout_changed events) only changed items are
+        recreated; unchanged component/wire groups survive untouched.
+        The board layer (pads/strips) is rebuilt only when its visual inputs change.
+        """
+        self._refresh_timer.stop()
+        self._rebuild_pad_cache()
+
+        from dataclasses import replace as _dc_replace
+        _base = self._theme_override if self._theme_override is not None else DEFAULT_THEME
         layers = layer_state_for_tool(
             self._active_tool,
             self._camera_side,  # type: ignore[arg-type]
             self._view_transform,  # type: ignore[arg-type]
             overrides=self._layer_overrides,
-            theme=_base_early,
+            theme=_base,
         )
+        _theme = _dc_replace(_base,
+                             raster_pitch_mm=self._session.board.raster_pitch_mm,
+                             body_types=self._session.body_types)
 
-        render_board(self._scene, self._session.board, layers=layers)
+        # ── Board layer ──────────────────────────────────────────────────────
+        current_board_alpha = layers.alpha_for_board()
+        if self._board_layer_dirty or current_board_alpha != self._last_board_alpha:
+            self._scene.clear()
+            self._invalidate_all_groups()
+            self._fire_on_scene_cleared()
+            render_board(self._scene, self._session.board, layers=layers)
+            self._board_layer_dirty = False
+            self._last_board_alpha = current_board_alpha
 
+        # ── Remove stale overlay items (ratsnest + group outlines) ───────────
+        for item in self._overlay_items:
+            if not isinstance(item, _QGItem):
+                continue
+            try:
+                if item.scene() is self._scene:
+                    self._scene.removeItem(item)
+            except RuntimeError:
+                pass  # C++ object already deleted by scene.clear()
+        self._overlay_items.clear()
+
+        # ── Shared render inputs ─────────────────────────────────────────────
         wire_net_map = _build_wire_net_map(self._session)
         net_color_map = {
             net_id: net.color
             for net_id, net in self._session.schematic.nets.items()
         }
-        render_wires_with_nets(
+        routed: set[uuid.UUID] | None = None
+        if self._session.schematic.nets:
+            routed = routed_net_ids(
+                self._session.schematic, self._session.connectivity_graph()
+            )
+
+        # ── Wires (group reuse) ───────────────────────────────────────────────
+        update_wire_groups(
             self._scene,
             self._session.layout.wires,
             wire_net_map,
-            net_color_map,
+            self._wire_groups,        # type: ignore[arg-type]
+            self._wire_fingerprints,  # type: ignore[arg-type]
+            net_color_map=net_color_map,
+            theme=_theme,
             layers=layers,
             highlighted_net_id=self._highlighted_net_id,
         )
-        # Compute net routing status for pin colouring.
-        routed: set[uuid.UUID] | None = None
-        if self._session.schematic.nets:
-            graph = ConnectivityGraph(
-                board=self._session.board,
-                layout=self._session.layout,
-                components=self._session.components,
-                instances=self._session.instances,
-            )
-            routed = routed_net_ids(self._session.schematic, graph)
-        from dataclasses import replace as _dc_replace
-        _base = self._theme_override if self._theme_override is not None else DEFAULT_THEME
-        _theme = _dc_replace(_base,
-                             raster_pitch_mm=self._session.board.raster_pitch_mm,
-                             body_types=self._session.body_types)
+
+        # ── Components (group reuse) ──────────────────────────────────────────
+        update_component_groups(
+            self._scene,
+            self._session.layout.placements,
+            self._session.instances,
+            self._session.components,
+            self._comp_groups,        # type: ignore[arg-type]
+            self._comp_fingerprints,  # type: ignore[arg-type]
+            schematic=self._session.schematic if self._session.schematic.nets else None,
+            routed_nets=routed,
+            theme=_theme,
+            layers=layers,
+            active_group_id=self._active_group_id,
+            layout=self._session.layout,
+            highlighted_net_id=self._highlighted_net_id,
+        )
+
         # Snapshot positions so _on_drag_moved can compute deltas.
         self._drag_orig_group_pos = {
             cid: pl.position
             for cid, pl in self._session.layout.placements.items()
         }
-        self._comp_groups = render_components(
-            self._scene,
-            self._session.layout.placements,
-            self._session.instances,
-            self._session.components,
-            schematic=self._session.schematic if self._session.schematic.nets else None,
-            routed_nets=routed,
-            layers=layers,
-            theme=_theme,
-            active_group_id=self._active_group_id,
-            layout=self._session.layout,
-            highlighted_net_id=self._highlighted_net_id,
-        )
+
+        # ── Overlays (always recreated — fast, few items) ────────────────────
+        new_overlays: list[object] = []
         if self._session.schematic.nets:
-            render_ratsnest(
+            new_overlays.extend(render_ratsnest(
                 self._scene,
                 self._session.schematic,
                 self._session.layout.placements,
                 self._session.instances,
                 self._session.components,
                 routed_nets=routed,
-            )
+            ))
         if self._session.layout.groups:
-            render_groups(
+            new_overlays.extend(render_groups(
                 self._scene,
                 self._session.layout,
                 self._session.layout.placements,
@@ -451,21 +589,20 @@ class BoardView(QGraphicsView):
                 self._session.components,
                 theme=_theme,
                 active_group_id=self._active_group_id,
-            )
-        # Extend scene rect by 50% of board dimensions on each side so any point
-        # on the board (including corners) can be scrolled to the viewport centre.
+            ))
+        self._overlay_items = new_overlays
+
+        # ── Scene rect ───────────────────────────────────────────────────────
         b = self._session.board.bounds
         mx, my = b.width * 0.5, b.height * 0.5
         self._scene.setSceneRect(QRectF(b.x - mx, b.y - my, b.width + 2 * mx, b.height + 2 * my))
 
-        # When the scene is flipped, apply a counter-transform to text items so
-        # labels remain readable.  Mirror H flips X → counter-scale X by -1.
-        # Mirror V flips Y → counter-scale Y by -1.  Both may be combined.
+        # ── Text counter-transform (mirrored views) ───────────────────────────
         if layers.needs_text_counter_transform():
             from PySide6.QtGui import QTransform
             from PySide6.QtWidgets import QGraphicsTextItem
-            sx = layers.scene_scale_x()   # ±1
-            sy = layers.scene_scale_y()   # ±1
+            sx = layers.scene_scale_x()
+            sy = layers.scene_scale_y()
             for item in self._scene.items():
                 if isinstance(item, QGraphicsTextItem):
                     br = item.boundingRect()
@@ -511,49 +648,69 @@ class BoardView(QGraphicsView):
                 for ep in child_group.exported_pins:
                     exported_pins.add((ep.component_id, ep.pin_number))
 
+        sx, sy = scene_pt.x(), scene_pt.y()
         best: Point | None = None
         best_d = math.inf
 
         def _check(px: float, py: float) -> None:
             nonlocal best, best_d
-            dx = scene_pt.x() - px
-            dy = scene_pt.y() - py
-            d = dx * dx + dy * dy
+            d = (sx - px) * (sx - px) + (sy - py) * (sy - py)
             if d < best_d:
                 best_d = d
                 best = Point(px, py)
 
-        # Board pads / strip holes — always accessible.
-        for atom, center in self._session.board.atoms():
-            if isinstance(atom, StripAtom):
-                n = int(atom.length) if isinstance(atom.length, int) else 1
-                if atom.orientation == "horizontal":
-                    start_x = center.x - n / 2.0 + 0.5
-                    for i in range(n):
-                        _check(start_x + i, center.y)
-                else:
-                    start_y = center.y - n / 2.0 + 0.5
-                    for i in range(n):
-                        _check(center.x, start_y + i)
-            else:
-                _check(center.x, center.y)
+        # Board pads — use spatial index (3×3 cells around cursor).
+        # Ensure index is built even if refresh() hasn't been called yet.
+        if not self._pad_spatial and self._pad_positions:
+            from collections import defaultdict
+            _sp: dict[tuple[int, int], list[Point]] = defaultdict(list)
+            for _p in self._pad_positions:
+                _sp[(int(round(_p.x)), int(round(_p.y)))].append(_p)
+            self._pad_spatial = dict(_sp)
+        elif not self._pad_spatial:
+            self._rebuild_pad_cache()
+        cx, cy = int(round(sx)), int(round(sy))
+        for dcx in (-1, 0, 1):
+            for dcy in (-1, 0, 1):
+                for p in self._pad_spatial.get((cx + dcx, cy + dcy), []):
+                    _check(p.x, p.y)
 
-        # Component pin positions — skip locked pins unless exported.
-        for comp_id, placement in self._session.layout.placements.items():
-            inst = self._session.instances.get(comp_id)
-            if inst is None:
-                continue
-            defn = self._session.components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            for n in range(defn.footprint.pin_count()):
-                pin_num = n + 1
-                if comp_id in locked_comp_ids and (comp_id, pin_num) not in exported_pins:
+        # Component pin positions — use comp spatial index; skip locked pins.
+        candidates: set[uuid.UUID] = set()
+        comp_idx = self._session.comp_spatial_index()
+        for dcx in (-1, 0, 1):
+            for dcy in (-1, 0, 1):
+                for cid in comp_idx.get((cx + dcx, cy + dcy), []):
+                    candidates.add(cid)
+
+        for comp_id in candidates:
+            if comp_id in locked_comp_ids:
+                placement = self._session.layout.placements.get(comp_id)
+                inst = self._session.instances.get(comp_id)
+                if placement is None or inst is None:
                     continue
-                p = pin_world_position(defn.footprint, placement, pin_num)
-                _check(p.x, p.y)
+                defn = self._session.components.get(inst.definition_ref)
+                if defn is None:
+                    continue
+                for n in range(defn.footprint.pin_count()):
+                    pin_num = n + 1
+                    if (comp_id, pin_num) not in exported_pins:
+                        continue
+                    p = pin_world_position(defn.footprint, placement, pin_num)
+                    _check(p.x, p.y)
+            else:
+                placement = self._session.layout.placements.get(comp_id)
+                inst = self._session.instances.get(comp_id)
+                if placement is None or inst is None:
+                    continue
+                defn = self._session.components.get(inst.definition_ref)
+                if defn is None:
+                    continue
+                for n in range(defn.footprint.pin_count()):
+                    p = pin_world_position(defn.footprint, placement, n + 1)
+                    _check(p.x, p.y)
 
-        return best if best is not None else Point(scene_pt.x(), scene_pt.y())
+        return best if best is not None else Point(sx, sy)
 
     def is_locked_pin(self, scene_pt: QPointF, tol: float = 0.6) -> bool:
         """Return True if *scene_pt* is near a pin locked inside a child group

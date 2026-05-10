@@ -173,10 +173,12 @@ class _SharedState:
     # Extra budget ratio: remaining universes may expand this many more nodes
     # after first_found_nodes is set (0.5 = N/2 extra nodes).
     extra_budget_ratio: float = 0.5
-    # Lock protecting first_found_nodes and futures list.
+    # Lock protecting first_found_nodes, active_count, and futures list.
     _lock: threading.Lock = field(default_factory=threading.Lock)
-    # All submitted futures — needed to wait for completion.
+    # All submitted futures — needed to wait for completion in _astar_parallel.
     futures: list[Future[None]] = field(default_factory=list)
+    # Count of futures not yet done — O(1) update instead of O(N) scan.
+    active_count: int = 0
 
     def record_found(self, nodes_expanded: int) -> None:
         with self._lock:
@@ -193,6 +195,12 @@ class _SharedState:
     def add_future(self, fut: Future[None]) -> None:
         with self._lock:
             self.futures.append(fut)
+            self.active_count += 1
+
+    def mark_done(self) -> None:
+        """Called by each universe worker when it finishes."""
+        with self._lock:
+            self.active_count -= 1
 
 
 def _universe_worker(
@@ -204,6 +212,8 @@ def _universe_worker(
     # Read-only routing context (shared across all universes):
     valid_nodes: dict[str, set[Point]],
     target_set: set[Point],
+    # Precomputed (tx, ty) pairs for O(1) heuristic — avoids Point allocation in h().
+    target_coords: list[tuple[float, float]],
     cost_model: RoutingCostModel,
     insulated: bool,
     occupied: dict[tuple[Point, str], uuid.UUID],
@@ -217,150 +227,129 @@ def _universe_worker(
 ) -> None:
     """Run one A* universe until it finds a path, exhausts the heap, or exceeds budget."""
 
-    def h(p: Point) -> float:
-        return min(math.sqrt((p.x - t.x)**2 + (p.y - t.y)**2) for t in target_set)
+    # Heuristic: Euclidean distance to nearest target. Using squared intermediate
+    # values avoids sqrt until the final min — safe since sqrt is monotone.
+    def h(px: float, py: float) -> float:
+        best = float("inf")
+        for tx, ty in target_coords:
+            d2 = (px - tx) ** 2 + (py - ty) ** 2
+            if d2 < best:
+                best = d2
+        return math.sqrt(best)
 
     _seq = seq_counter
 
-    while heap:
-        if shared.over_budget(nodes_expanded):
-            return
+    try:
+        while heap:
+            if shared.over_budget(nodes_expanded):
+                return
 
-        _f, g, _s, cx, cy, cs_idx, dx, dy, path = heapq.heappop(heap)
-        pos = Point(cx, cy)
-        cur_side = _SIDES[cs_idx]
-        state_key = (cx, cy, cs_idx, dx, dy)
+            _f, g, _s, cx, cy, cs_idx, dx, dy, path = heapq.heappop(heap)
+            pos = Point(cx, cy)
+            cur_side = _SIDES[cs_idx]
+            state_key = (cx, cy, cs_idx, dx, dy)
 
-        if visited.get(state_key, float("inf")) <= g:
-            continue
-        visited[state_key] = g
-        nodes_expanded += 1
-
-        if pos in target_set:
-            shared.record_found(nodes_expanded)
-            shared.result_queue.put(RoutingResult(path=path, cost=g, insulated=insulated))
-            return
-
-        # Build the list of valid neighbour heap entries before deciding
-        # whether to branch — we need the count to decide.
-        neighbor_entries: list[tuple[float, float, int, float, float, int, float, float, list[PathStep]]] = []
-
-        # --- Same-layer moves ---
-        for ndx, ndy, dist_mult in _NEIGHBOURS:
-            npos = Point(cx + ndx, cy + ndy)
-            if npos not in valid_nodes[cur_side]:
+            if visited.get(state_key, float("inf")) <= g:
                 continue
-            if (pos, cur_side, npos, cur_side) in forbidden_edges:
-                continue
+            visited[state_key] = g
+            nodes_expanded += 1
 
-            step_cost = _step_cost(
-                npos, cur_side, dist_mult, cost_model, occupied, same_net,
-                near_pins, near_pin_cost, penalised,
-            )
-            if step_cost >= float("inf"):
-                continue
+            if pos in target_set:
+                shared.record_found(nodes_expanded)
+                shared.result_queue.put(RoutingResult(path=path, cost=g, insulated=insulated))
+                return
 
-            crossing_cost = _crossing_cost(pos, npos, cur_side, bare_segs, cost_model, insulated)
-            if crossing_cost >= float("inf"):
-                continue
-            step_cost += crossing_cost
+            # Build the list of valid neighbour heap entries before deciding
+            # whether to branch — we need the count to decide.
+            neighbor_entries: list[tuple[float, float, int, float, float, int, float, float, list[PathStep]]] = []
 
-            if (dx != 0.0 or dy != 0.0) and (ndx != dx or ndy != dy):
-                step_cost += cost_model.direction_change
+            # --- Same-layer moves ---
+            for ndx, ndy, dist_mult in _NEIGHBOURS:
+                npos = Point(cx + ndx, cy + ndy)
+                if npos not in valid_nodes[cur_side]:
+                    continue
+                if (pos, cur_side, npos, cur_side) in forbidden_edges:
+                    continue
 
-            ng = g + step_cost
-            nstate = (npos.x, npos.y, cs_idx, ndx, ndy)
-            if nstate in visited and visited[nstate] <= ng:
-                continue
-
-            nf = ng + h(npos)
-            _seq += 1
-            neighbor_entries.append(
-                (nf, ng, _seq, npos.x, npos.y, cs_idx, ndx, ndy, path + [(npos, cur_side)])
-            )
-
-        # --- Layer change at plated-through pad ---
-        via_entry: tuple[float, float, int, float, float, int, float, float, list[PathStep]] | None = None
-        if pos in vias:
-            other_side = _OTHER_SIDE[cur_side]
-            other_idx = 1 - cs_idx
-            if pos in valid_nodes[other_side]:
-                if (pos, cur_side, pos, other_side) not in forbidden_edges:
-                    ng = g + cost_model.layer_change
-                    nstate = (pos.x, pos.y, other_idx, 0.0, 0.0)
-                    if not (nstate in visited and visited[nstate] <= ng):
-                        nf = ng + h(pos)
-                        _seq += 1
-                        via_entry = (nf, ng, _seq, pos.x, pos.y, other_idx, 0.0, 0.0, path + [(pos, other_side)])
-
-        if via_entry is not None:
-            neighbor_entries.append(via_entry)
-
-        if not neighbor_entries:
-            continue
-
-        # Decide whether to branch or continue in-place.
-        # Branch only when: ≥2 neighbours AND this search's own universes
-        # are not already flooding the pool.  We count only futures belonging
-        # to THIS search (shared.futures) so that parallel nets on the same
-        # pool don't block each other from ever branching.
-        pool_queue_size = _UNIVERSE_POOL._work_queue.qsize()  # type: ignore[attr-defined]
-        with shared._lock:
-            active_futures = sum(1 for f in shared.futures if not f.done())
-        # Allow branching when this search has fewer live universes than CPU count
-        # AND the pool's pending queue isn't flooded (avoid unbounded explosion).
-        should_branch = (
-            len(neighbor_entries) >= 2
-            and active_futures < _CPU_COUNT
-            and pool_queue_size < _CPU_COUNT * 4
-        )
-
-        if should_branch:
-            _log.info(
-                "astar.universe.fork",
-                thread_id=threading.get_ident(),
-                branches=len(neighbor_entries),
-                pool_queue_size=pool_queue_size,
-                active_futures=active_futures,
-                cpu_count=_CPU_COUNT,
-                nodes_expanded=nodes_expanded,
-            )
-            # Copy-on-write: each neighbour gets its own heap+visited snapshot.
-            for entry in neighbor_entries:
-                new_heap = list(heap)
-                heapq.heappush(new_heap, entry)
-                new_visited = dict(visited)
-                fut = _UNIVERSE_POOL.submit(
-                    _universe_worker,
-                    new_heap, new_visited, nodes_expanded, _seq, shared,
-                    valid_nodes, target_set, cost_model, insulated,
-                    occupied, same_net, near_pins, near_pin_cost,
-                    bare_segs, vias, forbidden_edges, penalised,
+                step_cost = _step_cost(
+                    npos, cur_side, dist_mult, cost_model, occupied, same_net,
+                    near_pins, near_pin_cost, penalised,
                 )
-                shared.add_future(fut)
-            _log.info(
-                "astar.universe.forked",
-                thread_id=threading.get_ident(),
-                pool_queue_after=_UNIVERSE_POOL._work_queue.qsize(),  # type: ignore[attr-defined]
-                total_futures=len(shared.futures),
-            )
-            # This universe has delegated all branches — it is done.
-            return
-        else:
-            # Log why we didn't branch (only first few times to avoid flood).
-            if nodes_expanded <= 3:
-                _log.info(
-                    "astar.universe.no_fork",
-                    thread_id=threading.get_ident(),
-                    neighbors=len(neighbor_entries),
-                    pool_queue_size=pool_queue_size,
-                    active_futures=active_futures,
-                    cpu_count=_CPU_COUNT,
-                    reason="single_neighbor" if len(neighbor_entries) < 2 else "pool_full",
+                if step_cost >= float("inf"):
+                    continue
+
+                crossing_cost = _crossing_cost(pos, npos, cur_side, bare_segs, cost_model, insulated)
+                if crossing_cost >= float("inf"):
+                    continue
+                step_cost += crossing_cost
+
+                if (dx != 0.0 or dy != 0.0) and (ndx != dx or ndy != dy):
+                    step_cost += cost_model.direction_change
+
+                ng = g + step_cost
+                nstate = (npos.x, npos.y, cs_idx, ndx, ndy)
+                if nstate in visited and visited[nstate] <= ng:
+                    continue
+
+                nf = ng + h(npos.x, npos.y)
+                _seq += 1
+                neighbor_entries.append(
+                    (nf, ng, _seq, npos.x, npos.y, cs_idx, ndx, ndy, path + [(npos, cur_side)])
                 )
-            # No branching — push all neighbours onto our own heap (mutable, zero copy).
-            for entry in neighbor_entries:
-                heapq.heappush(heap, entry)
+
+            # --- Layer change at plated-through pad ---
+            via_entry: tuple[float, float, int, float, float, int, float, float, list[PathStep]] | None = None
+            if pos in vias:
+                other_side = _OTHER_SIDE[cur_side]
+                other_idx = 1 - cs_idx
+                if pos in valid_nodes[other_side]:
+                    if (pos, cur_side, pos, other_side) not in forbidden_edges:
+                        ng = g + cost_model.layer_change
+                        nstate = (pos.x, pos.y, other_idx, 0.0, 0.0)
+                        if not (nstate in visited and visited[nstate] <= ng):
+                            nf = ng + h(cx, cy)
+                            _seq += 1
+                            via_entry = (nf, ng, _seq, pos.x, pos.y, other_idx, 0.0, 0.0, path + [(pos, other_side)])
+
+            if via_entry is not None:
+                neighbor_entries.append(via_entry)
+
+            if not neighbor_entries:
+                continue
+
+            # Decide whether to branch or continue in-place.
+            # Use active_count (O(1)) instead of scanning all futures (O(N)).
+            pool_queue_size = _UNIVERSE_POOL._work_queue.qsize()  # type: ignore[attr-defined]
+            with shared._lock:
+                active_futures = shared.active_count
+            should_branch = (
+                len(neighbor_entries) >= 2
+                and active_futures < _CPU_COUNT
+                and pool_queue_size < _CPU_COUNT * 4
+            )
+
+            if should_branch:
+                # Copy-on-write: each neighbour gets its own heap+visited snapshot.
+                for entry in neighbor_entries:
+                    new_heap = list(heap)
+                    heapq.heappush(new_heap, entry)
+                    new_visited = dict(visited)
+                    fut = _UNIVERSE_POOL.submit(
+                        _universe_worker,
+                        new_heap, new_visited, nodes_expanded, _seq, shared,
+                        valid_nodes, target_set, target_coords, cost_model, insulated,
+                        occupied, same_net, near_pins, near_pin_cost,
+                        bare_segs, vias, forbidden_edges, penalised,
+                    )
+                    shared.add_future(fut)
+                # This universe has delegated all branches — it is done.
+                return
+            else:
+                # No branching — push all neighbours onto our own heap (mutable, zero copy).
+                for entry in neighbor_entries:
+                    heapq.heappush(heap, entry)
+    finally:
+        shared.mark_done()
 
 
 def _astar_parallel(
@@ -384,12 +373,23 @@ def _astar_parallel(
 
     Returns the cheapest path found across all universes, or None if unreachable.
     """
-    def h(p: Point) -> float:
-        return min(math.sqrt((p.x - t.x)**2 + (p.y - t.y)**2) for t in target_set)
+    import time
+    from concurrent.futures import wait as _wait, ALL_COMPLETED
+
+    # Precompute target coords once — workers use floats directly, no Point alloc.
+    target_coords: list[tuple[float, float]] = [(t.x, t.y) for t in target_set]
+
+    def h0(px: float, py: float) -> float:
+        best = float("inf")
+        for tx, ty in target_coords:
+            d2 = (px - tx) ** 2 + (py - ty) ** 2
+            if d2 < best:
+                best = d2
+        return math.sqrt(best)
 
     side_idx = 0 if source_side == "top" else 1
     initial_heap: list[tuple[float, float, int, float, float, int, float, float, list[PathStep]]] = [
-        (h(source), 0.0, 0, source.x, source.y, side_idx, 0.0, 0.0, [(source, source_side)])
+        (h0(source.x, source.y), 0.0, 0, source.x, source.y, side_idx, 0.0, 0.0, [(source, source_side)])
     ]
     initial_visited: dict[tuple[float, float, int, float, float], float] = {}
 
@@ -398,45 +398,34 @@ def _astar_parallel(
         extra_budget_ratio=extra_budget_ratio,
     )
 
-    pool_q = _UNIVERSE_POOL._work_queue.qsize()  # type: ignore[attr-defined]
-    _log.info(
-        "astar.parallel.start",
-        source=f"({source.x},{source.y})",
-        source_side=source_side,
-        targets=len(target_set),
-        cpu_count=_CPU_COUNT,
-        pool_queue_size=pool_q,
-        thread_id=threading.get_ident(),
-    )
-
     # Submit the root universe.
     fut = _UNIVERSE_POOL.submit(
         _universe_worker,
         initial_heap, initial_visited, 0, 0, shared,
-        valid_nodes, target_set, cost_model, insulated,
+        valid_nodes, target_set, target_coords, cost_model, insulated,
         occupied, same_net, near_pins, near_pin_cost,
         bare_segs, vias, forbidden_edges, penalised,
     )
     shared.add_future(fut)
-    _log.info("astar.parallel.root_submitted", pool_queue_after=_UNIVERSE_POOL._work_queue.qsize())  # type: ignore[attr-defined]
 
-    # Wait for all futures to complete (they may spawn more futures dynamically).
-    # We poll in a loop because futures list grows as universes branch.
-    # Timeout per poll cycle: 5s total max (A* on a 30×20 board never takes that long).
+    # Wait using active_count (O(1)) instead of scanning futures list (O(N)).
+    # Poll until all universe workers have called mark_done().
     _MAX_WAIT_S = 5.0
-    _POLL_INTERVAL_S = 0.05
-    import time
+    _POLL_INTERVAL_S = 0.02
     deadline = time.monotonic() + _MAX_WAIT_S
     while time.monotonic() < deadline:
         with shared._lock:
-            pending = [f for f in shared.futures if not f.done()]
-        if not pending:
-            break
-        # Wait for whatever is currently pending, with short timeout so we
-        # can re-check for newly added futures.
-        from concurrent.futures import wait as _wait, ALL_COMPLETED
-        remaining = deadline - time.monotonic()
-        _wait(pending, timeout=min(_POLL_INTERVAL_S, remaining), return_when=ALL_COMPLETED)
+            if shared.active_count == 0:
+                break
+            # Snapshot a small slice of futures for the wait call so we get
+            # notified promptly rather than sleeping the full poll interval.
+            pending_sample = [f for f in shared.futures[-_CPU_COUNT:] if not f.done()]
+        if pending_sample:
+            remaining = deadline - time.monotonic()
+            _wait(pending_sample, timeout=min(_POLL_INTERVAL_S, remaining), return_when=ALL_COMPLETED)
+        else:
+            # No recently-added futures to wait on — short sleep to avoid busy spin.
+            time.sleep(_POLL_INTERVAL_S)
 
     # Drain all results from the queue.
     results: list[RoutingResult] = []
@@ -592,13 +581,20 @@ def _astar(
     penalised: dict[tuple[Point, str], float],
 ) -> RoutingResult | None:
     """Sequential A* — kept for reference and fallback use."""
-    def h(p: Point) -> float:
-        return min(math.sqrt((p.x - t.x)**2 + (p.y - t.y)**2) for t in target_set)
+    target_coords = [(t.x, t.y) for t in target_set]
+
+    def h(px: float, py: float) -> float:
+        best = float("inf")
+        for tx, ty in target_coords:
+            d2 = (px - tx) ** 2 + (py - ty) ** 2
+            if d2 < best:
+                best = d2
+        return math.sqrt(best)
 
     _seq = 0
     side_idx = 0 if source_side == "top" else 1
     heap: list[tuple[float, float, int, float, float, int, float, float, list[PathStep]]] = [
-        (h(source), 0.0, _seq, source.x, source.y, side_idx, 0.0, 0.0, [(source, source_side)])
+        (h(source.x, source.y), 0.0, _seq, source.x, source.y, side_idx, 0.0, 0.0, [(source, source_side)])
     ]
     visited: dict[tuple[float, float, int, float, float], float] = {}
 
@@ -642,7 +638,7 @@ def _astar(
             if nstate in visited and visited[nstate] <= ng:
                 continue
 
-            nf = ng + h(npos)
+            nf = ng + h(npos.x, npos.y)
             _seq += 1
             heapq.heappush(
                 heap, (nf, ng, _seq, npos.x, npos.y, cs_idx, ndx, ndy, path + [(npos, cur_side)])
@@ -656,7 +652,7 @@ def _astar(
                     ng = g + cost_model.layer_change
                     nstate = (pos.x, pos.y, other_idx, 0.0, 0.0)
                     if not (nstate in visited and visited[nstate] <= ng):
-                        nf = ng + h(pos)
+                        nf = ng + h(cx, cy)
                         _seq += 1
                         heapq.heappush(
                             heap, (nf, ng, _seq, pos.x, pos.y, other_idx, 0.0, 0.0, path + [(pos, other_side)])

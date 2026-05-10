@@ -124,9 +124,9 @@ class MainWindow(QMainWindow):
         self._wire_insulated: bool = True
         self._wire_side: str = "top"
 
-        # Per-layer manual visibility overrides.
-        from protoboard.gui.layer_state import LayerOverrides
-        self._layer_overrides = LayerOverrides()
+        # Per-layer manual visibility overrides — restored from session if available.
+        self._layer_overrides = session.layer_overrides
+        self._board_view._layer_overrides = self._layer_overrides
 
         # Layers dock (right, tabified with Properties).
         self._layers_panel = LayersPanel(self._layer_overrides, self)
@@ -235,11 +235,9 @@ class MainWindow(QMainWindow):
             "Select nets in the Inspector panel first to route only those nets."
         )
         act_spread_tb    = tb_analysis.addAction("Spread")
-        act_hug_tb       = tb_analysis.addAction("Hug")
         act_drc.triggered.connect(self._run_drc)
         act_autoroute_tb.triggered.connect(self._autoroute)
         act_spread_tb.triggered.connect(self._spread_components)
-        act_hug_tb.triggered.connect(self._hug_components)
 
         # Status bar.
         self._status = QStatusBar(self)
@@ -252,6 +250,10 @@ class MainWindow(QMainWindow):
         self._status.addPermanentWidget(self._view_label)
         self._cursor_label = QLabel("(—, —)")
         self._status.addPermanentWidget(self._cursor_label)
+        from protoboard.gui.panels.highlight_mode_widget import HighlightModeWidget
+        self._hl_mode_widget = HighlightModeWidget(self)
+        self._hl_mode_widget.set_tool(self._select_tool)
+        self._status.addPermanentWidget(self._hl_mode_widget)
         from protoboard.gui.panels.selection_filter_widget import SelectionFilterWidget
         self._sel_filter_widget = SelectionFilterWidget(self)
         self._sel_filter_widget.set_tool(self._select_tool)
@@ -307,6 +309,7 @@ class MainWindow(QMainWindow):
         self._nets_editor_panel.net_selected.connect(self._board_view.set_highlighted_net)
         self._layers_panel.overrides_changed.connect(self._on_layer_panel_changed)
         self._session.selection_changed.connect(self._on_selection_changed)
+        self._session.highlight_mode_changed.connect(self._hl_mode_widget.on_highlight_mode_changed)
 
         # Populate panels if project already loaded.
         self._refresh_netlist()
@@ -564,6 +567,10 @@ class MainWindow(QMainWindow):
         act_tool_route.setShortcut(self._ks(KB.ACTION_TOOL_ROUTE))
         act_tool_route.triggered.connect(self._tool_route)
 
+        act_tool_route_net = tools_menu.addAction("Route Wire [Net-aware]")
+        act_tool_route_net.setShortcut("Shift+W")
+        act_tool_route_net.triggered.connect(lambda: self._tool_route(net_aware=True))
+
         wire_sub = tools_menu.addMenu("  Wire options")
 
         self._act_wire_insulated: QAction = wire_sub.addAction("&Insulated")
@@ -668,7 +675,7 @@ class MainWindow(QMainWindow):
         if not self._check_unsaved_changes("opening another project"):
             return
         try:
-            board, layout, schematic, instances, routing_settings = load_project(path)
+            board, layout, schematic, instances, routing_settings, layer_overrides = load_project(path)
         except Exception as exc:
             QMessageBox.critical(self, "Open error", str(exc))
             return
@@ -699,7 +706,14 @@ class MainWindow(QMainWindow):
         self._select_tool = SelectTool()
         self._board_view._permanent_tools = [self._select_tool]
         self._sel_filter_widget.set_tool(self._select_tool)
+        self._hl_mode_widget.set_tool(self._select_tool)
         session.selection_changed.connect(self._on_selection_changed)
+        session.highlight_mode_changed.connect(self._hl_mode_widget.on_highlight_mode_changed)
+        session.layer_overrides = layer_overrides
+        self._layer_overrides = layer_overrides
+        self._board_view._layer_overrides = layer_overrides
+        self._refresh_layer_menu()
+        self._layers_panel.sync()
         self._board_view.set_session(session)
         self._tool_select()
         self._refresh_netlist()
@@ -724,6 +738,7 @@ class MainWindow(QMainWindow):
         """Cycle the named layer override: AUTO → FULL → GHOST → HIDDEN → AUTO."""
         current = getattr(self._layer_overrides, field_name)
         setattr(self._layer_overrides, field_name, current.cycle())
+        self._session.layer_overrides = self._layer_overrides
         self._board_view._layer_overrides = self._layer_overrides
         self._refresh_layer_menu()
         self._layers_panel.sync()
@@ -731,6 +746,7 @@ class MainWindow(QMainWindow):
 
     def _reset_layers(self) -> None:
         self._layer_overrides.reset()
+        self._session.layer_overrides = self._layer_overrides
         self._board_view._layer_overrides = self._layer_overrides
         self._refresh_layer_menu()
         self._layers_panel.sync()
@@ -1027,112 +1043,18 @@ class MainWindow(QMainWindow):
         msg += " Consider re-routing wires."
         self._status.showMessage(msg, 6000)
 
-    def _hug_components(self) -> None:
-        """Pull selected components and their net-neighbours closer together."""
-        from typing import cast
-
-        from protoboard.domain.commands.base import Command, MacroCommand
-        from protoboard.domain.commands.component_cmds import (
-            ComponentState,
-            MoveComponentCommand,
-        )
-        from protoboard.gui.workers.operation_worker import run_with_progress
-        from protoboard.services.placement.hugger import hug_components
-
-        tool = self._get_select_tool()
-        selected: set[uuid.UUID] = set()
-        if tool is not None:
-            selected.update(tool._selected_ids)
-            if tool._selected_id is not None:
-                selected.add(tool._selected_id)
-
-        if not selected:
-            self._status.showMessage("Select components to hug first.", 3000)
-            return
-
-        # Snapshot session state for the worker thread.
-        board = self._session.board
-        layout = self._session.layout
-        schematic = self._session.schematic
-        components = self._session.components
-        instances = self._session.instances
-        selected_frozen = frozenset(selected)
-
-        class _State:
-            pass
-        state = _State()
-        state.board = board          # type: ignore[attr-defined]
-        state.layout = layout        # type: ignore[attr-defined]
-        state.schematic = schematic  # type: ignore[attr-defined]
-        state.components = components  # type: ignore[attr-defined]
-        state.instances = instances  # type: ignore[attr-defined]
-
-        r = run_with_progress(
-            parent=self,
-            title="Hug",
-            fn=lambda cb: hug_components(set(selected_frozen), state, progress_callback=cb),  # type: ignore[arg-type]
-            label="Hugging components…",
-            with_progress=True,
-        )
-        if r is None:
-            return
-
-        if not r.moved_ids:
-            self._status.showMessage("Hug: nothing to move.", 2000)
-            return
-
-        cmds: list[Command[ComponentState]] = []
-        for cid in r.moved_ids:
-            old_pl = self._session.layout.placements.get(cid)
-            new_pl = r.new_placements.get(cid)
-            if old_pl is None or new_pl is None:
-                continue
-            cmds.append(
-                cast(
-                    Command[ComponentState],
-                    MoveComponentCommand(
-                        component_id=cid,
-                        new_placement=new_pl,
-                        old_placement=old_pl.copy(),
-                        skip_conflict_check=True,
-                    ),
-                )
+    def _tool_route(self, net_aware: bool = False) -> None:
+        tool = self._board_view._active_tool
+        if isinstance(tool, RouteTool):
+            # Already routing — just toggle net_aware mode, keep current state.
+            tool._net_aware = net_aware
+            tool._notify_status()
+            tool._redraw_committed_lines()
+        else:
+            self._board_view.set_tool(
+                RouteTool(insulated=self._wire_insulated, side=self._wire_side, net_aware=net_aware)
             )
-
-        if not cmds:
-            self._status.showMessage("Hug: nothing to move.", 2000)
-            return
-
-        n = len(cmds)
-        macro: Command[ComponentState] = (
-            cmds[0]
-            if n == 1
-            else cast(
-                Command[ComponentState],
-                MacroCommand(
-                    commands=cmds,
-                    description=f"Hug {n} component{'s' if n != 1 else ''}",
-                ),
-            )
-        )
-
-        self._session.stack.execute(macro, self._session)
-        self._session.layout_changed.emit()
-        self._board_view.refresh()
-        self._update_stats()
-        self._update_undo_redo()
-
-        msg = f"Hug: moved {n} component{'s' if n != 1 else ''}."
-        n_unchanged = len(r.unchanged_ids)
-        if n_unchanged:
-            msg += f" {n_unchanged} could not move (no free slot or locked)."
-        self._status.showMessage(msg, 4000)
-
-    def _tool_route(self) -> None:
-        self._board_view.set_tool(
-            RouteTool(insulated=self._wire_insulated, side=self._wire_side)
-        )
-        self._update_route_status(self._wire_insulated, self._wire_side)
+        self._update_route_status(self._wire_insulated, self._wire_side, net_aware)
 
     def _set_wire_insulated(self, insulated: bool) -> None:
         self._wire_insulated = insulated
@@ -1164,10 +1086,12 @@ class MainWindow(QMainWindow):
                     self._library_panel.setFocus()
                     break
 
-    def _update_route_status(self, insulated: bool, side: str) -> None:
+    def _update_route_status(self, insulated: bool, side: str, net_aware: bool = False) -> None:
         style = "Insulated" if insulated else "Bare"
+        mode = "[NET] " if net_aware else ""
+        hint = "[W] basic" if net_aware else "[Shift+W] net-aware"
         self._mode_label.setText(
-            f"Route Wire  {style} [{side}]  [I] toggle  [T/B] side  [Enter] commit  [Esc] cancel"
+            f"Route Wire {mode} {style} [{side}]  [I] toggle  [T/B] side  {hint}  [Enter] commit  [Esc] cancel"
         )
 
     def _mirror_view(self) -> None:
@@ -1271,6 +1195,7 @@ class MainWindow(QMainWindow):
                 schematic=self._session.schematic,
                 instances=self._session.instances,
                 routing_settings=self._session.routing_settings,
+                layer_overrides=self._session.layer_overrides,
             )
             recent_projects.add(path)
             self._session.mark_clean()
@@ -1312,6 +1237,7 @@ class MainWindow(QMainWindow):
     def _undo(self) -> None:
         if self._session.stack.can_undo():
             self._session.stack.undo(self._session)
+            self._session.invalidate_graph()
             self._session.mark_dirty()
             self._board_view.refresh()
             self._update_stats()
@@ -1320,6 +1246,7 @@ class MainWindow(QMainWindow):
     def _redo(self) -> None:
         if self._session.stack.can_redo():
             self._session.stack.redo(self._session)
+            self._session.invalidate_graph()
             self._session.mark_dirty()
             self._board_view.refresh()
             self._update_stats()
@@ -1590,14 +1517,21 @@ class MainWindow(QMainWindow):
         tool = self._board_view._active_tool
         if not isinstance(tool, SelectTool):
             return
-        # If we're inside a group (navigated via double-click), disband that group.
+        # Priority: outline-selected group > navigated-into group > inferred from selection.
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
         group_id: uuid.UUID | None = None
-        if tool._group_stack:
-            group_id = tool._group_stack[-1]
+        if tool._selected_group_id is not None and tool._selected_group_id in self._session.layout.groups:
+            # User clicked a group outline — disband that group.
+            group_id = tool._selected_group_id
+        elif len(tool._group_stack) > 1:
+            # User double-clicked into a subgroup — disband the active subgroup.
+            group_id = tool._current_group_id
         else:
-            # Otherwise find a group that wholly contains the selected components.
+            # Fall back: find a group that wholly contains the selected components.
             selected = tool._selected_ids
             for gid, grp in self._session.layout.groups.items():
+                if gid == ROOT_GROUP_ID:
+                    continue
                 if grp.component_ids == frozenset(selected):
                     group_id = gid
                     break
@@ -1606,9 +1540,12 @@ class MainWindow(QMainWindow):
             return
         cmd = DisbandGroupCommand(group_id=group_id)
         self._session.stack.execute(cmd, self._session)
-        # Exit the group if we were inside it.
-        if tool._group_stack and tool._group_stack[-1] == group_id:
+        # Exit the group if we were inside it (never pop root).
+        if len(tool._group_stack) > 1 and tool._group_stack[-1] == group_id:
             tool._group_stack.pop()
+        # Clear selected_group_id if it pointed at the disbanded group.
+        if tool._selected_group_id == group_id:
+            tool._selected_group_id = None
         self._session.mark_dirty()
         self._board_view.refresh()
         self._update_undo_redo()
@@ -1623,19 +1560,46 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Autoroute", "No nets to route.")
             return
 
-        # Collect any net-inspector selection — route only those nets when non-empty.
-        selected_net_ids = self._net_inspector_panel.selected_net_ids()
-        net_ids = selected_net_ids if selected_net_ids else None
+        # Collect nets to route: board selection → net inspector → all.
+        from protoboard.gui.tools.select_tool import SelectTool
+        from protoboard.domain.schematic.net import PinRef
+        net_ids: set[uuid.UUID] | None = None
+        tool = self._board_view._active_tool
+        board_selected_ids: set[uuid.UUID] = set()
+        if isinstance(tool, SelectTool):
+            board_selected_ids = (tool._selected_ids or
+                                  ({tool._selected_id} if tool._selected_id else set()))
+        if board_selected_ids:
+            # Collect nets for all pins of selected components.
+            net_ids = set()
+            for comp_id in board_selected_ids:
+                inst = self._session.instances.get(comp_id)
+                defn = self._session.components.get(inst.definition_ref) if inst else None
+                if defn is None:
+                    continue
+                for pin_num in range(1, defn.footprint.pin_count() + 1):
+                    ref = PinRef(component_id=comp_id, pin_number=pin_num)
+                    net = self._session.schematic.net_for_pin(ref)
+                    if net is not None:
+                        net_ids.add(net.id)
+            if not net_ids:
+                net_ids = None  # selected components have no nets — fall through
+        if net_ids is None:
+            # Fall back to Net Inspector selection, then all nets.
+            inspector_ids = self._net_inspector_panel.selected_net_ids()
+            net_ids = inspector_ids if inspector_ids else None
         title_suffix = f" ({len(net_ids)} nets)" if net_ids else " (all nets)"
 
-        # Show pre-flight dialog — user can adjust all parameters.
-        cfg_dlg = AutorouteDialog(self._session.routing_settings, parent=self)
-        if cfg_dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        run_settings = cfg_dlg.routing_settings()
-        if cfg_dlg.save_as_default():
-            self._session.routing_settings = run_settings
+        # Show pre-flight dialog unless user opted to skip it.
+        if self._session.routing_settings.skip_autoroute_dialog:
+            run_settings = self._session.routing_settings
+        else:
+            cfg_dlg = AutorouteDialog(self._session.routing_settings, parent=self)
+            if cfg_dlg.exec() != QDialog.DialogCode.Accepted:
+                return
+            run_settings = cfg_dlg.routing_settings()
+            if cfg_dlg.save_as_default() or run_settings.skip_autoroute_dialog:
+                self._session.routing_settings = run_settings
 
         dlg = QProgressDialog("Initialising autorouter…", "Cancel", 0, 100, self)
         dlg.setWindowTitle(f"Autoroute{title_suffix}")
@@ -2013,6 +1977,12 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Window close
     # ------------------------------------------------------------------
+
+    def showEvent(self, event: object) -> None:  # type: ignore[override]
+        super().showEvent(event)  # type: ignore[arg-type]
+        if not getattr(self, "_initial_fit_done", False):
+            self._initial_fit_done = True
+            self._board_view.fit_board()
 
     def resizeEvent(self, event: "QResizeEvent") -> None:  # type: ignore[override]
         old = event.oldSize()

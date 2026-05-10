@@ -76,6 +76,142 @@ def _net_color(net_id: uuid.UUID, theme: Theme = DEFAULT_THEME) -> QColor:
     return QColor(colors[abs(hash(net_id)) % len(colors)])
 
 
+def comp_fingerprint(
+    placement: ComponentPlacement,
+    definition_ref: str,
+    pin_net_for_comp: dict[int, uuid.UUID],
+    routed_nets: frozenset[uuid.UUID] | None,
+    layers_key: tuple[object, ...],
+) -> tuple[object, ...]:
+    """Stable key capturing structural/connectivity inputs for one component group.
+
+    Highlight state (highlighted_net_id, group_alpha from active_group_id) is
+    intentionally excluded — those are applied via setOpacity() on existing
+    groups rather than triggering a group rebuild.
+    """
+    return (
+        placement.position,
+        placement.rotation,
+        placement.side,
+        getattr(placement, "vertical_flipped", False),
+        tuple(sorted(getattr(placement, "pin_offsets", {}).items())),
+        placement.label_offset,
+        placement.locked,
+        definition_ref,
+        tuple(sorted(pin_net_for_comp.items())),
+        routed_nets,
+        layers_key,
+    )
+
+
+def update_component_groups(
+    scene: QGraphicsScene,
+    placements: dict[uuid.UUID, ComponentPlacement],
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+    existing_groups: dict[uuid.UUID, QGraphicsItemGroup],
+    existing_fingerprints: dict[uuid.UUID, tuple[object, ...]],
+    schematic: Schematic | None,
+    routed_nets: set[uuid.UUID] | None,
+    theme: Theme,
+    layers: LayerState,
+    active_group_id: uuid.UUID | None,
+    layout: Layout | None,
+    highlighted_net_id: uuid.UUID | None,
+) -> None:
+    """Create/update/remove per-component QGraphicsItemGroups without scene clear.
+
+    Groups whose fingerprint is unchanged are left untouched in the scene.
+    """
+    pin_net: dict[PinRef, uuid.UUID] = {}
+    if schematic is not None:
+        for net in schematic.nets.values():
+            for ref in net.pins:
+                pin_net[ref] = net.id
+
+    alpha_map: dict[uuid.UUID, float] = {}
+    effective_gid = active_group_id if active_group_id is not None else ROOT_GROUP_ID
+    if layout is not None and effective_gid != ROOT_GROUP_ID:
+        alpha_map = _group_alpha_map(layout, effective_gid)
+
+    highlighted_comp_ids: set[uuid.UUID] = set()
+    if highlighted_net_id is not None and schematic is not None:
+        net_obj = schematic.nets.get(highlighted_net_id)
+        if net_obj is not None:
+            highlighted_comp_ids = {ref.component_id for ref in net_obj.pins}
+
+    frozen_routed = frozenset(routed_nets) if routed_nets is not None else None
+    ov = layers.overrides
+    layers_key = (
+        layers.camera_side,
+        layers.view_transform,
+        layers.ghost_components,
+        ov.components_top.value,
+        ov.components_bottom.value,
+        ov.labels_top.value,
+        ov.labels_bottom.value,
+        ov.pin_names.value,
+    )
+
+    new_ids = set(placements.keys())
+
+    # Remove groups for components that no longer exist.
+    for cid in list(existing_groups):
+        if cid not in new_ids:
+            scene.removeItem(existing_groups.pop(cid))
+            existing_fingerprints.pop(cid, None)
+
+    for comp_id, placement in placements.items():
+        inst = instances.get(comp_id)
+        if inst is None:
+            continue
+        defn = components.get(inst.definition_ref)
+        if defn is None:
+            continue
+
+        pin_net_for_comp: dict[int, uuid.UUID] = {
+            ref.pin_number: nid
+            for ref, nid in pin_net.items()
+            if ref.component_id == comp_id
+        }
+        fp = comp_fingerprint(
+            placement, inst.definition_ref,
+            pin_net_for_comp, frozen_routed, layers_key,
+        )
+
+        if comp_id in existing_groups:
+            grp = existing_groups[comp_id]
+            if existing_fingerprints.get(comp_id) == fp:
+                # Structure unchanged — just reset drag offset and apply opacity.
+                grp.setPos(0.0, 0.0)
+            else:
+                # Structure changed — rebuild the group.
+                scene.removeItem(existing_groups.pop(comp_id))
+                existing_fingerprints.pop(comp_id, None)
+                grp = _render_one(scene, placement, inst, defn, comp_id, pin_net,
+                                  routed_nets, theme, layers, group_alpha=1.0,
+                                  highlighted_net_id=None)
+                if grp is None:
+                    continue
+                existing_groups[comp_id] = grp
+                existing_fingerprints[comp_id] = fp
+        else:
+            grp = _render_one(scene, placement, inst, defn, comp_id, pin_net,
+                              routed_nets, theme, layers, group_alpha=1.0,
+                              highlighted_net_id=None)
+            if grp is None:
+                continue
+            existing_groups[comp_id] = grp
+            existing_fingerprints[comp_id] = fp
+
+        # Apply opacity for group-context dimming and net highlight — O(1) per group.
+        group_alpha = alpha_map.get(comp_id, 1.0)
+        if highlighted_net_id is not None:
+            net_dim = 1.0 if comp_id in highlighted_comp_ids else theme.highlight_dim_components
+            group_alpha = max(0.04, group_alpha * net_dim)
+        grp.setOpacity(group_alpha)
+
+
 def render_components(
     scene: QGraphicsScene,
     placements: dict[uuid.UUID, ComponentPlacement],
@@ -379,13 +515,16 @@ def render_groups(
     components: dict[str, ComponentDefinition],
     theme: Theme = DEFAULT_THEME,
     active_group_id: uuid.UUID | None = None,
-) -> None:
+) -> list[QGraphicsItem]:
     """Render a dotted outline around each group's bounding box.
 
     Only groups that are direct children of *active_group_id* (or top-level
     non-root groups when active == root) are rendered at full opacity.
     The root group itself is never rendered.
+
+    Returns the list of added items so the caller can track and remove them.
     """
+    added: list[QGraphicsItem] = []
     t = theme
     effective_active = active_group_id if active_group_id is not None else ROOT_GROUP_ID
     active_grp = layout.groups.get(effective_active)
@@ -455,6 +594,7 @@ def render_groups(
         rect.setData(1, "group_outline")
         rect.setZValue(1.0)
         scene.addItem(rect)
+        added.append(rect)
         if group.name:
             name_label = QGraphicsTextItem(group.name)
             name_label.setDefaultTextColor(name_col)
@@ -462,6 +602,7 @@ def render_groups(
             name_label.setPos(x0 + 0.1, y0 + 0.05)
             name_label.setZValue(1.1)
             scene.addItem(name_label)
+            added.append(name_label)
 
         # Render exported pins as small green diamonds (visible from parent).
         if group.id in visible_child_ids and group.exported_pins:
@@ -490,3 +631,6 @@ def render_groups(
                 item.setPen(ep_pen)
                 item.setZValue(12.0)
                 scene.addItem(item)
+                added.append(item)
+
+    return added

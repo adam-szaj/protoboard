@@ -74,6 +74,9 @@ ACTION_WIRE_SIDE_BOTTOM = "wire_side_bottom"
 ACTION_RUN_DRC = "run_drc"
 ACTION_AUTOROUTE = "autoroute"
 
+ACTION_HIGHLIGHT_TOGGLE = "highlight_toggle"   # toggle highlight on/off
+ACTION_HIGHLIGHT_CYCLE  = "highlight_cycle"    # cycle through interaction modes
+
 ACTION_LAYER_1 = "layer_1"
 ACTION_LAYER_2 = "layer_2"
 ACTION_LAYER_3 = "layer_3"
@@ -127,6 +130,8 @@ DEFAULTS: dict[str, str] = {
     ACTION_WIRE_SIDE_BOTTOM: "B",
     ACTION_RUN_DRC: "F5",
     ACTION_AUTOROUTE: "F6",
+    ACTION_HIGHLIGHT_TOGGLE: "",
+    ACTION_HIGHLIGHT_CYCLE: "`",
     ACTION_LAYER_1: "1",
     ACTION_LAYER_2: "2",
     ACTION_LAYER_3: "3",

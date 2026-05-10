@@ -123,7 +123,7 @@ class SelectTool(_Tool):
         self._edit_preview_items: list[QGraphicsLineItem] = []
         self._edit_live_line: QGraphicsLineItem | None = None
         # Group navigation stack: list of group IDs currently entered (innermost last).
-        # Starts at root group; never empty.
+        # Starts at root group; never empty — use _current_group_id for safe access.
         from protoboard.domain.layout.layout import ROOT_GROUP_ID as _ROOT_GID
         self._group_stack: list[uuid.UUID] = [_ROOT_GID]
         # Set when the user clicks a group outline — enables group-as-monolith rotation.
@@ -139,6 +139,14 @@ class SelectTool(_Tool):
         self._highlight_net_id: uuid.UUID | None = None
         self._highlight_comp_ids: set[uuid.UUID] = set()
         self._highlight_items: list[QGraphicsItem] = []
+        # Interaction mode: controls what gets selected and highlighted on click.
+        from protoboard.gui.interaction_mode import INTERACTION_MODES, InteractionMode
+        self._interaction_mode: InteractionMode = INTERACTION_MODES["default"]
+        self._prev_interaction_mode: InteractionMode | None = None
+        # Last click source for mode re-dispatch when mode changes.
+        self._hl_source_wire: uuid.UUID | None = None
+        self._hl_source_comp: uuid.UUID | None = None
+        self._hl_source_pin: int | None = None
         # Selection filter: controls what types of objects are selectable.
         self._filter_components: bool = True
         self._filter_wires: bool = True
@@ -147,11 +155,20 @@ class SelectTool(_Tool):
         self._floating_ids: set[uuid.UUID] = set()
         self._floating_orig_placements: dict[uuid.UUID, ComponentPlacement] = {}
         self._floating_extra_cmds: list[object] = []
+        self._floating_dragged_wire_ids: frozenset[uuid.UUID] = frozenset()
         self._floating_highlight_items: list[QGraphicsItem] = []
 
     # ------------------------------------------------------------------
     # _Tool interface
     # ------------------------------------------------------------------
+
+    @property
+    def _current_group_id(self) -> uuid.UUID:
+        """Return top of group stack, repairing empty stack defensively."""
+        if not self._group_stack:
+            from protoboard.domain.layout.layout import ROOT_GROUP_ID
+            self._group_stack = [ROOT_GROUP_ID]
+        return self._group_stack[-1]
 
     def activate(self, session: object, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
@@ -184,6 +201,311 @@ class SelectTool(_Tool):
         self._filter_groups = enabled
 
     # ------------------------------------------------------------------
+    # Interaction mode
+    # ------------------------------------------------------------------
+
+    def set_interaction_mode(self, m: object) -> None:
+        """Set the interaction mode and re-dispatch highlight to last source."""
+        from protoboard.gui.interaction_mode import InteractionMode
+        if not isinstance(m, InteractionMode):
+            return
+        self._interaction_mode = m
+        if self._hl_source_wire is not None or self._hl_source_comp is not None:
+            self._apply_interaction(
+                wire_id=self._hl_source_wire,
+                comp_id=self._hl_source_comp,
+                pin_number=self._hl_source_pin,
+            )
+        if self._session is not None:
+            self._session.notify_highlight_mode(m.label)
+
+    @property
+    def interaction_mode(self) -> object:
+        return self._interaction_mode
+
+    def _apply_interaction(
+        self,
+        *,
+        wire_id: uuid.UUID | None = None,
+        comp_id: uuid.UUID | None = None,
+        pin_number: int | None = None,
+    ) -> None:
+        """Unified dispatcher: apply selection and highlight according to current mode."""
+        from protoboard.gui.interaction_mode import (
+            INTERACTION_MODES,
+            HighlightScope,
+            SelectionTarget,
+        )
+        m = self._interaction_mode
+        self._hl_source_wire = wire_id
+        self._hl_source_comp = comp_id
+        self._hl_source_pin = pin_number
+
+        correlated_comps, correlated_wires = self._resolve_correlated(
+            m.highlight_scope,
+            wire_id=wire_id,
+            comp_id=comp_id,
+            pin_number=pin_number,
+        )
+
+        match m.selection_target:
+            case SelectionTarget.CLICKED_OBJECT:
+                # For component clicks, on_press handles selection itself.
+                # For wire clicks, we select here since on_press delegates to us.
+                if wire_id is not None:
+                    self._select_wire(wire_id)
+            case SelectionTarget.CORRELATED_COMPS:
+                self._deselect()
+                self._deselect_wire()
+                self._clear_multi_selection()
+                self._clear_multi_wire_selection()
+                for cid in correlated_comps:
+                    self._selected_ids.add(cid)
+                    self._draw_multi_highlight(cid)
+            case SelectionTarget.CORRELATED_WIRES:
+                self._deselect()
+                self._deselect_wire()
+                self._clear_multi_selection()
+                self._clear_multi_wire_selection()
+                for wid in correlated_wires:
+                    self._selected_wire_ids.add(wid)
+                    self._draw_multi_wire_highlight(wid)
+            case SelectionTarget.CORRELATED_ALL:
+                self._deselect()
+                self._deselect_wire()
+                self._clear_multi_selection()
+                self._clear_multi_wire_selection()
+                for cid in correlated_comps:
+                    self._selected_ids.add(cid)
+                    self._draw_multi_highlight(cid)
+                for wid in correlated_wires:
+                    self._selected_wire_ids.add(wid)
+                    self._draw_multi_wire_highlight(wid)
+            case SelectionTarget.NOTHING:
+                pass  # selection unchanged
+
+        self._render_highlight(
+            m.highlight_scope,
+            m.highlight_profile,
+            wire_id=wire_id,
+            comp_id=comp_id,
+            pin_number=pin_number,
+            correlated_comps=correlated_comps,
+            correlated_wires=correlated_wires,
+        )
+        self._notify_selection()
+
+    def _resolve_correlated(
+        self,
+        scope: object,
+        *,
+        wire_id: uuid.UUID | None,
+        comp_id: uuid.UUID | None,
+        pin_number: int | None,
+    ) -> tuple[set[uuid.UUID], set[uuid.UUID]]:
+        """Return (comp_ids, wire_ids) correlated to the click source under scope."""
+        from protoboard.gui.interaction_mode import HighlightScope
+        from protoboard.domain.schematic.net import PinRef
+        from protoboard.gui.board_view import _build_wire_net_map
+
+        if not isinstance(scope, HighlightScope) or scope == HighlightScope.NONE:
+            return set(), set()
+
+        session = self._session
+        graph = session.connectivity_graph()
+
+        # Determine the logical net (if any) relevant to the click source.
+        logical_net_id: uuid.UUID | None = None
+        if comp_id is not None and pin_number is not None:
+            ref = PinRef(component_id=comp_id, pin_number=pin_number)
+            net = session.schematic.net_for_pin(ref)
+            if net is not None:
+                logical_net_id = net.id
+        elif wire_id is not None:
+            wnm = _build_wire_net_map(session)
+            logical_net_id = wnm.get(wire_id)
+
+        correlated_comps: set[uuid.UUID] = set()
+        correlated_wires: set[uuid.UUID] = set()
+
+        if scope in (HighlightScope.LOGICAL_NET_ALL, HighlightScope.LOGICAL_UNCONNECTED,
+                     HighlightScope.PHYSICAL_NET, HighlightScope.NEIGHBORS_ALL,
+                     HighlightScope.CLICKED_OBJECT):
+            if logical_net_id is not None:
+                net_obj = session.schematic.nets.get(logical_net_id)
+                if net_obj is not None:
+                    correlated_comps = {ref.component_id for ref in net_obj.pins}
+                # Wires in the logical net.
+                wnm = _build_wire_net_map(session)
+                correlated_wires = {wid for wid, nid in wnm.items() if nid == logical_net_id}
+
+        if scope == HighlightScope.NEIGHBORS_ALL and comp_id is not None:
+            # All components sharing any net with comp_id.
+            neighbors: set[uuid.UUID] = set()
+            for net_obj in session.schematic.nets.values():
+                comp_ids_in_net = {pr.component_id for pr in net_obj.pins}
+                if comp_id in comp_ids_in_net:
+                    neighbors.update(comp_ids_in_net - {comp_id})
+            correlated_comps = neighbors
+
+        return correlated_comps, correlated_wires
+
+    def _render_highlight(
+        self,
+        scope: object,
+        profile: object,
+        *,
+        wire_id: uuid.UUID | None,
+        comp_id: uuid.UUID | None,
+        pin_number: int | None,
+        correlated_comps: set[uuid.UUID],
+        correlated_wires: set[uuid.UUID],
+    ) -> None:
+        """Draw overlay items and apply dimming according to scope and profile."""
+        from protoboard.gui.interaction_mode import HighlightProfile, HighlightScope
+        from protoboard.domain.schematic.net import PinRef
+        from protoboard.domain.layout.placement import pin_world_position
+        from protoboard.gui.board_view import _build_wire_net_map
+        from protoboard.gui.layer_state import Z_OVERLAY
+
+        if not isinstance(scope, HighlightScope) or not isinstance(profile, HighlightProfile):
+            return
+
+        self._clear_connectivity_highlight()
+        scene = self._view.scene() if self._view is not None else None
+        if scene is None:
+            return
+
+        if scope == HighlightScope.NONE:
+            if self._view is not None:
+                self._view.set_highlighted_net(None)
+            return
+
+        session = self._session
+
+        # Determine net_id for BoardView dimming.
+        net_id: uuid.UUID | None = None
+        if comp_id is not None and pin_number is not None:
+            ref = PinRef(component_id=comp_id, pin_number=pin_number)
+            net = session.schematic.net_for_pin(ref)
+            if net is not None:
+                net_id = net.id
+        elif wire_id is not None:
+            wnm = _build_wire_net_map(session)
+            net_id = wnm.get(wire_id)
+
+        self._highlight_net_id = net_id
+
+        # Apply dimming via BoardView.
+        if self._view is not None:
+            self._view.set_highlighted_net_with_profile(net_id, profile)
+
+        # Draw pad markers.
+        if scope in (HighlightScope.LOGICAL_NET_ALL, HighlightScope.PHYSICAL_NET,
+                     HighlightScope.CLICKED_OBJECT):
+            if net_id is not None:
+                net_obj = session.schematic.nets.get(net_id)
+                if net_obj is not None:
+                    r = profile.pad_marker_radius
+                    rgba = profile.pad_marker_rgba
+                    pen = QPen(QColor(*rgba[:3], rgba[3]), 0.05)
+                    brush = QBrush(QColor(*rgba))
+                    for ref in net_obj.pins:
+                        pl = session.layout.placements.get(ref.component_id)
+                        inst = session.instances.get(ref.component_id)
+                        if pl is None or inst is None:
+                            continue
+                        defn = session.components.get(inst.definition_ref)
+                        if defn is None:
+                            continue
+                        try:
+                            pos = pin_world_position(defn.footprint, pl, ref.pin_number)
+                        except (IndexError, ValueError):
+                            continue
+                        circle = QGraphicsEllipseItem(
+                            QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r)
+                        )
+                        circle.setBrush(brush)
+                        circle.setPen(pen)
+                        circle.setZValue(Z_OVERLAY + 1.0)
+                        scene.addItem(circle)
+                        self._highlight_items.append(circle)
+
+        elif scope == HighlightScope.LOGICAL_UNCONNECTED:
+            # Show only pins not yet physically connected.
+            if net_id is not None:
+                graph = session.connectivity_graph()
+                net_obj = session.schematic.nets.get(net_id)
+                if net_obj is not None:
+                    # Gather canonical keys of physically-connected pins.
+                    connected_keys: set[object] = set()
+                    for ref2 in net_obj.pins:
+                        ck = graph.node_for_pin(PinRef(ref2.component_id, ref2.pin_number))
+                        if ck is not None:
+                            connected_keys.add(ck)
+
+                    r = profile.pad_marker_radius if profile.pad_marker_radius > 0 else 0.22
+                    rgba = profile.unconnected_rgba
+                    pen = QPen(QColor(*rgba[:3], rgba[3]), 0.07)
+                    if profile.unconnected_dashed:
+                        pen.setStyle(Qt.PenStyle.DashLine)
+                    brush = QBrush(QColor(*rgba[:3], rgba[3] // 3))
+                    for ref in net_obj.pins:
+                        ck = graph.node_for_pin(PinRef(ref.component_id, ref.pin_number))
+                        # Pin is unconnected if its canonical key is unique (not shared).
+                        if ck is not None:
+                            same_key_count = sum(
+                                1 for r2 in net_obj.pins
+                                if graph.node_for_pin(PinRef(r2.component_id, r2.pin_number)) == ck
+                            )
+                            if same_key_count > 1:
+                                continue  # physically connected to another pin in net
+                        pl = session.layout.placements.get(ref.component_id)
+                        inst = session.instances.get(ref.component_id)
+                        if pl is None or inst is None:
+                            continue
+                        defn = session.components.get(inst.definition_ref)
+                        if defn is None:
+                            continue
+                        try:
+                            pos = pin_world_position(defn.footprint, pl, ref.pin_number)
+                        except (IndexError, ValueError):
+                            continue
+                        circle = QGraphicsEllipseItem(
+                            QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r)
+                        )
+                        circle.setBrush(brush)
+                        circle.setPen(pen)
+                        circle.setZValue(Z_OVERLAY + 1.0)
+                        scene.addItem(circle)
+                        self._highlight_items.append(circle)
+
+        elif scope == HighlightScope.NEIGHBORS_ALL:
+            # Draw bbox rects around neighboring components.
+            from protoboard.domain.layout.placement import component_bbox
+            rgba_fill = profile.neighbor_rect_rgba
+            rgba_pen = profile.neighbor_pen_rgba
+            for other_id in correlated_comps:
+                pl = session.layout.placements.get(other_id)
+                if pl is None:
+                    continue
+                inst = session.instances.get(other_id)
+                if inst is None:
+                    continue
+                defn = session.components.get(inst.definition_ref)
+                if defn is None:
+                    continue
+                bbox = component_bbox(defn.footprint, pl, defn.component_class.value)
+                rect_item = QGraphicsRectItem(
+                    QRectF(bbox.x, bbox.y, bbox.width, bbox.height)
+                )
+                rect_item.setPen(QPen(QColor(*rgba_pen), 0.07))
+                rect_item.setBrush(QBrush(QColor(*rgba_fill)))
+                rect_item.setZValue(Z_OVERLAY + 1.0)
+                scene.addItem(rect_item)
+                self._highlight_items.append(rect_item)
+
+    # ------------------------------------------------------------------
     # Floating state
     # ------------------------------------------------------------------
 
@@ -195,11 +517,13 @@ class SelectTool(_Tool):
         comp_ids: set[uuid.UUID],
         orig_placements: dict[uuid.UUID, ComponentPlacement],
         extra_cmds: list[object] | None = None,
+        dragged_wire_ids: frozenset[uuid.UUID] = frozenset(),
     ) -> None:
         """Enter floating state — component is in new position but not committed."""
         self._floating_ids = comp_ids
         self._floating_orig_placements = orig_placements
         self._floating_extra_cmds = extra_cmds or []
+        self._floating_dragged_wire_ids = dragged_wire_ids
         self._draw_floating_highlights()
         self._update_floating_status()
 
@@ -227,12 +551,14 @@ class SelectTool(_Tool):
                     new_placement=new_pl,
                     old_placement=old_pl,
                     skip_conflict_check=True,
+                    exclude_wire_ids=self._floating_dragged_wire_ids,
                 )
             )
         self._clear_floating_highlights()
         self._floating_ids = set()
         self._floating_orig_placements = {}
         self._floating_extra_cmds = []
+        self._floating_dragged_wire_ids = frozenset()
         if cmds:
             if len(cmds) == 1:
                 self._session.stack.execute(cmds[0], self._session)
@@ -249,6 +575,7 @@ class SelectTool(_Tool):
         self._floating_ids = set()
         self._floating_orig_placements = {}
         self._floating_extra_cmds = []
+        self._floating_dragged_wire_ids = frozenset()
         self._session.layout_changed.emit()
 
     def _clear_floating(self) -> None:
@@ -256,6 +583,7 @@ class SelectTool(_Tool):
         self._floating_ids = set()
         self._floating_orig_placements = {}
         self._floating_extra_cmds = []
+        self._floating_dragged_wire_ids = frozenset()
 
     def _draw_floating_highlights(self) -> None:
         if self._view is None:
@@ -311,6 +639,25 @@ class SelectTool(_Tool):
         self._clear_rubber_band()
 
     def on_scene_cleared(self) -> None:
+        if self._session is not None:
+            # Drop stale wire selections.
+            existing_wires = {w.id for w in self._session.layout.wires}
+            if self._selected_wire_id is not None and self._selected_wire_id not in existing_wires:
+                self._selected_wire_id = None
+            self._selected_wire_ids -= (self._selected_wire_ids - existing_wires)
+
+            # Drop stale component selections.
+            existing_comps = set(self._session.layout.placements.keys())
+            if self._selected_id is not None and self._selected_id not in existing_comps:
+                self._selected_id = None
+            self._selected_ids -= (self._selected_ids - existing_comps)
+
+            # Invalidate stale group references.
+            if self._selected_group_id not in self._session.layout.groups:
+                self._selected_group_id = None
+            while len(self._group_stack) > 1 and self._current_group_id not in self._session.layout.groups:
+                self._group_stack.pop()
+
         self._highlight = None
         self._origin_cross.clear()
         self._multi_highlights.clear()
@@ -472,14 +819,14 @@ class SelectTool(_Tool):
             # Block interaction with components outside the active group context.
             if not self._is_accessible(hit):
                 return False
-            # Connectivity highlight: try pin-level hit first, fall back to body.
+            # Connectivity highlight: dispatch via interaction mode.
             if self._view is not None and self._view.connectness_enabled:
-                pin_hit = self._hit_test_pin(scene_pt)
+                pin_hit = self._hit_test_pin_for_comp(scene_pt, hit)
                 if pin_hit is not None:
                     pin_comp_id, pin_number = pin_hit
-                    self._activate_net_highlight(pin_comp_id, pin_number)
+                    self._apply_interaction(comp_id=pin_comp_id, pin_number=pin_number)
                 else:
-                    self._activate_component_highlight(hit)
+                    self._apply_interaction(comp_id=hit)
             # If the hit component is in a group that we haven't entered yet,
             # redirect the selection to that group's representative ID.
             hit = self._resolve_group_hit(hit)
@@ -553,7 +900,8 @@ class SelectTool(_Tool):
                 self._clear_multi_selection()
                 self._clear_multi_wire_selection()
                 self._deselect()
-                self._select_wire_cycled(wire_hit, scene_pt)
+                # Dispatch via interaction mode (may select wire or correlated objects).
+                self._apply_interaction(wire_id=wire_hit)
             return True
 
         # Check if click is inside bbox of an already-selected component.
@@ -606,7 +954,7 @@ class SelectTool(_Tool):
         if hit is None:
             hit = self._hit_test_bbox(scene_pt)
         groups = self._session.layout.groups
-        current_group_id = self._group_stack[-1]
+        current_group_id = self._current_group_id
         parent_group = groups.get(current_group_id)
         _log.info(
             "group.double_click",
@@ -735,6 +1083,10 @@ class SelectTool(_Tool):
         # Resolve effective group for this drag (either from outline-click or
         # by detecting that all drag_ids belong to the same group).
         effective_group_id = self._selected_group_id
+        # Guard against stale selected_group_id (e.g. after disband).
+        if effective_group_id is not None and effective_group_id not in self._session.layout.groups:
+            self._selected_group_id = None
+            effective_group_id = None
         if effective_group_id is None and drag_ids:
             effective_group_id = self._common_group_for(drag_ids)
 
@@ -839,6 +1191,8 @@ class SelectTool(_Tool):
                 deduped.append(cmd)
             extra_cmds = deduped
 
+            # Capture moved wire IDs before clearing _drag_orig_wire_paths.
+            dragged_wire_ids = frozenset(self._drag_orig_wire_paths.keys())
             self._drag_orig_wire_paths = {}
 
             if floating_moved:
@@ -847,7 +1201,10 @@ class SelectTool(_Tool):
                 auto_accept = load_app_settings().auto_accept_placement
                 if auto_accept and not any_conflict:
                     # Directly commit without entering floating state.
-                    all_cmds: list[object] = []
+                    # Wire commands (remove/add) must run BEFORE MoveComponentCommand
+                    # so that _update_wires_for_move sees the post-removal wire state
+                    # and _saved_wires captures the correct snapshot for undo.
+                    all_cmds: list[object] = list(extra_cmds)
                     for cid in floating_moved:
                         new_pl = self._session.layout.placements.get(cid)
                         old_pl = floating_orig.get(cid)
@@ -857,8 +1214,8 @@ class SelectTool(_Tool):
                                 new_placement=new_pl,
                                 old_placement=old_pl,
                                 skip_conflict_check=True,
+                                exclude_wire_ids=dragged_wire_ids,
                             ))
-                    all_cmds.extend(extra_cmds)
                     if all_cmds:
                         if len(all_cmds) == 1:
                             self._session.stack.execute(all_cmds[0], self._session)  # type: ignore[arg-type]
@@ -867,7 +1224,8 @@ class SelectTool(_Tool):
                             self._session.stack.execute(macro, self._session)
                         self._session.layout_changed.emit()
                 else:
-                    self._enter_floating(floating_moved, floating_orig, extra_cmds)
+                    self._enter_floating(floating_moved, floating_orig, extra_cmds,
+                                         dragged_wire_ids=dragged_wire_ids)
                     self._session.layout_changed.emit()
             else:
                 # Wire-only drag (no components moved): commit wire path changes directly.
@@ -973,6 +1331,14 @@ class SelectTool(_Tool):
                 self._deselect_wire()
                 self._clear_connectivity_highlight()
                 self._notify_selection()
+        elif key == Qt.Key.Key_QuoteLeft:
+            # Backtick: cycle through interaction modes.
+            from protoboard.gui.interaction_mode import INTERACTION_MODES
+            ids = list(INTERACTION_MODES.keys())
+            current = self._interaction_mode.id
+            idx = ids.index(current) if current in ids else 0
+            next_mode = INTERACTION_MODES[ids[(idx + 1) % len(ids)]]
+            self.set_interaction_mode(next_mode)
 
     def on_key_release(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Control and not self._dragging:
@@ -1058,7 +1424,7 @@ class SelectTool(_Tool):
         menu.addSeparator()
 
         # --- Export pin submenu (only when inside a non-root group) ---
-        active_gid = self._group_stack[-1] if self._group_stack else ROOT_GROUP_ID
+        active_gid = self._current_group_id
         if active_gid != ROOT_GROUP_ID:
             active_grp = self._session.layout.groups.get(active_gid)
             if active_grp is not None and comp_id in all_component_ids(
@@ -1247,6 +1613,7 @@ class SelectTool(_Tool):
         """Return the nearest component within _HIT_RADIUS.
 
         Front-side components are preferred.  Hidden components (alpha==0) are skipped.
+        Uses a spatial index to avoid scanning all components on every click.
         """
         session = self._session
         camera = self._camera_side()
@@ -1256,7 +1623,19 @@ class SelectTool(_Tool):
         back_best: uuid.UUID | None = None
         back_best_d = float("inf")
 
-        for comp_id, placement in session.layout.placements.items():
+        px, py = scene_pt.x(), scene_pt.y()
+        cell_x, cell_y = round(px), round(py)
+        candidates: set[uuid.UUID] = set()
+        spatial = session.comp_spatial_index()
+        for dcx in (-1, 0, 1):
+            for dcy in (-1, 0, 1):
+                for cid in spatial.get((cell_x + dcx, cell_y + dcy), []):
+                    candidates.add(cid)
+
+        for comp_id in candidates:
+            placement = session.layout.placements.get(comp_id)
+            if placement is None:
+                continue
             side = placement.side  # type: ignore[assignment]
             if layers.alpha_for_component(side) == 0.0:  # type: ignore[union-attr]
                 continue
@@ -1268,8 +1647,8 @@ class SelectTool(_Tool):
                 continue
             for n in range(defn.footprint.pin_count()):
                 pos = pin_world_position(defn.footprint, placement, n + 1)
-                dx = scene_pt.x() - pos.x
-                dy = scene_pt.y() - pos.y
+                dx = px - pos.x
+                dy = py - pos.y
                 d = math.sqrt(dx * dx + dy * dy)
                 if placement.side == camera:
                     if d < front_best_d:
@@ -1290,11 +1669,21 @@ class SelectTool(_Tool):
         """Return the first component whose bbox contains scene_pt.
 
         Front-side first; hidden components skipped.
+        Uses a spatial index to narrow candidates before computing bboxes.
         """
         session = self._session
         camera = self._camera_side()
         layers = self._layer_state()
         px, py = scene_pt.x(), scene_pt.y()
+
+        # Collect candidates within ±1 grid cell (covers _BBOX_MARGIN = 0.45).
+        cell_x, cell_y = round(px), round(py)
+        candidates: set[uuid.UUID] = set()
+        spatial = session.comp_spatial_index()
+        for dcx in (-1, 0, 1):
+            for dcy in (-1, 0, 1):
+                for cid in spatial.get((cell_x + dcx, cell_y + dcy), []):
+                    candidates.add(cid)
 
         def _check(comp_id: uuid.UUID, placement: object) -> bool:
             from protoboard.domain.layout.placement import ComponentPlacement as CP
@@ -1319,11 +1708,13 @@ class SelectTool(_Tool):
             return (min(xs) - m <= px <= max(xs) + m
                     and min(ys) - m <= py <= max(ys) + m)
 
-        for comp_id, placement in session.layout.placements.items():
-            if placement.side == camera and _check(comp_id, placement):
+        for comp_id in candidates:
+            placement = session.layout.placements.get(comp_id)
+            if placement is not None and placement.side == camera and _check(comp_id, placement):
                 return comp_id
-        for comp_id, placement in session.layout.placements.items():
-            if placement.side != camera and _check(comp_id, placement):
+        for comp_id in candidates:
+            placement = session.layout.placements.get(comp_id)
+            if placement is not None and placement.side != camera and _check(comp_id, placement):
                 return comp_id
         return None
 
@@ -1734,6 +2125,7 @@ class SelectTool(_Tool):
             instances=self._session.instances,
             components=self._session.components,
             schematic=self._session.schematic,
+            moved_wire_ids=set(self._drag_orig_wire_paths.keys()),
         )
 
         _log.info("build_group_drag.conflict_result",
@@ -1787,6 +2179,7 @@ class SelectTool(_Tool):
                 new_placement=pl,
                 old_placement=old_pl,
                 skip_conflict_check=True,  # already verified by check_group_move_conflicts
+                exclude_wire_ids=frozenset(self._drag_orig_wire_paths.keys()),
             ))
 
         for wire in self._session.layout.wires:
@@ -2077,7 +2470,8 @@ class SelectTool(_Tool):
         self._selected_group_id = None
 
     def _delete_multi(self) -> None:
-        ids = list(self._selected_ids)
+        existing_comps = set(self._session.layout.placements.keys())
+        ids = [cid for cid in self._selected_ids if cid in existing_comps]
         if not ids:
             return
         from typing import cast
@@ -2217,7 +2611,18 @@ class SelectTool(_Tool):
         px, py = scene_pt.x(), scene_pt.y()
         best_id: uuid.UUID | None = None
         best_d = _WIRE_HIT_DIST
-        for wire in self._session.layout.wires:
+
+        # Use spatial index: check ±1 cell around cursor to find wire candidates.
+        cell_x, cell_y = round(px), round(py)
+        candidates: set[uuid.UUID] = set()
+        spatial = self._session.wire_spatial_index()
+        for dcx in (-1, 0, 1):
+            for dcy in (-1, 0, 1):
+                for wid in spatial.get((cell_x + dcx, cell_y + dcy), []):
+                    candidates.add(wid)
+
+        wire_map = {w.id: w for w in self._session.layout.wires if w.id in candidates}
+        for wire in wire_map.values():
             d = _min_dist_to_wire(px, py, wire)
             if d < best_d:
                 best_d = d
@@ -2457,7 +2862,9 @@ class SelectTool(_Tool):
         all_ids = set(self._selected_wire_ids)
         if self._selected_wire_id is not None:
             all_ids.add(self._selected_wire_id)
-        ids = list(all_ids)
+        # Filter out stale IDs (wire may have been removed by a previous operation).
+        existing = {w.id for w in self._session.layout.wires}
+        ids = [wid for wid in all_ids if wid in existing]
         if not ids:
             return
         from typing import cast
@@ -3191,7 +3598,7 @@ class SelectTool(_Tool):
                     gid = uuid.UUID(str(raw))
                     # Only outline-clicks for child groups of active group.
                     groups = self._session.layout.groups
-                    active = groups.get(self._group_stack[-1])
+                    active = groups.get(self._current_group_id)
                     if active and gid in active.child_group_ids:
                         return gid
         return None
@@ -3202,7 +3609,7 @@ class SelectTool(_Tool):
         Returns comp_id unchanged if it's a direct member at the current depth."""
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         groups = self._session.layout.groups
-        current = self._group_stack[-1]
+        current = self._current_group_id
         g = groups.get(current)
         # Check if comp_id is directly in a child group — redirect to proxy.
         for child_id in (g.child_group_ids if g else frozenset()):
@@ -3215,7 +3622,7 @@ class SelectTool(_Tool):
     def _current_group_component_ids(self) -> frozenset[uuid.UUID]:
         """Return the set of all component IDs accessible at the current group depth."""
         groups = self._session.layout.groups
-        gid = self._group_stack[-1]
+        gid = self._current_group_id
         g = groups.get(gid)
         if g is None:
             return frozenset()
@@ -3232,7 +3639,7 @@ class SelectTool(_Tool):
             return True
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         groups = self._session.layout.groups
-        active_gid = self._group_stack[-1]
+        active_gid = self._current_group_id
         active = groups.get(active_gid)
         if active is None:
             return True  # no group info — allow all
@@ -3270,7 +3677,7 @@ class SelectTool(_Tool):
         # Collect groups at the current level (child groups of active group),
         # excluding root.
         groups = self._session.layout.groups
-        active_gid = self._group_stack[-1]
+        active_gid = self._current_group_id
         active = groups.get(active_gid)
         child_groups = [
             groups[gid]
@@ -3320,7 +3727,7 @@ class SelectTool(_Tool):
         """Pop the innermost group from the navigation stack (Esc)."""
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         if len(self._group_stack) > 1:  # never pop root
-            exiting_gid = self._group_stack[-1]
+            exiting_gid = self._current_group_id
             _log.debug("group.exited", group_id=str(exiting_gid), remaining=len(self._group_stack) - 1)
             self._group_stack.pop()
             self._clear_multi_selection()
@@ -3356,7 +3763,7 @@ class SelectTool(_Tool):
     def _notify_active_group(self) -> None:
         """Inform BoardView of the current active group for rendering."""
         if hasattr(self._view, "set_active_group"):
-            self._view.set_active_group(self._group_stack[-1])  # type: ignore[union-attr]
+            self._view.set_active_group(self._current_group_id)  # type: ignore[union-attr]
 
     # ------------------------------------------------------------------
 
@@ -3396,6 +3803,30 @@ class SelectTool(_Tool):
                 if effective_d < best_d:
                     best_d = effective_d
                     best = (comp_id, n + 1)
+        return best
+
+    def _hit_test_pin_for_comp(
+        self, scene_pt: QPointF, comp_id: uuid.UUID
+    ) -> tuple[uuid.UUID, int] | None:
+        """Like _hit_test_pin but scans only one component — O(P) not O(C×P)."""
+        session = self._session
+        placement = session.layout.placements.get(comp_id)
+        if placement is None:
+            return None
+        inst = session.instances.get(comp_id)
+        if inst is None:
+            return None
+        defn = session.components.get(inst.definition_ref)
+        if defn is None:
+            return None
+        best_d = _HIT_RADIUS
+        best: tuple[uuid.UUID, int] | None = None
+        for n in range(defn.footprint.pin_count()):
+            pos = pin_world_position(defn.footprint, placement, n + 1)
+            d = math.hypot(scene_pt.x() - pos.x, scene_pt.y() - pos.y)
+            if d < best_d:
+                best_d = d
+                best = (comp_id, n + 1)
         return best
 
     def _activate_net_highlight(self, comp_id: uuid.UUID, pin_number: int) -> None:
@@ -3438,29 +3869,8 @@ class SelectTool(_Tool):
             scene.addItem(circle)
             self._highlight_items.append(circle)
 
-        # Highlight wires belonging to this net.
-        wire_net_map: dict[uuid.UUID, uuid.UUID] = {}
-        for wire in session.layout.wires:
-            for ref2 in net.pins:
-                if any(
-                    math.hypot(p.x - pos2.x, p.y - pos2.y) < 1e-4
-                    for p in wire.path
-                    for pos2 in self._pin_positions_for_ref(ref2)
-                ):
-                    wire_net_map[wire.id] = net.id
-                    break
-        for wire in session.layout.wires:
-            if wire.id not in wire_net_map:
-                continue
-            for i in range(len(wire.path) - 1):
-                a, b = wire.path[i], wire.path[i + 1]
-                line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
-                pen = QPen(QColor(255, 220, 0, 180), 0.25)
-                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-                line.setPen(pen)
-                line.setZValue(Z_OVERLAY + 0.5)
-                scene.addItem(line)
-                self._highlight_items.append(line)
+        # Wire dimming is handled by set_highlighted_net → _apply_highlight_opacity()
+        # which uses the cached wire_net_map from the graph — no O(W×P) scan needed.
         self._notify_selection()
 
     def _pin_positions_for_ref(self, ref: object) -> list[object]:

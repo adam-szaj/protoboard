@@ -7,7 +7,7 @@ import uuid
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPen
-from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
+from PySide6.QtWidgets import QGraphicsItemGroup, QGraphicsLineItem, QGraphicsScene
 
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
@@ -42,6 +42,131 @@ def _dim(color: QColor, opacity: float) -> QColor:
     return c
 
 
+def wire_fingerprint(
+    wire: WireSegment,
+    net_id: uuid.UUID | None,
+    color_override: str | None,
+    z_base: float,
+    base_alpha: float = 1.0,
+) -> tuple[object, ...]:
+    """Stable key capturing structural/connectivity inputs for one wire.
+
+    Highlight state (net_alpha, glow) is excluded — applied via setOpacity().
+    base_alpha is included so layer visibility changes trigger a rebuild.
+    """
+    return (
+        tuple((p.x, p.y) for p in wire.path),
+        wire.insulated,
+        wire.side,
+        net_id,
+        color_override,
+        round(z_base, 4),
+        round(base_alpha, 4),
+    )
+
+
+def update_wire_groups(
+    scene: QGraphicsScene,
+    wires: list[WireSegment],
+    wire_net_map: dict[uuid.UUID, uuid.UUID],
+    existing_groups: dict[uuid.UUID, QGraphicsItemGroup],
+    existing_fingerprints: dict[uuid.UUID, tuple[object, ...]],
+    net_color_map: dict[uuid.UUID, str | None] | None = None,
+    theme: Theme = DEFAULT_THEME,
+    layers: LayerState = _DEFAULT_LAYERS,
+    highlighted_net_id: uuid.UUID | None = None,
+) -> None:
+    """Create/update/remove per-wire QGraphicsItemGroups without full scene clear.
+
+    Groups whose fingerprint is unchanged are left untouched.
+    Removed wires have their group removed from the scene.
+    New or changed wires get a freshly-built group.
+    """
+    new_ids = {w.id for w in wires}
+
+    # Remove groups for wires that no longer exist.
+    for wid in list(existing_groups):
+        if wid not in new_ids:
+            scene.removeItem(existing_groups.pop(wid))
+            existing_fingerprints.pop(wid, None)
+
+    for wire in wires:
+        net_id = wire_net_map.get(wire.id)
+        color_override: str | None = (
+            net_color_map.get(net_id) if net_id is not None and net_color_map else None
+        )
+        side = wire.side  # type: ignore[assignment]
+        base_alpha = layers.alpha_for_wire(side)
+        z_base = layers.z_for_wire(side)
+        fp = wire_fingerprint(wire, net_id, color_override, z_base, base_alpha)
+
+        if wire.id in existing_groups:
+            grp = existing_groups[wire.id]
+            if existing_fingerprints.get(wire.id) != fp:
+                # Structure changed — rebuild.
+                scene.removeItem(existing_groups.pop(wire.id))
+                existing_fingerprints.pop(wire.id, None)
+                if base_alpha == 0.0:
+                    continue
+                grp = _build_wire_group(wire, net_id, color_override, base_alpha, z_base, theme, False)
+                scene.addItem(grp)
+                existing_groups[wire.id] = grp
+                existing_fingerprints[wire.id] = fp
+        else:
+            if base_alpha == 0.0:
+                continue
+            grp = _build_wire_group(wire, net_id, color_override, base_alpha, z_base, theme, False)
+            scene.addItem(grp)
+            existing_groups[wire.id] = grp
+            existing_fingerprints[wire.id] = fp
+            grp = existing_groups[wire.id]
+
+        # Apply highlight dimming via opacity — O(1), no rebuild needed.
+        is_highlighted = highlighted_net_id is not None and net_id == highlighted_net_id
+        net_alpha = 1.0 if highlighted_net_id is None or is_highlighted else theme.highlight_dim_wires
+        grp.setOpacity(net_alpha)
+
+
+def _build_wire_group(
+    wire: WireSegment,
+    net_id: uuid.UUID | None,
+    color_override: str | None,
+    alpha: float,
+    z_base: float,
+    theme: Theme,
+    glow: bool,
+) -> QGraphicsItemGroup:
+    """Build a QGraphicsItemGroup containing all line items for one wire."""
+    grp = QGraphicsItemGroup()
+    pts = wire.path
+
+    color = _net_color(net_id, color_override, theme)
+    if alpha < 1.0:
+        color = _dim(color, alpha)
+
+    if glow:
+        glow_color = _net_color(net_id, color_override, theme)
+        glow_color.setAlphaF(theme.route_glow_wire_alpha * alpha)
+        glow_pen = QPen(glow_color, theme.route_glow_wire_width)
+        glow_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        glow_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        for i in range(len(pts) - 1):
+            x1, y1 = pts[i].x, pts[i].y
+            x2, y2 = pts[i + 1].x, pts[i + 1].y
+            g = QGraphicsLineItem(x1, y1, x2, y2)
+            g.setPen(glow_pen)
+            g.setZValue(z_base - 0.1)
+            grp.addToGroup(g)
+
+    if wire.insulated:
+        _fill_insulated(grp, pts, color, z_base, theme)
+    else:
+        _fill_bare(grp, pts, color, z_base, theme)
+
+    grp.setZValue(z_base)
+    return grp
+
+
 def render_wires_with_nets(
     scene: QGraphicsScene,
     wires: list[WireSegment],
@@ -51,7 +176,7 @@ def render_wires_with_nets(
     layers: LayerState = _DEFAULT_LAYERS,
     highlighted_net_id: uuid.UUID | None = None,
 ) -> None:
-    """Render wires with correct per-net colouring and layer z-values."""
+    """Render wires directly to scene (cold path / full rebuild)."""
     for wire in wires:
         net_id = wire_net_map.get(wire.id)
         color_override: str | None = None
@@ -79,33 +204,12 @@ def _draw_wire(
     if alpha == 0.0:
         return
     z_base = layers.z_for_wire(side)
-
-    color = _net_color(net_id, color_override, theme)
-    if alpha < 1.0:
-        color = _dim(color, alpha)
-
-    if glow:
-        glow_color = _net_color(net_id, color_override, theme)
-        glow_color.setAlphaF(theme.route_glow_wire_alpha * layers.alpha_for_wire(side))
-        glow_pen = QPen(glow_color, theme.route_glow_wire_width)
-        glow_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        glow_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-        for i in range(len(pts) - 1):
-            x1, y1 = pts[i].x, pts[i].y
-            x2, y2 = pts[i + 1].x, pts[i + 1].y
-            g = QGraphicsLineItem(x1, y1, x2, y2)
-            g.setPen(glow_pen)
-            g.setZValue(z_base - 0.1)
-            scene.addItem(g)
-
-    if wire.insulated:
-        _draw_insulated(scene, pts, color, z_base, theme)
-    else:
-        _draw_bare(scene, pts, color, z_base, theme)
+    grp = _build_wire_group(wire, net_id, color_override, alpha, z_base, theme, glow)
+    scene.addItem(grp)
 
 
-def _draw_insulated(
-    scene: QGraphicsScene,
+def _fill_insulated(
+    grp: QGraphicsItemGroup,
     pts: list[Point],
     color: QColor,
     z_base: float,
@@ -123,15 +227,15 @@ def _draw_insulated(
         outline = QGraphicsLineItem(x1, y1, x2, y2)
         outline.setPen(outline_pen)
         outline.setZValue(z_base + _Z_OUTLINE_OFFSET)
-        scene.addItem(outline)
+        grp.addToGroup(outline)
         core = QGraphicsLineItem(x1, y1, x2, y2)
         core.setPen(core_pen)
         core.setZValue(z_base)
-        scene.addItem(core)
+        grp.addToGroup(core)
 
 
-def _draw_bare(
-    scene: QGraphicsScene,
+def _fill_bare(
+    grp: QGraphicsItemGroup,
     pts: list[Point],
     color: QColor,
     z_base: float,
@@ -149,11 +253,16 @@ def _draw_bare(
         outline = QGraphicsLineItem(x1, y1, x2, y2)
         outline.setPen(outline_pen)
         outline.setZValue(z_base + _Z_OUTLINE_OFFSET)
-        scene.addItem(outline)
+        grp.addToGroup(outline)
         line = QGraphicsLineItem(x1, y1, x2, y2)
         line.setPen(pen)
         line.setZValue(z_base - 0.05)
-        scene.addItem(line)
+        grp.addToGroup(line)
+
+
+# Keep old names as aliases so existing call-sites in tests/RouteTool still work.
+_draw_insulated = _fill_insulated  # type: ignore[assignment]
+_draw_bare = _fill_bare            # type: ignore[assignment]
 
 
 # ── Ratsnest ─────────────────────────────────────────────────────────────────
@@ -167,16 +276,20 @@ def render_ratsnest(
     components: dict[str, ComponentDefinition],
     routed_nets: set[uuid.UUID] | None,
     theme: Theme = DEFAULT_THEME,
-) -> None:
-    """Draw crow-flies lines for unrouted pin pairs in incomplete nets."""
+) -> list[QGraphicsLineItem]:
+    """Draw crow-flies lines for unrouted pin pairs in incomplete nets.
+
+    Returns the list of added items so the caller can track and remove them.
+    """
     if routed_nets is None:
-        return
+        return []
 
     color = QColor(theme.ratsnest_color)
     pen = QPen(color, theme.ratsnest_width)
     pen.setStyle(Qt.PenStyle.DotLine)
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
 
+    added: list[QGraphicsLineItem] = []
     for net in schematic.nets.values():
         if net.id in routed_nets:
             continue
@@ -190,6 +303,8 @@ def render_ratsnest(
             line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
             line.setPen(pen)
             scene.addItem(line)
+            added.append(line)
+    return added
 
 
 def _placed_pin_positions(
