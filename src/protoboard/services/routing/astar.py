@@ -260,6 +260,17 @@ def _universe_worker(
                 best = d2
         return math.sqrt(best)
 
+    # Convert Point-based sets to (float, float) tuples — avoids Point.__init__
+    # and Point.__hash__ on every neighbour lookup in the hot loop.
+    _vn_top:    set[tuple[float, float]] = {(p.x, p.y) for p in valid_nodes.get("top", set())}
+    _vn_bottom: set[tuple[float, float]] = {(p.x, p.y) for p in valid_nodes.get("bottom", set())}
+    _vn = (_vn_top, _vn_bottom)  # indexed by cs_idx (0=top, 1=bottom)
+    _tgt: set[tuple[float, float]] = {(p.x, p.y) for p in target_set}
+    _via: set[tuple[float, float]] = {(p.x, p.y) for p in vias}
+    _inf = float("inf")
+    _dc  = cost_model.direction_change
+    _lc  = cost_model.layer_change
+
     _seq = seq_counter
 
     try:
@@ -268,26 +279,30 @@ def _universe_worker(
                 return
 
             _f, g, _s, cx, cy, cs_idx, dx, dy, path = heapq.heappop(heap)
-            pos = Point(cx, cy)
             cur_side = _SIDES[cs_idx]
             state_key = (cx, cy, cs_idx, dx, dy)
 
-            if visited.get(state_key, float("inf")) <= g:
+            if visited.get(state_key, _inf) <= g:
                 continue
             visited[state_key] = g
             nodes_expanded += 1
 
-            if pos in target_set:
+            if (cx, cy) in _tgt:
                 shared.record_found(nodes_expanded)
                 shared.result_queue.put(RoutingResult(path=path, cost=g, insulated=insulated))
                 return
 
             neighbor_entries: list[_HE] = []
+            _vn_cur = _vn[cs_idx]
 
             for ndx, ndy, dist_mult in _NEIGHBOURS:
-                npos = Point(cx + ndx, cy + ndy)
-                if npos not in valid_nodes[cur_side]:
+                nx = cx + ndx
+                ny = cy + ndy
+                if (nx, ny) not in _vn_cur:
                     continue
+                # Point objects only created when they pass the valid_nodes check.
+                npos = Point(nx, ny)
+                pos  = Point(cx, cy)
                 if (pos, cur_side, npos, cur_side) in forbidden_edges:
                     continue
 
@@ -295,40 +310,41 @@ def _universe_worker(
                     npos, cur_side, dist_mult, cost_model, occupied, same_net,
                     near_pins, near_pin_cost, penalised,
                 )
-                if step_cost >= float("inf"):
+                if step_cost >= _inf:
                     continue
 
                 crossing_cost = _crossing_cost(pos, npos, cur_side, bare_idx, cost_model, insulated)
-                if crossing_cost >= float("inf"):
+                if crossing_cost >= _inf:
                     continue
                 step_cost += crossing_cost
 
                 if (dx != 0.0 or dy != 0.0) and (ndx != dx or ndy != dy):
-                    step_cost += cost_model.direction_change
+                    step_cost += _dc
 
                 ng = g + step_cost
-                nstate = (npos.x, npos.y, cs_idx, ndx, ndy)
+                nstate = (nx, ny, cs_idx, ndx, ndy)
                 if nstate in visited and visited[nstate] <= ng:
                     continue
 
-                nf = ng + h(npos.x, npos.y)
+                nf = ng + h(nx, ny)
                 _seq += 1
                 neighbor_entries.append(
-                    (nf, ng, _seq, npos.x, npos.y, cs_idx, ndx, ndy, path + [(npos, cur_side)])
+                    (nf, ng, _seq, nx, ny, cs_idx, ndx, ndy, path + [(npos, cur_side)])
                 )
 
             via_entry: _HE | None = None
-            if pos in vias:
+            if (cx, cy) in _via:
                 other_side = _OTHER_SIDE[cur_side]
                 other_idx = 1 - cs_idx
-                if pos in valid_nodes[other_side]:
+                if (cx, cy) in _vn[other_idx]:
+                    pos = Point(cx, cy)
                     if (pos, cur_side, pos, other_side) not in forbidden_edges:
-                        ng = g + cost_model.layer_change
-                        nstate = (pos.x, pos.y, other_idx, 0.0, 0.0)
+                        ng = g + _lc
+                        nstate = (cx, cy, other_idx, 0.0, 0.0)
                         if not (nstate in visited and visited[nstate] <= ng):
                             nf = ng + h(cx, cy)
                             _seq += 1
-                            via_entry = (nf, ng, _seq, pos.x, pos.y, other_idx, 0.0, 0.0, path + [(pos, other_side)])
+                            via_entry = (nf, ng, _seq, cx, cy, other_idx, 0.0, 0.0, path + [(pos, other_side)])
 
             if via_entry is not None:
                 neighbor_entries.append(via_entry)
