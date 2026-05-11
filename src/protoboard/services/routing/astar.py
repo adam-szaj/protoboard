@@ -203,9 +203,28 @@ class _SharedState:
             self.active_count -= 1
 
 
+# Heap entry: (f, g, seq, cx, cy, cs_idx, dx, dy, parent_node_idx)
+# parent_nodes: list of (Point, side, parent_idx) — grows monotonically per universe.
+# -1 = root (no parent).
+_HE = tuple[float, float, int, float, float, int, float, float, int]
+_PN = list[tuple[Point, str, int]]  # parent_nodes table
+
+
+def _reconstruct_path(parent_nodes: _PN, node_idx: int) -> list[PathStep]:
+    steps: list[PathStep] = []
+    idx = node_idx
+    while idx != -1:
+        pt, side, parent = parent_nodes[idx]
+        steps.append((pt, side))
+        idx = parent
+    steps.reverse()
+    return steps
+
+
 def _universe_worker(
-    heap: list[tuple[float, float, int, float, float, int, float, float, list[PathStep]]],
+    heap: list[_HE],
     visited: dict[tuple[float, float, int, float, float], float],
+    parent_nodes: _PN,
     nodes_expanded: int,
     seq_counter: int,
     shared: _SharedState,
@@ -244,7 +263,7 @@ def _universe_worker(
             if shared.over_budget(nodes_expanded):
                 return
 
-            _f, g, _s, cx, cy, cs_idx, dx, dy, path = heapq.heappop(heap)
+            _f, g, _s, cx, cy, cs_idx, dx, dy, par_idx = heapq.heappop(heap)
             pos = Point(cx, cy)
             cur_side = _SIDES[cs_idx]
             state_key = (cx, cy, cs_idx, dx, dy)
@@ -254,14 +273,19 @@ def _universe_worker(
             visited[state_key] = g
             nodes_expanded += 1
 
+            # Record this node in the parent table and get its index.
+            cur_node_idx = len(parent_nodes)
+            parent_nodes.append((pos, cur_side, par_idx))
+
             if pos in target_set:
                 shared.record_found(nodes_expanded)
+                path = _reconstruct_path(parent_nodes, cur_node_idx)
                 shared.result_queue.put(RoutingResult(path=path, cost=g, insulated=insulated))
                 return
 
             # Build the list of valid neighbour heap entries before deciding
             # whether to branch — we need the count to decide.
-            neighbor_entries: list[tuple[float, float, int, float, float, int, float, float, list[PathStep]]] = []
+            neighbor_entries: list[_HE] = []
 
             # --- Same-layer moves ---
             for ndx, ndy, dist_mult in _NEIGHBOURS:
@@ -294,11 +318,11 @@ def _universe_worker(
                 nf = ng + h(npos.x, npos.y)
                 _seq += 1
                 neighbor_entries.append(
-                    (nf, ng, _seq, npos.x, npos.y, cs_idx, ndx, ndy, path + [(npos, cur_side)])
+                    (nf, ng, _seq, npos.x, npos.y, cs_idx, ndx, ndy, cur_node_idx)
                 )
 
             # --- Layer change at plated-through pad ---
-            via_entry: tuple[float, float, int, float, float, int, float, float, list[PathStep]] | None = None
+            via_entry: _HE | None = None
             if pos in vias:
                 other_side = _OTHER_SIDE[cur_side]
                 other_idx = 1 - cs_idx
@@ -309,7 +333,7 @@ def _universe_worker(
                         if not (nstate in visited and visited[nstate] <= ng):
                             nf = ng + h(cx, cy)
                             _seq += 1
-                            via_entry = (nf, ng, _seq, pos.x, pos.y, other_idx, 0.0, 0.0, path + [(pos, other_side)])
+                            via_entry = (nf, ng, _seq, pos.x, pos.y, other_idx, 0.0, 0.0, cur_node_idx)
 
             if via_entry is not None:
                 neighbor_entries.append(via_entry)
@@ -330,13 +354,15 @@ def _universe_worker(
 
             if should_branch:
                 # Copy-on-write: each neighbour gets its own heap+visited snapshot.
+                # parent_nodes is also copied so each universe has its own chain.
                 for entry in neighbor_entries:
                     new_heap = list(heap)
                     heapq.heappush(new_heap, entry)
                     new_visited = dict(visited)
+                    new_parent_nodes: _PN = list(parent_nodes)
                     fut = _UNIVERSE_POOL.submit(
                         _universe_worker,
-                        new_heap, new_visited, nodes_expanded, _seq, shared,
+                        new_heap, new_visited, new_parent_nodes, nodes_expanded, _seq, shared,
                         valid_nodes, target_set, target_coords, cost_model, insulated,
                         occupied, same_net, near_pins, near_pin_cost,
                         bare_segs, vias, forbidden_edges, penalised,
@@ -388,10 +414,12 @@ def _astar_parallel(
         return math.sqrt(best)
 
     side_idx = 0 if source_side == "top" else 1
-    initial_heap: list[tuple[float, float, int, float, float, int, float, float, list[PathStep]]] = [
-        (h0(source.x, source.y), 0.0, 0, source.x, source.y, side_idx, 0.0, 0.0, [(source, source_side)])
+    # Heap entry: (f, g, seq, cx, cy, cs_idx, dx, dy, parent_node_idx=-1 for root)
+    initial_heap: list[_HE] = [
+        (h0(source.x, source.y), 0.0, 0, source.x, source.y, side_idx, 0.0, 0.0, -1)
     ]
     initial_visited: dict[tuple[float, float, int, float, float], float] = {}
+    initial_parent_nodes: _PN = []
 
     shared = _SharedState(
         result_queue=Queue(),
@@ -401,7 +429,7 @@ def _astar_parallel(
     # Submit the root universe.
     fut = _UNIVERSE_POOL.submit(
         _universe_worker,
-        initial_heap, initial_visited, 0, 0, shared,
+        initial_heap, initial_visited, initial_parent_nodes, 0, 0, shared,
         valid_nodes, target_set, target_coords, cost_model, insulated,
         occupied, same_net, near_pins, near_pin_cost,
         bare_segs, vias, forbidden_edges, penalised,
@@ -593,13 +621,14 @@ def _astar(
 
     _seq = 0
     side_idx = 0 if source_side == "top" else 1
-    heap: list[tuple[float, float, int, float, float, int, float, float, list[PathStep]]] = [
-        (h(source.x, source.y), 0.0, _seq, source.x, source.y, side_idx, 0.0, 0.0, [(source, source_side)])
+    parent_nodes: _PN = []
+    heap: list[_HE] = [
+        (h(source.x, source.y), 0.0, _seq, source.x, source.y, side_idx, 0.0, 0.0, -1)
     ]
     visited: dict[tuple[float, float, int, float, float], float] = {}
 
     while heap:
-        _f, g, _s, cx, cy, cs_idx, dx, dy, path = heapq.heappop(heap)
+        _f, g, _s, cx, cy, cs_idx, dx, dy, par_idx = heapq.heappop(heap)
         pos = Point(cx, cy)
         cur_side = _SIDES[cs_idx]
         state_key = (cx, cy, cs_idx, dx, dy)
@@ -607,8 +636,11 @@ def _astar(
             continue
         visited[state_key] = g
 
+        cur_node_idx = len(parent_nodes)
+        parent_nodes.append((pos, cur_side, par_idx))
+
         if pos in target_set:
-            return RoutingResult(path=path, cost=g)
+            return RoutingResult(path=_reconstruct_path(parent_nodes, cur_node_idx), cost=g)
 
         for ndx, ndy, dist_mult in _NEIGHBOURS:
             npos = Point(cx + ndx, cy + ndy)
@@ -641,7 +673,7 @@ def _astar(
             nf = ng + h(npos.x, npos.y)
             _seq += 1
             heapq.heappush(
-                heap, (nf, ng, _seq, npos.x, npos.y, cs_idx, ndx, ndy, path + [(npos, cur_side)])
+                heap, (nf, ng, _seq, npos.x, npos.y, cs_idx, ndx, ndy, cur_node_idx)
             )
 
         if pos in vias:
@@ -655,7 +687,7 @@ def _astar(
                         nf = ng + h(cx, cy)
                         _seq += 1
                         heapq.heappush(
-                            heap, (nf, ng, _seq, pos.x, pos.y, other_idx, 0.0, 0.0, path + [(pos, other_side)])
+                            heap, (nf, ng, _seq, pos.x, pos.y, other_idx, 0.0, 0.0, cur_node_idx)
                         )
 
     return None
