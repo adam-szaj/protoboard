@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 _M4_PATH = Path(__file__).parent.parent.parent / "m4"
+_GOLD_PATH = Path(__file__).parent.parent / "gold_performance_test_check"
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -62,3 +63,18 @@ def m4_board_view(qt_app, m4_session):
     view = BoardView(m4_session)
     view.refresh()  # cold — builds all groups
     return view
+
+
+@pytest.fixture(scope="session")
+def gold_project():
+    """Load the gold_performance_test_check project (143 comps, 100 nets, 0 wires)."""
+    if not _GOLD_PATH.exists():
+        pytest.skip("gold project not found — run from repo root")
+    from protoboard.paths import BUILTIN_LIBRARY_DIR
+    from protoboard.services.library.loader import load_library
+    from protoboard.services.persistence.project_yaml import load_project
+
+    lib = load_library([BUILTIN_LIBRARY_DIR])
+    board, layout, schematic, instances, routing, _ = load_project(_GOLD_PATH)
+    components = {name: lib.get(name) for name in lib.names()}
+    return board, layout, schematic, instances, routing, lib, components

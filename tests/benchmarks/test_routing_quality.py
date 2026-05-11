@@ -303,3 +303,40 @@ def test_bench_routing_quality_optimized(benchmark, m4_empty_layout):
           f"  mean_hull={summary.mean_hull:.3f}")
     print(f"  worst wire/mst: {summary.worst_wire_mst_nets}")
     print(f"  worst hull:     {summary.worst_hull_nets}")
+
+
+# ---------------------------------------------------------------------------
+# Gold project benchmarks (143 comps, 100 nets, 0 wires — clean baseline)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def gold_empty_layout(gold_project):
+    board, layout, schematic, instances, routing, lib, components = gold_project
+    return board, layout, schematic, instances, routing, components
+
+
+def test_bench_gold_greedy(benchmark, gold_empty_layout):
+    """Gold project: greedy pass only (no optimize, rip-up=3)."""
+    board, layout, schematic, instances, routing, components = gold_empty_layout
+
+    def _run():
+        result = _run_autoroute(board, layout, schematic, instances, routing,
+                                components, max_optimize_iterations=0)
+        result_layout = copy.deepcopy(layout)
+        result_layout.wires = result.wires
+        quality = measure_routing_quality(result_layout, schematic, instances, components)
+        return result, quality
+
+    result, quality = benchmark.pedantic(_run, iterations=1, rounds=3)
+
+    print(f"\n  nets={quality.net_count}  routed={quality.routed_count}"
+          f"  unrouted={quality.unrouted_count}"
+          f"  mean_wire_mst={quality.mean_wire_mst:.3f}"
+          f"  mean_hull={quality.mean_hull:.3f}")
+    if result.pass_stats:
+        ps = result.pass_stats[0]
+        print(f"  nodes_expanded={ps.total_nodes_expanded}"
+              f"  over_budget={ps.total_over_budget_hits}"
+              f"  rip_ups={ps.total_rip_up_attempts}")
+    print(f"  worst wire/mst: {quality.worst_wire_mst_nets}")
+    print(f"  worst hull:     {quality.worst_hull_nets}")
