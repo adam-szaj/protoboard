@@ -2024,9 +2024,12 @@ class SelectTool(_Tool):
                 schematic=self._session.schematic,
             )
         else:
-            # Non-group drag: quick check via find_wires_crossing_pads + find_conflicts
+            # Non-group drag: pad conflict check only (fast).
+            # Wire-crossing check (find_wires_crossing_pads) is skipped during
+            # live drag — it rebuilds the full pad map on every grid step and
+            # dominates mouse-move latency.  It runs on mouse-release instead.
             from protoboard.domain.layout.pad_conflict import (
-                find_wires_crossing_pads, find_conflicts, ConflictKind,
+                find_conflicts, ConflictKind,
             )
             from protoboard.geometry import Point as _Point
             blocking: list[_Point] = []
@@ -2047,25 +2050,11 @@ class SelectTool(_Tool):
                 ):
                     if c.kind == ConflictKind.DIFFERENT_NETS:
                         blocking.append(c.position)
-            crossing = find_wires_crossing_pads(
-                wires=self._session.layout.wires,
-                moved_comp_ids=drag_ids,
-                layout_placements=self._session.layout.placements,
-                instances=self._session.instances,
-                components=self._session.components,
-                schematic=self._session.schematic,
-            )
             if blocking:
                 result = MoveConflictResult(
                     severity=MoveConflictSeverity.BLOCKED,
                     blocking_pad_positions=blocking,
                     removable_wire_ids=[],
-                )
-            elif crossing:
-                result = MoveConflictResult(
-                    severity=MoveConflictSeverity.REMOVABLE,
-                    blocking_pad_positions=[],
-                    removable_wire_ids=crossing,
                 )
             else:
                 result = MoveConflictResult(
