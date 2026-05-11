@@ -260,33 +260,6 @@ def _universe_worker(
                 best = d2
         return math.sqrt(best)
 
-    # Convert Point-keyed structures to float-tuple keys to avoid Point.__hash__
-    # and Point.__init__ in the inner loop (profiling showed 150s + 124s overhead).
-    _inf = float("inf")
-    _occ_f:  dict[tuple[float, float, str], float] = {
-        (p.x, p.y, s): _inf for (p, s) in occupied
-    }
-    _same_f: dict[tuple[float, float, str], float] = {
-        (p.x, p.y, s): cost_model.same_net_pad for (p, s) in same_net
-    }
-    _near_f: set[tuple[float, float, str]] = {(p.x, p.y, s) for (p, s) in near_pins}
-    _pen_f:  dict[tuple[float, float, str], float] = {
-        (p.x, p.y, s): v for (p, s), v in penalised.items()
-    }
-    _vn_top:    set[tuple[float, float]] = {(p.x, p.y) for p in valid_nodes.get("top", set())}
-    _vn_bottom: set[tuple[float, float]] = {(p.x, p.y) for p in valid_nodes.get("bottom", set())}
-    _vn_f = (_vn_top, _vn_bottom)  # indexed by cs_idx
-    _tgt_f: set[tuple[float, float]] = {(p.x, p.y) for p in target_set}
-    _via_f: set[tuple[float, float]] = {(p.x, p.y) for p in vias}
-    _fe_f:  set[tuple[float, float, str, float, float, str]] = {
-        (pa.x, pa.y, sa, pb.x, pb.y, sb) for (pa, sa, pb, sb) in forbidden_edges
-    }
-
-    _free = cost_model.free_pad
-    _obn  = cost_model.occupied_by_other_net
-    _dc   = cost_model.direction_change
-    _lc   = cost_model.layer_change
-
     _seq = seq_counter
 
     try:
@@ -295,15 +268,16 @@ def _universe_worker(
                 return
 
             _f, g, _s, cx, cy, cs_idx, dx, dy, path = heapq.heappop(heap)
+            pos = Point(cx, cy)
             cur_side = _SIDES[cs_idx]
             state_key = (cx, cy, cs_idx, dx, dy)
 
-            if visited.get(state_key, _inf) <= g:
+            if visited.get(state_key, float("inf")) <= g:
                 continue
             visited[state_key] = g
             nodes_expanded += 1
 
-            if (cx, cy) in _tgt_f:
+            if pos in target_set:
                 shared.record_found(nodes_expanded)
                 shared.result_queue.put(RoutingResult(path=path, cost=g, insulated=insulated))
                 return
@@ -311,63 +285,50 @@ def _universe_worker(
             neighbor_entries: list[_HE] = []
 
             for ndx, ndy, dist_mult in _NEIGHBOURS:
-                nx = cx + ndx
-                ny = cy + ndy
-                if (nx, ny) not in _vn_f[cs_idx]:
+                npos = Point(cx + ndx, cy + ndy)
+                if npos not in valid_nodes[cur_side]:
                     continue
-                if (cx, cy, cur_side, nx, ny, cur_side) in _fe_f:
+                if (pos, cur_side, npos, cur_side) in forbidden_edges:
                     continue
 
-                # Inline _step_cost using float-tuple keys.
-                nkey = (nx, ny, cur_side)
-                occ_cost = _occ_f.get(nkey)
-                if occ_cost is not None:
-                    continue  # occupied_by_other_net = inf
-                same_cost = _same_f.get(nkey)
-                if same_cost is not None:
-                    step_cost = same_cost * dist_mult
-                else:
-                    step_cost = _free * dist_mult
-                    if nkey in _near_f:
-                        step_cost += near_pin_cost
-                    extra = _pen_f.get(nkey)
-                    if extra is not None:
-                        step_cost += extra
+                step_cost = _step_cost(
+                    npos, cur_side, dist_mult, cost_model, occupied, same_net,
+                    near_pins, near_pin_cost, penalised,
+                )
+                if step_cost >= float("inf"):
+                    continue
 
-                npos = Point(nx, ny)
-                pos  = Point(cx, cy)
                 crossing_cost = _crossing_cost(pos, npos, cur_side, bare_idx, cost_model, insulated)
-                if crossing_cost >= _inf:
+                if crossing_cost >= float("inf"):
                     continue
                 step_cost += crossing_cost
 
                 if (dx != 0.0 or dy != 0.0) and (ndx != dx or ndy != dy):
-                    step_cost += _dc
+                    step_cost += cost_model.direction_change
 
                 ng = g + step_cost
-                nstate = (nx, ny, cs_idx, ndx, ndy)
+                nstate = (npos.x, npos.y, cs_idx, ndx, ndy)
                 if nstate in visited and visited[nstate] <= ng:
                     continue
 
-                nf = ng + h(nx, ny)
+                nf = ng + h(npos.x, npos.y)
                 _seq += 1
                 neighbor_entries.append(
-                    (nf, ng, _seq, nx, ny, cs_idx, ndx, ndy, path + [(npos, cur_side)])
+                    (nf, ng, _seq, npos.x, npos.y, cs_idx, ndx, ndy, path + [(npos, cur_side)])
                 )
 
             via_entry: _HE | None = None
-            if (cx, cy) in _via_f:
+            if pos in vias:
                 other_side = _OTHER_SIDE[cur_side]
                 other_idx = 1 - cs_idx
-                if (cx, cy) in _vn_f[other_idx]:
-                    if (cx, cy, cur_side, cx, cy, other_side) not in _fe_f:
-                        ng = g + _lc
-                        nstate = (cx, cy, other_idx, 0.0, 0.0)
+                if pos in valid_nodes[other_side]:
+                    if (pos, cur_side, pos, other_side) not in forbidden_edges:
+                        ng = g + cost_model.layer_change
+                        nstate = (pos.x, pos.y, other_idx, 0.0, 0.0)
                         if not (nstate in visited and visited[nstate] <= ng):
                             nf = ng + h(cx, cy)
                             _seq += 1
-                            pos = Point(cx, cy)
-                            via_entry = (nf, ng, _seq, cx, cy, other_idx, 0.0, 0.0, path + [(pos, other_side)])
+                            via_entry = (nf, ng, _seq, pos.x, pos.y, other_idx, 0.0, 0.0, path + [(pos, other_side)])
 
             if via_entry is not None:
                 neighbor_entries.append(via_entry)
