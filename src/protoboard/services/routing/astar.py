@@ -173,12 +173,17 @@ class _SharedState:
     # Extra budget ratio: remaining universes may expand this many more nodes
     # after first_found_nodes is set (0.5 = N/2 extra nodes).
     extra_budget_ratio: float = 0.5
-    # Lock protecting first_found_nodes, active_count, and futures list.
+    # Lock protecting first_found_nodes, active_count, futures, and parent_nodes.
     _lock: threading.Lock = field(default_factory=threading.Lock)
     # All submitted futures — needed to wait for completion in _astar_parallel.
     futures: list[Future[None]] = field(default_factory=list)
     # Count of futures not yet done — O(1) update instead of O(N) scan.
     active_count: int = 0
+    # Shared append-only parent-node table.  Each entry is (Point, side, parent_idx).
+    # Universes append here under _lock; once appended an entry is never modified.
+    # _reconstruct_path walks this table backwards — safe because prior entries
+    # are immutable even as new ones are appended by other universes.
+    parent_nodes: list[tuple[Point, str, int]] = field(default_factory=list)
 
     def record_found(self, nodes_expanded: int) -> None:
         with self._lock:
@@ -197,6 +202,13 @@ class _SharedState:
             self.futures.append(fut)
             self.active_count += 1
 
+    def append_node(self, pt: Point, side: str, parent_idx: int) -> int:
+        """Append a node to the shared table and return its index."""
+        with self._lock:
+            idx = len(self.parent_nodes)
+            self.parent_nodes.append((pt, side, parent_idx))
+            return idx
+
     def mark_done(self) -> None:
         """Called by each universe worker when it finishes."""
         with self._lock:
@@ -210,7 +222,7 @@ _HE = tuple[float, float, int, float, float, int, float, float, int]
 _PN = list[tuple[Point, str, int]]  # parent_nodes table
 
 
-def _reconstruct_path(parent_nodes: _PN, node_idx: int) -> list[PathStep]:
+def _reconstruct_path(parent_nodes: list[tuple[Point, str, int]], node_idx: int) -> list[PathStep]:
     steps: list[PathStep] = []
     idx = node_idx
     while idx != -1:
@@ -224,7 +236,6 @@ def _reconstruct_path(parent_nodes: _PN, node_idx: int) -> list[PathStep]:
 def _universe_worker(
     heap: list[_HE],
     visited: dict[tuple[float, float, int, float, float], float],
-    parent_nodes: _PN,
     nodes_expanded: int,
     seq_counter: int,
     shared: _SharedState,
@@ -273,13 +284,15 @@ def _universe_worker(
             visited[state_key] = g
             nodes_expanded += 1
 
-            # Record this node in the parent table and get its index.
-            cur_node_idx = len(parent_nodes)
-            parent_nodes.append((pos, cur_side, par_idx))
+            cur_node_idx = shared.append_node(pos, cur_side, par_idx)
 
             if pos in target_set:
                 shared.record_found(nodes_expanded)
-                path = _reconstruct_path(parent_nodes, cur_node_idx)
+                # Take a snapshot of parent_nodes up to and including cur_node_idx
+                # so _reconstruct_path doesn't race with concurrent appends.
+                with shared._lock:
+                    pn_snapshot = list(shared.parent_nodes[:cur_node_idx + 1])
+                path = _reconstruct_path(pn_snapshot, cur_node_idx)
                 shared.result_queue.put(RoutingResult(path=path, cost=g, insulated=insulated))
                 return
 
@@ -354,15 +367,14 @@ def _universe_worker(
 
             if should_branch:
                 # Copy-on-write: each neighbour gets its own heap+visited snapshot.
-                # parent_nodes is also copied so each universe has its own chain.
+                # parent_nodes lives in shared — no copy needed.
                 for entry in neighbor_entries:
                     new_heap = list(heap)
                     heapq.heappush(new_heap, entry)
                     new_visited = dict(visited)
-                    new_parent_nodes: _PN = list(parent_nodes)
                     fut = _UNIVERSE_POOL.submit(
                         _universe_worker,
-                        new_heap, new_visited, new_parent_nodes, nodes_expanded, _seq, shared,
+                        new_heap, new_visited, nodes_expanded, _seq, shared,
                         valid_nodes, target_set, target_coords, cost_model, insulated,
                         occupied, same_net, near_pins, near_pin_cost,
                         bare_segs, vias, forbidden_edges, penalised,
@@ -419,7 +431,6 @@ def _astar_parallel(
         (h0(source.x, source.y), 0.0, 0, source.x, source.y, side_idx, 0.0, 0.0, -1)
     ]
     initial_visited: dict[tuple[float, float, int, float, float], float] = {}
-    initial_parent_nodes: _PN = []
 
     shared = _SharedState(
         result_queue=Queue(),
@@ -429,7 +440,7 @@ def _astar_parallel(
     # Submit the root universe.
     fut = _UNIVERSE_POOL.submit(
         _universe_worker,
-        initial_heap, initial_visited, initial_parent_nodes, 0, 0, shared,
+        initial_heap, initial_visited, 0, 0, shared,
         valid_nodes, target_set, target_coords, cost_model, insulated,
         occupied, same_net, near_pins, near_pin_cost,
         bare_segs, vias, forbidden_edges, penalised,
@@ -527,12 +538,9 @@ def find_paths(
     if source in target_set:
         return [RoutingResult(path=[(source, side)], cost=0.0, insulated=insulated)]
 
-    # Build valid-node sets per side from the ConnectivityGraph.
-    valid_nodes: dict[str, set[Point]] = {"top": set(), "bottom": set()}
-    for node in graph.all_node_keys():
-        nx, ny, ns = node
-        if ns in valid_nodes:
-            valid_nodes[ns].add(Point(nx, ny))
+    # valid_nodes is cached on the graph — O(1) after first call, rebuilt only
+    # when add_wire/remove_wire mutates the graph.
+    valid_nodes = graph.valid_nodes_by_side()
 
     if source not in valid_nodes[side]:
         return []

@@ -132,6 +132,8 @@ class ConnectivityGraph:
         self._board_pad_keys: set[_NodeKey] = set()
         # Free-form per-ElectricSet data for external use (e.g. GUI item refs).
         self.user_data_map: dict[int, object] = {}
+        # Cache for valid_nodes_by_side() — None means stale, rebuilt lazily.
+        self._valid_nodes_cache: dict[str, set["Point"]] | None = None
 
         self._components = components
         self._instances = instances or {}
@@ -177,6 +179,17 @@ class ConnectivityGraph:
         """Iterate over all pad keys — replaces ``graph._g.nodes`` in astar.py."""
         return iter(self._pad_index)
 
+    def valid_nodes_by_side(self) -> dict[str, set[Point]]:
+        """Return {side: set[Point]} of all pads, cached between wire mutations."""
+        if self._valid_nodes_cache is None:
+            vn: dict[str, set[Point]] = {"top": set(), "bottom": set()}
+            for nx, ny, ns in self._pad_index:
+                if ns in vn:
+                    vn[ns].add(Point(nx, ny))
+                # insulated-wire transient keys have side like "top_ins_…" — skip them
+            self._valid_nodes_cache = vn
+        return self._valid_nodes_cache
+
     def pads_in_same_electric_set(self, position: Point, side: str) -> list[Point]:
         """All pad positions (same side) in the same ElectricSet as (position, side).
 
@@ -203,6 +216,7 @@ class ConnectivityGraph:
 
     def add_wire(self, wire: WireSegment) -> None:
         """Incorporate *wire* into the graph, merging sets as needed."""
+        self._valid_nodes_cache = None
         side = wire.side
         path = wire.path
         if not path:
@@ -264,6 +278,7 @@ class ConnectivityGraph:
         Uses recorded merge history (LIFO) when possible; falls back to a
         local BFS rebuild when the wire is not the most recent merger.
         """
+        self._valid_nodes_cache = None
         record = self._wire_records.pop(wire.id, None)
         if record is None:
             return
