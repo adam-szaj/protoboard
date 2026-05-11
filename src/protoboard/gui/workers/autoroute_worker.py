@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import threading
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QThread, Signal
@@ -48,6 +49,7 @@ class AutorouteWorker(QThread):
         instances: dict[uuid.UUID, ComponentInstance],
         routing_settings: RoutingSettings,
         net_ids: set[uuid.UUID] | None = None,
+        project_path: Path | None = None,
     ) -> None:
         super().__init__()
         # Snapshot read-only inputs — the worker thread must not touch the
@@ -59,6 +61,7 @@ class AutorouteWorker(QThread):
         self._instances = instances
         self._rs = routing_settings
         self._net_ids = net_ids
+        self._project_path = project_path
         self._cancel_flag = threading.Event()
 
     # ------------------------------------------------------------------
@@ -85,6 +88,10 @@ class AutorouteWorker(QThread):
 
         try:
             rs = self._rs
+            report_path = (
+                self._project_path / "autoroute-report.csv"
+                if self._project_path is not None else None
+            )
             result: AutorouteResult = autoroute(
                 board=self._board,
                 layout=self._layout,
@@ -102,6 +109,7 @@ class AutorouteWorker(QThread):
                 optimize_progress_callback=self._report_optimize,
                 cancel_flag=self._cancel_flag,
                 net_ids=self._net_ids,
+                report_path=report_path,
             )
         except AutorouteCancelled:
             # Return empty result — caller interprets as user cancellation.

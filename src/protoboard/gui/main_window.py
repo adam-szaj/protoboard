@@ -1617,6 +1617,7 @@ class MainWindow(QMainWindow):
             instances=self._session.instances,
             routing_settings=run_settings,
             net_ids=net_ids,
+            project_path=self._session.project_path,
         )
         # Keep a reference so the worker isn't garbage-collected before finishing.
         self._autoroute_worker = worker

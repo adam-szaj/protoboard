@@ -22,11 +22,15 @@ Multi-layer routing:
 from __future__ import annotations
 
 import threading
+import csv
+import datetime
+import io
 import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Literal
+from pathlib import Path
+from typing import Literal, TYPE_CHECKING
 
 import structlog
 
@@ -71,11 +75,42 @@ class AutorouteCancelled(Exception):
 
 
 @dataclass
+class NetStats:
+    """Per-net routing statistics for one pass."""
+
+    net_name: str
+    routed: bool
+    nodes_expanded: int        # total A* nodes expanded across all segments/attempts
+    over_budget_hits: int      # times over_budget cutoff fired
+    rip_up_attempts: int       # number of rip-up retries (0 = routed on first try)
+    path_hops_min: int         # shortest segment path (in raster hops)
+    path_hops_max: int         # longest segment path
+    path_hops_final: int       # total hops in final routed path
+    segments_found: int        # number of wire segments placed
+
+
+@dataclass
+class PassStats:
+    """Statistics for one full routing pass (greedy or optimize iteration)."""
+
+    pass_index: int            # 0 = greedy, 1..N = optimize iterations
+    seed: int                  # net-order seed (0 for greedy)
+    routed_count: int
+    unrouted_count: int
+    total_wires: int
+    total_nodes_expanded: int
+    total_over_budget_hits: int
+    total_rip_up_attempts: int
+    nets: list[NetStats] = field(default_factory=list)
+
+
+@dataclass
 class AutorouteResult:
     """Result returned by :func:`autoroute`."""
 
     wires: list[WireSegment] = field(default_factory=list)
     unrouted_nets: list[str] = field(default_factory=list)  # net names
+    pass_stats: list[PassStats] = field(default_factory=list)
 
 
 def autoroute(
@@ -97,6 +132,7 @@ def autoroute(
     optimize_progress_callback: Callable[[int, int], None] | None = None,
     cancel_flag: threading.Event | None = None,
     net_ids: set[uuid.UUID] | None = None,
+    report_path: "Path | None" = None,
 ) -> AutorouteResult:
     """Route all unrouted nets in *schematic* and return new wire segments.
 
@@ -222,7 +258,7 @@ def autoroute(
     n_nets = len(sorted_nets)
 
     # --- Initial greedy pass ---
-    current_wires, unrouted_names = _run_one_pass(
+    current_wires, unrouted_names, _greedy_ps = _run_one_pass(
         sorted_nets=sorted_nets,
         pin_positions=pin_positions,
         all_pin_positions=all_pin_positions,
@@ -247,6 +283,7 @@ def autoroute(
         pass_num=0,
         n_nets=n_nets,
     )
+    result.pass_stats.append(_greedy_ps)
 
     # Nets that failed the initial pass are permanently skipped in optimization —
     # the board state only gets busier in subsequent iterations.
@@ -293,7 +330,8 @@ def autoroute(
                     if optimize_progress_callback is not None:
                         optimize_progress_callback(done_count, n_futures)
                     try:
-                        opt_wires, opt_unrouted = fut.result()
+                        opt_wires, opt_unrouted, opt_ps = fut.result()
+                        result.pass_stats.append(opt_ps)
                         _log.info("autoroute.optimize.future_done",
                                   wires=len(opt_wires), unrouted=len(opt_unrouted))
                     except Exception as _fe:
@@ -317,7 +355,7 @@ def autoroute(
             for opt_iter in range(max_optimize_iterations):
                 if cancel_flag is not None and cancel_flag.is_set():
                     raise AutorouteCancelled
-                next_wires, next_unrouted = _run_one_pass(
+                next_wires, next_unrouted, _opt_ps = _run_one_pass(
                     sorted_nets=sorted_nets,
                     pin_positions=pin_positions,
                     all_pin_positions=all_pin_positions,
@@ -342,6 +380,7 @@ def autoroute(
                     pass_num=opt_iter + 1,
                     n_nets=n_nets,
                 )
+                result.pass_stats.append(_opt_ps)
                 new_fp = _wire_fingerprint(next_wires)
                 if len(next_unrouted) < best_unrouted_count or (
                     len(next_unrouted) == best_unrouted_count
@@ -363,7 +402,73 @@ def autoroute(
         routed_wires=len(current_wires),
         unrouted_nets=unrouted_names,
     )
+    if report_path is not None:
+        _write_report(result, report_path)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Report writer
+# ---------------------------------------------------------------------------
+
+def _write_report(result: "AutorouteResult", path: Path) -> None:
+    """Append a CSV report for this autoroute run to *path*.
+
+    Format (append mode, UTF-8):
+      # run <timestamp>
+      ## passes
+      pass_index, seed, routed_count, unrouted_count, total_wires,
+        total_nodes_expanded, total_over_budget_hits, total_rip_up_attempts
+      <one row per pass>
+      ## nets  pass=<pass_index>
+      net_name, routed, nodes_expanded, over_budget_hits, rip_up_attempts,
+        path_hops_min, path_hops_max, path_hops_final, segments_found
+      <one row per net>
+      ... repeated for each pass
+    """
+    ts = datetime.datetime.now().isoformat(timespec="seconds")
+    buf = io.StringIO()
+    w = csv.writer(buf)
+
+    buf.write(f"# run {ts}\n")
+
+    # --- passes summary ---
+    buf.write("## passes\n")
+    w.writerow([
+        "pass_index", "seed",
+        "routed_count", "unrouted_count", "total_wires",
+        "total_nodes_expanded", "total_over_budget_hits", "total_rip_up_attempts",
+    ])
+    for ps in result.pass_stats:
+        w.writerow([
+            ps.pass_index, ps.seed,
+            ps.routed_count, ps.unrouted_count, ps.total_wires,
+            ps.total_nodes_expanded, ps.total_over_budget_hits, ps.total_rip_up_attempts,
+        ])
+
+    # --- per-net details per pass ---
+    for ps in result.pass_stats:
+        buf.write(f"## nets pass={ps.pass_index}\n")
+        w.writerow([
+            "net_name", "routed",
+            "nodes_expanded", "over_budget_hits", "rip_up_attempts",
+            "path_hops_min", "path_hops_max", "path_hops_final", "segments_found",
+        ])
+        for ns in ps.nets:
+            w.writerow([
+                ns.net_name, int(ns.routed),
+                ns.nodes_expanded, ns.over_budget_hits, ns.rip_up_attempts,
+                ns.path_hops_min, ns.path_hops_max, ns.path_hops_final, ns.segments_found,
+            ])
+
+    buf.write("\n")
+
+    try:
+        with path.open("a", encoding="utf-8", newline="") as f:
+            f.write(buf.getvalue())
+        _log.info("autoroute.report_written", path=str(path))
+    except OSError as e:
+        _log.warning("autoroute.report_write_failed", path=str(path), error=str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -457,18 +562,19 @@ def _run_one_pass(
     cancel_flag: threading.Event | None = None,
     pass_num: int = 0,
     n_nets: int = 0,
-) -> tuple[list[WireSegment], list[str]]:
+) -> tuple[list[WireSegment], list[str], PassStats]:
     """Run one full greedy routing pass over *sorted_nets*.
 
     Starts from *user_wires* (the original user-placed wires only) and appends
     newly routed wires as each net is processed.  Nets whose id is in
     *skip_net_ids* are skipped and recorded as unrouted without attempting A*.
 
-    Returns ``(new_wires, unrouted_net_names)``.
+    Returns ``(new_wires, unrouted_net_names, pass_stats)``.
     """
     working_wires: list[WireSegment] = list(user_wires)
     new_wires: list[WireSegment] = []
     unrouted: list[str] = []
+    _pass_net_stats: list[NetStats] = []
 
     # Pre-compute total segment count for sub-net progress granularity.
     # A net with k placed pins needs k-1 segments (Steiner spanning tree).
@@ -529,10 +635,29 @@ def _run_one_pass(
         segs_done += net_segs
         if routed is None:
             unrouted.append(net.name)
+            _pass_net_stats.append(NetStats(
+                net_name=net.name, routed=False,
+                nodes_expanded=0, over_budget_hits=0, rip_up_attempts=0,
+                path_hops_min=0, path_hops_max=0, path_hops_final=0, segments_found=0,
+            ))
         else:
-            new_wires.extend(routed)
-            working_wires.extend(routed)
-    return new_wires, unrouted
+            routed_wires, net_st = routed
+            new_wires.extend(routed_wires)
+            working_wires.extend(routed_wires)
+            _pass_net_stats.append(net_st)
+
+    ps = PassStats(
+        pass_index=pass_num,
+        seed=pass_num,
+        routed_count=len(_pass_net_stats) - len(unrouted),
+        unrouted_count=len(unrouted),
+        total_wires=len(new_wires),
+        total_nodes_expanded=sum(s.nodes_expanded for s in _pass_net_stats),
+        total_over_budget_hits=sum(s.over_budget_hits for s in _pass_net_stats),
+        total_rip_up_attempts=sum(s.rip_up_attempts for s in _pass_net_stats),
+        nets=_pass_net_stats,
+    )
+    return new_wires, unrouted, ps
 
 
 def _collect_plated_through_pads(board: Board) -> set[Point]:
@@ -596,13 +721,17 @@ def _route_net(
     preferred_side: Literal["top", "bottom"] = "bottom",
     segment_callback: Callable[[str, int, int], None] | None = None,
     cancel_flag: threading.Event | None = None,
-) -> list[WireSegment] | None:
-    """Route all connections for *net*.  Returns new wires or None on failure."""
+) -> tuple[list[WireSegment], NetStats] | None:
+    """Route all connections for *net*.  Returns (wires, stats) or None on failure."""
     placed_refs = [ref for ref in net.pins if ref in pin_positions]
     if len(placed_refs) < 2:
         if _DEEP_DEBUG:
             _log.debug("autoroute.net.skip", net=net.name, reason="fewer than 2 placed pins")
-        return []
+        return ([], NetStats(
+            net_name=net.name, routed=True,
+            nodes_expanded=0, over_budget_hits=0, rip_up_attempts=0,
+            path_hops_min=0, path_hops_max=0, path_hops_final=0, segments_found=0,
+        ))
 
     if _DEEP_DEBUG:
         _log.debug(
@@ -634,6 +763,10 @@ def _route_net(
     }
 
     new_wires: list[WireSegment] = []
+    _ns_nodes = 0
+    _ns_ob = 0
+    _ns_ripup = 0
+    _ns_hops: list[int] = []
 
     # Build the connectivity graph once and update it incrementally.
     # We pass a layout without wires and then add working_wires via add_wire(),
@@ -801,7 +934,7 @@ def _route_net(
                 pair_dist=best_pair_dist,
             )
 
-        routed_wires = _route_segment_with_ripup(
+        seg_result = _route_segment_with_ripup(
             source_options=[best_src_pt],
             target=target_pt,
             manhattan_dist=best_pair_dist,
@@ -826,6 +959,14 @@ def _route_net(
             under_component_penalty=under_component_penalty,
             preferred_side=preferred_side,
         )
+        if seg_result is None:
+            routed_wires = None
+        else:
+            routed_wires, _ss = seg_result
+            _ns_nodes += _ss["nodes_expanded"]
+            _ns_ob += _ss["over_budget_hits"]
+            _ns_ripup += _ss["rip_up_attempts"]
+            _ns_hops.append(_ss["path_hops"])
         if routed_wires is None:
             if _DEEP_DEBUG:
                 _log.warning(
@@ -868,7 +1009,18 @@ def _route_net(
             new_wires=len(new_wires),
             total_hops=sum(len(w.path) - 1 for w in new_wires),
         )
-    return new_wires
+    net_stats = NetStats(
+        net_name=net.name,
+        routed=True,
+        nodes_expanded=_ns_nodes,
+        over_budget_hits=_ns_ob,
+        rip_up_attempts=_ns_ripup,
+        path_hops_min=min(_ns_hops) if _ns_hops else 0,
+        path_hops_max=max(_ns_hops) if _ns_hops else 0,
+        path_hops_final=sum(_ns_hops),
+        segments_found=len(new_wires),
+    )
+    return new_wires, net_stats
 
 
 def _route_segment_with_ripup(
@@ -895,11 +1047,14 @@ def _route_segment_with_ripup(
     wire_mode: Literal["bare", "insulated", "auto"] = "insulated",
     max_detour_factor: float = 0.0,
     manhattan_dist: float = 0.0,
-) -> list[WireSegment] | None:
+) -> tuple[list[WireSegment], dict[str, int]] | None:
     """Try to route *target* from any of *source_options*, with rip-up fallback.
 
-    Returns a list of WireSegments (may be more than one when path crosses layers).
+    Returns (wires, seg_stats) or None.  seg_stats keys:
+      nodes_expanded, over_budget_hits, rip_up_attempts, path_hops.
     """
+    _seg_nodes = 0
+    _seg_ob = 0
     for attempt in range(max_rip_up_passes + 1):
         graph = connectivity_graph
         bare_segs = _build_bare_wire_segments(working_wires)
@@ -983,6 +1138,8 @@ def _route_segment_with_ripup(
                         start_side, results = fut.result()
                         if not results:
                             continue
+                        _seg_nodes += results[0].nodes_expanded
+                        _seg_ob += results[0].over_budget_hits
                         cost = results[0].cost
                         is_preferred = start_side == preferred_side
                         if (
@@ -1011,6 +1168,8 @@ def _route_segment_with_ripup(
                         penalised_pads=under_component_penalty,
                     )
                     if results:
+                        _seg_nodes += results[0].nodes_expanded
+                        _seg_ob += results[0].over_budget_hits
                         cost = results[0].cost
                         is_preferred = start_side == preferred_side
                         if (
@@ -1049,7 +1208,13 @@ def _route_segment_with_ripup(
                         for w in wires
                     ],
                 )
-            return wires
+            seg_stats = {
+                "nodes_expanded": _seg_nodes,
+                "over_budget_hits": _seg_ob,
+                "rip_up_attempts": attempt,
+                "path_hops": sum(len(w.path) - 1 for w in wires),
+            }
+            return wires, seg_stats
 
         if _DEEP_DEBUG:
             _log.debug(
