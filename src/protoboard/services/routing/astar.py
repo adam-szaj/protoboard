@@ -195,17 +195,12 @@ class _SharedState:
     # Extra budget ratio: remaining universes may expand this many more nodes
     # after first_found_nodes is set (0.5 = N/2 extra nodes).
     extra_budget_ratio: float = 0.5
-    # Lock protecting first_found_nodes, active_count, futures, and parent_nodes.
+    # Lock protecting first_found_nodes, active_count, and futures list.
     _lock: threading.Lock = field(default_factory=threading.Lock)
     # All submitted futures — needed to wait for completion in _astar_parallel.
     futures: list[Future[None]] = field(default_factory=list)
     # Count of futures not yet done — O(1) update instead of O(N) scan.
     active_count: int = 0
-    # Shared append-only parent-node table.  Each entry is (Point, side, parent_idx).
-    # Universes append here under _lock; once appended an entry is never modified.
-    # _reconstruct_path walks this table backwards — safe because prior entries
-    # are immutable even as new ones are appended by other universes.
-    parent_nodes: list[tuple[Point, str, int]] = field(default_factory=list)
 
     def record_found(self, nodes_expanded: int) -> None:
         with self._lock:
@@ -224,35 +219,13 @@ class _SharedState:
             self.futures.append(fut)
             self.active_count += 1
 
-    def append_node(self, pt: Point, side: str, parent_idx: int) -> int:
-        """Append a node to the shared table and return its index."""
-        with self._lock:
-            idx = len(self.parent_nodes)
-            self.parent_nodes.append((pt, side, parent_idx))
-            return idx
-
     def mark_done(self) -> None:
         """Called by each universe worker when it finishes."""
         with self._lock:
             self.active_count -= 1
 
 
-# Heap entry: (f, g, seq, cx, cy, cs_idx, dx, dy, parent_node_idx)
-# parent_nodes: list of (Point, side, parent_idx) — grows monotonically per universe.
-# -1 = root (no parent).
-_HE = tuple[float, float, int, float, float, int, float, float, int]
-_PN = list[tuple[Point, str, int]]  # parent_nodes table
-
-
-def _reconstruct_path(parent_nodes: list[tuple[Point, str, int]], node_idx: int) -> list[PathStep]:
-    steps: list[PathStep] = []
-    idx = node_idx
-    while idx != -1:
-        pt, side, parent = parent_nodes[idx]
-        steps.append((pt, side))
-        idx = parent
-    steps.reverse()
-    return steps
+_HE = tuple[float, float, int, float, float, int, float, float, list[PathStep]]
 
 
 def _universe_worker(
@@ -279,8 +252,6 @@ def _universe_worker(
 ) -> None:
     """Run one A* universe until it finds a path, exhausts the heap, or exceeds budget."""
 
-    # Heuristic: Euclidean distance to nearest target. Using squared intermediate
-    # values avoids sqrt until the final min — safe since sqrt is monotone.
     def h(px: float, py: float) -> float:
         best = float("inf")
         for tx, ty in target_coords:
@@ -296,7 +267,7 @@ def _universe_worker(
             if shared.over_budget(nodes_expanded):
                 return
 
-            _f, g, _s, cx, cy, cs_idx, dx, dy, par_idx = heapq.heappop(heap)
+            _f, g, _s, cx, cy, cs_idx, dx, dy, path = heapq.heappop(heap)
             pos = Point(cx, cy)
             cur_side = _SIDES[cs_idx]
             state_key = (cx, cy, cs_idx, dx, dy)
@@ -306,23 +277,13 @@ def _universe_worker(
             visited[state_key] = g
             nodes_expanded += 1
 
-            cur_node_idx = shared.append_node(pos, cur_side, par_idx)
-
             if pos in target_set:
                 shared.record_found(nodes_expanded)
-                # Take a snapshot of parent_nodes up to and including cur_node_idx
-                # so _reconstruct_path doesn't race with concurrent appends.
-                with shared._lock:
-                    pn_snapshot = list(shared.parent_nodes[:cur_node_idx + 1])
-                path = _reconstruct_path(pn_snapshot, cur_node_idx)
                 shared.result_queue.put(RoutingResult(path=path, cost=g, insulated=insulated))
                 return
 
-            # Build the list of valid neighbour heap entries before deciding
-            # whether to branch — we need the count to decide.
             neighbor_entries: list[_HE] = []
 
-            # --- Same-layer moves ---
             for ndx, ndy, dist_mult in _NEIGHBOURS:
                 npos = Point(cx + ndx, cy + ndy)
                 if npos not in valid_nodes[cur_side]:
@@ -353,10 +314,9 @@ def _universe_worker(
                 nf = ng + h(npos.x, npos.y)
                 _seq += 1
                 neighbor_entries.append(
-                    (nf, ng, _seq, npos.x, npos.y, cs_idx, ndx, ndy, cur_node_idx)
+                    (nf, ng, _seq, npos.x, npos.y, cs_idx, ndx, ndy, path + [(npos, cur_side)])
                 )
 
-            # --- Layer change at plated-through pad ---
             via_entry: _HE | None = None
             if pos in vias:
                 other_side = _OTHER_SIDE[cur_side]
@@ -368,7 +328,7 @@ def _universe_worker(
                         if not (nstate in visited and visited[nstate] <= ng):
                             nf = ng + h(cx, cy)
                             _seq += 1
-                            via_entry = (nf, ng, _seq, pos.x, pos.y, other_idx, 0.0, 0.0, cur_node_idx)
+                            via_entry = (nf, ng, _seq, pos.x, pos.y, other_idx, 0.0, 0.0, path + [(pos, other_side)])
 
             if via_entry is not None:
                 neighbor_entries.append(via_entry)
@@ -376,8 +336,6 @@ def _universe_worker(
             if not neighbor_entries:
                 continue
 
-            # Decide whether to branch or continue in-place.
-            # Use active_count (O(1)) instead of scanning all futures (O(N)).
             pool_queue_size = _UNIVERSE_POOL._work_queue.qsize()  # type: ignore[attr-defined]
             with shared._lock:
                 active_futures = shared.active_count
@@ -388,8 +346,6 @@ def _universe_worker(
             )
 
             if should_branch:
-                # Copy-on-write: each neighbour gets its own heap+visited snapshot.
-                # parent_nodes lives in shared — no copy needed.
                 for entry in neighbor_entries:
                     new_heap = list(heap)
                     heapq.heappush(new_heap, entry)
@@ -402,10 +358,8 @@ def _universe_worker(
                         bare_idx, vias, forbidden_edges, penalised,
                     )
                     shared.add_future(fut)
-                # This universe has delegated all branches — it is done.
                 return
             else:
-                # No branching — push all neighbours onto our own heap (mutable, zero copy).
                 for entry in neighbor_entries:
                     heapq.heappush(heap, entry)
     finally:
@@ -448,9 +402,8 @@ def _astar_parallel(
         return math.sqrt(best)
 
     side_idx = 0 if source_side == "top" else 1
-    # Heap entry: (f, g, seq, cx, cy, cs_idx, dx, dy, parent_node_idx=-1 for root)
     initial_heap: list[_HE] = [
-        (h0(source.x, source.y), 0.0, 0, source.x, source.y, side_idx, 0.0, 0.0, -1)
+        (h0(source.x, source.y), 0.0, 0, source.x, source.y, side_idx, 0.0, 0.0, [(source, source_side)])
     ]
     initial_visited: dict[tuple[float, float, int, float, float], float] = {}
 
