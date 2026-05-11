@@ -590,14 +590,16 @@ def find_paths(
             k=k,
         )
 
-    # --- Python fallback: sequential A* ---
-    # Parallel-universe A* with Python threads is slower than sequential due to
-    # GIL contention and lock overhead — use _astar() directly.
+    # --- Python fallback ---
+    # _astar_parallel provides an over_budget cutoff (N/2 extra nodes after
+    # the first universe finds the target) that limits expansion on hard routes.
+    # Without it, _astar() explores unboundedly and can be 8× slower on dense
+    # boards where bare_segs crossing checks dominate.
     results: list[RoutingResult] = []
     forbidden_edges: set[tuple[Point, str, Point, str]] = set()
 
     for _ in range(k):
-        result = _astar(
+        result = _astar_parallel(
             valid_nodes=valid_nodes,
             source=source,
             source_side=side,
@@ -612,6 +614,7 @@ def find_paths(
             vias=vias,
             forbidden_edges=forbidden_edges,
             penalised=penalised,
+            extra_budget_ratio=extra_budget_ratio,
         )
         if result is None:
             break
