@@ -336,31 +336,7 @@ def _universe_worker(
             if not neighbor_entries:
                 continue
 
-            pool_queue_size = _UNIVERSE_POOL._work_queue.qsize()  # type: ignore[attr-defined]
-            with shared._lock:
-                active_futures = shared.active_count
-            should_branch = (
-                len(neighbor_entries) >= 2
-                and active_futures < _CPU_COUNT
-                and pool_queue_size < _CPU_COUNT * 4
-            )
-
-            if should_branch:
-                for entry in neighbor_entries:
-                    new_heap = list(heap)
-                    heapq.heappush(new_heap, entry)
-                    new_visited = dict(visited)
-                    fut = _UNIVERSE_POOL.submit(
-                        _universe_worker,
-                        new_heap, new_visited, nodes_expanded, _seq, shared,
-                        valid_nodes, target_set, target_coords, cost_model, insulated,
-                        occupied, same_net, near_pins, near_pin_cost,
-                        bare_idx, vias, forbidden_edges, penalised,
-                    )
-                    shared.add_future(fut)
-                return
-            else:
-                for entry in neighbor_entries:
+            for entry in neighbor_entries:
                     heapq.heappush(heap, entry)
     finally:
         shared.mark_done()
