@@ -630,14 +630,13 @@ def _astar(
 
     _seq = 0
     side_idx = 0 if source_side == "top" else 1
-    parent_nodes: _PN = []
-    heap: list[_HE] = [
-        (h(source.x, source.y), 0.0, _seq, source.x, source.y, side_idx, 0.0, 0.0, -1)
+    heap: list[tuple[float, float, int, float, float, int, float, float, list[PathStep]]] = [
+        (h(source.x, source.y), 0.0, _seq, source.x, source.y, side_idx, 0.0, 0.0, [(source, source_side)])
     ]
     visited: dict[tuple[float, float, int, float, float], float] = {}
 
     while heap:
-        _f, g, _s, cx, cy, cs_idx, dx, dy, par_idx = heapq.heappop(heap)
+        _f, g, _s, cx, cy, cs_idx, dx, dy, path = heapq.heappop(heap)
         pos = Point(cx, cy)
         cur_side = _SIDES[cs_idx]
         state_key = (cx, cy, cs_idx, dx, dy)
@@ -645,11 +644,8 @@ def _astar(
             continue
         visited[state_key] = g
 
-        cur_node_idx = len(parent_nodes)
-        parent_nodes.append((pos, cur_side, par_idx))
-
         if pos in target_set:
-            return RoutingResult(path=_reconstruct_path(parent_nodes, cur_node_idx), cost=g)
+            return RoutingResult(path=path, cost=g)
 
         for ndx, ndy, dist_mult in _NEIGHBOURS:
             npos = Point(cx + ndx, cy + ndy)
@@ -682,7 +678,7 @@ def _astar(
             nf = ng + h(npos.x, npos.y)
             _seq += 1
             heapq.heappush(
-                heap, (nf, ng, _seq, npos.x, npos.y, cs_idx, ndx, ndy, cur_node_idx)
+                heap, (nf, ng, _seq, npos.x, npos.y, cs_idx, ndx, ndy, path + [(npos, cur_side)])
             )
 
         if pos in vias:
@@ -696,7 +692,7 @@ def _astar(
                         nf = ng + h(cx, cy)
                         _seq += 1
                         heapq.heappush(
-                            heap, (nf, ng, _seq, pos.x, pos.y, other_idx, 0.0, 0.0, cur_node_idx)
+                            heap, (nf, ng, _seq, pos.x, pos.y, other_idx, 0.0, 0.0, path + [(pos, other_side)])
                         )
 
     return None
