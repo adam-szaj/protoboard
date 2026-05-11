@@ -277,6 +277,9 @@ def _universe_worker(
     _pen:  dict[tuple[float, float, str], float] = {
         (p.x, p.y, s): v for (p, s), v in penalised.items()
     }
+    _fe:   set[tuple[float, float, str, float, float, str]] = {
+        (pa.x, pa.y, sa, pb.x, pb.y, sb) for (pa, sa, pb, sb) in forbidden_edges
+    }
     _free = cost_model.free_pad
     _inf = float("inf")
     _dc  = cost_model.direction_change
@@ -312,8 +315,7 @@ def _universe_worker(
                 ny = cy + ndy
                 if (nx, ny) not in _vn_cur:
                     continue
-                npos = Point(nx, ny)
-                if (pos, cur_side, npos, cur_side) in forbidden_edges:
+                if (cx, cy, cur_side, nx, ny, cur_side) in _fe:
                     continue
 
                 # Inlined _step_cost using float-tuple dicts.
@@ -331,6 +333,8 @@ def _universe_worker(
                     if _ex is not None:
                         step_cost += _ex
 
+                # Point created here — needed for _crossing_cost and path.
+                npos = Point(nx, ny)
                 crossing_cost = _crossing_cost(pos, npos, cur_side, bare_idx, cost_model, insulated)
                 if crossing_cost >= _inf:
                     continue
@@ -355,8 +359,7 @@ def _universe_worker(
                 other_side = _OTHER_SIDE[cur_side]
                 other_idx = 1 - cs_idx
                 if (cx, cy) in _vn[other_idx]:
-                    pos = Point(cx, cy)
-                    if (pos, cur_side, pos, other_side) not in forbidden_edges:
+                    if (cx, cy, cur_side, cx, cy, other_side) not in _fe:
                         ng = g + _lc
                         nstate = (cx, cy, other_idx, 0.0, 0.0)
                         if not (nstate in visited and visited[nstate] <= ng):
