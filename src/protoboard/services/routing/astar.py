@@ -314,7 +314,6 @@ def _universe_worker(
 
             if (cx, cy) in _tgt:
                 shared.record_found(nodes_expanded)
-                shared.record_nodes(nodes_expanded)
                 shared.result_queue.put(RoutingResult(
                     path=path, cost=g, insulated=insulated,
                     nodes_expanded=nodes_expanded,
@@ -391,6 +390,7 @@ def _universe_worker(
             for entry in neighbor_entries:
                     heapq.heappush(heap, entry)
     finally:
+        shared.record_nodes(nodes_expanded)
         shared.mark_done()
 
 
