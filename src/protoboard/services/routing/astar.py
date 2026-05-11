@@ -260,13 +260,24 @@ def _universe_worker(
                 best = d2
         return math.sqrt(best)
 
-    # Convert Point-based sets to (float, float) tuples — avoids Point.__init__
+    # Convert Point-based structures to float-tuple keys — avoids Point.__init__
     # and Point.__hash__ on every neighbour lookup in the hot loop.
     _vn_top:    set[tuple[float, float]] = {(p.x, p.y) for p in valid_nodes.get("top", set())}
     _vn_bottom: set[tuple[float, float]] = {(p.x, p.y) for p in valid_nodes.get("bottom", set())}
     _vn = (_vn_top, _vn_bottom)  # indexed by cs_idx (0=top, 1=bottom)
     _tgt: set[tuple[float, float]] = {(p.x, p.y) for p in target_set}
     _via: set[tuple[float, float]] = {(p.x, p.y) for p in vias}
+    _occ:  dict[tuple[float, float, str], float] = {
+        (p.x, p.y, s): cost_model.occupied_by_other_net for (p, s) in occupied
+    }
+    _same: dict[tuple[float, float, str], float] = {
+        (p.x, p.y, s): cost_model.same_net_pad for (p, s) in same_net
+    }
+    _near: set[tuple[float, float, str]] = {(p.x, p.y, s) for (p, s) in near_pins}
+    _pen:  dict[tuple[float, float, str], float] = {
+        (p.x, p.y, s): v for (p, s), v in penalised.items()
+    }
+    _free = cost_model.free_pad
     _inf = float("inf")
     _dc  = cost_model.direction_change
     _lc  = cost_model.layer_change
@@ -294,24 +305,31 @@ def _universe_worker(
 
             neighbor_entries: list[_HE] = []
             _vn_cur = _vn[cs_idx]
+            pos = Point(cx, cy)
 
             for ndx, ndy, dist_mult in _NEIGHBOURS:
                 nx = cx + ndx
                 ny = cy + ndy
                 if (nx, ny) not in _vn_cur:
                     continue
-                # Point objects only created when they pass the valid_nodes check.
                 npos = Point(nx, ny)
-                pos  = Point(cx, cy)
                 if (pos, cur_side, npos, cur_side) in forbidden_edges:
                     continue
 
-                step_cost = _step_cost(
-                    npos, cur_side, dist_mult, cost_model, occupied, same_net,
-                    near_pins, near_pin_cost, penalised,
-                )
-                if step_cost >= _inf:
+                # Inlined _step_cost using float-tuple dicts.
+                _nkey = (nx, ny, cur_side)
+                if _nkey in _occ:
                     continue
+                _sc = _same.get(_nkey)
+                if _sc is not None:
+                    step_cost = _sc * dist_mult
+                else:
+                    step_cost = _free * dist_mult
+                    if _nkey in _near:
+                        step_cost += near_pin_cost
+                    _ex = _pen.get(_nkey)
+                    if _ex is not None:
+                        step_cost += _ex
 
                 crossing_cost = _crossing_cost(pos, npos, cur_side, bare_idx, cost_model, insulated)
                 if crossing_cost >= _inf:
