@@ -124,6 +124,28 @@ def _find_paths_rust(
     return results
 
 
+# Spatial index for bare wire segments: (cell_x, cell_y, side) → [(p1, p2), ...]
+# Each segment is stored under every integer cell its bounding box covers.
+# Lookup: for a step covering bbox (x0..x1, y0..y1) query all overlapping cells.
+BareSegIndex = dict[tuple[int, int, str], list[tuple[Point, Point]]]
+
+
+def _build_bare_seg_index(bare_segs: set[tuple[Point, Point, str]]) -> BareSegIndex:
+    idx: BareSegIndex = {}
+    for p1, p2, side in bare_segs:
+        x0 = int(math.floor(min(p1.x, p2.x)))
+        x1 = int(math.floor(max(p1.x, p2.x)))
+        y0 = int(math.floor(min(p1.y, p2.y)))
+        y1 = int(math.floor(max(p1.y, p2.y)))
+        for cx in range(x0, x1 + 1):
+            for cy in range(y0, y1 + 1):
+                key = (cx, cy, side)
+                if key not in idx:
+                    idx[key] = []
+                idx[key].append((p1, p2))
+    return idx
+
+
 # 4 orthogonal + 4 diagonal neighbours (same layer), each with its distance
 # multiplier.  Layer changes are handled separately.
 _NEIGHBOURS: list[tuple[float, float, float]] = [
@@ -250,7 +272,7 @@ def _universe_worker(
     same_net: dict[tuple[Point, str], uuid.UUID],
     near_pins: set[tuple[Point, str]],
     near_pin_cost: float,
-    bare_segs: set[tuple[Point, Point, str]],
+    bare_idx: BareSegIndex,
     vias: set[Point],
     forbidden_edges: set[tuple[Point, str, Point, str]],
     penalised: dict[tuple[Point, str], float],
@@ -315,7 +337,7 @@ def _universe_worker(
                 if step_cost >= float("inf"):
                     continue
 
-                crossing_cost = _crossing_cost(pos, npos, cur_side, bare_segs, cost_model, insulated)
+                crossing_cost = _crossing_cost(pos, npos, cur_side, bare_idx, cost_model, insulated)
                 if crossing_cost >= float("inf"):
                     continue
                 step_cost += crossing_cost
@@ -377,7 +399,7 @@ def _universe_worker(
                         new_heap, new_visited, nodes_expanded, _seq, shared,
                         valid_nodes, target_set, target_coords, cost_model, insulated,
                         occupied, same_net, near_pins, near_pin_cost,
-                        bare_segs, vias, forbidden_edges, penalised,
+                        bare_idx, vias, forbidden_edges, penalised,
                     )
                     shared.add_future(fut)
                 # This universe has delegated all branches — it is done.
@@ -401,7 +423,7 @@ def _astar_parallel(
     same_net: dict[tuple[Point, str], uuid.UUID],
     near_pins: set[tuple[Point, str]],
     near_pin_cost: float,
-    bare_segs: set[tuple[Point, Point, str]],
+    bare_idx: BareSegIndex,
     vias: set[Point],
     forbidden_edges: set[tuple[Point, str, Point, str]],
     penalised: dict[tuple[Point, str], float],
@@ -443,7 +465,7 @@ def _astar_parallel(
         initial_heap, initial_visited, 0, 0, shared,
         valid_nodes, target_set, target_coords, cost_model, insulated,
         occupied, same_net, near_pins, near_pin_cost,
-        bare_segs, vias, forbidden_edges, penalised,
+        bare_idx, vias, forbidden_edges, penalised,
     )
     shared.add_future(fut)
 
@@ -545,6 +567,9 @@ def find_paths(
     if source not in valid_nodes[side]:
         return []
 
+    # Build spatial index for bare segments once per find_paths call.
+    bare_idx = _build_bare_seg_index(bare_segs)
+
     # --- Rust extension path (true parallelism, no GIL) ---
     if _RUST_AVAILABLE:
         return _find_paths_rust(
@@ -583,7 +608,7 @@ def find_paths(
             same_net=same_net,
             near_pins=near_pins,
             near_pin_cost=near_pin_cost,
-            bare_segs=bare_segs,
+            bare_idx=bare_idx,
             vias=vias,
             forbidden_edges=forbidden_edges,
             penalised=penalised,
@@ -612,12 +637,12 @@ def _astar(
     same_net: dict[tuple[Point, str], uuid.UUID],
     near_pins: set[tuple[Point, str]],
     near_pin_cost: float,
-    bare_segs: set[tuple[Point, Point, str]],
+    bare_idx: BareSegIndex,
     vias: set[Point],
     forbidden_edges: set[tuple[Point, str, Point, str]],
     penalised: dict[tuple[Point, str], float],
 ) -> RoutingResult | None:
-    """Sequential A* — kept for reference and fallback use."""
+    """Sequential A*."""
     target_coords = [(t.x, t.y) for t in target_set]
 
     def h(px: float, py: float) -> float:
@@ -661,7 +686,7 @@ def _astar(
                 continue
 
             crossing_cost = _crossing_cost(
-                pos, npos, cur_side, bare_segs, cost_model, insulated
+                pos, npos, cur_side, bare_idx, cost_model, insulated
             )
             if crossing_cost >= float("inf"):
                 continue
@@ -727,7 +752,7 @@ def _crossing_cost(
     p1: Point,
     p2: Point,
     side: str,
-    bare_segs: set[tuple[Point, Point, str]],
+    bare_idx: BareSegIndex,
     cost_model: RoutingCostModel,
     insulated: bool,
 ) -> float:
@@ -737,7 +762,7 @@ def _crossing_cost(
     For orthogonal steps, check if this segment crosses any bare segment.
     For diagonal steps, check both half-steps.
     """
-    if not bare_segs:
+    if not bare_idx:
         return 0.0
 
     dx = p2.x - p1.x
@@ -753,13 +778,13 @@ def _crossing_cost(
         mid1 = Point(p1.x + dx, p1.y)
         mid2 = Point(p1.x,      p1.y + dy)
         crosses = (
-            _seg_crosses_any(p1, mid1, side, bare_segs) or
-            _seg_crosses_any(mid1, p2, side, bare_segs) or
-            _seg_crosses_any(p1, mid2, side, bare_segs) or
-            _seg_crosses_any(mid2, p2, side, bare_segs)
+            _seg_crosses_any(p1, mid1, side, bare_idx) or
+            _seg_crosses_any(mid1, p2, side, bare_idx) or
+            _seg_crosses_any(p1, mid2, side, bare_idx) or
+            _seg_crosses_any(mid2, p2, side, bare_idx)
         )
     else:
-        crosses = _seg_crosses_any(p1, p2, side, bare_segs)
+        crosses = _seg_crosses_any(p1, p2, side, bare_idx)
 
     if not crosses:
         return 0.0
@@ -767,14 +792,26 @@ def _crossing_cost(
 
 
 def _seg_crosses_any(
-    p1: Point, p2: Point, side: str, bare_segs: set[tuple[Point, Point, str]]
+    p1: Point, p2: Point, side: str, bare_idx: BareSegIndex
 ) -> bool:
     """Return True if axis-aligned segment p1→p2 strictly crosses any bare segment on the same layer."""
-    for bsrc, bdst, bside in bare_segs:
-        if bside != side:
-            continue
-        if _segs_cross(p1, p2, bsrc, bdst):
-            return True
+    x0 = int(math.floor(min(p1.x, p2.x)))
+    x1 = int(math.floor(max(p1.x, p2.x)))
+    y0 = int(math.floor(min(p1.y, p2.y)))
+    y1 = int(math.floor(max(p1.y, p2.y)))
+    seen: set[int] = set()
+    for cx in range(x0, x1 + 1):
+        for cy in range(y0, y1 + 1):
+            segs = bare_idx.get((cx, cy, side))
+            if not segs:
+                continue
+            for bsrc, bdst in segs:
+                seg_id = id(bsrc)  # each tuple is unique; id() is O(1)
+                if seg_id in seen:
+                    continue
+                seen.add(seg_id)
+                if _segs_cross(p1, p2, bsrc, bdst):
+                    return True
     return False
 
 
