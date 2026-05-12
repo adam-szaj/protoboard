@@ -324,11 +324,10 @@ class TestRustPythonParity:
         )
 
     def test_cost_equal(self, scenario: dict[str, Any]) -> None:
-        """Best path costs must be equal within 1e-2.
+        """Best path costs must be equal within 1e-4.
 
-        Rust uses f32 internally for diagonal distance (sqrt(2) ≈ 1.41421356),
-        which may differ from Python's f64 by up to ~0.002 per diagonal hop.
-        We tolerate 1% relative difference on cost.
+        Both Rust (1414/1000) and Python (1.4140) use the same diagonal
+        multiplier — costs should agree to floating-point precision.
         """
         kw = {k: v for k, v in scenario.items() if k not in ("board", "graph")}
         rust = _run_rust(scenario["graph"], **kw)
@@ -336,10 +335,8 @@ class TestRustPythonParity:
         if not rust and not pyth:
             return  # both failed — already checked above
         assert rust and pyth, "One found a path, the other did not"
-        rel_diff = abs(rust[0].cost - pyth[0].cost) / max(rust[0].cost, 1e-9)
-        assert rel_diff < 0.01, (
-            f"Rust cost {rust[0].cost:.6f} ≠ Python cost {pyth[0].cost:.6f} "
-            f"(relative diff {rel_diff:.4%})"
+        assert abs(rust[0].cost - pyth[0].cost) < 1e-4, (
+            f"Rust cost {rust[0].cost:.6f} ≠ Python cost {pyth[0].cost:.6f}"
         )
 
     def test_rust_path_geometrically_valid(self, scenario: dict[str, Any]) -> None:
@@ -418,19 +415,16 @@ class TestRustPythonParityEdgeCases:
         assert abs(rust[0].cost - pyth[0].cost) < 1e-6
 
     def test_large_board_cost_equal(self) -> None:
-        """On a 20×20 board, costs must agree within 1% for a long diagonal route.
-
-        Known: Rust uses f32 arithmetic for sqrt(2), Python uses f64 — difference
-        accumulates over many diagonal hops (~0.015% per hop).
-        """
+        """On a 20×20 board, costs must agree within 1e-3 for a long diagonal route."""
         b = _perfboard(20, 20)
         g = _graph(b)
         src, tgt = Point(0.5, 0.5), Point(19.5, 19.5)
         rust = _run_rust(g, source=src, targets=[tgt])
         pyth = _run_python(g, source=src, targets=[tgt])
         assert rust and pyth
-        rel = abs(rust[0].cost - pyth[0].cost) / max(pyth[0].cost, 1e-9)
-        assert rel < 0.01, f"Cost relative diff {rel:.4%} > 1%"
+        assert abs(rust[0].cost - pyth[0].cost) < 1e-3, (
+            f"Rust {rust[0].cost:.6f} ≠ Python {pyth[0].cost:.6f}"
+        )
 
     def test_multiple_targets_both_pick_nearest(self) -> None:
         """With two targets, both implementations should pick the cheaper one."""
@@ -495,5 +489,6 @@ class TestRustPythonParityEdgeCases:
             _astar_mod._RUST_AVAILABLE = orig
 
         assert rust_results and py_results
-        rel = abs(rust_results[0].cost - py_results[0].cost) / max(py_results[0].cost, 1e-9)
-        assert rel < 0.01, f"Cost relative diff {rel:.4%} > 1%"
+        assert abs(rust_results[0].cost - py_results[0].cost) < 1e-4, (
+            f"Rust {rust_results[0].cost:.6f} ≠ Python {py_results[0].cost:.6f}"
+        )

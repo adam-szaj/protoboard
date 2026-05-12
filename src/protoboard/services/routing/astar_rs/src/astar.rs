@@ -110,12 +110,7 @@ fn crossing_cost(
     bare_segs: &[(IPoint, IPoint, ISide)],
     cost_crossing: f64,
 ) -> f64 {
-    if bare_segs.is_empty() || cost_crossing >= f64::MAX / 2.0 {
-        // Fast path: no bare segments or infinite cost means just return 0
-        // (caller handles infinite separately)
-        if cost_crossing >= f64::MAX / 2.0 {
-            return cost_crossing;
-        }
+    if bare_segs.is_empty() {
         return 0.0;
     }
     let dx = p2.0 - p1.0;
