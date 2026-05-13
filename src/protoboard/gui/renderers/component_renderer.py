@@ -513,6 +513,7 @@ def render_groups(
     placements: dict[uuid.UUID, ComponentPlacement],
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
+    wires: list[object] | None = None,
     theme: Theme = DEFAULT_THEME,
     active_group_id: uuid.UUID | None = None,
 ) -> list[QGraphicsItem]:
@@ -544,7 +545,7 @@ def render_groups(
             continue
         is_active = group.id == effective_active
 
-        comp_ids = all_component_ids(layout.groups, group.id)
+        comp_ids = frozenset(all_component_ids(layout.groups, group.id))
         positions: list[Point] = []
         for cid in comp_ids:
             pl = placements.get(cid)
@@ -558,6 +559,21 @@ def render_groups(
                 positions.append(pin_world_position(defn.footprint, pl, n + 1))
         if not positions:
             continue
+        # Extend bbox to include all points of internal wires.
+        if wires:
+            from protoboard.domain.commands.group_cmds import (
+                _find_internal_wires,
+                _pin_positions_for,
+            )
+            from protoboard.domain.layout.wire import WireSegment
+            typed_wires = [w for w in wires if isinstance(w, WireSegment)]
+            all_ids = frozenset(placements.keys())
+            group_pins = _pin_positions_for(comp_ids, placements, instances, components)  # type: ignore[arg-type]
+            ext_pins = _pin_positions_for(all_ids - comp_ids, placements, instances, components)  # type: ignore[arg-type]
+            internal_ids = _find_internal_wires(typed_wires, group_pins, ext_pins)
+            for w in typed_wires:
+                if w.id in internal_ids:
+                    positions.extend(w.path)
         xs = [p.x for p in positions]
         ys = [p.y for p in positions]
         m = t.group_margin

@@ -587,6 +587,7 @@ class BoardView(QGraphicsView):
                 self._session.layout.placements,
                 self._session.instances,
                 self._session.components,
+                wires=self._session.layout.wires,
                 theme=_theme,
                 active_group_id=self._active_group_id,
             ))
