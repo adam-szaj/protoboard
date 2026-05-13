@@ -169,9 +169,11 @@ class PlaceTool(_Tool):
         if self._phase == "floating":
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 self._commit_floating_place()
+                event.accept()
             elif key == Qt.Key.Key_Escape:
                 self._cancel_floating_place()
                 self._rebuild_ghost()
+                event.accept()
             return
 
         if key == Qt.Key.Key_R and alt and not ctrl and self._phase == "drag_pin":
@@ -192,6 +194,7 @@ class PlaceTool(_Tool):
                 self._pin_offsets = flipped.pin_offsets
                 self._rebuild_ghost_at_anchor()
                 self._update_reach_overlay()
+            event.accept()
 
         elif key == Qt.Key.Key_R and not ctrl and not alt:
             delta = -90 if shift else 90
@@ -201,6 +204,7 @@ class PlaceTool(_Tool):
                 self._update_reach_overlay()
             else:
                 self._rebuild_ghost()
+            event.accept()
 
         elif key == Qt.Key.Key_R and ctrl:
             # Ctrl+R — restart drag for the current bendable pin from default.
@@ -226,11 +230,13 @@ class PlaceTool(_Tool):
                     self._pin_offsets[self._current_drag_pin] = spec.default_offset
             self._rebuild_ghost_at_anchor()
             self._update_reach_overlay()
+            event.accept()
 
         elif key == Qt.Key.Key_Escape and self._phase == "drag_pin":
             self._clear_reach_overlay()
             self._reset_phase()
             self._rebuild_ghost()
+            event.accept()
 
     def on_scene_cleared(self) -> None:
         self._ghost = None

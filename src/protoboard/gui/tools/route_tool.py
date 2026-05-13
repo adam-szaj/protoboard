@@ -107,8 +107,10 @@ class RouteTool(_Tool):
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             shift_held = bool(mods & Qt.KeyboardModifier.ShiftModifier)
             self._commit(shift_held=shift_held)
+            event.accept()
         elif key == Qt.Key.Key_Escape:
             self._cancel()
+            event.accept()
         elif key == Qt.Key.Key_W:
             if bool(mods & Qt.KeyboardModifier.ShiftModifier):
                 self._net_aware = True

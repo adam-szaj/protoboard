@@ -73,6 +73,8 @@ class MainWindow(QMainWindow):
         self._update_title()
         self.resize(1280, 800)
 
+        self._pre_fullscreen_maximized: bool = False
+
         # Central widget — board view.
         self._board_view = BoardView(session, self)
         self._board_view.set_theme(self._theme)
@@ -402,22 +404,18 @@ class MainWindow(QMainWindow):
 
         edit_menu.addSeparator()
 
-        act_delete = edit_menu.addAction("&Delete")
-        act_delete.setShortcut(self._ks(KB.ACTION_DELETE))
+        act_delete = edit_menu.addAction("&Delete\tDel")
         act_delete.triggered.connect(self._delete_selection)
 
         edit_menu.addSeparator()
 
-        act_rotate_cw = edit_menu.addAction("Rotate &CW")
-        act_rotate_cw.setShortcut(self._ks(KB.ACTION_ROTATE_CW))
+        act_rotate_cw = edit_menu.addAction("Rotate &CW\tR")
         act_rotate_cw.triggered.connect(self._rotate_cw)
 
-        act_rotate_ccw = edit_menu.addAction("Rotate CC&W")
-        act_rotate_ccw.setShortcut(self._ks(KB.ACTION_ROTATE_CCW))
+        act_rotate_ccw = edit_menu.addAction("Rotate CC&W\tShift+R")
         act_rotate_ccw.triggered.connect(self._rotate_ccw)
 
-        act_flip = edit_menu.addAction("&Flip")
-        act_flip.setShortcut(self._ks(KB.ACTION_FLIP))
+        act_flip = edit_menu.addAction("&Flip\tAlt+R")
         act_flip.triggered.connect(self._flip_selection)
 
         edit_menu.addSeparator()
@@ -555,6 +553,11 @@ class MainWindow(QMainWindow):
         act_fit_sel = view_menu.addAction("Fit &Selection")
         act_fit_sel.setShortcut(self._ks(KB.ACTION_FIT_SELECTION))
         act_fit_sel.triggered.connect(self._fit_selection)
+
+        view_menu.addSeparator()
+
+        act_fullscreen = view_menu.addAction("&Full Screen\tF11")
+        act_fullscreen.triggered.connect(self._toggle_fullscreen)
 
         # ── Tools ─────────────────────────────────────────────────────────
         tools_menu = mb.addMenu("&Tools")
@@ -1093,6 +1096,16 @@ class MainWindow(QMainWindow):
         self._mode_label.setText(
             f"Route Wire {mode} {style} [{side}]  [I] toggle  [T/B] side  {hint}  [Enter] commit  [Esc] cancel"
         )
+
+    def _toggle_fullscreen(self) -> None:
+        if self.isFullScreen():
+            if self._pre_fullscreen_maximized:
+                self.showMaximized()
+            else:
+                self.showNormal()
+        else:
+            self._pre_fullscreen_maximized = self.isMaximized()
+            self.showFullScreen()
 
     def _mirror_view(self) -> None:
         self._board_view.toggle_mirror_h()
@@ -2041,7 +2054,9 @@ class MainWindow(QMainWindow):
         # This method only handles actions that lack a dedicated QAction
         # (tool switching, mirror, camera) which are shown in menus as
         # hint text only, and layer cycling which is dynamically indexed.
-        if self._matches(event, KB.ACTION_TOOL_SELECT):
+        if event.key() == Qt.Key.Key_F11:
+            self._toggle_fullscreen()
+        elif self._matches(event, KB.ACTION_TOOL_SELECT):
             self._tool_select()
         elif self._matches(event, KB.ACTION_TOOL_ROUTE):
             self._tool_route()

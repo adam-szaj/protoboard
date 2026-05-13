@@ -622,10 +622,11 @@ class BoardView(QGraphicsView):
         if isinstance(tool, SelectTool):
             tool._select_primary(comp_id)
 
-    def snap(self, scene_pt: QPointF) -> Point:
+    def snap(self, scene_pt: QPointF, exclude_ids: frozenset[uuid.UUID] | None = None) -> Point:
         """Snap scene-space point to nearest accessible pad or component pin.
 
         Pins belonging to child groups are only accessible if they are exported.
+        ``exclude_ids`` — component IDs whose pins are skipped (e.g. currently dragged).
         """
         from protoboard.domain.layout.group import all_component_ids
         from protoboard.domain.layout.group import ExportedPin
@@ -684,6 +685,8 @@ class BoardView(QGraphicsView):
                     candidates.add(cid)
 
         for comp_id in candidates:
+            if exclude_ids and comp_id in exclude_ids:
+                continue
             if comp_id in locked_comp_ids:
                 placement = self._session.layout.placements.get(comp_id)
                 inst = self._session.instances.get(comp_id)
@@ -871,6 +874,9 @@ class BoardView(QGraphicsView):
             super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.isAutoRepeat():
+            event.ignore()
+            return
         key = event.key()
         if key == Qt.Key.Key_Escape:
             if self._active_tool is not None:
@@ -905,12 +911,10 @@ class BoardView(QGraphicsView):
         if self._active_tool is not None:
             self._active_tool.on_key(event)
         # Forward to MainWindow so global shortcuts (S/W/C/H/F5/F6/Ctrl+0…) work
-        # regardless of which widget has focus.  Keys handled exclusively by tools
-        # (R, Del, A, Enter) are not claimed by MainWindow.keyPressEvent, so they
-        # fall through to its super() call harmlessly.  If a new MainWindow handler
-        # is ever added for a key that tools also use, the tool must call
-        # event.accept() to prevent the double-dispatch from causing side-effects.
-        self.window().keyPressEvent(event)
+        # regardless of which widget has focus.  Tools call event.accept() for keys
+        # they handle exclusively (R, Del, A, Enter, F) to prevent double-dispatch.
+        if not event.isAccepted():
+            self.window().keyPressEvent(event)
 
     def keyReleaseEvent(self, event: QKeyEvent) -> None:
         if self._active_tool is not None:

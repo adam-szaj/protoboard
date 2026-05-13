@@ -788,7 +788,7 @@ class SelectTool(_Tool):
                 self._dragging = True
                 self._drag_orig_positions = {}
                 self._drag_orig_wire_paths = {}
-                snapped = self._view.snap(scene_pt)
+                snapped = self._view.snap(scene_pt, exclude_ids=frozenset(grp_members))
                 for cid in grp_members:
                     pl = self._session.layout.placements.get(cid)
                     if pl is not None:
@@ -846,7 +846,7 @@ class SelectTool(_Tool):
             self._drag_orig_positions = {}
             self._drag_orig_wire_paths = {}
             drag_ids = self._selected_ids if self._selected_ids else {hit}
-            snapped = self._view.snap(scene_pt)
+            snapped = self._view.snap(scene_pt, exclude_ids=frozenset(drag_ids))
             for cid in drag_ids:
                 pl = self._session.layout.placements.get(cid)
                 if pl is not None:
@@ -918,7 +918,7 @@ class SelectTool(_Tool):
             self._drag_orig_positions = {}
             self._drag_orig_wire_paths = {}
             drag_ids = self._selected_ids if self._selected_ids else {bbox_hit}
-            snapped = self._view.snap(scene_pt)
+            snapped = self._view.snap(scene_pt, exclude_ids=frozenset(drag_ids))
             for cid in drag_ids:
                 pl = self._session.layout.placements.get(cid)
                 if pl is not None:
@@ -997,12 +997,16 @@ class SelectTool(_Tool):
             return
 
         if self._dragging:
-            snapped = self._view.snap(scene_pt)
+            anchor_id = self._selected_id
+            drag_ids = (
+                self._selected_ids if self._selected_ids
+                else ({anchor_id} if anchor_id else set())
+            )
+            snapped = self._view.snap(scene_pt, exclude_ids=frozenset(drag_ids))
             dx_off, dy_off = self._drag_anchor_offset
             anchor_new = Point(snapped.x + dx_off, snapped.y + dy_off)
 
             # Compute delta from anchor.
-            anchor_id = self._selected_id
             delta: Point | None = None
             if anchor_id is not None:
                 anchor_orig = self._drag_orig_positions.get(anchor_id)
@@ -1026,10 +1030,6 @@ class SelectTool(_Tool):
             _delta: Point = delta  # narrow type for mypy
 
             # Move components.
-            drag_ids = (
-                self._selected_ids if self._selected_ids
-                else ({anchor_id} if anchor_id else set())
-            )
             for cid in drag_ids:
                 pl = self._session.layout.placements.get(cid)
                 orig = self._drag_orig_positions.get(cid)
@@ -1265,28 +1265,36 @@ class SelectTool(_Tool):
         if self._is_editing_wire():
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 self._commit_wire_edit()
+                event.accept()
             elif key == Qt.Key.Key_Escape:
                 self._cancel_wire_edit()
+                event.accept()
             elif key == Qt.Key.Key_A:
                 self._autoroute_wire_fragment()
+                event.accept()
             elif key == Qt.Key.Key_F:
                 self._flip_wire_fragment()
+                event.accept()
             elif key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
                 self._delete_wire_fragment()
+                event.accept()
             return
 
         # Floating state: Enter commits, Esc cancels, R rotates.
         if self._is_floating():
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 self._commit_floating()
+                event.accept()
             elif key == Qt.Key.Key_Escape:
                 self._cancel_floating()
+                event.accept()
             elif key == Qt.Key.Key_R:
                 delta = -90 if bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier) else 90
                 if self._selected_ids:
                     self._rotate_multi(delta=delta)
                 elif self._selected_id is not None:
                     self._rotate_selected(delta=delta)
+                event.accept()
             return
 
         ctrl  = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
@@ -1297,6 +1305,7 @@ class SelectTool(_Tool):
         if self._redrag_comp_id is not None:
             if key == Qt.Key.Key_Escape:
                 self._cancel_redrag()
+                event.accept()
             return
 
         if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
@@ -1306,19 +1315,23 @@ class SelectTool(_Tool):
                 self._delete_multi()
             elif self._selected_id is not None:
                 self._delete_selected()
+            event.accept()
         elif key == Qt.Key.Key_R and ctrl:
             if self._selected_id is not None:
                 self._start_redrag(self._selected_id)
+            event.accept()
         elif key == Qt.Key.Key_R and alt and not ctrl:
             if self._selected_ids:
                 self._flip_multi()
             elif self._selected_id is not None:
                 self._flip_selected()
+            event.accept()
         elif key == Qt.Key.Key_R and not ctrl and not alt:
             if self._selected_ids:
                 self._rotate_multi(delta=-90 if shift else 90)
             elif self._selected_id is not None:
                 self._rotate_selected(delta=-90 if shift else 90)
+            event.accept()
         elif key == Qt.Key.Key_G and ctrl:
             self._group_for_selection()
         elif key == Qt.Key.Key_Escape:
@@ -2450,6 +2463,18 @@ class SelectTool(_Tool):
         self._multi_highlights.clear()
         for cid in self._selected_ids:
             self._draw_multi_highlight(cid)
+
+    def _select_group(self, group_id: uuid.UUID) -> None:
+        """Select a group as a unit: clears individual selection, sets group highlight."""
+        from protoboard.domain.layout.group import all_component_ids
+        groups = self._session.layout.groups
+        members = frozenset(all_component_ids(groups, group_id))
+        self._deselect()
+        self._clear_multi_selection()
+        self._selected_group_id = group_id
+        self._selected_ids = set(members)
+        self._redraw_multi_highlights()
+        self._notify_selection()
 
     def _clear_multi_selection(self) -> None:
         for item in self._multi_highlights:
@@ -3698,6 +3723,7 @@ class SelectTool(_Tool):
             )
             self._session.stack.execute(cmd_attach, self._session)
             self._session.layout_changed.emit()
+            self._select_group(new_group.id)
             return new_group.id
         else:
             # Add to existing group.
@@ -3710,6 +3736,7 @@ class SelectTool(_Tool):
             )
             self._session.stack.execute(cmd_add, self._session)
             self._session.layout_changed.emit()
+            self._select_group(target_id)
             return target_id
 
     def exit_group(self) -> None:
