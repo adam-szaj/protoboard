@@ -463,6 +463,7 @@ dependencies = [
 dev = [
     { name = "black" },
     { name = "hypothesis" },
+    { name = "maturin" },
     { name = "mypy" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -483,6 +484,7 @@ dev = [
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=24.0" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100" },
+    { name = "maturin", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "networkx", specifier = ">=3.3" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.7" },
