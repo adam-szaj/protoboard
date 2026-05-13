@@ -12,6 +12,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
+import structlog
+
 from protoboard.domain.board.board import Board
 from protoboard.domain.commands.base import Command
 from protoboard.domain.components.definition import ComponentDefinition
@@ -21,9 +23,12 @@ from protoboard.domain.layout.placement import (
     ComponentPlacement,
     component_bbox,
     pin_world_position,
+    validate_pins_on_pads,
 )
 from protoboard.domain.layout.wire import WireSegment
 from protoboard.geometry import Point
+
+_log = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from protoboard.domain.schematic.net import Net
@@ -58,6 +63,7 @@ class PlaceComponentCommand(Command[ComponentState]):
     def apply(self, state: ComponentState) -> None:
         state.layout.placements[self.component_id] = self.placement
         state.instances[self.component_id] = self.instance
+        _warn_pins_off_pads(state, self.component_id, self.placement)
 
     def revert(self, state: ComponentState) -> None:
         del state.layout.placements[self.component_id]
@@ -105,6 +111,7 @@ class MoveComponentCommand(Command[ComponentState]):
             state, self.component_id, self.old_placement, self.new_placement,
             self.exclude_wire_ids,
         )
+        _warn_pins_off_pads(state, self.component_id, self.new_placement)
 
     def revert(self, state: ComponentState) -> None:
         if not self._applied:
@@ -557,6 +564,39 @@ _EPS = 1e-6  # tolerance for point equality (raster units)
 
 def _pts_equal(a: Point, b: Point) -> bool:
     return abs(a.x - b.x) < _EPS and abs(a.y - b.y) < _EPS
+
+
+def _warn_pins_off_pads(
+    state: ComponentState,
+    comp_id: uuid.UUID,
+    placement: ComponentPlacement,
+) -> None:
+    """Log a warning if any pin of the component does not land on a board pad."""
+    inst = state.instances.get(comp_id)
+    if inst is None:
+        return
+    defn = state.components.get(inst.definition_ref)
+    if defn is None:
+        return
+    from protoboard.domain.board.boxes import GapAtom, StripAtom
+    pad_set: frozenset[tuple[float, float]] = frozenset(
+        (center.x, center.y)
+        for atom, center in state.board.atoms()
+        if not isinstance(atom, GapAtom)
+    )
+    misses = validate_pins_on_pads(defn.footprint, placement, pad_set)
+    if misses:
+        _log.warning(
+            "placement.pins_off_pads",
+            comp_id=str(comp_id),
+            refdes=inst.refdes,
+            placement_pos=f"({placement.position.x:.4f}, {placement.position.y:.4f})",
+            rotation=placement.rotation,
+            misses=[
+                {"pin": pin_num, "pos": f"({wp.x:.4f}, {wp.y:.4f})"}
+                for pin_num, wp in misses
+            ],
+        )
 
 
 def _move_blocked(

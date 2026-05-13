@@ -181,3 +181,27 @@ def pin_world_position(
         placement.position.x + rotated.x,
         placement.position.y + rotated.y,
     )
+
+
+def validate_pins_on_pads(
+    footprint: FootprintTemplate,
+    placement: ComponentPlacement,
+    pad_positions: frozenset[tuple[float, float]],
+    *,
+    tol: float = 1e-4,
+) -> list[tuple[int, Point]]:
+    """Return list of (pin_number, world_pos) for pins that don't land on any pad.
+
+    ``pad_positions`` is a frozenset of (x, y) tuples from the board.
+    An empty return list means all pins are correctly placed.
+    """
+    misses: list[tuple[int, Point]] = []
+    for n in range(footprint.pin_count()):
+        pin_num = n + 1
+        wp = pin_world_position(footprint, placement, pin_num)
+        if not any(
+            abs(wp.x - px) < tol and abs(wp.y - py) < tol
+            for px, py in pad_positions
+        ):
+            misses.append((pin_num, wp))
+    return misses
