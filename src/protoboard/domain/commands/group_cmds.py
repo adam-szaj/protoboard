@@ -94,16 +94,74 @@ def _group_bbox(
     return min(xs), min(ys), max(xs), max(ys)
 
 
+def _pin_positions_for(
+    comp_ids: frozenset[uuid.UUID],
+    placements: dict[uuid.UUID, object],
+    instances: dict[uuid.UUID, object],
+    components: dict[str, object],
+) -> set[tuple[float, float]]:
+    """Return world positions of all pins of the given component IDs."""
+    from protoboard.domain.layout.placement import ComponentPlacement
+    from protoboard.domain.components.definition import ComponentDefinition
+    positions: set[tuple[float, float]] = set()
+    for cid in comp_ids:
+        pl = placements.get(cid)
+        inst = instances.get(cid) if pl is not None else None
+        defn = components.get(inst.definition_ref) if inst is not None else None  # type: ignore[union-attr]
+        if not isinstance(pl, ComponentPlacement) or not isinstance(defn, ComponentDefinition):
+            continue
+        for n in range(defn.footprint.pin_count()):
+            p = pin_world_position(defn.footprint, pl, n + 1)
+            positions.add((p.x, p.y))
+    return positions
+
+
+def _find_internal_wires(
+    wires: list[WireSegment],
+    group_pins: set[tuple[float, float]],
+    external_pins: set[tuple[float, float]],
+) -> set[uuid.UUID]:
+    """Return IDs of wires whose both endpoints have their nearest pin inside the group.
+
+    For each endpoint the nearest pin (from all components) is found; the wire
+    is internal iff both nearest pins belong to the group.
+    """
+    all_pins = group_pins | external_pins
+    if not all_pins:
+        return set()
+
+    def _nearest_is_group(p: Point) -> bool:
+        best_d = float("inf")
+        best_in_group = False
+        for px, py in all_pins:
+            d = (p.x - px) ** 2 + (p.y - py) ** 2
+            if d < best_d:
+                best_d = d
+                best_in_group = (px, py) in group_pins
+        return best_in_group
+
+    result: set[uuid.UUID] = set()
+    for wire in wires:
+        if len(wire.path) < 2:
+            continue
+        if _nearest_is_group(wire.path[0]) and _nearest_is_group(wire.path[-1]):
+            result.add(wire.id)
+    return result
+
+
 def _wire_is_internal(
     wire: WireSegment,
     bbox: tuple[float, float, float, float],
     tol: float = 0.5,
+    pin_positions: set[tuple[float, float]] | None = None,
 ) -> bool:
-    """True if ALL points of *wire* lie within the group bounding box (+ tol)."""
+    """Legacy single-wire check used as fallback (bbox-based)."""
+    if len(wire.path) < 2:
+        return False
     x0, y0, x1, y1 = bbox
     def inside(p: Point) -> bool:
         return x0 - tol <= p.x <= x1 + tol and y0 - tol <= p.y <= y1 + tol
-    return len(wire.path) >= 2 and all(inside(p) for p in wire.path)
+    return all(inside(p) for p in wire.path)
 
 
 @dataclass
@@ -330,8 +388,11 @@ class RotateGroupCommand(Command[ComponentState]):
                 old_pls[cid] = pl.copy()  # type: ignore[union-attr]
         object.__setattr__(self, "_old_placements", old_pls)
 
-        # Build bbox from pre-rotation positions for wire identification.
-        bbox = _group_bbox(comp_ids, state.layout.placements, state.instances, state.components)
+        # Identify internal wires via graph reachability (pre-rotation positions).
+        group_pins = _pin_positions_for(comp_ids, state.layout.placements, state.instances, state.components)
+        all_comp_ids = frozenset(state.layout.placements.keys())
+        external_pins = _pin_positions_for(all_comp_ids - comp_ids, state.layout.placements, state.instances, state.components)
+        internal_wire_ids = _find_internal_wires(state.layout.wires, group_pins, external_pins)
 
         # Rotate each placement.
         for cid in comp_ids:
@@ -343,10 +404,10 @@ class RotateGroupCommand(Command[ComponentState]):
             new_pl.rotation = (pl.rotation + self.delta) % 360
             state.layout.placements[cid] = new_pl
 
-        # Rotate internal wires (all points inside pre-rotation bbox).
+        # Rotate internal wires.
         old_wire_paths: dict[uuid.UUID, list[Point]] = {}
         for wire in state.layout.wires:
-            if bbox is not None and _wire_is_internal(wire, bbox):
+            if wire.id in internal_wire_ids:
                 old_wire_paths[wire.id] = list(wire.path)
                 wire.path = [_rotate_point_around(p, origin, self.delta) for p in wire.path]
         object.__setattr__(self, "_old_wire_paths", old_wire_paths)

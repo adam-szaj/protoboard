@@ -799,18 +799,18 @@ class SelectTool(_Tool):
                         pl_first.position.x - snapped.x,
                         pl_first.position.y - snapped.y,
                     )
-                # Collect internal wires (all path points on group pads).
-                from protoboard.domain.commands.group_cmds import _group_bbox, _wire_is_internal
-                bbox = _group_bbox(
-                    grp_members,
-                    self._session.layout.placements,
-                    self._session.instances,
-                    self._session.components,
-                )
-                if bbox is not None:
-                    for wire in self._session.layout.wires:
-                        if _wire_is_internal(wire, bbox):
-                            self._drag_orig_wire_paths[wire.id] = list(wire.path)
+                # Collect internal wires via graph reachability.
+                from protoboard.domain.commands.group_cmds import _find_internal_wires, _pin_positions_for
+                placements = self._session.layout.placements
+                instances = self._session.instances
+                components = self._session.components
+                group_pins = _pin_positions_for(grp_members, placements, instances, components)
+                all_ids = frozenset(placements.keys())
+                external_pins = _pin_positions_for(all_ids - grp_members, placements, instances, components)
+                internal_ids = _find_internal_wires(self._session.layout.wires, group_pins, external_pins)
+                for wire in self._session.layout.wires:
+                    if wire.id in internal_ids:
+                        self._drag_orig_wire_paths[wire.id] = list(wire.path)
             return True
 
         # --- Normal left click: hit-test component or wire ---
