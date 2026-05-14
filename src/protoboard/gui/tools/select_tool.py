@@ -1358,170 +1358,254 @@ class SelectTool(_Tool):
             self._view.setCursor(Qt.CursorShape.ArrowCursor)
 
     def on_right_press(self, scene_pt: QPointF) -> bool:
-        """Show context menu on right-click. Returns True if consumed."""
-        # --- Wire context menu (insulated toggle) ---
-        wire_id = self._selected_wire_id
-        if wire_id is None:
-            wire_id = self._hit_test_wire(scene_pt)
-        if wire_id is not None:
-            wire = next(
-                (w for w in self._session.layout.wires if w.id == wire_id), None
-            )
-            if wire is not None:
-                return self._show_wire_menu(wire, scene_pt)
-
-        # --- Component context menu (disconnect pin) ---
-        # Hit-test: prefer selected component, then any component at cursor.
+        """Show unified context menu for all elements under the cursor."""
+        # Resolve all hits independently — pin, body, wire.
         comp_id = self._selected_id
         if comp_id is None:
             comp_id = self._hit_test(scene_pt)
-            if comp_id is None:
-                comp_id = self._hit_test_bbox(scene_pt)
         if comp_id is None:
+            comp_id = self._hit_test_bbox(scene_pt)
+
+        wire_id = self._selected_wire_id
+        if wire_id is None:
+            wire_id = self._hit_test_wire(scene_pt)
+
+        if comp_id is None and wire_id is None:
             return False
-
-        inst = self._session.instances.get(comp_id)
-        defn = (
-            self._session.components.get(inst.definition_ref) if inst else None
-        )
-        if inst is None or defn is None:
-            return False
-
-        # Determine full lock-target set: clicked component + any other selected.
-        lock_targets: set[uuid.UUID] = set()
-        lock_targets.add(comp_id)
-        lock_targets.update(self._selected_ids)
-        if self._selected_id is not None:
-            lock_targets.add(self._selected_id)
-
-        # Build list of pins that have a net.
-        from protoboard.domain.schematic.net import PinRef
-
-        netted_pins: list[tuple[int, str, str]] = []  # (pin_num, pin_name, net_name)
-        for pin_num in range(1, defn.footprint.pin_count() + 1):
-            ref = PinRef(component_id=comp_id, pin_number=pin_num)
-            net = self._session.schematic.net_for_pin(ref)
-            if net is not None:
-                pin_name = defn.pin_names.get(pin_num, str(pin_num))
-                netted_pins.append((pin_num, pin_name, net.name))
 
         from PySide6.QtWidgets import QMenu
+        from PySide6.QtWidgets import QGraphicsEllipseItem
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QColor, QPen, QBrush
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.domain.commands.component_cmds import LockComponentCommand
+        from protoboard.domain.layout.placement import pin_world_position as _pwp
+        from protoboard.gui.layer_state import Z_OVERLAY
 
         menu = QMenu(self._view)
+        has_items = False
 
-        # --- Lock / Unlock ---
-        pl_clicked = self._session.layout.placements.get(comp_id)
-        any_locked = any(
-            self._session.layout.placements[t].locked
-            for t in lock_targets
-            if t in self._session.layout.placements
-        )
-        all_locked = all(
-            self._session.layout.placements[t].locked
-            for t in lock_targets
-            if t in self._session.layout.placements
-        )
-        if len(lock_targets) == 1:
-            lock_label = ("Unlock" if pl_clicked and pl_clicked.locked else "Lock")
-            act_lock = menu.addAction(f"\U0001f512 {lock_label}")
-            act_lock.setData(("lock", lock_targets, not (pl_clicked and pl_clicked.locked)))
-        else:
-            act_lock_all = menu.addAction(f"\U0001f512 Lock all ({len(lock_targets)})")
-            act_lock_all.setData(("lock", lock_targets, True))
-            act_unlock_all = menu.addAction(f"\U0001f513 Unlock all ({len(lock_targets)})")
-            act_unlock_all.setData(("lock", lock_targets, False))
-            act_lock_all.setEnabled(not all_locked)
-            act_unlock_all.setEnabled(any_locked)
-        menu.addSeparator()
+        # Temporary hover-highlight items (pin circle on scene during menu hover).
+        _hover_items: list[object] = []
 
-        # --- Export pin submenu (only when inside a non-root group) ---
-        active_gid = self._current_group_id
-        if active_gid != ROOT_GROUP_ID:
-            active_grp = self._session.layout.groups.get(active_gid)
-            if active_grp is not None and comp_id in all_component_ids(
-                self._session.layout.groups, active_gid
-            ):
-                from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
-                from protoboard.domain.layout.group import ExportedPin
+        def _clear_hover() -> None:
+            sc = self._view.scene() if self._view is not None else None
+            if sc is not None:
+                for it in _hover_items:
+                    sc.removeItem(it)  # type: ignore[arg-type]
+            _hover_items.clear()
 
-                menu.addSection(f"{inst.refdes} — export/unexport pins")
+        def _hover_pin(cid: uuid.UUID, pn: int) -> None:
+            _clear_hover()
+            sc = self._view.scene() if self._view is not None else None
+            if sc is None:
+                return
+            _pl = self._session.layout.placements.get(cid)
+            _inst = self._session.instances.get(cid)
+            _defn = self._session.components.get(_inst.definition_ref) if _inst else None
+            if _pl is None or _defn is None:
+                return
+            _pos = _pwp(_defn.footprint, _pl, pn)
+            r = 0.28
+            circle = QGraphicsEllipseItem(QRectF(_pos.x - r, _pos.y - r, 2 * r, 2 * r))
+            circle.setPen(QPen(QColor(255, 180, 0, 220), 0.06))
+            circle.setBrush(QBrush(QColor(255, 180, 0, 100)))
+            circle.setZValue(Z_OVERLAY + 2.0)
+            sc.addItem(circle)
+            _hover_items.append(circle)
+
+        menu.aboutToHide.connect(_clear_hover)
+
+        # Detect the nearest pin to the click for the marker.
+        clicked_pin: int | None = None
+        if comp_id is not None:
+            _pin_hit = self._hit_test_pin_for_comp(scene_pt, comp_id)
+            if _pin_hit is not None:
+                clicked_pin = _pin_hit[1]
+
+        # ── Component section ─────────────────────────────────────────────────
+        if comp_id is not None:
+            inst = self._session.instances.get(comp_id)
+            defn = self._session.components.get(inst.definition_ref) if inst else None
+
+            if inst is not None and defn is not None:
+                has_items = True
+
+                # Lock / Unlock
+                lock_targets: set[uuid.UUID] = {comp_id}
+                lock_targets.update(self._selected_ids)
+                if self._selected_id is not None:
+                    lock_targets.add(self._selected_id)
+                pl_clicked = self._session.layout.placements.get(comp_id)
+                any_locked = any(
+                    self._session.layout.placements[t].locked
+                    for t in lock_targets if t in self._session.layout.placements
+                )
+                all_locked = all(
+                    self._session.layout.placements[t].locked
+                    for t in lock_targets if t in self._session.layout.placements
+                )
+                if len(lock_targets) == 1:
+                    lock_label = "Unlock" if pl_clicked and pl_clicked.locked else "Lock"
+                    act_lock = menu.addAction(f"\U0001f512 {lock_label}")
+                    act_lock.setData(("lock", lock_targets, not (pl_clicked and pl_clicked.locked)))
+                else:
+                    act_lock_all = menu.addAction(f"\U0001f512 Lock all ({len(lock_targets)})")
+                    act_lock_all.setData(("lock", lock_targets, True))
+                    act_lock_all.setEnabled(not all_locked)
+                    act_unlock_all = menu.addAction(f"\U0001f513 Unlock all ({len(lock_targets)})")
+                    act_unlock_all.setData(("lock", lock_targets, False))
+                    act_unlock_all.setEnabled(any_locked)
+
+                # Export pin (inside non-root group)
+                active_gid = self._current_group_id
+                if active_gid != ROOT_GROUP_ID:
+                    active_grp = self._session.layout.groups.get(active_gid)
+                    if active_grp is not None and comp_id in all_component_ids(
+                        self._session.layout.groups, active_gid
+                    ):
+                        from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
+                        from protoboard.domain.layout.group import ExportedPin
+                        menu.addSection(f"{inst.refdes} — export/unexport pins")
+                        for pin_num in range(1, defn.footprint.pin_count() + 1):
+                            ep = ExportedPin(component_id=comp_id, pin_number=pin_num)
+                            pin_name = defn.pin_names.get(pin_num, str(pin_num))
+                            already = ep in active_grp.exported_pins
+                            marker = " ◀" if pin_num == clicked_pin else ""
+                            label = (
+                                f"✓ Unexport pin {pin_num} ({pin_name}){marker}"
+                                if already
+                                else f"  Export pin {pin_num} ({pin_name}){marker}"
+                            )
+                            act = menu.addAction(label)
+                            act.setData(("export_pin", active_gid, ep, already))
+                            act.hovered.connect(
+                                lambda _cid=comp_id, _pn=pin_num: _hover_pin(_cid, _pn)
+                            )
+
+                # Disconnect pin from net
+                from protoboard.domain.schematic.net import PinRef
+                netted_pins: list[tuple[int, str, str]] = []
                 for pin_num in range(1, defn.footprint.pin_count() + 1):
-                    ep = ExportedPin(component_id=comp_id, pin_number=pin_num)
-                    pin_name = defn.pin_names.get(pin_num, str(pin_num))
-                    already = ep in active_grp.exported_pins
-                    label = (
-                        f"✓ Unexport pin {pin_num} ({pin_name})"
-                        if already
-                        else f"  Export pin {pin_num} ({pin_name})"
-                    )
-                    act = menu.addAction(label)
-                    act.setData(("export_pin", active_gid, ep, already))
+                    ref = PinRef(component_id=comp_id, pin_number=pin_num)
+                    net = self._session.schematic.net_for_pin(ref)
+                    if net is not None:
+                        pin_name = defn.pin_names.get(pin_num, str(pin_num))
+                        netted_pins.append((pin_num, pin_name, net.name))
+                if netted_pins:
+                    menu.addSection(f"{inst.refdes} — disconnect pin from net")
+                    for pin_num, pin_name, net_name in netted_pins:
+                        marker = " ◀" if pin_num == clicked_pin else ""
+                        act = menu.addAction(f"Pin {pin_num} ({pin_name})  ←  {net_name}{marker}")
+                        act.setData(("disconnect", comp_id, pin_num))
+                        act.hovered.connect(
+                            lambda _cid=comp_id, _pn=pin_num: _hover_pin(_cid, _pn)
+                        )
 
-        # Menu always shown (at minimum has Lock/Unlock action).
+        # ── Wire section ──────────────────────────────────────────────────────
+        if wire_id is not None:
+            wire = next((w for w in self._session.layout.wires if w.id == wire_id), None)
+            if wire is not None:
+                has_items = True
+                from protoboard.domain.commands.component_cmds import (
+                    SetWireInsulatedCommand, SetWireSideCommand,
+                )
+                effective_ids: set[uuid.UUID] = set(self._selected_wire_ids)
+                if self._selected_wire_id is not None:
+                    effective_ids.add(self._selected_wire_id)
+                target_wire_ids = effective_ids if wire.id in effective_ids and len(effective_ids) > 1 else {wire.id}
+                ins_label = "insulated" if wire.insulated else "bare"
+                n_wires = len(target_wire_ids)
+                section = f"Wire{'s (' + str(n_wires) + ')' if n_wires > 1 else ''} — {ins_label}, {wire.side}"
+                menu.addSection(section)
+                if wire.insulated:
+                    act = menu.addAction("Set bare (no insulation)")
+                    act.setData(("wire_insulated", target_wire_ids, False))
+                else:
+                    act = menu.addAction("Set insulated (add insulation jacket)")
+                    act.setData(("wire_insulated", target_wire_ids, True))
+                other_side = "bottom" if wire.side == "top" else "top"
+                act_side = menu.addAction(f"Move to {other_side} layer")
+                act_side.setData(("wire_side", target_wire_ids, other_side))
+                if (wire.id in target_wire_ids and len(target_wire_ids) == 1
+                        and self._is_editing_wire()
+                        and self._selected_wire_id == wire.id):
+                    act_flip = menu.addAction(f"Flip fragment to {other_side} layer  [F]")
+                    act_flip.setData(("flip_fragment", other_side))
 
-        if netted_pins:
-            menu.addSection(f"{inst.refdes} — disconnect pin from net")
-        for pin_num, pin_name, net_name in netted_pins:
-            action = menu.addAction(
-                f"Pin {pin_num} ({pin_name})  ←  {net_name}"
-            )
-            action.setData((comp_id, pin_num))
+        if not has_items:
+            return False
 
-        chosen = menu.exec(
-            self._view.mapToGlobal(
-                self._view.mapFromScene(scene_pt)
-            )
-        )
+        chosen = menu.exec(self._view.mapToGlobal(self._view.mapFromScene(scene_pt)))
         if chosen is None:
-            return True  # menu shown but dismissed — still consume the event
+            return True
 
         data = chosen.data()
-        if isinstance(data, tuple) and data[0] == "lock":
+        if not isinstance(data, tuple):
+            return True
+        action = data[0]
+
+        if action == "lock":
             _, target_ids, new_locked = data
             from protoboard.domain.commands.base import MacroCommand
             cmds_lock = [
                 LockComponentCommand(component_id=t, locked=new_locked)
-                for t in target_ids
-                if t in self._session.layout.placements
+                for t in target_ids if t in self._session.layout.placements
             ]
             if cmds_lock:
-                cmd_lock = cmds_lock[0] if len(cmds_lock) == 1 else MacroCommand(
-                    cmds_lock,
-                    description=f"{'Lock' if new_locked else 'Unlock'} {len(cmds_lock)} component(s)",
-                )
+                cmd_lock = (cmds_lock[0] if len(cmds_lock) == 1
+                            else MacroCommand(cmds_lock, description=f"{'Lock' if new_locked else 'Unlock'} {len(cmds_lock)} component(s)"))
                 self._session.stack.execute(cmd_lock, self._session)
                 self._session.layout_changed.emit()
-            return True
 
-        if isinstance(data, tuple) and data[0] == "export_pin":
+        elif action == "export_pin":
             _, group_id, ep, already = data
             from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
             grp = self._session.layout.groups.get(group_id)
             if grp is not None:
-                if already:
-                    new_exported = grp.exported_pins - {ep}
-                else:
-                    new_exported = grp.exported_pins | {ep}
-                cmd_exp = SetExportedPinsCommand(
-                    group_id=group_id, new_exported=new_exported
+                new_exported = grp.exported_pins - {ep} if already else grp.exported_pins | {ep}
+                self._session.stack.execute(
+                    SetExportedPinsCommand(group_id=group_id, new_exported=new_exported),
+                    self._session,
                 )
-                self._session.stack.execute(cmd_exp, self._session)
                 self._session.layout_changed.emit()
-            return True
 
-        cid, pin_num = data
-        from typing import cast
-        from protoboard.domain.commands.base import Command
-        from protoboard.domain.commands.component_cmds import DisconnectPinCommand
+        elif action == "disconnect":
+            _, cid, pin_num = data
+            from typing import cast
+            from protoboard.domain.commands.base import Command
+            from protoboard.domain.commands.component_cmds import DisconnectPinCommand
+            self._session.stack.execute(
+                cast(Command[ComponentState], DisconnectPinCommand(component_id=cid, pin_number=pin_num)),
+                self._session,
+            )
+            self._session.layout_changed.emit()
 
-        cmd = cast(
-            Command[ComponentState],
-            DisconnectPinCommand(component_id=cid, pin_number=pin_num),
-        )
-        self._session.stack.execute(cmd, self._session)
-        self._session.layout_changed.emit()
+        elif action == "wire_insulated":
+            _, target_wire_ids, insulated = data
+            from typing import cast
+            from protoboard.domain.commands.base import Command, MacroCommand
+            from protoboard.domain.commands.component_cmds import SetWireInsulatedCommand
+            raw = [cast(Command[ComponentState], SetWireInsulatedCommand(wire_id=wid, insulated=insulated))
+                   for wid in target_wire_ids]
+            cmd_w = raw[0] if len(raw) == 1 else MacroCommand(raw, description=f"Set {len(raw)} wires")
+            self._session.stack.execute(cmd_w, self._session)
+            self._session.layout_changed.emit()
+
+        elif action == "wire_side":
+            _, target_wire_ids, side = data
+            from typing import cast
+            from protoboard.domain.commands.base import Command, MacroCommand
+            from protoboard.domain.commands.component_cmds import SetWireSideCommand
+            raw = [cast(Command[ComponentState], SetWireSideCommand(wire_id=wid, side=side))
+                   for wid in target_wire_ids]
+            cmd_w = raw[0] if len(raw) == 1 else MacroCommand(raw, description=f"Move {len(raw)} wires")
+            self._session.stack.execute(cmd_w, self._session)
+            self._session.layout_changed.emit()
+
+        elif action == "flip_fragment":
+            self._flip_wire_fragment()
+
         return True
 
     def _show_wire_menu(
