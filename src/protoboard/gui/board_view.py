@@ -226,19 +226,22 @@ class BoardView(QGraphicsView):
                 else:
                     grp.setOpacity(1.0)
 
-    _LABEL_MIN_PT: float = 4.0  # hide labels below this effective point size
+    _LABEL_MIN_MM: float = 1.25  # hide labels whose rendered height is below this many mm on screen
 
     def _apply_label_visibility(self) -> None:
         """Show/hide text labels based on current view scale.
 
-        Labels smaller than _LABEL_MIN_PT effective points are invisible anyway
-        and only waste rasterisation time.  Visibility is toggled in-place on
-        existing items so no group rebuild is needed.
+        Computes the on-screen height of the label font in millimetres.
+        Below _LABEL_MIN_MM the text is illegible and not worth rasterising.
+        Visibility is toggled in-place on existing QGraphicsTextItem objects
+        so no group rebuild is needed.
         """
         from PySide6.QtWidgets import QGraphicsTextItem
         theme = self._theme_override if self._theme_override is not None else DEFAULT_THEME
         scene_scale = abs(self.transform().m11())
-        show = (theme.refdes_font_size * scene_scale) >= self._LABEL_MIN_PT
+        # font height in mm on screen = font_size_raster * raster_pitch_mm * scene_scale
+        on_screen_mm = theme.refdes_font_size * theme.raster_pitch_mm * scene_scale
+        show = on_screen_mm >= self._LABEL_MIN_MM
         for item in self._scene.items():
             if isinstance(item, QGraphicsTextItem):
                 if item.isVisible() != show:
