@@ -61,14 +61,34 @@ def _group_alpha_map(
             result[comp_id] = _ALPHA_INACTIVE
     return result
 
-_REFDES_FONT = QFont("monospace", 1)
-_REFDES_FONT.setPointSizeF(DEFAULT_THEME.refdes_font_size)
-
-_PIN_NAME_FONT = QFont("monospace", 1)
-_PIN_NAME_FONT.setPointSizeF(DEFAULT_THEME.refdes_font_size)
+_REFDES_FONT:   QFont | None = None
+_PIN_NAME_FONT: QFont | None = None
 _PIN_NAME_SCALE = 0.6   # scale-down relative to refdes size
 
 _DEFAULT_LAYERS = LayerState()
+
+
+def _get_refdes_font(theme: Theme = DEFAULT_THEME) -> QFont:
+    """Return the refdes QFont, creating it lazily after QApplication exists.
+
+    QFont objects created before QApplication are initialised without a valid
+    font engine (no DPI / hinting context).  On HiDPI screens (DPR=2) this
+    causes FreeType err=62 (invalid glyph) during the first viewport resize
+    because Qt tries to re-rasterize with the under-initialised engine.
+    """
+    global _REFDES_FONT
+    if _REFDES_FONT is None:
+        _REFDES_FONT = QFont("monospace", 1)
+        _REFDES_FONT.setPointSizeF(theme.refdes_font_size)
+    return _REFDES_FONT
+
+
+def _get_pin_name_font(theme: Theme = DEFAULT_THEME) -> QFont:
+    global _PIN_NAME_FONT
+    if _PIN_NAME_FONT is None:
+        _PIN_NAME_FONT = QFont("monospace", 1)
+        _PIN_NAME_FONT.setPointSizeF(theme.refdes_font_size)
+    return _PIN_NAME_FONT
 
 
 def _net_color(net_id: uuid.UUID, theme: Theme = DEFAULT_THEME) -> QColor:
@@ -379,7 +399,7 @@ def _render_one(
         label_color.setAlphaF(alpha_label)
         label = QGraphicsTextItem(inst.refdes)
         label.setDefaultTextColor(label_color)
-        label.setFont(_REFDES_FONT)
+        label.setFont(_get_refdes_font(theme))
         _default_offset = Point(0.05, 0.05)
         if placement.label_offset == _default_offset:
             br = label.boundingRect()
@@ -402,7 +422,7 @@ def _render_one(
                 if not name:
                     continue
                 pn_item = QGraphicsTextItem(name)
-                pn_item.setFont(_PIN_NAME_FONT)
+                pn_item.setFont(_get_pin_name_font(theme))
                 pn_item.setDefaultTextColor(pin_name_color)
                 pn_item.setScale(_PIN_NAME_SCALE)
                 pn_item.setPos(pos.x + 0.12, pos.y - 0.32)
@@ -411,8 +431,7 @@ def _render_one(
 
     if placement.locked and alpha > 0.05:
         lock = QGraphicsTextItem("\U0001f512")
-        lock_font = _REFDES_FONT
-        lock.setFont(lock_font)
+        lock.setFont(_get_refdes_font(theme))
         lock_col = QColor("#e07000")
         lock_col.setAlphaF(min(alpha, 1.0))
         lock.setDefaultTextColor(lock_col)
@@ -496,7 +515,7 @@ def make_ghost_item(
     ys = [p.y for p in positions]
     label = QGraphicsTextItem(defn.name)
     label.setDefaultTextColor(ghost_label)
-    label.setFont(_REFDES_FONT)
+    label.setFont(_get_refdes_font(theme))
     label.setPos(min(xs) + 0.05, min(ys) + 0.05)
     group.addToGroup(label)
     return group
@@ -614,7 +633,7 @@ def render_groups(
         if group.name:
             name_label = QGraphicsTextItem(group.name)
             name_label.setDefaultTextColor(name_col)
-            name_label.setFont(_REFDES_FONT)
+            name_label.setFont(_get_refdes_font(theme))
             name_label.setPos(x0 + 0.1, y0 + 0.05)
             name_label.setZValue(1.1)
             scene.addItem(name_label)
