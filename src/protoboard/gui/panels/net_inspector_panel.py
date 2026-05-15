@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from protoboard.gui.panels.tree_panel_mixin import TreePanelMixin
+
 if TYPE_CHECKING:
     from protoboard.domain.layout.wire import WireSegment
     from protoboard.geometry import Point
@@ -50,7 +52,7 @@ class _SortableItem(QTreeWidgetItem):
         return self.text(col) < other.text(col)
 
 
-class NetInspectorPanel(QWidget):
+class NetInspectorPanel(TreePanelMixin, QWidget):
     """Read-only panel listing nets with statistics and routing quality metrics."""
 
     def __init__(
@@ -60,7 +62,6 @@ class NetInspectorPanel(QWidget):
     ) -> None:
         super().__init__(parent)
         self._board_view = board_view
-        self._session: "EditorSession | None" = None
 
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(4, 4, 4, 4)
@@ -85,15 +86,10 @@ class NetInspectorPanel(QWidget):
         root_layout.addWidget(self._tree)
 
         self._tree.itemClicked.connect(self._on_item_clicked)
-        self._syncing: bool = False
 
     # ------------------------------------------------------------------
     # Public
     # ------------------------------------------------------------------
-
-    def refresh(self, session: "EditorSession") -> None:
-        self._session = session
-        self._rebuild()
 
     def sync_selection(
         self,
@@ -108,14 +104,10 @@ class NetInspectorPanel(QWidget):
         try:
             self._tree.clearSelection()
             if net_id is not None:
-                for i in range(self._tree.topLevelItemCount()):
-                    item = self._tree.topLevelItem(i)
-                    if item is None:
-                        continue
-                    if item.data(_COL_NAME, _ROLE) == str(net_id):
-                        item.setSelected(True)
-                        self._tree.scrollToItem(item)
-                        break
+                item = self._find_item(str(net_id))
+                if item is not None:
+                    item.setSelected(True)
+                    self._tree.scrollToItem(item)
         finally:
             self._syncing = False
 

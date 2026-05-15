@@ -38,6 +38,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from protoboard.gui.panels.tree_panel_mixin import TreePanelMixin
+
 if TYPE_CHECKING:
     from protoboard.gui.session import EditorSession
 
@@ -55,7 +57,7 @@ _COL_FOOTPRINT = 3
 _HEADERS = ["RefDes", "", "Value", "Footprint / Definition"]
 
 
-class ComponentsPanel(QWidget):
+class ComponentsPanel(TreePanelMixin, QWidget):
     """Panel listing all netlist-imported component instances."""
 
     instance_selected = Signal(uuid.UUID)
@@ -120,9 +122,6 @@ class ComponentsPanel(QWidget):
         auto_row.addWidget(self._auto_all_btn)
         layout.addLayout(auto_row)
 
-        self._session: EditorSession | None = None
-        self._syncing: bool = False
-
         self._search.textChanged.connect(self._on_filter)
         self._tree.itemSelectionChanged.connect(self._on_selection_changed)
         self._tree.itemDoubleClicked.connect(self._on_double_click)
@@ -133,10 +132,6 @@ class ComponentsPanel(QWidget):
     # ------------------------------------------------------------------
     # Public
     # ------------------------------------------------------------------
-
-    def refresh(self, session: EditorSession) -> None:
-        self._session = session
-        self._rebuild()
 
     # ------------------------------------------------------------------
     # Internal
@@ -190,34 +185,6 @@ class ComponentsPanel(QWidget):
 
     def _on_filter(self) -> None:
         self._rebuild()
-
-    def sync_selection(
-        self,
-        comp_ids: object,
-        _wire_ids: object,
-        _net_id: object,
-    ) -> None:
-        """Highlight rows matching comp_ids. Called by MainWindow on board selection."""
-        if not self.isVisible():
-            return
-        self._syncing = True
-        try:
-            self._tree.clearSelection()
-            first_match: QTreeWidgetItem | None = None
-            for raw_id in (comp_ids if isinstance(comp_ids, frozenset) else frozenset()):
-                for i in range(self._tree.topLevelItemCount()):
-                    item = self._tree.topLevelItem(i)
-                    if item is None:
-                        continue
-                    if item.data(_COL_REFDES, Qt.ItemDataRole.UserRole) == str(raw_id):
-                        item.setSelected(True)
-                        if first_match is None:
-                            first_match = item
-                        break
-            if first_match is not None:
-                self._tree.scrollToItem(first_match)
-        finally:
-            self._syncing = False
 
     def _on_selection_changed(self) -> None:
         if self._syncing:

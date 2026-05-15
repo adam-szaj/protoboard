@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from protoboard.gui.panels.tree_panel_mixin import TreePanelMixin
+
 if TYPE_CHECKING:
     from protoboard.gui.session import EditorSession
 
@@ -32,7 +34,7 @@ _MODES = [
 ]
 
 
-class NetlistPanel(QWidget):
+class NetlistPanel(TreePanelMixin, QWidget):
     """Browsable tree of component instances from the loaded schematic."""
 
     instance_selected = Signal(uuid.UUID)
@@ -59,13 +61,6 @@ class NetlistPanel(QWidget):
         self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         self._tree.itemClicked.connect(self._on_item_clicked)
 
-        self._session: EditorSession | None = None
-        self._syncing: bool = False
-
-    def refresh(self, session: EditorSession) -> None:
-        self._session = session
-        self._rebuild()
-
     def _rebuild(self) -> None:
         self._tree.clear()
         if self._session is None:
@@ -82,55 +77,6 @@ class NetlistPanel(QWidget):
 
     def _on_mode_changed(self) -> None:
         self._rebuild()
-
-    def sync_selection(
-        self,
-        comp_ids: object,
-        _wire_ids: object,
-        _net_id: object,
-    ) -> None:
-        """Highlight rows matching comp_ids. Called by MainWindow on board selection."""
-        if not self.isVisible():
-            return
-        self._syncing = True
-        try:
-            self._tree.clearSelection()
-            first_match: QTreeWidgetItem | None = None
-            for raw_id in (comp_ids if isinstance(comp_ids, frozenset) else frozenset()):
-                item = self._find_item(str(raw_id))
-                if item is not None:
-                    item.setSelected(True)
-                    if first_match is None:
-                        first_match = item
-            if first_match is not None:
-                self._tree.scrollToItem(first_match)
-        finally:
-            self._syncing = False
-
-    def _find_item(self, comp_id_str: str) -> QTreeWidgetItem | None:
-        """Return the tree item whose UserRole data matches comp_id_str."""
-        def _search(parent: QTreeWidgetItem) -> QTreeWidgetItem | None:
-            for i in range(parent.childCount()):
-                child = parent.child(i)
-                if child is None:
-                    continue
-                if child.data(0, Qt.ItemDataRole.UserRole) == comp_id_str:
-                    return child
-                found = _search(child)
-                if found is not None:
-                    return found
-            return None
-
-        for i in range(self._tree.topLevelItemCount()):
-            top = self._tree.topLevelItem(i)
-            if top is None:
-                continue
-            if top.data(0, Qt.ItemDataRole.UserRole) == comp_id_str:
-                return top
-            found = _search(top)
-            if found is not None:
-                return found
-        return None
 
     def _on_item_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
         if self._syncing:
