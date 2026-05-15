@@ -500,3 +500,176 @@ class TestMultiSelectionDrag:
         wire = session.layout.wires[0]
         assert wire.path[0] == Point(1.5, 3.0)
         assert wire.path[1] == Point(3.5, 3.0)
+
+
+# ---------------------------------------------------------------------------
+# Group navigation
+# ---------------------------------------------------------------------------
+
+class TestSelectToolGroupNavigation:
+    """Tests for _group_stack management (enter/exit group)."""
+
+    def test_initial_stack_contains_root_group(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        assert tool._group_stack == [ROOT_GROUP_ID]
+
+    def test_esc_never_pops_root_group(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        _key(tool, Qt.Key.Key_Escape)
+        assert tool._group_stack == [ROOT_GROUP_ID]
+
+    def test_enter_group_pushes_to_stack(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        import uuid as _uuid
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+
+        grp_id = _uuid.uuid4()
+        session.layout.groups[grp_id] = ComponentGroup(
+            id=grp_id, name="G1",
+            component_ids=frozenset(),
+            child_group_ids=frozenset(),
+            exported_pins=frozenset(),
+        )
+        # Add group to root.
+        root = session.layout.groups[ROOT_GROUP_ID]
+        session.layout.groups[ROOT_GROUP_ID] = ComponentGroup(
+            id=ROOT_GROUP_ID, name=root.name,
+            component_ids=root.component_ids,
+            child_group_ids=root.child_group_ids | {grp_id},
+            exported_pins=root.exported_pins,
+        )
+        # Manually trigger group entry (simulates double-click on group).
+        tool._group_stack.append(grp_id)
+        assert tool._group_stack[-1] == grp_id
+
+        # Esc should pop back to root.
+        _key(tool, Qt.Key.Key_Escape)
+        assert tool._group_stack == [ROOT_GROUP_ID]
+
+    def test_esc_pops_one_level_at_a_time(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        import uuid as _uuid
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+
+        g1 = _uuid.uuid4()
+        g2 = _uuid.uuid4()
+        for gid, name in [(g1, "G1"), (g2, "G2")]:
+            session.layout.groups[gid] = ComponentGroup(
+                id=gid, name=name,
+                component_ids=frozenset(),
+                child_group_ids=frozenset(),
+                exported_pins=frozenset(),
+            )
+        tool._group_stack.extend([g1, g2])
+        assert len(tool._group_stack) == 3  # root, g1, g2
+
+        _key(tool, Qt.Key.Key_Escape)
+        assert tool._group_stack[-1] == g1
+
+        _key(tool, Qt.Key.Key_Escape)
+        assert tool._group_stack == [ROOT_GROUP_ID]
+
+
+# ---------------------------------------------------------------------------
+# _hit_test_pin / iter_pin_positions integration
+# ---------------------------------------------------------------------------
+
+class TestHitTestPin:
+    def test_hit_test_pin_finds_pin_near_cursor(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # Pin 1 of SIL(2) at rotation=90 is at (0.5, 0.5).
+        result = tool._hit_test_pin(QPointF(0.5, 0.5))
+        assert result is not None
+        assert result[0] == inst.id
+
+    def test_hit_test_pin_returns_none_far_from_pins(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        _place_component(board_view, session, 0.5, 0.5)
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        result = tool._hit_test_pin(QPointF(10.0, 10.0))
+        assert result is None
+
+    def test_hit_test_pin_for_comp_finds_nearest_pin(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # Should find a pin for this specific component.
+        result = tool._hit_test_pin_for_comp(QPointF(0.5, 0.5), inst.id)
+        assert result is not None
+        assert result[0] == inst.id
+
+    def test_hit_test_pin_for_comp_returns_none_for_unknown_id(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        import uuid as _uuid
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        result = tool._hit_test_pin_for_comp(QPointF(0.5, 0.5), _uuid.uuid4())
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Wire selection cycling
+# ---------------------------------------------------------------------------
+
+class TestWireClickCycle:
+    def test_clicking_wire_selects_it(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        _add_wire(session, [(0.5, 1.0), (2.5, 1.0)])
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        wire_id = session.layout.wires[0].id
+        _press(tool, 1.5, 1.0)
+        assert tool._selected_wire_id == wire_id
+
+    def test_deselect_resets_cycle(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        _add_wire(session, [(0.5, 1.0), (2.5, 1.0)])
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        _press(tool, 1.5, 1.0)
+        # Click far away to deselect.
+        _press(tool, 10.0, 10.0)
+        assert tool._selected_wire_id is None
+        assert tool._wire_click_cycle == 0
