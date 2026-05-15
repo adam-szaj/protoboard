@@ -17,8 +17,8 @@ view_transform : "normal" | "mirror_h" | "mirror_v"
 
 overrides : LayerOverrides
     Per-layer manual visibility overrides set from the View → Layers menu.
-    AUTO means "let the tool decide"; other states override the automatic alpha.
-    Manual overrides take priority over automatic ghost_components logic.
+    FULL respects tool-driven ghosting (back-side dimming).
+    GHOST and HIDDEN override the automatic alpha entirely.
 
 Z-value stack (back → front):
     0   back labels          4   front wires
@@ -59,12 +59,13 @@ BACK_ALPHA        = 0.30
 BOARD_GHOST_ALPHA = 0.55
 GHOST_COMP_ALPHA  = 0.25
 
-# Alpha values per LayerVisibility state
+# Alpha values per LayerVisibility state (GHOST/HIDDEN only; FULL is tool-driven)
 _VIS_ALPHA = {
     "full":   1.0,
     "ghost":  GHOST_COMP_ALPHA,
     "hidden": 0.0,
 }
+# Note: AUTO was removed; FULL now means "respect tool-driven ghosting".
 
 
 # ---------------------------------------------------------------------------
@@ -72,44 +73,42 @@ _VIS_ALPHA = {
 # ---------------------------------------------------------------------------
 
 class LayerVisibility(str, Enum):
-    AUTO   = "auto"    # automatic (tool-driven)
     FULL   = "full"    # always 100%
     GHOST  = "ghost"   # always ~25%
     HIDDEN = "hidden"  # 0% (not drawn, not hit-tested)
 
     def cycle(self) -> LayerVisibility:
-        """Cycle: AUTO → FULL → GHOST → HIDDEN → AUTO."""
-        order = [LayerVisibility.AUTO, LayerVisibility.FULL,
-                 LayerVisibility.GHOST, LayerVisibility.HIDDEN]
+        """Cycle: FULL → GHOST → HIDDEN → FULL."""
+        order = [LayerVisibility.FULL, LayerVisibility.GHOST, LayerVisibility.HIDDEN]
         idx = order.index(self)
         return order[(idx + 1) % len(order)]
 
     def label(self) -> str:
-        """Short label for menu display; empty string when AUTO."""
-        return "" if self == LayerVisibility.AUTO else f"[{self.value.capitalize()}]"
+        """Short label for menu display."""
+        return f"[{self.value.capitalize()}]"
 
 
 @dataclass
 class LayerOverrides:
-    """Manual per-layer visibility overrides.  AUTO = no override (tool decides)."""
-    components_top:    LayerVisibility = LayerVisibility.AUTO
-    components_bottom: LayerVisibility = LayerVisibility.AUTO
-    wires_top:         LayerVisibility = LayerVisibility.AUTO
-    wires_bottom:      LayerVisibility = LayerVisibility.AUTO
-    labels_top:        LayerVisibility = LayerVisibility.AUTO
-    labels_bottom:     LayerVisibility = LayerVisibility.AUTO
-    board:             LayerVisibility = LayerVisibility.AUTO
-    pin_names:         LayerVisibility = LayerVisibility.AUTO
-    connectness:       LayerVisibility = LayerVisibility.AUTO
+    """Manual per-layer visibility overrides."""
+    components_top:    LayerVisibility = LayerVisibility.FULL
+    components_bottom: LayerVisibility = LayerVisibility.FULL
+    wires_top:         LayerVisibility = LayerVisibility.FULL
+    wires_bottom:      LayerVisibility = LayerVisibility.FULL
+    labels_top:        LayerVisibility = LayerVisibility.FULL
+    labels_bottom:     LayerVisibility = LayerVisibility.FULL
+    board:             LayerVisibility = LayerVisibility.FULL
+    pin_names:         LayerVisibility = LayerVisibility.FULL
+    connectness:       LayerVisibility = LayerVisibility.FULL
 
     def reset(self) -> None:
-        """Reset all overrides to AUTO."""
+        """Reset all overrides to FULL."""
         for f in self.__dataclass_fields__:
-            setattr(self, f, LayerVisibility.AUTO)
+            setattr(self, f, LayerVisibility.FULL)
 
-    def all_auto(self) -> bool:
+    def all_full(self) -> bool:
         return all(
-            getattr(self, f) == LayerVisibility.AUTO
+            getattr(self, f) == LayerVisibility.FULL
             for f in self.__dataclass_fields__
         )
 
@@ -153,41 +152,41 @@ class LayerState:
     # Alpha helpers — manual override takes priority over automatic logic
     # ------------------------------------------------------------------
 
-    def _override_alpha(self, vis: LayerVisibility, auto_value: float) -> float:
-        if vis == LayerVisibility.AUTO:
-            return auto_value
+    def _vis_alpha(self, vis: LayerVisibility, tool_alpha: float) -> float:
+        """Resolve final alpha: override takes priority, else tool_alpha."""
         if vis == LayerVisibility.GHOST:
             return self.ghost_comp_alpha
-        return _VIS_ALPHA[vis.value]
+        if vis == LayerVisibility.HIDDEN:
+            return 0.0
+        # FULL: still respect tool-driven ghosting (back-side dimming).
+        return tool_alpha
 
     def alpha_for_component(self, side: Literal["top", "bottom"]) -> float:
         ov = (self.overrides.components_top
               if side == "top" else self.overrides.components_bottom)
         if side != self.camera_side:
-            return self._override_alpha(ov, self.back_alpha)
-        return self._override_alpha(
-            ov, self.ghost_comp_alpha if self.ghost_components else 1.0
-        )
+            tool_alpha = self.back_alpha
+        else:
+            tool_alpha = self.ghost_comp_alpha if self.ghost_components else 1.0
+        return self._vis_alpha(ov, tool_alpha)
 
     def alpha_for_wire(self, side: Literal["top", "bottom"]) -> float:
         ov = self.overrides.wires_top if side == "top" else self.overrides.wires_bottom
-        auto = 1.0 if side == self.camera_side else self.back_alpha
-        return self._override_alpha(ov, auto)
+        tool_alpha = 1.0 if side == self.camera_side else self.back_alpha
+        return self._vis_alpha(ov, tool_alpha)
 
     def alpha_for_label(self, side: Literal["top", "bottom"]) -> float:
         ov = self.overrides.labels_top if side == "top" else self.overrides.labels_bottom
-        # Labels follow component alpha by default when AUTO.
-        auto = self.alpha_for_component(side)
-        return self._override_alpha(ov, auto)
+        tool_alpha = self.alpha_for_component(side)
+        return self._vis_alpha(ov, tool_alpha)
 
     def alpha_for_board(self) -> float:
-        auto = self.board_ghost_alpha if self.ghost_components else 1.0
-        return self._override_alpha(self.overrides.board, auto)
+        tool_alpha = self.board_ghost_alpha if self.ghost_components else 1.0
+        return self._vis_alpha(self.overrides.board, tool_alpha)
 
     def alpha_for_pin_names(self, side: Literal["top", "bottom"]) -> float:
-        """Pin-name labels follow component alpha when AUTO."""
-        auto = self.alpha_for_component(side)
-        return self._override_alpha(self.overrides.pin_names, auto)
+        tool_alpha = self.alpha_for_component(side)
+        return self._vis_alpha(self.overrides.pin_names, tool_alpha)
 
     @property
     def connectness_enabled(self) -> bool:

@@ -59,7 +59,7 @@ def save_project(
     _write(directory / "instances.yaml", _instances_to_yaml(instances or {}))
     if routing_settings is not None:
         _write(directory / "routing.yaml", _routing_settings_to_yaml(routing_settings))
-    if layer_overrides is not None and not layer_overrides.all_auto():
+    if layer_overrides is not None and not layer_overrides.all_full():
         _write(directory / "layers.yaml", _layer_overrides_to_yaml(layer_overrides))
     else:
         layers_path = directory / "layers.yaml"
@@ -441,8 +441,11 @@ def _layer_overrides_from_yaml(text: str) -> LayerOverrides:
     overrides = LayerOverrides()
     for f in overrides.__dataclass_fields__:
         raw = data.get(f)
-        if isinstance(raw, str) and raw in valid:
-            setattr(overrides, f, LayerVisibility(raw))
+        if isinstance(raw, str):
+            if raw == "auto":
+                raw = "full"  # migrate legacy AUTO → FULL
+            if raw in valid:
+                setattr(overrides, f, LayerVisibility(raw))
     return overrides
 
 

@@ -78,10 +78,11 @@ class BoardView(QGraphicsView):
         # Active group for rendering context (set by SelectTool on navigation).
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         self._active_group_id: uuid.UUID = ROOT_GROUP_ID
-        # Net highlight: when set, all other objects are dimmed to 0.2 alpha.
+        # Net highlight: legacy fields kept for set_highlighted_net_silent().
         self._highlighted_net_id: uuid.UUID | None = None
-        # Optional highlight profile from InteractionMode (overrides theme defaults).
         self._highlight_profile: object | None = None
+        # Subscribe to highlight stack changes.
+        session.highlight_stack.changed.connect(self._apply_highlight_opacity)
         # Theme — overridden by MainWindow after Preferences apply.
         from protoboard.gui.theme import Theme
         self._theme_override: Theme | None = None
@@ -132,7 +133,7 @@ class BoardView(QGraphicsView):
         self.refresh()
 
     def set_highlighted_net(self, net_id: uuid.UUID | None) -> None:
-        """Highlight one net — dims other groups via setOpacity(), no full rebuild."""
+        """Legacy: update local net_id and apply opacity (used by SelectTool internals)."""
         if net_id == self._highlighted_net_id and self._highlight_profile is None:
             return
         self._highlighted_net_id = net_id
@@ -142,20 +143,43 @@ class BoardView(QGraphicsView):
     def set_highlighted_net_with_profile(
         self, net_id: uuid.UUID | None, profile: object
     ) -> None:
-        """Like set_highlighted_net() but uses dim values from a HighlightProfile."""
+        """Legacy: update local net_id+profile and apply opacity."""
         self._highlighted_net_id = net_id
         self._highlight_profile = profile
         self._apply_highlight_opacity()
 
     def _apply_highlight_opacity(self) -> None:
-        """Apply dimming to existing comp/wire groups without a full refresh."""
-        net_id = self._highlighted_net_id
+        """Apply dimming to existing comp/wire groups without a full refresh.
+
+        Priority:
+          1. HighlightStack.active() — persistent/transient highlight from stack
+          2. Legacy _highlighted_net_id / _highlight_profile — from SelectTool internals
+          3. No highlight → full opacity
+        """
+        from PySide6.QtWidgets import QGraphicsItemGroup
+        from protoboard.gui.interaction_mode import HighlightProfile
+        from protoboard.gui.highlight_state import HighlightEntry
+
         session = self._session
         _base = self._theme_override if self._theme_override is not None else DEFAULT_THEME
 
-        if net_id is None:
+        # Resolve effective net_id and profile from stack or legacy fields.
+        stack_entry: HighlightEntry | None = session.highlight_stack.active()
+        if stack_entry is not None:
+            net_id: uuid.UUID | None = stack_entry.net_id
+            profile_obj: object = stack_entry.profile
+            highlighted_comp_ids: set[uuid.UUID] = set(stack_entry.comp_ids)
+            highlighted_wire_ids: set[uuid.UUID] = set(stack_entry.wire_ids)
+            use_stack = True
+        else:
+            net_id = self._highlighted_net_id
+            profile_obj = self._highlight_profile
+            highlighted_comp_ids = set()
+            highlighted_wire_ids = set()
+            use_stack = False
+
+        if net_id is None and not highlighted_comp_ids and not highlighted_wire_ids:
             for grp in self._comp_groups.values():
-                from PySide6.QtWidgets import QGraphicsItemGroup
                 if isinstance(grp, QGraphicsItemGroup):
                     grp.setOpacity(1.0)
             for grp in self._wire_groups.values():
@@ -163,31 +187,44 @@ class BoardView(QGraphicsView):
                     grp.setOpacity(1.0)
             return
 
-        # Collect highlighted component IDs.
-        highlighted_comp_ids: set[uuid.UUID] = set()
-        net_obj = session.schematic.nets.get(net_id)
-        if net_obj is not None:
-            highlighted_comp_ids = {ref.component_id for ref in net_obj.pins}
-
-        # Build wire→net map (cached graph).
-        wire_net_map = _build_wire_net_map(session)
-
-        from PySide6.QtWidgets import QGraphicsItemGroup
-        from protoboard.gui.interaction_mode import HighlightProfile
-        if isinstance(self._highlight_profile, HighlightProfile):
-            dim_c = self._highlight_profile.dim_components
-            dim_w = self._highlight_profile.dim_wires
+        # Determine dim values.
+        if isinstance(profile_obj, HighlightProfile):
+            dim_c = profile_obj.dim_components
+            dim_w = profile_obj.dim_wires
         else:
             dim_c = _base.highlight_dim_components
             dim_w = _base.highlight_dim_wires
+
+        # Collect highlighted comp IDs from net (if net_id given).
+        if net_id is not None:
+            net_obj = session.schematic.nets.get(net_id)
+            if net_obj is not None:
+                highlighted_comp_ids |= {ref.component_id for ref in net_obj.pins}
+
+        # Build wire→net map.
+        wire_net_map = _build_wire_net_map(session)
+
         for comp_id, grp in self._comp_groups.items():
             if isinstance(grp, QGraphicsItemGroup):
-                opacity = 1.0 if comp_id in highlighted_comp_ids else max(0.04, dim_c)
-                grp.setOpacity(opacity)
+                if comp_id in highlighted_comp_ids:
+                    grp.setOpacity(1.0)
+                elif use_stack and highlighted_comp_ids:
+                    grp.setOpacity(max(0.04, dim_c))
+                elif not use_stack and net_id is not None:
+                    grp.setOpacity(max(0.04, dim_c))
+                else:
+                    grp.setOpacity(1.0)
+
         for wire_id, grp in self._wire_groups.items():
             if isinstance(grp, QGraphicsItemGroup):
-                is_hl = wire_net_map.get(wire_id) == net_id
-                grp.setOpacity(1.0 if is_hl else dim_w)
+                if wire_id in highlighted_wire_ids:
+                    grp.setOpacity(1.0)
+                elif net_id is not None and wire_net_map.get(wire_id) == net_id:
+                    grp.setOpacity(1.0)
+                elif (use_stack and highlighted_wire_ids) or net_id is not None:
+                    grp.setOpacity(dim_w)
+                else:
+                    grp.setOpacity(1.0)
 
     def set_highlighted_net_silent(self, net_id: uuid.UUID | None) -> None:
         """Set the highlighted net without triggering a refresh.

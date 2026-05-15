@@ -28,6 +28,7 @@ from protoboard.services.library.body_type_loader import load_body_types
 from protoboard.services.library.loader import ComponentLibrary
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.gui.layer_state import LayerOverrides
+from protoboard.gui.highlight_state import HighlightStack
 
 
 def _build_comp_spatial_index(
@@ -101,6 +102,7 @@ class EditorSession(QObject):
         self.stack: CommandStack[ComponentState] = CommandStack()
         self.routing_settings: RoutingSettings = RoutingSettings()
         self.layer_overrides: LayerOverrides = LayerOverrides()
+        self.highlight_stack: HighlightStack = HighlightStack(self)
         self.project_path: Path | None = None
         self._drc_issues: list[DRCIssue] = []
         self._dirty: bool = False

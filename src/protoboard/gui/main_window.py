@@ -294,6 +294,7 @@ class MainWindow(QMainWindow):
         session.layout_changed.connect(self._drc_timer.start)
         session.layout_changed.connect(self._update_undo_redo)
         session.layout_changed.connect(session.mark_dirty)
+        session.highlight_stack.changed.connect(self._update_highlight_action)
         session.dirty_changed.connect(self._update_title)
         session.drc_changed.connect(self._props_panel.update_issues)
         self._props_panel.component_changed.connect(self._on_component_changed)
@@ -406,6 +407,13 @@ class MainWindow(QMainWindow):
 
         act_delete = edit_menu.addAction("&Delete\tDel")
         act_delete.triggered.connect(self._delete_selection)
+
+        edit_menu.addSeparator()
+
+        self._act_clear_highlight: QAction = edit_menu.addAction("Clear &Highlight")
+        self._act_clear_highlight.setShortcut(QKeySequence("Ctrl+Shift+H"))
+        self._act_clear_highlight.setEnabled(False)
+        self._act_clear_highlight.triggered.connect(self._clear_highlight)
 
         edit_menu.addSeparator()
 
@@ -1282,6 +1290,16 @@ class MainWindow(QMainWindow):
             self._act_redo.setText(f"&Redo  {desc}" if desc else "&Redo")
         else:
             self._act_redo.setText("&Redo")
+
+    def _clear_highlight(self) -> None:
+        """Clear all persistent highlight entries from the stack."""
+        self._session.highlight_stack.clear()
+
+    def _update_highlight_action(self) -> None:
+        """Enable 'Clear Highlight' only when there are persistent entries."""
+        self._act_clear_highlight.setEnabled(
+            self._session.highlight_stack.has_persistent()
+        )
 
     def _ensure_select_tool(self) -> SelectTool | None:
         """Switch to SelectTool if not already active and return it."""

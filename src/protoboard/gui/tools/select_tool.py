@@ -1502,6 +1502,51 @@ class SelectTool(_Tool):
                             lambda _cid=comp_id, _pn=pin_num: _hover_pin(_cid, _pn)
                         )
 
+        # ── Select section ────────────────────────────────────────────────────
+        if comp_id is not None:
+            _inst2 = self._session.instances.get(comp_id)
+            _defn2 = self._session.components.get(_inst2.definition_ref) if _inst2 else None
+            if _inst2 is not None and _defn2 is not None:
+                from protoboard.domain.schematic.net import PinRef as _PinRef
+                # Collect nets (non-global) for this component.
+                _nets: list[object] = []
+                for _pn in range(1, _defn2.footprint.pin_count() + 1):
+                    _ref = _PinRef(component_id=comp_id, pin_number=_pn)
+                    _net = self._session.schematic.net_for_pin(_ref)
+                    if _net is not None and _net not in _nets:
+                        _nets.append(_net)
+                _non_global = [n for n in _nets if not n.global_net]  # type: ignore[attr-defined]
+                menu.addSection("Select")
+                act_sel_nets = menu.addAction("Components in same nets (excl. global)")
+                act_sel_nets.setData(("select_same_nets", comp_id))
+                act_sel_nets.setEnabled(bool(_non_global))
+                if len(_non_global) == 1:
+                    _net1 = _non_global[0]
+                    act_sel_wires = menu.addAction(f"Wires of net '{_net1.name}'")  # type: ignore[attr-defined]
+                    act_sel_wires.setData(("select_net_wires", _net1.id))  # type: ignore[attr-defined]
+                elif len(_non_global) > 1:
+                    wires_submenu = menu.addMenu("Wires of net…")
+                    for _n in _non_global:
+                        _a = wires_submenu.addAction(_n.name)  # type: ignore[attr-defined]
+                        _a.setData(("select_net_wires", _n.id))  # type: ignore[attr-defined]
+
+        if wire_id is not None:
+            _wire_for_sel = next(
+                (w for w in self._session.layout.wires if w.id == wire_id), None
+            )
+            if _wire_for_sel is not None:
+                menu.addSection("Select")
+                act_phys = menu.addAction("Physically connected wires")
+                act_phys.setData(("select_wires_physical", wire_id))
+
+        # ── Highlight section ─────────────────────────────────────────────────
+        menu.addSection("Highlight")
+        act_hl = menu.addAction("Highlight selection (Dimmed #2)")
+        act_hl.setData(("highlight_selection",))
+        act_clear_hl = menu.addAction("Clear highlight")
+        act_clear_hl.setData(("clear_highlight",))
+        act_clear_hl.setEnabled(self._session.highlight_stack.has_persistent())
+
         # ── Wire section ──────────────────────────────────────────────────────
         if wire_id is not None:
             wire = next((w for w in self._session.layout.wires if w.id == wire_id), None)
@@ -1605,6 +1650,24 @@ class SelectTool(_Tool):
 
         elif action == "flip_fragment":
             self._flip_wire_fragment()
+
+        elif action == "select_same_nets":
+            _, cid = data
+            self._select_same_net_comps(cid, exclude_global=True)
+
+        elif action == "select_net_wires":
+            _, net_id = data
+            self._select_net_wires(net_id)
+
+        elif action == "select_wires_physical":
+            _, wid = data
+            self._select_wires_physical(wid)
+
+        elif action == "highlight_selection":
+            self._highlight_selection()
+
+        elif action == "clear_highlight":
+            self._session.highlight_stack.clear()
 
         return True
 
@@ -2559,6 +2622,89 @@ class SelectTool(_Tool):
         self._selected_ids = set(members)
         self._redraw_multi_highlights()
         self._notify_selection()
+
+    # ------------------------------------------------------------------
+    # Selection-by-net helpers
+    # ------------------------------------------------------------------
+
+    def _select_same_net_comps(
+        self, comp_id: uuid.UUID, exclude_global: bool = True
+    ) -> None:
+        """Select all components sharing any net with comp_id (excl. global nets)."""
+        from protoboard.domain.schematic.net import PinRef
+        inst = self._session.instances.get(comp_id)
+        defn = self._session.components.get(inst.definition_ref) if inst else None
+        if defn is None:
+            return
+        target: set[uuid.UUID] = set()
+        for pin_num in range(1, defn.footprint.pin_count() + 1):
+            ref = PinRef(component_id=comp_id, pin_number=pin_num)
+            net = self._session.schematic.net_for_pin(ref)
+            if net is None:
+                continue
+            if exclude_global and net.global_net:
+                continue
+            for pin_ref in net.pins:
+                target.add(pin_ref.component_id)
+        target.discard(comp_id)
+        self._deselect()
+        self._clear_multi_selection()
+        self._selected_ids = target
+        self._redraw_multi_highlights()
+        self._notify_selection()
+
+    def _select_net_wires(self, net_id: uuid.UUID) -> None:
+        """Select all wires assigned to the given logical net."""
+        from protoboard.gui.board_view import _build_wire_net_map
+        wire_net_map = _build_wire_net_map(self._session)
+        self._selected_wire_ids = {
+            wid for wid, nid in wire_net_map.items() if nid == net_id
+        }
+        self._redraw_multi_wire_highlights()
+        self._notify_selection()
+
+    def _select_wires_physical(self, wire_id: uuid.UUID) -> None:
+        """Select all wires physically connected to wire_id (same electric set)."""
+        graph = self._session.connectivity_graph()
+        wire = next(
+            (w for w in self._session.layout.wires if w.id == wire_id), None
+        )
+        if wire is None or len(wire.path) < 2:
+            return
+        key = graph.node_for_pad(wire.path[0], wire.side)
+        if key is None:
+            return
+        connected: set[uuid.UUID] = set()
+        for w in self._session.layout.wires:
+            if len(w.path) < 2:
+                continue
+            for pt in [w.path[0], w.path[-1]]:
+                k = graph.node_for_pad(pt, w.side)
+                if k == key:
+                    connected.add(w.id)
+                    break
+        self._selected_wire_ids = connected
+        self._redraw_multi_wire_highlights()
+        self._notify_selection()
+
+    def _highlight_selection(self) -> None:
+        """Push current selection onto the HighlightStack (Dimmed #2)."""
+        from protoboard.gui.highlight_state import HighlightEntry, PROFILE_DIMMED_2
+        comp_ids = frozenset(self._selected_ids)
+        if self._selected_id is not None:
+            comp_ids = comp_ids | {self._selected_id}
+        wire_ids = frozenset(self._selected_wire_ids)
+        if self._selected_wire_id is not None:
+            wire_ids = wire_ids | {self._selected_wire_id}
+        if not comp_ids and not wire_ids:
+            return
+        entry = HighlightEntry(
+            comp_ids=comp_ids,
+            wire_ids=wire_ids,
+            profile=PROFILE_DIMMED_2,
+            label="User",
+        )
+        self._session.highlight_stack.push(entry)
 
     def _clear_multi_selection(self) -> None:
         for item in self._multi_highlights:

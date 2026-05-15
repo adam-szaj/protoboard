@@ -57,7 +57,15 @@ class RouteTool(_Tool):
         self._live_line: QGraphicsLineItem | None = None
         self._hint_items: list[QGraphicsLineItem] = []
 
+    def activate(self, session: object, view: object) -> None:
+        super().activate(session, view)  # type: ignore[arg-type]
+        from protoboard.gui.highlight_state import HighlightEntry, PROFILE_DIMMED_1
+        self._session.highlight_stack.push_transient(  # type: ignore[attr-defined]
+            HighlightEntry(profile=PROFILE_DIMMED_1, label="Route", transient=True)
+        )
+
     def deactivate(self) -> None:
+        self._session.highlight_stack.pop_transient()  # type: ignore[attr-defined]
         self._cancel()
 
     def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:

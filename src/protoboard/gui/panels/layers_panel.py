@@ -31,7 +31,6 @@ _LAYER_DEFS = [
 
 # Background colours per visibility state.
 _STATE_BG: dict[LayerVisibility, str] = {
-    LayerVisibility.AUTO:   "#3a6ea5",   # blue  — tool-driven
     LayerVisibility.FULL:   "#2e7d32",   # green — always visible
     LayerVisibility.GHOST:  "#e65100",   # amber — dimmed
     LayerVisibility.HIDDEN: "#424242",   # dark grey — invisible
@@ -65,7 +64,7 @@ class LayersPanel(QWidget):
         sep.setStyleSheet("color: #555;")
         root.addWidget(sep)
 
-        reset_btn = QPushButton("Reset All  [all AUTO]")
+        reset_btn = QPushButton("Reset All")
         reset_btn.setStyleSheet("font-size: 10px;")
         reset_btn.clicked.connect(self._reset)
         root.addWidget(reset_btn)
@@ -105,7 +104,7 @@ class LayersPanel(QWidget):
         for field_name, btn in self._buttons.items():
             vis: LayerVisibility = getattr(self._overrides, field_name)
             bg = _STATE_BG[vis]
-            label = vis.value.upper() if vis != LayerVisibility.AUTO else "AUTO"
+            label = vis.value.upper()
             btn.setText(label)
             btn.setStyleSheet(
                 f"background-color: {bg}; color: {_STATE_FG}; "
