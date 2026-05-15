@@ -364,7 +364,6 @@ class SelectTool(_Tool):
         """Draw overlay items and apply dimming according to scope and profile."""
         from protoboard.gui.interaction_mode import HighlightProfile, HighlightScope
         from protoboard.domain.schematic.net import PinRef
-        from protoboard.domain.layout.placement import pin_world_position
         from protoboard.gui.board_view import _build_wire_net_map
         from protoboard.gui.layer_state import Z_OVERLAY
 
@@ -411,16 +410,8 @@ class SelectTool(_Tool):
                     pen = QPen(QColor(*rgba[:3], rgba[3]), 0.05)
                     brush = QBrush(QColor(*rgba))
                     for ref in net_obj.pins:
-                        pl = session.layout.placements.get(ref.component_id)
-                        inst = session.instances.get(ref.component_id)
-                        if pl is None or inst is None:
-                            continue
-                        defn = session.components.get(inst.definition_ref)
-                        if defn is None:
-                            continue
-                        try:
-                            pos = pin_world_position(defn.footprint, pl, ref.pin_number)
-                        except (IndexError, ValueError):
+                        pos = session.get_pin_position(ref.component_id, ref.pin_number)
+                        if pos is None:
                             continue
                         circle = QGraphicsEllipseItem(
                             QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r)
@@ -460,16 +451,8 @@ class SelectTool(_Tool):
                             )
                             if same_key_count > 1:
                                 continue  # physically connected to another pin in net
-                        pl = session.layout.placements.get(ref.component_id)
-                        inst = session.instances.get(ref.component_id)
-                        if pl is None or inst is None:
-                            continue
-                        defn = session.components.get(inst.definition_ref)
-                        if defn is None:
-                            continue
-                        try:
-                            pos = pin_world_position(defn.footprint, pl, ref.pin_number)
-                        except (IndexError, ValueError):
+                        pos = session.get_pin_position(ref.component_id, ref.pin_number)
+                        if pos is None:
                             continue
                         circle = QGraphicsEllipseItem(
                             QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r)
@@ -1379,7 +1362,6 @@ class SelectTool(_Tool):
         from PySide6.QtGui import QColor, QPen, QBrush
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.domain.commands.component_cmds import LockComponentCommand
-        from protoboard.domain.layout.placement import pin_world_position as _pwp
         from protoboard.gui.layer_state import Z_OVERLAY
 
         menu = QMenu(self._view)
@@ -1400,12 +1382,9 @@ class SelectTool(_Tool):
             sc = self._view.scene() if self._view is not None else None
             if sc is None:
                 return
-            _pl = self._session.layout.placements.get(cid)
-            _inst = self._session.instances.get(cid)
-            _defn = self._session.components.get(_inst.definition_ref) if _inst else None
-            if _pl is None or _defn is None:
+            _pos = self._session.get_pin_position(cid, pn)
+            if _pos is None:
                 return
-            _pos = _pwp(_defn.footprint, _pl, pn)
             r = 0.28
             circle = QGraphicsEllipseItem(QRectF(_pos.x - r, _pos.y - r, 2 * r, 2 * r))
             circle.setPen(QPen(QColor(255, 180, 0, 220), 0.06))
@@ -1846,14 +1825,7 @@ class SelectTool(_Tool):
             side = placement.side  # type: ignore[assignment]
             if layers.alpha_for_component(side) == 0.0:  # type: ignore[union-attr]
                 continue
-            inst = session.instances.get(comp_id)
-            if inst is None:
-                continue
-            defn = session.components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            for n in range(defn.footprint.pin_count()):
-                pos = pin_world_position(defn.footprint, placement, n + 1)
+            for _pin_num, pos in session.iter_pin_positions(comp_id):
                 dx = px - pos.x
                 dy = py - pos.y
                 d = math.sqrt(dx * dx + dy * dy)
@@ -1897,16 +1869,7 @@ class SelectTool(_Tool):
             assert isinstance(placement, CP)
             if layers.alpha_for_component(placement.side) == 0.0:  # type: ignore[union-attr]
                 return False
-            inst = session.instances.get(comp_id)
-            if inst is None:
-                return False
-            defn = session.components.get(inst.definition_ref)
-            if defn is None:
-                return False
-            positions = [
-                pin_world_position(defn.footprint, placement, n + 1)
-                for n in range(defn.footprint.pin_count())
-            ]
+            positions = [pos for _, pos in session.iter_pin_positions(comp_id)]
             if not positions:
                 return False
             xs = [p.x for p in positions]
@@ -1966,17 +1929,10 @@ class SelectTool(_Tool):
             self._view.scene().removeItem(self._highlight)
             self._highlight = None
         session = self._session
-        inst = session.instances.get(comp_id)
         placement = session.layout.placements.get(comp_id)
-        if inst is None or placement is None:
+        if placement is None:
             return
-        defn = session.components.get(inst.definition_ref)
-        if defn is None:
-            return
-        positions = [
-            pin_world_position(defn.footprint, placement, n + 1)
-            for n in range(defn.footprint.pin_count())
-        ]
+        positions = [pos for _, pos in session.iter_pin_positions(comp_id)]
         if not positions:
             return
         xs = [p.x for p in positions]
@@ -2621,17 +2577,7 @@ class SelectTool(_Tool):
 
     def _draw_multi_highlight(self, comp_id: uuid.UUID) -> None:
         session = self._session
-        inst = session.instances.get(comp_id)
-        placement = session.layout.placements.get(comp_id)
-        if inst is None or placement is None:
-            return
-        defn = session.components.get(inst.definition_ref)
-        if defn is None:
-            return
-        positions = [
-            pin_world_position(defn.footprint, placement, n + 1)
-            for n in range(defn.footprint.pin_count())
-        ]
+        positions = [pos for _, pos in session.iter_pin_positions(comp_id)]
         if not positions:
             return
         xs = [p.x for p in positions]
@@ -2811,15 +2757,9 @@ class SelectTool(_Tool):
             return
         # Find components whose pins share those electric sets.
         from protoboard.domain.schematic.net import PinRef
-        from protoboard.domain.layout.placement import pin_world_position
         target: set[uuid.UUID] = set()
         for cid, placement in self._session.layout.placements.items():
-            inst = self._session.instances.get(cid)
-            defn = self._session.components.get(inst.definition_ref) if inst else None
-            if defn is None:
-                continue
-            for n in range(defn.footprint.pin_count()):
-                pos = pin_world_position(defn.footprint, placement, n + 1)
+            for _pin_num, pos in self._session.iter_pin_positions(cid):
                 k = graph.node_for_pad(pos, placement.side)
                 if k in wire_keys:
                     target.add(cid)
@@ -2872,16 +2812,10 @@ class SelectTool(_Tool):
             range(len(wire.path)),
             key=lambda i: math.hypot(wire.path[i].x - px, wire.path[i].y - py),
         )
-        from protoboard.domain.layout.placement import pin_world_position
         # Build set of pin positions (any component pin).
         pin_positions: set[tuple[float, float]] = set()
-        for cid, placement in self._session.layout.placements.items():
-            inst = self._session.instances.get(cid)
-            defn = self._session.components.get(inst.definition_ref) if inst else None
-            if defn is None:
-                continue
-            for n in range(defn.footprint.pin_count()):
-                pos = pin_world_position(defn.footprint, placement, n + 1)
+        for cid in self._session.layout.placements:
+            for _pin_num, pos in self._session.iter_pin_positions(cid):
                 pin_positions.add((round(pos.x, 4), round(pos.y, 4)))
         # Build set of junction positions (pad shared by >1 wire endpoint).
         from collections import Counter
@@ -3206,22 +3140,12 @@ class SelectTool(_Tool):
             # Highlight component pins electrically connected to this net
             # as red circles (cycle 1 only — cleared on cycle 2/3/deselect).
             from protoboard.domain.schematic.net import PinRef
-            from protoboard.domain.layout.placement import pin_world_position
             pad_positions: list[Point] = []
             for comp_id in list(self._session.layout.placements):
-                inst = self._session.instances.get(comp_id)
-                defn = (
-                    self._session.components.get(inst.definition_ref) if inst else None
-                )
-                placement = self._session.layout.placements.get(comp_id)
-                if defn is None or placement is None:
-                    continue
-                for pin_num in range(1, defn.footprint.pin_count() + 1):
+                for pin_num, pos in self._session.iter_pin_positions(comp_id):
                     ck = graph.node_for_pin(PinRef(component_id=comp_id, pin_number=pin_num))
                     if ck in wire_canonical:
-                        pad_positions.append(
-                            pin_world_position(defn.footprint, placement, pin_num)
-                        )
+                        pad_positions.append(pos)
             self._draw_net_pad_highlights(pad_positions)
 
         self._notify_selection()
@@ -3791,7 +3715,6 @@ class SelectTool(_Tool):
             board_pads_for_side,
             plated_through_pads,
         )
-        from protoboard.domain.layout.placement import pin_world_position
 
         wire = self._get_selected_wire()
         if wire is None or self._edit_start_idx is None or self._edit_end_idx is None:
@@ -3833,30 +3756,18 @@ class SelectTool(_Tool):
         pin_net: dict[tuple[float, float], "uuid.UUID | None"] = {}
         for net in session.schematic.nets.values():
             for ref in net.pins:
-                placement = session.layout.placements.get(ref.component_id)
-                if placement is None:
+                wp = session.get_pin_position(ref.component_id, ref.pin_number)
+                if wp is None:
                     continue
-                defn = session.components.get(
-                    session.instances[ref.component_id].definition_ref
-                )
-                if defn is None:
-                    continue
-                wp = pin_world_position(defn.footprint, placement, ref.pin_number)
                 pin_net[(wp.x, wp.y)] = net.id
 
         # Determine which net this wire belongs to (if any)
         wire_net_id: "uuid.UUID | None" = None
         for net in session.schematic.nets.values():
             for ref in net.pins:
-                placement = session.layout.placements.get(ref.component_id)
-                if placement is None:
+                wp = session.get_pin_position(ref.component_id, ref.pin_number)
+                if wp is None:
                     continue
-                defn = session.components.get(
-                    session.instances[ref.component_id].definition_ref
-                )
-                if defn is None:
-                    continue
-                wp = pin_world_position(defn.footprint, placement, ref.pin_number)
                 if any(abs(wp.x - p.x) < 1e-4 and abs(wp.y - p.y) < 1e-4
                        for p in wire.path):
                     wire_net_id = net.id
@@ -4269,20 +4180,13 @@ class SelectTool(_Tool):
             side = placement.side  # type: ignore[assignment]
             if layers.alpha_for_component(side) == 0.0:  # type: ignore[union-attr]
                 continue
-            inst = session.instances.get(comp_id)
-            if inst is None:
-                continue
-            defn = session.components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            for n in range(defn.footprint.pin_count()):
-                pos = pin_world_position(defn.footprint, placement, n + 1)
+            for pin_num, pos in session.iter_pin_positions(comp_id):
                 d = math.hypot(scene_pt.x() - pos.x, scene_pt.y() - pos.y)
                 # Prefer front-side pins.
                 effective_d = d if placement.side == camera else d + _HIT_RADIUS * 0.5
                 if effective_d < best_d:
                     best_d = effective_d
-                    best = (comp_id, n + 1)
+                    best = (comp_id, pin_num)
         return best
 
     def _hit_test_pin_for_comp(
@@ -4290,23 +4194,13 @@ class SelectTool(_Tool):
     ) -> tuple[uuid.UUID, int] | None:
         """Like _hit_test_pin but scans only one component — O(P) not O(C×P)."""
         session = self._session
-        placement = session.layout.placements.get(comp_id)
-        if placement is None:
-            return None
-        inst = session.instances.get(comp_id)
-        if inst is None:
-            return None
-        defn = session.components.get(inst.definition_ref)
-        if defn is None:
-            return None
         best_d = _HIT_RADIUS
         best: tuple[uuid.UUID, int] | None = None
-        for n in range(defn.footprint.pin_count()):
-            pos = pin_world_position(defn.footprint, placement, n + 1)
+        for pin_num, pos in session.iter_pin_positions(comp_id):
             d = math.hypot(scene_pt.x() - pos.x, scene_pt.y() - pos.y)
             if d < best_d:
                 best_d = d
-                best = (comp_id, n + 1)
+                best = (comp_id, pin_num)
         return best
 
     def _activate_net_highlight(self, comp_id: uuid.UUID, pin_number: int) -> None:
@@ -4328,18 +4222,8 @@ class SelectTool(_Tool):
 
         # Highlight pads of all pins in the net.
         for ref in net.pins:
-            pl = session.layout.placements.get(ref.component_id)
-            if pl is None:
-                continue
-            inst = session.instances.get(ref.component_id)
-            if inst is None:
-                continue
-            defn = session.components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            try:
-                pos = pin_world_position(defn.footprint, pl, ref.pin_number)
-            except (IndexError, ValueError):
+            pos = session.get_pin_position(ref.component_id, ref.pin_number)
+            if pos is None:
                 continue
             r = 0.24
             circle = QGraphicsEllipseItem(QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r))
@@ -4358,19 +4242,8 @@ class SelectTool(_Tool):
         from protoboard.domain.schematic.net import PinRef
         if not isinstance(ref, PinRef):
             return []
-        pl = self._session.layout.placements.get(ref.component_id)
-        if pl is None:
-            return []
-        inst = self._session.instances.get(ref.component_id)
-        if inst is None:
-            return []
-        defn = self._session.components.get(inst.definition_ref)
-        if defn is None:
-            return []
-        try:
-            return [pin_world_position(defn.footprint, pl, ref.pin_number)]
-        except (IndexError, ValueError):
-            return []
+        pos = self._session.get_pin_position(ref.component_id, ref.pin_number)
+        return [pos] if pos is not None else []
 
     def _activate_component_highlight(self, comp_id: uuid.UUID) -> None:
         """Highlight bboxes of all components directly connected to comp_id."""

@@ -669,7 +669,6 @@ class BoardView(QGraphicsView):
         from protoboard.domain.layout.group import all_component_ids
         from protoboard.domain.layout.group import ExportedPin
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        from protoboard.domain.layout.placement import pin_world_position
 
         # Build set of component IDs that are locked inside child groups,
         # and their exported pins.
@@ -726,29 +725,12 @@ class BoardView(QGraphicsView):
             if exclude_ids and comp_id in exclude_ids:
                 continue
             if comp_id in locked_comp_ids:
-                placement = self._session.layout.placements.get(comp_id)
-                inst = self._session.instances.get(comp_id)
-                if placement is None or inst is None:
-                    continue
-                defn = self._session.components.get(inst.definition_ref)
-                if defn is None:
-                    continue
-                for n in range(defn.footprint.pin_count()):
-                    pin_num = n + 1
+                for pin_num, p in self._session.iter_pin_positions(comp_id):
                     if (comp_id, pin_num) not in exported_pins:
                         continue
-                    p = pin_world_position(defn.footprint, placement, pin_num)
                     _check(p.x, p.y)
             else:
-                placement = self._session.layout.placements.get(comp_id)
-                inst = self._session.instances.get(comp_id)
-                if placement is None or inst is None:
-                    continue
-                defn = self._session.components.get(inst.definition_ref)
-                if defn is None:
-                    continue
-                for n in range(defn.footprint.pin_count()):
-                    p = pin_world_position(defn.footprint, placement, n + 1)
+                for _pin_num, p in self._session.iter_pin_positions(comp_id):
                     _check(p.x, p.y)
 
         return best if best is not None else Point(sx, sy)
@@ -757,7 +739,6 @@ class BoardView(QGraphicsView):
         """Return True if *scene_pt* is near a pin locked inside a child group
         (i.e. not exported). Used by RouteTool to show a status message."""
         from protoboard.domain.layout.group import all_component_ids
-        from protoboard.domain.layout.placement import pin_world_position
         groups = self._session.layout.groups
         active_group = groups.get(self._active_group_id)
         if active_group is None:
@@ -775,18 +756,9 @@ class BoardView(QGraphicsView):
         if not locked_comp_ids:
             return False
         for comp_id in locked_comp_ids:
-            placement = self._session.layout.placements.get(comp_id)
-            inst = self._session.instances.get(comp_id)
-            if placement is None or inst is None:
-                continue
-            defn = self._session.components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            for n in range(defn.footprint.pin_count()):
-                pin_num = n + 1
+            for pin_num, p in self._session.iter_pin_positions(comp_id):
                 if (comp_id, pin_num) in exported_pins:
                     continue
-                p = pin_world_position(defn.footprint, placement, pin_num)
                 if (scene_pt.x() - p.x) ** 2 + (scene_pt.y() - p.y) ** 2 < tol ** 2:
                     return True
         return False

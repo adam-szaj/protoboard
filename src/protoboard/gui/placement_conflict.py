@@ -95,14 +95,9 @@ def check_and_resolve(
     point_to_net: dict[tuple[float, float], tuple[uuid.UUID, str]] = {}
     for net in session.schematic.nets.values():
         for ref in net.pins:
-            ref_pl = session.layout.placements.get(ref.component_id)
-            ref_inst = session.instances.get(ref.component_id)
-            if ref_pl is None or ref_inst is None:
+            p = session.get_pin_position(ref.component_id, ref.pin_number)
+            if p is None:
                 continue
-            ref_defn = session.components.get(ref_inst.definition_ref)
-            if ref_defn is None:
-                continue
-            p = pin_world_position(ref_defn.footprint, ref_pl, ref.pin_number)
             point_to_net[(_round(p.x), _round(p.y))] = (net.id, net.name)
 
     already_conflicted = {

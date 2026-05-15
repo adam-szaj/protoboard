@@ -22,6 +22,7 @@ from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.schematic.schematic import Schematic
+from protoboard.geometry import Point
 from protoboard.services.drc.engine import DRCEngine, DRCIssue
 from protoboard.domain.components.body_type import BodyTypeSpec
 from protoboard.services.library.body_type_loader import load_body_types
@@ -183,3 +184,54 @@ class EditorSession(QObject):
         if self._dirty:
             self._dirty = False
             self.dirty_changed.emit(False)
+
+    # ------------------------------------------------------------------
+    # Convenience helpers for component/pin lookups
+    # ------------------------------------------------------------------
+
+    def get_pin_position(
+        self,
+        comp_id: uuid.UUID,
+        pin_number: int,
+    ) -> Point | None:
+        """Return the world position of *pin_number* on *comp_id*, or None.
+
+        Returns None if the component or its definition is not found, or if
+        *pin_number* is out of range for the footprint.
+        """
+        placement = self.layout.placements.get(comp_id)
+        inst = self.instances.get(comp_id)
+        if placement is None or inst is None:
+            return None
+        defn = self.components.get(inst.definition_ref)
+        if defn is None:
+            return None
+        try:
+            return pin_world_position(defn.footprint, placement, pin_number)
+        except (IndexError, ValueError):
+            return None
+
+    def iter_pin_positions(
+        self,
+        comp_id: uuid.UUID,
+    ) -> list[tuple[int, Point]]:
+        """Return [(pin_number, world_pos), …] for every pin of *comp_id*.
+
+        Returns an empty list if the component or its definition is not found.
+        """
+        placement = self.layout.placements.get(comp_id)
+        inst = self.instances.get(comp_id)
+        if placement is None or inst is None:
+            return []
+        defn = self.components.get(inst.definition_ref)
+        if defn is None:
+            return []
+        result: list[tuple[int, Point]] = []
+        for n in range(defn.footprint.pin_count()):
+            pin_num = n + 1
+            try:
+                pos = pin_world_position(defn.footprint, placement, pin_num)
+                result.append((pin_num, pos))
+            except (IndexError, ValueError):
+                continue
+        return result
