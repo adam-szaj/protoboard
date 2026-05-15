@@ -226,6 +226,24 @@ class BoardView(QGraphicsView):
                 else:
                     grp.setOpacity(1.0)
 
+    _LABEL_MIN_PT: float = 4.0  # hide labels below this effective point size
+
+    def _apply_label_visibility(self) -> None:
+        """Show/hide text labels based on current view scale.
+
+        Labels smaller than _LABEL_MIN_PT effective points are invisible anyway
+        and only waste rasterisation time.  Visibility is toggled in-place on
+        existing items so no group rebuild is needed.
+        """
+        from PySide6.QtWidgets import QGraphicsTextItem
+        theme = self._theme_override if self._theme_override is not None else DEFAULT_THEME
+        scene_scale = abs(self.transform().m11())
+        show = (theme.refdes_font_size * scene_scale) >= self._LABEL_MIN_PT
+        for item in self._scene.items():
+            if isinstance(item, QGraphicsTextItem):
+                if item.isVisible() != show:
+                    item.setVisible(show)
+
     def set_highlighted_net_silent(self, net_id: uuid.UUID | None) -> None:
         """Set the highlighted net without triggering a refresh.
 
@@ -348,6 +366,7 @@ class BoardView(QGraphicsView):
             QRectF(b.x - 1, b.y - 1, b.width + 2, b.height + 2),
             Qt.AspectRatioMode.KeepAspectRatio,
         )
+        self._apply_label_visibility()
 
     def fit_area(self) -> None:
         """Fit view to the active group's components; falls back to fit_board() for ROOT."""
@@ -389,6 +408,7 @@ class BoardView(QGraphicsView):
                    max(ys) - min(ys) + 2 * margin),
             Qt.AspectRatioMode.KeepAspectRatio,
         )
+        self._apply_label_visibility()
 
     def fit_selection(self) -> None:
         """Fit view to the bounding box of selected components and wires."""
@@ -437,6 +457,7 @@ class BoardView(QGraphicsView):
                    max(ys) - min(ys) + 2 * margin),
             Qt.AspectRatioMode.KeepAspectRatio,
         )
+        self._apply_label_visibility()
 
     def set_session(self, session: EditorSession) -> None:
         """Replace the current session (used when opening a recent project)."""
@@ -635,6 +656,9 @@ class BoardView(QGraphicsView):
         mx, my = b.width * 0.5, b.height * 0.5
         self._scene.setSceneRect(QRectF(b.x - mx, b.y - my, b.width + 2 * mx, b.height + 2 * my))
 
+        # ── Label visibility (hide text that would be too small to read) ────────
+        self._apply_label_visibility()
+
         # ── Text counter-transform (mirrored views) ───────────────────────────
         if layers.needs_text_counter_transform():
             from PySide6.QtGui import QTransform
@@ -812,6 +836,7 @@ class BoardView(QGraphicsView):
         vbar = self.verticalScrollBar()
         hbar.setValue(hbar.value() - round(delta_scene.x() * new_scale))
         vbar.setValue(vbar.value() - round(delta_scene.y() * new_scale))
+        self._apply_label_visibility()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         left = Qt.MouseButton.LeftButton
