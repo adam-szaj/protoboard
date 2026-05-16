@@ -10,7 +10,7 @@ from pathlib import Path
 from protoboard.gui.app_settings import AppSettings
 from protoboard.gui.window_state import load_window_state, save_window_state
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, QFileSystemWatcher, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QKeyEvent, QKeySequence
 from PySide6.QtWidgets import (
     QDialog,
@@ -69,6 +69,9 @@ class MainWindow(QMainWindow):
         self._app_settings = app_settings if app_settings is not None else AppSettings()
         self._closing_to_welcome = False
         self._keybindings = KB.KeyBindings.load()
+        self._watched_net_path: Path | None = None
+        self._kicad_watcher = QFileSystemWatcher(self)
+        self._kicad_watcher.fileChanged.connect(self._on_kicad_net_changed)
         from protoboard.gui.theme import load_theme, Theme as _Theme
         self._theme: _Theme = load_theme()
         self._update_title()
@@ -1912,6 +1915,7 @@ class MainWindow(QMainWindow):
                 result.footprint_map.save(map_path)
 
             self._session.layout_changed.emit()
+            self._watch_net_file(net_path)
 
             # Status message.
             warn_count = sum(1 for w in caught if issubclass(w.category, ImportWarning))
@@ -1947,6 +1951,72 @@ class MainWindow(QMainWindow):
                 )
         except Exception as exc:
             QMessageBox.critical(self, "Import error", str(exc))
+
+    def _watch_net_file(self, net_path: Path) -> None:
+        """Start watching *net_path* for external changes (Live KiCAD sync)."""
+        if self._watched_net_path is not None:
+            self._kicad_watcher.removePath(str(self._watched_net_path))
+        self._watched_net_path = net_path
+        self._kicad_watcher.addPath(str(net_path))
+
+    def _on_kicad_net_changed(self, path: str) -> None:
+        """Called by QFileSystemWatcher when the watched .net file is modified."""
+        net_path = Path(path)
+        # Re-add path: some editors replace the file (delete + create) which
+        # removes it from the watcher.
+        if not self._kicad_watcher.files():
+            self._kicad_watcher.addPath(str(net_path))
+
+        reply = QMessageBox.question(
+            self,
+            "KiCAD Netlist Changed",
+            f"The netlist file changed on disk:\n{net_path.name}\n\nReload it now?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._reload_kicad_net(net_path)
+
+    def _reload_kicad_net(self, net_path: Path) -> None:
+        """Re-import *net_path* without user interaction (used by live sync)."""
+        import warnings
+        from protoboard.services.kicad.footprint_map import FootprintMap
+
+        try:
+            imp = KiCadNetlistImporter()
+            user_map: FootprintMap | None = None
+            if self._session.project_path:
+                map_path = self._session.project_path / "footprint_map.yaml"
+                if map_path.exists():
+                    try:
+                        user_map = FootprintMap.load(map_path)
+                    except Exception:
+                        pass
+
+            with warnings.catch_warnings(record=True):
+                warnings.simplefilter("always")
+                result = imp.import_full(net_path, footprint_map=user_map)
+
+            self._session.schematic = result.schematic
+            placed_ids = set(self._session.layout.placements.keys())
+            for refdes, inst in result.instances.items():
+                if inst.id not in placed_ids:
+                    self._session.instances[inst.id] = inst
+
+            if self._session.project_path:
+                map_path = self._session.project_path / "footprint_map.yaml"
+                result.footprint_map.save(map_path)
+
+            self._session.layout_changed.emit()
+            self._status.showMessage(
+                f"Reloaded {net_path.name}: "
+                f"{len(result.schematic.nets)} nets, "
+                f"{len(result.instances)} components",
+                6000,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "Reload error", str(exc))
 
     def _export_kicad_net(self) -> None:
         path_str, _ = QFileDialog.getSaveFileName(
