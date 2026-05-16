@@ -440,11 +440,21 @@ def _render_one(
         label_color.setAlphaF(alpha_label)
         bg = QColor(bg_color)
         bg.setAlphaF(bg.alphaF() * alpha_label)
+
+        # Detect footprint geometry to avoid refdes/pin-name overlap.
+        # Single-column (all pins share x, e.g. SIL/TO-92): names right, refdes left.
+        # Dual-column (e.g. DIP): left-column names go left, right-column right.
+        xs_unique = {round(p.x, 6) for p in positions}
+        x_min_col = min(xs_unique)
+        single_col = len(xs_unique) == 1
+
         _default_offset = Point(0.05, 0.05)
-        if placement.label_offset == _default_offset:
-            lx, ly = (x0 + x1) / 2.0, (y0 + y1) / 2.0
-        else:
+        if placement.label_offset != _default_offset:
             lx, ly = x0 + placement.label_offset.x, y0 + placement.label_offset.y
+        elif single_col:
+            lx, ly = x0 - 0.05, (y0 + y1) / 2.0
+        else:
+            lx, ly = (x0 + x1) / 2.0, (y0 + y1) / 2.0
         for item in _make_overlay_label(
             inst.refdes, _get_refdes_font(fpt), label_color, bg, lx, ly, z_label
         ):
@@ -462,9 +472,15 @@ def _render_one(
                 name = defn.pin_names.get(pin_number)
                 if not name:
                     continue
+                if single_col:
+                    px, py = pos.x + 0.55, pos.y
+                elif abs(pos.x - x_min_col) < 1e-5:
+                    px, py = pos.x - 0.05, pos.y
+                else:
+                    px, py = pos.x + 0.55, pos.y
                 for item in _make_overlay_label(
                     name, _get_pin_name_font(fpt), pin_name_color, pin_bg,
-                    pos.x, pos.y, z_label + 0.1,
+                    px, py, z_label + 0.1,
                 ):
                     grp.addToGroup(item)
 
