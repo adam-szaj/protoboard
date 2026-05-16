@@ -29,24 +29,50 @@ def _pads(n: int = 6) -> set[Point]:
 
 class TestStraighten:
     def test_three_collinear_points_collapse(self) -> None:
+        # Without a board_pads set the wire is treated as insulated-like
+        # (free to merge); used by routines that don't know the board.
         w = _bare((0.5, 0.5), (1.5, 0.5), (2.5, 0.5))
         out = straighten_wire(w)
         assert [(p.x, p.y) for p in out.path] == [(0.5, 0.5), (2.5, 0.5)]
 
+    def test_bare_collinear_through_pad_preserved(self) -> None:
+        # On-pad mid-point must stay so connectivity graph still sees the
+        # electrical contact between the bare wire and the pad.
+        w = _bare((0.5, 0.5), (1.5, 0.5), (2.5, 0.5))
+        out = straighten_wire(w, _pads())
+        assert [(p.x, p.y) for p in out.path] == [
+            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5)
+        ]
+
+    def test_insulated_collinear_drops_mid_point(self) -> None:
+        # An insulated wire floats above the board → safe to drop pad nodes.
+        w = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
+            insulated=True,
+            side="top",
+        )
+        out = straighten_wire(w, _pads())
+        assert [(p.x, p.y) for p in out.path] == [(0.5, 0.5), (2.5, 0.5)]
+
     def test_l_corner_preserved(self) -> None:
         w = _bare((0.5, 0.5), (1.5, 0.5), (1.5, 1.5))
-        out = straighten_wire(w)
+        out = straighten_wire(w, _pads())
         assert len(out.path) == 3
 
     def test_two_point_wire_unchanged(self) -> None:
         w = _bare((0.5, 0.5), (3.5, 0.5))
-        out = straighten_wire(w)
+        out = straighten_wire(w, _pads())
         assert out is w  # unchanged → same identity
 
-    def test_diagonal_collinear_collapse(self) -> None:
+    def test_diagonal_collinear_with_pads_preserved(self) -> None:
+        # Bare diagonal passing through pads (1.5,1.5), (2.5,2.5) keeps them
+        # so the connectivity graph still merges them with this wire.
         w = _bare((0.5, 0.5), (1.5, 1.5), (2.5, 2.5))
-        out = straighten_wire(w)
-        assert [(p.x, p.y) for p in out.path] == [(0.5, 0.5), (2.5, 2.5)]
+        out = straighten_wire(w, _pads())
+        assert [(p.x, p.y) for p in out.path] == [
+            (0.5, 0.5), (1.5, 1.5), (2.5, 2.5)
+        ]
 
 
 class TestCornerCut:

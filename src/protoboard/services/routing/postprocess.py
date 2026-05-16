@@ -45,15 +45,26 @@ def _collinear(a: Point, b: Point, c: Point) -> bool:
     return dot >= 0.0
 
 
-def straighten_wire(wire: WireSegment) -> WireSegment:
-    """Return a copy of *wire* with internal collinear vertices removed."""
+def straighten_wire(
+    wire: WireSegment, board_pads: set[Point] | None = None
+) -> WireSegment:
+    """Return a copy of *wire* with internal collinear vertices removed.
+
+    For a *bare* wire, any internal point that is also a board pad must be
+    kept — the bare conductor physically contacts that pad and the
+    connectivity graph relies on those vertices to merge electric sets
+    correctly.  An insulated wire floats above the board and may drop pad
+    vertices freely.  *board_pads* is consulted only when the wire is bare.
+    """
     if len(wire.path) < 3:
         return wire
+    pads = board_pads if (board_pads is not None and not wire.insulated) else set()
     out: list[Point] = [wire.path[0]]
     for i in range(1, len(wire.path) - 1):
         a, b, c = out[-1], wire.path[i], wire.path[i + 1]
-        if not _collinear(a, b, c):
-            out.append(b)
+        if _collinear(a, b, c) and b not in pads:
+            continue
+        out.append(b)
     out.append(wire.path[-1])
     if len(out) == len(wire.path):
         return wire
@@ -193,14 +204,14 @@ def simplify_wires(
     preserved; wire IDs are regenerated only when a wire's path actually
     changes — unchanged wires are returned as-is.
     """
-    # First pass: straighten each wire.
-    straightened = [straighten_wire(w) for w in wires]
+    # First pass: straighten each wire (preserving on-pad vertices for bare).
+    straightened = [straighten_wire(w, board_pads) for w in wires]
     # Second pass: corner-cut each wire against the others.
     out: list[WireSegment] = []
     for i, w in enumerate(straightened):
         cur = corner_cut_wire(w, straightened, board_pads)
         # Re-straighten after corner-cut may expose new collinear runs.
-        cur = straighten_wire(cur)
+        cur = straighten_wire(cur, board_pads)
         out.append(cur)
         # Reflect possible change back into the working list so later wires
         # see the cut version when checking for collisions.
