@@ -1,0 +1,13 @@
+allow_jumpers: true
+allow_layer_change: true
+cost_model:
+  crossing_insulated_bare: 5.0
+  direction_change: 1.0
+  layer_change: 2.0
+  under_component_top: 3.0
+max_detour_factor: 0.0
+max_optimize_iterations: 10
+max_rip_up_passes: 10
+preferred_side: bottom
+skip_autoroute_dialog: false
+wire_mode: insulated

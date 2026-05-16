@@ -39,6 +39,21 @@ htmlcov/
 # Project exports (generated)
 **/exports/
 
+# Autoroute reports (timestamped, regenerated each run)
+autoroute-report.csv
+
 # OS
 .DS_Store
 Thumbs.db
+
+# Editor session files
+Session.vim
+
+# Local working files
+log.txt
+standard_pinouts.txt
+
+# Local experimental project directories (untracked sandboxes)
+/m4/
+/simpleamp/
+docs/ogrod_slawe.net

@@ -1,0 +1,206 @@
+groups:
+- id: 00000000-0000-0000-0000-000000000001
+  name: ''
+placements:
+- component_id: 225fc885-559a-4df1-8048-946bd265e8d7
+  position:
+    x: 2.5
+    y: 2.5
+  rotation: 0
+  side: top
+- component_id: 461a4ee0-98ae-4467-88af-5342ec35c6a1
+  position:
+    x: 12.5
+    y: 2.5
+  rotation: 0
+  side: top
+- component_id: 84f8c4fc-7e11-4e12-abf2-3ad59c1cfca1
+  pin_offsets:
+    '1':
+      x: 0.0
+      y: 0.0
+    '2':
+      x: 0.0
+      y: 1.0
+  position:
+    x: 0.5
+    y: 5.5
+  rotation: 0
+  side: top
+- component_id: bce0ee50-9b23-41d3-842b-65c9ee8d3467
+  position:
+    x: 3.5
+    y: 6.5
+  rotation: 0
+  side: top
+- component_id: c291bdee-3b1d-405f-9ffd-e15123ead860
+  position:
+    x: 12.5
+    y: 6.5
+  rotation: 0
+  side: top
+- component_id: 9ca68098-bde6-4b8c-817f-aa2fcd441162
+  position:
+    x: 6.5
+    y: 0.5
+  rotation: 0
+  side: top
+wires:
+- id: bafa90cb-601b-4c54-95e3-9bde372950f7
+  insulated: true
+  path:
+  - x: 2.5
+    y: 4.5
+  - x: 3.5
+    y: 4.5
+  - x: 4.5
+    y: 4.5
+  - x: 5.5
+    y: 4.5
+  - x: 6.5
+    y: 4.5
+  - x: 8.5
+    y: 4.5
+  - x: 9.5
+    y: 4.5
+  - x: 10.5
+    y: 4.5
+  - x: 11.5
+    y: 4.5
+  - x: 12.5
+    y: 4.5
+  side: bottom
+- id: aaabf787-fc86-4296-9743-5fc56c961b21
+  insulated: true
+  path:
+  - x: 2.5
+    y: 5.5
+  - x: 4.5
+    y: 5.5
+  side: bottom
+- id: 64d77d54-9bbd-4b23-9e10-b9e00c2ee3f5
+  insulated: true
+  path:
+  - x: 4.5
+    y: 5.5
+  - x: 5.5
+    y: 5.5
+  - x: 6.5
+    y: 5.5
+  - x: 7.5
+    y: 5.5
+  - x: 8.5
+    y: 5.5
+  - x: 9.5
+    y: 5.5
+  - x: 10.5
+    y: 5.5
+  - x: 11.5
+    y: 5.5
+  - x: 12.5
+    y: 5.5
+  side: bottom
+- id: 580bfb85-2860-47f3-99b6-adbf8c851d2a
+  insulated: true
+  path:
+  - x: 3.5
+    y: 6.5
+  - x: 4.5
+    y: 6.5
+  - x: 5.5
+    y: 6.5
+  - x: 6.5
+    y: 6.5
+  - x: 7.5
+    y: 6.5
+  - x: 8.5
+    y: 6.5
+  - x: 9.5
+    y: 6.5
+  - x: 10.5
+    y: 6.5
+  - x: 11.5
+    y: 6.5
+  - x: 12.5
+    y: 6.5
+  side: bottom
+- id: f4120f8d-6e69-4667-99ca-cf9e7a1c472b
+  insulated: true
+  path:
+  - x: 12.5
+    y: 3.5
+  - x: 11.5
+    y: 2.5
+  - x: 10.5
+    y: 1.5
+  - x: 9.5
+    y: 1.5
+  - x: 8.5
+    y: 1.5
+  - x: 7.5
+    y: 1.5
+  - x: 6.5
+    y: 1.5
+  side: bottom
+- id: abe103e8-0272-4454-82a4-5f8e7c274c50
+  insulated: true
+  path:
+  - x: 6.5
+    y: 2.5
+  - x: 5.5
+    y: 2.5
+  - x: 4.5
+    y: 2.5
+  - x: 3.5
+    y: 2.5
+  - x: 2.5
+    y: 2.5
+  side: bottom
+- id: 97666201-8151-4620-86f1-b78a4957e30c
+  insulated: true
+  path:
+  - x: 2.5
+    y: 2.5
+  - x: 1.5
+    y: 3.5
+  - x: 1.5
+    y: 4.5
+  - x: 0.5
+    y: 5.5
+  side: bottom
+- id: aaf68c77-d067-4e89-a8e4-147fe30e54ef
+  insulated: true
+  path:
+  - x: 2.5
+    y: 4.5
+  - x: 1.5
+    y: 5.5
+  - x: 1.5
+    y: 6.5
+  - x: 0.5
+    y: 7.5
+  side: bottom
+- id: 428feb7d-ffee-4cbf-a901-7debb23fd0c3
+  insulated: true
+  path:
+  - x: 6.5
+    y: 2.5
+  - x: 7.5
+    y: 2.5
+  - x: 8.5
+    y: 2.5
+  - x: 9.5
+    y: 2.5
+  - x: 10.5
+    y: 2.5
+  side: bottom
+- id: 518cf7cd-3daa-498e-acda-4593d95c048e
+  insulated: true
+  path:
+  - x: 12.5
+    y: 2.5
+  - x: 11.5
+    y: 2.5
+  - x: 10.5
+    y: 2.5
+  side: top

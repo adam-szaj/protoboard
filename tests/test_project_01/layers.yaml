@@ -1,0 +1,9 @@
+board: auto
+components_bottom: auto
+components_top: auto
+connectness: auto
+labels_bottom: ghost
+labels_top: auto
+pin_names: auto
+wires_bottom: ghost
+wires_top: auto

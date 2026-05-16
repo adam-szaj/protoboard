@@ -1,0 +1,25 @@
+instances:
+- definition_ref: JST_XH_4pin
+  id: 225fc885-559a-4df1-8048-946bd265e8d7
+  refdes: J1
+  value: JST_XH_4pin
+- definition_ref: JST_XH_4pin
+  id: 461a4ee0-98ae-4467-88af-5342ec35c6a1
+  refdes: J2
+  value: JST_XH_4pin
+- definition_ref: 1N4001
+  id: 84f8c4fc-7e11-4e12-abf2-3ad59c1cfca1
+  refdes: D1
+  value: 1N4001
+- definition_ref: JST_PH_2pin
+  id: bce0ee50-9b23-41d3-842b-65c9ee8d3467
+  refdes: J3
+  value: JST_PH_2pin
+- definition_ref: JST_PH_2pin
+  id: c291bdee-3b1d-405f-9ffd-e15123ead860
+  refdes: J4
+  value: JST_PH_2pin
+- definition_ref: BC547
+  id: 9ca68098-bde6-4b8c-817f-aa2fcd441162
+  refdes: Q1
+  value: BC547
