@@ -381,6 +381,7 @@ def _routing_settings_to_yaml(s: RoutingSettings) -> str:
         "allow_jumpers": s.allow_jumpers,
         "max_detour_factor": s.max_detour_factor,
         "skip_autoroute_dialog": s.skip_autoroute_dialog,
+        "push_and_shove": s.push_and_shove,
         "cost_model": {
             "direction_change": s.direction_change,
             "crossing_insulated_bare": s.crossing_insulated_bare,
@@ -417,6 +418,7 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
         allow_jumpers=bool(data.get("allow_jumpers", True)),
         max_detour_factor=float(data.get("max_detour_factor", 0.0)),
         skip_autoroute_dialog=bool(data.get("skip_autoroute_dialog", False)),
+        push_and_shove=bool(data.get("push_and_shove", True)),
     )
 
 

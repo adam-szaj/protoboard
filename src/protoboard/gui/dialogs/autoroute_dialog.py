@@ -108,6 +108,10 @@ class AutorouteDialog(QDialog):
         self._chk_layer_change.setChecked(rs.allow_layer_change)
         strat_form.addRow("Allow layer change:", self._chk_layer_change)
 
+        self._chk_push_shove = QCheckBox()
+        self._chk_push_shove.setChecked(rs.push_and_shove)
+        strat_form.addRow("Push-and-shove:", self._chk_push_shove)
+
         root.addWidget(strat_group)
 
         # ── Limits & costs ─────────────────────────────────────────────
@@ -193,6 +197,7 @@ class AutorouteDialog(QDialog):
             under_component_top=self._spin_under.value(),
             wire_mode=wire_mode,  # type: ignore[arg-type]
             allow_jumpers=self._chk_jumpers.isChecked(),
+            push_and_shove=self._chk_push_shove.isChecked(),
             max_detour_factor=self._spin_detour.value(),
             skip_autoroute_dialog=self._chk_skip.isChecked(),
         )

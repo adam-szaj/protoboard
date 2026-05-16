@@ -556,6 +556,9 @@ class _RoutingPage(QWidget):
         self._allow_jumpers = QCheckBox()
         gen_form.addRow("Allow jumpers", self._allow_jumpers)
 
+        self._push_and_shove = QCheckBox()
+        gen_form.addRow("Push-and-shove", self._push_and_shove)
+
         self._max_detour = _cost_spinbox(0.0, 20.0, 0.5, 1)
         self._max_detour.setSpecialValueText("unlimited")
         gen_form.addRow("Max detour factor", self._max_detour)
@@ -609,6 +612,7 @@ class _RoutingPage(QWidget):
         idx = self._wire_mode.findText(rs.wire_mode)
         self._wire_mode.setCurrentIndex(max(idx, 0))
         self._allow_jumpers.setChecked(rs.allow_jumpers)
+        self._push_and_shove.setChecked(rs.push_and_shove)
         self._max_detour.setValue(rs.max_detour_factor)
 
     def _restore_defaults(self) -> None:
@@ -627,6 +631,7 @@ class _RoutingPage(QWidget):
             under_component_top=self._under_component_top.value(),
             wire_mode=self._wire_mode.currentText(),  # type: ignore[arg-type]
             allow_jumpers=self._allow_jumpers.isChecked(),
+            push_and_shove=self._push_and_shove.isChecked(),
             max_detour_factor=self._max_detour.value(),
         )
         self._session.routing_settings = new_settings

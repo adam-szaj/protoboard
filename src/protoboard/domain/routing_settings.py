@@ -39,6 +39,8 @@ class RoutingSettings:
     max_detour_factor: float = 0.0
     # When True, skip the pre-flight dialog on next autoroute (use last settings).
     skip_autoroute_dialog: bool = False
+    # When True, try to nudge blocking wires sideways before ripping them up.
+    push_and_shove: bool = True
 
     def cost_model(self) -> RoutingCostModel:
         """Build a RoutingCostModel from these settings."""

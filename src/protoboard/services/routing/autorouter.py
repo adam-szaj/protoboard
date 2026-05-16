@@ -133,6 +133,7 @@ def autoroute(
     cancel_flag: threading.Event | None = None,
     net_ids: set[uuid.UUID] | None = None,
     report_path: "Path | None" = None,
+    push_and_shove: bool = True,
 ) -> AutorouteResult:
     """Route all unrouted nets in *schematic* and return new wire segments.
 
@@ -282,6 +283,7 @@ def autoroute(
         cancel_flag=cancel_flag,
         pass_num=0,
         n_nets=n_nets,
+        push_and_shove=push_and_shove,
     )
     result.pass_stats.append(_greedy_ps)
 
@@ -562,6 +564,7 @@ def _run_one_pass(
     cancel_flag: threading.Event | None = None,
     pass_num: int = 0,
     n_nets: int = 0,
+    push_and_shove: bool = True,
 ) -> tuple[list[WireSegment], list[str], PassStats]:
     """Run one full greedy routing pass over *sorted_nets*.
 
@@ -631,6 +634,7 @@ def _run_one_pass(
             preferred_side=preferred_side,
             segment_callback=_seg_cb,
             cancel_flag=cancel_flag,
+            push_and_shove=push_and_shove,
         )
         segs_done += net_segs
         if routed is None:
@@ -721,6 +725,7 @@ def _route_net(
     preferred_side: Literal["top", "bottom"] = "bottom",
     segment_callback: Callable[[str, int, int], None] | None = None,
     cancel_flag: threading.Event | None = None,
+    push_and_shove: bool = True,
 ) -> tuple[list[WireSegment], NetStats] | None:
     """Route all connections for *net*.  Returns (wires, stats) or None on failure."""
     placed_refs = [ref for ref in net.pins if ref in pin_positions]
@@ -958,6 +963,7 @@ def _route_net(
             cur_net_wire_points=cur_net_wire_points,
             under_component_penalty=under_component_penalty,
             preferred_side=preferred_side,
+            push_and_shove=push_and_shove,
         )
         if seg_result is None:
             routed_wires = None
@@ -1047,6 +1053,7 @@ def _route_segment_with_ripup(
     wire_mode: Literal["bare", "insulated", "auto"] = "insulated",
     max_detour_factor: float = 0.0,
     manhattan_dist: float = 0.0,
+    push_and_shove: bool = True,
 ) -> tuple[list[WireSegment], dict[str, int]] | None:
     """Try to route *target* from any of *source_options*, with rip-up fallback.
 
@@ -1055,6 +1062,8 @@ def _route_segment_with_ripup(
     """
     _seg_nodes = 0
     _seg_ob = 0
+    # Build board pad set once for push-and-shove checks.
+    _board_pad_set: set[Point] = {pos for _, pos in board.atoms()}
     for attempt in range(max_rip_up_passes + 1):
         graph = connectivity_graph
         bare_segs = _build_bare_wire_segments(working_wires)
@@ -1233,6 +1242,27 @@ def _route_segment_with_ripup(
             source_options,
             key=lambda ps: abs(ps[0].x - target.x) + abs(ps[0].y - target.y),
         )
+
+        # Push-and-shove: try nudging a blocking wire sideways before rip-up.
+        pushed = _try_push_wire(
+            nearest_source[0], target, working_wires, additional_wires,
+            board, occupied_pins, _board_pads=_board_pad_set,
+        ) if push_and_shove else None
+        if pushed is not None:
+            old_wire, new_wire = pushed
+            working_wires.remove(old_wire)
+            connectivity_graph.remove_wire(old_wire)
+            working_wires.append(new_wire)
+            connectivity_graph.add_wire(new_wire)
+            if _DEEP_DEBUG:
+                _log.debug(
+                    "autoroute.push_and_shove",
+                    attempt=attempt,
+                    pushed_wire_id=str(old_wire.id)[:8],
+                    new_wire_id=str(new_wire.id)[:8],
+                )
+            continue  # retry A* with the nudged wire in place
+
         ripped = _find_wire_to_rip(
             working_wires, nearest_source[0], target, additional_wires
         )
@@ -1448,6 +1478,114 @@ def _build_bare_wire_segments(
             else:
                 segs.add((p2, p1, wire.side))
     return segs
+
+
+def _nudge_wire(
+    wire: WireSegment,
+    dx: float,
+    dy: float,
+    board_pads: set[Point],
+    working_wires: list[WireSegment],
+    occupied_pins: dict[tuple[Point, str], uuid.UUID],
+) -> WireSegment | None:
+    """Try to shift *wire* by (dx, dy).
+
+    Returns the shifted WireSegment if all new path points are free board pads
+    and unoccupied by component pins or other wires, else None.
+    """
+    new_path = [Point(p.x + dx, p.y + dy) for p in wire.path]
+
+    # All new points must be valid board pads.
+    for pt in new_path:
+        if pt not in board_pads:
+            return None
+
+    # No collision with component pins.
+    other_side = "top" if wire.side == "bottom" else "bottom"
+    for pt in new_path:
+        if (pt, wire.side) in occupied_pins or (pt, other_side) in occupied_pins:
+            return None
+
+    # No collision with other existing wires.
+    other_wire_occupied = _build_wire_occupied(
+        [w for w in working_wires if w.id != wire.id],
+        exclude_wire_id=None,
+        both_sides=not wire.insulated,
+    )
+    for pt in new_path:
+        if (pt, wire.side) in other_wire_occupied:
+            return None
+
+    from typing import cast, Literal as _Lit
+    return WireSegment(
+        id=uuid.uuid4(),
+        path=new_path,
+        insulated=wire.insulated,
+        side=cast(_Lit["top", "bottom"], wire.side),
+        color=wire.color,
+    )
+
+
+def _try_push_wire(
+    source: Point,
+    target: Point,
+    working_wires: list[WireSegment],
+    additional_wires: list[WireSegment],
+    board: Board,
+    occupied_pins: dict[tuple[Point, str], uuid.UUID],
+    _board_pads: set[Point] | None = None,
+) -> tuple[WireSegment, WireSegment] | None:
+    """Try to nudge a blocking wire sideways to open a corridor for routing.
+
+    Finds the first wire (not in *additional_wires*) whose path passes through
+    the bounding box between *source* and *target*, and that is axis-aligned
+    (horizontal or vertical).  Tries shifting it by ±1 in the perpendicular
+    direction.
+
+    Returns (old_wire, new_wire) if a push is possible, else None.
+    """
+    board_pads: set[Point] = _board_pads if _board_pads is not None else {
+        pos for _, pos in board.atoms()
+    }
+    protected_ids = {w.id for w in additional_wires}
+    min_x = min(source.x, target.x) - 0.5
+    max_x = max(source.x, target.x) + 0.5
+    min_y = min(source.y, target.y) - 0.5
+    max_y = max(source.y, target.y) + 0.5
+
+    for wire in working_wires:
+        if wire.id in protected_ids:
+            continue
+        if len(wire.path) < 2:
+            continue
+
+        # Only push axis-aligned wires (diagonal push is complex and rare).
+        first, last = wire.path[0], wire.path[-1]
+        is_horizontal = first.y == last.y and all(p.y == first.y for p in wire.path)
+        is_vertical = first.x == last.x and all(p.x == first.x for p in wire.path)
+        if not (is_horizontal or is_vertical):
+            continue
+
+        # Wire must pass through the corridor region.
+        if not any(
+            min_x <= pt.x <= max_x and min_y <= pt.y <= max_y
+            for pt in wire.path
+        ):
+            continue
+
+        # Try perpendicular nudges of ±1 raster unit.
+        nudges: list[tuple[float, float]]
+        if is_horizontal:
+            nudges = [(0.0, 1.0), (0.0, -1.0)]
+        else:
+            nudges = [(1.0, 0.0), (-1.0, 0.0)]
+
+        for dx, dy in nudges:
+            pushed = _nudge_wire(wire, dx, dy, board_pads, working_wires, occupied_pins)
+            if pushed is not None:
+                return wire, pushed
+
+    return None
 
 
 def _find_wire_to_rip(
