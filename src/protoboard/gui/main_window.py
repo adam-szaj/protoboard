@@ -37,6 +37,7 @@ from protoboard.gui.panels.layers_panel import LayersPanel
 from protoboard.gui.panels.library_panel import LibraryPanel
 from protoboard.gui.panels.netlist_panel import NetlistPanel
 from protoboard.gui.panels.nets_editor_panel import NetsEditorPanel
+from protoboard.gui.panels.performance_panel import PerformancePanel
 from protoboard.gui.panels.properties_panel import PropertiesPanel
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.cut_tool import CutTool
@@ -140,6 +141,17 @@ class MainWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, layers_dock)
         self.tabifyDockWidget(props_dock, layers_dock)
+
+        # Performance dock (right, tabified).
+        self._perf_panel = PerformancePanel(session, self)
+        perf_dock = QDockWidget("Performance", self)
+        perf_dock.setObjectName("perf_dock")
+        perf_dock.setWidget(self._perf_panel)
+        perf_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, perf_dock)
+        self.tabifyDockWidget(layers_dock, perf_dock)
 
         # ── Toolbar: Tools ──────────────────────────────────────────────
         tb_tools = QToolBar("Tools", self)
@@ -727,6 +739,7 @@ class MainWindow(QMainWindow):
         self._refresh_layer_menu()
         self._layers_panel.sync()
         self._board_view.set_session(session)
+        self._perf_panel.set_session(session)
         self._tool_select()
         self._refresh_netlist()
         self._refresh_groups()
@@ -1670,6 +1683,11 @@ class MainWindow(QMainWindow):
 
         worker.progress.connect(_on_progress)
         worker.optimize_progress.connect(_on_optimize_progress)
+        import time as _time
+        _route_t0 = _time.monotonic()
+        worker.finished.connect(
+            lambda _: self._session.perf.record_route((_time.monotonic() - _route_t0) * 1000)
+        )
         worker.finished.connect(self._on_autoroute_done)
         worker.finished.connect(dlg.close)
         worker.error.connect(

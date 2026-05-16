@@ -544,6 +544,7 @@ class BoardView(QGraphicsView):
         recreated; unchanged component/wire groups survive untouched.
         The board layer (pads/strips) is rebuilt only when its visual inputs change.
         """
+        _t0 = time.monotonic()
         self._refresh_timer.stop()
         self._rebuild_pad_cache()
 
@@ -663,6 +664,9 @@ class BoardView(QGraphicsView):
         # ── Label visibility (hide text that would be too small to read) ────────
         self._apply_label_visibility()
 
+        _ms = (time.monotonic() - _t0) * 1000
+        self._session.perf.record_refresh(_ms)
+        self._session.perf.scene_items = len(self._scene.items())
 
     def select_component(self, comp_id: uuid.UUID) -> None:
         """Switch to SelectTool and select the given component."""

@@ -7,8 +7,10 @@ components observe it via Qt signals and mutate it only through Commands.
 
 from __future__ import annotations
 
+import time
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
@@ -30,6 +32,36 @@ from protoboard.services.library.loader import ComponentLibrary
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.gui.layer_state import LayerOverrides
 from protoboard.gui.highlight_state import HighlightStack
+
+
+@dataclass
+class PerfMetrics:
+    """Rolling performance metrics updated by instrumented code paths."""
+
+    refresh_ms: float = 0.0
+    drc_ms: float = 0.0
+    route_ms: float = 0.0
+    graph_build_ms: float = 0.0
+    scene_items: int = 0
+    wire_count: int = 0
+    component_count: int = 0
+    drc_issue_count: int = 0
+    # History (last N samples) for sparkline display.
+    refresh_history: list[float] = field(default_factory=list)
+    route_history: list[float] = field(default_factory=list)
+    _history_max: int = field(default=30, repr=False)
+
+    def record_refresh(self, ms: float) -> None:
+        self.refresh_ms = ms
+        self.refresh_history.append(ms)
+        if len(self.refresh_history) > self._history_max:
+            self.refresh_history.pop(0)
+
+    def record_route(self, ms: float) -> None:
+        self.route_ms = ms
+        self.route_history.append(ms)
+        if len(self.route_history) > self._history_max:
+            self.route_history.pop(0)
 
 
 def _build_comp_spatial_index(
@@ -110,6 +142,7 @@ class EditorSession(QObject):
         self._graph: ConnectivityGraph | None = None  # rebuilt lazily; None = stale
         self._comp_spatial_index: dict[tuple[int, int], list[uuid.UUID]] | None = None
         self._wire_spatial_index: dict[tuple[int, int], list[uuid.UUID]] | None = None
+        self.perf: PerfMetrics = PerfMetrics()
 
     def notify_selection(
         self,
@@ -133,12 +166,14 @@ class EditorSession(QObject):
     def connectivity_graph(self) -> ConnectivityGraph:
         """Return the cached graph, rebuilding it if stale."""
         if self._graph is None:
+            t0 = time.monotonic()
             self._graph = ConnectivityGraph(
                 board=self.board,
                 layout=self.layout,
                 components=self.components,
                 instances=self.instances,
             )
+            self.perf.graph_build_ms = (time.monotonic() - t0) * 1000
         return self._graph
 
     def comp_spatial_index(self) -> dict[tuple[int, int], list[uuid.UUID]]:
@@ -156,6 +191,7 @@ class EditorSession(QObject):
         return self._wire_spatial_index
 
     def run_drc(self) -> list[DRCIssue]:
+        t0 = time.monotonic()
         engine = DRCEngine()
         self._drc_issues = engine.check_with_graph(
             schematic=self.schematic,
@@ -164,6 +200,10 @@ class EditorSession(QObject):
             instances=self.instances,
             graph=self.connectivity_graph(),
         )
+        self.perf.drc_ms = (time.monotonic() - t0) * 1000
+        self.perf.drc_issue_count = len(self._drc_issues)
+        self.perf.wire_count = len(self.layout.wires)
+        self.perf.component_count = len(self.instances)
         self.drc_changed.emit(self._drc_issues)
         return self._drc_issues
 

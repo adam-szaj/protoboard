@@ -1,0 +1,58 @@
+mappings:
+  Capacitor_SMD:C_0603_1608Metric:
+    definition_ref: C_0603_1608Metric
+    pin_count: 2
+  Connector_PinHeader_2.00mm:PinHeader_2x02_P2.00mm_Vertical:
+    definition_ref: PinHeader_2x02
+    pin_count: 4
+  Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical:
+    definition_ref: PinHeader_1x02
+    pin_count: 2
+  Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical:
+    definition_ref: PinHeader_1x03
+    pin_count: 3
+  Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical:
+    definition_ref: PinHeader_1x04
+    pin_count: 4
+  Connector_PinHeader_2.54mm:PinHeader_1x05_P2.54mm_Vertical:
+    definition_ref: PinHeader_1x05
+    pin_count: 5
+  Connector_PinHeader_2.54mm:PinHeader_1x08_P2.54mm_Vertical:
+    definition_ref: PinHeader_1x08
+    pin_count: 8
+  Diode_THT:D_DO-201_P12.70mm_Horizontal:
+    definition_ref: D_DO_201
+    pin_count: 2
+  Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal:
+    definition_ref: D_DO_35_SOD27
+    pin_count: 2
+  Module:Arduino_Nano_WithMountingHoles:
+    definition_ref: Arduino_Nano_WithMountingHoles
+    pin_count: 30
+  Package_SO:TSOP-6_1.65x3.05mm_P0.95mm:
+    definition_ref: TSOP_6_1_65x3_05mm
+    pin_count: 6
+  Package_TO_SOT_SMD:SOT-23:
+    definition_ref: SOT_23
+    pin_count: 3
+  Package_TO_SOT_THT:TO-126-3_Vertical:
+    definition_ref: TO_126_3_Vertical
+    pin_count: 3
+  Package_TO_SOT_THT:TO-92_Inline:
+    definition_ref: TO_92_Inline
+    pin_count: 3
+  Resistor_SMD:R_0603_1608Metric:
+    definition_ref: R_0603_1608Metric
+    pin_count: 2
+  Resistor_SMD:R_2816_7142Metric_Pad3.20x4.45mm_HandSolder:
+    definition_ref: R_2816_7142Metric_Pad3_20x4_45mm_HandSolder
+    pin_count: 2
+  TestPoint:TestPoint_Pad_2.0x2.0mm:
+    definition_ref: TestPoint_Pad_2_0x2_0mm
+    pin_count: 1
+  __libsource__Connector__TestPoint_2Pole:
+    definition_ref: TestPoint_2Pole
+    pin_count: 2
+  __libsource__Switch__SW_SPDT:
+    definition_ref: SW_SPDT
+    pin_count: 3

@@ -1,0 +1,1023 @@
+nets:
+- id: 474a6344-3ed1-4543-85fe-1c55d01b6f17
+  name: 1-wire
+  pins:
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 13
+  - component_id: ed1b4f78-e582-4160-bec8-413dea567032
+    pin_number: 1
+- id: 5da44ae2-b2b5-4d8a-bfce-49d917139a74
+  name: Net-(J1-Pad1)
+  pins:
+  - component_id: f328d60e-5c9e-4d06-a3f6-12b02fbc671d
+    pin_number: 1
+  - component_id: 9e7bc407-2096-4f56-8753-92d5f42a6df8
+    pin_number: 2
+- id: e759c21b-29f1-4113-9caf-d1a37c947a03
+  name: /D3int
+  pins:
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 6
+  - component_id: 10274014-6b36-43f8-b03f-f5ce0951fdfd
+    pin_number: 1
+- id: ddfb9b9c-6b86-4707-b98d-1922f3e1d80f
+  name: Net-(J4-Pad1)
+  pins:
+  - component_id: ab6b568d-1874-4c9a-a945-353dfc017cdb
+    pin_number: 1
+  - component_id: 93c2d669-f353-4c52-afb4-c144152c3548
+    pin_number: 1
+- id: 6ee2bee4-e063-40d6-ae7a-932eff09f877
+  name: Net-(J5-Pad1)
+  pins:
+  - component_id: 021d05bc-7b64-4526-844a-0fde89402470
+    pin_number: 2
+  - component_id: b4e0ba11-5fc3-4e70-a7a7-b1cf279d5298
+    pin_number: 1
+- id: abddc342-aaed-4c20-8b73-3cbfefafdd91
+  name: GND
+  pins:
+  - component_id: 8e5b3470-bcd2-4b22-9909-040f39f27869
+    pin_number: 2
+  - component_id: 18cf4787-b344-4c1c-bf81-4e6d78baf5b9
+    pin_number: 2
+  - component_id: 919f5d59-ec28-4fe4-996d-ed3e848cc86b
+    pin_number: 3
+  - component_id: 5ac99c17-f88f-4c6e-b288-a89232999bd7
+    pin_number: 3
+  - component_id: 93c2d669-f353-4c52-afb4-c144152c3548
+    pin_number: 3
+  - component_id: 76e4a86c-637a-4fc1-8505-7630a1000b9b
+    pin_number: 2
+  - component_id: 5ce2ec68-648c-4441-8020-c5c590c72e07
+    pin_number: 2
+  - component_id: 97a1ee13-c17a-4844-9b4f-f5bc33edb1a2
+    pin_number: 2
+  - component_id: 92384575-8709-43e7-94fa-4281e1fd2d15
+    pin_number: 2
+  - component_id: 60f2af43-0a82-4ccf-a3b6-6080841d1f97
+    pin_number: 2
+  - component_id: cb135256-8add-43e8-9259-d47e1c955706
+    pin_number: 2
+  - component_id: 68c114e9-7dae-45b7-9fee-4cb91d692ea5
+    pin_number: 4
+  - component_id: 0dee80ee-0759-4a55-bb50-e471d197ce86
+    pin_number: 3
+  - component_id: fbe82274-c753-4cb0-8189-8377ce1b2693
+    pin_number: 2
+  - component_id: 8c568c5d-aac1-468b-bebd-db531ce069cc
+    pin_number: 3
+  - component_id: e2b3346a-d23e-4b9c-b17c-7a78a25db049
+    pin_number: 2
+  - component_id: b42f802b-7c66-4351-96fe-485258e81969
+    pin_number: 2
+  - component_id: dccf99a6-afaf-4962-821a-0e5fb5ec7b96
+    pin_number: 1
+  - component_id: fe8c5efb-af2b-428e-94a5-ac780ed07425
+    pin_number: 2
+  - component_id: 6f81300a-6a30-4cf0-9944-dda27a9ea650
+    pin_number: 2
+  - component_id: be017f6c-5438-464c-876e-31c2c307f3aa
+    pin_number: 2
+  - component_id: ea39ff27-ae36-4768-b5a5-8719deefdb7c
+    pin_number: 2
+  - component_id: b4e0ba11-5fc3-4e70-a7a7-b1cf279d5298
+    pin_number: 2
+  - component_id: 93c2d669-f353-4c52-afb4-c144152c3548
+    pin_number: 2
+  - component_id: d4d07e27-5346-44ef-8101-0cfcd3293c8b
+    pin_number: 2
+  - component_id: 648bc649-7003-4e13-99c0-fd887179bc7e
+    pin_number: 2
+  - component_id: 1ee50178-7aa0-423e-b5c0-3276108dc387
+    pin_number: 2
+  - component_id: 54eeb2aa-8ce9-4630-b22e-b89f2ec0a5ad
+    pin_number: 2
+  - component_id: 42ba86e5-0f15-4ee4-9ef7-fb2f28ed6870
+    pin_number: 2
+  - component_id: 14db6a6a-23aa-4d70-99da-eade2434f907
+    pin_number: 2
+  - component_id: 55f28345-b281-4965-9c16-f786b6cc1bd5
+    pin_number: 2
+  - component_id: 133d2539-8699-40a7-b09b-5c1129d45dae
+    pin_number: 1
+  - component_id: f9b1a503-6394-45b8-ad80-043e0181a82b
+    pin_number: 2
+  - component_id: fb3813d5-a104-4484-89f0-82c8dbc93836
+    pin_number: 2
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 29
+  - component_id: bc389d71-f650-40a5-b23b-f1c46291b6c7
+    pin_number: 2
+  - component_id: 7a7c7e91-12fd-4973-bfc6-937aeab9c9e1
+    pin_number: 2
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 4
+  - component_id: 61ba3876-dcc0-4daa-b773-e1f4c8e1324e
+    pin_number: 1
+  - component_id: 3be8f916-9eb3-4c7d-badf-4a8d3a326ba3
+    pin_number: 2
+  - component_id: d2050758-d7be-4150-b5e5-5a4629cf32fe
+    pin_number: 4
+  - component_id: 8c9d5a3d-573a-4651-9d83-8980619efed2
+    pin_number: 2
+  - component_id: 8270bef5-fc39-4a54-a87a-89acc4b55d28
+    pin_number: 2
+  - component_id: f548032e-b506-404e-808b-fd31d2d8ec0c
+    pin_number: 2
+  - component_id: f328d60e-5c9e-4d06-a3f6-12b02fbc671d
+    pin_number: 2
+  - component_id: b399815a-7aee-4d72-9a9f-95485701b836
+    pin_number: 3
+  - component_id: f1b0ab1f-0564-405a-9734-842cc886372c
+    pin_number: 2
+  - component_id: 3e97f0e7-4e0d-4205-ab7f-8cbe85161061
+    pin_number: 2
+- id: 77354b35-b2f4-4b33-aaba-a52a3f13e95e
+  name: Net-(C6-Pad1)
+  pins:
+  - component_id: fbe82274-c753-4cb0-8189-8377ce1b2693
+    pin_number: 1
+  - component_id: 2bd14e8b-e649-4377-8d1d-3e284c574aa3
+    pin_number: 2
+  - component_id: 021d05bc-7b64-4526-844a-0fde89402470
+    pin_number: 1
+- id: 2319286c-c40f-4ae6-9991-cd248b500b7d
+  name: Display
+  pins:
+  - component_id: 2bd14e8b-e649-4377-8d1d-3e284c574aa3
+    pin_number: 1
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 20
+- id: 64169ef6-a346-4230-8e50-1b8c5bb83f39
+  name: Net-(J2-Pad2)
+  pins:
+  - component_id: c0578726-01fb-44a9-8d14-d4bc2109ae0d
+    pin_number: 2
+  - component_id: 9e70ca47-5829-4ffa-9db1-eb916ed63948
+    pin_number: 2
+- id: 9bdc194a-8c66-4c59-abea-cf1790baf51b
+  name: podswietlenieWOD
+  pins:
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 21
+  - component_id: c0578726-01fb-44a9-8d14-d4bc2109ae0d
+    pin_number: 1
+- id: bff9ce50-f5d2-453a-a3bb-f2ad484b3d09
+  name: /Reset
+  pins:
+  - component_id: 09f773fe-d570-4a14-a830-469b1d844fdb
+    pin_number: 2
+  - component_id: ba8ef0d5-11d6-4220-a447-86208f8eecb2
+    pin_number: 2
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 3
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 28
+  - component_id: fe8c5efb-af2b-428e-94a5-ac780ed07425
+    pin_number: 1
+- id: bd92b3d1-a4c2-4801-98e1-4062f667181c
+  name: Net-(C14-Pad1)
+  pins:
+  - component_id: 60e9c320-1a96-47a8-becf-b41b116ac678
+    pin_number: 2
+  - component_id: 0745f79f-51c3-4f94-adc9-e4d555d82733
+    pin_number: 1
+  - component_id: 97a1ee13-c17a-4844-9b4f-f5bc33edb1a2
+    pin_number: 1
+- id: aa1b1396-714b-4d6e-9c08-4476ce0b29f1
+  name: Net-(J11-Pad1)
+  pins:
+  - component_id: 54eeb2aa-8ce9-4630-b22e-b89f2ec0a5ad
+    pin_number: 1
+  - component_id: 0745f79f-51c3-4f94-adc9-e4d555d82733
+    pin_number: 2
+- id: 95c53d42-201a-4f91-9dd7-34caa030a4e9
+  name: /feedbak
+  pins:
+  - component_id: d6117bfd-90d6-4fbb-80e0-24f60fc71c14
+    pin_number: 1
+  - component_id: d6117bfd-90d6-4fbb-80e0-24f60fc71c14
+    pin_number: 2
+- id: e71d51e6-021b-4c08-9fb5-f55333c70674
+  name: /rozkaz
+  pins:
+  - component_id: 2ec89bfc-dbd8-478d-8aa9-531232ec2aed
+    pin_number: 2
+  - component_id: 14db6a6a-23aa-4d70-99da-eade2434f907
+    pin_number: 3
+  - component_id: d6117bfd-90d6-4fbb-80e0-24f60fc71c14
+    pin_number: 3
+  - component_id: 133d2539-8699-40a7-b09b-5c1129d45dae
+    pin_number: 2
+- id: ad7a252a-1645-4b78-b47a-e259ac0591f8
+  name: /zamknij
+  pins:
+  - component_id: 2ec89bfc-dbd8-478d-8aa9-531232ec2aed
+    pin_number: 1
+  - component_id: d6117bfd-90d6-4fbb-80e0-24f60fc71c14
+    pin_number: 4
+- id: b065ab04-f941-4369-8a64-de6ccc876f57
+  name: /otworz
+  pins:
+  - component_id: d6117bfd-90d6-4fbb-80e0-24f60fc71c14
+    pin_number: 5
+  - component_id: 814ed020-c61b-4e3d-9de0-7eef24d6afeb
+    pin_number: 1
+- id: f8d9166d-4c3b-4bd8-a8be-723e0480b43b
+  name: Net-(Q3-Pad1)
+  pins:
+  - component_id: b067950a-6c12-4967-9bdd-b46c1438338f
+    pin_number: 1
+  - component_id: dccf99a6-afaf-4962-821a-0e5fb5ec7b96
+    pin_number: 2
+  - component_id: b399815a-7aee-4d72-9a9f-95485701b836
+    pin_number: 2
+- id: 30917310-18c6-4aca-89c2-976a60cacb34
+  name: VCC
+  pins:
+  - component_id: 8c568c5d-aac1-468b-bebd-db531ce069cc
+    pin_number: 1
+  - component_id: 09f773fe-d570-4a14-a830-469b1d844fdb
+    pin_number: 1
+  - component_id: ba8ef0d5-11d6-4220-a447-86208f8eecb2
+    pin_number: 1
+  - component_id: 8270bef5-fc39-4a54-a87a-89acc4b55d28
+    pin_number: 1
+  - component_id: 7d6760e2-27df-4e69-a48b-e9937a2cadaf
+    pin_number: 2
+  - component_id: ab6b568d-1874-4c9a-a945-353dfc017cdb
+    pin_number: 2
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 27
+  - component_id: efc62d29-6186-415d-bae3-53217918845c
+    pin_number: 2
+  - component_id: 9e70ca47-5829-4ffa-9db1-eb916ed63948
+    pin_number: 1
+  - component_id: 34672160-97e0-4d0a-a7c4-a1ff1a810f16
+    pin_number: 1
+  - component_id: 93c1e5b8-5d00-402b-bad9-06400c97337b
+    pin_number: 1
+  - component_id: 5ce2ec68-648c-4441-8020-c5c590c72e07
+    pin_number: 1
+  - component_id: f7bc31d6-ca7c-4223-9e2b-fc02b55b5343
+    pin_number: 1
+  - component_id: 0dee80ee-0759-4a55-bb50-e471d197ce86
+    pin_number: 2
+  - component_id: 6d984d23-95b8-4f73-9338-4a966938b6e4
+    pin_number: 2
+  - component_id: 68c114e9-7dae-45b7-9fee-4cb91d692ea5
+    pin_number: 3
+  - component_id: 14db6a6a-23aa-4d70-99da-eade2434f907
+    pin_number: 5
+  - component_id: e2b3346a-d23e-4b9c-b17c-7a78a25db049
+    pin_number: 1
+  - component_id: 5ac99c17-f88f-4c6e-b288-a89232999bd7
+    pin_number: 1
+  - component_id: d2050758-d7be-4150-b5e5-5a4629cf32fe
+    pin_number: 1
+- id: caa0e52f-cddd-4b50-bb32-a59142e82a4c
+  name: AN_wilg_ziemi
+  pins:
+  - component_id: ef83baaf-d739-4582-bb80-bcedc2a00d6e
+    pin_number: 1
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 19
+  - component_id: 60e9c320-1a96-47a8-becf-b41b116ac678
+    pin_number: 1
+- id: aa6817cd-93d7-42af-be03-2f232f6fda39
+  name: zwarcie
+  pins:
+  - component_id: 0b02bf50-330b-47ac-8401-47cb416e842c
+    pin_number: 1
+  - component_id: 48ee6eab-b1f1-494a-89f5-f5c554c33e3c
+    pin_number: 2
+  - component_id: bc389d71-f650-40a5-b23b-f1c46291b6c7
+    pin_number: 1
+  - component_id: 9a6f0682-e74c-43fc-b01c-97ec76dd1ffc
+    pin_number: 1
+  - component_id: 50084e46-4440-4bb0-9e12-3b93ea20df00
+    pin_number: 1
+  - component_id: b067950a-6c12-4967-9bdd-b46c1438338f
+    pin_number: 2
+  - component_id: e80169e0-8c24-4bd4-b211-1a31ab65e148
+    pin_number: 2
+  - component_id: 66c1ac7f-6bf2-4604-b10b-bb1816637857
+    pin_number: 1
+  - component_id: 1b7a384b-d711-4b1d-a0c0-1c36bed25671
+    pin_number: 2
+  - component_id: 8526f5f1-945e-4068-9c7b-4fb690d6999e
+    pin_number: 1
+  - component_id: e80169e0-8c24-4bd4-b211-1a31ab65e148
+    pin_number: 1
+  - component_id: 8f087155-7926-4a3a-a275-5b3803b4f981
+    pin_number: 1
+  - component_id: 06f2403e-79d5-43f4-9fd8-e5bd4977d0c6
+    pin_number: 1
+  - component_id: bc538e92-c46b-4ccd-b0c3-4ee316efe2a7
+    pin_number: 2
+  - component_id: a436249d-3a19-4f51-9e67-3f86e1f0c48b
+    pin_number: 1
+  - component_id: 76dc9ca6-1cd4-44f5-bede-c4b8422ebc58
+    pin_number: 1
+  - component_id: 2e989088-c85f-416c-9ad0-eeef314808cd
+    pin_number: 2
+  - component_id: 50084e46-4440-4bb0-9e12-3b93ea20df00
+    pin_number: 2
+  - component_id: 42ba86e5-0f15-4ee4-9ef7-fb2f28ed6870
+    pin_number: 1
+- id: f31d1276-20f2-4ea4-848e-e5635ad2b87c
+  name: Net-(D17-Pad2)
+  pins:
+  - component_id: 14db6a6a-23aa-4d70-99da-eade2434f907
+    pin_number: 4
+  - component_id: 814ed020-c61b-4e3d-9de0-7eef24d6afeb
+    pin_number: 2
+- id: d899c3cc-1974-4047-9716-ed812cfa21d8
+  name: Tx
+  pins:
+  - component_id: d2050758-d7be-4150-b5e5-5a4629cf32fe
+    pin_number: 2
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 1
+- id: 5f8aec5b-6d52-400b-8f08-c47cf284fa31
+  name: WoD_Int0
+  pins:
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 5
+  - component_id: df48e874-6f6b-498b-a294-0a538f782dd4
+    pin_number: 1
+- id: 229a4a56-3653-4442-93c9-c6773c202451
+  name: Net-(D1-Pad2)
+  pins:
+  - component_id: 34672160-97e0-4d0a-a7c4-a1ff1a810f16
+    pin_number: 2
+  - component_id: 8c568c5d-aac1-468b-bebd-db531ce069cc
+    pin_number: 2
+- id: a584afc5-7ee9-42f0-90dc-e232266ca661
+  name: Net-(J4-Pad4)
+  pins:
+  - component_id: 14db6a6a-23aa-4d70-99da-eade2434f907
+    pin_number: 1
+  - component_id: 93c2d669-f353-4c52-afb4-c144152c3548
+    pin_number: 4
+  - component_id: 6d984d23-95b8-4f73-9338-4a966938b6e4
+    pin_number: 1
+- id: 20e01e71-6b0b-4998-806b-8617b5904dd5
+  name: Net-(R12-Pad2)
+  pins:
+  - component_id: ed1b4f78-e582-4160-bec8-413dea567032
+    pin_number: 2
+  - component_id: efc62d29-6186-415d-bae3-53217918845c
+    pin_number: 1
+- id: 16a06515-d7b6-4b56-84cc-8c5541d46398
+  name: Rx
+  pins:
+  - component_id: d2050758-d7be-4150-b5e5-5a4629cf32fe
+    pin_number: 3
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 2
+- id: b3f42691-3c92-4150-8038-d278071e7344
+  name: Net-(C13-Pad1)
+  pins:
+  - component_id: b399815a-7aee-4d72-9a9f-95485701b836
+    pin_number: 1
+  - component_id: 87af7ca3-fbc2-40e8-ac2b-796d8031c1f8
+    pin_number: 1
+  - component_id: f9b1a503-6394-45b8-ad80-043e0181a82b
+    pin_number: 1
+  - component_id: b067950a-6c12-4967-9bdd-b46c1438338f
+    pin_number: 3
+- id: e75ec5c7-6810-4be8-b002-075d1c0c0c47
+  name: wlacz_zawor
+  pins:
+  - component_id: 7d6760e2-27df-4e69-a48b-e9937a2cadaf
+    pin_number: 1
+  - component_id: f6c29a7f-3e5b-4cc0-aee0-29103bcbaf2f
+    pin_number: 1
+  - component_id: 87af7ca3-fbc2-40e8-ac2b-796d8031c1f8
+    pin_number: 2
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 16
+  - component_id: e277df1c-40ec-4744-9861-68a591c13377
+    pin_number: 2
+- id: 858ac769-bc86-4515-807d-573e7816d409
+  name: /3V3
+  pins:
+  - component_id: 1782a7e7-27db-444c-ad1b-8684f63ba6a4
+    pin_number: 1
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 17
+  - component_id: 7a7c7e91-12fd-4973-bfc6-937aeab9c9e1
+    pin_number: 1
+  - component_id: 511c4233-ca8c-4b06-aefd-cf5572f3bedb
+    pin_number: 1
+  - component_id: cb135256-8add-43e8-9259-d47e1c955706
+    pin_number: 1
+  - component_id: 4c9d67eb-bec4-48b3-b0c2-cfd1a61f1f74
+    pin_number: 1
+  - component_id: 538c6c22-5297-4201-ae61-498dbe936383
+    pin_number: 1
+- id: 0c4762b7-e3f1-44f4-9c1e-a83dd24795c5
+  name: /SCL3_3
+  pins:
+  - component_id: 4c9d67eb-bec4-48b3-b0c2-cfd1a61f1f74
+    pin_number: 2
+  - component_id: cb135256-8add-43e8-9259-d47e1c955706
+    pin_number: 3
+  - component_id: 7a7c7e91-12fd-4973-bfc6-937aeab9c9e1
+    pin_number: 3
+  - component_id: 511c4233-ca8c-4b06-aefd-cf5572f3bedb
+    pin_number: 2
+- id: 528ab35b-5c23-4e69-b63f-86a36afee72a
+  name: SCL
+  pins:
+  - component_id: 68c114e9-7dae-45b7-9fee-4cb91d692ea5
+    pin_number: 1
+  - component_id: 93c1e5b8-5d00-402b-bad9-06400c97337b
+    pin_number: 2
+  - component_id: 4c9d67eb-bec4-48b3-b0c2-cfd1a61f1f74
+    pin_number: 3
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 24
+- id: 930e7f8c-800a-4bd3-9afa-6fbe9dc511fe
+  name: SDA
+  pins:
+  - component_id: 538c6c22-5297-4201-ae61-498dbe936383
+    pin_number: 3
+  - component_id: 68c114e9-7dae-45b7-9fee-4cb91d692ea5
+    pin_number: 2
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 23
+  - component_id: f7bc31d6-ca7c-4223-9e2b-fc02b55b5343
+    pin_number: 2
+- id: bc1fc84b-6dfd-4ff1-9341-9f0e5ad5ee01
+  name: /SDA3_3
+  pins:
+  - component_id: 1782a7e7-27db-444c-ad1b-8684f63ba6a4
+    pin_number: 2
+  - component_id: cb135256-8add-43e8-9259-d47e1c955706
+    pin_number: 4
+  - component_id: 538c6c22-5297-4201-ae61-498dbe936383
+    pin_number: 2
+  - component_id: 7a7c7e91-12fd-4973-bfc6-937aeab9c9e1
+    pin_number: 4
+- id: e5ce8ae9-647e-4acc-9dcf-f24119cfff4b
+  name: Net-(C8-Pad1)
+  pins:
+  - component_id: 2e989088-c85f-416c-9ad0-eeef314808cd
+    pin_number: 1
+  - component_id: be017f6c-5438-464c-876e-31c2c307f3aa
+    pin_number: 1
+  - component_id: 1ee50178-7aa0-423e-b5c0-3276108dc387
+    pin_number: 1
+  - component_id: 8a9368bc-6e77-479a-80fe-3e57a05286f0
+    pin_number: 2
+- id: 6d955b10-0fde-4e7f-8505-97b0cd27bfad
+  name: Deszcz
+  pins:
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 22
+  - component_id: bb8889f3-f937-42ea-a323-b76da11355fe
+    pin_number: 1
+  - component_id: d768807c-b624-45fb-80ce-ea07479d4719
+    pin_number: 1
+- id: 5cd92b1f-98ab-4a01-bceb-5088c4426eaf
+  name: Zwarcie
+  pins:
+  - component_id: 8a9368bc-6e77-479a-80fe-3e57a05286f0
+    pin_number: 1
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 25
+  - component_id: d9c5c32f-396b-4a34-92d2-7e47c113930d
+    pin_number: 1
+- id: f1b7cfbc-5768-4813-bca6-7860b138418e
+  name: napiecie
+  pins:
+  - component_id: bb0df63a-74c3-4595-bdee-6919ef4c94e4
+    pin_number: 1
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 26
+- id: 03b2908d-4c49-4c91-95b0-4833e7c64887
+  name: /D7
+  pins:
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 10
+  - component_id: 066690c1-0fa2-4c8b-9cf6-e883f909c208
+    pin_number: 4
+- id: f04722f7-8e7e-4f95-8eb2-4eab79d1771a
+  name: /D4
+  pins:
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 7
+  - component_id: 066690c1-0fa2-4c8b-9cf6-e883f909c208
+    pin_number: 1
+- id: 9566cf41-9bff-4a0a-a433-e5676cf6cdaf
+  name: /D5(**)
+  pins:
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 8
+  - component_id: 066690c1-0fa2-4c8b-9cf6-e883f909c208
+    pin_number: 2
+- id: b15cb2d9-b31e-4305-be50-45cd31a675de
+  name: /D6(**)
+  pins:
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 9
+  - component_id: 066690c1-0fa2-4c8b-9cf6-e883f909c208
+    pin_number: 3
+- id: 87f348e1-bb0e-4164-af8a-c6a3b56dbbfc
+  name: /D8
+  pins:
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 11
+  - component_id: 066690c1-0fa2-4c8b-9cf6-e883f909c208
+    pin_number: 5
+- id: 6049d1f3-d1cf-4949-bdef-25bee4b3bbef
+  name: /D9(**)
+  pins:
+  - component_id: 066690c1-0fa2-4c8b-9cf6-e883f909c208
+    pin_number: 6
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 12
+- id: ef1fa583-69d2-4072-b437-6cdf1d111761
+  name: /D11(**/MOSI)
+  pins:
+  - component_id: 066690c1-0fa2-4c8b-9cf6-e883f909c208
+    pin_number: 7
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 14
+- id: 362a66af-b175-4878-8e12-1ea9a771ac39
+  name: /D12(MISO)
+  pins:
+  - component_id: 066690c1-0fa2-4c8b-9cf6-e883f909c208
+    pin_number: 8
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 15
+- id: a5d3912b-cb6d-4a7b-a153-3bd5bec575ad
+  name: Net-(J8-Pad1)
+  pins:
+  - component_id: 92384575-8709-43e7-94fa-4281e1fd2d15
+    pin_number: 1
+  - component_id: 3008e700-0fa5-4ac3-8d5d-247a486f6835
+    pin_number: 2
+- id: 23fa9adb-8151-41af-ae79-d8bd70d4e683
+  name: Net-(C7-Pad1)
+  pins:
+  - component_id: 3008e700-0fa5-4ac3-8d5d-247a486f6835
+    pin_number: 1
+  - component_id: 648bc649-7003-4e13-99c0-fd887179bc7e
+    pin_number: 1
+  - component_id: df48e874-6f6b-498b-a294-0a538f782dd4
+    pin_number: 2
+- id: 118f7150-4a05-43d4-a80c-d20633f53d32
+  name: /Vin
+  pins:
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 30
+  - component_id: 0dee80ee-0759-4a55-bb50-e471d197ce86
+    pin_number: 1
+  - component_id: c4f0e1f7-8199-418a-8594-ce46c020d3a0
+    pin_number: 1
+- id: 3c73b7db-21b7-4c77-a9d6-aa1b43f8e2e0
+  name: Net-(C1-Pad1)
+  pins:
+  - component_id: 60f2af43-0a82-4ccf-a3b6-6080841d1f97
+    pin_number: 1
+  - component_id: 55f28345-b281-4965-9c16-f786b6cc1bd5
+    pin_number: 1
+  - component_id: bb0df63a-74c3-4595-bdee-6919ef4c94e4
+    pin_number: 2
+  - component_id: c4f0e1f7-8199-418a-8594-ce46c020d3a0
+    pin_number: 2
+- id: 6d64261e-2e30-4241-a91b-296d3d762ede
+  name: Net-(C10-Pad1)
+  pins:
+  - component_id: f548032e-b506-404e-808b-fd31d2d8ec0c
+    pin_number: 1
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 18
+  - component_id: 8e5b3470-bcd2-4b22-9909-040f39f27869
+    pin_number: 1
+  - component_id: fb3813d5-a104-4484-89f0-82c8dbc93836
+    pin_number: 1
+- id: 1b4dec46-8d06-4279-8877-5ef91d8d91be
+  name: Net-(C2-Pad1)
+  pins:
+  - component_id: 76e4a86c-637a-4fc1-8505-7630a1000b9b
+    pin_number: 1
+  - component_id: d768807c-b624-45fb-80ce-ea07479d4719
+    pin_number: 2
+  - component_id: 9e7bc407-2096-4f56-8753-92d5f42a6df8
+    pin_number: 1
+- id: a9260128-2ca4-4193-8f9d-620befa28ee6
+  name: Net-(J3-Pad2)
+  pins:
+  - component_id: 5ac99c17-f88f-4c6e-b288-a89232999bd7
+    pin_number: 2
+  - component_id: 14db6a6a-23aa-4d70-99da-eade2434f907
+    pin_number: 6
+- id: 0e85acd0-e349-4485-94a2-e547ab79fe8c
+  name: Net-(D14-Pad1)
+  pins:
+  - component_id: cfca5f35-e8fd-49a2-a7fb-63ec9a8e9956
+    pin_number: 1
+  - component_id: bb828cb5-7d9b-496c-a53b-11276416b94c
+    pin_number: 1
+- id: d168b3bd-24a7-47bc-9a42-d14ac3488106
+  name: Net-(D13-Pad2)
+  pins:
+  - component_id: 574eb141-b5f2-4540-a1c5-efaac7ceb76a
+    pin_number: 1
+  - component_id: 801d0fc7-1368-4ab6-9951-7bbd8c4c8a0c
+    pin_number: 2
+- id: dd5fdede-db5c-448f-9c5a-1c62daa47cc4
+  name: Net-(D3-Pad2)
+  pins:
+  - component_id: 9106d792-7eda-47af-9e83-3a595bb78f78
+    pin_number: 2
+  - component_id: 45d80fb3-3a6f-4172-8c7f-1deb6e4a1209
+    pin_number: 1
+- id: afb41397-ba2e-45f4-afd4-96c2aece8d3b
+  name: Net-(SW10-Pad3)
+  pins:
+  - component_id: b0fd923c-eef7-42f0-ad0b-36b9a2f1b2b8
+    pin_number: 3
+- id: 1a0b4829-ac10-4244-8418-fedcd88cd96e
+  name: otworz
+  pins:
+  - component_id: b0fd923c-eef7-42f0-ad0b-36b9a2f1b2b8
+    pin_number: 2
+- id: f1b99c54-3fb4-403c-90e2-04e87a105c2b
+  name: zamknij
+  pins:
+  - component_id: 6328c22b-4f4a-4734-bfb7-697a4a0f6a22
+    pin_number: 2
+- id: 8b0f657b-59e0-41ed-9192-8b3c276d5dec
+  name: Net-(SW9-Pad1)
+  pins:
+  - component_id: 6328c22b-4f4a-4734-bfb7-697a4a0f6a22
+    pin_number: 1
+- id: 0f8dac9f-5b03-406c-b101-58bc046b7dcc
+  name: feedback
+  pins:
+  - component_id: b42f802b-7c66-4351-96fe-485258e81969
+    pin_number: 1
+  - component_id: 6328c22b-4f4a-4734-bfb7-697a4a0f6a22
+    pin_number: 3
+  - component_id: f1b0ab1f-0564-405a-9734-842cc886372c
+    pin_number: 1
+  - component_id: b0fd923c-eef7-42f0-ad0b-36b9a2f1b2b8
+    pin_number: 1
+- id: bb53c3c0-7a6a-4baa-8640-316c6972565a
+  name: Net-(D15-Pad2)
+  pins:
+  - component_id: d6f3a80f-d276-43b8-a7ca-29e45b8769d7
+    pin_number: 2
+  - component_id: 2d2969eb-5274-4001-8531-8765781aef6c
+    pin_number: 1
+- id: 7279afce-bd0f-4fec-839f-261f493581c9
+  name: Net-(D16-Pad1)
+  pins:
+  - component_id: a9fae0fa-86fa-4e22-9401-e130252b0ec1
+    pin_number: 1
+  - component_id: 5f00e0fa-779f-4103-b4e8-c0a419bdf582
+    pin_number: 1
+- id: 5fcb1162-f29d-4037-9a4a-cfe5e0416769
+  name: Net-(R44-Pad2)
+  pins:
+  - component_id: 8526f5f1-945e-4068-9c7b-4fb690d6999e
+    pin_number: 2
+  - component_id: a9fae0fa-86fa-4e22-9401-e130252b0ec1
+    pin_number: 2
+  - component_id: 2d2969eb-5274-4001-8531-8765781aef6c
+    pin_number: 2
+- id: ffaeaac1-218e-4814-99bf-2d6ab0403cee
+  name: Net-(R32-Pad2)
+  pins:
+  - component_id: 4bd03ba6-41b4-4815-9149-a628ff0de9ba
+    pin_number: 2
+  - component_id: 76dc9ca6-1cd4-44f5-bede-c4b8422ebc58
+    pin_number: 2
+  - component_id: 45d80fb3-3a6f-4172-8c7f-1deb6e4a1209
+    pin_number: 2
+- id: 28472ab7-9714-4be2-8f4d-bdb1f3620ec4
+  name: Net-(R36-Pad2)
+  pins:
+  - component_id: 0b02bf50-330b-47ac-8401-47cb416e842c
+    pin_number: 2
+  - component_id: 15a7c21e-3906-4124-ad7f-dc79308d3fcd
+    pin_number: 2
+  - component_id: 0dd8dabe-36cb-4f53-92d2-6f0ef77ee553
+    pin_number: 2
+- id: ead98fa4-49e2-424f-99f0-273ea80b86f3
+  name: Net-(R42-Pad2)
+  pins:
+  - component_id: 574eb141-b5f2-4540-a1c5-efaac7ceb76a
+    pin_number: 2
+  - component_id: cfca5f35-e8fd-49a2-a7fb-63ec9a8e9956
+    pin_number: 2
+  - component_id: 9a6f0682-e74c-43fc-b01c-97ec76dd1ffc
+    pin_number: 2
+- id: 42436ee3-76bf-40dd-8057-eb3f242c0741
+  name: Net-(D10-Pad1)
+  pins:
+  - component_id: a440fb0f-ac39-4b3f-9606-e168d24a1c2e
+    pin_number: 1
+  - component_id: d38a6b5a-d77e-4591-a1bb-6178030d94b5
+    pin_number: 1
+- id: 138d9646-d6bb-4044-ac9e-146d756efdee
+  name: Net-(D12-Pad1)
+  pins:
+  - component_id: 59b83410-bb07-45ad-8fa7-4ba3d5baf972
+    pin_number: 1
+  - component_id: 07d4f1e3-861b-436e-9b06-580ff017668c
+    pin_number: 1
+- id: c49c0f9b-6aa0-4dc3-af4f-8332d4d5893b
+  name: Net-(D10-Pad2)
+  pins:
+  - component_id: d6f3a80f-d276-43b8-a7ca-29e45b8769d7
+    pin_number: 1
+  - component_id: cd018e8c-afb3-4cd2-bcf1-b0c1431143e7
+    pin_number: 1
+  - component_id: b04d3cd4-33b3-4e51-b7a5-47ea861a8ac7
+    pin_number: 1
+  - component_id: 029feee8-77a3-465c-a281-7098d256707d
+    pin_number: 2
+  - component_id: 5f00e0fa-779f-4103-b4e8-c0a419bdf582
+    pin_number: 2
+  - component_id: 9e08d6cf-ab7d-4cf0-b3a6-397f40bc3c17
+    pin_number: 2
+  - component_id: bb828cb5-7d9b-496c-a53b-11276416b94c
+    pin_number: 2
+  - component_id: 9106d792-7eda-47af-9e83-3a595bb78f78
+    pin_number: 1
+  - component_id: 790546c9-61e6-4fb8-8f18-b1421eab0da0
+    pin_number: 1
+  - component_id: a440fb0f-ac39-4b3f-9606-e168d24a1c2e
+    pin_number: 2
+  - component_id: bafc082a-b905-4f72-9ad5-7db397ef7f43
+    pin_number: 1
+  - component_id: 59b83410-bb07-45ad-8fa7-4ba3d5baf972
+    pin_number: 2
+  - component_id: 06f2403e-79d5-43f4-9fd8-e5bd4977d0c6
+    pin_number: 2
+  - component_id: 08a8ea86-bb4a-470b-9fce-9c57948624d0
+    pin_number: 2
+  - component_id: 801d0fc7-1368-4ab6-9951-7bbd8c4c8a0c
+    pin_number: 1
+- id: d082a915-7a1a-408c-b642-1ea727c6824d
+  name: Net-(D8-Pad1)
+  pins:
+  - component_id: 15a7c21e-3906-4124-ad7f-dc79308d3fcd
+    pin_number: 1
+  - component_id: 029feee8-77a3-465c-a281-7098d256707d
+    pin_number: 1
+- id: 64a4dea7-233a-493e-a71d-a14a84e4c6d6
+  name: Net-(D6-Pad1)
+  pins:
+  - component_id: 9e08d6cf-ab7d-4cf0-b3a6-397f40bc3c17
+    pin_number: 1
+  - component_id: b3439a3d-4738-48a3-a701-07891515ccc4
+    pin_number: 1
+- id: 96346441-bb15-4d5a-aa5d-f43810dab7b0
+  name: Net-(D4-Pad1)
+  pins:
+  - component_id: 08a8ea86-bb4a-470b-9fce-9c57948624d0
+    pin_number: 1
+  - component_id: 4bd03ba6-41b4-4815-9149-a628ff0de9ba
+    pin_number: 1
+- id: 072de059-9341-432e-901b-2a450f02e3c4
+  name: Net-(D11-Pad2)
+  pins:
+  - component_id: 790546c9-61e6-4fb8-8f18-b1421eab0da0
+    pin_number: 2
+  - component_id: 61d14fc9-4c0d-4936-92aa-d1a00fe737c3
+    pin_number: 1
+- id: 65606a95-94eb-469d-813f-9932bfabbfef
+  name: Net-(R40-Pad2)
+  pins:
+  - component_id: 61d14fc9-4c0d-4936-92aa-d1a00fe737c3
+    pin_number: 2
+  - component_id: 07d4f1e3-861b-436e-9b06-580ff017668c
+    pin_number: 2
+  - component_id: 66c1ac7f-6bf2-4604-b10b-bb1816637857
+    pin_number: 2
+- id: 75f927ae-75a3-465f-bebb-3f91fe99b184
+  name: Net-(R38-Pad2)
+  pins:
+  - component_id: d38a6b5a-d77e-4591-a1bb-6178030d94b5
+    pin_number: 2
+  - component_id: a436249d-3a19-4f51-9e67-3f86e1f0c48b
+    pin_number: 2
+  - component_id: 355eba4c-68c0-4ef5-afc3-bf7bbddb8aa9
+    pin_number: 2
+- id: ba01bdf0-d89f-4d58-9fbe-e9f291cdc91b
+  name: Net-(R34-Pad2)
+  pins:
+  - component_id: b3439a3d-4738-48a3-a701-07891515ccc4
+    pin_number: 2
+  - component_id: d94c82ec-24bc-46ab-a9d3-4088f5a87f4b
+    pin_number: 2
+  - component_id: 8f087155-7926-4a3a-a275-5b3803b4f981
+    pin_number: 2
+- id: 5a3c54a6-b6b1-4dc6-807c-c556f75f2f58
+  name: Net-(D9-Pad2)
+  pins:
+  - component_id: bafc082a-b905-4f72-9ad5-7db397ef7f43
+    pin_number: 2
+  - component_id: 355eba4c-68c0-4ef5-afc3-bf7bbddb8aa9
+    pin_number: 1
+- id: 79c55fe6-2618-416f-8249-a32ab99a685f
+  name: /przekazniki/P8
+  pins:
+  - component_id: 918a8faa-d96e-490d-8bab-ac6228398385
+    pin_number: 1
+  - component_id: 706cf842-3881-4b25-9012-511c9a5aa866
+    pin_number: 8
+- id: 0d4bec43-29f4-4f31-9d87-bb80349044d1
+  name: Net-(D7-Pad2)
+  pins:
+  - component_id: cd018e8c-afb3-4cd2-bcf1-b0c1431143e7
+    pin_number: 2
+  - component_id: 0dd8dabe-36cb-4f53-92d2-6f0ef77ee553
+    pin_number: 1
+- id: ee9b62f0-7b33-40b3-89bc-e6db43502563
+  name: Net-(D5-Pad2)
+  pins:
+  - component_id: d94c82ec-24bc-46ab-a9d3-4088f5a87f4b
+    pin_number: 1
+  - component_id: b04d3cd4-33b3-4e51-b7a5-47ea861a8ac7
+    pin_number: 2
+- id: 0569dadd-a3e3-4c56-a1b6-4dc15c313179
+  name: /przekazniki/P1
+  pins:
+  - component_id: 706cf842-3881-4b25-9012-511c9a5aa866
+    pin_number: 1
+  - component_id: f232a12d-c514-44c0-8538-eb4dbf2c4b5e
+    pin_number: 1
+- id: 65be8c70-0e7e-4d22-86d6-36d3c209fb1e
+  name: /przekazniki/P4
+  pins:
+  - component_id: c9e5dd71-2fb3-4e82-9fc5-cf75260a916a
+    pin_number: 1
+  - component_id: 706cf842-3881-4b25-9012-511c9a5aa866
+    pin_number: 4
+- id: f2928216-49a4-410a-b156-23d82bff3950
+  name: /przekazniki/P3
+  pins:
+  - component_id: 706cf842-3881-4b25-9012-511c9a5aa866
+    pin_number: 3
+  - component_id: 2c27453b-aa79-40fd-bff9-455cae42186d
+    pin_number: 1
+- id: bc1ab438-4d83-4c62-ae0c-34049da35934
+  name: /przekazniki/P2
+  pins:
+  - component_id: 96ecbae3-2d5a-46fd-8bf7-2e79f31d8470
+    pin_number: 1
+  - component_id: 706cf842-3881-4b25-9012-511c9a5aa866
+    pin_number: 2
+- id: 58cc3bd5-0518-4199-888c-19693b058ffb
+  name: 12V
+  pins:
+  - component_id: 66c1ac7f-6bf2-4604-b10b-bb1816637857
+    pin_number: 3
+  - component_id: f232a12d-c514-44c0-8538-eb4dbf2c4b5e
+    pin_number: 2
+  - component_id: c9e5dd71-2fb3-4e82-9fc5-cf75260a916a
+    pin_number: 2
+  - component_id: 8526f5f1-945e-4068-9c7b-4fb690d6999e
+    pin_number: 3
+  - component_id: 1b7a384b-d711-4b1d-a0c0-1c36bed25671
+    pin_number: 1
+  - component_id: e8d09632-2999-4a41-93f8-964f254181d1
+    pin_number: 2
+  - component_id: 918a8faa-d96e-490d-8bab-ac6228398385
+    pin_number: 2
+  - component_id: 8f087155-7926-4a3a-a275-5b3803b4f981
+    pin_number: 3
+  - component_id: 06f2403e-79d5-43f4-9fd8-e5bd4977d0c6
+    pin_number: 3
+  - component_id: f5b1044e-eb6c-4fc7-8ec1-7cfa7b560144
+    pin_number: 2
+  - component_id: 0b02bf50-330b-47ac-8401-47cb416e842c
+    pin_number: 3
+  - component_id: 706dc5b7-3b3e-4b84-9f70-2586b46be09a
+    pin_number: 2
+  - component_id: 2c27453b-aa79-40fd-bff9-455cae42186d
+    pin_number: 2
+  - component_id: 96ecbae3-2d5a-46fd-8bf7-2e79f31d8470
+    pin_number: 2
+  - component_id: a436249d-3a19-4f51-9e67-3f86e1f0c48b
+    pin_number: 3
+  - component_id: 76dc9ca6-1cd4-44f5-bede-c4b8422ebc58
+    pin_number: 3
+  - component_id: 9a6f0682-e74c-43fc-b01c-97ec76dd1ffc
+    pin_number: 3
+- id: 68bab634-45b0-4d01-bee6-03308a8e6183
+  name: /przekazniki/P7
+  pins:
+  - component_id: 706cf842-3881-4b25-9012-511c9a5aa866
+    pin_number: 7
+  - component_id: e8d09632-2999-4a41-93f8-964f254181d1
+    pin_number: 1
+- id: e5aac103-885f-41bc-9841-59f5a1b3b593
+  name: /przekazniki/P6
+  pins:
+  - component_id: f5b1044e-eb6c-4fc7-8ec1-7cfa7b560144
+    pin_number: 1
+  - component_id: 706cf842-3881-4b25-9012-511c9a5aa866
+    pin_number: 6
+- id: 4a7e9afd-6bff-4216-8cee-5c41b315d0a2
+  name: /przekazniki/P5
+  pins:
+  - component_id: 706dc5b7-3b3e-4b84-9f70-2586b46be09a
+    pin_number: 1
+  - component_id: 706cf842-3881-4b25-9012-511c9a5aa866
+    pin_number: 5
+- id: 632ebd83-a230-426b-bf15-556215fd66a3
+  name: /akcesoria/5V
+  pins:
+  - component_id: f6c29a7f-3e5b-4cc0-aee0-29103bcbaf2f
+    pin_number: 2
+- id: 8a7c6ba4-c938-43e1-9709-aced928f2f5b
+  name: Net-(C21-Pad1)
+  pins:
+  - component_id: e277df1c-40ec-4744-9861-68a591c13377
+    pin_number: 1
+  - component_id: bc538e92-c46b-4ccd-b0c3-4ee316efe2a7
+    pin_number: 3
+  - component_id: 3be8f916-9eb3-4c7d-badf-4a8d3a326ba3
+    pin_number: 1
+  - component_id: 919f5d59-ec28-4fe4-996d-ed3e848cc86b
+    pin_number: 1
+- id: 28400656-f240-4bb4-b7c5-e3a9fe6d916a
+  name: Net-(Q5-Pad1)
+  pins:
+  - component_id: 919f5d59-ec28-4fe4-996d-ed3e848cc86b
+    pin_number: 2
+  - component_id: 61ba3876-dcc0-4daa-b773-e1f4c8e1324e
+    pin_number: 2
+  - component_id: bc538e92-c46b-4ccd-b0c3-4ee316efe2a7
+    pin_number: 1
+- id: 570ae08c-29df-44a6-8b53-36e9aa4789bf
+  name: Net-(C16-Pad2)
+  pins:
+  - component_id: 5a0b78b7-d8ef-418c-b150-f5a3319a8eee
+    pin_number: 2
+  - component_id: 66bf3bd2-4c21-4152-b60f-2365c2ee0765
+    pin_number: 2
+  - component_id: 08c1227a-1adc-4879-919c-bff90e22b4d2
+    pin_number: 2
+- id: 68283110-44ec-46cd-8e39-438a4e2d1779
+  name: Net-(C16-Pad1)
+  pins:
+  - component_id: 66bf3bd2-4c21-4152-b60f-2365c2ee0765
+    pin_number: 1
+  - component_id: 5a0b78b7-d8ef-418c-b150-f5a3319a8eee
+    pin_number: 1
+  - component_id: 08c1227a-1adc-4879-919c-bff90e22b4d2
+    pin_number: 1
+- id: 2fc13325-a04e-470c-b05a-bb4982b6ed8f
+  name: Net-(C19-Pad1)
+  pins:
+  - component_id: 18cf4787-b344-4c1c-bf81-4e6d78baf5b9
+    pin_number: 1
+  - component_id: 48ee6eab-b1f1-494a-89f5-f5c554c33e3c
+    pin_number: 1
+  - component_id: 3e97f0e7-4e0d-4205-ab7f-8cbe85161061
+    pin_number: 1
+  - component_id: d9c5c32f-396b-4a34-92d2-7e47c113930d
+    pin_number: 2
+- id: 23080ff1-d70c-4680-9fd8-c360cb3256b6
+  name: Net-(J19-Pad1)
+  pins:
+  - component_id: ea39ff27-ae36-4768-b5a5-8719deefdb7c
+    pin_number: 1
+  - component_id: f41005eb-e914-479d-81f0-84e875133c2c
+    pin_number: 2
+- id: 7c67e8c1-bf04-4224-bdc0-a35a8319b110
+  name: Net-(C15-Pad1)
+  pins:
+  - component_id: bb8889f3-f937-42ea-a323-b76da11355fe
+    pin_number: 2
+  - component_id: f41005eb-e914-479d-81f0-84e875133c2c
+    pin_number: 1
+  - component_id: 8c9d5a3d-573a-4651-9d83-8980619efed2
+    pin_number: 1
+- id: d2ba59d4-3eac-4cdd-8aea-ffa900f1ba7e
+  name: Net-(J20-Pad1)
+  pins:
+  - component_id: d4d07e27-5346-44ef-8101-0cfcd3293c8b
+    pin_number: 1
+  - component_id: 2fe6bea1-72e2-474a-92d6-768ac455e574
+    pin_number: 2
+- id: 2e769cfb-346e-448d-bd26-25d4369eb0dc
+  name: Net-(C20-Pad1)
+  pins:
+  - component_id: ef83baaf-d739-4582-bb80-bcedc2a00d6e
+    pin_number: 2
+  - component_id: 2fe6bea1-72e2-474a-92d6-768ac455e574
+    pin_number: 1
+  - component_id: 6f81300a-6a30-4cf0-9944-dda27a9ea650
+    pin_number: 1
