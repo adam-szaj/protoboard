@@ -103,27 +103,36 @@ def _make_overlay_label(
     scene_x: float,
     scene_y: float,
     z: float,
+    anchor: str = "top_left",
 ) -> list[QGraphicsItem]:
     """Create an overlay text item with a background rect.
 
-    Returns [bg_rect, text_item] both with ItemIgnoresTransformations set and
-    positioned at (scene_x, scene_y).  The bg_rect is sized to fit the text
-    bounding box with a small padding; it is added first so it renders below.
+    Returns [bg_rect, text_item] both with ItemIgnoresTransformations set.
+    anchor='top_left'    — (scene_x, scene_y) is the top-left corner (default).
+    anchor='bottom_right' — (scene_x, scene_y) is the bottom-right corner;
+                            the label is shifted so its bottom-right lands there.
     """
     text_item = QGraphicsTextItem(text)
     text_item.setFont(font)
     text_item.setDefaultTextColor(text_color)
     text_item.document().setDocumentMargin(0)
     text_item.setFlag(_IGN)
-    text_item.setPos(scene_x, scene_y)
     text_item.setZValue(z)
 
     br = text_item.boundingRect()
+    if anchor == "bottom_right":
+        ox = scene_x - br.width()
+        oy = scene_y - br.height()
+    else:
+        ox, oy = scene_x, scene_y
+
+    text_item.setPos(ox, oy)
+
     bg = QGraphicsRectItem(br)
     bg.setBrush(QBrush(bg_color))
     bg.setPen(QPen(Qt.GlobalColor.transparent, 0))
     bg.setFlag(_IGN)
-    bg.setPos(scene_x, scene_y)
+    bg.setPos(ox, oy)
     bg.setZValue(z - 0.01)
     bg.setData(0, "label_bg")
 
@@ -441,19 +450,21 @@ def _render_one(
         bg = QColor(bg_color)
         bg.setAlphaF(bg.alphaF() * alpha_label)
 
-        # Single-column footprint (SIL, TO-92): move refdes left of bbox to avoid
-        # overlap with pin-name labels which anchor at the pin position.
-        single_col = len({round(p.x, 6) for p in positions}) == 1
-
         _default_offset = Point(0.05, 0.05)
         if placement.label_offset != _default_offset:
-            lx, ly = x0 + placement.label_offset.x, y0 + placement.label_offset.y
-        elif single_col:
-            lx, ly = x0 - 0.05, (y0 + y1) / 2.0
+            # Manual offset: top-left anchor relative to bbox origin.
+            lx = x0 + placement.label_offset.x
+            ly = y0 + placement.label_offset.y
+            refdes_anchor = "top_left"
         else:
-            lx, ly = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+            # Default: bottom-right corner of the label lands on pin-1 centre,
+            # so the refdes sits above-left of pin 1 without overlapping pin names.
+            pin1 = positions[0]
+            lx, ly = pin1.x, pin1.y
+            refdes_anchor = "bottom_right"
         for item in _make_overlay_label(
-            inst.refdes, _get_refdes_font(fpt), label_color, bg, lx, ly, z_label
+            inst.refdes, _get_refdes_font(fpt), label_color, bg, lx, ly, z_label,
+            anchor=refdes_anchor,
         ):
             grp.addToGroup(item)
 
