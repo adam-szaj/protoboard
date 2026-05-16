@@ -349,6 +349,9 @@ def autoroute(
                         unrouted_names = opt_unrouted
             _log.info("autoroute.optimize.pool_done",
                       best_wires=len(best_wires), best_unrouted=best_unrouted_count)
+        except AutorouteCancelled:
+            # User cancellation is intentional — propagate without falling back.
+            raise
         except Exception as e:
             # ProcessPoolExecutor may fail in some environments (e.g. no fork,
             # pickle error). Catch ALL exceptions and fall back to sequential.
