@@ -40,13 +40,17 @@ Parallel universe A*:
 from __future__ import annotations
 
 import heapq
+import itertools as _it
+import json as _json
 import math
 import os
 import threading
+import time as _time
 import uuid
 from collections.abc import Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
+from pathlib import Path as _Path
 from queue import Empty, Queue
 
 import structlog
@@ -56,6 +60,40 @@ from protoboard.geometry import Point
 from protoboard.services.routing.cost_model import RoutingCostModel
 
 _log = structlog.get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Universe tracing (opt-in via PROTOBOARD_ASTAR_TRACE_DIR=/some/dir)
+# ---------------------------------------------------------------------------
+# When the env var is set, every _universe_worker invocation writes a
+# JSONL file with every state it pops from the heap plus the eventual
+# outcome.  Each line is one event:
+#   {"e": "step", "n": <node_idx>, "pos": [x, y, side], "g": cost,
+#    "dx": .., "dy": .., "blocked": [list of skipped neighbours]}
+#   {"e": "goal", "path": [[x,y,side], ...], "cost": ..}
+#   {"e": "end",  "reason": "heap_empty" | "over_budget"}
+#
+# Files are named astar_<unix_ms>_<seq>.jsonl so the order is roughly
+# wall-clock; pair them with the parent autoroute log to attribute traces
+# to specific net/segment requests.
+
+_TRACE_DIR: _Path | None = (
+    _Path(os.environ["PROTOBOARD_ASTAR_TRACE_DIR"])
+    if os.environ.get("PROTOBOARD_ASTAR_TRACE_DIR")
+    else None
+)
+if _TRACE_DIR is not None:
+    _TRACE_DIR.mkdir(parents=True, exist_ok=True)
+_TRACE_COUNTER = _it.count()
+
+
+def _open_trace():  # type: ignore[no-untyped-def]
+    """Open a new trace file for this universe; None when tracing is off."""
+    if _TRACE_DIR is None:
+        return None
+    seq = next(_TRACE_COUNTER)
+    fname = _TRACE_DIR / f"astar_{int(_time.time() * 1000)}_{seq:06d}.jsonl"
+    return fname.open("w", buffering=1)
 
 # ---------------------------------------------------------------------------
 # Rust extension (optional — true parallelism without GIL)
@@ -310,10 +348,30 @@ def _universe_worker(
     _parity_sign = 1.0 if source_parity == 0 else -1.0
 
     _seq = seq_counter
+    _trace = _open_trace()
+    if _trace is not None:
+        _trace.write(_json.dumps({
+            "e": "init",
+            "insulated": insulated,
+            "source_parity": source_parity,
+            "bare_diagonal_mode": cost_model.bare_diagonal_mode,
+            "n_targets": len(_tgt),
+            "n_valid_top": len(_vn_top),
+            "n_valid_bottom": len(_vn_bottom),
+            "n_occupied": len(_occ),
+            "n_same_net": len(_same),
+            "n_bare_segs": sum(len(v) for v in bare_idx.values()),
+            "first_target": next(iter(_tgt), None),
+        }) + "\n")
 
     try:
         while heap:
             if shared.over_budget(nodes_expanded):
+                if _trace is not None:
+                    _trace.write(_json.dumps({
+                        "e": "end", "reason": "over_budget",
+                        "nodes_expanded": nodes_expanded,
+                    }) + "\n")
                 return
 
             _f, g, _s, cx, cy, cs_idx, dx, dy, path = heapq.heappop(heap)
@@ -331,29 +389,51 @@ def _universe_worker(
                     path=path, cost=g, insulated=insulated,
                     nodes_expanded=nodes_expanded,
                 ))
+                if _trace is not None:
+                    _trace.write(_json.dumps({
+                        "e": "goal",
+                        "pos": [cx, cy, cur_side],
+                        "g": g,
+                        "path": [[p.x, p.y, s] for p, s in path],
+                        "nodes_expanded": nodes_expanded,
+                    }) + "\n")
+                    _trace.close()
                 return
 
             neighbor_entries: list[_HE] = []
             _vn_cur = _vn[cs_idx]
             pos = Point(cx, cy)
 
+            # When tracing, collect a structured record of why each neighbour
+            # was accepted or rejected.  The list mirrors _NEIGHBOURS order so
+            # rejections at any stage stay attributable.
+            _trace_neighbours: list | None = [] if _trace is not None else None
+
             for ndx, ndy, dist_mult in _NEIGHBOURS:
                 nx = cx + ndx
                 ny = cy + ndy
                 if (nx, ny) not in _vn_cur:
+                    if _trace_neighbours is not None:
+                        _trace_neighbours.append([ndx, ndy, "off_grid"])
                     continue
                 if (cx, cy, cur_side, nx, ny, cur_side) in _fe:
+                    if _trace_neighbours is not None:
+                        _trace_neighbours.append([ndx, ndy, "forbidden_edge"])
                     continue
                 # Parity-family filter for bare-diagonal mode: reject diagonals
                 # from the opposite family so the source's path cannot fight
                 # itself for mesh-cell crossings.
                 if _parity_filter and ndx != 0.0 and ndy != 0.0:
                     if (ndx * ndy) * _parity_sign < 0.0:
+                        if _trace_neighbours is not None:
+                            _trace_neighbours.append([ndx, ndy, "wrong_parity"])
                         continue
 
                 # Inlined _step_cost using float-tuple dicts.
                 _nkey = (nx, ny, cur_side)
                 if _nkey in _occ:
+                    if _trace_neighbours is not None:
+                        _trace_neighbours.append([ndx, ndy, "occupied"])
                     continue
                 _sc = _same.get(_nkey)
                 if _sc is not None:
@@ -370,6 +450,8 @@ def _universe_worker(
                 npos = Point(nx, ny)
                 crossing_cost = _crossing_cost(pos, npos, cur_side, bare_idx, cost_model, insulated)
                 if crossing_cost >= _inf:
+                    if _trace_neighbours is not None:
+                        _trace_neighbours.append([ndx, ndy, "crossing_inf"])
                     continue
                 step_cost += crossing_cost
 
@@ -379,6 +461,8 @@ def _universe_worker(
                 ng = g + step_cost
                 nstate = (nx, ny, cs_idx, ndx, ndy)
                 if nstate in visited and visited[nstate] <= ng:
+                    if _trace_neighbours is not None:
+                        _trace_neighbours.append([ndx, ndy, "visited_cheaper"])
                     continue
 
                 nf = ng + h(nx, ny)
@@ -386,6 +470,8 @@ def _universe_worker(
                 neighbor_entries.append(
                     (nf, ng, _seq, nx, ny, cs_idx, ndx, ndy, path + [(npos, cur_side)])
                 )
+                if _trace_neighbours is not None:
+                    _trace_neighbours.append([ndx, ndy, "queued", ng, crossing_cost])
 
             via_entry: _HE | None = None
             if (cx, cy) in _via:
@@ -403,11 +489,29 @@ def _universe_worker(
             if via_entry is not None:
                 neighbor_entries.append(via_entry)
 
+            if _trace is not None:
+                _trace.write(_json.dumps({
+                    "e": "step",
+                    "pos": [cx, cy, cur_side],
+                    "g": g,
+                    "from_dir": [dx, dy],
+                    "queued": len(neighbor_entries),
+                    "neighbours": _trace_neighbours,
+                    "via": via_entry is not None,
+                    "nodes_expanded": nodes_expanded,
+                }) + "\n")
+
             if not neighbor_entries:
                 continue
 
             for entry in neighbor_entries:
                     heapq.heappush(heap, entry)
+        if _trace is not None:
+            _trace.write(_json.dumps({
+                "e": "end", "reason": "heap_empty",
+                "nodes_expanded": nodes_expanded,
+            }) + "\n")
+            _trace.close()
     finally:
         shared.record_nodes(nodes_expanded)
         shared.mark_done()

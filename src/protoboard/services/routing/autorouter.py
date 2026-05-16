@@ -65,6 +65,55 @@ import atexit as _atexit
 import os as _os
 _CPU_COUNT = max(2, (_os.cpu_count() or 2))
 
+# Live short-detection: after every add_wire, check whether two distinct
+# schematic nets now share an electric set.  Enabled by default while we
+# track down the lingering fusion bug; flip the env var to "0" to disable.
+_SHORT_DETECTION_ENABLED = _os.environ.get("PROTOBOARD_SHORT_DETECTION", "1") != "0"
+_FAIL_ON_SHORT = _os.environ.get("PROTOBOARD_FAIL_ON_SHORT", "0") == "1"
+
+
+def _check_no_net_fusion(
+    graph: "ConnectivityGraph",
+    schematic: "Schematic",
+    current_net: "Net",
+    just_added: "WireSegment",
+    fail: bool = False,
+) -> None:
+    """Verify no electric set holds pins from two different schematic nets.
+
+    Run after each add_wire — if the just-added wire fused two nets,
+    flag it immediately so the trace can be matched to a specific
+    routing decision.  Cost: O(total_pins) per call.  Disable via
+    PROTOBOARD_SHORT_DETECTION=0 in production.
+    """
+    from collections import defaultdict as _dd
+    key_to_nets: dict[object, set[str]] = _dd(set)
+    for net in schematic.nets.values():
+        for ref in net.pins:
+            ck = graph.node_for_pin(ref)
+            if ck is not None:
+                key_to_nets[ck].add(net.name)
+    fused = {ck: names for ck, names in key_to_nets.items() if len(names) > 1}
+    if not fused:
+        return
+    # Report each fusion and the wire that triggered it.
+    for ck, names in fused.items():
+        _log.error(
+            "autoroute.short_detected",
+            current_net=current_net.name,
+            triggered_by_wire=str(just_added.id)[:8],
+            wire_path=[(p.x, p.y) for p in just_added.path],
+            wire_side=just_added.side,
+            wire_insulated=just_added.insulated,
+            fused_nets=sorted(names),
+            canonical=str(ck),
+        )
+    if fail:
+        raise RuntimeError(
+            f"Net fusion detected after routing {current_net.name}: "
+            f"wire {str(just_added.id)[:8]} merged {sorted(next(iter(fused.values())))}"
+        )
+
 # Module-level thread pool for parallel A* side evaluation.
 _ASTAR_POOL = ThreadPoolExecutor(max_workers=_CPU_COUNT, thread_name_prefix="astar")
 _atexit.register(lambda: _ASTAR_POOL.shutdown(wait=False, cancel_futures=True))
@@ -1056,6 +1105,14 @@ def _route_net(
                 cur_net_wire_points.add((pt, w.side))
             # Incremental update — O(path_len) instead of O(full_graph_rebuild).
             current_graph.add_wire(w)
+            # Live short-detection: after adding this wire, did any pin
+            # in the schematic now share an electric set with a pin from
+            # a different net?  Set PROTOBOARD_FAIL_ON_SHORT=1 to abort
+            # autoroute the moment it happens; otherwise just warn loudly.
+            if _SHORT_DETECTION_ENABLED:
+                _check_no_net_fusion(
+                    current_graph, schematic, net, w, fail=_FAIL_ON_SHORT,
+                )
 
         connected_refs.append(ref)
         rpt2, rside2 = pin_positions[ref]
