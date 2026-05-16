@@ -316,7 +316,8 @@ def autoroute(
         try:
             _log.info("autoroute.optimize.pool_start",
                       n_parallel=n_parallel, iterations=max_optimize_iterations)
-            with ProcessPoolExecutor(max_workers=n_parallel) as pool:
+            pool = ProcessPoolExecutor(max_workers=n_parallel)
+            try:
                 _log.info("autoroute.optimize.pool_created")
                 futures = [
                     pool.submit(_run_opt_pass_in_process, _pass_args + (seed,))
@@ -328,7 +329,6 @@ def autoroute(
                     optimize_progress_callback(0, n_futures)
                 for done_count, fut in enumerate(as_completed(futures), start=1):
                     if cancel_flag is not None and cancel_flag.is_set():
-                        pool.shutdown(wait=False, cancel_futures=True)
                         raise AutorouteCancelled
                     if optimize_progress_callback is not None:
                         optimize_progress_callback(done_count, n_futures)
@@ -347,8 +347,13 @@ def autoroute(
                         best_wires = opt_wires
                         best_unrouted_count = len(opt_unrouted)
                         unrouted_names = opt_unrouted
-            _log.info("autoroute.optimize.pool_done",
-                      best_wires=len(best_wires), best_unrouted=best_unrouted_count)
+                _log.info("autoroute.optimize.pool_done",
+                          best_wires=len(best_wires), best_unrouted=best_unrouted_count)
+            finally:
+                # Always tear the pool down without blocking on running tasks.
+                # On cancel we additionally SIGTERM the worker processes so
+                # they don't keep burning CPU after the user clicked Cancel.
+                _shutdown_pool_fast(pool, cancel_flag)
         except AutorouteCancelled:
             # User cancellation is intentional — propagate without falling back.
             raise
@@ -486,6 +491,45 @@ def _write_report(result: "AutorouteResult", path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Process-pool helpers (module-level so pickle works)
 # ---------------------------------------------------------------------------
+
+
+def _shutdown_pool_fast(
+    pool: "ProcessPoolExecutor",  # type: ignore[name-defined]
+    cancel_flag: "threading.Event | None",
+) -> None:
+    """Tear down a ProcessPoolExecutor without waiting for running tasks.
+
+    Normal `ProcessPoolExecutor.shutdown(wait=True)` blocks until every
+    worker finishes its current task — useless when the user just hit
+    Cancel and we want the CPU back now.  Steps:
+      1. Cancel queued (not-yet-started) futures.
+      2. SIGTERM every live worker process so the running A* call dies
+         immediately.  Only do this on cancel; a normal completion path
+         lets workers exit gracefully.
+      3. Call shutdown(wait=False) so the executor's manager threads
+         stop scheduling but don't block our thread on the join.
+    """
+    import signal as _sig
+    cancelled = cancel_flag is not None and cancel_flag.is_set()
+    try:
+        pool.shutdown(wait=False, cancel_futures=True)
+    except Exception as _exc:  # noqa: BLE001 — never let teardown raise
+        _log.warning("autoroute.optimize.shutdown_error", error=str(_exc))
+    if not cancelled:
+        return
+    # Reach into the executor to SIGTERM each worker.  `_processes` is a
+    # dict[pid, Process] in CPython 3.11+; if its shape changes we silently
+    # skip the kill and accept the lingering CPU.
+    workers = getattr(pool, "_processes", None)
+    if not workers:
+        return
+    for proc in list(workers.values()):
+        try:
+            if proc.is_alive():
+                proc.terminate()
+        except Exception:  # noqa: BLE001
+            pass
+    _log.info("autoroute.optimize.workers_terminated", count=len(workers))
 
 
 def _run_opt_pass_in_process(args: tuple) -> tuple[list[WireSegment], list[str]]:  # type: ignore[type-arg]
