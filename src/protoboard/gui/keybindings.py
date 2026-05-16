@@ -84,6 +84,7 @@ ACTION_LAYER_4 = "layer_4"
 ACTION_LAYER_5 = "layer_5"
 ACTION_LAYER_6 = "layer_6"
 ACTION_LAYER_7 = "layer_7"
+ACTION_LAYER_8 = "layer_8"
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -139,6 +140,7 @@ DEFAULTS: dict[str, str] = {
     ACTION_LAYER_5: "5",
     ACTION_LAYER_6: "6",
     ACTION_LAYER_7: "7",
+    ACTION_LAYER_8: "8",
 }
 
 # Human-readable names (for future Preferences dialog).
@@ -190,6 +192,7 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_LAYER_5: "Layer 5 (Labels Top)",
     ACTION_LAYER_6: "Layer 6 (Labels Bottom)",
     ACTION_LAYER_7: "Layer 7 (Board)",
+    ACTION_LAYER_8: "Layer 8 (Ratsnest)",
 }
 
 # ---------------------------------------------------------------------------

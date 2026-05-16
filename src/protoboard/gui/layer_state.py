@@ -100,6 +100,7 @@ class LayerOverrides:
     board:             LayerVisibility = LayerVisibility.FULL
     pin_names:         LayerVisibility = LayerVisibility.FULL
     connectness:       LayerVisibility = LayerVisibility.FULL
+    ratsnest:          LayerVisibility = LayerVisibility.FULL
 
     def reset(self) -> None:
         """Reset all overrides to FULL."""

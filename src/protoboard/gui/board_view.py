@@ -631,7 +631,9 @@ class BoardView(QGraphicsView):
 
         # ── Overlays (always recreated — fast, few items) ────────────────────
         new_overlays: list[object] = []
-        if self._session.schematic.nets:
+        from protoboard.gui.layer_state import LayerVisibility
+        if (self._session.schematic.nets
+                and self._layer_overrides.ratsnest != LayerVisibility.HIDDEN):
             new_overlays.extend(render_ratsnest(
                 self._scene,
                 self._session.schematic,

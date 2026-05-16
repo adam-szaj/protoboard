@@ -525,6 +525,7 @@ class MainWindow(QMainWindow):
             ("labels_top",        "Labels Top",        KB.ACTION_LAYER_5),
             ("labels_bottom",     "Labels Bottom",     KB.ACTION_LAYER_6),
             ("board",             "Board",             KB.ACTION_LAYER_7),
+            ("ratsnest",          "Ratsnest",          KB.ACTION_LAYER_8),
         ]
         self._layer_field_order: list[str] = []
         self._layer_actions: dict[str, QAction] = {}
