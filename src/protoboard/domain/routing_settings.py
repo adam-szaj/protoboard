@@ -47,6 +47,9 @@ class RoutingSettings:
     skip_autoroute_dialog: bool = False
     # When True, try to nudge blocking wires sideways before ripping them up.
     push_and_shove: bool = True
+    # When True (and wire_mode == "bare_diagonal"), run a post-route simplify
+    # pass: collinear-segment merge + ortho-ortho-corner → diagonal corner-cut.
+    enable_simplify_pass: bool = True
 
     def cost_model(self) -> RoutingCostModel:
         """Build a RoutingCostModel from these settings."""

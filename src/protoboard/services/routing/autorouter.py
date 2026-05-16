@@ -397,6 +397,12 @@ def autoroute(
 
         current_wires = best_wires
 
+    # Post-process: simplify bare-diagonal wires (straighten + corner-cut).
+    if wire_mode == "bare_diagonal" and current_wires:
+        from protoboard.services.routing.postprocess import simplify_wires
+        board_pads_all: set[Point] = {pos for _, pos in board.atoms()}
+        current_wires = simplify_wires(current_wires, board_pads_all)
+
     result.wires = current_wires
     result.unrouted_nets = unrouted_names
     _log.info(
