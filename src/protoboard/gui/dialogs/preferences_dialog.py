@@ -245,10 +245,12 @@ class _ColorsPage(QWidget):
         vbox.addWidget(net_grp)
 
         add_section("Components", [
-            ("comp_fill_color", "Component fill colour",  theme.comp_fill_color),
-            ("comp_border",     "Component border colour", theme.comp_border),
-            ("refdes_color",  "RefDes label colour",      theme.refdes_color),
-            ("lead_color",    "Component lead colour",    theme.lead_color),
+            ("comp_fill_color",   "Component fill colour",    theme.comp_fill_color),
+            ("comp_border",       "Component border colour",  theme.comp_border),
+            ("refdes_color",      "Label text colour",        theme.refdes_color),
+            ("label_bg_color",    "Label background colour",  theme.label_bg_color),
+            ("overlay_font_size", "Label font size (pt)",     theme.overlay_font_size),
+            ("lead_color",        "Component lead colour",    theme.lead_color),
         ])
 
         add_opacity_section("Layer opacity", [

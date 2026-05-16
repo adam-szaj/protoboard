@@ -226,24 +226,23 @@ class BoardView(QGraphicsView):
                 else:
                     grp.setOpacity(1.0)
 
-    _LABEL_MIN_MM: float = 1.25  # hide labels whose rendered height is below this many mm on screen
+    _LABEL_MIN_SCENE_UNITS: float = 0.8
 
     def _apply_label_visibility(self) -> None:
-        """Show/hide text labels based on current view scale.
+        """Show/hide overlay text labels based on current view scale.
 
-        Computes the on-screen height of the label font in millimetres.
-        Below _LABEL_MIN_MM the text is illegible and not worth rasterising.
-        Visibility is toggled in-place on existing QGraphicsTextItem objects
-        so no group rebuild is needed.
+        Labels use ItemIgnoresTransformations so they render at a fixed screen
+        size.  Below _LABEL_MIN_SCENE_UNITS (viewport-pixels per raster unit)
+        they would overlap each other and are hidden.  Background rects (tagged
+        "label_bg") are shown/hidden together with their text items.
         """
-        from PySide6.QtWidgets import QGraphicsTextItem
-        theme = self._theme_override if self._theme_override is not None else DEFAULT_THEME
+        from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
         scene_scale = abs(self.transform().m11())
-        # font height in mm on screen = font_size_raster * raster_pitch_mm * scene_scale
-        on_screen_mm = theme.refdes_font_size * theme.raster_pitch_mm * scene_scale
-        show = on_screen_mm >= self._LABEL_MIN_MM
+        show = scene_scale >= self._LABEL_MIN_SCENE_UNITS
         for item in self._scene.items():
-            if isinstance(item, QGraphicsTextItem):
+            if isinstance(item, (QGraphicsTextItem, QGraphicsRectItem)):
+                if isinstance(item, QGraphicsRectItem) and item.data(0) != "label_bg":
+                    continue
                 if item.isVisible() != show:
                     item.setVisible(show)
 
@@ -662,20 +661,6 @@ class BoardView(QGraphicsView):
         # ── Label visibility (hide text that would be too small to read) ────────
         self._apply_label_visibility()
 
-        # ── Text counter-transform (mirrored views) ───────────────────────────
-        if layers.needs_text_counter_transform():
-            from PySide6.QtGui import QTransform
-            from PySide6.QtWidgets import QGraphicsTextItem
-            sx = layers.scene_scale_x()
-            sy = layers.scene_scale_y()
-            for item in self._scene.items():
-                if isinstance(item, QGraphicsTextItem):
-                    br = item.boundingRect()
-                    tx = -br.width() if sx < 0 else 0.0
-                    ty = -br.height() if sy < 0 else 0.0
-                    item.setTransform(
-                        QTransform().scale(sx, sy).translate(tx, ty)
-                    )
 
     def select_component(self, comp_id: uuid.UUID) -> None:
         """Switch to SelectTool and select the given component."""

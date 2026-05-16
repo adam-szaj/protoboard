@@ -84,8 +84,10 @@ class Theme:
         "#7AE620",  # lime
     ])
 
-    refdes_color: str = "#AAAAAA"
+    refdes_color: str = "#333333"
     refdes_font_size: float = 0.55
+    overlay_font_size: float = 8.0
+    label_bg_color: str = "#B0FFFFFF"
 
     # Component lead lines (wire between pins and body)
     lead_color: str = "#888888"

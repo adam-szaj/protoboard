@@ -9,6 +9,7 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QPen
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
+    QGraphicsItem,
     QGraphicsItemGroup,
     QGraphicsRectItem,
     QGraphicsScene,
@@ -61,34 +62,72 @@ def _group_alpha_map(
             result[comp_id] = _ALPHA_INACTIVE
     return result
 
-_REFDES_FONT:   QFont | None = None
-_PIN_NAME_FONT: QFont | None = None
-_PIN_NAME_SCALE = 0.6   # scale-down relative to refdes size
+_REFDES_FONT:        QFont | None = None
+_REFDES_FONT_SIZE:   float = -1.0
+_PIN_NAME_FONT:      QFont | None = None
+_PIN_NAME_FONT_SIZE: float = -1.0
 
 _DEFAULT_LAYERS = LayerState()
 
+_IGN = QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations
 
-def _get_refdes_font(theme: Theme = DEFAULT_THEME) -> QFont:
-    """Return the refdes QFont, creating it lazily after QApplication exists.
 
-    QFont objects created before QApplication are initialised without a valid
-    font engine (no DPI / hinting context).  On HiDPI screens (DPR=2) this
-    causes FreeType err=62 (invalid glyph) during the first viewport resize
-    because Qt tries to re-rasterize with the under-initialised engine.
+def _get_refdes_font(pt: float) -> QFont:
+    """Return the refdes QFont at the requested on-screen point size.
+
+    Labels use ItemIgnoresTransformations so the font is rendered at a fixed
+    screen size regardless of zoom level.  Cached; recreated when pt changes.
     """
-    global _REFDES_FONT
-    if _REFDES_FONT is None:
-        _REFDES_FONT = QFont("monospace", 1)
-        _REFDES_FONT.setPointSizeF(theme.refdes_font_size)
+    global _REFDES_FONT, _REFDES_FONT_SIZE
+    if _REFDES_FONT is None or _REFDES_FONT_SIZE != pt:
+        _REFDES_FONT = QFont("monospace")
+        _REFDES_FONT.setPointSizeF(pt)
+        _REFDES_FONT_SIZE = pt
     return _REFDES_FONT
 
 
-def _get_pin_name_font(theme: Theme = DEFAULT_THEME) -> QFont:
-    global _PIN_NAME_FONT
-    if _PIN_NAME_FONT is None:
-        _PIN_NAME_FONT = QFont("monospace", 1)
-        _PIN_NAME_FONT.setPointSizeF(theme.refdes_font_size)
+def _get_pin_name_font(pt: float) -> QFont:
+    global _PIN_NAME_FONT, _PIN_NAME_FONT_SIZE
+    if _PIN_NAME_FONT is None or _PIN_NAME_FONT_SIZE != pt:
+        _PIN_NAME_FONT = QFont("monospace")
+        _PIN_NAME_FONT.setPointSizeF(pt * 0.875)  # pin names slightly smaller
+        _PIN_NAME_FONT_SIZE = pt
     return _PIN_NAME_FONT
+
+
+def _make_overlay_label(
+    text: str,
+    font: QFont,
+    text_color: QColor,
+    bg_color: QColor,
+    scene_x: float,
+    scene_y: float,
+    z: float,
+) -> list[QGraphicsItem]:
+    """Create an overlay text item with a background rect.
+
+    Returns [bg_rect, text_item] both with ItemIgnoresTransformations set and
+    positioned at (scene_x, scene_y).  The bg_rect is sized to fit the text
+    bounding box with a small padding; it is added first so it renders below.
+    """
+    text_item = QGraphicsTextItem(text)
+    text_item.setFont(font)
+    text_item.setDefaultTextColor(text_color)
+    text_item.setFlag(_IGN)
+    text_item.setPos(scene_x, scene_y)
+    text_item.setZValue(z)
+
+    br = text_item.boundingRect()
+    pad = 1.0  # screen pixels padding around text
+    bg = QGraphicsRectItem(br.adjusted(-pad, -pad, pad, pad))
+    bg.setBrush(QBrush(bg_color))
+    bg.setPen(QPen(Qt.GlobalColor.transparent, 0))
+    bg.setFlag(_IGN)
+    bg.setPos(scene_x, scene_y)
+    bg.setZValue(z - 0.01)
+    bg.setData(0, "label_bg")
+
+    return [bg, text_item]
 
 
 def _net_color(net_id: uuid.UUID, theme: Theme = DEFAULT_THEME) -> QColor:
@@ -394,50 +433,51 @@ def _render_one(
             dot.setZValue(z_comp - 0.05)
             grp.addToGroup(dot)
 
+    fpt = theme.overlay_font_size
+    bg_color = QColor(theme.label_bg_color)
     if alpha_label > 0.0:
         label_color = QColor(theme.refdes_color)
         label_color.setAlphaF(alpha_label)
-        label = QGraphicsTextItem(inst.refdes)
-        label.setDefaultTextColor(label_color)
-        label.setFont(_get_refdes_font(theme))
+        bg = QColor(bg_color)
+        bg.setAlphaF(bg.alphaF() * alpha_label)
         _default_offset = Point(0.05, 0.05)
         if placement.label_offset == _default_offset:
-            br = label.boundingRect()
-            cx = (x0 + x1) / 2.0 - br.width() / 2.0
-            cy = (y0 + y1) / 2.0 - br.height() / 2.0
-            label.setPos(cx, cy)
+            lx, ly = (x0 + x1) / 2.0, (y0 + y1) / 2.0
         else:
-            label.setPos(x0 + placement.label_offset.x, y0 + placement.label_offset.y)
-        label.setZValue(z_label)
-        grp.addToGroup(label)
+            lx, ly = x0 + placement.label_offset.x, y0 + placement.label_offset.y
+        for item in _make_overlay_label(
+            inst.refdes, _get_refdes_font(fpt), label_color, bg, lx, ly, z_label
+        ):
+            grp.addToGroup(item)
 
         # Pin-name labels (controlled by the pin_names layer).
         alpha_pin_names = layers.alpha_for_pin_names(side) * group_alpha
         if alpha_pin_names > 0.0 and defn.pin_names:
             pin_name_color = QColor(theme.pin_label_fallback_color)
             pin_name_color.setAlphaF(alpha_pin_names)
+            pin_bg = QColor(bg_color)
+            pin_bg.setAlphaF(pin_bg.alphaF() * alpha_pin_names)
             for pin_idx, pos in enumerate(positions):
                 pin_number = pin_idx + 1
                 name = defn.pin_names.get(pin_number)
                 if not name:
                     continue
-                pn_item = QGraphicsTextItem(name)
-                pn_item.setFont(_get_pin_name_font(theme))
-                pn_item.setDefaultTextColor(pin_name_color)
-                pn_item.setScale(_PIN_NAME_SCALE)
-                pn_item.setPos(pos.x + 0.12, pos.y - 0.32)
-                pn_item.setZValue(z_label + 0.1)
-                grp.addToGroup(pn_item)
+                for item in _make_overlay_label(
+                    name, _get_pin_name_font(fpt), pin_name_color, pin_bg,
+                    pos.x, pos.y, z_label + 0.1,
+                ):
+                    grp.addToGroup(item)
 
     if placement.locked and alpha > 0.05:
-        lock = QGraphicsTextItem("\U0001f512")
-        lock.setFont(_get_refdes_font(theme))
         lock_col = QColor("#e07000")
         lock_col.setAlphaF(min(alpha, 1.0))
-        lock.setDefaultTextColor(lock_col)
-        lock.setPos(x1 - 0.55, y0 - 0.05)
-        lock.setZValue(z_label + 0.5)
-        grp.addToGroup(lock)
+        lock_bg = QColor(bg_color)
+        lock_bg.setAlphaF(lock_bg.alphaF() * min(alpha, 1.0))
+        for item in _make_overlay_label(
+            "\U0001f512", _get_refdes_font(fpt), lock_col, lock_bg,
+            x1, y0, z_label + 0.5,
+        ):
+            grp.addToGroup(item)
 
     scene.addItem(grp)
     return grp
@@ -513,11 +553,13 @@ def make_ghost_item(
     # Label positioned near first pin or bbox top-left
     xs = [p.x for p in positions]
     ys = [p.y for p in positions]
-    label = QGraphicsTextItem(defn.name)
-    label.setDefaultTextColor(ghost_label)
-    label.setFont(_get_refdes_font(theme))
-    label.setPos(min(xs) + 0.05, min(ys) + 0.05)
-    group.addToGroup(label)
+    ghost_bg = QColor(theme.label_bg_color)
+    ghost_bg.setAlphaF(ghost_bg.alphaF() * 0.5)
+    for item in _make_overlay_label(
+        defn.name, _get_refdes_font(theme.overlay_font_size),
+        ghost_label, ghost_bg, min(xs) + 0.05, min(ys) + 0.05, 1.0,
+    ):
+        group.addToGroup(item)
     return group
 
 
@@ -631,13 +673,13 @@ def render_groups(
         scene.addItem(rect)
         added.append(rect)
         if group.name:
-            name_label = QGraphicsTextItem(group.name)
-            name_label.setDefaultTextColor(name_col)
-            name_label.setFont(_get_refdes_font(theme))
-            name_label.setPos(x0 + 0.1, y0 + 0.05)
-            name_label.setZValue(1.1)
-            scene.addItem(name_label)
-            added.append(name_label)
+            grp_bg = QColor(theme.label_bg_color)
+            for item in _make_overlay_label(
+                group.name, _get_refdes_font(theme.overlay_font_size),
+                name_col, grp_bg, x0 + 0.1, y0 + 0.05, 1.1,
+            ):
+                scene.addItem(item)
+                added.append(item)
 
         # Render exported pins as small green diamonds (visible from parent).
         if group.id in visible_child_ids and group.exported_pins:
