@@ -174,6 +174,18 @@ def _alpha_row(label: str, initial: float, is_int: bool = False
     return _row(label, spf), spf  # type: ignore[return-value]
 
 
+def _float_row(
+    label: str, initial: float, lo: float, hi: float, step: float = 0.5, decimals: int = 1,
+) -> tuple[QHBoxLayout, QDoubleSpinBox]:
+    spf = QDoubleSpinBox()
+    spf.setRange(lo, hi)
+    spf.setSingleStep(step)
+    spf.setDecimals(decimals)
+    spf.setValue(float(initial))
+    spf.setFixedWidth(80)
+    return _row(label, spf), spf
+
+
 class _ColorsPage(QWidget):
     def __init__(self, theme: Theme, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -191,17 +203,21 @@ class _ColorsPage(QWidget):
 
         self._widgets: dict[str, _ColorButton | QDoubleSpinBox | QSpinBox | QSlider] = {}
 
-        def add_section(title: str, rows: list[tuple[str, str, object]]) -> None:
-            """rows: (field_name, label, initial_value)"""
+        def add_section(title: str, rows: list[tuple[str, str, object]]) -> None:  # type: ignore[misc]
+            """rows: (field_name, label, initial[, (lo, hi)]) — 4th element enables free range."""
             grp = QGroupBox(title)
             gl = QVBoxLayout(grp)
-            for field_name, label, init in rows:
+            for entry in rows:  # type: ignore[assignment]
+                field_name, label, init = entry[0], entry[1], entry[2]
+                range_hint: tuple[float, float] | None = entry[3] if len(entry) > 3 else None  # type: ignore[misc]
                 if isinstance(init, str):
                     row_layout, w = _color_row(label, init)
                 elif isinstance(init, int):
                     row_layout, w = _alpha_row(label, init, is_int=True)
+                elif range_hint is not None:
+                    row_layout, w = _float_row(label, float(init), range_hint[0], range_hint[1])  # type: ignore[arg-type]
                 else:
-                    row_layout, w = _alpha_row(label, float(init))
+                    row_layout, w = _alpha_row(label, float(init))  # type: ignore[arg-type]
                 gl.addLayout(row_layout)
                 self._widgets[field_name] = w
             vbox.addWidget(grp)
@@ -249,7 +265,7 @@ class _ColorsPage(QWidget):
             ("comp_border",       "Component border colour",  theme.comp_border),
             ("refdes_color",      "Label text colour",        theme.refdes_color),
             ("label_bg_color",    "Label background colour",  theme.label_bg_color),
-            ("overlay_font_size", "Label font size (pt)",     theme.overlay_font_size),
+            ("overlay_font_size", "Label font size (pt)",     theme.overlay_font_size, (2.0, 32.0)),
             ("lead_color",        "Component lead colour",    theme.lead_color),
         ])
 
