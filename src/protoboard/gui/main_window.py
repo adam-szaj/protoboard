@@ -1647,8 +1647,11 @@ class MainWindow(QMainWindow):
             if cfg_dlg.exec() != QDialog.DialogCode.Accepted:
                 return
             run_settings = cfg_dlg.routing_settings()
-            if cfg_dlg.save_as_default() or run_settings.skip_autoroute_dialog:
-                self._session.routing_settings = run_settings
+            # Always persist the dialog's settings as the new project default.
+            # The "Save as project default" checkbox is now redundant but kept
+            # so existing keyboard / muscle memory still works.
+            self._session.routing_settings = run_settings
+            self._session.mark_dirty()
 
         dlg = QProgressDialog("Initialising autorouter…", "Cancel", 0, 100, self)
         dlg.setWindowTitle(f"Autoroute{title_suffix}")

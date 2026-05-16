@@ -1410,18 +1410,25 @@ def _build_wire_occupied(
     Parameters
     ----------
     both_sides:
-        When True, each wire point blocks *both* ``"top"`` and ``"bottom"``
-        (used for bare wires, which are bare metal in a plated-through hole).
-        When False (default), each wire point blocks only ``wire.side``
-        (used for insulated wires, which do not electrically contact the
-        opposite layer).
+        Hint used for the *insulated* portion of the wire list: when True the
+        caller intends a bare-on-bare conflict check and wants every wire to
+        block both layers.  Bare wires always block both layers regardless
+        (they share an electric set with the opposite layer through the
+        plated-through hole), so this flag mostly matters for insulated wires.
     """
     occupied: dict[tuple[Point, str], uuid.UUID] = {}
     _sentinel = uuid.UUID("00000000-0000-0000-0000-000000000001")
     for wire in wires:
         if wire.id == exclude_wire_id:
             continue
-        sides: tuple[str, ...] = ("top", "bottom") if both_sides else (wire.side,)
+        # A bare wire's metal sits inside a plated-through hole — its pad is
+        # electrically continuous with the opposite layer.  Any new route on
+        # the opposite layer that lands here would short to this wire's net,
+        # so bare wires must block *both* sides unconditionally.
+        if not wire.insulated:
+            sides: tuple[str, ...] = ("top", "bottom")
+        else:
+            sides = ("top", "bottom") if both_sides else (wire.side,)
         for i in range(len(wire.path) - 1):
             p1 = wire.path[i]
             p2 = wire.path[i + 1]

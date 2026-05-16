@@ -1,10 +1,10 @@
-board: ghost
+board: hidden
 components_bottom: full
 components_top: full
 connectness: full
 labels_bottom: full
 labels_top: full
-pin_names: hidden
+pin_names: full
 ratsnest: hidden
 wires_bottom: full
 wires_top: full

@@ -455,10 +455,10 @@ nets:
   id: 0c4762b7-e3f1-44f4-9c1e-a83dd24795c5
   name: /SCL3_3
   pins:
-  - component_id: 4c9d67eb-bec4-48b3-b0c2-cfd1a61f1f74
-    pin_number: 2
   - component_id: cb135256-8add-43e8-9259-d47e1c955706
     pin_number: 3
+  - component_id: 4c9d67eb-bec4-48b3-b0c2-cfd1a61f1f74
+    pin_number: 2
   - component_id: 7a7c7e91-12fd-4973-bfc6-937aeab9c9e1
     pin_number: 3
   - component_id: 511c4233-ca8c-4b06-aefd-cf5572f3bedb
@@ -631,13 +631,13 @@ nets:
 - id: 6d64261e-2e30-4241-a91b-296d3d762ede
   name: Net-(C10-Pad1)
   pins:
-  - component_id: f548032e-b506-404e-808b-fd31d2d8ec0c
+  - component_id: fb3813d5-a104-4484-89f0-82c8dbc93836
     pin_number: 1
   - component_id: ce064f48-8253-46f1-be85-816bb0eba838
     pin_number: 18
   - component_id: 8e5b3470-bcd2-4b22-9909-040f39f27869
     pin_number: 1
-  - component_id: fb3813d5-a104-4484-89f0-82c8dbc93836
+  - component_id: f548032e-b506-404e-808b-fd31d2d8ec0c
     pin_number: 1
 - id: 1b4dec46-8d06-4279-8877-5ef91d8d91be
   name: Net-(C2-Pad1)
