@@ -113,13 +113,13 @@ def _make_overlay_label(
     text_item = QGraphicsTextItem(text)
     text_item.setFont(font)
     text_item.setDefaultTextColor(text_color)
+    text_item.document().setDocumentMargin(0)
     text_item.setFlag(_IGN)
     text_item.setPos(scene_x, scene_y)
     text_item.setZValue(z)
 
     br = text_item.boundingRect()
-    pad = 1.0  # screen pixels padding around text
-    bg = QGraphicsRectItem(br.adjusted(-pad, -pad, pad, pad))
+    bg = QGraphicsRectItem(br)
     bg.setBrush(QBrush(bg_color))
     bg.setPen(QPen(Qt.GlobalColor.transparent, 0))
     bg.setFlag(_IGN)
