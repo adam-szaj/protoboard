@@ -452,19 +452,15 @@ def _render_one(
 
         _default_offset = Point(0.05, 0.05)
         if placement.label_offset != _default_offset:
-            # Manual offset: top-left anchor relative to bbox origin.
             lx = x0 + placement.label_offset.x
             ly = y0 + placement.label_offset.y
-            refdes_anchor = "top_left"
         else:
-            # Default: bottom-right corner of the label lands on pin-1 centre,
-            # so the refdes sits above-left of pin 1 without overlapping pin names.
+            # Place refdes 0.5 raster units above and to the left of pin 1.
             pin1 = positions[0]
-            lx, ly = pin1.x, pin1.y
-            refdes_anchor = "bottom_right"
+            lx = pin1.x - 0.5
+            ly = pin1.y - 0.5
         for item in _make_overlay_label(
             inst.refdes, _get_refdes_font(fpt), label_color, bg, lx, ly, z_label,
-            anchor=refdes_anchor,
         ):
             grp.addToGroup(item)
 
