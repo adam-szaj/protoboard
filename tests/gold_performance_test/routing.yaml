@@ -13,4 +13,4 @@ max_rip_up_passes: 5
 preferred_side: bottom
 push_and_shove: true
 skip_autoroute_dialog: false
-wire_mode: insulated
+wire_mode: auto

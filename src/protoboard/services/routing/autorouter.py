@@ -1107,6 +1107,31 @@ def _route_segment_with_ripup(
         best_is_preferred = False
         result_insulated: bool = insulation_attempts[-1]  # default to last attempt
 
+        # Pre-compute the canonical keys of every pad belonging to the
+        # net currently being routed (across both layers).  Any electric set
+        # reachable from one of these pads is "own"; everything else is
+        # alien — and an alien pad must block A*, otherwise a bare path that
+        # merely touches the pad short-circuits to its alien net.
+        own_canonicals: set[object] = set()
+        for ps in same_net_pins:
+            ck = connectivity_graph.node_for_pad(ps[0], ps[1])
+            if ck is not None:
+                own_canonicals.add(ck)
+
+        # Discover one representative pad per alien electric set by querying
+        # the graph for every other-net pin position.  Then expand each to
+        # the full set of pads in that electric set.
+        alien_pad_set: set[tuple[Point, str]] = set()
+        seen_alien_canonicals: set[object] = set()
+        for (pin_pt, pin_side) in occupied_pins:
+            ck = connectivity_graph.node_for_pad(pin_pt, pin_side)
+            if ck is None or ck in own_canonicals or ck in seen_alien_canonicals:
+                continue
+            seen_alien_canonicals.add(ck)
+            for layer in ("top", "bottom"):
+                for pad in connectivity_graph.pads_in_same_electric_set(pin_pt, layer):
+                    alien_pad_set.add((pad, layer))
+
         for try_insulated in insulation_attempts:
             active_cm = bare_only_cm if not try_insulated else cost_model
 
@@ -1122,6 +1147,13 @@ def _route_segment_with_ripup(
             for ps, nid in wire_occupied.items():
                 if ps not in combined_occupied:
                     combined_occupied[ps] = nid
+            # Block every pad already part of an alien electric set, even when
+            # the alien net has no component pin on this exact pad — the bare
+            # wires that built that electric set still claim it electrically.
+            _alien_sentinel = uuid.UUID("00000000-0000-0000-0000-000000000002")
+            for ps in alien_pad_set:
+                if ps not in combined_occupied and ps not in same_net_pins:
+                    combined_occupied[ps] = _alien_sentinel
             for ps in same_net_pins:
                 combined_occupied.pop(ps, None)
             effective_near = {

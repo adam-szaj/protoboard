@@ -10,10 +10,10 @@ nets:
 - id: 5da44ae2-b2b5-4d8a-bfce-49d917139a74
   name: Net-(J1-Pad1)
   pins:
-  - component_id: 9e7bc407-2096-4f56-8753-92d5f42a6df8
-    pin_number: 2
   - component_id: f328d60e-5c9e-4d06-a3f6-12b02fbc671d
     pin_number: 1
+  - component_id: 9e7bc407-2096-4f56-8753-92d5f42a6df8
+    pin_number: 2
 - id: e759c21b-29f1-4113-9caf-d1a37c947a03
   name: /D3int
   pins:
@@ -147,10 +147,10 @@ nets:
 - id: 2319286c-c40f-4ae6-9991-cd248b500b7d
   name: Display
   pins:
-  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
-    pin_number: 20
   - component_id: 2bd14e8b-e649-4377-8d1d-3e284c574aa3
     pin_number: 1
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 20
 - id: 64169ef6-a346-4230-8e50-1b8c5bb83f39
   name: Net-(J2-Pad2)
   pins:
@@ -204,12 +204,12 @@ nets:
 - id: e71d51e6-021b-4c08-9fb5-f55333c70674
   name: /rozkaz
   pins:
+  - component_id: 2ec89bfc-dbd8-478d-8aa9-531232ec2aed
+    pin_number: 2
   - component_id: 14db6a6a-23aa-4d70-99da-eade2434f907
     pin_number: 3
   - component_id: d6117bfd-90d6-4fbb-80e0-24f60fc71c14
     pin_number: 3
-  - component_id: 2ec89bfc-dbd8-478d-8aa9-531232ec2aed
-    pin_number: 2
   - component_id: 133d2539-8699-40a7-b09b-5c1129d45dae
     pin_number: 2
 - id: ad7a252a-1645-4b78-b47a-e259ac0591f8
@@ -242,9 +242,9 @@ nets:
     pin_number: 1
   - component_id: 09f773fe-d570-4a14-a830-469b1d844fdb
     pin_number: 1
-  - component_id: 8270bef5-fc39-4a54-a87a-89acc4b55d28
-    pin_number: 1
   - component_id: ba8ef0d5-11d6-4220-a447-86208f8eecb2
+    pin_number: 1
+  - component_id: 8270bef5-fc39-4a54-a87a-89acc4b55d28
     pin_number: 1
   - component_id: 7d6760e2-27df-4e69-a48b-e9937a2cadaf
     pin_number: 2
@@ -281,11 +281,11 @@ nets:
 - id: caa0e52f-cddd-4b50-bb32-a59142e82a4c
   name: AN_wilg_ziemi
   pins:
+  - component_id: ef83baaf-d739-4582-bb80-bcedc2a00d6e
+    pin_number: 1
   - component_id: ce064f48-8253-46f1-be85-816bb0eba838
     pin_number: 19
   - component_id: 60e9c320-1a96-47a8-becf-b41b116ac678
-    pin_number: 1
-  - component_id: ef83baaf-d739-4582-bb80-bcedc2a00d6e
     pin_number: 1
 - id: aa6817cd-93d7-42af-be03-2f232f6fda39
   name: zwarcie
@@ -414,12 +414,12 @@ nets:
   pins:
   - component_id: b399815a-7aee-4d72-9a9f-95485701b836
     pin_number: 1
-  - component_id: b067950a-6c12-4967-9bdd-b46c1438338f
-    pin_number: 3
-  - component_id: f9b1a503-6394-45b8-ad80-043e0181a82b
-    pin_number: 1
   - component_id: 87af7ca3-fbc2-40e8-ac2b-796d8031c1f8
     pin_number: 1
+  - component_id: f9b1a503-6394-45b8-ad80-043e0181a82b
+    pin_number: 1
+  - component_id: b067950a-6c12-4967-9bdd-b46c1438338f
+    pin_number: 3
 - id: e75ec5c7-6810-4be8-b002-075d1c0c0c47
   name: wlacz_zawor
   pins:
@@ -455,10 +455,10 @@ nets:
   id: 0c4762b7-e3f1-44f4-9c1e-a83dd24795c5
   name: /SCL3_3
   pins:
-  - component_id: cb135256-8add-43e8-9259-d47e1c955706
-    pin_number: 3
   - component_id: 4c9d67eb-bec4-48b3-b0c2-cfd1a61f1f74
     pin_number: 2
+  - component_id: cb135256-8add-43e8-9259-d47e1c955706
+    pin_number: 3
   - component_id: 7a7c7e91-12fd-4973-bfc6-937aeab9c9e1
     pin_number: 3
   - component_id: 511c4233-ca8c-4b06-aefd-cf5572f3bedb
@@ -522,11 +522,11 @@ nets:
 - id: 5cd92b1f-98ab-4a01-bceb-5088c4426eaf
   name: Zwarcie
   pins:
-  - component_id: d9c5c32f-396b-4a34-92d2-7e47c113930d
+  - component_id: 8a9368bc-6e77-479a-80fe-3e57a05286f0
     pin_number: 1
   - component_id: ce064f48-8253-46f1-be85-816bb0eba838
     pin_number: 25
-  - component_id: 8a9368bc-6e77-479a-80fe-3e57a05286f0
+  - component_id: d9c5c32f-396b-4a34-92d2-7e47c113930d
     pin_number: 1
 - id: f1b7cfbc-5768-4813-bca6-7860b138418e
   name: napiecie
@@ -545,24 +545,24 @@ nets:
 - id: f04722f7-8e7e-4f95-8eb2-4eab79d1771a
   name: /D4
   pins:
-  - component_id: 066690c1-0fa2-4c8b-9cf6-e883f909c208
-    pin_number: 1
   - component_id: ce064f48-8253-46f1-be85-816bb0eba838
     pin_number: 7
+  - component_id: 066690c1-0fa2-4c8b-9cf6-e883f909c208
+    pin_number: 1
 - id: 9566cf41-9bff-4a0a-a433-e5676cf6cdaf
   name: /D5(**)
   pins:
-  - component_id: 066690c1-0fa2-4c8b-9cf6-e883f909c208
-    pin_number: 2
   - component_id: ce064f48-8253-46f1-be85-816bb0eba838
     pin_number: 8
+  - component_id: 066690c1-0fa2-4c8b-9cf6-e883f909c208
+    pin_number: 2
 - id: b15cb2d9-b31e-4305-be50-45cd31a675de
   name: /D6(**)
   pins:
-  - component_id: 066690c1-0fa2-4c8b-9cf6-e883f909c208
-    pin_number: 3
   - component_id: ce064f48-8253-46f1-be85-816bb0eba838
     pin_number: 9
+  - component_id: 066690c1-0fa2-4c8b-9cf6-e883f909c208
+    pin_number: 3
 - id: 87f348e1-bb0e-4164-af8a-c6a3b56dbbfc
   name: /D8
   pins:
@@ -573,10 +573,10 @@ nets:
 - id: 6049d1f3-d1cf-4949-bdef-25bee4b3bbef
   name: /D9(**)
   pins:
-  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
-    pin_number: 12
   - component_id: 066690c1-0fa2-4c8b-9cf6-e883f909c208
     pin_number: 6
+  - component_id: ce064f48-8253-46f1-be85-816bb0eba838
+    pin_number: 12
 - id: ef1fa583-69d2-4072-b437-6cdf1d111761
   name: /D11(**/MOSI)
   pins:
@@ -601,12 +601,12 @@ nets:
 - id: 23fa9adb-8151-41af-ae79-d8bd70d4e683
   name: Net-(C7-Pad1)
   pins:
-  - component_id: df48e874-6f6b-498b-a294-0a538f782dd4
-    pin_number: 2
-  - component_id: 648bc649-7003-4e13-99c0-fd887179bc7e
-    pin_number: 1
   - component_id: 3008e700-0fa5-4ac3-8d5d-247a486f6835
     pin_number: 1
+  - component_id: 648bc649-7003-4e13-99c0-fd887179bc7e
+    pin_number: 1
+  - component_id: df48e874-6f6b-498b-a294-0a538f782dd4
+    pin_number: 2
 - color: '#aa0000'
   id: 118f7150-4a05-43d4-a80c-d20633f53d32
   name: /Vin
@@ -631,13 +631,13 @@ nets:
 - id: 6d64261e-2e30-4241-a91b-296d3d762ede
   name: Net-(C10-Pad1)
   pins:
-  - component_id: fb3813d5-a104-4484-89f0-82c8dbc93836
+  - component_id: f548032e-b506-404e-808b-fd31d2d8ec0c
     pin_number: 1
   - component_id: ce064f48-8253-46f1-be85-816bb0eba838
     pin_number: 18
   - component_id: 8e5b3470-bcd2-4b22-9909-040f39f27869
     pin_number: 1
-  - component_id: f548032e-b506-404e-808b-fd31d2d8ec0c
+  - component_id: fb3813d5-a104-4484-89f0-82c8dbc93836
     pin_number: 1
 - id: 1b4dec46-8d06-4279-8877-5ef91d8d91be
   name: Net-(C2-Pad1)
@@ -962,14 +962,14 @@ nets:
 - id: 2fc13325-a04e-470c-b05a-bb4982b6ed8f
   name: Net-(C19-Pad1)
   pins:
-  - component_id: d9c5c32f-396b-4a34-92d2-7e47c113930d
-    pin_number: 2
+  - component_id: 18cf4787-b344-4c1c-bf81-4e6d78baf5b9
+    pin_number: 1
   - component_id: 48ee6eab-b1f1-494a-89f5-f5c554c33e3c
     pin_number: 1
   - component_id: 3e97f0e7-4e0d-4205-ab7f-8cbe85161061
     pin_number: 1
-  - component_id: 18cf4787-b344-4c1c-bf81-4e6d78baf5b9
-    pin_number: 1
+  - component_id: d9c5c32f-396b-4a34-92d2-7e47c113930d
+    pin_number: 2
 - id: 23080ff1-d70c-4680-9fd8-c360cb3256b6
   name: Net-(J19-Pad1)
   pins:
