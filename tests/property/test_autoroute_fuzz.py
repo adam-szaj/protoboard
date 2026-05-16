@@ -36,11 +36,15 @@ from tests.unit._autoroute_invariants import (
 # Hypothesis strategies
 # ---------------------------------------------------------------------------
 
-BOARD_ROWS = st.integers(min_value=4, max_value=12)
-BOARD_COLS = st.integers(min_value=4, max_value=12)
+BOARD_ROWS = st.integers(min_value=6, max_value=20)
+BOARD_COLS = st.integers(min_value=6, max_value=20)
 ROTATIONS = st.sampled_from([0, 90])
-N_COMPONENTS = st.integers(min_value=3, max_value=10)
+N_COMPONENTS = st.integers(min_value=4, max_value=20)
 WIRE_MODES = st.sampled_from(["bare", "bare_diagonal", "auto", "insulated"])
+# Candidate (rotation, position) slots — _generate_layout greedily picks
+# the first n_comps that don't collide.  Oversample 2× to keep success
+# rate high on dense boards.
+SLOTS = 40
 
 
 def _generate_layout(
@@ -105,23 +109,26 @@ def _partition_into_nets(insts: list, n_nets: int) -> list[Net]:
 @pytest.mark.property
 class TestAutorouteFuzz:
     @settings(
-        max_examples=200,
-        deadline=10000,
-        suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large],
+        max_examples=2000,
+        deadline=30000,  # 30 s per example; dense boards take a while
+        suppress_health_check=[
+            HealthCheck.too_slow, HealthCheck.data_too_large,
+            HealthCheck.function_scoped_fixture,
+        ],
     )
     @given(
         rows=BOARD_ROWS,
         cols=BOARD_COLS,
         n_comps=N_COMPONENTS,
-        rotations=st.lists(ROTATIONS, min_size=14, max_size=14),
+        rotations=st.lists(ROTATIONS, min_size=SLOTS, max_size=SLOTS),
         positions=st.lists(
             st.tuples(
-                st.integers(min_value=0, max_value=10),
-                st.integers(min_value=0, max_value=10),
+                st.integers(min_value=0, max_value=18),
+                st.integers(min_value=0, max_value=18),
             ),
-            min_size=14, max_size=14,
+            min_size=SLOTS, max_size=SLOTS,
         ),
-        n_nets=st.integers(min_value=1, max_value=4),
+        n_nets=st.integers(min_value=1, max_value=6),
         wire_mode=WIRE_MODES,
     )
     def test_autoroute_never_fuses_nets(
