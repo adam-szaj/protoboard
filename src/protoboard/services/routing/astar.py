@@ -44,6 +44,7 @@ import math
 import os
 import threading
 import uuid
+from collections.abc import Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from queue import Empty, Queue
@@ -750,43 +751,55 @@ def _crossing_cost(
 ) -> float:
     """Return the extra cost for the step p1→p2 due to bare-wire crossings.
 
-    Only segments on the same layer can cross each other.
-    For orthogonal steps, check if this segment crosses any bare segment.
-    For diagonal steps, check both half-steps.
+    Only segments on the same layer can cross each other.  Detection uses a
+    full segment×segment intersection test (orientation-based) — works for
+    both axis-aligned and diagonal moves.  When the new step is bare and
+    crosses an existing bare segment in their strict interiors at a perfect
+    grid-cell centre (int, int) and both crossings are diagonal & mutually
+    perpendicular, the cost model's diagonal bare-cross cost is used; any
+    other bare×bare configuration is rejected per cost_model.crossing_bare_bare.
     """
     if not bare_idx:
         return 0.0
 
-    dx = p2.x - p1.x
-    dy = p2.y - p1.y
-    is_diagonal = dx != 0.0 and dy != 0.0
-
-    crossing_cost = (
+    bare_diagonal_allowed = (
+        not insulated
+        and cost_model.crossing_bare_bare_diagonal < cost_model.crossing_bare_bare
+    )
+    crossing_default = (
         cost_model.crossing_insulated_bare if insulated
         else cost_model.crossing_bare_bare
     )
 
-    if is_diagonal:
-        mid1 = Point(p1.x + dx, p1.y)
-        mid2 = Point(p1.x,      p1.y + dy)
-        crosses = (
-            _seg_crosses_any(p1, mid1, side, bare_idx) or
-            _seg_crosses_any(mid1, p2, side, bare_idx) or
-            _seg_crosses_any(p1, mid2, side, bare_idx) or
-            _seg_crosses_any(mid2, p2, side, bare_idx)
-        )
-    else:
-        crosses = _seg_crosses_any(p1, p2, side, bare_idx)
-
-    if not crosses:
-        return 0.0
-    return crossing_cost
+    total = 0.0
+    for bsrc, bdst in _iter_segs_in_bbox(p1, p2, side, bare_idx):
+        if not _segs_cross(p1, p2, bsrc, bdst):
+            continue
+        if bare_diagonal_allowed and _is_perpendicular_diagonal_crossing(
+            p1, p2, bsrc, bdst
+        ):
+            total += cost_model.crossing_bare_bare_diagonal
+        else:
+            total += crossing_default
+            if math.isinf(total):
+                return total
+    return total
 
 
 def _seg_crosses_any(
     p1: Point, p2: Point, side: str, bare_idx: BareSegIndex
 ) -> bool:
-    """Return True if axis-aligned segment p1→p2 strictly crosses any bare segment on the same layer."""
+    """Return True if segment p1→p2 strictly crosses any bare segment on the same layer."""
+    for bsrc, bdst in _iter_segs_in_bbox(p1, p2, side, bare_idx):
+        if _segs_cross(p1, p2, bsrc, bdst):
+            return True
+    return False
+
+
+def _iter_segs_in_bbox(
+    p1: Point, p2: Point, side: str, bare_idx: BareSegIndex
+) -> Iterator[tuple[Point, Point]]:
+    """Yield each unique bare segment whose cell-bbox overlaps p1→p2."""
     x0 = int(math.floor(min(p1.x, p2.x)))
     x1 = int(math.floor(max(p1.x, p2.x)))
     y0 = int(math.floor(min(p1.y, p2.y)))
@@ -802,33 +815,63 @@ def _seg_crosses_any(
                 if seg_id in seen:
                     continue
                 seen.add(seg_id)
-                if _segs_cross(p1, p2, bsrc, bdst):
-                    return True
-    return False
+                yield (bsrc, bdst)
+
+
+def _orient(p: Point, q: Point, r: Point) -> float:
+    """2D cross product (q-p) × (r-p).  >0 left turn, <0 right turn, 0 collinear."""
+    return (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x)
 
 
 def _segs_cross(
     a1: Point, a2: Point, b1: Point, b2: Point
 ) -> bool:
-    """Return True if two axis-aligned segments cross strictly in their interiors."""
-    a_h = a1.y == a2.y
-    b_h = b1.y == b2.y
+    """Return True if segments a1→a2 and b1→b2 cross strictly in their interiors.
 
-    if a_h == b_h:
+    A "strict interior" crossing means neither segment touches the other only
+    at an endpoint.  Collinear overlap is *not* treated as a crossing here —
+    overlapping bare wires on the same line are caught by the wire-occupancy
+    map upstream.
+    """
+    o1 = _orient(a1, a2, b1)
+    o2 = _orient(a1, a2, b2)
+    o3 = _orient(b1, b2, a1)
+    o4 = _orient(b1, b2, a2)
+
+    if (o1 > 0 and o2 < 0 or o1 < 0 and o2 > 0) and (
+        o3 > 0 and o4 < 0 or o3 < 0 and o4 > 0
+    ):
+        return True
+    return False
+
+
+def _is_perpendicular_diagonal_crossing(
+    a1: Point, a2: Point, b1: Point, b2: Point
+) -> bool:
+    """True if a1→a2 and b1→b2 are both diagonal, perpendicular, and meet at (int, int).
+
+    "Diagonal" means |dx| == |dy| > 0 (45°).  The intersection point must lie
+    at integer coordinates — i.e. the centre of a perfboard mesh cell, between
+    pads (which sit at half-integer positions).  Used by `_crossing_cost` to
+    exempt the parity-routing exception from the universal bare×bare ban.
+    """
+    adx, ady = a2.x - a1.x, a2.y - a1.y
+    bdx, bdy = b2.x - b1.x, b2.y - b1.y
+    if abs(adx) != abs(ady) or adx == 0.0:
         return False
-
-    if a_h:
-        bx = b1.x
-        ay = a1.y
-        ax_min, ax_max = (a1.x, a2.x) if a1.x < a2.x else (a2.x, a1.x)
-        by_min, by_max = (b1.y, b2.y) if b1.y < b2.y else (b2.y, b1.y)
-        return ax_min < bx < ax_max and by_min < ay < by_max
-    else:
-        ax = a1.x
-        by = b1.y
-        bx_min, bx_max = (b1.x, b2.x) if b1.x < b2.x else (b2.x, b1.x)
-        ay_min, ay_max = (a1.y, a2.y) if a1.y < a2.y else (a2.y, a1.y)
-        return bx_min < ax < bx_max and ay_min < by < ay_max
+    if abs(bdx) != abs(bdy) or bdx == 0.0:
+        return False
+    # Perpendicular: dot product == 0.
+    if adx * bdx + ady * bdy != 0.0:
+        return False
+    # Compute intersection of the two infinite lines.
+    denom = adx * (-bdy) - ady * (-bdx)
+    if denom == 0.0:
+        return False
+    t = ((b1.x - a1.x) * (-bdy) - (b1.y - a1.y) * (-bdx)) / denom
+    ix = a1.x + t * adx
+    iy = a1.y + t * ady
+    return ix == round(ix) and iy == round(iy)
 
 
 def split_path_by_side(path: list[PathStep]) -> list[tuple[list[Point], str]]:

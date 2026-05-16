@@ -30,7 +30,13 @@ class RoutingCostModel:
     direction_change: float = 1.0      # penalty per turn (discourages detours)
     diagonal_multiplier: float = math.sqrt(2)     # cost factor for diagonal step
     # Crossing costs — applied when a wire passes over an existing wire segment.
-    crossing_bare_bare: float = float("inf")      # bare × bare = short
+    crossing_bare_bare: float = float("inf")      # bare × bare = short (default)
+    # Exception to crossing_bare_bare: two bare diagonals that cross at a
+    # mesh-cell centre (int, int) and are mutually perpendicular are
+    # electrically safe in physical perfboard practice — the wires can be bent
+    # around each other.  Default = inf preserves the strict ban; the
+    # bare_diagonal routing mode lowers this to a finite value.
+    crossing_bare_bare_diagonal: float = float("inf")
     crossing_insulated_bare: float = 5.0          # insulated × bare = jumper OK
     # Layer-change cost — paid once per top↔bottom via on a plated-through pad.
     layer_change: float = 2.0
