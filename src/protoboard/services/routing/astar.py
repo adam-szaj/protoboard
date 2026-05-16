@@ -261,8 +261,16 @@ def _universe_worker(
     vias: set[Point],
     forbidden_edges: set[tuple[Point, str, Point, str]],
     penalised: dict[tuple[Point, str], float],
+    source_parity: int = -1,
 ) -> None:
-    """Run one A* universe until it finds a path, exhausts the heap, or exceeds budget."""
+    """Run one A* universe until it finds a path, exhausts the heap, or exceeds budget.
+
+    *source_parity* is consulted only when cost_model.bare_diagonal_mode is
+    True.  In that mode a diagonal neighbour (ndx, ndy) is rejected unless
+    its family matches the source pad's parity: parity 0 admits the "/"
+    family (ndx*ndy > 0); parity 1 admits the "\\" family (ndx*ndy < 0).
+    Pass -1 to disable the filter even if cost_model says otherwise.
+    """
 
     def h(px: float, py: float) -> float:
         best = float("inf")
@@ -296,6 +304,10 @@ def _universe_worker(
     _inf = float("inf")
     _dc  = cost_model.direction_change
     _lc  = cost_model.layer_change
+    _parity_filter = cost_model.bare_diagonal_mode and source_parity in (0, 1)
+    # Allowed sign of (ndx * ndy) for diagonal steps in the source's family.
+    # parity 0 → "/" family → ndx*ndy > 0; parity 1 → "\" family → ndx*ndy < 0.
+    _parity_sign = 1.0 if source_parity == 0 else -1.0
 
     _seq = seq_counter
 
@@ -332,6 +344,12 @@ def _universe_worker(
                     continue
                 if (cx, cy, cur_side, nx, ny, cur_side) in _fe:
                     continue
+                # Parity-family filter for bare-diagonal mode: reject diagonals
+                # from the opposite family so the source's path cannot fight
+                # itself for mesh-cell crossings.
+                if _parity_filter and ndx != 0.0 and ndy != 0.0:
+                    if (ndx * ndy) * _parity_sign < 0.0:
+                        continue
 
                 # Inlined _step_cost using float-tuple dicts.
                 _nkey = (nx, ny, cur_side)
@@ -436,6 +454,12 @@ def _astar_parallel(
     ]
     initial_visited: dict[tuple[float, float, int, float, float], float] = {}
 
+    # Parity of the source pad: pads sit at (c+0.5, r+0.5) so floor gives (c, r).
+    # Used only by bare_diagonal mode; ignored otherwise.
+    source_parity = (
+        int(math.floor(source.x)) + int(math.floor(source.y))
+    ) % 2 if cost_model.bare_diagonal_mode else -1
+
     shared = _SharedState(
         result_queue=Queue(),
         extra_budget_ratio=extra_budget_ratio,
@@ -448,6 +472,7 @@ def _astar_parallel(
         valid_nodes, target_set, target_coords, cost_model, insulated,
         occupied, same_net, near_pins, near_pin_cost,
         bare_idx, vias, forbidden_edges, penalised,
+        source_parity,
     )
     shared.add_future(fut)
 

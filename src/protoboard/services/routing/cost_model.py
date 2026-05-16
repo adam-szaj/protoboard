@@ -45,3 +45,9 @@ class RoutingCostModel:
     # physical inspection and rework harder.  A bottom-layer detour is
     # preferred when it is not significantly longer.
     under_component_top: float = 3.0
+    # When True, restrict diagonal moves to the parity family of the source
+    # pad (parity = (floor(x)+floor(y)) % 2).  Guarantees that any two bare
+    # diagonals crossing at a mesh-cell centre belong to different families
+    # and are therefore mutually perpendicular — the electrical-safety
+    # invariant that makes crossing_bare_bare_diagonal usable.
+    bare_diagonal_mode: bool = False
