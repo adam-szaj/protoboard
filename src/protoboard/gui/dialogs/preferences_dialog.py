@@ -550,7 +550,7 @@ class _RoutingPage(QWidget):
         gen_form.addRow("Optimize iterations", self._max_optimize)
 
         self._wire_mode = QComboBox()
-        self._wire_mode.addItems(["auto", "bare", "insulated"])
+        self._wire_mode.addItems(["auto", "bare", "bare_diagonal", "insulated"])
         gen_form.addRow("Wire mode", self._wire_mode)
 
         self._allow_jumpers = QCheckBox()
@@ -558,6 +558,9 @@ class _RoutingPage(QWidget):
 
         self._push_and_shove = QCheckBox()
         gen_form.addRow("Push-and-shove", self._push_and_shove)
+
+        self._enable_simplify = QCheckBox()
+        gen_form.addRow("Simplify after routing", self._enable_simplify)
 
         self._max_detour = _cost_spinbox(0.0, 20.0, 0.5, 1)
         self._max_detour.setSpecialValueText("unlimited")
@@ -575,6 +578,11 @@ class _RoutingPage(QWidget):
 
         self._crossing_insulated_bare = _cost_spinbox(0.0, 50.0, 0.5, 1)
         cost_form.addRow("Insulated × bare wire", self._crossing_insulated_bare)
+
+        self._crossing_bare_bare_diagonal = _cost_spinbox(0.0, 50.0, 0.5, 1)
+        cost_form.addRow(
+            "Diagonal × diagonal (bare)", self._crossing_bare_bare_diagonal
+        )
 
         self._layer_change = _cost_spinbox(0.0, 20.0, 0.5, 1)
         cost_form.addRow("Layer change (via)", self._layer_change)
@@ -607,12 +615,14 @@ class _RoutingPage(QWidget):
         self._max_optimize.setValue(rs.max_optimize_iterations)
         self._direction_change.setValue(rs.direction_change)
         self._crossing_insulated_bare.setValue(rs.crossing_insulated_bare)
+        self._crossing_bare_bare_diagonal.setValue(rs.crossing_bare_bare_diagonal)
         self._layer_change.setValue(rs.layer_change)
         self._under_component_top.setValue(rs.under_component_top)
         idx = self._wire_mode.findText(rs.wire_mode)
         self._wire_mode.setCurrentIndex(max(idx, 0))
         self._allow_jumpers.setChecked(rs.allow_jumpers)
         self._push_and_shove.setChecked(rs.push_and_shove)
+        self._enable_simplify.setChecked(rs.enable_simplify_pass)
         self._max_detour.setValue(rs.max_detour_factor)
 
     def _restore_defaults(self) -> None:
@@ -627,11 +637,13 @@ class _RoutingPage(QWidget):
             max_optimize_iterations=self._max_optimize.value(),
             direction_change=self._direction_change.value(),
             crossing_insulated_bare=self._crossing_insulated_bare.value(),
+            crossing_bare_bare_diagonal=self._crossing_bare_bare_diagonal.value(),
             layer_change=self._layer_change.value(),
             under_component_top=self._under_component_top.value(),
             wire_mode=self._wire_mode.currentText(),  # type: ignore[arg-type]
             allow_jumpers=self._allow_jumpers.isChecked(),
             push_and_shove=self._push_and_shove.isChecked(),
+            enable_simplify_pass=self._enable_simplify.isChecked(),
             max_detour_factor=self._max_detour.value(),
         )
         self._session.routing_settings = new_settings

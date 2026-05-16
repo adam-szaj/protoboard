@@ -134,6 +134,7 @@ def autoroute(
     net_ids: set[uuid.UUID] | None = None,
     report_path: "Path | None" = None,
     push_and_shove: bool = True,
+    enable_simplify_pass: bool = True,
 ) -> AutorouteResult:
     """Route all unrouted nets in *schematic* and return new wire segments.
 
@@ -398,7 +399,7 @@ def autoroute(
         current_wires = best_wires
 
     # Post-process: simplify bare-diagonal wires (straighten + corner-cut).
-    if wire_mode == "bare_diagonal" and current_wires:
+    if wire_mode == "bare_diagonal" and enable_simplify_pass and current_wires:
         from protoboard.services.routing.postprocess import simplify_wires
         board_pads_all: set[Point] = {pos for _, pos in board.atoms()}
         current_wires = simplify_wires(current_wires, board_pads_all)

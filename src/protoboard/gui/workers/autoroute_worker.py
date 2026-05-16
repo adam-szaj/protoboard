@@ -111,6 +111,7 @@ class AutorouteWorker(QThread):
                 net_ids=self._net_ids,
                 report_path=report_path,
                 push_and_shove=rs.push_and_shove,
+                enable_simplify_pass=rs.enable_simplify_pass,
             )
         except AutorouteCancelled:
             # Return empty result — caller interprets as user cancellation.

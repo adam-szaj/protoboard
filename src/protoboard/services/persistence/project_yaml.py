@@ -382,9 +382,11 @@ def _routing_settings_to_yaml(s: RoutingSettings) -> str:
         "max_detour_factor": s.max_detour_factor,
         "skip_autoroute_dialog": s.skip_autoroute_dialog,
         "push_and_shove": s.push_and_shove,
+        "enable_simplify_pass": s.enable_simplify_pass,
         "cost_model": {
             "direction_change": s.direction_change,
             "crossing_insulated_bare": s.crossing_insulated_bare,
+            "crossing_bare_bare_diagonal": s.crossing_bare_bare_diagonal,
             "layer_change": s.layer_change,
             "under_component_top": s.under_component_top,
         },
@@ -403,7 +405,7 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
         return RoutingSettings()
     cm = data.get("cost_model") or {}
     wire_mode = data.get("wire_mode", "auto")
-    if wire_mode not in ("bare", "insulated", "auto"):
+    if wire_mode not in ("bare", "insulated", "auto", "bare_diagonal"):
         wire_mode = "auto"
     return RoutingSettings(
         preferred_side=data.get("preferred_side", "bottom"),
@@ -412,6 +414,9 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
         max_optimize_iterations=int(data.get("max_optimize_iterations", 10)),
         direction_change=float(cm.get("direction_change", 1.0)),
         crossing_insulated_bare=float(cm.get("crossing_insulated_bare", 5.0)),
+        crossing_bare_bare_diagonal=float(
+            cm.get("crossing_bare_bare_diagonal", 2.0)
+        ),
         layer_change=float(cm.get("layer_change", 2.0)),
         under_component_top=float(cm.get("under_component_top", 3.0)),
         wire_mode=wire_mode,
@@ -419,6 +424,7 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
         max_detour_factor=float(data.get("max_detour_factor", 0.0)),
         skip_autoroute_dialog=bool(data.get("skip_autoroute_dialog", False)),
         push_and_shove=bool(data.get("push_and_shove", True)),
+        enable_simplify_pass=bool(data.get("enable_simplify_pass", True)),
     )
 
 

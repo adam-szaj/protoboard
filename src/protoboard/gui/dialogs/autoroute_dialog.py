@@ -54,15 +54,21 @@ class AutorouteDialog(QDialog):
 
         self._rb_auto = QRadioButton("Auto — bare wire, insulated as fallback")
         self._rb_bare = QRadioButton("Always bare")
+        self._rb_bare_diag = QRadioButton(
+            "Bare diagonal — parity-restricted, crossings between pads"
+        )
         self._rb_ins  = QRadioButton("Always insulated")
 
         self._wire_mode_group = QButtonGroup(self)
         self._wire_mode_group.addButton(self._rb_auto, 0)
         self._wire_mode_group.addButton(self._rb_bare, 1)
-        self._wire_mode_group.addButton(self._rb_ins,  2)
+        self._wire_mode_group.addButton(self._rb_bare_diag, 2)
+        self._wire_mode_group.addButton(self._rb_ins, 3)
 
         if rs.wire_mode == "bare":
             self._rb_bare.setChecked(True)
+        elif rs.wire_mode == "bare_diagonal":
+            self._rb_bare_diag.setChecked(True)
         elif rs.wire_mode == "insulated":
             self._rb_ins.setChecked(True)
         else:
@@ -73,16 +79,18 @@ class AutorouteDialog(QDialog):
 
         wire_layout.addWidget(self._rb_auto)
         wire_layout.addWidget(self._rb_bare)
+        wire_layout.addWidget(self._rb_bare_diag)
         wire_layout.addWidget(self._rb_ins)
         wire_layout.addWidget(self._chk_jumpers)
         root.addWidget(wire_group)
 
-        # Disable jumpers option when "always bare" (bare can never cross bare).
-        self._rb_bare.toggled.connect(
-            lambda checked: self._chk_jumpers.setEnabled(not checked)
-        )
-        if rs.wire_mode == "bare":
-            self._chk_jumpers.setEnabled(False)
+        # Disable jumpers option when bare-family selected (bare can never cross bare).
+        def _sync_jumpers_enabled() -> None:
+            bare_family = self._rb_bare.isChecked() or self._rb_bare_diag.isChecked()
+            self._chk_jumpers.setEnabled(not bare_family)
+        self._rb_bare.toggled.connect(lambda _c: _sync_jumpers_enabled())
+        self._rb_bare_diag.toggled.connect(lambda _c: _sync_jumpers_enabled())
+        _sync_jumpers_enabled()
 
         # ── Routing strategy ───────────────────────────────────────────
         strat_group = QGroupBox("Routing strategy")
@@ -140,6 +148,13 @@ class AutorouteDialog(QDialog):
         self._spin_jumper_cost.setValue(rs.crossing_insulated_bare)
         cost_form.addRow("Jumper cost (insulated × bare):", self._spin_jumper_cost)
 
+        self._spin_diag_cross = QDoubleSpinBox()
+        self._spin_diag_cross.setRange(0.0, 100.0)
+        self._spin_diag_cross.setSingleStep(0.5)
+        self._spin_diag_cross.setDecimals(1)
+        self._spin_diag_cross.setValue(rs.crossing_bare_bare_diagonal)
+        cost_form.addRow("Diagonal cross cost (bare × bare):", self._spin_diag_cross)
+
         self._spin_via = QDoubleSpinBox()
         self._spin_via.setRange(0.0, 20.0)
         self._spin_via.setSingleStep(0.5)
@@ -155,6 +170,10 @@ class AutorouteDialog(QDialog):
         cost_form.addRow("Under component (top) cost:", self._spin_under)
 
         root.addWidget(cost_group)
+
+        self._chk_simplify = QCheckBox("Simplify after routing (bare diagonal)")
+        self._chk_simplify.setChecked(rs.enable_simplify_pass)
+        root.addWidget(self._chk_simplify)
 
         # ── Footer ─────────────────────────────────────────────────────
         self._chk_save = QCheckBox("Save as project default")
@@ -181,6 +200,8 @@ class AutorouteDialog(QDialog):
 
         if self._rb_bare.isChecked():
             wire_mode = "bare"
+        elif self._rb_bare_diag.isChecked():
+            wire_mode = "bare_diagonal"
         elif self._rb_ins.isChecked():
             wire_mode = "insulated"
         else:
@@ -193,11 +214,13 @@ class AutorouteDialog(QDialog):
             max_optimize_iterations=self._spin_opt.value(),
             direction_change=self._spin_dir.value(),
             crossing_insulated_bare=self._spin_jumper_cost.value(),
+            crossing_bare_bare_diagonal=self._spin_diag_cross.value(),
             layer_change=self._spin_via.value(),
             under_component_top=self._spin_under.value(),
             wire_mode=wire_mode,  # type: ignore[arg-type]
             allow_jumpers=self._chk_jumpers.isChecked(),
             push_and_shove=self._chk_push_shove.isChecked(),
+            enable_simplify_pass=self._chk_simplify.isChecked(),
             max_detour_factor=self._spin_detour.value(),
             skip_autoroute_dialog=self._chk_skip.isChecked(),
         )
