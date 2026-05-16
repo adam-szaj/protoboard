@@ -126,7 +126,7 @@ def autoroute(
     allow_layer_change: bool = True,
     max_optimize_iterations: int = 10,
     preferred_side: Literal["top", "bottom"] = "bottom",
-    wire_mode: Literal["bare", "insulated", "auto"] = "insulated",
+    wire_mode: Literal["bare", "insulated", "auto", "bare_diagonal"] = "insulated",
     max_detour_factor: float = 0.0,
     progress_callback: Callable[[int, str, int], None] | None = None,
     optimize_progress_callback: Callable[[int, int], None] | None = None,
@@ -552,7 +552,7 @@ def _run_one_pass(
     max_rip_up_passes: int,
     side: Literal["top", "bottom"],
     insulated: bool,
-    wire_mode: Literal["bare", "insulated", "auto"] = "insulated",
+    wire_mode: Literal["bare", "insulated", "auto", "bare_diagonal"] = "insulated",
     max_detour_factor: float = 0.0,
     plated_through_pads: set[Point] = set(),
     under_component_penalty: dict[tuple[Point, str], float] = {},
@@ -718,7 +718,7 @@ def _route_net(
     cost_model: RoutingCostModel,
     max_rip_up_passes: int,
     insulated: bool,
-    wire_mode: Literal["bare", "insulated", "auto"] = "insulated",
+    wire_mode: Literal["bare", "insulated", "auto", "bare_diagonal"] = "insulated",
     max_detour_factor: float = 0.0,
     plated_through_pads: set[Point] = set(),
     under_component_penalty: dict[tuple[Point, str], float] = {},
@@ -1050,7 +1050,7 @@ def _route_segment_with_ripup(
     cur_net_wire_points: set[tuple[Point, str]],
     under_component_penalty: dict[tuple[Point, str], float],
     preferred_side: Literal["top", "bottom"] = "bottom",
-    wire_mode: Literal["bare", "insulated", "auto"] = "insulated",
+    wire_mode: Literal["bare", "insulated", "auto", "bare_diagonal"] = "insulated",
     max_detour_factor: float = 0.0,
     manhattan_dist: float = 0.0,
     push_and_shove: bool = True,
@@ -1069,10 +1069,14 @@ def _route_segment_with_ripup(
         bare_segs = _build_bare_wire_segments(working_wires)
 
         # Determine which insulation modes to attempt for this segment.
-        # wire_mode="auto": try bare first, fall back to insulated.
-        # wire_mode="bare" / "insulated": single attempt only.
+        # wire_mode="auto":          try bare first, fall back to insulated.
+        # wire_mode="bare":          bare only, strict crossing ban.
+        # wire_mode="bare_diagonal": bare only, parity-constrained diagonals
+        #                            with perpendicular mesh-cell crossings
+        #                            allowed at cost_model.crossing_bare_bare_diagonal.
+        # wire_mode="insulated":     insulated only.
         import dataclasses as _dc
-        if wire_mode == "bare":
+        if wire_mode == "bare" or wire_mode == "bare_diagonal":
             insulation_attempts = [False]
         elif wire_mode == "insulated":
             insulation_attempts = [True]
@@ -1080,12 +1084,17 @@ def _route_segment_with_ripup(
             insulation_attempts = [False, True]
 
         # For bare-wire attempt: forbid all crossings (bare×bare = short,
-        # insulated×bare also not wanted on first try).
-        bare_only_cm = _dc.replace(
-            cost_model,
-            crossing_bare_bare=float("inf"),
-            crossing_insulated_bare=float("inf"),
-        )
+        # insulated×bare also not wanted on first try).  For bare_diagonal,
+        # keep the cost_model as-is so its crossing_bare_bare_diagonal cost
+        # and bare_diagonal_mode flag take effect.
+        if wire_mode == "bare_diagonal":
+            bare_only_cm = cost_model
+        else:
+            bare_only_cm = _dc.replace(
+                cost_model,
+                crossing_bare_bare=float("inf"),
+                crossing_insulated_bare=float("inf"),
+            )
 
         best: tuple[float, list[PathStep]] | None = None
         best_is_preferred = False
