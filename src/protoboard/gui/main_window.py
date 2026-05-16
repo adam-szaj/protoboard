@@ -780,6 +780,7 @@ class MainWindow(QMainWindow):
             "labels_top":        "Labels Top",
             "labels_bottom":     "Labels Bottom",
             "board":             "Board",
+            "ratsnest":          "Ratsnest",
         }
         for field_name, act in self._layer_actions.items():
             vis = getattr(self._layer_overrides, field_name)
