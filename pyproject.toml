@@ -39,7 +39,10 @@ packages = ["src/protoboard"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v"
+addopts = "-v -m 'not property'"
+markers = [
+    "property: hypothesis-driven property tests (skipped by default; run with -m property)",
+]
 
 
 [tool.mypy]
