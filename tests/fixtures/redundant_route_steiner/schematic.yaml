@@ -1,0 +1,10 @@
+nets:
+- id: cb1331d7-5d06-47a0-945d-5a231973ac00
+  name: Net-(J1-1)
+  pins:
+  - component_id: ada491b8-9eae-4a86-ab62-fe03cd4b4e07
+    pin_number: 1
+  - component_id: e9fa6d9c-65dc-4505-8f6f-241915c9480f
+    pin_number: 1
+  - component_id: b2c17760-4de7-4a10-96b9-d1125eecfd47
+    pin_number: 1

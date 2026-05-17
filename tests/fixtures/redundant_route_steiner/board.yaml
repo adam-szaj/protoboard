@@ -1,0 +1,15 @@
+cell:
+  height_policy: hug
+  layers:
+    bottom: true
+    plated_through: true
+    top: true
+  type: PadAtom
+  width_policy: hug
+col_gap: 0.0
+cols: 20
+height_policy: hug
+row_gap: 0.0
+rows: 20
+type: BoardGrid
+width_policy: hug

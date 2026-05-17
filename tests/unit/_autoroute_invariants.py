@@ -67,6 +67,54 @@ def assert_no_net_fusion(
     raise AssertionError("\n".join(lines))
 
 
+def assert_no_redundant_routes(
+    board: Board,
+    layout: Layout,
+    extra_wires: list[WireSegment],
+    components: dict[str, ComponentDefinition],
+    instances: dict,  # dict[UUID, ComponentInstance]
+) -> None:
+    """Verify every wire in *extra_wires* is essential to its net's tree.
+
+    A wire is redundant when removing it still leaves its endpoints in the
+    same electric set — meaning some other path already connects them.
+    For an autoroute result that should be a spanning tree per net, any
+    such wire is a duplicate edge: two independent routes between the
+    same pair of pads.
+
+    This typically happens when a net has ≥3 pins.  The greedy MST routes
+    the closest pair first; the second segment then routes a remaining pin
+    to the connected electric set, and A* (which receives the *whole*
+    electric set as target_pads) can end its path on a pad reached through
+    a different corridor than the first wire — producing a parallel route.
+    """
+    all_wires = list(layout.wires) + list(extra_wires)
+    redundant: list[WireSegment] = []
+    for w in extra_wires:
+        if len(w.path) < 2:
+            continue
+        others = [ww for ww in all_wires if ww.id != w.id]
+        test_layout = replace(layout, wires=others)
+        graph = ConnectivityGraph(
+            board=board, layout=test_layout,
+            components=components, instances=instances,
+        )
+        if graph.are_connected(w.path[0], w.side, w.path[-1], w.side):
+            redundant.append(w)
+    if not redundant:
+        return
+
+    lines = [f"Redundant routes detected ({len(redundant)} of "
+             f"{len(extra_wires)} wires):"]
+    for w in redundant:
+        lines.append(
+            f"  id={str(w.id)[:8]} side={w.side} ins={w.insulated} "
+            f"({w.path[0].x},{w.path[0].y}) -> "
+            f"({w.path[-1].x},{w.path[-1].y}) hops={len(w.path)-1}"
+        )
+    raise AssertionError("\n".join(lines))
+
+
 # ---------------------------------------------------------------------------
 # Layout factories shared by handcrafted + property tests
 # ---------------------------------------------------------------------------

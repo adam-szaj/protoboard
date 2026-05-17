@@ -1,0 +1,53 @@
+groups:
+- id: 00000000-0000-0000-0000-000000000001
+  name: ''
+placements:
+- component_id: b2c17760-4de7-4a10-96b9-d1125eecfd47
+  position:
+    x: 3.5
+    y: 2.5
+  rotation: 90
+  side: top
+- component_id: ada491b8-9eae-4a86-ab62-fe03cd4b4e07
+  position:
+    x: 6.5
+    y: 18.5
+  rotation: 0
+  side: top
+- component_id: e9fa6d9c-65dc-4505-8f6f-241915c9480f
+  position:
+    x: 8.5
+    y: 4.5
+  rotation: 0
+  side: top
+- component_id: 38d2d3d4-3583-4722-b230-4e9c25211f05
+  position:
+    x: 6.5
+    y: 1.5
+  rotation: 0
+  side: top
+- component_id: 65888c9d-8a48-4e65-8d20-b2df79337891
+  position:
+    x: 4.5
+    y: 4.5
+  rotation: 0
+  side: top
+- component_id: e23319ee-4aa8-4730-987b-0430f7f45b77
+  position:
+    x: 5.5
+    y: 8.5
+  rotation: 0
+  side: top
+- component_id: 2ca36118-bf50-4401-91bd-4bbd12d5c4c7
+  position:
+    x: 6.5
+    y: 12.5
+  rotation: 0
+  side: top
+- component_id: 3dc9475f-e365-41db-b77b-c58ef3665d2a
+  position:
+    x: 7.5
+    y: 15.5
+  rotation: 0
+  side: top
+wires: []
