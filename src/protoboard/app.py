@@ -7,9 +7,9 @@ import argparse
 import os
 import sys
 
-# PySide6's Wayland platform plugin crashes on libwayland-client >= 1.24 with
-# FreeType 2.14 (render glyph err=62 → segfault).  Force XCB (XWayland) unless
-# the caller has already set a preference.
+# QT_QPA_PLATFORM=xcb workaround is now applied at package import time
+# (see protoboard/__init__.py).  Kept here too as defense-in-depth in
+# case someone reorders imports above the package import.
 os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
 
 import structlog as _structlog
