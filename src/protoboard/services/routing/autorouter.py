@@ -27,7 +27,7 @@ import datetime
 import io
 import uuid
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, TYPE_CHECKING
@@ -114,9 +114,38 @@ def _check_no_net_fusion(
             f"wire {str(just_added.id)[:8]} merged {sorted(next(iter(fused.values())))}"
         )
 
+class _SequentialExecutor:
+    """Drop-in replacement for ThreadPoolExecutor that runs work inline.
+
+    Use case 1 — tests: hypothesis fuzz needs deterministic A* output for
+    shrinking; tied-cost universes finish in non-deterministic order under
+    a real thread pool.
+    Use case 2 — diagnostics: set PROTOBOARD_ASTAR_SEQUENTIAL=1 to bypass
+    the thread pool entirely, useful when a worker thread crashes in
+    third-party native code (Qt+FreeType, CPython GC) and we need to
+    rule out concurrency as the cause.
+    """
+
+    def submit(self, fn, *args, **kwargs):  # type: ignore[no-untyped-def]
+        fut: Future = Future()
+        try:
+            fut.set_result(fn(*args, **kwargs))
+        except BaseException as e:  # noqa: BLE001
+            fut.set_exception(e)
+        return fut
+
+    def shutdown(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        pass
+
+
 # Module-level thread pool for parallel A* side evaluation.
-_ASTAR_POOL = ThreadPoolExecutor(max_workers=_CPU_COUNT, thread_name_prefix="astar")
-_atexit.register(lambda: _ASTAR_POOL.shutdown(wait=False, cancel_futures=True))
+_ASTAR_SEQUENTIAL = _os.environ.get("PROTOBOARD_ASTAR_SEQUENTIAL", "0") == "1"
+if _ASTAR_SEQUENTIAL:
+    _log.info("astar.pool", mode="sequential", reason="PROTOBOARD_ASTAR_SEQUENTIAL=1")
+    _ASTAR_POOL: ThreadPoolExecutor | _SequentialExecutor = _SequentialExecutor()
+else:
+    _ASTAR_POOL = ThreadPoolExecutor(max_workers=_CPU_COUNT, thread_name_prefix="astar")
+    _atexit.register(lambda: _ASTAR_POOL.shutdown(wait=False, cancel_futures=True))
 
 
 class AutorouteCancelled(Exception):
