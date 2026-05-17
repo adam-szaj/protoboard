@@ -767,6 +767,7 @@ def _run_one_pass(
             segment_callback=_seg_cb,
             cancel_flag=cancel_flag,
             push_and_shove=push_and_shove,
+            pass_new_wires=new_wires,
         )
         segs_done += net_segs
         if routed is None:
@@ -858,8 +859,16 @@ def _route_net(
     segment_callback: Callable[[str, int, int], None] | None = None,
     cancel_flag: threading.Event | None = None,
     push_and_shove: bool = True,
+    pass_new_wires: list[WireSegment] | None = None,
 ) -> tuple[list[WireSegment], NetStats] | None:
-    """Route all connections for *net*.  Returns (wires, stats) or None on failure."""
+    """Route all connections for *net*.  Returns (wires, stats) or None on failure.
+
+    *pass_new_wires* (optional) is the pass-level list of wires routed so far
+    in this `_run_one_pass`.  When a rip-up removes a wire that was routed by
+    an earlier net, we also need to remove it from this list — otherwise the
+    donor net keeps a wire in its result that no longer exists in
+    working_wires/connectivity_graph, producing a phantom duplicate route.
+    """
     placed_refs = [ref for ref in net.pins if ref in pin_positions]
     if len(placed_refs) < 2:
         if _DEEP_DEBUG:
@@ -1037,11 +1046,13 @@ def _route_net(
             break
         unconnected_refs = still_unconnected
 
-        # Pick the (source, target) pair with minimum manhattan distance across
-        # all connected×unconnected combinations.  Pass only that specific source
-        # to A* — not the full connected_pts list — so the router is forced to
-        # route the geometrically closest segment rather than sneaking through an
-        # already-routed wire to reach a distant target from a different origin.
+        # Pick the closest unconnected pin to drive into the already-connected
+        # set.  We route *from* the unconnected pin (source) *to* the connected
+        # pin (target) so that A*'s target_set expands to the whole electric
+        # set of the connected pin — any pad already on a previous wire of
+        # this net is a valid endpoint.  Without that, A* would head for one
+        # specific pad and might lay a parallel route through pads already
+        # in the electric set, producing a redundant edge.
         best_src_pt: tuple[Point, str] = connected_pts[0]
         best_tgt_ref: PinRef = unconnected_refs[0]
         best_pair_dist = float("inf")
@@ -1054,9 +1065,14 @@ def _route_net(
                     best_src_pt = (cpt, cside)
                     best_tgt_ref = uref
 
+        # Swap roles: A* runs from the *unconnected* pin (source) toward the
+        # *connected* pin (target) so target_pads includes the whole electric
+        # set of the connected pin.
         ref = best_tgt_ref
         unconnected_refs.remove(ref)
-        target_pt, _ = pin_positions[ref]
+        target_pt = best_src_pt[0]
+        unconnected_src_pos, unconnected_src_side = pin_positions[ref]
+        best_src_pt = (unconnected_src_pos, unconnected_src_side)
 
         if _DEEP_DEBUG:
             _log.debug(
@@ -1079,6 +1095,7 @@ def _route_net(
             layout=layout,
             working_wires=working_wires,
             additional_wires=new_wires,
+            pass_new_wires=pass_new_wires,
             components=components,
             instances=instances,
             connectivity_graph=current_graph,
@@ -1129,9 +1146,19 @@ def _route_net(
             )
         new_wires.extend(routed_wires)
         working_wires.extend(routed_wires)
+        # Once a wire touches a plated-through pad it is electrically present
+        # on the *other* layer too — so subsequent segments routing on that
+        # other layer must treat the pad as already same-net and stop there
+        # instead of laying a parallel path.  Without this `cur_net_wire_points`
+        # would only see the wire's own side and `_truncate_at_same_net_wire`
+        # could let a later route walk past it, producing a redundant edge in
+        # the donor net's spanning tree.
+        _OTHER = {"top": "bottom", "bottom": "top"}
         for w in routed_wires:
             for pt in w.path:
                 cur_net_wire_points.add((pt, w.side))
+                if pt in plated_through_pads:
+                    cur_net_wire_points.add((pt, _OTHER[w.side]))
             # Incremental update — O(path_len) instead of O(full_graph_rebuild).
             current_graph.add_wire(w)
             # Live short-detection: after adding this wire, did any pin
@@ -1194,6 +1221,7 @@ def _route_segment_with_ripup(
     max_detour_factor: float = 0.0,
     manhattan_dist: float = 0.0,
     push_and_shove: bool = True,
+    pass_new_wires: list[WireSegment] | None = None,
 ) -> tuple[list[WireSegment], dict[str, int]] | None:
     """Try to route *target* from any of *source_options*, with rip-up fallback.
 
@@ -1208,8 +1236,10 @@ def _route_segment_with_ripup(
     # fail to route, restore them — otherwise working_wires and
     # connectivity_graph diverge from the pass-level new_wires that still
     # holds these wires, and later nets will route through their pads
-    # blind to the physical occupancy → silent net fusion.
-    _ripped_wires: list[WireSegment] = []
+    # blind to the physical occupancy → silent net fusion.  The boolean
+    # records whether the wire was donor-owned (in pass_new_wires) so the
+    # restore can put it back in the right list.
+    _ripped_wires: list[tuple[WireSegment, bool]] = []
     for attempt in range(max_rip_up_passes + 1):
         graph = connectivity_graph
         bare_segs = _build_bare_wire_segments(working_wires)
@@ -1388,7 +1418,20 @@ def _route_segment_with_ripup(
                 break  # found a valid path — no need for fallback
 
         if best is not None:
-            path = _truncate_at_same_net_wire(best[1], cur_net_wire_points, target)
+            # Truncation only makes sense when the target is already
+            # electrically connected to the wire-net being grown — i.e. the
+            # net has at least one prior wire and the target pad sits in
+            # that wire's electric set.  Otherwise an A* path that merely
+            # *passes through* the existing wire on its way to a still-
+            # disconnected target would be truncated to that crossing pad,
+            # leaving the real target unrouted while the surrounding code
+            # marks the net "done".
+            target_set = connectivity_graph.pads_in_same_electric_set(target, side)
+            target_already_connected = len(target_set) > 1
+            if target_already_connected:
+                path = _truncate_at_same_net_wire(best[1], cur_net_wire_points, target)
+            else:
+                path = best[1]
             wires = _path_to_wires(path, result_insulated)
             if _DEEP_DEBUG:
                 _log.debug(
@@ -1441,6 +1484,12 @@ def _route_segment_with_ripup(
             connectivity_graph.remove_wire(old_wire)
             working_wires.append(new_wire)
             connectivity_graph.add_wire(new_wire)
+            # If push-and-shove nudged a wire that belonged to an earlier
+            # net in this pass, update pass_new_wires so the donor net's
+            # result reflects the new path rather than the stale old one.
+            if pass_new_wires is not None and old_wire in pass_new_wires:
+                pass_new_wires.remove(old_wire)
+                pass_new_wires.append(new_wire)
             if _DEEP_DEBUG:
                 _log.debug(
                     "autoroute.push_and_shove",
@@ -1470,13 +1519,28 @@ def _route_segment_with_ripup(
             )
         working_wires.remove(ripped)
         connectivity_graph.remove_wire(ripped)
-        _ripped_wires.append(ripped)
+        # If the ripped wire was routed by an earlier net in this pass it
+        # still sits in pass_new_wires — remove it there too, otherwise the
+        # donor net keeps a wire in its final result that no longer exists
+        # in working_wires/connectivity_graph.  That manifested in real
+        # projects as duplicate routes: two independent paths between the
+        # same pin pair, one stale and one freshly laid through a different
+        # corridor.  We track whether the wire was donor-owned so the
+        # failure restore knows where to put it back.
+        ripped_from_pass = (
+            pass_new_wires is not None and ripped in pass_new_wires
+        )
+        if ripped_from_pass:
+            pass_new_wires.remove(ripped)  # type: ignore[union-attr]
+        _ripped_wires.append((ripped, ripped_from_pass))
 
     # Routing ultimately failed.  Restore any wires we ripped during the
     # attempts so callers (and later nets) see a consistent state.
-    for w in _ripped_wires:
+    for w, from_pass in _ripped_wires:
         working_wires.append(w)
         connectivity_graph.add_wire(w)
+        if from_pass and pass_new_wires is not None:
+            pass_new_wires.append(w)
     return None
 
 
