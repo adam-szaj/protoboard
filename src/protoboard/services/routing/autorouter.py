@@ -1175,6 +1175,12 @@ def _route_segment_with_ripup(
     _seg_ob = 0
     # Build board pad set once for push-and-shove checks.
     _board_pad_set: set[Point] = {pos for _, pos in board.atoms()}
+    # Track wires we rip up during this segment's attempts.  If we ultimately
+    # fail to route, restore them — otherwise working_wires and
+    # connectivity_graph diverge from the pass-level new_wires that still
+    # holds these wires, and later nets will route through their pads
+    # blind to the physical occupancy → silent net fusion.
+    _ripped_wires: list[WireSegment] = []
     for attempt in range(max_rip_up_passes + 1):
         graph = connectivity_graph
         bare_segs = _build_bare_wire_segments(working_wires)
@@ -1435,7 +1441,13 @@ def _route_segment_with_ripup(
             )
         working_wires.remove(ripped)
         connectivity_graph.remove_wire(ripped)
+        _ripped_wires.append(ripped)
 
+    # Routing ultimately failed.  Restore any wires we ripped during the
+    # attempts so callers (and later nets) see a consistent state.
+    for w in _ripped_wires:
+        working_wires.append(w)
+        connectivity_graph.add_wire(w)
     return None
 
 
