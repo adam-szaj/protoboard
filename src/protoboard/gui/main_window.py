@@ -87,6 +87,7 @@ class MainWindow(QMainWindow):
         # Single persistent SelectTool instance — preserves group navigation state.
         self._select_tool = SelectTool()
         self._board_view._permanent_tools.append(self._select_tool)
+        self._apply_selection_settings_to_tool(self._select_tool)
 
         # Left dock — tabbed: Library | Netlist/BOM | Groups | Nets | Components
         self._library_panel = LibraryPanel(session.library, self)
@@ -328,6 +329,9 @@ class MainWindow(QMainWindow):
         self._layers_panel.overrides_changed.connect(self._on_layer_panel_changed)
         self._session.selection_changed.connect(self._on_selection_changed)
         self._session.highlight_mode_changed.connect(self._hl_mode_widget.on_highlight_mode_changed)
+        # Persist selection axes globally whenever the user changes them.
+        self._sel_filter_widget.filter_changed.connect(self._on_filter_changed)
+        self._hl_mode_widget.relation_changed.connect(self._on_relation_changed)
 
         # Populate panels if project already loaded.
         self._refresh_netlist()
@@ -426,7 +430,7 @@ class MainWindow(QMainWindow):
         edit_menu.addSeparator()
 
         self._act_clear_highlight: QAction = edit_menu.addAction("Clear &Highlight")
-        self._act_clear_highlight.setShortcut(QKeySequence("Ctrl+Shift+H"))
+        self._act_clear_highlight.setShortcut(self._ks(KB.ACTION_CLEAR_HIGHLIGHT))
         self._act_clear_highlight.setEnabled(False)
         self._act_clear_highlight.triggered.connect(self._clear_highlight)
 
@@ -595,7 +599,7 @@ class MainWindow(QMainWindow):
         act_tool_route.triggered.connect(self._tool_route)
 
         act_tool_route_net = tools_menu.addAction("Route Wire [Net-aware]")
-        act_tool_route_net.setShortcut("Shift+W")
+        act_tool_route_net.setShortcut(self._ks(KB.ACTION_TOOL_ROUTE_NET_AWARE))
         act_tool_route_net.triggered.connect(lambda: self._tool_route(net_aware=True))
 
         wire_sub = tools_menu.addMenu("  Wire options")
@@ -732,6 +736,7 @@ class MainWindow(QMainWindow):
         # Reset select tool state (group stack etc.) for the new session.
         self._select_tool = SelectTool()
         self._board_view._permanent_tools = [self._select_tool]
+        self._apply_selection_settings_to_tool(self._select_tool)
         self._sel_filter_widget.set_tool(self._select_tool)
         self._hl_mode_widget.set_tool(self._select_tool)
         session.selection_changed.connect(self._on_selection_changed)
@@ -2171,8 +2176,36 @@ class MainWindow(QMainWindow):
             self._tool_select()
         elif self._matches(event, KB.ACTION_TOOL_ROUTE):
             self._tool_route()
+        elif self._matches(event, KB.ACTION_TOOL_ROUTE_NET_AWARE):
+            self._tool_route(net_aware=True)
         elif self._matches(event, KB.ACTION_TOOL_CUT):
             self._tool_cut()
+        elif self._matches(event, KB.ACTION_CLEAR_HIGHLIGHT):
+            self._clear_highlight()
+        elif self._matches(event, KB.ACTION_FILTER_TOGGLE_COMPONENTS):
+            self._toggle_filter("components")
+        elif self._matches(event, KB.ACTION_FILTER_TOGGLE_WIRES):
+            self._toggle_filter("wires")
+        elif self._matches(event, KB.ACTION_FILTER_TOGGLE_GROUPS):
+            self._toggle_filter("groups")
+        elif self._matches(event, KB.ACTION_HIGHLIGHT_CYCLE):
+            self._cycle_relation(forward=True)
+        elif self._matches(event, KB.ACTION_RELATION_CYCLE_BACK):
+            self._cycle_relation(forward=False)
+        elif self._matches(event, KB.ACTION_RELATION_NONE):
+            self._set_relation_by_name("none")
+        elif self._matches(event, KB.ACTION_RELATION_LOGICAL_NET):
+            self._set_relation_by_name("same_logical_net")
+        elif self._matches(event, KB.ACTION_RELATION_PHYSICAL_NET):
+            self._set_relation_by_name("same_physical_net")
+        elif self._matches(event, KB.ACTION_RELATION_UNCONNECTED):
+            self._set_relation_by_name("unconnected_pins")
+        elif self._matches(event, KB.ACTION_RELATION_NEIGHBORS):
+            self._set_relation_by_name("neighbors")
+        elif self._matches(event, KB.ACTION_SIMPLIFY_WIRE):
+            self._simplify_selected_wires()
+        elif self._matches(event, KB.ACTION_UNWEAVE_WIRES):
+            self._unweave_selected_wires()
         elif self._matches(event, KB.ACTION_MIRROR_H):
             self._mirror_view()
         elif self._matches(event, KB.ACTION_MIRROR_V):
@@ -2198,3 +2231,94 @@ class MainWindow(QMainWindow):
                         self._cycle_layer(self._layer_field_order[idx])
                     return
             super().keyPressEvent(event)
+
+    # ------------------------------------------------------------------
+    # Selection axes — load from app_settings and persist on change.
+    # ------------------------------------------------------------------
+
+    def _apply_selection_settings_to_tool(self, tool: SelectTool) -> None:
+        """Push filter+relation from app_settings into a freshly built SelectTool."""
+        from protoboard.gui.selection_axes import (
+            filter_from_tokens,
+            relation_from_str,
+        )
+        tool.set_filter(filter_from_tokens(self._app_settings.selection_filter_tokens))
+        tool.set_relation(relation_from_str(self._app_settings.selection_relation))
+
+    def _on_filter_changed(self, new_filter: object) -> None:
+        from protoboard.gui.app_settings import save_app_settings
+        from protoboard.gui.selection_axes import SelectionFilter, filter_to_tokens
+        if not isinstance(new_filter, SelectionFilter):
+            return
+        self._app_settings.selection_filter_tokens = filter_to_tokens(new_filter)
+        save_app_settings(self._app_settings)
+
+    def _on_relation_changed(self, new_relation: object) -> None:
+        from protoboard.gui.app_settings import save_app_settings
+        from protoboard.gui.selection_axes import RelationClass
+        if not isinstance(new_relation, RelationClass):
+            return
+        self._app_settings.selection_relation = new_relation.value
+        save_app_settings(self._app_settings)
+
+    def _toggle_filter(self, which: str) -> None:
+        """Toggle one bit of the SelectTool's selection filter from a shortcut.
+
+        Pushes the new value back through SelectionFilterWidget so the
+        status-bar buttons stay in sync and the change is persisted.
+        """
+        from protoboard.gui.selection_axes import SelectionFilter
+        current = self._select_tool.filter
+        flag = {
+            "components": SelectionFilter.COMPONENTS,
+            "wires": SelectionFilter.WIRES,
+            "groups": SelectionFilter.GROUPS,
+        }.get(which)
+        if flag is None:
+            return
+        new = current ^ flag  # bit toggle
+        # Apply to tool, update widget buttons, persist.
+        self._select_tool.set_filter(new)
+        self._sel_filter_widget.set_tool(self._select_tool)
+        self._sel_filter_widget.filter_changed.emit(new)
+
+    def _set_relation_by_name(self, value: str) -> None:
+        """Set the SelectTool's relation class from a string identifier."""
+        from protoboard.gui.selection_axes import relation_from_str
+        relation = relation_from_str(value)
+        self._select_tool.set_relation(relation)
+        self._hl_mode_widget.set_tool(self._select_tool)
+        self._hl_mode_widget.relation_changed.emit(relation)
+
+    def _cycle_relation(self, *, forward: bool) -> None:
+        """Cycle through RelationClass values forward or backward."""
+        from protoboard.gui.selection_axes import RelationClass
+        relations = list(RelationClass)
+        idx = relations.index(self._select_tool.relation)
+        step = 1 if forward else -1
+        new = relations[(idx + step) % len(relations)]
+        self._select_tool.set_relation(new)
+        self._hl_mode_widget.set_tool(self._select_tool)
+        self._hl_mode_widget.relation_changed.emit(new)
+
+    def _simplify_selected_wires(self) -> None:
+        """Run generic_simplify_wire on every currently-selected wire."""
+        tool = self._select_tool
+        wire_ids: set[uuid.UUID] = set(tool._selected_wire_ids)
+        if tool._selected_wire_id is not None:
+            wire_ids.add(tool._selected_wire_id)
+        if not wire_ids:
+            self._status.showMessage("Simplify: select a wire first.", 3000)
+            return
+        tool._simplify_wires(wire_ids)
+
+    def _unweave_selected_wires(self) -> None:
+        """Topologically un-weave mutual crossings of the selected wires."""
+        tool = self._select_tool
+        wire_ids: set[uuid.UUID] = set(tool._selected_wire_ids)
+        if tool._selected_wire_id is not None:
+            wire_ids.add(tool._selected_wire_id)
+        if len(wire_ids) < 2:
+            self._status.showMessage("Unweave: select at least 2 wires.", 3000)
+            return
+        tool._unweave_wires(wire_ids)

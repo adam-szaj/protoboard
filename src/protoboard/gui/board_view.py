@@ -83,6 +83,8 @@ class BoardView(QGraphicsView):
         self._highlight_profile: object | None = None
         # Subscribe to highlight stack changes.
         session.highlight_stack.changed.connect(self._apply_highlight_opacity)
+        # Subscribe to routing-net changes (RouteTool while-drawing union with stack).
+        session.routing_net_changed.connect(self._apply_highlight_opacity)
         # Theme — overridden by MainWindow after Preferences apply.
         from protoboard.gui.theme import Theme
         self._theme_override: Theme | None = None
@@ -151,34 +153,55 @@ class BoardView(QGraphicsView):
     def _apply_highlight_opacity(self) -> None:
         """Apply dimming to existing comp/wire groups without a full refresh.
 
-        Priority:
-          1. HighlightStack.active() — persistent/transient highlight from stack
-          2. Legacy _highlighted_net_id / _highlight_profile — from SelectTool internals
-          3. No highlight → full opacity
+        Three sources may contribute (unioned, no overrides):
+          1. ``HighlightStack.active()`` — top-of-tier entry (persistent /
+             transient / auto, in that precedence order).
+          2. ``session.routing_net_id`` — RouteTool's actively-drawn net.
+          3. Legacy ``_highlighted_net_id`` / ``_highlight_profile`` — fallback
+             when neither stack nor routing net is set.
+
+        Comps/wires belonging to *any* contributing set are shown at full
+        opacity; everything else is dimmed by the active profile.
         """
         from PySide6.QtWidgets import QGraphicsItemGroup
+        from protoboard.gui.highlight_state import HighlightEntry, PROFILE_DIMMED_1
         from protoboard.gui.interaction_mode import HighlightProfile
-        from protoboard.gui.highlight_state import HighlightEntry
 
         session = self._session
         _base = self._theme_override if self._theme_override is not None else DEFAULT_THEME
 
-        # Resolve effective net_id and profile from stack or legacy fields.
         stack_entry: HighlightEntry | None = session.highlight_stack.active()
-        if stack_entry is not None:
-            net_id: uuid.UUID | None = stack_entry.net_id
-            profile_obj: object = stack_entry.profile
-            highlighted_comp_ids: set[uuid.UUID] = set(stack_entry.comp_ids)
-            highlighted_wire_ids: set[uuid.UUID] = set(stack_entry.wire_ids)
-            use_stack = True
-        else:
-            net_id = self._highlighted_net_id
-            profile_obj = self._highlight_profile
-            highlighted_comp_ids = set()
-            highlighted_wire_ids = set()
-            use_stack = False
+        routing_net_id: uuid.UUID | None = session.routing_net_id
 
-        if net_id is None and not highlighted_comp_ids and not highlighted_wire_ids:
+        # Aggregate highlighted ids across all sources.
+        highlighted_comp_ids: set[uuid.UUID] = set()
+        highlighted_wire_ids: set[uuid.UUID] = set()
+        net_ids: set[uuid.UUID] = set()
+        profile_obj: object | None = None
+        any_source = False
+
+        if stack_entry is not None:
+            any_source = True
+            highlighted_comp_ids |= set(stack_entry.comp_ids)
+            highlighted_wire_ids |= set(stack_entry.wire_ids)
+            if stack_entry.net_id is not None:
+                net_ids.add(stack_entry.net_id)
+            profile_obj = stack_entry.profile
+
+        if routing_net_id is not None:
+            any_source = True
+            net_ids.add(routing_net_id)
+            if profile_obj is None:
+                profile_obj = PROFILE_DIMMED_1
+
+        if not any_source:
+            # Legacy fallback for callers still using set_highlighted_net*.
+            if self._highlighted_net_id is not None:
+                any_source = True
+                net_ids.add(self._highlighted_net_id)
+                profile_obj = self._highlight_profile
+
+        if not any_source:
             for grp in self._comp_groups.values():
                 if isinstance(grp, QGraphicsItemGroup):
                     grp.setOpacity(1.0)
@@ -187,7 +210,7 @@ class BoardView(QGraphicsView):
                     grp.setOpacity(1.0)
             return
 
-        # Determine dim values.
+        # Determine dim values from whichever profile we ended up with.
         if isinstance(profile_obj, HighlightProfile):
             dim_c = profile_obj.dim_components
             dim_w = profile_obj.dim_wires
@@ -195,36 +218,30 @@ class BoardView(QGraphicsView):
             dim_c = _base.highlight_dim_components
             dim_w = _base.highlight_dim_wires
 
-        # Collect highlighted comp IDs from net (if net_id given).
-        if net_id is not None:
-            net_obj = session.schematic.nets.get(net_id)
+        # Expand each net into its member component ids.
+        for nid in net_ids:
+            net_obj = session.schematic.nets.get(nid)
             if net_obj is not None:
                 highlighted_comp_ids |= {ref.component_id for ref in net_obj.pins}
 
-        # Build wire→net map.
+        # wire_id → net_id map, so we know which wires belong to any active net.
         wire_net_map = _build_wire_net_map(session)
 
         for comp_id, grp in self._comp_groups.items():
             if isinstance(grp, QGraphicsItemGroup):
                 if comp_id in highlighted_comp_ids:
                     grp.setOpacity(1.0)
-                elif use_stack and highlighted_comp_ids:
-                    grp.setOpacity(max(0.04, dim_c))
-                elif not use_stack and net_id is not None:
-                    grp.setOpacity(max(0.04, dim_c))
                 else:
-                    grp.setOpacity(1.0)
+                    grp.setOpacity(max(0.04, dim_c))
 
         for wire_id, grp in self._wire_groups.items():
             if isinstance(grp, QGraphicsItemGroup):
                 if wire_id in highlighted_wire_ids:
                     grp.setOpacity(1.0)
-                elif net_id is not None and wire_net_map.get(wire_id) == net_id:
+                elif wire_net_map.get(wire_id) in net_ids:
                     grp.setOpacity(1.0)
-                elif (use_stack and highlighted_wire_ids) or net_id is not None:
-                    grp.setOpacity(dim_w)
                 else:
-                    grp.setOpacity(1.0)
+                    grp.setOpacity(dim_w)
 
     _LABEL_MIN_SCENE_UNITS: float = 0.8
 

@@ -18,6 +18,14 @@ from __future__ import annotations
 
 import math
 import uuid
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from protoboard.gui.selection_axes import (
+        RelationClass,
+        RelationProfile,
+        SelectionFilter,
+    )
 
 import structlog
 from PySide6.QtCore import QPointF, QRectF, Qt
@@ -135,22 +143,20 @@ class SelectTool(_Tool):
         # Live drag conflict overlay.
         from protoboard.gui.tools.drag_conflict_overlay import DragConflictOverlay
         self._drag_overlay = DragConflictOverlay()
-        # Connectivity highlight state.
+        # Connectivity overlay state (pad markers, neighbor rects).  Dimming
+        # itself is driven by the HighlightStack auto-entry pushed from
+        # _refresh_auto_highlight(); these items are only the overlay graphics.
         self._highlight_net_id: uuid.UUID | None = None
         self._highlight_comp_ids: set[uuid.UUID] = set()
         self._highlight_items: list[QGraphicsItem] = []
-        # Interaction mode: controls what gets selected and highlighted on click.
-        from protoboard.gui.interaction_mode import INTERACTION_MODES, InteractionMode
-        self._interaction_mode: InteractionMode = INTERACTION_MODES["default"]
-        self._prev_interaction_mode: InteractionMode | None = None
-        # Last click source for mode re-dispatch when mode changes.
+        # Orthogonal axes driving click semantics.
+        from protoboard.gui.selection_axes import RelationClass, SelectionFilter
+        self._filter: SelectionFilter = SelectionFilter.ALL
+        self._relation: RelationClass = RelationClass.SAME_LOGICAL_NET
+        # Last click source — used for auto-highlight refresh after relation change.
         self._hl_source_wire: uuid.UUID | None = None
         self._hl_source_comp: uuid.UUID | None = None
         self._hl_source_pin: int | None = None
-        # Selection filter: controls what types of objects are selectable.
-        self._filter_components: bool = True
-        self._filter_wires: bool = True
-        self._filter_groups: bool = True
         # Floating state: component placed but not yet committed to CommandStack.
         self._floating_ids: set[uuid.UUID] = set()
         self._floating_orig_placements: dict[uuid.UUID, ComponentPlacement] = {}
@@ -191,37 +197,63 @@ class SelectTool(_Tool):
         )
         self._session.notify_selection(comp_ids, wire_ids, self._highlight_net_id)
 
-    def set_filter_components(self, enabled: bool) -> None:
-        self._filter_components = enabled
-
-    def set_filter_wires(self, enabled: bool) -> None:
-        self._filter_wires = enabled
-
-    def set_filter_groups(self, enabled: bool) -> None:
-        self._filter_groups = enabled
-
     # ------------------------------------------------------------------
-    # Interaction mode
+    # Selection filter (which object types may be selected)
     # ------------------------------------------------------------------
 
-    def set_interaction_mode(self, m: object) -> None:
-        """Set the interaction mode and re-dispatch highlight to last source."""
-        from protoboard.gui.interaction_mode import InteractionMode
-        if not isinstance(m, InteractionMode):
+    def set_filter(self, f: "SelectionFilter") -> None:
+        """Replace the selection filter wholesale."""
+        from protoboard.gui.selection_axes import SelectionFilter
+        if not isinstance(f, SelectionFilter):
             return
-        self._interaction_mode = m
+        self._filter = f
+
+    @property
+    def filter(self) -> "SelectionFilter":
+        return self._filter
+
+    def _filter_components(self) -> bool:
+        from protoboard.gui.selection_axes import SelectionFilter
+        return bool(self._filter & SelectionFilter.COMPONENTS)
+
+    def _filter_wires(self) -> bool:
+        from protoboard.gui.selection_axes import SelectionFilter
+        return bool(self._filter & SelectionFilter.WIRES)
+
+    def _filter_groups(self) -> bool:
+        from protoboard.gui.selection_axes import SelectionFilter
+        return bool(self._filter & SelectionFilter.GROUPS)
+
+    # ------------------------------------------------------------------
+    # Relation class (which correlated set the auto-highlight reflects)
+    # ------------------------------------------------------------------
+
+    def set_relation(self, r: "RelationClass") -> None:
+        """Set the relation class and re-dispatch auto-highlight to last click source."""
+        from protoboard.gui.selection_axes import RelationClass, RELATION_LABELS
+        if not isinstance(r, RelationClass):
+            return
+        if r is self._relation:
+            return
+        self._relation = r
+        # Re-render auto-highlight if we have a remembered source.
         if self._hl_source_wire is not None or self._hl_source_comp is not None:
-            self._apply_interaction(
+            self._refresh_auto_highlight(
                 wire_id=self._hl_source_wire,
                 comp_id=self._hl_source_comp,
                 pin_number=self._hl_source_pin,
             )
+        else:
+            # No source — clear any stale auto entry from a previous click.
+            if self._session is not None:
+                self._session.highlight_stack.clear_auto("select_tool")
+                self._clear_connectivity_highlight()
         if self._session is not None:
-            self._session.notify_highlight_mode(m.label)
+            self._session.notify_highlight_mode(RELATION_LABELS.get(r, r.name))
 
     @property
-    def interaction_mode(self) -> object:
-        return self._interaction_mode
+    def relation(self) -> "RelationClass":
+        return self._relation
 
     def _apply_interaction(
         self,
@@ -229,64 +261,49 @@ class SelectTool(_Tool):
         wire_id: uuid.UUID | None = None,
         comp_id: uuid.UUID | None = None,
         pin_number: int | None = None,
+        shift_held: bool = False,
     ) -> None:
-        """Unified dispatcher: apply selection and highlight according to current mode."""
-        from protoboard.gui.interaction_mode import (
-            INTERACTION_MODES,
-            HighlightScope,
-            SelectionTarget,
-        )
-        m = self._interaction_mode
+        """Apply selection + auto-highlight to a click on (comp_id/pin_number) or wire_id.
+
+        LPM:           selection = clicked object (component selection is done
+                       by on_press, wire selection here); highlight = full
+                       relation set ignoring the filter.
+        Shift+LPM:     selection extended to relation ∩ filter (components and
+                       wires both contribute); highlight = same as LPM.
+        """
         self._hl_source_wire = wire_id
         self._hl_source_comp = comp_id
         self._hl_source_pin = pin_number
 
-        correlated_comps, correlated_wires = self._resolve_correlated(
-            m.highlight_scope,
+        correlated_comps, correlated_wires = self._resolve_relation(
+            self._relation,
             wire_id=wire_id,
             comp_id=comp_id,
             pin_number=pin_number,
         )
 
-        match m.selection_target:
-            case SelectionTarget.CLICKED_OBJECT:
-                # For component clicks, on_press handles selection itself.
-                # For wire clicks, we select here since on_press delegates to us.
-                if wire_id is not None:
-                    self._select_wire(wire_id)
-            case SelectionTarget.CORRELATED_COMPS:
-                self._deselect()
-                self._deselect_wire()
-                self._clear_multi_selection()
-                self._clear_multi_wire_selection()
+        if shift_held:
+            # Selection = relation ∩ filter (replace any prior multi-selection).
+            self._deselect()
+            self._deselect_wire()
+            self._clear_multi_selection()
+            self._clear_multi_wire_selection()
+            if self._filter_components():
                 for cid in correlated_comps:
                     self._selected_ids.add(cid)
                     self._draw_multi_highlight(cid)
-            case SelectionTarget.CORRELATED_WIRES:
-                self._deselect()
-                self._deselect_wire()
-                self._clear_multi_selection()
-                self._clear_multi_wire_selection()
+            if self._filter_wires():
                 for wid in correlated_wires:
                     self._selected_wire_ids.add(wid)
                     self._draw_multi_wire_highlight(wid)
-            case SelectionTarget.CORRELATED_ALL:
-                self._deselect()
-                self._deselect_wire()
-                self._clear_multi_selection()
-                self._clear_multi_wire_selection()
-                for cid in correlated_comps:
-                    self._selected_ids.add(cid)
-                    self._draw_multi_highlight(cid)
-                for wid in correlated_wires:
-                    self._selected_wire_ids.add(wid)
-                    self._draw_multi_wire_highlight(wid)
-            case SelectionTarget.NOTHING:
-                pass  # selection unchanged
+        else:
+            # LPM without Shift: select only the clicked object.  Component
+            # selection is handled by on_press before us; wire selection is
+            # delegated here.
+            if wire_id is not None:
+                self._select_wire(wire_id)
 
-        self._render_highlight(
-            m.highlight_scope,
-            m.highlight_profile,
+        self._refresh_auto_highlight(
             wire_id=wire_id,
             comp_id=comp_id,
             pin_number=pin_number,
@@ -295,176 +312,302 @@ class SelectTool(_Tool):
         )
         self._notify_selection()
 
-    def _resolve_correlated(
+    def _refresh_auto_highlight(
         self,
-        scope: object,
+        *,
+        wire_id: uuid.UUID | None = None,
+        comp_id: uuid.UUID | None = None,
+        pin_number: int | None = None,
+        correlated_comps: set[uuid.UUID] | None = None,
+        correlated_wires: set[uuid.UUID] | None = None,
+    ) -> None:
+        """Push an auto HighlightEntry reflecting the current relation class.
+
+        Clears the previous SelectTool auto entry first.  NONE relation just
+        clears.  Pad-marker / neighbor-rect overlays are redrawn here too —
+        they are scene items, not part of the dimming pipeline.
+        """
+        from protoboard.gui.selection_axes import RelationClass
+
+        session = self._session
+        if session is None:
+            return
+
+        # Always start by clearing the previous overlay and auto entry.
+        self._clear_connectivity_highlight()
+        session.highlight_stack.clear_auto("select_tool")
+
+        if self._relation == RelationClass.NONE:
+            return
+        if comp_id is None and wire_id is None:
+            return
+
+        if correlated_comps is None or correlated_wires is None:
+            correlated_comps, correlated_wires = self._resolve_relation(
+                self._relation,
+                wire_id=wire_id,
+                comp_id=comp_id,
+                pin_number=pin_number,
+            )
+
+        # Collect every net touched by the click (bbox click on a component
+        # may span multiple nets — we want overlay markers on all of them).
+        net_ids = self._resolve_relation_net_ids(
+            wire_id=wire_id, comp_id=comp_id, pin_number=pin_number,
+        )
+        # Keep the legacy single-net field populated for downstream consumers
+        # (panels, _notify_selection) that still expect a representative id.
+        self._highlight_net_id = next(iter(net_ids), None)
+
+        # Build the HighlightEntry — translate RelationProfile to HighlightProfile.
+        from protoboard.gui.highlight_state import HighlightEntry
+        from protoboard.gui.interaction_mode import HighlightProfile
+        from protoboard.gui.selection_axes import RELATION_PROFILES
+        rprof = RELATION_PROFILES[self._relation]
+        hprof = HighlightProfile(
+            pad_marker_rgba=rprof.pad_marker_rgba,
+            pad_marker_radius=rprof.pad_marker_radius,
+            unconnected_rgba=rprof.unconnected_rgba,
+            unconnected_dashed=rprof.unconnected_dashed,
+            neighbor_rect_rgba=rprof.neighbor_rect_rgba,
+            neighbor_pen_rgba=rprof.neighbor_pen_rgba,
+            dim_components=rprof.dim_components,
+            dim_wires=rprof.dim_wires,
+        )
+        # net_id on the entry stays None — comp_ids/wire_ids are already the
+        # fully resolved superset, BoardView doesn't need to expand a net.
+        entry = HighlightEntry(
+            comp_ids=frozenset(correlated_comps),
+            wire_ids=frozenset(correlated_wires),
+            net_id=None,
+            profile=hprof,
+            label=f"Auto ({self._relation.value})",
+        )
+        session.highlight_stack.push_auto(entry, source_id="select_tool")
+
+        # Overlay items (pad markers / neighbor rects / unconnected circles).
+        self._draw_relation_overlay(
+            net_ids=net_ids,
+            correlated_comps=correlated_comps,
+            profile=rprof,
+        )
+
+    def _resolve_relation_net_ids(
+        self,
+        *,
+        wire_id: uuid.UUID | None = None,
+        comp_id: uuid.UUID | None = None,
+        pin_number: int | None = None,
+    ) -> set[uuid.UUID]:
+        """All logical nets touched by the click source.
+
+        Pin click / wire click → at most one net.  Bbox click on a component
+        → every net that component participates in.
+        """
+        from protoboard.gui.board_view import _build_wire_net_map
+
+        session = self._session
+        if session is None:
+            return set()
+        if comp_id is not None and pin_number is not None:
+            single = self._resolve_logical_net(comp_id=comp_id, pin_number=pin_number)
+            return {single} if single is not None else set()
+        if wire_id is not None:
+            wnm = _build_wire_net_map(session)
+            single = wnm.get(wire_id)
+            return {single} if single is not None else set()
+        if comp_id is not None:
+            out: set[uuid.UUID] = set()
+            for net_obj in session.schematic.nets.values():
+                if any(pr.component_id == comp_id for pr in net_obj.pins):
+                    out.add(net_obj.id)
+            return out
+        return set()
+
+    def _resolve_logical_net(
+        self,
+        *,
+        wire_id: uuid.UUID | None = None,
+        comp_id: uuid.UUID | None = None,
+        pin_number: int | None = None,
+    ) -> uuid.UUID | None:
+        """Find the logical net id associated with the click source, if any."""
+        from protoboard.domain.schematic.net import PinRef
+        from protoboard.gui.board_view import _build_wire_net_map
+
+        session = self._session
+        if session is None:
+            return None
+        if comp_id is not None and pin_number is not None:
+            ref = PinRef(component_id=comp_id, pin_number=pin_number)
+            net = session.schematic.net_for_pin(ref)
+            if net is not None:
+                return net.id
+        if wire_id is not None:
+            wnm = _build_wire_net_map(session)
+            return wnm.get(wire_id)
+        return None
+
+    def _resolve_relation(
+        self,
+        relation: "RelationClass",
         *,
         wire_id: uuid.UUID | None,
         comp_id: uuid.UUID | None,
         pin_number: int | None,
     ) -> tuple[set[uuid.UUID], set[uuid.UUID]]:
-        """Return (comp_ids, wire_ids) correlated to the click source under scope."""
-        from protoboard.gui.interaction_mode import HighlightScope
-        from protoboard.domain.schematic.net import PinRef
-        from protoboard.gui.board_view import _build_wire_net_map
+        """Return (comp_ids, wire_ids) correlated to the click source by *relation*.
 
-        if not isinstance(scope, HighlightScope) or scope == HighlightScope.NONE:
+        Clicking a component bbox (without a specific pin) expands across
+        *every* net the component participates in — the user intent is "show
+        me this component's context," which is the union of its nets.
+        Clicking a specific pin or a wire narrows to that single net.
+
+        The clicked object itself is always included in the result so the
+        BoardView dimming pipeline never wipes it out.
+        """
+        from protoboard.gui.board_view import _build_wire_net_map
+        from protoboard.gui.selection_axes import RelationClass
+
+        if relation == RelationClass.NONE:
             return set(), set()
 
         session = self._session
-        graph = session.connectivity_graph()
+        if session is None:
+            return set(), set()
 
-        # Determine the logical net (if any) relevant to the click source.
-        logical_net_id: uuid.UUID | None = None
+        # Collect every net touched by the click source.
+        net_ids: set[uuid.UUID] = set()
         if comp_id is not None and pin_number is not None:
-            ref = PinRef(component_id=comp_id, pin_number=pin_number)
-            net = session.schematic.net_for_pin(ref)
-            if net is not None:
-                logical_net_id = net.id
+            single = self._resolve_logical_net(comp_id=comp_id, pin_number=pin_number)
+            if single is not None:
+                net_ids.add(single)
         elif wire_id is not None:
-            wnm = _build_wire_net_map(session)
-            logical_net_id = wnm.get(wire_id)
+            wnm0 = _build_wire_net_map(session)
+            single = wnm0.get(wire_id)
+            if single is not None:
+                net_ids.add(single)
+        elif comp_id is not None:
+            # Bbox click — gather every net this component participates in.
+            for n in session.schematic.nets.values():
+                if any(pr.component_id == comp_id for pr in n.pins):
+                    net_ids.add(n.id)
 
         correlated_comps: set[uuid.UUID] = set()
         correlated_wires: set[uuid.UUID] = set()
 
-        if scope in (HighlightScope.LOGICAL_NET_ALL, HighlightScope.LOGICAL_UNCONNECTED,
-                     HighlightScope.PHYSICAL_NET, HighlightScope.NEIGHBORS_ALL,
-                     HighlightScope.CLICKED_OBJECT):
-            if logical_net_id is not None:
-                net_obj = session.schematic.nets.get(logical_net_id)
-                if net_obj is not None:
-                    correlated_comps = {ref.component_id for ref in net_obj.pins}
-                # Wires in the logical net.
-                wnm = _build_wire_net_map(session)
-                correlated_wires = {wid for wid, nid in wnm.items() if nid == logical_net_id}
+        # Always seed with the clicked object so it never gets dimmed.
+        if comp_id is not None:
+            correlated_comps.add(comp_id)
+        if wire_id is not None:
+            correlated_wires.add(wire_id)
 
-        if scope == HighlightScope.NEIGHBORS_ALL and comp_id is not None:
-            # All components sharing any net with comp_id.
-            neighbors: set[uuid.UUID] = set()
-            for net_obj in session.schematic.nets.values():
-                comp_ids_in_net = {pr.component_id for pr in net_obj.pins}
-                if comp_id in comp_ids_in_net:
-                    neighbors.update(comp_ids_in_net - {comp_id})
-            correlated_comps = neighbors
+        if relation in (
+            RelationClass.SAME_LOGICAL_NET,
+            RelationClass.SAME_PHYSICAL_NET,
+            RelationClass.UNCONNECTED_PINS,
+        ):
+            wnm = _build_wire_net_map(session)
+            for nid in net_ids:
+                net_obj = session.schematic.nets.get(nid)
+                if net_obj is not None:
+                    correlated_comps |= {ref.component_id for ref in net_obj.pins}
+                correlated_wires |= {
+                    wid for wid, mapped in wnm.items() if mapped == nid
+                }
+        elif relation == RelationClass.NEIGHBORS and comp_id is not None:
+            for nid in net_ids:
+                net_obj = session.schematic.nets.get(nid)
+                if net_obj is None:
+                    continue
+                correlated_comps |= {pr.component_id for pr in net_obj.pins}
 
         return correlated_comps, correlated_wires
 
-    def _render_highlight(
+    def _draw_relation_overlay(
         self,
-        scope: object,
-        profile: object,
         *,
-        wire_id: uuid.UUID | None,
-        comp_id: uuid.UUID | None,
-        pin_number: int | None,
+        net_ids: set[uuid.UUID],
         correlated_comps: set[uuid.UUID],
-        correlated_wires: set[uuid.UUID],
+        profile: "RelationProfile",
     ) -> None:
-        """Draw overlay items and apply dimming according to scope and profile."""
-        from protoboard.gui.interaction_mode import HighlightProfile, HighlightScope
+        """Draw the scene overlay (pad markers, neighbor rects, unconnected
+        circles) appropriate for the current relation class.
+
+        Dimming itself is handled by the HighlightStack — this method only adds
+        overlay graphics that flag *which* pins/components are relevant.
+        Always preceded by _clear_connectivity_highlight() in callers.
+        """
         from protoboard.domain.schematic.net import PinRef
-        from protoboard.gui.board_view import _build_wire_net_map
         from protoboard.gui.layer_state import Z_OVERLAY
+        from protoboard.gui.selection_axes import RelationClass
 
-        if not isinstance(scope, HighlightScope) or not isinstance(profile, HighlightProfile):
-            return
-
-        self._clear_connectivity_highlight()
         scene = self._view.scene() if self._view is not None else None
-        if scene is None:
+        if scene is None or self._session is None:
             return
-
-        if scope == HighlightScope.NONE:
-            if self._view is not None:
-                self._view.set_highlighted_net(None)
-            return
-
         session = self._session
+        relation = self._relation
 
-        # Determine net_id for BoardView dimming.
-        net_id: uuid.UUID | None = None
-        if comp_id is not None and pin_number is not None:
-            ref = PinRef(component_id=comp_id, pin_number=pin_number)
-            net = session.schematic.net_for_pin(ref)
-            if net is not None:
-                net_id = net.id
-        elif wire_id is not None:
-            wnm = _build_wire_net_map(session)
-            net_id = wnm.get(wire_id)
+        if relation in (RelationClass.SAME_LOGICAL_NET, RelationClass.SAME_PHYSICAL_NET):
+            if not net_ids:
+                return
+            r = profile.pad_marker_radius
+            rgba = profile.pad_marker_rgba
+            pen = QPen(QColor(*rgba[:3], rgba[3]), 0.05)
+            brush = QBrush(QColor(*rgba))
+            for nid in net_ids:
+                net_obj = session.schematic.nets.get(nid)
+                if net_obj is None:
+                    continue
+                for ref in net_obj.pins:
+                    pos = session.get_pin_position(ref.component_id, ref.pin_number)
+                    if pos is None:
+                        continue
+                    circle = QGraphicsEllipseItem(
+                        QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r)
+                    )
+                    circle.setBrush(brush)
+                    circle.setPen(pen)
+                    circle.setZValue(Z_OVERLAY + 1.0)
+                    scene.addItem(circle)
+                    self._highlight_items.append(circle)
 
-        self._highlight_net_id = net_id
-
-        # Apply dimming via BoardView.
-        if self._view is not None:
-            self._view.set_highlighted_net_with_profile(net_id, profile)
-
-        # Draw pad markers.
-        if scope in (HighlightScope.LOGICAL_NET_ALL, HighlightScope.PHYSICAL_NET,
-                     HighlightScope.CLICKED_OBJECT):
-            if net_id is not None:
-                net_obj = session.schematic.nets.get(net_id)
-                if net_obj is not None:
-                    r = profile.pad_marker_radius
-                    rgba = profile.pad_marker_rgba
-                    pen = QPen(QColor(*rgba[:3], rgba[3]), 0.05)
-                    brush = QBrush(QColor(*rgba))
-                    for ref in net_obj.pins:
-                        pos = session.get_pin_position(ref.component_id, ref.pin_number)
-                        if pos is None:
-                            continue
-                        circle = QGraphicsEllipseItem(
-                            QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r)
+        elif relation == RelationClass.UNCONNECTED_PINS:
+            if not net_ids:
+                return
+            graph = session.connectivity_graph()
+            r = profile.pad_marker_radius if profile.pad_marker_radius > 0 else 0.22
+            rgba = profile.unconnected_rgba
+            pen = QPen(QColor(*rgba[:3], rgba[3]), 0.07)
+            if profile.unconnected_dashed:
+                pen.setStyle(Qt.PenStyle.DashLine)
+            brush = QBrush(QColor(*rgba[:3], rgba[3] // 3))
+            for nid in net_ids:
+                net_obj = session.schematic.nets.get(nid)
+                if net_obj is None:
+                    continue
+                for ref in net_obj.pins:
+                    ck = graph.node_for_pin(PinRef(ref.component_id, ref.pin_number))
+                    if ck is not None:
+                        same_key_count = sum(
+                            1 for r2 in net_obj.pins
+                            if graph.node_for_pin(PinRef(r2.component_id, r2.pin_number)) == ck
                         )
-                        circle.setBrush(brush)
-                        circle.setPen(pen)
-                        circle.setZValue(Z_OVERLAY + 1.0)
-                        scene.addItem(circle)
-                        self._highlight_items.append(circle)
+                        if same_key_count > 1:
+                            continue  # physically connected to another pin in net
+                    pos = session.get_pin_position(ref.component_id, ref.pin_number)
+                    if pos is None:
+                        continue
+                    circle = QGraphicsEllipseItem(
+                        QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r)
+                    )
+                    circle.setBrush(brush)
+                    circle.setPen(pen)
+                    circle.setZValue(Z_OVERLAY + 1.0)
+                    scene.addItem(circle)
+                    self._highlight_items.append(circle)
 
-        elif scope == HighlightScope.LOGICAL_UNCONNECTED:
-            # Show only pins not yet physically connected.
-            if net_id is not None:
-                graph = session.connectivity_graph()
-                net_obj = session.schematic.nets.get(net_id)
-                if net_obj is not None:
-                    # Gather canonical keys of physically-connected pins.
-                    connected_keys: set[object] = set()
-                    for ref2 in net_obj.pins:
-                        ck = graph.node_for_pin(PinRef(ref2.component_id, ref2.pin_number))
-                        if ck is not None:
-                            connected_keys.add(ck)
-
-                    r = profile.pad_marker_radius if profile.pad_marker_radius > 0 else 0.22
-                    rgba = profile.unconnected_rgba
-                    pen = QPen(QColor(*rgba[:3], rgba[3]), 0.07)
-                    if profile.unconnected_dashed:
-                        pen.setStyle(Qt.PenStyle.DashLine)
-                    brush = QBrush(QColor(*rgba[:3], rgba[3] // 3))
-                    for ref in net_obj.pins:
-                        ck = graph.node_for_pin(PinRef(ref.component_id, ref.pin_number))
-                        # Pin is unconnected if its canonical key is unique (not shared).
-                        if ck is not None:
-                            same_key_count = sum(
-                                1 for r2 in net_obj.pins
-                                if graph.node_for_pin(PinRef(r2.component_id, r2.pin_number)) == ck
-                            )
-                            if same_key_count > 1:
-                                continue  # physically connected to another pin in net
-                        pos = session.get_pin_position(ref.component_id, ref.pin_number)
-                        if pos is None:
-                            continue
-                        circle = QGraphicsEllipseItem(
-                            QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r)
-                        )
-                        circle.setBrush(brush)
-                        circle.setPen(pen)
-                        circle.setZValue(Z_OVERLAY + 1.0)
-                        scene.addItem(circle)
-                        self._highlight_items.append(circle)
-
-        elif scope == HighlightScope.NEIGHBORS_ALL:
-            # Draw bbox rects around neighboring components.
+        elif relation == RelationClass.NEIGHBORS:
             from protoboard.domain.layout.placement import component_bbox
             rgba_fill = profile.neighbor_rect_rgba
             rgba_pen = profile.neighbor_pen_rgba
@@ -673,6 +816,7 @@ class SelectTool(_Tool):
         if event.button() != Qt.MouseButton.LeftButton:
             return False
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
 
         # --- Floating state: click commits (same as Enter) ---
         if self._is_floating() and not ctrl:
@@ -722,7 +866,7 @@ class SelectTool(_Tool):
                     return True
 
             # Check component bbox.
-            hit = self._hit_test_bbox(scene_pt) if self._filter_components else None
+            hit = self._hit_test_bbox(scene_pt) if self._filter_components() else None
             if hit is not None:
                 if hit in self._selected_ids:
                     self._selected_ids.discard(hit)
@@ -736,7 +880,7 @@ class SelectTool(_Tool):
 
             # Check wire.
             wire_hit = (
-                self._hit_test_wire(scene_pt) if self._filter_wires else None
+                self._hit_test_wire(scene_pt) if self._filter_wires() else None
             )
             if wire_hit is not None:
                 if wire_hit in self._selected_wire_ids:
@@ -751,7 +895,7 @@ class SelectTool(_Tool):
 
         # --- Klik na obrysie grupy — zaznacz grupę jako całość ---
         group_outline_hit = (
-            self._hit_test_group_outline(scene_pt) if self._filter_groups else None
+            self._hit_test_group_outline(scene_pt) if self._filter_groups() else None
         )
         if group_outline_hit is not None:
             self._cancel_wire_edit()
@@ -797,19 +941,30 @@ class SelectTool(_Tool):
             return True
 
         # --- Normal left click: hit-test component or wire ---
-        hit = self._hit_test(scene_pt) if self._filter_components else None
+        hit = self._hit_test(scene_pt) if self._filter_components() else None
         if hit is not None:
             # Block interaction with components outside the active group context.
             if not self._is_accessible(hit):
                 return False
-            # Connectivity highlight: dispatch via interaction mode.
-            if self._view is not None and self._view.connectness_enabled:
-                pin_hit = self._hit_test_pin_for_comp(scene_pt, hit)
-                if pin_hit is not None:
-                    pin_comp_id, pin_number = pin_hit
-                    self._apply_interaction(comp_id=pin_comp_id, pin_number=pin_number)
-                else:
-                    self._apply_interaction(comp_id=hit)
+            # Determine which pin (if any) was under the cursor — needed for
+            # both shift-driven relation∩filter selection and auto-highlight.
+            pin_hit = self._hit_test_pin_for_comp(scene_pt, hit) if self._view is not None else None
+            pin_comp_id, pin_number = (pin_hit if pin_hit is not None else (hit, None))
+
+            if shift:
+                # Shift+LPM on a component → selection = relation ∩ filter.
+                # No drag; explicit consume.
+                self._cancel_wire_edit()
+                self._apply_interaction(
+                    comp_id=pin_comp_id, pin_number=pin_number, shift_held=True,
+                )
+                return True
+
+            # Plain LPM: trigger auto-highlight, then perform the usual
+            # primary-select + drag flow.
+            self._apply_interaction(
+                comp_id=pin_comp_id, pin_number=pin_number, shift_held=False,
+            )
             # If the hit component is in a group that we haven't entered yet,
             # redirect the selection to that group's representative ID.
             hit = self._resolve_group_hit(hit)
@@ -847,9 +1002,13 @@ class SelectTool(_Tool):
                     self._drag_orig_wire_paths[wire.id] = list(wire.path)
             return True
 
-        wire_hit = self._hit_test_wire(scene_pt) if self._filter_wires else None
+        wire_hit = self._hit_test_wire(scene_pt) if self._filter_wires() else None
         if wire_hit is not None:
             self._cancel_wire_edit()
+            if shift:
+                # Shift+LPM on a wire → selection = relation ∩ filter.
+                self._apply_interaction(wire_id=wire_hit, shift_held=True)
+                return True
             if wire_hit in self._selected_wire_ids:
                 # Klik na już zaznaczony drut → drag całej selekcji.
                 snapped = self._view.snap(scene_pt)
@@ -883,14 +1042,14 @@ class SelectTool(_Tool):
                 self._clear_multi_selection()
                 self._clear_multi_wire_selection()
                 self._deselect()
-                # Dispatch via interaction mode (may select wire or correlated objects).
-                self._apply_interaction(wire_id=wire_hit)
+                # Plain LPM on a wire: select it + auto-highlight relation.
+                self._apply_interaction(wire_id=wire_hit, shift_held=False)
             return True
 
         # Check if click is inside bbox of an already-selected component.
         # This allows dragging a multi-selection by clicking anywhere inside
         # a selected component's body, not just near a pin.
-        bbox_hit = self._hit_test_bbox(scene_pt) if self._filter_components else None
+        bbox_hit = self._hit_test_bbox(scene_pt) if self._filter_components() else None
         if bbox_hit is not None and (
             bbox_hit in self._selected_ids
             or bbox_hit == self._selected_id
@@ -1328,13 +1487,11 @@ class SelectTool(_Tool):
                 self._clear_connectivity_highlight()
                 self._notify_selection()
         elif key == Qt.Key.Key_QuoteLeft:
-            # Backtick: cycle through interaction modes.
-            from protoboard.gui.interaction_mode import INTERACTION_MODES
-            ids = list(INTERACTION_MODES.keys())
-            current = self._interaction_mode.id
-            idx = ids.index(current) if current in ids else 0
-            next_mode = INTERACTION_MODES[ids[(idx + 1) % len(ids)]]
-            self.set_interaction_mode(next_mode)
+            # Backtick: cycle through relation classes.
+            from protoboard.gui.selection_axes import RelationClass
+            relations = list(RelationClass)
+            idx = relations.index(self._relation) if self._relation in relations else 0
+            self.set_relation(relations[(idx + 1) % len(relations)])
 
     def on_key_release(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Control and not self._dragging:
@@ -1573,6 +1730,34 @@ class SelectTool(_Tool):
                     act_flip = menu.addAction(f"Flip fragment to {other_side} layer  [F]")
                     act_flip.setData(("flip_fragment", other_side))
 
+                # Simplify wire path — use project-default mode.
+                simplify_label = (
+                    f"Simplify wire{' paths' if n_wires > 1 else ' path'}"
+                )
+                act_simplify = menu.addAction(simplify_label)
+                act_simplify.setData(("simplify_wire", target_wire_ids, None))
+                # Submenu for explicit mode override.
+                sm_simplify = menu.addMenu("Simplify with mode")
+                sm_simplify_act_cheb = sm_simplify.addAction(
+                    "Chebyshev (shortcut via diag)"
+                )
+                sm_simplify_act_cheb.setData(
+                    ("simplify_wire", target_wire_ids, "chebyshev")
+                )
+                sm_simplify_act_parity = sm_simplify.addAction(
+                    "Bare-parity (respect anti-short rule)"
+                )
+                sm_simplify_act_parity.setData(
+                    ("simplify_wire", target_wire_ids, "bare_parity")
+                )
+
+                # Unweave — only meaningful with ≥2 wires selected.
+                if n_wires >= 2:
+                    act_unweave = menu.addAction(
+                        f"Unweave {n_wires} wires (topological)"
+                    )
+                    act_unweave.setData(("unweave_wires", target_wire_ids))
+
         if not has_items:
             return False
 
@@ -1645,6 +1830,14 @@ class SelectTool(_Tool):
 
         elif action == "flip_fragment":
             self._flip_wire_fragment()
+
+        elif action == "simplify_wire":
+            _, target_wire_ids, mode_str = data
+            self._simplify_wires(target_wire_ids, mode_override=mode_str)
+
+        elif action == "unweave_wires":
+            _, target_wire_ids = data
+            self._unweave_wires(target_wire_ids)
 
         elif action == "select_same_nets":
             _, cid = data
@@ -2953,7 +3146,7 @@ class SelectTool(_Tool):
         self._rubber_band_start = None
         session = self._session
         selected: set[uuid.UUID] = set()
-        if self._filter_components:
+        if self._filter_components():
             for comp_id, placement in session.layout.placements.items():
                 inst = session.instances.get(comp_id)
                 if inst is None:
@@ -2977,7 +3170,7 @@ class SelectTool(_Tool):
 
         # Wires.
         selected_wires: set[uuid.UUID] = set()
-        _wires_to_check = session.layout.wires if self._filter_wires else []
+        _wires_to_check = session.layout.wires if self._filter_wires() else []
         for wire in _wires_to_check:
             pts = wire.path
             if left_to_right:
@@ -3282,8 +3475,189 @@ class SelectTool(_Tool):
         else:
             macro = MacroCommand(commands, description="Delete wires")
             self._session.stack.execute(macro, self._session)
-        self._clear_multi_wire_selection()
+        self._deselect_wire()
+        self._notify_selection()
         self._session.layout_changed.emit()
+
+    # ------------------------------------------------------------------
+    # Simplify selected wires (generic shortcut algorithm)
+    # ------------------------------------------------------------------
+
+    def _simplify_wires(
+        self,
+        wire_ids: set[uuid.UUID] | frozenset[uuid.UUID],
+        *,
+        mode_override: str | None = None,
+    ) -> None:
+        """Run generic_simplify_wire on every wire id in *wire_ids*.
+
+        Uses the project's RoutingSettings.simplify_mode unless
+        *mode_override* is one of "chebyshev" / "bare_parity".
+        Builds one ReplaceWireSegmentCommand per wire whose path actually
+        changed and packs them into a MacroCommand for atomic undo.
+        """
+        from typing import cast
+        from protoboard.domain.commands.base import Command, MacroCommand
+        from protoboard.services.routing.postprocess import (
+            SimplifyMode,
+            generic_simplify_wire,
+        )
+
+        session = self._session
+        if session is None:
+            return
+
+        # Resolve mode.
+        if mode_override == "chebyshev":
+            mode = SimplifyMode.CHEBYSHEV
+        elif mode_override == "bare_parity":
+            mode = SimplifyMode.BARE_PARITY
+        else:
+            rs = session.routing_settings
+            mode = getattr(rs, "simplify_mode", SimplifyMode.BARE_PARITY)
+
+        # Build pin_positions across all components for "don't drop a pin" check.
+        pin_positions: set[Point] = set()
+        for comp_id in session.layout.placements:
+            for _pin_num, pos in session.iter_pin_positions(comp_id):
+                pin_positions.add(pos)
+
+        # Map every assigned pad → its net id (for alien-pad detection on bare).
+        pad_to_net: dict[Point, uuid.UUID] = {}
+        for net_obj in session.schematic.nets.values():
+            for ref in net_obj.pins:
+                pos = session.get_pin_position(ref.component_id, ref.pin_number)
+                if pos is not None:
+                    pad_to_net.setdefault(pos, net_obj.id)
+
+        all_wires = session.layout.wires
+        cmds: list[Command[ComponentState]] = []
+        for wid in wire_ids:
+            wire = next((w for w in all_wires if w.id == wid), None)
+            if wire is None:
+                continue
+            others = [w for w in all_wires if w.id != wid]
+            new_wire = generic_simplify_wire(
+                wire,
+                other_wires=others,
+                pin_positions=pin_positions,
+                pad_to_net=pad_to_net,
+                mode=mode,
+            )
+            if new_wire is wire or new_wire.path == wire.path:
+                continue
+            cmds.append(
+                cast(
+                    Command[ComponentState],
+                    ReplaceWireSegmentCommand(
+                        wire_id=wid,
+                        new_path=list(new_wire.path),
+                        old_path=list(wire.path),
+                    ),
+                )
+            )
+
+        if not cmds:
+            self._status_msg("Simplify: nothing to shorten.")
+            return
+        cmd = cmds[0] if len(cmds) == 1 else MacroCommand(
+            cmds, description=f"Simplify {len(cmds)} wire(s)"
+        )
+        session.stack.execute(cmd, session)
+        session.layout_changed.emit()
+
+    # ------------------------------------------------------------------
+    # Unweave selected wires (topological fragment swap)
+    # ------------------------------------------------------------------
+
+    def _unweave_wires(
+        self,
+        wire_ids: set[uuid.UUID] | frozenset[uuid.UUID],
+    ) -> None:
+        """Run unweave_wires on every wire id in *wire_ids*.
+
+        The unweave algorithm may split a single wire into several
+        WireSegments (different ``side``/``insulated`` along the path) or
+        merge wires sharing endpoint pads.  We therefore replace the whole
+        selection: RemoveWireCommand for every selected wire, then
+        AddWireCommand for every new WireSegment, all bundled in a single
+        MacroCommand for atomic undo.
+        """
+        from typing import cast
+        from protoboard.domain.commands.base import Command, MacroCommand
+        from protoboard.domain.commands.component_cmds import (
+            AddWireCommand, RemoveWireCommand,
+        )
+        from protoboard.services.routing.unweave import (
+            count_mutual_crossings,
+            unweave_wires,
+        )
+
+        session = self._session
+        if session is None:
+            return
+        if len(wire_ids) < 2:
+            self._status_msg("Unweave: select at least 2 wires.")
+            return
+
+        all_wires = session.layout.wires
+        targets = [w for w in all_wires if w.id in wire_ids]
+        if len(targets) < 2:
+            self._status_msg("Unweave: at least 2 valid wires required.")
+            return
+
+        before = count_mutual_crossings(targets)
+        if before == 0:
+            self._status_msg("Unweave: no crossings to resolve.")
+            return
+
+        # Pass schematic + connectivity graph so the algorithm can split
+        # wires on plated-through pads when that resolves more crossings.
+        out = unweave_wires(
+            targets,
+            schematic=session.schematic,
+            graph=session.connectivity_graph(),
+        )
+        after = count_mutual_crossings(out)
+
+        # If the result is byte-identical (same paths, same attributes) skip.
+        same = (
+            len(out) == len(targets)
+            and all(
+                a.path == b.path
+                and a.side == b.side
+                and a.insulated == b.insulated
+                for a, b in zip(targets, out)
+            )
+        )
+        if same:
+            self._status_msg(
+                f"Unweave: {before} crossings already at topological minimum."
+            )
+            return
+
+        cmds: list[Command[ComponentState]] = []
+        for orig in targets:
+            cmds.append(cast(
+                Command[ComponentState],
+                RemoveWireCommand(wire_id=orig.id),
+            ))
+        for new_w in out:
+            cmds.append(cast(
+                Command[ComponentState],
+                AddWireCommand(wire=new_w),
+            ))
+
+        cmd = MacroCommand(
+            cmds, description=f"Unweave {len(targets)} → {len(out)} wire(s)"
+        )
+        session.stack.execute(cmd, session)
+        session.invalidate_graph()
+        session.layout_changed.emit()
+        self._status_msg(
+            f"Unweave: {before} → {after} crossings"
+            + (f" ({len(targets)}→{len(out)} segments)" if len(targets) != len(out) else "")
+        )
 
     # ------------------------------------------------------------------
     # Wire segment editing
@@ -4283,7 +4657,12 @@ class SelectTool(_Tool):
             self._highlight_items.append(rect)
 
     def _clear_connectivity_highlight(self) -> None:
-        """Remove all connectivity overlay items from the scene."""
+        """Remove all connectivity overlay items from the scene.
+
+        Does NOT touch the HighlightStack — callers wanting to drop the
+        auto-highlight as well must also call
+        ``session.highlight_stack.clear_auto("select_tool")``.
+        """
         scene = self._view.scene() if self._view is not None else None
         if scene is not None:
             for item in self._highlight_items:
@@ -4291,8 +4670,6 @@ class SelectTool(_Tool):
         self._highlight_items.clear()
         self._highlight_net_id = None
         self._highlight_comp_ids = set()
-        if self._view is not None:
-            self._view.set_highlighted_net(None)
 
 
 # ---------------------------------------------------------------------------

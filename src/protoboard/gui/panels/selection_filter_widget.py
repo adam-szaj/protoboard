@@ -3,11 +3,19 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
+
+from protoboard.gui.selection_axes import SelectionFilter
 
 
 class SelectionFilterWidget(QWidget):
     """Three checkable buttons (Comps / Wires / Groups) embedded in the status bar."""
+
+    # Emitted whenever the user toggles a button.  Payload is the new
+    # SelectionFilter — listeners (e.g. MainWindow) use it to persist to
+    # app_settings.
+    filter_changed = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -25,17 +33,23 @@ class SelectionFilterWidget(QWidget):
 
         self._tool: object = None
 
-        self._btn_comps.clicked.connect(lambda: self._toggle("comps"))
-        self._btn_wires.clicked.connect(lambda: self._toggle("wires"))
-        self._btn_groups.clicked.connect(lambda: self._toggle("groups"))
+        self._btn_comps.clicked.connect(self._sync_to_tool)
+        self._btn_wires.clicked.connect(self._sync_to_tool)
+        self._btn_groups.clicked.connect(self._sync_to_tool)
 
     # ------------------------------------------------------------------
     # Public
     # ------------------------------------------------------------------
 
     def set_tool(self, tool: object) -> None:
-        """Bind to a SelectTool instance (called after session swap)."""
+        """Bind to a SelectTool instance and mirror its current filter state."""
         self._tool = tool
+        from protoboard.gui.tools.select_tool import SelectTool
+        if isinstance(tool, SelectTool):
+            f = tool.filter
+            self._btn_comps.setChecked(bool(f & SelectionFilter.COMPONENTS))
+            self._btn_wires.setChecked(bool(f & SelectionFilter.WIRES))
+            self._btn_groups.setChecked(bool(f & SelectionFilter.GROUPS))
 
     # ------------------------------------------------------------------
     # Private
@@ -55,13 +69,15 @@ class SelectionFilterWidget(QWidget):
         )
         return btn
 
-    def _toggle(self, which: str) -> None:
+    def _sync_to_tool(self) -> None:
+        f = SelectionFilter.NONE
+        if self._btn_comps.isChecked():
+            f |= SelectionFilter.COMPONENTS
+        if self._btn_wires.isChecked():
+            f |= SelectionFilter.WIRES
+        if self._btn_groups.isChecked():
+            f |= SelectionFilter.GROUPS
         from protoboard.gui.tools.select_tool import SelectTool
-        if not isinstance(self._tool, SelectTool):
-            return
-        if which == "comps":
-            self._tool.set_filter_components(self._btn_comps.isChecked())
-        elif which == "wires":
-            self._tool.set_filter_wires(self._btn_wires.isChecked())
-        elif which == "groups":
-            self._tool.set_filter_groups(self._btn_groups.isChecked())
+        if isinstance(self._tool, SelectTool):
+            self._tool.set_filter(f)
+        self.filter_changed.emit(f)

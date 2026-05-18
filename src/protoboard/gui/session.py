@@ -113,6 +113,10 @@ class EditorSession(QObject):
     selection_changed = Signal(object, object, object)
     # Emitted by SelectTool when the interaction mode changes (carries mode label str).
     highlight_mode_changed = Signal(str)
+    # Emitted by RouteTool when it starts/ends routing a specific net.
+    # Carries the net UUID or None.  BoardView additively highlights this net
+    # on top of any active HighlightStack entry (union semantics).
+    routing_net_changed = Signal(object)
 
     def __init__(
         self,
@@ -136,6 +140,7 @@ class EditorSession(QObject):
         self.routing_settings: RoutingSettings = RoutingSettings()
         self.layer_overrides: LayerOverrides = LayerOverrides()
         self.highlight_stack: HighlightStack = HighlightStack(self)
+        self._routing_net_id: uuid.UUID | None = None
         self.project_path: Path | None = None
         self._drc_issues: list[DRCIssue] = []
         self._dirty: bool = False
@@ -156,6 +161,22 @@ class EditorSession(QObject):
     def notify_highlight_mode(self, label: str) -> None:
         """Called by SelectTool when the interaction mode changes."""
         self.highlight_mode_changed.emit(label)
+
+    def set_routing_net(self, net_id: uuid.UUID | None) -> None:
+        """Mark a net as being actively routed (RouteTool while drawing).
+
+        BoardView listens to ``routing_net_changed`` and unions the net's
+        comps/wires with whatever the HighlightStack is currently showing.
+        Pass None to clear.
+        """
+        if net_id == self._routing_net_id:
+            return
+        self._routing_net_id = net_id
+        self.routing_net_changed.emit(net_id)
+
+    @property
+    def routing_net_id(self) -> "uuid.UUID | None":
+        return self._routing_net_id
 
     def invalidate_graph(self) -> None:
         """Mark the cached ConnectivityGraph and spatial indexes as stale."""

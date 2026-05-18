@@ -205,7 +205,7 @@ class RouteTool(_Tool):
         return None
 
     def _commit(self, shift_held: bool = False) -> None:
-        self._view.set_highlighted_net_silent(None)
+        self._session.set_routing_net(None)
         if len(self._points) < 2:
             self._cancel()
             return
@@ -261,7 +261,7 @@ class RouteTool(_Tool):
         self._clear_committed()
         self._remove_live()
         self._clear_hints()
-        self._view.set_highlighted_net(None)
+        self._session.set_routing_net(None)
 
     def _show_routing_hints(self, source: Point) -> None:
         """Compute and render top-3 routing hint paths from source."""
@@ -326,7 +326,11 @@ class RouteTool(_Tool):
         self._hint_items = render_routing_hints(self._view.scene(), results)
 
     def _highlight_start_net(self, source: Point) -> None:
-        """Set dim for the net of the starting pad — silent (no refresh)."""
+        """Mark the net of the starting pad as the active routing net.
+
+        BoardView unions this with whatever HighlightStack is showing, so a
+        user-pinned persistent highlight on a different net stays visible.
+        """
         graph = self._session.connectivity_graph()
         source_node = graph.node_for_pad(source, self._side)
         if source_node is None:
@@ -334,7 +338,7 @@ class RouteTool(_Tool):
         for net in self._session.schematic.nets.values():
             for ref in net.pins:
                 if graph.node_for_pin(ref) == source_node:
-                    self._view.set_highlighted_net_silent(net.id)
+                    self._session.set_routing_net(net.id)
                     return
 
     def on_scene_cleared(self) -> None:

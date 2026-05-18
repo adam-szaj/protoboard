@@ -20,6 +20,11 @@ class AppSettings:
     component_library_dirs: list[Path] = field(default_factory=list)
     module_dirs: list[Path] = field(default_factory=list)
     auto_accept_placement: bool = True
+    # Selection axes (default: select everything, highlight by logical net).
+    selection_filter_tokens: list[str] = field(
+        default_factory=lambda: ["components", "wires", "groups"]
+    )
+    selection_relation: str = "same_logical_net"
 
 
 def load_app_settings() -> AppSettings:
@@ -41,6 +46,14 @@ def load_app_settings() -> AppSettings:
             s.module_dirs = [Path(d).expanduser() for d in mdirs if d]
         if (aap := data.get("auto_accept_placement")) is not None:
             s.auto_accept_placement = bool(aap)
+        sel = data.get("selection")
+        if isinstance(sel, dict):
+            tokens = sel.get("filter")
+            if isinstance(tokens, list):
+                s.selection_filter_tokens = [str(t) for t in tokens]
+            rel = sel.get("relation")
+            if isinstance(rel, str):
+                s.selection_relation = rel
         return s
     except Exception:  # noqa: BLE001
         return AppSettings()
@@ -57,6 +70,10 @@ def save_app_settings(settings: AppSettings) -> None:
         data["component_library_dirs"] = [str(p) for p in settings.component_library_dirs]
         data["module_dirs"] = [str(p) for p in settings.module_dirs]
         data["auto_accept_placement"] = settings.auto_accept_placement
+        data["selection"] = {
+            "filter": list(settings.selection_filter_tokens),
+            "relation": settings.selection_relation,
+        }
 
         _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         yaml = YAML()

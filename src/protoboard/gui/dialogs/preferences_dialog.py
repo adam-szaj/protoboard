@@ -562,6 +562,14 @@ class _RoutingPage(QWidget):
         self._enable_simplify = QCheckBox()
         gen_form.addRow("Simplify after routing", self._enable_simplify)
 
+        from PySide6.QtWidgets import QComboBox as _QComboBox
+        self._simplify_mode = _QComboBox()
+        self._simplify_mode.addItem("Chebyshev (shortcut via diag)", "chebyshev")
+        self._simplify_mode.addItem(
+            "Bare-parity (respect anti-short rule)", "bare_parity"
+        )
+        gen_form.addRow("Simplify mode", self._simplify_mode)
+
         self._max_detour = _cost_spinbox(0.0, 20.0, 0.5, 1)
         self._max_detour.setSpecialValueText("unlimited")
         gen_form.addRow("Max detour factor", self._max_detour)
@@ -623,6 +631,11 @@ class _RoutingPage(QWidget):
         self._allow_jumpers.setChecked(rs.allow_jumpers)
         self._push_and_shove.setChecked(rs.push_and_shove)
         self._enable_simplify.setChecked(rs.enable_simplify_pass)
+        # Find combobox entry by data role to be robust against label edits.
+        for i in range(self._simplify_mode.count()):
+            if self._simplify_mode.itemData(i) == rs.simplify_mode.value:
+                self._simplify_mode.setCurrentIndex(i)
+                break
         self._max_detour.setValue(rs.max_detour_factor)
 
     def _restore_defaults(self) -> None:
@@ -644,10 +657,22 @@ class _RoutingPage(QWidget):
             allow_jumpers=self._allow_jumpers.isChecked(),
             push_and_shove=self._push_and_shove.isChecked(),
             enable_simplify_pass=self._enable_simplify.isChecked(),
+            simplify_mode=_resolve_simplify_mode(self._simplify_mode.currentData()),
             max_detour_factor=self._max_detour.value(),
         )
         self._session.routing_settings = new_settings
         self._session.mark_dirty()
+
+
+def _resolve_simplify_mode(raw: object) -> object:
+    """Translate the QComboBox data role back into a SimplifyMode enum."""
+    from protoboard.services.routing.postprocess import SimplifyMode
+    if isinstance(raw, str):
+        try:
+            return SimplifyMode(raw)
+        except ValueError:
+            return SimplifyMode.BARE_PARITY
+    return SimplifyMode.BARE_PARITY
 
 
 def _RoutingFormLayout(parent: QWidget) -> "QFormLayout":

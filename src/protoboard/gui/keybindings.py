@@ -55,6 +55,7 @@ ACTION_DISCONNECT_PIN = "disconnect_pin"
 
 ACTION_TOOL_SELECT = "tool_select"
 ACTION_TOOL_ROUTE = "tool_route"
+ACTION_TOOL_ROUTE_NET_AWARE = "tool_route_net_aware"
 ACTION_TOOL_CUT = "tool_cut"
 
 ACTION_MIRROR_H = "mirror_h"
@@ -73,9 +74,25 @@ ACTION_WIRE_SIDE_BOTTOM = "wire_side_bottom"
 
 ACTION_RUN_DRC = "run_drc"
 ACTION_AUTOROUTE = "autoroute"
+ACTION_SIMPLIFY_WIRE = "simplify_wire"
+ACTION_UNWEAVE_WIRES = "unweave_wires"
 
 ACTION_HIGHLIGHT_TOGGLE = "highlight_toggle"   # toggle highlight on/off
-ACTION_HIGHLIGHT_CYCLE  = "highlight_cycle"    # cycle through interaction modes
+ACTION_HIGHLIGHT_CYCLE  = "highlight_cycle"    # cycle through relation classes
+ACTION_CLEAR_HIGHLIGHT  = "clear_highlight"    # drop persistent stack entries
+
+# Selection filter toggles — which object types may be selected.
+ACTION_FILTER_TOGGLE_COMPONENTS = "filter_toggle_components"
+ACTION_FILTER_TOGGLE_WIRES = "filter_toggle_wires"
+ACTION_FILTER_TOGGLE_GROUPS = "filter_toggle_groups"
+
+# Relation class direct-set — empty by default so users can opt in.
+ACTION_RELATION_NONE = "relation_none"
+ACTION_RELATION_LOGICAL_NET = "relation_logical_net"
+ACTION_RELATION_PHYSICAL_NET = "relation_physical_net"
+ACTION_RELATION_UNCONNECTED = "relation_unconnected"
+ACTION_RELATION_NEIGHBORS = "relation_neighbors"
+ACTION_RELATION_CYCLE_BACK = "relation_cycle_back"
 
 ACTION_LAYER_1 = "layer_1"
 ACTION_LAYER_2 = "layer_2"
@@ -117,6 +134,7 @@ DEFAULTS: dict[str, str] = {
     ACTION_DISCONNECT_PIN: "",
     ACTION_TOOL_SELECT: "S",
     ACTION_TOOL_ROUTE: "W",
+    ACTION_TOOL_ROUTE_NET_AWARE: "Shift+W",
     ACTION_TOOL_CUT: "C",
     ACTION_MIRROR_H: "H",
     ACTION_MIRROR_V: "V",
@@ -131,8 +149,20 @@ DEFAULTS: dict[str, str] = {
     ACTION_WIRE_SIDE_BOTTOM: "B",
     ACTION_RUN_DRC: "F5",
     ACTION_AUTOROUTE: "F6",
+    ACTION_SIMPLIFY_WIRE: "",
+    ACTION_UNWEAVE_WIRES: "",
     ACTION_HIGHLIGHT_TOGGLE: "",
     ACTION_HIGHLIGHT_CYCLE: "`",
+    ACTION_CLEAR_HIGHLIGHT: "Ctrl+Shift+H",
+    ACTION_FILTER_TOGGLE_COMPONENTS: "Alt+1",
+    ACTION_FILTER_TOGGLE_WIRES: "Alt+2",
+    ACTION_FILTER_TOGGLE_GROUPS: "Alt+3",
+    ACTION_RELATION_NONE: "",
+    ACTION_RELATION_LOGICAL_NET: "",
+    ACTION_RELATION_PHYSICAL_NET: "",
+    ACTION_RELATION_UNCONNECTED: "",
+    ACTION_RELATION_NEIGHBORS: "",
+    ACTION_RELATION_CYCLE_BACK: "Shift+`",
     ACTION_LAYER_1: "1",
     ACTION_LAYER_2: "2",
     ACTION_LAYER_3: "3",
@@ -171,6 +201,7 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_DISCONNECT_PIN: "Disconnect Pin from Net",
     ACTION_TOOL_SELECT: "Select Tool",
     ACTION_TOOL_ROUTE: "Route Wire Tool",
+    ACTION_TOOL_ROUTE_NET_AWARE: "Route Wire Tool (Net-aware)",
     ACTION_TOOL_CUT: "Cut Strip Tool",
     ACTION_MIRROR_H: "Mirror Horizontal",
     ACTION_MIRROR_V: "Mirror Vertical",
@@ -185,6 +216,20 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_WIRE_SIDE_BOTTOM: "Wire Side: Bottom",
     ACTION_RUN_DRC: "Run DRC",
     ACTION_AUTOROUTE: "Autoroute All Nets",
+    ACTION_SIMPLIFY_WIRE: "Simplify Selected Wires",
+    ACTION_UNWEAVE_WIRES: "Unweave Selected Wires",
+    ACTION_HIGHLIGHT_TOGGLE: "Highlight Toggle",
+    ACTION_HIGHLIGHT_CYCLE: "Cycle Relation Class",
+    ACTION_CLEAR_HIGHLIGHT: "Clear Persistent Highlight",
+    ACTION_FILTER_TOGGLE_COMPONENTS: "Filter: Toggle Components",
+    ACTION_FILTER_TOGGLE_WIRES: "Filter: Toggle Wires",
+    ACTION_FILTER_TOGGLE_GROUPS: "Filter: Toggle Groups",
+    ACTION_RELATION_NONE: "Relation: None",
+    ACTION_RELATION_LOGICAL_NET: "Relation: Same Logical Net",
+    ACTION_RELATION_PHYSICAL_NET: "Relation: Same Physical Net",
+    ACTION_RELATION_UNCONNECTED: "Relation: Unconnected Pins",
+    ACTION_RELATION_NEIGHBORS: "Relation: Neighbors",
+    ACTION_RELATION_CYCLE_BACK: "Cycle Relation Class (Back)",
     ACTION_LAYER_1: "Layer 1 (Components Top)",
     ACTION_LAYER_2: "Layer 2 (Components Bottom)",
     ACTION_LAYER_3: "Layer 3 (Wires Top)",

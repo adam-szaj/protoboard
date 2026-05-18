@@ -1,23 +1,20 @@
 # SPDX-License-Identifier: MIT
-"""GUI tests for the interaction mode (highlight + selection) system."""
+"""GUI tests for the orthogonal selection axes (filter × relation) system."""
 
 from __future__ import annotations
 
 import uuid
 
-import pytest
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QMouseEvent
-from PySide6.QtWidgets import QGraphicsItemGroup
 
 from protoboard.domain.layout.wire import WireSegment
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
-from protoboard.gui.interaction_mode import (
-    INTERACTION_MODES,
-    HighlightScope,
-    SelectionTarget,
-    get_mode,
+from protoboard.gui.selection_axes import (
+    RELATION_LABELS,
+    RelationClass,
+    SelectionFilter,
 )
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.place_tool import PlaceTool
@@ -39,16 +36,22 @@ def _place(board_view: BoardView, session: EditorSession, x: float, y: float) ->
     return list(session.instances.values())[-1]
 
 
-def _ev(x: float, y: float, btn: Qt.MouseButton) -> QMouseEvent:
+def _ev(
+    x: float, y: float, btn: Qt.MouseButton,
+    modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> QMouseEvent:
     return QMouseEvent(
         QMouseEvent.Type.MouseButtonPress,
         QPointF(x, y), QPointF(x, y),
-        btn, btn, Qt.KeyboardModifier.NoModifier,
+        btn, btn, modifiers,
     )
 
 
-def _press(tool: SelectTool, x: float, y: float) -> None:
-    tool.on_press(_ev(x, y, Qt.MouseButton.LeftButton), QPointF(x, y))
+def _press(
+    tool: SelectTool, x: float, y: float,
+    modifiers: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> None:
+    tool.on_press(_ev(x, y, Qt.MouseButton.LeftButton, modifiers), QPointF(x, y))
 
 
 def _add_wire(session: EditorSession, p1: Point, p2: Point) -> WireSegment:
@@ -64,43 +67,40 @@ def _add_wire(session: EditorSession, p1: Point, p2: Point) -> WireSegment:
 
 
 # ---------------------------------------------------------------------------
-# Tests: interaction mode state
+# Axis state
 # ---------------------------------------------------------------------------
 
-class TestInteractionModeState:
-    def test_default_mode_on_init(self, board_view: BoardView) -> None:
+class TestAxesState:
+    def test_defaults_on_init(self, board_view: BoardView) -> None:
         board_view.set_tool(SelectTool())
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
-        assert tool._interaction_mode.id == "default"
+        assert tool.filter == SelectionFilter.ALL
+        assert tool.relation == RelationClass.SAME_LOGICAL_NET
 
-    def test_set_interaction_mode_updates_state(self, board_view: BoardView) -> None:
+    def test_set_relation_updates_state(self, board_view: BoardView) -> None:
         board_view.set_tool(SelectTool())
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
-        mode = get_mode("net_logical_all")
-        tool.set_interaction_mode(mode)
-        assert tool._interaction_mode.id == "net_logical_all"
+        tool.set_relation(RelationClass.NEIGHBORS)
+        assert tool.relation == RelationClass.NEIGHBORS
 
-    def test_backtick_cycles_modes(self, board_view: BoardView) -> None:
+    def test_backtick_cycles_relations(self, board_view: BoardView) -> None:
         from PySide6.QtGui import QKeyEvent
         board_view.set_tool(SelectTool())
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
-
-        ids = list(INTERACTION_MODES.keys())
-        initial_idx = ids.index(tool._interaction_mode.id)
-
+        relations = list(RelationClass)
+        start_idx = relations.index(tool.relation)
         key_event = QKeyEvent(
             QKeyEvent.Type.KeyPress,
             Qt.Key.Key_QuoteLeft,
             Qt.KeyboardModifier.NoModifier,
         )
         tool.on_key(key_event)
-        expected_id = ids[(initial_idx + 1) % len(ids)]
-        assert tool._interaction_mode.id == expected_id
+        assert tool.relation == relations[(start_idx + 1) % len(relations)]
 
-    def test_set_mode_emits_signal(
+    def test_set_relation_emits_label(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         board_view.set_tool(SelectTool())
@@ -108,58 +108,53 @@ class TestInteractionModeState:
         assert isinstance(tool, SelectTool)
         received: list[str] = []
         session.highlight_mode_changed.connect(received.append)
-        tool.set_interaction_mode(get_mode("net_physical"))
-        assert received == ["Net (Physical)"]
+        tool.set_relation(RelationClass.SAME_PHYSICAL_NET)
+        assert received == [RELATION_LABELS[RelationClass.SAME_PHYSICAL_NET]]
+
+    def test_set_filter_updates_state(self, board_view: BoardView) -> None:
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool.set_filter(SelectionFilter.COMPONENTS | SelectionFilter.GROUPS)
+        assert tool.filter == SelectionFilter.COMPONENTS | SelectionFilter.GROUPS
+        assert tool._filter_components() is True
+        assert tool._filter_wires() is False
+        assert tool._filter_groups() is True
 
 
 # ---------------------------------------------------------------------------
-# Tests: default mode — no highlight, normal selection
+# Click semantics — LPM
 # ---------------------------------------------------------------------------
 
-class TestDefaultMode:
-    def test_component_click_selects_component(
+class TestLeftClickSemantics:
+    def test_lpm_on_component_selects_only_clicked(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         inst = _place(board_view, session, 0.5, 0.5)
         board_view.set_tool(SelectTool())
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
-        tool.set_interaction_mode(get_mode("default"))
         board_view.refresh()
         _press(tool, 0.5, 0.5)
-        assert tool._selected_id == inst.id or inst.id in tool._selected_ids
+        # Only the clicked component is in selection (not multi).
+        assert tool._selected_id == inst.id
+        assert not tool._selected_ids
 
-    def test_default_mode_no_highlight_items(
+    def test_lpm_relation_none_no_auto_entry(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         _place(board_view, session, 0.5, 0.5)
         board_view.set_tool(SelectTool())
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
-        tool.set_interaction_mode(get_mode("default"))
+        tool.set_relation(RelationClass.NONE)
         board_view.refresh()
         _press(tool, 0.5, 0.5)
+        # No auto-highlight entry on the stack.
+        assert session.highlight_stack.active() is None
         assert tool._highlight_items == []
 
-    def test_default_mode_no_net_dimming(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        _place(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool.set_interaction_mode(get_mode("default"))
-        board_view.refresh()
-        _press(tool, 0.5, 0.5)
-        assert board_view._highlighted_net_id is None
-
-
-# ---------------------------------------------------------------------------
-# Tests: wire click → select_connected_comps mode
-# ---------------------------------------------------------------------------
-
-class TestSelectConnectedCompsMode:
-    def test_wire_click_selects_correlated_comps_not_wire(
+    def test_lpm_relation_logical_net_pushes_auto_entry(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         i1 = _place(board_view, session, 0.5, 0.5)
@@ -169,88 +164,205 @@ class TestSelectConnectedCompsMode:
             PinRef(i1.id, 1), PinRef(i2.id, 1),
         })
         session.schematic.nets[net.id] = net
-
-        wire = _add_wire(session, Point(0.5, 0.5), Point(3.5, 0.5))
-        board_view.refresh()
         board_view.set_tool(SelectTool())
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
-        tool.set_interaction_mode(get_mode("select_connected_comps"))
+        tool.set_relation(RelationClass.SAME_LOGICAL_NET)
+        board_view.refresh()
+        # Drive through the unified entry point so we don't depend on
+        # pin hit-test geometry inside the placed component.
+        tool._apply_interaction(comp_id=i1.id, pin_number=1, shift_held=False)
+        entry = session.highlight_stack.active()
+        assert entry is not None
+        # Auto entry must be flagged as auto, sourced by select_tool.
+        assert entry.auto is True
+        assert entry.source_id == "select_tool"
+        # Both components on the net are in the highlighted set.
+        assert i1.id in entry.comp_ids and i2.id in entry.comp_ids
 
-        # Simulate wire click: pass wire_id directly to _apply_interaction.
-        tool._apply_interaction(wire_id=wire.id)
+    def test_lpm_bbox_click_no_pin_keeps_component_highlighted(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """Regression: clicking the component bbox (no pin hit) must not dim
+        the clicked component itself even when relation resolves no net.
+        """
+        i1 = _place(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool.set_relation(RelationClass.SAME_LOGICAL_NET)
+        board_view.refresh()
+        # pin_number=None simulates a bbox click that missed every pin.
+        tool._apply_interaction(comp_id=i1.id, pin_number=None, shift_held=False)
+        entry = session.highlight_stack.active()
+        assert entry is not None
+        # Even without a resolved net, the clicked component is in the
+        # highlighted set — otherwise BoardView would dim it along with
+        # everything else.
+        assert i1.id in entry.comp_ids
 
-        # Wire should NOT be in selected_wire_ids.
-        assert wire.id not in tool._selected_wire_ids
-        assert tool._selected_wire_id != wire.id
-        # But correlated comps should be selected.
-        all_selected = tool._selected_ids | (
-            {tool._selected_id} if tool._selected_id else set()
-        )
-        assert i1.id in all_selected or i2.id in all_selected
+    def test_lpm_bbox_click_spans_all_component_nets(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """Bbox click on a multi-net component highlights every net it touches."""
+        i1 = _place(board_view, session, 0.5, 0.5)
+        i2 = _place(board_view, session, 3.5, 0.5)
+        i3 = _place(board_view, session, 6.5, 0.5)
+        from protoboard.domain.schematic.net import Net, PinRef
+        net_a = Net(id=uuid.uuid4(), name="A", pins={
+            PinRef(i1.id, 1), PinRef(i2.id, 1),
+        })
+        net_b = Net(id=uuid.uuid4(), name="B", pins={
+            PinRef(i1.id, 2), PinRef(i3.id, 1),
+        })
+        session.schematic.nets[net_a.id] = net_a
+        session.schematic.nets[net_b.id] = net_b
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool.set_relation(RelationClass.SAME_LOGICAL_NET)
+        board_view.refresh()
+        # Bbox click on i1 (no specific pin) → both nets contribute.
+        tool._apply_interaction(comp_id=i1.id, pin_number=None, shift_held=False)
+        entry = session.highlight_stack.active()
+        assert entry is not None
+        assert i1.id in entry.comp_ids
+        assert i2.id in entry.comp_ids   # from net A
+        assert i3.id in entry.comp_ids   # from net B
 
 
 # ---------------------------------------------------------------------------
-# Tests: inspect_only mode — no selection change
+# Click semantics — Shift+LPM (relation ∩ filter)
 # ---------------------------------------------------------------------------
 
-class TestInspectOnlyMode:
-    def test_inspect_mode_does_not_change_selection(
+class TestShiftLeftClickSemantics:
+    def test_shift_lpm_selects_all_net_components(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         i1 = _place(board_view, session, 0.5, 0.5)
         i2 = _place(board_view, session, 3.5, 0.5)
-        board_view.refresh()
+        from protoboard.domain.schematic.net import Net, PinRef
+        net = Net(id=uuid.uuid4(), name="N1", pins={
+            PinRef(i1.id, 1), PinRef(i2.id, 1),
+        })
+        session.schematic.nets[net.id] = net
         board_view.set_tool(SelectTool())
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
-        tool.set_interaction_mode(get_mode("inspect_only"))
+        tool.set_relation(RelationClass.SAME_LOGICAL_NET)
+        tool.set_filter(SelectionFilter.ALL)
+        board_view.refresh()
+        tool._apply_interaction(comp_id=i1.id, pin_number=1, shift_held=True)
+        assert i1.id in tool._selected_ids
+        assert i2.id in tool._selected_ids
 
-        # Pre-select i1 manually.
-        tool._selected_id = i1.id
-        # Now apply interaction on i2.
-        tool._apply_interaction(comp_id=i2.id)
-
-        # Selection should be unchanged (NOTHING target).
-        assert tool._selected_id == i1.id
+    def test_shift_lpm_filter_excludes_wires(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        i1 = _place(board_view, session, 0.5, 0.5)
+        i2 = _place(board_view, session, 3.5, 0.5)
+        from protoboard.domain.schematic.net import Net, PinRef
+        net = Net(id=uuid.uuid4(), name="N1", pins={
+            PinRef(i1.id, 1), PinRef(i2.id, 1),
+        })
+        session.schematic.nets[net.id] = net
+        wire = _add_wire(session, Point(0.5, 0.5), Point(3.5, 0.5))
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool.set_relation(RelationClass.SAME_LOGICAL_NET)
+        # Filter excludes wires — Shift+LPM must not select the net's wire.
+        tool.set_filter(SelectionFilter.COMPONENTS | SelectionFilter.GROUPS)
+        board_view.refresh()
+        tool._apply_interaction(comp_id=i1.id, pin_number=1, shift_held=True)
+        assert wire.id not in tool._selected_wire_ids
 
 
 # ---------------------------------------------------------------------------
-# Tests: clear highlight on empty click
+# HighlightStack precedence: persistent > transient > auto
 # ---------------------------------------------------------------------------
 
-class TestClearHighlight:
-    def test_empty_click_clears_highlight_items(
+class TestHighlightStackPrecedence:
+    def test_persistent_beats_auto(self, session: EditorSession) -> None:
+        from protoboard.gui.highlight_state import HighlightEntry
+        stack = session.highlight_stack
+        stack.push_auto(HighlightEntry(label="auto"), source_id="select_tool")
+        stack.push(HighlightEntry(label="user"))
+        active = stack.active()
+        assert active is not None
+        assert active.label == "user"
+        assert active.auto is False
+        assert active.transient is False
+
+    def test_transient_beats_auto(self, session: EditorSession) -> None:
+        from protoboard.gui.highlight_state import HighlightEntry
+        stack = session.highlight_stack
+        stack.push_auto(HighlightEntry(label="auto"), source_id="select_tool")
+        stack.push_transient(HighlightEntry(label="route"))
+        active = stack.active()
+        assert active is not None
+        assert active.label == "route"
+        assert active.transient is True
+
+    def test_persistent_beats_transient(self, session: EditorSession) -> None:
+        from protoboard.gui.highlight_state import HighlightEntry
+        stack = session.highlight_stack
+        stack.push_transient(HighlightEntry(label="route"))
+        stack.push(HighlightEntry(label="user"))
+        active = stack.active()
+        assert active is not None
+        assert active.label == "user"
+
+    def test_push_auto_replaces_same_source(self, session: EditorSession) -> None:
+        from protoboard.gui.highlight_state import HighlightEntry
+        stack = session.highlight_stack
+        stack.push_auto(HighlightEntry(label="first"), source_id="select_tool")
+        stack.push_auto(HighlightEntry(label="second"), source_id="select_tool")
+        active = stack.active()
+        assert active is not None
+        assert active.label == "second"
+
+    def test_clear_auto_removes_by_source(self, session: EditorSession) -> None:
+        from protoboard.gui.highlight_state import HighlightEntry
+        stack = session.highlight_stack
+        stack.push_auto(HighlightEntry(label="a"), source_id="select_tool")
+        stack.clear_auto("select_tool")
+        assert stack.active() is None
+
+    def test_clear_preserves_auto(self, session: EditorSession) -> None:
+        from protoboard.gui.highlight_state import HighlightEntry
+        stack = session.highlight_stack
+        stack.push_auto(HighlightEntry(label="auto"), source_id="select_tool")
+        stack.push(HighlightEntry(label="user"))
+        stack.clear()  # only persistent goes away
+        active = stack.active()
+        assert active is not None
+        assert active.label == "auto"
+
+
+# ---------------------------------------------------------------------------
+# Routing-net union: RouteTool's net adds to the stack's highlighted ids.
+# ---------------------------------------------------------------------------
+
+class TestRoutingNetUnion:
+    def test_routing_net_only_dims_everything_else(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        _place(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool.set_interaction_mode(get_mode("net_logical_all"))
+        # Place two components on the same net, then mark the net as routing.
+        i1 = _place(board_view, session, 0.5, 0.5)
+        i2 = _place(board_view, session, 3.5, 0.5)
+        from protoboard.domain.schematic.net import Net, PinRef
+        net = Net(id=uuid.uuid4(), name="N1", pins={
+            PinRef(i1.id, 1), PinRef(i2.id, 1),
+        })
+        session.schematic.nets[net.id] = net
         board_view.refresh()
-
-        # Click component — may draw highlight items.
-        _press(tool, 0.5, 0.5)
-        # Click empty area to clear.
-        _press(tool, 10.0, 10.0)
-
-        assert tool._highlight_items == []
-        assert board_view._highlighted_net_id is None
-
-    def test_set_mode_redispatches_if_source_active(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """Changing mode re-runs highlight on last click source."""
-        _place(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        board_view.refresh()
-
-        # Set a source manually.
-        tool._hl_source_comp = list(session.instances.keys())[0]
-
-        # Switch to a mode with NONE scope — should clear dimming.
-        tool.set_interaction_mode(get_mode("default"))
-        assert board_view._highlighted_net_id is None
+        # No stack entry, only routing_net set.
+        session.set_routing_net(net.id)
+        # Both components are highlighted (full opacity); a third unrelated
+        # group would be dimmed.  Use the internal hook directly.
+        board_view._apply_highlight_opacity()
+        # Sanity: routing_net_id is propagated.
+        assert session.routing_net_id == net.id
+        session.set_routing_net(None)
+        assert session.routing_net_id is None
