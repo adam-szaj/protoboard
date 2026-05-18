@@ -59,6 +59,88 @@ class MainWindow(QMainWindow):
     # Emitted when user chooses File > Close Project (return to welcome screen).
     return_to_welcome = Signal()
 
+    # ------------------------------------------------------------------
+    # Action metadata — declarative table consumed by _register_actions().
+    # Each entry holds a menu label (with mnemonics) and optional flags.
+    # Actions not listed here fall back to KB.DISPLAY_NAMES for their label
+    # and use neutral defaults (enabled, not checkable).
+    # ------------------------------------------------------------------
+    _ACTION_METADATA: dict[str, dict[str, object]] = {
+        # File menu
+        KB.ACTION_SAVE:    {"label": "&Save"},
+        KB.ACTION_SAVE_AS: {"label": "Save &As…"},
+        KB.ACTION_QUIT:    {"label": "&Quit"},
+        # Edit menu
+        KB.ACTION_UNDO:    {"label": "&Undo", "enabled": False},
+        KB.ACTION_REDO:    {"label": "&Redo", "enabled": False},
+        KB.ACTION_DELETE:  {"label": "&Delete"},
+        KB.ACTION_CLEAR_HIGHLIGHT: {"label": "Clear &Highlight", "enabled": False},
+        KB.ACTION_ROTATE_CW:  {"label": "Rotate &CW"},
+        KB.ACTION_ROTATE_CCW: {"label": "Rotate CC&W"},
+        KB.ACTION_FLIP:       {"label": "&Flip"},
+        KB.ACTION_GROUP:      {"label": "&Group Selection"},
+        KB.ACTION_UNGROUP:    {"label": "&Ungroup"},
+        KB.ACTION_EXIT_GROUP: {"label": "&Exit Group"},
+        KB.ACTION_PREFERENCES: {"label": "&Preferences…"},
+        # Select menu
+        KB.ACTION_SELECT_ALL:               {"label": "Select &All"},
+        KB.ACTION_DESELECT_ALL:             {"label": "&Deselect All"},
+        KB.ACTION_SELECT_ALL_COMPONENTS:    {"label": "Select All &Components"},
+        KB.ACTION_DESELECT_ALL_COMPONENTS:  {"label": "Deselect All C&omponents"},
+        KB.ACTION_SELECT_ALL_WIRES:         {"label": "Select All &Wires"},
+        KB.ACTION_DESELECT_ALL_WIRES:       {"label": "Deselect All Wi&res"},
+        # View menu
+        KB.ACTION_CAMERA_TOGGLE: {"label": "Camera: To&ggle"},
+        KB.ACTION_MIRROR_H:      {"label": "Mirror &Horizontal", "checkable": True},
+        KB.ACTION_MIRROR_V:      {"label": "Mirror &Vertical",   "checkable": True},
+        KB.ACTION_FULLSCREEN:    {"label": "&Full Screen"},
+        KB.ACTION_ZOOM_IN:       {"label": "Zoom &In"},
+        KB.ACTION_ZOOM_OUT:      {"label": "Zoom &Out"},
+        KB.ACTION_FIT_BOARD:     {"label": "&Fit Board"},
+        KB.ACTION_FIT_AREA:      {"label": "Fit &Area"},
+        KB.ACTION_FIT_SELECTION: {"label": "Fit &Selection"},
+        # Tools menu
+        KB.ACTION_TOOL_SELECT:          {"label": "&Select"},
+        KB.ACTION_TOOL_ROUTE:           {"label": "Route &Wire"},
+        KB.ACTION_TOOL_ROUTE_NET_AWARE: {"label": "Route Wire [Net-aware]"},
+        KB.ACTION_TOOL_CUT:             {"label": "&Cut Strip"},
+        KB.ACTION_WIRE_TOGGLE_INSULATED: {"label": "&Insulated"},
+        KB.ACTION_WIRE_SIDE_TOP:         {"label": "Side: &Top"},
+        KB.ACTION_WIRE_SIDE_BOTTOM:      {"label": "Side: &Bottom"},
+        KB.ACTION_REDRAG_PINS:           {"label": "Re-drag &Pins"},
+        KB.ACTION_WIRE_SET_INSULATED:    {"label": "Wire: Set &Insulated"},
+        KB.ACTION_WIRE_SET_BARE:         {"label": "Wire: Set &Bare"},
+        KB.ACTION_WIRE_MOVE_TO_TOP:      {"label": "Wire: Move to &Top Layer"},
+        KB.ACTION_WIRE_MOVE_TO_BOTTOM:   {"label": "Wire: Move to &Bottom Layer"},
+        KB.ACTION_WIRE_FLIP:             {"label": "Wire: &Flip to Opposite Layer"},
+        KB.ACTION_DISCONNECT_PIN:        {"label": "&Disconnect Pin from Net…"},
+        KB.ACTION_AUTOROUTE:             {"label": "&Autoroute Nets… [Inspector selection or all]"},
+        KB.ACTION_RUN_DRC:               {"label": "Run &DRC"},
+        # Layer cycling
+        KB.ACTION_LAYER_1: {"label": "Components Top"},
+        KB.ACTION_LAYER_2: {"label": "Components Bottom"},
+        KB.ACTION_LAYER_3: {"label": "Wires Top"},
+        KB.ACTION_LAYER_4: {"label": "Wires Bottom"},
+        KB.ACTION_LAYER_5: {"label": "Labels Top"},
+        KB.ACTION_LAYER_6: {"label": "Labels Bottom"},
+        KB.ACTION_LAYER_7: {"label": "Board"},
+        KB.ACTION_LAYER_8: {"label": "Ratsnest"},
+        # Orphan actions (no menu entry — only keyboard shortcut)
+        KB.ACTION_FILTER_TOGGLE_COMPONENTS: {"label": "Filter: Toggle Components"},
+        KB.ACTION_FILTER_TOGGLE_WIRES:      {"label": "Filter: Toggle Wires"},
+        KB.ACTION_FILTER_TOGGLE_GROUPS:     {"label": "Filter: Toggle Groups"},
+        KB.ACTION_HIGHLIGHT_CYCLE:          {"label": "Cycle Relation Class"},
+        KB.ACTION_RELATION_CYCLE_BACK:      {"label": "Cycle Relation Class (Back)"},
+        KB.ACTION_RELATION_NONE:            {"label": "Relation: None"},
+        KB.ACTION_RELATION_LOGICAL_NET:     {"label": "Relation: Same Logical Net"},
+        KB.ACTION_RELATION_PHYSICAL_NET:    {"label": "Relation: Same Physical Net"},
+        KB.ACTION_RELATION_UNCONNECTED:     {"label": "Relation: Unconnected Pins"},
+        KB.ACTION_RELATION_NEIGHBORS:       {"label": "Relation: Neighbors"},
+        KB.ACTION_SIMPLIFY_WIRE:            {"label": "Simplify Selected Wires"},
+        KB.ACTION_UNWEAVE_WIRES:            {"label": "Unweave Selected Wires"},
+        KB.ACTION_HIGHLIGHT_TOGGLE:         {"label": "Highlight Toggle"},
+    }
+
     def __init__(
         self,
         session: EditorSession,
@@ -125,6 +207,9 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, props_dock)
 
         # Menu bar — File menu.
+        # Build the action registry first so _build_menu() can pull QActions
+        # by id from self._actions.
+        self._register_actions()
         self._build_menu()
 
         # Wire routing state (persisted across tool switches).
@@ -365,19 +450,164 @@ class MainWindow(QMainWindow):
         s = self._keybindings.get(action_id)
         return QKeySequence(s) if s else QKeySequence()
 
+    # Layer cycling — field name + display label + ACTION id, in menu order.
+    # Class-level so _register_actions() can read it before _build_menu() runs.
+    _LAYER_ENTRIES: list[tuple[str, str, str]] = [
+        ("components_top",    "Components Top",    KB.ACTION_LAYER_1),
+        ("components_bottom", "Components Bottom", KB.ACTION_LAYER_2),
+        ("wires_top",         "Wires Top",         KB.ACTION_LAYER_3),
+        ("wires_bottom",      "Wires Bottom",      KB.ACTION_LAYER_4),
+        ("labels_top",        "Labels Top",        KB.ACTION_LAYER_5),
+        ("labels_bottom",     "Labels Bottom",     KB.ACTION_LAYER_6),
+        ("board",             "Board",             KB.ACTION_LAYER_7),
+        ("ratsnest",          "Ratsnest",          KB.ACTION_LAYER_8),
+    ]
+
+    def _register_actions(self) -> None:
+        """Create one QAction per entry in the handler map.
+
+        All QActions are added to ``self`` (QMainWindow) with the default
+        ``Qt.ShortcutContext.WindowShortcut`` so Qt routes their shortcut
+        regardless of whether they are subsequently put in a menu.  Menu
+        items consume them via ``self._actions[KB.ACTION_X]``; orphan
+        entries (no menu) still fire their handler on the bound shortcut.
+        """
+        self._layer_field_order: list[str] = [
+            field_name for field_name, _label, _aid in self._LAYER_ENTRIES
+        ]
+
+        # Per-instance handler map — built here because handlers need bound
+        # ``self``.  Order does not matter — Qt does the routing.
+        self._action_handlers: dict[str, "Callable[[], None]"] = {
+            # File
+            KB.ACTION_SAVE:    self._save,
+            KB.ACTION_SAVE_AS: self._save_as,
+            KB.ACTION_QUIT:    self.close,
+            # Edit
+            KB.ACTION_UNDO:    self._undo,
+            KB.ACTION_REDO:    self._redo,
+            KB.ACTION_DELETE:  self._delete_selection,
+            KB.ACTION_CLEAR_HIGHLIGHT: self._clear_highlight,
+            KB.ACTION_ROTATE_CW:  self._rotate_cw,
+            KB.ACTION_ROTATE_CCW: self._rotate_ccw,
+            KB.ACTION_FLIP:       self._flip_selection,
+            KB.ACTION_GROUP:      self._group_selection,
+            KB.ACTION_UNGROUP:    self._ungroup_selection,
+            KB.ACTION_EXIT_GROUP: self._exit_group,
+            KB.ACTION_PREFERENCES: self._open_preferences,
+            # Select
+            KB.ACTION_SELECT_ALL:               self._select_all,
+            KB.ACTION_DESELECT_ALL:             self._deselect_all,
+            KB.ACTION_SELECT_ALL_COMPONENTS:    self._select_all_components,
+            KB.ACTION_DESELECT_ALL_COMPONENTS:  self._deselect_all_components,
+            KB.ACTION_SELECT_ALL_WIRES:         self._select_all_wires,
+            KB.ACTION_DESELECT_ALL_WIRES:       self._deselect_all_wires,
+            # View
+            KB.ACTION_CAMERA_TOGGLE: lambda: self._set_camera("toggle"),
+            KB.ACTION_MIRROR_H:      self._mirror_view,
+            KB.ACTION_MIRROR_V:      self._mirror_view_v,
+            KB.ACTION_FULLSCREEN:    self._toggle_fullscreen,
+            KB.ACTION_ZOOM_IN:       lambda: self._board_view.scale(1.3, 1.3),
+            KB.ACTION_ZOOM_OUT:      lambda: self._board_view.scale(1 / 1.3, 1 / 1.3),
+            KB.ACTION_FIT_BOARD:     self._fit_board,
+            KB.ACTION_FIT_AREA:      self._fit_area,
+            KB.ACTION_FIT_SELECTION: self._fit_selection,
+            # Tools
+            KB.ACTION_TOOL_SELECT:          self._tool_select,
+            KB.ACTION_TOOL_ROUTE:           self._tool_route,
+            KB.ACTION_TOOL_ROUTE_NET_AWARE: lambda: self._tool_route(net_aware=True),
+            KB.ACTION_TOOL_CUT:             self._tool_cut,
+            KB.ACTION_WIRE_TOGGLE_INSULATED: lambda: self._set_wire_insulated(not self._wire_insulated),
+            KB.ACTION_WIRE_SIDE_TOP:         lambda: self._set_wire_side("top"),
+            KB.ACTION_WIRE_SIDE_BOTTOM:      lambda: self._set_wire_side("bottom"),
+            KB.ACTION_REDRAG_PINS:           self._redrag_pins,
+            KB.ACTION_WIRE_SET_INSULATED:    lambda: self._set_selected_wire_insulated(True),
+            KB.ACTION_WIRE_SET_BARE:         lambda: self._set_selected_wire_insulated(False),
+            KB.ACTION_WIRE_MOVE_TO_TOP:      lambda: self._move_selected_wires_to_side("top"),
+            KB.ACTION_WIRE_MOVE_TO_BOTTOM:   lambda: self._move_selected_wires_to_side("bottom"),
+            KB.ACTION_WIRE_FLIP:             lambda: self._move_selected_wires_to_side(None),
+            KB.ACTION_DISCONNECT_PIN:        self._disconnect_pin,
+            KB.ACTION_AUTOROUTE:             self._autoroute,
+            KB.ACTION_RUN_DRC:               self._run_drc,
+            # Orphan — no menu entry, only keyboard shortcut.
+            KB.ACTION_FILTER_TOGGLE_COMPONENTS: lambda: self._toggle_filter("components"),
+            KB.ACTION_FILTER_TOGGLE_WIRES:      lambda: self._toggle_filter("wires"),
+            KB.ACTION_FILTER_TOGGLE_GROUPS:     lambda: self._toggle_filter("groups"),
+            KB.ACTION_HIGHLIGHT_CYCLE:          lambda: self._cycle_relation(forward=True),
+            KB.ACTION_RELATION_CYCLE_BACK:      lambda: self._cycle_relation(forward=False),
+            KB.ACTION_RELATION_NONE:            lambda: self._set_relation_by_name("none"),
+            KB.ACTION_RELATION_LOGICAL_NET:     lambda: self._set_relation_by_name("same_logical_net"),
+            KB.ACTION_RELATION_PHYSICAL_NET:    lambda: self._set_relation_by_name("same_physical_net"),
+            KB.ACTION_RELATION_UNCONNECTED:     lambda: self._set_relation_by_name("unconnected_pins"),
+            KB.ACTION_RELATION_NEIGHBORS:       lambda: self._set_relation_by_name("neighbors"),
+            KB.ACTION_SIMPLIFY_WIRE:            self._simplify_selected_wires,
+            KB.ACTION_UNWEAVE_WIRES:            self._unweave_selected_wires,
+            # ACTION_HIGHLIGHT_TOGGLE: kept as an alias of clear-highlight
+            # for now — the historic intent was "drop the persistent stack
+            # entry like Esc".  Wire it to _clear_highlight so the action
+            # has a working handler.
+            KB.ACTION_HIGHLIGHT_TOGGLE:         self._clear_highlight,
+        }
+        # Layer 1..8 — bind layer-index via default-arg lambda to avoid the
+        # late-binding closure pitfall.  The first positional arg swallows
+        # Qt's QAction.triggered(checked=False) so it doesn't bleed into the
+        # default-arg index slot.
+        for idx, (_field, _label, layer_action_id) in enumerate(self._LAYER_ENTRIES):
+            self._action_handlers[layer_action_id] = (
+                lambda *_args, i=idx: self._cycle_layer(self._layer_field_order[i])
+            )
+
+        self._actions: dict[str, QAction] = {}
+        for action_id, handler in self._action_handlers.items():
+            meta = self._ACTION_METADATA.get(action_id, {})
+            label = meta.get("label") or KB.DISPLAY_NAMES.get(action_id, action_id)
+            act = QAction(label, self)
+            act.setShortcut(self._ks(action_id))
+            act.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+            if meta.get("checkable", False):
+                act.setCheckable(True)
+            if not meta.get("enabled", True):
+                act.setEnabled(False)
+            act.triggered.connect(handler)
+            self._actions[action_id] = act
+            self.addAction(act)
+
+        # Derived view: layer field-name → QAction, for _refresh_layer_menu().
+        self._layer_actions: dict[str, QAction] = {
+            field_name: self._actions[layer_action_id]
+            for field_name, _label, layer_action_id in self._LAYER_ENTRIES
+        }
+
+    # ------------------------------------------------------------------
+    # Backward-compat aliases — historic per-attribute names kept as
+    # properties so existing callsites (_update_undo_redo, _sync_view_actions,
+    # _set_wire_*, etc.) keep working without a sweep.
+    # ------------------------------------------------------------------
+    @property
+    def _act_undo(self) -> QAction: return self._actions[KB.ACTION_UNDO]
+    @property
+    def _act_redo(self) -> QAction: return self._actions[KB.ACTION_REDO]
+    @property
+    def _act_clear_highlight(self) -> QAction: return self._actions[KB.ACTION_CLEAR_HIGHLIGHT]
+    @property
+    def _act_mirror(self) -> QAction: return self._actions[KB.ACTION_MIRROR_H]
+    @property
+    def _act_mirror_v(self) -> QAction: return self._actions[KB.ACTION_MIRROR_V]
+    @property
+    def _act_wire_insulated(self) -> QAction: return self._actions[KB.ACTION_WIRE_TOGGLE_INSULATED]
+    @property
+    def _act_wire_top(self) -> QAction: return self._actions[KB.ACTION_WIRE_SIDE_TOP]
+    @property
+    def _act_wire_bottom(self) -> QAction: return self._actions[KB.ACTION_WIRE_SIDE_BOTTOM]
+
     def _build_menu(self) -> None:
         mb: QMenuBar = self.menuBar()
 
         # ── File ──────────────────────────────────────────────────────────
         file_menu = mb.addMenu("&File")
 
-        act_save = file_menu.addAction("&Save")
-        act_save.setShortcut(self._ks(KB.ACTION_SAVE))
-        act_save.triggered.connect(self._save)
-
-        act_save_as = file_menu.addAction("Save &As…")
-        act_save_as.setShortcut(self._ks(KB.ACTION_SAVE_AS))
-        act_save_as.triggered.connect(self._save_as)
+        file_menu.addAction(self._actions[KB.ACTION_SAVE])
+        file_menu.addAction(self._actions[KB.ACTION_SAVE_AS])
 
         file_menu.addSeparator()
 
@@ -413,65 +643,37 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
-        act_quit = file_menu.addAction("&Quit")
-        act_quit.setShortcut(self._ks(KB.ACTION_QUIT))
-        act_quit.triggered.connect(self.close)
+        file_menu.addAction(self._actions[KB.ACTION_QUIT])
 
         # ── Edit ──────────────────────────────────────────────────────────
         edit_menu = mb.addMenu("&Edit")
 
-        self._act_undo: QAction = edit_menu.addAction("&Undo")
-        self._act_undo.setShortcut(self._ks(KB.ACTION_UNDO))
-        self._act_undo.setEnabled(False)
-        self._act_undo.triggered.connect(self._undo)
-
-        self._act_redo: QAction = edit_menu.addAction("&Redo")
-        self._act_redo.setShortcut(self._ks(KB.ACTION_REDO))
-        self._act_redo.setEnabled(False)
-        self._act_redo.triggered.connect(self._redo)
+        edit_menu.addAction(self._actions[KB.ACTION_UNDO])
+        edit_menu.addAction(self._actions[KB.ACTION_REDO])
 
         edit_menu.addSeparator()
 
-        act_delete = edit_menu.addAction("&Delete\tDel")
-        act_delete.triggered.connect(self._delete_selection)
+        edit_menu.addAction(self._actions[KB.ACTION_DELETE])
 
         edit_menu.addSeparator()
 
-        self._act_clear_highlight: QAction = edit_menu.addAction("Clear &Highlight")
-        self._act_clear_highlight.setShortcut(self._ks(KB.ACTION_CLEAR_HIGHLIGHT))
-        self._act_clear_highlight.setEnabled(False)
-        self._act_clear_highlight.triggered.connect(self._clear_highlight)
+        edit_menu.addAction(self._actions[KB.ACTION_CLEAR_HIGHLIGHT])
 
         edit_menu.addSeparator()
 
-        act_rotate_cw = edit_menu.addAction("Rotate &CW\tR")
-        act_rotate_cw.triggered.connect(self._rotate_cw)
-
-        act_rotate_ccw = edit_menu.addAction("Rotate CC&W\tShift+R")
-        act_rotate_ccw.triggered.connect(self._rotate_ccw)
-
-        act_flip = edit_menu.addAction("&Flip\tAlt+R")
-        act_flip.triggered.connect(self._flip_selection)
+        edit_menu.addAction(self._actions[KB.ACTION_ROTATE_CW])
+        edit_menu.addAction(self._actions[KB.ACTION_ROTATE_CCW])
+        edit_menu.addAction(self._actions[KB.ACTION_FLIP])
 
         edit_menu.addSeparator()
 
-        act_group = edit_menu.addAction("&Group Selection")
-        act_group.setShortcut(self._ks(KB.ACTION_GROUP))
-        act_group.triggered.connect(self._group_selection)
-
-        act_ungroup = edit_menu.addAction("&Ungroup")
-        act_ungroup.setShortcut(self._ks(KB.ACTION_UNGROUP))
-        act_ungroup.triggered.connect(self._ungroup_selection)
-
-        act_exit_group = edit_menu.addAction("&Exit Group")
-        act_exit_group.setShortcut(self._ks(KB.ACTION_EXIT_GROUP))
-        act_exit_group.triggered.connect(self._exit_group)
+        edit_menu.addAction(self._actions[KB.ACTION_GROUP])
+        edit_menu.addAction(self._actions[KB.ACTION_UNGROUP])
+        edit_menu.addAction(self._actions[KB.ACTION_EXIT_GROUP])
 
         edit_menu.addSeparator()
 
-        act_prefs = edit_menu.addAction("&Preferences…")
-        act_prefs.setShortcut(QKeySequence("Ctrl+,"))
-        act_prefs.triggered.connect(self._open_preferences)
+        edit_menu.addAction(self._actions[KB.ACTION_PREFERENCES])
 
         edit_menu.addSeparator()
 
@@ -482,38 +684,25 @@ class MainWindow(QMainWindow):
         # ── Select ────────────────────────────────────────────────────────
         select_menu = mb.addMenu("&Select")
 
-        act_sel_all = select_menu.addAction("Select &All")
-        act_sel_all.setShortcut(self._ks(KB.ACTION_SELECT_ALL))
-        act_sel_all.triggered.connect(self._select_all)
-
-        act_desel_all = select_menu.addAction("&Deselect All")
-        act_desel_all.setShortcut(self._ks(KB.ACTION_DESELECT_ALL))
-        act_desel_all.triggered.connect(self._deselect_all)
+        select_menu.addAction(self._actions[KB.ACTION_SELECT_ALL])
+        select_menu.addAction(self._actions[KB.ACTION_DESELECT_ALL])
 
         select_menu.addSeparator()
 
-        act_sel_comps = select_menu.addAction("Select All &Components")
-        act_sel_comps.setShortcut(self._ks(KB.ACTION_SELECT_ALL_COMPONENTS))
-        act_sel_comps.triggered.connect(self._select_all_components)
-
-        act_desel_comps = select_menu.addAction("Deselect All C&omponents")
-        act_desel_comps.setShortcut(self._ks(KB.ACTION_DESELECT_ALL_COMPONENTS))
-        act_desel_comps.triggered.connect(self._deselect_all_components)
+        select_menu.addAction(self._actions[KB.ACTION_SELECT_ALL_COMPONENTS])
+        select_menu.addAction(self._actions[KB.ACTION_DESELECT_ALL_COMPONENTS])
 
         select_menu.addSeparator()
 
-        act_sel_wires = select_menu.addAction("Select All &Wires")
-        act_sel_wires.setShortcut(self._ks(KB.ACTION_SELECT_ALL_WIRES))
-        act_sel_wires.triggered.connect(self._select_all_wires)
-
-        act_desel_wires = select_menu.addAction("Deselect All Wi&res")
-        act_desel_wires.setShortcut(self._ks(KB.ACTION_DESELECT_ALL_WIRES))
-        act_desel_wires.triggered.connect(self._deselect_all_wires)
+        select_menu.addAction(self._actions[KB.ACTION_SELECT_ALL_WIRES])
+        select_menu.addAction(self._actions[KB.ACTION_DESELECT_ALL_WIRES])
 
         # ── View ──────────────────────────────────────────────────────────
         view_menu = mb.addMenu("&View")
 
-        # Camera side (which physical side is in front).
+        # Camera side (which physical side is in front).  Two checkable items
+        # without shortcut, plus the configurable toggle that lives in the
+        # action registry.
         self._act_camera_top: QAction = view_menu.addAction("Camera: &Top")
         self._act_camera_top.setCheckable(True)
         self._act_camera_top.setChecked(True)
@@ -523,153 +712,65 @@ class MainWindow(QMainWindow):
         self._act_camera_bottom.setCheckable(True)
         self._act_camera_bottom.triggered.connect(lambda: self._set_camera("bottom"))
 
-        self._act_camera_toggle: QAction = view_menu.addAction("Camera: To&ggle")
-        self._act_camera_toggle.setShortcut(self._ks(KB.ACTION_CAMERA_TOGGLE))
-        self._act_camera_toggle.triggered.connect(lambda: self._set_camera("toggle"))
+        view_menu.addAction(self._actions[KB.ACTION_CAMERA_TOGGLE])
 
         view_menu.addSeparator()
 
         # Visual transform (independent of camera).
-        self._act_mirror: QAction = view_menu.addAction("Mirror &Horizontal")
-        self._act_mirror.setCheckable(True)
-        self._act_mirror.setShortcut(self._ks(KB.ACTION_MIRROR_H))
-        self._act_mirror.triggered.connect(self._mirror_view)
-
-        self._act_mirror_v: QAction = view_menu.addAction("Mirror &Vertical")
-        self._act_mirror_v.setCheckable(True)
-        self._act_mirror_v.setShortcut(self._ks(KB.ACTION_MIRROR_V))
-        self._act_mirror_v.triggered.connect(self._mirror_view_v)
+        view_menu.addAction(self._actions[KB.ACTION_MIRROR_H])
+        view_menu.addAction(self._actions[KB.ACTION_MIRROR_V])
 
         view_menu.addSeparator()
 
         # ── Layers submenu ────────────────────────────────────────────
         layers_menu = view_menu.addMenu("&Layers")
-        _LAYER_ENTRIES = [
-            ("components_top",    "Components Top",    KB.ACTION_LAYER_1),
-            ("components_bottom", "Components Bottom", KB.ACTION_LAYER_2),
-            ("wires_top",         "Wires Top",         KB.ACTION_LAYER_3),
-            ("wires_bottom",      "Wires Bottom",      KB.ACTION_LAYER_4),
-            ("labels_top",        "Labels Top",        KB.ACTION_LAYER_5),
-            ("labels_bottom",     "Labels Bottom",     KB.ACTION_LAYER_6),
-            ("board",             "Board",             KB.ACTION_LAYER_7),
-            ("ratsnest",          "Ratsnest",          KB.ACTION_LAYER_8),
-        ]
-        self._layer_field_order: list[str] = []
-        self._layer_actions: dict[str, QAction] = {}
-        for field_name, display_name, action_id in _LAYER_ENTRIES:
-            act = layers_menu.addAction(display_name)
-            act.setShortcut(self._ks(action_id))
-            act.triggered.connect(
-                lambda _checked, fn=field_name: self._cycle_layer(fn)
-            )
-            self._layer_actions[field_name] = act
-            self._layer_field_order.append(field_name)
+        for _field_name, _display_name, action_id in self._LAYER_ENTRIES:
+            layers_menu.addAction(self._actions[action_id])
         layers_menu.addSeparator()
         act_reset_layers = layers_menu.addAction("Reset All Layers")
         act_reset_layers.triggered.connect(self._reset_layers)
 
         view_menu.addSeparator()
 
-        act_zoom_in = view_menu.addAction("Zoom &In")
-        act_zoom_in.setShortcut(self._ks(KB.ACTION_ZOOM_IN))
-        act_zoom_in.triggered.connect(lambda: self._board_view.scale(1.3, 1.3))
-
-        act_zoom_out = view_menu.addAction("Zoom &Out")
-        act_zoom_out.setShortcut(self._ks(KB.ACTION_ZOOM_OUT))
-        act_zoom_out.triggered.connect(lambda: self._board_view.scale(1 / 1.3, 1 / 1.3))
-
-        act_fit = view_menu.addAction("&Fit Board")
-        act_fit.setShortcut(self._ks(KB.ACTION_FIT_BOARD))
-        act_fit.triggered.connect(self._fit_board)
-
-        act_fit_area = view_menu.addAction("Fit &Area")
-        act_fit_area.setShortcut(self._ks(KB.ACTION_FIT_AREA))
-        act_fit_area.triggered.connect(self._fit_area)
-
-        act_fit_sel = view_menu.addAction("Fit &Selection")
-        act_fit_sel.setShortcut(self._ks(KB.ACTION_FIT_SELECTION))
-        act_fit_sel.triggered.connect(self._fit_selection)
+        view_menu.addAction(self._actions[KB.ACTION_ZOOM_IN])
+        view_menu.addAction(self._actions[KB.ACTION_ZOOM_OUT])
+        view_menu.addAction(self._actions[KB.ACTION_FIT_BOARD])
+        view_menu.addAction(self._actions[KB.ACTION_FIT_AREA])
+        view_menu.addAction(self._actions[KB.ACTION_FIT_SELECTION])
 
         view_menu.addSeparator()
 
-        act_fullscreen = view_menu.addAction("&Full Screen\tF11")
-        act_fullscreen.triggered.connect(self._toggle_fullscreen)
+        view_menu.addAction(self._actions[KB.ACTION_FULLSCREEN])
 
         # ── Tools ─────────────────────────────────────────────────────────
         tools_menu = mb.addMenu("&Tools")
 
-        act_tool_select = tools_menu.addAction("&Select")
-        act_tool_select.setShortcut(self._ks(KB.ACTION_TOOL_SELECT))
-        act_tool_select.triggered.connect(self._tool_select)
-
-        act_tool_route = tools_menu.addAction("Route &Wire")
-        act_tool_route.setShortcut(self._ks(KB.ACTION_TOOL_ROUTE))
-        act_tool_route.triggered.connect(self._tool_route)
-
-        act_tool_route_net = tools_menu.addAction("Route Wire [Net-aware]")
-        act_tool_route_net.setShortcut(self._ks(KB.ACTION_TOOL_ROUTE_NET_AWARE))
-        act_tool_route_net.triggered.connect(lambda: self._tool_route(net_aware=True))
+        tools_menu.addAction(self._actions[KB.ACTION_TOOL_SELECT])
+        tools_menu.addAction(self._actions[KB.ACTION_TOOL_ROUTE])
+        tools_menu.addAction(self._actions[KB.ACTION_TOOL_ROUTE_NET_AWARE])
 
         wire_sub = tools_menu.addMenu("  Wire options")
+        wire_sub.addAction(self._actions[KB.ACTION_WIRE_TOGGLE_INSULATED])
+        wire_sub.addAction(self._actions[KB.ACTION_WIRE_SIDE_TOP])
+        wire_sub.addAction(self._actions[KB.ACTION_WIRE_SIDE_BOTTOM])
 
-        self._act_wire_insulated: QAction = wire_sub.addAction("&Insulated")
-        # self._act_wire_insulated.setCheckable(True)
-        # self._act_wire_insulated.setChecked(True)
-        self._act_wire_insulated.setShortcut(self._ks(KB.ACTION_WIRE_TOGGLE_INSULATED))
-        self._act_wire_insulated.triggered.connect(
-            lambda checked: self._set_wire_insulated(checked)
-        )
-
-        wire_side_group_top: QAction = wire_sub.addAction("Side: &Top")
-        # wire_side_group_top.setCheckable(True)
-        # wire_side_group_top.setChecked(True)
-        wire_side_group_top.setShortcut(self._ks(KB.ACTION_WIRE_SIDE_TOP))
-        wire_side_group_top.triggered.connect(lambda: self._set_wire_side("top"))
-        self._act_wire_top = wire_side_group_top
-
-        wire_side_group_bot: QAction = wire_sub.addAction("Side: &Bottom")
-        # wire_side_group_bot.setCheckable(True)
-        wire_side_group_bot.setShortcut(self._ks(KB.ACTION_WIRE_SIDE_BOTTOM))
-        wire_side_group_bot.triggered.connect(lambda: self._set_wire_side("bottom"))
-        self._act_wire_bottom = wire_side_group_bot
-
-        act_tool_cut = tools_menu.addAction("&Cut Strip")
-        act_tool_cut.setShortcut(self._ks(KB.ACTION_TOOL_CUT))
-        act_tool_cut.triggered.connect(self._tool_cut)
+        tools_menu.addAction(self._actions[KB.ACTION_TOOL_CUT])
 
         tools_menu.addSeparator()
 
-        act_redrag = tools_menu.addAction("Re-drag &Pins")
-        act_redrag.setShortcut(self._ks(KB.ACTION_REDRAG_PINS))
-        act_redrag.triggered.connect(self._redrag_pins)
+        tools_menu.addAction(self._actions[KB.ACTION_REDRAG_PINS])
 
         tools_menu.addSeparator()
 
-        act_wire_set_ins = tools_menu.addAction("Wire: Set &Insulated")
-        act_wire_set_ins.setShortcut(self._ks(KB.ACTION_WIRE_SET_INSULATED))
-        act_wire_set_ins.triggered.connect(lambda: self._set_selected_wire_insulated(True))
-
-        act_wire_set_bare = tools_menu.addAction("Wire: Set &Bare")
-        act_wire_set_bare.setShortcut(self._ks(KB.ACTION_WIRE_SET_BARE))
-        act_wire_set_bare.triggered.connect(lambda: self._set_selected_wire_insulated(False))
-
-        act_wire_to_top = tools_menu.addAction("Wire: Move to &Top Layer")
-        act_wire_to_top.setShortcut(self._ks(KB.ACTION_WIRE_MOVE_TO_TOP))
-        act_wire_to_top.triggered.connect(lambda: self._move_selected_wires_to_side("top"))
-
-        act_wire_to_bot = tools_menu.addAction("Wire: Move to &Bottom Layer")
-        act_wire_to_bot.setShortcut(self._ks(KB.ACTION_WIRE_MOVE_TO_BOTTOM))
-        act_wire_to_bot.triggered.connect(lambda: self._move_selected_wires_to_side("bottom"))
-
-        act_wire_flip = tools_menu.addAction("Wire: &Flip to Opposite Layer")
-        act_wire_flip.setShortcut(self._ks(KB.ACTION_WIRE_FLIP))
-        act_wire_flip.triggered.connect(lambda: self._move_selected_wires_to_side(None))
+        tools_menu.addAction(self._actions[KB.ACTION_WIRE_SET_INSULATED])
+        tools_menu.addAction(self._actions[KB.ACTION_WIRE_SET_BARE])
+        tools_menu.addAction(self._actions[KB.ACTION_WIRE_MOVE_TO_TOP])
+        tools_menu.addAction(self._actions[KB.ACTION_WIRE_MOVE_TO_BOTTOM])
+        tools_menu.addAction(self._actions[KB.ACTION_WIRE_FLIP])
 
         tools_menu.addSeparator()
 
-        act_disconnect = tools_menu.addAction("&Disconnect Pin from Net…")
-        act_disconnect.setShortcut(self._ks(KB.ACTION_DISCONNECT_PIN))
-        act_disconnect.triggered.connect(self._disconnect_pin)
+        tools_menu.addAction(self._actions[KB.ACTION_DISCONNECT_PIN])
 
         tools_menu.addSeparator()
 
@@ -678,18 +779,15 @@ class MainWindow(QMainWindow):
 
         tools_menu.addSeparator()
 
-        act_autoroute = tools_menu.addAction("&Autoroute Nets… [Inspector selection or all]")
-        act_autoroute.setShortcut(self._ks(KB.ACTION_AUTOROUTE))
-        act_autoroute.triggered.connect(self._autoroute)
+        tools_menu.addAction(self._actions[KB.ACTION_AUTOROUTE])
 
         act_spread = tools_menu.addAction("S&pread Components")
         act_spread.triggered.connect(self._spread_components)
 
         tools_menu.addSeparator()
 
-        act_drc = tools_menu.addAction("Run &DRC")
-        act_drc.setShortcut(self._ks(KB.ACTION_RUN_DRC))
-        act_drc.triggered.connect(self._run_drc)
+        tools_menu.addAction(self._actions[KB.ACTION_RUN_DRC])
+
 
     # ------------------------------------------------------------------
     # Recent projects
@@ -2080,9 +2178,14 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def _apply_all_keybindings(self) -> None:
-        """Re-apply QAction shortcuts from the current KeyBindings table."""
-        self._act_undo.setShortcut(self._ks(KB.ACTION_UNDO))
-        self._act_redo.setShortcut(self._ks(KB.ACTION_REDO))
+        """Re-apply QAction shortcuts from the current KeyBindings table.
+
+        Called by PreferencesDialog after the user edits any binding — every
+        registered action refreshes its shortcut from disk-backed state, so
+        changes take effect without an app restart.
+        """
+        for action_id, act in self._actions.items():
+            act.setShortcut(self._ks(action_id))
 
     def _on_theme_applied(self, theme: object) -> None:
         from protoboard.gui.theme import Theme
@@ -2164,79 +2267,11 @@ class MainWindow(QMainWindow):
     # Keyboard shortcuts
     # ------------------------------------------------------------------
 
-    def _matches(self, event: QKeyEvent, action_id: str) -> bool:
-        """Return True if *event* matches the shortcut assigned to *action_id*."""
-        shortcut = self._keybindings.get(action_id)
-        if not shortcut:
-            return False
-        return QKeySequence(event.keyCombination()) == QKeySequence(shortcut)
-
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        # QActions with setShortcut() are handled automatically by Qt.
-        # This method only handles actions that lack a dedicated QAction
-        # (tool switching, mirror, camera) which are shown in menus as
-        # hint text only, and layer cycling which is dynamically indexed.
-        if event.key() == Qt.Key.Key_F11:
-            self._toggle_fullscreen()
-        elif self._matches(event, KB.ACTION_TOOL_SELECT):
-            self._tool_select()
-        elif self._matches(event, KB.ACTION_TOOL_ROUTE):
-            self._tool_route()
-        elif self._matches(event, KB.ACTION_TOOL_ROUTE_NET_AWARE):
-            self._tool_route(net_aware=True)
-        elif self._matches(event, KB.ACTION_TOOL_CUT):
-            self._tool_cut()
-        elif self._matches(event, KB.ACTION_CLEAR_HIGHLIGHT):
-            self._clear_highlight()
-        elif self._matches(event, KB.ACTION_FILTER_TOGGLE_COMPONENTS):
-            self._toggle_filter("components")
-        elif self._matches(event, KB.ACTION_FILTER_TOGGLE_WIRES):
-            self._toggle_filter("wires")
-        elif self._matches(event, KB.ACTION_FILTER_TOGGLE_GROUPS):
-            self._toggle_filter("groups")
-        elif self._matches(event, KB.ACTION_HIGHLIGHT_CYCLE):
-            self._cycle_relation(forward=True)
-        elif self._matches(event, KB.ACTION_RELATION_CYCLE_BACK):
-            self._cycle_relation(forward=False)
-        elif self._matches(event, KB.ACTION_RELATION_NONE):
-            self._set_relation_by_name("none")
-        elif self._matches(event, KB.ACTION_RELATION_LOGICAL_NET):
-            self._set_relation_by_name("same_logical_net")
-        elif self._matches(event, KB.ACTION_RELATION_PHYSICAL_NET):
-            self._set_relation_by_name("same_physical_net")
-        elif self._matches(event, KB.ACTION_RELATION_UNCONNECTED):
-            self._set_relation_by_name("unconnected_pins")
-        elif self._matches(event, KB.ACTION_RELATION_NEIGHBORS):
-            self._set_relation_by_name("neighbors")
-        elif self._matches(event, KB.ACTION_SIMPLIFY_WIRE):
-            self._simplify_selected_wires()
-        elif self._matches(event, KB.ACTION_UNWEAVE_WIRES):
-            self._unweave_selected_wires()
-        elif self._matches(event, KB.ACTION_MIRROR_H):
-            self._mirror_view()
-        elif self._matches(event, KB.ACTION_MIRROR_V):
-            self._mirror_view_v()
-        elif self._matches(event, KB.ACTION_CAMERA_TOGGLE):
-            self._set_camera("toggle")
-        elif self._matches(event, KB.ACTION_WIRE_TOGGLE_INSULATED):
-            self._set_wire_insulated(not self._wire_insulated)
-        elif self._matches(event, KB.ACTION_WIRE_SIDE_TOP):
-            self._set_wire_side("top")
-        elif self._matches(event, KB.ACTION_WIRE_SIDE_BOTTOM):
-            self._set_wire_side("bottom")
-        else:
-            # Layer shortcuts: dynamically check ACTION_LAYER_1..7.
-            _layer_actions = [
-                KB.ACTION_LAYER_1, KB.ACTION_LAYER_2, KB.ACTION_LAYER_3,
-                KB.ACTION_LAYER_4, KB.ACTION_LAYER_5, KB.ACTION_LAYER_6,
-                KB.ACTION_LAYER_7,
-            ]
-            for idx, layer_action_id in enumerate(_layer_actions):
-                if self._matches(event, layer_action_id):
-                    if idx < len(self._layer_field_order):
-                        self._cycle_layer(self._layer_field_order[idx])
-                    return
-            super().keyPressEvent(event)
+        # All shortcuts route through QActions registered in
+        # _register_actions() with Qt.ShortcutContext.WindowShortcut — Qt
+        # dispatches them automatically when the main window is active.
+        super().keyPressEvent(event)
 
     # ------------------------------------------------------------------
     # Selection axes — load from app_settings and persist on change.

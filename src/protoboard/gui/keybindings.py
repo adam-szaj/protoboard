@@ -62,12 +62,15 @@ ACTION_TOOL_CUT = "tool_cut"
 ACTION_MIRROR_H = "mirror_h"
 ACTION_MIRROR_V = "mirror_v"
 ACTION_CAMERA_TOGGLE = "camera_toggle"
+ACTION_FULLSCREEN = "fullscreen"
 
 ACTION_ZOOM_IN = "zoom_in"
 ACTION_ZOOM_OUT = "zoom_out"
 ACTION_FIT_BOARD = "fit_board"
 ACTION_FIT_AREA = "fit_area"
 ACTION_FIT_SELECTION = "fit_selection"
+
+ACTION_PREFERENCES = "preferences"
 
 ACTION_WIRE_TOGGLE_INSULATED = "wire_toggle_insulated"
 ACTION_WIRE_SIDE_TOP = "wire_side_top"
@@ -128,8 +131,8 @@ DEFAULTS: dict[str, str] = {
     ACTION_UNGROUP: "",
     ACTION_EXIT_GROUP: "",
     ACTION_REDRAG_PINS: "Ctrl+R",
-    ACTION_WIRE_SET_INSULATED: "",
-    ACTION_WIRE_SET_BARE: "",
+    ACTION_WIRE_SET_INSULATED: "Ctrl+Shift+I",
+    ACTION_WIRE_SET_BARE: "Ctrl+Shift+B",
     ACTION_WIRE_MOVE_TO_TOP: "Ctrl+T",
     ACTION_WIRE_MOVE_TO_BOTTOM: "Ctrl+B",
     ACTION_WIRE_FLIP: "Ctrl+F",
@@ -141,11 +144,13 @@ DEFAULTS: dict[str, str] = {
     ACTION_MIRROR_H: "H",
     ACTION_MIRROR_V: "V",
     ACTION_CAMERA_TOGGLE: "X",
+    ACTION_FULLSCREEN: "F11",
     ACTION_ZOOM_IN: "Ctrl++",
     ACTION_ZOOM_OUT: "Ctrl+-",
     ACTION_FIT_BOARD: "Ctrl+0",
     ACTION_FIT_AREA: "Ctrl+Shift+0",
     ACTION_FIT_SELECTION: "Ctrl+Shift+F",
+    ACTION_PREFERENCES: "Ctrl+,",
     ACTION_WIRE_TOGGLE_INSULATED: "I",
     ACTION_WIRE_SIDE_TOP: "T",
     ACTION_WIRE_SIDE_BOTTOM: "B",
@@ -209,11 +214,13 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_MIRROR_H: "Mirror Horizontal",
     ACTION_MIRROR_V: "Mirror Vertical",
     ACTION_CAMERA_TOGGLE: "Toggle Camera Side",
+    ACTION_FULLSCREEN: "Toggle Fullscreen",
     ACTION_ZOOM_IN: "Zoom In",
     ACTION_ZOOM_OUT: "Zoom Out",
     ACTION_FIT_BOARD: "Fit Board",
     ACTION_FIT_AREA: "Fit Area",
     ACTION_FIT_SELECTION: "Fit Selection",
+    ACTION_PREFERENCES: "Preferences",
     ACTION_WIRE_TOGGLE_INSULATED: "Toggle Wire Insulation",
     ACTION_WIRE_SIDE_TOP: "Wire Side: Top",
     ACTION_WIRE_SIDE_BOTTOM: "Wire Side: Bottom",
