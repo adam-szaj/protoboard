@@ -50,6 +50,7 @@ ACTION_WIRE_SET_INSULATED = "wire_set_insulated"
 ACTION_WIRE_SET_BARE = "wire_set_bare"
 ACTION_WIRE_MOVE_TO_TOP = "wire_move_to_top"
 ACTION_WIRE_MOVE_TO_BOTTOM = "wire_move_to_bottom"
+ACTION_WIRE_FLIP = "wire_flip"
 
 ACTION_DISCONNECT_PIN = "disconnect_pin"
 
@@ -129,8 +130,9 @@ DEFAULTS: dict[str, str] = {
     ACTION_REDRAG_PINS: "Ctrl+R",
     ACTION_WIRE_SET_INSULATED: "",
     ACTION_WIRE_SET_BARE: "",
-    ACTION_WIRE_MOVE_TO_TOP: "",
-    ACTION_WIRE_MOVE_TO_BOTTOM: "",
+    ACTION_WIRE_MOVE_TO_TOP: "Ctrl+T",
+    ACTION_WIRE_MOVE_TO_BOTTOM: "Ctrl+B",
+    ACTION_WIRE_FLIP: "Ctrl+F",
     ACTION_DISCONNECT_PIN: "",
     ACTION_TOOL_SELECT: "S",
     ACTION_TOOL_ROUTE: "W",
@@ -198,6 +200,7 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_WIRE_SET_BARE: "Wire: Set Bare",
     ACTION_WIRE_MOVE_TO_TOP: "Wire: Move to Top Layer",
     ACTION_WIRE_MOVE_TO_BOTTOM: "Wire: Move to Bottom Layer",
+    ACTION_WIRE_FLIP: "Wire: Flip to Opposite Layer",
     ACTION_DISCONNECT_PIN: "Disconnect Pin from Net",
     ACTION_TOOL_SELECT: "Select Tool",
     ACTION_TOOL_ROUTE: "Route Wire Tool",

@@ -170,6 +170,22 @@ class MainWindow(QMainWindow):
         act_route.triggered.connect(self._tool_route)
         act_cut.triggered.connect(self._tool_cut)
 
+        # ── Toolbar: Selection (filter + highlight relation) ─────────────
+        tb_selection = QToolBar("Selection", self)
+        tb_selection.setMovable(True)
+        tb_selection.setObjectName("tb_selection")
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_selection)
+
+        from protoboard.gui.panels.selection_filter_widget import SelectionFilterWidget
+        from protoboard.gui.panels.highlight_mode_widget import HighlightModeWidget
+        self._sel_filter_widget = SelectionFilterWidget(self)
+        self._sel_filter_widget.set_tool(self._select_tool)
+        tb_selection.addWidget(self._sel_filter_widget)
+        tb_selection.addSeparator()
+        self._hl_mode_widget = HighlightModeWidget(self)
+        self._hl_mode_widget.set_tool(self._select_tool)
+        tb_selection.addWidget(self._hl_mode_widget)
+
         # ── Toolbar: View ────────────────────────────────────────────────
         tb_view = QToolBar("View", self)
         tb_view.setMovable(False)
@@ -268,14 +284,6 @@ class MainWindow(QMainWindow):
         self._status.addPermanentWidget(self._view_label)
         self._cursor_label = QLabel("(—, —)")
         self._status.addPermanentWidget(self._cursor_label)
-        from protoboard.gui.panels.highlight_mode_widget import HighlightModeWidget
-        self._hl_mode_widget = HighlightModeWidget(self)
-        self._hl_mode_widget.set_tool(self._select_tool)
-        self._status.addPermanentWidget(self._hl_mode_widget)
-        from protoboard.gui.panels.selection_filter_widget import SelectionFilterWidget
-        self._sel_filter_widget = SelectionFilterWidget(self)
-        self._sel_filter_widget.set_tool(self._select_tool)
-        self._status.addPermanentWidget(self._sel_filter_widget)
 
         # Auto-DRC timer — fires 600 ms after the last layout_changed.
         self._drc_timer = QTimer(self)
@@ -652,6 +660,10 @@ class MainWindow(QMainWindow):
         act_wire_to_bot = tools_menu.addAction("Wire: Move to &Bottom Layer")
         act_wire_to_bot.setShortcut(self._ks(KB.ACTION_WIRE_MOVE_TO_BOTTOM))
         act_wire_to_bot.triggered.connect(lambda: self._move_selected_wires_to_side("bottom"))
+
+        act_wire_flip = tools_menu.addAction("Wire: &Flip to Opposite Layer")
+        act_wire_flip.setShortcut(self._ks(KB.ACTION_WIRE_FLIP))
+        act_wire_flip.triggered.connect(lambda: self._move_selected_wires_to_side(None))
 
         tools_menu.addSeparator()
 
@@ -1426,27 +1438,21 @@ class MainWindow(QMainWindow):
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
 
-    def _move_selected_wires_to_side(self, side: str) -> None:
-        from protoboard.domain.commands.base import Command, MacroCommand
-        from protoboard.domain.commands.component_cmds import (
-            ComponentState,
-            SetWireSideCommand,
-        )
-        from typing import cast
+    def _move_selected_wires_to_side(self, side: str | None) -> None:
+        """Move wires to a layer; ``side=None`` toggles (flip).
 
-        wire_ids = self._get_selected_wire_ids()
-        if not wire_ids:
+        If a fragment is being edited, operates on the fragment (via
+        FlipWireFragmentCommand). Otherwise operates on all selected wires
+        (toggle requires same current side).  Delegates to SelectTool which
+        owns validation and status messages.
+        """
+        tool = self._get_select_tool()
+        if tool is None:
             return
-        cmds = [
-            cast(Command[ComponentState], SetWireSideCommand(wire_id=wid, side=side))
-            for wid in wire_ids
-        ]
-        cmd: Command[ComponentState] = (
-            cmds[0] if len(cmds) == 1
-            else MacroCommand(cmds, description=f"Move {len(cmds)} wires to {side}")
-        )
-        self._session.stack.execute(cmd, self._session)
-        self._session.layout_changed.emit()
+        if tool._is_editing_wire():
+            tool._flip_wire_fragment(target_side=side)
+        else:
+            tool._move_selected_wires_to_side(side)
 
     def _disconnect_pin(self) -> None:
         """Disconnect pin — shows submenu if SelectTool has a component selected."""
