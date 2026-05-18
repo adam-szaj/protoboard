@@ -4,16 +4,20 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.geometry import Point
 
 if TYPE_CHECKING:
+    import uuid
+
     from protoboard.domain.board.board import Board
+    from protoboard.domain.layout.wire import WireSegment
 
 
-def board_pads_for_side(board: "Board", side: str) -> set[Point]:
+def board_pads_for_side(board: Board, side: str) -> set[Point]:
     """Return all pad positions accessible on *side* ("top" or "bottom").
 
     Includes:
@@ -46,7 +50,7 @@ def board_pads_for_side(board: "Board", side: str) -> set[Point]:
     return pts
 
 
-def plated_through_pads(board: "Board") -> set[Point]:
+def plated_through_pads(board: Board) -> set[Point]:
     """Return positions of all plated-through pads on the board."""
     pts: set[Point] = set()
     for atom, center in board.atoms():
@@ -123,4 +127,53 @@ def insert_pad_nodes(
     return result
 
 
-__all__ = ["board_pads_for_side", "plated_through_pads", "insert_pad_nodes"]
+def wire_has_skewed_segment(wire: WireSegment, tol: float = 1e-6) -> bool:
+    """Return True if any segment of *wire* is neither orthogonal nor diagonal.
+
+    A segment from (x1,y1) to (x2,y2) is *orthogonal* iff dx==0 or dy==0, and
+    *diagonal* iff |dx|==|dy|.  Anything else is "skewed" — a slope our
+    routing/cost model cannot represent.  Used after drag to detect wires that
+    became invalid because their endpoints were translated unevenly with the
+    moved component.
+    """
+    pts = wire.path
+    for i in range(len(pts) - 1):
+        dx = pts[i + 1].x - pts[i].x
+        dy = pts[i + 1].y - pts[i].y
+        if abs(dx) < tol and abs(dy) < tol:
+            continue  # zero-length segment — handled elsewhere
+        if abs(dx) < tol or abs(dy) < tol:
+            continue  # orthogonal
+        if abs(abs(dx) - abs(dy)) < tol:
+            continue  # diagonal
+        return True
+    return False
+
+
+def find_skewed_wires(
+    wires: Iterable[WireSegment],
+    moved_wire_ids: set[uuid.UUID] | frozenset[uuid.UUID] | None = None,
+    tol: float = 1e-6,
+) -> list[uuid.UUID]:
+    """Return IDs of wires with at least one skewed segment.
+
+    If *moved_wire_ids* is given, only those wires are inspected — typical use
+    after a component drag, where only wires that moved with the component need
+    re-validation.
+    """
+    out: list[uuid.UUID] = []
+    for w in wires:
+        if moved_wire_ids is not None and w.id not in moved_wire_ids:
+            continue
+        if wire_has_skewed_segment(w, tol=tol):
+            out.append(w.id)
+    return out
+
+
+__all__ = [
+    "board_pads_for_side",
+    "plated_through_pads",
+    "insert_pad_nodes",
+    "wire_has_skewed_segment",
+    "find_skewed_wires",
+]

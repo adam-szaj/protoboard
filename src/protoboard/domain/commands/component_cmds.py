@@ -683,9 +683,16 @@ def _update_wires_for_move(
     if not pin_map:
         return
 
+    from protoboard.domain.layout.wire_utils import wire_has_skewed_segment
+
     new_wires: list[WireSegment] = []
     for wire in state.layout.wires:
         if wire.id in exclude_ids:
+            # Even excluded (already live-translated) wires may have ended up
+            # with a skewed segment if the component's pin offsets stretched
+            # the path unevenly. Drop those.
+            if wire_has_skewed_segment(wire):
+                continue
             new_wires.append(wire)
             continue
         new_path: list[Point] = []
@@ -694,12 +701,19 @@ def _update_wires_for_move(
             new_path.append(pin_map.get(key, pt))
         # Drop wire if it collapsed (all points identical or < 2 distinct).
         distinct = {(round(p.x, 6), round(p.y, 6)) for p in new_path}
-        if len(distinct) >= 2:
-            if any(
-                not _pts_equal(new_path[i], wire.path[i])
-                for i in range(len(new_path))
-            ):
-                wire.path = new_path
+        if len(distinct) < 2:
+            continue
+        if any(
+            not _pts_equal(new_path[i], wire.path[i])
+            for i in range(len(new_path))
+        ):
+            wire.path = new_path
+        # Drop wire if any segment became skewed (neither orthogonal nor
+        # diagonal) after the endpoint translation.  Cannot be represented
+        # by the routing/cost model and is almost always a visual artifact
+        # of repeated drag.
+        if wire_has_skewed_segment(wire):
+            continue
         new_wires.append(wire)
 
     state.layout.wires[:] = new_wires

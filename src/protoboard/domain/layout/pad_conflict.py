@@ -512,6 +512,21 @@ def check_group_move_conflicts(
     )
     _log.debug("group_move.wire_crossings", count=len(crossing_ids),
                wire_ids=[str(i) for i in crossing_ids])
+
+    # --- 2b. Skewed wires (dragged-along wires that ended up neither ortho
+    # nor diagonal after the component move).  Treated identically to crossing
+    # wires for severity purposes: they are REMOVABLE (auto-deleted).
+    from protoboard.domain.layout.wire_utils import find_skewed_wires
+    skewed_ids = find_skewed_wires(
+        layout_wires, moved_wire_ids=set(moved_wire_ids or set())
+    )
+    if skewed_ids:
+        _log.debug("group_move.skewed_wires", count=len(skewed_ids),
+                   wire_ids=[str(i) for i in skewed_ids])
+        # Merge into crossing_ids dedupe-wise so the downstream subgroup
+        # classification handles them.
+        crossing_ids = list({*crossing_ids, *skewed_ids})
+
     if not crossing_ids:
         _log.debug("group_move.result", severity="CLEAR")
         return MoveConflictResult(

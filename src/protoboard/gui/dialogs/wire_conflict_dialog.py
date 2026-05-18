@@ -1,6 +1,15 @@
 # SPDX-License-Identifier: MIT
 """WireConflictDialog — lets the user choose what to do with wires that
-collide with a component being placed or moved."""
+collide with a component being placed or moved.
+
+LEGACY in the drag-and-drop flow.  As of the drag-UX overhaul, component
+drag-release uses the floating-overlay pipeline driven by
+``classify_drag_commit`` in ``protoboard.gui.placement_conflict`` — wire
+conflicts surface as the SOFT (yellow) overlay and commit silently
+auto-removes them (Ctrl+Z to undo).  This dialog still backs the library
+``PlaceTool`` (initial component placement) where a three-way decision is
+useful before the part lands on the board.
+"""
 
 from __future__ import annotations
 

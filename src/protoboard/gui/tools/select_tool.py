@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     )
 
 import structlog
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QKeyEvent, QMouseEvent, QPen
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
@@ -163,6 +163,17 @@ class SelectTool(_Tool):
         self._floating_extra_cmds: list[object] = []
         self._floating_dragged_wire_ids: frozenset[uuid.UUID] = frozenset()
         self._floating_highlight_items: list[QGraphicsItem] = []
+        # Drag-commit decision pipeline: classifier result + corner text +
+        # debounced full-validation timer.  The cheap inline pad-pad check in
+        # _update_drag_overlay still runs every snap for instant red feedback;
+        # the timer adds a full classify_drag_commit pass 1 s after the last
+        # snap change so soft conflicts surface without slowing the drag.
+        from protoboard.gui.tools.drag_corner_text import DragCornerText
+        self._corner_text = DragCornerText()
+        self._drag_last_decision: object | None = None  # DragCommitDecision | None
+        self._floating_decision: object | None = None   # DragCommitDecision | None
+        self._floating_severity: str = "clear"          # "clear" | "soft" | "hard"
+        self._drag_timer: QTimer | None = None  # built lazily on first drag
 
     # ------------------------------------------------------------------
     # _Tool interface
@@ -644,19 +655,49 @@ class SelectTool(_Tool):
         orig_placements: dict[uuid.UUID, ComponentPlacement],
         extra_cmds: list[object] | None = None,
         dragged_wire_ids: frozenset[uuid.UUID] = frozenset(),
+        decision: object | None = None,
     ) -> None:
-        """Enter floating state — component is in new position but not committed."""
+        """Enter floating state — component is in new position but not committed.
+
+        *decision*: optional DragCommitDecision driving overlay color, corner
+        text, and whether commit is permitted (HARD blocks commit).
+        """
+        from protoboard.gui.tools.drag_commit_decision import (
+            DragCommitDecision,
+            DragSeverity,
+        )
+
         self._floating_ids = comp_ids
         self._floating_orig_placements = orig_placements
         self._floating_extra_cmds = extra_cmds or []
         self._floating_dragged_wire_ids = dragged_wire_ids
+        self._floating_decision = decision
+        if isinstance(decision, DragCommitDecision):
+            self._floating_severity = decision.severity.value
+        else:
+            self._floating_severity = DragSeverity.CLEAR.value
         self._draw_floating_highlights()
         self._update_floating_status()
+        # Preserve / refresh overlay + corner banner so the user can keep
+        # seeing what conflicts.
+        if isinstance(decision, DragCommitDecision):
+            self._update_corner_text_from_decision(decision)
 
     def _commit_floating(self) -> None:
-        """Commit floating state to CommandStack."""
+        """Commit floating state to CommandStack.  Refuses on HARD severity."""
         if not self._floating_ids:
             return
+        from protoboard.gui.tools.drag_commit_decision import DragSeverity
+        if self._floating_severity == DragSeverity.HARD.value:
+            win = self._view.window() if self._view is not None else None
+            sb = win.statusBar() if win is not None and hasattr(win, "statusBar") else None
+            if sb is not None:
+                sb.showMessage(
+                    "Konflikt: nie można zatwierdzić w tym miejscu (Esc aby cofnąć)",
+                    3000,
+                )
+            return
+
         from protoboard.domain.commands.base import Command
 
         cmds: list[Command[ComponentState]] = []
@@ -666,6 +707,10 @@ class SelectTool(_Tool):
         # from layout.wires before RemoveWireCommand can find them by ID.
         for cmd in self._floating_extra_cmds:
             cmds.append(cmd)  # type: ignore[arg-type]
+        n_removed = sum(
+            1 for c in self._floating_extra_cmds
+            if type(c).__name__ == "RemoveWireCommand"
+        )
         for cid in self._floating_ids:
             new_pl = self._session.layout.placements.get(cid)
             old_pl = self._floating_orig_placements.get(cid)
@@ -681,10 +726,15 @@ class SelectTool(_Tool):
                 )
             )
         self._clear_floating_highlights()
+        if self._view is not None:
+            self._drag_overlay.reset(self._view.scene())
+            self._corner_text.hide(self._view.scene())
         self._floating_ids = set()
         self._floating_orig_placements = {}
         self._floating_extra_cmds = []
         self._floating_dragged_wire_ids = frozenset()
+        self._floating_decision = None
+        self._floating_severity = "clear"
         if cmds:
             if len(cmds) == 1:
                 self._session.stack.execute(cmds[0], self._session)
@@ -692,16 +742,35 @@ class SelectTool(_Tool):
                 macro = MacroCommand(cmds, description="Move component")
                 self._session.stack.execute(macro, self._session)
             self._session.layout_changed.emit()
+            # Toast about removed wires (Ctrl+Z to undo).
+            if n_removed:
+                win = self._view.window() if self._view is not None else None
+                sb = win.statusBar() if win is not None and hasattr(win, "statusBar") else None
+                if sb is not None:
+                    sb.showMessage(
+                        f"Usunięto {n_removed} drut(ów) (Ctrl+Z by cofnąć)",
+                        4000,
+                    )
 
     def _cancel_floating(self) -> None:
         """Revert floating state — restore original positions without a command."""
         for cid, orig_pl in self._floating_orig_placements.items():
             self._session.layout.placements[cid] = orig_pl
+        # Restore wire paths that were dragged along.
+        for wire in self._session.layout.wires:
+            orig_path = self._drag_orig_wire_paths.get(wire.id)
+            if orig_path is not None:
+                wire.path = list(orig_path)
         self._clear_floating_highlights()
+        if self._view is not None:
+            self._drag_overlay.reset(self._view.scene())
+            self._corner_text.hide(self._view.scene())
         self._floating_ids = set()
         self._floating_orig_placements = {}
         self._floating_extra_cmds = []
         self._floating_dragged_wire_ids = frozenset()
+        self._floating_decision = None
+        self._floating_severity = "clear"
         self._session.layout_changed.emit()
 
     def _clear_floating(self) -> None:
@@ -748,7 +817,7 @@ class SelectTool(_Tool):
 
     def _update_floating_status(self) -> None:
         win = self._view.window() if self._view is not None else None
-        sb = win.statusBar() if win is not None else None
+        sb = win.statusBar() if win is not None and hasattr(win, "statusBar") else None
         if sb is not None:
             sb.showMessage("[Enter] Accept  ·  [Esc] Cancel  ·  [R] Rotate", 0)
 
@@ -980,6 +1049,9 @@ class SelectTool(_Tool):
                 self._select_primary(hit)
             # Begin drag.
             self._drag_overlay.reset(self._view.scene())
+            self._corner_text.hide(self._view.scene())
+            self._drag_last_decision = None
+            self._stop_drag_validation_timer()
             self._dragging = True
             self._drag_orig_positions = {}
             self._drag_orig_wire_paths = {}
@@ -1197,6 +1269,9 @@ class SelectTool(_Tool):
 
             self._session.drag_moved.emit()
             self._update_drag_overlay(drag_ids, anchor_new)
+            # Debounce full classify_drag_commit pass: restart on each snap
+            # change.  Fires 1 s after the user stops moving.
+            self._start_drag_validation_timer()
             return
 
         if ctrl:
@@ -1215,6 +1290,7 @@ class SelectTool(_Tool):
         if not self._dragging:
             return
         self._dragging = False
+        self._stop_drag_validation_timer()
 
         drag_ids = (
             self._selected_ids
@@ -1223,8 +1299,6 @@ class SelectTool(_Tool):
         )
         if not drag_ids and not self._drag_orig_wire_paths:
             return
-
-        # Build move commands for all dragged components.
 
         from protoboard.domain.commands.base import Command
 
@@ -1251,162 +1325,160 @@ class SelectTool(_Tool):
 
         if effective_group_id is not None:
             # --- Atomic group drag: check all conflicts first, revert all on block ---
-            # Ensure drag_ids covers ALL members of the group (not just a subset).
+            # Group drag stays on the atomic-block path: groups must remain
+            # geometrically coherent, partial commits aren't meaningful.
             from protoboard.domain.layout.group import all_component_ids
             full_ids = set(all_component_ids(
                 self._session.layout.groups, effective_group_id
             ))
-            # Keep only those that actually moved.
             full_ids &= set(self._drag_orig_positions.keys())
             effective_drag = full_ids if full_ids else drag_ids
-            _log.debug("drag.group_path",
-                       full_group_ids=[str(i) for i in full_ids],
-                       effective_drag=[str(i) for i in effective_drag])
             _saved_group_id = self._selected_group_id
             self._selected_group_id = effective_group_id
             commands = self._build_group_drag_commands(effective_drag) or []
             self._selected_group_id = _saved_group_id
-            _log.debug("drag.group_commands", count=len(commands))
-        else:
-            # --- Per-component conflict check (non-group drag) ---
-            from protoboard.gui.placement_conflict import check_and_resolve
-
-            any_conflict = False
-            extra_cmds: list[object] = []
-            floating_orig: dict[uuid.UUID, ComponentPlacement] = {}
-            floating_moved: set[uuid.UUID] = set()
-
-            for cid in drag_ids:
-                pl = self._session.layout.placements.get(cid)
-                orig = self._drag_orig_positions.get(cid)
-                if pl is None or orig is None:
-                    continue
-                if pl.position == orig:
-                    continue
-                old_pl = pl.copy()
-                old_pl.position = orig
-                floating_orig[cid] = old_pl
-
-                inst = self._session.instances.get(cid)
-                defn = (
-                    self._session.components.get(inst.definition_ref)
-                    if inst else None
-                )
-                if defn is not None:
-                    resolved = check_and_resolve(
-                        session=self._session,
-                        placement=pl,
-                        defn=defn,
-                        instance_id=cid,
-                        parent_widget=self._view.window(),
-                    )
-                    if resolved is None:
-                        self._session.layout.placements[cid] = old_pl
-                        continue
-                    wire_cmds = getattr(resolved, "_wire_cmds", [])
-                    if wire_cmds:
-                        extra_cmds.extend(wire_cmds)
-                        any_conflict = True
-                    pl = resolved
-                    self._session.layout.placements[cid] = pl
-
-                floating_moved.add(cid)
-
-            # Build wire move commands.
-            wire_move_cmds: list[object] = []
-            for wire in self._session.layout.wires:
-                if wire.id not in self._drag_orig_wire_paths:
-                    continue
-                orig_wire_path: list[Point] = self._drag_orig_wire_paths[wire.id]
-                if wire.path == orig_wire_path:
-                    continue
-                wire_move_cmds.append(
-                    ReplaceWireSegmentCommand(
-                        wire_id=wire.id,
-                        new_path=list(wire.path),
-                        old_path=orig_wire_path,
-                    )
-                )
-
-            crossing_cmds = list(self._remove_crossing_wires(drag_ids))
-            # Deduplicate RemoveWireCommands: a wire that is both a crossing wire
-            # and a wire-conflict target must only be removed once.
-            _seen_remove: set[uuid.UUID] = set()
-            deduped: list[object] = []
-            for cmd in list(wire_move_cmds) + crossing_cmds + list(extra_cmds):
-                if isinstance(cmd, RemoveWireCommand):
-                    if cmd.wire_id in _seen_remove:
-                        continue
-                    _seen_remove.add(cmd.wire_id)
-                deduped.append(cmd)
-            extra_cmds = deduped
-
-            # Capture moved wire IDs before clearing _drag_orig_wire_paths.
-            dragged_wire_ids = frozenset(self._drag_orig_wire_paths.keys())
             self._drag_orig_wire_paths = {}
-
-            if floating_moved:
-                # Check auto-accept: skip floating if no wire conflicts and setting enabled.
-                from protoboard.gui.app_settings import load_app_settings
-                auto_accept = load_app_settings().auto_accept_placement
-                if auto_accept and not any_conflict:
-                    # Directly commit without entering floating state.
-                    # Wire commands (remove/add) must run BEFORE MoveComponentCommand
-                    # so that _update_wires_for_move sees the post-removal wire state
-                    # and _saved_wires captures the correct snapshot for undo.
-                    all_cmds: list[object] = list(extra_cmds)
-                    for cid in floating_moved:
-                        new_pl = self._session.layout.placements.get(cid)
-                        old_pl = floating_orig.get(cid)
-                        if new_pl and old_pl:
-                            all_cmds.append(MoveComponentCommand(
-                                component_id=cid,
-                                new_placement=new_pl,
-                                old_placement=old_pl,
-                                skip_conflict_check=True,
-                                exclude_wire_ids=dragged_wire_ids,
-                            ))
-                    if all_cmds:
-                        if len(all_cmds) == 1:
-                            self._session.stack.execute(all_cmds[0], self._session)  # type: ignore[arg-type]
-                        else:
-                            macro = MacroCommand(all_cmds, description="Move selection")  # type: ignore[arg-type]
-                            self._session.stack.execute(macro, self._session)
-                        self._session.layout_changed.emit()
+            if commands:
+                if len(commands) == 1:
+                    self._session.stack.execute(commands[0], self._session)
                 else:
-                    self._enter_floating(floating_moved, floating_orig, extra_cmds,
-                                         dragged_wire_ids=dragged_wire_ids)
-                    self._session.layout_changed.emit()
-            else:
-                # Wire-only drag (no components moved): commit wire path changes directly.
-                if extra_cmds:
-                    if len(extra_cmds) == 1:
-                        self._session.stack.execute(extra_cmds[0], self._session)  # type: ignore[arg-type]
-                    else:
-                        macro = MacroCommand(extra_cmds, description="Move wires")  # type: ignore[arg-type]
-                        self._session.stack.execute(macro, self._session)
-                    self._session.layout_changed.emit()
-
+                    macro = MacroCommand(commands, description="Move selection")
+                    self._session.stack.execute(macro, self._session)
+                self._session.layout_changed.emit()
             self._drag_overlay.reset(self._view.scene())
-            if self._selected_id is not None and not self._is_floating():
+            if self._selected_id is not None:
                 self._select_primary(self._selected_id)
             return
 
+        # --- Non-group drag: classifier-driven pipeline ---
+        from protoboard.gui.placement_conflict import (
+            build_wire_removal_cmds,
+            classify_drag_commit,
+        )
+        from protoboard.gui.tools.drag_commit_decision import DragSeverity
+
+        # Build floating originals from drag-start snapshot (used for both
+        # commit-as-undo-old-state and Esc-revert).
+        floating_orig: dict[uuid.UUID, ComponentPlacement] = {}
+        floating_moved: set[uuid.UUID] = set()
+        for cid in drag_ids:
+            pl = self._session.layout.placements.get(cid)
+            orig = self._drag_orig_positions.get(cid)
+            if pl is None or orig is None:
+                continue
+            if pl.position == orig:
+                continue
+            old_pl = pl.copy()
+            old_pl.position = orig
+            floating_orig[cid] = old_pl
+            floating_moved.add(cid)
+
+        dragged_wire_ids = frozenset(self._drag_orig_wire_paths.keys())
+        decision = classify_drag_commit(
+            session=self._session,
+            moved_comp_ids=floating_moved or drag_ids,
+            dragged_wire_ids=dragged_wire_ids,
+        )
+
+        # Wire-path-change commands for live-dragged wires that need a
+        # ReplaceWireSegmentCommand entry in undo history.
+        wire_move_cmds: list[object] = []
+        for wire in self._session.layout.wires:
+            orig_wire_path = self._drag_orig_wire_paths.get(wire.id)
+            if orig_wire_path is None:
+                continue
+            if wire.path == orig_wire_path:
+                continue
+            wire_move_cmds.append(
+                ReplaceWireSegmentCommand(
+                    wire_id=wire.id,
+                    new_path=list(wire.path),
+                    old_path=orig_wire_path,
+                )
+            )
+
+        # Auto-actions for SOFT commit: remove crossing/foreign/skewed wires,
+        # plus net actions.
+        extra_cmds: list[object] = list(wire_move_cmds)
+        if decision.auto_remove_wire_ids:
+            extra_cmds.extend(
+                build_wire_removal_cmds(set(decision.auto_remove_wire_ids))
+            )
+        # Dedup RemoveWireCommands (same wire may appear as both move-target
+        # and auto-remove).
+        _seen_remove: set[uuid.UUID] = set()
+        deduped: list[object] = []
+        for cmd in extra_cmds:
+            if isinstance(cmd, RemoveWireCommand):
+                if cmd.wire_id in _seen_remove:
+                    continue
+                _seen_remove.add(cmd.wire_id)
+            # If a wire is both being path-replaced AND auto-removed, the
+            # remove wins (the replace would re-add the bad path on undo).
+            if isinstance(cmd, ReplaceWireSegmentCommand):
+                if cmd.wire_id in decision.auto_remove_wire_ids:
+                    continue
+            deduped.append(cmd)
+        extra_cmds = deduped
+
         self._drag_orig_wire_paths = {}
 
-        if commands:
-            if len(commands) == 1:
-                self._session.stack.execute(commands[0], self._session)
-            else:
-                macro = MacroCommand(commands, description="Move selection")
-                self._session.stack.execute(macro, self._session)
-            self._session.layout_changed.emit()
+        # --- Branch by severity ---
+        if not floating_moved:
+            # Wire-only drag (no components moved).
+            if extra_cmds:
+                if len(extra_cmds) == 1:
+                    self._session.stack.execute(extra_cmds[0], self._session)  # type: ignore[arg-type]
+                else:
+                    macro = MacroCommand(extra_cmds, description="Move wires")  # type: ignore[arg-type]
+                    self._session.stack.execute(macro, self._session)
+                self._session.layout_changed.emit()
             self._drag_overlay.reset(self._view.scene())
-        else:
-            self._drag_overlay.reset(self._view.scene())
+            self._corner_text.hide(self._view.scene())
+            if self._selected_id is not None:
+                self._select_primary(self._selected_id)
+            return
 
-        # Restore selection highlights.
-        if self._selected_id is not None:
+        if decision.severity == DragSeverity.CLEAR:
+            # Honor auto-accept preference — direct commit when clean.
+            from protoboard.gui.app_settings import load_app_settings
+            auto_accept = load_app_settings().auto_accept_placement
+            if auto_accept:
+                all_cmds: list[object] = list(extra_cmds)
+                for cid in floating_moved:
+                    new_pl = self._session.layout.placements.get(cid)
+                    old_pl = floating_orig.get(cid)
+                    if new_pl and old_pl:
+                        all_cmds.append(MoveComponentCommand(
+                            component_id=cid,
+                            new_placement=new_pl,
+                            old_placement=old_pl,
+                            skip_conflict_check=True,
+                            exclude_wire_ids=dragged_wire_ids,
+                        ))
+                if all_cmds:
+                    if len(all_cmds) == 1:
+                        self._session.stack.execute(all_cmds[0], self._session)  # type: ignore[arg-type]
+                    else:
+                        macro = MacroCommand(all_cmds, description="Move selection")  # type: ignore[arg-type]
+                        self._session.stack.execute(macro, self._session)
+                    self._session.layout_changed.emit()
+                self._drag_overlay.reset(self._view.scene())
+                self._corner_text.hide(self._view.scene())
+                if self._selected_id is not None:
+                    self._select_primary(self._selected_id)
+                return
+            # CLEAR + auto-accept off → fall through into floating state.
+
+        # CLEAR (no auto-accept), SOFT, or HARD → enter floating state.
+        # For HARD, commit is blocked but the user can keep dragging or Esc.
+        self._enter_floating(
+            floating_moved, floating_orig, extra_cmds,
+            dragged_wire_ids=dragged_wire_ids,
+            decision=decision,
+        )
+        self._session.layout_changed.emit()
+        if self._selected_id is not None and not self._is_floating():
             self._select_primary(self._selected_id)
 
     def on_key(self, event: QKeyEvent) -> None:
@@ -2427,6 +2499,127 @@ class SelectTool(_Tool):
         # Compute drag bbox for outline.
         bbox = self._drag_bbox(drag_ids)
         self._drag_overlay.update(self._view.scene(), result, bbox, snapped)
+
+    # ------------------------------------------------------------------
+    # Debounced full drag-commit validation (1 s after last snap)
+    # ------------------------------------------------------------------
+
+    def _ensure_drag_timer(self) -> None:
+        """Lazily create the singleshot timer used for debounced validation."""
+        if self._drag_timer is not None:
+            return
+        t = QTimer()
+        t.setSingleShot(True)
+        t.setInterval(1000)
+        t.timeout.connect(self._run_full_drag_validation)
+        self._drag_timer = t
+
+    def _start_drag_validation_timer(self) -> None:
+        """Restart the 1 s debounce.  Called from on_move on each snap change."""
+        self._ensure_drag_timer()
+        if self._drag_timer is not None:
+            self._drag_timer.start(1000)
+
+    def _stop_drag_validation_timer(self) -> None:
+        """Cancel the pending validation (called on release / cancel)."""
+        if self._drag_timer is not None:
+            self._drag_timer.stop()
+
+    def _current_drag_ids(self) -> set[uuid.UUID]:
+        anchor_id = self._selected_id
+        return (
+            self._selected_ids
+            if self._selected_ids
+            else ({anchor_id} if anchor_id else set())
+        )
+
+    def _run_full_drag_validation(self) -> None:
+        """Compute a full DragCommitDecision and update overlay + corner text.
+
+        Triggered ~1 s after the user stops moving the cursor (and snap stops
+        changing).  Cheap pad-pad detection in ``_update_drag_overlay`` still
+        provides instant red; this pass surfaces yellow (skewed wires, pin on
+        foreign wires, crossing alien pads) with a descriptive corner banner.
+        """
+        if not self._dragging:
+            return
+        from protoboard.gui.placement_conflict import classify_drag_commit
+        from protoboard.gui.tools.drag_commit_decision import DragSeverity
+
+        drag_ids = self._current_drag_ids()
+        if not drag_ids:
+            return
+        dragged_wires = frozenset(self._drag_orig_wire_paths.keys())
+        decision = classify_drag_commit(
+            session=self._session,
+            moved_comp_ids=drag_ids,
+            dragged_wire_ids=dragged_wires,
+        )
+        self._drag_last_decision = decision
+
+        # Update the conflict overlay if it isn't already red. Cheap pad-pad
+        # check shows red instantly; a SOFT decision should not downgrade it.
+        from protoboard.domain.layout.pad_conflict import (
+            MoveConflictResult,
+            MoveConflictSeverity,
+        )
+        if decision.severity == DragSeverity.HARD:
+            sev = MoveConflictSeverity.BLOCKED
+            blocking = list(decision.blocking_pad_positions)
+        elif decision.severity == DragSeverity.SOFT:
+            sev = MoveConflictSeverity.REMOVABLE
+            blocking = list(decision.overlay_pad_positions)
+        else:
+            sev = MoveConflictSeverity.CLEAR
+            blocking = []
+        bbox = self._drag_bbox(drag_ids)
+        # Force a redraw at the current snap — bypass needs_update by
+        # passing a sentinel position (use the decision's first overlay pos
+        # or the bbox center as the "snap" key).
+        snap_key: Point | None = None
+        if decision.blocking_pad_positions:
+            snap_key = decision.blocking_pad_positions[0]
+        elif decision.overlay_pad_positions:
+            snap_key = decision.overlay_pad_positions[0]
+        elif bbox is not None:
+            snap_key = Point((bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0)
+        if snap_key is None:
+            return
+        self._drag_overlay.update(
+            self._view.scene(),
+            MoveConflictResult(
+                severity=sev,
+                blocking_pad_positions=blocking,
+                removable_wire_ids=list(decision.auto_remove_wire_ids),
+            ),
+            bbox,
+            snap_key,
+        )
+
+        # Corner text feedback.
+        self._update_corner_text_from_decision(decision)
+
+    def _update_corner_text_from_decision(self, decision: object) -> None:
+        """Show or hide the corner banner based on *decision*."""
+        from PySide6.QtGui import QColor
+        from protoboard.gui.tools.drag_commit_decision import (
+            DragCommitDecision,
+            DragSeverity,
+        )
+        if not isinstance(decision, DragCommitDecision):
+            return
+        scene = self._view.scene()
+        if scene is None:
+            return
+        if decision.severity == DragSeverity.CLEAR or not decision.description:
+            self._corner_text.hide(scene)
+            return
+        color = (
+            QColor(220, 50, 30, 220)
+            if decision.severity == DragSeverity.HARD
+            else QColor(220, 180, 0, 220)
+        )
+        self._corner_text.show(scene, self._view, decision.description, color)
 
     def _drag_bbox(
         self, drag_ids: set[uuid.UUID]
