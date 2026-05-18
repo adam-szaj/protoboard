@@ -130,7 +130,14 @@ def main() -> None:
 
     window: MainWindow | None = None
 
-    def show_welcome() -> None:
+    def show_welcome() -> bool:
+        """Show the welcome dialog and open a project.
+
+        Returns True if a MainWindow is now visible, False if the user
+        chose Quit / closed the dialog.  Callers in signal handlers must
+        also call ``app.quit()`` on False; the initial call site handles
+        it by skipping ``app.exec()``.
+        """
         nonlocal window
         # Loop instead of recursing so we never nest QDialog.exec() event loops.
         # Recursion caused app.quit() to only exit the innermost local loop,
@@ -138,9 +145,8 @@ def main() -> None:
         while True:
             dlg = WelcomeDialog(default_dir=app_settings.default_projects_dir)
             if dlg.exec() != WelcomeDialog.DialogCode.Accepted:
-                # User clicked Quit on the welcome screen.
-                app.quit()
-                return
+                # User pressed Escape or clicked Quit on the welcome screen.
+                return False
 
             session = _open_session(dlg.result_action, dlg, library)
             if session is None:
@@ -156,10 +162,17 @@ def main() -> None:
 
         window = MainWindow(session, app_settings=app_settings)
         # When the window is hidden by "Close Project", loop back to welcome.
-        window.return_to_welcome.connect(show_welcome)
+        window.return_to_welcome.connect(_on_return_to_welcome)
         window.show()
         window.raise_()
         window.activateWindow()
+        return True
+
+    def _on_return_to_welcome() -> None:
+        # Re-entry from a running main window's "Close Project".  Quit the
+        # app if the user cancels the welcome screen this time.
+        if not show_welcome():
+            app.quit()
 
     def _shutdown_pools() -> None:
         from protoboard.services.routing.autorouter import _ASTAR_POOL
@@ -167,7 +180,11 @@ def main() -> None:
 
     app.aboutToQuit.connect(_shutdown_pools)
 
-    show_welcome()
+    if not show_welcome():
+        # User cancelled the very first welcome dialog — exit before
+        # starting the main event loop so the process terminates cleanly.
+        _shutdown_pools()
+        return
     sys.exit(app.exec())
 
 
