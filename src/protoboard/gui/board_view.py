@@ -768,7 +768,13 @@ class BoardView(QGraphicsView):
                 for _pin_num, p in self._session.iter_pin_positions(comp_id):
                     _check(p.x, p.y)
 
-        return best if best is not None else Point(sx, sy)
+        if best is not None:
+            return best
+        # No real pad or pin within the 3×3 search window — return the
+        # nearest hypothetical pad-grid centre so off-board cursors still
+        # snap to a half-integer grid.  Prevents drag-then-return from
+        # leaving components at fractional positions.
+        return Point(math.floor(sx) + 0.5, math.floor(sy) + 0.5)
 
     def is_locked_pin(self, scene_pt: QPointF, tol: float = 0.6) -> bool:
         """Return True if *scene_pt* is near a pin locked inside a child group

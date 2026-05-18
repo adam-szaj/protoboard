@@ -1144,9 +1144,17 @@ class SelectTool(_Tool):
                 self._selected_ids if self._selected_ids
                 else ({anchor_id} if anchor_id else set())
             )
-            snapped = self._view.snap(scene_pt, exclude_ids=frozenset(drag_ids))
+            # Snap the ANCHOR (pin 1 / wire start) to the nearest pad, not the
+            # raw cursor.  Project where the anchor would land for the raw
+            # cursor position, then snap that to the pad grid — this way the
+            # anchor always lands on a pad regardless of where the user
+            # grabbed the component (off-pin click) or how the component got
+            # off-grid (e.g. previous drag that left the board area).
             dx_off, dy_off = self._drag_anchor_offset
-            anchor_new = Point(snapped.x + dx_off, snapped.y + dy_off)
+            raw_anchor = QPointF(scene_pt.x() + dx_off, scene_pt.y() + dy_off)
+            anchor_new = self._view.snap(
+                raw_anchor, exclude_ids=frozenset(drag_ids)
+            )
 
             # Compute delta from anchor.
             delta: Point | None = None
@@ -1188,7 +1196,7 @@ class SelectTool(_Tool):
                 ]
 
             self._session.drag_moved.emit()
-            self._update_drag_overlay(drag_ids, snapped)
+            self._update_drag_overlay(drag_ids, anchor_new)
             return
 
         if ctrl:
@@ -1413,9 +1421,6 @@ class SelectTool(_Tool):
                 event.accept()
             elif key == Qt.Key.Key_A:
                 self._autoroute_wire_fragment()
-                event.accept()
-            elif key == Qt.Key.Key_F:
-                self._flip_wire_fragment()
                 event.accept()
             elif key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
                 self._delete_wire_fragment()
@@ -3530,6 +3535,14 @@ class SelectTool(_Tool):
                 if pos is not None:
                     pad_to_net.setdefault(pos, net_obj.id)
 
+        # All board pads on either side — bare wires keep pad-vertices on
+        # shortcuts so connectivity / wire-edit see every contact.
+        from protoboard.domain.layout.wire_utils import board_pads_for_side
+        all_board_pads = (
+            board_pads_for_side(session.board, "top")
+            | board_pads_for_side(session.board, "bottom")
+        )
+
         all_wires = session.layout.wires
         cmds: list[Command[ComponentState]] = []
         for wid in wire_ids:
@@ -3543,6 +3556,7 @@ class SelectTool(_Tool):
                 pin_positions=pin_positions,
                 pad_to_net=pad_to_net,
                 mode=mode,
+                board_pads=all_board_pads,
             )
             if new_wire is wire or new_wire.path == wire.path:
                 continue
@@ -3663,8 +3677,43 @@ class SelectTool(_Tool):
     # Wire segment editing
     # ------------------------------------------------------------------
 
+    def _ensure_wire_ready_for_edit(self, wire_id: uuid.UUID) -> None:
+        """For a bare wire, materialise every board-pad on its path as a vertex.
+
+        Bare wires laid as shortcuts (or post-simplified) may carry only their
+        endpoints even though the physical conductor rests on several pads.
+        Edit-mode hit-test only matches against existing vertices, so those
+        intermediate pads would be unselectable.  This helper executes one
+        ReplaceWireSegmentCommand that re-inserts the missing pad vertices —
+        idempotent: no command is emitted when the path is already enriched
+        or when the wire is insulated.
+        """
+        wire = next(
+            (w for w in self._session.layout.wires if w.id == wire_id), None
+        )
+        if wire is None or wire.insulated or len(wire.path) < 2:
+            return
+        from protoboard.domain.layout.wire_utils import (
+            board_pads_for_side,
+            insert_pad_nodes,
+        )
+        pads = board_pads_for_side(self._session.board, wire.side)
+        enriched = insert_pad_nodes(list(wire.path), pads)
+        if enriched == list(wire.path):
+            return
+        from protoboard.domain.commands.component_cmds import (
+            ReplaceWireSegmentCommand,
+        )
+        cmd = ReplaceWireSegmentCommand(wire_id=wire_id, new_path=enriched)
+        self._session.stack.execute(cmd, self._session)
+        self._session.layout_changed.emit()
+
     def _hit_test_wire_node(self, scene_pt: QPointF) -> int | None:
         wire = self._get_selected_wire()
+        if wire is None:
+            return None
+        self._ensure_wire_ready_for_edit(wire.id)
+        wire = self._get_selected_wire()  # may have been replaced
         if wire is None:
             return None
         px, py = scene_pt.x(), scene_pt.y()
@@ -3704,6 +3753,17 @@ class SelectTool(_Tool):
         start_net_id: uuid.UUID | None = None
         if self._edit_start_wire_id is not None:
             start_net_id = wire_net_map.get(self._edit_start_wire_id)
+
+        # Materialise board-pad vertices for every bare candidate wire so that
+        # hit-test can match a pad that the wire physically passes through but
+        # does not list as a vertex.  Helper is idempotent: no command emitted
+        # when path is already enriched or wire is insulated.
+        candidate_ids = [
+            w.id for w in self._session.layout.wires
+            if (start_net_id is None or wire_net_map.get(w.id) == start_net_id)
+        ]
+        for wid in candidate_ids:
+            self._ensure_wire_ready_for_edit(wid)
 
         best_wire: WireSegment | None = None
         best_idx: int | None = None
@@ -4067,8 +4127,12 @@ class SelectTool(_Tool):
         self._session.layout_changed.emit()
         self._select_wire(wire.id)
 
-    def _flip_wire_fragment(self) -> None:
-        """Flip the selected wire fragment to the opposite layer (F key).
+    def _flip_wire_fragment(self, target_side: str | None = None) -> None:
+        """Flip / move the selected wire fragment to a target layer.
+
+        Args:
+            target_side: "top" or "bottom" to force a layer; None toggles
+                the opposite of the wire's current side.
 
         Prerequisites:
         - A single wire is selected (_selected_wire_id set).
@@ -4094,10 +4158,26 @@ class SelectTool(_Tool):
         if wire is None or self._edit_start_idx is None or self._edit_end_idx is None:
             return
 
+        if (
+            self._edit_start_wire_id is not None
+            and self._edit_end_wire_id is not None
+            and self._edit_start_wire_id != self._edit_end_wire_id
+        ):
+            self._status_msg(
+                "Cannot flip cross-wire fragment — select a fragment within a single wire."
+            )
+            return
+
         start = self._edit_start_idx
         end = self._edit_end_idx
         path = wire.path
-        target_side: str = "bottom" if wire.side == "top" else "top"
+        if target_side is None:
+            resolved_side: str = "bottom" if wire.side == "top" else "top"
+        else:
+            if target_side == wire.side:
+                self._status_msg(f"Wire fragment already on {target_side} layer.")
+                return
+            resolved_side = target_side
         fragment = path[start:end + 1]
         is_whole_wire = (start == 0 and end == len(path) - 1)
 
@@ -4115,13 +4195,13 @@ class SelectTool(_Tool):
                     )
                     return
 
-        # --- Check 2: all fragment points must exist on target_side ---
-        target_pads = board_pads_for_side(session.board, target_side)
+        # --- Check 2: all fragment points must exist on resolved_side ---
+        target_pads = board_pads_for_side(session.board, resolved_side)
         for pt in fragment:
             if pt not in target_pads:
                 self._status_msg(
                     f"Cannot flip: pad ({pt.x:.1f},{pt.y:.1f}) "
-                    f"is not available on {target_side} layer."
+                    f"is not available on {resolved_side} layer."
                 )
                 return
 
@@ -4154,15 +4234,15 @@ class SelectTool(_Tool):
             if nid is not None and nid != wire_net_id:
                 self._status_msg(
                     f"Cannot flip: pad ({pt.x:.1f},{pt.y:.1f}) is occupied "
-                    f"by a different net on {target_side} layer."
+                    f"by a different net on {resolved_side} layer."
                 )
                 return
 
-        # --- Check 4: no existing wire on target_side overlaps interior points ---
+        # --- Check 4: no existing wire on resolved_side overlaps interior points ---
         interior = set(fragment[1:-1])
         if interior:
             for other in session.layout.wires:
-                if other.id == wire.id or other.side != target_side:
+                if other.id == wire.id or other.side != resolved_side:
                     continue
                 other_pts = set(other.path)
                 overlap = interior & other_pts
@@ -4170,7 +4250,7 @@ class SelectTool(_Tool):
                     pt = next(iter(overlap))
                     self._status_msg(
                         f"Cannot flip: interior point ({pt.x:.1f},{pt.y:.1f}) "
-                        f"is already occupied by another wire on {target_side}."
+                        f"is already occupied by another wire on {resolved_side}."
                     )
                     return
 
@@ -4179,12 +4259,65 @@ class SelectTool(_Tool):
             wire_id=wire.id,
             start_idx=start,
             end_idx=end,
-            target_side=target_side,
+            target_side=resolved_side,
         )
         self._cancel_wire_edit()
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
-        self._status_msg(f"Fragment flipped to {target_side} layer.")
+        self._status_msg(f"Fragment flipped to {resolved_side} layer.")
+
+    def _move_selected_wires_to_side(self, target_side: str | None) -> None:
+        """Move all selected wires to a target layer (Ctrl+T/Ctrl+B/Ctrl+F).
+
+        Args:
+            target_side: "top" or "bottom" to force a layer; None toggles
+                — requires all selected wires to share the same current side.
+        """
+        from typing import cast
+        from protoboard.domain.commands.base import Command, MacroCommand
+        from protoboard.domain.commands.component_cmds import (
+            ComponentState,
+            SetWireSideCommand,
+        )
+
+        wire_ids: set[uuid.UUID] = set(self._selected_wire_ids)
+        if self._selected_wire_id is not None:
+            wire_ids.add(self._selected_wire_id)
+        if not wire_ids:
+            return
+
+        wires = [w for w in self._session.layout.wires if w.id in wire_ids]
+        if not wires:
+            return
+
+        if target_side is None:
+            sides = {w.side for w in wires}
+            if len(sides) > 1:
+                self._status_msg(
+                    "Cannot flip: selected wires are on different layers."
+                )
+                return
+            current_side = next(iter(sides))
+            resolved_side = "bottom" if current_side == "top" else "top"
+        else:
+            resolved_side = target_side
+
+        wires_to_move = [w for w in wires if w.side != resolved_side]
+        if not wires_to_move:
+            self._status_msg(f"Selected wires already on {resolved_side} layer.")
+            return
+
+        raw = [
+            cast(Command[ComponentState], SetWireSideCommand(wire_id=w.id, side=resolved_side))
+            for w in wires_to_move
+        ]
+        cmd: Command[ComponentState] = (
+            raw[0] if len(raw) == 1
+            else MacroCommand(raw, description=f"Move {len(raw)} wires to {resolved_side}")
+        )
+        self._session.stack.execute(cmd, self._session)
+        self._session.layout_changed.emit()
+        self._status_msg(f"Moved {len(wires_to_move)} wire(s) to {resolved_side} layer.")
 
     def _delete_wire_fragment(self) -> None:
         """Delete the selected fragment from the wire(s).
@@ -4212,7 +4345,7 @@ class SelectTool(_Tool):
             self._session.layout_changed.emit()
             return
 
-        # Same-wire path (original behaviour).
+        # Same-wire path — cut the wire into two disjoint pieces.
         wire = self._get_selected_wire()
         if wire is None:
             return
@@ -4220,21 +4353,64 @@ class SelectTool(_Tool):
         start = self._edit_start_idx
         end   = self._edit_end_idx
         path  = wire.path
-        is_whole = (start == 0 and end == len(path) - 1)
+        n = len(path)
+        is_whole = (start == 0 and end == n - 1)
 
         self._cancel_wire_edit()
 
         if is_whole:
             cmd: object = RemoveWireCommand(wire_id=wire.id)
-        else:
-            new_path = path[:start + 1] + path[end:]
-            cmd = ReplaceWireSegmentCommand(
-                wire_id=wire.id,
-                new_path=new_path,
-                old_path=list(path),
-            )
+            self._session.stack.execute(cmd, self._session)  # type: ignore[arg-type]
+            self._deselect_wire()
+            self._session.layout_changed.emit()
+            return
 
-        self._session.stack.execute(cmd, self._session)  # type: ignore[arg-type]
+        # Two halves: path[0..start] (left piece, ending AT the start pad) and
+        # path[end..n-1] (right piece, starting AT the end pad).  The selected
+        # boundary pads (start, end) are preserved on their respective halves
+        # as endpoints — only the interior path[start+1..end-1] is removed.
+        # The wire is physically cut into two segments that meet (visually) at
+        # the boundary pads; through-pad galvanic contact still depends on
+        # whether those pads are plated-through.
+        left_path = list(path[: start + 1])
+        right_path = list(path[end:])
+
+        from typing import cast
+        from protoboard.domain.commands.base import Command, MacroCommand
+        from protoboard.domain.commands.component_cmds import (
+            AddWireCommand,
+            ComponentState,
+        )
+        from protoboard.domain.layout.wire import WireSegment
+
+        cmds: list[Command[ComponentState]] = [
+            cast(Command[ComponentState], RemoveWireCommand(wire_id=wire.id))
+        ]
+        if len(left_path) >= 2:
+            cmds.append(cast(Command[ComponentState], AddWireCommand(
+                wire=WireSegment(
+                    id=uuid.uuid4(),
+                    path=left_path,
+                    insulated=wire.insulated,
+                    side=wire.side,
+                    color=wire.color,
+                )
+            )))
+        if len(right_path) >= 2:
+            cmds.append(cast(Command[ComponentState], AddWireCommand(
+                wire=WireSegment(
+                    id=uuid.uuid4(),
+                    path=right_path,
+                    insulated=wire.insulated,
+                    side=wire.side,
+                    color=wire.color,
+                )
+            )))
+        macro: Command[ComponentState] = (
+            cmds[0] if len(cmds) == 1
+            else MacroCommand(cmds, description="Cut wire fragment")
+        )
+        self._session.stack.execute(macro, self._session)
         self._deselect_wire()
         self._session.layout_changed.emit()
 

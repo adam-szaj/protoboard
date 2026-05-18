@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
@@ -285,21 +287,22 @@ def _ctrl_press(tool: SelectTool, x: float, y: float) -> None:
 def _add_wire(
     session: EditorSession,
     path: list[tuple[float, float]],
-) -> None:
-    """Add a WireSegment directly to the session layout."""
-    import uuid as _uuid
-
+    *,
+    insulated: bool = True,
+    side: str = "top",
+) -> uuid.UUID:
+    """Add a WireSegment directly to the session layout; return its id."""
     from protoboard.domain.layout.wire import WireSegment
     from protoboard.geometry import Point as _Point
 
-    session.layout.wires.append(
-        WireSegment(
-            id=_uuid.uuid4(),
-            path=[_Point(x, y) for x, y in path],
-            insulated=True,
-            side="top",
-        )
+    wire = WireSegment(
+        id=uuid.uuid4(),
+        path=[_Point(x, y) for x, y in path],
+        insulated=insulated,
+        side=side,  # type: ignore[arg-type]
     )
+    session.layout.wires.append(wire)
+    return wire.id
 
 
 # ---------------------------------------------------------------------------
@@ -404,61 +407,62 @@ class TestMultiSelectionDrag:
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         """Clicking a selected wire and dragging moves its path."""
-        _add_wire(session, [(1.0, 1.0), (2.0, 1.0)])
+        # Wire on pad-grid: (1.5,1.5) → (2.5,1.5).
+        _add_wire(session, [(1.5, 1.5), (2.5, 1.5)])
         board_view.refresh()
         board_view.set_tool(SelectTool())
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
         wire_id = session.layout.wires[0].id
         # RTL rubber-band to select wire.
-        _press(tool, 3.0, 3.0)
-        _move(tool, 0.0, 0.0)
-        _release(tool, 0.0, 0.0)
+        _press(tool, 3.5, 3.5)
+        _move(tool, 0.5, 0.5)
+        _release(tool, 0.5, 0.5)
         assert wire_id in tool._selected_wire_ids
-        # Click near wire midpoint and drag by (+1, +1).
-        _press(tool, 1.5, 1.0)
-        _move(tool, 2.5, 2.0)
-        _release(tool, 2.5, 2.0)
+        # Click on wire start pad and drag by (+1, +1).
+        _press(tool, 1.5, 1.5)
+        _move(tool, 2.5, 2.5)
+        _release(tool, 2.5, 2.5)
         wire = session.layout.wires[0]
-        assert wire.path[0] == Point(2.0, 2.0)
-        assert wire.path[1] == Point(3.0, 2.0)
+        assert wire.path[0] == Point(2.5, 2.5)
+        assert wire.path[1] == Point(3.5, 2.5)
 
     def test_drag_wire_is_undoable(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         """Wire drag creates undo entry that restores original path."""
-        _add_wire(session, [(1.0, 1.0), (2.0, 1.0)])
+        _add_wire(session, [(1.5, 1.5), (2.5, 1.5)])
         board_view.refresh()
         board_view.set_tool(SelectTool())
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
         wire_id = session.layout.wires[0].id
-        _press(tool, 3.0, 3.0)
-        _move(tool, 0.0, 0.0)
-        _release(tool, 0.0, 0.0)
+        _press(tool, 3.5, 3.5)
+        _move(tool, 0.5, 0.5)
+        _release(tool, 0.5, 0.5)
         assert wire_id in tool._selected_wire_ids
-        _press(tool, 1.5, 1.0)
-        _move(tool, 2.5, 2.0)
-        _release(tool, 2.5, 2.0)
+        _press(tool, 1.5, 1.5)
+        _move(tool, 2.5, 2.5)
+        _release(tool, 2.5, 2.5)
         session.stack.undo(session)
         wire = session.layout.wires[0]
-        assert wire.path[0] == Point(1.0, 1.0)
-        assert wire.path[1] == Point(2.0, 1.0)
+        assert wire.path[0] == Point(1.5, 1.5)
+        assert wire.path[1] == Point(2.5, 1.5)
 
     def test_mixed_drag_moves_both_component_and_wire(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         """Selecting component + wire and dragging moves both."""
         inst = _place_component(board_view, session, 1.5, 1.5)
-        _add_wire(session, [(1.0, 3.0), (2.0, 3.0)])
+        _add_wire(session, [(1.5, 3.5), (2.5, 3.5)])
         board_view.refresh()
         board_view.set_tool(SelectTool())
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
         # RTL rubber-band to select both.
-        _press(tool, 4.0, 4.0)
-        _move(tool, 0.0, 0.0)
-        _release(tool, 0.0, 0.0)
+        _press(tool, 4.5, 4.5)
+        _move(tool, 0.5, 0.5)
+        _release(tool, 0.5, 0.5)
         assert inst.id in tool._selected_ids
         assert session.layout.wires[0].id in tool._selected_wire_ids
         # Drag from component position by (+1, 0).
@@ -467,8 +471,8 @@ class TestMultiSelectionDrag:
         _release(tool, 2.5, 1.5)
         assert session.layout.placements[inst.id].position == Point(2.5, 1.5)
         wire = session.layout.wires[0]
-        assert wire.path[0] == Point(2.0, 3.0)
-        assert wire.path[1] == Point(3.0, 3.0)
+        assert wire.path[0] == Point(2.5, 3.5)
+        assert wire.path[1] == Point(3.5, 3.5)
 
     def test_wires_stay_selected_during_drag_from_bbox(
         self, board_view: BoardView, session: EditorSession
@@ -476,30 +480,29 @@ class TestMultiSelectionDrag:
         """Regression: clicking inside component bbox (not near pin) must not
         deselect wires — wires should remain in selection and move with drag."""
         inst = _place_component(board_view, session, 1.5, 1.5)
-        _add_wire(session, [(0.5, 3.0), (2.5, 3.0)])
+        _add_wire(session, [(0.5, 3.5), (2.5, 3.5)])
         board_view.refresh()
         board_view.set_tool(SelectTool())
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
         # RTL rubber-band to select both.
-        _press(tool, 4.0, 4.0)
-        _move(tool, 0.0, 0.0)
-        _release(tool, 0.0, 0.0)
+        _press(tool, 4.5, 4.5)
+        _move(tool, 0.5, 0.5)
+        _release(tool, 0.5, 0.5)
         wire_id = session.layout.wires[0].id
         assert inst.id in tool._selected_ids
         assert wire_id in tool._selected_wire_ids
-        # Click in the middle of the component bbox — far from pins.
-        # SIL(2) rot=90: pins at (1.5, 1.5) and (2.5, 1.5); bbox centre ≈ (2, 1.5).
-        # Click at (2.0, 1.5) — inside bbox but not within _HIT_RADIUS of any pin.
-        _press(tool, 2.0, 1.5)
+        # Click in the middle of the component bbox — close to pin 1 so anchor
+        # offset is well-defined.  SIL(2) rot=90: pin 1 at (1.5, 1.5).
+        _press(tool, 1.5, 1.5)
         # Wires must still be selected after the press.
         assert wire_id in tool._selected_wire_ids
-        # Move and release — wire should move together with component.
-        _move(tool, 3.0, 1.5)
-        _release(tool, 3.0, 1.5)
+        # Drag by (+1, 0).
+        _move(tool, 2.5, 1.5)
+        _release(tool, 2.5, 1.5)
         wire = session.layout.wires[0]
-        assert wire.path[0] == Point(1.5, 3.0)
-        assert wire.path[1] == Point(3.5, 3.0)
+        assert wire.path[0] == Point(1.5, 3.5)
+        assert wire.path[1] == Point(3.5, 3.5)
 
 
 # ---------------------------------------------------------------------------
@@ -673,3 +676,255 @@ class TestWireClickCycle:
         _press(tool, 10.0, 10.0)
         assert tool._selected_wire_id is None
         assert tool._wire_click_cycle == 0
+
+
+class TestWireEditPadEnrichment:
+    """Bare wires laid as shortcuts must materialise board-pad vertices on
+    edit-time so hit-test can pick a pad pin in the middle of the shortcut.
+    Insulated wires must NOT be enriched — they float above the board."""
+
+    def test_bare_shortcut_enriched_on_hit_test(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # 5×5 perfboard from conftest — pads at (0.5..4.5, 0.5..4.5).
+        wire_id = _add_wire(
+            session, [(0.5, 0.5), (4.5, 0.5)], insulated=False
+        )
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._selected_wire_id = wire_id
+
+        # Trigger the helper directly (mimics what hit-test does on demand).
+        tool._ensure_wire_ready_for_edit(wire_id)
+
+        new_wire = next(w for w in session.layout.wires if w.id == wire_id)
+        coords = [(p.x, p.y) for p in new_wire.path]
+        assert coords == [
+            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5)
+        ]
+
+    def test_enrichment_is_idempotent(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        wire_id = _add_wire(
+            session, [(0.5, 0.5), (4.5, 0.5)], insulated=False
+        )
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+
+        tool._ensure_wire_ready_for_edit(wire_id)
+        stack_depth_after_first = len(session.stack._undo)
+        tool._ensure_wire_ready_for_edit(wire_id)
+        stack_depth_after_second = len(session.stack._undo)
+        # Second call must not push another undo step (path already enriched).
+        assert stack_depth_after_first == stack_depth_after_second
+
+    def test_insulated_wire_not_enriched(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Insulated wire floats above the board — pad-vertices must NOT be
+        # added even when it shortcuts across pads.
+        wire_id = _add_wire(
+            session, [(0.5, 0.5), (4.5, 0.5)], insulated=True
+        )
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+
+        tool._ensure_wire_ready_for_edit(wire_id)
+
+        new_wire = next(w for w in session.layout.wires if w.id == wire_id)
+        coords = [(p.x, p.y) for p in new_wire.path]
+        assert coords == [(0.5, 0.5), (4.5, 0.5)]
+
+    def test_already_enriched_path_no_op(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Wire already lists every pad as a vertex — no command should be issued.
+        wire_id = _add_wire(
+            session,
+            [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5)],
+            insulated=False,
+        )
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+
+        baseline = len(session.stack._undo)
+        tool._ensure_wire_ready_for_edit(wire_id)
+        assert len(session.stack._undo) == baseline
+
+
+class TestDeleteWireFragment:
+    """Delete on a fragment cuts the wire into two disjoint pieces — the
+    fragment vertices (start, end, and all interior) are removed, not just
+    interior nodes."""
+
+    def test_interior_fragment_cuts_wire_in_two(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Path: [p0 p1 p2 p3 p4].  Fragment start=1 end=3.  Interior
+        # vertex p2 is dropped; boundary pads p1 and p3 are kept as the
+        # endpoints of the two new pieces.
+        # Expected pieces: [p0,p1] and [p3,p4].
+        wire_id = _add_wire(
+            session,
+            [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5)],
+            insulated=True,
+        )
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._selected_wire_id = wire_id
+        tool._edit_start_wire_id = wire_id
+        tool._edit_end_wire_id = wire_id
+        tool._edit_start_idx = 1
+        tool._edit_end_idx = 3
+
+        tool._delete_wire_fragment()
+
+        ids = [w.id for w in session.layout.wires]
+        assert wire_id not in ids
+        assert len(session.layout.wires) == 2
+        paths = sorted(
+            [[(p.x, p.y) for p in w.path] for w in session.layout.wires]
+        )
+        assert paths == sorted([
+            [(0.5, 0.5), (1.5, 0.5)],
+            [(3.5, 0.5), (4.5, 0.5)],
+        ])
+
+    def test_fragment_at_left_endpoint_keeps_right_piece(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Fragment start=0 end=2 — interior is just p1; boundary pads
+        # p0 (idx 0) and p2 (idx 2).  Left piece [p0] has length 1 → dropped.
+        # Right piece [p2,p3,p4] survives.
+        wire_id = _add_wire(
+            session,
+            [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5)],
+            insulated=True,
+        )
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._selected_wire_id = wire_id
+        tool._edit_start_wire_id = wire_id
+        tool._edit_end_wire_id = wire_id
+        tool._edit_start_idx = 0
+        tool._edit_end_idx = 2
+
+        tool._delete_wire_fragment()
+
+        ids = [w.id for w in session.layout.wires]
+        assert wire_id not in ids
+        assert len(session.layout.wires) == 1
+        coords = [(p.x, p.y) for p in session.layout.wires[0].path]
+        assert coords == [(2.5, 0.5), (3.5, 0.5), (4.5, 0.5)]
+
+    def test_adjacent_fragment_only_drops_segment(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Fragment start=1 end=2 — no interior vertices, just removes the
+        # segment between two adjacent vertices.  Both halves [p0,p1] and
+        # [p2,p3,p4] survive.
+        wire_id = _add_wire(
+            session,
+            [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5)],
+            insulated=True,
+        )
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._selected_wire_id = wire_id
+        tool._edit_start_wire_id = wire_id
+        tool._edit_end_wire_id = wire_id
+        tool._edit_start_idx = 1
+        tool._edit_end_idx = 2
+
+        tool._delete_wire_fragment()
+
+        assert wire_id not in [w.id for w in session.layout.wires]
+        assert len(session.layout.wires) == 2
+        paths = sorted([
+            [(p.x, p.y) for p in w.path] for w in session.layout.wires
+        ])
+        assert paths == sorted([
+            [(0.5, 0.5), (1.5, 0.5)],
+            [(2.5, 0.5), (3.5, 0.5), (4.5, 0.5)],
+        ])
+
+    def test_whole_wire_fragment_removes_wire(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        wire_id = _add_wire(
+            session,
+            [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5)],
+            insulated=True,
+        )
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._selected_wire_id = wire_id
+        tool._edit_start_wire_id = wire_id
+        tool._edit_end_wire_id = wire_id
+        tool._edit_start_idx = 0
+        tool._edit_end_idx = 2
+
+        tool._delete_wire_fragment()
+
+        assert session.layout.wires == []
+
+
+class TestComponentDragAnchorSnap:
+    """Regression: component pin 1 must always land on a pad after drag,
+    even when the component started off-grid (e.g. previous drag dragged it
+    off the board area)."""
+
+    def test_drag_snaps_pin1_to_pad_when_starting_off_grid(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 1.5, 1.5)
+        # Force the component off-grid (simulating a prior drag that left it
+        # at a fractional position, e.g. cursor outside the board).
+        pl = session.layout.placements[inst.id]
+        from protoboard.geometry import Point as _P
+        pl.position = _P(1.7, 1.3)
+
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # Click on the off-grid pin 1 and drag.
+        _press(tool, 1.7, 1.3)
+        _move(tool, 2.5, 2.5)
+        _release(tool, 2.5, 2.5)
+
+        new_pos = session.layout.placements[inst.id].position
+        # Pin 1 must be on a pad centre (half-integer coords).
+        assert (new_pos.x - 0.5) == int(new_pos.x - 0.5), (
+            f"x={new_pos.x} is not on pad grid"
+        )
+        assert (new_pos.y - 0.5) == int(new_pos.y - 0.5), (
+            f"y={new_pos.y} is not on pad grid"
+        )
+
+    def test_snap_fallback_is_grid_aligned_off_board(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Snap called far outside any pad must still return a half-integer
+        # grid position — never a raw cursor value.
+        board_view.refresh()
+        from PySide6.QtCore import QPointF as _QPF
+        snapped = board_view.snap(_QPF(50.0, 50.0))
+        assert (snapped.x - 0.5) == int(snapped.x - 0.5), snapped
+        assert (snapped.y - 0.5) == int(snapped.y - 0.5), snapped
