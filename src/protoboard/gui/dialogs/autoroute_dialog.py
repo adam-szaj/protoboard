@@ -24,6 +24,18 @@ from PySide6.QtWidgets import (
 
 if TYPE_CHECKING:
     from protoboard.domain.routing_settings import RoutingSettings
+    from protoboard.services.routing.postprocess import SimplifyMode
+
+
+def _simplify_mode_from_combo(raw: object) -> "SimplifyMode":
+    """Translate combobox data-role into SimplifyMode (defaults to BARE_PARITY)."""
+    from protoboard.services.routing.postprocess import SimplifyMode
+    if isinstance(raw, str):
+        try:
+            return SimplifyMode(raw)
+        except ValueError:
+            return SimplifyMode.BARE_PARITY
+    return SimplifyMode.BARE_PARITY
 
 
 class AutorouteDialog(QDialog):
@@ -175,6 +187,25 @@ class AutorouteDialog(QDialog):
         self._chk_simplify.setChecked(rs.enable_simplify_pass)
         root.addWidget(self._chk_simplify)
 
+        from PySide6.QtWidgets import QComboBox as _QComboBox, QHBoxLayout
+        simplify_mode_row = QHBoxLayout()
+        from PySide6.QtWidgets import QLabel as _QLabel
+        simplify_mode_row.addWidget(_QLabel("Simplify mode:"))
+        self._combo_simplify_mode = _QComboBox()
+        self._combo_simplify_mode.addItem(
+            "Chebyshev (shortcut via diag)", "chebyshev"
+        )
+        self._combo_simplify_mode.addItem(
+            "Bare-parity (respect anti-short rule)", "bare_parity"
+        )
+        for i in range(self._combo_simplify_mode.count()):
+            if self._combo_simplify_mode.itemData(i) == rs.simplify_mode.value:
+                self._combo_simplify_mode.setCurrentIndex(i)
+                break
+        simplify_mode_row.addWidget(self._combo_simplify_mode)
+        simplify_mode_row.addStretch()
+        root.addLayout(simplify_mode_row)
+
         # ── Footer ─────────────────────────────────────────────────────
         self._chk_save = QCheckBox("Save as project default")
         root.addWidget(self._chk_save)
@@ -221,6 +252,7 @@ class AutorouteDialog(QDialog):
             allow_jumpers=self._chk_jumpers.isChecked(),
             push_and_shove=self._chk_push_shove.isChecked(),
             enable_simplify_pass=self._chk_simplify.isChecked(),
+            simplify_mode=_simplify_mode_from_combo(self._combo_simplify_mode.currentData()),
             max_detour_factor=self._spin_detour.value(),
             skip_autoroute_dialog=self._chk_skip.isChecked(),
         )

@@ -3,10 +3,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import dataclass, field
+from typing import Literal, TYPE_CHECKING
 
 from protoboard.services.routing.cost_model import RoutingCostModel
+
+if TYPE_CHECKING:
+    from protoboard.services.routing.postprocess import SimplifyMode
+
+
+def _default_simplify_mode() -> "SimplifyMode":
+    """Late-import default for SimplifyMode to avoid a cycle with postprocess."""
+    from protoboard.services.routing.postprocess import SimplifyMode
+    return SimplifyMode.BARE_PARITY
 
 
 @dataclass(frozen=True)
@@ -50,6 +59,12 @@ class RoutingSettings:
     # When True (and wire_mode == "bare_diagonal"), run a post-route simplify
     # pass: collinear-segment merge + ortho-ortho-corner → diagonal corner-cut.
     enable_simplify_pass: bool = True
+    # Strategy used by the simplify pass.  See SimplifyMode for details.
+    # Default BARE_PARITY preserves the anti-short invariant that
+    # bare_diagonal routing relies on.
+    simplify_mode: "SimplifyMode" = field(  # type: ignore[name-defined]
+        default_factory=lambda: _default_simplify_mode()
+    )
 
     def cost_model(self) -> RoutingCostModel:
         """Build a RoutingCostModel from these settings."""

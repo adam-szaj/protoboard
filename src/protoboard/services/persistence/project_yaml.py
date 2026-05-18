@@ -383,6 +383,7 @@ def _routing_settings_to_yaml(s: RoutingSettings) -> str:
         "skip_autoroute_dialog": s.skip_autoroute_dialog,
         "push_and_shove": s.push_and_shove,
         "enable_simplify_pass": s.enable_simplify_pass,
+        "simplify_mode": s.simplify_mode.value,
         "cost_model": {
             "direction_change": s.direction_change,
             "crossing_insulated_bare": s.crossing_insulated_bare,
@@ -407,6 +408,12 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
     wire_mode = data.get("wire_mode", "auto")
     if wire_mode not in ("bare", "insulated", "auto", "bare_diagonal"):
         wire_mode = "auto"
+    from protoboard.services.routing.postprocess import SimplifyMode
+    simplify_mode_raw = data.get("simplify_mode", SimplifyMode.BARE_PARITY.value)
+    try:
+        simplify_mode = SimplifyMode(simplify_mode_raw)
+    except ValueError:
+        simplify_mode = SimplifyMode.BARE_PARITY
     return RoutingSettings(
         preferred_side=data.get("preferred_side", "bottom"),
         allow_layer_change=bool(data.get("allow_layer_change", True)),
@@ -425,6 +432,7 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
         skip_autoroute_dialog=bool(data.get("skip_autoroute_dialog", False)),
         push_and_shove=bool(data.get("push_and_shove", True)),
         enable_simplify_pass=bool(data.get("enable_simplify_pass", True)),
+        simplify_mode=simplify_mode,
     )
 
 

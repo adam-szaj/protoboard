@@ -18,7 +18,9 @@ unchanged) and never extend a wire — only shorten it.
 
 from __future__ import annotations
 
+import math
 import uuid
+from enum import Enum
 from typing import cast, Literal
 
 from protoboard.domain.layout.wire import WireSegment
@@ -27,6 +29,25 @@ from protoboard.services.routing.astar import (
     _build_bare_seg_index,
     _segs_cross,
 )
+
+
+class SimplifyMode(str, Enum):
+    """How aggressively to shorten a wire path.
+
+    CHEBYSHEV:   replace any subpath with the shortest grid-aligned path
+                 (diagonal where possible, ortho where forced).  Ignores the
+                 bare-diagonal parity rule — use only when the user understands
+                 that the produced diagonal may cross perpendicular bare
+                 diagonals at cell centres.  Best visual result.
+
+    BARE_PARITY: same as CHEBYSHEV for insulated wires; for bare wires, every
+                 new diagonal segment must respect the source pad's parity
+                 family (the anti-short rule that bare_diagonal routing relies
+                 on).  Default — preserves the invariants used by autoroute.
+    """
+
+    CHEBYSHEV = "chebyshev"
+    BARE_PARITY = "bare_parity"
 
 
 # ---------------------------------------------------------------------------
@@ -217,3 +238,300 @@ def simplify_wires(
         # see the cut version when checking for collisions.
         straightened[i] = cur
     return out
+
+
+# ===========================================================================
+# Generic shortcut algorithm
+# ===========================================================================
+
+_EPS = 1e-9
+
+
+def _path_length(path: list[Point]) -> float:
+    """Geometric length of a polyline (sum of Euclidean segment lengths)."""
+    total = 0.0
+    for p, q in zip(path, path[1:]):
+        total += math.hypot(q.x - p.x, q.y - p.y)
+    return total
+
+
+def _canonical_subpath(
+    a: Point, b: Point, *, allow_l_shape: bool = True
+) -> list[Point] | None:
+    """Shortest grid-aligned path from *a* to *b* preferring diagonals.
+
+    Returns a list of vertices ``[a, ..., b]``.  Result has at most three
+    vertices: pure ortho or diagonal collapses to two; mixed (|dx| != |dy|)
+    becomes a diag-prefix + ortho-tail L.  Pad positions land at half-integer
+    coordinates (col + 0.5, row + 0.5), so dx and dy are always integers when
+    *a* and *b* are pads.
+
+    Returns None when ``allow_l_shape`` is False and the canonical path would
+    have to bend (callers that only want "truly straight" shortcuts use this).
+    """
+    dx = b.x - a.x
+    dy = b.y - a.y
+    ax = abs(dx)
+    ay = abs(dy)
+    if ax < _EPS and ay < _EPS:
+        return None
+    # Pure ortho or pure diag → a single straight segment.
+    if ax < _EPS or ay < _EPS or abs(ax - ay) < _EPS:
+        return [a, b]
+    # L-shape: diag prefix of length min(ax, ay), ortho tail of the remainder.
+    if not allow_l_shape:
+        return None
+    sx = 1.0 if dx > 0 else -1.0
+    sy = 1.0 if dy > 0 else -1.0
+    diag = min(ax, ay)
+    m = Point(a.x + sx * diag, a.y + sy * diag)
+    return [a, m, b]
+
+
+def _wire_to_segs(wire: WireSegment) -> list[tuple[Point, Point]]:
+    return list(zip(wire.path, wire.path[1:]))
+
+
+def _candidate_safe_against_others(
+    candidate_segs: list[tuple[Point, Point]],
+    other_wires: list[WireSegment],
+    wire_id: uuid.UUID,
+) -> bool:
+    """No strict-interior crossing between *candidate_segs* and any other bare
+    wire on the same side as the candidate's owner.  Insulated wires don't
+    block (they float over the board)."""
+    for ow in other_wires:
+        if ow.id == wire_id or ow.insulated:
+            continue
+        for c_src, c_dst in candidate_segs:
+            for o_src, o_dst in _wire_to_segs(ow):
+                if _segs_cross(c_src, c_dst, o_src, o_dst):
+                    return False
+    return True
+
+
+def _candidate_safe_against_own(
+    candidate_segs: list[tuple[Point, Point]],
+    wire: WireSegment,
+    i: int,
+    j: int,
+) -> bool:
+    """No crossing between the candidate and the wire's *unchanged* segments
+    (those before index i and from index j onwards)."""
+    own = list(zip(wire.path, wire.path[1:]))
+    # The segments being replaced are own[i:j]; everything else stays.
+    keep = own[:i] + own[j:]
+    for c_src, c_dst in candidate_segs:
+        for o_src, o_dst in keep:
+            if _segs_cross(c_src, c_dst, o_src, o_dst):
+                return False
+    return True
+
+
+def _seg_passes_through_pad(a: Point, b: Point, pad: Point) -> bool:
+    """True if *pad* lies strictly inside or at the endpoint of segment a→b."""
+    # Cross product zero → collinear; then check param t in [0, 1].
+    abx, aby = b.x - a.x, b.y - a.y
+    apx, apy = pad.x - a.x, pad.y - a.y
+    cross = abx * apy - aby * apx
+    if abs(cross) > _EPS:
+        return False
+    # Parameterise: pad = a + t*(b - a); use longest axis for stability.
+    if abs(abx) >= abs(aby):
+        if abs(abx) < _EPS:
+            return False
+        t = apx / abx
+    else:
+        t = apy / aby
+    return -_EPS <= t <= 1.0 + _EPS
+
+
+def _new_alien_pad_contact(
+    candidate_segs: list[tuple[Point, Point]],
+    wire: WireSegment,
+    pad_to_net: dict[Point, uuid.UUID] | None,
+) -> bool:
+    """Return True if the candidate creates an unintended bare contact with
+    a pad belonging to *another* electric net than the wire's own.
+
+    Insulated wires never trigger this — they float over pads.  If
+    *pad_to_net* is None or unknown for a pad, treat the contact as alien
+    only when the original wire did not pass through it.
+    """
+    if wire.insulated or pad_to_net is None:
+        return False
+    own_path_pts = set(wire.path)
+    for c_src, c_dst in candidate_segs:
+        for pad, _net_id in pad_to_net.items():
+            if pad in own_path_pts:
+                continue  # already touched by the original wire
+            if not _seg_passes_through_pad(c_src, c_dst, pad):
+                continue
+            # Pad belongs to a different net than this wire's nets (caller
+            # should pass only foreign pads).  Treat as forbidden.
+            return True
+    return False
+
+
+def _parity_ok_for_bare(
+    candidate_segs: list[tuple[Point, Point]], src_parity: int
+) -> bool:
+    """In BARE_PARITY mode each diagonal segment must respect the parity
+    family of the source pad (anti-short rule used by bare_diagonal routing).
+    Pure-ortho segments are always OK.
+    """
+    allowed_sign = 1.0 if src_parity == 0 else -1.0
+    for a, b in candidate_segs:
+        dx, dy = b.x - a.x, b.y - a.y
+        if abs(dx) < _EPS or abs(dy) < _EPS:
+            continue  # ortho
+        slope_sign = dx * dy
+        if slope_sign * allowed_sign <= 0.0:
+            return False
+    return True
+
+
+def generic_simplify_wire(
+    wire: WireSegment,
+    other_wires: list[WireSegment],
+    pin_positions: set[Point] | None = None,
+    pad_to_net: dict[Point, uuid.UUID] | None = None,
+    *,
+    mode: SimplifyMode = SimplifyMode.BARE_PARITY,
+) -> WireSegment:
+    """Shorten *wire* by replacing any subpath ``path[i..j]`` with the
+    canonical (grid-aligned shortest) path between its endpoints, when safe.
+
+    Generalises ``straighten_wire`` (collapses kolinearne wierzchołki) and
+    ``corner_cut_wire`` (zamienia ortho-L na diagonal) into a single pass:
+    for every pair ``(i, j)`` the canonical replacement is tested.  Greedy
+    largest-span-first iteration with restart on success.
+
+    Safety constraints:
+      - Total length must strictly decrease.
+      - No crossing with other bare wires (`_segs_cross`).
+      - No crossing with this wire's segments outside ``[i..j]``.
+      - Internal pad-pins on the original subpath must remain on the new path
+        (otherwise we would silently disconnect a multi-pin net).
+      - For bare wires in BARE_PARITY mode, every new diagonal segment must
+        match the source pad's parity family.
+      - For bare wires, the new path must not introduce a contact with a pad
+        belonging to another net (``pad_to_net`` lookup).
+
+    *pin_positions* — every component pin position on the layout.
+    *pad_to_net*    — pad → electric-net id for every pad on the same side as
+                      the wire (used to detect alien-net contacts).
+    """
+    pins = pin_positions or set()
+    # Foreign pads are pads that don't belong to this wire's net set.  Caller
+    # passes pad_to_net pre-filtered if it wants strict alien-only checks; we
+    # operate on whatever it gave us.
+    src_parity = _parity_of(wire.path[0]) if wire.path else 0
+    allow_l_shape = True
+    use_parity = (
+        mode == SimplifyMode.BARE_PARITY and not wire.insulated
+    )
+
+    path = list(wire.path)
+    changed = True
+    while changed and len(path) >= 3:
+        changed = False
+        n = len(path)
+        # Try pairs by descending span — bigger savings first.
+        outer_found = False
+        for span in range(n - 1, 1, -1):
+            for i in range(0, n - span):
+                j = i + span
+                canon = _canonical_subpath(
+                    path[i], path[j], allow_l_shape=allow_l_shape
+                )
+                if canon is None or len(canon) < 2:
+                    continue
+                # Skip no-ops (e.g. canon == path[i:j+1] for a pure two-vertex
+                # subpath that already is canonical).
+                if len(canon) == j - i + 1 and all(
+                    abs(a.x - b.x) < _EPS and abs(a.y - b.y) < _EPS
+                    for a, b in zip(canon, path[i:j + 1])
+                ):
+                    continue
+                # Accept the canonical if either:
+                #   (a) it's geometrically shorter, OR
+                #   (b) length is unchanged but vertex count decreases
+                #       (this covers the classic "straighten" case where the
+                #       canonical is the same straight line but with fewer
+                #       intermediate vertices).
+                cur_len = _path_length(path[i:j + 1])
+                cand_len = _path_length(canon)
+                shorter = cand_len < cur_len - _EPS
+                fewer_verts = (
+                    abs(cand_len - cur_len) < _EPS
+                    and len(canon) < (j - i + 1)
+                )
+                if not shorter and not fewer_verts:
+                    continue
+
+                # Preserve internal pad-pins (Steiner points the router put
+                # there on purpose).
+                internal = path[i + 1:j]
+                internal_pins = {p for p in internal if p in pins}
+                if internal_pins and not internal_pins.issubset(set(canon)):
+                    continue
+
+                candidate_segs = list(zip(canon, canon[1:]))
+                if use_parity and not _parity_ok_for_bare(
+                    candidate_segs, src_parity
+                ):
+                    continue
+                if not _candidate_safe_against_others(
+                    candidate_segs, other_wires, wire.id
+                ):
+                    continue
+                if not _candidate_safe_against_own(candidate_segs, wire, i, j):
+                    continue
+                # Reconstruct wire-as-of-now for the own-path check after the
+                # alien-pad check (cheap; same data).
+                if _new_alien_pad_contact(candidate_segs, wire, pad_to_net):
+                    continue
+
+                # Accept: splice canon into path in place of [i..j].
+                path = path[:i + 1] + canon[1:-1] + path[j:]
+                changed = True
+                outer_found = True
+                break
+            if outer_found:
+                break
+
+    if path == list(wire.path):
+        return wire
+    return WireSegment(
+        id=uuid.uuid4(),
+        path=path,
+        insulated=wire.insulated,
+        side=cast(Literal["top", "bottom"], wire.side),
+        color=wire.color,
+    )
+
+
+def simplify_wires_generic(
+    wires: list[WireSegment],
+    pin_positions: set[Point] | None = None,
+    pad_to_net: dict[Point, uuid.UUID] | None = None,
+    *,
+    mode: SimplifyMode = SimplifyMode.BARE_PARITY,
+) -> list[WireSegment]:
+    """Run generic_simplify_wire over *wires*, propagating each rewrite back
+    into the working list so later wires see the shortened versions when
+    checking collisions.  Mirrors the multi-pass behaviour of
+    ``simplify_wires`` but with a single unified algorithm.
+    """
+    cur = list(wires)
+    for idx in range(len(cur)):
+        new = generic_simplify_wire(
+            cur[idx],
+            other_wires=cur,
+            pin_positions=pin_positions,
+            pad_to_net=pad_to_net,
+            mode=mode,
+        )
+        cur[idx] = new
+    return cur

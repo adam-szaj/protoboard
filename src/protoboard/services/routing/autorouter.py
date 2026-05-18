@@ -48,6 +48,9 @@ from protoboard.geometry import Point
 from protoboard.services.routing.astar import PathStep, find_paths, split_path_by_side
 from protoboard.services.routing.cost_model import RoutingCostModel
 
+if TYPE_CHECKING:
+    from protoboard.services.routing.postprocess import SimplifyMode
+
 # Higher direction_change discourages long detours and keeps wires closer
 # to straight-line paths, leaving more corridors free for other nets.
 _DEFAULT_COST = RoutingCostModel(direction_change=1.0)
@@ -213,6 +216,7 @@ def autoroute(
     report_path: "Path | None" = None,
     push_and_shove: bool = True,
     enable_simplify_pass: bool = True,
+    simplify_mode: "SimplifyMode | None" = None,
 ) -> AutorouteResult:
     """Route all unrouted nets in *schematic* and return new wire segments.
 
@@ -484,11 +488,25 @@ def autoroute(
 
         current_wires = best_wires
 
-    # Post-process: simplify bare-diagonal wires (straighten + corner-cut).
+    # Post-process: shorten wires via the generic shortcut algorithm.
     if wire_mode == "bare_diagonal" and enable_simplify_pass and current_wires:
-        from protoboard.services.routing.postprocess import simplify_wires
-        board_pads_all: set[Point] = {pos for _, pos in board.atoms()}
-        current_wires = simplify_wires(current_wires, board_pads_all)
+        from protoboard.services.routing.postprocess import (
+            SimplifyMode,
+            simplify_wires_generic,
+        )
+        eff_mode = simplify_mode or SimplifyMode.BARE_PARITY
+        all_pins: set[Point] = {pos for pos, _side in all_pin_positions}
+        # Map pad-position → net-id for the side(s) we routed on.  Same pad on
+        # opposite sides is treated as the same net (plated-through).
+        pad_to_net: dict[Point, uuid.UUID] = {}
+        for (pos, _side), nid in all_pin_positions.items():
+            pad_to_net.setdefault(pos, nid)
+        current_wires = simplify_wires_generic(
+            current_wires,
+            pin_positions=all_pins,
+            pad_to_net=pad_to_net,
+            mode=eff_mode,
+        )
 
     result.wires = current_wires
     result.unrouted_nets = unrouted_names
