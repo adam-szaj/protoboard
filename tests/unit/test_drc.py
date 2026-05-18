@@ -403,3 +403,96 @@ class TestDRCBareWireCross:
         )
         cross = [i for i in issues if i.code == "BARE_WIRE_CROSS"]
         assert cross == []
+
+
+class TestDRCBareWireInteriorCross:
+    """BARE_WIRE_INTERIOR_CROSS: bare wires of different electric sets on the
+    same side crossing at an off-pad point (centre of a mesh cell)."""
+
+    def test_diagonal_bare_wires_cross_between_pads(self) -> None:
+        # 4x4 board. Wire A: (0.5,0.5)->(2.5,2.5) diagonal bare.
+        # Wire B: (0.5,2.5)->(2.5,0.5) diagonal bare. They cross at (1.5,1.5)
+        # but neither path includes that point as a vertex — the crossing is
+        # purely interior (well, the centre coincides with a pad here; use
+        # endpoints that miss any pad to make the interior nature explicit).
+        # Use (0.5,1.5)->(2.5,1.5) and (1.5,0.5)->(1.5,2.5) which share pad
+        # (1.5,1.5) — that case is the existing BARE_WIRE_CROSS.  For interior
+        # we need a crossing AT a non-pad point.  Use diagonal segments that
+        # cross at integer (between-pads) coordinates.
+        board = _perfboard(4, 4)
+        # Diagonal A: (0.5,0.5)→(2.5,2.5).  Diagonal B: (2.5,0.5)→(0.5,2.5).
+        # They cross at (1.5, 1.5) which IS a pad — also a vertex of neither
+        # path.  Switch to (0.5,0.5)→(1.5,2.5) and (0.5,2.5)→(1.5,0.5): they
+        # cross at (1.0, 1.5) — between pads on the y=1.5 row.
+        wire_a = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(1.5, 2.5)],
+            insulated=False,
+            side="top",
+        )
+        wire_b = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 2.5), Point(1.5, 0.5)],
+            insulated=False,
+            side="top",
+        )
+        sch = Schematic(nets={})
+        lay = Layout(placements={}, wires=[wire_a, wire_b])
+        engine = DRCEngine()
+        issues = engine.check(
+            board=board, schematic=sch, layout=lay, components={}, instances={}
+        )
+        interior = [i for i in issues if i.code == "BARE_WIRE_INTERIOR_CROSS"]
+        assert len(interior) == 1
+        assert interior[0].severity == "error"
+        # Crossing point ~ (1.0, 1.5).
+        assert abs(interior[0].locations[0].x - 1.0) < 1e-6
+        assert abs(interior[0].locations[0].y - 1.5) < 1e-6
+
+    def test_different_sides_no_interior_cross(self) -> None:
+        # Same diagonal geometry but wires on top + bottom → no short.
+        board = _perfboard(4, 4)
+        wire_a = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(1.5, 2.5)],
+            insulated=False,
+            side="top",
+        )
+        wire_b = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 2.5), Point(1.5, 0.5)],
+            insulated=False,
+            side="bottom",
+        )
+        sch = Schematic(nets={})
+        lay = Layout(placements={}, wires=[wire_a, wire_b])
+        engine = DRCEngine()
+        issues = engine.check(
+            board=board, schematic=sch, layout=lay, components={}, instances={}
+        )
+        interior = [i for i in issues if i.code == "BARE_WIRE_INTERIOR_CROSS"]
+        assert interior == []
+
+    def test_insulated_interior_cross_no_issue(self) -> None:
+        # Same geometry with at least one insulated wire — no short.
+        board = _perfboard(4, 4)
+        wire_a = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(1.5, 2.5)],
+            insulated=True,
+            side="top",
+        )
+        wire_b = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 2.5), Point(1.5, 0.5)],
+            insulated=False,
+            side="top",
+        )
+        sch = Schematic(nets={})
+        lay = Layout(placements={}, wires=[wire_a, wire_b])
+        engine = DRCEngine()
+        issues = engine.check(
+            board=board, schematic=sch, layout=lay, components={}, instances={}
+        )
+        interior = [i for i in issues if i.code == "BARE_WIRE_INTERIOR_CROSS"]
+        assert interior == []

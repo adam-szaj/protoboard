@@ -17,6 +17,7 @@ from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
+from protoboard.services.routing.astar import _segs_cross
 
 _log = structlog.get_logger(__name__)
 _Severity = Literal["error", "warning", "info"]
@@ -75,6 +76,7 @@ class DRCEngine:
         issues += _check_missing_net(schematic, graph)
         issues += _check_floating_pins(schematic, layout)
         issues += _check_bare_wire_cross(schematic, layout, graph)
+        issues += _check_bare_wire_interior_cross(layout, graph)
         counts: dict[str, int] = {"error": 0, "warning": 0, "info": 0}
         for iss in issues:
             counts[iss.severity] = counts.get(iss.severity, 0) + 1
@@ -265,6 +267,81 @@ def _check_bare_wire_cross(
                 affected_nets=list(nets_at_pad),
             )
         )
+    return issues
+
+
+def _check_bare_wire_interior_cross(
+    layout: Layout,
+    graph: ConnectivityGraph,
+) -> list[DRCIssue]:
+    """Detect bare wires on the same side that cross at an off-pad interior
+    point and belong to different electric sets — a physical short the
+    pad-overlap check cannot see because the crossing is between pads.
+    """
+    bare = [w for w in layout.wires if not w.insulated]
+    if len(bare) < 2:
+        return []
+
+    by_side: dict[str, list] = {}
+    for w in bare:
+        by_side.setdefault(w.side, []).append(w)
+
+    issues: list[DRCIssue] = []
+    reported: set[tuple[float, float, str]] = set()
+    for side, ws in by_side.items():
+        for i in range(len(ws)):
+            wi = ws[i]
+            k_i = (
+                graph.node_for_pad(wi.path[0], side)
+                or graph.node_for_pad(wi.path[-1], side)
+            )
+            for j in range(i + 1, len(ws)):
+                wj = ws[j]
+                k_j = (
+                    graph.node_for_pad(wj.path[0], side)
+                    or graph.node_for_pad(wj.path[-1], side)
+                )
+                # Same electric set — geometric crossing is self-overlap,
+                # electrically fine.
+                if k_i is not None and k_j is not None and k_i == k_j:
+                    continue
+                for a in range(len(wi.path) - 1):
+                    for b in range(len(wj.path) - 1):
+                        if not _segs_cross(
+                            wi.path[a], wi.path[a + 1],
+                            wj.path[b], wj.path[b + 1],
+                        ):
+                            continue
+                        # Locate the intersection (line-line) for reporting.
+                        ax1, ay1 = wi.path[a].x, wi.path[a].y
+                        ax2, ay2 = wi.path[a + 1].x, wi.path[a + 1].y
+                        bx1, by1 = wj.path[b].x, wj.path[b].y
+                        bx2, by2 = wj.path[b + 1].x, wj.path[b + 1].y
+                        dax, day = ax2 - ax1, ay2 - ay1
+                        dbx, dby = bx2 - bx1, by2 - by1
+                        denom = dax * dby - day * dbx
+                        if denom == 0.0:
+                            px, py = ax1, ay1
+                        else:
+                            t = ((bx1 - ax1) * dby - (by1 - ay1) * dbx) / denom
+                            px = ax1 + t * dax
+                            py = ay1 + t * day
+                        key = (round(px, 4), round(py, 4), side)
+                        if key in reported:
+                            continue
+                        reported.add(key)
+                        issues.append(
+                            DRCIssue(
+                                severity="error",
+                                code="BARE_WIRE_INTERIOR_CROSS",
+                                message=(
+                                    f"Bare wires cross between pads at "
+                                    f"({px:.2f}, {py:.2f}) on {side}"
+                                ),
+                                locations=[Point(px, py)],
+                                affected_nets=[],
+                            )
+                        )
     return issues
 
 
