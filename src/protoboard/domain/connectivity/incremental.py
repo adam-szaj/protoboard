@@ -134,6 +134,9 @@ class ConnectivityGraph:
         self.user_data_map: dict[int, object] = {}
         # Cache for valid_nodes_by_side() — None means stale, rebuilt lazily.
         self._valid_nodes_cache: dict[str, set["Point"]] | None = None
+        # Cache for board pad positions per side — lazy, immutable after build
+        # (board geometry does not change during a graph's lifetime).
+        self._board_pads_cache: dict[str, set["Point"]] = {}
 
         self._components = components
         self._instances = instances or {}
@@ -238,13 +241,44 @@ class ConnectivityGraph:
     # Incremental operations
     # ------------------------------------------------------------------
 
+    def _board_pads_for_side(self, side: str) -> set["Point"]:
+        """Return cached set of pad positions on *side* (lazy, immutable)."""
+        cached = self._board_pads_cache.get(side)
+        if cached is not None:
+            return cached
+        from protoboard.domain.layout.wire_utils import board_pads_for_side
+        pads = board_pads_for_side(self._board, side)
+        self._board_pads_cache[side] = pads
+        return pads
+
+    def _enrich_bare_path(self, path: list["Point"], side: str) -> list["Point"]:
+        """Insert board-pad positions that lie on segments of *path*.
+
+        Returned for bare wires only — they physically contact every pad they
+        cross, so connectivity must see those pads as vertices even when the
+        recorded path took a shortcut.  Idempotent: already-present pads are
+        not duplicated.
+        """
+        if len(path) < 2:
+            return path
+        from protoboard.domain.layout.wire_utils import insert_pad_nodes
+        return insert_pad_nodes(path, self._board_pads_for_side(side))
+
     def add_wire(self, wire: WireSegment) -> None:
         """Incorporate *wire* into the graph, merging sets as needed."""
         self._valid_nodes_cache = None
         side = wire.side
-        path = wire.path
-        if not path:
+        if not wire.path:
             return
+        # For bare wires the physical conductor rests on every board pad it
+        # crosses, regardless of how many vertices the recorded path contains.
+        # Enrich the path in-memory (without mutating *wire*) so that every
+        # crossed pad becomes a graph node and ends up in the same ElectricSet.
+        # Insulated wires keep the original path — they float above the board.
+        if not wire.insulated:
+            path = self._enrich_bare_path(list(wire.path), side)
+        else:
+            path = list(wire.path)
 
         intermediate: list[_NodeKey] = []
         path_entries: list[NodeEntry] = []

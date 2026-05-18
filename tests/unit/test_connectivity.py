@@ -277,6 +277,71 @@ class TestInsulatedWireIsolation:
             "Bare wires sharing an off-pad crossing point must remain in separate ElectricSets"
         )
 
+    def test_bare_wire_shortcut_connects_crossed_pads(self) -> None:
+        # 1×4 perfboard.  A bare wire is laid as a direct shortcut from the
+        # leftmost pad to the rightmost pad — without explicit vertices on the
+        # two intermediate pads it physically rests on.  Connectivity must
+        # still merge all four pads (the bare conductor contacts every pad it
+        # crosses).
+        board = _perfboard(1, 4)
+        wire = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(3.5, 0.5)],  # no intermediate vertices
+            insulated=False,
+            side="top",
+        )
+        lay = Layout(placements={}, wires=[wire])
+        graph = ConnectivityGraph(board=board, layout=lay, components={})
+        nodes = [
+            graph.node_for_pad(Point(x + 0.5, 0.5), "top") for x in range(4)
+        ]
+        for n in nodes:
+            assert n is not None
+        assert len(set(nodes)) == 1, (
+            "Bare shortcut must merge every pad on its physical path"
+        )
+
+    def test_insulated_wire_shortcut_does_not_connect_crossed_pads(self) -> None:
+        # Mirror of the above: insulated wire shortcut must NOT merge crossed
+        # pads — the conductor floats above the board.
+        board = _perfboard(1, 4)
+        wire = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(3.5, 0.5)],
+            insulated=True,
+            side="top",
+        )
+        lay = Layout(placements={}, wires=[wire])
+        graph = ConnectivityGraph(board=board, layout=lay, components={})
+        node_left = graph.node_for_pad(Point(0.5, 0.5), "top")
+        node_mid1 = graph.node_for_pad(Point(1.5, 0.5), "top")
+        node_mid2 = graph.node_for_pad(Point(2.5, 0.5), "top")
+        node_right = graph.node_for_pad(Point(3.5, 0.5), "top")
+        assert node_left == node_right, "Insulated endpoints connect (soldered)"
+        assert node_mid1 != node_left, "Floating insulated wire must not touch mid pads"
+        assert node_mid2 != node_left, "Floating insulated wire must not touch mid pads"
+
+    def test_insulated_wire_with_explicit_pad_vertex_still_isolates(self) -> None:
+        # Confirms the existing rule under the new bare-aware enrichment:
+        # an INSULATED wire with an explicit vertex coinciding with a board
+        # pad must still NOT connect that pad — insulation is the source of
+        # truth, vertex coincidence is irrelevant.  Re-asserts the principle
+        # already covered by test_insulated_wire_does_not_merge_intermediate_pads
+        # but explicitly in the context of the bare-enrichment fix.
+        board = _perfboard(1, 3)
+        wire = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
+            insulated=True,
+            side="top",
+        )
+        lay = Layout(placements={}, wires=[wire])
+        graph = ConnectivityGraph(board=board, layout=lay, components={})
+        node_left = graph.node_for_pad(Point(0.5, 0.5), "top")
+        node_mid = graph.node_for_pad(Point(1.5, 0.5), "top")
+        assert node_left is not None and node_mid is not None
+        assert node_mid != node_left
+
 
 class TestStripboardConnectivity:
     def test_strip_connects_all_holes(self) -> None:
