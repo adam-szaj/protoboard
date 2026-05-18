@@ -1,0 +1,25 @@
+instances:
+- definition_ref: JST_PH_2pin
+  id: e985f4c1-bb77-494f-9841-f0a4721f08d9
+  refdes: J1
+  value: JST_PH_2pin
+- definition_ref: JST_PH_2pin
+  id: 3d2477cd-fd31-4942-8b2c-f5c22cb2df42
+  refdes: J2
+  value: JST_PH_2pin
+- definition_ref: JST_PH_2pin
+  id: 32b34372-2185-459a-a533-bec6ff126a7c
+  refdes: J3
+  value: JST_PH_2pin
+- definition_ref: JST_PH_2pin
+  id: 5aa9c81a-39d9-44f8-83b1-9284e76feb5c
+  refdes: J4
+  value: JST_PH_2pin
+- definition_ref: JST_PH_2pin
+  id: 38906a94-2d00-4e05-a50b-41b7a853cc32
+  refdes: J5
+  value: JST_PH_2pin
+- definition_ref: JST_PH_2pin
+  id: ea01408e-fbfb-4147-950d-9975fc94a1f4
+  refdes: J6
+  value: JST_PH_2pin

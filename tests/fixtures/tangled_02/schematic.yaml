@@ -1,0 +1,43 @@
+nets:
+- id: 7f853247-4e30-40fe-820c-3f104804d2c5
+  name: Net-(J2-1)
+  pins:
+  - component_id: e985f4c1-bb77-494f-9841-f0a4721f08d9
+    pin_number: 2
+  - component_id: 3d2477cd-fd31-4942-8b2c-f5c22cb2df42
+    pin_number: 1
+- id: fd849a5d-c04e-4e3e-acb8-01f1896e540a
+  name: Net-(J1-1)
+  pins:
+  - component_id: 3d2477cd-fd31-4942-8b2c-f5c22cb2df42
+    pin_number: 2
+  - component_id: e985f4c1-bb77-494f-9841-f0a4721f08d9
+    pin_number: 1
+- id: 37bc4772-d641-4a72-a93f-5995f20f6f26
+  name: Net-(J3-1)
+  pins:
+  - component_id: 32b34372-2185-459a-a533-bec6ff126a7c
+    pin_number: 1
+  - component_id: 5aa9c81a-39d9-44f8-83b1-9284e76feb5c
+    pin_number: 2
+- id: 3a20873d-32d6-445e-9d40-6ffa4e5fcfd4
+  name: Net-(J4-1)
+  pins:
+  - component_id: 5aa9c81a-39d9-44f8-83b1-9284e76feb5c
+    pin_number: 1
+  - component_id: 32b34372-2185-459a-a533-bec6ff126a7c
+    pin_number: 2
+- id: 6b79fdb3-fe26-4bbb-9534-952187ebc6ac
+  name: Net-(J5-1)
+  pins:
+  - component_id: 38906a94-2d00-4e05-a50b-41b7a853cc32
+    pin_number: 1
+  - component_id: ea01408e-fbfb-4147-950d-9975fc94a1f4
+    pin_number: 2
+- id: 860760d9-722c-47b6-bc8a-4f41d743eb0c
+  name: Net-(J5-2)
+  pins:
+  - component_id: ea01408e-fbfb-4147-950d-9975fc94a1f4
+    pin_number: 1
+  - component_id: 38906a94-2d00-4e05-a50b-41b7a853cc32
+    pin_number: 2

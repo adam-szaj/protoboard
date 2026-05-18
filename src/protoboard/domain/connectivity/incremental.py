@@ -137,8 +137,32 @@ class ConnectivityGraph:
 
         self._components = components
         self._instances = instances or {}
+        # Kept as references so callers that need to rebuild a graph from a
+        # modified layout (e.g. unweave's short-circuit check) don't have to
+        # re-thread board / components / instances through every call site.
+        self._board = board
+        self._layout = layout
 
         self._build(board, layout)
+
+    # Read-only accessors for the construction arguments.  Kept narrow on
+    # purpose so the rest of the codebase doesn't start mutating internals
+    # through them.
+    @property
+    def board(self) -> "Board":
+        return self._board
+
+    @property
+    def layout(self) -> "Layout":
+        return self._layout
+
+    @property
+    def components(self) -> dict[str, "ComponentDefinition"]:
+        return self._components
+
+    @property
+    def instances(self) -> dict[uuid.UUID, "ComponentInstance"]:
+        return self._instances
 
     # ------------------------------------------------------------------
     # Public API  (compatible with old ConnectivityGraph)

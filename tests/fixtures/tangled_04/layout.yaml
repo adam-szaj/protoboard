@@ -1,0 +1,411 @@
+groups:
+- id: 00000000-0000-0000-0000-000000000001
+  name: ''
+placements:
+- component_id: a1d13660-1a8b-4d19-a56a-278549f98dc5
+  position:
+    x: 28.5
+    y: 5.5
+  rotation: 0
+  side: top
+- component_id: d826a0d6-30ad-41d2-83b4-99d2bd83bbb7
+  position:
+    x: 1.5
+    y: 5.5
+  rotation: 0
+  side: top
+- component_id: 5f0b9032-2f81-4328-a2e1-f559d2180e8f
+  position:
+    x: 15.5
+    y: 11.5
+  rotation: 0
+  side: top
+- component_id: 4afec35c-1e28-44e1-b261-71b35cf16338
+  position:
+    x: 1.5
+    y: 9.5
+  rotation: 0
+  side: top
+- component_id: fd01a617-b454-4b38-b765-66a5e8aac5ae
+  position:
+    x: 28.5
+    y: 9.5
+  rotation: 0
+  side: top
+wires:
+- id: 5fc91838-f10f-4c8c-af80-97087ea55a30
+  insulated: false
+  path:
+  - x: 22.5
+    y: 7.5
+  - x: 21.5
+    y: 7.5
+  - x: 20.5
+    y: 6.5
+  - x: 19.5
+    y: 6.5
+  - x: 18.5
+    y: 6.5
+  - x: 17.5
+    y: 6.5
+  side: bottom
+- id: 29dac739-d4e2-4f8a-b59b-fa588aa3bb5e
+  insulated: false
+  path:
+  - x: 17.5
+    y: 6.5
+  - x: 16.5
+    y: 5.5
+  side: top
+- id: 65b9b19a-0353-40e2-af5c-f487f3032362
+  insulated: false
+  path:
+  - x: 16.5
+    y: 5.5
+  - x: 15.5
+    y: 5.5
+  - x: 14.5
+    y: 5.5
+  - x: 13.5
+    y: 5.5
+  - x: 12.5
+    y: 5.5
+  side: bottom
+- id: c99e2789-1b6d-49c6-8852-95135ee28860
+  insulated: false
+  path:
+  - x: 12.5
+    y: 5.5
+  - x: 11.5
+    y: 6.5
+  side: top
+- id: 3a5fd9bb-5eab-4c2c-b1b8-dc15b2307dc4
+  insulated: false
+  path:
+  - x: 11.5
+    y: 6.5
+  - x: 10.5
+    y: 6.5
+  - x: 9.5
+    y: 6.5
+  - x: 8.5
+    y: 6.5
+  - x: 7.5
+    y: 7.5
+  - x: 6.5
+    y: 7.5
+  - x: 5.5
+    y: 7.5
+  - x: 4.5
+    y: 7.5
+  - x: 3.5
+    y: 7.5
+  - x: 2.5
+    y: 7.5
+  - x: 1.5
+    y: 7.5
+  side: bottom
+- id: 8881796c-7ecc-43bb-9f1b-b14bc3221c28
+  insulated: false
+  path:
+  - x: 1.5
+    y: 5.5
+  - x: 2.5
+    y: 5.5
+  - x: 3.5
+    y: 6.5
+  - x: 4.5
+    y: 6.5
+  - x: 5.5
+    y: 6.5
+  - x: 6.5
+    y: 6.5
+  - x: 7.5
+    y: 5.5
+  - x: 8.5
+    y: 5.5
+  - x: 9.5
+    y: 5.5
+  - x: 10.5
+    y: 5.5
+  - x: 11.5
+    y: 5.5
+  - x: 12.5
+    y: 6.5
+  - x: 13.5
+    y: 6.5
+  - x: 14.5
+    y: 6.5
+  - x: 15.5
+    y: 6.5
+  - x: 16.5
+    y: 6.5
+  - x: 17.5
+    y: 5.5
+  - x: 18.5
+    y: 5.5
+  - x: 19.5
+    y: 5.5
+  - x: 20.5
+    y: 5.5
+  - x: 21.5
+    y: 5.5
+  - x: 22.5
+    y: 6.5
+  - x: 23.5
+    y: 7.5
+  - x: 24.5
+    y: 7.5
+  - x: 25.5
+    y: 7.5
+  - x: 26.5
+    y: 7.5
+  - x: 27.5
+    y: 6.5
+  - x: 28.5
+    y: 6.5
+  side: bottom
+- id: e1261695-2630-42ed-b9b1-e07cbeb1458b
+  insulated: false
+  path:
+  - x: 1.5
+    y: 10.5
+  - x: 2.5
+    y: 10.5
+  - x: 3.5
+    y: 10.5
+  - x: 4.5
+    y: 9.5
+  - x: 5.5
+    y: 9.5
+  - x: 6.5
+    y: 9.5
+  - x: 7.5
+    y: 10.5
+  - x: 8.5
+    y: 10.5
+  - x: 9.5
+    y: 10.5
+  - x: 10.5
+    y: 11.5
+  - x: 10.5
+    y: 12.5
+  - x: 11.5
+    y: 13.5
+  - x: 12.5
+    y: 12.5
+  - x: 13.5
+    y: 11.5
+  - x: 14.5
+    y: 11.5
+  - x: 15.5
+    y: 11.5
+  side: top
+- id: 4488c238-d205-4b12-b0c9-887b5f877656
+  insulated: false
+  path:
+  - x: 28.5
+    y: 9.5
+  - x: 27.5
+    y: 9.5
+  - x: 26.5
+    y: 9.5
+  - x: 25.5
+    y: 9.5
+  - x: 24.5
+    y: 10.5
+  - x: 23.5
+    y: 10.5
+  - x: 22.5
+    y: 10.5
+  - x: 21.5
+    y: 9.5
+  - x: 20.5
+    y: 9.5
+  - x: 19.5
+    y: 10.5
+  - x: 18.5
+    y: 11.5
+  - x: 17.5
+    y: 12.5
+  - x: 16.5
+    y: 13.5
+  - x: 15.5
+    y: 13.5
+  - x: 14.5
+    y: 13.5
+  - x: 13.5
+    y: 13.5
+  - x: 12.5
+    y: 13.5
+  - x: 11.5
+    y: 12.5
+  - x: 11.5
+    y: 11.5
+  - x: 12.5
+    y: 10.5
+  - x: 12.5
+    y: 9.5
+  - x: 11.5
+    y: 8.5
+  - x: 10.5
+    y: 8.5
+  - x: 9.5
+    y: 9.5
+  - x: 8.5
+    y: 9.5
+  - x: 7.5
+    y: 9.5
+  - x: 6.5
+    y: 10.5
+  - x: 5.5
+    y: 10.5
+  - x: 4.5
+    y: 10.5
+  - x: 3.5
+    y: 9.5
+  - x: 2.5
+    y: 9.5
+  - x: 1.5
+    y: 9.5
+  side: bottom
+- id: 859a313c-f39c-4115-8703-3ac0e66b01d7
+  insulated: false
+  path:
+  - x: 12.5
+    y: 11.5
+  - x: 11.5
+    y: 10.5
+  - x: 10.5
+    y: 9.5
+  - x: 9.5
+    y: 8.5
+  - x: 8.5
+    y: 7.5
+  - x: 7.5
+    y: 6.5
+  - x: 6.5
+    y: 5.5
+  - x: 5.5
+    y: 5.5
+  - x: 4.5
+    y: 5.5
+  - x: 3.5
+    y: 5.5
+  - x: 2.5
+    y: 6.5
+  - x: 1.5
+    y: 6.5
+  side: top
+- id: 11447ed2-4edd-4557-9a36-a75cdfa9ac9f
+  insulated: false
+  path:
+  - x: 15.5
+    y: 12.5
+  - x: 14.5
+    y: 12.5
+  - x: 13.5
+    y: 12.5
+  side: top
+- id: 3ea1bfea-20ea-4df5-8cc8-b8508157f3f4
+  insulated: false
+  path:
+  - x: 13.5
+    y: 12.5
+  - x: 12.5
+    y: 11.5
+  side: bottom
+- id: c82fb29b-d8ac-49f4-a7a7-70d66d8c2561
+  insulated: false
+  path:
+  - x: 15.5
+    y: 11.5
+  - x: 16.5
+    y: 12.5
+  - x: 17.5
+    y: 13.5
+  - x: 18.5
+    y: 12.5
+  - x: 19.5
+    y: 11.5
+  - x: 20.5
+    y: 10.5
+  - x: 21.5
+    y: 10.5
+  - x: 22.5
+    y: 9.5
+  - x: 23.5
+    y: 9.5
+  - x: 24.5
+    y: 9.5
+  - x: 25.5
+    y: 10.5
+  - x: 26.5
+    y: 10.5
+  - x: 27.5
+    y: 10.5
+  - x: 28.5
+    y: 10.5
+  side: top
+- id: 43a2283d-1931-43fd-b031-a92331d9d2ab
+  insulated: false
+  path:
+  - x: 28.5
+    y: 5.5
+  - x: 27.5
+    y: 5.5
+  - x: 26.5
+    y: 5.5
+  - x: 25.5
+    y: 6.5
+  - x: 24.5
+    y: 6.5
+  - x: 23.5
+    y: 6.5
+  side: bottom
+- id: d261a4b1-f92b-46cf-810d-bfec069f4527
+  insulated: false
+  path:
+  - x: 23.5
+    y: 6.5
+  - x: 22.5
+    y: 7.5
+  side: top
+- id: 65b3f487-7e9a-4616-b409-fd84c1881ef4
+  insulated: false
+  path:
+  - x: 16.5
+    y: 11.5
+  - x: 17.5
+    y: 10.5
+  - x: 18.5
+    y: 9.5
+  - x: 19.5
+    y: 8.5
+  - x: 20.5
+    y: 7.5
+  - x: 21.5
+    y: 6.5
+  - x: 22.5
+    y: 5.5
+  - x: 23.5
+    y: 5.5
+  - x: 24.5
+    y: 5.5
+  - x: 25.5
+    y: 5.5
+  - x: 26.5
+    y: 6.5
+  - x: 27.5
+    y: 7.5
+  - x: 28.5
+    y: 7.5
+  side: top
+- id: d490f780-cd3e-401a-8f5f-e9fc4ec40621
+  insulated: false
+  path:
+  - x: 15.5
+    y: 12.5
+  - x: 16.5
+    y: 11.5
+  side: bottom

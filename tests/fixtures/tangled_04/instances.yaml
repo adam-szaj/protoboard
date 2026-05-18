@@ -1,0 +1,21 @@
+instances:
+- definition_ref: JST_PH_3pin
+  id: a1d13660-1a8b-4d19-a56a-278549f98dc5
+  refdes: J1
+  value: JST_PH_3pin
+- definition_ref: JST_PH_3pin
+  id: d826a0d6-30ad-41d2-83b4-99d2bd83bbb7
+  refdes: J2
+  value: JST_PH_3pin
+- definition_ref: JST_PH_3pin
+  id: 5f0b9032-2f81-4328-a2e1-f559d2180e8f
+  refdes: J3
+  value: JST_PH_3pin
+- definition_ref: JST_PH_2pin
+  id: 4afec35c-1e28-44e1-b261-71b35cf16338
+  refdes: J4
+  value: JST_PH_2pin
+- definition_ref: JST_PH_2pin
+  id: fd01a617-b454-4b38-b765-66a5e8aac5ae
+  refdes: J5
+  value: JST_PH_2pin
