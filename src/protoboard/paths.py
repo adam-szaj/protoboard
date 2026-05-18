@@ -50,7 +50,17 @@ USER_MODULES_DIR: Path = DATA_DIR / "modules"
 # ---------------------------------------------------------------------------
 
 def _find_package_root() -> Path:
-    """Walk up from this file until we find the project root (has 'library/' subdir)."""
+    """Locate the directory that hosts built-in read-only assets.
+
+    Two scenarios:
+      1. PyInstaller bundle — assets are unpacked to ``sys._MEIPASS``.
+      2. Source / pip install — walk up from this file until a ``library/``
+         sibling appears.
+    """
+    import sys
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass is not None:
+        return Path(meipass)
     candidate = Path(__file__).resolve().parent
     for _ in range(8):
         if (candidate / "library").is_dir():

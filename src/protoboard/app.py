@@ -95,7 +95,21 @@ def _open_session(
 def main() -> None:
     parser = argparse.ArgumentParser(prog="protoboard", add_help=False)
     parser.add_argument("--verbose", "-v", action="store_true", default=False)
+    parser.add_argument("--version", action="store_true", default=False)
+    parser.add_argument("--help", "-h", action="store_true", default=False)
     args, remaining = parser.parse_known_args(sys.argv[1:])
+    if args.help:
+        # Minimal help text — Qt argv is appended after our flags, so we
+        # use a compact summary rather than the full argparse usage to
+        # avoid confusing the user with PySide6 internals.
+        print(
+            "Usage: protoboard [-v|--verbose] [--version] [--help] [project_path]"
+        )
+        return
+    if args.version:
+        from protoboard import __version__
+        print(f"protoboard-designer {__version__}")
+        return
     import logging as _logging
     configure_logging(
         verbose=args.verbose,
