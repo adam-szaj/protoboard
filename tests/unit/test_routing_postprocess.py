@@ -295,3 +295,73 @@ class TestGenericSimplifyNoop:
         w = _bare((0.5, 0.5), (2.5, 2.5))
         out = generic_simplify_wire(w, [], mode=SimplifyMode.CHEBYSHEV)
         assert out is w
+
+
+class TestGenericSimplifyPadPreservation:
+    """When board_pads is supplied, bare wires must keep pad-vertices on
+    every shortcut so connectivity/wire-edit see every physical pad contact."""
+
+    def test_bare_shortcut_keeps_intermediate_pad_vertex(self) -> None:
+        # Bare wire on 1×4 row — Chebyshev simplify would collapse the run
+        # to [start, end].  With board_pads supplied, all pads must remain.
+        w = _bare((0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5))
+        pads = _pads(4)
+        out = generic_simplify_wire(
+            w, [], mode=SimplifyMode.CHEBYSHEV, board_pads=pads
+        )
+        assert [(p.x, p.y) for p in out.path] == [
+            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5)
+        ]
+
+    def test_insulated_shortcut_drops_intermediate_pad_vertex(self) -> None:
+        # Insulated wires float above the board — pad-preservation must NOT
+        # apply even when board_pads is supplied.
+        wi = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5), Point(3.5, 0.5)],
+            insulated=True,
+            side="top",
+        )
+        pads = _pads(4)
+        out = generic_simplify_wire(
+            wi, [], mode=SimplifyMode.CHEBYSHEV, board_pads=pads
+        )
+        # Insulated may safely collapse to two vertices.
+        assert len(out.path) == 2
+        assert (out.path[0].x, out.path[0].y) == (0.5, 0.5)
+        assert (out.path[-1].x, out.path[-1].y) == (3.5, 0.5)
+
+    def test_bare_l_shape_canonical_keeps_diagonal_pads(self) -> None:
+        # Bare wire with redundant vertices on an L; Chebyshev simplify
+        # rewrites the run to diagonal+ortho.  Pads on the NEW canonical
+        # path must be preserved (not the abandoned legs of the old L).
+        w = _bare(
+            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5),
+            (3.5, 1.5), (3.5, 2.5),
+        )
+        pads = _pads(5)
+        out = generic_simplify_wire(
+            w, [], mode=SimplifyMode.CHEBYSHEV, board_pads=pads
+        )
+        coords = [(p.x, p.y) for p in out.path]
+        # Endpoints preserved.
+        assert coords[0] == (0.5, 0.5)
+        assert coords[-1] == (3.5, 2.5)
+        # Canonical diag-then-ortho goes (0.5,0.5) → (2.5,2.5) → (3.5,2.5).
+        # Every pad on that new path must be a vertex.
+        for pad in [(1.5, 1.5), (2.5, 2.5)]:
+            assert pad in coords, f"missing pad {pad} on diagonal leg"
+
+    def test_bare_diagonal_no_intermediate_pads_unchanged(self) -> None:
+        # A diagonal between pads of the same parity doesn't pass through any
+        # board pad mid-step (pads sit at half-integer grid, diagonal steps
+        # land on integer or half-integer coords with opposite parity).
+        # Path collapses but no extra vertices are needed.
+        w = _bare((0.5, 0.5), (1.5, 1.5), (2.5, 2.5), (3.5, 3.5))
+        pads = _pads(5)
+        out = generic_simplify_wire(
+            w, [], mode=SimplifyMode.CHEBYSHEV, board_pads=pads
+        )
+        coords = [(p.x, p.y) for p in out.path]
+        # Every original pad-vertex must remain because each one is a board pad.
+        assert coords == [(0.5, 0.5), (1.5, 1.5), (2.5, 2.5), (3.5, 3.5)]

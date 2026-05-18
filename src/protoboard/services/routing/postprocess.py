@@ -256,15 +256,20 @@ def _path_length(path: list[Point]) -> float:
 
 
 def _canonical_subpath(
-    a: Point, b: Point, *, allow_l_shape: bool = True
+    a: Point, b: Point,
+    *,
+    allow_l_shape: bool = True,
+    board_pads: set[Point] | None = None,
 ) -> list[Point] | None:
     """Shortest grid-aligned path from *a* to *b* preferring diagonals.
 
-    Returns a list of vertices ``[a, ..., b]``.  Result has at most three
-    vertices: pure ortho or diagonal collapses to two; mixed (|dx| != |dy|)
-    becomes a diag-prefix + ortho-tail L.  Pad positions land at half-integer
-    coordinates (col + 0.5, row + 0.5), so dx and dy are always integers when
-    *a* and *b* are pads.
+    Returns a list of vertices ``[a, ..., b]``.  Without ``board_pads`` the
+    result has at most three vertices: pure ortho or diagonal collapses to
+    two; mixed (|dx| != |dy|) becomes a diag-prefix + ortho-tail L.
+
+    When ``board_pads`` is provided, any pad position that lies on a segment
+    of the canonical path is inserted as a vertex.  Callers use this for bare
+    wires so that downstream consumers see every physical pad contact.
 
     Returns None when ``allow_l_shape`` is False and the canonical path would
     have to bend (callers that only want "truly straight" shortcuts use this).
@@ -277,15 +282,20 @@ def _canonical_subpath(
         return None
     # Pure ortho or pure diag → a single straight segment.
     if ax < _EPS or ay < _EPS or abs(ax - ay) < _EPS:
-        return [a, b]
-    # L-shape: diag prefix of length min(ax, ay), ortho tail of the remainder.
-    if not allow_l_shape:
-        return None
-    sx = 1.0 if dx > 0 else -1.0
-    sy = 1.0 if dy > 0 else -1.0
-    diag = min(ax, ay)
-    m = Point(a.x + sx * diag, a.y + sy * diag)
-    return [a, m, b]
+        base: list[Point] = [a, b]
+    else:
+        # L-shape: diag prefix of length min(ax, ay), ortho tail of the remainder.
+        if not allow_l_shape:
+            return None
+        sx = 1.0 if dx > 0 else -1.0
+        sy = 1.0 if dy > 0 else -1.0
+        diag = min(ax, ay)
+        m = Point(a.x + sx * diag, a.y + sy * diag)
+        base = [a, m, b]
+    if board_pads:
+        from protoboard.domain.layout.wire_utils import insert_pad_nodes
+        return insert_pad_nodes(base, board_pads)
+    return base
 
 
 def _wire_to_segs(wire: WireSegment) -> list[tuple[Point, Point]]:
@@ -398,6 +408,7 @@ def generic_simplify_wire(
     pad_to_net: dict[Point, uuid.UUID] | None = None,
     *,
     mode: SimplifyMode = SimplifyMode.BARE_PARITY,
+    board_pads: set[Point] | None = None,
 ) -> WireSegment:
     """Shorten *wire* by replacing any subpath ``path[i..j]`` with the
     canonical (grid-aligned shortest) path between its endpoints, when safe.
@@ -494,7 +505,19 @@ def generic_simplify_wire(
                     continue
 
                 # Accept: splice canon into path in place of [i..j].
-                path = path[:i + 1] + canon[1:-1] + path[j:]
+                # For bare wires re-insert any board pad that lies on a segment
+                # of the new canon so downstream consumers (connectivity,
+                # wire-edit, exports) see every physical pad contact.
+                if board_pads and not wire.insulated and len(canon) >= 2:
+                    from protoboard.domain.layout.wire_utils import insert_pad_nodes
+                    canon = insert_pad_nodes(canon, board_pads)
+                new_path = path[:i + 1] + canon[1:-1] + path[j:]
+                # Detect no-op after pad re-insertion (the enriched canon may
+                # exactly reproduce the slice it would replace).  Without this
+                # guard the greedy loop would never reach a fixed point.
+                if new_path == path:
+                    continue
+                path = new_path
                 changed = True
                 outer_found = True
                 break
@@ -518,11 +541,16 @@ def simplify_wires_generic(
     pad_to_net: dict[Point, uuid.UUID] | None = None,
     *,
     mode: SimplifyMode = SimplifyMode.BARE_PARITY,
+    board_pads: set[Point] | None = None,
 ) -> list[WireSegment]:
     """Run generic_simplify_wire over *wires*, propagating each rewrite back
     into the working list so later wires see the shortened versions when
     checking collisions.  Mirrors the multi-pass behaviour of
     ``simplify_wires`` but with a single unified algorithm.
+
+    *board_pads* (optional) — every pad position on the board.  When supplied,
+    bare wires keep every pad-vertex on their physical path even after
+    simplification, so connectivity / wire-edit / exports see complete contact.
     """
     cur = list(wires)
     for idx in range(len(cur)):
@@ -532,6 +560,7 @@ def simplify_wires_generic(
             pin_positions=pin_positions,
             pad_to_net=pad_to_net,
             mode=mode,
+            board_pads=board_pads,
         )
         cur[idx] = new
     return cur

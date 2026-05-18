@@ -490,6 +490,7 @@ def autoroute(
 
     # Post-process: shorten wires via the generic shortcut algorithm.
     if wire_mode == "bare_diagonal" and enable_simplify_pass and current_wires:
+        from protoboard.domain.layout.wire_utils import board_pads_for_side
         from protoboard.services.routing.postprocess import (
             SimplifyMode,
             simplify_wires_generic,
@@ -501,11 +502,16 @@ def autoroute(
         pad_to_net: dict[Point, uuid.UUID] = {}
         for (pos, _side), nid in all_pin_positions.items():
             pad_to_net.setdefault(pos, nid)
+        # All board-pad positions on either side — bare wires that take
+        # shortcuts must keep these as vertices so connectivity / wire-edit
+        # see every physical pad contact.
+        all_board_pads = board_pads_for_side(board, "top") | board_pads_for_side(board, "bottom")
         current_wires = simplify_wires_generic(
             current_wires,
             pin_positions=all_pins,
             pad_to_net=pad_to_net,
             mode=eff_mode,
+            board_pads=all_board_pads,
         )
 
     result.wires = current_wires

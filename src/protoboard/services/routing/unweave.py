@@ -308,7 +308,12 @@ def _build_swapped_wire(
     return [head_seg, mid_seg, tail_seg]
 
 
-def _link(a: Point, b: Point) -> list[Point]:
+def _link(
+    a: Point, b: Point,
+    *,
+    board_pads: set[Point] | None = None,
+    insulated: bool = False,
+) -> list[Point]:
     """Canonical (Chebyshev) link between two pads, excluding the endpoints.
 
     Returns the *intermediate* vertices of the canonical subpath from ``a`` to
@@ -316,13 +321,19 @@ def _link(a: Point, b: Point) -> list[Point]:
     middle / tail slices and would duplicate if included.  For pure ortho or
     diagonal links the result is an empty list; for L-shaped links it
     contains the corner vertex.
+
+    When the link belongs to a bare wire (``insulated=False``) and
+    ``board_pads`` is supplied, any pad position that lies on a segment of
+    the canonical link is inserted as an intermediate vertex, so connectivity
+    and wire-edit see every physical pad contact.
     """
     if _pt_equal(a, b):
         return []
-    canon = _canonical_subpath(a, b, allow_l_shape=True)
+    pads_arg = board_pads if (board_pads and not insulated) else None
+    canon = _canonical_subpath(a, b, allow_l_shape=True, board_pads=pads_arg)
     if canon is None or len(canon) <= 2:
         return []
-    # canon is [a, mid, b]; drop the endpoints.
+    # canon is [a, ..., b]; drop the endpoints.
     return canon[1:-1]
 
 
@@ -362,6 +373,7 @@ def unweave_wires(
     *,
     schematic: "Schematic | None" = None,
     graph: "ConnectivityGraph | None" = None,
+    board_pads: set[Point] | None = None,
 ) -> list[WireSegment]:
     """Reduce mutual crossings within *wires* by topological fragment swaps.
 
@@ -385,6 +397,15 @@ def unweave_wires(
     # whether the caller passes pristine wires or output from a previous
     # unweave pass (split into multiple WireSegments).
     logical: list[list[WireSegment]] = _group_by_endpoints(wires)
+
+    # Default board pads from graph.board so callers passing only graph still
+    # benefit from pad-preservation on bare links.
+    if board_pads is None and graph is not None and graph.board is not None:
+        from protoboard.domain.layout.wire_utils import board_pads_for_side
+        board_pads = (
+            board_pads_for_side(graph.board, "top")
+            | board_pads_for_side(graph.board, "bottom")
+        )
 
     pad_safe: "Callable[[Point, str, str, bool], bool] | None" = None
     short_check: "Callable[[list[list[WireSegment]]], bool] | None" = None
@@ -419,6 +440,7 @@ def unweave_wires(
                 swap_done = _attempt_pair_swap(
                     logical, i, j, pad_safe=pad_safe,
                     short_check=short_check,
+                    board_pads=board_pads,
                 )
                 if swap_done:
                     progressed = True
@@ -595,6 +617,7 @@ def _swap_logical_fragment(
     lpath1: list[_LogicalPoint], lpath2: list[_LogicalPoint],
     x: Crossing, y: Crossing,
     *, pad_safe: "Callable[[Point, str, str, bool], bool] | None",
+    board_pads: set[Point] | None = None,
 ) -> tuple[list[_LogicalPoint], list[_LogicalPoint]] | None:
     """Swap fragments between two logical paths, like
     ``_swap_fragment_between`` but on the concatenated representation.
@@ -633,11 +656,6 @@ def _swap_logical_fragment(
     if not mid1_pts or not mid2_pts:
         return None
 
-    link_h1_m2 = _link(head1_pts[-1], mid2_pts[0])
-    link_m2_t1 = _link(mid2_pts[-1], tail1_pts[0])
-    link_h2_m1 = _link(head2_pts[-1], mid1_for_w2[0])
-    link_m1_t2 = _link(mid1_for_w2[-1], tail2_pts[0])
-
     # Helper: bind the outer/middle attribute decision to lpath data.
     def _attr_for_index(lp: list[_LogicalPoint], idx: int) -> tuple[str, bool]:
         """The (side, insulated) used for segments leaving lp[idx]."""
@@ -663,6 +681,32 @@ def _swap_logical_fragment(
     else:
         m2_attrs = _attr_for_index(lpath2, y.wire2_seg_idx + 1)
     m1_attrs = _attr_for_index(lpath1, x.wire1_seg_idx + 1)
+
+    # A link physically rests on the board whenever either side it bridges is
+    # bare — propagate that to _link so board-pad vertices are preserved.
+    def _link_insulated(a: tuple[str, bool], b: tuple[str, bool]) -> bool:
+        return a[1] and b[1]
+
+    link_h1_m2 = _link(
+        head1_pts[-1], mid2_pts[0],
+        board_pads=board_pads,
+        insulated=_link_insulated(h1_attrs, m2_attrs),
+    )
+    link_m2_t1 = _link(
+        mid2_pts[-1], tail1_pts[0],
+        board_pads=board_pads,
+        insulated=_link_insulated(m2_attrs, t1_attrs),
+    )
+    link_h2_m1 = _link(
+        head2_pts[-1], mid1_for_w2[0],
+        board_pads=board_pads,
+        insulated=_link_insulated(h2_attrs, m1_attrs),
+    )
+    link_m1_t2 = _link(
+        mid1_for_w2[-1], tail2_pts[0],
+        board_pads=board_pads,
+        insulated=_link_insulated(m1_attrs, t2_attrs),
+    )
 
     def _build_lpath(
         head_pts: list[Point], link_to_mid: list[Point],
@@ -739,6 +783,7 @@ def _attempt_pair_swap(
     logical: list[list[WireSegment]], i: int, j: int,
     *, pad_safe: "Callable[[Point, str, str, bool], bool] | None",
     short_check: "Callable[[list[list[WireSegment]]], bool] | None" = None,
+    board_pads: set[Point] | None = None,
 ) -> bool:
     """Try one swap between logical wires *i* and *j*, operating on
     concatenated logical paths.  Returns True on success.
@@ -753,7 +798,9 @@ def _attempt_pair_swap(
     if pair is None:
         return False
     a, b = cs[pair[0]], cs[pair[1]]
-    result = _swap_logical_fragment(lp_i, lp_j, a, b, pad_safe=pad_safe)
+    result = _swap_logical_fragment(
+        lp_i, lp_j, a, b, pad_safe=pad_safe, board_pads=board_pads,
+    )
     if result is None:
         return False
     new_lp_i, new_lp_j = result
