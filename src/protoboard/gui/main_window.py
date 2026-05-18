@@ -52,7 +52,11 @@ from protoboard.services.kicad.exporter import KiCadNetlistExporter
 from protoboard.services.kicad.importer import ImportWarning, KiCadNetlistImporter
 from protoboard.services.placement.auto_placer import auto_place
 from protoboard.services.placement.spreader import spread_components
-from protoboard.services.persistence.project_yaml import load_project, save_project
+from protoboard.services.persistence.project_yaml import (
+    load_project,
+    pop_last_normalize_report,
+    save_project,
+)
 
 
 class MainWindow(QMainWindow):
@@ -868,6 +872,22 @@ class MainWindow(QMainWindow):
         self._update_undo_redo()
         self._update_title()
         self._populate_recent_menu()
+        # Notify the user if legacy fractional positions were snapped on load.
+        normalize_report = pop_last_normalize_report(path)
+        if normalize_report is not None and normalize_report.any_corrections:
+            n_pl = len(normalize_report.placements)
+            n_wp = len(normalize_report.wires)
+            parts = []
+            if n_pl:
+                parts.append(f"{n_pl} pozycji komponentów")
+            if n_wp:
+                parts.append(f"{n_wp} punkt(ów) przewodów")
+            self.statusBar().showMessage(
+                "Naprawiono offsety legacy: " + " + ".join(parts)
+                + " (zapisz projekt, aby utrwalić)",
+                8000,
+            )
+            self._session.mark_dirty()
 
     # ------------------------------------------------------------------
     # Title helper

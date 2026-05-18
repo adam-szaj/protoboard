@@ -21,6 +21,10 @@ from ruamel.yaml import YAML
 from protoboard.domain.board.board import Board
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.normalize import (
+    NormalizeReport,
+    normalize_layout_positions,
+)
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import WireSegment
 from protoboard.domain.routing_settings import RoutingSettings
@@ -231,6 +235,36 @@ def load_project(
     except FileNotFoundError as exc:
         _log.warning("project.load_failed", path=str(directory), error=str(exc))
         raise SerializationError(f"Missing project file: {exc}") from exc
+    # Snap legacy fractional offsets (e.g. y=3.503 → 3.5) to the half-grid so
+    # the connectivity graph indexes pins and matching board pads as the same
+    # node.  Corrections > ±0.5 from the nearest grid intersection are left
+    # alone — those are user data, not rounding artifacts.
+    report = normalize_layout_positions(layout)
+    if report.any_corrections:
+        # Surface each correction so the user can audit them in the log.
+        for pc in report.placements:
+            inst = instances.get(pc.component_id)
+            refdes = inst.refdes if inst is not None else "?"
+            _log.info(
+                "project.placement_snapped",
+                refdes=refdes,
+                component_id=str(pc.component_id),
+                old=(pc.old.x, pc.old.y),
+                new=(pc.new.x, pc.new.y),
+            )
+        for wc in report.wires:
+            _log.info(
+                "project.wire_point_snapped",
+                wire_id=str(wc.wire_id),
+                index=wc.point_index,
+                old=(wc.old.x, wc.old.y),
+                new=(wc.new.x, wc.new.y),
+            )
+        _log.info(
+            "project.normalize_summary",
+            placements=len(report.placements),
+            wires=len(report.wires),
+        )
     _log.info(
         "project.loaded",
         path=str(directory),
@@ -238,8 +272,24 @@ def load_project(
         wires=len(layout.wires),
         nets=len(schematic.nets),
         instances=len(instances),
+        snapped=report.count,
     )
+    # Attach the report to the layout via a module-level dict so MainWindow
+    # can pick it up and show a toast without changing the return signature.
+    _last_load_report[directory] = report
     return board, layout, schematic, instances, routing_settings, layer_overrides
+
+
+# Per-directory record of the last normalize report so the GUI can pick it up
+# after load_project returns.  Cleared when consumed.
+_last_load_report: "dict[Path, NormalizeReport]" = {}
+
+
+def pop_last_normalize_report(directory: Path) -> "NormalizeReport | None":
+    """Return and clear the normalize report attached to the last load of
+    *directory*.  Used by MainWindow to toast the user after open_project.
+    """
+    return _last_load_report.pop(directory, None)
 
 
 def _instances_from_yaml(text: str) -> dict[uuid.UUID, ComponentInstance]:

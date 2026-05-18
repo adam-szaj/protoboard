@@ -42,6 +42,35 @@ from protoboard.geometry import Point
 
 _NodeKey = tuple[float, float, str]  # (x, y, side)
 
+# Snap tolerance for connectivity-graph keys.  Floating-point positions that
+# differ by less than ±_SNAP_TOL are treated as the same electrical node.
+#
+# Why: pad centers are conventionally at (col+0.5, row+0.5), but legacy saves
+# and rounding from rotations can introduce tiny offsets (e.g. 3.503 instead
+# of 3.5).  Without quantisation the graph would index the pin and the board
+# pad as two distinct nodes and a wire drawn between them would not register
+# as a connection.
+#
+# 5e-3 = ±5/1000 of a raster unit, comfortably below the smallest physical
+# spacing on any realistic prototyping board (typically ≥0.5).  It absorbs
+# legacy fractional offsets like "3.503" while leaving room for real grid
+# distinctions to be preserved.
+_SNAP_TOL = 5e-3
+
+
+def _q(v: float, tol: float = _SNAP_TOL) -> float:
+    """Quantise *v* to the nearest multiple of 2*tol (bucket width 2*tol).
+
+    With tol=5e-3 this rounds to 2 decimal places, giving ±0.005 tolerance.
+    """
+    bucket = 2 * tol
+    return round(v / bucket) * bucket
+
+
+def _qkey(point: Point, side: str) -> _NodeKey:
+    """Build a quantised ``_NodeKey`` from a Point + side string."""
+    return (_q(point.x), _q(point.y), side)
+
 
 # ---------------------------------------------------------------------------
 # Core data structures
@@ -196,7 +225,7 @@ class ConnectivityGraph:
         return entry.electric_set.canonical_key
 
     def node_for_pad(self, position: Point, side: str) -> _NodeKey | None:
-        key: _NodeKey = (position.x, position.y, side)
+        key: _NodeKey = _qkey(position, side)
         entry = self._pad_index.get(key)
         if entry is None:
             return None
@@ -227,7 +256,7 @@ class ConnectivityGraph:
         can stop at any pad already electrically connected to that pin — i.e.
         any existing wire of the same net is a valid endpoint.
         """
-        key: _NodeKey = (position.x, position.y, side)
+        key: _NodeKey = _qkey(position, side)
         entry = self._pad_index.get(key)
         if entry is None:
             return [position]
@@ -284,7 +313,7 @@ class ConnectivityGraph:
         path_entries: list[NodeEntry] = []
         n_pts = len(path)
         for i, pt in enumerate(path):
-            key: _NodeKey = (pt.x, pt.y, side)
+            key: _NodeKey = _qkey(pt, side)
             # An insulated wire only makes electrical contact at its two
             # endpoints (where it is soldered to a pad).  Intermediate points
             # float above the board and must not merge with pads they cross.
@@ -295,7 +324,7 @@ class ConnectivityGraph:
                 # above the board and makes no electrical contact here.
                 # Create a private node (not reachable via node_for_pad) so
                 # no other wire can accidentally share it.
-                private_key: _NodeKey = (pt.x, pt.y, side + f"_ins_{wire.id.int}")
+                private_key: _NodeKey = _qkey(pt, side + f"_ins_{wire.id.int}")
                 private_entry = self._make_node(private_key)
                 intermediate.append(private_key)
                 entry = private_entry
@@ -305,7 +334,7 @@ class ConnectivityGraph:
                 # bare wires crossing at the same off-pad point do NOT get
                 # merged — those wires don't actually share an electrical
                 # contact unless they both land on the same board pad.
-                transient_key: _NodeKey = (pt.x, pt.y, side + f"_tr_{wire.id.int}")
+                transient_key: _NodeKey = _qkey(pt, side + f"_tr_{wire.id.int}")
                 entry = self._make_node(transient_key)
                 intermediate.append(transient_key)
             path_entries.append(entry)
@@ -364,8 +393,8 @@ class ConnectivityGraph:
         position_b: Point, side_b: str,
     ) -> bool:
         """O(1) connectivity check."""
-        ea = self._pad_index.get((position_a.x, position_a.y, side_a))
-        eb = self._pad_index.get((position_b.x, position_b.y, side_b))
+        ea = self._pad_index.get(_qkey(position_a, side_a))
+        eb = self._pad_index.get(_qkey(position_b, side_b))
         if ea is None or eb is None:
             return False
         return ea.electric_set is eb.electric_set
@@ -447,7 +476,7 @@ class ConnectivityGraph:
         # Collect all nodes that were on the wire's path.
         side = wire.side
         touched: set[_NodeKey] = {
-            (pt.x, pt.y, side) for pt in wire.path
+            _qkey(pt, side) for pt in wire.path
         }
 
         # Find the ElectricSet that currently contains these nodes.
@@ -545,12 +574,11 @@ class ConnectivityGraph:
 
     def _build_board_nodes(self, board: Board) -> None:
         for atom, pos in board.atoms():
-            x, y = pos.x, pos.y
             if isinstance(atom, PadAtom):
                 layers = atom.layers
                 if layers.plated_through:
-                    top_key: _NodeKey = (x, y, "top")
-                    bot_key: _NodeKey = (x, y, "bottom")
+                    top_key: _NodeKey = _qkey(pos, "top")
+                    bot_key: _NodeKey = _qkey(pos, "bottom")
                     top_e = self._ensure_node(top_key)
                     bot_e = self._ensure_node(bot_key)
                     self._board_pad_keys.add(top_key)
@@ -559,11 +587,11 @@ class ConnectivityGraph:
                         self._merge(top_e.electric_set, bot_e.electric_set)
                 else:
                     if layers.top:
-                        k: _NodeKey = (x, y, "top")
+                        k: _NodeKey = _qkey(pos, "top")
                         self._ensure_node(k)
                         self._board_pad_keys.add(k)
                     if layers.bottom:
-                        k2: _NodeKey = (x, y, "bottom")
+                        k2: _NodeKey = _qkey(pos, "bottom")
                         self._ensure_node(k2)
                         self._board_pad_keys.add(k2)
             elif isinstance(atom, StripAtom):
@@ -590,7 +618,7 @@ class ConnectivityGraph:
 
         prev_entry: NodeEntry | None = None
         for pt in positions:
-            key: _NodeKey = (pt.x, pt.y, side)
+            key: _NodeKey = _qkey(pt, side)
             self._board_pad_keys.add(key)
             entry = self._ensure_node(key)
             if prev_entry is not None and prev_entry.electric_set is not entry.electric_set:
@@ -613,7 +641,7 @@ class ConnectivityGraph:
             for pin_num in range(1, fp.pin_count() + 1):
                 world_pos = pin_world_position(fp, placement, pin_num)
                 side = placement.side
-                key: _NodeKey = (world_pos.x, world_pos.y, side)
+                key: _NodeKey = _qkey(world_pos, side)
                 entry = self._pad_index.get(key)
                 if entry is None:
                     # Pin on a pad not in the board layout — create a stub.
