@@ -67,6 +67,7 @@ def _open_session(
         session = EditorSession(board=board, library=library)
         session.project_path = project_path
         recent_projects.add(project_path)
+        session.start_recording()
         return session
 
     if action == "open":
@@ -87,6 +88,7 @@ def _open_session(
         session.project_path = project_path
         session.layer_overrides = layer_overrides
         recent_projects.add(project_path)
+        session.start_recording()
         return session
 
     return None

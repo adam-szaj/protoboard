@@ -7,6 +7,8 @@ import dataclasses
 import uuid
 from pathlib import Path
 
+import structlog
+
 from protoboard.gui.app_settings import AppSettings
 from protoboard.gui.window_state import load_window_state, save_window_state
 
@@ -52,11 +54,14 @@ from protoboard.services.kicad.exporter import KiCadNetlistExporter
 from protoboard.services.kicad.importer import ImportWarning, KiCadNetlistImporter
 from protoboard.services.placement.auto_placer import auto_place
 from protoboard.services.placement.spreader import spread_components
+from protoboard.services.persistence import git_repo
 from protoboard.services.persistence.project_yaml import (
     load_project,
     pop_last_normalize_report,
     save_project,
 )
+
+_log = structlog.get_logger(__name__)
 
 
 class MainWindow(QMainWindow):
@@ -824,6 +829,8 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "Open error", str(exc))
             return
+        # Stop the recorder on the outgoing session before swapping it in.
+        self._session.stop_recording()
         session = EditorSession(board=board, library=self._session.library)
         session.layout = layout
         session.schematic = schematic
@@ -831,6 +838,7 @@ class MainWindow(QMainWindow):
         session.routing_settings = routing_settings
         session.project_path = path
         recent_projects.add(path)
+        session.start_recording()
         # Reconnect signals from the old session.
         self._session.layout_changed.disconnect(self._session.invalidate_graph)
         self._session.layout_changed.disconnect(self._panels_timer.start)
@@ -1357,7 +1365,10 @@ class MainWindow(QMainWindow):
             return
         path = Path(path_str)
         self._do_save(path)
+        # Re-anchor the command recorder to the new project location.
+        self._session.stop_recording()
         self._session.project_path = path
+        self._session.start_recording()
         self._update_title()
 
     def _do_save(self, path: Path) -> None:
@@ -1372,10 +1383,63 @@ class MainWindow(QMainWindow):
                 layer_overrides=self._session.layer_overrides,
             )
             recent_projects.add(path)
-            self._session.mark_clean()
-            self._status.showMessage(f"Saved to {path}", 4000)
         except Exception as exc:
             QMessageBox.critical(self, "Save error", str(exc))
+            return
+
+        self._session.mark_clean()
+        commit_status = self._commit_save(path)
+        self._status.showMessage(f"Saved to {path}{commit_status}", 4000)
+
+    def _commit_save(self, path: Path) -> str:
+        """Commit the session log and the saved project as two separate commits.
+
+        The session log (``session_commands.yaml``) is committed first so
+        that the history reads as "commands performed → snapshot reached".
+        The recorder is then reset to a fresh empty log, which is captured
+        by the second commit alongside the rest of the project files.
+        Git failures are surfaced as a status suffix but do not roll back
+        the save.
+        """
+        log_filename = self._session.DEFAULT_RECORDING_FILENAME
+        n_cmds = len(self._session.recorder.events)
+        suffix_parts: list[str] = []
+
+        # Commit 1 — session log only (skipped if the log file isn't present
+        # or hasn't changed since the last commit).
+        try:
+            log_paths: list[str] = (
+                [log_filename] if (path / log_filename).exists() else []
+            )
+            cmd_word = "command" if n_cmds == 1 else "commands"
+            log_msg = f"Session log: {n_cmds} {cmd_word}"
+            log_result = git_repo.add_and_commit(path, log_msg, paths=log_paths)
+        except git_repo.GitError as exc:
+            _log.warning("project.commit_failed", phase="log", error=str(exc))
+            return f" — git: {exc}"
+
+        if log_result.created_repo:
+            suffix_parts.append("git init")
+        if log_result.commit_sha is not None:
+            suffix_parts.append(f"log {log_result.commit_sha}")
+            # Reset before the project commit so the second commit captures
+            # the now-empty log file.
+            self._session.reset_recording()
+
+        # Commit 2 — everything else (project YAMLs + the reset log).
+        try:
+            project_msg = f"Save: {path.name}"
+            proj_result = git_repo.add_and_commit(path, project_msg)
+        except git_repo.GitError as exc:
+            _log.warning("project.commit_failed", phase="project", error=str(exc))
+            return " — git: " + str(exc) if not suffix_parts else (
+                f" [{', '.join(suffix_parts)}] — git: {exc}"
+            )
+
+        if proj_result.commit_sha is not None:
+            suffix_parts.append(f"save {proj_result.commit_sha}")
+
+        return f" [{', '.join(suffix_parts)}]" if suffix_parts else ""
 
     def _check_unsaved_changes(self, action: str = "continuing") -> bool:
         """Return True if safe to proceed; prompts to save when dirty."""
@@ -2270,6 +2334,7 @@ class MainWindow(QMainWindow):
         if self._closing_to_welcome:
             self._closing_to_welcome = False
             save_window_state(self)
+            self._session.stop_recording()
             super().closeEvent(event)
             self.return_to_welcome.emit()
             return
@@ -2278,6 +2343,7 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         save_window_state(self)
+        self._session.stop_recording()
         super().closeEvent(event)
         from PySide6.QtWidgets import QApplication
 

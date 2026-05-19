@@ -36,6 +36,7 @@ from protoboard.services.library.loader import ComponentLibrary
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.gui.layer_state import LayerOverrides
 from protoboard.gui.highlight_state import HighlightStack
+from protoboard.services.recording.recorder import CommandRecorder
 
 
 @dataclass
@@ -154,6 +155,10 @@ class EditorSession(QObject):
         self._comp_spatial_index: dict[tuple[int, int], list[uuid.UUID]] | None = None
         self._wire_spatial_index: dict[tuple[int, int], list[uuid.UUID]] | None = None
         self.perf: PerfMetrics = PerfMetrics()
+        # Command recorder — wired in by MainWindow once a project path is
+        # known.  Auto-records every command through CommandStack.
+        self.recorder: CommandRecorder = CommandRecorder()
+        self.stack.set_recorder(self.recorder)
 
     def notify_selection(
         self,
@@ -183,6 +188,45 @@ class EditorSession(QObject):
     @property
     def routing_net_id(self) -> "uuid.UUID | None":
         return self._routing_net_id
+
+    # ------------------------------------------------------------------
+    # Recording lifecycle
+    # ------------------------------------------------------------------
+
+    DEFAULT_RECORDING_FILENAME = "session_commands.yaml"
+
+    def start_recording(self, path: Path | None = None) -> None:
+        """Begin auto-recording commands to *path*.
+
+        If *path* is None, uses ``<project_path>/session_commands.yaml``;
+        does nothing when neither *path* nor ``project_path`` is set.
+        Restarting always begins a fresh log — previous content is replaced.
+        """
+        target = path
+        if target is None:
+            if self.project_path is None:
+                return
+            target = self.project_path / self.DEFAULT_RECORDING_FILENAME
+        label = self.project_path.name if self.project_path else ""
+        self.recorder.start(target, project_label=label)
+
+    def stop_recording(self) -> None:
+        """Stop the recorder if it is active.  Safe to call repeatedly."""
+        self.recorder.stop()
+
+    def reset_recording(self) -> None:
+        """Clear the log and start a fresh recording at the same path.
+
+        Called after a successful save+commit so that the log only ever
+        contains commands executed *since* the last committed snapshot.
+        No-op when no recording is active.
+        """
+        if not self.recorder.active or self.recorder.path is None:
+            return
+        target = self.recorder.path
+        label = self.project_path.name if self.project_path else ""
+        self.recorder.stop()
+        self.recorder.start(target, project_label=label)
 
     def invalidate_graph(self) -> None:
         """Mark the cached ConnectivityGraph, PadIndex and spatial indexes as stale."""
