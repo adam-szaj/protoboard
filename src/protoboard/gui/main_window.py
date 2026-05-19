@@ -1336,6 +1336,11 @@ class MainWindow(QMainWindow):
         cmd = ResizeBoardCommand(new_board=new_board)
         self._session.stack.execute(cmd, self._session)
         self._session.invalidate_graph()
+        # The board geometry itself changed — force the pads/strips layer to
+        # be rebuilt; ``layout_changed`` alone only re-renders
+        # components/wires, since the board layer is cached on a separate
+        # ``_board_layer_dirty`` flag for performance.
+        self._board_view._board_layer_dirty = True
         self._session.layout_changed.emit()
         self._board_view.fit_board()
         self._update_undo_redo()

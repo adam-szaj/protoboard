@@ -36,6 +36,12 @@ class CutTool(_Tool):
             cut_between=cut_between,
         )
         self._session.stack.execute(cmd, self._session)
+        # SplitStripCommand rebuilds Board.root, so the board layer (pads /
+        # strips) has to be repainted on the next refresh.  ``layout_changed``
+        # alone only re-renders components and wires.
+        view = self._view
+        if view is not None:
+            view._board_layer_dirty = True
         self._session.layout_changed.emit()
         return True
 
