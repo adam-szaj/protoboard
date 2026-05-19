@@ -47,6 +47,7 @@ class RouteTool(_Tool):
         side: str = "top",
         net_aware: bool = False,
     ) -> None:
+        super().__init__()
         self._insulated = insulated
         self._side = side
         self._net_aware = net_aware

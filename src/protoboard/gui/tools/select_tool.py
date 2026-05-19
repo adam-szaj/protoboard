@@ -94,6 +94,7 @@ class SelectTool(_Tool):
     """Click/rubber-band to select; drag to move; R to rotate; Del to delete."""
 
     def __init__(self) -> None:
+        super().__init__()
         # Single component selection (for Properties panel and drag).
         self._selected_id: uuid.UUID | None = None
         self._highlight: QGraphicsRectItem | None = None

@@ -64,6 +64,7 @@ class PlaceTool(_Tool):
         existing_instance: object | None = None,
         pin_variant: str | None = None,
     ) -> None:
+        super().__init__()
         self._definition_ref = definition_ref
         # When placing a netlist-imported instance, keep its identity.
         self._existing_instance = existing_instance  # ComponentInstance | None

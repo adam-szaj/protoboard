@@ -1023,6 +1023,16 @@ def _build_wire_net_map(session: EditorSession) -> dict[uuid.UUID, uuid.UUID]:
 class _Tool:
     """Base class for board-view interaction tools."""
 
+    def __init__(self) -> None:
+        # Bound on activate(); set to None up-front so that pre-activate code
+        # paths (e.g. MainWindow applies user preferences to a freshly built
+        # SelectTool) can ``if self._session is not None`` without AttributeError.
+        # Type is narrowed to the real EditorSession after activate(); existing
+        # callers all access these only via the event-handler paths that run
+        # *after* activate().
+        self._session: EditorSession = None  # type: ignore[assignment]
+        self._view: BoardView = None  # type: ignore[assignment]
+
     def activate(self, session: EditorSession, view: BoardView) -> None:
         self._session = session
         self._view = view
