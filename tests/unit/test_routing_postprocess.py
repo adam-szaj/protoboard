@@ -517,6 +517,73 @@ class TestGenericSimplifyInsulatedEndpoint:
         assert out.path[-1] == Point(2.5, 1.5)
 
 
+class TestGenericSimplifyRealWorldRegression:
+    """Regression for the user_tangled_04 fixture: simplify of Net-(J4-2)
+    wire produced a shared-pad short with Net-(J2-2) at (12.5, 11.5).
+    Root cause: candidate vertex coinciding with endpoint of another bare
+    wire wasn't caught by _segs_cross_or_touch (endpoint vs endpoint is
+    not a strict-interior touch).
+    """
+
+    def test_no_shared_pad_short_after_simplify(self) -> None:
+        # Subset of the failing layout, on side="top":
+        #
+        # J4-2 wire (ours, will be simplified):
+        #   ...(9.5,10.5)→(10.5,11.5)→(10.5,12.5)→(11.5,13.5)→(12.5,12.5)
+        #                  →(13.5,11.5)→(14.5,11.5)→(15.5,11.5)
+        #
+        # J2-2 wire (foreign, must not be touched):
+        #   (12.5,11.5)→(11.5,10.5)→(10.5,9.5)→...
+        our_net = uuid.uuid4()
+        their_net = uuid.uuid4()
+        ours = _bare(
+            (9.5, 10.5),
+            (10.5, 11.5), (10.5, 12.5), (11.5, 13.5), (12.5, 12.5),
+            (13.5, 11.5), (14.5, 11.5), (15.5, 11.5),
+        )
+        theirs = _bare(
+            (12.5, 11.5), (11.5, 10.5), (10.5, 9.5),
+        )
+        out = generic_simplify_wire(
+            ours, [theirs],
+            mode=SimplifyMode.BARE_PARITY,
+            wire_net_id=our_net,
+            other_wire_nets={theirs.id: their_net},
+        )
+        # The simplified path must NOT contain (12.5, 11.5) — that pad is
+        # already an endpoint of the foreign-net wire.
+        coords = {(p.x, p.y) for p in out.path}
+        assert (12.5, 11.5) not in coords, (
+            f"simplified path lands on foreign-net pad (12.5, 11.5): "
+            f"{[(p.x, p.y) for p in out.path]}"
+        )
+
+    def test_pre_existing_shared_endpoint_does_not_block_simplify(self) -> None:
+        # When the original wire ALREADY ended at a pad shared with a
+        # foreign-net wire (e.g. user intentionally placed two wires meeting
+        # there), simplify is allowed to keep that pre-existing contact —
+        # it's not introducing a new short.
+        our_net = uuid.uuid4()
+        their_net = uuid.uuid4()
+        # Our wire endpoint at (3.5, 0.5) is shared with theirs (the original
+        # layout has this as a pre-existing condition).  Simplify the L-shape
+        # in between.
+        ours = _bare(
+            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5),
+        )
+        theirs = _bare((3.5, 0.5), (3.5, 2.5))
+        out = generic_simplify_wire(
+            ours, [theirs],
+            mode=SimplifyMode.CHEBYSHEV,
+            wire_net_id=our_net,
+            other_wire_nets={theirs.id: their_net},
+        )
+        # Wire collapses fully to (0.5,0.5)→(3.5,0.5); the endpoint at
+        # (3.5, 0.5) was already shared (pre-existing) and stays.
+        assert out.path[0] == Point(0.5, 0.5)
+        assert out.path[-1] == Point(3.5, 0.5)
+
+
 class TestGenericSimplifyAlienPin:
     """The candidate path must not run through a pin belonging to a
     different net than the wire's own."""

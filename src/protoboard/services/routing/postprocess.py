@@ -360,15 +360,21 @@ def _candidate_safe_against_others(
     wire_side: str | None = None,
     wire_net_id: "uuid.UUID | None" = None,
     other_wire_nets: "dict[uuid.UUID, uuid.UUID | None] | None" = None,
+    original_endpoints: "tuple[Point, Point] | None" = None,
 ) -> bool:
     """Return True iff *candidate_segs* is safe against every other wire.
 
     A candidate is rejected when it would create a physical short to a wire
-    of a *different* net.  Two failure modes:
+    of a *different* net.  Three failure modes:
 
-    * **Bare×Bare**: any crossing or T-junction with another bare wire on the
-      same side (``_segs_cross_or_touch``) — unless that other bare belongs
-      to the same net (intentional contact, e.g. extending an existing run).
+    * **Bare×Bare segment**: any crossing or T-junction with another bare
+      wire on the same side (``_segs_cross_or_touch``).
+
+    * **Bare×Bare shared vertex (pad)**: a candidate vertex coincides with
+      a vertex of another bare wire on the same side — physically the same
+      pad is now soldered to two wires of different nets.
+      ``_segs_cross_or_touch`` only detects strict-interior touches; this
+      check handles endpoint-on-endpoint coincidence.
 
     * **Bare×Insulated endpoint**: insulated wires float above the board but
       are soldered to a pad at each endpoint.  If the candidate path passes
@@ -378,11 +384,37 @@ def _candidate_safe_against_others(
 
     Insulated×anything mid-segment is fine — the insulated path is air.
 
-    ``wire_net_id`` may be None when the wire's net is unknown (e.g. a fresh
-    bare wire not yet routed into a net); in that case any contact with a
-    netted other-wire is treated as alien (conservative).
+    Same-net other-wires never block — extending or sharing a pad with a
+    wire of our own net is intentional.
+
+    ``wire_net_id`` may be None when the wire's net is unknown; in that case
+    any contact with a netted other-wire is treated as alien (conservative).
+
+    ``original_endpoints`` — the two endpoints of the original sub-path
+    being replaced.  Vertex coincidences AT those points are allowed
+    because the contact already existed before simplify; we only flag
+    *new* contacts introduced by the canonical replacement.
     """
     other_nets = other_wire_nets or {}
+    # Collect every vertex on the candidate path (endpoints of consecutive
+    # segments).  ``candidate_segs`` is the zipped list of (path[i], path[i+1])
+    # pairs, so collecting the first point of each pair plus the last point
+    # of the final pair gives the full vertex sequence.
+    cand_vertices: list[Point] = []
+    if candidate_segs:
+        cand_vertices.append(candidate_segs[0][0])
+        for _src, dst in candidate_segs:
+            cand_vertices.append(dst)
+    # Skip the two ends of the *replaced* subpath: they were already
+    # vertices of the original wire and any contact there is pre-existing.
+    skip_pts: set[tuple[float, float]] = set()
+    if original_endpoints is not None:
+        for ep in original_endpoints:
+            skip_pts.add((ep.x, ep.y))
+
+    def _same_pt(a: Point, b: Point) -> bool:
+        return abs(a.x - b.x) < _EPS and abs(a.y - b.y) < _EPS
+
     for ow in other_wires:
         if ow.id == wire_id:
             continue
@@ -394,42 +426,38 @@ def _candidate_safe_against_others(
             and ow_net is not None
             and ow_net == wire_net_id
         )
+        if same_net:
+            continue
         if not ow.insulated:
-            # Bare-other: any geometric contact is a short, unless same net.
+            # Bare-other: any geometric contact is a short.
             for c_src, c_dst in candidate_segs:
                 for o_src, o_dst in _wire_to_segs(ow):
                     if _segs_cross_or_touch(c_src, c_dst, o_src, o_dst):
-                        if same_net:
-                            continue
                         return False
+            # Shared-pad check: candidate vertex coinciding with any vertex
+            # of the other bare wire = both lutowane do tej samej kratki.
+            ow_vertex_set = {(p.x, p.y) for p in ow.path}
+            for cv in cand_vertices:
+                if (cv.x, cv.y) in skip_pts:
+                    continue  # pre-existing endpoint of the replaced subpath
+                if (cv.x, cv.y) in ow_vertex_set:
+                    return False
         else:
             # Insulated-other: only the two endpoints sit on board pads.  The
-            # candidate path passing through one of them is a short to that
-            # net unless it's the same net.
-            if same_net or len(ow.path) < 2:
+            # candidate path passing through one of them is a short.
+            if len(ow.path) < 2:
                 continue
             endpoints = (ow.path[0], ow.path[-1])
             for c_src, c_dst in candidate_segs:
                 for ep in endpoints:
-                    # Endpoint-on-candidate-interior or endpoint matches a
-                    # candidate vertex but not an endpoint of the original
-                    # wire — both are physical contact.
                     if _point_on_segment_interior(ep, c_src, c_dst):
                         return False
-                    # Vertex-on-vertex coincidence with a candidate vertex
-                    # (other than the candidate's own endpoints — those
-                    # ARE the source/target of the simplified subpath and
-                    # were already legal).
-                    for cv in (c_src, c_dst):
-                        if (
-                            abs(ep.x - cv.x) < _EPS
-                            and abs(ep.y - cv.y) < _EPS
-                        ):
-                            # Only flag interior-of-candidate vertices.
-                            # Endpoint coincidence at the wire's own
-                            # endpoints is acceptable (they were already
-                            # part of the original layout).
-                            pass  # handled below by candidate-vertex test
+            for cv in cand_vertices:
+                if (cv.x, cv.y) in skip_pts:
+                    continue
+                for ep in endpoints:
+                    if _same_pt(cv, ep):
+                        return False
     return True
 
 
@@ -657,6 +685,7 @@ def generic_simplify_wire(
                     wire_side=wire.side,
                     wire_net_id=wire_net_id,
                     other_wire_nets=other_wire_nets,
+                    original_endpoints=(path[i], path[j]),
                 ):
                     continue
                 if not _candidate_safe_against_own(candidate_segs, wire, i, j):
