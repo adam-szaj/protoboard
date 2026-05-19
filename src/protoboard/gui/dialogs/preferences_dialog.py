@@ -95,6 +95,11 @@ class _ShortcutsPage(QWidget):
         layout.addWidget(self._table)
 
         self._seq_widgets: dict[str, QKeySequenceEdit] = {}
+        # Initial values captured per-action so apply() can detect which
+        # widgets the user actually edited.  Without this we would call
+        # KeyBindings.set() on every row — including untouched empty ones —
+        # which silently turns "use default" into "disabled" overrides.
+        self._initial_values: dict[str, str] = {}
         for action_id in DEFAULTS:
             display = DISPLAY_NAMES.get(action_id, action_id)
             row = self._table.rowCount()
@@ -102,18 +107,32 @@ class _ShortcutsPage(QWidget):
             name_item = QTableWidgetItem(display)
             name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(row, 0, name_item)
-            seq_edit = QKeySequenceEdit(QKeySequence(kb.get(action_id) or ""))
+            initial = kb.get(action_id) or ""
+            seq_edit = QKeySequenceEdit(QKeySequence(initial))
             self._table.setCellWidget(row, 1, seq_edit)
             self._seq_widgets[action_id] = seq_edit
+            self._initial_values[action_id] = initial
 
         reset_btn = QPushButton("Restore Defaults")
         reset_btn.clicked.connect(self._reset)
         layout.addWidget(reset_btn)
 
     def apply(self) -> None:
+        # Force pending key sequences to be committed.  QKeySequenceEdit only
+        # finalises its value on a timeout (default ~1s) or when it loses
+        # focus; clicking OK/Apply immediately after typing a shortcut may
+        # otherwise leave the entry empty.
+        focused = self.focusWidget()
+        if isinstance(focused, QKeySequenceEdit):
+            focused.clearFocus()
+
         for action_id, widget in self._seq_widgets.items():
             seq = widget.keySequence()
-            self._kb.set(action_id, seq.toString() if not seq.isEmpty() else "")
+            new_value = seq.toString() if not seq.isEmpty() else ""
+            if new_value == self._initial_values.get(action_id, ""):
+                continue  # Untouched — don't rewrite "use default" into "".
+            self._kb.set(action_id, new_value)
+            self._initial_values[action_id] = new_value
 
     def _reset(self) -> None:
         for action_id, widget in self._seq_widgets.items():

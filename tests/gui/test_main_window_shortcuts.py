@@ -40,6 +40,19 @@ def _make_perfboard(rows: int = 5, cols: int = 5) -> Board:
     return Board(root=grid)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_keybindings_file(tmp_path, monkeypatch):
+    """Redirect KeyBindings persistence to a throwaway file so the tests in
+    this module never clobber the user's real ``~/.config/protoboard/keybindings.yaml``.
+
+    Several tests below call ``KeyBindings.set()`` directly to exercise
+    live-reload paths; without this isolation each invocation would write
+    overrides to the real config and leak between sessions.
+    """
+    fake_path = tmp_path / "keybindings.yaml"
+    monkeypatch.setattr(KB, "_KEYBINDINGS_PATH", fake_path)
+
+
 @pytest.fixture()
 def main_window(qtbot) -> MainWindow:
     library = load_library([_LIBRARY_DIR])
@@ -160,3 +173,79 @@ class TestCodeQuality:
             "keyPressEvent grew an elif chain again — please route through "
             "the action registry instead."
         )
+
+
+class TestShortcutsPageApply:
+    """Regression: PreferencesDialog must not turn untouched empty widgets
+    into "disabled" overrides when the user clicks OK/Apply.
+
+    Original bug: opening Preferences would call ``_ShortcutsPage.apply()``
+    for every binding, calling ``set(action_id, "")`` on widgets the user
+    never touched.  For actions whose default was non-empty, this silently
+    persisted an override that disabled the default shortcut — most
+    visibly Ctrl+S for Save vanishing after every restart.
+    """
+
+    def test_untouched_empty_widget_does_not_create_override(self, qtbot) -> None:
+        from protoboard.gui.dialogs.preferences_dialog import _ShortcutsPage
+
+        kb = KB.KeyBindings.load()  # nothing on disk → pure defaults
+        page = _ShortcutsPage(kb)
+        qtbot.addWidget(page)
+
+        page.apply()  # user touched nothing, hits OK/Apply
+
+        # Default for ACTION_SAVE is "Ctrl+S" — that must survive a reload.
+        kb_reloaded = KB.KeyBindings.load()
+        assert kb_reloaded.get(KB.ACTION_SAVE) == "Ctrl+S"
+        # No spurious "save: ''" entry got written.
+        if KB._KEYBINDINGS_PATH.exists():
+            assert "save:" not in KB._KEYBINDINGS_PATH.read_text()
+
+    def test_clearing_a_shortcut_is_persisted(self, qtbot) -> None:
+        """The "disable shortcut" path must still work."""
+        from protoboard.gui.dialogs.preferences_dialog import _ShortcutsPage
+
+        kb = KB.KeyBindings.load()
+        page = _ShortcutsPage(kb)
+        qtbot.addWidget(page)
+
+        page._seq_widgets[KB.ACTION_SAVE].setKeySequence(QKeySequence(""))
+        page.apply()
+
+        kb_reloaded = KB.KeyBindings.load()
+        assert kb_reloaded.get(KB.ACTION_SAVE) == ""
+        assert "save:" in KB._KEYBINDINGS_PATH.read_text()
+
+    def test_changing_a_shortcut_is_persisted(self, qtbot) -> None:
+        from protoboard.gui.dialogs.preferences_dialog import _ShortcutsPage
+
+        kb = KB.KeyBindings.load()
+        page = _ShortcutsPage(kb)
+        qtbot.addWidget(page)
+
+        page._seq_widgets[KB.ACTION_SAVE].setKeySequence(QKeySequence("Ctrl+Alt+S"))
+        page.apply()
+
+        kb_reloaded = KB.KeyBindings.load()
+        assert kb_reloaded.get(KB.ACTION_SAVE) == "Ctrl+Alt+S"
+
+    def test_recovers_after_stale_empty_override(self, qtbot) -> None:
+        """Existing pre-fix configs with ``save: ''`` should self-heal as
+        soon as the user touches Preferences and re-enters the default.
+        """
+        from protoboard.gui.dialogs.preferences_dialog import _ShortcutsPage
+
+        KB._KEYBINDINGS_PATH.write_text("save: ''\n")
+
+        kb = KB.KeyBindings.load()
+        assert kb.get(KB.ACTION_SAVE) == ""  # stale state
+        page = _ShortcutsPage(kb)
+        qtbot.addWidget(page)
+
+        page._seq_widgets[KB.ACTION_SAVE].setKeySequence(QKeySequence("Ctrl+S"))
+        page.apply()
+
+        kb_reloaded = KB.KeyBindings.load()
+        assert kb_reloaded.get(KB.ACTION_SAVE) == "Ctrl+S"
+        assert "save:" not in KB._KEYBINDINGS_PATH.read_text()
