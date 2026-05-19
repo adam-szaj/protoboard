@@ -128,7 +128,7 @@ DEFAULTS: dict[str, str] = {
     ACTION_ROTATE_CCW: "Shift+R",
     ACTION_FLIP: "Alt+R",
     ACTION_GROUP: "Ctrl+G",
-    ACTION_UNGROUP: "",
+    ACTION_UNGROUP: "Ctrl+Shift+G",
     ACTION_EXIT_GROUP: "",
     ACTION_REDRAG_PINS: "Ctrl+R",
     ACTION_WIRE_SET_INSULATED: "Ctrl+Shift+I",
