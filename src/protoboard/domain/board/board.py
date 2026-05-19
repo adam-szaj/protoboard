@@ -20,6 +20,12 @@ from protoboard.domain.board.layout_engine import LayoutNode, layout
 from protoboard.geometry import Point, Rect, Size
 from protoboard.units import DEFAULT_PITCH_MM, Millimeter
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from protoboard.domain.board.pad_state import Pad
+    from protoboard.domain.board.pads import PadLayers
+
 
 @dataclass
 class Board:
@@ -57,6 +63,41 @@ class Board:
     def atoms(self) -> Iterator[tuple[Box, Point]]:
         """Yield (atom, world_center_position) pairs in DFS order."""
         yield from _walk_atoms(self.layout)
+
+    def make_pad(
+        self,
+        position: Point,
+        layers: "PadLayers",
+        strip_group_id: int | None = None,
+    ) -> "Pad":
+        """Construct a Pad of the right subclass for *layers*.
+
+        - ``plated_through=True`` → ``ConnectedDoubleSidedBoardPad`` (top and
+          bottom share one electrical node).
+        - both ``top`` and ``bottom`` (not plated) →
+          ``IsolatedDoubleSidedBoardPad`` (independent sides).
+        - one side only → ``SingleSidedBoardPad``.
+
+        The factory is stateless aside from its arguments; ``Board`` does
+        not store a board-level "single vs double sided" flag because
+        mixed boards are possible.
+        """
+        from protoboard.domain.board.pad_state import (
+            ConnectedDoubleSidedBoardPad,
+            IsolatedDoubleSidedBoardPad,
+            SingleSidedBoardPad,
+        )
+        if layers.plated_through:
+            return ConnectedDoubleSidedBoardPad(
+                position=position, layers=layers, strip_group_id=strip_group_id,
+            )
+        if layers.top and layers.bottom:
+            return IsolatedDoubleSidedBoardPad(
+                position=position, layers=layers, strip_group_id=strip_group_id,
+            )
+        return SingleSidedBoardPad(
+            position=position, layers=layers, strip_group_id=strip_group_id,
+        )
 
 
 def _walk_atoms(node: LayoutNode) -> Iterator[tuple[Box, Point]]:

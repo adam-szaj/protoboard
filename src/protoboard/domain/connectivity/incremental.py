@@ -40,36 +40,14 @@ from protoboard.domain.layout.wire import WireSegment
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 
-_NodeKey = tuple[float, float, str]  # (x, y, side)
-
-# Snap tolerance for connectivity-graph keys.  Floating-point positions that
-# differ by less than ±_SNAP_TOL are treated as the same electrical node.
-#
-# Why: pad centers are conventionally at (col+0.5, row+0.5), but legacy saves
-# and rounding from rotations can introduce tiny offsets (e.g. 3.503 instead
-# of 3.5).  Without quantisation the graph would index the pin and the board
-# pad as two distinct nodes and a wire drawn between them would not register
-# as a connection.
-#
-# 5e-3 = ±5/1000 of a raster unit, comfortably below the smallest physical
-# spacing on any realistic prototyping board (typically ≥0.5).  It absorbs
-# legacy fractional offsets like "3.503" while leaving room for real grid
-# distinctions to be preserved.
-_SNAP_TOL = 5e-3
-
-
-def _q(v: float, tol: float = _SNAP_TOL) -> float:
-    """Quantise *v* to the nearest multiple of 2*tol (bucket width 2*tol).
-
-    With tol=5e-3 this rounds to 2 decimal places, giving ±0.005 tolerance.
-    """
-    bucket = 2 * tol
-    return round(v / bucket) * bucket
-
-
-def _qkey(point: Point, side: str) -> _NodeKey:
-    """Build a quantised ``_NodeKey`` from a Point + side string."""
-    return (_q(point.x), _q(point.y), side)
+# Quantisation helpers live in pad_geometry — shared with PadIndex so both
+# indexes agree on "is this the same pad" tolerance.
+from protoboard.domain.board.pad_geometry import (
+    SNAP_TOL as _SNAP_TOL,
+    NodeKey as _NodeKey,
+    q as _q,
+    qkey as _qkey,
+)
 
 
 # ---------------------------------------------------------------------------
