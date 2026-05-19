@@ -12,6 +12,10 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from protoboard.domain.board.pad_state import PadIndex
 
 from PySide6.QtCore import QObject, Signal
 
@@ -42,6 +46,7 @@ class PerfMetrics:
     drc_ms: float = 0.0
     route_ms: float = 0.0
     graph_build_ms: float = 0.0
+    pad_index_build_ms: float = 0.0
     scene_items: int = 0
     wire_count: int = 0
     component_count: int = 0
@@ -145,6 +150,7 @@ class EditorSession(QObject):
         self._drc_issues: list[DRCIssue] = []
         self._dirty: bool = False
         self._graph: ConnectivityGraph | None = None  # rebuilt lazily; None = stale
+        self._pad_index: "PadIndex | None" = None
         self._comp_spatial_index: dict[tuple[int, int], list[uuid.UUID]] | None = None
         self._wire_spatial_index: dict[tuple[int, int], list[uuid.UUID]] | None = None
         self.perf: PerfMetrics = PerfMetrics()
@@ -179,8 +185,9 @@ class EditorSession(QObject):
         return self._routing_net_id
 
     def invalidate_graph(self) -> None:
-        """Mark the cached ConnectivityGraph and spatial indexes as stale."""
+        """Mark the cached ConnectivityGraph, PadIndex and spatial indexes as stale."""
         self._graph = None
+        self._pad_index = None
         self._comp_spatial_index = None
         self._wire_spatial_index = None
 
@@ -196,6 +203,26 @@ class EditorSession(QObject):
             )
             self.perf.graph_build_ms = (time.monotonic() - t0) * 1000
         return self._graph
+
+    def pad_index(self) -> "PadIndex":
+        """Return the cached PadIndex, rebuilding it if stale.
+
+        PadIndex is the single source of truth for per-pad occupancy
+        (electrical net + physical blockers) used by simplify, autoroute,
+        drag-conflict and DRC.  Lifetime parallels ``connectivity_graph()``.
+        """
+        if self._pad_index is None:
+            from protoboard.domain.board.pad_state import PadIndex
+            t0 = time.monotonic()
+            self._pad_index = PadIndex(
+                board=self.board,
+                layout=self.layout,
+                schematic=self.schematic,
+                components=self.components,
+                instances=self.instances,
+            )
+            self.perf.pad_index_build_ms = (time.monotonic() - t0) * 1000
+        return self._pad_index
 
     def comp_spatial_index(self) -> dict[tuple[int, int], list[uuid.UUID]]:
         """Return grid-cell → comp_id index, rebuilding lazily after layout_changed."""

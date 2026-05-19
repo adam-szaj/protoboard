@@ -3751,6 +3751,10 @@ class SelectTool(_Tool):
                     break
             wire_to_net[w.id] = wnet
 
+        # PadIndex is the authoritative pad-state source — fixes shorts
+        # the heuristic checks missed (shared pads, plated-through cross-
+        # layer, alien pins).
+        pad_index = session.pad_index()
         cmds: list[Command[ComponentState]] = []
         for wid in wire_ids:
             wire = next((w for w in all_wires if w.id == wid), None)
@@ -3767,6 +3771,7 @@ class SelectTool(_Tool):
                 wire_net_id=wire_to_net.get(wid),
                 other_wire_nets=wire_to_net,
                 pin_net_map=pad_to_net,
+                pad_index=pad_index,
             )
             if new_wire is wire or new_wire.path == wire.path:
                 continue

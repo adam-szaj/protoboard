@@ -383,6 +383,542 @@ class ConnectedDoubleSidedBoardPad(Pad):
         return set(_SIDES)
 
 
+# ---------------------------------------------------------------------------
+# PadIndex — runtime index of all pads on the board with their occupancy
+# ---------------------------------------------------------------------------
+
+import math
+from collections import defaultdict
+from typing import TYPE_CHECKING, Iterable, Iterator
+
+from protoboard.domain.board.pad_geometry import SNAP_TOL, qpair
+
+if TYPE_CHECKING:
+    from protoboard.domain.board.board import Board
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.layout.layout import Layout
+    from protoboard.domain.layout.placement import ComponentPlacement
+    from protoboard.domain.layout.wire import WireSegment
+    from protoboard.domain.schematic.schematic import Schematic
+
+
+# Half-raster tolerance for "bare wire passes through pad" detection.
+_CROSS_EPS = 0.5
+
+# Quantised position keys.  PadIndex keys pads by (qx, qy) — side-agnostic,
+# because both sides of one physical pad share the same hole.
+_PadKey = tuple[float, float]
+
+
+def _seg_point_dist(
+    px: float, py: float,
+    ax: float, ay: float,
+    bx: float, by: float,
+) -> float:
+    """Shortest distance from point (px, py) to segment (ax, ay)→(bx, by)."""
+    abx, aby = bx - ax, by - ay
+    ab_sq = abx * abx + aby * aby
+    if ab_sq < 1e-12:
+        return math.hypot(px - ax, py - ay)
+    t = ((px - ax) * abx + (py - ay) * aby) / ab_sq
+    t = max(0.0, min(1.0, t))
+    return math.hypot(px - ax - t * abx, py - ay - t * aby)
+
+
+class PadIndex:
+    """Per-pad occupancy index — single source of truth for pad state.
+
+    Algorithms (simplify, autoroute, drag-conflict, DRC) query
+    ``pad_at(pos)`` instead of re-deriving "is this pad occupied?" from
+    layout + schematic each time.
+
+    Lifetime: tied to ``EditorSession``; rebuilt on
+    ``invalidate_graph()`` (full rebuild) but supports incremental
+    ``add_wire``/``remove_wire``/``add_component``/``remove_component``
+    for callers that prefer faster updates.
+
+    Coordinate convention: pad centers at ``(col+0.5, row+0.5)`` in raster
+    units.  Positions within ±SNAP_TOL are treated as the same pad.
+    """
+
+    def __init__(
+        self,
+        board: "Board",
+        layout: "Layout",
+        schematic: "Schematic",
+        components: dict[str, "ComponentDefinition"],
+        instances: dict[uuid.UUID, "ComponentInstance"],
+    ) -> None:
+        self._board = board
+        self._components = components
+        self._instances = instances
+
+        # Core state: pad position → Pad
+        self._pads: dict[_PadKey, Pad] = {}
+
+        # Strip group bookkeeping: id → list of pad keys.
+        self._strips: dict[int, list[_PadKey]] = defaultdict(list)
+        self._next_strip_id: int = 0
+
+        # Spatial grid for fast "pads near segment" queries.  Key: integer
+        # cell (floor(x), floor(y)); value: list of pad keys whose pad
+        # center falls in that cell.
+        self._pad_grid: dict[tuple[int, int], list[_PadKey]] = defaultdict(list)
+
+        # Per-mutator records for undo without rebuild.
+        self._wire_records: dict[uuid.UUID, _WireFootprint] = {}
+        self._component_records: dict[uuid.UUID, _ComponentFootprint] = {}
+
+        # Build from scratch.
+        self._build_board_pads()
+        self._build_components(layout, schematic)
+        self._build_wires(layout, schematic)
+
+    # ------------------------------------------------------------------
+    # Build phase
+    # ------------------------------------------------------------------
+
+    def _build_board_pads(self) -> None:
+        """Walk board atoms and instantiate one Pad per hole."""
+        from protoboard.domain.board.boxes import PadAtom, StripAtom
+
+        for atom, center in self._board.atoms():
+            if isinstance(atom, PadAtom):
+                self._add_pad(center, atom.layers, strip_group_id=None)
+            elif isinstance(atom, StripAtom):
+                if atom.isolated:
+                    continue  # holes exist but no copper — skip for now
+                # Each hole of the strip = its own Pad, sharing a strip_group_id.
+                strip_id = self._next_strip_id
+                self._next_strip_id += 1
+                n = int(atom.length) if isinstance(atom.length, int) else 1
+                if atom.orientation == "horizontal":
+                    start_x = center.x - n / 2.0 + 0.5
+                    positions = [Point(start_x + i, center.y) for i in range(n)]
+                else:
+                    start_y = center.y - n / 2.0 + 0.5
+                    positions = [Point(center.x, start_y + i) for i in range(n)]
+                for pt in positions:
+                    self._add_pad(pt, atom.layers, strip_group_id=strip_id)
+                # Strip's holes are galvanically connected — represent that
+                # as a synthetic "strip bare wire" item shared across all
+                # holes.  Use a sentinel id and None net (the strip carries
+                # no net until a pin or user wire lands on it).
+                strip_item_id = uuid.UUID(int=0x5731_0000_0000_0000 | strip_id)
+                strip_item = BareWireItem(id=strip_item_id, net=None)
+                # All armed sides of every hole receive the item.
+                for pt in positions:
+                    key = qpair(pt)
+                    pad = self._pads[key]
+                    # Strip's copper is on whatever sides PadLayers indicate.
+                    for s in _SIDES:
+                        if (s == "top" and atom.layers.top) or \
+                           (s == "bottom" and atom.layers.bottom):
+                            pad._add_item(strip_item, s)
+
+    def _add_pad(
+        self,
+        position: Point,
+        layers: PadLayers,
+        strip_group_id: int | None,
+    ) -> None:
+        key = qpair(position)
+        if key in self._pads:
+            return  # dedup — same pad referenced multiple times
+        pad = self._board.make_pad(position, layers, strip_group_id=strip_group_id)
+        self._pads[key] = pad
+        cell = (int(math.floor(position.x)), int(math.floor(position.y)))
+        self._pad_grid[cell].append(key)
+        if strip_group_id is not None:
+            self._strips[strip_group_id].append(key)
+
+    def _build_components(
+        self, layout: "Layout", schematic: "Schematic",
+    ) -> None:
+        for comp_id, placement in layout.placements.items():
+            inst = self._instances.get(comp_id)
+            if inst is None:
+                continue
+            defn = self._components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            self.add_component(comp_id, placement, defn, schematic=schematic)
+
+    def _build_wires(
+        self, layout: "Layout", schematic: "Schematic",
+    ) -> None:
+        # Components/pins were added before wires; pads carrying a pinned
+        # net already report ``electrical_net_on(side)``.  A wire's net is
+        # the first such pad it touches.
+        for wire in layout.wires:
+            wire_net = self._wire_net_from_existing_pads(wire)
+            self.add_wire(wire, net=wire_net)
+
+    def _wire_net_from_existing_pads(
+        self, wire: "WireSegment",
+    ) -> "NetId | None":
+        """First path-vertex whose pad already carries a netted PinItem
+        determines the wire's net.  Defensive fallback returns None.
+        """
+        for pt in wire.path:
+            pad = self.pad_at(pt)
+            if pad is None:
+                continue
+            net = pad.electrical_net_on(wire.side)
+            if net is not None and net is not SHORT_CIRCUIT:
+                return net  # type: ignore[return-value]
+        return None
+
+    # ------------------------------------------------------------------
+    # Public queries
+    # ------------------------------------------------------------------
+
+    def pad_at(self, position: Point) -> Pad | None:
+        """Return the Pad at *position*, or None if no pad there."""
+        return self._pads.get(qpair(position))
+
+    def electrical_net_at(
+        self, position: Point, side: Side,
+    ) -> "NetId | None | object":
+        """Net on *side* of pad at *position*, ``None``, or ``SHORT_CIRCUIT``."""
+        pad = self.pad_at(position)
+        if pad is None:
+            return None
+        return pad.electrical_net_on(side)
+
+    def physically_blocked_at(
+        self, position: Point, side: Side,
+    ) -> list[Item]:
+        pad = self.pad_at(position)
+        if pad is None:
+            return []
+        return list(pad.physically_blocked_on(side))
+
+    def is_free(self, position: Point, side: Side) -> bool:
+        pad = self.pad_at(position)
+        if pad is None:
+            return True  # off-board → not blocked
+        return pad.is_free(side)
+
+    def can_route_through(
+        self,
+        position: Point,
+        side: Side,
+        our_net: "NetId | None",
+        wire_type: Literal["bare", "insulated"],
+    ) -> bool:
+        """May a wire of *wire_type* on *side* pass through pad at *position*?
+
+        A bare wire is rejected when:
+        - the pad's electrical_net on this side is a *different* non-None
+          net (foreign-net conflict), or SHORT_CIRCUIT;
+        - the pad has a ComponentBody on this side blocking physical access.
+
+        An insulated wire is rejected only when:
+        - the pad has a ComponentBody on this side, or
+        - an InsulatedWireCrossing/InsulatedWireItem of a *different* net
+          already occupies the air above this pad on this side.
+
+        Mid-segment crossing of *bare* wires over a pad is treated as
+        electrical contact (the conductor rests on the copper); algorithms
+        wanting "may my new bare wire vertex land here" should pass
+        ``wire_type="bare"``.
+        """
+        pad = self.pad_at(position)
+        if pad is None:
+            # Off-board — nothing to short, nothing to block.  Algorithms
+            # typically only call this for on-board candidates anyway.
+            return True
+        # ComponentBody is always a hard block.
+        for it in pad.physically_blocked_on(side):
+            if isinstance(it, ComponentBody):
+                return False
+        net = pad.electrical_net_on(side)
+        if net is SHORT_CIRCUIT:
+            return False
+        if wire_type == "bare":
+            if net is None:
+                return True
+            if our_net is None:
+                # We don't know our net — be conservative: any netted pad
+                # blocks (caller may relax for legitimate cases).
+                return False
+            return net == our_net
+        # Insulated:
+        for it in pad.physically_blocked_on(side):
+            if isinstance(it, (InsulatedWireItem, InsulatedWireCrossing)):
+                if our_net is not None and it.net == our_net:
+                    continue  # same net — sharing the air is OK
+                return False
+        return True
+
+    def iter_pads(self) -> Iterator[Pad]:
+        return iter(self._pads.values())
+
+    def pads_for_strip(self, strip_group_id: int) -> list[Pad]:
+        return [self._pads[k] for k in self._strips.get(strip_group_id, [])]
+
+    def pads_near_segment(
+        self,
+        ax: float, ay: float, bx: float, by: float,
+        eps: float = _CROSS_EPS,
+    ) -> list[Pad]:
+        """Pads whose center lies within *eps* raster units of segment a→b."""
+        x0 = int(math.floor(min(ax, bx) - eps))
+        x1 = int(math.floor(max(ax, bx) + eps))
+        y0 = int(math.floor(min(ay, by) - eps))
+        y1 = int(math.floor(max(ay, by) + eps))
+        out: list[Pad] = []
+        seen: set[_PadKey] = set()
+        for cx in range(x0, x1 + 1):
+            for cy in range(y0, y1 + 1):
+                for k in self._pad_grid.get((cx, cy), []):
+                    if k in seen:
+                        continue
+                    pad = self._pads.get(k)
+                    if pad is None:
+                        continue
+                    if _seg_point_dist(pad.position.x, pad.position.y,
+                                       ax, ay, bx, by) <= eps:
+                        seen.add(k)
+                        out.append(pad)
+        return out
+
+    # ------------------------------------------------------------------
+    # Mutation API — incremental updates
+    # ------------------------------------------------------------------
+
+    def add_wire(
+        self,
+        wire: "WireSegment",
+        net: "NetId | None" = None,
+    ) -> None:
+        """Place wire items on every pad the wire path touches.
+
+        * For bare wires: every path vertex gets a ``BareWireItem`` on
+          that side; every pad strictly between two adjacent vertices
+          and on the segment (within _CROSS_EPS) gets a
+          ``BareWireCrossing``.
+        * For insulated wires: only endpoints get ``InsulatedWireItem``;
+          interior vertices get ``InsulatedWireCrossing``.
+
+        Idempotent — calling twice with the same wire is a no-op
+        (records are keyed by ``wire.id``).
+        """
+        if wire.id in self._wire_records:
+            return
+        footprint: list[tuple[_PadKey, Side, Item]] = []
+        side = wire.side
+        path = list(wire.path)
+        n = len(path)
+        # Vertex items.
+        for i, pt in enumerate(path):
+            key = qpair(pt)
+            pad = self._pads.get(key)
+            if pad is None:
+                continue
+            is_endpoint = (i == 0 or i == n - 1)
+            if wire.insulated:
+                item: Item = (
+                    InsulatedWireItem(id=wire.id, net=net)
+                    if is_endpoint
+                    else InsulatedWireCrossing(id=wire.id, net=net)
+                )
+            else:
+                item = BareWireItem(id=wire.id, net=net)
+            pad._add_item(item, side)
+            footprint.append((key, side, item))
+        # Bare wire mid-segment pad crossings.
+        if not wire.insulated:
+            path_pts = {qpair(p) for p in path}
+            for i in range(n - 1):
+                a, b = path[i], path[i + 1]
+                for pad in self.pads_near_segment(a.x, a.y, b.x, b.y):
+                    key = qpair(pad.position)
+                    if key in path_pts:
+                        continue  # already covered by vertex item
+                    # Use a synthetic id per (wire, pad) pair so removing
+                    # the wire properly clears every crossing.
+                    item_xing = BareWireCrossing(id=wire.id, net=net)
+                    pad._add_item(item_xing, side)
+                    footprint.append((key, side, item_xing))
+        self._wire_records[wire.id] = _WireFootprint(items=footprint)
+
+    def remove_wire(self, wire: "WireSegment") -> None:
+        """Undo every contribution of *wire* recorded in the footprint."""
+        rec = self._wire_records.pop(wire.id, None)
+        if rec is None:
+            return
+        seen: set[tuple[_PadKey, Side]] = set()
+        for key, side, item in rec.items:
+            pad = self._pads.get(key)
+            if pad is None:
+                continue
+            if (key, side) in seen:
+                continue  # _remove_item removes ALL records of this id
+            pad._remove_item(item.id)
+            seen.add((key, side))
+
+    def add_component(
+        self,
+        comp_id: uuid.UUID,
+        placement: "ComponentPlacement",
+        defn: "ComponentDefinition",
+        schematic: "Schematic | None" = None,
+    ) -> None:
+        """Place pin items on each pad the component's pins land on, plus
+        component-body blockers on every pad covered by the component bbox.
+        """
+        if comp_id in self._component_records:
+            return
+        from protoboard.domain.layout.placement import (
+            component_bbox, pin_world_position,
+        )
+        footprint: list[tuple[_PadKey, Side, Item]] = []
+        side = placement.side
+        # Pin items.
+        pin_net_map: dict[int, NetId] = {}
+        if schematic is not None:
+            for net in schematic.nets.values():
+                for ref in net.pins:
+                    if ref.component_id == comp_id:
+                        pin_net_map[ref.pin_number] = net.id
+        for pin_num in range(1, defn.footprint.pin_count() + 1):
+            pin_pos = pin_world_position(defn.footprint, placement, pin_num)
+            key = qpair(pin_pos)
+            pad = self._pads.get(key)
+            if pad is None:
+                continue
+            pin_item = PinItem(
+                id=comp_id,
+                pin_number=pin_num,
+                net=pin_net_map.get(pin_num),
+            )
+            pad._add_item(pin_item, side)
+            footprint.append((key, side, pin_item))
+        # Component body — every pad inside the bbox (excluding pin pads
+        # which already have PinItem) gets a ComponentBody on this side.
+        bbox = component_bbox(defn.footprint, placement, defn.component_class)
+        body = ComponentBody(id=comp_id)
+        pin_keys = {f[0] for f in footprint}
+        for pad in self._pads_in_bbox(bbox):
+            key = qpair(pad.position)
+            if key in pin_keys:
+                continue
+            pad._add_item(body, side)
+            footprint.append((key, side, body))
+        self._component_records[comp_id] = _ComponentFootprint(items=footprint)
+
+    def remove_component(self, comp_id: uuid.UUID) -> None:
+        rec = self._component_records.pop(comp_id, None)
+        if rec is None:
+            return
+        seen: set[tuple[_PadKey, Side, uuid.UUID]] = set()
+        for key, side, item in rec.items:
+            pad = self._pads.get(key)
+            if pad is None:
+                continue
+            marker = (key, side, item.id)
+            if marker in seen:
+                continue
+            pad._remove_item(item.id)
+            seen.add(marker)
+
+    def update_component_pin_nets(
+        self,
+        comp_id: uuid.UUID,
+        new_nets_by_pin: dict[int, "NetId | None"],
+    ) -> None:
+        """When schematic changes pin↔net assignment without moving the
+        component, refresh the recorded PinItem.net on each affected pad.
+        """
+        rec = self._component_records.get(comp_id)
+        if rec is None:
+            return
+        new_items: list[tuple[_PadKey, Side, Item]] = []
+        for key, side, item in rec.items:
+            pad = self._pads.get(key)
+            if pad is None:
+                new_items.append((key, side, item))
+                continue
+            if isinstance(item, PinItem):
+                new_net = new_nets_by_pin.get(item.pin_number, item.net)
+                if new_net != item.net:
+                    pad._remove_item(item.id)
+                    new_item = PinItem(
+                        id=item.id, pin_number=item.pin_number, net=new_net,
+                    )
+                    pad._add_item(new_item, side)
+                    new_items.append((key, side, new_item))
+                    continue
+            new_items.append((key, side, item))
+        self._component_records[comp_id] = _ComponentFootprint(items=new_items)
+
+    def _pads_in_bbox(self, bbox) -> list[Pad]:  # noqa: ANN001  (Rect is geometry)
+        """Pads whose center lies inside *bbox* (inclusive on both bounds)."""
+        out: list[Pad] = []
+        # Brute-force iterate the grid cells the bbox covers.
+        x0 = int(math.floor(bbox.x))
+        x1 = int(math.floor(bbox.x + bbox.width))
+        y0 = int(math.floor(bbox.y))
+        y1 = int(math.floor(bbox.y + bbox.height))
+        for cx in range(x0, x1 + 1):
+            for cy in range(y0, y1 + 1):
+                for k in self._pad_grid.get((cx, cy), []):
+                    pad = self._pads.get(k)
+                    if pad is None:
+                        continue
+                    px, py = pad.position.x, pad.position.y
+                    if (
+                        bbox.x - SNAP_TOL <= px <= bbox.x + bbox.width + SNAP_TOL
+                        and bbox.y - SNAP_TOL <= py <= bbox.y + bbox.height + SNAP_TOL
+                    ):
+                        out.append(pad)
+        return out
+
+    # ------------------------------------------------------------------
+    # Clone — for drag-conflict trial state
+    # ------------------------------------------------------------------
+
+    def clone(self) -> "PadIndex":
+        """Deep-copy enough state to allow trial mutations.
+
+        Used by drag-conflict classifier: clone, apply hypothetical move,
+        query, discard.  ``Board`` and component definitions are shared
+        (immutable); pads + records are deep-copied.
+        """
+        import copy as _copy
+
+        new = PadIndex.__new__(PadIndex)
+        new._board = self._board
+        new._components = self._components
+        new._instances = self._instances
+        new._pads = {k: _copy.deepcopy(p) for k, p in self._pads.items()}
+        new._strips = {k: list(v) for k, v in self._strips.items()}
+        new._next_strip_id = self._next_strip_id
+        new._pad_grid = {k: list(v) for k, v in self._pad_grid.items()}
+        new._wire_records = {
+            k: _WireFootprint(items=list(v.items))
+            for k, v in self._wire_records.items()
+        }
+        new._component_records = {
+            k: _ComponentFootprint(items=list(v.items))
+            for k, v in self._component_records.items()
+        }
+        return new
+
+
+@dataclass
+class _WireFootprint:
+    items: list[tuple[_PadKey, Side, Item]]
+
+
+@dataclass
+class _ComponentFootprint:
+    items: list[tuple[_PadKey, Side, Item]]
+
+
 __all__ = [
     "NetId",
     "Side",
@@ -398,4 +934,5 @@ __all__ = [
     "SingleSidedBoardPad",
     "IsolatedDoubleSidedBoardPad",
     "ConnectedDoubleSidedBoardPad",
+    "PadIndex",
 ]

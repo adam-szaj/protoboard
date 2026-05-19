@@ -300,3 +300,205 @@ class TestMultiSourceTracking:
         p._remove_item(w.id)
         assert p.electrical_net == (None, None)
         assert p.physically_blocked == ([], [])
+
+
+# ---------------------------------------------------------------------------
+# PadIndex — full lifecycle on a small board
+# ---------------------------------------------------------------------------
+
+
+from protoboard.domain.board.pad_state import PadIndex
+from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.footprints import SIL
+from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.schematic.net import Net
+from protoboard.domain.schematic.schematic import PinRef, Schematic
+
+
+def _perfboard(rows: int, cols: int) -> Board:
+    return Board(root=BoardGrid(
+        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+        cell=PadAtom(
+            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            layers=PadLayers(top=True, bottom=True, plated_through=True),
+        ),
+        rows=rows, cols=cols, row_gap=0, col_gap=0,
+    ))
+
+
+def _bare_wire(*pts: tuple[float, float], side: str = "top") -> WireSegment:
+    return WireSegment(
+        id=uuid.uuid4(),
+        path=[Point(x, y) for x, y in pts],
+        insulated=False, side=side,  # type: ignore[arg-type]
+    )
+
+
+def _empty_layout() -> Layout:
+    lay = Layout()
+    lay.ensure_root_group()
+    return lay
+
+
+class TestPadIndexBuild:
+    def test_pads_populated_from_board(self) -> None:
+        board = _perfboard(3, 3)
+        idx = PadIndex(board, _empty_layout(), Schematic(nets={}), {}, {})
+        # 3x3 board → 9 pads
+        assert len(list(idx.iter_pads())) == 9
+        assert idx.pad_at(Point(0.5, 0.5)) is not None
+        assert idx.pad_at(Point(2.5, 2.5)) is not None
+        assert idx.pad_at(Point(3.5, 3.5)) is None  # off-board
+
+    def test_bare_wire_populates_pads(self) -> None:
+        board = _perfboard(3, 3)
+        lay = _empty_layout()
+        w = _bare_wire((0.5, 0.5), (2.5, 0.5))
+        lay.wires.append(w)
+        idx = PadIndex(board, lay, Schematic(nets={}), {}, {})
+        # All three pads on y=0.5 should have a wire item on top.
+        for x in (0.5, 1.5, 2.5):
+            pad = idx.pad_at(Point(x, 0.5))
+            assert pad is not None
+            assert len(pad.physically_blocked_on("top")) == 1
+
+    def test_component_pin_adds_pin_item_and_net(self) -> None:
+        board = _perfboard(3, 3)
+        defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={})
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+        pl = ComponentPlacement(
+            component_id=inst.id, position=Point(0.5, 0.5),
+            rotation=90, side="top",  # SIL(2) rot=90: pin2 at (1.5, 0.5)
+        )
+        lay = _empty_layout()
+        lay.placements[inst.id] = pl
+        net_id = uuid.uuid4()
+        sch = Schematic(nets={net_id: Net(
+            id=net_id, name="N1",
+            pins=frozenset({PinRef(component_id=inst.id, pin_number=1)}),
+        )})
+        idx = PadIndex(board, lay, sch, {"R": defn}, {inst.id: inst})
+        pin_pad = idx.pad_at(Point(0.5, 0.5))
+        assert pin_pad is not None
+        # Pin on plated-through pad propagates to both sides.
+        assert pin_pad.electrical_net == (net_id, net_id)
+        # PinItem present on both sides (through-hole).
+        assert len(pin_pad.physically_blocked_on("top")) == 1
+        assert len(pin_pad.physically_blocked_on("bottom")) == 1
+
+
+class TestPadIndexIncremental:
+    def test_add_remove_wire_roundtrip(self) -> None:
+        board = _perfboard(3, 3)
+        idx = PadIndex(board, _empty_layout(), Schematic(nets={}), {}, {})
+        w = _bare_wire((0.5, 0.5), (2.5, 0.5))
+        idx.add_wire(w)
+        # Pads carry the wire.
+        for x in (0.5, 1.5, 2.5):
+            pad = idx.pad_at(Point(x, 0.5))
+            assert pad is not None
+            assert len(pad.physically_blocked_on("top")) == 1
+        # Remove → state identical to pre-add.
+        idx.remove_wire(w)
+        for x in (0.5, 1.5, 2.5):
+            pad = idx.pad_at(Point(x, 0.5))
+            assert pad is not None
+            assert len(pad.physically_blocked_on("top")) == 0
+
+    def test_multi_same_net_wire_removal_keeps_net(self) -> None:
+        board = _perfboard(3, 3)
+        idx = PadIndex(board, _empty_layout(), Schematic(nets={}), {}, {})
+        n = _net()
+        w1 = _bare_wire((0.5, 0.5), (1.5, 0.5))
+        w2 = _bare_wire((0.5, 0.5), (0.5, 1.5))
+        idx.add_wire(w1, net=n)
+        idx.add_wire(w2, net=n)
+        pad = idx.pad_at(Point(0.5, 0.5))
+        assert pad is not None
+        assert pad.electrical_net_on("top") == n
+        idx.remove_wire(w1)
+        # w2 still contributes the net.
+        assert pad.electrical_net_on("top") == n
+        idx.remove_wire(w2)
+        assert pad.electrical_net_on("top") is None
+
+    def test_bare_mid_segment_crossing(self) -> None:
+        # Diagonal wire (0.5,0.5)→(2.5,2.5) passes through pad (1.5, 1.5).
+        board = _perfboard(3, 3)
+        idx = PadIndex(board, _empty_layout(), Schematic(nets={}), {}, {})
+        n = _net()
+        w = _bare_wire((0.5, 0.5), (2.5, 2.5))
+        idx.add_wire(w, net=n)
+        mid = idx.pad_at(Point(1.5, 1.5))
+        assert mid is not None
+        # Bare wire crossing → BareWireCrossing on the pad, electrical net set.
+        items = mid.physically_blocked_on("top")
+        assert any(it.kind == "bare_crossing" for it in items)
+        assert mid.electrical_net_on("top") == n
+
+
+class TestPadIndexCanRouteThrough:
+    def test_bare_same_net_pad_allowed(self) -> None:
+        board = _perfboard(3, 3)
+        idx = PadIndex(board, _empty_layout(), Schematic(nets={}), {}, {})
+        n = _net()
+        idx.add_wire(_bare_wire((0.5, 0.5), (1.5, 0.5)), net=n)
+        assert idx.can_route_through(
+            Point(1.5, 0.5), "top", our_net=n, wire_type="bare",
+        )
+
+    def test_bare_alien_net_pad_blocked(self) -> None:
+        board = _perfboard(3, 3)
+        idx = PadIndex(board, _empty_layout(), Schematic(nets={}), {}, {})
+        their_net = _net()
+        our_net = _net()
+        idx.add_wire(_bare_wire((0.5, 0.5), (1.5, 0.5)), net=their_net)
+        assert not idx.can_route_through(
+            Point(1.5, 0.5), "top", our_net=our_net, wire_type="bare",
+        )
+
+    def test_bare_free_pad_allowed(self) -> None:
+        board = _perfboard(3, 3)
+        idx = PadIndex(board, _empty_layout(), Schematic(nets={}), {}, {})
+        assert idx.can_route_through(
+            Point(0.5, 0.5), "top", our_net=None, wire_type="bare",
+        )
+
+    def test_plated_through_alien_net_other_side_blocked(self) -> None:
+        # Real-world user_tangled_04 case: bare wire on bottom of net A
+        # makes top of plated-through pad also alien-net A.  Top-side
+        # candidate of net B must be blocked.
+        board = _perfboard(3, 3)
+        idx = PadIndex(board, _empty_layout(), Schematic(nets={}), {}, {})
+        net_a = _net()
+        net_b = _net()
+        idx.add_wire(_bare_wire((0.5, 0.5), (1.5, 0.5), side="bottom"), net=net_a)
+        # Top side of (1.5, 0.5) now also carries net A.
+        assert not idx.can_route_through(
+            Point(1.5, 0.5), "top", our_net=net_b, wire_type="bare",
+        )
+
+
+class TestPadIndexClone:
+    def test_clone_is_independent(self) -> None:
+        board = _perfboard(3, 3)
+        idx = PadIndex(board, _empty_layout(), Schematic(nets={}), {}, {})
+        n = _net()
+        idx.add_wire(_bare_wire((0.5, 0.5), (1.5, 0.5)), net=n)
+        twin = idx.clone()
+        # Remove from clone, original unchanged.
+        for wid, _ in list(twin._wire_records.items()):
+            wire_obj = WireSegment(
+                id=wid, path=[Point(0.5, 0.5), Point(1.5, 0.5)],
+                insulated=False, side="top",
+            )
+            twin.remove_wire(wire_obj)
+        # Original still has the wire on pads.
+        pad_orig = idx.pad_at(Point(1.5, 0.5))
+        pad_twin = twin.pad_at(Point(1.5, 0.5))
+        assert pad_orig is not None and pad_twin is not None
+        assert pad_orig.electrical_net_on("top") == n
+        assert pad_twin.electrical_net_on("top") is None

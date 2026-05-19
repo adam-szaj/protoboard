@@ -583,6 +583,42 @@ def _parity_ok_for_bare(
     return True
 
 
+def _candidate_safe_via_pad_index(
+    candidate_vertices: list[Point],
+    original_endpoints: "tuple[Point, Point]",
+    pad_index: object,
+    wire_side: str,
+    wire_net_id: "uuid.UUID | None",
+    wire_is_insulated: bool,
+) -> bool:
+    """Per-vertex pad-state check.
+
+    Asks the PadIndex whether each candidate vertex (other than the two
+    endpoints of the replaced sub-path, which were pre-existing contacts)
+    can carry a wire of *wire_net_id* on *wire_side*.  This is the
+    authoritative check — it catches every short class because it
+    consults the canonical pad-state index, not heuristics rebuilt from
+    layout dicts.
+    """
+    if pad_index is None:
+        return True  # caller hasn't migrated yet — preserve legacy path
+    wire_type = "insulated" if wire_is_insulated else "bare"
+    ep0_x, ep0_y = original_endpoints[0].x, original_endpoints[0].y
+    ep1_x, ep1_y = original_endpoints[1].x, original_endpoints[1].y
+    for v in candidate_vertices:
+        # Endpoints of the replaced subpath were already part of the
+        # wire — any contact there is pre-existing.  Only check NEW
+        # vertices.
+        if (abs(v.x - ep0_x) < _EPS and abs(v.y - ep0_y) < _EPS) or \
+           (abs(v.x - ep1_x) < _EPS and abs(v.y - ep1_y) < _EPS):
+            continue
+        if not pad_index.can_route_through(  # type: ignore[attr-defined]
+            v, wire_side, wire_net_id, wire_type,
+        ):
+            return False
+    return True
+
+
 def generic_simplify_wire(
     wire: WireSegment,
     other_wires: list[WireSegment],
@@ -594,6 +630,7 @@ def generic_simplify_wire(
     wire_net_id: "uuid.UUID | None" = None,
     other_wire_nets: "dict[uuid.UUID, uuid.UUID | None] | None" = None,
     pin_net_map: "dict[Point, uuid.UUID] | None" = None,
+    pad_index: object = None,
 ) -> WireSegment:
     """Shorten *wire* by replacing any subpath ``path[i..j]`` with the
     canonical (grid-aligned shortest) path between its endpoints, when safe.
@@ -678,6 +715,21 @@ def generic_simplify_wire(
                     candidate_segs, src_parity
                 ):
                     continue
+                # Pad-state authoritative check (preferred path when caller
+                # supplied a PadIndex).  Catches: shared-pad shorts, alien
+                # pins, plated-through cross-layer shorts, insulated endpoint
+                # contacts — all the cases that legacy heuristics missed.
+                if pad_index is not None and not _candidate_safe_via_pad_index(
+                    list(canon),
+                    (path[i], path[j]),
+                    pad_index,
+                    wire.side,
+                    wire_net_id,
+                    wire.insulated,
+                ):
+                    continue
+                # Geometric mid-air crossings — PadIndex doesn't know about
+                # segments BETWEEN pads, so this stays.
                 if not _candidate_safe_against_others(
                     candidate_segs,
                     other_wires,
@@ -690,15 +742,17 @@ def generic_simplify_wire(
                     continue
                 if not _candidate_safe_against_own(candidate_segs, wire, i, j):
                     continue
-                # Reconstruct wire-as-of-now for the own-path check after the
-                # alien-pad check (cheap; same data).
-                if _new_alien_pad_contact(
+                # Legacy alien-pad-contact check — kept as a fallback when
+                # caller hasn't migrated to PadIndex yet.  When PadIndex is
+                # provided, the per-vertex check above is authoritative and
+                # this duplicate check is harmless (always passes).
+                if pad_index is None and _new_alien_pad_contact(
                     candidate_segs, wire, pad_to_net, wire_net_id
                 ):
                     continue
-                # Alien-pin pass-through: the candidate must not run through
-                # or terminate at a pin whose net differs from wire_net_id.
-                if not wire.insulated and _candidate_pins_alien(
+                # Legacy alien-pin pass-through — same story.
+                if pad_index is None and not wire.insulated \
+                        and _candidate_pins_alien(
                     candidate_segs, list(canon), pin_net_map,
                     wire_net_id, list(wire.path),
                 ):
