@@ -38,7 +38,7 @@ FIXTURE = Path(__file__).parent.parent / "fixtures" / "redundant_route_steiner"
 class TestRedundantRoutes:
     def test_steiner_three_pin_net_has_no_double_path(self) -> None:
         lib = load_library([BUILTIN_LIBRARY_DIR])
-        board, layout, schematic, instances, routing, _ = load_project(FIXTURE)
+        board, layout, schematic, instances, routing, _, _ = load_project(FIXTURE)
         components = {name: lib.get(name) for name in lib.names()}
 
         # Re-route from a clean slate — drop the fixture's own wires so the

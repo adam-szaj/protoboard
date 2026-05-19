@@ -101,6 +101,7 @@ class LayerOverrides:
     pin_names:         LayerVisibility = LayerVisibility.FULL
     connectness:       LayerVisibility = LayerVisibility.FULL
     ratsnest:          LayerVisibility = LayerVisibility.FULL
+    axis_labels:       LayerVisibility = LayerVisibility.FULL
 
     def reset(self) -> None:
         """Reset all overrides to FULL."""
@@ -188,6 +189,9 @@ class LayerState:
     def alpha_for_pin_names(self, side: Literal["top", "bottom"]) -> float:
         tool_alpha = self.alpha_for_component(side)
         return self._vis_alpha(self.overrides.pin_names, tool_alpha)
+
+    def alpha_for_axis_labels(self) -> float:
+        return self._vis_alpha(self.overrides.axis_labels, 1.0)
 
     @property
     def connectness_enabled(self) -> bool:

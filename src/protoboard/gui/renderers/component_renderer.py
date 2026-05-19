@@ -111,6 +111,14 @@ def _make_overlay_label(
     anchor='top_left'    — (scene_x, scene_y) is the top-left corner (default).
     anchor='bottom_right' — (scene_x, scene_y) is the bottom-right corner;
                             the label is shifted so its bottom-right lands there.
+
+    NOTE: a pixel-perfect "center" anchor is intentionally not provided here.
+    ``QGraphicsTextItem`` with ``ItemIgnoresTransformations`` reports
+    ``boundingRect()`` in *device pixels* but ``setPos()`` takes *scene*
+    coordinates — mixing them via ``scene_x - br.width()/2`` produces an
+    offset roughly 60× too large at the default zoom.  Callers that want
+    centring should compute the offset in scene units themselves (e.g.
+    using the current view scale) and pass ``anchor='top_left'``.
     """
     text_item = QGraphicsTextItem(text)
     text_item.setFont(font)

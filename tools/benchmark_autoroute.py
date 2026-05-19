@@ -118,7 +118,7 @@ def main() -> int:
 
     print(f"Loading project: {fixture}", file=sys.stderr)
     lib = load_library([BUILTIN_LIBRARY_DIR])
-    board, layout, schematic, instances, routing, _ = load_project(fixture)
+    board, layout, schematic, instances, routing, _, _ = load_project(fixture)
     components = {name: lib.get(name) for name in lib.names()}
     cost_model = routing.cost_model()
     layout_clean = replace(layout, wires=[])

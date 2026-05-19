@@ -40,9 +40,7 @@ class ReplayState:
         library: ComponentLibrary,
     ) -> "ReplayState":
         """Load a project directory and bind it to a fresh ReplayState."""
-        board, layout, schematic, instances, _routing, _layers = load_project(
-            project_dir
-        )
+        board, layout, schematic, instances, *_rest = load_project(project_dir)
         components = {name: library.get(name) for name in library.names()}
         return cls(
             board=board,

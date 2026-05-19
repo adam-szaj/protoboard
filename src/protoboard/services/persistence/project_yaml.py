@@ -27,6 +27,10 @@ from protoboard.domain.layout.normalize import (
 )
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.axis_labels_settings import (
+    AxisLabelFormat,
+    AxisLabelSettings,
+)
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.gui.layer_state import LayerOverrides, LayerVisibility
 from protoboard.domain.schematic.net import Net, PinRef
@@ -54,6 +58,7 @@ def save_project(
     instances: dict[uuid.UUID, ComponentInstance] | None = None,
     routing_settings: RoutingSettings | None = None,
     layer_overrides: LayerOverrides | None = None,
+    axis_label_settings: AxisLabelSettings | None = None,
 ) -> None:
     _log.info("project.saving", path=str(directory))
     directory.mkdir(parents=True, exist_ok=True)
@@ -69,6 +74,13 @@ def save_project(
         layers_path = directory / "layers.yaml"
         if layers_path.exists():
             layers_path.unlink()
+    # axis_labels.yaml: written only when at least one axis is enabled — keeps
+    # the project directory tidy for the common "no axis labels" case.
+    axis_path = directory / "axis_labels.yaml"
+    if axis_label_settings is not None and axis_label_settings.any_enabled():
+        _write(axis_path, _axis_labels_to_yaml(axis_label_settings))
+    elif axis_path.exists():
+        axis_path.unlink()
     _log.info(
         "project.saved",
         path=str(directory),
@@ -211,7 +223,10 @@ def _schematic_to_yaml(schematic: Schematic) -> str:
 
 def load_project(
     directory: Path,
-) -> tuple[Board, Layout, Schematic, dict[uuid.UUID, ComponentInstance], RoutingSettings, LayerOverrides]:
+) -> tuple[
+    Board, Layout, Schematic, dict[uuid.UUID, ComponentInstance],
+    RoutingSettings, LayerOverrides, AxisLabelSettings,
+]:
     _log.info("project.loading", path=str(directory))
     try:
         board = board_from_yaml((directory / "board.yaml").read_text())
@@ -232,6 +247,11 @@ def load_project(
             layer_overrides = _layer_overrides_from_yaml(layers_path.read_text())
         else:
             layer_overrides = LayerOverrides()
+        axis_path = directory / "axis_labels.yaml"
+        if axis_path.exists():
+            axis_label_settings = _axis_labels_from_yaml(axis_path.read_text())
+        else:
+            axis_label_settings = AxisLabelSettings()
     except FileNotFoundError as exc:
         _log.warning("project.load_failed", path=str(directory), error=str(exc))
         raise SerializationError(f"Missing project file: {exc}") from exc
@@ -277,7 +297,10 @@ def load_project(
     # Attach the report to the layout via a module-level dict so MainWindow
     # can pick it up and show a toast without changing the return signature.
     _last_load_report[directory] = report
-    return board, layout, schematic, instances, routing_settings, layer_overrides
+    return (
+        board, layout, schematic, instances,
+        routing_settings, layer_overrides, axis_label_settings,
+    )
 
 
 # Per-directory record of the last normalize report so the GUI can pick it up
@@ -513,6 +536,34 @@ def _layer_overrides_from_yaml(text: str) -> LayerOverrides:
             if raw in valid:
                 setattr(overrides, f, LayerVisibility(raw))
     return overrides
+
+
+def _axis_labels_to_yaml(settings: AxisLabelSettings) -> str:
+    data: dict[str, str] = {
+        "columns": settings.columns.value,
+        "rows": settings.rows.value,
+    }
+    buf = io.StringIO()
+    _yaml.dump(data, buf)
+    return buf.getvalue()
+
+
+def _axis_labels_from_yaml(text: str) -> AxisLabelSettings:
+    try:
+        data = _yaml.load(text)
+    except Exception as exc:
+        raise SerializationError(f"Axis labels YAML error: {exc}") from exc
+    if not isinstance(data, dict):
+        return AxisLabelSettings()
+    valid = {v.value for v in AxisLabelFormat}
+
+    def _read(key: str) -> AxisLabelFormat:
+        raw = data.get(key)
+        if isinstance(raw, str) and raw in valid:
+            return AxisLabelFormat(raw)
+        return AxisLabelFormat.DISABLED
+
+    return AxisLabelSettings(columns=_read("columns"), rows=_read("rows"))
 
 
 __all__ = ["load_project", "save_project"]

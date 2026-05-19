@@ -825,7 +825,8 @@ class MainWindow(QMainWindow):
         if not self._check_unsaved_changes("opening another project"):
             return
         try:
-            board, layout, schematic, instances, routing_settings, layer_overrides = load_project(path)
+            (board, layout, schematic, instances,
+             routing_settings, layer_overrides, axis_label_settings) = load_project(path)
         except Exception as exc:
             QMessageBox.critical(self, "Open error", str(exc))
             return
@@ -836,6 +837,7 @@ class MainWindow(QMainWindow):
         session.schematic = schematic
         session.instances = instances
         session.routing_settings = routing_settings
+        session.axis_label_settings = axis_label_settings
         session.project_path = path
         recent_projects.add(path)
         session.start_recording()
@@ -1390,6 +1392,7 @@ class MainWindow(QMainWindow):
                 instances=self._session.instances,
                 routing_settings=self._session.routing_settings,
                 layer_overrides=self._session.layer_overrides,
+                axis_label_settings=self._session.axis_label_settings,
             )
             recent_projects.add(path)
         except Exception as exc:
@@ -2265,10 +2268,15 @@ class MainWindow(QMainWindow):
             on_keybindings_applied=self._apply_all_keybindings,
             on_theme_applied=self._on_theme_applied,
             on_paths_applied=self._on_paths_applied,
+            on_axis_labels_applied=self._on_axis_labels_applied,
             session=self._session,
             parent=self,
         )
         dlg.exec()
+
+    def _on_axis_labels_applied(self) -> None:
+        """Re-render after the user changes the axis-label format."""
+        self._board_view.refresh()
 
     def _apply_all_keybindings(self) -> None:
         """Re-apply QAction shortcuts from the current KeyBindings table.

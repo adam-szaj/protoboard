@@ -74,7 +74,8 @@ def _open_session(
         if project_path is None:
             return None
         try:
-            board, layout, schematic, instances, routing_settings, layer_overrides = load_project(project_path)
+            (board, layout, schematic, instances,
+             routing_settings, layer_overrides, axis_label_settings) = load_project(project_path)
         except Exception as exc:
             _log.warning("project.open_failed", path=str(project_path), error=str(exc))
             QMessageBox.critical(None, "Open error", str(exc))
@@ -85,6 +86,7 @@ def _open_session(
         session.schematic = schematic
         session.instances = instances
         session.routing_settings = routing_settings
+        session.axis_label_settings = axis_label_settings
         session.project_path = project_path
         session.layer_overrides = layer_overrides
         recent_projects.add(project_path)

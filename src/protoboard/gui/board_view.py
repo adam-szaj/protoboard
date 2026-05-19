@@ -671,6 +671,18 @@ class BoardView(QGraphicsView):
                 theme=_theme,
                 active_group_id=self._active_group_id,
             ))
+        if self._session.axis_label_settings.any_enabled():
+            from protoboard.gui.renderers.axis_labels_renderer import (
+                render_axis_labels,
+            )
+            new_overlays.extend(render_axis_labels(
+                self._scene,
+                self._session.board,
+                self._session.axis_label_settings,
+                theme=_theme,
+                alpha=layers.alpha_for_axis_labels(),
+                view_scale=self._scale,
+            ))
         self._overlay_items = new_overlays
 
         # ── Scene rect ───────────────────────────────────────────────────────

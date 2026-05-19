@@ -38,7 +38,7 @@ def m4_project():
     from protoboard.services.persistence.project_yaml import load_project
 
     lib = load_library([BUILTIN_LIBRARY_DIR])
-    board, layout, schematic, instances, routing, _ = load_project(_M4_PATH)
+    board, layout, schematic, instances, routing, _, _ = load_project(_M4_PATH)
     components = {name: lib.get(name) for name in lib.names()}
     return board, layout, schematic, instances, routing, lib, components
 
@@ -75,6 +75,6 @@ def gold_project():
     from protoboard.services.persistence.project_yaml import load_project
 
     lib = load_library([BUILTIN_LIBRARY_DIR])
-    board, layout, schematic, instances, routing, _ = load_project(_GOLD_PATH)
+    board, layout, schematic, instances, routing, _, _ = load_project(_GOLD_PATH)
     components = {name: lib.get(name) for name in lib.names()}
     return board, layout, schematic, instances, routing, lib, components

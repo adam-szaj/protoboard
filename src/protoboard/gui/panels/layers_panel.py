@@ -28,6 +28,7 @@ _LAYER_DEFS = [
     ("pin_names",         "Pin Names",         "8"),
     ("connectness",       "Connectness",       "9"),
     ("ratsnest",          "Ratsnest",          "0"),
+    ("axis_labels",       "Axis Labels",       ""),
 ]
 
 # Background colours per visibility state.

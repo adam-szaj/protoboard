@@ -33,6 +33,7 @@ from protoboard.services.drc.engine import DRCEngine, DRCIssue
 from protoboard.domain.components.body_type import BodyTypeSpec
 from protoboard.services.library.body_type_loader import load_body_types
 from protoboard.services.library.loader import ComponentLibrary
+from protoboard.domain.axis_labels_settings import AxisLabelSettings
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.gui.layer_state import LayerOverrides
 from protoboard.gui.highlight_state import HighlightStack
@@ -144,6 +145,7 @@ class EditorSession(QObject):
         self.body_types: dict[str, BodyTypeSpec] = load_body_types()
         self.stack: CommandStack[ComponentState] = CommandStack()
         self.routing_settings: RoutingSettings = RoutingSettings()
+        self.axis_label_settings: AxisLabelSettings = AxisLabelSettings()
         self.layer_overrides: LayerOverrides = LayerOverrides()
         self.highlight_stack: HighlightStack = HighlightStack(self)
         self._routing_net_id: uuid.UUID | None = None

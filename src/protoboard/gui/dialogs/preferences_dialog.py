@@ -717,8 +717,94 @@ def _cost_spinbox(
 # Main dialog
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Page — Board (axis labels)
+# ---------------------------------------------------------------------------
+
+
+class _BoardPage(QWidget):
+    """Per-project board-display settings — column/row index labels."""
+
+    # Display string ↔ AxisLabelFormat value
+    _OPTIONS: list[tuple[str, str]] = [
+        ("Disabled",      "disabled"),
+        ("0, 1, 2, …",    "numeric_0"),
+        ("1, 2, 3, …",    "numeric_1"),
+        ("a, b, c, …",    "alphabetic"),
+    ]
+
+    def __init__(self, session: object, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        from protoboard.gui.session import EditorSession
+
+        self._session: EditorSession = session  # type: ignore[assignment]
+
+        vbox = QVBoxLayout(self)
+        vbox.setSpacing(10)
+        vbox.setContentsMargins(8, 8, 8, 8)
+
+        grp = QGroupBox("Axis index labels")
+        form = _RoutingFormLayout(grp)
+
+        from PySide6.QtWidgets import QComboBox
+
+        self._columns = QComboBox()
+        for label, data in self._OPTIONS:
+            self._columns.addItem(label, data)
+        form.addRow("Columns format", self._columns)
+
+        self._rows = QComboBox()
+        for label, data in self._OPTIONS:
+            self._rows.addItem(label, data)
+        form.addRow("Rows format", self._rows)
+
+        grp.setLayout(form)
+        vbox.addWidget(grp)
+
+        help_label = QLabel(
+            "Labels are drawn on all four sides of the board.  Visibility can\n"
+            "be toggled separately from the Layers panel (\"Axis Labels\")."
+        )
+        help_label.setStyleSheet("color: #888;")
+        vbox.addWidget(help_label)
+        vbox.addStretch()
+
+        self._load_from_settings()
+
+    def _load_from_settings(self) -> None:
+        s = self._session.axis_label_settings
+        self._set_combo(self._columns, s.columns.value)
+        self._set_combo(self._rows, s.rows.value)
+
+    @staticmethod
+    def _set_combo(combo: object, value: str) -> None:
+        for i in range(combo.count()):  # type: ignore[attr-defined]
+            if combo.itemData(i) == value:  # type: ignore[attr-defined]
+                combo.setCurrentIndex(i)  # type: ignore[attr-defined]
+                return
+
+    def apply(self) -> None:
+        from protoboard.domain.axis_labels_settings import (
+            AxisLabelFormat,
+            AxisLabelSettings,
+        )
+        new_settings = AxisLabelSettings(
+            columns=AxisLabelFormat(self._columns.currentData()),
+            rows=AxisLabelFormat(self._rows.currentData()),
+        )
+        if new_settings == self._session.axis_label_settings:
+            return
+        self._session.axis_label_settings = new_settings
+        self._session.mark_dirty()
+
+
+# ---------------------------------------------------------------------------
+# PreferencesDialog
+# ---------------------------------------------------------------------------
+
+
 class PreferencesDialog(QDialog):
-    """Application preferences — Shortcuts, Colours, Paths, Routing."""
+    """Application preferences — Shortcuts, Colours, Paths, Routing, Board."""
 
     def __init__(
         self,
@@ -728,6 +814,7 @@ class PreferencesDialog(QDialog):
         on_keybindings_applied: Callable[[], None] | None = None,
         on_theme_applied: Callable[[Theme], None] | None = None,
         on_paths_applied: Callable[[AppSettings], None] | None = None,
+        on_axis_labels_applied: Callable[[], None] | None = None,
         session: object | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -741,6 +828,7 @@ class PreferencesDialog(QDialog):
         self._on_keybindings_applied = on_keybindings_applied
         self._on_theme_applied = on_theme_applied
         self._on_paths_applied = on_paths_applied
+        self._on_axis_labels_applied = on_axis_labels_applied
         self._theme = theme
 
         outer = QHBoxLayout(self)
@@ -749,7 +837,7 @@ class PreferencesDialog(QDialog):
         self._nav = QListWidget()
         self._nav.setFixedWidth(140)
         self._nav.setSpacing(2)
-        for label in ("Shortcuts", "Colours", "Paths", "Routing"):
+        for label in ("Shortcuts", "Colours", "Paths", "Routing", "Board"):
             item = QListWidgetItem(label)
             item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             self._nav.addItem(item)
@@ -763,16 +851,24 @@ class PreferencesDialog(QDialog):
         self._routing_page: _RoutingPage | None = (
             _RoutingPage(session, self) if session is not None else None
         )
+        self._board_page: _BoardPage | None = (
+            _BoardPage(session, self) if session is not None else None
+        )
         self._stack.addWidget(self._shortcuts_page)
         self._stack.addWidget(self._colors_page)
         self._stack.addWidget(self._paths_page)
         if self._routing_page is not None:
             self._stack.addWidget(self._routing_page)
         else:
-            # Placeholder when no session (e.g. no project open)
             placeholder = QLabel("Open a project to configure routing settings.")
             placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._stack.addWidget(placeholder)
+        if self._board_page is not None:
+            self._stack.addWidget(self._board_page)
+        else:
+            placeholder_b = QLabel("Open a project to configure board settings.")
+            placeholder_b.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._stack.addWidget(placeholder_b)
         outer.addWidget(self._stack)
 
         self._nav.currentRowChanged.connect(self._stack.setCurrentIndex)
@@ -811,6 +907,10 @@ class PreferencesDialog(QDialog):
                 self._on_paths_applied(self._paths_page._settings)
         elif idx == 3 and self._routing_page is not None:
             self._routing_page.apply()
+        elif idx == 4 and self._board_page is not None:
+            self._board_page.apply()
+            if self._on_axis_labels_applied:
+                self._on_axis_labels_applied()
 
     def _on_ok(self) -> None:
         # Apply all pages
@@ -825,4 +925,8 @@ class PreferencesDialog(QDialog):
             self._on_paths_applied(self._paths_page._settings)
         if self._routing_page is not None:
             self._routing_page.apply()
+        if self._board_page is not None:
+            self._board_page.apply()
+            if self._on_axis_labels_applied:
+                self._on_axis_labels_applied()
         self.accept()

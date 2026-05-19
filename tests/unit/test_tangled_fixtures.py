@@ -28,7 +28,7 @@ FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 
 def _run_autoroute_and_drc(fixture_dir: Path):
     lib = load_library([BUILTIN_LIBRARY_DIR])
-    board, layout, schematic, instances, routing, _ = load_project(fixture_dir)
+    board, layout, schematic, instances, routing, _, _ = load_project(fixture_dir)
     components = {name: lib.get(name) for name in lib.names()}
 
     # Re-route from a clean slate so the simplify pass is the *only* code
