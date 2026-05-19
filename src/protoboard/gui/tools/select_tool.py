@@ -4099,6 +4099,40 @@ class SelectTool(_Tool):
         path.reverse()
         return [wire_by_id[wid] for wid in path]
 
+    @staticmethod
+    def _outer_endpoint_idx(
+        wire: WireSegment, neighbour: WireSegment
+    ) -> int:
+        """Return 0 or len(path)-1: whichever endpoint of *wire* is NOT shared
+        with *neighbour*.
+
+        A wire in a chain connects to its neighbour at one of its two
+        endpoints; the other endpoint is the "outer" side that must be
+        preserved when excising an inner fragment.  Falls back to 0 when
+        both endpoints touch the neighbour (degenerate chain) or neither
+        does (caller error, shouldn't happen if ordered[] is a real chain).
+        """
+        _EPS = 1e-4
+        first = wire.path[0]
+        last = wire.path[-1]
+
+        def _touches(p: Point) -> bool:
+            for q in neighbour.path:
+                if abs(p.x - q.x) < _EPS and abs(p.y - q.y) < _EPS:
+                    return True
+            return False
+
+        first_shared = _touches(first)
+        last_shared = _touches(last)
+        # The outer end is the one NOT shared.  If only one is shared, the
+        # other is unambiguously outer.  If both or neither are shared, fall
+        # back to 0 — the caller can't disambiguate.
+        if last_shared and not first_shared:
+            return 0
+        if first_shared and not last_shared:
+            return len(wire.path) - 1
+        return 0
+
     def _excise_cross_wire_range(
         self,
     ) -> tuple[object, Point, Point] | None:
@@ -4107,6 +4141,15 @@ class SelectTool(_Tool):
         Returns (macro_cmd, start_pt, end_pt) where start_pt and end_pt are the
         physical points at the edit boundaries (useful for re-routing afterwards).
         Returns None when the range is invalid or wires are not connected.
+
+        Each wire in the chain has two endpoints: the *outer* one (which is
+        not shared with the next wire in the chain) and the *inner* one
+        (the junction point).  The fragment to keep on the start/end wires
+        is always the sub-path from the outer endpoint to the edit index;
+        all wires strictly between start and end are removed entirely.
+        Picking ``path[:start_idx+1]`` unconditionally — as the previous
+        implementation did — only happens to be right when ``path[0]`` is
+        the outer endpoint, which is not guaranteed for the start wire.
         """
         from protoboard.gui.board_view import _build_wire_net_map
 
@@ -4134,32 +4177,52 @@ class SelectTool(_Tool):
 
         cmds: list[object] = []
 
-        # --- Start wire: keep prefix [0 .. start_idx] ---
-        if start_idx == 0:
-            cmds.append(RemoveWireCommand(wire_id=start_wire.id))
-        else:
+        def _keep_fragment(
+            wire: WireSegment, edit_idx: int, outer_idx: int,
+        ) -> None:
+            """Emit a command that keeps the path slice from outer_idx to edit_idx."""
+            last = len(wire.path) - 1
+            if edit_idx == outer_idx:
+                # Edit lies on the outer endpoint — nothing left to keep.
+                cmds.append(RemoveWireCommand(wire_id=wire.id))
+                return
+            if outer_idx == 0:
+                new_path = list(wire.path[:edit_idx + 1])
+            else:
+                # outer_idx == last
+                new_path = list(wire.path[edit_idx:])
+            if len(new_path) < 2:
+                cmds.append(RemoveWireCommand(wire_id=wire.id))
+                return
+            cmds.append(ReplaceWireSegmentCommand(
+                wire_id=wire.id,
+                new_path=new_path,
+                old_path=list(wire.path),
+            ))
+
+        # --- Start wire: keep fragment from its outer endpoint to start_idx ---
+        if len(ordered) == 1:
+            # Single-wire excise is handled by a separate code path (the
+            # caller dispatches on `cross` before reaching here).  Preserve
+            # the previous semantics for safety.
             new_path = list(start_wire.path[:start_idx + 1])
             cmds.append(ReplaceWireSegmentCommand(
                 wire_id=start_wire.id,
                 new_path=new_path,
                 old_path=list(start_wire.path),
             ))
+        else:
+            start_outer = self._outer_endpoint_idx(start_wire, ordered[1])
+            _keep_fragment(start_wire, start_idx, start_outer)
 
         # --- Intermediate wires: remove entirely ---
         for mid_wire in ordered[1:-1]:
             cmds.append(RemoveWireCommand(wire_id=mid_wire.id))
 
-        # --- End wire: keep suffix [end_idx .. end] ---
+        # --- End wire: keep fragment from end_idx to its outer endpoint ---
         if len(ordered) > 1:
-            if end_idx == len(end_wire.path) - 1:
-                cmds.append(RemoveWireCommand(wire_id=end_wire.id))
-            else:
-                new_path_end = list(end_wire.path[end_idx:])
-                cmds.append(ReplaceWireSegmentCommand(
-                    wire_id=end_wire.id,
-                    new_path=new_path_end,
-                    old_path=list(end_wire.path),
-                ))
+            end_outer = self._outer_endpoint_idx(end_wire, ordered[-2])
+            _keep_fragment(end_wire, end_idx, end_outer)
 
         macro = MacroCommand(cmds, description="Excise wire fragment")  # type: ignore[arg-type]
         return macro, start_pt, end_pt
