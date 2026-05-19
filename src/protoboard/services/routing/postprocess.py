@@ -591,31 +591,66 @@ def _candidate_safe_via_pad_index(
     wire_net_id: "uuid.UUID | None",
     wire_is_insulated: bool,
 ) -> bool:
-    """Per-vertex pad-state check.
+    """Pad-state check for every pad the candidate path touches.
 
-    Asks the PadIndex whether each candidate vertex (other than the two
-    endpoints of the replaced sub-path, which were pre-existing contacts)
-    can carry a wire of *wire_net_id* on *wire_side*.  This is the
-    authoritative check — it catches every short class because it
-    consults the canonical pad-state index, not heuristics rebuilt from
-    layout dicts.
+    For *bare* wires the conductor physically rests on every pad the
+    path crosses, including pads between two adjacent vertices that the
+    path skips over (mid-segment crossings).  For *insulated* wires
+    only the vertices make physical contact with copper, so mid-segment
+    crossings don't need a pad-state check.
+
+    Asks the PadIndex whether every relevant pad can carry a wire of
+    *wire_net_id* on *wire_side*.  Endpoints of the replaced sub-path
+    are skipped (they were already part of the wire).  Returns False
+    on the first conflict.
     """
     if pad_index is None:
         return True  # caller hasn't migrated yet — preserve legacy path
     wire_type = "insulated" if wire_is_insulated else "bare"
     ep0_x, ep0_y = original_endpoints[0].x, original_endpoints[0].y
     ep1_x, ep1_y = original_endpoints[1].x, original_endpoints[1].y
+
+    def _is_endpoint(px: float, py: float) -> bool:
+        return (
+            (abs(px - ep0_x) < _EPS and abs(py - ep0_y) < _EPS)
+            or (abs(px - ep1_x) < _EPS and abs(py - ep1_y) < _EPS)
+        )
+
+    # 1. Every candidate vertex must be a permissible pad for the wire.
     for v in candidate_vertices:
-        # Endpoints of the replaced subpath were already part of the
-        # wire — any contact there is pre-existing.  Only check NEW
-        # vertices.
-        if (abs(v.x - ep0_x) < _EPS and abs(v.y - ep0_y) < _EPS) or \
-           (abs(v.x - ep1_x) < _EPS and abs(v.y - ep1_y) < _EPS):
+        if _is_endpoint(v.x, v.y):
             continue
         if not pad_index.can_route_through(  # type: ignore[attr-defined]
             v, wire_side, wire_net_id, wire_type,
         ):
             return False
+    # 2. For bare wires, every pad strictly between consecutive vertices
+    #    that the segment crosses (within _CROSS_EPS of the line) must
+    #    also be permissible — that is where the conductor physically
+    #    rests on alien copper if simplify routes through it.
+    if wire_is_insulated:
+        return True
+    # Quantise vertices so we can skip pads that *are* vertices already.
+    vertex_keys = {(round(v.x, 4), round(v.y, 4)) for v in candidate_vertices}
+    for i in range(len(candidate_vertices) - 1):
+        a = candidate_vertices[i]
+        b = candidate_vertices[i + 1]
+        try:
+            pads_near = pad_index.pads_near_segment(  # type: ignore[attr-defined]
+                a.x, a.y, b.x, b.y,
+            )
+        except AttributeError:
+            return True  # caller passed a non-PadIndex object
+        for pad in pads_near:
+            key = (round(pad.position.x, 4), round(pad.position.y, 4))
+            if key in vertex_keys:
+                continue  # already checked as a vertex above
+            if _is_endpoint(pad.position.x, pad.position.y):
+                continue
+            if not pad_index.can_route_through(  # type: ignore[attr-defined]
+                pad.position, wire_side, wire_net_id, wire_type,
+            ):
+                return False
     return True
 
 
@@ -798,6 +833,7 @@ def simplify_wires_generic(
     board_pads: set[Point] | None = None,
     wire_to_net: "dict[uuid.UUID, uuid.UUID | None] | None" = None,
     pin_net_map: "dict[Point, uuid.UUID] | None" = None,
+    pad_index: object = None,
 ) -> list[WireSegment]:
     """Run generic_simplify_wire over *wires*, propagating each rewrite back
     into the working list so later wires see the shortened versions when
@@ -843,6 +879,7 @@ def simplify_wires_generic(
             wire_net_id=net_map.get(w.id),
             other_wire_nets=net_map if net_map else None,
             pin_net_map=pin_net_map or pad_to_net,
+            pad_index=pad_index,
         )
         cur[idx] = new
     return cur
