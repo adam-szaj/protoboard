@@ -509,3 +509,160 @@ class TestFindWireConflicts:
             already_conflicted={(round(0.5, 4), round(0.5, 4))},
         )
         assert conflicts == []
+
+
+# ---------------------------------------------------------------------------
+# pad_index= path: verify the PadIndex-backed branch returns equivalent
+# results to the legacy from-layout branch for the core scenarios.
+# ---------------------------------------------------------------------------
+
+
+class TestPadIndexPath:
+    """Smoke tests for the optional pad_index= parameter — confirm the new
+    PadIndex-backed branch matches legacy semantics."""
+
+    def _build_index(
+        self,
+        board: Board,
+        placements: dict,
+        instances: dict,
+        components: dict,
+        schematic: Schematic,
+        wires: list | None = None,
+    ):
+        from protoboard.domain.board.pad_state import PadIndex
+        from protoboard.domain.layout.layout import Layout
+
+        lay = Layout()
+        lay.ensure_root_group()
+        lay.placements.update(placements)
+        if wires:
+            lay.wires.extend(wires)
+        return PadIndex(board, lay, schematic, components, instances)
+
+    def test_find_conflicts_diff_nets_via_pad_index(self) -> None:
+        """find_conflicts with pad_index detects pin-on-pin different-net."""
+        board = _perfboard(3, 3)
+        defn = _r_defn()
+        r1 = _make_inst("R1")
+        r2 = _make_inst("R2")
+        pl_r1 = _placement(r1, 0.5, 0.5)
+        pl_r2 = _placement(r2, 0.5, 0.5)
+        net_a = Net(id=uuid.uuid4(), name="A",
+                    pins={PinRef(component_id=r1.id, pin_number=1)})
+        net_b = Net(id=uuid.uuid4(), name="B",
+                    pins={PinRef(component_id=r2.id, pin_number=1)})
+        sch = Schematic(nets={net_a.id: net_a, net_b.id: net_b})
+
+        idx = self._build_index(
+            board, {r1.id: pl_r1}, {r1.id: r1}, {"R": defn}, sch,
+        )
+        legacy = find_conflicts(
+            incoming_placement=pl_r2, incoming_defn=defn,
+            incoming_instance_id=r2.id,
+            layout_placements={r1.id: pl_r1},
+            instances={r1.id: r1}, components={"R": defn}, schematic=sch,
+        )
+        via_index = find_conflicts(
+            incoming_placement=pl_r2, incoming_defn=defn,
+            incoming_instance_id=r2.id,
+            layout_placements={r1.id: pl_r1},
+            instances={r1.id: r1}, components={"R": defn}, schematic=sch,
+            pad_index=idx,
+        )
+        # Both pins of r2 overlap r1's pins; pin1 has DIFFERENT_NETS,
+        # pin2 has ONE_UNCONNECTED (only one of the two pins has a net).
+        def _summary(cs):
+            return sorted((c.incoming_pin, c.kind) for c in cs)
+        assert _summary(legacy) == _summary(via_index)
+        assert (1, ConflictKind.DIFFERENT_NETS) in _summary(via_index)
+
+    def test_find_conflicts_no_existing_via_pad_index(self) -> None:
+        """No existing components → pad_index path returns empty."""
+        board = _perfboard(3, 3)
+        defn = _r_defn()
+        r1 = _make_inst("R1")
+        pl = _placement(r1, 0.5, 0.5)
+        sch = Schematic(nets={})
+        idx = self._build_index(board, {}, {}, {}, sch)
+        out = find_conflicts(
+            incoming_placement=pl, incoming_defn=defn,
+            incoming_instance_id=r1.id,
+            layout_placements={}, instances={}, components={}, schematic=sch,
+            pad_index=idx,
+        )
+        assert out == []
+
+    def test_find_wire_conflicts_via_pad_index(self) -> None:
+        """find_wire_conflicts with pad_index detects pin landing on wire."""
+        board = _perfboard(3, 3)
+        defn = _r_defn()
+        r1 = _make_inst("R1")
+        pl = _placement(r1, 0.5, 0.5, rot=0)
+        # Bare wire so PadIndex records it as a bare wire item (top).
+        wire = WireSegment(id=uuid.uuid4(),
+                           path=[Point(0.5, 0.5), Point(0.5, 2.5)],
+                           insulated=False, side="top")
+        sch = Schematic(nets={})
+        idx = self._build_index(
+            board, {}, {}, {}, sch, wires=[wire],
+        )
+        out = find_wire_conflicts(
+            incoming_placement=pl, incoming_defn=defn,
+            incoming_instance_id=r1.id,
+            wires=[wire], schematic=sch,
+            point_to_net={}, already_conflicted=set(),
+            pad_index=idx,
+        )
+        assert len(out) == 1
+        assert out[0].wire_id == wire.id
+        assert out[0].kind == ConflictKind.PIN_ON_WIRE_UNCONNECTED
+
+    def test_find_wires_crossing_pads_via_pad_index(self) -> None:
+        """find_wires_crossing_pads with pad_index detects bare wire crossing
+        an alien-net pin."""
+        board = _perfboard(5, 3)
+        defn = _r_defn()
+        r1 = _make_inst("R1")
+        r2 = _make_inst("R2")
+        # R1 at pin1=(0.5,0.5), pin2=(1.5,0.5); R2 at (2.5,0.5),(3.5,0.5).
+        # Both pins on different nets.
+        pl_r1 = _placement(r1, 0.5, 0.5, rot=0)
+        pl_r2 = _placement(r2, 2.5, 0.5, rot=0)
+        net_a = Net(id=uuid.uuid4(), name="A",
+                    pins={PinRef(component_id=r1.id, pin_number=1)})
+        net_b = Net(id=uuid.uuid4(), name="B",
+                    pins={PinRef(component_id=r2.id, pin_number=1)})
+        sch = Schematic(nets={net_a.id: net_a, net_b.id: net_b})
+        # Bare wire goes from net_a pin (0.5,0.5) straight through (2.5,0.5)
+        # which is on net_b — crossing alien pad → conflict.
+        from protoboard.domain.layout.pad_conflict import find_wires_crossing_pads
+        wire = WireSegment(id=uuid.uuid4(),
+                           path=[Point(0.5, 0.5), Point(2.5, 0.5)],
+                           insulated=False, side="top")
+        idx = self._build_index(
+            board,
+            {r1.id: pl_r1, r2.id: pl_r2},
+            {r1.id: r1, r2.id: r2},
+            {"R": defn},
+            sch,
+            wires=[wire],
+        )
+        out = find_wires_crossing_pads(
+            wires=[wire], moved_comp_ids=set(),
+            layout_placements={r1.id: pl_r1, r2.id: pl_r2},
+            instances={r1.id: r1, r2.id: r2},
+            components={"R": defn},
+            schematic=sch,
+            pad_index=idx,
+        )
+        # Legacy path returns the same wire id.
+        legacy = find_wires_crossing_pads(
+            wires=[wire], moved_comp_ids=set(),
+            layout_placements={r1.id: pl_r1, r2.id: pl_r2},
+            instances={r1.id: r1, r2.id: r2},
+            components={"R": defn},
+            schematic=sch,
+        )
+        assert out == legacy
+        assert wire.id in out

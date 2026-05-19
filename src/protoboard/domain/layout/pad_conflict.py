@@ -19,6 +19,7 @@ from protoboard.domain.layout.placement import ComponentPlacement, component_bbo
 from protoboard.geometry import Point
 
 if TYPE_CHECKING:
+    from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.wire import WireSegment
@@ -67,28 +68,37 @@ def find_conflicts(
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
     schematic: Schematic,
+    pad_index: "PadIndex | None" = None,
 ) -> list[PadConflict]:
     """Return all pad-on-pad conflicts for *incoming_placement*.
 
     Ignores pins already listed in *incoming_placement.shared_pins*
     (they were previously resolved).
+
+    When *pad_index* is provided the existing-pin lookup is delegated to
+    it (single source of truth).  When None, legacy path rebuilds the
+    pin position map from the supplied layout/instances dictionaries.
     """
     n_pins = incoming_defn.footprint.pin_count()
-    # Pre-build: world pos -> (comp_id, pin_num) for all existing placements.
-    existing: dict[tuple[float, float], tuple[uuid.UUID, int]] = {}
-    for comp_id, pl in layout_placements.items():
-        if comp_id == incoming_instance_id:
-            continue
-        inst = instances.get(comp_id)
-        if inst is None:
-            continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
-        for pin_num in range(1, defn.footprint.pin_count() + 1):
-            p = pin_world_position(defn.footprint, pl, pin_num)
-            key = (_round(p.x), _round(p.y))
-            existing[key] = (comp_id, pin_num)
+    existing: dict[tuple[float, float], tuple[uuid.UUID, int]]
+    if pad_index is None:
+        # Pre-build: world pos -> (comp_id, pin_num) for all existing placements.
+        existing = {}
+        for comp_id, pl in layout_placements.items():
+            if comp_id == incoming_instance_id:
+                continue
+            inst = instances.get(comp_id)
+            if inst is None:
+                continue
+            defn = components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            for pin_num in range(1, defn.footprint.pin_count() + 1):
+                p = pin_world_position(defn.footprint, pl, pin_num)
+                key = (_round(p.x), _round(p.y))
+                existing[key] = (comp_id, pin_num)
+    else:
+        existing = {}
 
     # Build pin->net map from schematic.
     pin_net: dict[tuple[uuid.UUID, int], tuple[uuid.UUID, str]] = {}
@@ -102,7 +112,11 @@ def find_conflicts(
             continue
         p = pin_world_position(incoming_defn.footprint, incoming_placement, pin_num)
         key = (_round(p.x), _round(p.y))
-        hit = existing.get(key)
+        hit: tuple[uuid.UUID, int] | None
+        if pad_index is None:
+            hit = existing.get(key)
+        else:
+            hit = _pin_hit_via_pad_index(pad_index, p, incoming_instance_id)
         if hit is None:
             continue
         ex_comp_id, ex_pin_num = hit
@@ -151,6 +165,7 @@ def find_wire_conflicts(
     schematic: Schematic,
     point_to_net: dict[tuple[float, float], tuple[uuid.UUID, str]],
     already_conflicted: set[tuple[float, float]],
+    pad_index: "PadIndex | None" = None,
 ) -> list[PadConflict]:
     """Return wire conflicts for *incoming_placement*.
 
@@ -163,23 +178,32 @@ def find_wire_conflicts(
     wire already has a net).
 
     *already_conflicted* positions are skipped (already reported as pad conflicts).
-    """
-    # Build wire points: rounded (x, y) -> wire_id.
-    wire_points: dict[tuple[float, float], uuid.UUID] = {}
-    for wire in wires:
-        for pt in wire.path:
-            wire_points[(_round(pt.x), _round(pt.y))] = wire.id
 
-    # Determine the net carried by each wire (first netted point wins).
+    When *pad_index* is provided, wire/net lookups consult it instead of
+    rebuilding from *wires* and *point_to_net*.
+    """
+    # Net name lookup — even with pad_index we still need the net's name
+    # (PadIndex only carries net IDs).
+    net_name_by_id: dict[uuid.UUID, str] = {
+        net.id: net.name for net in schematic.nets.values()
+    }
+    wire_points: dict[tuple[float, float], uuid.UUID] = {}
     wire_net_map: dict[uuid.UUID, tuple[uuid.UUID, str] | None] = {}
-    for wire in wires:
-        found: tuple[uuid.UUID, str] | None = None
-        for pt in wire.path:
-            info = point_to_net.get((_round(pt.x), _round(pt.y)))
-            if info is not None:
-                found = info
-                break
-        wire_net_map[wire.id] = found
+    if pad_index is None:
+        # Build wire points: rounded (x, y) -> wire_id.
+        for wire in wires:
+            for pt in wire.path:
+                wire_points[(_round(pt.x), _round(pt.y))] = wire.id
+
+        # Determine the net carried by each wire (first netted point wins).
+        for wire in wires:
+            found: tuple[uuid.UUID, str] | None = None
+            for pt in wire.path:
+                info = point_to_net.get((_round(pt.x), _round(pt.y)))
+                if info is not None:
+                    found = info
+                    break
+            wire_net_map[wire.id] = found
 
     # Net of incoming component's pins (for move conflicts where pin has a net).
     pin_net_incoming: dict[int, tuple[uuid.UUID, str]] = {}
@@ -197,11 +221,20 @@ def find_wire_conflicts(
         key = (_round(p.x), _round(p.y))
         if key in already_conflicted:
             continue
-        wire_id = wire_points.get(key)
-        if wire_id is None:
-            continue
+        wire_id: uuid.UUID | None
+        wire_net_info: tuple[uuid.UUID, str] | None
+        if pad_index is None:
+            wire_id = wire_points.get(key)
+            if wire_id is None:
+                continue
+            wire_net_info = wire_net_map.get(wire_id)
+        else:
+            hit = _wire_hit_via_pad_index(pad_index, p, incoming_placement.side,
+                                          net_name_by_id)
+            if hit is None:
+                continue
+            wire_id, wire_net_info = hit
 
-        wire_net_info = wire_net_map.get(wire_id)
         in_net = pin_net_incoming.get(pin_num)
 
         if wire_net_info is not None and in_net is not None:
@@ -242,6 +275,70 @@ def _round(v: float) -> float:
     return round(v, 4)
 
 
+def _wire_hit_via_pad_index(
+    pad_index: "PadIndex",
+    position: Point,
+    side: str,
+    net_name_by_id: dict[uuid.UUID, str],
+) -> tuple[uuid.UUID, tuple[uuid.UUID, str] | None] | None:
+    """Find a wire whose path vertex lands on *position* on *side*.
+
+    Returns (wire_id, wire_net_info) where wire_net_info is
+    (net_id, net_name) when the wire carries a known net, else None.
+    Returns None when no wire vertex sits on this pad on this side.
+
+    "Wire" here means a path-vertex Item (BareWireItem/InsulatedWireItem)
+    — matches legacy semantics, which only checked wire.path coords.
+    """
+    from protoboard.domain.board.pad_state import (
+        BareWireItem,
+        InsulatedWireItem,
+        SHORT_CIRCUIT,
+    )
+
+    pad = pad_index.pad_at(position)
+    if pad is None:
+        return None
+    side_lit = "top" if side == "top" else "bottom"
+    wire_item = None
+    for it in pad.physically_blocked_on(side_lit):  # type: ignore[arg-type]
+        if isinstance(it, (BareWireItem, InsulatedWireItem)):
+            wire_item = it
+            break
+    if wire_item is None:
+        return None
+    net_id = pad.electrical_net_on(side_lit)  # type: ignore[arg-type]
+    if net_id is None or net_id is SHORT_CIRCUIT:
+        return wire_item.id, None
+    name = net_name_by_id.get(net_id)  # type: ignore[arg-type]
+    if name is None:
+        return wire_item.id, None
+    return wire_item.id, (net_id, name)  # type: ignore[return-value]
+
+
+def _pin_hit_via_pad_index(
+    pad_index: "PadIndex",
+    position: Point,
+    exclude_comp_id: uuid.UUID,
+) -> tuple[uuid.UUID, int] | None:
+    """Return (other_comp_id, pin_number) of a PinItem on *position*
+    belonging to a component other than *exclude_comp_id*, else None.
+
+    If multiple alien PinItems sit on the same pad (multi-shared), an
+    arbitrary one wins — matches legacy `existing[key] = ...` dict
+    semantics where the last-written iteration order decided.
+    """
+    from protoboard.domain.board.pad_state import PinItem
+
+    pad = pad_index.pad_at(position)
+    if pad is None:
+        return None
+    for it in pad.iter_items():
+        if isinstance(it, PinItem) and it.id != exclude_comp_id:
+            return it.id, it.pin_number
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Wire-segment crossing detection
 # ---------------------------------------------------------------------------
@@ -268,6 +365,7 @@ def find_wires_crossing_pads(
     components: dict[str, ComponentDefinition],
     schematic: Schematic,
     moved_wire_ids: set[uuid.UUID] | None = None,
+    pad_index: "PadIndex | None" = None,
 ) -> list[uuid.UUID]:
     """Return IDs of wires whose path passes within _CROSS_EPS of an alien pad.
 
@@ -287,24 +385,40 @@ def find_wires_crossing_pads(
     Returns a list of wire IDs that should be removed.
     """
     _moved_wires: set[uuid.UUID] = moved_wire_ids or set()
+
     # Build pad_pos → net_id | None for ALL pins (moved comps already updated
-    # in layout_placements before this function is called).
+    # in layout_placements before this function is called).  When pad_index
+    # is provided, the same map is derived from it (PinItem.net) to skip
+    # the layout/instances walk entirely.
     pad_net: dict[tuple[float, float], uuid.UUID | None] = {}
-    pin_net_map: dict[tuple[uuid.UUID, int], uuid.UUID] = {}
-    for net in schematic.nets.values():
-        for ref in net.pins:
-            pin_net_map[(ref.component_id, ref.pin_number)] = net.id
-    for comp_id, pl in layout_placements.items():
-        inst = instances.get(comp_id)
-        if inst is None:
-            continue
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            continue
-        for pin_num in range(1, defn.footprint.pin_count() + 1):
-            p = pin_world_position(defn.footprint, pl, pin_num)
-            net_id = pin_net_map.get((comp_id, pin_num))
-            pad_net[(_round(p.x), _round(p.y))] = net_id
+    if pad_index is None:
+        pin_net_map: dict[tuple[uuid.UUID, int], uuid.UUID] = {}
+        for net in schematic.nets.values():
+            for ref in net.pins:
+                pin_net_map[(ref.component_id, ref.pin_number)] = net.id
+        for comp_id, pl in layout_placements.items():
+            inst = instances.get(comp_id)
+            if inst is None:
+                continue
+            defn = components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            for pin_num in range(1, defn.footprint.pin_count() + 1):
+                p = pin_world_position(defn.footprint, pl, pin_num)
+                net_id = pin_net_map.get((comp_id, pin_num))
+                pad_net[(_round(p.x), _round(p.y))] = net_id
+    else:
+        from protoboard.domain.board.pad_state import PinItem
+        for pad in pad_index.iter_pads():
+            pin_item: PinItem | None = None
+            for it in pad.iter_items():
+                if isinstance(it, PinItem):
+                    pin_item = it
+                    break
+            if pin_item is None:
+                continue
+            key = (_round(pad.position.x), _round(pad.position.y))
+            pad_net[key] = pin_item.net
 
     if not pad_net:
         return []
@@ -411,6 +525,7 @@ def check_group_move_conflicts(
     components: dict[str, ComponentDefinition],
     schematic: Schematic,
     moved_wire_ids: set[uuid.UUID] | None = None,
+    pad_index: "PadIndex | None" = None,
 ) -> MoveConflictResult:
     """Classify conflicts that arise when *moved_ids* are at their current (post-drag) positions.
 
@@ -420,6 +535,13 @@ def check_group_move_conflicts(
       those wire IDs are listed in removable_wire_ids.
     - BLOCKED: a hard pad-pad conflict exists, or a wire belonging to a subgroup
       of the active group conflicts (user chose "block" for that case).
+
+    *pad_index*: caller may pass a PadIndex that already reflects the
+    post-move state (e.g. via ``PadIndex.clone()`` + simulated moves).
+    When provided, it is forwarded to the underlying find_conflicts /
+    find_wires_crossing_pads calls.  When None — the default — the
+    legacy from-layout path is used, which already operates on the
+    post-move *layout_placements* dict the caller passed in.
     """
     from protoboard.domain.layout.group import ComponentGroup, all_component_ids
 
@@ -479,6 +601,7 @@ def check_group_move_conflicts(
             instances=instances,
             components=components,
             schematic=schematic,
+            pad_index=pad_index,
         )
         for c in conflicts:
             _log.debug("group_move.pad_conflict",
@@ -509,6 +632,7 @@ def check_group_move_conflicts(
         components=components,
         schematic=schematic,
         moved_wire_ids=moved_wire_ids,
+        pad_index=pad_index,
     )
     _log.debug("group_move.wire_crossings", count=len(crossing_ids),
                wire_ids=[str(i) for i in crossing_ids])
