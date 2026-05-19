@@ -880,6 +880,10 @@ class MainWindow(QMainWindow):
         self._update_undo_redo()
         self._update_title()
         self._populate_recent_menu()
+        # Frame the freshly-loaded board.  The viewport is already at its
+        # final size here (the window is fully laid out by the time the user
+        # picks "Open Recent"), so a single synchronous fit is enough.
+        self._board_view.fit_board()
         # Notify the user if legacy fractional positions were snapped on load.
         normalize_report = pop_last_normalize_report(path)
         if normalize_report is not None and normalize_report.any_corrections:
@@ -2303,9 +2307,29 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event: object) -> None:  # type: ignore[override]
         super().showEvent(event)  # type: ignore[arg-type]
+        # The window-manager often delivers show() with a placeholder
+        # geometry and then resizes the window to its final (maximized /
+        # restored) size a frame or two later.  We arm a pending fit and
+        # re-run fit_board on every subsequent resize, then settle once
+        # the resize stream goes quiet — that way fitInView measures the
+        # *final* viewport regardless of how many intermediate resizes the
+        # WM produces.
         if not getattr(self, "_initial_fit_done", False):
             self._initial_fit_done = True
+            self._initial_fit_pending = True
+            self._initial_fit_timer = QTimer(self)
+            self._initial_fit_timer.setSingleShot(True)
+            self._initial_fit_timer.setInterval(250)
+            self._initial_fit_timer.timeout.connect(self._finalise_initial_fit)
             self._board_view.fit_board()
+            self._initial_fit_timer.start()
+
+    def _finalise_initial_fit(self) -> None:
+        """Run the last fit_board after the resize stream stops."""
+        if not getattr(self, "_initial_fit_pending", False):
+            return
+        self._initial_fit_pending = False
+        self._board_view.fit_board()
 
     def resizeEvent(self, event: "QResizeEvent") -> None:  # type: ignore[override]
         old = event.oldSize()
@@ -2328,6 +2352,14 @@ class MainWindow(QMainWindow):
                 scene_rect=(round(bv.sceneRect().x(), 2), round(bv.sceneRect().y(), 2),
                             round(bv.sceneRect().width(), 2), round(bv.sceneRect().height(), 2)),
             )
+        # While the WM is still pushing post-show resizes, refit on each one
+        # and reset the quiet-period timer.  When the resize stream stops we
+        # fit one more time from _finalise_initial_fit().
+        if getattr(self, "_initial_fit_pending", False):
+            self._board_view.fit_board()
+            timer = getattr(self, "_initial_fit_timer", None)
+            if timer is not None:
+                timer.start()
         super().resizeEvent(event)
 
     def closeEvent(self, event: QCloseEvent) -> None:
