@@ -82,6 +82,14 @@ def check_and_resolve(
             _log.debug("conflict.body_overlap_blocked", incoming=str(instance_id))
             return None
 
+    # PadIndex is the authoritative pad-state source.  For single-component
+    # placement we can use the session's index directly: pins of `instance_id`
+    # at their *old* positions are excluded by id when computing conflicts,
+    # and the new pin positions are looked up against pads that other
+    # components already occupy.  Test stubs without a ``pad_index`` method
+    # fall back to the legacy from-layout path.
+    pad_index = session.pad_index() if hasattr(session, "pad_index") else None
+
     pad_conflicts = find_conflicts(
         incoming_placement=placement,
         incoming_defn=defn,
@@ -90,6 +98,7 @@ def check_and_resolve(
         instances=session.instances,
         components=session.components,
         schematic=session.schematic,
+        pad_index=pad_index,
     )
 
     # Build point→net map for wire-conflict detection.
@@ -113,6 +122,7 @@ def check_and_resolve(
         schematic=session.schematic,
         point_to_net=point_to_net,
         already_conflicted=already_conflicted,
+        pad_index=pad_index,
     )
 
     # --- Separate pad conflicts from wire conflicts ---
@@ -451,6 +461,10 @@ def classify_drag_commit(
     net_actions: list[object] = []
     descriptions: list[str] = []
 
+    # Lazy-built PadIndex over the current (post-drag) layout.  Reused
+    # across every moved component + wire-crossing check.
+    _drag_pad_index: object | None = None
+
     # --- 1. Per-moved-component pad + body conflicts ---
     pad_conflicts_all: list[PadConflict] = []
     for cid in moved_comp_ids:
@@ -504,7 +518,25 @@ def classify_drag_commit(
                 f"{inst.refdes} body overlap with {body_overlap_refdes}"
             )
 
-        # Pad-on-pad conflicts.
+        # Pad-on-pad conflicts.  We rebuild a fresh PadIndex over the
+        # *current* (post-drag) layout when the session exposes a board:
+        # the drag handler mutates placements/wires in-place and emits
+        # ``drag_moved`` only, not ``layout_changed``, so the cached index
+        # is stale w.r.t. the live drag state.  Build is ~3 ms per call
+        # (memory: perf.pad_index_build_ms).  Test stubs without a ``board``
+        # attribute fall back to the legacy from-layout path.
+        if _drag_pad_index is None and hasattr(session, "board"):
+            try:
+                from protoboard.domain.board.pad_state import PadIndex
+                _drag_pad_index = PadIndex(
+                    board=session.board,
+                    layout=session.layout,
+                    schematic=session.schematic,
+                    components=session.components,
+                    instances=session.instances,
+                )
+            except Exception:  # noqa: BLE001
+                _drag_pad_index = None
         pad_cs = find_conflicts(
             incoming_placement=pl,
             incoming_defn=defn,
@@ -513,6 +545,7 @@ def classify_drag_commit(
             instances=session.instances,
             components=session.components,
             schematic=session.schematic,
+            pad_index=_drag_pad_index,
         )
         pad_conflicts_all.extend(pad_cs)
         for c in pad_cs:
@@ -549,6 +582,7 @@ def classify_drag_commit(
             schematic=session.schematic,
             point_to_net=point_to_net,
             already_conflicted=already_conflicted,
+            pad_index=_drag_pad_index,
         )
         for c in wire_cs:
             if c.kind == ConflictKind.PIN_ON_WIRE_SAME_NET:
@@ -569,6 +603,7 @@ def classify_drag_commit(
         components=session.components,
         schematic=session.schematic,
         moved_wire_ids=set(dragged_wire_ids),
+        pad_index=_drag_pad_index,
     )
     if crossing:
         remove_wires.update(crossing)

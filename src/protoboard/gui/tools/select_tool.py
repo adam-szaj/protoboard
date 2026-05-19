@@ -2447,6 +2447,17 @@ class SelectTool(_Tool):
             return
 
         if active_gid is not None:
+            # Build a fresh PadIndex over the live (post-drag) layout —
+            # session.pad_index() is stale because the drag mutates positions
+            # in place without emitting layout_changed.
+            from protoboard.domain.board.pad_state import PadIndex as _PadIndex
+            _drag_idx = _PadIndex(
+                board=self._session.board,
+                layout=self._session.layout,
+                schematic=self._session.schematic,
+                components=self._session.components,
+                instances=self._session.instances,
+            )
             result = check_group_move_conflicts(
                 moved_ids=drag_ids,
                 active_group_id=active_gid,
@@ -2456,6 +2467,7 @@ class SelectTool(_Tool):
                 instances=self._session.instances,
                 components=self._session.components,
                 schematic=self._session.schematic,
+                pad_index=_drag_idx,
             )
         else:
             # Non-group drag: pad conflict check only (fast).
@@ -2660,6 +2672,16 @@ class SelectTool(_Tool):
                    drag_ids=[str(i) for i in drag_ids],
                    active_gid=str(active_gid))
 
+        # PadIndex over live (post-drag) layout — session.pad_index() is
+        # stale until the next layout_changed.emit() at commit time.
+        from protoboard.domain.board.pad_state import PadIndex as _PadIndex
+        _drag_idx = _PadIndex(
+            board=self._session.board,
+            layout=self._session.layout,
+            schematic=self._session.schematic,
+            components=self._session.components,
+            instances=self._session.instances,
+        )
         result = check_group_move_conflicts(
             moved_ids=drag_ids,
             active_group_id=active_gid,
@@ -2670,6 +2692,7 @@ class SelectTool(_Tool):
             components=self._session.components,
             schematic=self._session.schematic,
             moved_wire_ids=set(self._drag_orig_wire_paths.keys()),
+            pad_index=_drag_idx,
         )
 
         _log.info("build_group_drag.conflict_result",

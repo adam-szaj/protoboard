@@ -258,3 +258,112 @@ class TestCheckGroupMoveConflicts:
             schematic=sch,
         )
         assert result.severity == MoveConflictSeverity.BLOCKED
+
+
+class TestCheckGroupMoveConflictsPadIndex:
+    """Parity check: pad_index= branch returns the same severity / blocking
+    positions as the legacy from-layout branch."""
+
+    def _build_index(self, board, placements, instances, components, schematic,
+                     wires=None):
+        from protoboard.domain.board.pad_state import PadIndex
+        from protoboard.domain.layout.layout import Layout
+
+        lay = Layout()
+        lay.ensure_root_group()
+        lay.placements.update(placements)
+        if wires:
+            lay.wires.extend(wires)
+        return PadIndex(board, lay, schematic, components, instances)
+
+    def _perfboard(self, rows: int, cols: int):
+        from protoboard.domain.board.board import Board
+        from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
+        from protoboard.domain.board.pads import PadLayers
+        grid = BoardGrid(
+            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=rows, cols=cols, row_gap=0.0, col_gap=0.0,
+        )
+        return Board(root=grid)
+
+    def test_pad_on_pad_blocked_via_pad_index(self) -> None:
+        """check_group_move_conflicts with pad_index=… returns BLOCKED for
+        a pad-on-pad different-net move just like the legacy branch.
+
+        SIL(1) pin1 at placement.position; pad centers are at (col+0.5, row+0.5).
+        We place both components at (2.5, 2.5) so their pins land on a real pad.
+        """
+        net_a, net_b = uuid.uuid4(), uuid.uuid4()
+        defn_a, defn_b = _defn("A"), _defn("B")
+        inst_a, inst_b = _inst(defn_a), _inst(defn_b)
+        pl_a = _pl(inst_a.id, 2.5, 2.5)
+        pl_b = _pl(inst_b.id, 2.5, 2.5)
+        groups = _root_group(inst_a.id)
+        sch = _schematic(
+            (net_a, [(inst_a.id, 1)]),
+            (net_b, [(inst_b.id, 1)]),
+        )
+
+        board = self._perfboard(5, 5)
+        idx = self._build_index(
+            board,
+            {inst_a.id: pl_a, inst_b.id: pl_b},
+            {inst_a.id: inst_a, inst_b.id: inst_b},
+            {"A": defn_a, "B": defn_b},
+            sch,
+        )
+
+        # Legacy path.
+        legacy = check_group_move_conflicts(
+            moved_ids={inst_a.id},
+            active_group_id=ROOT_GID,
+            layout_placements={inst_a.id: pl_a, inst_b.id: pl_b},
+            layout_wires=[],
+            layout_groups=groups,
+            instances={inst_a.id: inst_a, inst_b.id: inst_b},
+            components={"A": defn_a, "B": defn_b},
+            schematic=sch,
+        )
+
+        # pad_index= branch.
+        via_idx = check_group_move_conflicts(
+            moved_ids={inst_a.id},
+            active_group_id=ROOT_GID,
+            layout_placements={inst_a.id: pl_a, inst_b.id: pl_b},
+            layout_wires=[],
+            layout_groups=groups,
+            instances={inst_a.id: inst_a, inst_b.id: inst_b},
+            components={"A": defn_a, "B": defn_b},
+            schematic=sch,
+            pad_index=idx,
+        )
+
+        assert legacy.severity == via_idx.severity == MoveConflictSeverity.BLOCKED
+
+    def test_clear_via_pad_index(self) -> None:
+        """No-conflict scenario stays CLEAR through the pad_index path."""
+        defn = _defn("A")
+        inst = _inst(defn)
+        pl = _pl(inst.id, 0.5, 0.5)  # pad center
+        groups = _root_group(inst.id)
+        sch = _schematic()
+        board = self._perfboard(3, 3)
+        idx = self._build_index(
+            board, {inst.id: pl}, {inst.id: inst}, {"A": defn}, sch,
+        )
+        via_idx = check_group_move_conflicts(
+            moved_ids={inst.id},
+            active_group_id=ROOT_GID,
+            layout_placements={inst.id: pl},
+            layout_wires=[],
+            layout_groups=groups,
+            instances={inst.id: inst},
+            components={defn.name: defn},
+            schematic=sch,
+            pad_index=idx,
+        )
+        assert via_idx.severity == MoveConflictSeverity.CLEAR
