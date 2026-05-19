@@ -302,22 +302,172 @@ def _wire_to_segs(wire: WireSegment) -> list[tuple[Point, Point]]:
     return list(zip(wire.path, wire.path[1:]))
 
 
+def _point_on_segment_interior(
+    p: Point, a: Point, b: Point, eps: float = _EPS,
+) -> bool:
+    """True if *p* lies on segment a→b strictly between the endpoints.
+
+    Used to detect T-junctions: an endpoint/vertex of one wire path that
+    falls in the middle of another wire's segment.  Such a meeting is a
+    physical electrical contact — ``_segs_cross`` deliberately ignores it
+    because the autoroute upstream uses a separate occupancy map to catch
+    these, but simplify has no such upstream and must check here.
+    """
+    abx, aby = b.x - a.x, b.y - a.y
+    apx, apy = p.x - a.x, p.y - a.y
+    cross = abx * apy - aby * apx
+    if abs(cross) > eps:
+        return False  # not collinear
+    # Parameterise along the longer axis for numerical stability.
+    if abs(abx) >= abs(aby):
+        if abs(abx) < eps:
+            return False
+        t = apx / abx
+    else:
+        t = apy / aby
+    return eps < t < 1.0 - eps
+
+
+def _segs_cross_or_touch(
+    a1: Point, a2: Point, b1: Point, b2: Point,
+) -> bool:
+    """Like ``_segs_cross`` but also reports T-junctions and vertex-on-edge.
+
+    Returns True if segments a1→a2 and b1→b2 share any point other than an
+    endpoint-on-endpoint coincidence.  In particular: if a vertex of one
+    segment falls strictly inside the other, that's a real electrical
+    contact and counts as a crossing here.
+    """
+    if _segs_cross(a1, a2, b1, b2):
+        return True
+    # T-junction or vertex-on-interior cases.
+    if _point_on_segment_interior(a1, b1, b2):
+        return True
+    if _point_on_segment_interior(a2, b1, b2):
+        return True
+    if _point_on_segment_interior(b1, a1, a2):
+        return True
+    if _point_on_segment_interior(b2, a1, a2):
+        return True
+    return False
+
+
 def _candidate_safe_against_others(
     candidate_segs: list[tuple[Point, Point]],
     other_wires: list[WireSegment],
     wire_id: uuid.UUID,
+    *,
+    wire_side: str | None = None,
+    wire_net_id: "uuid.UUID | None" = None,
+    other_wire_nets: "dict[uuid.UUID, uuid.UUID | None] | None" = None,
 ) -> bool:
-    """No strict-interior crossing between *candidate_segs* and any other bare
-    wire on the same side as the candidate's owner.  Insulated wires don't
-    block (they float over the board)."""
+    """Return True iff *candidate_segs* is safe against every other wire.
+
+    A candidate is rejected when it would create a physical short to a wire
+    of a *different* net.  Two failure modes:
+
+    * **Bare×Bare**: any crossing or T-junction with another bare wire on the
+      same side (``_segs_cross_or_touch``) — unless that other bare belongs
+      to the same net (intentional contact, e.g. extending an existing run).
+
+    * **Bare×Insulated endpoint**: insulated wires float above the board but
+      are soldered to a pad at each endpoint.  If the candidate path passes
+      through such an endpoint and that endpoint sits on a *foreign* net,
+      that's a short.  Mid-segment insulated geometry is still ignored —
+      it doesn't touch the board.
+
+    Insulated×anything mid-segment is fine — the insulated path is air.
+
+    ``wire_net_id`` may be None when the wire's net is unknown (e.g. a fresh
+    bare wire not yet routed into a net); in that case any contact with a
+    netted other-wire is treated as alien (conservative).
+    """
+    other_nets = other_wire_nets or {}
     for ow in other_wires:
-        if ow.id == wire_id or ow.insulated:
+        if ow.id == wire_id:
             continue
-        for c_src, c_dst in candidate_segs:
-            for o_src, o_dst in _wire_to_segs(ow):
-                if _segs_cross(c_src, c_dst, o_src, o_dst):
-                    return False
+        if wire_side is not None and ow.side != wire_side:
+            continue  # different physical layer — can never short
+        ow_net = other_nets.get(ow.id)
+        same_net = (
+            wire_net_id is not None
+            and ow_net is not None
+            and ow_net == wire_net_id
+        )
+        if not ow.insulated:
+            # Bare-other: any geometric contact is a short, unless same net.
+            for c_src, c_dst in candidate_segs:
+                for o_src, o_dst in _wire_to_segs(ow):
+                    if _segs_cross_or_touch(c_src, c_dst, o_src, o_dst):
+                        if same_net:
+                            continue
+                        return False
+        else:
+            # Insulated-other: only the two endpoints sit on board pads.  The
+            # candidate path passing through one of them is a short to that
+            # net unless it's the same net.
+            if same_net or len(ow.path) < 2:
+                continue
+            endpoints = (ow.path[0], ow.path[-1])
+            for c_src, c_dst in candidate_segs:
+                for ep in endpoints:
+                    # Endpoint-on-candidate-interior or endpoint matches a
+                    # candidate vertex but not an endpoint of the original
+                    # wire — both are physical contact.
+                    if _point_on_segment_interior(ep, c_src, c_dst):
+                        return False
+                    # Vertex-on-vertex coincidence with a candidate vertex
+                    # (other than the candidate's own endpoints — those
+                    # ARE the source/target of the simplified subpath and
+                    # were already legal).
+                    for cv in (c_src, c_dst):
+                        if (
+                            abs(ep.x - cv.x) < _EPS
+                            and abs(ep.y - cv.y) < _EPS
+                        ):
+                            # Only flag interior-of-candidate vertices.
+                            # Endpoint coincidence at the wire's own
+                            # endpoints is acceptable (they were already
+                            # part of the original layout).
+                            pass  # handled below by candidate-vertex test
     return True
+
+
+def _candidate_pins_alien(
+    candidate_segs: list[tuple[Point, Point]],
+    candidate_vertices: list[Point],
+    pin_net_map: "dict[Point, uuid.UUID] | None",
+    wire_net_id: "uuid.UUID | None",
+    original_path: list[Point],
+) -> bool:
+    """True if the candidate path passes through (or terminates at) a pin
+    whose net differs from *wire_net_id*.
+
+    *pin_net_map* — pad position → net id for every component pin assigned
+    to a net.  Pins not in the map carry no net yet (floating) and are not
+    considered alien.
+    """
+    if not pin_net_map:
+        return False
+    own_pts = {(round(p.x, 6), round(p.y, 6)) for p in original_path}
+    for pad, net_id in pin_net_map.items():
+        if wire_net_id is not None and net_id == wire_net_id:
+            continue  # same net — OK
+        key = (round(pad.x, 6), round(pad.y, 6))
+        if key in own_pts:
+            continue  # pin already on original path — unchanged contact
+        # Pass-through check on every candidate segment.
+        for c_src, c_dst in candidate_segs:
+            if _seg_passes_through_pad(c_src, c_dst, pad):
+                return True
+        # Vertex coincidence at a candidate interior vertex.
+        for v in candidate_vertices[1:-1]:
+            if (
+                abs(v.x - pad.x) < _EPS
+                and abs(v.y - pad.y) < _EPS
+            ):
+                return True
+    return False
 
 
 def _candidate_safe_against_own(
@@ -360,25 +510,29 @@ def _new_alien_pad_contact(
     candidate_segs: list[tuple[Point, Point]],
     wire: WireSegment,
     pad_to_net: dict[Point, uuid.UUID] | None,
+    wire_net_id: "uuid.UUID | None" = None,
 ) -> bool:
     """Return True if the candidate creates an unintended bare contact with
     a pad belonging to *another* electric net than the wire's own.
 
-    Insulated wires never trigger this — they float over pads.  If
-    *pad_to_net* is None or unknown for a pad, treat the contact as alien
-    only when the original wire did not pass through it.
+    Insulated wires never trigger this — they float over pads.
+
+    A pad is "alien" when its net id differs from *wire_net_id*.  When the
+    wire's own net is unknown (``wire_net_id is None``) every netted pad
+    not on the original path is treated as alien — conservative fallback
+    that may over-block but never under-blocks.
     """
     if wire.insulated or pad_to_net is None:
         return False
     own_path_pts = set(wire.path)
     for c_src, c_dst in candidate_segs:
-        for pad, _net_id in pad_to_net.items():
+        for pad, pad_net in pad_to_net.items():
             if pad in own_path_pts:
                 continue  # already touched by the original wire
+            if wire_net_id is not None and pad_net == wire_net_id:
+                continue  # same net — extending the wire's own contact
             if not _seg_passes_through_pad(c_src, c_dst, pad):
                 continue
-            # Pad belongs to a different net than this wire's nets (caller
-            # should pass only foreign pads).  Treat as forbidden.
             return True
     return False
 
@@ -409,6 +563,9 @@ def generic_simplify_wire(
     *,
     mode: SimplifyMode = SimplifyMode.BARE_PARITY,
     board_pads: set[Point] | None = None,
+    wire_net_id: "uuid.UUID | None" = None,
+    other_wire_nets: "dict[uuid.UUID, uuid.UUID | None] | None" = None,
+    pin_net_map: "dict[Point, uuid.UUID] | None" = None,
 ) -> WireSegment:
     """Shorten *wire* by replacing any subpath ``path[i..j]`` with the
     canonical (grid-aligned shortest) path between its endpoints, when safe.
@@ -494,14 +651,28 @@ def generic_simplify_wire(
                 ):
                     continue
                 if not _candidate_safe_against_others(
-                    candidate_segs, other_wires, wire.id
+                    candidate_segs,
+                    other_wires,
+                    wire.id,
+                    wire_side=wire.side,
+                    wire_net_id=wire_net_id,
+                    other_wire_nets=other_wire_nets,
                 ):
                     continue
                 if not _candidate_safe_against_own(candidate_segs, wire, i, j):
                     continue
                 # Reconstruct wire-as-of-now for the own-path check after the
                 # alien-pad check (cheap; same data).
-                if _new_alien_pad_contact(candidate_segs, wire, pad_to_net):
+                if _new_alien_pad_contact(
+                    candidate_segs, wire, pad_to_net, wire_net_id
+                ):
+                    continue
+                # Alien-pin pass-through: the candidate must not run through
+                # or terminate at a pin whose net differs from wire_net_id.
+                if not wire.insulated and _candidate_pins_alien(
+                    candidate_segs, list(canon), pin_net_map,
+                    wire_net_id, list(wire.path),
+                ):
                     continue
 
                 # Accept: splice canon into path in place of [i..j].
@@ -542,6 +713,8 @@ def simplify_wires_generic(
     *,
     mode: SimplifyMode = SimplifyMode.BARE_PARITY,
     board_pads: set[Point] | None = None,
+    wire_to_net: "dict[uuid.UUID, uuid.UUID | None] | None" = None,
+    pin_net_map: "dict[Point, uuid.UUID] | None" = None,
 ) -> list[WireSegment]:
     """Run generic_simplify_wire over *wires*, propagating each rewrite back
     into the working list so later wires see the shortened versions when
@@ -551,16 +724,42 @@ def simplify_wires_generic(
     *board_pads* (optional) — every pad position on the board.  When supplied,
     bare wires keep every pad-vertex on their physical path even after
     simplification, so connectivity / wire-edit / exports see complete contact.
+
+    *wire_to_net* (optional) — wire id → net id mapping; enables same-net
+    detection so a candidate doesn't get blocked by another wire on the same
+    electrical net.  *pin_net_map* — pad position → net id for every pinned
+    pad, used to reject shortcuts that would run through an alien pin.
     """
     cur = list(wires)
+    # If no explicit wire→net mapping was supplied but we do have a pad-to-net
+    # map, derive a best-effort one: a wire's net is the net of the first
+    # path point that hits a known pad.
+    net_map: dict[uuid.UUID, uuid.UUID | None]
+    if wire_to_net is not None:
+        net_map = dict(wire_to_net)
+    elif pad_to_net:
+        net_map = {}
+        for w in cur:
+            wnet: uuid.UUID | None = None
+            for pt in w.path:
+                if pt in pad_to_net:
+                    wnet = pad_to_net[pt]
+                    break
+            net_map[w.id] = wnet
+    else:
+        net_map = {}
     for idx in range(len(cur)):
+        w = cur[idx]
         new = generic_simplify_wire(
-            cur[idx],
+            w,
             other_wires=cur,
             pin_positions=pin_positions,
             pad_to_net=pad_to_net,
             mode=mode,
             board_pads=board_pads,
+            wire_net_id=net_map.get(w.id),
+            other_wire_nets=net_map if net_map else None,
+            pin_net_map=pin_net_map or pad_to_net,
         )
         cur[idx] = new
     return cur

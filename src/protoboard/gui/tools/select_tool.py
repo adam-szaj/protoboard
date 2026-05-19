@@ -3736,7 +3736,20 @@ class SelectTool(_Tool):
             | board_pads_for_side(session.board, "bottom")
         )
 
+        # Map each wire id → its net id by intersecting wire path with
+        # pad_to_net.  When a wire touches any pinned pad with a known net,
+        # that net is the wire's net (taking the first match is safe — wires
+        # belong to a single net by construction).
         all_wires = session.layout.wires
+        wire_to_net: dict[uuid.UUID, uuid.UUID | None] = {}
+        for w in all_wires:
+            wnet: uuid.UUID | None = None
+            for pt in w.path:
+                if pt in pad_to_net:
+                    wnet = pad_to_net[pt]
+                    break
+            wire_to_net[w.id] = wnet
+
         cmds: list[Command[ComponentState]] = []
         for wid in wire_ids:
             wire = next((w for w in all_wires if w.id == wid), None)
@@ -3750,6 +3763,9 @@ class SelectTool(_Tool):
                 pad_to_net=pad_to_net,
                 mode=mode,
                 board_pads=all_board_pads,
+                wire_net_id=wire_to_net.get(wid),
+                other_wire_nets=wire_to_net,
+                pin_net_map=pad_to_net,
             )
             if new_wire is wire or new_wire.path == wire.path:
                 continue
