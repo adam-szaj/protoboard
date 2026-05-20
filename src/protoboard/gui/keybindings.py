@@ -240,14 +240,14 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_RELATION_UNCONNECTED: "Relation: Unconnected Pins",
     ACTION_RELATION_NEIGHBORS: "Relation: Neighbors",
     ACTION_RELATION_CYCLE_BACK: "Cycle Relation Class (Back)",
-    ACTION_LAYER_1: "Layer 1 (Components Top)",
-    ACTION_LAYER_2: "Layer 2 (Components Bottom)",
-    ACTION_LAYER_3: "Layer 3 (Wires Top)",
-    ACTION_LAYER_4: "Layer 4 (Wires Bottom)",
-    ACTION_LAYER_5: "Layer 5 (Labels Top)",
-    ACTION_LAYER_6: "Layer 6 (Labels Bottom)",
-    ACTION_LAYER_7: "Layer 7 (Board)",
-    ACTION_LAYER_8: "Layer 8 (Ratsnest)",
+    ACTION_LAYER_1: "Layer 1 (Board)",
+    ACTION_LAYER_2: "Layer 2 (Components Top)",
+    ACTION_LAYER_3: "Layer 3 (Components Bottom)",
+    ACTION_LAYER_4: "Layer 4 (Wires Top)",
+    ACTION_LAYER_5: "Layer 5 (Wires Bottom)",
+    ACTION_LAYER_6: "Layer 6 (Labels)",
+    ACTION_LAYER_7: "Layer 7 (Pin Names)",
+    ACTION_LAYER_8: "Layer 8 (Connections)",
 }
 
 # ---------------------------------------------------------------------------

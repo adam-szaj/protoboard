@@ -91,15 +91,14 @@ class LayerVisibility(str, Enum):
 @dataclass
 class LayerOverrides:
     """Manual per-layer visibility overrides."""
+    board:             LayerVisibility = LayerVisibility.FULL
     components_top:    LayerVisibility = LayerVisibility.FULL
     components_bottom: LayerVisibility = LayerVisibility.FULL
     wires_top:         LayerVisibility = LayerVisibility.FULL
     wires_bottom:      LayerVisibility = LayerVisibility.FULL
-    labels_top:        LayerVisibility = LayerVisibility.FULL
-    labels_bottom:     LayerVisibility = LayerVisibility.FULL
-    board:             LayerVisibility = LayerVisibility.FULL
+    labels:            LayerVisibility = LayerVisibility.FULL
     pin_names:         LayerVisibility = LayerVisibility.FULL
-    connectness:       LayerVisibility = LayerVisibility.FULL
+    # "ratsnest" is the legacy field name; UI displays it as "Connections".
     ratsnest:          LayerVisibility = LayerVisibility.FULL
     axis_labels:       LayerVisibility = LayerVisibility.FULL
 
@@ -178,9 +177,10 @@ class LayerState:
         return self._vis_alpha(ov, tool_alpha)
 
     def alpha_for_label(self, side: Literal["top", "bottom"]) -> float:
-        ov = self.overrides.labels_top if side == "top" else self.overrides.labels_bottom
+        # Single shared toggle for labels on both sides — the per-side
+        # split (labels_top / labels_bottom) was merged into one.
         tool_alpha = self.alpha_for_component(side)
-        return self._vis_alpha(ov, tool_alpha)
+        return self._vis_alpha(self.overrides.labels, tool_alpha)
 
     def alpha_for_board(self) -> float:
         tool_alpha = self.board_ghost_alpha if self.ghost_components else 1.0
@@ -192,11 +192,6 @@ class LayerState:
 
     def alpha_for_axis_labels(self) -> float:
         return self._vis_alpha(self.overrides.axis_labels, 1.0)
-
-    @property
-    def connectness_enabled(self) -> bool:
-        """True when connectivity highlighting is active (not explicitly hidden)."""
-        return self.overrides.connectness != LayerVisibility.HIDDEN
 
     # ------------------------------------------------------------------
     # Hit-testing

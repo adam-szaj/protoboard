@@ -50,36 +50,44 @@ def _save(tmp_path: Path, settings: AxisLabelSettings | None) -> None:
 
 class TestAxisLabelsPersistence:
     def test_default_settings_skip_file(self, tmp_path: Path) -> None:
-        _save(tmp_path, AxisLabelSettings())  # both axes DISABLED
+        # Defaults are (NUMERIC_1, ALPHABETIC) — no file needed.
+        _save(tmp_path, AxisLabelSettings())
         assert not (tmp_path / "axis_labels.yaml").exists()
 
     def test_omitted_settings_skip_file(self, tmp_path: Path) -> None:
         _save(tmp_path, None)
         assert not (tmp_path / "axis_labels.yaml").exists()
 
-    def test_columns_enabled_writes_file(self, tmp_path: Path) -> None:
-        _save(tmp_path, AxisLabelSettings(columns=AxisLabelFormat.NUMERIC_0))
+    def test_non_default_settings_write_file(self, tmp_path: Path) -> None:
+        # Disabling both axes is a non-default state and must persist.
+        _save(tmp_path, AxisLabelSettings(
+            columns=AxisLabelFormat.DISABLED,
+            rows=AxisLabelFormat.DISABLED,
+        ))
         assert (tmp_path / "axis_labels.yaml").exists()
 
-    def test_roundtrip_both_axes(self, tmp_path: Path) -> None:
+    def test_roundtrip_non_default(self, tmp_path: Path) -> None:
         original = AxisLabelSettings(
-            columns=AxisLabelFormat.NUMERIC_1,
-            rows=AxisLabelFormat.ALPHABETIC,
+            columns=AxisLabelFormat.NUMERIC_0,
+            rows=AxisLabelFormat.DISABLED,
         )
         _save(tmp_path, original)
         (*_, loaded) = load_project(tmp_path)
         assert loaded == original
 
     def test_load_without_file_returns_default(self, tmp_path: Path) -> None:
-        _save(tmp_path, AxisLabelSettings())  # writes everything else, no axis_labels.yaml
+        _save(tmp_path, AxisLabelSettings())  # default → no file written
         (*_, loaded) = load_project(tmp_path)
         assert loaded == AxisLabelSettings()
 
-    def test_default_after_enabled_deletes_file(self, tmp_path: Path) -> None:
-        # First save with labels enabled — file appears.
-        _save(tmp_path, AxisLabelSettings(rows=AxisLabelFormat.ALPHABETIC))
+    def test_returning_to_default_deletes_file(self, tmp_path: Path) -> None:
+        # First save with a non-default state — file appears.
+        _save(tmp_path, AxisLabelSettings(
+            columns=AxisLabelFormat.NUMERIC_0,
+            rows=AxisLabelFormat.NUMERIC_0,
+        ))
         assert (tmp_path / "axis_labels.yaml").exists()
-        # Second save with defaults — file deleted.
+        # Second save with defaults — file gone.
         _save(tmp_path, AxisLabelSettings())
         assert not (tmp_path / "axis_labels.yaml").exists()
 

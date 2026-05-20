@@ -60,9 +60,12 @@ def _text_items(bv: BoardView) -> list[str]:
 
 
 class TestAxisLabelsRender:
-    def test_no_labels_when_disabled(self, view: tuple[BoardView, EditorSession]) -> None:
+    def test_no_labels_when_both_disabled(self, view: tuple[BoardView, EditorSession]) -> None:
         bv, sess = view
-        sess.axis_label_settings = AxisLabelSettings()
+        sess.axis_label_settings = AxisLabelSettings(
+            columns=AxisLabelFormat.DISABLED,
+            rows=AxisLabelFormat.DISABLED,
+        )
         bv.refresh()
         # An empty session has no component refdes labels either, so any text
         # at all would have to come from axis labels.
@@ -70,7 +73,10 @@ class TestAxisLabelsRender:
 
     def test_columns_numeric_zero(self, view: tuple[BoardView, EditorSession]) -> None:
         bv, sess = view
-        sess.axis_label_settings = AxisLabelSettings(columns=AxisLabelFormat.NUMERIC_0)
+        sess.axis_label_settings = AxisLabelSettings(
+            columns=AxisLabelFormat.NUMERIC_0,
+            rows=AxisLabelFormat.DISABLED,
+        )
         bv.refresh()
         texts = _text_items(bv)
         # 4 columns × 2 sides (top + bottom) → 8 labels.
@@ -78,18 +84,20 @@ class TestAxisLabelsRender:
 
     def test_rows_alphabetic(self, view: tuple[BoardView, EditorSession]) -> None:
         bv, sess = view
-        sess.axis_label_settings = AxisLabelSettings(rows=AxisLabelFormat.ALPHABETIC)
+        sess.axis_label_settings = AxisLabelSettings(
+            columns=AxisLabelFormat.DISABLED,
+            rows=AxisLabelFormat.ALPHABETIC,
+        )
         bv.refresh()
         texts = _text_items(bv)
         # 4 rows × 2 sides (left + right) → 8 labels.
         assert sorted(texts) == sorted(["a", "b", "c", "d"] * 2)
 
-    def test_both_axes(self, view: tuple[BoardView, EditorSession]) -> None:
+    def test_default_settings_render_numeric1_columns_alphabetic_rows(
+        self, view: tuple[BoardView, EditorSession]
+    ) -> None:
         bv, sess = view
-        sess.axis_label_settings = AxisLabelSettings(
-            columns=AxisLabelFormat.NUMERIC_1,
-            rows=AxisLabelFormat.ALPHABETIC,
-        )
+        # Don't touch axis_label_settings — defaults are (NUMERIC_1, ALPHABETIC).
         bv.refresh()
         texts = _text_items(bv)
         # 4 cols × 2 + 4 rows × 2 = 16 labels.
@@ -100,26 +108,33 @@ class TestAxisLabelsRender:
         self, view: tuple[BoardView, EditorSession]
     ) -> None:
         bv, sess = view
-        sess.axis_label_settings = AxisLabelSettings(columns=AxisLabelFormat.NUMERIC_0)
+        sess.axis_label_settings = AxisLabelSettings(
+            columns=AxisLabelFormat.NUMERIC_0,
+            rows=AxisLabelFormat.DISABLED,
+        )
         sess.layer_overrides.axis_labels = LayerVisibility.HIDDEN
         bv._layer_overrides = sess.layer_overrides
         bv.refresh()
         assert _text_items(bv) == []
 
-    def test_alphabetic_wraps_to_two_letters(
+    def test_alphabetic_cycles_after_z(
         self, qtbot: QtBot
     ) -> None:
         library = load_library([_LIBRARY_DIR])
         sess = EditorSession(board=_perfboard(rows=2, cols=30), library=library)
-        sess.axis_label_settings = AxisLabelSettings(columns=AxisLabelFormat.ALPHABETIC)
+        sess.axis_label_settings = AxisLabelSettings(
+            columns=AxisLabelFormat.ALPHABETIC,
+            rows=AxisLabelFormat.DISABLED,
+        )
         bv = BoardView(sess)
         qtbot.addWidget(bv)
         bv.refresh()
         texts = _text_items(bv)
-        # 30 columns × 2 sides; entries 0..25 are a..z, 26..29 are aa..ad.
+        # 30 columns × 2 sides; entries 0..25 are a..z, 26..29 cycle back
+        # to a..d.
         expected_one_side = [
             "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
             "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
-            "aa", "ab", "ac", "ad",
+            "a", "b", "c", "d",
         ]
         assert sorted(texts) == sorted(expected_one_side * 2)

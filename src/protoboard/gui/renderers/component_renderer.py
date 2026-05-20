@@ -224,8 +224,7 @@ def update_component_groups(
         layers.ghost_components,
         ov.components_top.value,
         ov.components_bottom.value,
-        ov.labels_top.value,
-        ov.labels_bottom.value,
+        ov.labels.value,
         ov.pin_names.value,
     )
 

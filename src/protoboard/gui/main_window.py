@@ -126,14 +126,14 @@ class MainWindow(QMainWindow):
         KB.ACTION_AUTOROUTE:             {"label": "&Autoroute Nets… [Inspector selection or all]"},
         KB.ACTION_RUN_DRC:               {"label": "Run &DRC"},
         # Layer cycling
-        KB.ACTION_LAYER_1: {"label": "Components Top"},
-        KB.ACTION_LAYER_2: {"label": "Components Bottom"},
-        KB.ACTION_LAYER_3: {"label": "Wires Top"},
-        KB.ACTION_LAYER_4: {"label": "Wires Bottom"},
-        KB.ACTION_LAYER_5: {"label": "Labels Top"},
-        KB.ACTION_LAYER_6: {"label": "Labels Bottom"},
-        KB.ACTION_LAYER_7: {"label": "Board"},
-        KB.ACTION_LAYER_8: {"label": "Ratsnest"},
+        KB.ACTION_LAYER_1: {"label": "Board"},
+        KB.ACTION_LAYER_2: {"label": "Components Top"},
+        KB.ACTION_LAYER_3: {"label": "Components Bottom"},
+        KB.ACTION_LAYER_4: {"label": "Wires Top"},
+        KB.ACTION_LAYER_5: {"label": "Wires Bottom"},
+        KB.ACTION_LAYER_6: {"label": "Labels"},
+        KB.ACTION_LAYER_7: {"label": "Pin Names"},
+        KB.ACTION_LAYER_8: {"label": "Connections"},
         # Orphan actions (no menu entry — only keyboard shortcut)
         KB.ACTION_FILTER_TOGGLE_COMPONENTS: {"label": "Filter: Toggle Components"},
         KB.ACTION_FILTER_TOGGLE_WIRES:      {"label": "Filter: Toggle Wires"},
@@ -462,14 +462,14 @@ class MainWindow(QMainWindow):
     # Layer cycling — field name + display label + ACTION id, in menu order.
     # Class-level so _register_actions() can read it before _build_menu() runs.
     _LAYER_ENTRIES: list[tuple[str, str, str]] = [
-        ("components_top",    "Components Top",    KB.ACTION_LAYER_1),
-        ("components_bottom", "Components Bottom", KB.ACTION_LAYER_2),
-        ("wires_top",         "Wires Top",         KB.ACTION_LAYER_3),
-        ("wires_bottom",      "Wires Bottom",      KB.ACTION_LAYER_4),
-        ("labels_top",        "Labels Top",        KB.ACTION_LAYER_5),
-        ("labels_bottom",     "Labels Bottom",     KB.ACTION_LAYER_6),
-        ("board",             "Board",             KB.ACTION_LAYER_7),
-        ("ratsnest",          "Ratsnest",          KB.ACTION_LAYER_8),
+        ("board",             "Board",              KB.ACTION_LAYER_1),
+        ("components_top",    "Components Top",     KB.ACTION_LAYER_2),
+        ("components_bottom", "Components Bottom",  KB.ACTION_LAYER_3),
+        ("wires_top",         "Wires Top",          KB.ACTION_LAYER_4),
+        ("wires_bottom",      "Wires Bottom",       KB.ACTION_LAYER_5),
+        ("labels",            "Labels",             KB.ACTION_LAYER_6),
+        ("pin_names",         "Pin Names",          KB.ACTION_LAYER_7),
+        ("ratsnest",          "Connections",        KB.ACTION_LAYER_8),
     ]
 
     def _register_actions(self) -> None:
@@ -938,14 +938,14 @@ class MainWindow(QMainWindow):
     def _refresh_layer_menu(self) -> None:
         """Update layer menu action labels to reflect current override states."""
         _NAMES = {
+            "board":             "Board",
             "components_top":    "Components Top",
             "components_bottom": "Components Bottom",
             "wires_top":         "Wires Top",
             "wires_bottom":      "Wires Bottom",
-            "labels_top":        "Labels Top",
-            "labels_bottom":     "Labels Bottom",
-            "board":             "Board",
-            "ratsnest":          "Ratsnest",
+            "labels":            "Labels",
+            "pin_names":         "Pin Names",
+            "ratsnest":          "Connections",
         }
         for field_name, act in self._layer_actions.items():
             vis = getattr(self._layer_overrides, field_name)

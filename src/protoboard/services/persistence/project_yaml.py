@@ -74,10 +74,13 @@ def save_project(
         layers_path = directory / "layers.yaml"
         if layers_path.exists():
             layers_path.unlink()
-    # axis_labels.yaml: written only when at least one axis is enabled — keeps
-    # the project directory tidy for the common "no axis labels" case.
+    # axis_labels.yaml: written only when settings differ from the built-in
+    # defaults (NUMERIC_1 columns + ALPHABETIC rows).  Projects that accept
+    # the defaults stay on disk without an extra file, and reload still
+    # yields the same defaults via load_project()'s fallback.
     axis_path = directory / "axis_labels.yaml"
-    if axis_label_settings is not None and axis_label_settings.any_enabled():
+    if (axis_label_settings is not None
+            and axis_label_settings != AxisLabelSettings()):
         _write(axis_path, _axis_labels_to_yaml(axis_label_settings))
     elif axis_path.exists():
         axis_path.unlink()

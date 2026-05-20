@@ -33,16 +33,15 @@ class TestFormatIndex:
             (0, "a"),
             (1, "b"),
             (25, "z"),
-            (26, "aa"),
-            (27, "ab"),
-            (51, "az"),
-            (52, "ba"),
-            (701, "zz"),
-            (702, "aaa"),
-            (703, "aab"),
+            (26, "a"),    # cycles back to 'a' after 'z'
+            (27, "b"),
+            (51, "z"),
+            (52, "a"),    # second wrap
+            (701, "z"),   # 701 % 26 == 25
+            (702, "a"),   # 702 % 26 == 0
         ],
     )
-    def test_alphabetic_excel_style(self, i: int, expected: str) -> None:
+    def test_alphabetic_cycles_a_to_z(self, i: int, expected: str) -> None:
         assert format_index(AxisLabelFormat.ALPHABETIC, i) == expected
 
     def test_alphabetic_negative_raises(self) -> None:
@@ -51,18 +50,31 @@ class TestFormatIndex:
 
 
 class TestAxisLabelSettings:
-    def test_defaults_are_disabled(self) -> None:
+    def test_defaults_columns_numeric_1_rows_alphabetic(self) -> None:
         s = AxisLabelSettings()
-        assert s.columns == AxisLabelFormat.DISABLED
-        assert s.rows == AxisLabelFormat.DISABLED
+        assert s.columns == AxisLabelFormat.NUMERIC_1
+        assert s.rows == AxisLabelFormat.ALPHABETIC
+        assert s.any_enabled()
+
+    def test_any_enabled_false_when_both_disabled(self) -> None:
+        s = AxisLabelSettings(
+            columns=AxisLabelFormat.DISABLED,
+            rows=AxisLabelFormat.DISABLED,
+        )
         assert not s.any_enabled()
 
     def test_any_enabled_on_columns(self) -> None:
-        s = AxisLabelSettings(columns=AxisLabelFormat.NUMERIC_0)
+        s = AxisLabelSettings(
+            columns=AxisLabelFormat.NUMERIC_0,
+            rows=AxisLabelFormat.DISABLED,
+        )
         assert s.any_enabled()
 
     def test_any_enabled_on_rows(self) -> None:
-        s = AxisLabelSettings(rows=AxisLabelFormat.ALPHABETIC)
+        s = AxisLabelSettings(
+            columns=AxisLabelFormat.DISABLED,
+            rows=AxisLabelFormat.ALPHABETIC,
+        )
         assert s.any_enabled()
 
     def test_frozen_dataclass(self) -> None:

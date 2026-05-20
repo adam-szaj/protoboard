@@ -7,7 +7,7 @@ picks one of four formats:
 - ``DISABLED``   — that axis renders nothing
 - ``NUMERIC_0``  — 0, 1, 2, …
 - ``NUMERIC_1``  — 1, 2, 3, …
-- ``ALPHABETIC`` — a, b, …, z, aa, ab, …, zz, aaa, …  (Excel-style)
+- ``ALPHABETIC`` — a, b, …, z, a, b, …  (cycles every 26 positions)
 
 Layer visibility (FULL / GHOST / HIDDEN) is handled separately by
 ``LayerOverrides.axis_labels`` — this dataclass only carries the *format*
@@ -31,8 +31,8 @@ class AxisLabelFormat(str, Enum):
 class AxisLabelSettings:
     """Independent format choice for column and row index labels."""
 
-    columns: AxisLabelFormat = AxisLabelFormat.DISABLED
-    rows: AxisLabelFormat = AxisLabelFormat.DISABLED
+    columns: AxisLabelFormat = AxisLabelFormat.NUMERIC_1
+    rows: AxisLabelFormat = AxisLabelFormat.ALPHABETIC
 
     def any_enabled(self) -> bool:
         return (
@@ -58,17 +58,15 @@ def format_index(fmt: AxisLabelFormat, i: int) -> str:
 
 
 def _alphabetic(i: int) -> str:
-    """Excel-style 0-based alphabetic index: 0→a, 25→z, 26→aa, 701→zz, 702→aaa."""
+    """Single-letter cyclic alphabetic index: 0→a, 25→z, 26→a, 27→b, …
+
+    Boards rarely exceed 26 rows in practice, so a simple modulo cycle is
+    more readable than Excel-style ``aa``/``ab`` growth — the labels are
+    intended as a positional hint, not a unique identifier.
+    """
     if i < 0:
         raise ValueError(f"axis index must be non-negative; got {i}")
-    chars: list[str] = []
-    n = i
-    while True:
-        chars.append(chr(ord("a") + n % 26))
-        n = n // 26 - 1
-        if n < 0:
-            break
-    return "".join(reversed(chars))
+    return chr(ord("a") + i % 26)
 
 
 __all__ = ["AxisLabelFormat", "AxisLabelSettings", "format_index"]

@@ -141,8 +141,10 @@ class TestLayerActions:
     def test_layer_actions_view_built(self, main_window: MainWindow) -> None:
         # All eight layer field names map into _layer_actions.
         assert set(main_window._layer_actions.keys()) == {
-            "components_top", "components_bottom", "wires_top", "wires_bottom",
-            "labels_top", "labels_bottom", "board", "ratsnest",
+            "board",
+            "components_top", "components_bottom",
+            "wires_top", "wires_bottom",
+            "labels", "pin_names", "ratsnest",
         }
 
     def test_layer_action_dispatches_correct_field(

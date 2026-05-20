@@ -16,19 +16,17 @@ from PySide6.QtWidgets import (
 
 from protoboard.gui.layer_state import LayerOverrides, LayerVisibility
 
-# (field_name, display_name, key_hint)
+# (field_name, display_name, key_hint).  "ratsnest" keeps its internal
+# name for backwards compatibility but is displayed as "Connections".
 _LAYER_DEFS = [
-    ("components_top",    "Components Top",    "1"),
-    ("components_bottom", "Components Bottom", "2"),
-    ("wires_top",         "Wires Top",         "3"),
-    ("wires_bottom",      "Wires Bottom",      "4"),
-    ("labels_top",        "Labels Top",        "5"),
-    ("labels_bottom",     "Labels Bottom",     "6"),
-    ("board",             "Board",             "7"),
-    ("pin_names",         "Pin Names",         "8"),
-    ("connectness",       "Connectness",       "9"),
-    ("ratsnest",          "Ratsnest",          "0"),
-    ("axis_labels",       "Axis Labels",       ""),
+    ("board",             "Board",              "1"),
+    ("components_top",    "Components Top",     "2"),
+    ("components_bottom", "Components Bottom",  "3"),
+    ("wires_top",         "Wires Top",          "4"),
+    ("wires_bottom",      "Wires Bottom",       "5"),
+    ("labels",            "Labels",             "6"),
+    ("pin_names",         "Pin Names",          "7"),
+    ("ratsnest",          "Connections",        "8"),
 ]
 
 # Background colours per visibility state.
