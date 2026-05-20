@@ -12,6 +12,7 @@ _DRAG_REFRESH_INTERVAL = 0.033  # 30 fps max during live drag
 from PySide6.QtCore import QPoint, QPointF, QRectF, QTimer, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
+    QColor,
     QKeyEvent,
     QMouseEvent,
     QPainter,
@@ -303,6 +304,10 @@ class BoardView(QGraphicsView):
         from protoboard.gui.theme import Theme
         if isinstance(theme, Theme):
             self._theme_override = theme
+            # board_bg is applied as the QGraphicsView background brush, not
+            # as a scene item — re-apply it explicitly so the canvas around
+            # the board picks up theme changes without an app restart.
+            self.setBackgroundBrush(QBrush(QColor(theme.board_bg)))
             self._board_layer_dirty = True
             self.refresh()
 

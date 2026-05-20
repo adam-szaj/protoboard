@@ -72,9 +72,13 @@ def render_axis_labels(
     # We compute per-text to keep variable-width strings centred.
     line_height_scene = metrics.height() / view_scale
 
-    text_color = QColor(theme.refdes_color)
+    # Axis labels live on the canvas outside the board, so the surrounding
+    # board_bg colour is the right background — nothing underneath the label
+    # could be obscured by it.  Text colour is its own theme entry so the
+    # default stays readable against a dark canvas.
+    text_color = QColor(theme.axis_label_color)
     text_color.setAlphaF(text_color.alphaF() * alpha)
-    bg_color = QColor(theme.label_bg_color)
+    bg_color = QColor(theme.board_bg)
     bg_color.setAlphaF(bg_color.alphaF() * alpha)
 
     items: list[QGraphicsItem] = []

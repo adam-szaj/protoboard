@@ -89,6 +89,11 @@ class Theme:
     overlay_font_size: float = 8.0
     label_bg_color: str = "#B0FFFFFF"
 
+    # Axis labels (column/row indices rendered around the board).  They sit
+    # over the surrounding canvas, not over the board itself, so they reuse
+    # ``board_bg`` for their background pill rather than ``label_bg_color``.
+    axis_label_color: str = "#cccccc"
+
     # Component lead lines (wire between pins and body)
     lead_color: str = "#888888"
     lead_width: float = 0.06

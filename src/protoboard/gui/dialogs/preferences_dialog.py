@@ -257,6 +257,7 @@ class _ColorsPage(QWidget):
             ("strip_color",      "Strip colour",        theme.strip_color),
             ("hole_color",       "Hole colour",         theme.hole_color),
             ("isolated_x_color", "Strip cut X colour",  theme.isolated_x_color),
+            ("axis_label_color", "Axis label colour",   theme.axis_label_color),
         ])
 
         add_section("Wires", [
