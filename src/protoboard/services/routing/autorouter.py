@@ -141,14 +141,31 @@ class _SequentialExecutor:
         pass
 
 
-# Module-level thread pool for parallel A* side evaluation.
+# Module-level executor for per-side A* evaluation.  Default is SEQUENTIAL
+# — see project_silent_crash_post_upgrade memory for the gory details:
+# the ThreadPool path can segfault inside CPython 3.14 GC while a worker
+# thread is mark_stacks-ing the heap concurrently with Qt's paintEvent on
+# the main thread.  The crash is intermittent, hard to repro under gdb,
+# and tied to native Qt+FreeType state we don't own.  Opt back into the
+# thread pool with PROTOBOARD_ASTAR_PARALLEL=1 once you've verified your
+# environment is unaffected (small projects + xcb platform are usually
+# fine).  The legacy PROTOBOARD_ASTAR_SEQUENTIAL=1 still works for
+# scripts that explicitly want sequential (e.g. test fixtures).
+_ASTAR_PARALLEL = _os.environ.get("PROTOBOARD_ASTAR_PARALLEL", "0") == "1"
 _ASTAR_SEQUENTIAL = _os.environ.get("PROTOBOARD_ASTAR_SEQUENTIAL", "0") == "1"
-if _ASTAR_SEQUENTIAL:
-    _log.info("astar.pool", mode="sequential", reason="PROTOBOARD_ASTAR_SEQUENTIAL=1")
-    _ASTAR_POOL: ThreadPoolExecutor | _SequentialExecutor = _SequentialExecutor()
-else:
-    _ASTAR_POOL = ThreadPoolExecutor(max_workers=_CPU_COUNT, thread_name_prefix="astar")
+if _ASTAR_PARALLEL and not _ASTAR_SEQUENTIAL:
+    _ASTAR_POOL: ThreadPoolExecutor | _SequentialExecutor = ThreadPoolExecutor(
+        max_workers=_CPU_COUNT, thread_name_prefix="astar",
+    )
     _atexit.register(lambda: _ASTAR_POOL.shutdown(wait=False, cancel_futures=True))
+    _log.info("astar.pool", mode="parallel", reason="PROTOBOARD_ASTAR_PARALLEL=1")
+else:
+    _ASTAR_POOL = _SequentialExecutor()
+    _log.info(
+        "astar.pool",
+        mode="sequential",
+        reason=("PROTOBOARD_ASTAR_SEQUENTIAL=1" if _ASTAR_SEQUENTIAL else "default"),
+    )
 
 
 class AutorouteCancelled(Exception):
@@ -192,6 +209,75 @@ class AutorouteResult:
     wires: list[WireSegment] = field(default_factory=list)
     unrouted_nets: list[str] = field(default_factory=list)  # net names
     pass_stats: list[PassStats] = field(default_factory=list)
+
+
+_ORPHAN_EPS = 1e-4
+
+
+def _drop_orphan_wires(
+    layout: "Layout",
+    board: "Board",
+    pin_positions: "dict[PinRef, tuple[Point, str]]",
+) -> int:
+    """Remove wires whose endpoints aren't anchored to anything meaningful.
+
+    An endpoint is considered "anchored" when it lies on one of:
+    - a board pad (any atom centre),
+    - a component pin position,
+    - another wire's endpoint (a branch point — two wires sharing a
+      junction node are both anchored even if neither endpoint sits on a
+      pad, which can happen with mid-air jumpers).
+
+    A wire with *any* unanchored endpoint is dropped — it represents a
+    dangling fragment that survived a partial wire-delete or component
+    move.  Returns the number of dropped wires.  Mutates ``layout.wires``
+    in place.
+    """
+    if not layout.wires:
+        return 0
+
+    def _round(p: Point) -> tuple[float, float]:
+        return (round(p.x, 4), round(p.y, 4))
+
+    anchored: set[tuple[float, float]] = set()
+    for _atom, pos in board.atoms():
+        anchored.add(_round(pos))
+    for pos, _side in pin_positions.values():
+        anchored.add(_round(pos))
+
+    # Count how many wires touch each endpoint; ≥ 2 wires sharing an
+    # endpoint anchors that endpoint as a junction node.
+    endpoint_counts: dict[tuple[float, float], int] = {}
+    for w in layout.wires:
+        if len(w.path) < 2:
+            continue
+        for endpoint in (w.path[0], w.path[-1]):
+            key = _round(endpoint)
+            endpoint_counts[key] = endpoint_counts.get(key, 0) + 1
+
+    survivors: list[WireSegment] = []
+    n_dropped = 0
+    for w in layout.wires:
+        if len(w.path) < 2:
+            n_dropped += 1
+            continue
+        ok = True
+        for endpoint in (w.path[0], w.path[-1]):
+            key = _round(endpoint)
+            if key in anchored:
+                continue
+            if endpoint_counts.get(key, 0) >= 2:
+                continue
+            ok = False
+            break
+        if ok:
+            survivors.append(w)
+        else:
+            n_dropped += 1
+
+    if n_dropped:
+        layout.wires[:] = survivors
+    return n_dropped
 
 
 def autoroute(
@@ -327,6 +413,14 @@ def autoroute(
     )
     sorted_nets = sorted(all_nets, key=_net_sort_key)
 
+    # Drop wires whose endpoint isn't anchored to a pad, a component pin or
+    # another wire's endpoint.  Such "orphan" segments (e.g. left behind
+    # after a component move or a partial wire-delete) confuse the
+    # ConnectivityGraph and bias rip-up scoring — better to discard them
+    # before snapshotting.  The dropped wires are also removed from
+    # ``layout.wires`` so the post-autoroute state is consistent.
+    n_dropped = _drop_orphan_wires(layout, board, pin_positions)
+
     # Snapshot of user-placed wires — never mutated; each pass starts from here.
     user_wires: list[WireSegment] = list(layout.wires)
 
@@ -334,6 +428,7 @@ def autoroute(
         "autoroute.start",
         nets=len(sorted_nets),
         existing_wires=len(user_wires),
+        orphans_dropped=n_dropped,
         allow_layer_change=allow_layer_change,
         max_optimize_iterations=max_optimize_iterations,
         net_order=[n.name for n in sorted_nets],
