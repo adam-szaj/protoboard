@@ -236,6 +236,50 @@ class SelectTool(_Tool):
         from protoboard.gui.selection_axes import SelectionFilter
         return bool(self._filter & SelectionFilter.GROUPS)
 
+    def _filter_mutable_ids(self, ids: "set[uuid.UUID] | frozenset[uuid.UUID] | list[uuid.UUID]") -> "set[uuid.UUID]":
+        """Drop components that are locked inside a group from a mutation set.
+
+        Used by every layout-mutating action (drag, delete, rotate, flip) so
+        a selection that mixes free and grouped components only affects the
+        free ones.  Pure-selection operations (highlight, properties) don't
+        call this — grouped components stay selectable.
+        """
+        return {cid for cid in ids if not self._is_locked_in_group(cid)}
+
+    def _is_locked_in_group(self, comp_id: uuid.UUID) -> bool:
+        """True iff *comp_id* belongs to a group that the user is currently
+        viewing from the outside.
+
+        A group is a "hand-crafted IC": from the outside it's a sealed
+        package — selection (for net inspection, properties) is allowed,
+        but layout-mutating operations (drag, delete, rotate, flip) are
+        not.  Double-clicking the group enters its context
+        (``_current_group_id`` advances) and unlocks its direct members
+        for editing.
+
+        Returns False when:
+        - the component is not in any non-root group, OR
+        - the active group context already contains the component as a
+          direct member (we're "inside" the group).
+        """
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        groups = self._session.layout.groups
+        active_gid = self._current_group_id
+        active = groups.get(active_gid)
+        for gid, g in groups.items():
+            if gid == ROOT_GROUP_ID:
+                continue
+            if comp_id not in g.component_ids:
+                continue
+            # comp_id is a direct member of group `g`.  Locked unless we've
+            # stepped inside that group (or a descendant whose chain leads
+            # back to `g`).  The simple, correct check: locked iff `g` is
+            # NOT the active group.
+            if gid == active_gid:
+                return False
+            return True
+        return False
+
     # ------------------------------------------------------------------
     # Relation class (which correlated set the auto-highlight reflects)
     # ------------------------------------------------------------------
@@ -1048,6 +1092,12 @@ class SelectTool(_Tool):
                 # Click on already-selected component — keep multi-selection
                 # (including wires) and set as primary for properties panel.
                 self._select_primary(hit)
+            # Grouped-component protection: viewing a group from the outside
+            # makes its members selectable (for net highlight / properties)
+            # but NOT draggable.  Double-click the group to step inside if
+            # you want to edit its layout.
+            if self._is_locked_in_group(hit):
+                return True
             # Begin drag.
             self._drag_overlay.reset(self._view.scene())
             self._corner_text.hide(self._view.scene())
@@ -1057,6 +1107,10 @@ class SelectTool(_Tool):
             self._drag_orig_positions = {}
             self._drag_orig_wire_paths = {}
             drag_ids = self._selected_ids if self._selected_ids else {hit}
+            # Drop grouped-but-not-active components from the drag set so
+            # multi-selections that span both free and grouped components
+            # only carry the free ones.
+            drag_ids = {cid for cid in drag_ids if not self._is_locked_in_group(cid)}
             snapped = self._view.snap(scene_pt, exclude_ids=frozenset(drag_ids))
             for cid in drag_ids:
                 pl = self._session.layout.placements.get(cid)
@@ -1129,10 +1183,14 @@ class SelectTool(_Tool):
         ):
             self._cancel_wire_edit()
             self._select_primary(bbox_hit)
+            # Grouped-component protection — see the matching guard above.
+            if self._is_locked_in_group(bbox_hit):
+                return True
             self._dragging = True
             self._drag_orig_positions = {}
             self._drag_orig_wire_paths = {}
             drag_ids = self._selected_ids if self._selected_ids else {bbox_hit}
+            drag_ids = {cid for cid in drag_ids if not self._is_locked_in_group(cid)}
             snapped = self._view.snap(scene_pt, exclude_ids=frozenset(drag_ids))
             for cid in drag_ids:
                 pl = self._session.layout.placements.get(cid)
@@ -2243,6 +2301,8 @@ class SelectTool(_Tool):
         comp_id = self._selected_id
         if comp_id is None:
             return
+        if self._is_locked_in_group(comp_id):
+            return
         placement = self._session.layout.placements.get(comp_id)
         inst = self._session.instances.get(comp_id)
         if placement is None or inst is None:
@@ -2284,7 +2344,7 @@ class SelectTool(_Tool):
             self._session.layout_changed.emit()
             self._redraw_multi_highlights()
             return
-        ids = list(self._selected_ids)
+        ids = [cid for cid in self._selected_ids if not self._is_locked_in_group(cid)]
         if not ids:
             return
         cmds: list[MoveComponentCommand] = []
@@ -2318,7 +2378,7 @@ class SelectTool(_Tool):
         self._redraw_multi_highlights()
 
     def _flip_multi(self) -> None:
-        ids = list(self._selected_ids)
+        ids = [cid for cid in self._selected_ids if not self._is_locked_in_group(cid)]
         if not ids:
             return
         cmds: list[MoveComponentCommand] = []
@@ -2351,6 +2411,8 @@ class SelectTool(_Tool):
     def _rotate_selected(self, delta: int = 90) -> None:
         comp_id = self._selected_id
         if comp_id is None:
+            return
+        if self._is_locked_in_group(comp_id):
             return
         placement = self._session.layout.placements.get(comp_id)
         if placement is None:
@@ -2813,6 +2875,8 @@ class SelectTool(_Tool):
         comp_id = self._selected_id
         if comp_id is None:
             return
+        if self._is_locked_in_group(comp_id):
+            return  # grouped — see _is_locked_in_group docstring
         from typing import cast
         from protoboard.domain.commands.base import Command
         cmd = cast(Command[ComponentState], RemoveComponentCommand(component_id=comp_id))
@@ -2832,6 +2896,8 @@ class SelectTool(_Tool):
         bend offset, so we redrag pin 1 instead of pin 2.  This keeps the
         semantics consistent: the user always moves the "far" end of the lead.
         """
+        if self._is_locked_in_group(comp_id):
+            return
         placement = self._session.layout.placements.get(comp_id)
         inst = self._session.instances.get(comp_id)
         if placement is None or inst is None:
@@ -3298,7 +3364,10 @@ class SelectTool(_Tool):
 
     def _delete_multi(self) -> None:
         existing_comps = set(self._session.layout.placements.keys())
-        ids = [cid for cid in self._selected_ids if cid in existing_comps]
+        ids = [
+            cid for cid in self._selected_ids
+            if cid in existing_comps and not self._is_locked_in_group(cid)
+        ]
         if not ids:
             return
         from typing import cast
