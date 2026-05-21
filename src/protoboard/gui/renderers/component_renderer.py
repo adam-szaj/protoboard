@@ -279,7 +279,8 @@ def update_component_groups(
                 existing_fingerprints.pop(comp_id, None)
                 grp = _render_one(scene, placement, inst, defn, comp_id, pin_net,
                                   routed_nets, theme, layers, group_alpha=1.0,
-                                  highlighted_net_id=highlighted_net_id)
+                                  highlighted_net_id=highlighted_net_id,
+                                  is_highlighted_comp=comp_id in highlighted_comp_ids)
                 if grp is None:
                     continue
                 existing_groups[comp_id] = grp
@@ -287,7 +288,8 @@ def update_component_groups(
         else:
             grp = _render_one(scene, placement, inst, defn, comp_id, pin_net,
                               routed_nets, theme, layers, group_alpha=1.0,
-                              highlighted_net_id=highlighted_net_id)
+                              highlighted_net_id=highlighted_net_id,
+                              is_highlighted_comp=comp_id in highlighted_comp_ids)
             if grp is None:
                 continue
             existing_groups[comp_id] = grp
@@ -370,10 +372,22 @@ def _render_one(
     layers: LayerState,
     group_alpha: float = 1.0,
     highlighted_net_id: uuid.UUID | None = None,
+    is_highlighted_comp: bool = False,
 ) -> QGraphicsItemGroup | None:
-    """Render one component; return a scene group (for live drag) or None."""
+    """Render one component; return a scene group (for live drag) or None.
+
+    When *is_highlighted_comp* is True, the per-layer ghost factor
+    (alpha_for_component) is bypassed so a component belonging to the
+    routed/highlighted net stays fully opaque even while a routing or
+    placement tool dims the rest of the components layer.  The setOpacity
+    pass in update_component_groups still applies on top, so users keep
+    control via group-level overrides.
+    """
     side = placement.side  # type: ignore[assignment]
-    alpha = layers.alpha_for_component(side) * group_alpha
+    if is_highlighted_comp:
+        alpha = group_alpha  # skip ghost-component dimming for highlighted nets
+    else:
+        alpha = layers.alpha_for_component(side) * group_alpha
     if alpha == 0.0:
         return None
     alpha_label = layers.alpha_for_label(side) * group_alpha

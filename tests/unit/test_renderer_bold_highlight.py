@@ -74,3 +74,5 @@ class TestCompFingerprintBold:
             bold_pin_nets=frozenset({n2}),
         )
         assert fp1 != fp2
+
+
