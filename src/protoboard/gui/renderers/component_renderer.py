@@ -391,7 +391,7 @@ def _render_one(
     comp_fill = QColor(_base_fill.red(), _base_fill.green(), _base_fill.blue(),
                        _a(_base_fill.alpha()))
     comp_border = QColor(theme.comp_border)
-    comp_border.setAlphaF(alpha)
+    comp_border.setAlphaF(comp_border.alphaF() * alpha)
 
     shape = body_shape_for(defn, placement, inst, theme.body_types)
     for item in shape.draw(positions, comp_fill, comp_border, alpha, z_comp, theme):
@@ -399,7 +399,7 @@ def _render_one(
     skip_pins = shape.drawn_pin_numbers(positions, theme)
 
     pin_color_fallback = QColor(theme.pin_color_fallback)
-    pin_color_fallback.setAlphaF(alpha)
+    pin_color_fallback.setAlphaF(pin_color_fallback.alphaF() * alpha)
     for pin_idx, pos in enumerate(positions):
         pin_number = pin_idx + 1
         if pin_number in skip_pins:
@@ -453,7 +453,7 @@ def _render_one(
     bg_color = QColor(theme.label_bg_color)
     if alpha_label > 0.0:
         label_color = QColor(theme.refdes_color)
-        label_color.setAlphaF(alpha_label)
+        label_color.setAlphaF(label_color.alphaF() * alpha_label)
         bg = QColor(bg_color)
         bg.setAlphaF(bg.alphaF() * alpha_label)
 
@@ -475,7 +475,7 @@ def _render_one(
         alpha_pin_names = layers.alpha_for_pin_names(side) * group_alpha
         if alpha_pin_names > 0.0 and defn.pin_names:
             pin_name_color = QColor(theme.pin_label_fallback_color)
-            pin_name_color.setAlphaF(alpha_pin_names)
+            pin_name_color.setAlphaF(pin_name_color.alphaF() * alpha_pin_names)
             pin_bg = QColor(bg_color)
             pin_bg.setAlphaF(pin_bg.alphaF() * alpha_pin_names)
             for pin_idx, pos in enumerate(positions):

@@ -26,8 +26,18 @@ _DEFAULT_LAYERS = LayerState()
 
 
 def _apply_alpha(color: QColor, alpha: float) -> QColor:
+    """Multiply the colour's existing alpha channel by *alpha*.
+
+    The previous implementation called ``setAlphaF(alpha)``, which
+    replaced the colour's per-pixel alpha entirely — so any user-set
+    alpha in ``theme.pad_color`` (e.g. ``#FFFF0080`` for translucent
+    yellow pads) was silently overwritten by the layer's whole-board
+    ghost factor.  Multiplying instead preserves the user's alpha when
+    the layer is fully visible (alpha=1.0) and still attenuates pads
+    correctly when the board is ghosted under a routing/placement tool.
+    """
     c = QColor(color)
-    c.setAlphaF(alpha)
+    c.setAlphaF(c.alphaF() * alpha)
     return c
 
 
@@ -147,7 +157,7 @@ def _render_frames(
         rect.setBrush(QBrush(QColor(0, 0, 0, 0)))
         if is_root:
             c = QColor(theme.board_frame_color)
-            c.setAlphaF(alpha)
+            c.setAlphaF(c.alphaF() * alpha)
             pen = QPen(c, theme.board_frame_width)
         else:
             c = QColor(theme.board_sub_frame_color)
