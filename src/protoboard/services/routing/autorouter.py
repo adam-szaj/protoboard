@@ -583,47 +583,35 @@ def autoroute(
 
         current_wires = best_wires
 
-    # Post-process: shorten wires via the generic shortcut algorithm.
+    # Post-process: shorten wires via the SimplifyOptimizer.  Kept here
+    # for backward-compat with callers passing the legacy
+    # `enable_simplify_pass` kwarg; the optimizer is the same one the
+    # plugin-aware worker invokes via the registry.
     if wire_mode == "bare_diagonal" and enable_simplify_pass and current_wires:
-        from protoboard.domain.board.pad_state import PadIndex
-        from protoboard.domain.layout.wire_utils import board_pads_for_side
-        from protoboard.services.routing.postprocess import (
-            SimplifyMode,
-            simplify_wires_generic,
+        from protoboard.services.routing.builtin_optimizers import SimplifyOptimizer
+        from protoboard.services.routing.protocol import ProgressSink
+        from protoboard.services.routing.snapshot import RouteRequest
+
+        # Build a snapshot of the current (post-routing) state.  The
+        # routing_settings field is unused by SimplifyOptimizer but the
+        # snapshot constructor requires it, so reach for a minimal one.
+        from protoboard.domain.routing_settings import RoutingSettings
+        _req = RouteRequest.from_session(
+            board=board,
+            layout=layout,
+            schematic=schematic,
+            components=components,
+            instances=instances,
+            routing_settings=RoutingSettings(),
         )
-        eff_mode = simplify_mode or SimplifyMode.BARE_PARITY
-        all_pins: set[Point] = {pos for pos, _side in all_pin_positions}
-        # Map pad-position → net-id for the side(s) we routed on.  Same pad on
-        # opposite sides is treated as the same net (plated-through).
-        pad_to_net: dict[Point, uuid.UUID] = {}
-        for (pos, _side), nid in all_pin_positions.items():
-            pad_to_net.setdefault(pos, nid)
-        # All board-pad positions on either side — bare wires that take
-        # shortcuts must keep these as vertices so connectivity / wire-edit
-        # see every physical pad contact.
-        all_board_pads = board_pads_for_side(board, "top") | board_pads_for_side(board, "bottom")
-        # Build a PadIndex from the post-routing state so simplify's per-vertex
-        # pad-state checks see authoritative information (catches shared-pad
-        # shorts, plated-through cross-layer, alien pins) instead of relying on
-        # legacy heuristics.  autoroute is pure-domain so it doesn't share an
-        # EditorSession's index; we construct a throw-away one over a snapshot
-        # Layout that carries the routed wires.
-        _simplify_layout = Layout(
-            placements=dict(layout.placements),
-            wires=list(current_wires),
+        _intermediate = AutorouteResult(
+            wires=current_wires,
+            unrouted_nets=list(unrouted_names),
+            pass_stats=list(result.pass_stats),
         )
-        _simplify_layout.ensure_root_group()
-        _simplify_pad_index = PadIndex(
-            board, _simplify_layout, schematic, components, instances,
-        )
-        current_wires = simplify_wires_generic(
-            current_wires,
-            pin_positions=all_pins,
-            pad_to_net=pad_to_net,
-            mode=eff_mode,
-            board_pads=all_board_pads,
-            pad_index=_simplify_pad_index,
-        )
+        _opt = SimplifyOptimizer(mode=simplify_mode)
+        _optimized = _opt.optimize(_req, _intermediate, ProgressSink(cancel_flag=cancel_flag))
+        current_wires = _optimized.wires
 
     result.wires = current_wires
     result.unrouted_nets = unrouted_names

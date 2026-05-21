@@ -121,14 +121,16 @@ def main() -> None:
     )
     _log.info("protoboard.starting", verbose=args.verbose)
 
-    # Register built-in routers and discover external plugins.  Both
-    # imports are side-effecting: builtin registers AStarRouter, discovery
-    # walks entry points.  Plugin failures are logged but do not abort.
+    # Register built-in routers + optimizers and discover external plugins.
+    # The imports are side-effecting: each `builtin*` module registers the
+    # default implementations on import.  Discovery walks both entry-point
+    # groups; broken plugins are logged but do not abort the host.
     import protoboard.services.routing.builtin  # noqa: F401
-    from protoboard.services.routing.discovery import discover_plugins
-    _discovered = discover_plugins()
-    if _discovered:
-        _log.info("routing.plugins_loaded", routers=_discovered)
+    import protoboard.services.routing.builtin_optimizers  # noqa: F401
+    from protoboard.services.routing.discovery import discover_all_plugins
+    _discovered = discover_all_plugins()
+    if any(_discovered.values()):
+        _log.info("routing.plugins_loaded", **_discovered)
 
     app = QApplication([sys.argv[0]] + remaining)
     app.setApplicationName("Protoboard Designer")
