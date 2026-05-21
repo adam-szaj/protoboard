@@ -193,11 +193,14 @@ class Theme:
     highlight_dim_components: float = 0.20  # alpha for dimmed components
     highlight_dim_wires: float = 0.20       # alpha for dimmed wires
     # ── Net highlight: bold (tier-1) ─────────────────────────────────────────
-    # Tier-1 net highlight (routing in-progress, Net Inspector selection) draws
-    # pads with a thicker pen and wires with a thicker core+outline.  Colours
-    # stay unchanged — pad and wire colours/outline-colours come from their
-    # regular theme fields.  Only widths scale up.
+    # Tier-1 net highlight (routing in-progress, Net Inspector selection):
+    # - pins of the highlighted net grow to nearly the size of the pad and
+    #   become fully opaque so wires can't bleed through
+    # - wires get a thicker core (in the net colour) and thicker outline
+    #   (in its theme colour — outline distinguishes bare/insulated, not nets)
+    # Colours stay unchanged; only widths and dot radius scale.
     bold_pin_width_factor: float = 2.5      # multiplier on pin_width_complete/_incomplete
+    bold_pin_dot_radius_factor: float = 0.85  # multiplier on pad_radius for the bold dot
     bold_wire_core_width_factor: float = 1.6  # multiplier on ins_width / bare_width
     bold_wire_outline_width_factor: float = 1.8  # multiplier on ins_outline_width / bare_outline_width
     # ── Routing highlight glow (tier-2: wire selection only) ─────────────────

@@ -451,12 +451,29 @@ def _render_one(
             # Unassigned pins never bold-up (they don't belong to any net).
             pen = QPen(fallback_pen_color, theme.pin_width_incomplete)
 
-        if pin_number == 1:
-            _add_pin1_marker(grp, pos.x, pos.y, fill_color, theme, z=z_comp - 0.05)
+        # Bold dot: grow to nearly pad size and force fully opaque so a
+        # wire passing through the same pad cannot bleed through.  Layer
+        # ghost factor still applies so the dot fades along with the rest
+        # of the component layer under routing/placement tools.
+        if is_bold:
+            dot_fill = QColor(fill_color)
+            dot_fill.setAlphaF(alpha)  # opaque modulo layer-ghost, no user-alpha bleed
+            dot_radius = theme.pad_radius * theme.bold_pin_dot_radius_factor
         else:
-            r = theme.pin_radius
-            dot = QGraphicsEllipseItem(QRectF(pos.x - r, pos.y - r, 2 * r, 2 * r))
-            dot.setBrush(QBrush(fill_color))
+            dot_fill = fill_color
+            dot_radius = theme.pin_radius
+
+        if pin_number == 1:
+            _add_pin1_marker(
+                grp, pos.x, pos.y, dot_fill, theme,
+                z=z_comp - 0.05, radius=dot_radius if is_bold else None,
+            )
+        else:
+            dot = QGraphicsEllipseItem(
+                QRectF(pos.x - dot_radius, pos.y - dot_radius,
+                       2 * dot_radius, 2 * dot_radius)
+            )
+            dot.setBrush(QBrush(dot_fill))
             dot.setPen(pen)
             dot.setZValue(z_comp - 0.05)
             grp.addToGroup(dot)
@@ -519,8 +536,14 @@ def _render_one(
 def _add_pin1_marker(
     grp: QGraphicsItemGroup, cx: float, cy: float, fill_color: QColor,
     theme: Theme, z: float = Z_FRONT_WIRES,
+    radius: float | None = None,
 ) -> None:
-    r = theme.pin_radius * 1.1
+    # The pin-1 marker is a square so it's distinguishable from the round
+    # pin dots.  Default radius is a touch larger than pin_radius; callers
+    # routing through the bold-highlight path pass an explicit *radius*
+    # so the marker grows along with the dot and remains visible above
+    # the thickened wire.
+    r = radius if radius is not None else theme.pin_radius * 1.1
     square = QGraphicsRectItem(QRectF(cx - r, cy - r, 2 * r, 2 * r))
     square.setBrush(QBrush(fill_color))
     marker_col = QColor(theme.pin1_marker_color)
