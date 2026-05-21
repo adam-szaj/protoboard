@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QThread, Signal
 
+from protoboard.services.routing.snapshot import RouteRequest
+
 if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
     from protoboard.domain.components.definition import ComponentDefinition
@@ -20,8 +22,49 @@ if TYPE_CHECKING:
     from protoboard.services.routing.autorouter import AutorouteResult
 
 
+def _build_request(
+    *,
+    board: "Board | None",
+    layout: "Layout | None",
+    schematic: "Schematic | None",
+    components: "dict[str, ComponentDefinition] | None",
+    instances: "dict[uuid.UUID, ComponentInstance] | None",
+    routing_settings: "RoutingSettings | None",
+    net_ids: set[uuid.UUID] | None,
+    project_path: Path | None,
+) -> RouteRequest:
+    """Snapshot legacy keyword-args into a RouteRequest on the caller's thread."""
+    if (
+        board is None or layout is None or schematic is None
+        or components is None or instances is None
+        or routing_settings is None
+    ):
+        raise TypeError(
+            "AutorouteWorker requires either `request` or the full set of "
+            "(board, layout, schematic, components, instances, routing_settings)"
+        )
+    return RouteRequest.from_session(
+        board=board,
+        layout=layout,
+        schematic=schematic,
+        components=components,
+        instances=instances,
+        routing_settings=routing_settings,
+        net_ids=net_ids,
+        report_path=(
+            project_path / "autoroute-report.csv"
+            if project_path is not None else None
+        ),
+    )
+
+
 class AutorouteWorker(QThread):
     """Runs :func:`autoroute` in a background thread.
+
+    The worker operates on an immutable ``RouteRequest`` snapshot built on the
+    main thread *before* the worker starts.  This eliminates the data race
+    that previously existed between the GUI thread mutating ``session.layout``
+    / ``session.schematic`` and the worker reading them concurrently.
 
     Signals
     -------
@@ -42,26 +85,33 @@ class AutorouteWorker(QThread):
     def __init__(
         self,
         *,
-        board: Board,
-        layout: Layout,
-        schematic: Schematic,
-        components: dict[str, ComponentDefinition],
-        instances: dict[uuid.UUID, ComponentInstance],
-        routing_settings: RoutingSettings,
+        request: RouteRequest | None = None,
+        router_name: str | None = None,
+        # Legacy keyword-args kept for callers that still build a worker
+        # from live session state.  When `request` is None they are
+        # snapshotted into one here on the *caller's* thread (i.e. the
+        # main thread, since __init__ is invoked before .start()).
+        board: "Board | None" = None,
+        layout: "Layout | None" = None,
+        schematic: "Schematic | None" = None,
+        components: "dict[str, ComponentDefinition] | None" = None,
+        instances: "dict[uuid.UUID, ComponentInstance] | None" = None,
+        routing_settings: "RoutingSettings | None" = None,
         net_ids: set[uuid.UUID] | None = None,
         project_path: Path | None = None,
     ) -> None:
         super().__init__()
-        # Snapshot read-only inputs — the worker thread must not touch the
-        # live session while routing.
-        self._board = board
-        self._layout = layout
-        self._schematic = schematic
-        self._components = components
-        self._instances = instances
-        self._rs = routing_settings
-        self._net_ids = net_ids
-        self._project_path = project_path
+        self._request: RouteRequest = request if request is not None else _build_request(
+            board=board,
+            layout=layout,
+            schematic=schematic,
+            components=components,
+            instances=instances,
+            routing_settings=routing_settings,
+            net_ids=net_ids,
+            project_path=project_path,
+        )
+        self._router_name = router_name
         self._cancel_flag = threading.Event()
 
     # ------------------------------------------------------------------
@@ -79,44 +129,36 @@ class AutorouteWorker(QThread):
     def run(self) -> None:
         import threading as _t
         import structlog as _sl
+        from protoboard.services.routing.autorouter import (
+            AutorouteCancelled,
+            AutorouteResult,
+        )
+        # Importing builtin ensures the default routers are registered even
+        # when no plugin loader has run yet.
+        import protoboard.services.routing.builtin  # noqa: F401  side-effect
+        from protoboard.services.routing.protocol import ProgressSink, registry
+
         _sl.get_logger(__name__).info(
             "autoroute_worker.run",
             thread_id=_t.get_ident(),
             is_main=_t.current_thread() is _t.main_thread(),
+            router=self._router_name or "<default>",
         )
-        from protoboard.services.routing.autorouter import autoroute, AutorouteCancelled
+
+        sink = ProgressSink(
+            progress=self._report,
+            optimize_progress=self._report_optimize,
+            cancel_flag=self._cancel_flag,
+        )
 
         try:
-            rs = self._rs
-            report_path = (
-                self._project_path / "autoroute-report.csv"
-                if self._project_path is not None else None
+            router = (
+                registry.get(self._router_name)
+                if self._router_name is not None
+                else registry.default()
             )
-            result: AutorouteResult = autoroute(
-                board=self._board,
-                layout=self._layout,
-                schematic=self._schematic,
-                components=self._components,
-                instances=self._instances,
-                cost_model=rs.cost_model(),
-                preferred_side=rs.preferred_side,
-                allow_layer_change=rs.allow_layer_change,
-                max_rip_up_passes=rs.max_rip_up_passes,
-                max_optimize_iterations=rs.max_optimize_iterations,
-                wire_mode=rs.wire_mode,
-                max_detour_factor=rs.max_detour_factor,
-                progress_callback=self._report,
-                optimize_progress_callback=self._report_optimize,
-                cancel_flag=self._cancel_flag,
-                net_ids=self._net_ids,
-                report_path=report_path,
-                push_and_shove=rs.push_and_shove,
-                enable_simplify_pass=rs.enable_simplify_pass,
-                simplify_mode=rs.simplify_mode,
-            )
+            result: AutorouteResult = router.route(self._request, sink)
         except AutorouteCancelled:
-            # Return empty result — caller interprets as user cancellation.
-            from protoboard.services.routing.autorouter import AutorouteResult
             self.finished.emit(AutorouteResult())
             return
         except Exception as exc:  # noqa: BLE001

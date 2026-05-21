@@ -204,10 +204,48 @@ _OTHER_SIDE: dict[str, str] = {"top": "bottom", "bottom": "top"}
 # A routed path step: grid position + which layer it lives on.
 PathStep = tuple[Point, str]
 
-# Thread pool for parallel universe A*.  Shared across all find_paths calls.
-# Daemon threads so they don't block process exit.
+# Executor for parallel universe A*.  Default is *sequential* — see
+# project_silent_crash_post_upgrade memory: a worker thread garbage-collecting
+# concurrently with Qt's paintEvent on the main thread can segfault inside
+# CPython 3.14's mark_stacks (intermittent, env-dependent).  The autorouter
+# already drives sequential mode for its side-by-side A* fan-out via the
+# same env var; we mirror that here so both pools agree.
+#
+# PROTOBOARD_ASTAR_PARALLEL=1 opts back into the real thread pool.
+# The legacy PROTOBOARD_ASTAR_SEQUENTIAL=1 also forces sequential (it
+# selects the same default path).
 _CPU_COUNT = max(2, os.cpu_count() or 2)
-_UNIVERSE_POOL = ThreadPoolExecutor(max_workers=_CPU_COUNT, thread_name_prefix="astar_universe")
+
+
+class _SequentialUniverseExecutor:
+    """Inline executor mimicking ThreadPoolExecutor.submit().
+
+    Each ``submit(fn, ...)`` runs ``fn`` inline and returns a completed
+    :class:`Future`.  Used to keep the parallel-universe A* code path
+    structurally identical while avoiding the cross-thread GC race that
+    intermittently crashes CPython 3.14 on this stack.
+    """
+
+    def submit(self, fn, *args, **kwargs):  # type: ignore[no-untyped-def]
+        fut: Future = Future()
+        try:
+            fut.set_result(fn(*args, **kwargs))
+        except BaseException as e:  # noqa: BLE001
+            fut.set_exception(e)
+        return fut
+
+    def shutdown(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        pass
+
+
+_ASTAR_PARALLEL = os.environ.get("PROTOBOARD_ASTAR_PARALLEL", "0") == "1"
+_ASTAR_SEQUENTIAL = os.environ.get("PROTOBOARD_ASTAR_SEQUENTIAL", "0") == "1"
+if _ASTAR_PARALLEL and not _ASTAR_SEQUENTIAL:
+    _UNIVERSE_POOL: ThreadPoolExecutor | _SequentialUniverseExecutor = ThreadPoolExecutor(
+        max_workers=_CPU_COUNT, thread_name_prefix="astar_universe",
+    )
+else:
+    _UNIVERSE_POOL = _SequentialUniverseExecutor()
 
 
 @dataclass(frozen=True)
@@ -252,17 +290,25 @@ class _SharedState:
                 self.first_found_nodes = nodes_expanded
 
     def over_budget(self, nodes_expanded: int) -> bool:
-        ffn = self.first_found_nodes  # read without lock (int assignment is atomic in CPython)
+        # Read of first_found_nodes is a single LOAD_ATTR — the GIL makes
+        # the dict slot read atomic, so a stale-but-consistent value is
+        # the worst case (we just skip a budget cutoff for one iteration).
+        ffn = self.first_found_nodes
         if ffn is None:
             return False
         budget = ffn + int(ffn * self.extra_budget_ratio)
         if nodes_expanded > budget:
-            self.over_budget_hits += 1  # CPython int incr is atomic
+            # `+= 1` is read-modify-write — bytecode is LOAD/BINARY_ADD/STORE
+            # so concurrent increments can lose updates.  The counter is
+            # only used for diagnostics; lossy is acceptable.  Switch to
+            # a lock if exact counts ever matter.
+            self.over_budget_hits += 1
             return True
         return False
 
     def record_nodes(self, n: int) -> None:
-        self.total_nodes_expanded += n  # CPython int incr is atomic
+        # Lossy under contention — diagnostic-only, see over_budget().
+        self.total_nodes_expanded += n
 
     def add_future(self, fut: Future[None]) -> None:
         with self._lock:

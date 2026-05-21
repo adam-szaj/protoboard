@@ -60,6 +60,30 @@ class AutorouteDialog(QDialog):
         root = QVBoxLayout(self)
         root.setSpacing(10)
 
+        # ── Router (plugin-aware) ──────────────────────────────────────
+        # Side-effect import: registers built-in routers if app.main()
+        # hasn't run yet (e.g. unit tests).
+        import protoboard.services.routing.builtin  # noqa: F401
+        from protoboard.services.routing.protocol import registry as _router_registry
+        router_row = QHBoxLayout()
+        router_row.addWidget(QLabel("Router:"))
+        self._combo_router = QComboBox()
+        for name in _router_registry.list_available():
+            r = _router_registry.get(name)
+            self._combo_router.addItem(getattr(r, "display_name", name), name)
+            caps = r.capabilities()
+            if caps.notes:
+                self._combo_router.setItemData(
+                    self._combo_router.count() - 1, caps.notes, 3,  # Qt.ToolTipRole
+                )
+        # Default selection: existing 'astar' or first registered.
+        default_idx = self._combo_router.findData("astar")
+        if default_idx >= 0:
+            self._combo_router.setCurrentIndex(default_idx)
+        router_row.addWidget(self._combo_router)
+        router_row.addStretch()
+        root.addLayout(router_row)
+
         # ── Wire type ──────────────────────────────────────────────────
         wire_group = QGroupBox("Wire type")
         wire_layout = QVBoxLayout(wire_group)
@@ -187,11 +211,9 @@ class AutorouteDialog(QDialog):
         self._chk_simplify.setChecked(rs.enable_simplify_pass)
         root.addWidget(self._chk_simplify)
 
-        from PySide6.QtWidgets import QComboBox as _QComboBox, QHBoxLayout
         simplify_mode_row = QHBoxLayout()
-        from PySide6.QtWidgets import QLabel as _QLabel
-        simplify_mode_row.addWidget(_QLabel("Simplify mode:"))
-        self._combo_simplify_mode = _QComboBox()
+        simplify_mode_row.addWidget(QLabel("Simplify mode:"))
+        self._combo_simplify_mode = QComboBox()
         self._combo_simplify_mode.addItem(
             "Chebyshev (shortcut via diag)", "chebyshev"
         )
@@ -256,6 +278,11 @@ class AutorouteDialog(QDialog):
             max_detour_factor=self._spin_detour.value(),
             skip_autoroute_dialog=self._chk_skip.isChecked(),
         )
+
+    def router_name(self) -> str:
+        """Return the registry name of the router the user selected."""
+        data = self._combo_router.currentData()
+        return data if isinstance(data, str) else "astar"
 
     def save_as_default(self) -> bool:
         """Return True if the user wants to persist these settings to the project."""

@@ -121,6 +121,15 @@ def main() -> None:
     )
     _log.info("protoboard.starting", verbose=args.verbose)
 
+    # Register built-in routers and discover external plugins.  Both
+    # imports are side-effecting: builtin registers AStarRouter, discovery
+    # walks entry points.  Plugin failures are logged but do not abort.
+    import protoboard.services.routing.builtin  # noqa: F401
+    from protoboard.services.routing.discovery import discover_plugins
+    _discovered = discover_plugins()
+    if _discovered:
+        _log.info("routing.plugins_loaded", routers=_discovered)
+
     app = QApplication([sys.argv[0]] + remaining)
     app.setApplicationName("Protoboard Designer")
     # Prevent automatic quit when the last dialog closes before the main
