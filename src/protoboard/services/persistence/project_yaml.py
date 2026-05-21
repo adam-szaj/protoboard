@@ -468,6 +468,11 @@ def _routing_settings_to_yaml(s: RoutingSettings) -> str:
             "under_component_top": s.under_component_top,
         },
     }
+    # Only emit the optimizer chain when it's non-empty — keeps YAML clean
+    # for projects that haven't opted into plugins.  The loader treats a
+    # missing key as an empty tuple.
+    if s.optimizer_chain:
+        data["optimizer_chain"] = list(s.optimizer_chain)
     buf = io.StringIO()
     _yaml.dump(data, buf)
     return buf.getvalue()
@@ -490,6 +495,14 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
         simplify_mode = SimplifyMode(simplify_mode_raw)
     except ValueError:
         simplify_mode = SimplifyMode.BARE_PARITY
+    # Optimizer chain: list of plugin names.  Anything that's not a list
+    # of strings falls back to an empty chain so a corrupted YAML doesn't
+    # poison the route.
+    raw_chain = data.get("optimizer_chain", [])
+    if isinstance(raw_chain, list) and all(isinstance(x, str) for x in raw_chain):
+        optimizer_chain = tuple(raw_chain)
+    else:
+        optimizer_chain = ()
     return RoutingSettings(
         preferred_side=data.get("preferred_side", "bottom"),
         allow_layer_change=bool(data.get("allow_layer_change", True)),
@@ -509,6 +522,7 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
         push_and_shove=bool(data.get("push_and_shove", True)),
         enable_simplify_pass=bool(data.get("enable_simplify_pass", True)),
         simplify_mode=simplify_mode,
+        optimizer_chain=optimizer_chain,
     )
 
 

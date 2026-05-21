@@ -1846,7 +1846,6 @@ class MainWindow(QMainWindow):
 
         # Show pre-flight dialog unless user opted to skip it.
         router_name: str | None = None
-        optimizer_names: list[str] | None = None
         if self._session.routing_settings.skip_autoroute_dialog:
             run_settings = self._session.routing_settings
         else:
@@ -1855,12 +1854,20 @@ class MainWindow(QMainWindow):
                 return
             run_settings = cfg_dlg.routing_settings()
             router_name = cfg_dlg.router_name()
-            optimizer_names = cfg_dlg.selected_optimizers()
             # Always persist the dialog's settings as the new project default.
             # The "Save as project default" checkbox is now redundant but kept
             # so existing keyboard / muscle memory still works.
             self._session.routing_settings = run_settings
             self._session.mark_dirty()
+        # The optimizer chain lives on RoutingSettings — single source of
+        # truth for both UI and persistence.  None means "no plugins ever
+        # registered", which preserves the legacy code path that lets
+        # autoroute() run its embedded simplify pass.
+        optimizer_names: list[str] | None = (
+            list(run_settings.optimizer_chain)
+            if run_settings.optimizer_chain
+            else None
+        )
 
         dlg = QProgressDialog("Initialising autorouter…", "Cancel", 0, 100, self)
         dlg.setWindowTitle(f"Autoroute{title_suffix}")

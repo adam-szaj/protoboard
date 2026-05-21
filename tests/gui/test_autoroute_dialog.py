@@ -95,3 +95,53 @@ class TestOptimizerCheckboxes:
         dlg = AutorouteDialog(RoutingSettings())
         qtbot.addWidget(dlg)
         assert "simplify" not in dlg._optimizer_checks
+
+
+class TestPersistedChain:
+    """Dialog pre-fills checkboxes from RoutingSettings.optimizer_chain."""
+
+    def test_persisted_optimizer_is_checked_at_open(self, qtbot) -> None:
+        optimizer_registry.register(_FakePluginOptimizer())
+        try:
+            rs = RoutingSettings(optimizer_chain=("fake-side-balancer",))
+            dlg = AutorouteDialog(rs)
+            qtbot.addWidget(dlg)
+            assert dlg._optimizer_checks["fake-side-balancer"].isChecked()
+        finally:
+            optimizer_registry.optimizers.pop("fake-side-balancer", None)
+
+    def test_unpersisted_optimizer_is_unchecked(self, qtbot) -> None:
+        optimizer_registry.register(_FakePluginOptimizer())
+        try:
+            rs = RoutingSettings()  # default — empty chain
+            dlg = AutorouteDialog(rs)
+            qtbot.addWidget(dlg)
+            assert not dlg._optimizer_checks["fake-side-balancer"].isChecked()
+        finally:
+            optimizer_registry.optimizers.pop("fake-side-balancer", None)
+
+    def test_routing_settings_emits_chain_from_checked_boxes(self, qtbot) -> None:
+        optimizer_registry.register(_FakePluginOptimizer())
+        try:
+            dlg = AutorouteDialog(RoutingSettings())
+            qtbot.addWidget(dlg)
+            dlg._optimizer_checks["fake-side-balancer"].setChecked(True)
+            rs = dlg.routing_settings()
+            assert rs.optimizer_chain == ("fake-side-balancer",)
+        finally:
+            optimizer_registry.optimizers.pop("fake-side-balancer", None)
+
+    def test_chain_survives_open_close_open(self, qtbot) -> None:
+        """Simulate Close-then-reopen: emit RoutingSettings, feed it back to a fresh dialog."""
+        optimizer_registry.register(_FakePluginOptimizer())
+        try:
+            dlg1 = AutorouteDialog(RoutingSettings())
+            qtbot.addWidget(dlg1)
+            dlg1._optimizer_checks["fake-side-balancer"].setChecked(True)
+            rs1 = dlg1.routing_settings()
+
+            dlg2 = AutorouteDialog(rs1)
+            qtbot.addWidget(dlg2)
+            assert dlg2._optimizer_checks["fake-side-balancer"].isChecked()
+        finally:
+            optimizer_registry.optimizers.pop("fake-side-balancer", None)

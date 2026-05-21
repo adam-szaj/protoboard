@@ -65,6 +65,13 @@ class RoutingSettings:
     simplify_mode: "SimplifyMode" = field(  # type: ignore[name-defined]
         default_factory=lambda: _default_simplify_mode()
     )
+    # Per-project WireOptimizer plugin chain.  Empty tuple = legacy
+    # behaviour (autoroute()'s embedded simplify pass fires per
+    # ``enable_simplify_pass``).  Non-empty = the named optimizers run in
+    # this exact order on the router's output and the embedded simplify
+    # pass is suppressed.  Stored as tuple so the frozen dataclass stays
+    # truly immutable.
+    optimizer_chain: tuple[str, ...] = field(default_factory=tuple)
 
     def cost_model(self) -> RoutingCostModel:
         """Build a RoutingCostModel from these settings."""

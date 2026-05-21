@@ -88,3 +88,47 @@ class TestRoutingSettingsPersistence:
     def test_invalid_yaml_uses_defaults(self) -> None:
         s = _routing_settings_from_yaml("null")
         assert s == RoutingSettings()
+
+
+class TestOptimizerChainPersistence:
+    """The optimizer plugin chain must round-trip through routing.yaml."""
+
+    def test_default_chain_is_empty_tuple(self) -> None:
+        s = RoutingSettings()
+        assert s.optimizer_chain == ()
+
+    def test_chain_field_is_tuple_not_list(self) -> None:
+        """Tuple keeps the frozen dataclass actually immutable."""
+        s = RoutingSettings(optimizer_chain=("a", "b"))
+        assert isinstance(s.optimizer_chain, tuple)
+
+    def test_empty_chain_omitted_from_yaml(self) -> None:
+        """Defaults stay clean — no optimizer_chain key for vanilla projects."""
+        s = RoutingSettings()
+        text = _routing_settings_to_yaml(s)
+        assert "optimizer_chain" not in text
+
+    def test_non_empty_chain_persists(self) -> None:
+        s = RoutingSettings(optimizer_chain=("side-balancer", "jumper-min"))
+        text = _routing_settings_to_yaml(s)
+        assert "optimizer_chain" in text
+        s2 = _routing_settings_from_yaml(text)
+        assert s2.optimizer_chain == ("side-balancer", "jumper-min")
+
+    def test_chain_order_preserved(self) -> None:
+        original = ("c", "b", "a")
+        s = RoutingSettings(optimizer_chain=original)
+        s2 = _routing_settings_from_yaml(_routing_settings_to_yaml(s))
+        assert s2.optimizer_chain == original
+
+    def test_missing_chain_key_loads_empty(self) -> None:
+        """An older project file with no optimizer_chain key still loads cleanly."""
+        s = _routing_settings_from_yaml("preferred_side: bottom\n")
+        assert s.optimizer_chain == ()
+
+    def test_malformed_chain_falls_back_to_empty(self) -> None:
+        """Defensive — if someone hand-edits routing.yaml with garbage."""
+        s = _routing_settings_from_yaml("optimizer_chain: 42\n")
+        assert s.optimizer_chain == ()
+        s2 = _routing_settings_from_yaml("optimizer_chain: ['ok', 99, 'still']\n")
+        assert s2.optimizer_chain == ()  # mixed list — reject wholesale

@@ -1887,6 +1887,28 @@ class SelectTool(_Tool):
                     ("simplify_wire", target_wire_ids, "bare_parity")
                 )
 
+                # Optimize-with submenu — one item per registered
+                # WireOptimizer plugin (excluding the built-in 'simplify',
+                # which already has its own entries above).
+                import protoboard.services.routing.builtin_optimizers  # noqa: F401
+                from protoboard.services.routing.optimizer import (
+                    registry as _opt_registry,
+                )
+                opt_names = [
+                    n for n in _opt_registry.list_available() if n != "simplify"
+                ]
+                if opt_names:
+                    sm_opt = menu.addMenu("Optimize with…")
+                    for opt_name in opt_names:
+                        opt = _opt_registry.get(opt_name)
+                        act = sm_opt.addAction(
+                            getattr(opt, "display_name", opt_name)
+                        )
+                        caps = opt.capabilities()
+                        if caps.notes:
+                            act.setToolTip(caps.notes)
+                        act.setData(("optimize_with", target_wire_ids, opt_name))
+
                 # Unweave — only meaningful with ≥2 wires selected.
                 if n_wires >= 2:
                     act_unweave = menu.addAction(
@@ -1970,6 +1992,10 @@ class SelectTool(_Tool):
         elif action == "simplify_wire":
             _, target_wire_ids, mode_str = data
             self._simplify_wires(target_wire_ids, mode_override=mode_str)
+
+        elif action == "optimize_with":
+            _, target_wire_ids, opt_name = data
+            self._optimize_selected_wires(target_wire_ids, opt_name)
 
         elif action == "unweave_wires":
             _, target_wire_ids = data
@@ -3883,6 +3909,130 @@ class SelectTool(_Tool):
             return
         cmd = cmds[0] if len(cmds) == 1 else MacroCommand(
             cmds, description=f"Simplify {len(cmds)} wire(s)"
+        )
+        session.stack.execute(cmd, session)
+        session.layout_changed.emit()
+
+    # ------------------------------------------------------------------
+    # Optimize selected wires via plugin
+    # ------------------------------------------------------------------
+
+    def _optimize_selected_wires(
+        self,
+        wire_ids: set[uuid.UUID] | frozenset[uuid.UUID],
+        opt_name: str,
+    ) -> None:
+        """Run a registered WireOptimizer on the selected wires.
+
+        Builds an immutable RouteRequest snapshot of the current session
+        and a synthetic AutorouteResult containing only the selected
+        wires.  The optimizer is responsible for returning a result
+        whose wires are the new versions; wires it dropped are treated
+        as deletions, new wires (those the optimizer returned but that
+        weren't in the input) are treated as additions, and matching
+        ids whose path/side/insulated changed are replaced.
+
+        Synchronous on purpose: the operation runs on a subset of the
+        layout (PPM is normally a handful of wires), so blocking briefly
+        is preferable to a background-thread complication for an
+        interactive action.
+        """
+        from typing import cast
+        from protoboard.domain.commands.base import Command, MacroCommand
+        from protoboard.domain.commands.component_cmds import (
+            AddWireCommand,
+            RemoveWireCommand,
+        )
+        from protoboard.services.routing.autorouter import AutorouteResult
+        from protoboard.services.routing.optimizer import (
+            registry as _opt_registry,
+        )
+        from protoboard.services.routing.protocol import ProgressSink
+        from protoboard.services.routing.snapshot import RouteRequest
+
+        session = self._session
+        if session is None:
+            return
+        if not wire_ids:
+            self._status_msg("Optimize: nothing selected.")
+            return
+
+        try:
+            optimizer = _opt_registry.get(opt_name)
+        except KeyError:
+            self._status_msg(f"Optimize: plugin {opt_name!r} is not registered.")
+            return
+
+        # Build the immutable request from live session state.
+        request = RouteRequest.from_session(
+            board=session.board,
+            layout=session.layout,
+            schematic=session.schematic,
+            components=session.components,
+            instances=session.instances,
+            routing_settings=session.routing_settings,
+        )
+
+        # The optimizer sees only the selected wires as its "input result".
+        selected_wires = [w for w in session.layout.wires if w.id in wire_ids]
+        if not selected_wires:
+            self._status_msg("Optimize: no matching wires in layout.")
+            return
+        result_in = AutorouteResult(
+            wires=list(selected_wires),
+            unrouted_nets=[],
+            pass_stats=[],
+        )
+
+        try:
+            result_out = optimizer.optimize(request, result_in, ProgressSink())
+        except Exception as exc:  # noqa: BLE001
+            self._status_msg(f"Optimize: plugin failed — {exc}")
+            return
+
+        # Translate diff into commands.  An optimizer may:
+        # - keep a wire unchanged (skip),
+        # - replace a wire (same id, different path/side/insulated),
+        # - drop a wire (id no longer in output),
+        # - add a new wire (id never seen before — rare but allowed).
+        out_by_id = {w.id: w for w in result_out.wires}
+        cmds: list[Command[ComponentState]] = []
+
+        for wire_in in selected_wires:
+            wire_out = out_by_id.pop(wire_in.id, None)
+            if wire_out is None:
+                # Dropped by the optimizer.
+                cmds.append(cast(Command[ComponentState], RemoveWireCommand(wire_id=wire_in.id)))
+                continue
+            if (
+                wire_out.path == wire_in.path
+                and wire_out.side == wire_in.side
+                and wire_out.insulated == wire_in.insulated
+            ):
+                continue  # No-op for this wire.
+            # Side or insulation changed — full Remove+Add cycle.  Path-only
+            # changes could use ReplaceWireSegmentCommand, but mixing the two
+            # paths complicates undo grouping, so always go Remove+Add.
+            cmds.append(cast(Command[ComponentState], RemoveWireCommand(wire_id=wire_in.id)))
+            cmds.append(cast(Command[ComponentState], AddWireCommand(wire=wire_out)))
+
+        # Anything left in out_by_id is a freshly created wire — add it.
+        for new_wire in out_by_id.values():
+            cmds.append(cast(Command[ComponentState], AddWireCommand(wire=new_wire)))
+
+        if not cmds:
+            self._status_msg(
+                f"Optimize ({getattr(optimizer, 'display_name', opt_name)}): "
+                f"nothing changed."
+            )
+            return
+
+        cmd = cmds[0] if len(cmds) == 1 else MacroCommand(
+            cmds,
+            description=(
+                f"Optimize {len(selected_wires)} wire(s) via "
+                f"{getattr(optimizer, 'display_name', opt_name)}"
+            ),
         )
         session.stack.execute(cmd, session)
         session.layout_changed.emit()

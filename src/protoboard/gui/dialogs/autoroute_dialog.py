@@ -244,12 +244,17 @@ class AutorouteDialog(QDialog):
         if opt_names:
             opt_group = QGroupBox("Post-process (plugin chain)")
             opt_layout = QVBoxLayout(opt_group)
+            persisted_chain = set(rs.optimizer_chain)
             for opt_name in opt_names:
                 opt = _opt_registry.get(opt_name)
                 box = QCheckBox(getattr(opt, "display_name", opt_name))
                 caps = opt.capabilities()
                 if caps.notes:
                     box.setToolTip(caps.notes)
+                # Pre-fill from the persisted chain — restores last-used
+                # selection across project reopens.
+                if opt_name in persisted_chain:
+                    box.setChecked(True)
                 opt_layout.addWidget(box)
                 self._optimizer_checks[opt_name] = box
             root.addWidget(opt_group)
@@ -286,6 +291,13 @@ class AutorouteDialog(QDialog):
         else:
             wire_mode = "auto"
 
+        # Materialise the optimizer chain from the checkboxes — empty
+        # when no plugins are registered or none are ticked.
+        chain = tuple(
+            name for name, box in self._optimizer_checks.items()
+            if box.isChecked()
+        )
+
         return RoutingSettings(
             preferred_side=self._combo_side.currentText(),  # type: ignore[arg-type]
             allow_layer_change=self._chk_layer_change.isChecked(),
@@ -303,6 +315,7 @@ class AutorouteDialog(QDialog):
             simplify_mode=_simplify_mode_from_combo(self._combo_simplify_mode.currentData()),
             max_detour_factor=self._spin_detour.value(),
             skip_autoroute_dialog=self._chk_skip.isChecked(),
+            optimizer_chain=chain,
         )
 
     def router_name(self) -> str:
