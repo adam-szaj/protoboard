@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from protoboard.domain.routing_settings import RoutingSettings
     from protoboard.services.routing.autorouter import AutorouteResult
     from protoboard.services.routing.protocol import ProgressSink
     from protoboard.services.routing.snapshot import RouteRequest
@@ -135,9 +136,72 @@ class _OptimizerRegistry:
 registry = _OptimizerRegistry()
 
 
+# ---------------------------------------------------------------------------
+# UI filtering — capabilities-vs-routing-settings compatibility check
+# ---------------------------------------------------------------------------
+
+def incompatibility_reasons(
+    caps: OptimizerCapabilities,
+    rs: "RoutingSettings",
+) -> list[str]:
+    """Return human-readable reasons why *caps* would be a no-op under *rs*.
+
+    Empty list = the optimizer can do useful work with the current
+    settings.  Non-empty = the UI should disable the row, show the
+    reasons as a tooltip and skip the optimizer at runtime if the user
+    somehow checked it anyway.
+
+    The check is conservative: a single declared capability that conflicts
+    with the settings yields one reason.  Optimizers that declare *no*
+    capabilities are always considered compatible — they have not opted
+    into capability-based gating and the UI must not silently exclude
+    them.
+    """
+    reasons: list[str] = []
+    # rebalances_sides / removes_jumpers / inserts_jumpers all need a second
+    # layer to exist.  Without allow_layer_change, the router never produces
+    # one; an optimizer claiming any of those becomes structurally pointless.
+    if not rs.allow_layer_change:
+        if caps.rebalances_sides:
+            reasons.append(
+                "Disabled: rebalancing sides requires allow_layer_change=True."
+            )
+        if caps.inserts_jumpers:
+            reasons.append(
+                "Disabled: inserting jumpers requires allow_layer_change=True."
+            )
+        if caps.removes_jumpers:
+            reasons.append(
+                "Disabled: removing jumpers requires allow_layer_change=True."
+            )
+    # inserts_jumpers additionally needs jumpers to be legal at all.
+    if caps.inserts_jumpers and not rs.allow_jumpers:
+        reasons.append(
+            "Disabled: inserting jumpers requires allow_jumpers=True."
+        )
+    # insulated→bare conversion only meaningful when bare wires are even
+    # allowed.  wire_mode="insulated" forces every wire insulated, so a
+    # plugin that wants to strip insulation can't.
+    if caps.insulated_to_bare and rs.wire_mode == "insulated":
+        reasons.append(
+            "Disabled: insulated→bare conversion needs a wire mode that "
+            "permits bare wires."
+        )
+    # bare→insulated only meaningful when bare wires exist in the first
+    # place — the router that produces only insulated output gives the
+    # plugin nothing to convert.
+    if caps.bare_to_insulated and rs.wire_mode == "insulated":
+        reasons.append(
+            "Disabled: bare→insulated conversion needs a wire mode that "
+            "permits bare wires."
+        )
+    return reasons
+
+
 __all__ = [
     "WireOptimizer",
     "OptimizerCapabilities",
     "_OptimizerRegistry",
     "registry",
+    "incompatibility_reasons",
 ]

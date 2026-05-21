@@ -5,7 +5,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -16,6 +18,8 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QRadioButton,
     QSpinBox,
@@ -229,34 +233,91 @@ class AutorouteDialog(QDialog):
         root.addLayout(simplify_mode_row)
 
         # ── Post-process plugins (optimizer chain) ─────────────────────
-        # Each registered WireOptimizer becomes a checkbox.  Checked
-        # optimizers run after the router in declaration order.  The
-        # legacy "Simplify after routing" checkbox above stays as the
-        # plain-vanilla path — when no optimizer here is checked, the
-        # worker falls back to the embedded simplify pass per the
-        # routing settings.
+        # Each registered WireOptimizer becomes a row in a drag-reorderable
+        # list with a checkbox.  Chain order = top-to-bottom of the list;
+        # only checked rows are included.  The legacy "Simplify after
+        # routing" checkbox above stays as the plain-vanilla path — when
+        # no row here is checked, the worker falls back to the embedded
+        # simplify pass per the routing settings.
         import protoboard.services.routing.builtin_optimizers  # noqa: F401
         from protoboard.services.routing.optimizer import (
             registry as _opt_registry,
         )
-        self._optimizer_checks: dict[str, QCheckBox] = {}
+        self._optimizer_list: QListWidget | None = None
         opt_names = [n for n in _opt_registry.list_available() if n != "simplify"]
         if opt_names:
-            opt_group = QGroupBox("Post-process (plugin chain)")
+            opt_group = QGroupBox("Post-process (drag to reorder)")
             opt_layout = QVBoxLayout(opt_group)
-            persisted_chain = set(rs.optimizer_chain)
-            for opt_name in opt_names:
+            self._optimizer_list = QListWidget()
+            # Enable both internal-only drag/drop and per-row check state.
+            self._optimizer_list.setDragDropMode(
+                QAbstractItemView.DragDropMode.InternalMove
+            )
+            self._optimizer_list.setSelectionMode(
+                QAbstractItemView.SelectionMode.SingleSelection
+            )
+            # Compact height — 4 rows is plenty; users with many plugins
+            # get a scrollbar instead of a giant dialog.
+            self._optimizer_list.setMaximumHeight(120)
+
+            # Build the row order: persisted chain first (preserving
+            # user's saved sequence), then remaining unregistered names
+            # alphabetically at the bottom, all unchecked.
+            persisted_chain = list(rs.optimizer_chain)
+            available = set(opt_names)
+            ordered: list[str] = []
+            for name in persisted_chain:
+                if name in available:
+                    ordered.append(name)
+                    available.discard(name)
+            ordered.extend(sorted(available))
+
+            persisted_set = set(rs.optimizer_chain)
+            from protoboard.services.routing.optimizer import (
+                incompatibility_reasons,
+            )
+            for opt_name in ordered:
                 opt = _opt_registry.get(opt_name)
-                box = QCheckBox(getattr(opt, "display_name", opt_name))
+                item = QListWidgetItem(getattr(opt, "display_name", opt_name))
+                item.setData(Qt.ItemDataRole.UserRole, opt_name)
                 caps = opt.capabilities()
+                # Capability-vs-settings gating: if the current routing
+                # settings make every declared capability a no-op, grey
+                # the row out and force-uncheck it.  The tooltip combines
+                # the optimizer's notes with each blocking reason so the
+                # user understands why.
+                reasons = incompatibility_reasons(caps, rs)
+                compatible = not reasons
+
+                base_flags = item.flags() | Qt.ItemFlag.ItemIsDragEnabled
+                if compatible:
+                    item.setFlags(base_flags | Qt.ItemFlag.ItemIsUserCheckable)
+                    item.setCheckState(
+                        Qt.CheckState.Checked
+                        if opt_name in persisted_set
+                        else Qt.CheckState.Unchecked
+                    )
+                else:
+                    # ItemIsEnabled is on by default; drop it to grey out
+                    # the row.  Drop ItemIsUserCheckable so the checkbox
+                    # isn't clickable.  Force unchecked regardless of
+                    # the persisted state — a saved-but-incompatible
+                    # plugin must not silently fire.
+                    item.setFlags(
+                        (base_flags & ~Qt.ItemFlag.ItemIsEnabled)
+                        & ~Qt.ItemFlag.ItemIsUserCheckable
+                    )
+                    item.setCheckState(Qt.CheckState.Unchecked)
+
+                tooltip_parts: list[str] = []
                 if caps.notes:
-                    box.setToolTip(caps.notes)
-                # Pre-fill from the persisted chain — restores last-used
-                # selection across project reopens.
-                if opt_name in persisted_chain:
-                    box.setChecked(True)
-                opt_layout.addWidget(box)
-                self._optimizer_checks[opt_name] = box
+                    tooltip_parts.append(caps.notes)
+                tooltip_parts.extend(reasons)
+                if tooltip_parts:
+                    item.setToolTip("\n\n".join(tooltip_parts))
+
+                self._optimizer_list.addItem(item)
+            opt_layout.addWidget(self._optimizer_list)
             root.addWidget(opt_group)
 
         # ── Footer ─────────────────────────────────────────────────────
@@ -291,12 +352,10 @@ class AutorouteDialog(QDialog):
         else:
             wire_mode = "auto"
 
-        # Materialise the optimizer chain from the checkboxes — empty
-        # when no plugins are registered or none are ticked.
-        chain = tuple(
-            name for name, box in self._optimizer_checks.items()
-            if box.isChecked()
-        )
+        # Materialise the optimizer chain from the list — top-to-bottom
+        # order, checked rows only.  Empty when no plugins are
+        # registered or none are ticked.
+        chain = tuple(self._chain_from_list())
 
         return RoutingSettings(
             preferred_side=self._combo_side.currentText(),  # type: ignore[arg-type]
@@ -326,24 +385,39 @@ class AutorouteDialog(QDialog):
     def selected_optimizers(self) -> list[str] | None:
         """Return the optimizer chain the user assembled, or None for legacy.
 
-        Returns ``None`` when no plugin-checkbox was ticked.  ``None``
+        Returns ``None`` when no plugin row exists at all in the dialog
+        (i.e. only the built-in 'simplify' is registered).  ``None``
         keeps the legacy behaviour where ``autoroute()``'s embedded
         simplify pass fires based on ``RoutingSettings.enable_simplify_pass``.
-        Returns a list (possibly empty) when at least one plugin-checkbox
-        existed in the UI — the caller treats that as an explicit chain
-        and suppresses the embedded pass.
+        Returns a list (possibly empty) when at least one plugin row
+        exists — the caller treats that as an explicit chain and
+        suppresses the embedded pass.
 
         The "simplify" optimizer is not exposed here on purpose: it has
         a dedicated legacy checkbox above for backward compat.
         """
-        if not self._optimizer_checks:
+        if self._optimizer_list is None:
             # No plugins registered (only the built-in simplify) — keep
             # the legacy code path.
             return None
-        return [
-            name for name, box in self._optimizer_checks.items()
-            if box.isChecked()
-        ]
+        return self._chain_from_list()
+
+    def _chain_from_list(self) -> list[str]:
+        """Read the optimizer chain in display order, taking checked rows only."""
+        result: list[str] = []
+        lst = self._optimizer_list
+        if lst is None:
+            return result
+        for i in range(lst.count()):
+            item = lst.item(i)
+            if item is None:
+                continue
+            if item.checkState() != Qt.CheckState.Checked:
+                continue
+            name = item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(name, str):
+                result.append(name)
+        return result
 
     def save_as_default(self) -> bool:
         """Return True if the user wants to persist these settings to the project."""

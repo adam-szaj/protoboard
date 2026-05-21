@@ -191,6 +191,9 @@ class AutorouteWorker(QThread):
             # feeds the next.  An empty list explicitly disables all
             # post-processing.  Cancellation is checked between optimizers
             # so a long chain remains responsive to the Cancel button.
+            from protoboard.services.routing.optimizer import (
+                incompatibility_reasons,
+            )
             for opt_name in self._optimizer_names or []:
                 if sink.cancelled():
                     raise AutorouteCancelled
@@ -199,6 +202,20 @@ class AutorouteWorker(QThread):
                 except KeyError:
                     _sl.get_logger(__name__).warning(
                         "autoroute_worker.optimizer_missing", name=opt_name,
+                    )
+                    continue
+                # Defense-in-depth: even if the UI accidentally lets the
+                # user check an incompatible optimizer (or routing.yaml
+                # was hand-edited), skip it at runtime so the chain
+                # remains predictable.
+                reasons = incompatibility_reasons(
+                    opt.capabilities(), request.routing_settings,
+                )
+                if reasons:
+                    _sl.get_logger(__name__).warning(
+                        "autoroute_worker.optimizer_skipped_incompatible",
+                        name=opt_name,
+                        reasons=reasons,
                     )
                     continue
                 result = opt.optimize(request, result, sink)

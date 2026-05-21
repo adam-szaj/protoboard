@@ -234,6 +234,48 @@ class TestExplicitOptimizerChain:
             router_registry.routers.pop("recording-router", None)
 
 
+class TestIncompatibleOptimizerSkipped:
+    """Worker is the last line of defense: incompatible optimizer = skip."""
+
+    def test_skipped_when_capabilities_block(self, qtbot) -> None:
+        from protoboard.services.routing.optimizer import OptimizerCapabilities
+        rec = _RecordingRouter()
+        router_registry.register(rec)
+
+        ran: list[str] = []
+
+        class _JumperOpt:
+            name = "fake-jumper-opt"
+            display_name = "Jumpers"
+            def optimize(self, request, result, sink):
+                ran.append(self.name)
+                return result
+            def capabilities(self):
+                # Requires allow_jumpers — request below has it disabled.
+                return OptimizerCapabilities(inserts_jumpers=True)
+
+        optimizer_registry.register(_JumperOpt())
+        try:
+            from dataclasses import replace as _replace
+            base_req = _empty_request(enable_simplify_pass=False)
+            req = _replace(
+                base_req,
+                routing_settings=_replace(base_req.routing_settings, allow_jumpers=False),
+            )
+            worker, emitted = _make_worker(
+                qtbot,
+                request=req, router_name="recording-router",
+                optimizer_names=["fake-jumper-opt"],
+            )
+            worker.run()
+            # Plugin was named but routing settings made it a no-op → skipped.
+            assert ran == []
+            assert emitted[-1][0] == "finished"
+        finally:
+            router_registry.routers.pop("recording-router", None)
+            optimizer_registry.optimizers.pop("fake-jumper-opt", None)
+
+
 class TestCancellationBetweenOptimizers:
     def test_cancel_after_router_skips_optimizers(self, qtbot) -> None:
         rec = _RecordingRouter()
