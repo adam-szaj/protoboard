@@ -468,19 +468,25 @@ def _render_one(
         # Bold dot: grow to nearly pad size and force fully opaque so a
         # wire passing through the same pad cannot bleed through.  Layer
         # ghost factor still applies so the dot fades along with the rest
-        # of the component layer under routing/placement tools.
+        # of the component layer under routing/placement tools.  Bold
+        # dots also jump *above* the body — body shapes like DIP draw
+        # their own grey pin indicators at z_comp, which would otherwise
+        # half-cover the bold highlight; pushing the bold dot to
+        # z_comp + 0.05 puts it on top of the body's overlay.
         if is_bold:
             dot_fill = QColor(fill_color)
             dot_fill.setAlphaF(alpha)  # opaque modulo layer-ghost, no user-alpha bleed
             dot_radius = theme.pad_radius * theme.bold_pin_dot_radius_factor
+            dot_z = z_comp + 0.05
         else:
             dot_fill = fill_color
             dot_radius = theme.pin_radius
+            dot_z = z_comp - 0.05
 
         if pin_number == 1:
             _add_pin1_marker(
                 grp, pos.x, pos.y, dot_fill, theme,
-                z=z_comp - 0.05, radius=dot_radius if is_bold else None,
+                z=dot_z, radius=dot_radius if is_bold else None,
             )
         else:
             dot = QGraphicsEllipseItem(
@@ -489,7 +495,7 @@ def _render_one(
             )
             dot.setBrush(QBrush(dot_fill))
             dot.setPen(pen)
-            dot.setZValue(z_comp - 0.05)
+            dot.setZValue(dot_z)
             grp.addToGroup(dot)
 
     fpt = theme.overlay_font_size
