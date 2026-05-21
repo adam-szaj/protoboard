@@ -158,12 +158,16 @@ def comp_fingerprint(
     pin_net_for_comp: dict[int, uuid.UUID],
     routed_nets: frozenset[uuid.UUID] | None,
     layers_key: tuple[object, ...],
+    bold_pin_nets: frozenset[uuid.UUID] = frozenset(),
 ) -> tuple[object, ...]:
     """Stable key capturing structural/connectivity inputs for one component group.
 
-    Highlight state (highlighted_net_id, group_alpha from active_group_id) is
-    intentionally excluded — those are applied via setOpacity() on existing
-    groups rather than triggering a group rebuild.
+    *bold_pin_nets* is the set of net ids whose pins on this component
+    should be drawn with a thicker bold-pen.  It enters the fingerprint
+    because the bold state is encoded in scene items (pen widths) — a
+    rebuild is the only way to apply or remove it.  Group-level alpha
+    (``alpha_map``/``highlight_dim``) still bypasses the cache and is
+    applied via setOpacity at the end of update_component_groups.
     """
     return (
         placement.position,
@@ -177,6 +181,7 @@ def comp_fingerprint(
         tuple(sorted(pin_net_for_comp.items())),
         routed_nets,
         layers_key,
+        bold_pin_nets,
     )
 
 
@@ -249,9 +254,18 @@ def update_component_groups(
             for ref, nid in pin_net.items()
             if ref.component_id == comp_id
         }
+        # If the highlighted net touches this component, that net id enters
+        # the fingerprint so a change in highlight rebuilds the group with
+        # bold pen widths on the affected pins.
+        bold_pin_nets: frozenset[uuid.UUID] = (
+            frozenset({highlighted_net_id})
+            if highlighted_net_id is not None and comp_id in highlighted_comp_ids
+            else frozenset()
+        )
         fp = comp_fingerprint(
             placement, inst.definition_ref,
             pin_net_for_comp, frozen_routed, layers_key,
+            bold_pin_nets=bold_pin_nets,
         )
 
         if comp_id in existing_groups:
@@ -265,7 +279,7 @@ def update_component_groups(
                 existing_fingerprints.pop(comp_id, None)
                 grp = _render_one(scene, placement, inst, defn, comp_id, pin_net,
                                   routed_nets, theme, layers, group_alpha=1.0,
-                                  highlighted_net_id=None)
+                                  highlighted_net_id=highlighted_net_id)
                 if grp is None:
                     continue
                 existing_groups[comp_id] = grp
@@ -273,7 +287,7 @@ def update_component_groups(
         else:
             grp = _render_one(scene, placement, inst, defn, comp_id, pin_net,
                               routed_nets, theme, layers, group_alpha=1.0,
-                              highlighted_net_id=None)
+                              highlighted_net_id=highlighted_net_id)
             if grp is None:
                 continue
             existing_groups[comp_id] = grp
@@ -407,37 +421,35 @@ def _render_one(
         ref = PinRef(component_id=comp_id, pin_number=pin_number)
         net_id = pin_net.get(ref)
 
+        # Bold (tier-1) highlight: pin belongs to the highlighted net → use a
+        # thicker pen.  Multiplier kept colour-free — we only change widths
+        # so the user-set palette stays intact.
+        is_bold = (
+            highlighted_net_id is not None
+            and net_id is not None
+            and net_id == highlighted_net_id
+        )
+        bold_factor = theme.bold_pin_width_factor if is_bold else 1.0
+
         if net_id is not None:
             color = _net_color(net_id, theme)
             color.setAlphaF(color.alphaF() * alpha)
             complete = routed_nets is None or net_id in routed_nets
             if complete:
                 fill_color = color
-                pen = QPen(color, theme.pin_width_complete)
+                pen = QPen(color, theme.pin_width_complete * bold_factor)
                 pen.setStyle(Qt.PenStyle.SolidLine)
             else:
                 fill_color = QColor(color)
                 fill_color.setAlpha(_a(130))
-                pen = QPen(color, theme.pin_width_incomplete)
+                pen = QPen(color, theme.pin_width_incomplete * bold_factor)
                 pen.setStyle(Qt.PenStyle.DashLine)
         else:
             fill_color = pin_color_fallback
             fallback_pen_color = QColor(theme.pin_label_fallback_color)
             fallback_pen_color.setAlphaF(fill_color.alphaF())
+            # Unassigned pins never bold-up (they don't belong to any net).
             pen = QPen(fallback_pen_color, theme.pin_width_incomplete)
-
-        # Glow ring for highlighted net pins.
-        if highlighted_net_id is not None and net_id == highlighted_net_id:
-            gr = theme.route_glow_pin_radius
-            glow_color = _net_color(net_id, theme)
-            glow_color.setAlphaF(theme.route_glow_pin_alpha * alpha)
-            glow_pen = QPen(glow_color, gr * 0.55)
-            glow_pen.setStyle(Qt.PenStyle.SolidLine)
-            halo = QGraphicsEllipseItem(QRectF(pos.x - gr, pos.y - gr, 2 * gr, 2 * gr))
-            halo.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-            halo.setPen(glow_pen)
-            halo.setZValue(z_comp - 0.08)
-            grp.addToGroup(halo)
 
         if pin_number == 1:
             _add_pin1_marker(grp, pos.x, pos.y, fill_color, theme, z=z_comp - 0.05)

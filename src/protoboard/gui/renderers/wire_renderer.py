@@ -48,10 +48,14 @@ def wire_fingerprint(
     color_override: str | None,
     z_base: float,
     base_alpha: float = 1.0,
+    is_bold: bool = False,
 ) -> tuple[object, ...]:
     """Stable key capturing structural/connectivity inputs for one wire.
 
-    Highlight state (net_alpha, glow) is excluded — applied via setOpacity().
+    Net-alpha dim (the ``highlight_dim_wires`` reduction for non-highlighted
+    nets) is applied via setOpacity and stays out of the fingerprint.
+    ``is_bold`` IS in the fingerprint — bold is encoded in pen widths on
+    scene items, so a rebuild is required to apply or remove it.
     base_alpha is included so layer visibility changes trigger a rebuild.
     """
     return (
@@ -62,6 +66,7 @@ def wire_fingerprint(
         color_override,
         round(z_base, 4),
         round(base_alpha, 4),
+        is_bold,
     )
 
 
@@ -98,7 +103,13 @@ def update_wire_groups(
         side = wire.side  # type: ignore[assignment]
         base_alpha = layers.alpha_for_wire(side)
         z_base = layers.z_for_wire(side)
-        fp = wire_fingerprint(wire, net_id, color_override, z_base, base_alpha)
+        # Tier-1 bold for wires belonging to the highlighted net.
+        is_bold = (
+            highlighted_net_id is not None
+            and net_id is not None
+            and net_id == highlighted_net_id
+        )
+        fp = wire_fingerprint(wire, net_id, color_override, z_base, base_alpha, is_bold)
 
         if wire.id in existing_groups:
             grp = existing_groups[wire.id]
@@ -108,22 +119,27 @@ def update_wire_groups(
                 existing_fingerprints.pop(wire.id, None)
                 if base_alpha == 0.0:
                     continue
-                grp = _build_wire_group(wire, net_id, color_override, base_alpha, z_base, theme, False)
+                grp = _build_wire_group(
+                    wire, net_id, color_override, base_alpha, z_base, theme,
+                    glow=False, bold=is_bold,
+                )
                 scene.addItem(grp)
                 existing_groups[wire.id] = grp
                 existing_fingerprints[wire.id] = fp
         else:
             if base_alpha == 0.0:
                 continue
-            grp = _build_wire_group(wire, net_id, color_override, base_alpha, z_base, theme, False)
+            grp = _build_wire_group(
+                wire, net_id, color_override, base_alpha, z_base, theme,
+                glow=False, bold=is_bold,
+            )
             scene.addItem(grp)
             existing_groups[wire.id] = grp
             existing_fingerprints[wire.id] = fp
             grp = existing_groups[wire.id]
 
-        # Apply highlight dimming via opacity — O(1), no rebuild needed.
-        is_highlighted = highlighted_net_id is not None and net_id == highlighted_net_id
-        net_alpha = 1.0 if highlighted_net_id is None or is_highlighted else theme.highlight_dim_wires
+        # Apply non-highlighted-wire dim via opacity (cheap, no rebuild).
+        net_alpha = 1.0 if highlighted_net_id is None or is_bold else theme.highlight_dim_wires
         grp.setOpacity(net_alpha)
 
 
@@ -135,8 +151,16 @@ def _build_wire_group(
     z_base: float,
     theme: Theme,
     glow: bool,
+    bold: bool = False,
 ) -> QGraphicsItemGroup:
-    """Build a QGraphicsItemGroup containing all line items for one wire."""
+    """Build a QGraphicsItemGroup containing all line items for one wire.
+
+    *glow* — tier-2 highlight (reserved for direct wire selection).
+    *bold* — tier-1 highlight (routing-in-progress, Net Inspector selection).
+    Bold thickens both the core stroke (kept in the net colour) and the
+    outline (kept in its theme colour — outline distinguishes bare from
+    insulated, not nets).
+    """
     grp = QGraphicsItemGroup()
     pts = wire.path
 
@@ -159,9 +183,9 @@ def _build_wire_group(
             grp.addToGroup(g)
 
     if wire.insulated:
-        _fill_insulated(grp, pts, color, z_base, theme)
+        _fill_insulated(grp, pts, color, z_base, theme, bold=bold)
     else:
-        _fill_bare(grp, pts, color, z_base, theme)
+        _fill_bare(grp, pts, color, z_base, theme, bold=bold)
 
     grp.setZValue(z_base)
     return grp
@@ -214,11 +238,16 @@ def _fill_insulated(
     color: QColor,
     z_base: float,
     theme: Theme,
+    bold: bool = False,
 ) -> None:
-    outline_pen = QPen(QColor(theme.ins_outline_color), theme.ins_outline_width)
+    core_w = theme.ins_width * (theme.bold_wire_core_width_factor if bold else 1.0)
+    outline_w = theme.ins_outline_width * (
+        theme.bold_wire_outline_width_factor if bold else 1.0
+    )
+    outline_pen = QPen(QColor(theme.ins_outline_color), outline_w)
     outline_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     outline_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-    core_pen = QPen(color, theme.ins_width)
+    core_pen = QPen(color, core_w)
     core_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     core_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     for i in range(len(pts) - 1):
@@ -240,11 +269,16 @@ def _fill_bare(
     color: QColor,
     z_base: float,
     theme: Theme,
+    bold: bool = False,
 ) -> None:
-    outline_pen = QPen(QColor(theme.bare_outline_color), theme.bare_outline_width)
+    core_w = theme.bare_width * (theme.bold_wire_core_width_factor if bold else 1.0)
+    outline_w = theme.bare_outline_width * (
+        theme.bold_wire_outline_width_factor if bold else 1.0
+    )
+    outline_pen = QPen(QColor(theme.bare_outline_color), outline_w)
     outline_pen.setCapStyle(Qt.PenCapStyle.FlatCap)
     outline_pen.setJoinStyle(Qt.PenJoinStyle.BevelJoin)
-    pen = QPen(color, theme.bare_width)
+    pen = QPen(color, core_w)
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     for i in range(len(pts) - 1):
