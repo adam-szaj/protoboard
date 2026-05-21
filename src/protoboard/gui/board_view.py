@@ -583,7 +583,7 @@ class BoardView(QGraphicsView):
             self._scene.clear()
             self._invalidate_all_groups()
             self._fire_on_scene_cleared()
-            render_board(self._scene, self._session.board, layers=layers)
+            render_board(self._scene, self._session.board, theme=_theme, layers=layers)
             self._board_layer_dirty = False
             self._last_board_alpha = current_board_alpha
 
