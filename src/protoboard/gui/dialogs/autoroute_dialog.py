@@ -228,6 +228,32 @@ class AutorouteDialog(QDialog):
         simplify_mode_row.addStretch()
         root.addLayout(simplify_mode_row)
 
+        # ── Post-process plugins (optimizer chain) ─────────────────────
+        # Each registered WireOptimizer becomes a checkbox.  Checked
+        # optimizers run after the router in declaration order.  The
+        # legacy "Simplify after routing" checkbox above stays as the
+        # plain-vanilla path — when no optimizer here is checked, the
+        # worker falls back to the embedded simplify pass per the
+        # routing settings.
+        import protoboard.services.routing.builtin_optimizers  # noqa: F401
+        from protoboard.services.routing.optimizer import (
+            registry as _opt_registry,
+        )
+        self._optimizer_checks: dict[str, QCheckBox] = {}
+        opt_names = [n for n in _opt_registry.list_available() if n != "simplify"]
+        if opt_names:
+            opt_group = QGroupBox("Post-process (plugin chain)")
+            opt_layout = QVBoxLayout(opt_group)
+            for opt_name in opt_names:
+                opt = _opt_registry.get(opt_name)
+                box = QCheckBox(getattr(opt, "display_name", opt_name))
+                caps = opt.capabilities()
+                if caps.notes:
+                    box.setToolTip(caps.notes)
+                opt_layout.addWidget(box)
+                self._optimizer_checks[opt_name] = box
+            root.addWidget(opt_group)
+
         # ── Footer ─────────────────────────────────────────────────────
         self._chk_save = QCheckBox("Save as project default")
         root.addWidget(self._chk_save)
@@ -283,6 +309,28 @@ class AutorouteDialog(QDialog):
         """Return the registry name of the router the user selected."""
         data = self._combo_router.currentData()
         return data if isinstance(data, str) else "astar"
+
+    def selected_optimizers(self) -> list[str] | None:
+        """Return the optimizer chain the user assembled, or None for legacy.
+
+        Returns ``None`` when no plugin-checkbox was ticked.  ``None``
+        keeps the legacy behaviour where ``autoroute()``'s embedded
+        simplify pass fires based on ``RoutingSettings.enable_simplify_pass``.
+        Returns a list (possibly empty) when at least one plugin-checkbox
+        existed in the UI — the caller treats that as an explicit chain
+        and suppresses the embedded pass.
+
+        The "simplify" optimizer is not exposed here on purpose: it has
+        a dedicated legacy checkbox above for backward compat.
+        """
+        if not self._optimizer_checks:
+            # No plugins registered (only the built-in simplify) — keep
+            # the legacy code path.
+            return None
+        return [
+            name for name, box in self._optimizer_checks.items()
+            if box.isChecked()
+        ]
 
     def save_as_default(self) -> bool:
         """Return True if the user wants to persist these settings to the project."""

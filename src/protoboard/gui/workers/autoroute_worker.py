@@ -87,6 +87,7 @@ class AutorouteWorker(QThread):
         *,
         request: RouteRequest | None = None,
         router_name: str | None = None,
+        optimizer_names: list[str] | None = None,
         # Legacy keyword-args kept for callers that still build a worker
         # from live session state.  When `request` is None they are
         # snapshotted into one here on the *caller's* thread (i.e. the
@@ -112,6 +113,12 @@ class AutorouteWorker(QThread):
             project_path=project_path,
         )
         self._router_name = router_name
+        # None  → legacy path: autoroute() runs its embedded simplify pass
+        #          when routing_settings.enable_simplify_pass is True.
+        # []    → explicit no optimizers (also suppresses the embedded pass).
+        # [...] → explicit chain; embedded pass is suppressed and the listed
+        #          optimizers run in order on the router's output.
+        self._optimizer_names = optimizer_names
         self._cancel_flag = threading.Event()
 
     # ------------------------------------------------------------------
@@ -127,22 +134,29 @@ class AutorouteWorker(QThread):
     # ------------------------------------------------------------------
 
     def run(self) -> None:
+        import dataclasses as _dc
         import threading as _t
         import structlog as _sl
         from protoboard.services.routing.autorouter import (
             AutorouteCancelled,
             AutorouteResult,
         )
-        # Importing builtin ensures the default routers are registered even
-        # when no plugin loader has run yet.
+        # Importing the built-in modules ensures the default router /
+        # optimizer are registered even when no plugin loader has run yet.
         import protoboard.services.routing.builtin  # noqa: F401  side-effect
+        import protoboard.services.routing.builtin_optimizers  # noqa: F401  side-effect
+        from protoboard.services.routing.optimizer import (
+            registry as optimizer_registry,
+        )
         from protoboard.services.routing.protocol import ProgressSink, registry
+        from protoboard.services.routing.snapshot import RouteRequest
 
         _sl.get_logger(__name__).info(
             "autoroute_worker.run",
             thread_id=_t.get_ident(),
             is_main=_t.current_thread() is _t.main_thread(),
             router=self._router_name or "<default>",
+            optimizers=self._optimizer_names if self._optimizer_names is not None else "<legacy>",
         )
 
         sink = ProgressSink(
@@ -151,13 +165,43 @@ class AutorouteWorker(QThread):
             cancel_flag=self._cancel_flag,
         )
 
+        # When the caller specified an explicit optimizer chain, suppress
+        # autoroute()'s embedded simplify pass — the chain owns the
+        # post-processing now and double-running it would either no-op
+        # or produce the wrong wires.
+        request = self._request
+        if self._optimizer_names is not None:
+            request = _dc.replace(
+                self._request,
+                routing_settings=_dc.replace(
+                    self._request.routing_settings,
+                    enable_simplify_pass=False,
+                ),
+            )
+
         try:
             router = (
                 registry.get(self._router_name)
                 if self._router_name is not None
                 else registry.default()
             )
-            result: AutorouteResult = router.route(self._request, sink)
+            result: AutorouteResult = router.route(request, sink)
+
+            # Chain optimizers in declared order.  Each optimizer's output
+            # feeds the next.  An empty list explicitly disables all
+            # post-processing.  Cancellation is checked between optimizers
+            # so a long chain remains responsive to the Cancel button.
+            for opt_name in self._optimizer_names or []:
+                if sink.cancelled():
+                    raise AutorouteCancelled
+                try:
+                    opt = optimizer_registry.get(opt_name)
+                except KeyError:
+                    _sl.get_logger(__name__).warning(
+                        "autoroute_worker.optimizer_missing", name=opt_name,
+                    )
+                    continue
+                result = opt.optimize(request, result, sink)
         except AutorouteCancelled:
             self.finished.emit(AutorouteResult())
             return

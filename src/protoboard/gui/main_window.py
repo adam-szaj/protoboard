@@ -1846,6 +1846,7 @@ class MainWindow(QMainWindow):
 
         # Show pre-flight dialog unless user opted to skip it.
         router_name: str | None = None
+        optimizer_names: list[str] | None = None
         if self._session.routing_settings.skip_autoroute_dialog:
             run_settings = self._session.routing_settings
         else:
@@ -1854,6 +1855,7 @@ class MainWindow(QMainWindow):
                 return
             run_settings = cfg_dlg.routing_settings()
             router_name = cfg_dlg.router_name()
+            optimizer_names = cfg_dlg.selected_optimizers()
             # Always persist the dialog's settings as the new project default.
             # The "Save as project default" checkbox is now redundant but kept
             # so existing keyboard / muscle memory still works.
@@ -1878,6 +1880,7 @@ class MainWindow(QMainWindow):
             net_ids=net_ids,
             project_path=self._session.project_path,
             router_name=router_name,
+            optimizer_names=optimizer_names,
         )
         # Keep a reference so the worker isn't garbage-collected before finishing.
         self._autoroute_worker = worker
