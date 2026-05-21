@@ -85,7 +85,12 @@ class BoardView(QGraphicsView):
         # Subscribe to highlight stack changes.
         session.highlight_stack.changed.connect(self._apply_highlight_opacity)
         # Subscribe to routing-net changes (RouteTool while-drawing union with stack).
+        # Apply opacity immediately for the live feedback while drawing, AND
+        # schedule a full refresh so the per-pin glow ring is rebuilt — the
+        # ring is drawn inside the component group at render time, so a
+        # mere opacity tweak can't add or remove it.
         session.routing_net_changed.connect(self._apply_highlight_opacity)
+        session.routing_net_changed.connect(self._on_routing_net_changed)
         # Theme — overridden by MainWindow after Preferences apply.
         from protoboard.gui.theme import Theme
         self._theme_override: Theme | None = None
@@ -134,6 +139,32 @@ class BoardView(QGraphicsView):
         """Called by SelectTool on group navigation to trigger a re-render."""
         self._active_group_id = group_id
         self.refresh()
+
+    def _effective_highlighted_net(self) -> "uuid.UUID | None":
+        """Pick the net id that should drive glow-ring rendering.
+
+        Priority: the actively-drawn routing net (``session.routing_net_id``)
+        wins over the legacy ``_highlighted_net_id`` set by Net Inspector.
+        Routing is a stronger UI signal — when the user is mid-route, the
+        pads they're targeting must be unambiguously called out.
+        """
+        rn = self._session.routing_net_id
+        if rn is not None:
+            return rn
+        return self._highlighted_net_id
+
+    def _on_routing_net_changed(self, _net_id: object) -> None:
+        """Invalidate component/wire group caches so glow rings rebuild.
+
+        Group fingerprints intentionally exclude highlight state (it's
+        usually applied via opacity-only updates), so a change in
+        ``routing_net_id`` would not trigger a rebuild by itself.  Clear
+        the caches and ask for a refresh — the next paint pass will
+        render the glow rings on pads belonging to the routed net.
+        """
+        self._comp_fingerprints.clear()
+        self._wire_fingerprints.clear()
+        self._schedule_refresh()
 
     def set_highlighted_net(self, net_id: uuid.UUID | None) -> None:
         """Legacy: update local net_id and apply opacity (used by SelectTool internals)."""
@@ -620,7 +651,7 @@ class BoardView(QGraphicsView):
             net_color_map=net_color_map,
             theme=_theme,
             layers=layers,
-            highlighted_net_id=self._highlighted_net_id,
+            highlighted_net_id=self._effective_highlighted_net(),
         )
 
         # ── Components (group reuse) ──────────────────────────────────────────
@@ -637,7 +668,7 @@ class BoardView(QGraphicsView):
             layers=layers,
             active_group_id=self._active_group_id,
             layout=self._session.layout,
-            highlighted_net_id=self._highlighted_net_id,
+            highlighted_net_id=self._effective_highlighted_net(),
         )
 
         # Snapshot positions so _on_drag_moved can compute deltas.
