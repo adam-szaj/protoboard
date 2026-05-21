@@ -477,7 +477,12 @@ def _render_one(
             dot_fill = QColor(fill_color)
             dot_fill.setAlphaF(alpha)  # opaque modulo layer-ghost, no user-alpha bleed
             dot_radius = theme.pad_radius * theme.bold_pin_dot_radius_factor
-            dot_z = z_comp + 0.05
+            # Quad-DIP / DIP body items render at z_comp with their own pin
+            # circles baked into the SVG; bold dot must sit decisively above
+            # them.  0.05 was enough for the inner body of SvgDIPBody but
+            # Qt's child-z within a QGraphicsItemGroup occasionally treats
+            # small offsets ambiguously, so use a larger margin.
+            dot_z = z_comp + 0.5
         else:
             dot_fill = fill_color
             dot_radius = theme.pin_radius
