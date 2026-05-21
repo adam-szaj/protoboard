@@ -658,6 +658,7 @@ class BoardView(QGraphicsView):
                 self._session.instances,
                 self._session.components,
                 routed_nets=routed,
+                theme=_theme,
             ))
         if self._session.layout.groups:
             new_overlays.extend(render_groups(

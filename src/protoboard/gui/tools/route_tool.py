@@ -324,7 +324,9 @@ class RouteTool(_Tool):
             k=3,
         )
         _log.debug("route.hints", paths_found=len(results), targets=len(targets))
-        self._hint_items = render_routing_hints(self._view.scene(), results)
+        self._hint_items = render_routing_hints(
+            self._view.scene(), results, theme=self._theme(),
+        )
 
     def _highlight_start_net(self, source: Point) -> None:
         """Mark the net of the starting pad as the active routing net.
