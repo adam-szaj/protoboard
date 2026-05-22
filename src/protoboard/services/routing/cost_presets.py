@@ -27,7 +27,11 @@ _DEFAULT_PRESET: dict[str, float] = {
     "direction_change": 1.0,
     "layer_change": 2.0,
     "under_component_top": 3.0,
-    "crossing_insulated_bare": 5.0,
+    # Legacy crossing_insulated_bare removed in B4 — granular ib_*
+    # knobs handle it now.  Set baseline same-side off-pad to the
+    # historical 5.0 so existing routes feel similar.
+    "crossing_ib_off_pad_same_side": 5.0,
+    "crossing_ib_at_pad_same_side": 5.0,
     "crossing_bare_bare_diagonal": 2.0,
     "free_pad": 1.0,
     "same_net_pad": 0.1,

@@ -1673,11 +1673,10 @@ def _route_segment_with_ripup(
             bare_only_cm = cost_model
         else:
             # Bare-first attempt: forbid every kind of insulated×bare and
-            # bare×bare crossing.  Setting all 4 ib_* knobs to inf
-            # supersedes the legacy crossing_insulated_bare flat fallback.
+            # bare×bare crossing by setting all 4 granular ib_* knobs to
+            # inf alongside the bare×bare ban.
             bare_only_cm = cost_model.with_overrides(
                 crossing_bare_bare=float("inf"),
-                crossing_insulated_bare=float("inf"),
                 crossing_ib_at_pad_same_side=float("inf"),
                 crossing_ib_at_pad_opposite_side=float("inf"),
                 crossing_ib_off_pad_same_side=float("inf"),

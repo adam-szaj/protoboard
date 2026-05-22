@@ -34,8 +34,9 @@ class TestRoutingSettingsModel:
         cm = s.cost_model()
         assert cm.direction_change == 2.5
         assert cm.layer_change == 4.0
-        # Unchanged knob keeps its preset default.
-        assert cm.crossing_insulated_bare == 5.0
+        # Unchanged knob keeps its preset default — granular ib_*
+        # off-pad-same-side carries the historical crossing cost.
+        assert cm.get("crossing_ib_off_pad_same_side") == 5.0
 
     def test_cost_model_preserves_fixed_fields(self) -> None:
         import math

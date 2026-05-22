@@ -96,10 +96,9 @@ _ASTAR_COST_KEYS: frozenset[str] = frozenset({
     "occupied_by_other_net",
     "direction_change",
     "diagonal_multiplier",
-    # Crossings
+    # Crossings (bare×bare; granular ib_*/ii_* below)
     "crossing_bare_bare",
     "crossing_bare_bare_diagonal",
-    "crossing_insulated_bare",
     # Vias / under-component
     "layer_change",
     "under_component_top",

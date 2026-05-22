@@ -144,12 +144,17 @@ class TestCrossingCost:
         assert math.isinf(cost)
 
     def test_insulated_x_bare_uses_jumper_cost(self) -> None:
-        cm = RoutingCostModel()
+        # Intersection of step (0,1)→(2,1) with bare (1,0)→(1,2) lands at
+        # (1.0, 1.0) — integer coords, i.e. off_pad / mid-cell.
+        cm = RoutingCostModel(weights={
+            "crossing_ib_off_pad_same_side": 5.0,
+            "crossing_ib_at_pad_same_side": 12.0,
+        })
         bare = _idx((Point(1, 0), Point(1, 2), "top"))
         cost = _crossing_cost(
             Point(0, 1), Point(2, 1), "top", bare, cm, insulated=True
         )
-        assert cost == cm.crossing_insulated_bare
+        assert cost == 5.0
 
     def test_other_layer_segments_ignored(self) -> None:
         cm = RoutingCostModel()

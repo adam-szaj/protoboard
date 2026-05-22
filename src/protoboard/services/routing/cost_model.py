@@ -30,13 +30,12 @@ COST_KEY_DOCS: dict[str, str] = {
     "diagonal_multiplier": "Cost multiplier for diagonal steps (default √2).",
     "crossing_bare_bare": "Cost when a bare wire crosses another bare wire (usually inf).",
     "crossing_bare_bare_diagonal": "Cost when two bare diagonals cross at a mesh-cell centre.",
-    "crossing_insulated_bare": "[deprecated] flat fallback for insulated × bare crossings — superseded by the 8 crossing_ib_* / crossing_ii_* keys.",
-    # New granular crossing classification:
+    # Granular crossing classification:
     #   ib = insulated × bare,   ii = insulated × insulated
     #   at_pad / off_pad         where the crossing geometrically intersects
     #   same_side / opposite     relative to the new wire's side
-    # All default to 0.0 (legacy crossing_insulated_bare carries the flat
-    # fallback until B4 drops it).
+    # All default to 0.0; the "clean_routing" preset (and any user
+    # preset) sets sensible non-zero values.
     "crossing_ib_at_pad_same_side":
         "Insulated × bare crossing on the same side, intersection on a pad.",
     "crossing_ib_at_pad_opposite_side":
@@ -85,7 +84,6 @@ USER_TUNABLE_COST_KEYS: frozenset[str] = frozenset({
     "direction_change",
     "layer_change",
     "under_component_top",
-    "crossing_insulated_bare",
     "crossing_bare_bare_diagonal",
     "bare_diagonal_mode",
     "at_pad_insulated_insulated_same_side",
@@ -125,10 +123,9 @@ _LEGACY_DEFAULTS: dict[str, float] = {
     "diagonal_multiplier": math.sqrt(2),
     "crossing_bare_bare": float("inf"),
     "crossing_bare_bare_diagonal": float("inf"),
-    "crossing_insulated_bare": 5.0,
-    # New granular crossing knobs — all 0.0 so existing projects (and the
-    # legacy crossing_insulated_bare fallback) keep their current behaviour
-    # until presets / project overrides explicitly set them.
+    # Granular crossing knobs — all 0.0 by default.  Activate via the
+    # built-in "clean_routing" preset, a user preset, or per-project
+    # cost_overrides.
     "crossing_ib_at_pad_same_side": 0.0,
     "crossing_ib_at_pad_opposite_side": 0.0,
     "crossing_ib_off_pad_same_side": 0.0,
@@ -230,8 +227,6 @@ class RoutingCostModel:
     def crossing_bare_bare(self) -> float: return self.weights["crossing_bare_bare"]
     @property
     def crossing_bare_bare_diagonal(self) -> float: return self.weights["crossing_bare_bare_diagonal"]
-    @property
-    def crossing_insulated_bare(self) -> float: return self.weights["crossing_insulated_bare"]
     @property
     def layer_change(self) -> float: return self.weights["layer_change"]
     @property

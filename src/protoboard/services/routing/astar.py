@@ -14,7 +14,7 @@ Wire-crossing awareness:
   - `bare_wire_segments`: set of (Point, Point, side) triples covering all
     segments of existing *bare* (non-insulated) wires.  A new wire step that
     would cross such a segment on the same layer pays
-    `crossing_insulated_bare` (insulated wire) or `crossing_bare_bare`
+    the granular ``crossing_ib_*`` knobs (insulated wire) or `crossing_bare_bare`
     (bare wire, default INF).
   - Crossing detection uses integer-grid arithmetic: a horizontal/vertical
     step from A to B crosses a bare segment P→Q when the two axis-aligned
@@ -137,7 +137,11 @@ def _find_paths_rust(
         cost_model.occupied_by_other_net,
         cost_model.direction_change,
         cost_model.layer_change,
-        cost_model.crossing_insulated_bare,
+        # Rust kernel still consumes a single insulated×bare crossing cost.
+        # Project the granular off_pad_same_side knob onto it; the more
+        # nuanced classification only fires in the Python branch (the
+        # Rust kernel will be ported later).
+        cost_model.get("crossing_ib_off_pad_same_side", 0.0),
         cost_model.crossing_bare_bare,
         near_pin_cost,
         insulated,
@@ -1059,7 +1063,7 @@ def find_paths(
     insulated:
         Whether the wire being routed is insulated.  A bare wire cannot cross
         any existing bare wire segment; an insulated wire may cross but pays
-        `cost_model.crossing_insulated_bare` per crossing.
+        the matching ``crossing_ib_*`` knob per crossing.
     bare_wire_segments:
         Set of (p1, p2, side) triples representing segments of existing bare
         wires.  Used for crossing-cost calculation.
@@ -1406,8 +1410,7 @@ def _crossing_cost(
     - **side**:  same_side (other wire on the same layer) or opposite_side
 
     The matching ``crossing_{ib|ii}_{at_pad|off_pad}_{same|opposite}_side``
-    knob is added.  When all matching knobs are 0.0, the legacy
-    ``crossing_insulated_bare`` flat cost is used as fallback (ib only).
+    knob is added.  When all matching knobs are 0.0, crossings are free.
 
     For a bare stepping wire, the legacy bare×bare ban applies as before
     (with the perpendicular-diagonal exception); the 8 granular knobs are
@@ -1426,21 +1429,15 @@ def _crossing_cost(
     # Pre-resolve granular knobs (insulated-only).  When the stepping wire
     # is bare we never read these.
     if insulated:
-        _ib_legacy = cost_model.crossing_insulated_bare
         _ib_aps    = cost_model.get("crossing_ib_at_pad_same_side",       0.0)
         _ib_apo    = cost_model.get("crossing_ib_at_pad_opposite_side",   0.0)
         _ib_ops    = cost_model.get("crossing_ib_off_pad_same_side",      0.0)
         _ib_opo    = cost_model.get("crossing_ib_off_pad_opposite_side",  0.0)
-        _ii_aps    = cost_model.get("crossing_ii_at_pad_same_side",       0.0)
         _ii_apo    = cost_model.get("crossing_ii_at_pad_opposite_side",   0.0)
-        _ii_ops    = cost_model.get("crossing_ii_off_pad_same_side",      0.0)
         _ii_opo    = cost_model.get("crossing_ii_off_pad_opposite_side",  0.0)
-        _any_granular_ib = (_ib_aps or _ib_apo or _ib_ops or _ib_opo) != 0.0
     else:
-        _ib_legacy = 0.0
         _ib_aps = _ib_apo = _ib_ops = _ib_opo = 0.0
-        _ii_aps = _ii_apo = _ii_ops = _ii_opo = 0.0
-        _any_granular_ib = False
+        _ii_apo = _ii_opo = 0.0
 
     total = 0.0
 
@@ -1454,14 +1451,10 @@ def _crossing_cost(
                 total += reuse_cost
                 continue
             if insulated:
-                # ib crossing on same side.  Granular if any knob set,
-                # else legacy fallback.
-                if _any_granular_ib:
-                    ix, iy = _intersection_point(p1, p2, bsrc, bdst)
-                    at_pad = _is_at_pad(ix, iy)
-                    total += _ib_aps if at_pad else _ib_ops
-                else:
-                    total += _ib_legacy
+                # ib crossing on same side — at_pad vs off_pad.
+                ix, iy = _intersection_point(p1, p2, bsrc, bdst)
+                at_pad = _is_at_pad(ix, iy)
+                total += _ib_aps if at_pad else _ib_ops
             else:
                 # Bare × bare same-side.  Keep the legacy diagonal
                 # exception; otherwise inf.

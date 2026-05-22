@@ -106,11 +106,8 @@ class RoutingSettings:
             # crossings are not safe → forbid via inf.
             weights["crossing_bare_bare_diagonal"] = float("inf")
         # allow_jumpers: when False, forbid every kind of insulated×bare
-        # crossing by setting the granular ib knobs to inf.  Also pin the
-        # legacy crossing_insulated_bare fallback so any plugin still
-        # reading it gets the same answer.
+        # crossing by setting all 4 granular ib_* knobs to inf.
         if not self.allow_jumpers:
-            weights["crossing_insulated_bare"] = float("inf")
             weights["crossing_ib_at_pad_same_side"] = float("inf")
             weights["crossing_ib_at_pad_opposite_side"] = float("inf")
             weights["crossing_ib_off_pad_same_side"] = float("inf")

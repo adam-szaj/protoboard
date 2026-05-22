@@ -27,7 +27,9 @@ class TestBuiltinPresets:
         # Legacy defaults — what RoutingCostModel() returns with no args.
         assert preset["direction_change"] == 1.0
         assert preset["layer_change"] == 2.0
-        assert preset["crossing_insulated_bare"] == 5.0
+        # Legacy crossing_insulated_bare replaced by granular ib_* knobs.
+        assert preset["crossing_ib_off_pad_same_side"] == 5.0
+        assert preset["crossing_ib_at_pad_same_side"] == 5.0
         assert preset["free_pad"] == 1.0
         assert preset["same_net_pad"] == pytest.approx(0.1)
         assert preset["diagonal_multiplier"] == pytest.approx(math.sqrt(2))
