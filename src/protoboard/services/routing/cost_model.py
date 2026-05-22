@@ -1,95 +1,178 @@
 # SPDX-License-Identifier: MIT
-"""RoutingCostModel — per-step cost parameters for the A* router."""
+"""RoutingCostModel — per-step cost parameters for the A* router.
+
+The cost model is stored internally as a ``dict[str, float]`` so that routers
+can declare which keys they support (see ``Router.supported_cost_keys``) and
+presets / UI / persistence can iterate cost knobs uniformly without touching
+this file when new keys are added.
+
+For backward compatibility every legacy named field is still accessible as a
+``@property`` that delegates to the underlying weights dict.  New code should
+prefer ``cost_model.get("key_name", default)`` over attribute access.
+"""
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import FrozenInstanceError
+from typing import Any
 
 
-@dataclass(frozen=True, slots=True)
+# Canonical documentation of every cost key recognised by any built-in router.
+# Used by PreferencesDialog to render labels/tooltips and by persistence to
+# validate user-supplied YAML. Routers declare which subset they actually
+# consume via ``Router.supported_cost_keys()``.
+COST_KEY_DOCS: dict[str, str] = {
+    "free_pad": "Base cost per orthogonal step on a free pad.",
+    "same_net_pad": "Cost per step onto a pad of the active net (discount).",
+    "occupied_by_other_net": "Cost per step onto a pin of another net (usually inf).",
+    "direction_change": "Penalty per turn (fallback when bend_45/90/135 are unset).",
+    "diagonal_multiplier": "Cost multiplier for diagonal steps (default √2).",
+    "crossing_bare_bare": "Cost when a bare wire crosses another bare wire (usually inf).",
+    "crossing_bare_bare_diagonal": "Cost when two bare diagonals cross at a mesh-cell centre.",
+    "crossing_insulated_bare": "Cost when an insulated wire crosses a bare wire.",
+    "layer_change": "Cost per via (top↔bottom transition on a plated-through pad).",
+    "under_component_top": "Extra cost per step on the top layer beneath a component body.",
+    "bare_diagonal_mode": "When non-zero, enables strict parity-filter for bare diagonals.",
+    "at_pad_insulated_insulated_same_side": "Cost when step lands on a pad with another insulated wire's vertex (same side).",
+    "at_pad_insulated_bare_same_side": "Cost when step lands on a pad with a bare wire's vertex (mixed-insulation, same side).",
+    "parallel_opposite_side": "Cost when the step overlaps an existing wire segment on the opposite side.",
+    "max_reroute_factor": "Push-and-shove reroute ceiling as a multiple of the original cost.",
+    "same_net_wire_reuse_cost": "Cost when touching an existing wire of the active net (0 = free same-net reuse).",
+    # ------------------------------------------------------------------
+    # New in the "clean routing" effort (defaults all 0.0 — opt-in via preset).
+    # ------------------------------------------------------------------
+    "bend_45": "Penalty per 45° bend in path (falls back to direction_change).",
+    "bend_90": "Penalty per 90° bend in path (falls back to direction_change).",
+    "bend_135": "Penalty per 135° bend in path (falls back to direction_change).",
+    "diagonal_preferred_family": "Bonus/cost per diagonal step in the preferred (parity,side)→family direction.",
+    "diagonal_dispreferred_family": "Cost per diagonal step in the dispreferred family.",
+    "wire_over_foreign_wire_pad": "Cost per step into a cell occupied by another net's wire vertex.",
+    "via_on_foreign_pad": "Cost per via on a pad where another net already has a via.",
+    "redundant_layer_change": "Cost per via that could have been avoided (also drives zebra suppression).",
+}
+
+
+# Legacy default values — preserved verbatim so that constructing
+# ``RoutingCostModel()`` with no args produces the same numeric weights as
+# the original frozen-dataclass implementation.
+_LEGACY_DEFAULTS: dict[str, float] = {
+    "free_pad": 1.0,
+    "same_net_pad": 0.1,
+    "occupied_by_other_net": float("inf"),
+    "direction_change": 1.0,
+    "diagonal_multiplier": math.sqrt(2),
+    "crossing_bare_bare": float("inf"),
+    "crossing_bare_bare_diagonal": float("inf"),
+    "crossing_insulated_bare": 5.0,
+    "layer_change": 2.0,
+    "under_component_top": 3.0,
+    "bare_diagonal_mode": 0.0,  # boolean encoded as 0.0 / non-zero
+    "at_pad_insulated_insulated_same_side": 0.0,
+    "at_pad_insulated_bare_same_side": 0.0,
+    "parallel_opposite_side": 0.0,
+    "max_reroute_factor": 0.0,
+    "same_net_wire_reuse_cost": 0.0,
+}
+
+
 class RoutingCostModel:
     """Configurable cost weights for A* routing.
 
-    All values are additive costs per step.  `inf` means the step is
-    forbidden.
+    Stored as ``dict[str, float]`` (``weights``).  Routers should query weights
+    via ``get(key, default)``; legacy attribute access (``cost.direction_change``)
+    is preserved via ``@property`` for backward compatibility.
 
-    Diagonal moves (8-connectivity) use `free_pad * diagonal_multiplier`
-    as their base cost.  The multiplier defaults to √2 so that diagonal
-    and straight steps preserve Euclidean distance ratios.
-
-    Wire-crossing semantics:
-    - A bare wire crossing another bare wire is a short → `crossing_bare_bare = inf`.
-    - An insulated wire crossing a bare wire is a jumper → `crossing_insulated_bare`.
-    - An insulated wire crossing another insulated wire is fine → cost 0 extra.
+    Construction accepts either ``RoutingCostModel(weights={...})`` or legacy
+    keyword args ``RoutingCostModel(direction_change=1.0, layer_change=2.0)``.
+    Both forms are equivalent; the latter is the historical idiom.
     """
 
-    free_pad: float = 1.0
-    same_net_pad: float = 0.1          # discount for pads on the target net
-    occupied_by_other_net: float = float("inf")   # pin of another net — blocked
-    direction_change: float = 1.0      # penalty per turn (discourages detours)
-    diagonal_multiplier: float = math.sqrt(2)     # cost factor for diagonal step
-    # Crossing costs — applied when a wire passes over an existing wire segment.
-    crossing_bare_bare: float = float("inf")      # bare × bare = short (default)
-    # Exception to crossing_bare_bare: two bare diagonals that cross at a
-    # mesh-cell centre (int, int) and are mutually perpendicular are
-    # electrically safe in physical perfboard practice — the wires can be bent
-    # around each other.  Default = inf preserves the strict ban; the
-    # bare_diagonal routing mode lowers this to a finite value.
-    crossing_bare_bare_diagonal: float = float("inf")
-    crossing_insulated_bare: float = 5.0          # insulated × bare = jumper OK
-    # Layer-change cost — paid once per top↔bottom via on a plated-through pad.
-    layer_change: float = 2.0
-    # Extra cost per step on the top layer beneath a component body.
-    # Routing under a component on top is legal but undesirable — it makes
-    # physical inspection and rework harder.  A bottom-layer detour is
-    # preferred when it is not significantly longer.
-    under_component_top: float = 3.0
-    # When True, restrict diagonal moves to the parity family of the source
-    # pad (parity = (floor(x)+floor(y)) % 2).  Guarantees that any two bare
-    # diagonals crossing at a mesh-cell centre belong to different families
-    # and are therefore mutually perpendicular — the electrical-safety
-    # invariant that makes crossing_bare_bare_diagonal usable.
-    bare_diagonal_mode: bool = False
+    __slots__ = ("weights",)
+
+    def __init__(self, **kwargs: Any) -> None:
+        # Two construction modes, both supported:
+        #   RoutingCostModel(weights={"direction_change": 1.0, ...})
+        #   RoutingCostModel(direction_change=1.0, layer_change=2.0)
+        # The first is canonical; the second is the legacy idiom from
+        # before the dict refactor.  Mixing them is allowed: explicit kwargs
+        # override entries in ``weights``.
+        weights_arg = kwargs.pop("weights", None)
+        provided: dict[str, float] = dict(weights_arg) if weights_arg else {}
+        for k, v in kwargs.items():
+            if isinstance(v, bool):
+                provided[k] = 1.0 if v else 0.0
+            else:
+                provided[k] = float(v)
+        merged = {**_LEGACY_DEFAULTS, **provided}
+        object.__setattr__(self, "weights", merged)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise FrozenInstanceError(
+            "RoutingCostModel is immutable; use with_overrides() to change weights"
+        )
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, RoutingCostModel) and self.weights == other.weights
+
+    def __hash__(self) -> int:
+        return hash(tuple(sorted(self.weights.items())))
+
+    def __repr__(self) -> str:
+        return f"RoutingCostModel(weights={self.weights!r})"
+
+    def get(self, key: str, default: float = 0.0) -> float:
+        return self.weights.get(key, default)
+
+    def with_overrides(self, **overrides: float) -> "RoutingCostModel":
+        """Return a new instance with selected weights overridden."""
+        return RoutingCostModel(weights={**self.weights, **overrides})
+
+    @classmethod
+    def from_legacy(cls, **kwargs: Any) -> "RoutingCostModel":
+        """Build a cost model from legacy keyword args (backward-compat shim)."""
+        # Normalise bool → float for bare_diagonal_mode
+        normalised: dict[str, float] = {}
+        for k, v in kwargs.items():
+            if isinstance(v, bool):
+                normalised[k] = 1.0 if v else 0.0
+            else:
+                normalised[k] = float(v)
+        return cls(weights=normalised)
+
     # ------------------------------------------------------------------
-    # Enhanced-router penalties (opt-in; see EnhancedAStarRouter).
-    # All default to 0 so the default `astar` router is byte-identical
-    # to the pre-PR-3 behaviour.  Tuning starting points are noted next
-    # to each field.  These knobs are read by the Python A* hot loop;
-    # the Rust kernel currently ignores them (tracking issue: port once
-    # the semantics stabilise).
+    # Legacy attribute access — every named field becomes a @property
+    # reading from ``weights``.  Preserves existing call-sites verbatim.
     # ------------------------------------------------------------------
-    # Extra cost when a step lands on a pad that already hosts another
-    # insulated wire's vertex on the same side.  Tuning starting point: 1.0.
-    at_pad_insulated_insulated_same_side: float = 0.0
-    # Extra cost when a step lands on a pad that already hosts a bare
-    # wire's vertex on the same side (insulated wire stepping onto bare
-    # endpoint, or bare wire stepping onto an existing insulated endpoint).
-    # Bare-on-bare same-side is enforced as INF upstream via `occupied`
-    # and electrical-net checks; this knob covers the mixed case only.
-    # Tuning starting point: 3.0.
-    at_pad_insulated_bare_same_side: float = 0.0
-    # Extra cost when the step is collinear with — and overlaps the
-    # interior of — an existing wire segment on the *opposite* side
-    # (top vs bottom).  Applied when at least one of the two wires is
-    # insulated; bare×bare on opposite sides is electrically fine and
-    # incurs no cost.  Tuning starting point: 0.5.
-    parallel_opposite_side: float = 0.0
-    # When > 0, enables mid-cell-preferred push-and-shove.  Before the
-    # classic per-axis nudge fires, the enhanced router tries to *reroute*
-    # the blocking wire under ``bare_diagonal_mode=True`` with the
-    # opposite parity family — so any unavoidable crossing falls between
-    # pads (mesh-cell centre) rather than on a pad.  ``max_reroute_factor``
-    # is the ceiling: the reroute is accepted only if its cost is at
-    # most ``original_cost * max_reroute_factor``.  0 = disabled.
-    # Tuning starting point: 1.5.
-    max_reroute_factor: float = 0.0
-    # Cost added when a step touches an existing wire of the *same*
-    # electrical net (crossing, collinear overlap, or shared pad vertex).
-    # 0.0 means same-net reuse is electrically free — the router happily
-    # produces a shared trunk instead of redundant parallel runs.  Applies
-    # to bare and insulated wires alike, against any existing wire of the
-    # net (manual or autoroute-placed).  Overrides ``crossing_*``,
-    # ``at_pad_*``, and ``parallel_opposite_side`` penalties when the
-    # crossed/touched wire belongs to the active net.
-    same_net_wire_reuse_cost: float = 0.0
+    @property
+    def free_pad(self) -> float: return self.weights["free_pad"]
+    @property
+    def same_net_pad(self) -> float: return self.weights["same_net_pad"]
+    @property
+    def occupied_by_other_net(self) -> float: return self.weights["occupied_by_other_net"]
+    @property
+    def direction_change(self) -> float: return self.weights["direction_change"]
+    @property
+    def diagonal_multiplier(self) -> float: return self.weights["diagonal_multiplier"]
+    @property
+    def crossing_bare_bare(self) -> float: return self.weights["crossing_bare_bare"]
+    @property
+    def crossing_bare_bare_diagonal(self) -> float: return self.weights["crossing_bare_bare_diagonal"]
+    @property
+    def crossing_insulated_bare(self) -> float: return self.weights["crossing_insulated_bare"]
+    @property
+    def layer_change(self) -> float: return self.weights["layer_change"]
+    @property
+    def under_component_top(self) -> float: return self.weights["under_component_top"]
+    @property
+    def bare_diagonal_mode(self) -> bool: return bool(self.weights["bare_diagonal_mode"])
+    @property
+    def at_pad_insulated_insulated_same_side(self) -> float: return self.weights["at_pad_insulated_insulated_same_side"]
+    @property
+    def at_pad_insulated_bare_same_side(self) -> float: return self.weights["at_pad_insulated_bare_same_side"]
+    @property
+    def parallel_opposite_side(self) -> float: return self.weights["parallel_opposite_side"]
+    @property
+    def max_reroute_factor(self) -> float: return self.weights["max_reroute_factor"]
+    @property
+    def same_net_wire_reuse_cost(self) -> float: return self.weights["same_net_wire_reuse_cost"]

@@ -1614,8 +1614,7 @@ def _route_segment_with_ripup(
         if wire_mode == "bare_diagonal":
             bare_only_cm = cost_model
         else:
-            bare_only_cm = _dc.replace(
-                cost_model,
+            bare_only_cm = cost_model.with_overrides(
                 crossing_bare_bare=float("inf"),
                 crossing_insulated_bare=float("inf"),
             )
@@ -2292,8 +2291,7 @@ def _try_mid_cell_reroute(
 
     # Adjusted cost model: force bare-diagonal exploration and flip the
     # parity family by making the bare×bare-diagonal cost cheap.
-    reroute_cm = _dc.replace(
-        cost_model,
+    reroute_cm = cost_model.with_overrides(
         bare_diagonal_mode=True,
         crossing_bare_bare=float("inf"),
         crossing_bare_bare_diagonal=max(
