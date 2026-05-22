@@ -17,19 +17,24 @@ class TestRoutingSettingsModel:
         assert s.allow_layer_change is True
         assert s.max_rip_up_passes == 3
         assert s.max_optimize_iterations == 10
-        assert s.direction_change == 1.0
-        assert s.crossing_insulated_bare == 5.0
-        assert s.layer_change == 2.0
-        assert s.under_component_top == 3.0
+        # Cost weights now live in cost_preset + cost_overrides.
+        assert s.cost_preset == "default"
+        assert dict(s.cost_overrides) == {}
+        # Resolved cost model still reflects historical defaults.
+        cm = s.cost_model()
+        assert cm.direction_change == 1.0
+        assert cm.layer_change == 2.0
+        assert cm.under_component_top == 3.0
 
     def test_module_constant_equals_defaults(self) -> None:
         assert ROUTING_DEFAULTS == RoutingSettings()
 
-    def test_cost_model_applies_fields(self) -> None:
-        s = RoutingSettings(direction_change=2.5, layer_change=4.0)
+    def test_cost_model_applies_overrides(self) -> None:
+        s = RoutingSettings(cost_overrides={"direction_change": 2.5, "layer_change": 4.0})
         cm = s.cost_model()
         assert cm.direction_change == 2.5
         assert cm.layer_change == 4.0
+        # Unchanged knob keeps its preset default.
         assert cm.crossing_insulated_bare == 5.0
 
     def test_cost_model_preserves_fixed_fields(self) -> None:
@@ -59,10 +64,7 @@ class TestRoutingSettingsPersistence:
             allow_layer_change=False,
             max_rip_up_passes=5,
             max_optimize_iterations=3,
-            direction_change=2.0,
-            crossing_insulated_bare=8.5,
-            layer_change=1.5,
-            under_component_top=6.0,
+            cost_overrides={"direction_change": 2.0, "layer_change": 1.5},
         )
         yaml_text = _routing_settings_to_yaml(s)
         s2 = _routing_settings_from_yaml(yaml_text)
@@ -72,17 +74,20 @@ class TestRoutingSettingsPersistence:
         s = _routing_settings_from_yaml("{}")
         assert s == RoutingSettings()
 
-    def test_partial_cost_model_uses_defaults(self) -> None:
+    def test_legacy_cost_model_block_folds_into_overrides(self) -> None:
+        # Old-format YAML still loads — cost_model: {...} entries become
+        # cost_overrides so the project keeps its tuned values.
         yaml_text = "cost_model:\n  direction_change: 3.0\n"
         s = _routing_settings_from_yaml(yaml_text)
-        assert s.direction_change == 3.0
-        assert s.layer_change == 2.0  # default
+        cm = s.cost_model()
+        assert cm.direction_change == 3.0
+        assert cm.layer_change == 2.0  # default
 
     def test_yaml_contains_routing_section(self) -> None:
         s = RoutingSettings(preferred_side="top")
         text = _routing_settings_to_yaml(s)
         assert "preferred_side" in text
-        assert "cost_model" in text
+        assert "cost_preset" in text
         assert "top" in text
 
     def test_invalid_yaml_uses_defaults(self) -> None:

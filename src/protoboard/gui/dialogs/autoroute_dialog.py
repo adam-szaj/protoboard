@@ -61,6 +61,10 @@ class AutorouteDialog(QDialog):
         self.setMinimumWidth(380)
 
         rs = routing_settings
+        # Keep the original so cost_preset / cost_overrides survive
+        # round-tripping through this dialog (which only edits non-cost
+        # fields).
+        self._initial_settings = rs
         root = QVBoxLayout(self)
         root.setSpacing(10)
 
@@ -167,8 +171,11 @@ class AutorouteDialog(QDialog):
 
         root.addWidget(strat_group)
 
-        # ── Limits & costs ─────────────────────────────────────────────
-        cost_group = QGroupBox("Limits & costs")
+        # ── Limits ─────────────────────────────────────────────────────
+        # Cost weights live in cost_preset + cost_overrides; this dialog
+        # only exposes the non-cost limits.  Open Preferences → Routing →
+        # Edit presets… to tune individual cost knobs.
+        cost_group = QGroupBox("Limits")
         cost_form = QFormLayout(cost_group)
 
         self._spin_detour = QDoubleSpinBox()
@@ -178,93 +185,6 @@ class AutorouteDialog(QDialog):
         self._spin_detour.setSpecialValueText("unlimited")
         self._spin_detour.setValue(rs.max_detour_factor)
         cost_form.addRow("Max detour factor:", self._spin_detour)
-
-        self._spin_dir = QDoubleSpinBox()
-        self._spin_dir.setRange(0.0, 20.0)
-        self._spin_dir.setSingleStep(0.1)
-        self._spin_dir.setDecimals(2)
-        self._spin_dir.setValue(rs.direction_change)
-        cost_form.addRow("Direction change cost:", self._spin_dir)
-
-        self._spin_jumper_cost = QDoubleSpinBox()
-        self._spin_jumper_cost.setRange(0.0, 100.0)
-        self._spin_jumper_cost.setSingleStep(0.5)
-        self._spin_jumper_cost.setDecimals(1)
-        self._spin_jumper_cost.setValue(rs.crossing_insulated_bare)
-        cost_form.addRow("Jumper cost (insulated × bare):", self._spin_jumper_cost)
-
-        self._spin_diag_cross = QDoubleSpinBox()
-        self._spin_diag_cross.setRange(0.0, 100.0)
-        self._spin_diag_cross.setSingleStep(0.5)
-        self._spin_diag_cross.setDecimals(1)
-        self._spin_diag_cross.setValue(rs.crossing_bare_bare_diagonal)
-        cost_form.addRow("Diagonal cross cost (bare × bare):", self._spin_diag_cross)
-
-        self._spin_via = QDoubleSpinBox()
-        self._spin_via.setRange(0.0, 20.0)
-        self._spin_via.setSingleStep(0.5)
-        self._spin_via.setDecimals(1)
-        self._spin_via.setValue(rs.layer_change)
-        cost_form.addRow("Layer change (via) cost:", self._spin_via)
-
-        self._spin_under = QDoubleSpinBox()
-        self._spin_under.setRange(0.0, 20.0)
-        self._spin_under.setSingleStep(0.5)
-        self._spin_under.setDecimals(1)
-        self._spin_under.setValue(rs.under_component_top)
-        cost_form.addRow("Under component (top) cost:", self._spin_under)
-
-        # Enhanced-router penalties (consumed only by ``astar_enhanced``;
-        # the default ``astar`` router ignores them).  All default to 0 →
-        # no behavioural change unless the user opts in.
-        self._spin_at_pad_ii = QDoubleSpinBox()
-        self._spin_at_pad_ii.setRange(0.0, 50.0)
-        self._spin_at_pad_ii.setSingleStep(0.5)
-        self._spin_at_pad_ii.setDecimals(1)
-        self._spin_at_pad_ii.setValue(rs.at_pad_insulated_insulated_same_side)
-        self._spin_at_pad_ii.setToolTip(
-            "Enhanced router only.  Tuning starting point: 1.0.  0 = disabled."
-        )
-        cost_form.addRow(
-            "At-pad insulated × insulated (same side):", self._spin_at_pad_ii
-        )
-
-        self._spin_at_pad_ib = QDoubleSpinBox()
-        self._spin_at_pad_ib.setRange(0.0, 50.0)
-        self._spin_at_pad_ib.setSingleStep(0.5)
-        self._spin_at_pad_ib.setDecimals(1)
-        self._spin_at_pad_ib.setValue(rs.at_pad_insulated_bare_same_side)
-        self._spin_at_pad_ib.setToolTip(
-            "Enhanced router only.  Tuning starting point: 3.0.  0 = disabled."
-        )
-        cost_form.addRow(
-            "At-pad insulated × bare (same side):", self._spin_at_pad_ib
-        )
-
-        self._spin_parallel_opposite = QDoubleSpinBox()
-        self._spin_parallel_opposite.setRange(0.0, 50.0)
-        self._spin_parallel_opposite.setSingleStep(0.5)
-        self._spin_parallel_opposite.setDecimals(1)
-        self._spin_parallel_opposite.setValue(rs.parallel_opposite_side)
-        self._spin_parallel_opposite.setToolTip(
-            "Enhanced router only.  Tuning starting point: 0.5.  0 = disabled."
-        )
-        cost_form.addRow(
-            "Parallel on opposite side:", self._spin_parallel_opposite
-        )
-
-        self._spin_max_reroute = QDoubleSpinBox()
-        self._spin_max_reroute.setRange(0.0, 5.0)
-        self._spin_max_reroute.setSingleStep(0.1)
-        self._spin_max_reroute.setDecimals(2)
-        self._spin_max_reroute.setValue(rs.max_reroute_factor)
-        self._spin_max_reroute.setToolTip(
-            "Enhanced router only.  Tuning starting point: 1.5.  0 = "
-            "disabled (legacy push-and-shove only)."
-        )
-        cost_form.addRow(
-            "Max reroute factor (push&shove):", self._spin_max_reroute
-        )
 
         root.addWidget(cost_group)
 
@@ -414,20 +334,14 @@ class AutorouteDialog(QDialog):
         # registered or none are ticked.
         chain = tuple(self._chain_from_list())
 
+        # Preserve cost_preset/cost_overrides from the session — this
+        # dialog does not edit individual cost knobs.
+        rs_in = self._initial_settings
         return RoutingSettings(
             preferred_side=self._combo_side.currentText(),  # type: ignore[arg-type]
             allow_layer_change=self._chk_layer_change.isChecked(),
             max_rip_up_passes=self._spin_ripup.value(),
             max_optimize_iterations=self._spin_opt.value(),
-            direction_change=self._spin_dir.value(),
-            crossing_insulated_bare=self._spin_jumper_cost.value(),
-            crossing_bare_bare_diagonal=self._spin_diag_cross.value(),
-            layer_change=self._spin_via.value(),
-            under_component_top=self._spin_under.value(),
-            at_pad_insulated_insulated_same_side=self._spin_at_pad_ii.value(),
-            at_pad_insulated_bare_same_side=self._spin_at_pad_ib.value(),
-            parallel_opposite_side=self._spin_parallel_opposite.value(),
-            max_reroute_factor=self._spin_max_reroute.value(),
             wire_mode=wire_mode,  # type: ignore[arg-type]
             router_name=self.router_name(),
             allow_jumpers=self._chk_jumpers.isChecked(),
@@ -437,6 +351,8 @@ class AutorouteDialog(QDialog):
             max_detour_factor=self._spin_detour.value(),
             skip_autoroute_dialog=self._chk_skip.isChecked(),
             optimizer_chain=chain,
+            cost_preset=rs_in.cost_preset,
+            cost_overrides=rs_in.cost_overrides,
         )
 
     def router_name(self) -> str:

@@ -683,75 +683,9 @@ class _RoutingPage(QWidget):
         preset_grp.setLayout(preset_form)
         vbox.addWidget(preset_grp)
 
-        # --- Cost model group ---
-        cost_grp = QGroupBox("Cost model")
-        cost_form = _RoutingFormLayout(cost_grp)
-
-        self._direction_change = _cost_spinbox(0.0, 20.0, 0.1, 2)
-        cost_form.addRow("Direction change", self._direction_change)
-
-        self._crossing_insulated_bare = _cost_spinbox(0.0, 50.0, 0.5, 1)
-        cost_form.addRow("Insulated × bare wire", self._crossing_insulated_bare)
-
-        self._crossing_bare_bare_diagonal = _cost_spinbox(0.0, 50.0, 0.5, 1)
-        cost_form.addRow(
-            "Diagonal × diagonal (bare)", self._crossing_bare_bare_diagonal
-        )
-
-        self._layer_change = _cost_spinbox(0.0, 20.0, 0.5, 1)
-        cost_form.addRow("Layer change (via)", self._layer_change)
-
-        self._under_component_top = _cost_spinbox(0.0, 20.0, 0.5, 1)
-        cost_form.addRow("Under component (top)", self._under_component_top)
-
-        # ---- Enhanced router penalties (opt-in; consumed by 'astar_enhanced')
-        self._at_pad_ii = _cost_spinbox(0.0, 50.0, 0.5, 1)
-        self._at_pad_ii.setToolTip(
-            "Enhanced router only.  Cost added when a step lands on a pad "
-            "already hosting another insulated wire's vertex on the same "
-            "side.  Tuning starting point: 1.0.  0 = disabled."
-        )
-        cost_form.addRow(
-            "At-pad insulated × insulated (same side)", self._at_pad_ii
-        )
-
-        self._at_pad_ib = _cost_spinbox(0.0, 50.0, 0.5, 1)
-        self._at_pad_ib.setToolTip(
-            "Enhanced router only.  Cost added for the mixed insulated × "
-            "bare case when a step lands on a pad already hosting a "
-            "vertex of the opposite wire type.  Tuning starting point: "
-            "3.0.  0 = disabled."
-        )
-        cost_form.addRow(
-            "At-pad insulated × bare (same side)", self._at_pad_ib
-        )
-
-        self._parallel_opposite_side = _cost_spinbox(0.0, 50.0, 0.5, 1)
-        self._parallel_opposite_side.setToolTip(
-            "Enhanced router only.  Cost added per overlapping segment "
-            "when the new wire runs collinearly with — and overlaps the "
-            "interior of — an existing wire on the opposite side, and "
-            "at least one of the two is insulated.  Tuning starting "
-            "point: 0.5.  0 = disabled."
-        )
-        cost_form.addRow(
-            "Parallel on opposite side", self._parallel_opposite_side
-        )
-
-        self._max_reroute_factor = _cost_spinbox(0.0, 5.0, 0.1, 2)
-        self._max_reroute_factor.setToolTip(
-            "Enhanced router only.  Enables mid-cell-preferred push-and-"
-            "shove: a blocking wire may be rerouted under bare-diagonal "
-            "mode if the new cost is at most this factor × the "
-            "original.  Tuning starting point: 1.5.  0 = disabled "
-            "(legacy push-and-shove only)."
-        )
-        cost_form.addRow(
-            "Max reroute factor (push&shove)", self._max_reroute_factor
-        )
-
-        cost_grp.setLayout(cost_form)
-        vbox.addWidget(cost_grp)
+        # Individual cost knobs live in the cost_preset / cost_overrides
+        # system; edit them via "Edit presets…" above.  B6 will add a
+        # dynamic in-page editor for per-project overrides.
 
         # --- Restore defaults button ---
         restore_row = QHBoxLayout()
@@ -814,21 +748,11 @@ class _RoutingPage(QWidget):
         self._allow_layer_change.setChecked(rs.allow_layer_change)
         self._max_rip_up.setValue(rs.max_rip_up_passes)
         self._max_optimize.setValue(rs.max_optimize_iterations)
-        self._direction_change.setValue(rs.direction_change)
-        self._crossing_insulated_bare.setValue(rs.crossing_insulated_bare)
-        self._crossing_bare_bare_diagonal.setValue(rs.crossing_bare_bare_diagonal)
-        self._layer_change.setValue(rs.layer_change)
-        self._under_component_top.setValue(rs.under_component_top)
-        self._at_pad_ii.setValue(rs.at_pad_insulated_insulated_same_side)
-        self._at_pad_ib.setValue(rs.at_pad_insulated_bare_same_side)
-        self._parallel_opposite_side.setValue(rs.parallel_opposite_side)
-        self._max_reroute_factor.setValue(rs.max_reroute_factor)
         idx = self._wire_mode.findText(rs.wire_mode)
         self._wire_mode.setCurrentIndex(max(idx, 0))
         self._allow_jumpers.setChecked(rs.allow_jumpers)
         self._push_and_shove.setChecked(rs.push_and_shove)
         self._enable_simplify.setChecked(rs.enable_simplify_pass)
-        # Find combobox entry by data role to be robust against label edits.
         for i in range(self._simplify_mode.count()):
             if self._simplify_mode.itemData(i) == rs.simplify_mode.value:
                 self._simplify_mode.setCurrentIndex(i)
@@ -840,33 +764,26 @@ class _RoutingPage(QWidget):
 
     def apply(self) -> None:
         from protoboard.domain.routing_settings import RoutingSettings
-        # Preserve the project's cost_overrides — this dialog edits the
-        # named-field cost knobs and the active preset, but per-project
-        # overrides (a different layer of customisation) are managed
-        # elsewhere and must not be wiped.
-        existing_overrides = dict(self._session.routing_settings.cost_overrides)  # type: ignore[attr-defined]
+        # Preserve cost_preset + cost_overrides — they live elsewhere
+        # (Cost preset combo + Edit presets…) and this method only writes
+        # the logistic fields.
+        rs_old = self._session.routing_settings  # type: ignore[attr-defined]
         new_settings = RoutingSettings(
             preferred_side=self._preferred_side.currentText(),  # type: ignore[arg-type]
             allow_layer_change=self._allow_layer_change.isChecked(),
             max_rip_up_passes=self._max_rip_up.value(),
             max_optimize_iterations=self._max_optimize.value(),
-            direction_change=self._direction_change.value(),
-            crossing_insulated_bare=self._crossing_insulated_bare.value(),
-            crossing_bare_bare_diagonal=self._crossing_bare_bare_diagonal.value(),
-            layer_change=self._layer_change.value(),
-            under_component_top=self._under_component_top.value(),
-            at_pad_insulated_insulated_same_side=self._at_pad_ii.value(),
-            at_pad_insulated_bare_same_side=self._at_pad_ib.value(),
-            parallel_opposite_side=self._parallel_opposite_side.value(),
-            max_reroute_factor=self._max_reroute_factor.value(),
             wire_mode=self._wire_mode.currentText(),  # type: ignore[arg-type]
             allow_jumpers=self._allow_jumpers.isChecked(),
             push_and_shove=self._push_and_shove.isChecked(),
             enable_simplify_pass=self._enable_simplify.isChecked(),
             simplify_mode=_resolve_simplify_mode(self._simplify_mode.currentData()),
             max_detour_factor=self._max_detour.value(),
+            router_name=rs_old.router_name,
+            skip_autoroute_dialog=rs_old.skip_autoroute_dialog,
+            optimizer_chain=rs_old.optimizer_chain,
             cost_preset=self._cost_preset.currentData() or "default",
-            cost_overrides=existing_overrides,
+            cost_overrides=dict(rs_old.cost_overrides),
         )
         self._session.routing_settings = new_settings
         self._session.mark_dirty()

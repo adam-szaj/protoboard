@@ -461,26 +461,9 @@ def _routing_settings_to_yaml(s: RoutingSettings) -> str:
         "push_and_shove": s.push_and_shove,
         "enable_simplify_pass": s.enable_simplify_pass,
         "simplify_mode": s.simplify_mode.value,
-        "cost_model": {
-            "direction_change": s.direction_change,
-            "crossing_insulated_bare": s.crossing_insulated_bare,
-            "crossing_bare_bare_diagonal": s.crossing_bare_bare_diagonal,
-            "layer_change": s.layer_change,
-            "under_component_top": s.under_component_top,
-            # Enhanced-router knobs.  Always written so projects round-trip
-            # cleanly even after a tuning session; defaults (0.0) are
-            # harmless for the legacy ``astar`` router.
-            "at_pad_insulated_insulated_same_side": (
-                s.at_pad_insulated_insulated_same_side
-            ),
-            "at_pad_insulated_bare_same_side": (
-                s.at_pad_insulated_bare_same_side
-            ),
-            "parallel_opposite_side": s.parallel_opposite_side,
-            "max_reroute_factor": s.max_reroute_factor,
-        },
-        # Cost preset reference + per-project overrides.  Only persisted
-        # when non-default to keep legacy projects' YAML clean on save.
+        # Cost preset reference + per-project overrides.  All cost weights
+        # live here now; the legacy ``cost_model`` section has been
+        # removed (use cost_overrides for per-project tweaks).
         "cost_preset": s.cost_preset,
     }
     if s.cost_overrides:
@@ -502,7 +485,6 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
         raise SerializationError(f"Routing YAML error: {exc}") from exc
     if not isinstance(data, dict):
         return RoutingSettings()
-    cm = data.get("cost_model") or {}
     wire_mode = data.get("wire_mode", "auto")
     if wire_mode not in ("bare", "insulated", "auto", "bare_diagonal"):
         wire_mode = "auto"
@@ -520,39 +502,37 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
         optimizer_chain = tuple(raw_chain)
     else:
         optimizer_chain = ()
-    # Cost preset / overrides — both optional; default = "default" preset
-    # with an empty overrides dict (preserves legacy named-field behaviour).
+    # Cost preset / overrides.  Both optional; "default" preset + empty
+    # overrides = use built-in cost values from cost_presets module.
     cost_preset = str(data.get("cost_preset", "default"))
     raw_overrides = data.get("cost_overrides")
+    cost_overrides: dict[str, float] = {}
     if isinstance(raw_overrides, dict):
-        cost_overrides: dict[str, float] = {
+        cost_overrides = {
             str(k): float(v)
             for k, v in raw_overrides.items()
             if isinstance(k, str) and isinstance(v, (int, float))
         }
-    else:
-        cost_overrides = {}
+    # Backward-compat: if the old ``cost_model:`` block is present, fold
+    # its entries into cost_overrides (with cost_overrides winning when
+    # both name the same key).  Lets pre-refactor projects load without
+    # silently dropping their tuned values.
+    legacy_cm = data.get("cost_model")
+    if isinstance(legacy_cm, dict):
+        legacy: dict[str, float] = {
+            str(k): float(v)
+            for k, v in legacy_cm.items()
+            if isinstance(k, str) and isinstance(v, (int, float))
+        }
+        # Existing cost_overrides override legacy values.
+        legacy.update(cost_overrides)
+        cost_overrides = legacy
     return RoutingSettings(
         preferred_side=data.get("preferred_side", "bottom"),
         allow_layer_change=bool(data.get("allow_layer_change", True)),
         max_rip_up_passes=int(data.get("max_rip_up_passes", 3)),
         max_optimize_iterations=int(data.get("max_optimize_iterations", 10)),
         router_name=str(data.get("router_name", "astar")),
-        direction_change=float(cm.get("direction_change", 1.0)),
-        crossing_insulated_bare=float(cm.get("crossing_insulated_bare", 5.0)),
-        crossing_bare_bare_diagonal=float(
-            cm.get("crossing_bare_bare_diagonal", 2.0)
-        ),
-        layer_change=float(cm.get("layer_change", 2.0)),
-        under_component_top=float(cm.get("under_component_top", 3.0)),
-        at_pad_insulated_insulated_same_side=float(
-            cm.get("at_pad_insulated_insulated_same_side", 0.0)
-        ),
-        at_pad_insulated_bare_same_side=float(
-            cm.get("at_pad_insulated_bare_same_side", 0.0)
-        ),
-        parallel_opposite_side=float(cm.get("parallel_opposite_side", 0.0)),
-        max_reroute_factor=float(cm.get("max_reroute_factor", 0.0)),
         wire_mode=wire_mode,
         allow_jumpers=bool(data.get("allow_jumpers", True)),
         max_detour_factor=float(data.get("max_detour_factor", 0.0)),
