@@ -53,6 +53,35 @@ COST_KEY_DOCS: dict[str, str] = {
 }
 
 
+# Subset of cost keys exposed in the UI (presets dialog + RoutingPage).
+# Keys not in this set are either:
+# - physical constants (free_pad=1, diagonal_multiplier=√2)
+# - hard electrical bans (crossing_bare_bare=inf, occupied_by_other_net=inf)
+# - implementation details (same_net_pad)
+# Modifying them rarely makes sense and showing them invites mistakes.
+USER_TUNABLE_COST_KEYS: frozenset[str] = frozenset({
+    "direction_change",
+    "layer_change",
+    "under_component_top",
+    "crossing_insulated_bare",
+    "crossing_bare_bare_diagonal",
+    "bare_diagonal_mode",
+    "at_pad_insulated_insulated_same_side",
+    "at_pad_insulated_bare_same_side",
+    "parallel_opposite_side",
+    "max_reroute_factor",
+    "same_net_wire_reuse_cost",
+    "bend_45",
+    "bend_90",
+    "bend_135",
+    "diagonal_preferred_family",
+    "diagonal_dispreferred_family",
+    "wire_over_foreign_wire_pad",
+    "via_on_foreign_pad",
+    "redundant_layer_change",
+})
+
+
 # Legacy default values — preserved verbatim so that constructing
 # ``RoutingCostModel()`` with no args produces the same numeric weights as
 # the original frozen-dataclass implementation.

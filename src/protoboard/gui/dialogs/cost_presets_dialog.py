@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from protoboard.gui.app_settings import AppSettings, save_app_settings
-from protoboard.services.routing.cost_model import COST_KEY_DOCS
+from protoboard.services.routing.cost_model import COST_KEY_DOCS, USER_TUNABLE_COST_KEYS
 from protoboard.services.routing.cost_presets import (
     builtin_preset_names,
     get_builtin_preset,
@@ -59,12 +59,16 @@ class CostPresetsDialog(QDialog):
             name: dict(weights)
             for name, weights in settings.cost_presets.items()
         }
-        # Filter visible keys to the union of every router's supported_cost_keys;
-        # if not provided, show everything we have a doc for.
+        # Filter visible keys to user-tunable subset, intersected with
+        # the union of every router's supported_cost_keys (if provided).
+        # Physical constants and hard electrical bans are excluded so the
+        # UI doesn't tempt users to e.g. set crossing_bare_bare=0.0.
         if allowed_keys is None:
-            self._allowed_keys: list[str] = sorted(COST_KEY_DOCS)
+            self._allowed_keys: list[str] = sorted(USER_TUNABLE_COST_KEYS & set(COST_KEY_DOCS))
         else:
-            self._allowed_keys = sorted(set(allowed_keys) & set(COST_KEY_DOCS))
+            self._allowed_keys = sorted(
+                set(allowed_keys) & USER_TUNABLE_COST_KEYS & set(COST_KEY_DOCS)
+            )
 
         root = QVBoxLayout(self)
 
