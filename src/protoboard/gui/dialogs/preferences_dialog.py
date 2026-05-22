@@ -683,9 +683,12 @@ class _RoutingPage(QWidget):
         preset_grp.setLayout(preset_form)
         vbox.addWidget(preset_grp)
 
-        # Individual cost knobs live in the cost_preset / cost_overrides
-        # system; edit them via "Edit presets…" above.  B6 will add a
-        # dynamic in-page editor for per-project overrides.
+        # --- Per-project cost overrides ---
+        # Dynamic spinboxes for every USER_TUNABLE cost key the active
+        # routers actually consume.  Values default to the resolved
+        # preset+overrides snapshot; user edits go into cost_overrides
+        # and are persisted to routing.yaml via apply().
+        vbox.addWidget(self._build_overrides_group())
 
         # --- Restore defaults button ---
         restore_row = QHBoxLayout()
@@ -698,6 +701,144 @@ class _RoutingPage(QWidget):
         vbox.addStretch()
 
         self._load_from_settings(self._session.routing_settings)
+
+    def _build_overrides_group(self) -> "QGroupBox":
+        """Dynamic spinbox grid for every user-tunable cost knob.
+
+        Knobs are grouped by the prefix of their key (crossing_, bend_,
+        diagonal_, at_pad_, etc.).  Each group becomes a labelled
+        sub-section; spinboxes within a group use the standard
+        sentinel-aware behaviour (-1 → ∞).  Changes are written to
+        ``self._pending_overrides`` and merged into ``cost_overrides``
+        when ``apply()`` runs.
+        """
+        from PySide6.QtWidgets import (
+            QFormLayout, QGroupBox, QLabel, QScrollArea, QVBoxLayout, QWidget,
+        )
+        from protoboard.services.routing.cost_model import (
+            COST_KEY_DOCS, USER_TUNABLE_COST_KEYS,
+        )
+        # Defensive imports — ensure both built-in routers register
+        # themselves before we ask for their supported cost keys.
+        import protoboard.services.routing.builtin  # noqa: F401
+        import protoboard.services.routing.builtin_enhanced  # noqa: F401
+        from protoboard.services.routing.protocol import registry as _rrr
+
+        # Union of supported_cost_keys across registered routers
+        # intersected with USER_TUNABLE.  Plugin routers contribute too.
+        supported: set[str] = set()
+        for name in _rrr.list_available():
+            try:
+                supported |= _rrr.get(name).supported_cost_keys()
+            except Exception:  # noqa: BLE001
+                continue
+        keys = sorted(USER_TUNABLE_COST_KEYS & supported & set(COST_KEY_DOCS))
+
+        # Group by first segment of the key (everything up to first '_'
+        # *unless* it's a multi-segment prefix like 'crossing_ib' or
+        # 'at_pad'; collapse those to the leading bigram).
+        groups: dict[str, list[str]] = {}
+        for k in keys:
+            prefix = self._group_prefix(k)
+            groups.setdefault(prefix, []).append(k)
+
+        # Resolved current effective weights (preset + overrides).
+        rs = self._session.routing_settings  # type: ignore[attr-defined]
+        effective = rs.cost_model(self._app_settings.cost_presets).weights
+
+        self._override_spinboxes: dict[str, QDoubleSpinBox] = {}
+        self._pending_overrides: dict[str, float] = dict(rs.cost_overrides)
+
+        outer = QGroupBox("Cost overrides (per-project)")
+        outer_layout = QVBoxLayout(outer)
+        outer_layout.setContentsMargins(8, 8, 8, 8)
+
+        hint = QLabel(
+            "Each value layers on top of the active preset.  Type -1 to "
+            "set ∞ (hard-disable the corresponding category)."
+        )
+        hint.setWordWrap(True)
+        font = hint.font(); font.setItalic(True); hint.setFont(font)
+        outer_layout.addWidget(hint)
+
+        scroll_body = QWidget()
+        body_layout = QVBoxLayout(scroll_body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(8)
+
+        for prefix in sorted(groups):
+            sub = QGroupBox(self._human_prefix(prefix))
+            sub_form = QFormLayout(sub)
+            sub_form.setSpacing(4)
+            for key in groups[prefix]:
+                spin = QDoubleSpinBox()
+                spin.setRange(-1.0, 1e6)
+                spin.setDecimals(3)
+                spin.setSingleStep(0.1)
+                spin.setSpecialValueText("∞")
+                raw = float(effective.get(key, 0.0))
+                spin.setValue(-1.0 if (raw == float("inf") or raw != raw) else raw)
+                spin.setToolTip(
+                    COST_KEY_DOCS.get(key, "")
+                    + "\n\nTip: enter -1 for ∞."
+                )
+                spin.valueChanged.connect(
+                    lambda val, k=key: self._on_override_changed(k, val)
+                )
+                self._override_spinboxes[key] = spin
+                sub_form.addRow(key, spin)
+            body_layout.addWidget(sub)
+
+        body_layout.addStretch()
+
+        scroll = QScrollArea()
+        scroll.setWidget(scroll_body)
+        scroll.setWidgetResizable(True)
+        scroll.setMinimumHeight(240)
+        outer_layout.addWidget(scroll)
+        return outer
+
+    @staticmethod
+    def _group_prefix(key: str) -> str:
+        """Map a cost key to its grouping label.
+
+        Bigram prefixes for the granular families:
+        - crossing_ib_*  / crossing_ii_*  / crossing_bare_*  → "crossing"
+        - at_pad_*                                            → "at_pad"
+        - bend_*                                              → "bend"
+        - diagonal_*                                          → "diagonal"
+        - wire_over_* / via_on_* / redundant_*                → "foreign / via"
+        - everything else                                     → "other"
+        """
+        if key.startswith("crossing_"):
+            return "crossing"
+        if key.startswith("at_pad_"):
+            return "at_pad"
+        if key.startswith("bend_"):
+            return "bend"
+        if key.startswith("diagonal_"):
+            return "diagonal"
+        if key.startswith(("wire_over_", "via_on_", "redundant_")):
+            return "foreign / via"
+        return "other"
+
+    @staticmethod
+    def _human_prefix(prefix: str) -> str:
+        return {
+            "crossing":     "Crossings",
+            "at_pad":       "At-pad penalties",
+            "bend":         "Bends",
+            "diagonal":     "Diagonals",
+            "foreign / via": "Foreign-pad / via avoidance",
+            "other":        "Other",
+        }.get(prefix, prefix.title())
+
+    def _on_override_changed(self, key: str, value: float) -> None:
+        # Sentinel: -1 means ∞.  Anything else is stored literally.
+        if value <= -1.0 + 1e-9:
+            self._pending_overrides[key] = float("inf")
+        else:
+            self._pending_overrides[key] = float(value)
 
     def _open_preset_editor(self) -> None:
         from protoboard.gui.dialogs.cost_presets_dialog import CostPresetsDialog
@@ -764,9 +905,6 @@ class _RoutingPage(QWidget):
 
     def apply(self) -> None:
         from protoboard.domain.routing_settings import RoutingSettings
-        # Preserve cost_preset + cost_overrides — they live elsewhere
-        # (Cost preset combo + Edit presets…) and this method only writes
-        # the logistic fields.
         rs_old = self._session.routing_settings  # type: ignore[attr-defined]
         new_settings = RoutingSettings(
             preferred_side=self._preferred_side.currentText(),  # type: ignore[arg-type]
@@ -783,7 +921,11 @@ class _RoutingPage(QWidget):
             skip_autoroute_dialog=rs_old.skip_autoroute_dialog,
             optimizer_chain=rs_old.optimizer_chain,
             cost_preset=self._cost_preset.currentData() or "default",
-            cost_overrides=dict(rs_old.cost_overrides),
+            # Per-project overrides come from the dynamic spinbox grid
+            # (see _build_overrides_group).  Each spinbox value (or its
+            # ∞ sentinel) is written into _pending_overrides as the user
+            # edits, so we just hand it over here.
+            cost_overrides=dict(self._pending_overrides),
         )
         self._session.routing_settings = new_settings
         self._session.mark_dirty()
