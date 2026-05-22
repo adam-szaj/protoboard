@@ -132,3 +132,34 @@ class TestOptimizerChainPersistence:
         assert s.optimizer_chain == ()
         s2 = _routing_settings_from_yaml("optimizer_chain: ['ok', 99, 'still']\n")
         assert s2.optimizer_chain == ()  # mixed list — reject wholesale
+
+
+class TestRouterNamePersistence:
+    """The user's last router selection is persisted per project."""
+
+    def test_router_name_default_is_astar(self) -> None:
+        assert RoutingSettings().router_name == "astar"
+
+    def test_router_name_roundtrip(self) -> None:
+        s = RoutingSettings(router_name="astar_enhanced")
+        loaded = _routing_settings_from_yaml(_routing_settings_to_yaml(s))
+        assert loaded.router_name == "astar_enhanced"
+
+    def test_missing_router_name_key_defaults_to_astar(self) -> None:
+        """Older projects (or hand-edited YAML) without the key still load."""
+        s = _routing_settings_from_yaml("preferred_side: bottom\n")
+        assert s.router_name == "astar"
+
+    def test_unknown_router_name_persists_verbatim(self) -> None:
+        """Plugins extend the registry at runtime — the loader must not
+        reject names it doesn't recognise.  The dialog handles missing
+        plugins by falling back to 'astar' at display time, not here."""
+        s = RoutingSettings(router_name="future_plugin")
+        loaded = _routing_settings_from_yaml(_routing_settings_to_yaml(s))
+        assert loaded.router_name == "future_plugin"
+
+    def test_garbage_router_name_coerced_to_string(self) -> None:
+        """Defensive parity with wire_mode's parsing — if someone hand-
+        edits the YAML to put an int there, the loader coerces."""
+        s = _routing_settings_from_yaml("router_name: 42\n")
+        assert s.router_name == "42"

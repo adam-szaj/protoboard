@@ -47,6 +47,12 @@ class RoutingSettings:
     # "bare_diagonal" — bare wire restricted to diagonal-parity family;
     #                   permits perpendicular crossings between mesh cells
     wire_mode: Literal["bare", "insulated", "auto", "bare_diagonal"] = "auto"
+    # Registry name of the router plugin that should run next.  Persisted
+    # so the AutorouteDialog re-opens with the user's last choice.  Plain
+    # ``str`` (not ``Literal``) because plugins extend the registry at
+    # runtime — the dialog falls back to "astar" when a saved name no
+    # longer maps to a registered router.
+    router_name: str = "astar"
     # When False, insulated wires may not cross bare wires (crossing_insulated_bare=inf).
     allow_jumpers: bool = True
     # Maximum allowed path length relative to Manhattan distance.
@@ -72,6 +78,20 @@ class RoutingSettings:
     # pass is suppressed.  Stored as tuple so the frozen dataclass stays
     # truly immutable.
     optimizer_chain: tuple[str, ...] = field(default_factory=tuple)
+    # ------------------------------------------------------------------
+    # Enhanced-router knobs (opt-in; off by default).  Surface the new
+    # RoutingCostModel fields so they round-trip through the project
+    # YAML.  The default ``astar`` router ignores them; the
+    # ``astar_enhanced`` plugin reads them in its A* hot loop.
+    # ------------------------------------------------------------------
+    at_pad_insulated_insulated_same_side: float = 0.0
+    at_pad_insulated_bare_same_side: float = 0.0
+    parallel_opposite_side: float = 0.0
+    # Mid-cell push-and-shove ceiling (Feature C).  0 disables; the
+    # enhanced router treats values > 0 as "reroute a blocker via the
+    # opposite parity family if the new cost is at most this factor
+    # times the original".
+    max_reroute_factor: float = 0.0
 
     def cost_model(self) -> RoutingCostModel:
         """Build a RoutingCostModel from these settings."""
@@ -85,6 +105,10 @@ class RoutingSettings:
             layer_change=self.layer_change,
             under_component_top=self.under_component_top,
             bare_diagonal_mode=bare_diag,
+            at_pad_insulated_insulated_same_side=self.at_pad_insulated_insulated_same_side,
+            at_pad_insulated_bare_same_side=self.at_pad_insulated_bare_same_side,
+            parallel_opposite_side=self.parallel_opposite_side,
+            max_reroute_factor=self.max_reroute_factor,
         )
 
 

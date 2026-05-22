@@ -454,6 +454,7 @@ def _routing_settings_to_yaml(s: RoutingSettings) -> str:
         "max_rip_up_passes": s.max_rip_up_passes,
         "max_optimize_iterations": s.max_optimize_iterations,
         "wire_mode": s.wire_mode,
+        "router_name": s.router_name,
         "allow_jumpers": s.allow_jumpers,
         "max_detour_factor": s.max_detour_factor,
         "skip_autoroute_dialog": s.skip_autoroute_dialog,
@@ -466,6 +467,17 @@ def _routing_settings_to_yaml(s: RoutingSettings) -> str:
             "crossing_bare_bare_diagonal": s.crossing_bare_bare_diagonal,
             "layer_change": s.layer_change,
             "under_component_top": s.under_component_top,
+            # Enhanced-router knobs.  Always written so projects round-trip
+            # cleanly even after a tuning session; defaults (0.0) are
+            # harmless for the legacy ``astar`` router.
+            "at_pad_insulated_insulated_same_side": (
+                s.at_pad_insulated_insulated_same_side
+            ),
+            "at_pad_insulated_bare_same_side": (
+                s.at_pad_insulated_bare_same_side
+            ),
+            "parallel_opposite_side": s.parallel_opposite_side,
+            "max_reroute_factor": s.max_reroute_factor,
         },
     }
     # Only emit the optimizer chain when it's non-empty — keeps YAML clean
@@ -508,6 +520,7 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
         allow_layer_change=bool(data.get("allow_layer_change", True)),
         max_rip_up_passes=int(data.get("max_rip_up_passes", 3)),
         max_optimize_iterations=int(data.get("max_optimize_iterations", 10)),
+        router_name=str(data.get("router_name", "astar")),
         direction_change=float(cm.get("direction_change", 1.0)),
         crossing_insulated_bare=float(cm.get("crossing_insulated_bare", 5.0)),
         crossing_bare_bare_diagonal=float(
@@ -515,6 +528,14 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
         ),
         layer_change=float(cm.get("layer_change", 2.0)),
         under_component_top=float(cm.get("under_component_top", 3.0)),
+        at_pad_insulated_insulated_same_side=float(
+            cm.get("at_pad_insulated_insulated_same_side", 0.0)
+        ),
+        at_pad_insulated_bare_same_side=float(
+            cm.get("at_pad_insulated_bare_same_side", 0.0)
+        ),
+        parallel_opposite_side=float(cm.get("parallel_opposite_side", 0.0)),
+        max_reroute_factor=float(cm.get("max_reroute_factor", 0.0)),
         wire_mode=wire_mode,
         allow_jumpers=bool(data.get("allow_jumpers", True)),
         max_detour_factor=float(data.get("max_detour_factor", 0.0)),
