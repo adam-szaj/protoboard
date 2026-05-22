@@ -1597,15 +1597,36 @@ def _route_segment_with_ripup(
         # to thread through pads owned by other nets' wires.  Skipped when
         # the knob is zero — empty set then is harmless but unused.
         _wofp_cost = cost_model.get("wire_over_foreign_wire_pad", 0.0)
-        if _wofp_cost > 0.0 and active_net_id is not None and wire_to_net_id is not None:
+        _vfp_cost = cost_model.get("via_on_foreign_pad", 0.0)
+        if (
+            (_wofp_cost > 0.0 or _vfp_cost > 0.0)
+            and active_net_id is not None
+            and wire_to_net_id is not None
+        ):
             foreign_wire_cells: set[tuple[Point, str]] = set()
+            # ``foreign_via_pads``: cells where a foreign net has wires
+            # ending on both top AND bottom — i.e. a plated-through via on
+            # that pad belongs to the other net.  Detected by gathering
+            # endpoints per (Point) per side and intersecting.
+            from collections import defaultdict
+            _foreign_endpoint_sides: dict[Point, set[str]] = defaultdict(set)
             for _w in working_wires:
                 if wire_to_net_id.get(_w.id) == active_net_id:
                     continue
-                for _v in _w.path:
-                    foreign_wire_cells.add((_v, _w.side))
+                if _wofp_cost > 0.0:
+                    for _v in _w.path:
+                        foreign_wire_cells.add((_v, _w.side))
+                if _vfp_cost > 0.0 and _w.path:
+                    _foreign_endpoint_sides[_w.path[0]].add(_w.side)
+                    _foreign_endpoint_sides[_w.path[-1]].add(_w.side)
+            foreign_via_pads: set[Point] = {
+                pad
+                for pad, sides in _foreign_endpoint_sides.items()
+                if len(sides) >= 2
+            }
         else:
             foreign_wire_cells = set()
+            foreign_via_pads = set()
 
         # Determine which insulation modes to attempt for this segment.
         # wire_mode="auto":          try bare first, fall back to insulated.
@@ -1717,6 +1738,7 @@ def _route_segment_with_ripup(
                     at_pad_nets=at_pad_nets_idx,
                     same_net_pad_vertices=same_net_pad_vertices,
                     foreign_wire_cells=foreign_wire_cells,
+                    foreign_via_pads=foreign_via_pads,
                 )
 
             attempt_best: tuple[float, list[PathStep]] | None = None
