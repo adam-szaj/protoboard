@@ -64,6 +64,34 @@ class TestRouterDropdown:
         dlg._combo_router.setCurrentIndex(idx)
         assert dlg.router_name() == "astar"
 
+    def test_dropdown_loads_persisted_router_name(self, qtbot) -> None:
+        """Dialog opens with whatever ``RoutingSettings.router_name`` says."""
+        # Make sure the enhanced router is registered before the dialog
+        # tries to find it.
+        import protoboard.services.routing.builtin_enhanced  # noqa: F401
+        rs = RoutingSettings(router_name="astar_enhanced")
+        dlg = AutorouteDialog(rs)
+        qtbot.addWidget(dlg)
+        assert dlg.router_name() == "astar_enhanced"
+
+    def test_unknown_router_name_falls_back_to_astar(self, qtbot) -> None:
+        """A stale name (e.g. a plugin uninstalled between sessions) must
+        not crash the dialog — it falls back to 'astar' silently."""
+        rs = RoutingSettings(router_name="missing_plugin_does_not_exist")
+        dlg = AutorouteDialog(rs)
+        qtbot.addWidget(dlg)
+        assert dlg.router_name() == "astar"
+
+    def test_routing_settings_carries_router_name(self, qtbot) -> None:
+        """``routing_settings()`` round-trips the dropdown selection into
+        the new RoutingSettings, so the caller doesn't have to read it
+        separately."""
+        import protoboard.services.routing.builtin_enhanced  # noqa: F401
+        dlg = AutorouteDialog(RoutingSettings(router_name="astar_enhanced"))
+        qtbot.addWidget(dlg)
+        rs = dlg.routing_settings()
+        assert rs.router_name == "astar_enhanced"
+
 
 class _FakePluginOptimizer:
     name = "fake-side-balancer"
@@ -92,10 +120,19 @@ class _AnotherFakeOptimizer:
 class TestOptimizerChainList:
     """The plugin chain is rendered as a drag-reorderable QListWidget."""
 
-    def test_no_plugins_returns_none_for_selected(self, qtbot) -> None:
+    def test_no_extra_plugins_returns_empty_chain_with_builtins_only(
+        self, qtbot,
+    ) -> None:
+        """With only the in-tree non-simplify built-ins registered (today:
+        ``insulated_to_bare``), the dialog renders the optimizer list but
+        no rows are checked → ``selected_optimizers()`` returns an empty
+        list (explicit "skip all" semantics)."""
         dlg = AutorouteDialog(RoutingSettings())
         qtbot.addWidget(dlg)
-        assert dlg.selected_optimizers() is None
+        result = dlg.selected_optimizers()
+        # Either None (legacy: no built-ins beyond simplify) or empty list
+        # (built-ins present but unchecked).  Both forms mean "no chain".
+        assert result is None or result == []
 
     def test_plugin_appears_as_row_with_tooltip(self, qtbot) -> None:
         optimizer_registry.register(_FakePluginOptimizer())
@@ -203,7 +240,10 @@ class TestReorderableChain:
             dlg = AutorouteDialog(rs)
             qtbot.addWidget(dlg)
             order = _row_order(dlg)
-            assert order == ["fake-side-balancer", "fake-jumper-min"]
+            # First two rows = the persisted chain in saved order.  Any
+            # extra unregistered plugins (e.g. the in-tree
+            # ``insulated_to_bare``) appear alphabetically below.
+            assert order[:2] == ["fake-side-balancer", "fake-jumper-min"]
         finally:
             optimizer_registry.optimizers.pop("fake-side-balancer", None)
             optimizer_registry.optimizers.pop("fake-jumper-min", None)
@@ -218,9 +258,12 @@ class TestReorderableChain:
             )
             dlg = AutorouteDialog(rs)
             qtbot.addWidget(dlg)
-            # Both rows are pre-checked by the persisted chain.
-            assert _row_order(dlg) == ["fake-jumper-min", "fake-side-balancer"]
+            # The two persisted (and pre-checked) rows sit at the top in
+            # saved order; extras (e.g. ``insulated_to_bare``) appear
+            # alphabetically below them, unchecked.
+            assert _row_order(dlg)[:2] == ["fake-jumper-min", "fake-side-balancer"]
             chain = dlg.selected_optimizers()
+            # Only the two persisted, checked rows show up in the chain.
             assert chain == ["fake-jumper-min", "fake-side-balancer"]
         finally:
             optimizer_registry.optimizers.pop("fake-side-balancer", None)

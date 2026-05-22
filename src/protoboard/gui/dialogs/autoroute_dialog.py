@@ -68,6 +68,7 @@ class AutorouteDialog(QDialog):
         # Side-effect import: registers built-in routers if app.main()
         # hasn't run yet (e.g. unit tests).
         import protoboard.services.routing.builtin  # noqa: F401
+        import protoboard.services.routing.builtin_enhanced  # noqa: F401
         from protoboard.services.routing.protocol import registry as _router_registry
         router_row = QHBoxLayout()
         router_row.addWidget(QLabel("Router:"))
@@ -80,8 +81,12 @@ class AutorouteDialog(QDialog):
                 self._combo_router.setItemData(
                     self._combo_router.count() - 1, caps.notes, 3,  # Qt.ToolTipRole
                 )
-        # Default selection: existing 'astar' or first registered.
-        default_idx = self._combo_router.findData("astar")
+        # Default selection: load user's last choice from settings, with
+        # graceful fallback when the saved router is no longer registered
+        # (e.g. its plugin was uninstalled between sessions).
+        default_idx = self._combo_router.findData(rs.router_name)
+        if default_idx < 0:
+            default_idx = self._combo_router.findData("astar")
         if default_idx >= 0:
             self._combo_router.setCurrentIndex(default_idx)
         router_row.addWidget(self._combo_router)
@@ -208,6 +213,58 @@ class AutorouteDialog(QDialog):
         self._spin_under.setDecimals(1)
         self._spin_under.setValue(rs.under_component_top)
         cost_form.addRow("Under component (top) cost:", self._spin_under)
+
+        # Enhanced-router penalties (consumed only by ``astar_enhanced``;
+        # the default ``astar`` router ignores them).  All default to 0 →
+        # no behavioural change unless the user opts in.
+        self._spin_at_pad_ii = QDoubleSpinBox()
+        self._spin_at_pad_ii.setRange(0.0, 50.0)
+        self._spin_at_pad_ii.setSingleStep(0.5)
+        self._spin_at_pad_ii.setDecimals(1)
+        self._spin_at_pad_ii.setValue(rs.at_pad_insulated_insulated_same_side)
+        self._spin_at_pad_ii.setToolTip(
+            "Enhanced router only.  Tuning starting point: 1.0.  0 = disabled."
+        )
+        cost_form.addRow(
+            "At-pad insulated × insulated (same side):", self._spin_at_pad_ii
+        )
+
+        self._spin_at_pad_ib = QDoubleSpinBox()
+        self._spin_at_pad_ib.setRange(0.0, 50.0)
+        self._spin_at_pad_ib.setSingleStep(0.5)
+        self._spin_at_pad_ib.setDecimals(1)
+        self._spin_at_pad_ib.setValue(rs.at_pad_insulated_bare_same_side)
+        self._spin_at_pad_ib.setToolTip(
+            "Enhanced router only.  Tuning starting point: 3.0.  0 = disabled."
+        )
+        cost_form.addRow(
+            "At-pad insulated × bare (same side):", self._spin_at_pad_ib
+        )
+
+        self._spin_parallel_opposite = QDoubleSpinBox()
+        self._spin_parallel_opposite.setRange(0.0, 50.0)
+        self._spin_parallel_opposite.setSingleStep(0.5)
+        self._spin_parallel_opposite.setDecimals(1)
+        self._spin_parallel_opposite.setValue(rs.parallel_opposite_side)
+        self._spin_parallel_opposite.setToolTip(
+            "Enhanced router only.  Tuning starting point: 0.5.  0 = disabled."
+        )
+        cost_form.addRow(
+            "Parallel on opposite side:", self._spin_parallel_opposite
+        )
+
+        self._spin_max_reroute = QDoubleSpinBox()
+        self._spin_max_reroute.setRange(0.0, 5.0)
+        self._spin_max_reroute.setSingleStep(0.1)
+        self._spin_max_reroute.setDecimals(2)
+        self._spin_max_reroute.setValue(rs.max_reroute_factor)
+        self._spin_max_reroute.setToolTip(
+            "Enhanced router only.  Tuning starting point: 1.5.  0 = "
+            "disabled (legacy push-and-shove only)."
+        )
+        cost_form.addRow(
+            "Max reroute factor (push&shove):", self._spin_max_reroute
+        )
 
         root.addWidget(cost_group)
 
@@ -367,7 +424,12 @@ class AutorouteDialog(QDialog):
             crossing_bare_bare_diagonal=self._spin_diag_cross.value(),
             layer_change=self._spin_via.value(),
             under_component_top=self._spin_under.value(),
+            at_pad_insulated_insulated_same_side=self._spin_at_pad_ii.value(),
+            at_pad_insulated_bare_same_side=self._spin_at_pad_ib.value(),
+            parallel_opposite_side=self._spin_parallel_opposite.value(),
+            max_reroute_factor=self._spin_max_reroute.value(),
             wire_mode=wire_mode,  # type: ignore[arg-type]
+            router_name=self.router_name(),
             allow_jumpers=self._chk_jumpers.isChecked(),
             push_and_shove=self._chk_push_shove.isChecked(),
             enable_simplify_pass=self._chk_simplify.isChecked(),

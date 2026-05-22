@@ -144,6 +144,7 @@ class AutorouteWorker(QThread):
         # Importing the built-in modules ensures the default router /
         # optimizer are registered even when no plugin loader has run yet.
         import protoboard.services.routing.builtin  # noqa: F401  side-effect
+        import protoboard.services.routing.builtin_enhanced  # noqa: F401  side-effect
         import protoboard.services.routing.builtin_optimizers  # noqa: F401  side-effect
         from protoboard.services.routing.optimizer import (
             registry as optimizer_registry,

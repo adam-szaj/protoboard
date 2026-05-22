@@ -126,6 +126,7 @@ def main() -> None:
     # default implementations on import.  Discovery walks both entry-point
     # groups; broken plugins are logged but do not abort the host.
     import protoboard.services.routing.builtin  # noqa: F401
+    import protoboard.services.routing.builtin_enhanced  # noqa: F401
     import protoboard.services.routing.builtin_optimizers  # noqa: F401
     from protoboard.services.routing.discovery import discover_all_plugins
     _discovered = discover_all_plugins()
