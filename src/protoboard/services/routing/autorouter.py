@@ -1627,6 +1627,28 @@ def _route_segment_with_ripup(
         else:
             foreign_wire_cells = set()
             foreign_via_pads = set()
+        # Active-net dominant side: among existing same-net wires, which
+        # side (top/bottom) carries the majority?  Used by the
+        # ``redundant_layer_change`` knob to gently suppress vias that
+        # *leave* the dominant side — the "zebra suppression" half of
+        # the cost knob.  Empty / equal → None, knob still applies as a
+        # flat via surcharge.
+        _rlc_cost = cost_model.get("redundant_layer_change", 0.0)
+        active_dominant_side: str | None = None
+        if _rlc_cost > 0.0 and active_net_id is not None and wire_to_net_id is not None:
+            _top_n = 0
+            _bot_n = 0
+            for _w in working_wires:
+                if wire_to_net_id.get(_w.id) != active_net_id:
+                    continue
+                if _w.side == "top":
+                    _top_n += 1
+                else:
+                    _bot_n += 1
+            if _top_n > _bot_n:
+                active_dominant_side = "top"
+            elif _bot_n > _top_n:
+                active_dominant_side = "bottom"
 
         # Determine which insulation modes to attempt for this segment.
         # wire_mode="auto":          try bare first, fall back to insulated.
@@ -1739,6 +1761,7 @@ def _route_segment_with_ripup(
                     same_net_pad_vertices=same_net_pad_vertices,
                     foreign_wire_cells=foreign_wire_cells,
                     foreign_via_pads=foreign_via_pads,
+                    active_dominant_side=active_dominant_side,
                 )
 
             attempt_best: tuple[float, list[PathStep]] | None = None

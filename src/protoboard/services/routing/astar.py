@@ -370,6 +370,7 @@ def _universe_worker(
     teleport_pads: dict[tuple[Point, str], tuple[tuple[Point, str], ...]] | None = None,
     foreign_wire_cells: set[tuple[Point, str]] | None = None,
     foreign_via_pads: set[Point] | None = None,
+    active_dominant_side: str | None = None,
 ) -> None:
     """Run one A* universe until it finds a path, exhausts the heap, or exceeds budget.
 
@@ -456,6 +457,15 @@ def _universe_worker(
         else set()
     )
     _vfp_active = _vfp != 0.0 and bool(_vfp_pads)
+    # redundant_layer_change — discourage vias when an alternative on the
+    # current side exists.  MVP: always surcharge a via with this cost when
+    # the knob is non-zero, optionally doubled if the via leaves the
+    # active-net dominant side (zebra suppression).  Future work: full
+    # one-step look-ahead to determine "would the next step have been
+    # free on the current side?"
+    _rlc = cost_model.get("redundant_layer_change", 0.0)
+    _rlc_active = _rlc != 0.0
+    _dominant_side = active_dominant_side  # captured for hot-loop use
     # Enhanced at-pad penalties — float-tuple-keyed mirror of at_pad_wires
     # for fast lookup in the hot loop.  Empty dict when feature inactive
     # (all the cost-model knobs at 0.0); the keyed-lookup is then skipped
@@ -787,6 +797,15 @@ def _universe_worker(
                         # used as a via by a different net.
                         if _vfp_active and (cx, cy) in _vfp_pads:
                             _via_cost += _vfp
+                        # redundant_layer_change: flat surcharge per via.
+                        # If a dominant side exists for the active net and
+                        # this via leaves it (cur_side == dominant), zebra
+                        # suppression doubles the penalty.
+                        if _rlc_active:
+                            if _dominant_side is not None and cur_side == _dominant_side:
+                                _via_cost += _rlc * 2.0
+                            else:
+                                _via_cost += _rlc
                         ng = g + _via_cost
                         nstate = (cx, cy, other_idx, 0.0, 0.0)
                         if not (nstate in visited and visited[nstate] <= ng):
@@ -885,6 +904,7 @@ def _astar_parallel(
     teleport_pads: dict[tuple[Point, str], tuple[tuple[Point, str], ...]] | None = None,
     foreign_wire_cells: set[tuple[Point, str]] | None = None,
     foreign_via_pads: set[Point] | None = None,
+    active_dominant_side: str | None = None,
 ) -> RoutingResult | None:
     """Parallel-universe A* — may spawn sub-searches on the thread pool.
 
@@ -940,6 +960,7 @@ def _astar_parallel(
         teleport_pads,
         foreign_wire_cells,
         foreign_via_pads,
+        active_dominant_side,
     )
     shared.add_future(fut)
 
@@ -1006,6 +1027,7 @@ def find_paths(
     same_net_pad_vertices: set[tuple[Point, str]] | None = None,
     foreign_wire_cells: set[tuple[Point, str]] | None = None,
     foreign_via_pads: set[Point] | None = None,
+    active_dominant_side: str | None = None,
 ) -> list[RoutingResult]:
     """Find up to *k* cheapest paths from *source* to any pad in *targets*.
 
@@ -1206,6 +1228,7 @@ def find_paths(
             teleport_pads=teleport_pads,
             foreign_wire_cells=foreign_wire_cells,
             foreign_via_pads=foreign_via_pads,
+            active_dominant_side=active_dominant_side,
         )
         if result is None:
             break
