@@ -378,12 +378,33 @@ class MainWindow(QMainWindow):
         self._status.addPermanentWidget(self._view_label)
         self._cursor_label = QLabel("(—, —)")
         self._status.addPermanentWidget(self._cursor_label)
+        # Cursor-label throttle: ``cursor_moved`` fires per mouseMoveEvent
+        # (up to ~120 Hz).  Updating a QLabel forces a status-bar repaint,
+        # which is an X11 round-trip — over SSH this queues hundreds of
+        # stale "intermediate position" repaints after the cursor stops.
+        # Park the latest coords on ``_pending_cursor_pt`` and let the
+        # timer batch updates to ~30 fps.
+        self._cursor_timer = QTimer(self)
+        self._cursor_timer.setSingleShot(True)
+        self._cursor_timer.setInterval(self._app_settings.cursor_label_throttle_ms)
+        self._cursor_timer.timeout.connect(self._flush_cursor_label)
+        self._pending_cursor_pt: tuple[float, float] | None = None
+        # Push the rubber-band / post-zoom throttles into the view too.
+        self._board_view.apply_throttle_settings(
+            rubber_band_ms=self._app_settings.rubber_band_throttle_ms,
+            zoom_refresh_ms=self._app_settings.zoom_refresh_ms,
+        )
 
         # Auto-DRC timer — fires 600 ms after the last layout_changed.
         self._drc_timer = QTimer(self)
         self._drc_timer.setSingleShot(True)
         self._drc_timer.setInterval(600)
         self._drc_timer.timeout.connect(self._run_drc_silent)
+        # In-flight DRC worker (if any).  Set when ``_dispatch_drc``
+        # kicks off a background run; cleared in ``_on_drc_finished``.
+        # Subsequent layout edits cancel the previous worker so its
+        # result is dropped before it can overwrite the panel.
+        self._drc_worker: object | None = None
 
         # Panel-refresh timer — debounces sidebar rebuilds to avoid blocking UI
         # on every drag-commit.  100 ms is fast enough to feel instant after a
@@ -1845,7 +1866,6 @@ class MainWindow(QMainWindow):
         title_suffix = f" ({len(net_ids)} nets)" if net_ids else " (all nets)"
 
         # Show pre-flight dialog unless user opted to skip it.
-        router_name: str | None = None
         if self._session.routing_settings.skip_autoroute_dialog:
             run_settings = self._session.routing_settings
         else:
@@ -1853,10 +1873,9 @@ class MainWindow(QMainWindow):
             if cfg_dlg.exec() != QDialog.DialogCode.Accepted:
                 return
             run_settings = cfg_dlg.routing_settings()
-            router_name = cfg_dlg.router_name()
-            # Always persist the dialog's settings as the new project default.
-            # The "Save as project default" checkbox is now redundant but kept
-            # so existing keyboard / muscle memory still works.
+            # ``run_settings.router_name`` carries the user's selection
+            # (set inside ``routing_settings()``) — persisted with the
+            # rest of the settings so the next dialog open restores it.
             self._session.routing_settings = run_settings
             self._session.mark_dirty()
         # The optimizer chain lives on RoutingSettings — single source of
@@ -1886,7 +1905,7 @@ class MainWindow(QMainWindow):
             routing_settings=run_settings,
             net_ids=net_ids,
             project_path=self._session.project_path,
-            router_name=router_name,
+            router_name=run_settings.router_name,
             optimizer_names=optimizer_names,
         )
         # Keep a reference so the worker isn't garbage-collected before finishing.
@@ -1960,15 +1979,74 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Autoroute", msg)
 
     def _run_drc(self) -> None:
-        issues = self._session.run_drc()
-        n = len(issues)
-        self._status.showMessage(f"DRC: {n} issue{'s' if n != 1 else ''}", 4000)
-        self._update_stats()
+        """Menu-action DRC run.
+
+        Same async dispatch as ``_run_drc_silent`` plus a "DRC running…"
+        status bar message that is replaced by the result when the
+        worker finishes.  Never blocks the GUI thread.
+        """
+        self._dispatch_drc(status_msg="DRC running…")
 
     def _run_drc_silent(self) -> None:
-        """Auto-DRC triggered by layout_changed — no status bar message."""
-        self._session.run_drc()
+        """Auto-DRC triggered by ``layout_changed`` — no status banner."""
+        self._dispatch_drc(status_msg=None)
+
+    def _dispatch_drc(self, status_msg: str | None) -> None:
+        """Kick off (or supersede) a background DRC run.
+
+        If a previous worker is still alive, its cancel flag is set
+        so it bails out at the next checkpoint and its ``finished``
+        signal is suppressed.  We do *not* ``wait()`` on it — that
+        would block the GUI and defeat the whole purpose; Python
+        keeps the QThread alive until ``run()`` returns naturally.
+        """
+        from protoboard.gui.workers.drc_worker import DRCWorker
+        from protoboard.services.routing.snapshot import (
+            LayoutSnapshot,
+            SchematicSnapshot,
+        )
+
+        prev = self._drc_worker
+        if prev is not None and prev.isRunning():  # type: ignore[attr-defined]
+            prev.cancel()  # type: ignore[attr-defined]
+
+        worker = DRCWorker(
+            board=self._session.board,
+            layout_snap=LayoutSnapshot.freeze(self._session.layout),
+            schematic_snap=SchematicSnapshot.freeze(self._session.schematic),
+            components=dict(self._session.components),
+            instances=dict(self._session.instances),
+        )
+        worker.finished.connect(self._on_drc_finished)
+        worker.error.connect(self._on_drc_error)
+        self._drc_worker = worker
+        if status_msg:
+            self._status.showMessage(status_msg)
+        worker.start()
+
+    def _on_drc_finished(self, issues: list) -> None:
+        """Apply a DRC result to the session — but only if the worker
+        that emitted it is still the active one.  Superseded workers
+        whose cancel flag is set typically don't fire this signal, but
+        guard defensively in case the cancel arrived too late."""
+        sender = self.sender()
+        if sender is not self._drc_worker:
+            return
+        self._drc_worker = None
+        self._session.set_drc_issues(issues)
+        n = len(issues)
+        self._status.showMessage(
+            f"DRC: {n} issue{'s' if n != 1 else ''}", 4000,
+        )
         self._update_stats()
+
+    def _on_drc_error(self, msg: str) -> None:
+        sender = self.sender()
+        if sender is not self._drc_worker:
+            return
+        self._drc_worker = None
+        _log.error("drc.worker_error", msg=msg)
+        self._status.showMessage(f"DRC failed: {msg}", 4000)
 
     def _update_stats(self) -> None:
         """Update the permanent status-bar stats label."""
@@ -2322,10 +2400,32 @@ class MainWindow(QMainWindow):
             name: new_library.get(name) for name in new_library.names()
         }
         self._library_panel.set_library(new_library)
+        # Re-apply render throttles in case the user adjusted them in
+        # PreferencesDialog → Performance.  Cheap (just QTimer.setInterval).
+        self._cursor_timer.setInterval(settings.cursor_label_throttle_ms)
+        self._board_view.apply_throttle_settings(
+            rubber_band_ms=settings.rubber_band_throttle_ms,
+            zoom_refresh_ms=settings.zoom_refresh_ms,
+        )
         self._board_view.refresh()
 
     def _on_cursor_moved(self, x: float, y: float) -> None:
-        self._cursor_label.setText(f"({x:.2f}, {y:.2f})")
+        """Park the latest cursor pt; the throttle timer renders it.
+
+        Calling ``setText`` directly on every event forces a status-bar
+        repaint per event — over SSH that means hundreds of stale
+        intermediate coordinates trickle in after the cursor stops.
+        """
+        self._pending_cursor_pt = (x, y)
+        if not self._cursor_timer.isActive():
+            self._cursor_timer.start()
+
+    def _flush_cursor_label(self) -> None:
+        pt = self._pending_cursor_pt
+        self._pending_cursor_pt = None
+        if pt is None:
+            return
+        self._cursor_label.setText(f"({pt[0]:.2f}, {pt[1]:.2f})")
 
     # ------------------------------------------------------------------
     # Window close

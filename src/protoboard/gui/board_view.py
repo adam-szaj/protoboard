@@ -115,6 +115,34 @@ class BoardView(QGraphicsView):
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.setInterval(16)   # ~1 frame
         self._refresh_timer.timeout.connect(self.refresh)
+        # Label-visibility refresh after zoom is O(scene items) — on a
+        # busy board it costs tens of ms.  Running it synchronously
+        # inside ``wheelEvent`` made Qt drop / queue subsequent wheel
+        # ticks because the event handler hadn't returned yet.  We
+        # debounce to ~80 ms so a burst of wheel ticks (typical user
+        # scroll: 4–8 ticks in <100 ms) collapses to a single
+        # visibility refresh after the burst settles.
+        self._label_vis_timer = QTimer(self)
+        self._label_vis_timer.setSingleShot(True)
+        self._label_vis_timer.setInterval(80)
+        self._label_vis_timer.timeout.connect(self._apply_label_visibility)
+        # Rubber-band throttle interval — read by SelectTool when it
+        # builds its own timer.  Stored on the view so PreferencesDialog
+        # can adjust the value live (call ``apply_throttle_settings``)
+        # without rebuilding the tool.
+        self._rubber_band_throttle_ms: int = 33
+        # Wheel-zoom accumulator.  Each ``wheelEvent`` adds its delta
+        # (in 1/120-of-a-degree units, Qt's angleDelta) into the buffer
+        # and parks the most-recent cursor viewport position.  A short
+        # timer collapses bursts of ticks into a single scale + scroll
+        # pass, so over SSH the wheel handler returns in microseconds
+        # and Qt processes the next tick without waiting for a paint.
+        self._wheel_accum_delta: int = 0
+        self._wheel_pivot_vp: object | None = None
+        self._wheel_timer = QTimer(self)
+        self._wheel_timer.setSingleShot(True)
+        self._wheel_timer.setInterval(16)  # ~1 frame; tunable via apply_throttle_settings
+        self._wheel_timer.timeout.connect(self._flush_wheel_zoom)
         session.layout_changed.connect(self._schedule_refresh)
         session.layout_changed.connect(session.invalidate_graph)
         session.drag_moved.connect(self._on_drag_moved)
@@ -122,6 +150,24 @@ class BoardView(QGraphicsView):
     # ------------------------------------------------------------------
     # Public
     # ------------------------------------------------------------------
+
+    def apply_throttle_settings(
+        self,
+        *,
+        rubber_band_ms: int,
+        zoom_refresh_ms: int,
+    ) -> None:
+        """Update render-throttle intervals at runtime.
+
+        Called from MainWindow after PreferencesDialog applies a new
+        :class:`AppSettings`.  SelectTool rebuilds its rubber-band timer
+        lazily, so the new value takes effect on the next rubber-band
+        start; the post-zoom refresh timer is updated immediately.
+        """
+        rubber_band_ms = max(0, int(rubber_band_ms))
+        zoom_refresh_ms = max(0, int(zoom_refresh_ms))
+        self._rubber_band_throttle_ms = rubber_band_ms
+        self._label_vis_timer.setInterval(zoom_refresh_ms)
 
     @property
     def camera_side(self) -> str:
@@ -881,22 +927,71 @@ class BoardView(QGraphicsView):
     # ------------------------------------------------------------------
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        factor = 1.1 if event.angleDelta().y() > 0 else 1.0 / 1.08
-        cursor_vp = event.position().toPoint()
-        old_scene = self.mapToScene(cursor_vp)
+        """Accumulate wheel ticks; defer the scale + scroll to a timer.
+
+        Each ``self.scale()`` triggers a QGraphicsScene repaint, and at
+        Qt's default ``SmartViewportUpdate`` the next ``wheelEvent`` is
+        not delivered until that paint completes — over SSH that means
+        a burst of fast wheel ticks gets queued behind hundreds of ms
+        of X11 round-trips.  We park the *raw* angleDelta into a buffer
+        and let a short single-shot timer fold the burst into one
+        geometric pass.  Qt's wheelEvent handler returns in microseconds.
+
+        Cursor pivot uses the *latest* event's position: a user spinning
+        the wheel intends to zoom around wherever the cursor currently
+        is, not the position where the burst started.
+        """
+        self._wheel_accum_delta += event.angleDelta().y()
+        self._wheel_pivot_vp = event.position().toPoint()
+        if not self._wheel_timer.isActive():
+            self._wheel_timer.start()
+
+    def _flush_wheel_zoom(self) -> None:
+        """Apply the accumulated wheel-zoom delta in one pass.
+
+        Translates the buffered angleDelta into a number of asymmetric
+        zoom steps (1.1 in, 1.0/1.08 out — preserved from the user's
+        tuned values; see memory ``feedback_zoom_factor``) and applies
+        the net factor as a single ``self.scale(...)``.  Cursor-pivot
+        correction is identical to the legacy code path; the only
+        difference is that *N ticks* of wheel input cost one paint
+        instead of N.
+        """
+        delta = self._wheel_accum_delta
+        pivot = self._wheel_pivot_vp
+        self._wheel_accum_delta = 0
+        self._wheel_pivot_vp = None
+        if delta == 0 or pivot is None:
+            return
+        # Qt reports angleDelta in 1/8-degree units; a standard mouse
+        # tick is 15° = 120.  Use the sign-counted tick count so the
+        # geometric factors stay exactly the same as the per-event
+        # path (1.1 in, 1.0/1.08 out) — burst of 3 ticks zooms in by
+        # 1.1^3 ≈ 1.331, identical to three separate calls.
+        ticks = delta // 120 if delta > 0 else -((-delta) // 120)
+        # Sub-tick fractional residue is rare on standard mice but
+        # common on high-resolution scroll wheels; treat any positive
+        # remainder as a partial in-tick to avoid losing input.
+        if ticks == 0:
+            ticks = 1 if delta > 0 else -1
+        if ticks > 0:
+            factor = 1.1 ** ticks
+        else:
+            factor = (1.0 / 1.08) ** (-ticks)
+
+        old_scene = self.mapToScene(pivot)
         self.scale(factor, factor)
-        # After scale, mapToScene shifts because Qt rescaled around scene origin.
-        # Compensate by scrolling so the scene point under the cursor stays fixed.
-        # sceneRect is kept large enough that scrollbars always exist (no Qt
-        # auto-centering that would make this correction arrive too late).
-        new_scene = self.mapToScene(cursor_vp)
+        new_scene = self.mapToScene(pivot)
         delta_scene = new_scene - old_scene
         new_scale = self.transform().m11()
         hbar = self.horizontalScrollBar()
         vbar = self.verticalScrollBar()
         hbar.setValue(hbar.value() - round(delta_scene.x() * new_scale))
         vbar.setValue(vbar.value() - round(delta_scene.y() * new_scale))
-        self._apply_label_visibility()
+        # Defer the O(scene items) visibility sweep — same reasoning
+        # as before, just relative to the (now batched) zoom paint.
+        if not self._label_vis_timer.isActive():
+            self._label_vis_timer.start()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         left = Qt.MouseButton.LeftButton

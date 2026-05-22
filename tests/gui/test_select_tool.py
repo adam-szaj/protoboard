@@ -359,6 +359,69 @@ class TestMultiSelectionDrag:
         _release(tool, 0.0, 0.0)
         assert wire_id in tool._selected_wire_ids
 
+    def test_rubber_band_reuses_item_across_moves(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """Moves on a live rubber-band must mutate the existing scene
+        item (setRect), not destroy-and-recreate it.  Saves an X11
+        round-trip per move over SSH."""
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        _press(tool, 0.0, 0.0)
+        # Force apply once (throttle would otherwise defer).
+        tool._apply_rubber_band(QPointF(1.0, 1.0))
+        item_1 = tool._rubber_band_item
+        assert item_1 is not None
+        tool._apply_rubber_band(QPointF(2.0, 2.0))
+        item_2 = tool._rubber_band_item
+        # Same Python object — proves we didn't recreate it.
+        assert item_1 is item_2
+        # And the rect actually updated.
+        assert item_2.rect().width() == 2.0
+        _release(tool, 2.0, 2.0)
+
+    def test_rubber_band_throttle_coalesces_moves(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """Multiple `_update_rubber_band` calls inside one throttle window
+        produce at most one scene item; the pending pt is the last one."""
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        _press(tool, 0.0, 0.0)
+        # Schedule three updates without letting the timer fire.
+        tool._update_rubber_band(QPointF(0.5, 0.5))
+        tool._update_rubber_band(QPointF(1.0, 1.0))
+        tool._update_rubber_band(QPointF(2.0, 2.0))
+        # Latest pt is parked, timer is armed, no apply happened yet.
+        assert tool._pending_rubber_band_pt == QPointF(2.0, 2.0)
+        assert tool._rubber_band_timer is not None
+        assert tool._rubber_band_timer.isActive()
+        assert tool._rubber_band_item is None
+        # Fire the timer manually (avoids the qtbot.wait timing dance).
+        tool._flush_rubber_band_update()
+        # Item now exists with the latest pt's geometry.
+        assert tool._rubber_band_item is not None
+        assert tool._rubber_band_item.rect().bottomRight() == QPointF(2.0, 2.0)
+        assert tool._pending_rubber_band_pt is None
+        _release(tool, 2.0, 2.0)
+
+    def test_clear_rubber_band_stops_timer(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        _press(tool, 0.0, 0.0)
+        tool._update_rubber_band(QPointF(1.0, 1.0))
+        assert tool._rubber_band_timer is not None
+        assert tool._rubber_band_timer.isActive()
+        tool._clear_rubber_band()
+        assert not tool._rubber_band_timer.isActive()
+        assert tool._pending_rubber_band_pt is None
+        assert tool._rubber_band_item is None
+
     def test_drag_component_in_multi_selection_moves_all(
         self, board_view: BoardView, session: EditorSession
     ) -> None:

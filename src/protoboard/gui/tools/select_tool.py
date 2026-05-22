@@ -110,6 +110,20 @@ class SelectTool(_Tool):
         # Rubber-band state.
         self._rubber_band_start: QPointF | None = None
         self._rubber_band_item: QGraphicsRectItem | None = None
+        # Throttle: mouseMoveEvent fires up to ~120 Hz on a fast trackpad
+        # and every move that mutates the QGraphicsScene triggers an
+        # X11 round-trip — fatal over SSH.  We coalesce moves into a
+        # single repaint per ~30 fps interval.  Latest scene-pt is
+        # parked on ``_pending_rubber_band_pt``; the timer reads it
+        # once when it fires, then clears it.  ``_finish_rubber_band``
+        # flushes any pending pt synchronously so the final rect
+        # matches the cursor's release position exactly.
+        self._rubber_band_timer: QTimer | None = None
+        self._pending_rubber_band_pt: QPointF | None = None
+        # Cache the last LR/RL direction so we only re-apply the pen
+        # and brush when the rubber-band actually flips orientation,
+        # avoiding an unconditional setPen/setBrush per frame.
+        self._rubber_band_last_lr: bool | None = None
         # Wire selection (single — for editing).
         self._selected_wire_id: uuid.UUID | None = None
         self._wire_highlight: QGraphicsItemGroup | None = None
@@ -3419,13 +3433,54 @@ class SelectTool(_Tool):
     # Rubber-band selection
     # ------------------------------------------------------------------
 
+    def _ensure_rubber_band_timer(self) -> None:
+        if self._rubber_band_timer is not None:
+            return
+        timer = QTimer(self._view)
+        timer.setSingleShot(True)
+        # Interval lives on the view so PreferencesDialog can adjust it
+        # without rebuilding the tool.  Default 33 ms ≈ 30 fps — faster
+        # than the human eye can follow rubber-band geometry; over SSH
+        # it keeps X11 traffic to a single round-trip per frame instead
+        # of one per mouse-move event.
+        interval = getattr(self._view, "_rubber_band_throttle_ms", 33)
+        timer.setInterval(max(0, int(interval)))
+        timer.timeout.connect(self._flush_rubber_band_update)
+        self._rubber_band_timer = timer
+
     def _update_rubber_band(self, scene_pt: QPointF) -> None:
+        """Schedule a rubber-band repaint at the next throttle tick.
+
+        Replaces the legacy "redraw on every mouseMoveEvent" path.
+        Stores the latest scene-pt and starts the throttle timer if
+        idle; if the timer is already running, this becomes a free
+        no-op (the most recent pending pt always wins).
+        """
         if self._rubber_band_start is None:
             return
-        if self._rubber_band_item is not None:
-            self._view.scene().removeItem(self._rubber_band_item)
-            self._rubber_band_item = None
+        self._pending_rubber_band_pt = scene_pt
+        self._ensure_rubber_band_timer()
+        if self._rubber_band_timer is not None and not self._rubber_band_timer.isActive():
+            self._rubber_band_timer.start()
 
+    def _flush_rubber_band_update(self) -> None:
+        pt = self._pending_rubber_band_pt
+        self._pending_rubber_band_pt = None
+        if pt is None:
+            return
+        self._apply_rubber_band(pt)
+
+    def _apply_rubber_band(self, scene_pt: QPointF) -> None:
+        """Render the rubber-band rect for *scene_pt* — synchronous.
+
+        Reuses the existing ``QGraphicsRectItem`` if present; only
+        creates a new one on the first call after the rubber-band
+        started.  ``setPen``/``setBrush`` only fire when the LR/RL
+        direction actually changes, so steady-state moves cost a single
+        ``setRect`` call.
+        """
+        if self._rubber_band_start is None:
+            return
         start = self._rubber_band_start
         x0 = min(start.x(), scene_pt.x())
         y0 = min(start.y(), scene_pt.y())
@@ -3433,14 +3488,27 @@ class SelectTool(_Tool):
         h = abs(scene_pt.y() - start.y())
 
         left_to_right = scene_pt.x() >= start.x()
-        pen = _RUBBER_BAND_PEN_LR if left_to_right else _RUBBER_BAND_PEN_RL
-        fill = _RUBBER_BAND_FILL_LR if left_to_right else _RUBBER_BAND_FILL_RL
+        rect = QRectF(x0, y0, w, h)
 
-        item = QGraphicsRectItem(QRectF(x0, y0, w, h))
-        item.setPen(pen)
-        item.setBrush(fill)
-        self._view.scene().addItem(item)
-        self._rubber_band_item = item
+        if self._rubber_band_item is None:
+            pen = _RUBBER_BAND_PEN_LR if left_to_right else _RUBBER_BAND_PEN_RL
+            fill = _RUBBER_BAND_FILL_LR if left_to_right else _RUBBER_BAND_FILL_RL
+            item = QGraphicsRectItem(rect)
+            item.setPen(pen)
+            item.setBrush(fill)
+            self._view.scene().addItem(item)
+            self._rubber_band_item = item
+            self._rubber_band_last_lr = left_to_right
+            return
+
+        # Reuse existing item — single setRect per frame.
+        self._rubber_band_item.setRect(rect)
+        if self._rubber_band_last_lr is not left_to_right:
+            pen = _RUBBER_BAND_PEN_LR if left_to_right else _RUBBER_BAND_PEN_RL
+            fill = _RUBBER_BAND_FILL_LR if left_to_right else _RUBBER_BAND_FILL_RL
+            self._rubber_band_item.setPen(pen)
+            self._rubber_band_item.setBrush(fill)
+            self._rubber_band_last_lr = left_to_right
 
     def _finish_rubber_band(self, scene_pt: QPointF) -> None:
         self._clear_rubber_band()
@@ -3521,6 +3589,15 @@ class SelectTool(_Tool):
                 self._notify_selection()
 
     def _clear_rubber_band(self) -> None:
+        # Stop pending throttle ticks first — a tick firing after the
+        # scene item has been removed would either no-op (because the
+        # pending pt was cleared below) or, worse, create a fresh
+        # rubber-band rectangle after the user already released the
+        # button.  Cheap to call when the timer was never built.
+        if self._rubber_band_timer is not None and self._rubber_band_timer.isActive():
+            self._rubber_band_timer.stop()
+        self._pending_rubber_band_pt = None
+        self._rubber_band_last_lr = None
         if self._rubber_band_item is not None:
             self._view.scene().removeItem(self._rubber_band_item)
             self._rubber_band_item = None
