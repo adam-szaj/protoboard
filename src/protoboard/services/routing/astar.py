@@ -410,6 +410,18 @@ def _universe_worker(
     _inf = float("inf")
     _dc  = cost_model.direction_change
     _lc  = cost_model.layer_change
+    # Angle-aware bends — opt-in.  When any bend_* knob is set the hot loop
+    # classifies the bend by the cosine of the angle between prev/next step
+    # directions and charges the matching cost.  When all three are 0.0 the
+    # check degrades to a single _dc charge per turn (legacy behaviour).
+    _b45  = cost_model.get("bend_45",  _dc)
+    _b90  = cost_model.get("bend_90",  _dc)
+    _b135 = cost_model.get("bend_135", _dc)
+    _bend_angle_active = (
+        _b45  != _dc
+        or _b90  != _dc
+        or _b135 != _dc
+    )
     # Enhanced at-pad penalties — float-tuple-keyed mirror of at_pad_wires
     # for fast lookup in the hot loop.  Empty dict when feature inactive
     # (all the cost-model knobs at 0.0); the keyed-lookup is then skipped
@@ -672,7 +684,22 @@ def _universe_worker(
                                 step_cost += _pos_pen
 
                 if (dx != 0.0 or dy != 0.0) and (ndx != dx or ndy != dy):
-                    step_cost += _dc
+                    if _bend_angle_active:
+                        # Classify the bend by cosine of angle between
+                        # (dx,dy) and (ndx,ndy).  Both vectors have length
+                        # 1 (ortho) or √2 (diag); normalising via hypot is
+                        # ~10ns and only happens at bends.
+                        _l1 = (dx * dx + dy * dy) ** 0.5
+                        _l2 = (ndx * ndx + ndy * ndy) ** 0.5
+                        _cos = (dx * ndx + dy * ndy) / (_l1 * _l2)
+                        if _cos > 0.6:           # ≈ cos(45°) = 0.707
+                            step_cost += _b45
+                        elif _cos > -0.1:        # ≈ cos(90°) = 0.0
+                            step_cost += _b90
+                        else:                    # cos(135°) ≈ -0.707, U-turn ≈ -1
+                            step_cost += _b135
+                    else:
+                        step_cost += _dc
 
                 ng = g + step_cost
                 nstate = (nx, ny, cs_idx, ndx, ndy)
