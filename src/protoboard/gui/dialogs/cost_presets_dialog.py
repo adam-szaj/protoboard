@@ -163,14 +163,19 @@ class CostPresetsDialog(QDialog):
             # Column 0: key + doc (tooltip)
             key_item = QTableWidgetItem(key)
             key_item.setFlags(key_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            key_item.setToolTip(COST_KEY_DOCS.get(key, ""))
+            doc = COST_KEY_DOCS.get(key, "")
+            key_item.setToolTip(doc + "\n\nTip: enter -1 to mean ∞ (hard-disable this kind of step).")
             self._table.setItem(row, 0, key_item)
-            # Column 1: spinbox
+            # Column 1: spinbox with -1 sentinel for ∞.  range starts at -1
+            # and uses setSpecialValueText so "-1" renders as "∞" in the UI
+            # while still being a valid numeric value users can type.
             spin = QDoubleSpinBox()
-            spin.setRange(0.0, 1e6)
+            spin.setRange(-1.0, 1e6)
             spin.setDecimals(3)
             spin.setSingleStep(0.1)
-            spin.setValue(float(weights.get(key, 0.0)))
+            spin.setSpecialValueText("∞")  # shown when value == minimum (-1.0)
+            raw = float(weights.get(key, 0.0))
+            spin.setValue(-1.0 if (raw == float("inf") or raw != raw) else raw)
             spin.setReadOnly(read_only)
             spin.setEnabled(not read_only)
             # Persist on change for user presets.
@@ -186,7 +191,12 @@ class CostPresetsDialog(QDialog):
         if name in builtin_preset_names():
             return
         weights = self._user_presets.setdefault(name, {})
-        if value == 0.0:
+        # Sentinel: spinbox value -1 means "∞" — translate back to float("inf")
+        # so resolved cost models behave identically to the historical inf
+        # constants (hard-disable that kind of step).
+        if value <= -1.0 + 1e-9:
+            weights[key] = float("inf")
+        elif value == 0.0:
             # Sparse storage — omit zero weights so the YAML stays minimal.
             weights.pop(key, None)
         else:
