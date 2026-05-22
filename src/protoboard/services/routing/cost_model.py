@@ -51,3 +51,36 @@ class RoutingCostModel:
     # and are therefore mutually perpendicular — the electrical-safety
     # invariant that makes crossing_bare_bare_diagonal usable.
     bare_diagonal_mode: bool = False
+    # ------------------------------------------------------------------
+    # Enhanced-router penalties (opt-in; see EnhancedAStarRouter).
+    # All default to 0 so the default `astar` router is byte-identical
+    # to the pre-PR-3 behaviour.  Tuning starting points are noted next
+    # to each field.  These knobs are read by the Python A* hot loop;
+    # the Rust kernel currently ignores them (tracking issue: port once
+    # the semantics stabilise).
+    # ------------------------------------------------------------------
+    # Extra cost when a step lands on a pad that already hosts another
+    # insulated wire's vertex on the same side.  Tuning starting point: 1.0.
+    at_pad_insulated_insulated_same_side: float = 0.0
+    # Extra cost when a step lands on a pad that already hosts a bare
+    # wire's vertex on the same side (insulated wire stepping onto bare
+    # endpoint, or bare wire stepping onto an existing insulated endpoint).
+    # Bare-on-bare same-side is enforced as INF upstream via `occupied`
+    # and electrical-net checks; this knob covers the mixed case only.
+    # Tuning starting point: 3.0.
+    at_pad_insulated_bare_same_side: float = 0.0
+    # Extra cost when the step is collinear with — and overlaps the
+    # interior of — an existing wire segment on the *opposite* side
+    # (top vs bottom).  Applied when at least one of the two wires is
+    # insulated; bare×bare on opposite sides is electrically fine and
+    # incurs no cost.  Tuning starting point: 0.5.
+    parallel_opposite_side: float = 0.0
+    # When > 0, enables mid-cell-preferred push-and-shove.  Before the
+    # classic per-axis nudge fires, the enhanced router tries to *reroute*
+    # the blocking wire under ``bare_diagonal_mode=True`` with the
+    # opposite parity family — so any unavoidable crossing falls between
+    # pads (mesh-cell centre) rather than on a pad.  ``max_reroute_factor``
+    # is the ceiling: the reroute is accepted only if its cost is at
+    # most ``original_cost * max_reroute_factor``.  0 = disabled.
+    # Tuning starting point: 1.5.
+    max_reroute_factor: float = 0.0

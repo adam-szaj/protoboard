@@ -346,6 +346,8 @@ def _universe_worker(
     forbidden_edges: set[tuple[Point, str, Point, str]],
     penalised: dict[tuple[Point, str], float],
     source_parity: int = -1,
+    at_pad_wires: dict[tuple[Point, str], int] | None = None,
+    all_segments: list[tuple[Point, Point, str, bool]] | None = None,
 ) -> None:
     """Run one A* universe until it finds a path, exhausts the heap, or exceeds budget.
 
@@ -388,6 +390,36 @@ def _universe_worker(
     _inf = float("inf")
     _dc  = cost_model.direction_change
     _lc  = cost_model.layer_change
+    # Enhanced at-pad penalties — float-tuple-keyed mirror of at_pad_wires
+    # for fast lookup in the hot loop.  Empty dict when feature inactive
+    # (all the cost-model knobs at 0.0); the keyed-lookup is then skipped
+    # because ``_atp_active`` is False.
+    _atp: dict[tuple[float, float, str], int] = (
+        {(p.x, p.y, s): bm for (p, s), bm in at_pad_wires.items()}
+        if at_pad_wires else {}
+    )
+    _atp_ii = cost_model.at_pad_insulated_insulated_same_side
+    _atp_ib = cost_model.at_pad_insulated_bare_same_side
+    _atp_active = bool(_atp) and (_atp_ii != 0.0 or _atp_ib != 0.0)
+    # Parallel-opposite-side penalty: list of (p1x, p1y, p2x, p2y,
+    # other_side, other_insulated) tuples on the OPPOSITE side from the
+    # source.  Pre-filtered once so the hot loop only scans relevant
+    # segments.  Empty when penalty=0 or all_segments is empty.
+    _pos_pen = cost_model.parallel_opposite_side
+    _pos_active = _pos_pen != 0.0 and bool(all_segments)
+    # Two buckets:
+    # * ``_segs_on_top``  — segments living on the TOP layer; consulted by
+    #   workers stepping on BOTTOM (i.e. opposite to TOP).
+    # * ``_segs_on_bot``  — segments on BOTTOM; consulted by TOP workers.
+    _segs_on_top: list[tuple[float, float, float, float, bool]] = []
+    _segs_on_bot: list[tuple[float, float, float, float, bool]] = []
+    if _pos_active and all_segments is not None:
+        for _p1, _p2, _osd, _oins in all_segments:
+            entry = (_p1.x, _p1.y, _p2.x, _p2.y, _oins)
+            if _osd == "top":
+                _segs_on_top.append(entry)
+            else:
+                _segs_on_bot.append(entry)
     _parity_filter = cost_model.bare_diagonal_mode and source_parity in (0, 1)
     # Allowed sign of (ndx * ndy) for diagonal steps in the source's family.
     # parity 0 → "/" family → ndx*ndy > 0; parity 1 → "\" family → ndx*ndy < 0.
@@ -501,6 +533,81 @@ def _universe_worker(
                     continue
                 step_cost += crossing_cost
 
+                # Enhanced at-pad penalty: extra cost when stepping onto a
+                # pad that already hosts another wire vertex on this side.
+                # Bitmask: 1=insulated wire vertex present, 2=bare wire
+                # vertex present.  Bare×bare same-side is already blocked
+                # upstream via ``occupied``; this branch handles the
+                # mixed and insulated×insulated cases.
+                if _atp_active:
+                    _bm = _atp.get(_nkey, 0)
+                    if _bm:
+                        if insulated:
+                            if _bm & 1:
+                                step_cost += _atp_ii
+                            if _bm & 2:
+                                step_cost += _atp_ib
+                        else:
+                            # New wire is bare.  Existing insulated → mixed
+                            # penalty.  Existing bare on same side is a
+                            # short; surface as inf so the step is rejected.
+                            if _bm & 1:
+                                step_cost += _atp_ib
+                            if _bm & 2:
+                                if _trace_neighbours is not None:
+                                    _trace_neighbours.append(
+                                        [ndx, ndy, "at_pad_bare_short"]
+                                    )
+                                continue
+
+                # Enhanced parallel-opposite-side penalty: when the step's
+                # segment is collinear with — and overlaps the interior of —
+                # any segment on the opposite layer, add the configured
+                # cost per match.  Bare×bare opposite-side incurs no
+                # penalty (different layers; physically isolated).
+                if _pos_active:
+                    # cur_side="top" → consult segments on BOTTOM, and vice versa.
+                    _opp = (
+                        _segs_on_bot if cur_side == "top"
+                        else _segs_on_top
+                    )
+                    if _opp:
+                        _step_min_x = cx if cx <= nx else nx
+                        _step_max_x = cx if cx >= nx else nx
+                        _step_min_y = cy if cy <= ny else ny
+                        _step_max_y = cy if cy >= ny else ny
+                        for _q1x, _q1y, _q2x, _q2y, _oins in _opp:
+                            # Skip if neither wire is insulated (bare×bare
+                            # opposite-side has no penalty by spec).
+                            if not insulated and not _oins:
+                                continue
+                            # Bbox cull.
+                            _q_min_x = _q1x if _q1x <= _q2x else _q2x
+                            _q_max_x = _q1x if _q1x >= _q2x else _q2x
+                            _q_min_y = _q1y if _q1y <= _q2y else _q2y
+                            _q_max_y = _q1y if _q1y >= _q2y else _q2y
+                            if _step_max_x < _q_min_x or _step_min_x > _q_max_x:
+                                continue
+                            if _step_max_y < _q_min_y or _step_min_y > _q_max_y:
+                                continue
+                            # Collinearity: cross-products of (q1-cur)x(n-cur)
+                            # and (q2-cur)x(n-cur) must be zero.
+                            _dpx = nx - cx
+                            _dpy = ny - cy
+                            _cross1 = (_q1x - cx) * _dpy - (_q1y - cy) * _dpx
+                            _cross2 = (_q2x - cx) * _dpy - (_q2y - cy) * _dpx
+                            if _cross1 != 0.0 or _cross2 != 0.0:
+                                continue
+                            # 1D overlap interior on dominant axis.
+                            if _step_max_x - _step_min_x >= _step_max_y - _step_min_y:
+                                _lo = _step_min_x if _step_min_x > _q_min_x else _q_min_x
+                                _hi = _step_max_x if _step_max_x < _q_max_x else _q_max_x
+                            else:
+                                _lo = _step_min_y if _step_min_y > _q_min_y else _q_min_y
+                                _hi = _step_max_y if _step_max_y < _q_max_y else _q_max_y
+                            if _hi > _lo:  # strict interior overlap
+                                step_cost += _pos_pen
+
                 if (dx != 0.0 or dy != 0.0) and (ndx != dx or ndy != dy):
                     step_cost += _dc
 
@@ -579,6 +686,8 @@ def _astar_parallel(
     forbidden_edges: set[tuple[Point, str, Point, str]],
     penalised: dict[tuple[Point, str], float],
     extra_budget_ratio: float = 0.5,
+    at_pad_wires: dict[tuple[Point, str], int] | None = None,
+    all_segments: list[tuple[Point, Point, str, bool]] | None = None,
 ) -> RoutingResult | None:
     """Parallel-universe A* — may spawn sub-searches on the thread pool.
 
@@ -615,7 +724,9 @@ def _astar_parallel(
         extra_budget_ratio=extra_budget_ratio,
     )
 
-    # Submit the root universe.
+    # Submit the root universe.  Enhanced-router extras (``at_pad_wires``,
+    # ``all_segments``) live at the tail of the positional list so the
+    # legacy call sites that pass only ``source_parity`` keep working.
     fut = _UNIVERSE_POOL.submit(
         _universe_worker,
         initial_heap, initial_visited, 0, 0, shared,
@@ -623,6 +734,8 @@ def _astar_parallel(
         occupied, same_net, near_pins, near_pin_cost,
         bare_idx, vias, forbidden_edges, penalised,
         source_parity,
+        at_pad_wires,
+        all_segments,
     )
     shared.add_future(fut)
 
@@ -682,6 +795,8 @@ def find_paths(
     plated_through_pads: set[Point] | None = None,
     penalised_pads: dict[tuple[Point, str], float] | None = None,
     extra_budget_ratio: float = 0.5,
+    at_pad_wires: dict[tuple[Point, str], int] | None = None,
+    all_segments: list[tuple[Point, Point, str, bool]] | None = None,
 ) -> list[RoutingResult]:
     """Find up to *k* cheapest paths from *source* to any pad in *targets*.
 
@@ -719,6 +834,8 @@ def find_paths(
     bare_segs = bare_wire_segments or set()
     vias = plated_through_pads or set()
     penalised = penalised_pads or {}
+    at_pad = at_pad_wires or {}
+    all_segs = all_segments or []
 
     target_set = set(targets)
 
@@ -736,7 +853,18 @@ def find_paths(
     bare_idx = _build_bare_seg_index(bare_segs)
 
     # --- Rust extension path (true parallelism, no GIL) ---
-    if _RUST_AVAILABLE:
+    # The Rust kernel does NOT know about the enhanced penalties (the
+    # cost-model fields ``at_pad_insulated_*`` and ``parallel_opposite_side``
+    # are read only by the Python hot loop).  Fall back to the Python
+    # implementation when any enhanced knob is non-zero so the requested
+    # cost shaping actually takes effect; otherwise the Rust path is
+    # byte-identical to the Python one.
+    _enhanced_active = (
+        cost_model.at_pad_insulated_insulated_same_side != 0.0
+        or cost_model.at_pad_insulated_bare_same_side != 0.0
+        or cost_model.parallel_opposite_side != 0.0
+    )
+    if _RUST_AVAILABLE and not _enhanced_active:
         return _find_paths_rust(
             valid_nodes=valid_nodes,
             source=source,
@@ -780,6 +908,8 @@ def find_paths(
             forbidden_edges=forbidden_edges,
             penalised=penalised,
             extra_budget_ratio=extra_budget_ratio,
+            at_pad_wires=at_pad,
+            all_segments=all_segs,
         )
         if result is None:
             break

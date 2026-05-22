@@ -1363,9 +1363,36 @@ def _route_segment_with_ripup(
     # records whether the wire was donor-owned (in pass_new_wires) so the
     # restore can put it back in the right list.
     _ripped_wires: list[tuple[WireSegment, bool]] = []
+    # Per-segment set of wire-ids that have already been mid-cell-rerouted
+    # in this attempts loop.  Prevents two blockers from endlessly bouncing
+    # each other when each reroute opens a corridor the other one wants.
+    _already_rerouted: set[uuid.UUID] = set()
+    # Pre-compute once whether *any* enhanced knob is active.  When all are
+    # at defaults (zero), the corresponding indices are not consulted by
+    # A*, so building them every attempt is wasted allocation pressure on
+    # the worker thread — pressure that the project's known CPython 3.14
+    # GC / Qt-paintEvent race turns into a silent segfault (see memory
+    # [[project_silent_crash_post_upgrade]]).
+    _enh_at_pad_active = (
+        cost_model.at_pad_insulated_insulated_same_side != 0.0
+        or cost_model.at_pad_insulated_bare_same_side != 0.0
+    )
+    _enh_parallel_active = cost_model.parallel_opposite_side != 0.0
     for attempt in range(max_rip_up_passes + 1):
         graph = connectivity_graph
         bare_segs = _build_bare_wire_segments(working_wires)
+        # Enhanced indices: built only when the corresponding cost knob
+        # is non-zero.  ``find_paths`` accepts None and degrades to the
+        # legacy hot-loop branch — same observable behaviour with zero
+        # allocations on the default path.
+        at_pad_idx = (
+            _build_at_pad_wire_index(working_wires)
+            if _enh_at_pad_active else None
+        )
+        all_seg_idx = (
+            _build_all_seg_index(working_wires)
+            if _enh_parallel_active else None
+        )
 
         # Determine which insulation modes to attempt for this segment.
         # wire_mode="auto":          try bare first, fall back to insulated.
@@ -1472,6 +1499,8 @@ def _route_segment_with_ripup(
                     bare_wire_segments=bare_segs,
                     plated_through_pads=plated_through_pads,
                     penalised_pads=under_component_penalty,
+                    at_pad_wires=at_pad_idx,
+                    all_segments=all_seg_idx,
                 )
 
             attempt_best: tuple[float, list[PathStep]] | None = None
@@ -1515,6 +1544,8 @@ def _route_segment_with_ripup(
                         bare_wire_segments=bare_segs,
                         plated_through_pads=plated_through_pads,
                         penalised_pads=under_component_penalty,
+                        at_pad_wires=at_pad_idx,
+                        all_segments=all_seg_idx,
                     )
                     if results:
                         _seg_nodes += results[0].nodes_expanded
@@ -1596,11 +1627,35 @@ def _route_segment_with_ripup(
             key=lambda ps: abs(ps[0].x - target.x) + abs(ps[0].y - target.y),
         )
 
-        # Push-and-shove: try nudging a blocking wire sideways before rip-up.
-        pushed = _try_push_wire(
-            nearest_source[0], target, working_wires, additional_wires,
-            board, occupied_pins, _board_pads=_board_pad_set,
-        ) if push_and_shove else None
+        # Strategy 1 (mid-cell preferred reroute) — only fires when the
+        # enhanced router has set ``max_reroute_factor > 0``.  Default
+        # (0) makes this a no-op so the legacy ``astar`` router
+        # behaviour is unchanged.
+        pushed = None
+        if push_and_shove and cost_model.max_reroute_factor > 0.0:
+            mid_cell = _try_mid_cell_reroute(
+                nearest_source[0], target,
+                working_wires, additional_wires,
+                connectivity_graph,
+                cost_model,
+                occupied_pins,
+                same_net_pins,
+                plated_through_pads,
+                under_component_penalty,
+                _already_rerouted,
+            )
+            if mid_cell is not None:
+                _already_rerouted.add(mid_cell[0].id)
+                pushed = mid_cell
+
+        # Strategy 2 (classic axis-aligned nudge) — fires when Strategy
+        # 1 did nothing.  ``push_and_shove`` here is the user's old
+        # global toggle and gates the whole feature.
+        if pushed is None and push_and_shove:
+            pushed = _try_push_wire(
+                nearest_source[0], target, working_wires, additional_wires,
+                board, occupied_pins, _board_pads=_board_pad_set,
+            )
         if pushed is not None:
             old_wire, new_wire = pushed
             working_wires.remove(old_wire)
@@ -1867,6 +1922,55 @@ def _build_bare_wire_segments(
     return segs
 
 
+def _build_all_seg_index(
+    wires: list[WireSegment],
+) -> list[tuple[Point, Point, str, bool]]:
+    """All wire segments as ``(p1, p2, side, is_insulated)`` tuples.
+
+    Includes both bare and insulated wires.  Used by the enhanced router
+    to detect parallel-on-opposite-side overlaps in ``_crossing_cost``
+    territory.  Segment orientation is normalised (smaller endpoint
+    first) so duplicates are deduped trivially by callers.
+    """
+    out: list[tuple[Point, Point, str, bool]] = []
+    seen: set[tuple[Point, Point, str, bool]] = set()
+    for wire in wires:
+        for i in range(len(wire.path) - 1):
+            p1, p2 = wire.path[i], wire.path[i + 1]
+            if (p1.x, p1.y) > (p2.x, p2.y):
+                p1, p2 = p2, p1
+            key = (p1, p2, wire.side, wire.insulated)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(key)
+    return out
+
+
+def _build_at_pad_wire_index(
+    wires: list[WireSegment],
+) -> dict[tuple[Point, str], int]:
+    """Per ``(pad, side)`` bitmask of wire-types whose vertices land there.
+
+    Bits: ``1`` = at least one insulated wire's vertex is on this pad
+    on this side; ``2`` = at least one bare wire's vertex is on this
+    pad on this side.  Both bits set means a mixed-type contact already
+    exists at this pad — informational only; the enhanced cost model
+    decides how to penalise a *new* wire stepping in.
+
+    Used by :class:`EnhancedAStarRouter` to penalise "two wires meeting
+    at the same pad" — the default ``astar`` router ignores this index
+    because the corresponding cost-model fields default to ``0``.
+    """
+    index: dict[tuple[Point, str], int] = {}
+    for wire in wires:
+        bit = 1 if wire.insulated else 2
+        for vertex in wire.path:
+            key = (vertex, wire.side)
+            index[key] = index.get(key, 0) | bit
+    return index
+
+
 def _nudge_wire(
     wire: WireSegment,
     dx: float,
@@ -1911,6 +2015,131 @@ def _nudge_wire(
         side=cast(_Lit["top", "bottom"], wire.side),
         color=wire.color,
     )
+
+
+def _try_mid_cell_reroute(
+    source: Point,
+    target: Point,
+    working_wires: list[WireSegment],
+    additional_wires: list[WireSegment],
+    connectivity_graph: "ConnectivityGraph",
+    cost_model: RoutingCostModel,
+    occupied_pins: dict[tuple[Point, str], uuid.UUID],
+    same_net_pins: dict[tuple[Point, str], uuid.UUID],
+    plated_through_pads: set[Point] | None,
+    under_component_penalty: dict[tuple[Point, str], float],
+    already_rerouted: set[uuid.UUID],
+) -> tuple[WireSegment, WireSegment] | None:
+    """Mid-cell-preferred push-and-shove (Strategy 1).
+
+    Picks a blocking wire that runs through the source↔target corridor
+    and reruns A* for it under ``bare_diagonal_mode=True`` plus the
+    *opposite* parity family from the blocker's own.  This biases any
+    unavoidable crossings to fall at mesh-cell centres (integer (x,y)
+    points between pads) rather than landing on a pad — the same
+    electrical-safety mechanism used by the bare-diagonal wire mode.
+
+    Caller responsibility: enable this strategy by setting
+    ``cost_model.max_reroute_factor > 0``.  Returns ``None`` when the
+    feature is disabled, no suitable blocker exists, or the rerouted
+    cost exceeds ``original_cost * max_reroute_factor``.
+
+    ``already_rerouted`` accumulates wire IDs that have been touched by
+    this strategy in the current pass — preventing infinite re-bounce
+    when two wires keep stealing each other's corridor.
+    """
+    factor = cost_model.max_reroute_factor
+    if factor <= 0.0:
+        return None
+    import dataclasses as _dc
+
+    protected_ids = {w.id for w in additional_wires}
+    min_x = min(source.x, target.x) - 0.5
+    max_x = max(source.x, target.x) + 0.5
+    min_y = min(source.y, target.y) - 0.5
+    max_y = max(source.y, target.y) + 0.5
+
+    # Adjusted cost model: force bare-diagonal exploration and flip the
+    # parity family by making the bare×bare-diagonal cost cheap.
+    reroute_cm = _dc.replace(
+        cost_model,
+        bare_diagonal_mode=True,
+        crossing_bare_bare=float("inf"),
+        crossing_bare_bare_diagonal=max(
+            cost_model.crossing_bare_bare_diagonal, 0.5
+        ) if cost_model.crossing_bare_bare_diagonal != float("inf") else 0.5,
+    )
+
+    for wire in working_wires:
+        if wire.id in protected_ids or wire.id in already_rerouted:
+            continue
+        if len(wire.path) < 2:
+            continue
+        # Wire must cross the requested source↔target bbox.
+        if not any(
+            min_x <= pt.x <= max_x and min_y <= pt.y <= max_y
+            for pt in wire.path
+        ):
+            continue
+
+        w_src, w_tgt = wire.path[0], wire.path[-1]
+        # Estimate the original wire's "cost" as Chebyshev path length
+        # — exact A* cost is not tracked on WireSegment, but the
+        # Chebyshev count is a tight lower bound that matches the cost
+        # of an optimal straight A* run with free_pad=1.0.
+        original_cost = sum(
+            max(
+                abs(wire.path[i + 1].x - wire.path[i].x),
+                abs(wire.path[i + 1].y - wire.path[i].y),
+            )
+            for i in range(len(wire.path) - 1)
+        )
+        budget = original_cost * factor
+
+        # Remove the wire from the graph temporarily so the rerouter
+        # doesn't trip over it.
+        connectivity_graph.remove_wire(wire)
+        try:
+            results = find_paths(
+                graph=connectivity_graph,
+                source=w_src,
+                targets=[w_tgt],
+                side=wire.side,
+                cost_model=reroute_cm,
+                k=1,
+                insulated=wire.insulated,
+                occupied_pads=dict(occupied_pins),
+                same_net_pads=dict(same_net_pins),
+                near_pin_pads=set(),
+                near_pin_cost=10.0,
+                bare_wire_segments=_build_bare_wire_segments(
+                    [w for w in working_wires if w.id != wire.id]
+                ),
+                plated_through_pads=plated_through_pads,
+                penalised_pads=under_component_penalty,
+            )
+        finally:
+            connectivity_graph.add_wire(wire)
+
+        if not results:
+            continue
+        best = results[0]
+        if best.cost > budget:
+            continue
+        # Same path (or essentially same) — nothing gained.
+        new_path = [p for p, _s in best.path]
+        if new_path == list(wire.path):
+            continue
+        new_wire = WireSegment(
+            id=uuid.uuid4(),
+            path=new_path,
+            insulated=wire.insulated,
+            side=wire.side,
+            color=wire.color,
+        )
+        return wire, new_wire
+
+    return None
 
 
 def _try_push_wire(
