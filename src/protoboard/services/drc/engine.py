@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import threading
 import uuid
 from dataclasses import dataclass
 from itertools import combinations
@@ -69,14 +70,34 @@ class DRCEngine:
         components: dict[str, ComponentDefinition],
         instances: dict[uuid.UUID, ComponentInstance],
         graph: ConnectivityGraph,
+        cancel_flag: threading.Event | None = None,
     ) -> list[DRCIssue]:
+        # Cancellation: callers running the engine off the main thread
+        # pass an Event; the engine bails between checks and inside the
+        # most expensive nested loop (interior cross is O(N²·M²) on wire
+        # paths).  Returning the partial issue list keeps the contract
+        # the same regardless of whether cancel fired — the caller is
+        # responsible for discarding the result on a true cancel.
+        def _cancelled() -> bool:
+            return cancel_flag is not None and cancel_flag.is_set()
+
         issues: list[DRCIssue] = []
         issues += _check_overlap(layout, components, instances)
+        if _cancelled():
+            return issues
         issues += _check_short(schematic, graph)
+        if _cancelled():
+            return issues
         issues += _check_missing_net(schematic, graph)
+        if _cancelled():
+            return issues
         issues += _check_floating_pins(schematic, layout)
+        if _cancelled():
+            return issues
         issues += _check_bare_wire_cross(schematic, layout, graph)
-        issues += _check_bare_wire_interior_cross(layout, graph)
+        if _cancelled():
+            return issues
+        issues += _check_bare_wire_interior_cross(layout, graph, cancel_flag=cancel_flag)
         counts: dict[str, int] = {"error": 0, "warning": 0, "info": 0}
         for iss in issues:
             counts[iss.severity] = counts.get(iss.severity, 0) + 1
@@ -273,10 +294,17 @@ def _check_bare_wire_cross(
 def _check_bare_wire_interior_cross(
     layout: Layout,
     graph: ConnectivityGraph,
+    cancel_flag: threading.Event | None = None,
 ) -> list[DRCIssue]:
     """Detect bare wires on the same side that cross at an off-pad interior
     point and belong to different electric sets — a physical short the
     pad-overlap check cannot see because the crossing is between pads.
+
+    Dominant check by cost on real boards: O(N²·M²) where N = wires per
+    side and M = path-segments per wire.  Accepts ``cancel_flag`` so a
+    worker can bail out promptly when the user keeps making layout
+    changes; the partial result is returned and the caller decides
+    whether to discard it.
     """
     bare = [w for w in layout.wires if not w.insulated]
     if len(bare) < 2:
@@ -290,6 +318,11 @@ def _check_bare_wire_interior_cross(
     reported: set[tuple[float, float, str]] = set()
     for side, ws in by_side.items():
         for i in range(len(ws)):
+            # Check the cancel flag once per outer-loop iteration — fine
+            # granularity for ms-level responsiveness even on multi-second
+            # checks, and the overhead vs the inner work is negligible.
+            if cancel_flag is not None and cancel_flag.is_set():
+                return issues
             wi = ws[i]
             k_i = (
                 graph.node_for_pad(wi.path[0], side)

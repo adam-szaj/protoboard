@@ -285,9 +285,17 @@ class EditorSession(QObject):
         return self._wire_spatial_index
 
     def run_drc(self) -> list[DRCIssue]:
+        """Run DRC synchronously on the calling thread.
+
+        Preserved for tests and any caller that genuinely wants a
+        blocking check (e.g. CLI tools, headless validation).  GUI code
+        should use the ``DRCWorker`` path in MainWindow and feed the
+        result back via :meth:`set_drc_issues` to keep the UI thread
+        responsive.
+        """
         t0 = time.monotonic()
         engine = DRCEngine()
-        self._drc_issues = engine.check_with_graph(
+        issues = engine.check_with_graph(
             schematic=self.schematic,
             layout=self.layout,
             components=self.components,
@@ -295,11 +303,21 @@ class EditorSession(QObject):
             graph=self.connectivity_graph(),
         )
         self.perf.drc_ms = (time.monotonic() - t0) * 1000
-        self.perf.drc_issue_count = len(self._drc_issues)
+        self.set_drc_issues(issues)
+        return issues
+
+    def set_drc_issues(self, issues: list[DRCIssue]) -> None:
+        """Apply a DRC result computed elsewhere (typically a worker).
+
+        Owns the state-mutation + signal-emit half that ``run_drc``
+        used to inline.  Always called on the main thread (Qt cross-
+        thread signal routing handles ``DRCWorker.finished`` for us).
+        """
+        self._drc_issues = issues
+        self.perf.drc_issue_count = len(issues)
         self.perf.wire_count = len(self.layout.wires)
         self.perf.component_count = len(self.instances)
-        self.drc_changed.emit(self._drc_issues)
-        return self._drc_issues
+        self.drc_changed.emit(issues)
 
     @property
     def drc_issues(self) -> list[DRCIssue]:
