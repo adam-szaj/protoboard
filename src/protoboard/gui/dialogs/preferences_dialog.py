@@ -585,7 +585,12 @@ class _PathsPage(QWidget):
 class _RoutingPage(QWidget):
     """Routing settings page — cost model and general routing parameters."""
 
-    def __init__(self, session: object, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        session: object,
+        app_settings: AppSettings,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         # Import here to avoid circular dependency with domain layer.
         from protoboard.domain.routing_settings import ROUTING_DEFAULTS, RoutingSettings
@@ -593,6 +598,10 @@ class _RoutingPage(QWidget):
 
         self._session: EditorSession = session  # type: ignore[assignment]
         self._defaults = ROUTING_DEFAULTS
+        # Shared AppSettings instance from the parent PreferencesDialog —
+        # the CostPresetsDialog mutates this in place so PreferencesDialog's
+        # final save_app_settings() picks up the new cost_presets.
+        self._app_settings = app_settings
 
         vbox = QVBoxLayout(self)
         vbox.setSpacing(10)
@@ -657,9 +666,7 @@ class _RoutingPage(QWidget):
         self._builtin_preset_names = sorted(builtin_preset_names())
         for name in self._builtin_preset_names:
             self._cost_preset.addItem(f"{name}  (built-in)", name)
-        # User presets follow.
-        from protoboard.gui.app_settings import load_app_settings
-        self._app_settings = load_app_settings()
+        # User presets follow (read from shared AppSettings, not reloaded).
         for name in sorted(self._app_settings.cost_presets):
             self._cost_preset.addItem(name, name)
         self._cost_preset.setToolTip(
@@ -759,10 +766,10 @@ class _RoutingPage(QWidget):
         self._load_from_settings(self._session.routing_settings)
 
     def _open_preset_editor(self) -> None:
-        from protoboard.gui.app_settings import load_app_settings
         from protoboard.gui.dialogs.cost_presets_dialog import CostPresetsDialog
-        # Reload to pick up any external edits before we open the editor.
-        self._app_settings = load_app_settings()
+        # Use the shared AppSettings instance — CostPresetsDialog mutates
+        # it in place so the parent PreferencesDialog's final
+        # save_app_settings() preserves preset edits.
         # Build the union of all routers' supported_cost_keys so the editor
         # shows only meaningful knobs.
         from protoboard.services.routing.protocol import registry
@@ -1031,7 +1038,7 @@ class PreferencesDialog(QDialog):
         self._colors_page = _ColorsPage(theme)
         self._paths_page = _PathsPage(app_settings)
         self._routing_page: _RoutingPage | None = (
-            _RoutingPage(session, self) if session is not None else None
+            _RoutingPage(session, app_settings, self) if session is not None else None
         )
         self._board_page: _BoardPage | None = (
             _BoardPage(session, self) if session is not None else None
