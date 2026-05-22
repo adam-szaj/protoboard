@@ -1591,6 +1591,21 @@ def _route_segment_with_ripup(
             _build_all_seg_index(working_wires, wire_to_net_id)
             if _enh_parallel_active else None
         )
+        # Foreign-wire cell set: every (Point, side) where a wire belonging
+        # to a *different* net (i.e. not active_net_id) has a vertex.  Used
+        # by the ``wire_over_foreign_wire_pad`` penalty so the router pays
+        # to thread through pads owned by other nets' wires.  Skipped when
+        # the knob is zero — empty set then is harmless but unused.
+        _wofp_cost = cost_model.get("wire_over_foreign_wire_pad", 0.0)
+        if _wofp_cost > 0.0 and active_net_id is not None and wire_to_net_id is not None:
+            foreign_wire_cells: set[tuple[Point, str]] = set()
+            for _w in working_wires:
+                if wire_to_net_id.get(_w.id) == active_net_id:
+                    continue
+                for _v in _w.path:
+                    foreign_wire_cells.add((_v, _w.side))
+        else:
+            foreign_wire_cells = set()
 
         # Determine which insulation modes to attempt for this segment.
         # wire_mode="auto":          try bare first, fall back to insulated.
@@ -1701,6 +1716,7 @@ def _route_segment_with_ripup(
                     active_net_id=active_net_id,
                     at_pad_nets=at_pad_nets_idx,
                     same_net_pad_vertices=same_net_pad_vertices,
+                    foreign_wire_cells=foreign_wire_cells,
                 )
 
             attempt_best: tuple[float, list[PathStep]] | None = None

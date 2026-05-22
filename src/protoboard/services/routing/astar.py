@@ -368,6 +368,7 @@ def _universe_worker(
     active_net_idx: int = -1,
     at_pad_nets: dict[tuple[Point, str], frozenset[int]] | None = None,
     teleport_pads: dict[tuple[Point, str], tuple[tuple[Point, str], ...]] | None = None,
+    foreign_wire_cells: set[tuple[Point, str]] | None = None,
 ) -> None:
     """Run one A* universe until it finds a path, exhausts the heap, or exceeds budget.
 
@@ -434,6 +435,16 @@ def _universe_worker(
     _diag_pref   = cost_model.get("diagonal_preferred_family",   0.0)
     _diag_unpref = cost_model.get("diagonal_dispreferred_family", 0.0)
     _diag_parity_active = (_diag_pref != 0.0) or (_diag_unpref != 0.0)
+    # wire_over_foreign_wire_pad — soft cost per step into a cell already
+    # hosting a foreign-net wire's vertex.  Opt-in; pre-resolved here so
+    # the inner loop pays a single dict lookup.
+    _wofp = cost_model.get("wire_over_foreign_wire_pad", 0.0)
+    _wofp_cells: set[tuple[float, float, str]] = (
+        {(p.x, p.y, s) for (p, s) in foreign_wire_cells}
+        if foreign_wire_cells and _wofp != 0.0
+        else set()
+    )
+    _wofp_active = _wofp != 0.0 and bool(_wofp_cells)
     # Enhanced at-pad penalties — float-tuple-keyed mirror of at_pad_wires
     # for fast lookup in the hot loop.  Empty dict when feature inactive
     # (all the cost-model knobs at 0.0); the keyed-lookup is then skipped
@@ -612,6 +623,13 @@ def _universe_worker(
                         step_cost += _diag_pref
                     else:
                         step_cost += _diag_unpref
+
+                # wire_over_foreign_wire_pad: charge once per step into a
+                # cell hosting another net's wire vertex (same side).  Soft
+                # cost — does not block; just biases A* toward routes that
+                # do not casually loop through other nets' pads.
+                if _wofp_active and (nx, ny, cur_side) in _wofp_cells:
+                    step_cost += _wofp
 
                 # Point created here — needed for _crossing_cost and path.
                 npos = Point(nx, ny)
@@ -849,6 +867,7 @@ def _astar_parallel(
     active_net_idx: int = -1,
     at_pad_nets: dict[tuple[Point, str], frozenset[int]] | None = None,
     teleport_pads: dict[tuple[Point, str], tuple[tuple[Point, str], ...]] | None = None,
+    foreign_wire_cells: set[tuple[Point, str]] | None = None,
 ) -> RoutingResult | None:
     """Parallel-universe A* — may spawn sub-searches on the thread pool.
 
@@ -902,6 +921,7 @@ def _astar_parallel(
         active_net_idx,
         at_pad_nets,
         teleport_pads,
+        foreign_wire_cells,
     )
     shared.add_future(fut)
 
@@ -966,6 +986,7 @@ def find_paths(
     active_net_id: uuid.UUID | None = None,
     at_pad_nets: dict[tuple[Point, str], frozenset[uuid.UUID]] | None = None,
     same_net_pad_vertices: set[tuple[Point, str]] | None = None,
+    foreign_wire_cells: set[tuple[Point, str]] | None = None,
 ) -> list[RoutingResult]:
     """Find up to *k* cheapest paths from *source* to any pad in *targets*.
 
@@ -1164,6 +1185,7 @@ def find_paths(
             active_net_idx=active_net_idx,
             at_pad_nets=at_pad_nets_canon,
             teleport_pads=teleport_pads,
+            foreign_wire_cells=foreign_wire_cells,
         )
         if result is None:
             break
