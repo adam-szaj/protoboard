@@ -322,6 +322,7 @@ class RouteTool(_Tool):
             side="top",
             cost_model=RoutingCostModel(),
             k=3,
+            active_net_id=self._session.routing_net_id,
         )
         _log.debug("route.hints", paths_found=len(results), targets=len(targets))
         self._hint_items = render_routing_hints(

@@ -739,3 +739,142 @@ class TestAutorouterOptimization:
 
         assert result_opt.unrouted_nets == []
         assert total_hops(result_opt) <= total_hops(result_no_opt)
+
+
+class TestAutoroutePreconditions:
+    """Autoroute must abort with a clear error when input layout fails DRC.
+
+    Junk preconditions (overlapping pins, pre-existing shorts) produce
+    junk autoroute output.  Instead of flooding the log and emitting
+    broken wires, raise ``AutoroutePreconditionError`` so the GUI can
+    show a dialog and ask the user to fix the schematic/placement first.
+    """
+
+    def test_aborts_when_two_nets_share_a_physical_pad(self) -> None:
+        """Two components placed so pin-1 of each lands on the same pad,
+        with each pin assigned to a different net → SHORT.  Autoroute
+        must raise instead of running."""
+        import pytest
+        from protoboard.services.routing.autorouter import (
+            AutoroutePreconditionError,
+        )
+
+        board = _perfboard(5, 5)
+        defn = _sil2_def()
+        cid_a = uuid.uuid4()
+        cid_b = uuid.uuid4()
+        inst_a = ComponentInstance(
+            id=cid_a, definition_ref="COMP", refdes="R1", value="1k",
+        )
+        inst_b = ComponentInstance(
+            id=cid_b, definition_ref="COMP", refdes="R2", value="1k",
+        )
+        # Both components placed at (0.5, 0.5) — pin 1 of each lands on
+        # the same physical pad.  DRC catches this as OVERLAP (and
+        # depending on graph state, also SHORT).
+        layout = Layout(placements={
+            cid_a: _place(cid_a, 0.5, 0.5),
+            cid_b: _place(cid_b, 0.5, 0.5),
+        })
+        # Assign each colliding pin to a different net.
+        ref_a1 = PinRef(component_id=cid_a, pin_number=1)
+        ref_b1 = PinRef(component_id=cid_b, pin_number=1)
+        ref_a2 = PinRef(component_id=cid_a, pin_number=2)
+        ref_b2 = PinRef(component_id=cid_b, pin_number=2)
+        net_x = Net(id=uuid.uuid4(), name="NET_X", pins={ref_a1, ref_a2})
+        net_y = Net(id=uuid.uuid4(), name="NET_Y", pins={ref_b1, ref_b2})
+        schematic = Schematic(nets={net_x.id: net_x, net_y.id: net_y})
+        components = {"COMP": defn}
+        instances = {cid_a: inst_a, cid_b: inst_b}
+
+        with pytest.raises(AutoroutePreconditionError) as exc_info:
+            autoroute(board, layout, schematic, components, instances)
+
+        err = exc_info.value
+        assert len(err.issues) >= 1
+        codes = {iss.code for iss in err.issues}
+        # SHORT fires because two pins of different nets share a physical
+        # pad and end up in the same electric set.  (OVERLAP also fires,
+        # but it's not in the blocking set — pads can be intentionally
+        # shared between a routed pin and a floating pin of another
+        # component.)
+        assert "SHORT" in codes
+
+    def test_series_resistors_sharing_pad_not_blocked(self) -> None:
+        """Series-resistor pattern: R1.pin2 and R2.pin1 share the same
+        physical pad, both assigned to the same schematic net.  This is
+        a legitimate and common perfboard layout — DRC flags it as
+        OVERLAP (informational) but NOT as SHORT.  Autoroute must not
+        block on OVERLAP alone, because the user did this intentionally.
+        """
+        board = _perfboard(5, 5)
+        defn = _sil2_def()
+        cid_a = uuid.uuid4()
+        cid_b = uuid.uuid4()
+        cid_c = uuid.uuid4()
+        inst_a = ComponentInstance(
+            id=cid_a, definition_ref="COMP", refdes="R1", value="1k",
+        )
+        inst_b = ComponentInstance(
+            id=cid_b, definition_ref="COMP", refdes="R2", value="1k",
+        )
+        inst_c = ComponentInstance(
+            id=cid_c, definition_ref="COMP", refdes="R3", value="1k",
+        )
+        # R1.pin2 = (1.5, 0.5).  R2.pin1 = (1.5, 0.5) — same pad → OVERLAP.
+        # R3 is the routing target, placed elsewhere.
+        layout = Layout(placements={
+            cid_a: _place(cid_a, 0.5, 0.5),  # pin1=(0.5,0.5) pin2=(1.5,0.5)
+            cid_b: _place(cid_b, 1.5, 0.5),  # pin1=(1.5,0.5) pin2=(2.5,0.5)
+            cid_c: _place(cid_c, 3.5, 0.5),  # pin1=(3.5,0.5) pin2=(4.5,0.5)
+        })
+        # Single shared net for the series junction (R1.pin2 = R2.pin1),
+        # second net connects R2.pin2 → R3.pin1 — that's what autoroute
+        # actually needs to draw a wire for.
+        ref_a2 = PinRef(component_id=cid_a, pin_number=2)
+        ref_b1 = PinRef(component_id=cid_b, pin_number=1)
+        ref_b2 = PinRef(component_id=cid_b, pin_number=2)
+        ref_c1 = PinRef(component_id=cid_c, pin_number=1)
+        # Series junction: same schematic net contains both pins on the
+        # shared pad — no SHORT.
+        junction = Net(id=uuid.uuid4(), name="JUNCTION", pins={ref_a2, ref_b1})
+        bridge = Net(id=uuid.uuid4(), name="BRIDGE", pins={ref_b2, ref_c1})
+        schematic = Schematic(nets={junction.id: junction, bridge.id: bridge})
+        components = {"COMP": defn}
+        instances = {cid_a: inst_a, cid_b: inst_b, cid_c: inst_c}
+
+        # Must not raise — OVERLAP alone is not blocking.
+        result = autoroute(board, layout, schematic, components, instances)
+        # BRIDGE should route; JUNCTION is already physically connected via
+        # the shared pad so it has nothing to draw.
+        assert "BRIDGE" not in result.unrouted_nets
+
+    def test_clean_layout_does_not_abort(self) -> None:
+        """A normal two-pin route with disjoint nets must NOT raise.
+
+        Guard against false positives in the precondition gate.
+        """
+        board = _perfboard(5, 5)
+        defn = _sil2_def()
+        cid_a = uuid.uuid4()
+        cid_b = uuid.uuid4()
+        inst_a = ComponentInstance(
+            id=cid_a, definition_ref="COMP", refdes="R1", value="1k",
+        )
+        inst_b = ComponentInstance(
+            id=cid_b, definition_ref="COMP", refdes="R2", value="1k",
+        )
+        layout = Layout(placements={
+            cid_a: _place(cid_a, 0.5, 0.5),
+            cid_b: _place(cid_b, 3.5, 0.5),
+        })
+        ref_a2 = PinRef(component_id=cid_a, pin_number=2)
+        ref_b1 = PinRef(component_id=cid_b, pin_number=1)
+        net = Net(id=uuid.uuid4(), name="N1", pins={ref_a2, ref_b1})
+        schematic = Schematic(nets={net.id: net})
+        components = {"COMP": defn}
+        instances = {cid_a: inst_a, cid_b: inst_b}
+
+        # Must not raise.
+        result = autoroute(board, layout, schematic, components, instances)
+        assert result.unrouted_nets == []

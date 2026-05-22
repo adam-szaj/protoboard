@@ -84,3 +84,12 @@ class RoutingCostModel:
     # most ``original_cost * max_reroute_factor``.  0 = disabled.
     # Tuning starting point: 1.5.
     max_reroute_factor: float = 0.0
+    # Cost added when a step touches an existing wire of the *same*
+    # electrical net (crossing, collinear overlap, or shared pad vertex).
+    # 0.0 means same-net reuse is electrically free — the router happily
+    # produces a shared trunk instead of redundant parallel runs.  Applies
+    # to bare and insulated wires alike, against any existing wire of the
+    # net (manual or autoroute-placed).  Overrides ``crossing_*``,
+    # ``at_pad_*``, and ``parallel_opposite_side`` penalties when the
+    # crossed/touched wire belongs to the active net.
+    same_net_wire_reuse_cost: float = 0.0

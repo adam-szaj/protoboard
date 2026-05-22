@@ -49,6 +49,7 @@ from protoboard.services.routing.astar import PathStep, find_paths, split_path_b
 from protoboard.services.routing.cost_model import RoutingCostModel
 
 if TYPE_CHECKING:
+    from protoboard.services.drc.engine import DRCIssue
     from protoboard.services.routing.postprocess import SimplifyMode
 
 # Higher direction_change discourages long detours and keeps wires closer
@@ -74,6 +75,12 @@ _CPU_COUNT = max(2, (_os.cpu_count() or 2))
 _SHORT_DETECTION_ENABLED = _os.environ.get("PROTOBOARD_SHORT_DETECTION", "1") != "0"
 _FAIL_ON_SHORT = _os.environ.get("PROTOBOARD_FAIL_ON_SHORT", "0") == "1"
 
+# Per-autoroute-run set of fused-net pairs that have already been reported.
+# Reset at the top of every ``autoroute()`` call.  Read by
+# ``_check_no_net_fusion`` to dedup repeat warnings about the same persistent
+# fusion (one report per pair per run, not one per add_wire).
+_SEEN_FUSIONS: set[frozenset[str]] = set()
+
 
 def _check_no_net_fusion(
     graph: "ConnectivityGraph",
@@ -81,6 +88,7 @@ def _check_no_net_fusion(
     current_net: "Net",
     just_added: "WireSegment",
     fail: bool = False,
+    seen_fusions: set[frozenset[str]] | None = None,
 ) -> None:
     """Verify no electric set holds pins from two different schematic nets.
 
@@ -88,6 +96,11 @@ def _check_no_net_fusion(
     flag it immediately so the trace can be matched to a specific
     routing decision.  Cost: O(total_pins) per call.  Disable via
     PROTOBOARD_SHORT_DETECTION=0 in production.
+
+    *seen_fusions*: when provided, each unique fused-net pair is logged
+    only once per autoroute run.  This stops a single persistent fusion
+    from flooding the console with one ERROR per subsequent wire.  The
+    caller owns the set lifetime (reset on each ``autoroute()`` call).
     """
     from collections import defaultdict as _dd
     key_to_nets: dict[object, set[str]] = _dd(set)
@@ -99,8 +112,15 @@ def _check_no_net_fusion(
     fused = {ck: names for ck, names in key_to_nets.items() if len(names) > 1}
     if not fused:
         return
-    # Report each fusion and the wire that triggered it.
+    # Report each fusion and the wire that triggered it.  Skip pairs
+    # already reported in this run (dedup) — keeps per-wire trigger
+    # info for genuinely new fusions while suppressing repeats.
     for ck, names in fused.items():
+        pair_key = frozenset(names)
+        if seen_fusions is not None:
+            if pair_key in seen_fusions:
+                continue
+            seen_fusions.add(pair_key)
         _log.error(
             "autoroute.short_detected",
             current_net=current_net.name,
@@ -116,6 +136,51 @@ def _check_no_net_fusion(
             f"Net fusion detected after routing {current_net.name}: "
             f"wire {str(just_added.id)[:8]} merged {sorted(next(iter(fused.values())))}"
         )
+
+
+def _log_preexisting_fusions(
+    graph: "ConnectivityGraph",
+    schematic: "Schematic",
+    user_wires: list["WireSegment"],
+) -> set[frozenset[str]]:
+    """One-shot diagnostic: log every electric-set fusion that already exists
+    before autoroute starts adding wires.
+
+    Returns the set of fused-net pairs found — caller passes this as
+    *seen_fusions* into per-wire ``_check_no_net_fusion`` calls so the
+    same pairs aren't re-reported as autoroute progresses.
+
+    A pre-existing fusion means the project's *data* (component placements
+    + footprints + user wires) already short-circuits two schematic nets,
+    independently of what autoroute is about to do.  Common causes:
+    overlapping pin pads between two different nets, or user wires that
+    already bridge nets.
+    """
+    from collections import defaultdict as _dd
+    key_to_nets: dict[object, set[str]] = _dd(set)
+    for net in schematic.nets.values():
+        for ref in net.pins:
+            ck = graph.node_for_pin(ref)
+            if ck is not None:
+                key_to_nets[ck].add(net.name)
+    fused = {ck: names for ck, names in key_to_nets.items() if len(names) > 1}
+    seen: set[frozenset[str]] = set()
+    for ck, names in fused.items():
+        seen.add(frozenset(names))
+        _log.info(
+            "autoroute.preexisting_fusion",
+            fused_nets=sorted(names),
+            canonical=str(ck),
+            existing_wires=len(user_wires),
+            hint=(
+                "Two schematic nets already share an electric set BEFORE "
+                "autoroute begins. Likely cause: overlapping pin pads in "
+                "the placement, or a user-placed wire that bridges nets. "
+                "Subsequent per-wire short_detected reports for this pair "
+                "will be suppressed."
+            ),
+        )
+    return seen
 
 class _SequentialExecutor:
     """Drop-in replacement for ThreadPoolExecutor that runs work inline.
@@ -170,6 +235,41 @@ else:
 
 class AutorouteCancelled(Exception):
     """Raised when the cancel_flag is set during routing."""
+
+
+class AutoroutePreconditionError(Exception):
+    """Raised when the input layout fails DRC checks that autoroute requires.
+
+    Carries the offending DRC issues so the caller (GUI worker) can present
+    a meaningful dialog: "fix these problems before running autoroute".
+
+    Junk preconditions produce junk autoroute output: if two pins of
+    different nets already share a physical pad, or if a user wire
+    already shorts two nets, the router cannot recover — it would just
+    flood the console with `short_detected` warnings and produce wires
+    that DRC would reject anyway.  Bail out cleanly instead.
+    """
+
+    def __init__(self, issues: "list[DRCIssue]") -> None:  # noqa: F821
+        self.issues = issues
+        codes = sorted({iss.code for iss in issues})
+        super().__init__(
+            f"Autoroute preconditions failed: {len(issues)} DRC issue(s) — "
+            f"codes={codes}. Resolve them (Run → DRC) before re-running autoroute."
+        )
+
+
+# Codes from DRC that prevent autoroute from running.  Other DRC errors
+# (e.g. BARE_WIRE_INTERIOR_CROSS) are *consequences* of routing, not
+# preconditions — they can't occur on an unrouted board.  Keep this set
+# narrow so we don't accidentally block on warnings.
+#
+# Note: ``OVERLAP`` alone (two component pins sharing a physical pad) is
+# legal on perfboards — e.g. a floating pin of one component intentionally
+# touching a routed pin of another.  It only becomes blocking when the
+# shared pad fuses two different schematic nets, which DRC reports
+# separately as ``SHORT``.  So we block on SHORT only.
+_AUTOROUTE_BLOCKING_DRC_CODES: frozenset[str] = frozenset({"SHORT"})
 
 
 @dataclass
@@ -350,6 +450,30 @@ def autoroute(
     """
     result = AutorouteResult()
 
+    # ------------------------------------------------------------------
+    # Precondition check: run DRC and abort on errors that autoroute
+    # cannot recover from (SHORT, OVERLAP).  Junk preconditions produce
+    # junk autoroute output — better to fail fast with a clear error
+    # than to flood the log with shorts and emit broken wires.
+    # ------------------------------------------------------------------
+    from protoboard.services.drc.engine import DRCEngine
+    _drc_issues = DRCEngine().check(
+        board=board, schematic=schematic, layout=layout,
+        components=components, instances=instances,
+    )
+    _blocking = [
+        iss for iss in _drc_issues
+        if iss.severity == "error"
+        and iss.code in _AUTOROUTE_BLOCKING_DRC_CODES
+    ]
+    if _blocking:
+        _log.error(
+            "autoroute.precondition_failed",
+            blocking_count=len(_blocking),
+            codes=sorted({iss.code for iss in _blocking}),
+        )
+        raise AutoroutePreconditionError(_blocking)
+
     # Build pin-position lookup: PinRef → (world_position, side).
     pin_positions = _build_pin_positions(layout, components, instances)
 
@@ -433,6 +557,25 @@ def autoroute(
         max_optimize_iterations=max_optimize_iterations,
         net_order=[n.name for n in sorted_nets],
     )
+
+    # Reset the per-run dedup set so each autoroute invocation starts fresh.
+    # Then build a one-shot ConnectivityGraph that includes the user_wires
+    # snapshot but no autoroute output, and log every fusion that already
+    # exists.  Pairs reported here are also added to ``_SEEN_FUSIONS`` so
+    # the per-wire detector won't re-report them 300 times during the run.
+    _SEEN_FUSIONS.clear()
+    if _SHORT_DETECTION_ENABLED:
+        _preautoroute_graph = ConnectivityGraph(
+            board=board,
+            layout=layout,
+            components=components,
+            instances=instances,
+        )
+        for _w in user_wires:
+            _preautoroute_graph.add_wire(_w)
+        _SEEN_FUSIONS.update(
+            _log_preexisting_fusions(_preautoroute_graph, schematic, user_wires)
+        )
 
     n_nets = len(sorted_nets)
 
@@ -1049,6 +1192,36 @@ def _route_net(
     for _w in working_wires:
         current_graph.add_wire(_w)
 
+    # Build wire_to_net_id once per `_route_net` call.  Used by the
+    # same-net-reuse cost machinery to recognise existing wires of the
+    # active net as electrically "free" (no crossing/at-pad/parallel
+    # penalty; teleport edges between same-net pad-vertices).
+    #
+    # We resolve a wire to its net by checking whether any vertex of its
+    # path coincides with a pin of some net; the first match wins (T-junction
+    # branches still resolve correctly because *any* pin on the connected
+    # component determines the net).  Wires that touch no pin remain
+    # net_id=None and never participate in the reuse discount.
+    pin_pos_to_net: dict[tuple[Point, str], uuid.UUID] = {}
+    for _n in schematic.nets.values():
+        for _ref in _n.pins:
+            if _ref in pin_positions:
+                _pt, _ = pin_positions[_ref]
+                pin_pos_to_net[(_pt, "top")] = _n.id
+                pin_pos_to_net[(_pt, "bottom")] = _n.id
+    wire_to_net_id: dict[uuid.UUID, uuid.UUID | None] = {}
+    for _w in working_wires:
+        _resolved: uuid.UUID | None = None
+        for _v in _w.path:
+            _hit = pin_pos_to_net.get((_v, _w.side))
+            if _hit is not None:
+                _resolved = _hit
+                break
+        wire_to_net_id[_w.id] = _resolved
+
+    # `same_net_pad_vertices` is computed lazily inside _route_segment_with_ripup
+    # so it can refresh as working_wires grows during rip-up retries.
+
     # near_pin_pads: pads adjacent (on both layers) to pins that still need
     # routing.  The penalty discourages stealing corridors from other nets.
     #
@@ -1236,6 +1409,8 @@ def _route_net(
             under_component_penalty=under_component_penalty,
             preferred_side=preferred_side,
             push_and_shove=push_and_shove,
+            wire_to_net_id=wire_to_net_id,
+            active_net_id=net_id,
         )
         if seg_result is None:
             routed_wires = None
@@ -1291,6 +1466,7 @@ def _route_net(
             if _SHORT_DETECTION_ENABLED:
                 _check_no_net_fusion(
                     current_graph, schematic, net, w, fail=_FAIL_ON_SHORT,
+                    seen_fusions=_SEEN_FUSIONS,
                 )
 
         connected_refs.append(ref)
@@ -1345,6 +1521,8 @@ def _route_segment_with_ripup(
     manhattan_dist: float = 0.0,
     push_and_shove: bool = True,
     pass_new_wires: list[WireSegment] | None = None,
+    wire_to_net_id: dict[uuid.UUID, uuid.UUID | None] | None = None,
+    active_net_id: uuid.UUID | None = None,
 ) -> tuple[list[WireSegment], dict[str, int]] | None:
     """Try to route *target* from any of *source_options*, with rip-up fallback.
 
@@ -1380,17 +1558,37 @@ def _route_segment_with_ripup(
     _enh_parallel_active = cost_model.parallel_opposite_side != 0.0
     for attempt in range(max_rip_up_passes + 1):
         graph = connectivity_graph
-        bare_segs = _build_bare_wire_segments(working_wires)
+        bare_segs = _build_bare_wire_segments(working_wires, wire_to_net_id)
+
+        # Same-net pad vertices for the active net: every grid vertex of
+        # every existing wire belonging to this net.  Drives find_paths'
+        # extended target_set (the search may terminate at any of these
+        # pads) and the teleport edges (zero-cost hops between same-net
+        # vertices).  Rebuilt every attempt because working_wires can
+        # grow during rip-up retries within this segment.
+        same_net_pad_vertices: set[tuple[Point, str]] = set()
+        if active_net_id is not None and wire_to_net_id is not None:
+            for _w in working_wires:
+                if wire_to_net_id.get(_w.id) != active_net_id:
+                    continue
+                for _v in _w.path:
+                    same_net_pad_vertices.add((_v, _w.side))
+
         # Enhanced indices: built only when the corresponding cost knob
         # is non-zero.  ``find_paths`` accepts None and degrades to the
         # legacy hot-loop branch — same observable behaviour with zero
         # allocations on the default path.
-        at_pad_idx = (
-            _build_at_pad_wire_index(working_wires)
-            if _enh_at_pad_active else None
-        )
+        # Same-net reuse always needs at_pad_nets when any same-net wire
+        # exists, but the heavy bitmask part is still elective.
+        _needs_at_pad_nets = bool(same_net_pad_vertices)
+        if _enh_at_pad_active or _needs_at_pad_nets:
+            _bm_idx, _nets_idx = _build_at_pad_wire_index(working_wires, wire_to_net_id)
+        else:
+            _bm_idx, _nets_idx = None, None
+        at_pad_idx = _bm_idx if _enh_at_pad_active else None
+        at_pad_nets_idx = _nets_idx if _needs_at_pad_nets else None
         all_seg_idx = (
-            _build_all_seg_index(working_wires)
+            _build_all_seg_index(working_wires, wire_to_net_id)
             if _enh_parallel_active else None
         )
 
@@ -1501,6 +1699,9 @@ def _route_segment_with_ripup(
                     penalised_pads=under_component_penalty,
                     at_pad_wires=at_pad_idx,
                     all_segments=all_seg_idx,
+                    active_net_id=active_net_id,
+                    at_pad_nets=at_pad_nets_idx,
+                    same_net_pad_vertices=same_net_pad_vertices,
                 )
 
             attempt_best: tuple[float, list[PathStep]] | None = None
@@ -1546,6 +1747,9 @@ def _route_segment_with_ripup(
                         penalised_pads=under_component_penalty,
                         at_pad_wires=at_pad_idx,
                         all_segments=all_seg_idx,
+                        active_net_id=active_net_id,
+                        at_pad_nets=at_pad_nets_idx,
+                        same_net_pad_vertices=same_net_pad_vertices,
                     )
                     if results:
                         _seg_nodes += results[0].nodes_expanded
@@ -1643,6 +1847,7 @@ def _route_segment_with_ripup(
                 plated_through_pads,
                 under_component_penalty,
                 _already_rerouted,
+                wire_to_net_id=wire_to_net_id,
             )
             if mid_cell is not None:
                 _already_rerouted.add(mid_cell[0].id)
@@ -1907,34 +2112,44 @@ def _build_occupied_map(
 
 def _build_bare_wire_segments(
     wires: list[WireSegment],
-) -> set[tuple[Point, Point, str]]:
-    """Return the set of (p1, p2, side) triples for all *bare* (non-insulated) wires."""
-    segs: set[tuple[Point, Point, str]] = set()
+    wire_to_net_id: dict[uuid.UUID, uuid.UUID | None] | None = None,
+) -> set[tuple[Point, Point, str, uuid.UUID | None]]:
+    """Return the set of (p1, p2, side, net_id) tuples for all *bare* (non-insulated) wires.
+
+    ``net_id`` is looked up via ``wire_to_net_id`` (None when the wire
+    is not associated with any electrical net).  Same-net reuse logic
+    in the A* core consults this field.
+    """
+    segs: set[tuple[Point, Point, str, uuid.UUID | None]] = set()
     for wire in wires:
         if wire.insulated:
             continue
+        nid = wire_to_net_id.get(wire.id) if wire_to_net_id else None
         for i in range(len(wire.path) - 1):
             p1, p2 = wire.path[i], wire.path[i + 1]
             if (p1.x, p1.y) <= (p2.x, p2.y):
-                segs.add((p1, p2, wire.side))
+                segs.add((p1, p2, wire.side, nid))
             else:
-                segs.add((p2, p1, wire.side))
+                segs.add((p2, p1, wire.side, nid))
     return segs
 
 
 def _build_all_seg_index(
     wires: list[WireSegment],
-) -> list[tuple[Point, Point, str, bool]]:
-    """All wire segments as ``(p1, p2, side, is_insulated)`` tuples.
+    wire_to_net_id: dict[uuid.UUID, uuid.UUID | None] | None = None,
+) -> list[tuple[Point, Point, str, bool, uuid.UUID | None]]:
+    """All wire segments as ``(p1, p2, side, is_insulated, net_id)`` tuples.
 
     Includes both bare and insulated wires.  Used by the enhanced router
-    to detect parallel-on-opposite-side overlaps in ``_crossing_cost``
-    territory.  Segment orientation is normalised (smaller endpoint
-    first) so duplicates are deduped trivially by callers.
+    to detect parallel-on-opposite-side overlaps and by same-net reuse
+    to skip penalties when the overlap belongs to the active net.  Segment
+    orientation is normalised (smaller endpoint first) so duplicates are
+    deduped trivially by callers.
     """
-    out: list[tuple[Point, Point, str, bool]] = []
+    out: list[tuple[Point, Point, str, bool, uuid.UUID | None]] = []
     seen: set[tuple[Point, Point, str, bool]] = set()
     for wire in wires:
+        nid = wire_to_net_id.get(wire.id) if wire_to_net_id else None
         for i in range(len(wire.path) - 1):
             p1, p2 = wire.path[i], wire.path[i + 1]
             if (p1.x, p1.y) > (p2.x, p2.y):
@@ -1943,32 +2158,47 @@ def _build_all_seg_index(
             if key in seen:
                 continue
             seen.add(key)
-            out.append(key)
+            out.append((p1, p2, wire.side, wire.insulated, nid))
     return out
 
 
 def _build_at_pad_wire_index(
     wires: list[WireSegment],
-) -> dict[tuple[Point, str], int]:
-    """Per ``(pad, side)`` bitmask of wire-types whose vertices land there.
+    wire_to_net_id: dict[uuid.UUID, uuid.UUID | None] | None = None,
+) -> tuple[
+    dict[tuple[Point, str], int],
+    dict[tuple[Point, str], frozenset[uuid.UUID]],
+]:
+    """Per ``(pad, side)`` bitmask + per-pad set of net_ids whose wires touch.
 
-    Bits: ``1`` = at least one insulated wire's vertex is on this pad
-    on this side; ``2`` = at least one bare wire's vertex is on this
+    Returns ``(bitmask_index, net_ids_index)``.
+
+    Bitmask bits: ``1`` = at least one insulated wire's vertex is on this
+    pad on this side; ``2`` = at least one bare wire's vertex is on this
     pad on this side.  Both bits set means a mixed-type contact already
-    exists at this pad — informational only; the enhanced cost model
-    decides how to penalise a *new* wire stepping in.
+    exists.  Used by :class:`EnhancedAStarRouter` to penalise "two wires
+    meeting at the same pad".
 
-    Used by :class:`EnhancedAStarRouter` to penalise "two wires meeting
-    at the same pad" — the default ``astar`` router ignores this index
-    because the corresponding cost-model fields default to ``0``.
+    The ``net_ids_index`` carries the set of net_ids whose wire-vertices
+    land on each pad — used by same-net reuse to bypass the at_pad
+    penalty (and the at_pad_bare_short reject) when the active net
+    already has metal on this pad.
     """
-    index: dict[tuple[Point, str], int] = {}
+    bm_index: dict[tuple[Point, str], int] = {}
+    net_index: dict[tuple[Point, str], frozenset[uuid.UUID]] = {}
+    nets_accum: dict[tuple[Point, str], set[uuid.UUID]] = {}
     for wire in wires:
         bit = 1 if wire.insulated else 2
+        nid = wire_to_net_id.get(wire.id) if wire_to_net_id else None
         for vertex in wire.path:
             key = (vertex, wire.side)
-            index[key] = index.get(key, 0) | bit
-    return index
+            bm_index[key] = bm_index.get(key, 0) | bit
+            if nid is not None:
+                bucket = nets_accum.setdefault(key, set())
+                bucket.add(nid)
+    for key, nids in nets_accum.items():
+        net_index[key] = frozenset(nids)
+    return bm_index, net_index
 
 
 def _nudge_wire(
@@ -2029,6 +2259,7 @@ def _try_mid_cell_reroute(
     plated_through_pads: set[Point] | None,
     under_component_penalty: dict[tuple[Point, str], float],
     already_rerouted: set[uuid.UUID],
+    wire_to_net_id: dict[uuid.UUID, uuid.UUID | None] | None = None,
 ) -> tuple[WireSegment, WireSegment] | None:
     """Mid-cell-preferred push-and-shove (Strategy 1).
 
@@ -2100,6 +2331,22 @@ def _try_mid_cell_reroute(
         # doesn't trip over it.
         connectivity_graph.remove_wire(wire)
         try:
+            # Derive active net for the rerouted wire from wire_to_net_id;
+            # may be None (floating, or caller didn't provide the map) —
+            # find_paths tolerates a missing active_net_id (no discount).
+            _reroute_net_id = (
+                wire_to_net_id.get(wire.id) if wire_to_net_id else None
+            )
+            # Same-net pad vertices = vertices of *other* wires of this net.
+            _reroute_pv: set[tuple[Point, str]] = set()
+            if _reroute_net_id is not None and wire_to_net_id is not None:
+                for _ow in working_wires:
+                    if _ow.id == wire.id:
+                        continue
+                    if wire_to_net_id.get(_ow.id) != _reroute_net_id:
+                        continue
+                    for _v in _ow.path:
+                        _reroute_pv.add((_v, _ow.side))
             results = find_paths(
                 graph=connectivity_graph,
                 source=w_src,
@@ -2113,10 +2360,13 @@ def _try_mid_cell_reroute(
                 near_pin_pads=set(),
                 near_pin_cost=10.0,
                 bare_wire_segments=_build_bare_wire_segments(
-                    [w for w in working_wires if w.id != wire.id]
+                    [w for w in working_wires if w.id != wire.id],
+                    wire_to_net_id,
                 ),
                 plated_through_pads=plated_through_pads,
                 penalised_pads=under_component_penalty,
+                active_net_id=_reroute_net_id,
+                same_net_pad_vertices=_reroute_pv,
             )
         finally:
             connectivity_graph.add_wire(wire)
@@ -2129,6 +2379,11 @@ def _try_mid_cell_reroute(
         # Same path (or essentially same) — nothing gained.
         new_path = [p for p, _s in best.path]
         if new_path == list(wire.path):
+            continue
+        # Defensive: A* may return a 1-point trivial path when source is
+        # already in target_set (e.g. via extended same-net targets).
+        # A WireSegment requires ≥ 2 points; skip these.
+        if len(new_path) < 2:
             continue
         new_wire = WireSegment(
             id=uuid.uuid4(),

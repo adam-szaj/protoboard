@@ -139,6 +139,7 @@ class AutorouteWorker(QThread):
         import structlog as _sl
         from protoboard.services.routing.autorouter import (
             AutorouteCancelled,
+            AutoroutePreconditionError,
             AutorouteResult,
         )
         # Importing the built-in modules ensures the default router /
@@ -222,6 +223,14 @@ class AutorouteWorker(QThread):
                 result = opt.optimize(request, result, sink)
         except AutorouteCancelled:
             self.finished.emit(AutorouteResult())
+            return
+        except AutoroutePreconditionError as exc:
+            # Format the issues into a human-readable message.  The dialog
+            # caller can split on newlines for a list view.
+            lines = [str(exc), ""]
+            for iss in exc.issues:
+                lines.append(f"  • [{iss.code}] {iss.message}")
+            self.error.emit("\n".join(lines))
             return
         except Exception as exc:  # noqa: BLE001
             self.error.emit(str(exc))

@@ -163,15 +163,32 @@ def _find_paths_rust(
     return results
 
 
-# Spatial index for bare wire segments: (cell_x, cell_y, side) → [(p1, p2), ...]
+# Spatial index for bare wire segments: (cell_x, cell_y, side) → [(p1, p2, net_idx), ...]
 # Each segment is stored under every integer cell its bounding box covers.
 # Lookup: for a step covering bbox (x0..x1, y0..y1) query all overlapping cells.
-BareSegIndex = dict[tuple[int, int, str], list[tuple[Point, Point]]]
+# ``net_idx`` is a compact integer identifier of the segment's electrical net
+# (built per find_paths call); -1 = no net / floating wire.  Used to detect
+# same-net wire reuse so the new step can skip crossing penalties.
+BareSegIndex = dict[tuple[int, int, str], list[tuple[Point, Point, int]]]
 
 
-def _build_bare_seg_index(bare_segs: set[tuple[Point, Point, str]]) -> BareSegIndex:
+def _build_bare_seg_index(
+    bare_segs: set[tuple[Point, Point, str, int]] | set[tuple[Point, Point, str]],
+) -> BareSegIndex:
+    """Build a spatial index of bare wire segments.
+
+    Accepts either the legacy 3-tuple form ``(p1, p2, side)`` or the
+    net-aware 4-tuple form ``(p1, p2, side, net_idx)``.  The legacy form
+    is treated as net_idx=-1 (no net) for backward compatibility with
+    older test fixtures.
+    """
     idx: BareSegIndex = {}
-    for p1, p2, side in bare_segs:
+    for entry in bare_segs:
+        if len(entry) == 4:
+            p1, p2, side, net_idx = entry  # type: ignore[misc]
+        else:
+            p1, p2, side = entry  # type: ignore[misc]
+            net_idx = -1
         x0 = int(math.floor(min(p1.x, p2.x)))
         x1 = int(math.floor(max(p1.x, p2.x)))
         y0 = int(math.floor(min(p1.y, p2.y)))
@@ -181,7 +198,7 @@ def _build_bare_seg_index(bare_segs: set[tuple[Point, Point, str]]) -> BareSegIn
                 key = (cx, cy, side)
                 if key not in idx:
                     idx[key] = []
-                idx[key].append((p1, p2))
+                idx[key].append((p1, p2, net_idx))
     return idx
 
 
@@ -347,7 +364,10 @@ def _universe_worker(
     penalised: dict[tuple[Point, str], float],
     source_parity: int = -1,
     at_pad_wires: dict[tuple[Point, str], int] | None = None,
-    all_segments: list[tuple[Point, Point, str, bool]] | None = None,
+    all_segments: list[tuple[Point, Point, str, bool, int]] | None = None,
+    active_net_idx: int = -1,
+    at_pad_nets: dict[tuple[Point, str], frozenset[int]] | None = None,
+    teleport_pads: dict[tuple[Point, str], tuple[tuple[Point, str], ...]] | None = None,
 ) -> None:
     """Run one A* universe until it finds a path, exhausts the heap, or exceeds budget.
 
@@ -401,25 +421,51 @@ def _universe_worker(
     _atp_ii = cost_model.at_pad_insulated_insulated_same_side
     _atp_ib = cost_model.at_pad_insulated_bare_same_side
     _atp_active = bool(_atp) and (_atp_ii != 0.0 or _atp_ib != 0.0)
+    # Per-pad set of net indices whose wire-vertices land on this pad.
+    # Used for same-net reuse: if the active net's index is in the set,
+    # the at_pad penalty (and the at_pad_bare_short reject) is bypassed
+    # — touching one's own wire at a pad is electrically free.
+    _atp_nets: dict[tuple[float, float, str], frozenset[int]] = (
+        {(p.x, p.y, s): nets for (p, s), nets in at_pad_nets.items()}
+        if at_pad_nets else {}
+    )
     # Parallel-opposite-side penalty: list of (p1x, p1y, p2x, p2y,
-    # other_side, other_insulated) tuples on the OPPOSITE side from the
-    # source.  Pre-filtered once so the hot loop only scans relevant
-    # segments.  Empty when penalty=0 or all_segments is empty.
+    # other_side, other_insulated, other_net_idx) tuples on the OPPOSITE
+    # side from the source.  Pre-filtered once so the hot loop only scans
+    # relevant segments.  Empty when penalty=0 or all_segments is empty.
     _pos_pen = cost_model.parallel_opposite_side
     _pos_active = _pos_pen != 0.0 and bool(all_segments)
     # Two buckets:
     # * ``_segs_on_top``  — segments living on the TOP layer; consulted by
     #   workers stepping on BOTTOM (i.e. opposite to TOP).
     # * ``_segs_on_bot``  — segments on BOTTOM; consulted by TOP workers.
-    _segs_on_top: list[tuple[float, float, float, float, bool]] = []
-    _segs_on_bot: list[tuple[float, float, float, float, bool]] = []
+    _segs_on_top: list[tuple[float, float, float, float, bool, int]] = []
+    _segs_on_bot: list[tuple[float, float, float, float, bool, int]] = []
     if _pos_active and all_segments is not None:
-        for _p1, _p2, _osd, _oins in all_segments:
-            entry = (_p1.x, _p1.y, _p2.x, _p2.y, _oins)
+        for _seg in all_segments:
+            # Backward compat: accept legacy 4-tuple (p1, p2, side, insulated)
+            # and synthesise net_idx=-1.
+            if len(_seg) == 5:
+                _p1, _p2, _osd, _oins, _onet = _seg
+            else:
+                _p1, _p2, _osd, _oins = _seg  # type: ignore[misc]
+                _onet = -1
+            entry = (_p1.x, _p1.y, _p2.x, _p2.y, _oins, _onet)
             if _osd == "top":
                 _segs_on_top.append(entry)
             else:
                 _segs_on_bot.append(entry)
+    # Same-net wire reuse setup.
+    _reuse_cost = cost_model.same_net_wire_reuse_cost
+    _has_reuse = active_net_idx >= 0
+    # Float-keyed teleport map: at every same-net pad-vertex of an existing
+    # wire of the active net, list the other pad-vertices in the same-net
+    # electrical component.  Each destination is a (Point, side) we push as
+    # a zero-cost neighbour.  Empty when active net has no laid wires.
+    _tp: dict[tuple[float, float, str], tuple[tuple[Point, str], ...]] = (
+        {(p.x, p.y, s): dests for (p, s), dests in teleport_pads.items()}
+        if teleport_pads else {}
+    )
     _parity_filter = cost_model.bare_diagonal_mode and source_parity in (0, 1)
     # Allowed sign of (ndx * ndy) for diagonal steps in the source's family.
     # parity 0 → "/" family → ndx*ndy > 0; parity 1 → "\" family → ndx*ndy < 0.
@@ -526,7 +572,10 @@ def _universe_worker(
 
                 # Point created here — needed for _crossing_cost and path.
                 npos = Point(nx, ny)
-                crossing_cost = _crossing_cost(pos, npos, cur_side, bare_idx, cost_model, insulated)
+                crossing_cost = _crossing_cost(
+                    pos, npos, cur_side, bare_idx, cost_model, insulated,
+                    active_net_idx=active_net_idx,
+                )
                 if crossing_cost >= _inf:
                     if _trace_neighbours is not None:
                         _trace_neighbours.append([ndx, ndy, "crossing_inf"])
@@ -539,7 +588,17 @@ def _universe_worker(
                 # vertex present.  Bare×bare same-side is already blocked
                 # upstream via ``occupied``; this branch handles the
                 # mixed and insulated×insulated cases.
-                if _atp_active:
+                #
+                # Same-net override: if the active net already has a vertex
+                # on this pad, touching it is electrically free — bypass
+                # both the _atp_ii/_atp_ib add and the at_pad_bare_short
+                # reject.  Pay reuse_cost (default 0.0).
+                _same_net_at_pad = (
+                    _has_reuse and active_net_idx in _atp_nets.get(_nkey, frozenset())
+                )
+                if _same_net_at_pad:
+                    step_cost += _reuse_cost
+                elif _atp_active:
                     _bm = _atp.get(_nkey, 0)
                     if _bm:
                         if insulated:
@@ -576,7 +635,11 @@ def _universe_worker(
                         _step_max_x = cx if cx >= nx else nx
                         _step_min_y = cy if cy <= ny else ny
                         _step_max_y = cy if cy >= ny else ny
-                        for _q1x, _q1y, _q2x, _q2y, _oins in _opp:
+                        for _q1x, _q1y, _q2x, _q2y, _oins, _onet in _opp:
+                            # Same-net opposite-side overlap is electrically
+                            # one node already — no penalty.
+                            if _has_reuse and _onet == active_net_idx:
+                                continue
                             # Skip if neither wire is insulated (bare×bare
                             # opposite-side has no penalty by spec).
                             if not insulated and not _oins:
@@ -642,6 +705,43 @@ def _universe_worker(
             if via_entry is not None:
                 neighbor_entries.append(via_entry)
 
+            # Same-net teleport edges: if the current pad is a vertex of an
+            # existing wire belonging to the active net, hop to any other
+            # pad-vertex in that net's electrical component at reuse cost.
+            # Physically: the two pads are already shorted via existing
+            # metal; the route can "continue" from any of them for free.
+            # Only fires on pad-vertices (the grid points themselves) —
+            # never mid-segment.
+            if _has_reuse and _tp:
+                _dests = _tp.get((cx, cy, cur_side))
+                if _dests:
+                    for _dp, _dside in _dests:
+                        _dx_t = _dp.x
+                        _dy_t = _dp.y
+                        _dside_idx = 0 if _dside == "top" else 1
+                        # Skip self-loop and invalid nodes.
+                        if (_dx_t, _dy_t, _dside) == (cx, cy, cur_side):
+                            continue
+                        if (_dx_t, _dy_t) not in _vn[_dside_idx]:
+                            continue
+                        # Forbidden-edge check (skip if user pinned).
+                        if (cx, cy, cur_side, _dx_t, _dy_t, _dside) in _fe:
+                            continue
+                        ng = g + _reuse_cost
+                        # Teleport "arrives" with no direction memory —
+                        # next step pays no direction-change penalty.
+                        nstate = (_dx_t, _dy_t, _dside_idx, 0.0, 0.0)
+                        if nstate in visited and visited[nstate] <= ng:
+                            continue
+                        nf = ng + h(_dx_t, _dy_t)
+                        _seq += 1
+                        neighbor_entries.append((
+                            nf, ng, _seq,
+                            _dx_t, _dy_t, _dside_idx,
+                            0.0, 0.0,
+                            path + [(Point(_dx_t, _dy_t), _dside)],
+                        ))
+
             if _trace is not None:
                 _trace.write(_json.dumps({
                     "e": "step",
@@ -687,7 +787,10 @@ def _astar_parallel(
     penalised: dict[tuple[Point, str], float],
     extra_budget_ratio: float = 0.5,
     at_pad_wires: dict[tuple[Point, str], int] | None = None,
-    all_segments: list[tuple[Point, Point, str, bool]] | None = None,
+    all_segments: list[tuple[Point, Point, str, bool, int]] | list[tuple[Point, Point, str, bool]] | None = None,
+    active_net_idx: int = -1,
+    at_pad_nets: dict[tuple[Point, str], frozenset[int]] | None = None,
+    teleport_pads: dict[tuple[Point, str], tuple[tuple[Point, str], ...]] | None = None,
 ) -> RoutingResult | None:
     """Parallel-universe A* — may spawn sub-searches on the thread pool.
 
@@ -727,6 +830,8 @@ def _astar_parallel(
     # Submit the root universe.  Enhanced-router extras (``at_pad_wires``,
     # ``all_segments``) live at the tail of the positional list so the
     # legacy call sites that pass only ``source_parity`` keep working.
+    # Same-net reuse extras (``active_net_idx``, ``at_pad_nets``,
+    # ``teleport_pads``) follow them.
     fut = _UNIVERSE_POOL.submit(
         _universe_worker,
         initial_heap, initial_visited, 0, 0, shared,
@@ -736,6 +841,9 @@ def _astar_parallel(
         source_parity,
         at_pad_wires,
         all_segments,
+        active_net_idx,
+        at_pad_nets,
+        teleport_pads,
     )
     shared.add_future(fut)
 
@@ -791,12 +899,15 @@ def find_paths(
     same_net_pads: dict[tuple[Point, str], uuid.UUID] | None = None,
     near_pin_pads: set[tuple[Point, str]] | None = None,
     near_pin_cost: float = 10.0,
-    bare_wire_segments: set[tuple[Point, Point, str]] | None = None,
+    bare_wire_segments: set[tuple[Point, Point, str, uuid.UUID | None]] | set[tuple[Point, Point, str]] | None = None,
     plated_through_pads: set[Point] | None = None,
     penalised_pads: dict[tuple[Point, str], float] | None = None,
     extra_budget_ratio: float = 0.5,
     at_pad_wires: dict[tuple[Point, str], int] | None = None,
-    all_segments: list[tuple[Point, Point, str, bool]] | None = None,
+    all_segments: list[tuple[Point, Point, str, bool, uuid.UUID | None]] | list[tuple[Point, Point, str, bool]] | None = None,
+    active_net_id: uuid.UUID | None = None,
+    at_pad_nets: dict[tuple[Point, str], frozenset[uuid.UUID]] | None = None,
+    same_net_pad_vertices: set[tuple[Point, str]] | None = None,
 ) -> list[RoutingResult]:
     """Find up to *k* cheapest paths from *source* to any pad in *targets*.
 
@@ -831,13 +942,83 @@ def find_paths(
     occupied = occupied_pads or {}
     same_net = same_net_pads or {}
     near_pins: set[tuple[Point, str]] = near_pin_pads or set()
-    bare_segs = bare_wire_segments or set()
     vias = plated_through_pads or set()
     penalised = penalised_pads or {}
     at_pad = at_pad_wires or {}
-    all_segs = all_segments or []
 
+    # ---- Same-net reuse: canonicalise wire-related structures ----
+    # `bare_wire_segments` and `all_segments` may arrive in the legacy
+    # form (no net_id) or the net-aware form (UUID | None per segment);
+    # at_pad_nets uses UUIDs.  We build a deterministic UUID→int table
+    # and rewrite all wire/at_pad structures to use compact ints.  Active
+    # net_id is converted to its int index too; -1 means "no active net".
+    net_to_idx: dict[uuid.UUID, int] = {}
+
+    def _ensure_idx(nid: uuid.UUID | None) -> int:
+        if nid is None:
+            return -1
+        idx_existing = net_to_idx.get(nid)
+        if idx_existing is not None:
+            return idx_existing
+        new_idx = len(net_to_idx)
+        net_to_idx[nid] = new_idx
+        return new_idx
+
+    bare_segs_canon: set[tuple[Point, Point, str, int]] = set()
+    if bare_wire_segments:
+        for _seg in bare_wire_segments:
+            if len(_seg) == 4:
+                _p1, _p2, _sd, _nid = _seg  # type: ignore[misc]
+            else:
+                _p1, _p2, _sd = _seg  # type: ignore[misc]
+                _nid = None
+            bare_segs_canon.add((_p1, _p2, _sd, _ensure_idx(_nid)))
+
+    all_segs_canon: list[tuple[Point, Point, str, bool, int]] = []
+    if all_segments:
+        for _seg in all_segments:
+            if len(_seg) == 5:
+                _p1, _p2, _sd, _oins, _nid = _seg  # type: ignore[misc]
+            else:
+                _p1, _p2, _sd, _oins = _seg  # type: ignore[misc]
+                _nid = None
+            all_segs_canon.append((_p1, _p2, _sd, _oins, _ensure_idx(_nid)))
+
+    at_pad_nets_canon: dict[tuple[Point, str], frozenset[int]] | None = None
+    if at_pad_nets:
+        at_pad_nets_canon = {
+            key: frozenset(_ensure_idx(nid) for nid in nids)
+            for key, nids in at_pad_nets.items()
+        }
+
+    active_net_idx = _ensure_idx(active_net_id) if active_net_id is not None else -1
+
+    # Extend the target set so the search may terminate at any pad-vertex
+    # of an existing same-net wire (electrically equivalent to reaching
+    # the original pin-target).  Only fires when ``active_net_id`` is set
+    # — without it, same-net semantics are off (caller is not currently
+    # routing any particular net).
+    #
+    # The *source* is explicitly excluded from the extension: when the
+    # router is asked to lay a new wire from an existing same-net pad
+    # (typical multi-pin scenario — connect the next pin to the existing
+    # tree), the source is itself a same-net pad-vertex.  Without this
+    # exclusion the search would return a degenerate 1-point path of
+    # just the source — useless and downstream wire constructors would
+    # reject it with "path must have at least 2 points".
     target_set = set(targets)
+    if active_net_id is not None and same_net_pad_vertices:
+        for _pv, _sv in same_net_pad_vertices:
+            if _sv == side and _pv != source:
+                target_set.add(_pv)
+
+    # Build the teleport map: at each same-net pad-vertex of an existing
+    # wire on the active net, jumping to any other same-net pad-vertex
+    # is free (zero-cost edge).  Only fires when active_net_id is given.
+    teleport_pads: dict[tuple[Point, str], tuple[tuple[Point, str], ...]] | None = None
+    if active_net_id is not None and same_net_pad_vertices:
+        _verts = tuple(same_net_pad_vertices)
+        teleport_pads = {v: _verts for v in _verts}
 
     if source in target_set:
         return [RoutingResult(path=[(source, side)], cost=0.0, insulated=insulated)]
@@ -850,21 +1031,33 @@ def find_paths(
         return []
 
     # Build spatial index for bare segments once per find_paths call.
-    bare_idx = _build_bare_seg_index(bare_segs)
+    bare_idx = _build_bare_seg_index(bare_segs_canon)
 
     # --- Rust extension path (true parallelism, no GIL) ---
     # The Rust kernel does NOT know about the enhanced penalties (the
     # cost-model fields ``at_pad_insulated_*`` and ``parallel_opposite_side``
-    # are read only by the Python hot loop).  Fall back to the Python
-    # implementation when any enhanced knob is non-zero so the requested
-    # cost shaping actually takes effect; otherwise the Rust path is
-    # byte-identical to the Python one.
+    # are read only by the Python hot loop) nor about same-net wire reuse.
+    # Fall back to the Python implementation when any enhanced knob is
+    # non-zero OR when same-net reuse needs to take effect (active_net_id
+    # set together with at least one wire-derived structure carrying net
+    # info).  Otherwise the Rust path is byte-identical to the Python one.
     _enhanced_active = (
         cost_model.at_pad_insulated_insulated_same_side != 0.0
         or cost_model.at_pad_insulated_bare_same_side != 0.0
         or cost_model.parallel_opposite_side != 0.0
     )
-    if _RUST_AVAILABLE and not _enhanced_active:
+    _reuse_needs_python = (
+        active_net_idx >= 0 and (
+            any(seg[3] >= 0 for seg in bare_segs_canon)
+            or bool(at_pad_nets_canon)
+            or bool(teleport_pads)
+        )
+    )
+    if _RUST_AVAILABLE and not _enhanced_active and not _reuse_needs_python:
+        # Strip net_idx from bare_segs for the Rust legacy signature.
+        _bare_segs_legacy: set[tuple[Point, Point, str]] = {
+            (s[0], s[1], s[2]) for s in bare_segs_canon
+        }
         return _find_paths_rust(
             valid_nodes=valid_nodes,
             source=source,
@@ -876,7 +1069,7 @@ def find_paths(
             same_net=same_net,
             near_pins=near_pins,
             near_pin_cost=near_pin_cost,
-            bare_segs=bare_segs,
+            bare_segs=_bare_segs_legacy,
             vias=vias,
             penalised=penalised,
             extra_budget_ratio=extra_budget_ratio,
@@ -909,7 +1102,10 @@ def find_paths(
             penalised=penalised,
             extra_budget_ratio=extra_budget_ratio,
             at_pad_wires=at_pad,
-            all_segments=all_segs,
+            all_segments=all_segs_canon,
+            active_net_idx=active_net_idx,
+            at_pad_nets=at_pad_nets_canon,
+            teleport_pads=teleport_pads,
         )
         if result is None:
             break
@@ -1053,6 +1249,7 @@ def _crossing_cost(
     bare_idx: BareSegIndex,
     cost_model: RoutingCostModel,
     insulated: bool,
+    active_net_idx: int = -1,
 ) -> float:
     """Return the extra cost for the step p1→p2 due to bare-wire crossings.
 
@@ -1063,6 +1260,10 @@ def _crossing_cost(
     grid-cell centre (int, int) and both crossings are diagonal & mutually
     perpendicular, the cost model's diagonal bare-cross cost is used; any
     other bare×bare configuration is rejected per cost_model.crossing_bare_bare.
+
+    Same-net reuse: when ``active_net_idx >= 0`` and the crossed segment's
+    own net index equals ``active_net_idx``, ``same_net_wire_reuse_cost``
+    is added instead of the normal crossing penalty.  Default 0.0 = free.
     """
     if not bare_idx:
         return 0.0
@@ -1075,10 +1276,14 @@ def _crossing_cost(
         cost_model.crossing_insulated_bare if insulated
         else cost_model.crossing_bare_bare
     )
+    reuse_cost = cost_model.same_net_wire_reuse_cost
 
     total = 0.0
-    for bsrc, bdst in _iter_segs_in_bbox(p1, p2, side, bare_idx):
+    for bsrc, bdst, seg_net_idx in _iter_segs_in_bbox(p1, p2, side, bare_idx):
         if not _segs_cross(p1, p2, bsrc, bdst):
+            continue
+        if active_net_idx != -1 and seg_net_idx == active_net_idx:
+            total += reuse_cost
             continue
         if bare_diagonal_allowed and _is_perpendicular_diagonal_crossing(
             p1, p2, bsrc, bdst
@@ -1095,7 +1300,7 @@ def _seg_crosses_any(
     p1: Point, p2: Point, side: str, bare_idx: BareSegIndex
 ) -> bool:
     """Return True if segment p1→p2 strictly crosses any bare segment on the same layer."""
-    for bsrc, bdst in _iter_segs_in_bbox(p1, p2, side, bare_idx):
+    for bsrc, bdst, _net_idx in _iter_segs_in_bbox(p1, p2, side, bare_idx):
         if _segs_cross(p1, p2, bsrc, bdst):
             return True
     return False
@@ -1103,8 +1308,11 @@ def _seg_crosses_any(
 
 def _iter_segs_in_bbox(
     p1: Point, p2: Point, side: str, bare_idx: BareSegIndex
-) -> Iterator[tuple[Point, Point]]:
-    """Yield each unique bare segment whose cell-bbox overlaps p1→p2."""
+) -> Iterator[tuple[Point, Point, int]]:
+    """Yield each unique bare segment whose cell-bbox overlaps p1→p2.
+
+    Yields ``(p1, p2, net_idx)`` triples; ``net_idx`` is -1 for floating wires.
+    """
     x0 = int(math.floor(min(p1.x, p2.x)))
     x1 = int(math.floor(max(p1.x, p2.x)))
     y0 = int(math.floor(min(p1.y, p2.y)))
@@ -1115,12 +1323,12 @@ def _iter_segs_in_bbox(
             segs = bare_idx.get((cx, cy, side))
             if not segs:
                 continue
-            for bsrc, bdst in segs:
+            for bsrc, bdst, net_idx in segs:
                 seg_id = id(bsrc)  # each tuple is unique; id() is O(1)
                 if seg_id in seen:
                     continue
                 seen.add(seg_id)
-                yield (bsrc, bdst)
+                yield (bsrc, bdst, net_idx)
 
 
 def _orient(p: Point, q: Point, r: Point) -> float:

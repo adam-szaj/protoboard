@@ -174,10 +174,10 @@ def corner_cut_wire(
                 if slope_sign * allowed_sign > 0.0:
                     # Collision check against all *other* bare segments.
                     safe = True
-                    for bsrc, bdst in (
+                    for _seg in (
                         s for cells in bare_idx.values() for s in cells
                     ):
-                        if _segs_cross(a, c, bsrc, bdst):
+                        if _segs_cross(a, c, _seg[0], _seg[1]):
                             safe = False
                             break
                     # And against own non-replaced segments.
