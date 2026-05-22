@@ -41,6 +41,11 @@ class AppSettings:
     # interval, bursts of wheel events collapse to a single refresh.
     # 80 ms lets a 4–8-tick wheel burst settle before the refresh fires.
     zoom_refresh_ms: int = 80
+    # User-defined cost-model presets.  Built-in presets ("default",
+    # "clean_routing") are always available without being stored here.
+    # Each entry maps preset_name → {cost_key: weight}.  Editing via
+    # PreferencesDialog.  See protoboard.services.routing.cost_presets.
+    cost_presets: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 def load_app_settings() -> AppSettings:
@@ -81,6 +86,24 @@ def load_app_settings() -> AppSettings:
                 if isinstance(raw, (int, float)):
                     # Clamp to a sane range so a typo doesn't lock the UI.
                     setattr(s, attr, max(0, min(2000, int(raw))))
+        cp = data.get("cost_presets")
+        if isinstance(cp, dict):
+            from protoboard.services.routing.cost_presets import builtin_preset_names
+            builtins = builtin_preset_names()
+            user_presets: dict[str, dict[str, float]] = {}
+            for name, weights in cp.items():
+                if not isinstance(name, str) or name in builtins:
+                    # Reserved name or non-string key — skip, never let the
+                    # YAML shadow a built-in preset.
+                    continue
+                if not isinstance(weights, dict):
+                    continue
+                cleaned: dict[str, float] = {}
+                for k, v in weights.items():
+                    if isinstance(k, str) and isinstance(v, (int, float)):
+                        cleaned[k] = float(v)
+                user_presets[name] = cleaned
+            s.cost_presets = user_presets
         return s
     except Exception:  # noqa: BLE001
         return AppSettings()
@@ -106,6 +129,11 @@ def save_app_settings(settings: AppSettings) -> None:
             "rubber_band_throttle_ms": settings.rubber_band_throttle_ms,
             "zoom_refresh_ms": settings.zoom_refresh_ms,
         }
+        if settings.cost_presets:
+            data["cost_presets"] = {
+                name: {k: float(v) for k, v in weights.items()}
+                for name, weights in settings.cost_presets.items()
+            }
 
         _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         yaml = YAML()

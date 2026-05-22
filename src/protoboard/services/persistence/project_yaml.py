@@ -479,7 +479,12 @@ def _routing_settings_to_yaml(s: RoutingSettings) -> str:
             "parallel_opposite_side": s.parallel_opposite_side,
             "max_reroute_factor": s.max_reroute_factor,
         },
+        # Cost preset reference + per-project overrides.  Only persisted
+        # when non-default to keep legacy projects' YAML clean on save.
+        "cost_preset": s.cost_preset,
     }
+    if s.cost_overrides:
+        data["cost_overrides"] = {k: float(v) for k, v in s.cost_overrides.items()}
     # Only emit the optimizer chain when it's non-empty — keeps YAML clean
     # for projects that haven't opted into plugins.  The loader treats a
     # missing key as an empty tuple.
@@ -515,6 +520,18 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
         optimizer_chain = tuple(raw_chain)
     else:
         optimizer_chain = ()
+    # Cost preset / overrides — both optional; default = "default" preset
+    # with an empty overrides dict (preserves legacy named-field behaviour).
+    cost_preset = str(data.get("cost_preset", "default"))
+    raw_overrides = data.get("cost_overrides")
+    if isinstance(raw_overrides, dict):
+        cost_overrides: dict[str, float] = {
+            str(k): float(v)
+            for k, v in raw_overrides.items()
+            if isinstance(k, str) and isinstance(v, (int, float))
+        }
+    else:
+        cost_overrides = {}
     return RoutingSettings(
         preferred_side=data.get("preferred_side", "bottom"),
         allow_layer_change=bool(data.get("allow_layer_change", True)),
@@ -544,6 +561,8 @@ def _routing_settings_from_yaml(text: str) -> RoutingSettings:
         enable_simplify_pass=bool(data.get("enable_simplify_pass", True)),
         simplify_mode=simplify_mode,
         optimizer_chain=optimizer_chain,
+        cost_preset=cost_preset,
+        cost_overrides=cost_overrides,
     )
 
 

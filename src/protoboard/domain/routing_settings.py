@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, TYPE_CHECKING
+from typing import Literal, Mapping, TYPE_CHECKING
 
 from protoboard.services.routing.cost_model import RoutingCostModel
+from protoboard.services.routing.cost_presets import resolve_weights
 
 if TYPE_CHECKING:
     from protoboard.services.routing.postprocess import SimplifyMode
@@ -92,24 +93,56 @@ class RoutingSettings:
     # opposite parity family if the new cost is at most this factor
     # times the original".
     max_reroute_factor: float = 0.0
+    # ------------------------------------------------------------------
+    # Cost preset reference (new in the preset-based config system).
+    # ``cost_preset`` is a name; resolved against built-in presets and
+    # user-defined presets from app_settings.  ``cost_overrides`` is a
+    # per-project diff layered on top of the preset.  Both are optional;
+    # when absent the legacy named-field flow above is used as fallback
+    # so old projects keep working unchanged.
+    # ------------------------------------------------------------------
+    cost_preset: str = "default"
+    cost_overrides: Mapping[str, float] = field(default_factory=dict)
 
-    def cost_model(self) -> RoutingCostModel:
-        """Build a RoutingCostModel from these settings."""
+    def cost_model(
+        self,
+        user_presets: Mapping[str, Mapping[str, float]] | None = None,
+    ) -> RoutingCostModel:
+        """Build a RoutingCostModel from these settings.
+
+        Resolution: ``cost_preset`` (built-in or user) provides the base
+        weights; ``cost_overrides`` layered on top; legacy named fields
+        (direction_change, layer_change, …) provide a final back-stop so
+        the cost model exactly matches the historical projects-on-disk
+        behaviour even when ``cost_preset`` / ``cost_overrides`` are
+        absent.
+        """
+        # 1. Start from the resolved preset+overrides dict.
+        weights = resolve_weights(
+            self.cost_preset, dict(self.cost_overrides), user_presets
+        )
+        # 2. Legacy fields layer on top — preserves behaviour for old
+        #    projects that use named fields rather than cost_overrides.
+        #    A non-default value in a named field wins over preset.
         cib = self.crossing_insulated_bare if self.allow_jumpers else float("inf")
         bare_diag = self.wire_mode == "bare_diagonal"
         cbbd = self.crossing_bare_bare_diagonal if bare_diag else float("inf")
-        return RoutingCostModel(
-            direction_change=self.direction_change,
-            crossing_insulated_bare=cib,
-            crossing_bare_bare_diagonal=cbbd,
-            layer_change=self.layer_change,
-            under_component_top=self.under_component_top,
-            bare_diagonal_mode=bare_diag,
-            at_pad_insulated_insulated_same_side=self.at_pad_insulated_insulated_same_side,
-            at_pad_insulated_bare_same_side=self.at_pad_insulated_bare_same_side,
-            parallel_opposite_side=self.parallel_opposite_side,
-            max_reroute_factor=self.max_reroute_factor,
-        )
+        weights.update({
+            "direction_change": self.direction_change,
+            "crossing_insulated_bare": cib,
+            "crossing_bare_bare_diagonal": cbbd,
+            "layer_change": self.layer_change,
+            "under_component_top": self.under_component_top,
+            "bare_diagonal_mode": 1.0 if bare_diag else 0.0,
+            "at_pad_insulated_insulated_same_side": self.at_pad_insulated_insulated_same_side,
+            "at_pad_insulated_bare_same_side": self.at_pad_insulated_bare_same_side,
+            "parallel_opposite_side": self.parallel_opposite_side,
+            "max_reroute_factor": self.max_reroute_factor,
+        })
+        # 3. Re-layer cost_overrides on top — user-specified per-project
+        #    override should beat legacy defaults when both are present.
+        weights.update(self.cost_overrides)
+        return RoutingCostModel(weights=weights)
 
 
 ROUTING_DEFAULTS = RoutingSettings()
