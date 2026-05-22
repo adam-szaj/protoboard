@@ -422,6 +422,18 @@ def _universe_worker(
         or _b90  != _dc
         or _b135 != _dc
     )
+    # Diagonal parity × side × family preferences — opt-in.  Each diagonal
+    # step is classified by its family (NE/SW vs NW/SE) and the parity of
+    # the destination cell ``(x+y) mod 2``.  Mapping (preferred family per
+    # (parity, side)):
+    #   parity even + top    → NE/SW   (cell-sum even → "/")
+    #   parity even + bottom → NW/SE
+    #   parity odd  + top    → NW/SE
+    #   parity odd  + bottom → NE/SW
+    # When both knobs are 0, the cost is unchanged.  See docs/routing.md.
+    _diag_pref   = cost_model.get("diagonal_preferred_family",   0.0)
+    _diag_unpref = cost_model.get("diagonal_dispreferred_family", 0.0)
+    _diag_parity_active = (_diag_pref != 0.0) or (_diag_unpref != 0.0)
     # Enhanced at-pad penalties — float-tuple-keyed mirror of at_pad_wires
     # for fast lookup in the hot loop.  Empty dict when feature inactive
     # (all the cost-model knobs at 0.0); the keyed-lookup is then skipped
@@ -581,6 +593,25 @@ def _universe_worker(
                     _ex = _pen.get(_nkey)
                     if _ex is not None:
                         step_cost += _ex
+
+                # Diagonal parity × side × family preference.  Each diagonal
+                # step (ndx≠0 ∧ ndy≠0) is classified as in/out of the
+                # preferred family per the mapping in COST_KEY_DOCS.  Only
+                # fires when at least one of the parity knobs is non-zero.
+                if _diag_parity_active and ndx != 0.0 and ndy != 0.0:
+                    # NE/SW family: ndx*ndy > 0  ("/" slash)
+                    # NW/SE family: ndx*ndy < 0  ("\" backslash)
+                    _is_ne_sw = (ndx * ndy) > 0.0
+                    _parity_even = (int(nx + ny) % 2) == 0
+                    _on_top = (cur_side == "top")
+                    # Mapping: parity_even XOR on_top  → preferred = NE/SW
+                    # (parity_even, top) → NE/SW; (parity_even, bottom) → NW/SE
+                    # (parity_odd,  top) → NW/SE; (parity_odd,  bottom) → NE/SW
+                    _prefers_ne_sw = (_parity_even == _on_top)
+                    if _is_ne_sw == _prefers_ne_sw:
+                        step_cost += _diag_pref
+                    else:
+                        step_cost += _diag_unpref
 
                 # Point created here — needed for _crossing_cost and path.
                 npos = Point(nx, ny)
