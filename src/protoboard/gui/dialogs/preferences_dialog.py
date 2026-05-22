@@ -646,6 +646,36 @@ class _RoutingPage(QWidget):
         gen_grp.setLayout(gen_form)
         vbox.addWidget(gen_grp)
 
+        # --- Cost preset group ---
+        from protoboard.services.routing.cost_presets import builtin_preset_names
+        preset_grp = QGroupBox("Cost preset")
+        preset_form = _RoutingFormLayout(preset_grp)
+
+        from PySide6.QtWidgets import QComboBox as _PresetCombo
+        self._cost_preset = _PresetCombo()
+        # Built-ins first (reserved names; cannot be edited).
+        self._builtin_preset_names = sorted(builtin_preset_names())
+        for name in self._builtin_preset_names:
+            self._cost_preset.addItem(f"{name}  (built-in)", name)
+        # User presets follow.
+        from protoboard.gui.app_settings import load_app_settings
+        self._app_settings = load_app_settings()
+        for name in sorted(self._app_settings.cost_presets):
+            self._cost_preset.addItem(name, name)
+        self._cost_preset.setToolTip(
+            "Named bundle of cost weights resolved at routing time. "
+            "Per-project overrides (set elsewhere) layer on top."
+        )
+        preset_form.addRow("Active preset", self._cost_preset)
+
+        from PySide6.QtWidgets import QPushButton as _PresetEditBtn
+        edit_presets_btn = _PresetEditBtn("Edit presets…")
+        edit_presets_btn.clicked.connect(self._open_preset_editor)
+        preset_form.addRow("", edit_presets_btn)
+
+        preset_grp.setLayout(preset_form)
+        vbox.addWidget(preset_grp)
+
         # --- Cost model group ---
         cost_grp = QGroupBox("Cost model")
         cost_form = _RoutingFormLayout(cost_grp)
@@ -728,9 +758,50 @@ class _RoutingPage(QWidget):
 
         self._load_from_settings(self._session.routing_settings)
 
+    def _open_preset_editor(self) -> None:
+        from protoboard.gui.app_settings import load_app_settings
+        from protoboard.gui.dialogs.cost_presets_dialog import CostPresetsDialog
+        # Reload to pick up any external edits before we open the editor.
+        self._app_settings = load_app_settings()
+        # Build the union of all routers' supported_cost_keys so the editor
+        # shows only meaningful knobs.
+        from protoboard.services.routing.protocol import registry
+        all_keys: set[str] = set()
+        for name in registry.list_available():
+            try:
+                all_keys |= registry.get(name).supported_cost_keys()
+            except Exception:  # noqa: BLE001
+                continue
+        dlg = CostPresetsDialog(self._app_settings, allowed_keys=all_keys, parent=self)
+        if dlg.exec():
+            # Re-populate the preset combo with possibly added/removed names.
+            current = self._cost_preset.currentData()
+            self._cost_preset.blockSignals(True)
+            self._cost_preset.clear()
+            for name in self._builtin_preset_names:
+                self._cost_preset.addItem(f"{name}  (built-in)", name)
+            for name in sorted(self._app_settings.cost_presets):
+                self._cost_preset.addItem(name, name)
+            for i in range(self._cost_preset.count()):
+                if self._cost_preset.itemData(i) == current:
+                    self._cost_preset.setCurrentIndex(i)
+                    break
+            self._cost_preset.blockSignals(False)
+
     def _load_from_settings(self, s: object) -> None:
         from protoboard.domain.routing_settings import RoutingSettings
         rs: RoutingSettings = s  # type: ignore[assignment]
+        # Preset selection — fall back to "default" if the saved name is
+        # no longer available (built-in removed, or user preset deleted).
+        for i in range(self._cost_preset.count()):
+            if self._cost_preset.itemData(i) == rs.cost_preset:
+                self._cost_preset.setCurrentIndex(i)
+                break
+        else:
+            for i in range(self._cost_preset.count()):
+                if self._cost_preset.itemData(i) == "default":
+                    self._cost_preset.setCurrentIndex(i)
+                    break
         idx = self._preferred_side.findText(rs.preferred_side)
         self._preferred_side.setCurrentIndex(max(idx, 0))
         self._allow_layer_change.setChecked(rs.allow_layer_change)
@@ -762,6 +833,11 @@ class _RoutingPage(QWidget):
 
     def apply(self) -> None:
         from protoboard.domain.routing_settings import RoutingSettings
+        # Preserve the project's cost_overrides — this dialog edits the
+        # named-field cost knobs and the active preset, but per-project
+        # overrides (a different layer of customisation) are managed
+        # elsewhere and must not be wiped.
+        existing_overrides = dict(self._session.routing_settings.cost_overrides)  # type: ignore[attr-defined]
         new_settings = RoutingSettings(
             preferred_side=self._preferred_side.currentText(),  # type: ignore[arg-type]
             allow_layer_change=self._allow_layer_change.isChecked(),
@@ -782,6 +858,8 @@ class _RoutingPage(QWidget):
             enable_simplify_pass=self._enable_simplify.isChecked(),
             simplify_mode=_resolve_simplify_mode(self._simplify_mode.currentData()),
             max_detour_factor=self._max_detour.value(),
+            cost_preset=self._cost_preset.currentData() or "default",
+            cost_overrides=existing_overrides,
         )
         self._session.routing_settings = new_settings
         self._session.mark_dirty()
