@@ -120,6 +120,15 @@ _ASTAR_COST_KEYS: frozenset[str] = frozenset({
     "wire_over_foreign_wire_pad",
     "via_on_foreign_pad",
     "redundant_layer_change",
+    # Granular crossing knobs (B2 will activate them inside _crossing_cost).
+    "crossing_ib_at_pad_same_side",
+    "crossing_ib_at_pad_opposite_side",
+    "crossing_ib_off_pad_same_side",
+    "crossing_ib_off_pad_opposite_side",
+    "crossing_ii_at_pad_same_side",
+    "crossing_ii_at_pad_opposite_side",
+    "crossing_ii_off_pad_same_side",
+    "crossing_ii_off_pad_opposite_side",
 })
 
 

@@ -30,7 +30,29 @@ COST_KEY_DOCS: dict[str, str] = {
     "diagonal_multiplier": "Cost multiplier for diagonal steps (default √2).",
     "crossing_bare_bare": "Cost when a bare wire crosses another bare wire (usually inf).",
     "crossing_bare_bare_diagonal": "Cost when two bare diagonals cross at a mesh-cell centre.",
-    "crossing_insulated_bare": "Cost when an insulated wire crosses a bare wire.",
+    "crossing_insulated_bare": "[deprecated] flat fallback for insulated × bare crossings — superseded by the 8 crossing_ib_* / crossing_ii_* keys.",
+    # New granular crossing classification:
+    #   ib = insulated × bare,   ii = insulated × insulated
+    #   at_pad / off_pad         where the crossing geometrically intersects
+    #   same_side / opposite     relative to the new wire's side
+    # All default to 0.0 (legacy crossing_insulated_bare carries the flat
+    # fallback until B4 drops it).
+    "crossing_ib_at_pad_same_side":
+        "Insulated × bare crossing on the same side, intersection on a pad.",
+    "crossing_ib_at_pad_opposite_side":
+        "Insulated × bare crossing on opposite sides, intersection on a pad.",
+    "crossing_ib_off_pad_same_side":
+        "Insulated × bare crossing on the same side, intersection between pads.",
+    "crossing_ib_off_pad_opposite_side":
+        "Insulated × bare crossing on opposite sides, intersection between pads.",
+    "crossing_ii_at_pad_same_side":
+        "Insulated × insulated crossing on the same side, intersection on a pad.",
+    "crossing_ii_at_pad_opposite_side":
+        "Insulated × insulated crossing on opposite sides, intersection on a pad.",
+    "crossing_ii_off_pad_same_side":
+        "Insulated × insulated crossing on the same side, intersection between pads.",
+    "crossing_ii_off_pad_opposite_side":
+        "Insulated × insulated crossing on opposite sides, intersection between pads.",
     "layer_change": "Cost per via (top↔bottom transition on a plated-through pad).",
     "under_component_top": "Extra cost per step on the top layer beneath a component body.",
     "bare_diagonal_mode": "When non-zero, enables strict parity-filter for bare diagonals.",
@@ -79,6 +101,16 @@ USER_TUNABLE_COST_KEYS: frozenset[str] = frozenset({
     "wire_over_foreign_wire_pad",
     "via_on_foreign_pad",
     "redundant_layer_change",
+    # 8 granular crossing knobs (insulated × {bare, insulated}) × {at_pad,
+    # off_pad} × {same_side, opposite_side}.
+    "crossing_ib_at_pad_same_side",
+    "crossing_ib_at_pad_opposite_side",
+    "crossing_ib_off_pad_same_side",
+    "crossing_ib_off_pad_opposite_side",
+    "crossing_ii_at_pad_same_side",
+    "crossing_ii_at_pad_opposite_side",
+    "crossing_ii_off_pad_same_side",
+    "crossing_ii_off_pad_opposite_side",
 })
 
 
@@ -94,6 +126,17 @@ _LEGACY_DEFAULTS: dict[str, float] = {
     "crossing_bare_bare": float("inf"),
     "crossing_bare_bare_diagonal": float("inf"),
     "crossing_insulated_bare": 5.0,
+    # New granular crossing knobs — all 0.0 so existing projects (and the
+    # legacy crossing_insulated_bare fallback) keep their current behaviour
+    # until presets / project overrides explicitly set them.
+    "crossing_ib_at_pad_same_side": 0.0,
+    "crossing_ib_at_pad_opposite_side": 0.0,
+    "crossing_ib_off_pad_same_side": 0.0,
+    "crossing_ib_off_pad_opposite_side": 0.0,
+    "crossing_ii_at_pad_same_side": 0.0,
+    "crossing_ii_at_pad_opposite_side": 0.0,
+    "crossing_ii_off_pad_same_side": 0.0,
+    "crossing_ii_off_pad_opposite_side": 0.0,
     "layer_change": 2.0,
     "under_component_top": 3.0,
     "bare_diagonal_mode": 0.0,  # boolean encoded as 0.0 / non-zero
