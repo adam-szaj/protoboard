@@ -109,6 +109,17 @@ _ASTAR_COST_KEYS: frozenset[str] = frozenset({
     "max_reroute_factor",
     # Same-net reuse
     "same_net_wire_reuse_cost",
+    # "Clean routing" penalties — angle-aware bends, diagonal parity, and
+    # foreign-pad / via avoidance.  All default to 0.0, so the historical
+    # behaviour is preserved unless explicitly enabled via preset/UI.
+    "bend_45",
+    "bend_90",
+    "bend_135",
+    "diagonal_preferred_family",
+    "diagonal_dispreferred_family",
+    "wire_over_foreign_wire_pad",
+    "via_on_foreign_pad",
+    "redundant_layer_change",
 })
 
 
