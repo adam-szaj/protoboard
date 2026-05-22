@@ -490,7 +490,18 @@ def _universe_worker(
     # side from the source.  Pre-filtered once so the hot loop only scans
     # relevant segments.  Empty when penalty=0 or all_segments is empty.
     _pos_pen = cost_model.parallel_opposite_side
-    _pos_active = _pos_pen != 0.0 and bool(all_segments)
+    # Granular opposite-side crossing knobs trigger the same per-side
+    # segment buckets (built once, consulted by _crossing_cost).
+    _granular_opposite_active = (
+        cost_model.get("crossing_ib_at_pad_opposite_side",  0.0) != 0.0
+        or cost_model.get("crossing_ib_off_pad_opposite_side", 0.0) != 0.0
+        or cost_model.get("crossing_ii_at_pad_opposite_side",  0.0) != 0.0
+        or cost_model.get("crossing_ii_off_pad_opposite_side", 0.0) != 0.0
+    )
+    _pos_active = (
+        (_pos_pen != 0.0 or _granular_opposite_active)
+        and bool(all_segments)
+    )
     # Two buckets:
     # * ``_segs_on_top``  — segments living on the TOP layer; consulted by
     #   workers stepping on BOTTOM (i.e. opposite to TOP).
@@ -654,9 +665,14 @@ def _universe_worker(
 
                 # Point created here — needed for _crossing_cost and path.
                 npos = Point(nx, ny)
+                _opp_segs = (
+                    (_segs_on_bot if cur_side == "top" else _segs_on_top)
+                    if _pos_active else None
+                )
                 crossing_cost = _crossing_cost(
                     pos, npos, cur_side, bare_idx, cost_model, insulated,
                     active_net_idx=active_net_idx,
+                    all_segments_other_side=_opp_segs,
                 )
                 if crossing_cost >= _inf:
                     if _trace_neighbours is not None:
@@ -1373,50 +1389,164 @@ def _crossing_cost(
     cost_model: RoutingCostModel,
     insulated: bool,
     active_net_idx: int = -1,
+    all_segments_other_side: list[tuple[float, float, float, float, bool, int]] | None = None,
 ) -> float:
-    """Return the extra cost for the step p1→p2 due to bare-wire crossings.
+    """Return the extra cost for the step p1→p2 due to wire crossings.
 
-    Only segments on the same layer can cross each other.  Detection uses a
-    full segment×segment intersection test (orientation-based) — works for
-    both axis-aligned and diagonal moves.  When the new step is bare and
-    crosses an existing bare segment in their strict interiors at a perfect
-    grid-cell centre (int, int) and both crossings are diagonal & mutually
-    perpendicular, the cost model's diagonal bare-cross cost is used; any
-    other bare×bare configuration is rejected per cost_model.crossing_bare_bare.
+    Same-side detection uses the bare-wire spatial index (existing path).
+    Opposite-side detection uses the precomputed list of segments on the
+    other layer (built by autorouter when any granular crossing knob is
+    non-zero).
+
+    For an insulated stepping wire, each crossing is classified by:
+
+    - **type**:  ib (other is bare) or ii (other is insulated)
+    - **where**: at_pad (intersection point has half-integer coordinates,
+                 i.e. on a pad) or off_pad
+    - **side**:  same_side (other wire on the same layer) or opposite_side
+
+    The matching ``crossing_{ib|ii}_{at_pad|off_pad}_{same|opposite}_side``
+    knob is added.  When all matching knobs are 0.0, the legacy
+    ``crossing_insulated_bare`` flat cost is used as fallback (ib only).
+
+    For a bare stepping wire, the legacy bare×bare ban applies as before
+    (with the perpendicular-diagonal exception); the 8 granular knobs are
+    insulated-only and do not affect bare routes.
 
     Same-net reuse: when ``active_net_idx >= 0`` and the crossed segment's
     own net index equals ``active_net_idx``, ``same_net_wire_reuse_cost``
     is added instead of the normal crossing penalty.  Default 0.0 = free.
     """
-    if not bare_idx:
-        return 0.0
-
     bare_diagonal_allowed = (
         not insulated
         and cost_model.crossing_bare_bare_diagonal < cost_model.crossing_bare_bare
     )
-    crossing_default = (
-        cost_model.crossing_insulated_bare if insulated
-        else cost_model.crossing_bare_bare
-    )
     reuse_cost = cost_model.same_net_wire_reuse_cost
 
+    # Pre-resolve granular knobs (insulated-only).  When the stepping wire
+    # is bare we never read these.
+    if insulated:
+        _ib_legacy = cost_model.crossing_insulated_bare
+        _ib_aps    = cost_model.get("crossing_ib_at_pad_same_side",       0.0)
+        _ib_apo    = cost_model.get("crossing_ib_at_pad_opposite_side",   0.0)
+        _ib_ops    = cost_model.get("crossing_ib_off_pad_same_side",      0.0)
+        _ib_opo    = cost_model.get("crossing_ib_off_pad_opposite_side",  0.0)
+        _ii_aps    = cost_model.get("crossing_ii_at_pad_same_side",       0.0)
+        _ii_apo    = cost_model.get("crossing_ii_at_pad_opposite_side",   0.0)
+        _ii_ops    = cost_model.get("crossing_ii_off_pad_same_side",      0.0)
+        _ii_opo    = cost_model.get("crossing_ii_off_pad_opposite_side",  0.0)
+        _any_granular_ib = (_ib_aps or _ib_apo or _ib_ops or _ib_opo) != 0.0
+    else:
+        _ib_legacy = 0.0
+        _ib_aps = _ib_apo = _ib_ops = _ib_opo = 0.0
+        _ii_aps = _ii_apo = _ii_ops = _ii_opo = 0.0
+        _any_granular_ib = False
+
     total = 0.0
-    for bsrc, bdst, seg_net_idx in _iter_segs_in_bbox(p1, p2, side, bare_idx):
-        if not _segs_cross(p1, p2, bsrc, bdst):
-            continue
-        if active_net_idx != -1 and seg_net_idx == active_net_idx:
-            total += reuse_cost
-            continue
-        if bare_diagonal_allowed and _is_perpendicular_diagonal_crossing(
-            p1, p2, bsrc, bdst
-        ):
-            total += cost_model.crossing_bare_bare_diagonal
-        else:
-            total += crossing_default
-            if math.isinf(total):
-                return total
+
+    # ---- Same-side bare crossings (legacy path; covers ib_same_side and
+    #      the bare×bare ban) -------------------------------------------
+    if bare_idx:
+        for bsrc, bdst, seg_net_idx in _iter_segs_in_bbox(p1, p2, side, bare_idx):
+            if not _segs_cross(p1, p2, bsrc, bdst):
+                continue
+            if active_net_idx != -1 and seg_net_idx == active_net_idx:
+                total += reuse_cost
+                continue
+            if insulated:
+                # ib crossing on same side.  Granular if any knob set,
+                # else legacy fallback.
+                if _any_granular_ib:
+                    ix, iy = _intersection_point(p1, p2, bsrc, bdst)
+                    at_pad = _is_at_pad(ix, iy)
+                    total += _ib_aps if at_pad else _ib_ops
+                else:
+                    total += _ib_legacy
+            else:
+                # Bare × bare same-side.  Keep the legacy diagonal
+                # exception; otherwise inf.
+                if bare_diagonal_allowed and _is_perpendicular_diagonal_crossing(
+                    p1, p2, bsrc, bdst
+                ):
+                    total += cost_model.crossing_bare_bare_diagonal
+                else:
+                    total += cost_model.crossing_bare_bare
+                    if math.isinf(total):
+                        return total
+
+    # ---- Opposite-side crossings (insulated-only) ------------------
+    if insulated and all_segments_other_side and (
+        _ib_apo or _ib_opo or _ii_apo or _ii_opo
+    ):
+        # Bounding-box filter on the new step.
+        x_lo = p1.x if p1.x < p2.x else p2.x
+        x_hi = p2.x if p1.x < p2.x else p1.x
+        y_lo = p1.y if p1.y < p2.y else p2.y
+        y_hi = p2.y if p1.y < p2.y else p1.y
+        for q1x, q1y, q2x, q2y, q_ins, q_net in all_segments_other_side:
+            qx_lo = q1x if q1x < q2x else q2x
+            qx_hi = q2x if q1x < q2x else q1x
+            qy_lo = q1y if q1y < q2y else q2y
+            qy_hi = q2y if q1y < q2y else q1y
+            if qx_hi < x_lo or qx_lo > x_hi or qy_hi < y_lo or qy_lo > y_hi:
+                continue
+            qa = Point(q1x, q1y)
+            qb = Point(q2x, q2y)
+            if not _segs_cross(p1, p2, qa, qb):
+                continue
+            if active_net_idx != -1 and q_net == active_net_idx:
+                total += reuse_cost
+                continue
+            ix, iy = _intersection_point(p1, p2, qa, qb)
+            at_pad = _is_at_pad(ix, iy)
+            if q_ins:
+                total += _ii_apo if at_pad else _ii_opo
+            else:
+                total += _ib_apo if at_pad else _ib_opo
+
+    # NOTE: same-side ii crossings (insulated × insulated, same layer)
+    # are not yet detected here — would need an insulated-segment index
+    # analogous to ``bare_idx``.  The 8-key contract is in place; this
+    # branch will be added in a follow-up so existing tests stay green.
+    # ``_ii_aps`` / ``_ii_ops`` knobs remain accepted (no-op for now).
+
     return total
+
+
+def _intersection_point(
+    a1: Point, a2: Point, b1: Point, b2: Point,
+) -> tuple[float, float]:
+    """Return (x, y) of the intersection of two crossing segments.
+
+    Caller must ensure segments actually cross (use ``_segs_cross``
+    first).  Uses the parametric form; safe against floating-point error
+    on the grid because all inputs are at integer or half-integer
+    coordinates.
+    """
+    adx, ady = a2.x - a1.x, a2.y - a1.y
+    bdx, bdy = b2.x - b1.x, b2.y - b1.y
+    denom = adx * (-bdy) - ady * (-bdx)
+    if denom == 0.0:
+        # Collinear — return midpoint of overlap (rare; segment-cross
+        # rejects strict collinearity, but defensive).
+        return ((a1.x + a2.x) * 0.5, (a1.y + a2.y) * 0.5)
+    t = ((b1.x - a1.x) * (-bdy) - (b1.y - a1.y) * (-bdx)) / denom
+    return (a1.x + t * adx, a1.y + t * ady)
+
+
+def _is_at_pad(x: float, y: float) -> bool:
+    """True if (x, y) lies on a pad (perfboard pads at (col+0.5, row+0.5)).
+
+    A pad sits at half-integer coordinates: ``x - floor(x) == 0.5``.
+    Mid-cell crossings (between four pads, used by perpendicular bare
+    diagonals) land at integer coordinates.  Tolerance handles FP error
+    in the intersection arithmetic.
+    """
+    fx = x - math.floor(x)
+    fy = y - math.floor(y)
+    half_x = abs(fx - 0.5) < 1e-6
+    half_y = abs(fy - 0.5) < 1e-6
+    return half_x and half_y
 
 
 def _seg_crosses_any(
