@@ -147,6 +147,19 @@ class EnhancedAStarRouter:
             ),
         )
 
+    def supported_cost_keys(self) -> frozenset[str]:
+        # Enhanced router consumes everything vanilla A* does plus the
+        # at-pad / parallel-side penalties it adds on top.
+        from protoboard.services.routing.builtin import _ASTAR_COST_KEYS
+        return _ASTAR_COST_KEYS | _ENHANCED_EXTRA_COST_KEYS
+
+
+_ENHANCED_EXTRA_COST_KEYS: frozenset[str] = frozenset({
+    "at_pad_insulated_insulated_same_side",
+    "at_pad_insulated_bare_same_side",
+    "parallel_opposite_side",
+})
+
 
 # Statically assert that EnhancedAStarRouter satisfies the Router protocol.
 _check: Router = EnhancedAStarRouter()

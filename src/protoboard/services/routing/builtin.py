@@ -83,6 +83,34 @@ class AStarRouter:
             ),
         )
 
+    def supported_cost_keys(self) -> frozenset[str]:
+        return frozenset(_ASTAR_COST_KEYS)
+
+
+# Cost keys read by the vanilla A* hot loop and rip-up retry machinery.
+# Kept module-level so tests can assert on it without instantiating a router.
+_ASTAR_COST_KEYS: frozenset[str] = frozenset({
+    # Core path cost
+    "free_pad",
+    "same_net_pad",
+    "occupied_by_other_net",
+    "direction_change",
+    "diagonal_multiplier",
+    # Crossings
+    "crossing_bare_bare",
+    "crossing_bare_bare_diagonal",
+    "crossing_insulated_bare",
+    # Vias / under-component
+    "layer_change",
+    "under_component_top",
+    # Modes
+    "bare_diagonal_mode",
+    # Rip-up / push-and-shove
+    "max_reroute_factor",
+    # Same-net reuse
+    "same_net_wire_reuse_cost",
+})
+
 
 # Statically assert that AStarRouter satisfies the Router protocol.
 _check: Router = AStarRouter()

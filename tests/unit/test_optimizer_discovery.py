@@ -139,6 +139,8 @@ class TestDiscoverAllPlugins:
             def capabilities(self):
                 from protoboard.services.routing.protocol import RouterCapabilities
                 return RouterCapabilities()
+            def supported_cost_keys(self) -> frozenset[str]:
+                return frozenset()
 
         def _eps(group: str) -> list[EntryPoint]:
             if group == ROUTER_GROUP:

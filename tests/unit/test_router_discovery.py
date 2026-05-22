@@ -35,6 +35,9 @@ class _GoodRouter:
     def capabilities(self) -> RouterCapabilities:
         return RouterCapabilities()
 
+    def supported_cost_keys(self) -> frozenset[str]:
+        return frozenset()
+
 
 def _good_factory() -> _GoodRouter:
     return _GoodRouter()

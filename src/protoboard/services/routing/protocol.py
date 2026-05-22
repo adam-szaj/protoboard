@@ -98,6 +98,19 @@ class Router(Protocol):
 
     def capabilities(self) -> RouterCapabilities: ...
 
+    def supported_cost_keys(self) -> frozenset[str]:
+        """Cost-model keys this router reads.
+
+        Used by the preset/preferences UI to render only the knobs that
+        actually influence this router's behaviour.  Unknown keys are
+        silently ignored at routing time, so returning a subset is safe
+        but renders fewer controls than the router can actually accept.
+
+        Default implementation returns the empty set (router consumes no
+        cost knobs); built-in routers override to enumerate their keys.
+        """
+        ...
+
 
 # ---------------------------------------------------------------------------
 # Registry

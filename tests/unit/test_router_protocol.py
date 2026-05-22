@@ -67,6 +67,9 @@ class _FakeRouter:
     def capabilities(self) -> RouterCapabilities:
         return RouterCapabilities(notes="fake")
 
+    def supported_cost_keys(self) -> frozenset[str]:
+        return frozenset()
+
 
 class TestRouterProtocol:
     def test_runtime_check_accepts_compliant_class(self) -> None:
@@ -116,10 +119,12 @@ class TestRegistry:
             name = "zebra"; display_name = "Z"
             def route(self, *_a, **_k): ...
             def capabilities(self): return RouterCapabilities()
+            def supported_cost_keys(self): return frozenset()
         class _B:
             name = "alpha"; display_name = "A"
             def route(self, *_a, **_k): ...
             def capabilities(self): return RouterCapabilities()
+            def supported_cost_keys(self): return frozenset()
 
         reg.register(_A())  # type: ignore[arg-type]
         reg.register(_B())  # type: ignore[arg-type]
@@ -138,10 +143,12 @@ class TestRegistry:
             name = "beta"; display_name = "B"
             def route(self, *_a, **_k): ...
             def capabilities(self): return RouterCapabilities()
+            def supported_cost_keys(self): return frozenset()
         class _Alpha:
             name = "alpha"; display_name = "A"
             def route(self, *_a, **_k): ...
             def capabilities(self): return RouterCapabilities()
+            def supported_cost_keys(self): return frozenset()
 
         reg.register(_Beta())  # type: ignore[arg-type]
         reg.register(_Alpha())  # type: ignore[arg-type]
