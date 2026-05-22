@@ -505,6 +505,52 @@ class _PathsPage(QWidget):
         place_layout.addWidget(self._auto_accept_cb)
         vbox.addWidget(place_grp)
 
+        # Render throttles — surfaced here because they live on AppSettings
+        # and ride the same Apply path as the rest of the page.  Defaults
+        # (33 / 33 / 80) are fine on local X11; remote SSH sessions
+        # benefit from raising them so we send fewer X11 round-trips per
+        # second.
+        from PySide6.QtWidgets import QFormLayout
+        perf_grp = QGroupBox("Render throttles (ms)")
+        perf_form = QFormLayout(perf_grp)
+        perf_note = QLabel(
+            "Higher values reduce GUI traffic at the cost of a more\n"
+            "delayed update — useful over slow remote sessions.\n"
+            "0 disables the throttle (no debouncing)."
+        )
+        perf_note.setStyleSheet("color: #888; font-size: 11px;")
+        perf_note.setWordWrap(True)
+        perf_form.addRow(perf_note)
+
+        def _ms_spin(value: int) -> QSpinBox:
+            sp = QSpinBox()
+            sp.setRange(0, 2000)
+            sp.setSingleStep(10)
+            sp.setSuffix(" ms")
+            sp.setValue(int(value))
+            return sp
+
+        self._cursor_ms = _ms_spin(settings.cursor_label_throttle_ms)
+        self._cursor_ms.setToolTip(
+            "Status-bar cursor coordinates.  Default 33 (≈30 fps).  "
+            "Try 100–150 over SSH if stale positions trail the cursor."
+        )
+        perf_form.addRow("Cursor label", self._cursor_ms)
+
+        self._rubber_ms = _ms_spin(settings.rubber_band_throttle_ms)
+        self._rubber_ms.setToolTip(
+            "Rubber-band selection rectangle.  Default 33 (≈30 fps)."
+        )
+        perf_form.addRow("Rubber-band", self._rubber_ms)
+
+        self._zoom_ms = _ms_spin(settings.zoom_refresh_ms)
+        self._zoom_ms.setToolTip(
+            "Post-zoom refresh debounce.  Default 80.  Higher values let "
+            "a longer wheel burst settle before the post-zoom refresh."
+        )
+        perf_form.addRow("Zoom refresh", self._zoom_ms)
+        vbox.addWidget(perf_grp)
+
         vbox.addStretch()
 
         self._default_projects_dir: Path | None = settings.default_projects_dir
@@ -514,6 +560,9 @@ class _PathsPage(QWidget):
         self._settings.component_library_dirs = self._lib_list.paths()
         self._settings.module_dirs = self._mod_list.paths()
         self._settings.auto_accept_placement = self._auto_accept_cb.isChecked()
+        self._settings.cursor_label_throttle_ms = self._cursor_ms.value()
+        self._settings.rubber_band_throttle_ms = self._rubber_ms.value()
+        self._settings.zoom_refresh_ms = self._zoom_ms.value()
         save_app_settings(self._settings)
 
     def _pick_projects_dir(self) -> None:
@@ -618,6 +667,52 @@ class _RoutingPage(QWidget):
         self._under_component_top = _cost_spinbox(0.0, 20.0, 0.5, 1)
         cost_form.addRow("Under component (top)", self._under_component_top)
 
+        # ---- Enhanced router penalties (opt-in; consumed by 'astar_enhanced')
+        self._at_pad_ii = _cost_spinbox(0.0, 50.0, 0.5, 1)
+        self._at_pad_ii.setToolTip(
+            "Enhanced router only.  Cost added when a step lands on a pad "
+            "already hosting another insulated wire's vertex on the same "
+            "side.  Tuning starting point: 1.0.  0 = disabled."
+        )
+        cost_form.addRow(
+            "At-pad insulated × insulated (same side)", self._at_pad_ii
+        )
+
+        self._at_pad_ib = _cost_spinbox(0.0, 50.0, 0.5, 1)
+        self._at_pad_ib.setToolTip(
+            "Enhanced router only.  Cost added for the mixed insulated × "
+            "bare case when a step lands on a pad already hosting a "
+            "vertex of the opposite wire type.  Tuning starting point: "
+            "3.0.  0 = disabled."
+        )
+        cost_form.addRow(
+            "At-pad insulated × bare (same side)", self._at_pad_ib
+        )
+
+        self._parallel_opposite_side = _cost_spinbox(0.0, 50.0, 0.5, 1)
+        self._parallel_opposite_side.setToolTip(
+            "Enhanced router only.  Cost added per overlapping segment "
+            "when the new wire runs collinearly with — and overlaps the "
+            "interior of — an existing wire on the opposite side, and "
+            "at least one of the two is insulated.  Tuning starting "
+            "point: 0.5.  0 = disabled."
+        )
+        cost_form.addRow(
+            "Parallel on opposite side", self._parallel_opposite_side
+        )
+
+        self._max_reroute_factor = _cost_spinbox(0.0, 5.0, 0.1, 2)
+        self._max_reroute_factor.setToolTip(
+            "Enhanced router only.  Enables mid-cell-preferred push-and-"
+            "shove: a blocking wire may be rerouted under bare-diagonal "
+            "mode if the new cost is at most this factor × the "
+            "original.  Tuning starting point: 1.5.  0 = disabled "
+            "(legacy push-and-shove only)."
+        )
+        cost_form.addRow(
+            "Max reroute factor (push&shove)", self._max_reroute_factor
+        )
+
         cost_grp.setLayout(cost_form)
         vbox.addWidget(cost_grp)
 
@@ -646,6 +741,10 @@ class _RoutingPage(QWidget):
         self._crossing_bare_bare_diagonal.setValue(rs.crossing_bare_bare_diagonal)
         self._layer_change.setValue(rs.layer_change)
         self._under_component_top.setValue(rs.under_component_top)
+        self._at_pad_ii.setValue(rs.at_pad_insulated_insulated_same_side)
+        self._at_pad_ib.setValue(rs.at_pad_insulated_bare_same_side)
+        self._parallel_opposite_side.setValue(rs.parallel_opposite_side)
+        self._max_reroute_factor.setValue(rs.max_reroute_factor)
         idx = self._wire_mode.findText(rs.wire_mode)
         self._wire_mode.setCurrentIndex(max(idx, 0))
         self._allow_jumpers.setChecked(rs.allow_jumpers)
@@ -673,6 +772,10 @@ class _RoutingPage(QWidget):
             crossing_bare_bare_diagonal=self._crossing_bare_bare_diagonal.value(),
             layer_change=self._layer_change.value(),
             under_component_top=self._under_component_top.value(),
+            at_pad_insulated_insulated_same_side=self._at_pad_ii.value(),
+            at_pad_insulated_bare_same_side=self._at_pad_ib.value(),
+            parallel_opposite_side=self._parallel_opposite_side.value(),
+            max_reroute_factor=self._max_reroute_factor.value(),
             wire_mode=self._wire_mode.currentText(),  # type: ignore[arg-type]
             allow_jumpers=self._allow_jumpers.isChecked(),
             push_and_shove=self._push_and_shove.isChecked(),

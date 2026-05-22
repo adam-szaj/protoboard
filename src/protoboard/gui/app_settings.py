@@ -25,6 +25,22 @@ class AppSettings:
         default_factory=lambda: ["components", "wires", "groups"]
     )
     selection_relation: str = "same_logical_net"
+    # ---- Render throttles ------------------------------------------------
+    # Interval (ms) between status-bar cursor-label updates.  ``cursor_moved``
+    # fires on every mouseMoveEvent — without a throttle, each update forces
+    # an X11 round-trip per event, which over SSH backlogs hundreds of stale
+    # positions after the cursor stops.  Default 33 ms ≈ 30 fps; raise to
+    # 100–150 ms over slow remote sessions.
+    cursor_label_throttle_ms: int = 33
+    # Interval (ms) between rubber-band selection-rect repaints.  Same SSH
+    # cost as the cursor label.  33 ms ≈ 30 fps.
+    rubber_band_throttle_ms: int = 33
+    # Debounce (ms) before the BoardView re-runs its post-zoom refresh
+    # (today that is the O(scene items) label-visibility sweep, but the
+    # knob is named for the trigger, not the work).  Below this
+    # interval, bursts of wheel events collapse to a single refresh.
+    # 80 ms lets a 4–8-tick wheel burst settle before the refresh fires.
+    zoom_refresh_ms: int = 80
 
 
 def load_app_settings() -> AppSettings:
@@ -54,6 +70,17 @@ def load_app_settings() -> AppSettings:
             rel = sel.get("relation")
             if isinstance(rel, str):
                 s.selection_relation = rel
+        perf = data.get("performance")
+        if isinstance(perf, dict):
+            for attr in (
+                "cursor_label_throttle_ms",
+                "rubber_band_throttle_ms",
+                "zoom_refresh_ms",
+            ):
+                raw = perf.get(attr)
+                if isinstance(raw, (int, float)):
+                    # Clamp to a sane range so a typo doesn't lock the UI.
+                    setattr(s, attr, max(0, min(2000, int(raw))))
         return s
     except Exception:  # noqa: BLE001
         return AppSettings()
@@ -73,6 +100,11 @@ def save_app_settings(settings: AppSettings) -> None:
         data["selection"] = {
             "filter": list(settings.selection_filter_tokens),
             "relation": settings.selection_relation,
+        }
+        data["performance"] = {
+            "cursor_label_throttle_ms": settings.cursor_label_throttle_ms,
+            "rubber_band_throttle_ms": settings.rubber_band_throttle_ms,
+            "zoom_refresh_ms": settings.zoom_refresh_ms,
         }
 
         _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
