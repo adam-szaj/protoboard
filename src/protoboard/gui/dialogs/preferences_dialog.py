@@ -716,23 +716,27 @@ class _RoutingPage(QWidget):
             QFormLayout, QGroupBox, QLabel, QScrollArea, QVBoxLayout, QWidget,
         )
         from protoboard.services.routing.cost_model import (
-            COST_KEY_DOCS, USER_TUNABLE_COST_KEYS,
+            merged_cost_key_docs, merged_user_tunable_cost_keys,
         )
-        # Defensive imports — ensure both built-in routers register
-        # themselves before we ask for their supported cost keys.
+        # Defensive imports — ensure built-in routers register themselves
+        # before we ask for their supported / user-tunable cost keys.
         import protoboard.services.routing.builtin  # noqa: F401
         import protoboard.services.routing.builtin_enhanced  # noqa: F401
         from protoboard.services.routing.protocol import registry as _rrr
 
         # Union of supported_cost_keys across registered routers
-        # intersected with USER_TUNABLE.  Plugin routers contribute too.
+        # intersected with the union of every router's user_tunable
+        # advertisement (built-in OR plugin-supplied).
         supported: set[str] = set()
         for name in _rrr.list_available():
             try:
                 supported |= _rrr.get(name).supported_cost_keys()
             except Exception:  # noqa: BLE001
                 continue
-        keys = sorted(USER_TUNABLE_COST_KEYS & supported & set(COST_KEY_DOCS))
+        docs = merged_cost_key_docs()
+        tunable = merged_user_tunable_cost_keys()
+        keys = sorted(tunable & supported & set(docs))
+        COST_KEY_DOCS = docs  # local rebind so the spinbox loop reads merged docs
 
         # Group by first segment of the key (everything up to first '_'
         # *unless* it's a multi-segment prefix like 'crossing_ib' or

@@ -111,6 +111,28 @@ class Router(Protocol):
         """
         ...
 
+    # ------------------------------------------------------------------
+    # Optional plugin hooks (not part of the Protocol contract).
+    #
+    # Plugin routers MAY define these to register custom cost keys with
+    # the UI so spinboxes get tooltips and proper tunability flags:
+    #
+    #     def cost_key_docs(self) -> dict[str, str]:
+    #         '''Plugin-specific cost keys with tooltip strings.'''
+    #         return {"my_knob": "explanation shown in the UI"}
+    #
+    #     def user_tunable_cost_keys(self) -> frozenset[str]:
+    #         '''Subset of supported_cost_keys that the UI should expose.
+    #         Plugin routers can hide implementation-detail knobs by
+    #         omitting them here.  Default = everything supported.'''
+    #         return self.supported_cost_keys()
+    #
+    # ``cost_model.merged_cost_key_docs()`` and
+    # ``merged_user_tunable_cost_keys()`` discover these via getattr
+    # with sensible empty defaults, so legacy routers without the hooks
+    # keep working unchanged.
+    # ------------------------------------------------------------------
+
 
 # ---------------------------------------------------------------------------
 # Registry

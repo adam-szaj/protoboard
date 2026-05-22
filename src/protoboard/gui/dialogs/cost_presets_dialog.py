@@ -32,7 +32,10 @@ from PySide6.QtWidgets import (
 )
 
 from protoboard.gui.app_settings import AppSettings, save_app_settings
-from protoboard.services.routing.cost_model import COST_KEY_DOCS, USER_TUNABLE_COST_KEYS
+from protoboard.services.routing.cost_model import (
+    merged_cost_key_docs,
+    merged_user_tunable_cost_keys,
+)
 from protoboard.services.routing.cost_presets import (
     builtin_preset_names,
     get_builtin_preset,
@@ -63,11 +66,15 @@ class CostPresetsDialog(QDialog):
         # the union of every router's supported_cost_keys (if provided).
         # Physical constants and hard electrical bans are excluded so the
         # UI doesn't tempt users to e.g. set crossing_bare_bare=0.0.
+        # Plugin routers extend both dicts via cost_key_docs() and
+        # user_tunable_cost_keys() — picked up by the merged_* helpers.
+        self._docs = merged_cost_key_docs()
+        tunable = merged_user_tunable_cost_keys()
         if allowed_keys is None:
-            self._allowed_keys: list[str] = sorted(USER_TUNABLE_COST_KEYS & set(COST_KEY_DOCS))
+            self._allowed_keys: list[str] = sorted(tunable & set(self._docs))
         else:
             self._allowed_keys = sorted(
-                set(allowed_keys) & USER_TUNABLE_COST_KEYS & set(COST_KEY_DOCS)
+                set(allowed_keys) & tunable & set(self._docs)
             )
 
         root = QVBoxLayout(self)
@@ -163,7 +170,7 @@ class CostPresetsDialog(QDialog):
             # Column 0: key + doc (tooltip)
             key_item = QTableWidgetItem(key)
             key_item.setFlags(key_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            doc = COST_KEY_DOCS.get(key, "")
+            doc = self._docs.get(key, "")
             key_item.setToolTip(doc + "\n\nTip: enter -1 to mean ∞ (hard-disable this kind of step).")
             self._table.setItem(row, 0, key_item)
             # Column 1: spinbox with -1 sentinel for ∞.  range starts at -1
