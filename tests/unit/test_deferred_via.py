@@ -177,6 +177,36 @@ class TestViaOnObstacleCost:
 # ---------------------------------------------------------------------------
 
 class TestSameNetBypass:
+    def test_via_through_foreign_bare_pad_is_short(self) -> None:
+        """A foreign BARE wire on a pad makes via through that pad a
+        short via the plated-through hole — the pad metal is in contact
+        with the bare conductor on both sides.  Routing must refuse this
+        via (cost = inf, A* must find an alternative)."""
+        graph = _empty_graph()
+        # Foreign BARE wire on top with vertex on pad (3.5, 0.5).
+        bare = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(2.5, 0.5), Point(3.5, 0.5), Point(4.5, 0.5)],
+            insulated=False,
+            side="top",
+        )
+        graph.add_wire(bare)
+        # Source on top, target on top — A* could be tempted to via at
+        # (3.5, 0.5) but that pad has bare wire → short.  Must reroute.
+        src, tgt = Point(0.5, 0.5), Point(5.5, 0.5)
+        cm = RoutingCostModel(deferred_via_lookahead=1.0)
+        res = _route_top_to_top(graph, src, tgt, cm)
+        assert res, "Should find a path that avoids via through bare pad"
+        # The path should NOT have a via at (3.5, 0.5) — i.e. there
+        # should not be two consecutive entries with same xy but
+        # different side at that cell.
+        path = res[0].path
+        for i in range(len(path) - 1):
+            (p1, s1), (p2, s2) = path[i], path[i + 1]
+            if p1.x == p2.x == 3.5 and p1.y == p2.y == 0.5:
+                assert s1 == s2, \
+                    f"Via at (3.5, 0.5) through bare pad would short, got {s1}→{s2}"
+
     def test_via_on_own_net_vertex_not_penalised_twice(self) -> None:
         """When the via cell hosts a vertex of the active net, the at-pad
         penalty must not fire (electrical merge — touching one's own

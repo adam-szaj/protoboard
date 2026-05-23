@@ -1049,31 +1049,50 @@ def _universe_worker(
                                 _via_cost += _rlc * 2.0
                             else:
                                 _via_cost += _rlc
-                        # "Don't change lanes on the obstacle": if the
-                        # current pad (cx, cy) hosts a foreign wire
-                        # vertex on EITHER side, this pad is itself an
-                        # obstacle.  Doing the via here is like turning
-                        # while already inside the wall — both the
-                        # incoming wire-end and the outgoing wire-start
-                        # land on a crowded pad.  Charge both sides'
-                        # at-pad penalties to make A* prefer flipping
-                        # one pad earlier (before the obstacle).
-                        # Same-net at-pad is free (electrical merge).
+                        # Electrical safety + geometric crowding at the
+                        # via cell.  The plated-through hole connects both
+                        # sides electrically; whichever wires *touch* the
+                        # pad end up shorted together.
+                        #
+                        # - A BARE foreign wire vertex on the pad means
+                        #   that wire is in metal contact with the pad on
+                        #   both sides (the bare conductor literally
+                        #   rests on the via hole).  Our via lands an
+                        #   endpoint on the same pad — which is then
+                        #   electrically merged with the foreign net.
+                        #   Hard reject (regardless of our insulation):
+                        #   bare presence == short.
+                        # - An INSULATED foreign wire vertex floats above
+                        #   the pad — no electrical contact.  Via here is
+                        #   safe; just charge the geometric crowding
+                        #   penalty (at_pad_insulated_*).
+                        # Same-net at-pad is free (electrical merge is
+                        # intended).
                         if _atp_active:
+                            _short = False
                             for _via_side in (cur_side, other_side):
                                 _via_key = (cx, cy, _via_side)
                                 if _has_reuse and active_net_idx in _atp_nets.get(_via_key, frozenset()):
                                     continue
                                 _bm_via = _atp.get(_via_key, 0)
-                                if _bm_via:
+                                if _bm_via & 2:
+                                    # Bare foreign wire on this side →
+                                    # short via the plated-through hole.
+                                    _via_cost = _inf
+                                    _short = True
+                                    break
+                                if _bm_via & 1:
+                                    # Insulated foreign vertex — geometric
+                                    # crowding only.
                                     if insulated:
-                                        if _bm_via & 1:
-                                            _via_cost += _atp_ii
-                                        if _bm_via & 2:
-                                            _via_cost += _atp_ib
-                                    elif _bm_via & 2:
-                                        # bare arriving on bare = short
-                                        _via_cost = _inf
+                                        _via_cost += _atp_ii
+                                    else:
+                                        # bare wire landing on a pad with
+                                        # foreign insulated vertex — mixed
+                                        # crowding, same cost knob.
+                                        _via_cost += _atp_ib
+                            if _short:
+                                pass  # _via_cost == _inf; downstream visited check skips
                         ng = g + _via_cost
                         # Deferred-via: mark the new via tentative so we
                         # can roll it back later if the shadow (old) side
