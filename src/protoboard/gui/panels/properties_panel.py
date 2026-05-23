@@ -47,6 +47,9 @@ class PropertiesPanel(QWidget):
     pin_offsets_changed = Signal(uuid.UUID, object)
     # id, pin_variant (str or None)
     pin_variant_changed = Signal(uuid.UUID, object)
+    # DRCIssue or None (None = the user clicked away or no issue selected).
+    # MainWindow translates this into HighlightStack pushes + viewport centring.
+    drc_issue_clicked = Signal(object)
 
     def __init__(self, parent: object = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
@@ -139,6 +142,15 @@ class PropertiesPanel(QWidget):
         drc_grp = QGroupBox("DRC")
         drc_layout = QVBoxLayout(drc_grp)
         self._drc_list = QListWidget()
+        self._drc_list.setToolTip(
+            "Click an issue to highlight the affected nets / wires / "
+            "components and centre the view on the problem.  Click again "
+            "to clear the highlight."
+        )
+        self._drc_list.itemClicked.connect(self._on_drc_item_clicked)
+        # Tracks which issue (by row index) is currently "active" so a
+        # second click on the same row toggles the highlight off.
+        self._active_drc_row: int = -1
         drc_layout.addWidget(self._drc_list)
         layout.addWidget(drc_grp)
         layout.addStretch()
@@ -178,6 +190,12 @@ class PropertiesPanel(QWidget):
         self._geo_grp.setVisible(False)
 
     def update_issues(self, issues: list[DRCIssue]) -> None:
+        # Refreshing the list invalidates any previously selected row;
+        # tell the listener to clear its highlight so we don't leave a
+        # stale entry on the HighlightStack.
+        if self._active_drc_row >= 0:
+            self.drc_issue_clicked.emit(None)
+            self._active_drc_row = -1
         self._drc_list.clear()
         if not issues:
             item = QListWidgetItem("✓ No issues")
@@ -187,7 +205,30 @@ class PropertiesPanel(QWidget):
         for issue in issues:
             item = QListWidgetItem(f"[{issue.code}] {issue.message}")
             item.setForeground(_SEVERITY_COLORS.get(issue.severity, QColor()))
+            # Stash the issue on the item so click handlers can recover
+            # affected_nets / affected_wires / affected_components without
+            # re-indexing.
+            item.setData(Qt.ItemDataRole.UserRole, issue)
             self._drc_list.addItem(item)
+
+    def _on_drc_item_clicked(self, item: QListWidgetItem) -> None:
+        """Toggle highlight for the clicked DRC issue.
+
+        First click on a row → emit ``drc_issue_clicked(issue)``; second
+        click on the same row → emit ``drc_issue_clicked(None)`` (the
+        listener treats None as "clear my transient highlight").
+        """
+        issue = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(issue, DRCIssue):
+            return  # the "✓ No issues" sentinel item
+        clicked_row = self._drc_list.row(item)
+        if clicked_row == self._active_drc_row:
+            self._active_drc_row = -1
+            self._drc_list.clearSelection()
+            self.drc_issue_clicked.emit(None)
+        else:
+            self._active_drc_row = clicked_row
+            self.drc_issue_clicked.emit(issue)
 
     # ------------------------------------------------------------------
     # Pin offsets section

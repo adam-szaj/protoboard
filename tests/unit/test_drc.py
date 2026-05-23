@@ -236,6 +236,155 @@ class TestDRCOverlap:
         assert len(overlaps) >= 1
         assert all(i.severity == "error" for i in overlaps)
 
+    def test_overlap_skipped_when_all_pins_bendable(self) -> None:
+        from protoboard.domain.components.definition import PinBendSpec
+
+        board = _perfboard(1, 3)
+        # Two component definitions where both pin 1 and pin 2 are bendable.
+        bend_spec = PinBendSpec(default_offset=Point(0.0, 0.0))
+        defn = ComponentDefinition(
+            name="R_bend",
+            footprint=SIL(2),
+            pin_names={1: "A", 2: "B"},
+            bendable_pins={1: bend_spec, 2: bend_spec},
+        )
+        r1 = ComponentInstance.new(definition_ref="R_bend", refdes="R1", value="10k")
+        r2 = ComponentInstance.new(definition_ref="R_bend", refdes="R2", value="10k")
+        pl_r1 = ComponentPlacement(
+            component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top",
+        )
+        pl_r2 = ComponentPlacement(
+            component_id=r2.id, position=Point(0.0, 0.0), rotation=0, side="top",
+        )
+        engine = DRCEngine()
+        issues = engine.check(
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=[]),
+            components={defn.name: defn},
+            instances={r1.id: r1, r2.id: r2},
+        )
+        assert [i for i in issues if i.code == "OVERLAP"] == []
+
+    def test_overlap_still_flags_when_partial_bendable(self) -> None:
+        from protoboard.domain.components.definition import PinBendSpec
+
+        board = _perfboard(1, 3)
+        bend_spec = PinBendSpec(default_offset=Point(0.0, 0.0))
+        # Only one of the two definitions declares bendable pins.
+        bendy = ComponentDefinition(
+            name="R_bend",
+            footprint=SIL(2),
+            pin_names={1: "A", 2: "B"},
+            bendable_pins={1: bend_spec, 2: bend_spec},
+        )
+        rigid = _r_defn()
+        r1 = ComponentInstance.new(definition_ref="R_bend", refdes="R1", value="10k")
+        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        pl_r1 = ComponentPlacement(
+            component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top",
+        )
+        pl_r2 = ComponentPlacement(
+            component_id=r2.id, position=Point(0.0, 0.0), rotation=0, side="top",
+        )
+        engine = DRCEngine()
+        issues = engine.check(
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=[]),
+            components={bendy.name: bendy, rigid.name: rigid},
+            instances={r1.id: r1, r2.id: r2},
+        )
+        # Partial bendability = still a real overlap.
+        assert [i for i in issues if i.code == "OVERLAP"] != []
+
+    def test_overlap_populates_affected_components_and_pins(self) -> None:
+        board = _perfboard(1, 3)
+        defn = _r_defn()
+        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        pl_r1 = ComponentPlacement(
+            component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top",
+        )
+        pl_r2 = ComponentPlacement(
+            component_id=r2.id, position=Point(0.0, 0.0), rotation=0, side="top",
+        )
+        engine = DRCEngine()
+        issues = engine.check(
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=[]),
+            components={defn.name: defn},
+            instances={r1.id: r1, r2.id: r2},
+        )
+        overlap = next(i for i in issues if i.code == "OVERLAP")
+        assert set(overlap.affected_components) == {r1.id, r2.id}
+        assert len(overlap.affected_pins) >= 2
+        # Refdes shows in message instead of UUIDs.
+        assert "R1" in overlap.message
+        assert "R2" in overlap.message
+
+
+class TestDRCMessages:
+    """Human-readable formatting of issue messages."""
+
+    def test_axis_labels_used_when_enabled(self) -> None:
+        from protoboard.domain.axis_labels_settings import (
+            AxisLabelFormat, AxisLabelSettings,
+        )
+
+        board = _perfboard(3, 3)
+        defn = _r_defn()
+        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        pl_r1 = ComponentPlacement(
+            component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top",
+        )
+        pl_r2 = ComponentPlacement(
+            component_id=r2.id, position=Point(0.0, 0.0), rotation=0, side="top",
+        )
+        engine = DRCEngine()
+        labels = AxisLabelSettings(
+            columns=AxisLabelFormat.NUMERIC_1,
+            rows=AxisLabelFormat.ALPHABETIC,
+        )
+        issues = engine.check(
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=[]),
+            components={defn.name: defn},
+            instances={r1.id: r1, r2.id: r2},
+            axis_labels=labels,
+        )
+        overlap = next(i for i in issues if i.code == "OVERLAP")
+        # Pin 1 of both components lands at (0.5, 0.5) → col index 0, row index 0
+        # → "1" (NUMERIC_1) and "a" (ALPHABETIC) → compact "1a".
+        assert "1a" in overlap.message
+
+    def test_axis_labels_fallback_to_col_row(self) -> None:
+        board = _perfboard(3, 3)
+        defn = _r_defn()
+        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        pl_r1 = ComponentPlacement(
+            component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top",
+        )
+        pl_r2 = ComponentPlacement(
+            component_id=r2.id, position=Point(0.0, 0.0), rotation=0, side="top",
+        )
+        engine = DRCEngine()
+        issues = engine.check(
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=[]),
+            components={defn.name: defn},
+            instances={r1.id: r1, r2.id: r2},
+            # axis_labels=None → fallback
+        )
+        overlap = next(i for i in issues if i.code == "OVERLAP")
+        assert "col 0" in overlap.message
+        assert "row 0" in overlap.message
+
 
 class TestDRCIssue:
     def test_issue_has_required_fields(self) -> None:

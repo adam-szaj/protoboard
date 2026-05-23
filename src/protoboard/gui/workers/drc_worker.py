@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QThread, Signal
 
 if TYPE_CHECKING:
+    from protoboard.domain.axis_labels_settings import AxisLabelSettings
     from protoboard.domain.board.board import Board
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
@@ -66,6 +67,7 @@ class DRCWorker(QThread):
         schematic_snap: "SchematicSnapshot",
         components: dict[str, "ComponentDefinition"],
         instances: dict[uuid.UUID, "ComponentInstance"],
+        axis_labels: "AxisLabelSettings | None" = None,
     ) -> None:
         super().__init__()
         self._board = board
@@ -77,6 +79,7 @@ class DRCWorker(QThread):
         # shallow copies suffice.
         self._components = dict(components)
         self._instances = dict(instances)
+        self._axis_labels = axis_labels
         self._cancel_flag = threading.Event()
 
     def cancel(self) -> None:
@@ -122,6 +125,7 @@ class DRCWorker(QThread):
                 instances=self._instances,
                 graph=graph,
                 cancel_flag=self._cancel_flag,
+                axis_labels=self._axis_labels,
             )
 
             if self._cancel_flag.is_set():

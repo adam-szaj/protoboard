@@ -5,17 +5,22 @@ from __future__ import annotations
 
 import threading
 import uuid
-from dataclasses import dataclass
-from itertools import combinations
+from dataclasses import dataclass, field
 from typing import Literal
 
 import structlog
+from protoboard.domain.axis_labels_settings import (
+    AxisLabelFormat,
+    AxisLabelSettings,
+    format_index,
+)
 from protoboard.domain.board.board import Board
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import pin_world_position
+from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import _segs_cross
@@ -32,12 +37,95 @@ class DRCIssue:
     message: str
     locations: list[Point]
     affected_nets: list[uuid.UUID]
+    # Optional reference fields populated by individual checks so the GUI
+    # can highlight the right objects when an issue is clicked.  Empty
+    # lists are the safe default for backward-compat with older callers
+    # that don't set them.
+    affected_pins: list[PinRef] = field(default_factory=list)
+    affected_wires: list[uuid.UUID] = field(default_factory=list)
+    affected_components: list[uuid.UUID] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.severity not in _VALID_SEVERITIES:
             raise ValueError(
                 f"severity must be one of {_VALID_SEVERITIES}; got {self.severity!r}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Human-readable formatting helpers
+# ---------------------------------------------------------------------------
+
+def _format_location(p: Point, axis_labels: AxisLabelSettings | None) -> str:
+    """Render a board point as the user-facing column/row label.
+
+    Pad centres sit at half-integer coordinates (col+0.5, row+0.5), so the
+    integer column index is ``int(p.x)`` and row index is ``int(p.y)``.
+    When axis labels are configured, both halves are formatted via the
+    user's chosen scheme (numeric/alphabetic).  When labels are disabled
+    or unset, we fall back to a plain ``col N, row M`` form so the message
+    still makes sense.
+    """
+    col_i = int(p.x)
+    row_i = int(p.y)
+    if axis_labels is None or not axis_labels.any_enabled():
+        return f"col {col_i}, row {row_i}"
+    col_str = (
+        format_index(axis_labels.columns, col_i)
+        if axis_labels.columns != AxisLabelFormat.DISABLED else str(col_i)
+    )
+    row_str = (
+        format_index(axis_labels.rows, row_i)
+        if axis_labels.rows != AxisLabelFormat.DISABLED else str(row_i)
+    )
+    # Compact form when both axes use single-char alphabetic + 1-based numeric
+    # (the typical case): "B6".  Otherwise fall back to a labelled form.
+    if (axis_labels.columns == AxisLabelFormat.ALPHABETIC
+            or axis_labels.rows == AxisLabelFormat.ALPHABETIC):
+        return f"{col_str}{row_str}"
+    return f"col {col_str}, row {row_str}"
+
+
+def _format_pin(
+    ref: PinRef,
+    instances: dict[uuid.UUID, ComponentInstance],
+) -> str:
+    """Render a PinRef as ``RefDes/pin`` (e.g. ``R12/2``).
+
+    Falls back to a short UUID prefix when the instance can't be resolved
+    so messages remain non-empty even on stale references.
+    """
+    inst = instances.get(ref.component_id)
+    if inst is not None and inst.refdes:
+        return f"{inst.refdes}/{ref.pin_number}"
+    return f"<{str(ref.component_id)[:8]}>/{ref.pin_number}"
+
+
+def _format_pin_list(
+    refs: list[PinRef],
+    instances: dict[uuid.UUID, ComponentInstance],
+    max_items: int = 3,
+) -> str:
+    """Comma-joined pin list, truncated to *max_items* with an overflow tag."""
+    parts = [_format_pin(r, instances) for r in refs[:max_items]]
+    if len(refs) > max_items:
+        parts.append(f"and {len(refs) - max_items} more")
+    return ", ".join(parts)
+
+
+def _format_nets(
+    net_ids: list[uuid.UUID],
+    schematic: Schematic,
+) -> str:
+    """Comma-joined quoted net names for the given net IDs."""
+    names: list[str] = []
+    for nid in net_ids:
+        net = schematic.nets.get(nid)
+        if net is not None:
+            names.append(f"{net.name!r}")
+        else:
+            names.append(f"<{str(nid)[:8]}>")
+    return ", ".join(names)
 
 
 class DRCEngine:
@@ -48,6 +136,7 @@ class DRCEngine:
         layout: Layout,
         components: dict[str, ComponentDefinition],
         instances: dict[uuid.UUID, ComponentInstance],
+        axis_labels: AxisLabelSettings | None = None,
     ) -> list[DRCIssue]:
         graph = ConnectivityGraph(
             board=board,
@@ -61,6 +150,7 @@ class DRCEngine:
             components=components,
             instances=instances,
             graph=graph,
+            axis_labels=axis_labels,
         )
 
     def check_with_graph(
@@ -71,6 +161,7 @@ class DRCEngine:
         instances: dict[uuid.UUID, ComponentInstance],
         graph: ConnectivityGraph,
         cancel_flag: threading.Event | None = None,
+        axis_labels: AxisLabelSettings | None = None,
     ) -> list[DRCIssue]:
         # Cancellation: callers running the engine off the main thread
         # pass an Event; the engine bails between checks and inside the
@@ -82,22 +173,24 @@ class DRCEngine:
             return cancel_flag is not None and cancel_flag.is_set()
 
         issues: list[DRCIssue] = []
-        issues += _check_overlap(layout, components, instances)
+        issues += _check_overlap(layout, components, instances, axis_labels)
         if _cancelled():
             return issues
-        issues += _check_short(schematic, graph)
+        issues += _check_short(schematic, layout, graph, instances, axis_labels)
         if _cancelled():
             return issues
-        issues += _check_missing_net(schematic, graph)
+        issues += _check_missing_net(schematic, graph, instances)
         if _cancelled():
             return issues
-        issues += _check_floating_pins(schematic, layout)
+        issues += _check_floating_pins(schematic, layout, instances)
         if _cancelled():
             return issues
-        issues += _check_bare_wire_cross(schematic, layout, graph)
+        issues += _check_bare_wire_cross(schematic, layout, graph, axis_labels)
         if _cancelled():
             return issues
-        issues += _check_bare_wire_interior_cross(layout, graph, cancel_flag=cancel_flag)
+        issues += _check_bare_wire_interior_cross(
+            layout, graph, axis_labels, cancel_flag=cancel_flag,
+        )
         counts: dict[str, int] = {"error": 0, "warning": 0, "info": 0}
         for iss in issues:
             counts[iss.severity] = counts.get(iss.severity, 0) + 1
@@ -116,8 +209,16 @@ def _check_overlap(
     layout: Layout,
     components: dict[str, ComponentDefinition],
     instances: dict[uuid.UUID, ComponentInstance],
+    axis_labels: AxisLabelSettings | None = None,
 ) -> list[DRCIssue]:
-    """Detect two component pins occupying the same pad on the same side."""
+    """Detect two component pins occupying the same pad on the same side.
+
+    Skipped when *every* conflicting pin at the pad declares a
+    ``PinBendSpec`` in its component definition — the user has explicitly
+    marked those leads as bendable so sharing the hole is intentional.
+    Partial bendability (only some pins declare it) still flags as a
+    conflict so accidental overlaps aren't silently swallowed.
+    """
     # Build: (x, y, side) → list of (comp_id, pin)
     pad_occupancy: dict[tuple[float, float, str], list[tuple[uuid.UUID, int]]] = {}
     for comp_id, placement in layout.placements.items():
@@ -146,16 +247,35 @@ def _check_overlap(
         ]
         if len(unshared) <= 1:
             continue
+        # Skip when every conflicting pin is declared bendable in its
+        # component definition — the user has marked those leads as
+        # legitimately shareable.
+        def _is_bendable(cid: uuid.UUID, pin_num: int) -> bool:
+            inst = instances.get(cid)
+            if inst is None:
+                return False
+            defn = components.get(inst.definition_ref)
+            if defn is None:
+                return False
+            return pin_num in defn.bendable_pins
+        if all(_is_bendable(cid, p) for cid, p in unshared):
+            continue
+        affected_pins = [PinRef(component_id=cid, pin_number=p) for cid, p in occupants]
+        affected_components = sorted({cid for cid, _ in occupants}, key=str)
+        loc_str = _format_location(Point(x, y), axis_labels)
+        pin_list = _format_pin_list(affected_pins, instances, max_items=4)
         issues.append(
             DRCIssue(
                 severity="error",
                 code="OVERLAP",
                 message=(
-                    f"Multiple components share pad ({x},{y}) on {side}: "
-                    + ", ".join(f"{iid}/{p}" for iid, p in occupants)
+                    f"Multiple component pins share a pad at {loc_str} "
+                    f"({side}): {pin_list}"
                 ),
                 locations=[Point(x, y)],
                 affected_nets=[],
+                affected_pins=affected_pins,
+                affected_components=affected_components,
             )
         )
     return issues
@@ -163,28 +283,60 @@ def _check_overlap(
 
 def _check_short(
     schematic: Schematic,
+    layout: Layout,
     graph: ConnectivityGraph,
+    instances: dict[uuid.UUID, ComponentInstance],
+    axis_labels: AxisLabelSettings | None = None,
 ) -> list[DRCIssue]:
     """Detect pads from different nets connected in the physical layout."""
     issues: list[DRCIssue] = []
-    # Gather physical node → set of logical net IDs.
+    # Gather physical node → set of logical net IDs and which pins land there.
     node_nets: dict[tuple[float, float, str], set[uuid.UUID]] = {}
+    node_pins: dict[tuple[float, float, str], list[PinRef]] = {}
     for net in schematic.nets.values():
         for ref in net.pins:
             node = graph.node_for_pin(ref)
             if node is None:
                 continue
             node_nets.setdefault(node, set()).add(net.id)
+            node_pins.setdefault(node, []).append(ref)
+
+    # Wires whose endpoints land on the shorted node are likely the
+    # physical bridge — surface them so the GUI can highlight them on click.
+    def _wires_touching(node: tuple[float, float, str]) -> list[uuid.UUID]:
+        nx, ny, _ = node
+        out: list[uuid.UUID] = []
+        for w in layout.wires:
+            for pt in (w.path[0], w.path[-1]):
+                if pt.x == nx and pt.y == ny:
+                    out.append(w.id)
+                    break
+        return out
 
     for node, net_ids in node_nets.items():
         if len(net_ids) > 1:
+            nx, ny, side = node
+            loc_pt = Point(nx, ny)
+            net_id_list = sorted(net_ids, key=str)
+            pins_here = node_pins.get(node, [])
+            wires_here = _wires_touching(node)
+            net_str = _format_nets(net_id_list, schematic)
+            pin_str = _format_pin_list(pins_here, instances, max_items=4)
+            loc_str = _format_location(loc_pt, axis_labels)
+            msg = (
+                f"Short between nets {net_str} at {loc_str} ({side}): {pin_str}"
+                if pins_here
+                else f"Short between nets {net_str} at {loc_str} ({side})"
+            )
             issues.append(
                 DRCIssue(
                     severity="error",
                     code="SHORT",
-                    message=f"Short between nets: {net_ids}",
-                    locations=[],
-                    affected_nets=list(net_ids),
+                    message=msg,
+                    locations=[loc_pt],
+                    affected_nets=net_id_list,
+                    affected_pins=pins_here,
+                    affected_wires=wires_here,
                 )
             )
     return issues
@@ -193,6 +345,7 @@ def _check_short(
 def _check_floating_pins(
     schematic: Schematic,
     layout: Layout,
+    instances: dict[uuid.UUID, ComponentInstance],
 ) -> list[DRCIssue]:
     """Warn about nets whose pins are not placed on the board at all."""
     issues: list[DRCIssue] = []
@@ -204,11 +357,12 @@ def _check_floating_pins(
                         severity="warning",
                         code="FLOATING_PIN",
                         message=(
-                            f"Net {net.name!r}: component {ref.component_id} "
-                            f"pin {ref.pin_number} is not placed"
+                            f"Net {net.name!r}: pin {_format_pin(ref, instances)} "
+                            f"is not placed on the board"
                         ),
                         locations=[],
                         affected_nets=[net.id],
+                        affected_pins=[ref],
                     )
                 )
     return issues
@@ -218,6 +372,7 @@ def _check_bare_wire_cross(
     schematic: Schematic,
     layout: Layout,
     graph: ConnectivityGraph,
+    axis_labels: AxisLabelSettings | None = None,
 ) -> list[DRCIssue]:
     """Detect bare wires of different nets sharing a pad (electrical cross).
 
@@ -276,16 +431,18 @@ def _check_bare_wire_cross(
         if key_f in reported:
             continue
         reported.add(key_f)
+        nets_sorted = sorted(nets_at_pad, key=str)
         issues.append(
             DRCIssue(
                 severity="error",
                 code="BARE_WIRE_CROSS",
                 message=(
-                    f"Bare wires of different nets cross at ({x:.2f}, {y:.2f}) "
-                    f"on {side}"
+                    f"Bare wires of different nets ({_format_nets(nets_sorted, schematic)}) "
+                    f"cross at {_format_location(Point(x, y), axis_labels)} ({side})"
                 ),
                 locations=[Point(x, y)],
-                affected_nets=list(nets_at_pad),
+                affected_nets=nets_sorted,
+                affected_wires=list(wids),
             )
         )
     return issues
@@ -294,6 +451,7 @@ def _check_bare_wire_cross(
 def _check_bare_wire_interior_cross(
     layout: Layout,
     graph: ConnectivityGraph,
+    axis_labels: AxisLabelSettings | None = None,
     cancel_flag: threading.Event | None = None,
 ) -> list[DRCIssue]:
     """Detect bare wires on the same side that cross at an off-pad interior
@@ -368,11 +526,13 @@ def _check_bare_wire_interior_cross(
                                 severity="error",
                                 code="BARE_WIRE_INTERIOR_CROSS",
                                 message=(
-                                    f"Bare wires cross between pads at "
-                                    f"({px:.2f}, {py:.2f}) on {side}"
+                                    f"Bare wires cross between pads near "
+                                    f"{_format_location(Point(px, py), axis_labels)} "
+                                    f"({side})"
                                 ),
                                 locations=[Point(px, py)],
                                 affected_nets=[],
+                                affected_wires=[wi.id, wj.id],
                             )
                         )
     return issues
@@ -381,32 +541,56 @@ def _check_bare_wire_interior_cross(
 def _check_missing_net(
     schematic: Schematic,
     graph: ConnectivityGraph,
+    instances: dict[uuid.UUID, ComponentInstance],
 ) -> list[DRCIssue]:
-    """Detect nets whose pins are not fully connected in the physical layout."""
+    """Detect nets whose pins are not fully connected in the physical layout.
+
+    Groups placed pins by their physical electric-set node.  A net with
+    pins landing in two or more distinct nodes is incomplete; the message
+    lists the disconnected pin groups so the user can see *which* pins
+    need a wire (not just that the net is broken).
+    """
     issues: list[DRCIssue] = []
     for net in schematic.nets.values():
         pins = list(net.pins)
         if len(pins) < 2:
             continue
-        # All pins in the net must be in the same connected component.
-        nodes = [graph.node_for_pin(ref) for ref in pins]
-        placed_nodes = [n for n in nodes if n is not None]
-        if len(placed_nodes) < 2:
-            continue
-        for ref_a, ref_b in combinations(pins, 2):
-            na = graph.node_for_pin(ref_a)
-            nb = graph.node_for_pin(ref_b)
-            if na is None or nb is None:
-                continue
-            if na != nb:
-                issues.append(
-                    DRCIssue(
-                        severity="error",
-                        code="MISSING_NET",
-                        message=(f"Net {net.name!r}: pins not physically connected"),
-                        locations=[],
-                        affected_nets=[net.id],
-                    )
-                )
-                break  # one issue per net is enough
+        # Bucket placed pins by their physical electric-set node.
+        groups: dict[tuple[float, float, str], list[PinRef]] = {}
+        for ref in pins:
+            node = graph.node_for_pin(ref)
+            if node is None:
+                continue  # unplaced — handled by _check_floating_pins
+            groups.setdefault(node, []).append(ref)
+        if len(groups) < 2:
+            continue  # fully connected (or fewer than 2 placed pins)
+
+        # Build a flat list of "GROUP1 pins vs. GROUP2 pins vs. …" for the
+        # message, truncated to keep it readable.  affected_pins gets the
+        # full list so the GUI can highlight every disconnected pin.
+        group_lists = list(groups.values())
+        all_disconnected: list[PinRef] = []
+        group_strs: list[str] = []
+        for grp in group_lists[:3]:
+            all_disconnected.extend(grp)
+            group_strs.append(f"[{_format_pin_list(grp, instances, max_items=3)}]")
+        if len(group_lists) > 3:
+            extra_pins = sum(len(g) for g in group_lists[3:])
+            group_strs.append(f"and {len(group_lists) - 3} more group(s), {extra_pins} pins")
+            for grp in group_lists[3:]:
+                all_disconnected.extend(grp)
+
+        issues.append(
+            DRCIssue(
+                severity="error",
+                code="MISSING_NET",
+                message=(
+                    f"Net {net.name!r}: pins in {len(group_lists)} disconnected "
+                    f"groups — " + " vs. ".join(group_strs)
+                ),
+                locations=[],
+                affected_nets=[net.id],
+                affected_pins=all_disconnected,
+            )
+        )
     return issues
