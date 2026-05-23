@@ -27,9 +27,16 @@ if TYPE_CHECKING:
         SelectionFilter,
     )
 
+import os
+import time
+
 import structlog
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QKeyEvent, QMouseEvent, QPen
+
+# Per-click timing logs.  Enabled with ``PROTOBOARD_CLICK_PROFILE=1``.
+# Off by default so we don't spam the console in normal runs.
+_CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsItem,
@@ -341,6 +348,7 @@ class SelectTool(_Tool):
         Shift+LPM:     selection extended to relation ∩ filter (components and
                        wires both contribute); highlight = same as LPM.
         """
+        _t_enter = time.monotonic() if _CLICK_PROFILE else 0.0
         self._hl_source_wire = wire_id
         self._hl_source_comp = comp_id
         self._hl_source_pin = pin_number
@@ -351,6 +359,13 @@ class SelectTool(_Tool):
             comp_id=comp_id,
             pin_number=pin_number,
         )
+        if _CLICK_PROFILE:
+            _log.info(
+                "click_profile.apply_interaction.resolve_relation",
+                ms=round((time.monotonic() - _t_enter) * 1000, 1),
+                n_correlated_comps=len(correlated_comps),
+                n_correlated_wires=len(correlated_wires),
+            )
 
         if shift_held:
             # Selection = relation ∩ filter (replace any prior multi-selection).
@@ -373,6 +388,7 @@ class SelectTool(_Tool):
             if wire_id is not None:
                 self._select_wire(wire_id)
 
+        _t_before_refresh = time.monotonic() if _CLICK_PROFILE else 0.0
         self._refresh_auto_highlight(
             wire_id=wire_id,
             comp_id=comp_id,
@@ -380,7 +396,19 @@ class SelectTool(_Tool):
             correlated_comps=correlated_comps,
             correlated_wires=correlated_wires,
         )
+        if _CLICK_PROFILE:
+            _log.info(
+                "click_profile.apply_interaction.refresh_auto_highlight",
+                ms=round((time.monotonic() - _t_before_refresh) * 1000, 1),
+            )
+        _t_before_notify = time.monotonic() if _CLICK_PROFILE else 0.0
         self._notify_selection()
+        if _CLICK_PROFILE:
+            _log.info(
+                "click_profile.apply_interaction.notify_selection",
+                ms=round((time.monotonic() - _t_before_notify) * 1000, 1),
+                total_ms=round((time.monotonic() - _t_enter) * 1000, 1),
+            )
 
     def _refresh_auto_highlight(
         self,
@@ -474,8 +502,6 @@ class SelectTool(_Tool):
         Pin click / wire click → at most one net.  Bbox click on a component
         → every net that component participates in.
         """
-        from protoboard.gui.board_view import _build_wire_net_map
-
         session = self._session
         if session is None:
             return set()
@@ -483,7 +509,7 @@ class SelectTool(_Tool):
             single = self._resolve_logical_net(comp_id=comp_id, pin_number=pin_number)
             return {single} if single is not None else set()
         if wire_id is not None:
-            wnm = _build_wire_net_map(session)
+            wnm = session.cached_wire_net_map()
             single = wnm.get(wire_id)
             return {single} if single is not None else set()
         if comp_id is not None:
@@ -503,7 +529,6 @@ class SelectTool(_Tool):
     ) -> uuid.UUID | None:
         """Find the logical net id associated with the click source, if any."""
         from protoboard.domain.schematic.net import PinRef
-        from protoboard.gui.board_view import _build_wire_net_map
 
         session = self._session
         if session is None:
@@ -514,7 +539,7 @@ class SelectTool(_Tool):
             if net is not None:
                 return net.id
         if wire_id is not None:
-            wnm = _build_wire_net_map(session)
+            wnm = session.cached_wire_net_map()
             return wnm.get(wire_id)
         return None
 
@@ -536,7 +561,6 @@ class SelectTool(_Tool):
         The clicked object itself is always included in the result so the
         BoardView dimming pipeline never wipes it out.
         """
-        from protoboard.gui.board_view import _build_wire_net_map
         from protoboard.gui.selection_axes import RelationClass
 
         if relation == RelationClass.NONE:
@@ -553,7 +577,7 @@ class SelectTool(_Tool):
             if single is not None:
                 net_ids.add(single)
         elif wire_id is not None:
-            wnm0 = _build_wire_net_map(session)
+            wnm0 = session.cached_wire_net_map()
             single = wnm0.get(wire_id)
             if single is not None:
                 net_ids.add(single)
@@ -577,7 +601,7 @@ class SelectTool(_Tool):
             RelationClass.SAME_PHYSICAL_NET,
             RelationClass.UNCONNECTED_PINS,
         ):
-            wnm = _build_wire_net_map(session)
+            wnm = session.cached_wire_net_map()
             for nid in net_ids:
                 net_obj = session.schematic.nets.get(nid)
                 if net_obj is not None:
@@ -656,15 +680,24 @@ class SelectTool(_Tool):
                 net_obj = session.schematic.nets.get(nid)
                 if net_obj is None:
                     continue
+                # Precompute pin→electric-set bucket once per net.  The
+                # previous implementation re-queried `node_for_pin` for
+                # every pair of pins (O(N²) graph lookups) — for a net
+                # with 50 pins that was 2500 graph queries on the main
+                # thread per click, easily visible as a 300-500ms freeze.
+                pin_to_ck: dict[PinRef, object] = {}
+                bucket_counts: dict[object, int] = {}
                 for ref in net_obj.pins:
-                    ck = graph.node_for_pin(PinRef(ref.component_id, ref.pin_number))
+                    pref = PinRef(ref.component_id, ref.pin_number)
+                    ck = graph.node_for_pin(pref)
+                    pin_to_ck[pref] = ck  # type: ignore[assignment]
                     if ck is not None:
-                        same_key_count = sum(
-                            1 for r2 in net_obj.pins
-                            if graph.node_for_pin(PinRef(r2.component_id, r2.pin_number)) == ck
-                        )
-                        if same_key_count > 1:
-                            continue  # physically connected to another pin in net
+                        bucket_counts[ck] = bucket_counts.get(ck, 0) + 1
+                for ref in net_obj.pins:
+                    pref = PinRef(ref.component_id, ref.pin_number)
+                    ck = pin_to_ck.get(pref)
+                    if ck is not None and bucket_counts.get(ck, 0) > 1:
+                        continue  # physically connected to another pin in net
                     pos = session.get_pin_position(ref.component_id, ref.pin_number)
                     if pos is None:
                         continue
@@ -941,10 +974,13 @@ class SelectTool(_Tool):
             self._draw_floating_highlights()
 
     def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
+        _click_t0 = time.monotonic() if _CLICK_PROFILE else 0.0
         if event.button() != Qt.MouseButton.LeftButton:
             return False
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        if _CLICK_PROFILE:
+            self._click_t0 = _click_t0
 
         # --- Floating state: click commits (same as Enter) ---
         if self._is_floating() and not ctrl:
@@ -1138,9 +1174,12 @@ class SelectTool(_Tool):
                         pl.position.y - snapped.y,
                     )
             # Snapshot original wire paths for any selected wires.
-            for wire in self._session.layout.wires:
-                if wire.id in self._selected_wire_ids:
-                    self._drag_orig_wire_paths[wire.id] = list(wire.path)
+            # Iterate selection (typically tiny) and look up by id, not the
+            # other way around — the full wire list can be thousands long.
+            for wid in self._selected_wire_ids:
+                w = self._session.wire_by_id(wid)
+                if w is not None:
+                    self._drag_orig_wire_paths[wid] = list(w.path)
             return True
 
         wire_hit = self._hit_test_wire(scene_pt) if self._filter_wires() else None
@@ -1157,10 +1196,7 @@ class SelectTool(_Tool):
                 self._drag_orig_positions = {}
                 self._drag_orig_wire_paths = {}
                 # Anchor offset: użyj pierwszego punktu klikniętego drutu.
-                wire_obj = next(
-                    (w for w in self._session.layout.wires if w.id == wire_hit),
-                    None,
-                )
+                wire_obj = self._session.wire_by_id(wire_hit)
                 if wire_obj and wire_obj.path:
                     self._drag_anchor_offset = (
                         wire_obj.path[0].x - snapped.x,
@@ -1169,10 +1205,7 @@ class SelectTool(_Tool):
                     # Use wire anchor as synthetic "selected_id" anchor.
                     self._selected_id = None
                 for wid in self._selected_wire_ids:
-                    wobj = next(
-                        (w for w in self._session.layout.wires if w.id == wid),
-                        None,
-                    )
+                    wobj = self._session.wire_by_id(wid)
                     if wobj:
                         self._drag_orig_wire_paths[wid] = list(wobj.path)
                 for cid in self._selected_ids:
@@ -1216,9 +1249,10 @@ class SelectTool(_Tool):
                     pl.position.x - snapped.x,
                     pl.position.y - snapped.y,
                 )
-            for wire in self._session.layout.wires:
-                if wire.id in self._selected_wire_ids:
-                    self._drag_orig_wire_paths[wire.id] = list(wire.path)
+            for wid in self._selected_wire_ids:
+                w = self._session.wire_by_id(wid)
+                if w is not None:
+                    self._drag_orig_wire_paths[wid] = list(w.path)
             return True
 
         # Nothing hit — clear connectivity highlight and start rubber-band.
@@ -3183,13 +3217,12 @@ class SelectTool(_Tool):
         self, comp_id: uuid.UUID, net_id: uuid.UUID | None = None
     ) -> None:
         """Select all wires and components for all (or one) net of comp_id."""
-        from protoboard.gui.board_view import _build_wire_net_map
         nets = (
             [n for n in self._nets_for_comp(comp_id) if n.id == net_id]  # type: ignore[attr-defined]
             if net_id is not None
             else self._nets_for_comp(comp_id)
         )
-        wire_net_map = _build_wire_net_map(self._session)
+        wire_net_map = self._session.cached_wire_net_map()
         rev: dict[uuid.UUID, uuid.UUID] = {nid: nid for nid in {v for v in wire_net_map.values()}}
         target_nets = {n.id for n in nets}  # type: ignore[attr-defined]
         comp_ids: set[uuid.UUID] = set()
@@ -3211,8 +3244,7 @@ class SelectTool(_Tool):
 
     def _select_net_wires(self, net_id: uuid.UUID) -> None:
         """Select all wires assigned to the given logical net."""
-        from protoboard.gui.board_view import _build_wire_net_map
-        wire_net_map = _build_wire_net_map(self._session)
+        wire_net_map = self._session.cached_wire_net_map()
         self._selected_wire_ids = {
             wid for wid, nid in wire_net_map.items() if nid == net_id
         }
@@ -3263,9 +3295,7 @@ class SelectTool(_Tool):
     def _select_connected_comps(self, wire_id: uuid.UUID) -> None:
         """Select components whose pins are physically connected to wire_id."""
         graph = self._session.connectivity_graph()
-        wire = next(
-            (w for w in self._session.layout.wires if w.id == wire_id), None
-        )
+        wire = self._session.wire_by_id(wire_id)
         if wire is None or len(wire.path) < 2:
             return
         # Collect electric set keys touched by this wire.
@@ -3320,9 +3350,7 @@ class SelectTool(_Tool):
 
     def _select_to_closest_pin_or_joint(self, wire_id: uuid.UUID, scene_pt: "QPointF") -> None:
         """Select the fragment of wire_id from click point to nearest pin/junction."""
-        wire = next(
-            (w for w in self._session.layout.wires if w.id == wire_id), None
-        )
+        wire = self._session.wire_by_id(wire_id)
         if wire is None or len(wire.path) < 2:
             return
         graph = self._session.connectivity_graph()
@@ -3620,12 +3648,18 @@ class SelectTool(_Tool):
                 for wid in spatial.get((cell_x + dcx, cell_y + dcy), []):
                     candidates.add(wid)
 
-        wire_map = {w.id: w for w in self._session.layout.wires if w.id in candidates}
-        for wire in wire_map.values():
+        # Look up each candidate via the session's O(1) wire-by-id cache
+        # rather than rebuilding a dict from `layout.wires` (O(N)).  The
+        # spatial index has already narrowed us down to a handful of
+        # neighbours; the previous comprehension walked the whole list.
+        for wid in candidates:
+            wire = self._session.wire_by_id(wid)
+            if wire is None:
+                continue
             d = _min_dist_to_wire(px, py, wire)
             if d < best_d:
                 best_d = d
-                best_id = wire.id
+                best_id = wid
         return best_id
 
     def _select_wire(self, wire_id: uuid.UUID) -> None:
@@ -3643,15 +3677,14 @@ class SelectTool(_Tool):
           3rd click → only the clicked wire segment
           4th click → wraps back to 1st
         """
+        _t0 = time.monotonic() if _CLICK_PROFILE else 0.0
         if self._wire_click_id == wire_id:
             self._wire_click_cycle = (self._wire_click_cycle % 3) + 1
         else:
             self._wire_click_id = wire_id
             self._wire_click_cycle = 1
 
-        wire = next(
-            (w for w in self._session.layout.wires if w.id == wire_id), None
-        )
+        wire = self._session.wire_by_id(wire_id)
         if wire is None:
             self._select_wire(wire_id)
             self._notify_selection()
@@ -3668,40 +3701,17 @@ class SelectTool(_Tool):
             return
 
         # Cycles 1 and 2: select all wires in the same electric net.
-        graph = self._session.connectivity_graph()
-
-        # Collect canonical keys for the electrically-active points of this wire.
-        # Insulated wires only make contact at their two endpoints — intermediate
-        # points float above the board and must not be used to match other wires.
-        # Bare wires contact every pad they pass through.
-        wire_canonical: set[object] = set()
-        if wire.insulated:
-            contact_pts = [wire.path[0], wire.path[-1]] if len(wire.path) >= 2 else wire.path
-        else:
-            contact_pts = wire.path
-        for pt in contact_pts:
-            ck = graph.node_for_pad(pt, wire.side)
-            if ck is not None:
-                wire_canonical.add(ck)
-
-        if not wire_canonical:
-            # Wire not in graph — fall back to segment.
+        # The wire→net map is cached on the session so this is one dict
+        # lookup, not a full board scan with per-pad graph queries.
+        wnm = self._session.cached_wire_net_map()
+        clicked_net_id = wnm.get(wire_id)
+        if clicked_net_id is None:
+            # Wire not assigned to any logical net — fall back to segment.
             self._select_wire(wire_id)
             return
-
-        # All wires whose electrically-active points share a canonical key.
-        net_wire_ids: set[uuid.UUID] = set()
-        for w in self._session.layout.wires:
-            check_pts = (
-                ([w.path[0], w.path[-1]] if len(w.path) >= 2 else w.path)
-                if w.insulated
-                else w.path
-            )
-            for pt in check_pts:
-                ck = graph.node_for_pad(pt, w.side)
-                if ck in wire_canonical:
-                    net_wire_ids.add(w.id)
-                    break
+        net_wire_ids: set[uuid.UUID] = {
+            wid for wid, nid in wnm.items() if nid == clicked_net_id
+        }
 
         # Select the clicked wire as primary, rest as multi-selection.
         # _select_wire calls _deselect_wire which resets _wire_click_id/_wire_click_cycle,
@@ -3717,24 +3727,32 @@ class SelectTool(_Tool):
 
         # Activate net highlight + dim for cycles 1 and 2.
         if self._view is not None:
-            from protoboard.gui.board_view import _build_wire_net_map
-            _wnm = _build_wire_net_map(self._session)
-            _net_id = _wnm.get(wire_id)
-            self._highlight_net_id = _net_id  # keep in sync so _notify_selection sees it
-            self._view.set_highlighted_net(_net_id)
+            self._highlight_net_id = clicked_net_id
+            self._view.set_highlighted_net(clicked_net_id)
 
         if self._wire_click_cycle == 1:
             # Highlight component pins electrically connected to this net
             # as red circles (cycle 1 only — cleared on cycle 2/3/deselect).
-            from protoboard.domain.schematic.net import PinRef
+            # The schematic carries the net→pins mapping directly, so we
+            # don't need to query the graph per pin.
+            net_obj = self._session.schematic.nets.get(clicked_net_id)
             pad_positions: list[Point] = []
-            for comp_id in list(self._session.layout.placements):
-                for pin_num, pos in self._session.iter_pin_positions(comp_id):
-                    ck = graph.node_for_pin(PinRef(component_id=comp_id, pin_number=pin_num))
-                    if ck in wire_canonical:
-                        pad_positions.append(pos)
+            if net_obj is not None:
+                for ref in net_obj.pins:
+                    if ref.component_id in self._session.layout.placements:
+                        for pin_num, pos in self._session.iter_pin_positions(ref.component_id):
+                            if pin_num == ref.pin_number:
+                                pad_positions.append(pos)
+                                break
             self._draw_net_pad_highlights(pad_positions)
 
+        if _CLICK_PROFILE:
+            _log.info(
+                "click_profile.select_wire_cycled",
+                cycle=self._wire_click_cycle,
+                n_net_wires=len(net_wire_ids),
+                ms=round((time.monotonic() - _t0) * 1000, 1),
+            )
         self._notify_selection()
 
     def _draw_net_pad_highlights(self, positions: "list[Point]") -> None:
@@ -3777,9 +3795,7 @@ class SelectTool(_Tool):
         if self._wire_highlight is not None:
             self._view.scene().removeItem(self._wire_highlight)
             self._wire_highlight = None
-        wire = next(
-            (w for w in self._session.layout.wires if w.id == wire_id), None
-        )
+        wire = self._session.wire_by_id(wire_id)
         if wire is None or len(wire.path) < 2:
             return
         from protoboard.gui.layer_state import Z_SELECTION
@@ -3815,9 +3831,7 @@ class SelectTool(_Tool):
         self._session.layout_changed.emit()
 
     def _draw_multi_wire_highlight(self, wire_id: uuid.UUID) -> None:
-        wire = next(
-            (w for w in self._session.layout.wires if w.id == wire_id), None
-        )
+        wire = self._session.wire_by_id(wire_id)
         if wire is None or len(wire.path) < 2:
             return
         from protoboard.gui.layer_state import Z_SELECTION

@@ -32,6 +32,7 @@ _COL_WIRES  = 2
 _COL_LENGTH = 3
 _COL_RATIO  = 4   # wire length / MST manhattan
 _COL_HULL   = 5   # convex hull area (wires) / convex hull area (pins)
+_COL_COST   = 6   # total routing cost under current cost_model
 _ROLE = Qt.ItemDataRole.UserRole
 
 _UNROUTED_COLOR = QColor("#E07B00")
@@ -62,6 +63,10 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
     ) -> None:
         super().__init__(parent)
         self._board_view = board_view
+        # Set when `_rebuild` was called while hidden — `showEvent` picks
+        # it up so the tree catches up the moment the user reveals the
+        # panel.  Avoids spending O(nets × wires) on a tree no one sees.
+        self._refresh_pending = False
 
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(4, 4, 4, 4)
@@ -70,13 +75,14 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
 
         self._tree = QTreeWidget()
         self._tree.setHeaderLabels(
-            ["Name", "Pins", "Wires", "Length (r.u.)", "Wire/MST", "Hull"]
+            ["Name", "Pins", "Wires", "Length (r.u.)", "Wire/MST", "Hull", "Cost"]
         )
         self._tree.setColumnWidth(_COL_PINS,   38)
         self._tree.setColumnWidth(_COL_WIRES,  42)
         self._tree.setColumnWidth(_COL_LENGTH, 76)
         self._tree.setColumnWidth(_COL_RATIO,  68)
         self._tree.setColumnWidth(_COL_HULL,   58)
+        self._tree.setColumnWidth(_COL_COST,   72)
         self._tree.setSortingEnabled(True)
         self._tree.header().setSectionResizeMode(
             _COL_NAME, QHeaderView.ResizeMode.Stretch
@@ -115,6 +121,12 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
         self._board_view.set_highlighted_net(None)
         self._tree.clearSelection()
 
+    def showEvent(self, event: object) -> None:  # type: ignore[override]
+        super().showEvent(event)  # type: ignore[arg-type]
+        if self._refresh_pending and self._session is not None:
+            self._refresh_pending = False
+            self._rebuild()
+
     def selected_net_ids(self) -> set[uuid.UUID]:
         """Return UUIDs of all nets currently selected in the panel."""
         result: set[uuid.UUID] = set()
@@ -136,21 +148,46 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
         session = self._session
         if session is None or not session.schematic.nets:
             return
+        # Inspector populates synchronously on the main thread; skip the
+        # whole walk when the user can't see the result.  Refresh is
+        # already debounced via the parent's `_panels_timer` (100 ms), so
+        # marking pending state here is cheap.
+        if not self.isVisible():
+            self._refresh_pending = True
+            return
+        self._refresh_pending = False
 
         from protoboard.domain.layout.placement import pin_world_position
         from protoboard.domain.schematic.net import PinRef
-        from protoboard.gui.board_view import _build_wire_net_map
+        from protoboard.services.routing.cost_analyzer import analyze_wires
         from protoboard.services.routing.net_status import routed_net_ids
 
         graph = session.connectivity_graph()
         routed = routed_net_ids(session.schematic, graph)
 
-        wire_net_map = _build_wire_net_map(session)
+        wire_net_map = session.cached_wire_net_map()
         net_wires: dict[uuid.UUID, list[WireSegment]] = {}
         for wire in session.layout.wires:
             nid = wire_net_map.get(wire.id)
             if nid is not None:
                 net_wires.setdefault(nid, []).append(wire)  # type: ignore[arg-type]
+
+        cm = session.routing_settings.cost_model()
+        # Snapshot the full wire list once so each per-net `analyze_wires`
+        # call sees crossings against wires from other nets.
+        all_wires = list(session.layout.wires)
+        pad_idx = session.pad_index()
+        # Pad-walk sets come from the session cache — `_walk_atoms()` only
+        # runs the very first time after a layout change, not per refresh
+        # and definitely not per net.
+        cost_under_pads = (
+            session.cached_under_component_pads()
+            if cm.get("under_component_top", 0.0) > 0.0 else set()
+        )
+        cost_plated_pads = (
+            session.cached_plated_through_pads()
+            if cm.get("layer_change", 0.0) > 0.0 else set()
+        )
 
         unrouted_brush = QBrush(_UNROUTED_COLOR)
 
@@ -196,6 +233,26 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
                 hull_txt = _NA
                 hull_key = _NA_SORT
 
+            # Routing cost for this net's wires under the current cost model.
+            # Cheap (O(steps)); precomputed pad sets above keep this fast
+            # even with hundreds of nets.  ``all_board_wires`` is the full
+            # board's wire list so crossings with wires of *other* nets
+            # are charged against this net too.
+            if wires:
+                cost = analyze_wires(
+                    wires,
+                    cost_model=cm,
+                    under_component_pads=cost_under_pads,
+                    plated_through_pads=cost_plated_pads,
+                    all_board_wires=all_wires,
+                    pad_index=pad_idx,
+                ).total
+                cost_txt = f"{cost:.1f}"
+                cost_key: float = cost
+            else:
+                cost_txt = _NA
+                cost_key = _NA_SORT
+
             item = _SortableItem()
             item.setText(_COL_NAME,   net.name)
             item.setText(_COL_PINS,   str(pin_count))
@@ -203,6 +260,7 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
             item.setText(_COL_LENGTH, f"{length:.1f}")
             item.setText(_COL_RATIO,  ratio_txt)
             item.setText(_COL_HULL,   hull_txt)
+            item.setText(_COL_COST,   cost_txt)
 
             item.setData(_COL_NAME,   _ROLE, str(net.id))
             item.setData(_COL_PINS,   _ROLE, pin_count)
@@ -210,6 +268,7 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
             item.setData(_COL_LENGTH, _ROLE, length)
             item.setData(_COL_RATIO,  _ROLE, ratio_key)
             item.setData(_COL_HULL,   _ROLE, hull_key)
+            item.setData(_COL_COST,   _ROLE, cost_key)
 
             if net.id not in routed:
                 item.setForeground(_COL_NAME, unrouted_brush)

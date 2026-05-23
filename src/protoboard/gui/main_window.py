@@ -63,6 +63,11 @@ from protoboard.services.persistence.project_yaml import (
 
 _log = structlog.get_logger(__name__)
 
+import os as _os
+import time as _time
+_click_log = structlog.get_logger("protoboard.gui.main_window.click")
+_CLICK_PROFILE = _os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
+
 
 class MainWindow(QMainWindow):
     # Emitted when user chooses File > Close Project (return to welcome screen).
@@ -439,6 +444,7 @@ class MainWindow(QMainWindow):
         self._props_panel.component_changed.connect(self._on_component_changed)
         self._props_panel.pin_offsets_changed.connect(self._on_pin_offsets_changed)
         self._props_panel.pin_variant_changed.connect(self._on_pin_variant_changed)
+        self._props_panel.drc_issue_clicked.connect(self._on_drc_issue_clicked)
 
         self._groups_panel.group_disbanded.connect(lambda _: self._board_view.refresh())
         self._groups_panel.group_disbanded.connect(lambda _: self._update_undo_redo())
@@ -870,6 +876,10 @@ class MainWindow(QMainWindow):
         self._session.layout_changed.disconnect(self._session.mark_dirty)
         self._session.dirty_changed.disconnect(self._update_title)
         self._session.drc_changed.disconnect(self._props_panel.update_issues)
+        try:
+            self._props_panel.drc_issue_clicked.disconnect(self._on_drc_issue_clicked)
+        except (TypeError, RuntimeError):
+            pass  # not connected yet — first-time path
         self._session = session
         session.layout_changed.connect(session.invalidate_graph)
         session.layout_changed.connect(self._panels_timer.start)
@@ -878,6 +888,7 @@ class MainWindow(QMainWindow):
         session.layout_changed.connect(session.mark_dirty)
         session.dirty_changed.connect(self._update_title)
         session.drc_changed.connect(self._props_panel.update_issues)
+        self._props_panel.drc_issue_clicked.connect(self._on_drc_issue_clicked)
         # Reset select tool state (group stack etc.) for the new session.
         self._select_tool = SelectTool()
         self._board_view._permanent_tools = [self._select_tool]
@@ -1005,10 +1016,22 @@ class MainWindow(QMainWindow):
         self, comp_ids: object, wire_ids: object, net_id: object
     ) -> None:
         """Broadcast board selection state to all panels."""
+        _t0 = _time.monotonic() if _CLICK_PROFILE else 0.0
         self._netlist_panel.sync_selection(comp_ids, wire_ids, net_id)
+        _t1 = _time.monotonic() if _CLICK_PROFILE else 0.0
         self._components_panel.sync_selection(comp_ids, wire_ids, net_id)
+        _t2 = _time.monotonic() if _CLICK_PROFILE else 0.0
         self._nets_editor_panel.sync_selection(comp_ids, wire_ids, net_id)
+        _t3 = _time.monotonic() if _CLICK_PROFILE else 0.0
         self._net_inspector_panel.sync_selection(comp_ids, wire_ids, net_id)
+        if _CLICK_PROFILE:
+            _click_log.info(
+                "click_profile.main_window.on_selection_changed",
+                netlist_ms=round((_t1 - _t0) * 1000, 1),
+                components_ms=round((_t2 - _t1) * 1000, 1),
+                nets_editor_ms=round((_t3 - _t2) * 1000, 1),
+                net_inspector_ms=round((_time.monotonic() - _t3) * 1000, 1),
+            )
 
     def _refresh_panels(self) -> None:
         """Debounced refresh of all sidebar panels — called via _panels_timer."""
@@ -2016,6 +2039,7 @@ class MainWindow(QMainWindow):
             schematic_snap=SchematicSnapshot.freeze(self._session.schematic),
             components=dict(self._session.components),
             instances=dict(self._session.instances),
+            axis_labels=self._session.axis_label_settings,
         )
         worker.finished.connect(self._on_drc_finished)
         worker.error.connect(self._on_drc_error)
@@ -2047,6 +2071,49 @@ class MainWindow(QMainWindow):
         self._drc_worker = None
         _log.error("drc.worker_error", msg=msg)
         self._status.showMessage(f"DRC failed: {msg}", 4000)
+
+    # ------------------------------------------------------------------
+    # DRC interactivity — translate panel clicks into highlight + viewport.
+    # ------------------------------------------------------------------
+
+    _DRC_HIGHLIGHT_SOURCE = "drc_panel"
+
+    def _on_drc_issue_clicked(self, issue: object) -> None:
+        """Push (or pop) an auto highlight entry derived from the clicked
+        DRC issue and centre the viewport on the first location.
+
+        ``issue`` is either a :class:`DRCIssue` (first click) or ``None``
+        (toggled off / list refreshed).  The highlight is pushed into the
+        *auto* tier keyed by ``_DRC_HIGHLIGHT_SOURCE`` so subsequent
+        clicks replace (not stack) the entry, and a tool's transient
+        highlight still wins over it.
+        """
+        from protoboard.gui.highlight_state import HighlightEntry
+        from protoboard.services.drc.engine import DRCIssue as _DRCIssue
+
+        stack = self._session.highlight_stack
+        stack.clear_auto(self._DRC_HIGHLIGHT_SOURCE)
+
+        if not isinstance(issue, _DRCIssue):
+            return
+
+        comp_ids = frozenset(issue.affected_components)
+        wire_ids = frozenset(issue.affected_wires)
+        net_id = issue.affected_nets[0] if issue.affected_nets else None
+        stack.push_auto(
+            HighlightEntry(
+                comp_ids=comp_ids,
+                wire_ids=wire_ids,
+                net_id=net_id,
+                label=f"drc:{issue.code}",
+            ),
+            source_id=self._DRC_HIGHLIGHT_SOURCE,
+        )
+
+        if issue.locations:
+            from PySide6.QtCore import QPointF
+            p = issue.locations[0]
+            self._board_view.center_on_scene_point(QPointF(p.x, p.y))
 
     def _update_stats(self) -> None:
         """Update the permanent status-bar stats label."""

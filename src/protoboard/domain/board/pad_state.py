@@ -656,6 +656,24 @@ class PadIndex:
     def iter_pads(self) -> Iterator[Pad]:
         return iter(self._pads.values())
 
+    def iter_pads_with_wires(self) -> Iterator[Pad]:
+        """Yield only pads that have at least one wire item recorded.
+
+        Significantly faster than ``iter_pads`` for analyses that pair
+        wires meeting at a pad (e.g. cost-analyzer crossing detection).
+        Most pads on a perfboard never see any wire; iterating them
+        all to check ``physically_blocked`` is O(board_size) per call.
+        """
+        seen: set[_PadKey] = set()
+        for rec in self._wire_records.values():
+            for key, _side, _item in rec.items:
+                if key in seen:
+                    continue
+                seen.add(key)
+                pad = self._pads.get(key)
+                if pad is not None:
+                    yield pad
+
     def pads_for_strip(self, strip_group_id: int) -> list[Pad]:
         return [self._pads[k] for k in self._strips.get(strip_group_id, [])]
 

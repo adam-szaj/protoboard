@@ -4,8 +4,13 @@
 from __future__ import annotations
 
 import math
+import os
 import time
 import uuid
+
+import structlog
+_click_log = structlog.get_logger("protoboard.gui.board_view.click")
+_CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
 
 _DRAG_REFRESH_INTERVAL = 0.033  # 30 fps max during live drag
 
@@ -56,8 +61,33 @@ class BoardView(QGraphicsView):
         super().__init__(parent)
         self._session = session
         self._scene = QGraphicsScene(self)
+        # Disable BSP tree index — at 14k+ items a BSP rebuild every time
+        # setOpacity / setVisible runs (which happens on every click via
+        # _apply_highlight_opacity) dominates paint time.  Our own spatial
+        # indexes (_pad_spatial, session.wire_spatial_index) cover hit-tests;
+        # Qt only needs to walk items for paint, where O(N) iteration beats
+        # O(log N) lookup + O(N) BSP refresh.
+        self._scene.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
         self.setScene(self._scene)
-        self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # Antialiasing × 14k items × 4K viewport was ~800 ms per paint frame
+        # (measured via click_profile.boardview.paintEvent).  Toggling it off
+        # is the single biggest paint-cost lever — geometry is still
+        # rasterised correctly, edges are just less smooth.  Antialiased
+        # rendering remains available for static publication exports.
+        self.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        # DontSavePainterState avoids QPainter.save()/restore() around every
+        # item — meaningful at 14k items per paint.  Items in this app set
+        # their own pen/brush per draw, so the saved state was unused anyway.
+        self.setOptimizationFlag(
+            QGraphicsView.OptimizationFlag.DontSavePainterState, True,
+        )
+        # FullViewportUpdate skips the per-item bounding-rect intersection
+        # pass that MinimalViewportUpdate runs to compute dirty regions.
+        # For dense boards where most items are within the viewport every
+        # repaint anyway, paying for the bounding-rect math is wasted work.
+        self.setViewportUpdateMode(
+            QGraphicsView.ViewportUpdateMode.FullViewportUpdate,
+        )
         self.setBackgroundBrush(QBrush(BOARD_BG))
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
@@ -229,6 +259,19 @@ class BoardView(QGraphicsView):
         self._apply_highlight_opacity()
 
     def _apply_highlight_opacity(self) -> None:
+        _t0 = time.monotonic() if _CLICK_PROFILE else 0.0
+        try:
+            self._apply_highlight_opacity_impl()
+        finally:
+            if _CLICK_PROFILE:
+                _click_log.info(
+                    "click_profile.apply_highlight_opacity",
+                    ms=round((time.monotonic() - _t0) * 1000, 1),
+                    n_comp_groups=len(self._comp_groups),
+                    n_wire_groups=len(self._wire_groups),
+                )
+
+    def _apply_highlight_opacity_impl(self) -> None:
         """Apply dimming to existing comp/wire groups without a full refresh.
 
         Three sources may contribute (unioned, no overrides):
@@ -303,7 +346,7 @@ class BoardView(QGraphicsView):
                 highlighted_comp_ids |= {ref.component_id for ref in net_obj.pins}
 
         # wire_id → net_id map, so we know which wires belong to any active net.
-        wire_net_map = _build_wire_net_map(session)
+        wire_net_map = session.cached_wire_net_map()
 
         for comp_id, grp in self._comp_groups.items():
             if isinstance(grp, QGraphicsItemGroup):
@@ -331,15 +374,24 @@ class BoardView(QGraphicsView):
         they would overlap each other and are hidden.  Background rects (tagged
         "label_bg") are shown/hidden together with their text items.
         """
+        _t0 = time.monotonic() if _CLICK_PROFILE else 0.0
         from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
         scene_scale = abs(self.transform().m11())
         show = scene_scale >= self._LABEL_MIN_SCENE_UNITS
+        n_items = 0
         for item in self._scene.items():
+            n_items += 1
             if isinstance(item, (QGraphicsTextItem, QGraphicsRectItem)):
                 if isinstance(item, QGraphicsRectItem) and item.data(0) != "label_bg":
                     continue
                 if item.isVisible() != show:
                     item.setVisible(show)
+        if _CLICK_PROFILE:
+            _click_log.info(
+                "click_profile.apply_label_visibility",
+                ms=round((time.monotonic() - _t0) * 1000, 1),
+                n_scene_items=n_items,
+            )
 
     def set_highlighted_net_silent(self, net_id: uuid.UUID | None) -> None:
         """Set the highlighted net without triggering a refresh.
@@ -676,7 +728,7 @@ class BoardView(QGraphicsView):
         self._overlay_items.clear()
 
         # ── Shared render inputs ─────────────────────────────────────────────
-        wire_net_map = _build_wire_net_map(self._session)
+        wire_net_map = self._session.cached_wire_net_map()
         net_color_map = {
             net_id: net.color
             for net_id, net in self._session.schematic.nets.items()
@@ -1002,6 +1054,34 @@ class BoardView(QGraphicsView):
                 handler(scene_pt)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        _t0 = time.monotonic() if _CLICK_PROFILE else 0.0
+        try:
+            self._mousePressEvent_impl(event)
+        finally:
+            if _CLICK_PROFILE:
+                self._click_press_ts = time.monotonic()
+                _click_log.info(
+                    "click_profile.boardview.mousePressEvent",
+                    ms=round((time.monotonic() - _t0) * 1000, 1),
+                )
+
+    def paintEvent(self, event: object) -> None:  # type: ignore[override]
+        _t0 = time.monotonic() if _CLICK_PROFILE else 0.0
+        super().paintEvent(event)  # type: ignore[arg-type]
+        if _CLICK_PROFILE:
+            paint_ms = round((time.monotonic() - _t0) * 1000, 1)
+            press_ts = getattr(self, "_click_press_ts", None)
+            if press_ts is not None and (time.monotonic() - press_ts) < 1.0:
+                # Only log paints temporally close to a click — otherwise
+                # every viewport update spams the console.
+                since_press_ms = round((time.monotonic() - press_ts) * 1000, 1)
+                _click_log.info(
+                    "click_profile.boardview.paintEvent",
+                    paint_ms=paint_ms,
+                    since_press_ms=since_press_ms,
+                )
+
+    def _mousePressEvent_impl(self, event: QMouseEvent) -> None:
         ctrl = event.modifiers() & Qt.KeyboardModifier.ControlModifier
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = True
@@ -1050,6 +1130,17 @@ class BoardView(QGraphicsView):
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        _t0 = time.monotonic() if _CLICK_PROFILE else 0.0
+        try:
+            self._mouseReleaseEvent_impl(event)
+        finally:
+            if _CLICK_PROFILE:
+                _click_log.info(
+                    "click_profile.boardview.mouseReleaseEvent",
+                    ms=round((time.monotonic() - _t0) * 1000, 1),
+                )
+
+    def _mouseReleaseEvent_impl(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.MiddleButton and self._panning:
             self._panning = False
             self.setCursor(Qt.CursorShape.ArrowCursor)

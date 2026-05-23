@@ -7,8 +7,13 @@ components observe it via Qt signals and mutate it only through Commands.
 
 from __future__ import annotations
 
+import os
 import time
 import uuid
+
+import structlog as _structlog
+_click_log = _structlog.get_logger("protoboard.gui.session.click")
+_CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,6 +21,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
+    from protoboard.domain.layout.wire import WireSegment
 
 from PySide6.QtCore import QObject, Signal
 
@@ -156,6 +162,25 @@ class EditorSession(QObject):
         self._pad_index: "PadIndex | None" = None
         self._comp_spatial_index: dict[tuple[int, int], list[uuid.UUID]] | None = None
         self._wire_spatial_index: dict[tuple[int, int], list[uuid.UUID]] | None = None
+        # Cached pad-walk sets used by post-hoc cost analysis.  Both depend
+        # only on board + placements; `_plated_through_pads_cache` is board-
+        # only (never invalidates after construction), while
+        # `_under_component_pads_cache` is invalidated alongside the graph.
+        # Without these, every selection-changed event would re-walk every
+        # board atom — visible as multi-hundred-ms freeze when the user
+        # clicks a wire on a large board.
+        self._plated_through_pads_cache: set[Point] | None = None
+        self._under_component_pads_cache: set[Point] | None = None
+        # wire.id → net.id mapping, cached because both BoardView and the
+        # inspector / performance panels call ``_build_wire_net_map`` on
+        # every selection click.  Invalidated alongside the graph since
+        # it derives from ConnectivityGraph.
+        self._wire_net_map_cache: dict[uuid.UUID, uuid.UUID] | None = None
+        # wire.id → WireSegment lookup, populated lazily by
+        # ``wire_by_id()``.  SelectTool's click handlers used to scan
+        # ``layout.wires`` for every highlight redraw — O(N²) when the
+        # active net has many wires.  Invalidated on every layout change.
+        self._wire_by_id_cache: dict[uuid.UUID, "WireSegment"] | None = None
         self.perf: PerfMetrics = PerfMetrics()
         # Command recorder — wired in by MainWindow once a project path is
         # known.  Auto-records every command through CommandStack.
@@ -236,6 +261,83 @@ class EditorSession(QObject):
         self._pad_index = None
         self._comp_spatial_index = None
         self._wire_spatial_index = None
+        # Under-component pad set depends on placements; invalidate alongside
+        # the graph.  Plated-through is board-only and survives.
+        self._under_component_pads_cache = None
+        # Wire→net map depends on the graph; recompute lazily next time.
+        self._wire_net_map_cache = None
+        # Wire-by-id index depends only on the wires list; rebuilt on
+        # demand.  layout_changed invalidates the graph (via this method),
+        # so this also stays in sync.
+        self._wire_by_id_cache = None
+
+    def cached_under_component_pads(self) -> set[Point]:
+        """Return cached set of top-layer pads sitting under a component body.
+
+        Used by the post-hoc cost analyzer.  Rebuilt on first access after
+        ``invalidate_graph`` (which the layout_changed signal triggers).
+        Keeping this on the session avoids re-walking every board atom for
+        every panel refresh / selection click.
+        """
+        cache = self._under_component_pads_cache
+        if cache is None:
+            from protoboard.services.routing.cost_analyzer import (
+                _under_component_pads,
+            )
+            cache = _under_component_pads(
+                self.board, self.layout, self.components, self.instances,
+            )
+            self._under_component_pads_cache = cache
+        return cache
+
+    def wire_by_id(self, wire_id: uuid.UUID) -> "WireSegment | None":
+        """O(1) wire lookup by id.
+
+        Replaces the ``next((w for w in layout.wires if w.id == X), None)``
+        idiom that select_tool was running per highlight redraw — at O(N)
+        per call, that becomes O(N²) when the active net is large.
+        """
+        cache = self._wire_by_id_cache
+        if cache is None:
+            cache = {w.id: w for w in self.layout.wires}
+            self._wire_by_id_cache = cache
+        return cache.get(wire_id)
+
+    def cached_wire_net_map(self) -> dict[uuid.UUID, uuid.UUID]:
+        """Return cached wire.id → net.id mapping.
+
+        Multiple panels build this map on every selection click — caching
+        it on the session collapses the work to one build per layout
+        change.  Recomputed lazily after ``invalidate_graph``.
+        """
+        cache = self._wire_net_map_cache
+        if cache is None:
+            _t0 = time.monotonic() if _CLICK_PROFILE else 0.0
+            from protoboard.gui.board_view import _build_wire_net_map
+            cache = _build_wire_net_map(self)
+            self._wire_net_map_cache = cache
+            if _CLICK_PROFILE:
+                _click_log.info(
+                    "click_profile.session.cached_wire_net_map.build",
+                    ms=round((time.monotonic() - _t0) * 1000, 1),
+                    n_wires=len(cache),
+                )
+        return cache
+
+    def cached_plated_through_pads(self) -> set[Point]:
+        """Return cached set of plated-through pad positions on this board.
+
+        Board topology is fixed for the lifetime of the project, so this
+        cache is built once and reused forever.
+        """
+        cache = self._plated_through_pads_cache
+        if cache is None:
+            from protoboard.services.routing.cost_analyzer import (
+                _plated_through_pads,
+            )
+            cache = _plated_through_pads(self.board)
+            self._plated_through_pads_cache = cache
+        return cache
 
     def connectivity_graph(self) -> ConnectivityGraph:
         """Return the cached graph, rebuilding it if stale."""
@@ -247,7 +349,13 @@ class EditorSession(QObject):
                 components=self.components,
                 instances=self.instances,
             )
-            self.perf.graph_build_ms = (time.monotonic() - t0) * 1000
+            dt = (time.monotonic() - t0) * 1000
+            self.perf.graph_build_ms = dt
+            if _CLICK_PROFILE:
+                _click_log.info(
+                    "click_profile.session.connectivity_graph.build",
+                    ms=round(dt, 1),
+                )
         return self._graph
 
     def pad_index(self) -> "PadIndex":
@@ -301,6 +409,7 @@ class EditorSession(QObject):
             components=self.components,
             instances=self.instances,
             graph=self.connectivity_graph(),
+            axis_labels=self.axis_label_settings,
         )
         self.perf.drc_ms = (time.monotonic() - t0) * 1000
         self.set_drc_issues(issues)
