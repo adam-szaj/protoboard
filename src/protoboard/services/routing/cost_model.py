@@ -71,6 +71,22 @@ COST_KEY_DOCS: dict[str, str] = {
     "wire_over_foreign_wire_pad": "Cost per step into a cell occupied by another net's wire vertex.",
     "via_on_foreign_pad": "Cost per via on a pad where another net already has a via.",
     "redundant_layer_change": "Cost per via that could have been avoided (also drives zebra suppression).",
+    "deferred_via_lookahead": (
+        "Enables deferred-via commit mode in A*.  When non-zero, every via "
+        "is held tentative; A* tracks shadow cost on the old side step-by-"
+        "step until the first obstacle.  If the shadow side would have "
+        "been at least this factor cheaper than the new side, the via is "
+        "rolled back (kept on the old side).  0 = disabled."
+    ),
+    "deferred_via_priority_mode": (
+        "Heap-priority strategy when via is tentative.  0 = use real g "
+        "(legacy A* behaviour, may discard the tentative branch early).  "
+        "1 = use min(g_real, g_shadow) so the branch is kept alive even "
+        "when one side runs expensive.  Mode 1 violates A*'s admissibility "
+        "guarantee — final path may be sub-optimal in the formal sense.  "
+        "Defaults to 0 (safe).  Only consulted when deferred_via_lookahead "
+        "is non-zero."
+    ),
 }
 
 
@@ -99,6 +115,8 @@ USER_TUNABLE_COST_KEYS: frozenset[str] = frozenset({
     "wire_over_foreign_wire_pad",
     "via_on_foreign_pad",
     "redundant_layer_change",
+    "deferred_via_lookahead",
+    "deferred_via_priority_mode",
     # 8 granular crossing knobs (insulated × {bare, insulated}) × {at_pad,
     # off_pad} × {same_side, opposite_side}.
     "crossing_ib_at_pad_same_side",
@@ -183,6 +201,8 @@ _LEGACY_DEFAULTS: dict[str, float] = {
     "crossing_ii_at_pad_opposite_side": 0.0,
     "crossing_ii_off_pad_same_side": 0.0,
     "crossing_ii_off_pad_opposite_side": 0.0,
+    "deferred_via_lookahead": 0.0,
+    "deferred_via_priority_mode": 0.0,
     "layer_change": 2.0,
     "under_component_top": 3.0,
     "bare_diagonal_mode": 0.0,  # boolean encoded as 0.0 / non-zero

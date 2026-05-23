@@ -60,6 +60,10 @@ _CLEAN_ROUTING_PRESET: dict[str, float] = {
     "via_on_foreign_pad": 3.0,
     # Suppress unnecessary layer alternation ("zebra effect").
     "redundant_layer_change": 1.5,
+    # Defer-via mechanism: hold each via tentative and roll back if the
+    # shadow (old) side would have been ≥1.0× cheaper at the first
+    # obstacle/bend.  Off by default in built-ins (set 1.0 to enable).
+    "deferred_via_lookahead": 1.0,
 }
 
 

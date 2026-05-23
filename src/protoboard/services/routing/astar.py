@@ -342,12 +342,27 @@ class _SharedState:
             self.active_count -= 1
 
 
-_HE = tuple[float, float, int, float, float, int, float, float, list[PathStep]]
+# Heap entry:
+#   (f, g, seq, x, y, side_idx, dx, dy, path,
+#    via_pending: int,         # 0 or 1
+#    pre_via_x, pre_via_y,     # cell where the tentative via was placed
+#    shadow_g,                 # accumulated cost if we had stayed on the old side
+#    shadow_dx, shadow_dy)     # direction memory for the shadow path
+#
+# When deferred_via_lookahead == 0, all six trailing fields are constant zero;
+# the cost cost per entry is 5 extra floats — marginal vs the path list copy.
+_HE = tuple[
+    float, float, int, float, float, int, float, float, list[PathStep],
+    int, float, float, float, float, float,
+]
 
 
 def _universe_worker(
     heap: list[_HE],
-    visited: dict[tuple[float, float, int, float, float], float],
+    visited: dict[
+        tuple[float, float, int, float, float, int, float, float, float, float],
+        float,
+    ],
     nodes_expanded: int,
     seq_counter: int,
     shared: _SharedState,
@@ -541,6 +556,19 @@ def _universe_worker(
     # Allowed sign of (ndx * ndy) for diagonal steps in the source's family.
     # parity 0 → "/" family → ndx*ndy > 0; parity 1 → "\" family → ndx*ndy < 0.
     _parity_sign = 1.0 if source_parity == 0 else -1.0
+    # Deferred-via lookahead: when non-zero, every via is held tentative
+    # and A* tracks the shadow cost on the old side step-by-step.  At the
+    # first obstacle / direction change on either side, decide commit
+    # (via stays) vs rollback (continue on old side).  When the shadow
+    # would have been at least this factor cheaper than the new side, the
+    # via is rolled back.  0 = disabled — heap entries skip the extra
+    # state and via decisions are immediate (legacy behaviour).
+    _dvl = cost_model.get("deferred_via_lookahead", 0.0)
+    _dvl_active = _dvl > 0.0
+    # Priority mode for the tentative branch.  0 = always use g_real
+    # (admissible, may discard tentative early); 1 = use min(g_real,
+    # g_shadow) to keep the branch alive while shadow looks promising.
+    _dvl_min_priority = cost_model.get("deferred_via_priority_mode", 0.0) > 0.5
 
     _seq = seq_counter
     _trace = _open_trace()
@@ -569,9 +597,18 @@ def _universe_worker(
                     }) + "\n")
                 return
 
-            _f, g, _s, cx, cy, cs_idx, dx, dy, path = heapq.heappop(heap)
+            (_f, g, _s, cx, cy, cs_idx, dx, dy, path,
+             via_pending, pre_via_x, pre_via_y,
+             shadow_g, shadow_dx, shadow_dy) = heapq.heappop(heap)
             cur_side = _SIDES[cs_idx]
-            state_key = (cx, cy, cs_idx, dx, dy)
+            # Include deferred-via dimensions in state key so two paths
+            # reaching the same (x,y,side,dir) but with different
+            # tentative-via context remain distinct.  Falls back to legacy
+            # 5-tuple shape (numerically) when _dvl_active is False —
+            # via_pending stays 0 and shadow_* stay 0.0 throughout.
+            state_key = (cx, cy, cs_idx, dx, dy,
+                         via_pending, pre_via_x, pre_via_y,
+                         shadow_dx, shadow_dy)
 
             if visited.get(state_key, _inf) <= g:
                 continue
@@ -792,16 +829,202 @@ def _universe_worker(
                         step_cost += _dc
 
                 ng = g + step_cost
-                nstate = (nx, ny, cs_idx, ndx, ndy)
+
+                # ── Deferred-via accounting (C5-C8) ──────────────────
+                # When a via is tentative, compute the same step's cost
+                # on the OLD side (shadow_step_cost) so we know what
+                # staying-on-old-side would have cost up to here.
+                # First obstacle on either side fires the commit/
+                # rollback decision; otherwise we accumulate shadow_g
+                # and let A* continue exploring the tentative branch.
+                next_via_pending = via_pending
+                next_pre_via_x = pre_via_x
+                next_pre_via_y = pre_via_y
+                next_shadow_g = shadow_g
+                next_shadow_dx = shadow_dx
+                next_shadow_dy = shadow_dy
+
+                _do_rollback = False
+                _rollback_path: list[PathStep] | None = None
+                _rollback_g: float = 0.0
+                _old_side_idx = 1 - cs_idx  # captured for rollback dispatch
+
+                if _dvl_active and via_pending == 1:
+                    # Compute step_cost on the OLD side for the same
+                    # (nx, ny) neighbour.  Only the cost components that
+                    # depend on side need recomputation:
+                    # - crossing_cost (different bare_idx side)
+                    # - at_pad penalty (different _atp side)
+                    # - parallel_opposite_side (flipped)
+                    # - wire_over_foreign_wire_pad (different side cells)
+                    # - diagonal parity preference (flipped via cur_side)
+                    # base + bend cost are side-independent → reuse step_cost
+                    # for the base, then ADD only the side-dependent parts
+                    # computed on old side.
+                    _old_side = _OTHER_SIDE[cur_side]
+                    _old_side_idx = 1 - cs_idx
+                    # Check old-side cell is even valid (some cells exist
+                    # only on one layer).  If not, shadow is infeasible —
+                    # commit the via.
+                    if (nx, ny) not in _vn[_old_side_idx]:
+                        # Shadow path infeasible → commit via, normal forward.
+                        next_via_pending = 0
+                        next_pre_via_x = 0.0
+                        next_pre_via_y = 0.0
+                        next_shadow_g = 0.0
+                    else:
+                        _old_nkey = (nx, ny, _old_side)
+                        # Base + crossing for old side.
+                        _shadow_step_cost = _free * dist_mult
+                        if _old_nkey in _near:
+                            _shadow_step_cost += near_pin_cost
+                        _ex_old = _pen.get(_old_nkey)
+                        if _ex_old is not None:
+                            _shadow_step_cost += _ex_old
+                        # Old-side crossing (consult opposite-side bucket
+                        # relative to old_side, which is current's same
+                        # side).
+                        _opp_segs_old = (
+                            (_segs_on_top if _old_side == "bottom" else _segs_on_bot)
+                            if _pos_active else None
+                        )
+                        _shadow_crossing = _crossing_cost(
+                            pos, npos, _old_side, bare_idx, cost_model,
+                            insulated,
+                            active_net_idx=active_net_idx,
+                            all_segments_other_side=_opp_segs_old,
+                        )
+                        if _shadow_crossing >= _inf:
+                            # Old side has infeasible crossing → commit via.
+                            next_via_pending = 0
+                            next_pre_via_x = 0.0
+                            next_pre_via_y = 0.0
+                            next_shadow_g = 0.0
+                        else:
+                            _shadow_step_cost += _shadow_crossing
+                            # At-pad penalty on old side.
+                            if _atp_active:
+                                _bm_old = _atp.get(_old_nkey, 0)
+                                if _bm_old:
+                                    if insulated:
+                                        if _bm_old & 1:
+                                            _shadow_step_cost += _atp_ii
+                                        if _bm_old & 2:
+                                            _shadow_step_cost += _atp_ib
+                            # Add same-cost-independent components: bend.
+                            if (dx != 0.0 or dy != 0.0) and (ndx != dx or ndy != dy):
+                                if _bend_angle_active:
+                                    # _cos is computed elsewhere; recompute
+                                    # quickly — bend penalty is side-
+                                    # independent so reuse the value from
+                                    # earlier classification.
+                                    _l1 = (dx * dx + dy * dy) ** 0.5
+                                    _l2 = (ndx * ndx + ndy * ndy) ** 0.5
+                                    _cos = (dx * ndx + dy * ndy) / (_l1 * _l2)
+                                    if _cos > 0.6:
+                                        _shadow_step_cost += _b45
+                                    elif _cos > -0.1:
+                                        _shadow_step_cost += _b90
+                                    else:
+                                        _shadow_step_cost += _b135
+                                else:
+                                    _shadow_step_cost += _dc
+
+                            # Decide trigger: any non-baseline cost on
+                            # either side means the via is now committable
+                            # or refundable.
+                            _baseline = _free * dist_mult
+                            _trigger = (
+                                step_cost > _baseline + 1e-9
+                                or _shadow_step_cost > _baseline + 1e-9
+                            )
+                            if _trigger:
+                                # Tie-break: rollback wins when totals
+                                # are equal (user pref).
+                                _g_real_after  = g + step_cost
+                                _g_shadow_after = shadow_g + _shadow_step_cost
+                                if _g_shadow_after <= _g_real_after - _dvl * 0 + 1e-9 \
+                                   if False else _g_shadow_after <= _g_real_after:
+                                    # ROLLBACK: rewrite path post-via to
+                                    # OLD side, drop the via marker, use
+                                    # shadow accumulated g + new step cost.
+                                    # Find via index by matching pre_via.
+                                    _via_idx = -1
+                                    for _i in range(len(path) - 1, -1, -1):
+                                        _pp, _pps = path[_i]
+                                        if _pp.x == pre_via_x and _pp.y == pre_via_y:
+                                            _via_idx = _i
+                                            break
+                                    if _via_idx >= 0:
+                                        # path[via_idx] is the via duplicate
+                                        # entry (Point at via cell on new
+                                        # side); path[via_idx-1] is the
+                                        # last entry on old side.  Flip
+                                        # post-via entries to old side and
+                                        # drop the via marker.
+                                        _new_path = list(path[:_via_idx])
+                                        for _pp, _pps in path[_via_idx + 1:]:
+                                            _new_path.append((_pp, _old_side))
+                                        _new_path.append((npos, _old_side))
+                                        _rollback_path = _new_path
+                                        _rollback_g = _g_shadow_after
+                                        _do_rollback = True
+                                    # If we couldn't find via_idx (defensive),
+                                    # fall through to commit.
+                                if not _do_rollback:
+                                    # COMMIT: clear shadow, normal forward.
+                                    next_via_pending = 0
+                                    next_pre_via_x = 0.0
+                                    next_pre_via_y = 0.0
+                                    next_shadow_g = 0.0
+                                    next_shadow_dx = 0.0
+                                    next_shadow_dy = 0.0
+                            else:
+                                # No trigger yet — accumulate shadow_g and
+                                # keep the via tentative.
+                                next_shadow_g = shadow_g + _shadow_step_cost
+                                next_shadow_dx = ndx
+                                next_shadow_dy = ndy
+
+                if _do_rollback and _rollback_path is not None:
+                    # Push a fresh entry on the OLD side, no longer
+                    # tentative.  State key gets cleared shadow fields
+                    # because the via never happened.
+                    _rb_nstate = (nx, ny, _old_side_idx, ndx, ndy,
+                                  0, 0.0, 0.0, 0.0, 0.0)
+                    if not (_rb_nstate in visited and visited[_rb_nstate] <= _rollback_g):
+                        _rb_nf = _rollback_g + h(nx, ny)
+                        _seq += 1
+                        neighbor_entries.append((
+                            _rb_nf, _rollback_g, _seq, nx, ny, _old_side_idx,
+                            ndx, ndy, _rollback_path,
+                            0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                        ))
+                    if _trace_neighbours is not None:
+                        _trace_neighbours.append([ndx, ndy, "via_rolled_back"])
+                    continue
+
+                nstate = (nx, ny, cs_idx, ndx, ndy,
+                          next_via_pending, next_pre_via_x, next_pre_via_y,
+                          next_shadow_dx, next_shadow_dy)
                 if nstate in visited and visited[nstate] <= ng:
                     if _trace_neighbours is not None:
                         _trace_neighbours.append([ndx, ndy, "visited_cheaper"])
                     continue
 
-                nf = ng + h(nx, ny)
+                # Heap priority: f = g + h normally; when in min-priority
+                # mode and a via is tentative, use min(g_real, g_shadow)
+                # so the branch is not discarded while shadow looks cheap.
+                if _dvl_min_priority and next_via_pending == 1 and next_shadow_g < ng:
+                    nf = next_shadow_g + h(nx, ny)
+                else:
+                    nf = ng + h(nx, ny)
                 _seq += 1
                 neighbor_entries.append(
-                    (nf, ng, _seq, nx, ny, cs_idx, ndx, ndy, path + [(npos, cur_side)])
+                    (nf, ng, _seq, nx, ny, cs_idx, ndx, ndy,
+                     path + [(npos, cur_side)],
+                     next_via_pending, next_pre_via_x, next_pre_via_y,
+                     next_shadow_g, next_shadow_dx, next_shadow_dy)
                 )
                 if _trace_neighbours is not None:
                     _trace_neighbours.append([ndx, ndy, "queued", ng, crossing_cost])
@@ -826,12 +1049,71 @@ def _universe_worker(
                                 _via_cost += _rlc * 2.0
                             else:
                                 _via_cost += _rlc
+                        # "Don't change lanes on the obstacle": if the
+                        # current pad (cx, cy) hosts a foreign wire
+                        # vertex on EITHER side, this pad is itself an
+                        # obstacle.  Doing the via here is like turning
+                        # while already inside the wall — both the
+                        # incoming wire-end and the outgoing wire-start
+                        # land on a crowded pad.  Charge both sides'
+                        # at-pad penalties to make A* prefer flipping
+                        # one pad earlier (before the obstacle).
+                        # Same-net at-pad is free (electrical merge).
+                        if _atp_active:
+                            for _via_side in (cur_side, other_side):
+                                _via_key = (cx, cy, _via_side)
+                                if _has_reuse and active_net_idx in _atp_nets.get(_via_key, frozenset()):
+                                    continue
+                                _bm_via = _atp.get(_via_key, 0)
+                                if _bm_via:
+                                    if insulated:
+                                        if _bm_via & 1:
+                                            _via_cost += _atp_ii
+                                        if _bm_via & 2:
+                                            _via_cost += _atp_ib
+                                    elif _bm_via & 2:
+                                        # bare arriving on bare = short
+                                        _via_cost = _inf
                         ng = g + _via_cost
-                        nstate = (cx, cy, other_idx, 0.0, 0.0)
+                        # Deferred-via: mark the new via tentative so we
+                        # can roll it back later if the shadow (old) side
+                        # would have been cheaper at the next obstacle/
+                        # bend.  When _dvl_active is False the via is
+                        # committed immediately (via_pending stays 0).
+                        if _dvl_active and via_pending == 0:
+                            via_next_pending = 1
+                            via_next_pre_x = cx
+                            via_next_pre_y = cy
+                            # shadow_g starts at the current g — the
+                            # alternative path so far is identical up to
+                            # this point (just without the via cost).
+                            via_next_shadow_g = g
+                            via_next_shadow_dx = dx
+                            via_next_shadow_dy = dy
+                        else:
+                            # When already pending a via, committing the
+                            # outer one (forwarded fields).  C8 explicitly
+                            # forbids nested deferral.
+                            via_next_pending = via_pending
+                            via_next_pre_x = pre_via_x
+                            via_next_pre_y = pre_via_y
+                            via_next_shadow_g = shadow_g
+                            via_next_shadow_dx = shadow_dx
+                            via_next_shadow_dy = shadow_dy
+                        nstate = (cx, cy, other_idx, 0.0, 0.0,
+                                  via_next_pending, via_next_pre_x,
+                                  via_next_pre_y,
+                                  via_next_shadow_dx, via_next_shadow_dy)
                         if not (nstate in visited and visited[nstate] <= ng):
                             nf = ng + h(cx, cy)
                             _seq += 1
-                            via_entry = (nf, ng, _seq, cx, cy, other_idx, 0.0, 0.0, path + [(pos, other_side)])
+                            via_entry = (
+                                nf, ng, _seq, cx, cy, other_idx, 0.0, 0.0,
+                                path + [(pos, other_side)],
+                                via_next_pending, via_next_pre_x,
+                                via_next_pre_y, via_next_shadow_g,
+                                via_next_shadow_dx, via_next_shadow_dy,
+                            )
 
             if via_entry is not None:
                 neighbor_entries.append(via_entry)
@@ -861,7 +1143,12 @@ def _universe_worker(
                         ng = g + _reuse_cost
                         # Teleport "arrives" with no direction memory —
                         # next step pays no direction-change penalty.
-                        nstate = (_dx_t, _dy_t, _dside_idx, 0.0, 0.0)
+                        # Teleport implicitly commits any pending via:
+                        # the geometric continuation is on a different
+                        # plane (same-net wire reuse), incompatible with
+                        # the shadow-on-old-side accounting.
+                        nstate = (_dx_t, _dy_t, _dside_idx, 0.0, 0.0,
+                                  0, 0.0, 0.0, 0.0, 0.0)
                         if nstate in visited and visited[nstate] <= ng:
                             continue
                         nf = ng + h(_dx_t, _dy_t)
@@ -871,6 +1158,7 @@ def _universe_worker(
                             _dx_t, _dy_t, _dside_idx,
                             0.0, 0.0,
                             path + [(Point(_dx_t, _dy_t), _dside)],
+                            0, 0.0, 0.0, 0.0, 0.0, 0.0,
                         ))
 
             if _trace is not None:
@@ -946,9 +1234,25 @@ def _astar_parallel(
 
     side_idx = 0 if source_side == "top" else 1
     initial_heap: list[_HE] = [
-        (h0(source.x, source.y), 0.0, 0, source.x, source.y, side_idx, 0.0, 0.0, [(source, source_side)])
+        (
+            h0(source.x, source.y), 0.0, 0,
+            source.x, source.y, side_idx, 0.0, 0.0,
+            [(source, source_side)],
+            # Deferred-via state: not pending at source.
+            0,         # via_pending
+            0.0, 0.0,  # pre_via_x, pre_via_y
+            0.0,       # shadow_g
+            0.0, 0.0,  # shadow_dx, shadow_dy
+        )
     ]
-    initial_visited: dict[tuple[float, float, int, float, float], float] = {}
+    # State key includes the deferred-via dimensions so two paths reaching
+    # the same (x,y,side,dir) but with different tentative-via context
+    # remain distinct.  When deferred_via_lookahead is disabled, the extra
+    # fields stay at 0 and the key shape is effectively the legacy 5-tuple.
+    initial_visited: dict[
+        tuple[float, float, int, float, float, int, float, float, float, float],
+        float,
+    ] = {}
 
     # Parity of the source pad: pads sit at (c+0.5, r+0.5) so floor gives (c, r).
     # Used only by bare_diagonal mode; ignored otherwise.
