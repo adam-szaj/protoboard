@@ -343,6 +343,11 @@ class TestNetInspectorPanel:
         assert isinstance(board_view, BoardView)
         panel = NetInspectorPanel(board_view)
         qtbot.addWidget(panel)
+        # The inspector now skips rebuilds while hidden (perf optimisation —
+        # populating a hidden tree wastes O(nets) work on every layout
+        # change).  Make it visible so refresh() actually populates.
+        panel.show()
+        qtbot.waitExposed(panel)
         from protoboard.domain.schematic.net import Net
         net = Net(id=uuid.uuid4(), name="VCC", pins=frozenset())
         session.schematic.nets[net.id] = net
