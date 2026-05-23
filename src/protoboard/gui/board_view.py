@@ -14,13 +14,15 @@ _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0
 
 _DRAG_REFRESH_INTERVAL = 0.033  # 30 fps max during live drag
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, QTimer, Qt, Signal
+from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, QTimer, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
     QKeyEvent,
     QMouseEvent,
     QPainter,
+    QPixmap,
+    QResizeEvent,
     QWheelEvent,
 )
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
@@ -29,7 +31,11 @@ from protoboard.domain.board.boxes import StripAtom
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.geometry import Point
 from protoboard.gui.layer_state import LayerOverrides, LayerState, layer_state_for_tool
-from protoboard.gui.renderers.board_renderer import BOARD_BG, render_board
+from protoboard.gui.renderers.board_renderer import (
+    BOARD_BG,
+    build_board_display_list,
+    paint_board,
+)
 from protoboard.gui.renderers.component_renderer import (
     render_components,
     render_groups,
@@ -136,6 +142,17 @@ class BoardView(QGraphicsView):
         # Board layer: rebuilt only when board geometry / theme / alpha changes.
         self._board_layer_dirty: bool = True
         self._last_board_alpha: float = -1.0   # sentinel: never matches
+        # Background cache — viewport-sized QPixmap holding the rasterised
+        # board layer (pads, holes, strip tracks, frames).  Painted in
+        # ``drawBackground`` by blitting and never participates in the
+        # scene's per-item paint dispatch.  Invalidated on any change to
+        # board geometry, theme, layer alpha, viewport size, or transform.
+        self._bg_cache: object | None = None  # QPixmap, kept loose-typed
+        self._bg_cache_dirty: bool = True
+        # ``BoardDisplayList`` is rebuilt alongside the cache pixmap but
+        # cached separately so a viewport-only resize (no board change)
+        # can re-rasterise without re-walking ``board.atoms()``.
+        self._bg_display_list: object | None = None  # BoardDisplayList
         # Spatial index over board pad positions for fast snap().
         self._pad_spatial: dict[tuple[int, int], list[Point]] = {}
         # Overlay items (ratsnest + group outlines) for targeted removal.
@@ -472,6 +489,8 @@ class BoardView(QGraphicsView):
         self.setTransform(QTransform(sx * mag, 0.0, 0.0, sy * mag, 0.0, 0.0))
         # Re-centre on the same scene point.
         self.centerOn(center_scene)
+        # Transform changed → bg cache pixmap is in the wrong space.
+        self._invalidate_bg_cache()
 
     def _sync_tool_side(self, side: str) -> None:
         from protoboard.gui.tools.route_tool import RouteTool
@@ -707,12 +726,20 @@ class BoardView(QGraphicsView):
                              body_types=self._session.body_types)
 
         # ── Board layer ──────────────────────────────────────────────────────
+        # Board pads/strips/frames no longer live in the scene — they are
+        # rasterised into ``self._bg_cache`` and blitted by
+        # ``drawBackground``.  Here we just invalidate the cache when
+        # geometry/theme/alpha change and clear any leftover scene items
+        # that legacy code may still create.
         current_board_alpha = layers.alpha_for_board()
         if self._board_layer_dirty or current_board_alpha != self._last_board_alpha:
             self._scene.clear()
             self._invalidate_all_groups()
             self._fire_on_scene_cleared()
-            render_board(self._scene, self._session.board, theme=_theme, layers=layers)
+            # Board state changed — drop both pixmap and display list so
+            # the next drawBackground rebuilds from current board state.
+            self._bg_display_list = None
+            self._invalidate_bg_cache()
             self._board_layer_dirty = False
             self._last_board_alpha = current_board_alpha
 
@@ -1040,6 +1067,10 @@ class BoardView(QGraphicsView):
         vbar = self.verticalScrollBar()
         hbar.setValue(hbar.value() - round(delta_scene.x() * new_scale))
         vbar.setValue(vbar.value() - round(delta_scene.y() * new_scale))
+        # Zoom changed the world→viewport transform; the cached pixmap
+        # was rendered for the previous mapping.  Mark dirty so the next
+        # paint rebuilds at the new scale.
+        self._invalidate_bg_cache()
         # Defer the O(scene items) visibility sweep — same reasoning
         # as before, just relative to the (now batched) zoom paint.
         if not self._label_vis_timer.isActive():
@@ -1080,6 +1111,122 @@ class BoardView(QGraphicsView):
                     paint_ms=paint_ms,
                     since_press_ms=since_press_ms,
                 )
+
+    # ------------------------------------------------------------------
+    # Background cache (board layer)
+    # ------------------------------------------------------------------
+
+    def drawBackground(self, painter: QPainter, rect: QRectF) -> None:  # type: ignore[override]
+        """Paint the static board layer from a cached viewport pixmap.
+
+        The board layer (pads, holes, strip tracks, isolated-strip Xs,
+        box frames) is rasterised once into a viewport-sized ``QPixmap``
+        and blitted on every paint.  Cache is invalidated by
+        ``_invalidate_bg_cache`` whenever board geometry, theme, or the
+        viewport / transform changes.
+
+        Fills the background brush first so the board pixmap can be
+        transparent outside the actual board area (e.g. zoomed-out
+        view shows the canvas colour around the board).
+        """
+        painter.save()
+        painter.resetTransform()
+        painter.fillRect(self.viewport().rect(), self.backgroundBrush())
+        painter.restore()
+        # Build the cache on first use or after invalidation.
+        self._ensure_bg_cache()
+        if self._bg_cache is None:
+            return
+        # Pixmap is sized to and aligned with the viewport (device
+        # coords).  Reset the painter's transform so we blit at 1:1
+        # device pixels, then restore so subsequent scene-item paints
+        # use the original world transform.
+        painter.save()
+        painter.resetTransform()
+        painter.drawPixmap(0, 0, self._bg_cache)  # type: ignore[arg-type]
+        painter.restore()
+
+    def _invalidate_bg_cache(self) -> None:
+        """Mark the background cache stale; next paint will rebuild it."""
+        self._bg_cache_dirty = True
+
+    def _ensure_bg_cache(self) -> None:
+        """Rebuild the cached pixmap if dirty or viewport-resized.
+
+        The pixmap is sized to the current viewport in device pixels
+        and rendered by walking the board display list through a
+        ``QPainter`` whose transform matches the view's world→viewport
+        mapping.  A viewport resize or any board-state change marks the
+        cache dirty.
+        """
+        if self._session is None:
+            return
+        vp_size = self.viewport().size()
+        if vp_size.width() <= 0 or vp_size.height() <= 0:
+            return
+
+        need_rebuild = (
+            self._bg_cache_dirty
+            or self._bg_cache is None
+            or (isinstance(self._bg_cache, QPixmap)
+                and self._bg_cache.size() != vp_size)
+        )
+        if not need_rebuild:
+            return
+
+        # Build display list if missing (board / theme / alpha changes
+        # clear _bg_display_list; pure viewport resize does not).
+        if self._bg_display_list is None:
+            from protoboard.gui.layer_state import LayerState as _LayerState
+            _base = self._theme_override if self._theme_override is not None else DEFAULT_THEME
+            from dataclasses import replace as _dc_replace
+            layers = layer_state_for_tool(
+                self._active_tool,
+                self._camera_side,  # type: ignore[arg-type]
+                self._view_transform,  # type: ignore[arg-type]
+                overrides=self._layer_overrides,
+                theme=_base,
+            )
+            _theme = _dc_replace(_base,
+                                 raster_pitch_mm=self._session.board.raster_pitch_mm,
+                                 body_types=self._session.body_types)
+            self._bg_display_list = build_board_display_list(
+                self._session.board, theme=_theme, layers=layers,
+            )
+
+        # Allocate a fresh pixmap matching the viewport device size.
+        pix = QPixmap(vp_size)
+        pix.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pix)
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+            # Apply the same world→viewport transform that QGraphicsView
+            # uses for scene items so display-list coordinates land in
+            # the right place on the pixmap.
+            painter.setTransform(self.viewportTransform())
+            paint_board(painter, self._bg_display_list)  # type: ignore[arg-type]
+        finally:
+            painter.end()
+        self._bg_cache = pix
+        self._bg_cache_dirty = False
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        # Viewport changed size — cache pixmap no longer matches; just
+        # mark dirty so the next paint rebuilds it.  Display list is
+        # geometry-only and survives viewport size changes.
+        self._invalidate_bg_cache()
+
+    def scrollContentsBy(self, dx: int, dy: int) -> None:  # type: ignore[override]
+        """Invalidate the bg cache on every pan.
+
+        The cached pixmap was rasterised at the previous scroll offset
+        (the world→viewport transform encodes scroll position).  Without
+        invalidation the user would see the board frozen at the
+        scroll-start position while items above pan correctly.
+        """
+        super().scrollContentsBy(dx, dy)
+        self._invalidate_bg_cache()
 
     def _mousePressEvent_impl(self, event: QMouseEvent) -> None:
         ctrl = event.modifiers() & Qt.KeyboardModifier.ControlModifier

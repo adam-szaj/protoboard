@@ -27,10 +27,16 @@ class TestSnap:
 
 
 class TestRefresh:
-    def test_refresh_adds_items_for_board_pads(self, board_view: BoardView) -> None:
+    def test_refresh_builds_bg_cache_display_list(self, board_view: BoardView) -> None:
+        # Board layer no longer lives in the scene — it's rasterised
+        # into the background cache by drawBackground.  Verify that the
+        # display list has the expected primitives after a refresh.
         board_view.refresh()
-        # 5×5 = 25 pads, each has 2 circle items (ring + hole)
-        assert board_view.scene().items().__len__() >= 25
+        board_view._ensure_bg_cache()
+        from protoboard.gui.renderers.board_renderer import BoardDisplayList
+        assert isinstance(board_view._bg_display_list, BoardDisplayList)
+        # 5×5 = 25 pads expected for the test fixture board.
+        assert len(board_view._bg_display_list.pads) >= 25
 
     def test_refresh_is_idempotent(self, board_view: BoardView) -> None:
         board_view.refresh()
@@ -87,6 +93,8 @@ class TestToolManagement:
         from pytestqt.qtbot import QtBot
         assert isinstance(qtbot, QtBot)
         qtbot.wait(50)
-        # After refresh there should be wire line items in addition to pad circles.
-        items = board_view.scene().items()
-        assert len(items) > 50  # 25 pads×2 circles + at least 1 wire line
+        # After refresh the wire's QGraphicsItemGroup must be registered.
+        # Pad/board items no longer live in the scene (they're rasterised
+        # into the background cache), so counting scene items is no
+        # longer a useful proxy for "refresh happened".
+        assert wire.id in board_view._wire_groups
