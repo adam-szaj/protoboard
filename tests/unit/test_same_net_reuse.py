@@ -17,6 +17,7 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.wire import WireSegment
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import find_paths
 from protoboard.services.routing.cost_model import RoutingCostModel
@@ -52,9 +53,23 @@ class TestExtendedTargetSet:
         # at (4.5, 2.5).  The shortest legal route (Manhattan distance 4)
         # would step the full width, but the extended target set should
         # let the router stop earlier — anywhere on the existing wire.
+        #
+        # CRITICAL: the wire is registered with the connectivity graph so
+        # that all its pad-vertices share an electric-set node with the
+        # original target (1.5..3.5 chain bridges to 4.5).  Without that
+        # bridge they would be a *separate island* and the find_paths
+        # island-filter would reject them as targets (see two-islands
+        # regression test below).
         board = _perfboard(5, 5)
-        lay = Layout(placements={}, wires=[])
+        existing_wire = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(1.5, 2.5), Point(2.5, 2.5), Point(3.5, 2.5), Point(4.5, 2.5)],
+            side="top",
+            insulated=True,
+        )
+        lay = Layout(placements={}, wires=[existing_wire])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
+        graph.add_wire(existing_wire)
 
         active_net = uuid.uuid4()
         existing_verts = {
@@ -111,14 +126,25 @@ class TestTeleportEdges:
     """Same-net teleport: free hops between pad-vertices of the active net."""
 
     def test_teleport_short_circuits_long_detour(self) -> None:
-        # 7x7 board.  Source at (0.5, 0.5) routes towards a real target at
-        # (6.5, 6.5).  An existing same-net wire has vertices at (1.5, 0.5)
-        # and (6.5, 6.5).  The extended target set causes the search to
-        # terminate as soon as it reaches *any* same-net vertex -- so the
-        # nearest one (1.5, 0.5), one step from source, wins.
+        # 7×7 board.  Source at (0.5, 0.5) routes towards a real target at
+        # (6.5, 6.5).  An L-shaped existing wire connects (1.5, 0.5) to
+        # (6.5, 6.5), making both endpoints part of the same electric
+        # island as the original target.  The teleport edge between them
+        # lets the search terminate one step from source at (1.5, 0.5).
+        #
+        # CRITICAL: the wire is registered with the graph so the two
+        # pad-vertices share an electric-set node; without that they
+        # would be on separate islands and the new island-filter would
+        # forbid the cross-island teleport.
         board = _perfboard(7, 7)
-        lay = Layout(placements={}, wires=[])
+        # L-shape: down x from 1.5 to 6.5 on y=0.5, then up y from 0.5 to 6.5.
+        path = [Point(1.5 + i, 0.5) for i in range(6)] + [
+            Point(6.5, 0.5 + i) for i in range(1, 7)
+        ]
+        bridge_wire = WireSegment(id=uuid.uuid4(), path=path, side="top", insulated=True)
+        lay = Layout(placements={}, wires=[bridge_wire])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
+        graph.add_wire(bridge_wire)
 
         active_net = uuid.uuid4()
         teleport_verts = {
@@ -153,15 +179,21 @@ class TestSourceNotInExtendedTargets:
     """
 
     def test_source_excluded_from_extended_targets(self) -> None:
-        # 5×5 board.  An existing same-net wire spans pad (1.5, 2.5) — i.e.
-        # the typical "next pin in a multi-pin net" scenario where the
-        # source for the new segment is itself a vertex of an existing
-        # same-net wire.  Source = (1.5, 2.5).  Target = (4.5, 2.5).
+        # 5×5 board.  An existing same-net wire bridges (1.5, 2.5)…(4.5, 2.5);
+        # the new segment must connect a different same-net spur whose
+        # source is itself (1.5, 2.5) (a vertex of the existing wire).
         # Without the source-exclusion fix, target_set would include
         # (1.5, 2.5) and A* would return a 1-point trivial path.
         board = _perfboard(5, 5)
-        lay = Layout(placements={}, wires=[])
+        bridge = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(1.5, 2.5), Point(2.5, 2.5), Point(3.5, 2.5), Point(4.5, 2.5)],
+            side="top",
+            insulated=True,
+        )
+        lay = Layout(placements={}, wires=[bridge])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
+        graph.add_wire(bridge)
 
         active_net = uuid.uuid4()
         existing_verts = {
@@ -188,6 +220,71 @@ class TestSourceNotInExtendedTargets:
         # or at the original target (4.5, 2.5); both are valid since the
         # source isn't a terminator.
         assert path[-1] in (Point(2.5, 2.5), Point(4.5, 2.5))
+
+
+class TestTwoIslandSafety:
+    """Regression: when a net has two disconnected islands (e.g. left over
+    from a previous autoroute pass), routing from one island to the other
+    must NOT short-circuit by jumping to a same-net pad on the *source*
+    island.  The fix filters extended target_set / teleport_pads down to
+    pad-vertices that actually share the target's electric-set node.
+    """
+
+    def test_no_short_circuit_to_source_island_neighbour(self) -> None:
+        # 9×3 board.  Two disconnected same-net islands:
+        #   Island A (target): wire at (7.5,1.5)-(8.5,1.5), target pin at (7.5,1.5)
+        #   Island B (source): wire at (0.5,1.5)-(1.5,1.5), source pin at (0.5,1.5),
+        #                      sibling pin at (1.5,1.5) — same-net but NOT bridging
+        #                      to island A.
+        # Without the island filter, A* would extend target_set with the
+        # sibling at (1.5,1.5) (closest same-net pad) and stop after one
+        # step, never reaching island A.
+        board = _perfboard(3, 9)
+
+        island_a = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(7.5, 1.5), Point(8.5, 1.5)],
+            side="top",
+            insulated=True,
+        )
+        island_b = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 1.5), Point(1.5, 1.5)],
+            side="top",
+            insulated=True,
+        )
+        lay = Layout(placements={}, wires=[island_a, island_b])
+        graph = ConnectivityGraph(board=board, layout=lay, components={})
+        graph.add_wire(island_a)
+        graph.add_wire(island_b)
+
+        # Both wires' vertices belong to the active net.
+        active_net = uuid.uuid4()
+        vertices = {
+            (Point(7.5, 1.5), "top"), (Point(8.5, 1.5), "top"),
+            (Point(0.5, 1.5), "top"), (Point(1.5, 1.5), "top"),
+        }
+
+        results = find_paths(
+            graph=graph,
+            source=Point(0.5, 1.5),  # island B
+            targets=[Point(7.5, 1.5)],  # island A
+            side="top",
+            cost_model=RoutingCostModel(),
+            k=1,
+            active_net_id=active_net,
+            same_net_pad_vertices=vertices,
+        )
+        assert len(results) == 1
+        path = _pts(results[0].path)
+        last = path[-1]
+        # Must reach island A — NOT short-circuit to (1.5, 1.5) on island B.
+        assert last in (Point(7.5, 1.5), Point(8.5, 1.5)), (
+            f"Routed to {last} instead of island A — same-net teleport "
+            f"leaked across electric-set islands."
+        )
+        # And the path must actually traverse the board, not just hop one step.
+        assert len(path) > 3
 
 
 class TestReuseCostKnob:

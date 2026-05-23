@@ -102,6 +102,9 @@ _ASTAR_COST_KEYS: frozenset[str] = frozenset({
     # Vias / under-component
     "layer_change",
     "under_component_top",
+    # Pre-route congestion estimator (consumed by autorouter pre-pass, merged
+    # into the under-component penalty map before A* sees it).
+    "congestion_weight",
     # Modes
     "bare_diagonal_mode",
     # Rip-up / push-and-shove

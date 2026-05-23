@@ -765,6 +765,20 @@ class _RoutingPage(QWidget):
         font = hint.font(); font.setItalic(True); hint.setFont(font)
         outer_layout.addWidget(hint)
 
+        # "Save as preset…" — promote the current effective weights
+        # (preset + overrides) into a brand-new user preset.
+        save_row = QHBoxLayout()
+        save_row.addStretch()
+        save_as_btn = QPushButton("Save as preset…")
+        save_as_btn.setToolTip(
+            "Capture the currently displayed weights as a new user preset. "
+            "After saving, the new preset becomes the active one and "
+            "per-project overrides are cleared."
+        )
+        save_as_btn.clicked.connect(self._save_overrides_as_preset)
+        save_row.addWidget(save_as_btn)
+        outer_layout.addLayout(save_row)
+
         scroll_body = QWidget()
         body_layout = QVBoxLayout(scroll_body)
         body_layout.setContentsMargins(0, 0, 0, 0)
@@ -843,6 +857,83 @@ class _RoutingPage(QWidget):
             self._pending_overrides[key] = float("inf")
         else:
             self._pending_overrides[key] = float(value)
+
+    def _save_overrides_as_preset(self) -> None:
+        """Capture currently displayed weights as a new user preset.
+
+        Builds a sparse weight dict from the spinbox grid (preset + pending
+        overrides, after the ∞ sentinel translation), prompts the user for
+        a name, validates it (non-empty, not built-in, not duplicate),
+        writes it into the shared AppSettings, persists immediately, then
+        switches the active preset to the new one and clears overrides so
+        the user is not left with redundant deltas.
+        """
+        from PySide6.QtWidgets import QInputDialog, QMessageBox
+        from protoboard.gui.app_settings import save_app_settings
+        from protoboard.services.routing.cost_presets import builtin_preset_names
+
+        # Snapshot the current effective weights as the user sees them in
+        # the grid.  Sentinel -1 → ∞.  Zero values are omitted (sparse).
+        snapshot: dict[str, float] = {}
+        for key, spin in self._override_spinboxes.items():
+            v = spin.value()
+            if v <= -1.0 + 1e-9:
+                snapshot[key] = float("inf")
+            elif v != 0.0:
+                snapshot[key] = float(v)
+
+        # Prompt for a name, mirroring CostPresetsDialog._ask_for_name.
+        while True:
+            name, ok = QInputDialog.getText(
+                self, "Save as preset", "Preset name:",
+            )
+            if not ok:
+                return
+            name = name.strip()
+            if not name:
+                return
+            if name in builtin_preset_names():
+                QMessageBox.warning(
+                    self, "Reserved name",
+                    f"{name!r} is a built-in preset name and cannot be used.",
+                )
+                continue
+            if name in self._app_settings.cost_presets:
+                if QMessageBox.question(
+                    self, "Overwrite preset",
+                    f"A user preset named {name!r} already exists.  Overwrite?",
+                ) != QMessageBox.StandardButton.Yes:
+                    continue
+            break
+
+        # Write into the shared AppSettings and persist immediately so the
+        # preset survives even if the user later cancels PreferencesDialog.
+        self._app_settings.cost_presets[name] = snapshot
+        save_app_settings(self._app_settings)
+
+        # Refresh the preset combo so the new entry appears.
+        self._cost_preset.blockSignals(True)
+        self._cost_preset.clear()
+        for bn in self._builtin_preset_names:
+            self._cost_preset.addItem(f"{bn}  (built-in)", bn)
+        for un in sorted(self._app_settings.cost_presets):
+            self._cost_preset.addItem(un, un)
+        # Select the freshly created preset.
+        for i in range(self._cost_preset.count()):
+            if self._cost_preset.itemData(i) == name:
+                self._cost_preset.setCurrentIndex(i)
+                break
+        self._cost_preset.blockSignals(False)
+
+        # The new preset already contains the user's edits, so clear the
+        # per-project overrides — otherwise they would layer on top and
+        # double-apply.  Reload spinboxes from the new effective weights.
+        self._pending_overrides = {}
+        for key, spin in self._override_spinboxes.items():
+            raw = snapshot.get(key, 0.0)
+            spin.blockSignals(True)
+            spin.setValue(-1.0 if (raw == float("inf") or raw != raw) else raw)
+            spin.blockSignals(False)
 
     def _open_preset_editor(self) -> None:
         from protoboard.gui.dialogs.cost_presets_dialog import CostPresetsDialog

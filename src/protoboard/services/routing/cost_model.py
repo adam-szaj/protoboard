@@ -87,6 +87,14 @@ COST_KEY_DOCS: dict[str, str] = {
         "Defaults to 0 (safe).  Only consulted when deferred_via_lookahead "
         "is non-zero."
     ),
+    "congestion_weight": (
+        "Multiplier for the pre-route congestion map.  Before A* runs, the "
+        "autorouter lays trivial L-shape paths over each net's MST and "
+        "accumulates per-cell vote counts.  During the real pass, each "
+        "step adds congestion_weight × votes[cell] to its cost, nudging "
+        "long nets to detour around dense clusters where short nets will "
+        "need corridor space.  0 = disabled."
+    ),
 }
 
 
@@ -117,6 +125,7 @@ USER_TUNABLE_COST_KEYS: frozenset[str] = frozenset({
     "redundant_layer_change",
     "deferred_via_lookahead",
     "deferred_via_priority_mode",
+    "congestion_weight",
     # 8 granular crossing knobs (insulated × {bare, insulated}) × {at_pad,
     # off_pad} × {same_side, opposite_side}.
     "crossing_ib_at_pad_same_side",
@@ -211,6 +220,7 @@ _LEGACY_DEFAULTS: dict[str, float] = {
     "parallel_opposite_side": 0.0,
     "max_reroute_factor": 0.0,
     "same_net_wire_reuse_cost": 0.0,
+    "congestion_weight": 0.3,
 }
 
 
@@ -249,6 +259,14 @@ class RoutingCostModel:
         raise FrozenInstanceError(
             "RoutingCostModel is immutable; use with_overrides() to change weights"
         )
+
+    # Pickle support — bypass __setattr__ so multiprocessing workers can
+    # reconstruct instances without tripping the immutability guard.
+    def __getstate__(self) -> dict[str, float]:
+        return self.weights
+
+    def __setstate__(self, state: dict[str, float]) -> None:
+        object.__setattr__(self, "weights", dict(state))
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, RoutingCostModel) and self.weights == other.weights
@@ -312,3 +330,5 @@ class RoutingCostModel:
     def max_reroute_factor(self) -> float: return self.weights["max_reroute_factor"]
     @property
     def same_net_wire_reuse_cost(self) -> float: return self.weights["same_net_wire_reuse_cost"]
+    @property
+    def congestion_weight(self) -> float: return self.weights["congestion_weight"]

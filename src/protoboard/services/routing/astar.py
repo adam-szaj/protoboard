@@ -1462,6 +1462,14 @@ def find_paths(
     # — without it, same-net semantics are off (caller is not currently
     # routing any particular net).
     #
+    # CRITICAL: only vertices that are physically in the *target's*
+    # electric set are added.  When a net has two disconnected islands
+    # (e.g. left over from a previous autoroute), pads of the source
+    # island are also same-net but reaching them does NOT connect to
+    # the target.  Without this filter the search would happily walk
+    # one step to a neighbour pin in the source island (closest free
+    # target) and report success while the target island stays unrouted.
+    #
     # The *source* is explicitly excluded from the extension: when the
     # router is asked to lay a new wire from an existing same-net pad
     # (typical multi-pin scenario — connect the next pin to the existing
@@ -1470,17 +1478,35 @@ def find_paths(
     # just the source — useless and downstream wire constructors would
     # reject it with "path must have at least 2 points".
     target_set = set(targets)
+    target_island: set[tuple[Point, str]] = set()
     if active_net_id is not None and same_net_pad_vertices:
+        # Electric-set membership: every pad in `targets` belongs to the
+        # same electric set node as the original target pin (the caller
+        # built `targets` via pads_in_same_electric_set).  We use this
+        # set to gate extension and teleport admission.
+        target_node_set: set[tuple[float, float, str]] = set()
+        for _t in targets:
+            n = graph.node_for_pad(_t, side)
+            if n is not None:
+                target_node_set.add(n)
         for _pv, _sv in same_net_pad_vertices:
-            if _sv == side and _pv != source:
+            if _pv == source:
+                continue
+            pv_node = graph.node_for_pad(_pv, _sv)
+            if pv_node is None or pv_node not in target_node_set:
+                continue
+            target_island.add((_pv, _sv))
+            if _sv == side:
                 target_set.add(_pv)
 
-    # Build the teleport map: at each same-net pad-vertex of an existing
-    # wire on the active net, jumping to any other same-net pad-vertex
-    # is free (zero-cost edge).  Only fires when active_net_id is given.
+    # Build the teleport map: at each same-net pad-vertex of the *target
+    # island* (existing wire vertices that are physically connected to
+    # the original target), jumping to any other vertex of that island
+    # is free (zero-cost edge).  Cross-island teleports are forbidden
+    # for the same reason that extended target_set is filtered above.
     teleport_pads: dict[tuple[Point, str], tuple[tuple[Point, str], ...]] | None = None
-    if active_net_id is not None and same_net_pad_vertices:
-        _verts = tuple(same_net_pad_vertices)
+    if active_net_id is not None and target_island:
+        _verts = tuple(target_island)
         teleport_pads = {v: _verts for v in _verts}
 
     if source in target_set:

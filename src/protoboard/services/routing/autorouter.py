@@ -46,6 +46,7 @@ from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import PathStep, find_paths, split_path_by_side
+from protoboard.services.routing.congestion import build_congestion_map
 from protoboard.services.routing.cost_model import RoutingCostModel
 
 if TYPE_CHECKING:
@@ -511,6 +512,27 @@ def autoroute(
         instances=instances,
         penalty=cost_model.under_component_top,
     )
+
+    # Pre-route congestion estimator: lay trivial L-shape paths over each net's
+    # MST and tally per-cell vote counts.  These extra per-cell costs nudge
+    # long nets routed first to detour around clusters where short nets will
+    # later need corridor space.  Disabled when congestion_weight <= 0.
+    congestion_weight = cost_model.get("congestion_weight", 0.0)
+    if congestion_weight > 0.0:
+        all_nets_for_map = (
+            [n for n in schematic.nets.values() if n.id in net_ids]
+            if net_ids is not None
+            else list(schematic.nets.values())
+        )
+        congestion_map = build_congestion_map(all_nets_for_map, pin_positions)
+        # Merge into under_component_penalty (side-agnostic → both layers).
+        # Sum, not max: under-component and corridor congestion are independent
+        # physical effects and should accumulate.
+        for cell, votes in congestion_map.items():
+            extra = congestion_weight * votes
+            for side_key in ("top", "bottom"):
+                key = (cell, side_key)
+                under_component_penalty[key] = under_component_penalty.get(key, 0.0) + extra
 
     # Sort nets: longest manhattan distance first.  Long nets need more board
     # space and should be planned while the board is still empty; short nets

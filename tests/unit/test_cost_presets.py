@@ -97,3 +97,32 @@ class TestCostModelFromPreset:
         # Legacy attribute path still works.
         assert cm.direction_change == 1.0
         assert cm.layer_change == 2.0
+
+
+class TestCostModelPickle:
+    """Regression: optimize-parallel pass ships RoutingCostModel across
+    ProcessPool workers, which exercises pickle.  The custom __setattr__
+    guard that enforces immutability used to trip during deserialisation
+    because the frozen-dataclass-style __getstate__/__setstate__ pair was
+    lost in the dict-backed refactor (e982f10).
+    """
+
+    def test_pickle_roundtrip(self) -> None:
+        import pickle
+
+        cm = RoutingCostModel(direction_change=2.5, layer_change=7.0)
+        cm2 = pickle.loads(pickle.dumps(cm))
+        assert cm == cm2
+        assert cm2.direction_change == 2.5
+        assert cm2.layer_change == 7.0
+        # Every legacy field must survive the roundtrip.
+        for k in cm.weights:
+            assert cm2.weights[k] == cm.weights[k]
+
+    def test_immutability_preserved_after_unpickle(self) -> None:
+        import pickle
+        from dataclasses import FrozenInstanceError
+
+        cm = pickle.loads(pickle.dumps(RoutingCostModel()))
+        with pytest.raises(FrozenInstanceError):
+            cm.direction_change = 99.0  # type: ignore[misc]
