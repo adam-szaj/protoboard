@@ -117,8 +117,60 @@ def _instances_to_yaml(instances: dict[uuid.UUID, ComponentInstance]) -> str:
     return buf.getvalue()
 
 
+# ---------------------------------------------------------------------------
+# v2 wire/knot encoding helpers
+# ---------------------------------------------------------------------------
+
+
+def _knot_to_yaml_dict(knot: object) -> dict[str, Any]:
+    from protoboard.domain.layout.knot import JointKnot as _Joint
+    from protoboard.domain.layout.knot import PinKnot as _Pin
+    if isinstance(knot, _Pin):
+        return {
+            "id": str(knot.id),
+            "kind": "pin",
+            "pin": {
+                "component_id": str(knot.pin.component_id),
+                "pin_number": knot.pin.pin_number,
+            },
+        }
+    if isinstance(knot, _Joint):
+        return {
+            "id": str(knot.id),
+            "kind": "joint",
+            "position": {"x": knot.position.x, "y": knot.position.y},
+        }
+    raise SerializationError(f"unknown Knot type: {type(knot).__name__}")
+
+
+def _wire_v2_to_yaml_dict(wire: object) -> dict[str, Any]:
+    from protoboard.domain.layout.wire import Wire as _Wire
+    if not isinstance(wire, _Wire):
+        raise SerializationError(f"expected Wire, got {type(wire).__name__}")
+    return {
+        "id": str(wire.id),
+        "a_knot_id": str(wire.a.id),
+        "b_knot_id": str(wire.b.id),
+        "insulated": wire.insulated,
+        "fragments": [
+            {
+                "side": f.side,
+                "path": [{"x": p.x, "y": p.y} for p in f.path],
+            }
+            for f in wire.fragments
+        ],
+        **({"color": wire.color} if wire.color else {}),
+    }
+
+
 def _layout_to_yaml(layout: Layout) -> str:
+    # ``format_version`` lets future loaders refuse or migrate older files
+    # outright after a deprecation window.  v2 introduces the knot/wire/
+    # fragment model alongside the legacy ``wires`` list; both are written
+    # while consumers complete migration in Commit B.
+    has_v2 = bool(layout.wires_v2) or bool(layout.knots)
     data: dict[str, Any] = {
+        "format_version": 2 if has_v2 else 1,
         "placements": [
             {
                 "component_id": str(pl.component_id),
@@ -158,6 +210,18 @@ def _layout_to_yaml(layout: Layout) -> str:
             }
             for w in layout.wires
         ],
+        **(
+            {
+                "knots": [_knot_to_yaml_dict(k) for k in layout.knots.values()]
+            }
+            if layout.knots else {}
+        ),
+        **(
+            {
+                "wires_v2": [_wire_v2_to_yaml_dict(w) for w in layout.wires_v2.values()]
+            }
+            if layout.wires_v2 else {}
+        ),
         **(
             {
                 "groups": [
@@ -444,8 +508,76 @@ def _layout_from_yaml(text: str) -> Layout:
             origin=origin,
         )
     layout = Layout(placements=placements, wires=wires, groups=groups)
+
+    # v2 model: knots + wires_v2 are stored alongside legacy `wires` (the
+    # latter stays populated for Commit-A-era consumers).  Projects saved
+    # under format_version: 1 won't carry these blocks; they get
+    # reconstructed by `migrate_layout_to_v2` once the caller can resolve
+    # pin world positions (it needs the footprint library).
+    _decode_knots_and_wires_v2(data, layout)
+
     layout.ensure_root_group()
     return layout
+
+
+def _decode_knots_and_wires_v2(data: dict[str, Any], layout: Layout) -> None:
+    from protoboard.domain.layout.knot import JointKnot, Knot, PinKnot
+    from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
+    raw_knots = data.get("knots") or []
+    for raw in raw_knots:
+        kid = uuid.UUID(raw["id"])
+        kind = str(raw["kind"])
+        knot: Knot
+        if kind == "pin":
+            pin_raw = raw["pin"]
+            pin = PinRef(
+                component_id=uuid.UUID(pin_raw["component_id"]),
+                pin_number=int(pin_raw["pin_number"]),
+            )
+            knot = PinKnot(id=kid, pin=pin)
+            layout.pin_knots[pin] = kid
+        elif kind == "joint":
+            pos = Point(
+                float(raw["position"]["x"]),
+                float(raw["position"]["y"]),
+            )
+            knot = JointKnot(id=kid, position=pos)
+        else:
+            raise SerializationError(f"unknown knot kind: {kind!r}")
+        layout.knots[kid] = knot
+
+    raw_wires_v2 = data.get("wires_v2") or []
+    for raw in raw_wires_v2:
+        wid = uuid.UUID(raw["id"])
+        a_id = uuid.UUID(raw["a_knot_id"])
+        b_id = uuid.UUID(raw["b_knot_id"])
+        if a_id not in layout.knots or b_id not in layout.knots:
+            raise SerializationError(
+                f"wire {wid} references unknown knot id "
+                f"({a_id} or {b_id} missing)"
+            )
+        fragments_raw = raw.get("fragments") or []
+        if not fragments_raw:
+            raise SerializationError(f"wire {wid} has no fragments")
+        fragments = tuple(
+            Fragment(
+                path=tuple(
+                    Point(float(p["x"]), float(p["y"]))
+                    for p in f["path"]
+                ),
+                side=f["side"],
+            )
+            for f in fragments_raw
+        )
+        wire = Wire(
+            id=wid,
+            a=KnotRef(id=a_id),
+            b=KnotRef(id=b_id),
+            fragments=fragments,
+            insulated=bool(raw["insulated"]),
+            color=raw.get("color"),
+        )
+        layout.add_wire_v2(wire)
 
 
 def _schematic_from_yaml(text: str) -> Schematic:
