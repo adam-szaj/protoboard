@@ -11,6 +11,11 @@ import uuid
 import structlog
 _click_log = structlog.get_logger("protoboard.gui.board_view.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
+# PROTOBOARD_PAINT_PROFILE — log per-phase paint timings on every paintEvent.
+# Unlike PROTOBOARD_CLICK_PROFILE this is NOT gated on a recent mouse press,
+# so it captures the ghost-follow paints in PlaceTool too.
+_paint_log = structlog.get_logger("protoboard.gui.board_view.paint")
+_PAINT_PROFILE = os.environ.get("PROTOBOARD_PAINT_PROFILE") not in (None, "", "0")
 
 _DRAG_REFRESH_INTERVAL = 0.033  # 30 fps max during live drag
 
@@ -146,6 +151,8 @@ class BoardView(QGraphicsView):
         self._wire_fingerprints: dict[uuid.UUID, tuple[object, ...]] = {}
         # comp_id → placement.position at last full refresh (drag delta origin).
         self._drag_orig_group_pos: dict[uuid.UUID, object] = {}
+        # wire_id → wire.path[0] at last full refresh (drag delta origin for wires).
+        self._drag_orig_wire_pose: dict[uuid.UUID, object] = {}
         # Board layer: rebuilt only when board geometry / theme / alpha changes.
         self._board_layer_dirty: bool = True
         self._last_board_alpha: float = -1.0   # sentinel: never matches
@@ -186,6 +193,25 @@ class BoardView(QGraphicsView):
         # settles we rebuild at the new transform and refresh the anchor.
         self._bg_cache_anchor: object | None = None
         self._bg_cache_anchor_transform: object | None = None  # QTransform
+        # Paint profiling counters — incremented each time a phase actually
+        # runs.  Reported alongside per-paint timings when
+        # PROTOBOARD_PAINT_PROFILE is set so we can tell e.g. "blit_base
+        # ran 50× but blit_mid only 2×" or "back-cache rebuilt 50× over
+        # 50 paints" (which is the smell we're hunting).
+        self._paint_counters: dict[str, int] = {
+            "paintEvent": 0,
+            "drawBackground": 0,
+            "drawBackground_burst": 0,
+            "fillRect": 0,
+            "bg_cache_rebuild": 0,
+            "back_cache_rebuild": 0,
+            "back_cache_empty": 0,   # back items list empty, no pixmap built
+            "blit_base": 0,
+            "blit_back": 0,
+            "blit_mid": 0,
+            "anchor_blit": 0,
+            "anchor_blit_back": 0,
+        }
         # Spatial index over board pad positions for fast snap().
         self._pad_spatial: dict[tuple[int, int], list[Point]] = {}
         # Overlay items (ratsnest + group outlines) for targeted removal.
@@ -483,7 +509,7 @@ class BoardView(QGraphicsView):
         and call moveBy(delta) when the placement changes — this translates all child
         items without rebuilding the scene.
         """
-        from PySide6.QtWidgets import QGraphicsItemGroup
+        from PySide6.QtWidgets import QGraphicsItemGroup, QGraphicsRectItem
         placements = self._session.layout.placements
         for comp_id, grp in self._comp_groups.items():
             if not isinstance(grp, QGraphicsItemGroup):
@@ -496,6 +522,80 @@ class BoardView(QGraphicsView):
             dx = pl.position.x - orig.x
             dy = pl.position.y - orig.y
             grp.setPos(dx, dy)
+
+        # Recompute outline rect for each group from the live pin positions
+        # of its members.  Outline overlay items live outside _comp_groups
+        # (they're owned by self._overlay_items), so a setPos on a comp
+        # group does not move them.  We update each outline rect in-place;
+        # the matching group-name label is moved alongside.
+        # Wires: items inside each wire group sit at world coords (just like
+        # components), so a setPos(delta) translates the visible polyline.
+        # Live drag mutates wire.path in place — we compare current path[0]
+        # against the snapshot taken at the previous refresh.  After drag
+        # release, the upcoming refresh() rebuilds the wire group from the
+        # new path and resets pos to (0, 0).
+        for wire in self._session.layout.wires:
+            grp = self._wire_groups.get(wire.id)
+            if grp is None or not wire.path:
+                continue
+            orig = self._drag_orig_wire_pose.get(wire.id)
+            if orig is None:
+                continue
+            dx = wire.path[0].x - orig.x
+            dy = wire.path[0].y - orig.y
+            grp.setPos(dx, dy)
+
+        from protoboard.domain.layout.group import all_component_ids
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.domain.layout.placement import pin_world_position
+        layout = self._session.layout
+        instances = self._session.instances
+        components = self._session.components
+        theme = self._theme_override if self._theme_override is not None else DEFAULT_THEME
+        margin = theme.group_margin
+        # Index outline rects + labels by group id.
+        outline_by_gid: dict[uuid.UUID, QGraphicsRectItem] = {}
+        for item in self._overlay_items:
+            if not isinstance(item, QGraphicsRectItem):
+                continue
+            tag = item.data(1) if hasattr(item, "data") else None
+            if tag != "group_outline":
+                continue
+            raw = item.data(0)
+            if not raw:
+                continue
+            try:
+                outline_by_gid[uuid.UUID(str(raw))] = item
+            except (ValueError, TypeError):
+                continue
+        if not outline_by_gid:
+            return
+        for gid, rect_item in outline_by_gid.items():
+            grp_obj = layout.groups.get(gid)
+            if grp_obj is None or gid == ROOT_GROUP_ID:
+                continue
+            comp_ids = all_component_ids(layout.groups, gid)
+            xs: list[float] = []
+            ys: list[float] = []
+            for cid in comp_ids:
+                pl = placements.get(cid)
+                inst = instances.get(cid)
+                if pl is None or inst is None:
+                    continue
+                defn = components.get(inst.definition_ref)
+                if defn is None:
+                    continue
+                for pn in range(1, defn.footprint.pin_count() + 1):
+                    p = pin_world_position(defn.footprint, pl, pn)
+                    xs.append(p.x)
+                    ys.append(p.y)
+            if not xs:
+                continue
+            x0 = min(xs) - margin
+            y0 = min(ys) - margin
+            w = max(xs) - min(xs) + 2 * margin
+            h = max(ys) - min(ys) + 2 * margin
+            rect_item.setRect(QRectF(x0, y0, w, h))
 
     def set_theme(self, theme: object) -> None:
         from protoboard.gui.theme import Theme
@@ -906,6 +1006,15 @@ class BoardView(QGraphicsView):
             cid: pl.position
             for cid, pl in self._session.layout.placements.items()
         }
+        # Per-wire pose anchor — first point of the wire's path at the time
+        # the scene group was built.  Live drag mutates wire.path in place
+        # (translation only for group drag, free-form for single-wire drag);
+        # _on_drag_moved compares current path[0] against this anchor and
+        # calls setPos(delta) so the wire glides with the drag, without
+        # rebuilding the scene group on every snap step.
+        self._drag_orig_wire_pose = {
+            w.id: w.path[0] for w in self._session.layout.wires if w.path
+        }
 
         # ── Overlays (always recreated — fast, few items) ────────────────────
         new_overlays: list[object] = []
@@ -931,6 +1040,7 @@ class BoardView(QGraphicsView):
                 wires=self._session.layout.wires,
                 theme=_theme,
                 active_group_id=self._active_group_id,
+                view_scale=self._scale,
             ))
         if self._session.axis_label_settings.any_enabled():
             from protoboard.gui.renderers.axis_labels_renderer import (
@@ -1349,11 +1459,29 @@ class BoardView(QGraphicsView):
         # via session.perf.paint_ms.  The click-profile log is gated on
         # the env var so the always-on cost is one ``monotonic()`` call.
         _t0 = time.monotonic()
+        # ``super().paintEvent`` covers BOTH the drawBackground call (which
+        # we already time per-phase below) AND Qt's own scene paint pass
+        # over all visible front-pass scene items.  We slice the two by
+        # remembering how long drawBackground took: paintEvent_total minus
+        # drawBackground_total = scene front-pass time.
+        self._paint_db_ms = 0.0  # filled by drawBackground
+        self._paint_counters["paintEvent"] += 1
         super().paintEvent(event)  # type: ignore[arg-type]
         paint_ms = (time.monotonic() - _t0) * 1000.0
+        scene_pass_ms = max(0.0, paint_ms - self._paint_db_ms)
         # Persist total paint wall time on the perf metrics WITHOUT
         # touching the per-layer fields drawBackground already filled in.
         self._session.perf.paint_ms = paint_ms
+        if _PAINT_PROFILE:
+            _paint_log.info(
+                "paint_profile.boardview.paintEvent",
+                total_ms=round(paint_ms, 2),
+                drawbg_ms=round(self._paint_db_ms, 2),
+                scene_pass_ms=round(scene_pass_ms, 2),
+                bg_build_ms=round(self._session.perf.bg_build_ms, 2),
+                back_build_ms=round(self._session.perf.back_build_ms, 2),
+                blit_ms=round(self._session.perf.blit_ms, 2),
+            )
         if _CLICK_PROFILE:
             press_ts = getattr(self, "_click_press_ts", None)
             if press_ts is not None and (time.monotonic() - press_ts) < 1.0:
@@ -1390,10 +1518,15 @@ class BoardView(QGraphicsView):
         Fills the background brush first so transparent regions of the
         board cache (zoomed-out view) show the canvas colour.
         """
+        _db_t0 = time.monotonic()
+        self._paint_counters["drawBackground"] += 1
+        _fr_t0 = time.monotonic()
         painter.save()
         painter.resetTransform()
         painter.fillRect(self.viewport().rect(), self.backgroundBrush())
         painter.restore()
+        self._paint_counters["fillRect"] += 1
+        _fill_ms = (time.monotonic() - _fr_t0) * 1000.0
 
         # Per-layer timings — surface in PerformancePanel.  Build times
         # come from the _ensure_* helpers (0.0 when cache was fresh),
@@ -1424,6 +1557,7 @@ class BoardView(QGraphicsView):
                 painter.save()
                 painter.setTransform(bridge)
                 painter.drawPixmap(0, 0, self._bg_cache_anchor)  # type: ignore[arg-type]
+                self._paint_counters["anchor_blit"] += 1
                 # The back-side cache was rasterised under the SAME
                 # anchor transform as the board pixmap, so the same
                 # bridge maps it correctly — without this the back-side
@@ -1433,6 +1567,7 @@ class BoardView(QGraphicsView):
                 if self._back_cache is not None:
                     painter.setOpacity(1.0)
                     painter.drawPixmap(0, 0, self._back_cache)  # type: ignore[arg-type]
+                    self._paint_counters["anchor_blit_back"] += 1
                 painter.restore()
             self._session.perf.record_paint(
                 bg_build_ms=0.0,
@@ -1440,6 +1575,15 @@ class BoardView(QGraphicsView):
                 blit_ms=(time.monotonic() - _blit_t0) * 1000.0,
                 paint_ms=0.0,  # paintEvent overwrites with total
             )
+            self._paint_db_ms = (time.monotonic() - _db_t0) * 1000.0
+            self._paint_counters["drawBackground_burst"] += 1
+            if _PAINT_PROFILE:
+                _paint_log.info(
+                    "paint_profile.drawBackground.burst",
+                    db_total_ms=round(self._paint_db_ms, 2),
+                    fill_ms=round(_fill_ms, 2),
+                    counters=dict(self._paint_counters),
+                )
             return
 
         bg_build_ms = self._ensure_bg_cache()
@@ -1468,24 +1612,55 @@ class BoardView(QGraphicsView):
         # Pixmaps are sized to and aligned with the viewport (device coords).
         painter.save()
         painter.resetTransform()
+        _blit_base_ms = 0.0
+        _blit_back_ms = 0.0
+        _blit_mid_ms = 0.0
         if self._bg_cache is not None and alpha_base > 0.0:
+            _bt = time.monotonic()
             painter.setOpacity(alpha_base)
             painter.drawPixmap(0, 0, self._bg_cache)  # type: ignore[arg-type]
+            self._paint_counters["blit_base"] += 1
+            _blit_base_ms = (time.monotonic() - _bt) * 1000.0
         if self._back_cache is not None:
+            _bt = time.monotonic()
             painter.setOpacity(1.0)
             painter.drawPixmap(0, 0, self._back_cache)  # type: ignore[arg-type]
+            self._paint_counters["blit_back"] += 1
+            _blit_back_ms = (time.monotonic() - _bt) * 1000.0
         if self._bg_cache is not None and alpha_mid > 0.0:
+            _bt = time.monotonic()
             painter.setOpacity(alpha_mid)
             painter.drawPixmap(0, 0, self._bg_cache)  # type: ignore[arg-type]
+            self._paint_counters["blit_mid"] += 1
+            _blit_mid_ms = (time.monotonic() - _bt) * 1000.0
         painter.setOpacity(1.0)
         painter.restore()
 
+        blit_total_ms = (time.monotonic() - _blit_t0) * 1000.0
         self._session.perf.record_paint(
             bg_build_ms=bg_build_ms,
             back_build_ms=back_build_ms,
-            blit_ms=(time.monotonic() - _blit_t0) * 1000.0,
+            blit_ms=blit_total_ms,
             paint_ms=0.0,  # paintEvent overwrites with total
         )
+        self._paint_db_ms = (time.monotonic() - _db_t0) * 1000.0
+        if _PAINT_PROFILE:
+            _paint_log.info(
+                "paint_profile.drawBackground",
+                db_total_ms=round(self._paint_db_ms, 2),
+                fill_ms=round(_fill_ms, 2),
+                bg_build_ms=round(bg_build_ms, 2),
+                back_build_ms=round(back_build_ms, 2),
+                blit_total_ms=round(blit_total_ms, 2),
+                blit_base_ms=round(_blit_base_ms, 2),
+                blit_back_ms=round(_blit_back_ms, 2),
+                blit_mid_ms=round(_blit_mid_ms, 2),
+                alpha_base=round(alpha_base, 2),
+                alpha_mid=round(alpha_mid, 2),
+                vp_w=self.viewport().width(),
+                vp_h=self.viewport().height(),
+                counters=dict(self._paint_counters),
+            )
 
     def _on_pan_settled(self) -> None:
         """Force a paint right after a pan burst ends so the user sees the
@@ -1543,6 +1718,7 @@ class BoardView(QGraphicsView):
         )
         if not need_rebuild:
             return 0.0
+        self._paint_counters["bg_cache_rebuild"] += 1
         _t0 = time.monotonic()
 
         # Build display list if missing (board / theme / alpha changes
@@ -1626,6 +1802,7 @@ class BoardView(QGraphicsView):
         )
         if not need_rebuild:
             return 0.0
+        self._paint_counters["back_cache_rebuild"] += 1
         _t0 = time.monotonic()
 
         # Restore previously-hidden items so a rebuild on changed content
@@ -1646,10 +1823,16 @@ class BoardView(QGraphicsView):
             it for it in self._scene.items()
             if 0.0 <= it.zValue() < Z_BOARD - 1e-6
             and it.parentItem() is None
+            # Group outlines stay as live scene items — hit-testing
+            # (_hit_test_group_outline → scene.items(scene_pt)) skips
+            # invisible items, so baking them into the back pixmap would
+            # break group selection.
+            and (it.data(1) if hasattr(it, "data") else None) != "group_outline"
         ]
         if not back_items:
             self._back_cache = None
             self._back_cache_dirty = False
+            self._paint_counters["back_cache_empty"] += 1
             return (time.monotonic() - _t0) * 1000.0
 
         pix = QPixmap(vp_size)

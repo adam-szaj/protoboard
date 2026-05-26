@@ -5153,7 +5153,6 @@ class SelectTool(_Tool):
 
     def _hit_test_group_outline(self, scene_pt: QPointF) -> uuid.UUID | None:
         """Return group_id if the click landed on a group outline rect item."""
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
         for item in self._view.scene().items(scene_pt):
             tag = item.data(1) if hasattr(item, "data") else None
             if tag == "group_outline":

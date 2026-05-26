@@ -282,8 +282,6 @@ class PlaceTool(_Tool):
         self._rebuild_ghost()
         if self._anchor_pos is not None and self._ghost is not None:
             self._ghost.setPos(self._anchor_pos.x, self._anchor_pos.y)
-        if self._view is not None:
-            self._view.viewport().update()
 
     def _remove_ghost(self) -> None:
         if self._ghost is not None:
@@ -293,12 +291,9 @@ class PlaceTool(_Tool):
     def _move_ghost(self, x: float, y: float) -> None:
         if self._ghost is not None:
             self._ghost.setPos(x, y)
-            # BoardView uses FullViewportUpdate; force scene update so the
-            # ghost actually follows the cursor.  Both scene().update() and
-            # viewport().update() are needed because the QGraphicsItemGroup
-            # is ItemHasNoContents (no auto-region-invalidate on setPos).
-            self._view.scene().update()
-            self._view.viewport().update()
+            # setPos already schedules a repaint via Qt's
+            # FullViewportUpdate mode; no explicit update() needed once
+            # the back-cache filter no longer hides the ghost's children.
 
     # ------------------------------------------------------------------
     # Reach overlay

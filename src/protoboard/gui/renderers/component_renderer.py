@@ -653,6 +653,7 @@ def render_groups(
     wires: list[object] | None = None,
     theme: Theme = DEFAULT_THEME,
     active_group_id: uuid.UUID | None = None,
+    view_scale: float = 1.0,
 ) -> list[QGraphicsItem]:
     """Render a dotted outline around each group's bounding box.
 
@@ -750,9 +751,16 @@ def render_groups(
         added.append(rect)
         if group.name:
             grp_bg = QColor(theme.label_bg_color)
+            label_font = _get_refdes_font(theme.overlay_font_size)
+            # Place the label so its bottom edge sits flush with the top
+            # edge of the outline (y0).  ItemIgnoresTransformations keeps
+            # font-pixel size constant, so the label's scene-space height
+            # is metric_height / view_scale.
+            from PySide6.QtGui import QFontMetricsF
+            label_h_scene = QFontMetricsF(label_font).height() / max(view_scale, 1e-6)
             for item in _make_overlay_label(
-                group.name, _get_refdes_font(theme.overlay_font_size),
-                name_col, grp_bg, x0 + 0.1, y0 + 0.05, 1.1,
+                group.name, label_font,
+                name_col, grp_bg, x0, y0 - label_h_scene, 1.1,
             ):
                 scene.addItem(item)
                 added.append(item)
