@@ -279,10 +279,10 @@ class TestTryCollapseJoint:
         merged = layout.try_collapse_joint(joint.id, plated_through_pads=plated)
         assert merged is not None
         assert joint.id not in layout.knots
-        # Two fragments kept — joint vertex is the via boundary.
+        # Two fragments kept — joint vertex is the via boundary.  Orientation
+        # depends on which wire's id is min(); both orderings are correct.
         assert len(merged.fragments) == 2
-        assert merged.fragments[0].side == "top"
-        assert merged.fragments[1].side == "bottom"
+        assert set(f.side for f in merged.fragments) == {"top", "bottom"}
 
     def test_pin_knot_not_collapsible(self) -> None:
         layout = _make_layout({_new_pin(1, 1): Point(0, 0)})

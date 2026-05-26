@@ -11,7 +11,9 @@ import structlog
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.knot import JointKnot, Knot, PinKnot
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import Fragment, Wire, WireSegment
+from protoboard.domain.layout.wire import (
+    Fragment, Wire, WireCollection, WireSegment,
+)
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 
@@ -25,21 +27,35 @@ _log = structlog.get_logger(__name__)
 @dataclass
 class Layout:
     placements: dict[uuid.UUID, ComponentPlacement] = field(default_factory=dict)
-    # Legacy storage — kept as a list in Commit A so existing consumers keep
-    # working without changes.  Commit B converts to dict[UUID, Wire].
-    wires: list[WireSegment] = field(default_factory=list)
+    # Dict-keyed wire storage with list-like API (see ``WireCollection`` for
+    # the migration shim).  Legacy ``for w in layout.wires``,
+    # ``layout.wires.append(w)`` and ``layout.wires.remove(w)`` keep working;
+    # v2 consumers can use ``layout.wires.get(id)`` / ``.values()`` /
+    # ``.items()`` directly.  Constructor still accepts a ``list[Wire]``
+    # (or list[WireSegment], same class) via ``__post_init__`` normalisation.
+    wires: WireCollection = field(default_factory=WireCollection)
+
+    def __post_init__(self) -> None:
+        # Normalise list-style construction:
+        # ``Layout(wires=[w1, w2])`` from existing tests stays valid.
+        # mypy thinks the isinstance branches are unreachable (field is typed
+        # as WireCollection), but Python's dataclass __init__ accepts any
+        # value matching no type-check at runtime.
+        if not isinstance(self.wires, WireCollection):
+            self.wires = WireCollection(list(self.wires))
+        if not isinstance(self.wires_v2, WireCollection):
+            self.wires_v2 = WireCollection(list(self.wires_v2))
     groups: dict[uuid.UUID, ComponentGroup] = field(default_factory=dict)
 
-    # New knot storage — populated by the v2 persistence loader and by the
-    # legacy migration shim; consumed by the new Wire-aware commands and
-    # tools in Commit B.  Empty in projects that were created before
-    # format_version: 2 and have not been re-saved.
+    # Knot storage — endpoint hubs for wires.  Populated by v2 commands and
+    # by the migration in ``services/persistence/wire_migration.py``.
     knots: dict[uuid.UUID, Knot] = field(default_factory=dict)
     # Index for fast pin -> knot lookup (one PinKnot per PinRef).
     pin_knots: dict[PinRef, uuid.UUID] = field(default_factory=dict)
-    # New wire storage — populated alongside the legacy `wires` list during
-    # migration.  Empty until Commit B switches consumers over.
-    wires_v2: dict[uuid.UUID, Wire] = field(default_factory=dict)
+    # ``wires_v2`` is a backward-compat view on top of ``wires`` so any
+    # remaining v2-aware code that still references it sees the same data.
+    # Removal scheduled for Cutover Step 3.
+    wires_v2: WireCollection = field(default_factory=WireCollection)
 
     # Resolver for PinKnot world positions.  ``None`` until the caller
     # registers one via ``set_pin_resolver``; required by mutators that
