@@ -96,6 +96,12 @@ class BoardView(QGraphicsView):
             QGraphicsView.ViewportUpdateMode.FullViewportUpdate,
         )
         self.setBackgroundBrush(QBrush(BOARD_BG))
+        # Tools (PlaceTool ghost, RouteTool live line, hover cursor) need
+        # mouseMoveEvent when no button is pressed.  Without tracking the
+        # viewport Qt only emits mouse-move while a button is held — the
+        # ghost would stay at (0,0) until first click.
+        self.setMouseTracking(True)
+        self.viewport().setMouseTracking(True)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
@@ -1631,10 +1637,15 @@ class BoardView(QGraphicsView):
                 pass  # underlying C++ object gone
         self._back_hidden_items = []
 
-        # Collect back-side items in scene Z order.
+        # Collect back-side items in scene Z order.  Skip child items (those
+        # whose top-level parent group has a different effective z) — only
+        # the parent's z determines stacking, and selecting orphaned
+        # children would bake them at default z=0 even when their parent
+        # sits well above Z_BOARD (e.g. PlaceTool ghost at z=20).
         back_items = [
             it for it in self._scene.items()
             if 0.0 <= it.zValue() < Z_BOARD - 1e-6
+            and it.parentItem() is None
         ]
         if not back_items:
             self._back_cache = None

@@ -416,6 +416,10 @@ class MainWindow(QMainWindow):
         # Subsequent layout edits cancel the previous worker so its
         # result is dropped before it can overwrite the panel.
         self._drc_worker: object | None = None
+        # Cancelled DRC workers we still need to keep alive until their
+        # QThread.run() returns naturally — otherwise Python may GC them
+        # mid-flight and Qt aborts with "QThread destroyed while running".
+        self._drc_workers_draining: list[object] = []
 
         # Panel-refresh timer — debounces sidebar rebuilds to avoid blocking UI
         # on every drag-commit.  100 ms is fast enough to feel instant after a
@@ -2135,6 +2139,11 @@ class MainWindow(QMainWindow):
         prev = self._drc_worker
         if prev is not None and prev.isRunning():  # type: ignore[attr-defined]
             prev.cancel()  # type: ignore[attr-defined]
+            # Keep a strong ref to the cancelled worker until its QThread
+            # run() returns naturally — otherwise Python may GC it while
+            # the C++ QThread is still finishing, and Qt aborts.  Worker
+            # emits ``exited`` from run()'s finally block.
+            self._park_for_drain(prev)
 
         worker = DRCWorker(
             board=self._session.board,
@@ -2159,6 +2168,12 @@ class MainWindow(QMainWindow):
         sender = self.sender()
         if sender is not self._drc_worker:
             return
+        # Don't drop the ref yet — finished is emitted from run() BEFORE
+        # the QThread has fully unwound.  Releasing here would let Python
+        # GC the QThread mid-flight and Qt aborts.  Hand the worker over
+        # to the draining list; ``exited`` (from run()'s finally) calls
+        # _drain_drc_worker, which releases the strong ref safely.
+        self._park_for_drain(sender)
         self._drc_worker = None
         self._session.set_drc_issues(issues)
         n = len(issues)
@@ -2171,9 +2186,37 @@ class MainWindow(QMainWindow):
         sender = self.sender()
         if sender is not self._drc_worker:
             return
+        self._park_for_drain(sender)
         self._drc_worker = None
         _log.error("drc.worker_error", msg=msg)
         self._status.showMessage(f"DRC failed: {msg}", 4000)
+
+    def _park_for_drain(self, worker: object) -> None:
+        """Move *worker* to the draining list and wire ``exited`` cleanup.
+
+        Used both by the cancel path and the normal finished/error
+        callbacks — in both cases the QThread.run() is still about to
+        return naturally, and we must hold a strong ref until ``exited``
+        fires from run()'s finally block.
+        """
+        if worker is None or worker in self._drc_workers_draining:
+            return
+        self._drc_workers_draining.append(worker)
+        worker.exited.connect(  # type: ignore[attr-defined]
+            lambda *_a, w=worker: self._drain_drc_worker(w)
+        )
+
+    def _drain_drc_worker(self, worker: object) -> None:
+        """Release the strong ref on a cancelled DRC worker.
+
+        Connected to ``DRCWorker.exited`` — fires once the QThread's
+        ``run()`` has provably returned.  Removing the worker from
+        ``_drc_workers_draining`` lets Python GC it safely.
+        """
+        try:
+            self._drc_workers_draining.remove(worker)
+        except ValueError:
+            pass  # already removed
 
     # ------------------------------------------------------------------
     # DRC interactivity — translate panel clicks into highlight + viewport.
@@ -2664,6 +2707,7 @@ class MainWindow(QMainWindow):
             self._closing_to_welcome = False
             save_window_state(self)
             self._session.stop_recording()
+            self._wait_for_drc_workers()
             super().closeEvent(event)
             self.return_to_welcome.emit()
             return
@@ -2673,10 +2717,37 @@ class MainWindow(QMainWindow):
             return
         save_window_state(self)
         self._session.stop_recording()
+        self._wait_for_drc_workers()
         super().closeEvent(event)
         from PySide6.QtWidgets import QApplication
 
         QApplication.quit()
+
+    def _wait_for_drc_workers(self) -> None:
+        """Block until every DRC worker's QThread.run() has returned.
+
+        Called from closeEvent before super() — otherwise Qt may deallocate
+        the QThread instances while ``run()`` is mid-flight ("QThread
+        destroyed while thread is still running").  We cancel each worker
+        first so the wait is quick.
+        """
+        workers = [self._drc_worker] + list(self._drc_workers_draining)
+        for w in workers:
+            if w is None:
+                continue
+            try:
+                w.cancel()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        for w in workers:
+            if w is None:
+                continue
+            try:
+                # 2 s ceiling — DRC is fast; if it hangs we'd rather drop
+                # the wait than freeze the app on exit.
+                w.wait(2000)  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Keyboard shortcuts

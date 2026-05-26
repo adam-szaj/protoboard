@@ -71,6 +71,9 @@ class PlaceTool(_Tool):
         self._pin_variant = pin_variant
         self._rotation = 0
         self._ghost: QGraphicsItemGroup | None = None
+        # Last snapped cursor position in the anchor phase — kept so the
+        # ghost stays under the cursor across R / Shift+R rotations.
+        self._last_cursor_pos: Point | None = None
         # Two-phase state
         self._phase: Literal["anchor", "drag_pin", "floating"] = "anchor"
         self._anchor_pos: Point | None = None
@@ -148,6 +151,7 @@ class PlaceTool(_Tool):
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         snapped = self._view.snap(scene_pt)
         if self._phase == "anchor":
+            self._last_cursor_pos = snapped
             self._move_ghost(snapped.x, snapped.y)
         elif self._phase == "drag_pin":
             assert self._anchor_pos is not None and self._current_drag_pin is not None
@@ -204,7 +208,13 @@ class PlaceTool(_Tool):
                 self._rebuild_ghost_at_anchor()
                 self._update_reach_overlay()
             else:
+                # Rebuild rebakes the body shape for the new rotation, then
+                # re-park the ghost under the cursor's last known position.
                 self._rebuild_ghost()
+                if self._last_cursor_pos is not None:
+                    self._move_ghost(
+                        self._last_cursor_pos.x, self._last_cursor_pos.y,
+                    )
             event.accept()
 
         elif key == Qt.Key.Key_R and ctrl:
@@ -259,6 +269,12 @@ class PlaceTool(_Tool):
         elif defn.bendable_pins:
             offsets = {p: spec.default_offset for p, spec in defn.bendable_pins.items()}
         ghost = make_ghost_item(defn, rotation=self._rotation, pin_offsets=offsets)
+        # Z=20 puts the ghost above all back-side scene items (Z<Z_BOARD=3.0)
+        # so BoardView._ensure_back_cache doesn't bake it into the back-side
+        # pixmap and hide it.  Without this the ghost stays "stuck" at (0,0)
+        # because setVisible(False) is applied to the back-cached item and
+        # setPos() updates pose on an invisible object.
+        ghost.setZValue(20.0)
         self._view.scene().addItem(ghost)
         self._ghost = ghost
 
@@ -266,6 +282,8 @@ class PlaceTool(_Tool):
         self._rebuild_ghost()
         if self._anchor_pos is not None and self._ghost is not None:
             self._ghost.setPos(self._anchor_pos.x, self._anchor_pos.y)
+        if self._view is not None:
+            self._view.viewport().update()
 
     def _remove_ghost(self) -> None:
         if self._ghost is not None:
@@ -275,6 +293,12 @@ class PlaceTool(_Tool):
     def _move_ghost(self, x: float, y: float) -> None:
         if self._ghost is not None:
             self._ghost.setPos(x, y)
+            # BoardView uses FullViewportUpdate; force scene update so the
+            # ghost actually follows the cursor.  Both scene().update() and
+            # viewport().update() are needed because the QGraphicsItemGroup
+            # is ItemHasNoContents (no auto-region-invalidate on setPos).
+            self._view.scene().update()
+            self._view.viewport().update()
 
     # ------------------------------------------------------------------
     # Reach overlay

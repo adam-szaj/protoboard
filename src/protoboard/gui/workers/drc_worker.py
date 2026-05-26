@@ -58,6 +58,11 @@ class DRCWorker(QThread):
 
     finished: Signal = Signal(list)
     error: Signal = Signal(str)
+    # Emitted unconditionally from ``run()``'s finally — including when the
+    # worker bails out on cancel.  Lets MainWindow release the strong ref
+    # it has to keep on cancelled workers (otherwise Python may GC them
+    # mid-flight and Qt aborts with "QThread destroyed while running").
+    exited: Signal = Signal()
 
     def __init__(
         self,
@@ -137,6 +142,11 @@ class DRCWorker(QThread):
         except Exception as exc:  # noqa: BLE001 — surface anything via signal
             if not self._cancel_flag.is_set():
                 self.error.emit(str(exc))
+        finally:
+            # Always notify — including the cancel-bail path that
+            # returns silently above.  MainWindow uses this to release
+            # its strong reference once run() is provably done.
+            self.exited.emit()
 
 
 __all__ = ["DRCWorker"]
