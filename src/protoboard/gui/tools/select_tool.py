@@ -381,6 +381,13 @@ class SelectTool(_Tool):
                 for wid in correlated_wires:
                     self._selected_wire_ids.add(wid)
                     self._draw_multi_wire_highlight(wid)
+            _log.info(
+                "selection.multi_wire",
+                via="shift_apply_interaction",
+                n_wires=len(self._selected_wire_ids),
+                n_comps=len(self._selected_ids),
+                wire_ids=[str(w) for w in self._selected_wire_ids],
+            )
         else:
             # LPM without Shift: select only the clicked object.  Component
             # selection is handled by on_press before us; wire selection is
@@ -3679,7 +3686,7 @@ class SelectTool(_Tool):
     def _select_wire(self, wire_id: uuid.UUID) -> None:
         self._deselect_wire()
         self._selected_wire_id = wire_id
-        _log.debug("selection.wire", wire_id=str(wire_id))
+        _log.info("selection.wire", wire_id=str(wire_id))
         self._draw_wire_highlight(wire_id)
 
     def _select_wire_cycled(self, wire_id: uuid.UUID, scene_pt: "QPointF") -> None:
@@ -4170,31 +4177,56 @@ class SelectTool(_Tool):
         )
 
         session = self._session
+        _log.info("unweave.start",
+                  n_wire_ids=len(wire_ids),
+                  wire_ids=[str(w) for w in wire_ids])
         if session is None:
+            _log.info("unweave.abort", reason="no_session")
             return
         if len(wire_ids) < 2:
+            _log.info("unweave.abort", reason="too_few_ids", n=len(wire_ids))
             self._status_msg("Unweave: select at least 2 wires.")
             return
 
         all_wires = session.layout.wires
         targets = [w for w in all_wires if w.id in wire_ids]
         if len(targets) < 2:
+            _log.info("unweave.abort", reason="too_few_targets",
+                      n_targets=len(targets), n_ids=len(wire_ids))
             self._status_msg("Unweave: at least 2 valid wires required.")
             return
 
         before = count_mutual_crossings(targets)
+        _log.info("unweave.targets_resolved",
+                  n_targets=len(targets),
+                  crossings_before=before,
+                  target_summary=[
+                      {"id": str(w.id), "side": w.side, "insulated": w.insulated,
+                       "n_vertices": len(w.path),
+                       "start": (w.path[0].x, w.path[0].y) if w.path else None,
+                       "end": (w.path[-1].x, w.path[-1].y) if w.path else None}
+                      for w in targets
+                  ])
         if before == 0:
+            _log.info("unweave.abort", reason="no_crossings")
             self._status_msg("Unweave: no crossings to resolve.")
             return
 
         # Pass schematic + connectivity graph so the algorithm can split
         # wires on plated-through pads when that resolves more crossings.
+        import time as _time
+        _t0 = _time.monotonic()
         out = unweave_wires(
             targets,
             schematic=session.schematic,
             graph=session.connectivity_graph(),
         )
+        dt_ms = (_time.monotonic() - _t0) * 1000.0
         after = count_mutual_crossings(out)
+        _log.info("unweave.algorithm_done",
+                  duration_ms=round(dt_ms, 1),
+                  n_in=len(targets), n_out=len(out),
+                  crossings_before=before, crossings_after=after)
 
         # If the result is byte-identical (same paths, same attributes) skip.
         same = (
@@ -4207,6 +4239,8 @@ class SelectTool(_Tool):
             )
         )
         if same:
+            _log.info("unweave.abort", reason="byte_identical_result",
+                      crossings=before)
             self._status_msg(
                 f"Unweave: {before} crossings already at topological minimum."
             )
@@ -4230,6 +4264,10 @@ class SelectTool(_Tool):
         session.stack.execute(cmd, session)
         session.invalidate_graph()
         session.layout_changed.emit()
+        _log.info("unweave.committed",
+                  description=cmd.description,
+                  n_remove=len(targets), n_add=len(out),
+                  crossings_before=before, crossings_after=after)
         self._status_msg(
             f"Unweave: {before} → {after} crossings"
             + (f" ({len(targets)}→{len(out)} segments)" if len(targets) != len(out) else "")

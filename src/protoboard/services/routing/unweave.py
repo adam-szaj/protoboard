@@ -43,10 +43,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal, cast
 
+import structlog
+
 from protoboard.domain.layout.wire import WireSegment
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import _segs_cross
 from protoboard.services.routing.postprocess import _canonical_subpath
+
+_log = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from protoboard.domain.connectivity.graph import ConnectivityGraph
@@ -510,7 +514,15 @@ def unweave_wires(
 
     # Hard limit to guard against pathological inputs.
     max_iter = sum(len(w.path) for w in wires) * 4 + 16
-    for _ in range(max_iter):
+    _log.info("unweave.algo_start",
+              n_wires=len(wires), n_logical=len(logical),
+              max_iter=max_iter,
+              has_pad_safe=pad_safe is not None,
+              has_short_check=short_check is not None,
+              has_board_pads=board_pads is not None,
+              n_board_pads=len(board_pads) if board_pads is not None else 0)
+    swap_count = 0
+    for it_idx in range(max_iter):
         progressed = False
         for i in range(len(logical)):
             for j in range(i + 1, len(logical)):
@@ -524,17 +536,44 @@ def unweave_wires(
                     board_pads=board_pads,
                 )
                 if swap_done:
+                    swap_count += 1
+                    _log.info("unweave.swap_done",
+                              iter=it_idx, pair=(i, j), total_swaps=swap_count)
                     progressed = True
                     break
             if progressed:
                 break
         if not progressed:
+            _log.info("unweave.swap_phase_done",
+                      iterations=it_idx, total_swaps=swap_count)
             break
 
     # Side unification is a separate concern handled by a future pass.
     # Unweave only performs topological fragment swaps; consecutive segments
     # with matching attributes are merged below, but minority-side segments
     # are left alone.
+
+    # Cleanup pass: trivial 1-step reroute for shared-pad crossings the swap
+    # could not eliminate (typically because both swap pads are shared and
+    # the swap leaves them shared on both wires).  No-op when the pair has
+    # nowhere to move S to.
+    forbidden_pads: set[Point] | None = None
+    if graph is not None:
+        from protoboard.domain.layout.placement import pin_world_position
+        forbidden_pads = set()
+        for cid, pl in graph.layout.placements.items():
+            inst = graph.instances.get(cid)
+            if inst is None:
+                continue
+            defn = graph.components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            for pn in range(1, defn.footprint.pin_count() + 1):
+                forbidden_pads.add(pin_world_position(defn.footprint, pl, pn))
+    _cleanup_shared_pads_pass(
+        logical, pad_safe=pad_safe, short_check=short_check,
+        board_pads=board_pads, forbidden_pads=forbidden_pads,
+    )
 
     # Re-merge consecutive segments with identical (side, insulated).
     merged: list[WireSegment] = []
@@ -929,6 +968,271 @@ def _swap_logical_fragment(
     return new_lp1, new_lp2
 
 
+# ---------------------------------------------------------------------------
+# Trivial 1-step reroute for shared-pad crossings
+# ---------------------------------------------------------------------------
+#
+# When two logical wires share an interior vertex S that survives the main
+# swap pass (e.g. the pair has two shared-pad crossings; swap moves fragments
+# but leaves both shared vertices intact), try the simplest possible reroute:
+# replace S on one of the wires with a board pad adjacent to S (1-step ortho
+# or diagonal).  No A*, no multi-step detours — if the immediate neighbourhood
+# has nothing usable, give up and leave the shared vertex (the swap already
+# rearranged the wires around it, which is no worse than the pre-unweave
+# state).
+
+
+_NEIGHBOUR_OFFSETS: tuple[tuple[int, int], ...] = (
+    (1, 0), (-1, 0), (0, 1), (0, -1),
+    (1, 1), (1, -1), (-1, 1), (-1, -1),
+)
+
+
+def _is_unit_step(a: Point, b: Point) -> bool:
+    """True iff ``b`` is one ortho or diagonal step away from ``a``.
+
+    Uses Chebyshev distance == 1; matches the routing grid's 8-connectivity.
+    """
+    dx = abs(a.x - b.x)
+    dy = abs(a.y - b.y)
+    return max(dx, dy) - 1.0 < _EPS and (dx + dy) > _EPS
+
+
+def _try_1step_reroute_at(
+    lp_self: list[_LogicalPoint],
+    lp_other: list[_LogicalPoint],
+    idx: int,
+    *,
+    board_pads: set[Point] | None,
+    forbidden_pads: set[Point] | None,
+    pad_safe: "Callable[[Point, str, str, bool], bool] | None",
+) -> list[_LogicalPoint] | None:
+    """Replace ``lp_self[idx].point`` with a one-step-adjacent board pad that
+    leaves ``prev → S' → next`` geometrically valid and frees the original pad
+    from this wire.  Returns a new logical path on success, ``None`` if no
+    suitable neighbour exists.
+
+    Constraints:
+      * ``S'`` lies on ``board_pads`` (when given).
+      * ``S'`` is not in ``forbidden_pads`` (typically: pin positions of
+        components other than the wire's own endpoints — we don't want
+        reroute to land on an alien pin even though insulated wires would
+        physically tolerate it; staying on free pads keeps later edits
+        and DRC simpler).
+      * ``S'`` is not used by ``lp_other`` (we don't want to introduce a new
+        shared vertex while removing the old one).
+      * ``S'`` is one Chebyshev step from S **and** from both neighbours, so
+        the resulting segments stay legal routing steps.
+      * ``pad_safe`` (when given) accepts S' against the segment's side /
+        insulated state.  We use the attributes of the segment ENTERING S
+        (``lp_self[idx - 1].side`` / ``insulated``) for both new sub-segments
+        — reroute is purely local and never crosses a layer.
+    """
+    if idx <= 0 or idx >= len(lp_self) - 1:
+        return None
+    prev_pt = lp_self[idx - 1].point
+    s = lp_self[idx].point
+    next_pt = lp_self[idx + 1].point
+
+    side_in = lp_self[idx - 1].side
+    ins_in = lp_self[idx - 1].insulated
+    # The vertex's own side/insulated describes the LEAVING segment; for a
+    # 1-step reroute we keep both segments on the same layer the wire was
+    # already using around S.
+    side_out = lp_self[idx].side
+    ins_out = lp_self[idx].insulated
+    if side_in != side_out or ins_in != ins_out:
+        # Layer change happens exactly at S — reroute is out of scope (a
+        # neighbour pad would shift the via, not just relocate a vertex).
+        return None
+
+    other_pts: set[tuple[float, float]] = {
+        (round(lp.point.x, 6), round(lp.point.y, 6)) for lp in lp_other
+    }
+
+    for dx, dy in _NEIGHBOUR_OFFSETS:
+        cand = Point(s.x + dx, s.y + dy)
+        if board_pads is not None and cand not in board_pads:
+            continue
+        if forbidden_pads is not None and cand in forbidden_pads:
+            # Alien pin (or any other reserved pad).  Stay on free pads only.
+            continue
+        if (round(cand.x, 6), round(cand.y, 6)) in other_pts:
+            # Don't trade one shared vertex for another with the same wire.
+            continue
+        if _pt_equal(cand, prev_pt) or _pt_equal(cand, next_pt):
+            # Would collapse prev–S'–next to a degenerate path.
+            continue
+        if not _is_unit_step(prev_pt, cand) or not _is_unit_step(cand, next_pt):
+            continue
+        if pad_safe is not None and not pad_safe(cand, side_in, side_in, ins_in):
+            continue
+        # Build the rerouted logical path: same prefix/suffix, S replaced.
+        new_lp = list(lp_self)
+        new_lp[idx] = _LogicalPoint(cand, side_out, ins_out)
+        return new_lp
+    return None
+
+
+def _count_pair_crossings(
+    lp1: list[_LogicalPoint], lp2: list[_LogicalPoint],
+) -> int:
+    """Count *all* crossings (interior segment + shared-pad) between two
+    logical paths.  Used as the acceptance guard for 1-step reroute — the
+    move is only kept when it does not increase the total."""
+    return len(_find_crossings_logical(lp1, lp2))
+
+
+def _count_pair_shared_vertices(
+    lp1: list[_LogicalPoint], lp2: list[_LogicalPoint],
+) -> int:
+    """Count interior vertices that appear on both logical paths."""
+    return len(_find_shared_pad_crossings_logical(lp1, lp2))
+
+
+def _cleanup_shared_pads_pass(
+    logical: list[list[WireSegment]],
+    *,
+    pad_safe: "Callable[[Point, str, str, bool], bool] | None",
+    short_check: "Callable[[list[list[WireSegment]]], bool] | None",
+    board_pads: set[Point] | None,
+    forbidden_pads: set[Point] | None,
+) -> None:
+    """One pass of trivial 1-step reroute over residual shared-pad crossings.
+
+    For every pair (i, j) of logical wires and every shared-pad crossing
+    between them, try to relocate the shared vertex on lp_i; if that fails,
+    try lp_j.  On success the move is committed to ``logical`` in-place.
+
+    Acceptance gates:
+      * total i↔j crossings must not increase
+      * ``short_check`` (when given) must accept the resulting layout
+    Endpoints are preserved by construction (idx ∈ [1, len-2]).
+    """
+    n = len(logical)
+    n_pairs_with_shared = 0
+    n_reroutes_committed = 0
+    n_reroutes_rejected = 0
+    for i in range(n):
+        for j in range(i + 1, n):
+            # Re-derive lpaths each pair because earlier pairs may have
+            # rewritten one of these wires.
+            lp_i = _to_logical_path(logical[i])
+            lp_j = _to_logical_path(logical[j])
+            shared = _find_shared_pad_crossings_logical(lp_i, lp_j)
+            if shared:
+                n_pairs_with_shared += 1
+                _log.info("unweave.cleanup.pair_has_shared",
+                          pair=(i, j), n_shared=len(shared),
+                          shared_pts=[(lp_i[si].point.x, lp_i[si].point.y)
+                                      for si, _sj in shared])
+            if not shared:
+                continue
+            for s_idx_i, s_idx_j in shared:
+                shared_before = _count_pair_shared_vertices(lp_i, lp_j)
+                crossings_before = _count_pair_crossings(lp_i, lp_j)
+
+                def _accepts(
+                    cand_i: list[_LogicalPoint], cand_j: list[_LogicalPoint],
+                ) -> bool:
+                    # Reroute must strictly reduce shared interior pads and
+                    # never grow the total crossing count.
+                    return (
+                        _count_pair_shared_vertices(cand_i, cand_j) < shared_before
+                        and _count_pair_crossings(cand_i, cand_j) <= crossings_before
+                    )
+
+                # Try wire i first.
+                new_lp_i = _try_1step_reroute_at(
+                    lp_i, lp_j, s_idx_i,
+                    board_pads=board_pads,
+                    forbidden_pads=forbidden_pads,
+                    pad_safe=pad_safe,
+                )
+                cand_lp_i, cand_lp_j = lp_i, lp_j
+                chose: Literal["i", "j", None] = None
+                if new_lp_i is not None and _accepts(new_lp_i, lp_j):
+                    cand_lp_i = new_lp_i
+                    chose = "i"
+                else:
+                    new_lp_j = _try_1step_reroute_at(
+                        lp_j, lp_i, s_idx_j,
+                        board_pads=board_pads,
+                        forbidden_pads=forbidden_pads,
+                        pad_safe=pad_safe,
+                    )
+                    if new_lp_j is not None and _accepts(lp_i, new_lp_j):
+                        cand_lp_j = new_lp_j
+                        chose = "j"
+                if chose is None:
+                    n_reroutes_rejected += 1
+                    _log.info("unweave.cleanup.reroute_rejected",
+                              pair=(i, j),
+                              shared_pt=(lp_i[s_idx_i].point.x, lp_i[s_idx_i].point.y),
+                              reason="no_free_neighbour_or_grows_crossings")
+                    continue
+                new_segs_i = _from_logical_path(cand_lp_i)
+                new_segs_j = _from_logical_path(cand_lp_j)
+                if short_check is not None:
+                    proposed = list(logical)
+                    proposed[i] = new_segs_i
+                    proposed[j] = new_segs_j
+                    if not short_check(proposed):
+                        n_reroutes_rejected += 1
+                        _log.info("unweave.cleanup.reroute_rejected",
+                                  pair=(i, j),
+                                  shared_pt=(lp_i[s_idx_i].point.x, lp_i[s_idx_i].point.y),
+                                  reason="short_check")
+                        continue
+                logical[i] = new_segs_i
+                logical[j] = new_segs_j
+                n_reroutes_committed += 1
+                _log.info("unweave.cleanup.reroute_done",
+                          pair=(i, j), chose=chose,
+                          shared_pt=(lp_i[s_idx_i].point.x, lp_i[s_idx_i].point.y),
+                          new_pt=(cand_lp_i[s_idx_i].point.x, cand_lp_i[s_idx_i].point.y)
+                                 if chose == "i" else
+                                 (cand_lp_j[s_idx_j].point.x, cand_lp_j[s_idx_j].point.y))
+                # Refresh both lpaths for the next shared vertex in this pair.
+                lp_i = _to_logical_path(logical[i])
+                lp_j = _to_logical_path(logical[j])
+    _log.info("unweave.cleanup.summary",
+              n_pairs_with_shared=n_pairs_with_shared,
+              n_reroutes_committed=n_reroutes_committed,
+              n_reroutes_rejected=n_reroutes_rejected)
+
+
+def _find_shared_pad_crossings_logical(
+    lp1: list[_LogicalPoint], lp2: list[_LogicalPoint],
+) -> list[tuple[int, int]]:
+    """Return ``(idx_in_lp1, idx_in_lp2)`` pairs for each shared interior
+    vertex between the two logical paths.
+
+    Unlike ``_find_shared_pad_crossings`` this does NOT require interleaved
+    directions — the 1-step reroute wants to free *any* shared interior pad,
+    even when the two wires meet tangentially (after a swap has already
+    untangled the topology around them).  Removing a tangent shared vertex
+    leaves more freedom for downstream tools (manual edits, simplify,
+    autoroute optimize) even if it doesn't reduce the topological crossing
+    count by itself.
+    """
+    out: list[tuple[int, int]] = []
+    p1 = [lp.point for lp in lp1]
+    p2 = [lp.point for lp in lp2]
+    interior_p2: dict[tuple[float, float], int] = {}
+    for j in range(1, len(p2) - 1):
+        key = (round(p2[j].x, 6), round(p2[j].y, 6))
+        interior_p2.setdefault(key, j)
+    for i in range(1, len(p1) - 1):
+        v = p1[i]
+        key = (round(v.x, 6), round(v.y, 6))
+        j = interior_p2.get(key)
+        if j is None:
+            continue
+        out.append((i, j))
+    return out
+
+
 def _attempt_pair_swap(
     logical: list[list[WireSegment]], i: int, j: int,
     *, pad_safe: "Callable[[Point, str, str, bool], bool] | None",
@@ -944,14 +1248,25 @@ def _attempt_pair_swap(
     lp_i = _to_logical_path(logical[i])
     lp_j = _to_logical_path(logical[j])
     cs = _find_crossings_logical(lp_i, lp_j)
+    if len(cs) > 0:
+        _log.info("unweave.pair_crossings",
+                  pair=(i, j), n_crossings=len(cs),
+                  points=[(c.point.x, c.point.y) for c in cs])
     pair = _pick_swap_pair(cs)
     if pair is None:
+        if len(cs) == 1:
+            _log.info("unweave.pair_skip",
+                      pair=(i, j), reason="single_crossing_unresolvable",
+                      point=(cs[0].point.x, cs[0].point.y))
         return False
     a, b = cs[pair[0]], cs[pair[1]]
     result = _swap_logical_fragment(
         lp_i, lp_j, a, b, pad_safe=pad_safe, board_pads=board_pads,
     )
     if result is None:
+        _log.info("unweave.pair_skip",
+                  pair=(i, j), reason="swap_fragment_returned_none",
+                  a=(a.point.x, a.point.y), b=(b.point.x, b.point.y))
         return False
     new_lp_i, new_lp_j = result
     # Endpoints preserved?
@@ -961,6 +1276,7 @@ def _attempt_pair_swap(
         or not _pt_equal(new_lp_j[0].point, lp_j[0].point)
         or not _pt_equal(new_lp_j[-1].point, lp_j[-1].point)
     ):
+        _log.info("unweave.pair_skip", pair=(i, j), reason="endpoints_lost")
         return False
     # Convert each logical path back into a chain of WireSegments.
     new_segs_i = _from_logical_path(new_lp_i)
@@ -974,6 +1290,7 @@ def _attempt_pair_swap(
         proposed[i] = new_segs_i
         proposed[j] = new_segs_j
         if not short_check(proposed):
+            _log.info("unweave.pair_skip", pair=(i, j), reason="short_check_rejected")
             return False
     logical[i] = new_segs_i
     logical[j] = new_segs_j
@@ -1156,28 +1473,39 @@ def _make_short_checker(
     target_ids: "set[uuid.UUID] | None" = None,
     check_bare_same_side: bool = False,
 ) -> "Callable[[list[list[WireSegment]]], bool]":
-    """Build a checker that rejects a proposed unweave step if it merges
-    or fragments any schematic net.
+    """Build a *monotonic* checker that rejects a proposed unweave step
+    when it would *worsen* the project's electrical invariants relative to
+    the baseline layout.
 
-    Each call rebuilds a ConnectivityGraph from the proposed wire layout and
-    verifies that every original net's pin set still lands in exactly one
-    electric set, and that no electric set hosts pins from two different
-    nets.  Catches both net-fragmentation and inadvertent shorts (e.g. a
-    bare wire's middle pad touching a foreign pin on the same side).
+    Three invariants are tracked monotonically:
+
+    (a) **Net fragmentation** — a net whose pins are already split across
+        multiple electric sets in the baseline (typically because routing
+        is incomplete) may stay fragmented after the swap, but the swap
+        must not *increase* the number of disjoint sets the net spans nor
+        *drop* a pin that previously had connectivity.
+    (b) **Cross-net shorts** — an electric set that already hosts pins
+        from multiple nets in the baseline (an existing short the user
+        will eventually resolve) is tolerated, but the swap must not
+        introduce a new such set.  Counted as (set_id, {net_ids}) pairs
+        and required to be a subset of the baseline pair set.
+    (c) **Bare same-side off-pad crossings** — already monotonic, kept.
+
+    Rationale: unweave is also a *cleanup* pass that makes room for nets
+    that have not been fully routed yet.  Treating any baseline imperfection
+    as a hard reject would make unweave useless mid-routing.  The
+    monotonic semantics let swaps reduce crossings even when GND etc. is
+    still being wired up; only swaps that *break* something get blocked.
 
     *target_ids* identifies which wires from the baseline layout are being
     replaced by *proposed*.  All other baseline wires are kept untouched so
-    nets they participate in stay connected.  When *target_ids* is None,
-    the proposed list is taken as the entire wire set (legacy semantics).
-
-    *check_bare_same_side* enables invariant (c): two bare wires on the
-    same side belonging to different electric sets must not cross at an
-    off-pad interior point (a physical short the ConnectivityGraph cannot
-    detect).  Off by default — the main swap path treats side changes as
-    cheap and pad_safe already guards split points.  `_rebalance_sides`
-    enables it because flipping a segment to the majority side can drag
-    it across foreign bare wires.
+    nets they participate in stay connected.
     """
+    from collections import defaultdict
+    from protoboard.domain.connectivity.graph import ConnectivityGraph
+    from protoboard.domain.layout.layout import Layout
+    from protoboard.domain.schematic.net import PinRef
+
     # Pin → net mapping snapshot — source of truth for invariants.
     pin_to_net: dict[tuple[uuid.UUID, int], uuid.UUID] = {}
     for net in schematic.nets.values():
@@ -1191,34 +1519,53 @@ def _make_short_checker(
             return True
         return _trivially_ok
 
-    # Baseline count of bare-bare same-side crossings in the original layout.
-    # Invariant (c) is enforced *monotonically*: a proposed swap may leave
-    # the count unchanged (or reduce it) but must not *introduce* new shorts.
-    # Without this baseline, the checker also rejects swaps that don't touch
-    # an existing same-side bare crossing — every recompute would re-find it
-    # and short-circuit the check.
+    # ── Compute baseline invariants once.  All comparisons are against
+    # these numbers; the checker is *monotonic* with respect to them. ──
+
+    baseline_frag: dict[uuid.UUID, int] = {}     # net_id → number of disjoint electric sets
+    baseline_connected_pins: dict[uuid.UUID, set[tuple[uuid.UUID, int]]] = {}  # net_id → pins with key != None
+    baseline_short_pairs: set[tuple[uuid.UUID, frozenset[uuid.UUID]]] = set()  # (set_key, frozenset(net_ids))
     baseline_same_side_shorts = 0
-    if check_bare_same_side:
-        from protoboard.domain.connectivity.graph import ConnectivityGraph
-        try:
-            _baseline_graph = ConnectivityGraph(
-                board=base_board,  # type: ignore[arg-type]
-                layout=base_layout,  # type: ignore[arg-type]
-                components=base_components,  # type: ignore[arg-type]
-                instances=base_instances,  # type: ignore[arg-type]
-            )
+
+    try:
+        _baseline_graph = ConnectivityGraph(
+            board=base_board,  # type: ignore[arg-type]
+            layout=base_layout,  # type: ignore[arg-type]
+            components=base_components,  # type: ignore[arg-type]
+            instances=base_instances,  # type: ignore[arg-type]
+        )
+    except Exception:
+        # If even the baseline graph can't be built, fall back to the legacy
+        # absolute checker — nothing useful can be said monotonically.
+        _baseline_graph = None  # type: ignore[assignment]
+
+    if _baseline_graph is not None:
+        for net in schematic.nets.values():
+            keys: set = set()
+            connected: set[tuple[uuid.UUID, int]] = set()
+            for ref in net.pins:
+                k = _baseline_graph.node_for_pin(ref)
+                if k is not None:
+                    keys.add(k)
+                    connected.add((ref.component_id, ref.pin_number))
+            baseline_frag[net.id] = len(keys)
+            baseline_connected_pins[net.id] = connected
+
+        key_to_nets_base: dict = defaultdict(set)
+        for (cid, pn), nid in pin_to_net.items():
+            k = _baseline_graph.node_for_pin(PinRef(cid, pn))
+            if k is not None:
+                key_to_nets_base[k].add(nid)
+        for k, nids in key_to_nets_base.items():
+            if len(nids) > 1:
+                baseline_short_pairs.add((k, frozenset(nids)))
+
+        if check_bare_same_side:
             baseline_same_side_shorts = _count_bare_same_side_shorts(
                 base_layout.wires, _baseline_graph,  # type: ignore[attr-defined]
             )
-        except Exception:
-            baseline_same_side_shorts = 0
 
     def _check(proposed: list[list[WireSegment]]) -> bool:
-        from protoboard.domain.connectivity.graph import ConnectivityGraph
-        from protoboard.domain.layout.layout import Layout
-        from protoboard.domain.schematic.net import PinRef
-        from collections import defaultdict
-
         new_layout = Layout()
         new_layout.placements = base_layout.placements  # type: ignore[attr-defined]
         new_layout.groups = base_layout.groups  # type: ignore[attr-defined]
@@ -1243,27 +1590,44 @@ def _make_short_checker(
         except Exception:
             return False
 
+        # Invariant (a): per-net fragmentation count must not grow, and
+        # no previously-connected pin may become disconnected.
         for net in schematic.nets.values():
-            keys = {new_graph.node_for_pin(ref) for ref in net.pins}
-            keys.discard(None)
-            if len(keys) > 1:
-                return False  # fragmented
+            keys: set = set()
+            connected: set[tuple[uuid.UUID, int]] = set()
+            for ref in net.pins:
+                k = new_graph.node_for_pin(ref)
+                if k is not None:
+                    keys.add(k)
+                    connected.add((ref.component_id, ref.pin_number))
+            base_n = baseline_frag.get(net.id, 0)
+            if len(keys) > max(base_n, 1):
+                # Worse than baseline.  Note: ``max(base_n, 1)`` — a net
+                # that was fully connected (1 key) stays at 1; a net that
+                # was 2-way fragmented may stay 2-way but not grow to 3.
+                return False
+            base_connected = baseline_connected_pins.get(net.id, set())
+            if not base_connected.issubset(connected):
+                # Lost a pin that previously had connectivity.
+                return False
 
+        # Invariant (b): cross-net shorts may stay, but no new ones may
+        # appear.  Compare as (set_key, frozenset(net_ids)) pairs.
         key_to_nets: dict = defaultdict(set)
         for (cid, pn), nid in pin_to_net.items():
             k = new_graph.node_for_pin(PinRef(cid, pn))
             if k is not None:
                 key_to_nets[k].add(nid)
-        for nids in key_to_nets.values():
+        new_short_pairs: set[tuple[uuid.UUID, frozenset[uuid.UUID]]] = set()
+        for k, nids in key_to_nets.items():
             if len(nids) > 1:
-                return False  # short
+                new_short_pairs.add((k, frozenset(nids)))
+        if not new_short_pairs.issubset(baseline_short_pairs):
+            return False
 
-        # Invariant (c): bare wires on the same side that belong to
-        # different electric sets must not cross at an off-pad interior
-        # point.  Enforced monotonically — the proposed layout may not
-        # exceed the baseline count.  This lets unweave reduce crossings
-        # without introducing *new* shorts, even when the baseline already
-        # has some unavoidable ones.
+        # Invariant (c): bare wires on the same side belonging to different
+        # electric sets must not cross at an off-pad interior point.
+        # Monotonic — proposed may not exceed the baseline count.
         if check_bare_same_side:
             new_count = _count_bare_same_side_shorts(
                 new_layout.wires, new_graph,

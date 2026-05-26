@@ -1843,12 +1843,31 @@ class BoardView(QGraphicsView):
         # in back_items, render, then restore.  Using setVisible on
         # currently-invisible items is cheap (just a flag flip).
         back_set = set(map(id, back_items))
+
+        def _has_back_ancestor(it: object) -> bool:
+            # Walk up until a top-level item; back-cache should render the
+            # whole subtree of any back-side group (e.g. a wire's outline +
+            # core children), so children of back items must stay VISIBLE.
+            parent = it.parentItem() if hasattr(it, "parentItem") else None
+            while parent is not None:
+                if id(parent) in back_set:
+                    return True
+                parent = parent.parentItem()
+            return False
+
         temporarily_hidden: list[object] = []
         try:
             for it in self._scene.items():
-                if id(it) not in back_set and it.isVisible():
-                    it.setVisible(False)
-                    temporarily_hidden.append(it)
+                if id(it) in back_set:
+                    continue
+                if not it.isVisible():
+                    continue
+                if _has_back_ancestor(it):
+                    # Child of a back-side group — keep visible so it paints
+                    # into the back pixmap through its parent's paint pass.
+                    continue
+                it.setVisible(False)
+                temporarily_hidden.append(it)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, self._antialiasing)
             # Source rect = current visible scene area in scene coords.
             source = self.mapToScene(self.viewport().rect()).boundingRect()
