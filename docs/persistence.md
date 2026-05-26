@@ -19,6 +19,32 @@ my_project/
 
 `load_project()` zwraca 5-krotkę `(board, layout, schematic, instances, routing_settings)`. Brak `routing.yaml` → domyślne `RoutingSettings()`.
 
+## Format wire — v1 vs v2
+
+`layout.yaml` ma pole `format_version` (od 2026-05-27):
+
+- **`format_version: 1`** (default dla starych plików; pominięcie traktowane
+  jak v1) — `wires:` to lista `WireSegment` (jeden per side-segment); brak
+  bloku `knots`.
+- **`format_version: 2`** (pisany gdy `layout.wires_v2` lub `layout.knots`
+  jest zapełnione) — projekt zawiera **dodatkowe** bloki:
+  - `knots:` lista (id, kind: pin|joint, pin lub position)
+  - `wires_v2:` lista (id, a_knot_id, b_knot_id, insulated, fragments:[…])
+
+Legacy `wires:` lista zostaje zapisywana dla kompat z runtime przed pełnym
+cutoverem (Commit C w refactorze wire-model-knots). Pliki v1 ładują się
+bezbólowo; v2-aware loader buduje też `Layout.knots` i `Layout.wires_v2`.
+
+Migracja v1 → v2: caller (typowo session.py po `load_project`) wywołuje
+`migrate_layout_to_v2(layout, board, pin_index, pin_position_resolver)`
+gdy biblioteka footprintów jest już dostępna. Funkcja:
+1. Rezolwuje endpointy każdego legacy WireSegment do PinKnot (gdy
+   coincidence z `pin_world_position`) albo JointKnot na padzie.
+2. Wstawia każdy segment jako jednofragmentowy Wire.
+3. Iteratywnie wywołuje `try_collapse_joint` na każdym JointKnocie z
+   degree=2 — łączy te same-insulated wires, jeśli `side` się zgadza lub
+   pozycja joint to plated-through (wtedy zostają dwa fragmenty z via).
+
 ## KiCAD I/O
 
 ### Import (`.net` XML, format `<export version="D">`)

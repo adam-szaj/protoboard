@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Wire model refactor — Knot / Fragment domain (2026-05-27)
+
+Two-commit refactor that introduces a richer wire model alongside the legacy
+`WireSegment` list and fixes the segment-proliferation bug (d33ea56) by
+preserving wire identity across all path-edit operations.
+
+**Commit A — foundations (121d7b1):**
+- New domain types in `src/protoboard/domain/layout/`:
+  - `wire.py`: `Wire` (frozen, identity by id) + `Fragment` (same-side
+    sub-path) + `KnotRef`.  Legacy `WireSegment` kept as a compat shim used
+    by the v1 loader; removal scheduled for a future major.
+  - `knot.py`: `Knot` protocol + `PinKnot` (anchored to `PinRef`, position
+    resolved lazily) + `JointKnot` (free t-joint at a pad).
+- `Layout` gained `knots`, `pin_knots`, `wires_v2` storage plus mutators
+  that own the back-ref invariant: `get_or_create_pin_knot`,
+  `create_joint_knot`, `add_wire_v2`, `remove_wire_v2`,
+  `replace_wire_fragments` (preserves id — the headline fix),
+  `try_collapse_joint` (same `insulated` AND (same `side` OR
+  plated-through via)).
+- Project YAML bumped to `format_version: 2`; legacy v1 files load
+  unchanged.  New `services/persistence/wire_migration.py` rebuilds
+  `wires_v2` + `knots` from legacy segments via iterative joint collapse.
+
+**Commit B — consumers + identity preservation (6685177):**
+- `ConnectivityGraph` gained `add_wire_v2(Wire) / remove_wire_v2(Wire)`
+  that iterate fragments and aggregate merges into a single `WireRecord`
+  per wire.id; plated-through transitions carry end-to-end electrical
+  continuity through one record.
+- `gui/renderers/wire_renderer.py`: `update_wire_groups_v2 /
+  _build_wire_group_v2` render one `QGraphicsItemGroup` per Wire with
+  per-fragment sub-items and via markers at side transitions; new theme
+  keys `via_marker_color` / `via_marker_radius` (default fallbacks).
+- `services/drc/engine.py`: `_check_off_pad_joint` raises `OFF_PAD_JOINT`
+  errors for any `JointKnot` whose position is not on a board pad —
+  enforces the §4 plan invariant.
+- `services/routing/{autorouter,postprocess}.py`: `straighten_wire`,
+  `corner_cut_wire`, `generic_simplify_wire`, `_nudge_wire`,
+  `_try_mid_cell_reroute` now preserve `wire.id` across path edits.
+- `services/routing/unweave.py`: `_from_logical_path` gained
+  `seed_ids=[…]` so segment reconstruction reuses input ids in emission
+  order; `_remerge` keeps the first segment's id when fusing;
+  `_swap_fragment_between` preserves outer/middle ids; `_rebalance_sides`
+  no longer mints fresh ids on attribute edits.
+- New v2 commands in `domain/commands/component_cmds.py`:
+  `AddWireV2Command`, `RemoveWireV2Command` (snapshots orphan joints for
+  revert), `ReplaceWireFragmentsCommand` (id-preserving atomic
+  fragment-list replacement).
+
+Tests: 34 new unit tests in `test_wire_v2_model.py`,
+`test_wire_v2_commands.py`, `test_unweave_id_preservation.py`.  Full
+suite: 1256 passed, 61 skipped (was 1222 passed before refactor).
+mypy --strict clean on all touched files (only pre-existing
+pad_conflict.py + component_cmds.py legacy errors remain).
+
+Plan: `~/.claude/plans/peppy-puzzling-hoare.md`.
+
 ### Phase 6 — Full DRC + Exports
 - Added `FLOATING_PIN` (warning) and `BARE_WIRE_CROSS` (error) DRC checks
 - SVG exporter (`services/export/svg.py`) — top-layer render: pads, wires, component outlines with refdes labels

@@ -202,6 +202,72 @@ class Layout:
     cuts: list[StripCut]
 ```
 
+### 6.1 Wire v2 — model Knot + Fragment (od 2026-05-27)
+
+Nowy model wprowadzony w refactorze `refactor/wire-model-knots` zastępuje
+rolę `WireSegment` jako *fundamentalnego* nośnika sieci elektrycznej.
+Stara klasa wciąż istnieje (kompat-shim dla pliku v1), ale runtime stopniowo
+migruje na typy zdefiniowane w `domain/layout/wire.py` i
+`domain/layout/knot.py`:
+
+```python
+@dataclass(frozen=True, slots=True)
+class Fragment:
+    path: tuple[Point, ...]
+    side: Literal["top", "bottom"]
+
+@dataclass(frozen=True, slots=True)
+class KnotRef:
+    id: UUID
+
+@dataclass(frozen=True, slots=True)
+class Wire:
+    id: UUID                          # stabilne id (przeżywa edycje path)
+    a: KnotRef                        # endpoint 0
+    b: KnotRef                        # endpoint 1
+    fragments: tuple[Fragment, ...]   # ≥ 1; granice = via plated-through
+    insulated: bool                   # per-wire — jeden artefakt do lutowania
+    color: str | None = None
+
+# Knot = endpoint hub
+@dataclass
+class PinKnot:
+    id: UUID
+    pin: PinRef                       # tożsamość; pozycja przez resolver
+    wire_ids: frozenset[UUID]
+
+@dataclass
+class JointKnot:
+    id: UUID
+    position: Point                   # MUSI leżeć na padzie (DRC: OFF_PAD_JOINT)
+    wire_ids: frozenset[UUID]
+```
+
+**Niezmienniki:**
+- Wire ma dokładnie dwa endpointy (knoty); rozgałęzienia idą przez `JointKnot`.
+- Granica między dwoma fragmentami pojawia się **wyłącznie** gdy zmienia
+  się `side` i pozycja jest plated-through (real via).
+- `insulated` jest per-wire — izolowany jumper przechodzący na drugą stronę
+  przez plated-through pozostaje jednym artefaktem (jedna wartość).
+- `JointKnot.position` musi być pozycją pada — off-pad joints są
+  niedozwolone (`_check_off_pad_joint` w DRC).
+- `Layout.add_wire_v2 / remove_wire_v2` własnią inwariant back-refs:
+  `Knot.wire_ids` = `{w.id for w in wires if knot in (w.a, w.b)}`.
+- `Layout.replace_wire_fragments(wire_id, frags)` **zachowuje** `wire.id`
+  — to jest fix dla bugu segment-proliferation (d33ea56).
+
+**Auto-merge JointKnot (degree=2):**
+`Layout.try_collapse_joint(knot_id, plated_through_pads=…)` próbuje zwinąć
+joint w jeden wire jeśli oba kończące tam wires mają tę samą `insulated`
+ORAZ (ten sam `side` na granicy LUB pozycja joint to plated-through). Jeśli
+warunki niespełnione — joint zostaje, user może go ręcznie usunąć przez
+"Simplify joints".
+
+**Migracja legacy → v2** (`services/persistence/wire_migration.py`): caller
+ładuje projekt v1, potem wywołuje `migrate_layout_to_v2(layout, board,
+pin_index, pin_position_resolver)` które rezolwuje endpointy do PinKnot/
+JointKnot i iteratywnie scala 2-incydentne joints przez `try_collapse_joint`.
+
 ## 7. ConnectivityGraph
 
 ```python
