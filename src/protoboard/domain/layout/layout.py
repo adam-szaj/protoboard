@@ -126,6 +126,10 @@ class Layout:
         """
         if wire.id in self.wires_v2:
             raise ValueError(f"Wire {wire.id} already in layout")
+        if wire.a is None or wire.b is None:
+            raise ValueError(
+                f"Wire {wire.id} needs both endpoint knots (a/b) for v2 add"
+            )
         for ref in (wire.a, wire.b):
             knot = self.knots.get(ref.id)
             if knot is None:
@@ -144,7 +148,8 @@ class Layout:
         if wire is None:
             raise KeyError(f"Wire {wire_id} not in layout")
         removed: list[uuid.UUID] = []
-        for ref in (wire.a, wire.b):
+        refs = [r for r in (wire.a, wire.b) if r is not None]
+        for ref in refs:
             knot = self.knots.get(ref.id)
             if knot is None:
                 continue
@@ -159,22 +164,28 @@ class Layout:
     def replace_wire_fragments(
         self,
         wire_id: uuid.UUID,
-        fragments: tuple[Fragment, ...],
+        fragments: list[Fragment] | tuple[Fragment, ...],
     ) -> Wire:
-        """Atomically replace a wire's fragment tuple, preserving its id.
+        """Atomically replace a wire's fragments, preserving its id.
 
         This is the central fix for the segment-proliferation bug: edits
-        that change the path of a wire never mint a new id.
+        that change the path of a wire never mint a new id.  The wire's
+        ``path`` attribute is rebuilt from the new fragments so legacy
+        consumers (which read ``wire.path``) see the updated geometry.
         """
         existing = self.wires_v2.get(wire_id)
         if existing is None:
             raise KeyError(f"Wire {wire_id} not in layout")
-        updated = replace(existing, fragments=fragments)
-        # Endpoint coordinates must continue to match the knots.
-        a_pos = updated.fragments[0].path[0]
-        b_pos = updated.fragments[-1].path[-1]
-        a_knot = self.knots[updated.a.id]
-        b_knot = self.knots[updated.b.id]
+        frag_list = list(fragments)
+        if not frag_list:
+            raise ValueError("fragments must not be empty")
+        # Validate endpoints against knots before mutating.
+        a_pos = frag_list[0].path[0]
+        b_pos = frag_list[-1].path[-1]
+        if existing.a is None or existing.b is None:
+            raise ValueError("replace_wire_fragments requires a Wire with both knots")
+        a_knot = self.knots[existing.a.id]
+        b_knot = self.knots[existing.b.id]
         if _knot_position(a_knot, self) != a_pos:
             raise ValueError(
                 f"replace_wire_fragments: new path[0]={a_pos} disagrees with "
@@ -185,8 +196,11 @@ class Layout:
                 f"replace_wire_fragments: new path[-1]={b_pos} disagrees with "
                 f"knot b position {_knot_position(b_knot, self)}"
             )
-        self.wires_v2[wire_id] = updated
-        return updated
+        # Mutate in place — Wire is mutable now, identity is by id.
+        existing.fragments = frag_list
+        existing.path = _flatten_fragments(frag_list)
+        existing.side = frag_list[0].side
+        return existing
 
     def try_collapse_joint(
         self,
@@ -239,7 +253,7 @@ class Layout:
         if sides_match:
             # Coalesce into one fragment — the boundary vertex is interior.
             coalesced = Fragment(
-                path=last.path + first.path[1:],
+                path=list(last.path) + list(first.path[1:]),
                 side=last.side,
             )
             merged_fragments.append(coalesced)
@@ -249,15 +263,19 @@ class Layout:
             merged_fragments.append(last)
             merged_fragments.append(first)
             merged_fragments.extend(w2o.fragments[1:])
-        # Build the new wire keeping w1's id (deterministic: lowest UUID).
+        # Build the new wire keeping the lowest UUID (deterministic).
         winning_id = min(w1.id, w2.id)
+        assert w1o.a is not None and w2o.b is not None
+        flat = _flatten_fragments(merged_fragments)
         merged = Wire(
             id=winning_id,
+            path=flat,
+            insulated=w1.insulated,
+            side=merged_fragments[0].side,
+            color=w1.color if w1.color is not None else w2.color,
+            fragments=merged_fragments,
             a=w1o.a,
             b=w2o.b,
-            fragments=tuple(merged_fragments),
-            insulated=w1.insulated,
-            color=w1.color if w1.color is not None else w2.color,
         )
         # Apply: remove both wires (this will also try to clean up the
         # joint, which we know is now empty), then add the merged wire.
@@ -267,6 +285,8 @@ class Layout:
         # Detach back-refs from the joint and from the remaining endpoints.
         for w in (w1, w2):
             for ref in (w.a, w.b):
+                if ref is None:
+                    continue
                 k = self.knots.get(ref.id)
                 if k is None:
                     continue
@@ -330,6 +350,8 @@ def _orient_wire_toward(
     otherwise ``a.id == knot_id``.  Returns ``None`` if the joint is not
     one of the wire's endpoints.
     """
+    if wire.a is None or wire.b is None:
+        return None
     if wire.a.id == knot_id and not end_at_b:
         return wire
     if wire.b.id == knot_id and end_at_b:
@@ -341,10 +363,20 @@ def _orient_wire_toward(
     return None
 
 
+def _flatten_fragments(fragments: list[Fragment]) -> list[Point]:
+    """Concatenate fragments into a single path, dropping shared vias."""
+    if not fragments:
+        return []
+    out: list[Point] = list(fragments[0].path)
+    for frag in fragments[1:]:
+        out.extend(frag.path[1:])
+    return out
+
+
 def _reverse_wire(wire: Wire) -> Wire:
     """Return ``wire`` with endpoints + fragments + per-fragment path reversed."""
-    reversed_fragments = tuple(
-        Fragment(path=tuple(reversed(f.path)), side=f.side)
+    reversed_fragments = [
+        Fragment(path=list(reversed(f.path)), side=f.side)
         for f in reversed(wire.fragments)
-    )
+    ]
     return replace(wire, a=wire.b, b=wire.a, fragments=reversed_fragments)

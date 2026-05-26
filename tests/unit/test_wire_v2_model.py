@@ -40,12 +40,14 @@ class TestFragment:
 
 class TestWire:
     def test_empty_fragments_rejected(self) -> None:
-        with pytest.raises(ValueError, match="at least one fragment"):
+        # Wire now accepts either path-or-fragments construction; empty
+        # *both* must fail (path has fewer than 2 points either way).
+        with pytest.raises(ValueError, match="at least 2 points"):
             Wire(
                 id=uuid.uuid4(),
                 a=KnotRef(id=uuid.uuid4()),
                 b=KnotRef(id=uuid.uuid4()),
-                fragments=(),
+                fragments=[],
                 insulated=False,
             )
 
@@ -196,10 +198,10 @@ class TestReplaceWireFragments:
         kb = layout.get_or_create_pin_knot(_new_pin(2, 1))
         w = _single_frag_wire(KnotRef(id=ka.id), KnotRef(id=kb.id), Point(0, 0), Point(5, 0))
         layout.add_wire_v2(w)
-        new_frags = (Fragment(path=(Point(0, 0), Point(2, 0), Point(5, 0)), side="top"),)
+        new_frags = [Fragment(path=[Point(0, 0), Point(2, 0), Point(5, 0)], side="top")]
         updated = layout.replace_wire_fragments(w.id, new_frags)
         assert updated.id == w.id  # the headline invariant
-        assert layout.wires_v2[w.id].fragments == new_frags
+        assert list(layout.wires_v2[w.id].fragments) == new_frags
 
     def test_endpoint_mismatch_raises(self) -> None:
         layout = _make_layout({_new_pin(1, 1): Point(0, 0), _new_pin(2, 1): Point(5, 0)})
