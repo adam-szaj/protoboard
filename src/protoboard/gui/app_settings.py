@@ -41,6 +41,10 @@ class AppSettings:
     # interval, bursts of wheel events collapse to a single refresh.
     # 80 ms lets a 4–8-tick wheel burst settle before the refresh fires.
     zoom_refresh_ms: int = 80
+    # Render anti-aliasing for board / scene paint.  On by default; turn
+    # off to claw back paint time on very large boards or weak GPUs at
+    # the cost of jagged pad / wire edges.
+    antialiasing: bool = True
     # User-defined cost-model presets.  Built-in presets ("default",
     # "clean_routing") are always available without being stored here.
     # Each entry maps preset_name → {cost_key: weight}.  Editing via
@@ -86,6 +90,11 @@ def load_app_settings() -> AppSettings:
                 if isinstance(raw, (int, float)):
                     # Clamp to a sane range so a typo doesn't lock the UI.
                     setattr(s, attr, max(0, min(2000, int(raw))))
+        render = data.get("render")
+        if isinstance(render, dict):
+            aa = render.get("antialiasing")
+            if isinstance(aa, bool):
+                s.antialiasing = aa
         cp = data.get("cost_presets")
         if isinstance(cp, dict):
             from protoboard.services.routing.cost_presets import builtin_preset_names
@@ -128,6 +137,9 @@ def save_app_settings(settings: AppSettings) -> None:
             "cursor_label_throttle_ms": settings.cursor_label_throttle_ms,
             "rubber_band_throttle_ms": settings.rubber_band_throttle_ms,
             "zoom_refresh_ms": settings.zoom_refresh_ms,
+        }
+        data["render"] = {
+            "antialiasing": settings.antialiasing,
         }
         if settings.cost_presets:
             data["cost_presets"] = {

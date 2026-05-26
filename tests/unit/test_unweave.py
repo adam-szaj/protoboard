@@ -56,6 +56,48 @@ class TestFindCrossings:
         cs = find_crossings(w1, w2)
         assert len(cs) == 4
 
+    def test_shared_pad_crossing_interleaved_directions(self) -> None:
+        # W1 enters the shared pad from the West, leaves East.
+        # W2 enters from the South, leaves North.  Directions
+        # interleave around the pad — true topological crossing.
+        w1 = _wire((0.0, 1.0), (1.0, 1.0), (2.0, 1.0))
+        w2 = _wire((1.0, 0.0), (1.0, 1.0), (1.0, 2.0))
+        cs = find_crossings(w1, w2)
+        # Strict-interior crossing also fires here (the two interior
+        # segments cross at (1, 1) on each side?  Actually the two
+        # segments meet AT vertex (1, 1) — not strict-interior.  So only
+        # the shared-pad detector picks it up.
+        assert len(cs) == 1
+        c = cs[0]
+        assert (c.point.x, c.point.y) == (1.0, 1.0)
+        assert c.wire1_param == 1.0
+        assert c.wire2_param == 1.0
+
+    def test_shared_pad_touch_not_crossing(self) -> None:
+        # Both wires meet at a pad but leave in the SAME pair of
+        # directions (interleave fails).  W1 goes W→E, W2 also goes
+        # W→E offset by one row but happens to touch the pad.  Here
+        # W2 goes through the shared pad along the same line — not a
+        # weave, just a coincident pad.
+        w1 = _wire((0.0, 1.0), (1.0, 1.0), (2.0, 1.0))
+        # W2 also enters from West and leaves to East — same axis,
+        # not interleaved.
+        w2 = _wire((0.5, 0.0), (1.0, 1.0), (1.5, 0.0))
+        cs = find_crossings(w1, w2)
+        # W2's two segments are diagonals.  At (1, 1) directions are
+        # W1: West (back), East (next); W2: SW (back), SE (next).
+        # Angular sort: West (180°), SW (-135°), SE (-45°), East (0°) →
+        # [W2, W2, W1, W1] cyclically.  Not interleaved → no crossing.
+        assert cs == []
+
+    def test_shared_endpoint_not_crossing(self) -> None:
+        # Both wires terminate at the shared pad (legitimate same-pin
+        # contact).  Shared-pad detector skips endpoint matches.
+        w1 = _wire((0.0, 0.0), (1.0, 1.0))  # ends at (1, 1)
+        w2 = _wire((2.0, 0.0), (1.0, 1.0))  # also ends at (1, 1)
+        cs = find_crossings(w1, w2)
+        assert cs == []
+
 
 # ---------------------------------------------------------------------------
 # unweave_wires — topological correctness
@@ -82,6 +124,48 @@ class TestUnweaveTwoWires:
         assert (out[0].path[-1].x, out[0].path[-1].y) == (4.0, 0.0)
         assert (out[1].path[0].x, out[1].path[0].y) == (4.0, 1.0)
         assert (out[1].path[-1].x, out[1].path[-1].y) == (0.0, 1.0)
+
+    def test_shared_pad_crossing_swap_reduces_to_zero(self) -> None:
+        # W1 horizontal at y=2, W2 zigzag enters/exits at (2,2) and (4,2)
+        # from opposite sides — two shared-pad crossings with interleaved
+        # directions.  Topological min = 0 (paired swap).
+        w1 = _wire(
+            (0.0, 2.0), (2.0, 2.0), (4.0, 2.0), (6.0, 2.0),
+        )
+        w2 = _wire(
+            (2.0, 0.0), (2.0, 2.0), (2.0, 4.0),
+            (4.0, 4.0), (4.0, 2.0), (4.0, 0.0),
+        )
+        # Pre-swap: 2 shared-pad crossings.
+        assert len(find_crossings(w1, w2)) == 2
+        out = unweave_wires([w1, w2])
+        assert count_mutual_crossings(out) == 0
+
+    def test_three_crossings_reduce_to_topological_min(self) -> None:
+        # 3 crossings between two diagonals — topological min is 1.
+        w1 = _wire(
+            (0.0, 0.0), (2.0, 2.0), (4.0, 0.0), (6.0, 2.0),
+        )
+        w2 = _wire(
+            (0.0, 2.0), (2.0, 0.0), (4.0, 2.0), (6.0, 0.0),
+        )
+        out = unweave_wires([w1, w2])
+        # 3 crossings → 1 (paired swap removes 2, residual stays).
+        assert count_mutual_crossings(out) <= 1
+
+    def test_five_crossings_reduce_to_topological_min(self) -> None:
+        # 5 crossings — odd, should reduce to 1.
+        w1 = _wire(
+            (0.0, 0.0), (2.0, 2.0), (4.0, 0.0), (6.0, 2.0),
+            (8.0, 0.0), (10.0, 2.0),
+        )
+        w2 = _wire(
+            (0.0, 2.0), (2.0, 0.0), (4.0, 2.0), (6.0, 0.0),
+            (8.0, 2.0), (10.0, 0.0),
+        )
+        out = unweave_wires([w1, w2])
+        # 5 crossings → 1 (paired swaps remove 4, residual stays).
+        assert count_mutual_crossings(out) <= 1
 
     def test_odd_permutation_leaves_one_crossing(self) -> None:
         # Endpoints "swapped": left side wA at y=0, wB at y=1; right side

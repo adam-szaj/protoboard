@@ -189,6 +189,74 @@ class TestWiresRoundtrip:
         _, loaded_lay, _, _, _, _, _ = load_project(tmp_path)
         assert loaded_lay.wires[0].color == "#FF0000"
 
+    def test_legacy_insulated_wire_gets_pad_nodes_on_load(
+        self, tmp_path: Path,
+    ) -> None:
+        # Legacy project: insulated wire saved with only endpoints, no pad
+        # nodes in between.  After load, every pad the path crosses must
+        # appear as an intermediate vertex so simplify / unweave / edit
+        # tools have "handles" there.
+        board = _perfboard()
+        wid = uuid.uuid4()
+        wire = WireSegment(
+            id=wid,
+            path=[Point(0.5, 0.5), Point(4.5, 0.5)],  # straight horizontal
+            insulated=True,
+            side="top",
+        )
+        lay = Layout(placements={}, wires=[wire])
+        save_project(tmp_path, board, lay, Schematic(nets={}))
+        _, loaded_lay, _, _, _, _, _ = load_project(tmp_path)
+        loaded = loaded_lay.wires[0]
+        # Pad-node enrichment kept the same id and grew the path.
+        assert loaded.id == wid
+        coords = [(p.x, p.y) for p in loaded.path]
+        # Every pad on the line y=0.5 from x=0.5 to x=4.5 is now a vertex.
+        assert coords[0] == (0.5, 0.5)
+        assert coords[-1] == (4.5, 0.5)
+        assert (1.5, 0.5) in coords
+        assert (2.5, 0.5) in coords
+        assert (3.5, 0.5) in coords
+
+    def test_load_is_idempotent_for_already_enriched_insulated(
+        self, tmp_path: Path,
+    ) -> None:
+        # An already-enriched insulated wire round-trips without growing.
+        board = _perfboard()
+        wire = WireSegment(
+            id=uuid.uuid4(),
+            path=[
+                Point(0.5, 0.5), Point(1.5, 0.5),
+                Point(2.5, 0.5), Point(3.5, 0.5),
+            ],
+            insulated=True,
+            side="top",
+        )
+        lay = Layout(placements={}, wires=[wire])
+        save_project(tmp_path, board, lay, Schematic(nets={}))
+        _, loaded_lay, _, _, _, _, _ = load_project(tmp_path)
+        assert loaded_lay.wires[0].path == wire.path
+
+    def test_load_does_not_enrich_bare_wires(
+        self, tmp_path: Path,
+    ) -> None:
+        # The migration applies only to insulated wires.  Bare wires are
+        # produced with pad-nodes by their creators (RouteTool, A*) and the
+        # parity model relies on caller-controlled vertices — load doesn't
+        # touch them.
+        board = _perfboard()
+        wire = WireSegment(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(2.5, 0.5)],
+            insulated=False,
+            side="top",
+        )
+        lay = Layout(placements={}, wires=[wire])
+        save_project(tmp_path, board, lay, Schematic(nets={}))
+        _, loaded_lay, _, _, _, _, _ = load_project(tmp_path)
+        # Bare wire path comes back unchanged.
+        assert loaded_lay.wires[0].path == wire.path
+
 
 class TestPlacementsRoundtrip:
     def test_placement_position_preserved(self, tmp_path: Path) -> None:

@@ -23,6 +23,8 @@ from protoboard.gui.renderers.component_renderer import (
     comp_fingerprint,
     update_component_groups,
     _group_alpha_map,
+    _make_overlay_label,
+    _get_refdes_font,
 )
 from protoboard.gui.theme import DEFAULT_THEME
 
@@ -71,6 +73,35 @@ def _layers_key(layers: LayerState) -> tuple[object, ...]:
         ov.labels.value,
         ov.pin_names.value,
     )
+
+
+# ---------------------------------------------------------------------------
+# _make_overlay_label — alpha semantics
+# ---------------------------------------------------------------------------
+
+class TestMakeOverlayLabelAlpha:
+    """Alpha applied by caller to bg_color dims only the background pill;
+    text_color is rendered as-is so dimmed labels stay legible."""
+
+    def test_text_color_alpha_passed_through(self, qtbot: QtBot) -> None:
+        from PySide6.QtGui import QColor
+        from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
+
+        text_color = QColor(50, 60, 70, 255)  # opaque
+        bg_color = QColor(255, 255, 255, 50)  # ~20% bg
+        font = _get_refdes_font(DEFAULT_THEME.overlay_font_size)
+        items = _make_overlay_label(
+            "REF1", font, text_color, bg_color, 0.0, 0.0, 5.0,
+        )
+        # Item order: [bg_rect, text_item]
+        assert len(items) == 2
+        bg_item, text_item = items
+        assert isinstance(text_item, QGraphicsTextItem)
+        assert isinstance(bg_item, QGraphicsRectItem)
+        # Text alpha unchanged regardless of bg_color alpha.
+        assert text_item.defaultTextColor().alpha() == 255
+        # Background pill carries the caller-supplied alpha.
+        assert bg_item.brush().color().alpha() == 50
 
 
 # ---------------------------------------------------------------------------

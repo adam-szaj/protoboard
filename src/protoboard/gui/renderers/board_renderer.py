@@ -23,6 +23,7 @@ Two-tier API:
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import QPointF, QRectF, Qt
@@ -40,6 +41,53 @@ from protoboard.domain.board.layout_engine import LayoutNode
 from protoboard.geometry import Point
 from protoboard.gui.layer_state import BOARD_GHOST_ALPHA, Z_BOARD, LayerState
 from protoboard.gui.theme import DEFAULT_THEME, Theme
+
+# Per-pad colour mapping passed to ``build_board_display_list``.
+# Key is the pad centre (cx, cy) rounded to 3 decimals; value is either
+# a hex colour string (the resolved net colour, honouring manual
+# ``net.color`` overrides) or ``None`` if the pad carries a component
+# pin but no schematic net (rendered as ``theme.net_color_unassigned``).
+# Pads not in the map fall back to ``theme.pad_color`` (no pin on them).
+PadNetMap = dict[tuple[float, float], str | None]
+
+
+def _pad_key(cx: float, cy: float) -> tuple[float, float]:
+    """Stable key for pad lookup; rounds to avoid float-equality misses."""
+    return (round(cx, 3), round(cy, 3))
+
+
+def _resolve_pad_color(
+    cx: float,
+    cy: float,
+    base_color: QColor,
+    pad_net_map: PadNetMap | None,
+    theme: Theme,
+    alpha: float,
+) -> QColor:
+    """Return the pad fill colour given the net mapping.
+
+    Priority:
+    - pad in map with a hex colour → that colour (resolved from net.color
+      override or palette by the caller).
+    - pad in map with ``None`` (pin without a net) → ``theme.net_color_unassigned``.
+    - pad not in map → *base_color* (theme default, no pin).
+
+    All colours are multiplied by *alpha* (board layer alpha).
+    """
+    if pad_net_map is None:
+        return base_color
+    entry = pad_net_map.get(_pad_key(cx, cy), _NO_KEY)
+    if entry is _NO_KEY:
+        return base_color
+    if entry is None:
+        c = QColor(theme.net_color_unassigned)
+    else:
+        c = QColor(entry)
+    c.setAlphaF(c.alphaF() * alpha)
+    return c
+
+
+_NO_KEY = object()  # sentinel for dict.get to distinguish missing vs None
 
 # Re-export BOARD_BG so board_view.py can import it without knowing about theme.
 BOARD_BG = QColor(DEFAULT_THEME.board_bg)
@@ -135,23 +183,28 @@ class BoardDisplayList:
 def _build_pad(
     dl: BoardDisplayList, cx: float, cy: float, r: float,
     color: QColor, theme: Theme,
+    *, pad_net_map: PadNetMap | None = None, board_alpha: float = 1.0,
 ) -> None:
+    fill = _resolve_pad_color(cx, cy, color, pad_net_map, theme, board_alpha)
     outline = QColor(theme.pad_outline_color)
-    outline.setAlphaF(color.alphaF())
+    outline.setAlphaF(fill.alphaF())
     outline_pen = QPen(outline, theme.pad_outline_width)
     hole_color = QColor(theme.hole_color)
-    hole_color.setAlphaF(color.alphaF())
-    dl.pads.append(_Pad(cx, cy, r, color, outline_pen, hole_color))
+    hole_color.setAlphaF(fill.alphaF())
+    dl.pads.append(_Pad(cx, cy, r, fill, outline_pen, hole_color))
 
 
 def _build_strip(
     dl: BoardDisplayList, atom: StripAtom, center: Point,
     strip_color: QColor, isolated_color: QColor, theme: Theme,
+    *, pad_net_map: PadNetMap | None = None, board_alpha: float = 1.0,
 ) -> None:
     length = atom.length if isinstance(atom.length, int) else 1
 
     if atom.isolated:
         cx, cy = center.x, center.y
+        # Isolated strip cell keeps its theme isolated_color regardless of
+        # net mapping — the "X" semantics override per-net colouring.
         _build_pad(dl, cx, cy, theme.strip_radius, isolated_color, theme)
         r = theme.strip_radius * 0.7
         pen = QPen(QColor(theme.isolated_x_color), theme.isolated_x_width)
@@ -172,7 +225,8 @@ def _build_strip(
         ))
         for i in range(length):
             _build_pad(dl, start_x + i, center.y, theme.strip_radius,
-                       strip_color, theme)
+                       strip_color, theme,
+                       pad_net_map=pad_net_map, board_alpha=board_alpha)
     else:
         start_y = center.y - length / 2.0 + 0.5
         end_y = start_y + length - 1
@@ -184,7 +238,8 @@ def _build_strip(
         ))
         for i in range(length):
             _build_pad(dl, center.x, start_y + i, theme.strip_radius,
-                       strip_color, theme)
+                       strip_color, theme,
+                       pad_net_map=pad_net_map, board_alpha=board_alpha)
 
 
 def _build_frames(
@@ -218,6 +273,7 @@ def build_board_display_list(
     show_frames: bool = True,
     theme: Theme = DEFAULT_THEME,
     layers: LayerState = _DEFAULT_LAYERS,
+    pad_net_map: PadNetMap | None = None,
 ) -> BoardDisplayList:
     """Return a flat descriptor list for everything the board layer draws.
 
@@ -225,6 +281,13 @@ def build_board_display_list(
     rasterising into an offscreen pixmap (background-cache pipeline) or
     converting back into ``QGraphicsItem`` instances (legacy scene path,
     via :func:`render_board`).
+
+    *pad_net_map* maps pad centre ``(cx, cy)`` to its electrical net.  A
+    ``None`` value means a component pin sits on the pad but the pin is
+    unassigned (rendered as ``theme.net_color_unassigned`` — same as a wire
+    with no net).  Pads missing from the map keep ``theme.pad_color``.
+    Enables "ghost components" workflows: with the components layer hidden,
+    pads still carry net colours so the user can read connectivity.
     """
     dl = BoardDisplayList()
     board_alpha = layers.alpha_for_board()
@@ -239,9 +302,11 @@ def build_board_display_list(
         _build_frames(dl, board.layout, is_root=True, theme=theme, alpha=board_alpha)
     for atom, pos in board.atoms():
         if isinstance(atom, PadAtom):
-            _build_pad(dl, pos.x, pos.y, theme.pad_radius, pad_color, theme)
+            _build_pad(dl, pos.x, pos.y, theme.pad_radius, pad_color, theme,
+                       pad_net_map=pad_net_map, board_alpha=board_alpha)
         elif isinstance(atom, StripAtom):
-            _build_strip(dl, atom, pos, strip_color, isolated_color, theme)
+            _build_strip(dl, atom, pos, strip_color, isolated_color, theme,
+                         pad_net_map=pad_net_map, board_alpha=board_alpha)
     return dl
 
 
@@ -301,6 +366,7 @@ def render_board(
     show_frames: bool = True,
     theme: Theme = DEFAULT_THEME,
     layers: LayerState = _DEFAULT_LAYERS,
+    pad_net_map: PadNetMap | None = None,
 ) -> None:
     """Add board pad/strip items to the scene (does not clear first).
 
@@ -315,6 +381,7 @@ def render_board(
     """
     dl = build_board_display_list(
         board, show_frames=show_frames, theme=theme, layers=layers,
+        pad_net_map=pad_net_map,
     )
     # Filled rects (strip tracks) — drawn under pads.
     for fr in dl.filled_rects:
@@ -354,10 +421,77 @@ def render_board(
         scene.addItem(item)
 
 
+def build_pad_net_map(
+    placements: dict,
+    instances: dict,
+    components: dict,
+    schematic: object,
+    *,
+    theme: Theme = DEFAULT_THEME,
+    net_color_map: dict[uuid.UUID, str] | None = None,
+) -> PadNetMap:
+    """Return a mapping ``(cx, cy) → hex_color|None`` for every component pin.
+
+    The colour honours manual ``net.color`` overrides via
+    *net_color_map* (typically computed by
+    :func:`protoboard.gui.renderers.net_color.build_net_color_map`).
+    If *net_color_map* is omitted, a fresh one is built from *schematic*
+    using *theme* as the palette source.
+
+    A pin entry whose net is unknown in *schematic* maps to ``None``
+    (rendered as ``theme.net_color_unassigned``).  Pads with no pin on
+    them are simply absent from the result (rendered as ``theme.pad_color``).
+
+    Arguments are typed loosely to keep this module free of cycles with
+    domain layout/schematic; in practice the caller passes
+    ``session.layout.placements``, ``session.instances``,
+    ``session.components``, ``session.schematic``.
+    """
+    from protoboard.domain.layout.placement import pin_world_position
+    from protoboard.domain.schematic.net import PinRef
+    from protoboard.gui.renderers.net_color import build_net_color_map
+
+    pin_to_net: dict[PinRef, uuid.UUID] = {}
+    nets = getattr(schematic, "nets", None)
+    if nets:
+        for net in nets.values():
+            for ref in net.pins:
+                pin_to_net[ref] = net.id
+
+    if net_color_map is None and nets:
+        net_color_map = build_net_color_map(nets, theme=theme)
+    if net_color_map is None:
+        net_color_map = {}
+
+    result: PadNetMap = {}
+    for comp_id, placement in placements.items():
+        inst = instances.get(comp_id)
+        if inst is None:
+            continue
+        defn = components.get(inst.definition_ref)
+        if defn is None:
+            continue
+        fp = defn.footprint
+        for n in range(fp.pin_count()):
+            pin_number = n + 1
+            pos = pin_world_position(fp, placement, pin_number)
+            ref = PinRef(component_id=comp_id, pin_number=pin_number)
+            net_id = pin_to_net.get(ref)
+            if net_id is None:
+                # Pin without a net — None marker triggers
+                # ``theme.net_color_unassigned`` in the renderer.
+                result[_pad_key(pos.x, pos.y)] = None
+            else:
+                result[_pad_key(pos.x, pos.y)] = net_color_map.get(net_id)
+    return result
+
+
 __all__ = [
     "BOARD_BG",
     "BoardDisplayList",
+    "PadNetMap",
     "build_board_display_list",
+    "build_pad_net_map",
     "paint_board",
     "render_board",
 ]

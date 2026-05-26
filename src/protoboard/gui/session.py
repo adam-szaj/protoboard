@@ -59,6 +59,16 @@ class PerfMetrics:
     wire_count: int = 0
     component_count: int = 0
     drc_issue_count: int = 0
+    # Per-layer paint timings (last paint pass).  ``bg_build_ms`` is the
+    # time to rasterise the board pixmap; ``back_build_ms`` rasterises
+    # the back-side scene items; ``blit_ms`` is the sum of all blit ops
+    # executed during the paint (board base + back + board mid for the
+    # full path, or anchor stretch-blit during a wheel/pan burst).
+    # 0.0 if the corresponding pass didn't run that paint.
+    bg_build_ms: float = 0.0
+    back_build_ms: float = 0.0
+    blit_ms: float = 0.0
+    paint_ms: float = 0.0  # total paintEvent wall time
     # History (last N samples) for sparkline display.
     refresh_history: list[float] = field(default_factory=list)
     route_history: list[float] = field(default_factory=list)
@@ -75,6 +85,21 @@ class PerfMetrics:
         self.route_history.append(ms)
         if len(self.route_history) > self._history_max:
             self.route_history.pop(0)
+
+    def record_paint(
+        self,
+        *,
+        bg_build_ms: float = 0.0,
+        back_build_ms: float = 0.0,
+        blit_ms: float = 0.0,
+        paint_ms: float = 0.0,
+    ) -> None:
+        """Record one paint pass.  All ms params default 0 so callers
+        can record partial passes (e.g. burst-blit has no build cost)."""
+        self.bg_build_ms = bg_build_ms
+        self.back_build_ms = back_build_ms
+        self.blit_ms = blit_ms
+        self.paint_ms = paint_ms
 
 
 def _build_comp_spatial_index(
@@ -130,6 +155,12 @@ class EditorSession(QObject):
     # Carries the net UUID or None.  BoardView additively highlights this net
     # on top of any active HighlightStack entry (union semantics).
     routing_net_changed = Signal(object)
+    # True when a background AutorouteWorker is running.  Listeners (MainWindow,
+    # BoardView, NetsEditorPanel) gate hard-mutate UI actions on this — the
+    # in-flight worker built its RouteRequest from an immutable snapshot, but
+    # applying its result alongside live edits would corrupt the undo stack
+    # and silently nullify user changes made mid-route.
+    autoroute_active_changed = Signal(bool)
 
     def __init__(
         self,
@@ -158,6 +189,7 @@ class EditorSession(QObject):
         self.project_path: Path | None = None
         self._drc_issues: list[DRCIssue] = []
         self._dirty: bool = False
+        self._autoroute_active: bool = False
         self._graph: ConnectivityGraph | None = None  # rebuilt lazily; None = stale
         self._pad_index: "PadIndex | None" = None
         self._comp_spatial_index: dict[tuple[int, int], list[uuid.UUID]] | None = None
@@ -445,6 +477,22 @@ class EditorSession(QObject):
         if self._dirty:
             self._dirty = False
             self.dirty_changed.emit(False)
+
+    # ------------------------------------------------------------------
+    # Autoroute UI gate
+    # ------------------------------------------------------------------
+
+    @property
+    def autoroute_active(self) -> bool:
+        return self._autoroute_active
+
+    def set_autoroute_active(self, active: bool) -> None:
+        """Toggle the autoroute-running gate; emits when state changes."""
+        active = bool(active)
+        if active == self._autoroute_active:
+            return
+        self._autoroute_active = active
+        self.autoroute_active_changed.emit(active)
 
     # ------------------------------------------------------------------
     # Convenience helpers for component/pin lookups

@@ -58,6 +58,7 @@ ACTION_TOOL_SELECT = "tool_select"
 ACTION_TOOL_ROUTE = "tool_route"
 ACTION_TOOL_ROUTE_NET_AWARE = "tool_route_net_aware"
 ACTION_TOOL_CUT = "tool_cut"
+ACTION_TOOL_SIMPLIFY = "tool_simplify"
 
 ACTION_MIRROR_H = "mirror_h"
 ACTION_MIRROR_V = "mirror_v"
@@ -141,6 +142,7 @@ DEFAULTS: dict[str, str] = {
     ACTION_TOOL_ROUTE: "W",
     ACTION_TOOL_ROUTE_NET_AWARE: "Shift+W",
     ACTION_TOOL_CUT: "C",
+    ACTION_TOOL_SIMPLIFY: "Shift+S",
     ACTION_MIRROR_H: "H",
     ACTION_MIRROR_V: "V",
     ACTION_CAMERA_TOGGLE: "X",
@@ -211,6 +213,7 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_TOOL_ROUTE: "Route Wire Tool",
     ACTION_TOOL_ROUTE_NET_AWARE: "Route Wire Tool (Net-aware)",
     ACTION_TOOL_CUT: "Cut Strip Tool",
+    ACTION_TOOL_SIMPLIFY: "Simplify Wire Tool",
     ACTION_MIRROR_H: "Mirror Horizontal",
     ACTION_MIRROR_V: "Mirror Vertical",
     ACTION_CAMERA_TOGGLE: "Toggle Camera Side",

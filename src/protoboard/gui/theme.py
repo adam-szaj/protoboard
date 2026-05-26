@@ -89,6 +89,13 @@ class Theme:
     overlay_font_size: float = 8.0
     label_bg_color: str = "#B0FFFFFF"
 
+    # Alpha of the second (mid) blit of the board pixmap in the layered
+    # background sandwich.  Slot 0 paints the board full opacity on the
+    # bottom; slot 5 paints it again at this alpha so front-side items
+    # visually sit on the pads while back-side items remain readable.
+    # 0 disables the mid slot entirely.
+    board_mid_alpha: float = 0.30
+
     # Axis labels (column/row indices rendered around the board).  They sit
     # over the surrounding canvas, not over the board itself, so they reuse
     # ``board_bg`` for their background pill rather than ``label_bg_color``.

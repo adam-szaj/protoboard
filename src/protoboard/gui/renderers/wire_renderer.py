@@ -6,8 +6,11 @@ from __future__ import annotations
 import uuid
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPen
-from PySide6.QtWidgets import QGraphicsItemGroup, QGraphicsLineItem, QGraphicsScene
+from PySide6.QtGui import QColor, QPainterPath, QPen
+from PySide6.QtWidgets import (
+    QGraphicsItemGroup, QGraphicsLineItem,
+    QGraphicsPathItem, QGraphicsScene,
+)
 
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
@@ -21,6 +24,24 @@ from protoboard.gui.theme import DEFAULT_THEME, Theme
 
 _Z_OUTLINE_OFFSET = -0.05
 _DEFAULT_LAYERS = LayerState()
+
+
+def _wire_painter_path(pts: list[Point]) -> QPainterPath:
+    """Build a single QPainterPath spanning *pts*.
+
+    Rendering a wire as one path (instead of N separate line items) makes
+    Qt apply the pen's JoinStyle at interior vertices (so collinear
+    pad-nodes inserted by simplify/load don't get an extra RoundCap bulge
+    — the user-visible "oblewanie" effect).  Caps still apply at the two
+    real endpoints.
+    """
+    path = QPainterPath()
+    if not pts:
+        return path
+    path.moveTo(pts[0].x, pts[0].y)
+    for p in pts[1:]:
+        path.lineTo(p.x, p.y)
+    return path
 
 
 def _net_color(

@@ -113,16 +113,26 @@ def _dist(a: Point, b: Point) -> float:
 
 
 def find_crossings(w1: WireSegment, w2: WireSegment) -> list[Crossing]:
-    """Every strict-interior crossing between 2D projections of w1 and w2.
+    """Every crossing between 2D projections of w1 and w2.
+
+    Returns both:
+    * **Strict-interior crossings** — two segments physically intersect in
+      their interiors (the legacy ``_segs_cross`` case).
+    * **Shared-pad crossings** — both wires have an *interior* vertex at
+      the same pad position AND the four direction vectors around that pad
+      are topologically interleaved (W1's in/out directions sit between
+      W2's, in the angular sort).  Visually the two wires weave through
+      one another at the pad.
+
+    Endpoint-shared pads (one or both wires terminate at the shared pad)
+    are NOT crossings — they're legitimate same-pin contacts.
 
     Wires that live on different board sides do not physically short, but
     their 2D projections may still "weave" through one another — visually
     spaghetti, sub-optimal for soldering, and a candidate for unweaving.
-    Side is treated as an **output** of unweave, not a hard constraint on
-    input: after the topological swap, wires may end up sharing a single
-    side when the resulting geometry allows it (no same-side bare conflict).
     """
     out: list[Crossing] = []
+    # Pass 1 — strict-interior segment crossings (legacy).
     for i in range(len(w1.path) - 1):
         a1, a2 = w1.path[i], w1.path[i + 1]
         for j in range(len(w2.path) - 1):
@@ -142,7 +152,78 @@ def find_crossings(w1: WireSegment, w2: WireSegment) -> list[Crossing]:
                     wire2_param=t_b,
                 )
             )
+    # Pass 2 — shared-pad crossings.  Both wires have an interior vertex at
+    # the same pad position, with topologically interleaved directions.
+    out.extend(_find_shared_pad_crossings(w1, w2))
     return out
+
+
+def _find_shared_pad_crossings(
+    w1: WireSegment, w2: WireSegment,
+) -> list[Crossing]:
+    """Crossings where both wires have an interior vertex at the same pad
+    AND their directions around that pad interleave (true topological
+    weave, not just a touch-and-leave-the-same-way meeting).
+
+    Yields ``Crossing`` records where ``wireN_seg_idx`` is the index of the
+    *incoming* segment (the one ending at the shared vertex) and
+    ``wireN_param = 1.0`` to mark "shared at end of segment".  The
+    downstream swap code (``_swap_logical_fragment``) treats those as the
+    boundary between head and mid/tail slices.
+    """
+    out: list[Crossing] = []
+    p1 = w1.path
+    p2 = w2.path
+    # Index W2's interior vertices by position for O(1) lookup.
+    interior_w2: dict[tuple[float, float], int] = {}
+    for j in range(1, len(p2) - 1):
+        key = (round(p2[j].x, 6), round(p2[j].y, 6))
+        interior_w2.setdefault(key, j)
+    for i in range(1, len(p1) - 1):
+        v = p1[i]
+        key = (round(v.x, 6), round(v.y, 6))
+        j = interior_w2.get(key)
+        if j is None:
+            continue
+        # Four direction vectors leaving the shared vertex.
+        d1_prev = (p1[i - 1].x - v.x, p1[i - 1].y - v.y)
+        d1_next = (p1[i + 1].x - v.x, p1[i + 1].y - v.y)
+        d2_prev = (p2[j - 1].x - v.x, p2[j - 1].y - v.y)
+        d2_next = (p2[j + 1].x - v.x, p2[j + 1].y - v.y)
+        if not _directions_interleave(d1_prev, d1_next, d2_prev, d2_next):
+            continue
+        out.append(Crossing(
+            point=v,
+            wire1_seg_idx=i - 1,
+            wire2_seg_idx=j - 1,
+            wire1_param=1.0,
+            wire2_param=1.0,
+        ))
+    return out
+
+
+def _directions_interleave(
+    d1a: tuple[float, float], d1b: tuple[float, float],
+    d2a: tuple[float, float], d2b: tuple[float, float],
+) -> bool:
+    """True if the four direction vectors at a shared pad interleave.
+
+    Sort the four directions by angle.  If the angular sort is
+    ``[W1, W2, W1, W2]`` (or rotated), the wires weave through one
+    another.  Otherwise (``[W1, W1, W2, W2]`` etc.) they just touch and
+    return.
+    """
+    import math as _math
+    items = [
+        ("1", _math.atan2(d1a[1], d1a[0])),
+        ("1", _math.atan2(d1b[1], d1b[0])),
+        ("2", _math.atan2(d2a[1], d2a[0])),
+        ("2", _math.atan2(d2b[1], d2b[0])),
+    ]
+    items.sort(key=lambda t: t[1])
+    labels = [t[0] for t in items]
+    # Interleaved ↔ adjacent labels differ across the full cycle.
+    return labels in (["1", "2", "1", "2"], ["2", "1", "2", "1"])
 
 
 # ---------------------------------------------------------------------------
@@ -591,11 +672,14 @@ def _find_crossings_logical(
 
     Returns Crossings with seg_idx interpreted as the index *within the
     concatenated path*, so callers must translate back to the per-WireSegment
-    granularity if they need it.
+    granularity if they need it.  Includes both strict-interior segment
+    crossings and shared-pad crossings (interleaved directions at a shared
+    interior vertex).
     """
     p1 = _logical_path_to_points(lpath1)
     p2 = _logical_path_to_points(lpath2)
     out: list[Crossing] = []
+    # Pass 1 — strict-interior segment crossings.
     for i in range(len(p1) - 1):
         a1, a2 = p1[i], p1[i + 1]
         for j in range(len(p2) - 1):
@@ -610,6 +694,18 @@ def _find_crossings_logical(
                 point=pt, wire1_seg_idx=i, wire2_seg_idx=j,
                 wire1_param=t_a, wire2_param=t_b,
             ))
+    # Pass 2 — shared-pad crossings (interior vertex shared with topologically
+    # interleaved directions).  Build a synthetic WireSegment so we can reuse
+    # the existing shared-pad detector.
+    fake_w1 = WireSegment(
+        id=uuid.uuid4(), path=p1,
+        insulated=False, side="top",  # side/insulated irrelevant for geometry
+    )
+    fake_w2 = WireSegment(
+        id=uuid.uuid4(), path=p2,
+        insulated=False, side="top",
+    )
+    out.extend(_find_shared_pad_crossings(fake_w1, fake_w2))
     return out
 
 
@@ -635,22 +731,64 @@ def _swap_logical_fragment(
     p1 = _logical_path_to_points(lpath1)
     p2 = _logical_path_to_points(lpath2)
 
-    head1_pts = p1[: x.wire1_seg_idx + 1]
-    mid1_pts = p1[x.wire1_seg_idx + 1: y.wire1_seg_idx + 1]
-    tail1_pts = p1[y.wire1_seg_idx + 1:]
+    # Shared-pad crossings (param == 1.0) put the crossing AT a path vertex
+    # (the boundary between seg_idx and seg_idx+1).  Treat such a crossing
+    # as splitting the path INTO that vertex — head includes it, mid begins
+    # WITH it (small duplication is fine, link logic returns empty for
+    # zero-distance bridges).
+    def _slice_boundaries(
+        seg_idx_x: int, param_x: float,
+        seg_idx_y: int, param_y: float,
+    ) -> tuple[int, int, int, int]:
+        """Return (head_end, mid_start, mid_end, tail_start) indices.
+
+        ``head_end`` is *exclusive*: head = path[: head_end].
+        ``mid_start`` is *inclusive*: mid = path[mid_start: mid_end].
+        ``tail_start`` is *inclusive*: tail = path[tail_start:].
+        """
+        # X boundary.
+        if abs(param_x - 1.0) < 1e-9:
+            head_end = seg_idx_x + 2     # include the shared vertex
+            mid_start = seg_idx_x + 1    # shared vertex is also mid's first
+        else:
+            head_end = seg_idx_x + 1
+            mid_start = seg_idx_x + 1
+        # Y boundary.
+        if abs(param_y - 1.0) < 1e-9:
+            mid_end = seg_idx_y + 2      # include the shared vertex
+            tail_start = seg_idx_y + 1   # shared vertex is also tail's first
+        else:
+            mid_end = seg_idx_y + 1
+            tail_start = seg_idx_y + 1
+        return head_end, mid_start, mid_end, tail_start
+
+    h1_end, m1_start, m1_end, t1_start = _slice_boundaries(
+        x.wire1_seg_idx, x.wire1_param, y.wire1_seg_idx, y.wire1_param,
+    )
+    head1_pts = p1[: h1_end]
+    mid1_pts = p1[m1_start: m1_end]
+    tail1_pts = p1[t1_start:]
 
     w2_x_before_y = (
         (x.wire2_seg_idx, x.wire2_param) < (y.wire2_seg_idx, y.wire2_param)
     )
     if w2_x_before_y:
-        head2_pts = p2[: x.wire2_seg_idx + 1]
-        mid2_pts = p2[x.wire2_seg_idx + 1: y.wire2_seg_idx + 1]
-        tail2_pts = p2[y.wire2_seg_idx + 1:]
+        h2_end, m2_start, m2_end, t2_start = _slice_boundaries(
+            x.wire2_seg_idx, x.wire2_param,
+            y.wire2_seg_idx, y.wire2_param,
+        )
+        head2_pts = p2[: h2_end]
+        mid2_pts = p2[m2_start: m2_end]
+        tail2_pts = p2[t2_start:]
         mid1_for_w2 = mid1_pts
     else:
-        head2_pts = p2[: y.wire2_seg_idx + 1]
-        mid2_pts = list(reversed(p2[y.wire2_seg_idx + 1: x.wire2_seg_idx + 1]))
-        tail2_pts = p2[x.wire2_seg_idx + 1:]
+        h2_end, m2_start, m2_end, t2_start = _slice_boundaries(
+            y.wire2_seg_idx, y.wire2_param,
+            x.wire2_seg_idx, x.wire2_param,
+        )
+        head2_pts = p2[: h2_end]
+        mid2_pts = list(reversed(p2[m2_start: m2_end]))
+        tail2_pts = p2[t2_start:]
         mid1_for_w2 = list(reversed(mid1_pts))
 
     if not mid1_pts or not mid2_pts:
@@ -708,6 +846,18 @@ def _swap_logical_fragment(
         insulated=_link_insulated(m1_attrs, t2_attrs),
     )
 
+    def _dedupe_consecutive(pts: list[Point]) -> list[Point]:
+        """Drop consecutive duplicate vertices — shared-pad slicing duplicates
+        the boundary vertex (head ends, mid begins, both contain X)."""
+        if not pts:
+            return pts
+        out: list[Point] = [pts[0]]
+        for p in pts[1:]:
+            if _pt_equal(p, out[-1]):
+                continue
+            out.append(p)
+        return out
+
     def _build_lpath(
         head_pts: list[Point], link_to_mid: list[Point],
         mid_pts: list[Point], link_to_tail: list[Point],
@@ -721,6 +871,7 @@ def _swap_logical_fragment(
         if same or pad_safe is None:
             # Single attribute set — middle inherits outer.
             full = head_pts + link_to_mid + mid_pts + link_to_tail + tail_pts
+            full = _dedupe_consecutive(full)
             return [_LogicalPoint(p, outer_side, outer_ins) for p in full]
         # Need split — check pad safety at the two split pads.
         split_a = head_pts[-1]
@@ -740,28 +891,27 @@ def _swap_logical_fragment(
         if not (ok_a and ok_b):
             # Fallback — force middle onto outer's attrs.
             full = head_pts + link_to_mid + mid_pts + link_to_tail + tail_pts
+            full = _dedupe_consecutive(full)
             return [_LogicalPoint(p, outer_side, outer_ins) for p in full]
         # Three-attribute build.
-        result: list[_LogicalPoint] = []
-        for p in head_pts:
-            result.append(_LogicalPoint(p, outer_side, outer_ins))
-        for p in link_to_mid:
-            # Link sits between head's last pad and mid's first pad.  Use
-            # outer attrs up to and including the split pad; mid attrs
-            # after.  Since the link is intermediate vertices (canonical
-            # subpath excluding endpoints), assign them to outer side to be
-            # conservative — they live "between" the two segments.
-            result.append(_LogicalPoint(p, outer_side, outer_ins))
-        # Convert the existing tail of `result` (the split pad) to mid_attrs.
-        # Pad already in `result`; the *next* link segment switches to mid.
-        # We model the change by re-tagging the next vertex onward.
-        for k, p in enumerate(mid_pts):
-            result.append(_LogicalPoint(p, mid_side, mid_ins))
-        for p in link_to_tail:
-            result.append(_LogicalPoint(p, mid_side, mid_ins))
+        full = head_pts + link_to_mid + mid_pts + link_to_tail + tail_pts
+        # Dedupe before tagging so attr-per-position alignment isn't shifted.
+        dedup = _dedupe_consecutive(full)
+        # Re-tag: head + link_to_mid → outer_attrs; mid + link_to_tail → mid_attrs;
+        # tail → outer_attrs_tail.  Compare positions to source slices.
+        head_set = {(p.x, p.y) for p in head_pts + link_to_mid}
+        tail_set = {(p.x, p.y) for p in tail_pts}
         ot_side, ot_ins = outer_attrs_tail
-        for p in tail_pts:
-            result.append(_LogicalPoint(p, ot_side, ot_ins))
+        result: list[_LogicalPoint] = []
+        for p in dedup:
+            key = (p.x, p.y)
+            if key in tail_set and key not in head_set:
+                result.append(_LogicalPoint(p, ot_side, ot_ins))
+            elif key in head_set:
+                result.append(_LogicalPoint(p, outer_side, outer_ins))
+            else:
+                # mid or link_to_tail
+                result.append(_LogicalPoint(p, mid_side, mid_ins))
         return result
 
     new_lp1 = _build_lpath(

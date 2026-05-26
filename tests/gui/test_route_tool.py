@@ -71,6 +71,25 @@ class TestRouteToolCommit:
         assert wire.path[0] == Point(0.5, 0.5)
         assert wire.path[-1] == Point(1.5, 0.5)
 
+    def test_committed_wire_has_pad_vertices_inserted(
+        self, board_view: BoardView, session: EditorSession,
+    ) -> None:
+        """Manual-routed wire must include every pad it crosses as a vertex
+        so simplify/unweave/edit have handles there."""
+        from protoboard.geometry import Point
+        board_view.set_tool(RouteTool())
+        # Long horizontal — crosses 4 intermediate pads.
+        _press(board_view, 0.5, 0.5)
+        _press(board_view, 4.5, 0.5)
+        _enter(board_view)
+        wire = session.layout.wires[0]
+        coords = {(p.x, p.y) for p in wire.path}
+        assert (0.5, 0.5) in coords
+        assert (1.5, 0.5) in coords
+        assert (2.5, 0.5) in coords
+        assert (3.5, 0.5) in coords
+        assert (4.5, 0.5) in coords
+
     def test_wire_persists_after_commit(
         self, board_view: BoardView, session: EditorSession
     ) -> None:

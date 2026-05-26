@@ -20,6 +20,10 @@ from __future__ import annotations
 
 import math
 import uuid
+
+import structlog
+
+_log = structlog.get_logger(__name__)
 from enum import Enum
 from typing import cast, Literal
 
@@ -255,6 +259,122 @@ def _path_length(path: list[Point]) -> float:
     return total
 
 
+def _count_total_corners(path: list[Point]) -> int:
+    """Count every geometric direction change on *path* (any angle).
+
+    Returns the number of vertices where the outgoing segment's direction
+    differs from the incoming segment's direction.  Collinear vertices (no
+    direction change) are NOT counted, so chains of pad-nodes laid along
+    a straight line don't inflate the count.
+
+    Used by the simplify diagnostic that flags any output path with more
+    corners than the input — simplify is supposed to never multiply bends.
+    """
+    if len(path) < 3:
+        return 0
+    count = 0
+    for k in range(1, len(path) - 1):
+        a, b, c = path[k - 1], path[k], path[k + 1]
+        d1x, d1y = b.x - a.x, b.y - a.y
+        d2x, d2y = c.x - b.x, c.y - b.y
+        l1 = math.hypot(d1x, d1y)
+        l2 = math.hypot(d2x, d2y)
+        if l1 < _EPS or l2 < _EPS:
+            continue  # zero-length segment, skip
+        # Same direction? Normalised dot ≈ 1 → collinear.
+        cos = (d1x * d2x + d1y * d2y) / (l1 * l2)
+        if cos > 1.0 - _EPS:
+            continue
+        count += 1
+    return count
+
+
+def _count_90_corners(path: list[Point]) -> int:
+    """Count 90° corners on *path* (sharp ortho-ortho bends).
+
+    A 90° corner is a vertex where the incoming segment is purely ortho
+    (horizontal or vertical) and the outgoing segment is the other ortho
+    axis — the angle between them is exactly 90°.  Ortho→diag transitions
+    are 45° (mild bend) and don't count.  Collinear ortho-ortho is 0°
+    (straight) and doesn't count either.
+
+    Solder-quality heuristic: a wire with fewer 90° bends is easier to
+    seat flat on the board, so simplify prefers same-length replacements
+    that reduce the count.
+    """
+    if len(path) < 3:
+        return 0
+    count = 0
+    for k in range(1, len(path) - 1):
+        a, b, c = path[k - 1], path[k], path[k + 1]
+        ab_dx, ab_dy = b.x - a.x, b.y - a.y
+        bc_dx, bc_dy = c.x - b.x, c.y - b.y
+        ab_is_ortho = (abs(ab_dx) < _EPS) != (abs(ab_dy) < _EPS)
+        bc_is_ortho = (abs(bc_dx) < _EPS) != (abs(bc_dy) < _EPS)
+        if not (ab_is_ortho and bc_is_ortho):
+            continue
+        # Both ortho — perpendicular if one is horizontal and the other vertical.
+        ab_horiz = abs(ab_dy) < _EPS
+        bc_horiz = abs(bc_dy) < _EPS
+        if ab_horiz != bc_horiz:
+            count += 1
+    return count
+
+
+def _fast_pads_on_segment(
+    a: Point, b: Point, board_pads: set[Point],
+) -> list[Point]:
+    """Return pads from *board_pads* strictly interior to segment a→b.
+
+    Fast path: the segment is assumed to be pure ortho (one of dx/dy is 0)
+    or pure diag (|dx| == |dy|), as produced by ``_canonical_subpath``.
+    Under that assumption we can ENUMERATE candidate pad positions in
+    O(seg_length) rather than scanning every pad in the set.
+
+    Falls back to the generic ``insert_pad_nodes`` slow path for skewed
+    segments (shouldn't happen here, but kept for safety).
+    """
+    dx = b.x - a.x
+    dy = b.y - a.y
+    adx = abs(dx)
+    ady = abs(dy)
+    # Pure ortho (horizontal or vertical) — step ±1 along the long axis.
+    if ady < _EPS:
+        # Horizontal: enumerate (x, a.y) for integer pads in (a.x, b.x).
+        sx = 1.0 if dx > 0 else -1.0
+        n = int(round(adx))
+        out: list[Point] = []
+        for k in range(1, n):
+            p = Point(a.x + sx * k, a.y)
+            if p in board_pads:
+                out.append(p)
+        return out
+    if adx < _EPS:
+        sy = 1.0 if dy > 0 else -1.0
+        n = int(round(ady))
+        out = []
+        for k in range(1, n):
+            p = Point(a.x, a.y + sy * k)
+            if p in board_pads:
+                out.append(p)
+        return out
+    # Pure diagonal: |dx| == |dy|.  Step (±1, ±1).
+    if abs(adx - ady) < _EPS:
+        sx = 1.0 if dx > 0 else -1.0
+        sy = 1.0 if dy > 0 else -1.0
+        n = int(round(adx))
+        out = []
+        for k in range(1, n):
+            p = Point(a.x + sx * k, a.y + sy * k)
+            if p in board_pads:
+                out.append(p)
+        return out
+    # Skewed — should not happen for canonical output.  Slow generic path.
+    from protoboard.domain.layout.wire_utils import insert_pad_nodes
+    enriched = insert_pad_nodes([a, b], board_pads)
+    return enriched[1:-1]
+
+
 def _canonical_subpath(
     a: Point, b: Point,
     *,
@@ -293,8 +413,14 @@ def _canonical_subpath(
         m = Point(a.x + sx * diag, a.y + sy * diag)
         base = [a, m, b]
     if board_pads:
-        from protoboard.domain.layout.wire_utils import insert_pad_nodes
-        return insert_pad_nodes(base, board_pads)
+        # Each segment of `base` is pure ortho or pure diag (guaranteed by
+        # the construction above).  Use the fast enumeration helper instead
+        # of the generic O(pads) scan in insert_pad_nodes.
+        enriched: list[Point] = [base[0]]
+        for k in range(len(base) - 1):
+            enriched.extend(_fast_pads_on_segment(base[k], base[k + 1], board_pads))
+            enriched.append(base[k + 1])
+        return enriched
     return base
 
 
@@ -352,6 +478,148 @@ def _segs_cross_or_touch(
     return False
 
 
+def _segs_overlap_collinear(
+    a1: Point, a2: Point, b1: Point, b2: Point,
+    eps: float = _EPS,
+) -> bool:
+    """Return True if segments a1→a2 and b1→b2 are collinear and share more
+    than a single point (i.e. one's interior overlaps the other).
+
+    Used to detect bare-on-bare overlap: a candidate wire that lies *along*
+    another net's wire is a long galvanic short — ``_segs_cross`` ignores
+    this case because it tests strict interior intersection only.
+
+    Endpoint-only coincidences (segments meeting at one point) return False;
+    those are caught by the shared-vertex check in the caller.
+    """
+    # Collinearity: both b1 and b2 must lie on the infinite line through a1-a2.
+    abx, aby = a2.x - a1.x, a2.y - a1.y
+    if abs(abx) < eps and abs(aby) < eps:
+        return False  # degenerate
+    cross1 = abx * (b1.y - a1.y) - aby * (b1.x - a1.x)
+    cross2 = abx * (b2.y - a1.y) - aby * (b2.x - a1.x)
+    ab_len = math.hypot(abx, aby)
+    if abs(cross1) > eps * ab_len or abs(cross2) > eps * ab_len:
+        return False
+    # Project both segments to the dominant axis to measure interval overlap.
+    if abs(abx) >= abs(aby):
+        ta1, ta2 = a1.x, a2.x
+        tb1, tb2 = b1.x, b2.x
+    else:
+        ta1, ta2 = a1.y, a2.y
+        tb1, tb2 = b1.y, b2.y
+    a_lo, a_hi = (ta1, ta2) if ta1 <= ta2 else (ta2, ta1)
+    b_lo, b_hi = (tb1, tb2) if tb1 <= tb2 else (tb2, tb1)
+    # Intervals overlap by more than a point iff lo < min(hi) and hi > max(lo).
+    overlap_lo = max(a_lo, b_lo)
+    overlap_hi = min(a_hi, b_hi)
+    return overlap_hi - overlap_lo > eps
+
+
+def _count_crossings_with_other(
+    subpath_segs: list[tuple[Point, Point]],
+    subpath_vertices: list[Point],
+    ow: WireSegment,
+    *,
+    skip_pts: set[tuple[float, float]],
+) -> int:
+    """Count physical / electrical contacts between *subpath* and a single
+    other wire *ow*.  Mirrors the three failure modes of the legacy
+    "any-contact-is-a-short" check, but as a *count* instead of a bool,
+    so simplify can compare original-vs-candidate locally.
+
+    *subpath_segs* — segments of the path slice being compared.
+    *subpath_vertices* — vertices (endpoints of those segments, in order).
+    *skip_pts* — point coords that should NOT count as contacts even if
+    they coincide with vertices of *ow*; typically the two endpoints of
+    the replaced subpath (those contacts are pre-existing and not "new").
+
+    Returns the contact count.
+    """
+    def _same_pt(a: Point, b: Point) -> bool:
+        return abs(a.x - b.x) < _EPS and abs(a.y - b.y) < _EPS
+
+    count = 0
+    # Geometric crossings are counted for EVERY pair (regardless of bare/
+    # insulated) — visually they're still crossings, and the M ≤ N rule
+    # ("0 nowych przecięć") covers both electrical and visual tangle.
+    # Insulated×insulated cross-over is not an electrical short but it is
+    # a visual crossing the user cares about for solder-quality.
+    ow_segs = _wire_to_segs(ow)
+    # Per-segment bbox precompute (avoid recomputing min/max in the hot loop).
+    ow_seg_bbox: list[tuple[float, float, float, float]] = []
+    for o_src, o_dst in ow_segs:
+        ow_seg_bbox.append((
+            o_src.x if o_src.x < o_dst.x else o_dst.x,
+            o_src.y if o_src.y < o_dst.y else o_dst.y,
+            o_src.x if o_src.x > o_dst.x else o_dst.x,
+            o_src.y if o_src.y > o_dst.y else o_dst.y,
+        ))
+    for c_src, c_dst in subpath_segs:
+        c_lo_x = c_src.x if c_src.x < c_dst.x else c_dst.x
+        c_hi_x = c_src.x if c_src.x > c_dst.x else c_dst.x
+        c_lo_y = c_src.y if c_src.y < c_dst.y else c_dst.y
+        c_hi_y = c_src.y if c_src.y > c_dst.y else c_dst.y
+        for k, (o_src, o_dst) in enumerate(ow_segs):
+            o_lo_x, o_lo_y, o_hi_x, o_hi_y = ow_seg_bbox[k]
+            # Per-segment bbox reject — disjoint bboxes can never contact.
+            if (
+                o_hi_x < c_lo_x - _EPS
+                or o_lo_x > c_hi_x + _EPS
+                or o_hi_y < c_lo_y - _EPS
+                or o_lo_y > c_hi_y + _EPS
+            ):
+                continue
+            if _segs_cross_or_touch(c_src, c_dst, o_src, o_dst):
+                count += 1
+            # Collinear overlap: two wires sharing a stretch of geometry on
+            # the same side is heavier than a point crossing (long visual
+            # parallel + electrical short when bare).  +2 so M ≤ N treats
+            # it strictly worse.
+            elif _segs_overlap_collinear(c_src, c_dst, o_src, o_dst):
+                count += 2
+    # Plus shared-pad / shared-endpoint coincidences.  For bare other-wires
+    # this is every vertex; for insulated only the two endpoints sit on
+    # board pads.  Either way, vertex coincidence with the subpath that's
+    # NOT on the replaced-subpath endpoints is one extra contact.
+    if not ow.insulated:
+        ow_anchor_set = {(p.x, p.y) for p in ow.path}
+    else:
+        if len(ow.path) < 2:
+            return count
+        ow_anchor_set = {
+            (ow.path[0].x, ow.path[0].y),
+            (ow.path[-1].x, ow.path[-1].y),
+        }
+    for cv in subpath_vertices:
+        if (cv.x, cv.y) in skip_pts:
+            continue
+        if (cv.x, cv.y) in ow_anchor_set:
+            count += 1
+    # An insulated other-wire's endpoint can also be hit by a *segment* of
+    # the subpath passing through it mid-interior — the conductor lands on
+    # that pad.  Bare-other already covered above by _segs_cross_or_touch
+    # (T-junction detection).
+    if ow.insulated and len(ow.path) >= 2:
+        endpoints = (ow.path[0], ow.path[-1])
+        for c_src, c_dst in subpath_segs:
+            # Fast bbox check: an endpoint outside the segment's bbox cannot
+            # lie on its interior.
+            c_lo_x = c_src.x if c_src.x < c_dst.x else c_dst.x
+            c_hi_x = c_src.x if c_src.x > c_dst.x else c_dst.x
+            c_lo_y = c_src.y if c_src.y < c_dst.y else c_dst.y
+            c_hi_y = c_src.y if c_src.y > c_dst.y else c_dst.y
+            for ep in endpoints:
+                if (
+                    ep.x < c_lo_x - _EPS or ep.x > c_hi_x + _EPS
+                    or ep.y < c_lo_y - _EPS or ep.y > c_hi_y + _EPS
+                ):
+                    continue
+                if _point_on_segment_interior(ep, c_src, c_dst):
+                    count += 1
+    return count
+
+
 def _candidate_safe_against_others(
     candidate_segs: list[tuple[Point, Point]],
     other_wires: list[WireSegment],
@@ -361,65 +629,89 @@ def _candidate_safe_against_others(
     wire_net_id: "uuid.UUID | None" = None,
     other_wire_nets: "dict[uuid.UUID, uuid.UUID | None] | None" = None,
     original_endpoints: "tuple[Point, Point] | None" = None,
+    original_subpath_segs: "list[tuple[Point, Point]] | None" = None,
 ) -> bool:
-    """Return True iff *candidate_segs* is safe against every other wire.
+    """Return True iff *candidate_segs* does not introduce *new* crossings
+    with any other wire compared to the original subpath being replaced.
 
-    A candidate is rejected when it would create a physical short to a wire
-    of a *different* net.  Three failure modes:
+    User rule "0 nowych przecięć": for every other wire ``W2`` of a foreign
+    net, the count of physical contacts between the *candidate* and W2 must
+    be ≤ the count between the *original subpath* and W2.  Crossings may
+    shift geometrically but not multiply.
 
-    * **Bare×Bare segment**: any crossing or T-junction with another bare
-      wire on the same side (``_segs_cross_or_touch``).
+    Three contact modes are counted (mirrored on the original and the
+    candidate side for a fair comparison):
 
-    * **Bare×Bare shared vertex (pad)**: a candidate vertex coincides with
-      a vertex of another bare wire on the same side — physically the same
-      pad is now soldered to two wires of different nets.
-      ``_segs_cross_or_touch`` only detects strict-interior touches; this
-      check handles endpoint-on-endpoint coincidence.
+    * **Bare×Bare segment**: crossing / T-junction with a bare wire on
+      the same side.
+    * **Bare×Bare shared vertex**: vertex coincidence (shared pad).
+    * **Bare×Insulated endpoint**: a candidate segment passing through
+      or terminating at an insulated wire's pad-endpoint.
 
-    * **Bare×Insulated endpoint**: insulated wires float above the board but
-      are soldered to a pad at each endpoint.  If the candidate path passes
-      through such an endpoint and that endpoint sits on a *foreign* net,
-      that's a short.  Mid-segment insulated geometry is still ignored —
-      it doesn't touch the board.
-
-    Insulated×anything mid-segment is fine — the insulated path is air.
+    Insulated×anything mid-segment is air — never counted.
 
     Same-net other-wires never block — extending or sharing a pad with a
-    wire of our own net is intentional.
+    wire of our own net is intentional, and those contacts are excluded
+    from the count entirely.
 
-    ``wire_net_id`` may be None when the wire's net is unknown; in that case
-    any contact with a netted other-wire is treated as alien (conservative).
+    ``original_subpath_segs`` — segments of the subpath being replaced.
+    When omitted the function reverts to the strict "no-contact" rule
+    (count > 0 → reject), preserving the legacy contract for callers
+    that don't pass the original subpath.
 
-    ``original_endpoints`` — the two endpoints of the original sub-path
-    being replaced.  Vertex coincidences AT those points are allowed
-    because the contact already existed before simplify; we only flag
-    *new* contacts introduced by the canonical replacement.
+    ``wire_net_id`` may be None when the wire's net is unknown; in that
+    case any contact with a netted other-wire is treated as alien
+    (conservative).
     """
     other_nets = other_wire_nets or {}
-    # Collect every vertex on the candidate path (endpoints of consecutive
-    # segments).  ``candidate_segs`` is the zipped list of (path[i], path[i+1])
-    # pairs, so collecting the first point of each pair plus the last point
-    # of the final pair gives the full vertex sequence.
+    # Collect every vertex on the candidate path.
     cand_vertices: list[Point] = []
     if candidate_segs:
         cand_vertices.append(candidate_segs[0][0])
         for _src, dst in candidate_segs:
             cand_vertices.append(dst)
-    # Skip the two ends of the *replaced* subpath: they were already
-    # vertices of the original wire and any contact there is pre-existing.
+    # Endpoints of the replaced subpath — contacts AT these points are
+    # pre-existing and skipped on both sides of the comparison.
     skip_pts: set[tuple[float, float]] = set()
     if original_endpoints is not None:
         for ep in original_endpoints:
             skip_pts.add((ep.x, ep.y))
 
-    def _same_pt(a: Point, b: Point) -> bool:
-        return abs(a.x - b.x) < _EPS and abs(a.y - b.y) < _EPS
+    # Vertices of the original subpath (for the baseline count).  When the
+    # caller doesn't supply original_subpath_segs we fall back to the
+    # strict "no-contact" semantics — baseline_count = 0.
+    if original_subpath_segs is not None:
+        orig_segs = original_subpath_segs
+        orig_vertices: list[Point] = []
+        if orig_segs:
+            orig_vertices.append(orig_segs[0][0])
+            for _s, d in orig_segs:
+                orig_vertices.append(d)
+    else:
+        orig_segs = []
+        orig_vertices = []
+
+    # Bounding box covering BOTH the candidate and the original subpath.
+    # Other wires whose bbox doesn't overlap this union cannot contribute
+    # any contact — saves ~99% of pair checks on realistic boards.
+    union_lo_x = math.inf
+    union_lo_y = math.inf
+    union_hi_x = -math.inf
+    union_hi_y = -math.inf
+    for pts in (cand_vertices, orig_vertices):
+        for p in pts:
+            if p.x < union_lo_x:
+                union_lo_x = p.x
+            if p.x > union_hi_x:
+                union_hi_x = p.x
+            if p.y < union_lo_y:
+                union_lo_y = p.y
+            if p.y > union_hi_y:
+                union_hi_y = p.y
 
     for ow in other_wires:
         if ow.id == wire_id:
             continue
-        if wire_side is not None and ow.side != wire_side:
-            continue  # different physical layer — can never short
         ow_net = other_nets.get(ow.id)
         same_net = (
             wire_net_id is not None
@@ -428,36 +720,66 @@ def _candidate_safe_against_others(
         )
         if same_net:
             continue
-        if not ow.insulated:
-            # Bare-other: any geometric contact is a short.
+        cross_side = wire_side is not None and ow.side != wire_side
+        if cross_side:
+            # Cross-side: electrically harmless (insulated wire on the other
+            # side can never short with us).  BUT the user rule says we may
+            # not "lay our simplified path along another net's geometry,
+            # even isolated on the opposite side".  So we still count
+            # collinear overlap as a contact; everything else (crossings,
+            # T-junctions, shared vertices) is irrelevant cross-side.
+            cand_overlap = 0
             for c_src, c_dst in candidate_segs:
-                for o_src, o_dst in _wire_to_segs(ow):
-                    if _segs_cross_or_touch(c_src, c_dst, o_src, o_dst):
-                        return False
-            # Shared-pad check: candidate vertex coinciding with any vertex
-            # of the other bare wire = both lutowane do tej samej kratki.
-            ow_vertex_set = {(p.x, p.y) for p in ow.path}
-            for cv in cand_vertices:
-                if (cv.x, cv.y) in skip_pts:
-                    continue  # pre-existing endpoint of the replaced subpath
-                if (cv.x, cv.y) in ow_vertex_set:
-                    return False
-        else:
-            # Insulated-other: only the two endpoints sit on board pads.  The
-            # candidate path passing through one of them is a short.
-            if len(ow.path) < 2:
-                continue
-            endpoints = (ow.path[0], ow.path[-1])
-            for c_src, c_dst in candidate_segs:
-                for ep in endpoints:
-                    if _point_on_segment_interior(ep, c_src, c_dst):
-                        return False
-            for cv in cand_vertices:
-                if (cv.x, cv.y) in skip_pts:
-                    continue
-                for ep in endpoints:
-                    if _same_pt(cv, ep):
-                        return False
+                for o_src, o_dst in zip(ow.path, ow.path[1:]):
+                    if _segs_overlap_collinear(c_src, c_dst, o_src, o_dst):
+                        cand_overlap += 1
+            if cand_overlap == 0:
+                continue  # no overlap — cross-side wire is invisible to us
+            # The original subpath might also overlap this cross-side wire
+            # (a pre-existing parallel run).  Compute baseline analogously
+            # so the M ≤ N rule still applies.
+            orig_overlap = 0
+            for o_src_inner, o_dst_inner in orig_segs:
+                for o_src, o_dst in zip(ow.path, ow.path[1:]):
+                    if _segs_overlap_collinear(
+                        o_src_inner, o_dst_inner, o_src, o_dst,
+                    ):
+                        orig_overlap += 1
+            if cand_overlap > orig_overlap:
+                return False
+            continue  # cross-side: no further checks needed
+        # Fast bbox-vs-bbox reject: a wire whose bounding box doesn't
+        # overlap our candidate+baseline bbox can't contribute crossings.
+        ow_lo_x = ow_lo_y = math.inf
+        ow_hi_x = ow_hi_y = -math.inf
+        for p in ow.path:
+            if p.x < ow_lo_x:
+                ow_lo_x = p.x
+            if p.x > ow_hi_x:
+                ow_hi_x = p.x
+            if p.y < ow_lo_y:
+                ow_lo_y = p.y
+            if p.y > ow_hi_y:
+                ow_hi_y = p.y
+        if (
+            ow_hi_x < union_lo_x - _EPS
+            or ow_lo_x > union_hi_x + _EPS
+            or ow_hi_y < union_lo_y - _EPS
+            or ow_lo_y > union_hi_y + _EPS
+        ):
+            continue  # disjoint bboxes — cannot contact
+        baseline = (
+            _count_crossings_with_other(
+                orig_segs, orig_vertices, ow, skip_pts=skip_pts,
+            )
+            if original_subpath_segs is not None
+            else 0
+        )
+        candidate = _count_crossings_with_other(
+            candidate_segs, cand_vertices, ow, skip_pts=skip_pts,
+        )
+        if candidate > baseline:
+            return False
     return True
 
 
@@ -583,6 +905,105 @@ def _parity_ok_for_bare(
     return True
 
 
+def _candidate_no_new_pin_contact(
+    candidate_vertices: list[Point],
+    original_path: list[Point],
+    pad_index: object,
+    wire_side: str,
+    wire_net_id: "uuid.UUID | None",
+    wire_is_insulated: bool,
+) -> bool:
+    """Return True if the candidate path introduces no new pin / occupied-pad
+    contact.
+
+    Authoritative PadIndex-based rule: every pad along the candidate path
+    (vertices AND every pad geometrically crossed by a segment) must be a
+    legal target for the wire — i.e. ``can_route_through`` returns True
+    *and* the pad does not host an alien component pin.
+
+    Bare and insulated wires alike are gated on mid-segment pads: a bare
+    wire physically conducts there, an insulated wire mechanically conflicts
+    (the bridged copper sits under the wire on the same side, making the
+    layout unsolderable / cosmetically wrong).  User rule: "tylko legalne
+    kontakty" — no new pin or occupied-pad contacts.
+
+    Pads strictly on the *original* wire path are pre-existing contacts and
+    excluded from the "new" check.
+
+    Floating pins (``PinItem.net is None``) of other components count as
+    alien — they may yet be wired to a foreign net.  Same-net pins are
+    legal.
+    """
+    if pad_index is None:
+        return True
+    try:
+        from protoboard.domain.board.pad_state import PinItem
+    except ImportError:
+        return True
+    # Set of original path point keys — pins on these pads are pre-existing
+    # contacts and not "new".
+    orig_keys = {(round(p.x, 6), round(p.y, 6)) for p in original_path}
+
+    def _pad_blocks(pad: object) -> bool:
+        """True if landing on *pad* introduces a forbidden new contact.
+
+        Two failure modes:
+        - PadIndex says the pad cannot carry our wire (alien-net wire /
+          short / blocked by component body).  ``can_route_through``
+          encodes this.
+        - Pad hosts an alien-component pin (including floating pins
+          whose net is None).  ``can_route_through`` doesn't catch
+          floating pins because their net is None.
+        """
+        wire_type = "insulated" if wire_is_insulated else "bare"
+        if not pad_index.can_route_through(  # type: ignore[attr-defined]
+            pad.position, wire_side, wire_net_id, wire_type,
+        ):
+            return True
+        for it in pad.iter_items(side=None):  # type: ignore[attr-defined]
+            if not isinstance(it, PinItem):
+                continue
+            if wire_net_id is not None and it.net == wire_net_id:
+                continue  # same net — sharing this pad is legal
+            return True
+        return False
+
+    # 1. Every candidate vertex.
+    for v in candidate_vertices:
+        key = (round(v.x, 6), round(v.y, 6))
+        if key in orig_keys:
+            continue  # pre-existing contact
+        pad = pad_index.pad_at(v)  # type: ignore[attr-defined]
+        if pad is None:
+            continue
+        if _pad_blocks(pad):
+            return False
+    # 2. Mid-segment pads — bare AND insulated.  An insulated wire that
+    # passes over an occupied pad mid-segment isn't an electrical short
+    # but is a mechanical / cosmetic conflict (wire crossing copper that
+    # already has a pin or a foreign wire on the same side).  User rule:
+    # no new pad contact, period.
+    vertex_keys = {(round(v.x, 6), round(v.y, 6)) for v in candidate_vertices}
+    for i in range(len(candidate_vertices) - 1):
+        a = candidate_vertices[i]
+        b = candidate_vertices[i + 1]
+        try:
+            pads_near = pad_index.pads_near_segment(  # type: ignore[attr-defined]
+                a.x, a.y, b.x, b.y,
+            )
+        except AttributeError:
+            return True
+        for pad in pads_near:
+            key = (round(pad.position.x, 6), round(pad.position.y, 6))
+            if key in vertex_keys:
+                continue  # checked as a vertex above
+            if key in orig_keys:
+                continue  # pre-existing contact
+            if _pad_blocks(pad):
+                return False
+    return True
+
+
 def _candidate_safe_via_pad_index(
     candidate_vertices: list[Point],
     original_endpoints: "tuple[Point, Point]",
@@ -700,6 +1121,39 @@ def generic_simplify_wire(
         mode == SimplifyMode.BARE_PARITY and not wire.insulated
     )
 
+    # Pre-filter other_wires by full-path bbox: any other wire whose bbox
+    # cannot overlap our wire's full bbox can never contact any subpath of
+    # our wire, so we can drop it from consideration once.  Crucial for
+    # boards with hundreds of wires — without it every candidate pair re-
+    # iterates the entire list.
+    #
+    # Cross-side wires are KEPT in the relevant list: user rule "no
+    # overlay along another net's geometry, even on the opposite side"
+    # means we still check collinear overlap against them.
+    # ``_candidate_safe_against_others`` handles the side semantics.
+    if other_wires and wire.path:
+        wire_lo_x = min(p.x for p in wire.path) - 1.0
+        wire_hi_x = max(p.x for p in wire.path) + 1.0
+        wire_lo_y = min(p.y for p in wire.path) - 1.0
+        wire_hi_y = max(p.y for p in wire.path) + 1.0
+        relevant_others: list[WireSegment] = []
+        for ow in other_wires:
+            if ow.id == wire.id:
+                continue
+            ow_lo_x = min(p.x for p in ow.path)
+            ow_hi_x = max(p.x for p in ow.path)
+            ow_lo_y = min(p.y for p in ow.path)
+            ow_hi_y = max(p.y for p in ow.path)
+            if (
+                ow_hi_x < wire_lo_x
+                or ow_lo_x > wire_hi_x
+                or ow_hi_y < wire_lo_y
+                or ow_lo_y > wire_hi_y
+            ):
+                continue
+            relevant_others.append(ow)
+        other_wires = relevant_others
+
     path = list(wire.path)
     changed = True
     while changed and len(path) >= 3:
@@ -727,7 +1181,11 @@ def generic_simplify_wire(
                 #   (b) length is unchanged but vertex count decreases
                 #       (this covers the classic "straighten" case where the
                 #       canonical is the same straight line but with fewer
-                #       intermediate vertices).
+                #       intermediate vertices), OR
+                #   (c) length and vertex count are unchanged but the
+                #       canonical has fewer 90° corners — soldering preference:
+                #       2×45° rounds better than 1×90°, so a same-cost
+                #       replacement that smooths sharp bends is worth taking.
                 cur_len = _path_length(path[i:j + 1])
                 cand_len = _path_length(canon)
                 shorter = cand_len < cur_len - _EPS
@@ -735,7 +1193,13 @@ def generic_simplify_wire(
                     abs(cand_len - cur_len) < _EPS
                     and len(canon) < (j - i + 1)
                 )
-                if not shorter and not fewer_verts:
+                fewer_90s = (
+                    abs(cand_len - cur_len) < _EPS
+                    and len(canon) <= (j - i + 1)
+                    and _count_90_corners(canon)
+                        < _count_90_corners(path[i:j + 1])
+                )
+                if not shorter and not fewer_verts and not fewer_90s:
                     continue
 
                 # Preserve internal pad-pins (Steiner points the router put
@@ -763,8 +1227,27 @@ def generic_simplify_wire(
                     wire.insulated,
                 ):
                     continue
+                # Stricter pad rule: simplify must not introduce a NEW pin
+                # contact (alien-net pins, including floating pins of other
+                # components).  Pads already on the original path are
+                # pre-existing contacts and stay legal.
+                if pad_index is not None and not _candidate_no_new_pin_contact(
+                    list(canon),
+                    list(wire.path),
+                    pad_index,
+                    wire.side,
+                    wire_net_id,
+                    wire.insulated,
+                ):
+                    continue
                 # Geometric mid-air crossings — PadIndex doesn't know about
-                # segments BETWEEN pads, so this stays.
+                # segments BETWEEN pads, so this stays.  Rule: M ≤ N — the
+                # candidate may keep (or shift) existing crossings of the
+                # replaced subpath but must not introduce new ones.  Pass
+                # the original subpath segs so the count is per-W2 local.
+                original_subpath_segs = list(
+                    zip(path[i:j + 1], path[i + 1:j + 1])
+                )
                 if not _candidate_safe_against_others(
                     candidate_segs,
                     other_wires,
@@ -773,6 +1256,7 @@ def generic_simplify_wire(
                     wire_net_id=wire_net_id,
                     other_wire_nets=other_wire_nets,
                     original_endpoints=(path[i], path[j]),
+                    original_subpath_segs=original_subpath_segs,
                 ):
                     continue
                 if not _candidate_safe_against_own(candidate_segs, wire, i, j):
@@ -794,17 +1278,37 @@ def generic_simplify_wire(
                     continue
 
                 # Accept: splice canon into path in place of [i..j].
-                # For bare wires re-insert any board pad that lies on a segment
-                # of the new canon so downstream consumers (connectivity,
-                # wire-edit, exports) see every physical pad contact.
-                if board_pads and not wire.insulated and len(canon) >= 2:
-                    from protoboard.domain.layout.wire_utils import insert_pad_nodes
-                    canon = insert_pad_nodes(canon, board_pads)
+                # Re-insert every board pad that lies on a segment of the new
+                # canon — bare wires physically contact those pads, insulated
+                # wires need them as edit/simplify/unweave "handles".  Same
+                # invariant the AddWireCommand chokepoint and load_project()
+                # migration enforce at wire-creation time.  Use the fast
+                # enumeration helper (segments here are pure ortho or diag).
+                if board_pads and len(canon) >= 2:
+                    enriched: list[Point] = [canon[0]]
+                    for k in range(len(canon) - 1):
+                        enriched.extend(_fast_pads_on_segment(
+                            canon[k], canon[k + 1], board_pads,
+                        ))
+                        enriched.append(canon[k + 1])
+                    canon = enriched
                 new_path = path[:i + 1] + canon[1:-1] + path[j:]
                 # Detect no-op after pad re-insertion (the enriched canon may
                 # exactly reproduce the slice it would replace).  Without this
                 # guard the greedy loop would never reach a fixed point.
                 if new_path == path:
+                    continue
+                # User rule "nie tworzyć nowych zagięć": never accept a
+                # replacement that increases the total bend count of the
+                # full wire path.  A canonical L between two endpoints can
+                # have ≤1 corner *locally*, but chained against the rest of
+                # the path that wasn't touched the composed result can end
+                # up zigzagging more than the original.  Cheap check on the
+                # full proposed path.
+                if (
+                    _count_total_corners(new_path)
+                    > _count_total_corners(path)
+                ):
                     continue
                 path = new_path
                 changed = True
@@ -815,6 +1319,24 @@ def generic_simplify_wire(
 
     if path == list(wire.path):
         return wire
+    # Diagnostic: simplify is supposed to never multiply bends.  If the
+    # output has more corners than the input, log a structured warning so
+    # the bug can be reproduced.  Keep both paths verbatim in the log so a
+    # user report can be replayed against the canonical algorithm.
+    in_corners = _count_total_corners(list(wire.path))
+    out_corners = _count_total_corners(path)
+    if out_corners > in_corners:
+        _log.warning(
+            "simplify.corner_growth",
+            wire_id=str(wire.id),
+            insulated=wire.insulated,
+            side=wire.side,
+            in_corners=in_corners,
+            out_corners=out_corners,
+            in_path=[(p.x, p.y) for p in wire.path],
+            out_path=[(p.x, p.y) for p in path],
+            mode=mode.value if hasattr(mode, "value") else str(mode),
+        )
     return WireSegment(
         id=uuid.uuid4(),
         path=path,

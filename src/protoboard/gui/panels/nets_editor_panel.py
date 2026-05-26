@@ -170,8 +170,29 @@ class NetsEditorPanel(QWidget):
                 pass
 
     def refresh(self, session: EditorSession) -> None:
+        if self._session is not session:
+            # Hook the autoroute gate exactly once per session — subsequent
+            # refresh() calls with the same session are no-ops here.
+            try:
+                session.autoroute_active_changed.connect(self._on_autoroute_active)
+            except (TypeError, RuntimeError):
+                pass
         self._session = session
+        self._on_autoroute_active(session.autoroute_active)
         self._rebuild()
+
+    def _on_autoroute_active(self, active: bool) -> None:
+        """Disable structural net edits while autoroute is running.
+
+        Color and rename buttons stay enabled — those commands are
+        marked ``allowed_during_autoroute = True`` on the command class
+        so the user can keep tidying the netlist mid-route.
+        """
+        enabled = not active
+        self._btn_add_net.setEnabled(enabled)
+        self._btn_delete_net.setEnabled(enabled)
+        self._btn_assign.setEnabled(enabled)
+        self._btn_unassign.setEnabled(enabled)
 
     # ------------------------------------------------------------------
     # Rebuild helpers
@@ -189,13 +210,27 @@ class NetsEditorPanel(QWidget):
         self._net_tree.clear()
         if self._session is None:
             return
+        # Resolve every net to its effective colour (manual override, palette,
+        # or golden-ratio extension) so the panel shows exactly what the
+        # board renderer paints — not just the manual override.
+        from protoboard.gui.renderers.net_color import build_net_color_map
+        from protoboard.gui.theme import DEFAULT_THEME
+        theme = getattr(self._session, "theme", DEFAULT_THEME) or DEFAULT_THEME
+        effective = build_net_color_map(self._session.schematic.nets, theme=theme)
         for net in sorted(self._session.schematic.nets.values(), key=lambda n: n.name):
-            color_label = net.color if net.color else "auto"
+            eff_hex = effective.get(net.id)
+            if net.color:
+                color_label = net.color
+            elif eff_hex:
+                color_label = f"{eff_hex} (auto)"
+            else:
+                color_label = "auto"
             global_label = "✓" if net.global_net else ""
             item = QTreeWidgetItem([net.name, str(len(net.pins)), color_label, global_label])
             item.setData(_NET_COL_NAME, _ROLE, str(net.id))
-            if net.color:
-                bg = QColor(net.color)
+            bg_hex = net.color or eff_hex
+            if bg_hex:
+                bg = QColor(bg_hex)
                 item.setBackground(_NET_COL_COLOR, QBrush(bg))
                 # Use black or white text depending on luminance.
                 lum = 0.299 * bg.redF() + 0.587 * bg.greenF() + 0.114 * bg.blueF()

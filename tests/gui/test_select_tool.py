@@ -564,8 +564,10 @@ class TestMultiSelectionDrag:
         _move(tool, 2.5, 1.5)
         _release(tool, 2.5, 1.5)
         wire = session.layout.wires[0]
+        # Endpoints translated; intermediate pad-vertex (2.5, 3.5) inserted
+        # by ReplaceWireSegmentCommand's enrichment.
         assert wire.path[0] == Point(1.5, 3.5)
-        assert wire.path[1] == Point(3.5, 3.5)
+        assert wire.path[-1] == Point(3.5, 3.5)
 
 
 # ---------------------------------------------------------------------------

@@ -129,6 +129,10 @@ class LayerState:
     back_alpha: float = BACK_ALPHA
     board_ghost_alpha: float = BOARD_GHOST_ALPHA
     ghost_comp_alpha: float = GHOST_COMP_ALPHA
+    # Alpha for the mid (second) blit of the board pixmap in the sandwich.
+    # 0.30 → pads peek through under front-side items so they visually
+    # rest on the board, but back-side items underneath stay readable.
+    board_mid_alpha: float = 0.30
 
     # ------------------------------------------------------------------
     # Z-value helpers
@@ -176,19 +180,46 @@ class LayerState:
         tool_alpha = 1.0 if side == self.camera_side else self.back_alpha
         return self._vis_alpha(ov, tool_alpha)
 
+    def _side_tool_alpha(self, side: Literal["top", "bottom"]) -> float:
+        """Side-only tool alpha: front = 1.0, back = back_alpha.
+
+        Used by label / pin-name / wire helpers that must NOT inherit
+        component-layer dimming (ghost-on-tool, components_top/bottom
+        HIDDEN, etc.).  Hiding the components layer should not hide the
+        labels printed next to them.
+        """
+        return 1.0 if side == self.camera_side else self.back_alpha
+
     def alpha_for_label(self, side: Literal["top", "bottom"]) -> float:
         # Single shared toggle for labels on both sides — the per-side
-        # split (labels_top / labels_bottom) was merged into one.
-        tool_alpha = self.alpha_for_component(side)
-        return self._vis_alpha(self.overrides.labels, tool_alpha)
+        # split (labels_top / labels_bottom) was merged into one.  Labels
+        # are independent of the components layer (toggle components HIDDEN
+        # still shows the refdes); the only inputs are side and override.
+        return self._vis_alpha(self.overrides.labels, self._side_tool_alpha(side))
 
     def alpha_for_board(self) -> float:
         tool_alpha = self.board_ghost_alpha if self.ghost_components else 1.0
         return self._vis_alpha(self.overrides.board, tool_alpha)
 
+    def alpha_for_board_mid(self) -> float:
+        """Alpha for the second (mid) blit of the board pixmap.
+
+        The board sandwich draws the board pixmap twice: once on the
+        bottom (alpha_for_board), once in the middle of the Z stack so
+        front-side items visually sit on the pads.  The mid blit is
+        always partially transparent (board_mid_alpha) so it doesn't
+        obscure back-side items, and it disappears in GHOST / HIDDEN
+        modes so the user can study routing without pad clutter.
+        """
+        ov = self.overrides.board
+        if ov == LayerVisibility.GHOST or ov == LayerVisibility.HIDDEN:
+            return 0.0
+        return self.board_mid_alpha
+
     def alpha_for_pin_names(self, side: Literal["top", "bottom"]) -> float:
-        tool_alpha = self.alpha_for_component(side)
-        return self._vis_alpha(self.overrides.pin_names, tool_alpha)
+        # Pin names are independent of labels and components — toggling
+        # either of those does not hide pin names.
+        return self._vis_alpha(self.overrides.pin_names, self._side_tool_alpha(side))
 
     def alpha_for_axis_labels(self) -> float:
         return self._vis_alpha(self.overrides.axis_labels, 1.0)
@@ -251,5 +282,6 @@ def layer_state_for_tool(
                 back_alpha=theme.back_alpha,
                 board_ghost_alpha=theme.board_ghost_alpha,
                 ghost_comp_alpha=theme.ghost_comp_alpha,
+                board_mid_alpha=theme.board_mid_alpha,
             )
     return state

@@ -107,6 +107,10 @@ def _make_overlay_label(
 ) -> list[QGraphicsItem]:
     """Create an overlay text item with a background rect.
 
+    Layer alpha (e.g. back-side dimming, ghost) should be applied by the
+    caller to ``bg_color`` only — the text stays at its full theme alpha
+    so dimmed labels remain readable rather than fading into invisibility.
+
     Returns [bg_rect, text_item] both with ItemIgnoresTransformations set.
     anchor='top_left'    — (scene_x, scene_y) is the top-left corner (default).
     anchor='bottom_right' — (scene_x, scene_y) is the bottom-right corner;
@@ -426,6 +430,14 @@ def _render_one(
         grp.addToGroup(item)
     skip_pins = shape.drawn_pin_numbers(positions, theme)
 
+    # Per-pin colouring: the board layer now renders each pad in its net
+    # colour (see board_renderer.build_pad_net_map), so the regular
+    # per-pin dot drawn here is redundant.  We only keep two cases:
+    #   * pin 1 — always gets the small square marker so users can
+    #     orient the component visually.
+    #   * bold highlight (pin belongs to highlighted net) — gets a large
+    #     opaque dot on top so the routed net stays prominent regardless
+    #     of how the pad underneath is painted.
     pin_color_fallback = QColor(theme.pin_color_fallback)
     pin_color_fallback.setAlphaF(pin_color_fallback.alphaF() * alpha)
     for pin_idx, pos in enumerate(positions):
@@ -435,53 +447,33 @@ def _render_one(
         ref = PinRef(component_id=comp_id, pin_number=pin_number)
         net_id = pin_net.get(ref)
 
-        # Bold (tier-1) highlight: pin belongs to the highlighted net → use a
-        # thicker pen.  Multiplier kept colour-free — we only change widths
-        # so the user-set palette stays intact.
         is_bold = (
             highlighted_net_id is not None
             and net_id is not None
             and net_id == highlighted_net_id
         )
-        bold_factor = theme.bold_pin_width_factor if is_bold else 1.0
 
+        # Compute the fill colour the pin1 marker / bold dot should use.
+        # Mirrors the previous palette choice so the pin1 square keeps its
+        # accent colour matching the net it belongs to.
         if net_id is not None:
             color = _net_color(net_id, theme)
             color.setAlphaF(color.alphaF() * alpha)
             complete = routed_nets is None or net_id in routed_nets
             if complete:
                 fill_color = color
-                pen = QPen(color, theme.pin_width_complete * bold_factor)
-                pen.setStyle(Qt.PenStyle.SolidLine)
             else:
                 fill_color = QColor(color)
                 fill_color.setAlpha(_a(130))
-                pen = QPen(color, theme.pin_width_incomplete * bold_factor)
-                pen.setStyle(Qt.PenStyle.DashLine)
         else:
             fill_color = pin_color_fallback
-            fallback_pen_color = QColor(theme.pin_label_fallback_color)
-            fallback_pen_color.setAlphaF(fill_color.alphaF())
-            # Unassigned pins never bold-up (they don't belong to any net).
-            pen = QPen(fallback_pen_color, theme.pin_width_incomplete)
 
-        # Bold dot: grow to nearly pad size and force fully opaque so a
-        # wire passing through the same pad cannot bleed through.  Layer
-        # ghost factor still applies so the dot fades along with the rest
-        # of the component layer under routing/placement tools.  Bold
-        # dots also jump *above* the body — body shapes like DIP draw
-        # their own grey pin indicators at z_comp, which would otherwise
-        # half-cover the bold highlight; pushing the bold dot to
-        # z_comp + 0.05 puts it on top of the body's overlay.
         if is_bold:
             dot_fill = QColor(fill_color)
-            dot_fill.setAlphaF(alpha)  # opaque modulo layer-ghost, no user-alpha bleed
+            dot_fill.setAlphaF(alpha)  # opaque modulo layer-ghost
             dot_radius = theme.pad_radius * theme.bold_pin_dot_radius_factor
-            # Quad-DIP / DIP body items render at z_comp with their own pin
-            # circles baked into the SVG; bold dot must sit decisively above
-            # them.  0.05 was enough for the inner body of SvgDIPBody but
-            # Qt's child-z within a QGraphicsItemGroup occasionally treats
-            # small offsets ambiguously, so use a larger margin.
+            # Above body overlays (DIP/quad-DIP draw their own pin circles
+            # at z_comp); 0.5 margin keeps the bold dot decisively on top.
             dot_z = z_comp + 0.5
         else:
             dot_fill = fill_color
@@ -493,21 +485,23 @@ def _render_one(
                 grp, pos.x, pos.y, dot_fill, theme,
                 z=dot_z, radius=dot_radius if is_bold else None,
             )
-        else:
+        elif is_bold:
             dot = QGraphicsEllipseItem(
                 QRectF(pos.x - dot_radius, pos.y - dot_radius,
                        2 * dot_radius, 2 * dot_radius)
             )
             dot.setBrush(QBrush(dot_fill))
-            dot.setPen(pen)
+            dot.setPen(QPen(Qt.PenStyle.NoPen))
             dot.setZValue(dot_z)
             grp.addToGroup(dot)
+        # else: no dot — the board layer's net-coloured pad is the visual.
 
     fpt = theme.overlay_font_size
     bg_color = QColor(theme.label_bg_color)
     if alpha_label > 0.0:
+        # Text colour kept at full theme alpha; only the background pill
+        # fades with layer alpha so dimmed labels remain readable.
         label_color = QColor(theme.refdes_color)
-        label_color.setAlphaF(label_color.alphaF() * alpha_label)
         bg = QColor(bg_color)
         bg.setAlphaF(bg.alphaF() * alpha_label)
 
@@ -528,8 +522,9 @@ def _render_one(
         # Pin-name labels (controlled by the pin_names layer).
         alpha_pin_names = layers.alpha_for_pin_names(side) * group_alpha
         if alpha_pin_names > 0.0 and defn.pin_names:
+            # Text colour stays at full theme alpha; only the background pill
+            # fades.  Keeps pin names readable even on ghosted/back layers.
             pin_name_color = QColor(theme.pin_label_fallback_color)
-            pin_name_color.setAlphaF(pin_name_color.alphaF() * alpha_pin_names)
             pin_bg = QColor(bg_color)
             pin_bg.setAlphaF(pin_bg.alphaF() * alpha_pin_names)
             for pin_idx, pos in enumerate(positions):
@@ -544,8 +539,8 @@ def _render_one(
                     grp.addToGroup(item)
 
     if placement.locked and alpha > 0.05:
+        # Lock emoji stays at full alpha; only the bg pill fades with layer.
         lock_col = QColor("#e07000")
-        lock_col.setAlphaF(min(alpha, 1.0))
         lock_bg = QColor(bg_color)
         lock_bg.setAlphaF(lock_bg.alphaF() * min(alpha, 1.0))
         for item in _make_overlay_label(

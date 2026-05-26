@@ -5,13 +5,26 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, ClassVar, Generic, Protocol, TypeVar
 
 import structlog
+
+from protoboard.errors import ProtoboardError
 
 _log = structlog.get_logger(__name__)
 
 T = TypeVar("T")
+
+
+class CommandRejectedError(ProtoboardError):
+    """Raised when CommandStack refuses to execute a command.
+
+    Currently used to reject layout-mutating commands while a background
+    autoroute worker is running (the in-flight RouteRequest was built
+    from a layout snapshot; applying a hard-mutate command mid-flight
+    would silently make the autoroute result land on top of an unrelated
+    edit and confuse the undo stack).
+    """
 
 
 class _RecorderProtocol(Protocol):
@@ -25,6 +38,14 @@ class _RecorderProtocol(Protocol):
 
 class Command(ABC, Generic[T]):
     description: str = ""
+
+    # When False, ``CommandStack.execute`` refuses to run this command
+    # while ``session.autoroute_active`` is True.  Override on commands
+    # that are safe to run mid-autoroute — those that don't mutate the
+    # routing snapshot inputs (layout placements, wires, pin↔net
+    # assignments, board geometry).  Examples: rename net, set net
+    # colour, set net global flag.
+    allowed_during_autoroute: ClassVar[bool] = False
 
     @abstractmethod
     def apply(self, state: T) -> None: ...
@@ -41,6 +62,11 @@ class MacroCommand(Command[T], Generic[T]):
     ) -> None:
         self._commands = list(commands)
         self.description = description
+
+    @property
+    def allowed_during_autoroute(self) -> bool:  # type: ignore[override]
+        # Macro is allowed mid-autoroute only when every sub-command is.
+        return all(c.allowed_during_autoroute for c in self._commands)
 
     def apply(self, state: T) -> None:
         for cmd in self._commands:
@@ -62,6 +88,14 @@ class CommandStack(Generic[T]):
         self._recorder = recorder
 
     def execute(self, cmd: Command[T], state: T) -> None:
+        # Gate hard-mutate commands while a background autoroute is running.
+        # We duck-type ``state.autoroute_active`` (EditorSession exposes it
+        # as a property) — for state objects that don't have the attribute
+        # (e.g. replay harness) the check is a no-op.
+        if getattr(state, "autoroute_active", False) and not cmd.allowed_during_autoroute:
+            raise CommandRejectedError(
+                f"Command {type(cmd).__name__} blocked while autoroute is running"
+            )
         cmd.apply(state)
         _log.info("cmd.execute", cmd=type(cmd).__name__, desc=cmd.description)
         self._undo.append(cmd)

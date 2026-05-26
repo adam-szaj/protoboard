@@ -26,6 +26,8 @@ class NetState(Protocol):
 class RenameNetCommand(Command[NetState]):
     """Rename an existing net."""
 
+    allowed_during_autoroute = True  # name doesn't enter the routing snapshot
+
     net_id: uuid.UUID
     new_name: str
     _old_name: str = field(default="", init=False, repr=False)
@@ -51,6 +53,10 @@ class RenameNetCommand(Command[NetState]):
 @dataclass
 class SetNetGlobalCommand(Command[NetState]):
     """Mark or unmark a net as global (excluded from hug/spread neighbour graph)."""
+
+    # Affects only *future* routing; the in-flight worker already has
+    # its snapshot, so flipping this flag now is safe.
+    allowed_during_autoroute = True
 
     net_id: uuid.UUID
     global_net: bool
@@ -81,6 +87,9 @@ class SetNetGlobalCommand(Command[NetState]):
 @dataclass
 class SetNetColorCommand(Command[NetState]):
     """Set (or clear) the display colour of a net."""
+
+    # Pure display attribute — never feeds the routing snapshot.
+    allowed_during_autoroute = True
 
     net_id: uuid.UUID
     new_color: str | None  # hex string or None to revert to auto palette

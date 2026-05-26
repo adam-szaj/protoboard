@@ -46,6 +46,7 @@ from protoboard.gui.tools.cut_tool import CutTool
 from protoboard.gui.tools.place_tool import PlaceTool
 from protoboard.gui.tools.route_tool import RouteTool
 from protoboard.gui.tools.select_tool import SelectTool
+from protoboard.gui.tools.simplify_tool import SimplifyTool
 from protoboard.services.export.bom import export_bom_csv
 from protoboard.services.export.pdf import export_pdf
 from protoboard.services.export.png import export_png
@@ -118,6 +119,7 @@ class MainWindow(QMainWindow):
         KB.ACTION_TOOL_ROUTE:           {"label": "Route &Wire"},
         KB.ACTION_TOOL_ROUTE_NET_AWARE: {"label": "Route Wire [Net-aware]"},
         KB.ACTION_TOOL_CUT:             {"label": "&Cut Strip"},
+        KB.ACTION_TOOL_SIMPLIFY:        {"label": "Simplify &Wire Tool"},
         KB.ACTION_WIRE_TOGGLE_INSULATED: {"label": "&Insulated"},
         KB.ACTION_WIRE_SIDE_TOP:         {"label": "Side: &Top"},
         KB.ACTION_WIRE_SIDE_BOTTOM:      {"label": "Side: &Bottom"},
@@ -262,12 +264,15 @@ class MainWindow(QMainWindow):
         tb_tools.setObjectName("tb_tools")
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_tools)
 
-        act_select = tb_tools.addAction("Select [S]")
-        act_route  = tb_tools.addAction("Route Wire [W]")
-        act_cut    = tb_tools.addAction("Cut Strip [C]")
-        act_select.triggered.connect(self._tool_select)
-        act_route.triggered.connect(self._tool_route)
-        act_cut.triggered.connect(self._tool_cut)
+        # Reuse the QActions registered in _register_actions() so the
+        # toolbar buttons share one identity with menu entries and global
+        # WindowShortcut handlers.  Creating fresh toolbar QActions
+        # (the old code) led to handler duplication and at least one
+        # Qt platform (Wayland/X11 mix) refusing to fire the shortcut.
+        tb_tools.addAction(self._actions[KB.ACTION_TOOL_SELECT])
+        tb_tools.addAction(self._actions[KB.ACTION_TOOL_ROUTE])
+        tb_tools.addAction(self._actions[KB.ACTION_TOOL_CUT])
+        tb_tools.addAction(self._actions[KB.ACTION_TOOL_SIMPLIFY])
 
         # ── Toolbar: Selection (filter + highlight relation) ─────────────
         tb_selection = QToolBar("Selection", self)
@@ -313,8 +318,8 @@ class MainWindow(QMainWindow):
         act_fit_area_tb  = tb_zoom.addAction("⊡ Fit Area")
         act_fit_board_tb = tb_zoom.addAction("⊞ Fit Board")
         act_fit_sel_tb   = tb_zoom.addAction("⊟ Fit Sel")
-        act_zoom_in_tb.triggered.connect(lambda: self._board_view.scale(1.3, 1.3))
-        act_zoom_out_tb.triggered.connect(lambda: self._board_view.scale(1 / 1.3, 1 / 1.3))
+        act_zoom_in_tb.triggered.connect(lambda: self._board_view.zoom_by(1.3))
+        act_zoom_out_tb.triggered.connect(lambda: self._board_view.zoom_by(1 / 1.3))
         act_fit_area_tb.triggered.connect(self._fit_area)
         act_fit_board_tb.triggered.connect(self._fit_board)
         act_fit_sel_tb.triggered.connect(self._fit_selection)
@@ -399,6 +404,7 @@ class MainWindow(QMainWindow):
             rubber_band_ms=self._app_settings.rubber_band_throttle_ms,
             zoom_refresh_ms=self._app_settings.zoom_refresh_ms,
         )
+        self._board_view.set_antialiasing(self._app_settings.antialiasing)
 
         # Auto-DRC timer — fires 600 ms after the last layout_changed.
         self._drc_timer = QTimer(self)
@@ -438,6 +444,7 @@ class MainWindow(QMainWindow):
         session.layout_changed.connect(self._drc_timer.start)
         session.layout_changed.connect(self._update_undo_redo)
         session.layout_changed.connect(session.mark_dirty)
+        session.autoroute_active_changed.connect(self._apply_autoroute_ui_lock)
         session.highlight_stack.changed.connect(self._update_highlight_action)
         session.dirty_changed.connect(self._update_title)
         session.drc_changed.connect(self._props_panel.update_issues)
@@ -543,8 +550,8 @@ class MainWindow(QMainWindow):
             KB.ACTION_MIRROR_H:      self._mirror_view,
             KB.ACTION_MIRROR_V:      self._mirror_view_v,
             KB.ACTION_FULLSCREEN:    self._toggle_fullscreen,
-            KB.ACTION_ZOOM_IN:       lambda: self._board_view.scale(1.3, 1.3),
-            KB.ACTION_ZOOM_OUT:      lambda: self._board_view.scale(1 / 1.3, 1 / 1.3),
+            KB.ACTION_ZOOM_IN:       lambda: self._board_view.zoom_by(1.3),
+            KB.ACTION_ZOOM_OUT:      lambda: self._board_view.zoom_by(1 / 1.3),
             KB.ACTION_FIT_BOARD:     self._fit_board,
             KB.ACTION_FIT_AREA:      self._fit_area,
             KB.ACTION_FIT_SELECTION: self._fit_selection,
@@ -553,6 +560,7 @@ class MainWindow(QMainWindow):
             KB.ACTION_TOOL_ROUTE:           self._tool_route,
             KB.ACTION_TOOL_ROUTE_NET_AWARE: lambda: self._tool_route(net_aware=True),
             KB.ACTION_TOOL_CUT:             self._tool_cut,
+            KB.ACTION_TOOL_SIMPLIFY:        self._tool_simplify,
             KB.ACTION_WIRE_TOGGLE_INSULATED: lambda: self._set_wire_insulated(not self._wire_insulated),
             KB.ACTION_WIRE_SIDE_TOP:         lambda: self._set_wire_side("top"),
             KB.ACTION_WIRE_SIDE_BOTTOM:      lambda: self._set_wire_side("bottom"),
@@ -791,6 +799,7 @@ class MainWindow(QMainWindow):
         wire_sub.addAction(self._actions[KB.ACTION_WIRE_SIDE_BOTTOM])
 
         tools_menu.addAction(self._actions[KB.ACTION_TOOL_CUT])
+        tools_menu.addAction(self._actions[KB.ACTION_TOOL_SIMPLIFY])
 
         tools_menu.addSeparator()
 
@@ -886,6 +895,7 @@ class MainWindow(QMainWindow):
         session.layout_changed.connect(self._drc_timer.start)
         session.layout_changed.connect(self._update_undo_redo)
         session.layout_changed.connect(session.mark_dirty)
+        session.autoroute_active_changed.connect(self._apply_autoroute_ui_lock)
         session.dirty_changed.connect(self._update_title)
         session.drc_changed.connect(self._props_panel.update_issues)
         self._props_panel.drc_issue_clicked.connect(self._on_drc_issue_clicked)
@@ -990,7 +1000,8 @@ class MainWindow(QMainWindow):
     def _update_title(self, _dirty: bool = False) -> None:
         p = self._session.project_path
         name = p.name if p is not None else "Protoboard Designer"
-        self.setWindowTitle(f"{name}[*]")
+        suffix = " — autoroute…" if self._session.autoroute_active else ""
+        self.setWindowTitle(f"{name}{suffix}[*]")
         self.setWindowModified(self._session.is_dirty)
 
     # ------------------------------------------------------------------
@@ -1404,6 +1415,12 @@ class MainWindow(QMainWindow):
         self._board_view.set_tool(CutTool())
         self._mode_label.setText("Cut Strip — click near a strip")
 
+    def _tool_simplify(self) -> None:
+        self._board_view.set_tool(SimplifyTool())
+        self._mode_label.setText(
+            "Simplify Wire — LPM: select (as Select), Shift+LPM on wire: apply simplify"
+        )
+
     # ------------------------------------------------------------------
     # File actions
     # ------------------------------------------------------------------
@@ -1547,22 +1564,86 @@ class MainWindow(QMainWindow):
             self._update_undo_redo()
 
     def _update_undo_redo(self) -> None:
-        """Sync Undo/Redo menu item enabled state and label."""
+        """Sync Undo/Redo menu item enabled state and label.
+
+        Undo/Redo is also force-disabled while autoroute is running so a
+        Ctrl+Z mid-route cannot rewind state the worker still depends on.
+        """
         stack = self._session.stack
-        can_undo = stack.can_undo()
-        can_redo = stack.can_redo()
+        gate_open = not self._session.autoroute_active
+        can_undo = stack.can_undo() and gate_open
+        can_redo = stack.can_redo() and gate_open
         self._act_undo.setEnabled(can_undo)
         self._act_redo.setEnabled(can_redo)
-        if can_undo:
+        if stack.can_undo():
             desc = getattr(stack._undo[-1], "description", "")
             self._act_undo.setText(f"&Undo  {desc}" if desc else "&Undo")
         else:
             self._act_undo.setText("&Undo")
-        if can_redo:
+        if stack.can_redo():
             desc = getattr(stack._redo[-1], "description", "")
             self._act_redo.setText(f"&Redo  {desc}" if desc else "&Redo")
         else:
             self._act_redo.setText("&Redo")
+
+    # ------------------------------------------------------------------
+    # Autoroute UI lock
+    # ------------------------------------------------------------------
+
+    # QActions that mutate the layout/schematic snapshot the in-flight
+    # autoroute worker depends on.  Disabled while autoroute is running;
+    # everything else (view ops, layer toggles, save, preferences, net
+    # color/name) stays interactive.  Undo/Redo gating is handled inside
+    # _update_undo_redo so it also respects the live can_undo/can_redo
+    # state once autoroute finishes.
+    _AUTOROUTE_LOCK_ACTIONS = frozenset({
+        KB.ACTION_DELETE,
+        KB.ACTION_ROTATE_CW,
+        KB.ACTION_ROTATE_CCW,
+        KB.ACTION_FLIP,
+        KB.ACTION_GROUP,
+        KB.ACTION_UNGROUP,
+        KB.ACTION_EXIT_GROUP,
+        KB.ACTION_REDRAG_PINS,
+        KB.ACTION_WIRE_SET_INSULATED,
+        KB.ACTION_WIRE_SET_BARE,
+        KB.ACTION_WIRE_MOVE_TO_TOP,
+        KB.ACTION_WIRE_MOVE_TO_BOTTOM,
+        KB.ACTION_WIRE_FLIP,
+        KB.ACTION_WIRE_TOGGLE_INSULATED,
+        KB.ACTION_WIRE_SIDE_TOP,
+        KB.ACTION_WIRE_SIDE_BOTTOM,
+        KB.ACTION_DISCONNECT_PIN,
+        KB.ACTION_TOOL_ROUTE,
+        KB.ACTION_TOOL_ROUTE_NET_AWARE,
+        KB.ACTION_TOOL_CUT,
+        KB.ACTION_AUTOROUTE,
+        KB.ACTION_SIMPLIFY_WIRE,
+        KB.ACTION_UNWEAVE_WIRES,
+        KB.ACTION_RUN_DRC,
+    })
+
+    def _apply_autoroute_ui_lock(self, active: bool) -> None:
+        """Enable/disable hard-mutate QActions when autoroute starts/ends.
+
+        Updates the window title and status bar so the user has visible
+        feedback that some inputs are throttled.  Undo/Redo state is
+        refreshed through ``_update_undo_redo`` (it gates on the same
+        flag).
+        """
+        enabled = not active
+        for aid in self._AUTOROUTE_LOCK_ACTIONS:
+            action = self._actions.get(aid)
+            if action is not None:
+                action.setEnabled(enabled)
+        self._update_undo_redo()
+        self._update_title()
+        if active:
+            self.statusBar().showMessage(
+                "Autoroute running — only inspection and display actions are available", 0
+            )
+        else:
+            self.statusBar().clearMessage()
 
     def _clear_highlight(self) -> None:
         """Clear all persistent highlight entries from the stack."""
@@ -1913,7 +1994,14 @@ class MainWindow(QMainWindow):
 
         dlg = QProgressDialog("Initialising autorouter…", "Cancel", 0, 100, self)
         dlg.setWindowTitle(f"Autoroute{title_suffix}")
-        dlg.setWindowModality(Qt.WindowModality.WindowModal)
+        # Non-modal: the main window stays interactive.  Hard-mutate
+        # actions (place / route / undo / etc.) are gated by
+        # ``session.autoroute_active`` below, but inspection, view ops,
+        # and pure display tweaks (net colour, refdes, preferences)
+        # remain available so the user isn't frozen for minutes.
+        dlg.setWindowModality(Qt.WindowModality.NonModal)
+        dlg.setWindowFlag(Qt.WindowType.Tool, True)
+        dlg.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         dlg.setMinimumDuration(300)
         dlg.setAutoClose(False)
         dlg.setAutoReset(False)
@@ -1947,6 +2035,18 @@ class MainWindow(QMainWindow):
             dlg.setLabelText(f"Optimising… ({done}/{total})")
             dlg.setValue(int(done * 100 / total) if total else 0)
 
+        # IMPORTANT: connect the gate-release BEFORE ``_on_autoroute_done``
+        # so it runs first.  Qt invokes ``finished`` slots in connection
+        # order, and ``_on_autoroute_done`` issues a MacroCommand of
+        # AddWireCommand — those are hard-mutate, gated by
+        # ``session.autoroute_active``.  Without releasing first, the
+        # CommandStack guard rejects our own apply with
+        # ``CommandRejectedError``.
+        def _release_gate(*_args: object) -> None:
+            self._session.set_autoroute_active(False)
+        worker.finished.connect(_release_gate)
+        worker.error.connect(_release_gate)
+
         worker.progress.connect(_on_progress)
         worker.optimize_progress.connect(_on_optimize_progress)
         import time as _time
@@ -1962,6 +2062,9 @@ class MainWindow(QMainWindow):
         worker.error.connect(dlg.close)
         dlg.canceled.connect(worker.cancel)
 
+        # Gate hard-mutate UI before kicking off the worker so the user
+        # cannot e.g. trigger a second autoroute or undo mid-launch.
+        self._session.set_autoroute_active(True)
         worker.start()
 
     def _on_autoroute_done(self, result: object) -> None:
@@ -2474,6 +2577,7 @@ class MainWindow(QMainWindow):
             rubber_band_ms=settings.rubber_band_throttle_ms,
             zoom_refresh_ms=settings.zoom_refresh_ms,
         )
+        self._board_view.set_antialiasing(settings.antialiasing)
         self._board_view.refresh()
 
     def _on_cursor_moved(self, x: float, y: float) -> None:

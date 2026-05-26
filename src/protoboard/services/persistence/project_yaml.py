@@ -258,6 +258,34 @@ def load_project(
     except FileNotFoundError as exc:
         _log.warning("project.load_failed", path=str(directory), error=str(exc))
         raise SerializationError(f"Missing project file: {exc}") from exc
+    # Enrich every insulated wire with pad-position vertices wherever its
+    # path geometrically crosses a board pad.  Legacy projects saved before
+    # this invariant got pad-node enrichment had wires without "handles" at
+    # those crossings — simplify / unweave / edit tools had nothing to grab
+    # there.  ``insert_pad_nodes`` is idempotent so already-enriched wires
+    # are returned unchanged.
+    from protoboard.domain.layout.wire import WireSegment as _Wire
+    from protoboard.domain.layout.wire_utils import (
+        board_pads_for_side,
+        insert_pad_nodes,
+    )
+    _all_pads = (
+        board_pads_for_side(board, "top")
+        | board_pads_for_side(board, "bottom")
+    )
+    for _idx, _w in enumerate(layout.wires):
+        if not _w.insulated:
+            continue
+        _new_path = insert_pad_nodes(list(_w.path), _all_pads)
+        if len(_new_path) != len(_w.path):
+            layout.wires[_idx] = _Wire(
+                id=_w.id,
+                path=_new_path,
+                insulated=_w.insulated,
+                side=_w.side,
+                color=_w.color,
+            )
+
     # Snap legacy fractional offsets (e.g. y=3.503 → 3.5) to the half-grid so
     # the connectivity graph indexes pins and matching board pads as the same
     # node.  Corrections > ±0.5 from the nearest grid intersection are left

@@ -217,7 +217,14 @@ class RouteTool(_Tool):
             insert_pad_nodes,
         )
         raw_path = list(self._points)
-        pads = board_pads_for_side(self._session.board, self._side)
+        # Take pads from BOTH sides — a wire passing geometrically over a pad
+        # that exists only on the opposite side still needs that node so
+        # simplify/unweave/edit can grab it.  Single-side board: the other
+        # side returns an empty set, no effect.
+        pads = (
+            board_pads_for_side(self._session.board, "top")
+            | board_pads_for_side(self._session.board, "bottom")
+        )
         enriched_path = insert_pad_nodes(raw_path, pads)
 
         if not effective_net_aware:

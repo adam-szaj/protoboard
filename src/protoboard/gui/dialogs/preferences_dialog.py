@@ -551,6 +551,20 @@ class _PathsPage(QWidget):
         perf_form.addRow("Zoom refresh", self._zoom_ms)
         vbox.addWidget(perf_grp)
 
+        # Rendering — anti-aliasing toggle.  Default on; turn off to claw
+        # back paint time on very large boards or weak GPUs at the cost
+        # of jagged pad / wire edges.
+        render_grp = QGroupBox("Rendering")
+        render_layout = QVBoxLayout(render_grp)
+        self._antialiasing_cb = QCheckBox("Anti-aliasing (smooth edges)")
+        self._antialiasing_cb.setChecked(settings.antialiasing)
+        self._antialiasing_cb.setToolTip(
+            "Smooth pad/wire/text edges.  Default on.  Turn off to reduce "
+            "paint time on very large boards or weak GPUs."
+        )
+        render_layout.addWidget(self._antialiasing_cb)
+        vbox.addWidget(render_grp)
+
         vbox.addStretch()
 
         self._default_projects_dir: Path | None = settings.default_projects_dir
@@ -563,6 +577,7 @@ class _PathsPage(QWidget):
         self._settings.cursor_label_throttle_ms = self._cursor_ms.value()
         self._settings.rubber_band_throttle_ms = self._rubber_ms.value()
         self._settings.zoom_refresh_ms = self._zoom_ms.value()
+        self._settings.antialiasing = self._antialiasing_cb.isChecked()
         save_app_settings(self._settings)
 
     def _pick_projects_dir(self) -> None:

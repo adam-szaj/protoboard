@@ -75,12 +75,13 @@ class BoardView(QGraphicsView):
         # O(log N) lookup + O(N) BSP refresh.
         self._scene.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
         self.setScene(self._scene)
-        # Antialiasing × 14k items × 4K viewport was ~800 ms per paint frame
-        # (measured via click_profile.boardview.paintEvent).  Toggling it off
-        # is the single biggest paint-cost lever — geometry is still
-        # rasterised correctly, edges are just less smooth.  Antialiased
-        # rendering remains available for static publication exports.
-        self.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        # Anti-aliasing is a user preference (AppSettings.antialiasing,
+        # default True).  On very large boards or weak GPUs the user can
+        # turn it off to claw back paint time at the cost of jagged
+        # pad / wire edges.  ``set_antialiasing`` flips this flag at
+        # runtime and invalidates cached pixmaps.
+        self._antialiasing: bool = True
+        self.setRenderHint(QPainter.RenderHint.Antialiasing, self._antialiasing)
         # DontSavePainterState avoids QPainter.save()/restore() around every
         # item — meaningful at 14k items per paint.  Items in this app set
         # their own pen/brush per draw, so the saved state was unused anyway.
@@ -153,6 +154,32 @@ class BoardView(QGraphicsView):
         # cached separately so a viewport-only resize (no board change)
         # can re-rasterise without re-walking ``board.atoms()``.
         self._bg_display_list: object | None = None  # BoardDisplayList
+        # Side-layer pixmaps for the layered "sandwich" composition.
+        # Each holds the rasterised scene items whose zValue lies in the
+        # given side band (back = 0..2.999, front = 3.001..6.999).
+        # Composited in drawBackground in Z order:
+        #   board_base (alpha=alpha_for_board)
+        #   back       (one blit)
+        #   board_mid  (same pixmap as base, alpha=alpha_for_board_mid)
+        #   front      (one blit)
+        # Front-side scene items remain visible above this stack at their
+        # own Z so live drag / selection overlays still update naturally.
+        # ``_back_cache`` is the only cache active in MVP — front items
+        # stay in scene paint dispatch.  ``_back_dirty`` is set whenever
+        # back-side items change, viewport resizes, or transform changes.
+        self._back_cache: object | None = None
+        self._back_cache_dirty: bool = True
+        # Scene items kept hidden while a valid _back_cache shows them
+        # as a rasterised blit instead.  Restored on cache invalidation.
+        self._back_hidden_items: list[object] = []
+        # Stale-blit anchor: the most recent _bg_cache + its viewportTransform
+        # at the moment we built it.  While the user is in a wheel-zoom or
+        # pan-scroll burst we paint the anchor pixmap under the inverse
+        # transform delta (cheap Qt-side scale/translate) instead of
+        # rebuilding the board pixmap on every frame.  After the burst
+        # settles we rebuild at the new transform and refresh the anchor.
+        self._bg_cache_anchor: object | None = None
+        self._bg_cache_anchor_transform: object | None = None  # QTransform
         # Spatial index over board pad positions for fast snap().
         self._pad_spatial: dict[tuple[int, int], list[Point]] = {}
         # Overlay items (ratsnest + group outlines) for targeted removal.
@@ -190,6 +217,14 @@ class BoardView(QGraphicsView):
         self._wheel_timer.setSingleShot(True)
         self._wheel_timer.setInterval(16)  # ~1 frame; tunable via apply_throttle_settings
         self._wheel_timer.timeout.connect(self._flush_wheel_zoom)
+        # Pan-burst detector — restarted on each scrollContentsBy.  While
+        # this timer is active we treat the view as in mid-pan and paint
+        # the board pixmap by stretching the anchor instead of rebuilding.
+        # When it fires (settle), the next paint rebuilds the cache fresh.
+        self._pan_burst_timer = QTimer(self)
+        self._pan_burst_timer.setSingleShot(True)
+        self._pan_burst_timer.setInterval(120)
+        self._pan_burst_timer.timeout.connect(self._on_pan_settled)
         session.layout_changed.connect(self._schedule_refresh)
         session.layout_changed.connect(session.invalidate_graph)
         session.drag_moved.connect(self._on_drag_moved)
@@ -215,6 +250,22 @@ class BoardView(QGraphicsView):
         zoom_refresh_ms = max(0, int(zoom_refresh_ms))
         self._rubber_band_throttle_ms = rubber_band_ms
         self._label_vis_timer.setInterval(zoom_refresh_ms)
+
+    def set_antialiasing(self, enabled: bool) -> None:
+        """Toggle Antialiasing render hint and rebuild raster caches.
+
+        Affects three paint surfaces: the view's own scene paint
+        (front-side items), the board pixmap, and the back-side cache.
+        Cached pixmaps were rasterised under the previous setting, so
+        we invalidate them — the next paint rebuilds with the new hint.
+        """
+        enabled = bool(enabled)
+        if enabled == self._antialiasing:
+            return
+        self._antialiasing = enabled
+        self.setRenderHint(QPainter.RenderHint.Antialiasing, enabled)
+        self._invalidate_bg_cache()
+        self.viewport().update()
 
     @property
     def camera_side(self) -> str:
@@ -478,8 +529,15 @@ class BoardView(QGraphicsView):
         """Recompute the QGraphicsView scale matrix from current state."""
         sx = -1.0 if self._view_transform == "mirror_h" else 1.0
         sy = -1.0 if self._view_transform == "mirror_v" else 1.0
-        # Preserve current zoom magnitude, apply sign flips.
+        # Preserve current zoom magnitude, apply sign flips.  Clamp to
+        # current viewport-derived limits so a window resize that shrank
+        # the allowed window doesn't leave us out of range.
         mag = abs(self.transform().m11()) or _GRID_PX
+        try:
+            m11_min, m11_max = self._compute_zoom_limits()
+            mag = max(m11_min, min(m11_max, mag))
+        except Exception:  # noqa: BLE001 — session may be detached during shutdown
+            pass
         # Remember the scene point currently at the viewport centre so we can
         # restore it after setTransform (which resets scroll position).
         vp = self.viewport()
@@ -489,8 +547,10 @@ class BoardView(QGraphicsView):
         self.setTransform(QTransform(sx * mag, 0.0, 0.0, sy * mag, 0.0, 0.0))
         # Re-centre on the same scene point.
         self.centerOn(center_scene)
-        # Transform changed → bg cache pixmap is in the wrong space.
-        self._invalidate_bg_cache()
+        # Transform changed → bg cache pixmap is in the wrong space, but
+        # the pixmap *content* is still valid — the bridge transform
+        # handles the mirror.  Keep the anchor for a smooth visual jump.
+        self._invalidate_bg_cache(keep_anchor=True)
 
     def _sync_tool_side(self, side: str) -> None:
         from protoboard.gui.tools.route_tool import RouteTool
@@ -532,6 +592,10 @@ class BoardView(QGraphicsView):
             QRectF(b.x - 1, b.y - 1, b.width + 2, b.height + 2),
             Qt.AspectRatioMode.KeepAspectRatio,
         )
+        # fit_* / mirror: transform jumps but the pixmap content is still
+        # valid — keep the anchor so the next paint can stretch-blit it
+        # while the fresh rebuild happens.
+        self._invalidate_bg_cache(keep_anchor=True)
         self._apply_label_visibility()
 
     def fit_area(self) -> None:
@@ -574,6 +638,10 @@ class BoardView(QGraphicsView):
                    max(ys) - min(ys) + 2 * margin),
             Qt.AspectRatioMode.KeepAspectRatio,
         )
+        # fit_* / mirror: transform jumps but the pixmap content is still
+        # valid — keep the anchor so the next paint can stretch-blit it
+        # while the fresh rebuild happens.
+        self._invalidate_bg_cache(keep_anchor=True)
         self._apply_label_visibility()
 
     def fit_selection(self) -> None:
@@ -623,6 +691,10 @@ class BoardView(QGraphicsView):
                    max(ys) - min(ys) + 2 * margin),
             Qt.AspectRatioMode.KeepAspectRatio,
         )
+        # fit_* / mirror: transform jumps but the pixmap content is still
+        # valid — keep the anchor so the next paint can stretch-blit it
+        # while the fresh rebuild happens.
+        self._invalidate_bg_cache(keep_anchor=True)
         self._apply_label_visibility()
 
     def set_session(self, session: EditorSession) -> None:
@@ -639,6 +711,13 @@ class BoardView(QGraphicsView):
         self.refresh()
 
     def set_tool(self, tool: _Tool | None) -> None:
+        # While autoroute is running, mutating tools (Place / Route / Cut)
+        # are not allowed — fall back to the SelectTool instance (which is
+        # purely read-only).  SelectTool itself, or None, is always allowed.
+        if tool is not None and self._session.autoroute_active:
+            from protoboard.gui.tools.select_tool import SelectTool as _ST
+            if not isinstance(tool, _ST):
+                tool = None
         if self._active_tool is not None:
             self._active_tool.deactivate()
         self._active_tool = tool
@@ -742,6 +821,23 @@ class BoardView(QGraphicsView):
             self._invalidate_bg_cache()
             self._board_layer_dirty = False
             self._last_board_alpha = current_board_alpha
+        else:
+            # Placement-only change (drag-move commit, undo, paste, etc.):
+            # don't tear down the scene, but the pad-net colour map depends
+            # on which pad each pin lands on — drop the bg display list +
+            # pixmap so they rebuild from the current placements.  Cheap
+            # detection: compare per-component positions against the snapshot
+            # taken at the end of the previous refresh.
+            current_positions = {
+                cid: (pl.position.x, pl.position.y)
+                for cid, pl in self._session.layout.placements.items()
+            }
+            prev_positions = {
+                cid: (p.x, p.y) for cid, p in self._drag_orig_group_pos.items()
+            }
+            if current_positions != prev_positions:
+                self._bg_display_list = None
+                self._invalidate_bg_cache()
 
         # ── Remove stale overlay items (ratsnest + group outlines) ───────────
         for item in self._overlay_items:
@@ -756,10 +852,13 @@ class BoardView(QGraphicsView):
 
         # ── Shared render inputs ─────────────────────────────────────────────
         wire_net_map = self._session.cached_wire_net_map()
-        net_color_map = {
-            net_id: net.color
-            for net_id, net in self._session.schematic.nets.items()
-        }
+        # Resolved per-net colour: manual ``net.color`` wins, then static
+        # palette, then golden-ratio hue spin once palette is exhausted.
+        # Same map drives wire colour AND pad colour so they always match.
+        from protoboard.gui.renderers.net_color import build_net_color_map
+        net_color_map = build_net_color_map(
+            self._session.schematic.nets, theme=_theme,
+        )
         routed: set[uuid.UUID] | None = None
         if self._session.schematic.nets:
             routed = routed_net_ids(
@@ -848,6 +947,11 @@ class BoardView(QGraphicsView):
 
         # ── Label visibility (hide text that would be too small to read) ────────
         self._apply_label_visibility()
+
+        # Scene contents changed — drop the back-side raster cache so the
+        # next paint re-rasterises with current items.  Restores any items
+        # we'd previously hidden so they're available to be re-rendered.
+        self._invalidate_back_cache()
 
         _ms = (time.monotonic() - _t0) * 1000
         self._session.perf.record_refresh(_ms)
@@ -1057,22 +1161,160 @@ class BoardView(QGraphicsView):
             factor = 1.1 ** ticks
         else:
             factor = (1.0 / 1.08) ** (-ticks)
+        factor, hit_floor = self._clamp_zoom_factor(factor)
+        if abs(factor - 1.0) < 1e-6 and not hit_floor:
+            return  # at limit — no scale change, no scroll-bar correction needed
 
         old_scene = self.mapToScene(pivot)
         self.scale(factor, factor)
-        new_scene = self.mapToScene(pivot)
-        delta_scene = new_scene - old_scene
-        new_scale = self.transform().m11()
-        hbar = self.horizontalScrollBar()
-        vbar = self.verticalScrollBar()
-        hbar.setValue(hbar.value() - round(delta_scene.x() * new_scale))
-        vbar.setValue(vbar.value() - round(delta_scene.y() * new_scale))
+        if hit_floor:
+            # Snap to the board's centre on the zoom-out floor so the
+            # user doesn't end up parked over canvas margin.
+            b = self._session.board.bounds
+            self.centerOn(b.x + b.width / 2.0, b.y + b.height / 2.0)
+        else:
+            new_scene = self.mapToScene(pivot)
+            delta_scene = new_scene - old_scene
+            new_scale = self.transform().m11()
+            hbar = self.horizontalScrollBar()
+            vbar = self.verticalScrollBar()
+            hbar.setValue(hbar.value() - round(delta_scene.x() * new_scale))
+            vbar.setValue(vbar.value() - round(delta_scene.y() * new_scale))
         # Zoom changed the world→viewport transform; the cached pixmap
-        # was rendered for the previous mapping.  Mark dirty so the next
-        # paint rebuilds at the new scale.
-        self._invalidate_bg_cache()
+        # was rendered for the previous mapping.  Keep the anchor so a
+        # follow-up tick of the same burst can stretch-blit it instead
+        # of waiting for the new full-quality rebuild.
+        self._invalidate_bg_cache(keep_anchor=True)
         # Defer the O(scene items) visibility sweep — same reasoning
         # as before, just relative to the (now batched) zoom paint.
+        if not self._label_vis_timer.isActive():
+            self._label_vis_timer.start()
+
+    # ------------------------------------------------------------------
+    # Zoom limits — derived from physical DPI + board bounds
+    # ------------------------------------------------------------------
+    #
+    # Two anchors:
+    #   * MAX (zoom in cap): 1 raster cell on screen ≈ 10 × cell-in-real-mm.
+    #     i.e. 10 mm of board occupies ~100 mm of screen.  Equivalent to
+    #     ``m11 == 10 × (px/mm) × pitch_mm`` which simplifies to
+    #     ``physicalDpi`` (since pitch_mm == 2.54 and 1 inch == 25.4 mm).
+    #     For a non-2.54 pitch it scales accordingly.
+    #
+    #   * MIN (zoom out cap): the LATER of two conditions:
+    #       (a) board's long edge spans half the viewport's long edge
+    #           (so the user never zooms out far enough to lose the board
+    #           in canvas chrome);
+    #       (b) board renders at real physical size (1:1 mm-on-screen ==
+    #           mm-on-board) — relevant for tiny boards on big monitors.
+    #     "Later" == whichever gives a LARGER m11 (kicks in first while
+    #     zooming out).
+    #
+    # Limits are cached and recomputed on resizeEvent / board change.
+
+    def _compute_zoom_limits(self) -> tuple[float, float]:
+        """Return ``(m11_min, m11_max)`` for the current viewport + board."""
+        screen = self.screen() or (self.window().screen() if self.window() else None)
+        # ``physicalDotsPerInch`` reports the *true* hardware DPI Qt can
+        # see; falls back to logicalDpi if unavailable (e.g. headless).
+        if screen is not None:
+            phys_dpi = float(screen.physicalDotsPerInch() or 96.0)
+        else:
+            phys_dpi = 96.0
+        pitch_mm = float(self._session.board.raster_pitch_mm)
+        px_per_mm = phys_dpi / 25.4
+        # m11 such that 1 cell == pitch_mm × px_per_mm (real size).
+        m11_real = px_per_mm * pitch_mm
+        # Cap at 10× real size for zoom in.
+        m11_max = 10.0 * m11_real
+
+        # Half-viewport-fit cap: at this scale ``fitInView(board)`` would
+        # show the board centred and filling the viewport exactly along
+        # the *more constrained* axis (width or height, whichever runs
+        # out first).  Use HALF of that — i.e. board fills 50 % of the
+        # visible window — as the zoom-out floor.  Computing it as
+        # ``min(vp_w/board_w, vp_h/board_h)`` matches Qt's own KeepAspectRatio
+        # logic, so the floor and ``fit_board()`` agree visually.
+        b = self._session.board.bounds
+        board_w = max(float(b.width), 1.0)
+        board_h = max(float(b.height), 1.0)
+        vp = self.viewport().rect()
+        vp_w = max(vp.width(), 1)
+        vp_h = max(vp.height(), 1)
+        m11_fit = min(vp_w / board_w, vp_h / board_h)
+        m11_half = 0.5 * m11_fit
+
+        # Both conditions must HOLD for zoom-out to continue → floor is
+        # the EARLIER kicker = the one with the lower m11 (more zoom-out
+        # allowed).  Concretely: stop zoom-out as soon as either
+        # "half viewport" OR "real size" is reached.
+        #   Big board on small window  → m11_half kicks in first (small).
+        #   Small board on big window  → m11_real kicks in first (small).
+        m11_min = min(m11_half, m11_real)
+        # Safety: never let min exceed max (degenerate small viewport).
+        if m11_min > m11_max:
+            m11_min = m11_max
+        return m11_min, m11_max
+
+    def _clamp_zoom_factor(self, factor: float) -> tuple[float, bool]:
+        """Cap *factor* so applying it keeps m11 inside the limit window.
+
+        Returns ``(clamped_factor, hit_floor)`` where *hit_floor* is True
+        when the user pushed zoom-out into (or already past) the minimum
+        scale.  Callers use that to auto-centre the board so the viewport
+        doesn't end up parked over the canvas-margin area.
+        """
+        if factor <= 0.0:
+            return 1.0, False
+        current = abs(self.transform().m11()) or _GRID_PX
+        target = current * factor
+        m11_min, m11_max = self._compute_zoom_limits()
+        hit_floor = False
+        if target > m11_max:
+            target = m11_max
+        elif target < m11_min:
+            target = m11_min
+            hit_floor = True
+        if current <= 0.0:
+            return 1.0, hit_floor
+        return target / current, hit_floor
+
+    def zoom_by(self, factor: float) -> None:
+        """Scale the view by *factor*, keeping the viewport centre fixed.
+
+        Used by keyboard / toolbar zoom actions (Ctrl++ / Ctrl+-).  Plain
+        ``self.scale(...)`` zooms around scene origin (0,0) because the
+        view's TransformationAnchor is ``NoAnchor`` — for wheel zoom we
+        compensate around the cursor; here we compensate around the
+        viewport centre so the user keeps looking at the same spot on the
+        board.  Also invalidates the rasterised background which would
+        otherwise stay frozen at the previous zoom level while scene
+        items rescale.
+        """
+        if factor <= 0.0:
+            return
+        factor, hit_floor = self._clamp_zoom_factor(factor)
+        if abs(factor - 1.0) < 1e-6 and not hit_floor:
+            return  # already at limit — no-op
+        vp = self.viewport().rect()
+        pivot_vp = vp.center()
+        old_scene = self.mapToScene(pivot_vp)
+        self.scale(factor, factor)
+        if hit_floor:
+            # Snap to board centre when hitting the zoom-out floor.
+            b = self._session.board.bounds
+            self.centerOn(b.x + b.width / 2.0, b.y + b.height / 2.0)
+        else:
+            new_scene = self.mapToScene(pivot_vp)
+            delta_scene = new_scene - old_scene
+            new_scale = self.transform().m11()
+            hbar = self.horizontalScrollBar()
+            vbar = self.verticalScrollBar()
+            hbar.setValue(hbar.value() - round(delta_scene.x() * new_scale))
+            vbar.setValue(vbar.value() - round(delta_scene.y() * new_scale))
+        # Ctrl+/- zoom: keep the anchor so successive presses paint
+        # cheaply during the burst, then settle to a fresh pixmap.
+        self._invalidate_bg_cache(keep_anchor=True)
         if not self._label_vis_timer.isActive():
             self._label_vis_timer.start()
 
@@ -1097,10 +1339,16 @@ class BoardView(QGraphicsView):
                 )
 
     def paintEvent(self, event: object) -> None:  # type: ignore[override]
-        _t0 = time.monotonic() if _CLICK_PROFILE else 0.0
+        # Always measure paintEvent wall time — PerformancePanel reads it
+        # via session.perf.paint_ms.  The click-profile log is gated on
+        # the env var so the always-on cost is one ``monotonic()`` call.
+        _t0 = time.monotonic()
         super().paintEvent(event)  # type: ignore[arg-type]
+        paint_ms = (time.monotonic() - _t0) * 1000.0
+        # Persist total paint wall time on the perf metrics WITHOUT
+        # touching the per-layer fields drawBackground already filled in.
+        self._session.perf.paint_ms = paint_ms
         if _CLICK_PROFILE:
-            paint_ms = round((time.monotonic() - _t0) * 1000, 1)
             press_ts = getattr(self, "_click_press_ts", None)
             if press_ts is not None and (time.monotonic() - press_ts) < 1.0:
                 # Only log paints temporally close to a click — otherwise
@@ -1108,7 +1356,7 @@ class BoardView(QGraphicsView):
                 since_press_ms = round((time.monotonic() - press_ts) * 1000, 1)
                 _click_log.info(
                     "click_profile.boardview.paintEvent",
-                    paint_ms=paint_ms,
+                    paint_ms=round(paint_ms, 1),
                     since_press_ms=since_press_ms,
                 )
 
@@ -1117,40 +1365,152 @@ class BoardView(QGraphicsView):
     # ------------------------------------------------------------------
 
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:  # type: ignore[override]
-        """Paint the static board layer from a cached viewport pixmap.
+        """Paint the layered background — board sandwich + back-side cache.
 
-        The board layer (pads, holes, strip tracks, isolated-strip Xs,
-        box frames) is rasterised once into a viewport-sized ``QPixmap``
-        and blitted on every paint.  Cache is invalidated by
-        ``_invalidate_bg_cache`` whenever board geometry, theme, or the
-        viewport / transform changes.
+        Composition order (bottom → top):
 
-        Fills the background brush first so the board pixmap can be
-        transparent outside the actual board area (e.g. zoomed-out
-        view shows the canvas colour around the board).
+        1. ``backgroundBrush`` — fill viewport.
+        2. ``_bg_cache`` (board base) — full board at ``alpha_for_board()``.
+        3. ``_back_cache`` — rasterised back-side scene items.  While the
+           cache is valid the corresponding scene items are hidden so Qt
+           does not paint them a second time on top of the board mid.
+        4. ``_bg_cache`` (board mid) — same pixmap as board base, blitted
+           again at ``alpha_for_board_mid()`` so front-side items visually
+           sit on the pads while back items underneath remain readable.
+
+        Front-side scene items continue through Qt's scene paint pass on
+        top of this stack.
+
+        Fills the background brush first so transparent regions of the
+        board cache (zoomed-out view) show the canvas colour.
         """
         painter.save()
         painter.resetTransform()
         painter.fillRect(self.viewport().rect(), self.backgroundBrush())
         painter.restore()
-        # Build the cache on first use or after invalidation.
-        self._ensure_bg_cache()
-        if self._bg_cache is None:
+
+        # Per-layer timings — surface in PerformancePanel.  Build times
+        # come from the _ensure_* helpers (0.0 when cache was fresh),
+        # blit_ms wraps the actual drawPixmap calls.
+        bg_build_ms = 0.0
+        back_build_ms = 0.0
+        _blit_t0 = time.monotonic()
+
+        in_burst = self._wheel_timer.isActive() or self._pan_burst_timer.isActive()
+        if in_burst and self._bg_cache_anchor is not None:
+            # Cheap preview: blit the previous full-quality pixmap under
+            # the inverse transform delta.  Qt handles the scale/translate
+            # in the GPU/blit stage so the pan/zoom feels instant.  We
+            # explicitly do NOT call ``_ensure_bg_cache`` here — that would
+            # negate the whole point of the fast preview.
+            from PySide6.QtGui import QTransform
+            anchor_t: QTransform = self._bg_cache_anchor_transform  # type: ignore[assignment]
+            cur_t = self.viewportTransform()
+            # World-space coords mapped by current transform must land where
+            # anchor-rendered pixels were placed; the bridging transform is
+            # ``cur_t × anchor_t.inverted()`` applied in device coords.
+            # PySide6 returns (QTransform, bool) — opposite to the Qt
+            # C++ docs (which read like ``bool inverted(*ok)``).  Unpack
+            # accordingly.
+            anchor_inv, inv_ok = anchor_t.inverted()
+            if inv_ok:
+                bridge = anchor_inv * cur_t
+                painter.save()
+                painter.setTransform(bridge)
+                painter.drawPixmap(0, 0, self._bg_cache_anchor)  # type: ignore[arg-type]
+                # The back-side cache was rasterised under the SAME
+                # anchor transform as the board pixmap, so the same
+                # bridge maps it correctly — without this the back-side
+                # items (back wires + group outlines, both zValue<Z_BOARD)
+                # appear at the old transform while the rest of the
+                # scene rescales, which looks like they're "drawn late".
+                if self._back_cache is not None:
+                    painter.setOpacity(1.0)
+                    painter.drawPixmap(0, 0, self._back_cache)  # type: ignore[arg-type]
+                painter.restore()
+            self._session.perf.record_paint(
+                bg_build_ms=0.0,
+                back_build_ms=0.0,
+                blit_ms=(time.monotonic() - _blit_t0) * 1000.0,
+                paint_ms=0.0,  # paintEvent overwrites with total
+            )
             return
-        # Pixmap is sized to and aligned with the viewport (device
-        # coords).  Reset the painter's transform so we blit at 1:1
-        # device pixels, then restore so subsequent scene-item paints
-        # use the original world transform.
+
+        bg_build_ms = self._ensure_bg_cache()
+        back_build_ms = self._ensure_back_cache()
+        # Reset blit timer so the per-layer build cost above doesn't
+        # leak into the "blit only" metric reported below.
+        _blit_t0 = time.monotonic()
+
+        # Snapshot the freshly-rebuilt pixmap + transform as the anchor
+        # for the next burst.  Cheap — we're already holding both refs.
+        if self._bg_cache is not None:
+            self._bg_cache_anchor = self._bg_cache
+            self._bg_cache_anchor_transform = self.viewportTransform()
+
+        # Resolve current layer alphas — single LayerState round-trip per paint.
+        layers = layer_state_for_tool(
+            self._active_tool,
+            self._camera_side,  # type: ignore[arg-type]
+            self._view_transform,  # type: ignore[arg-type]
+            overrides=self._layer_overrides,
+            theme=self._theme_override or DEFAULT_THEME,
+        )
+        alpha_base = layers.alpha_for_board()
+        alpha_mid = layers.alpha_for_board_mid()
+
+        # Pixmaps are sized to and aligned with the viewport (device coords).
         painter.save()
         painter.resetTransform()
-        painter.drawPixmap(0, 0, self._bg_cache)  # type: ignore[arg-type]
+        if self._bg_cache is not None and alpha_base > 0.0:
+            painter.setOpacity(alpha_base)
+            painter.drawPixmap(0, 0, self._bg_cache)  # type: ignore[arg-type]
+        if self._back_cache is not None:
+            painter.setOpacity(1.0)
+            painter.drawPixmap(0, 0, self._back_cache)  # type: ignore[arg-type]
+        if self._bg_cache is not None and alpha_mid > 0.0:
+            painter.setOpacity(alpha_mid)
+            painter.drawPixmap(0, 0, self._bg_cache)  # type: ignore[arg-type]
+        painter.setOpacity(1.0)
         painter.restore()
 
-    def _invalidate_bg_cache(self) -> None:
-        """Mark the background cache stale; next paint will rebuild it."""
-        self._bg_cache_dirty = True
+        self._session.perf.record_paint(
+            bg_build_ms=bg_build_ms,
+            back_build_ms=back_build_ms,
+            blit_ms=(time.monotonic() - _blit_t0) * 1000.0,
+            paint_ms=0.0,  # paintEvent overwrites with total
+        )
 
-    def _ensure_bg_cache(self) -> None:
+    def _on_pan_settled(self) -> None:
+        """Force a paint right after a pan burst ends so the user sees the
+        fresh full-quality pixmap immediately instead of waiting for the
+        next event-driven repaint."""
+        self.viewport().update()
+
+    def _invalidate_bg_cache(self, *, keep_anchor: bool = False) -> None:
+        """Mark the background cache stale; next paint will rebuild it.
+
+        *keep_anchor* preserves ``_bg_cache_anchor`` (the previous fresh
+        pixmap + its viewport transform) so a stale-blit during the
+        wheel/pan burst can still show something useful.  Set False for
+        invalidations where the anchor itself is wrong — theme change,
+        camera-side flip, layer overrides that alter the pixmap content,
+        board geometry edits.  Set True for pan/zoom/resize where the
+        anchor pixmap is still a valid (just mis-scaled) snapshot.
+        """
+        self._bg_cache_dirty = True
+        # Back cache shares viewport transform with board cache — any
+        # invalidation that affects board cache also affects back cache.
+        self._back_cache_dirty = True
+        if not keep_anchor:
+            self._bg_cache_anchor = None
+            self._bg_cache_anchor_transform = None
+
+    def _invalidate_back_cache(self) -> None:
+        """Mark only the back-side cache stale."""
+        self._back_cache_dirty = True
+
+    def _ensure_bg_cache(self) -> float:
         """Rebuild the cached pixmap if dirty or viewport-resized.
 
         The pixmap is sized to the current viewport in device pixels
@@ -1158,12 +1518,16 @@ class BoardView(QGraphicsView):
         ``QPainter`` whose transform matches the view's world→viewport
         mapping.  A viewport resize or any board-state change marks the
         cache dirty.
+
+        Returns the build wall time in milliseconds (0.0 when the cache
+        was already fresh) so the paint pipeline can surface it in the
+        PerformancePanel.
         """
         if self._session is None:
-            return
+            return 0.0
         vp_size = self.viewport().size()
         if vp_size.width() <= 0 or vp_size.height() <= 0:
-            return
+            return 0.0
 
         need_rebuild = (
             self._bg_cache_dirty
@@ -1172,12 +1536,14 @@ class BoardView(QGraphicsView):
                 and self._bg_cache.size() != vp_size)
         )
         if not need_rebuild:
-            return
+            return 0.0
+        _t0 = time.monotonic()
 
         # Build display list if missing (board / theme / alpha changes
         # clear _bg_display_list; pure viewport resize does not).
         if self._bg_display_list is None:
             from protoboard.gui.layer_state import LayerState as _LayerState
+            from protoboard.gui.renderers.board_renderer import build_pad_net_map
             _base = self._theme_override if self._theme_override is not None else DEFAULT_THEME
             from dataclasses import replace as _dc_replace
             layers = layer_state_for_tool(
@@ -1190,8 +1556,23 @@ class BoardView(QGraphicsView):
             _theme = _dc_replace(_base,
                                  raster_pitch_mm=self._session.board.raster_pitch_mm,
                                  body_types=self._session.body_types)
+            # Reuse the same resolved colour map the wire renderer uses,
+            # so a wire and the pad it lands on share an identical colour.
+            from protoboard.gui.renderers.net_color import build_net_color_map
+            pad_color_map = build_net_color_map(
+                self._session.schematic.nets, theme=_theme,
+            )
+            pad_net_map = build_pad_net_map(
+                self._session.layout.placements,
+                self._session.instances,
+                self._session.components,
+                self._session.schematic,
+                theme=_theme,
+                net_color_map=pad_color_map,
+            )
             self._bg_display_list = build_board_display_list(
                 self._session.board, theme=_theme, layers=layers,
+                pad_net_map=pad_net_map,
             )
 
         # Allocate a fresh pixmap matching the viewport device size.
@@ -1199,7 +1580,7 @@ class BoardView(QGraphicsView):
         pix.fill(Qt.GlobalColor.transparent)
         painter = QPainter(pix)
         try:
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, self._antialiasing)
             # Apply the same world→viewport transform that QGraphicsView
             # uses for scene items so display-list coordinates land in
             # the right place on the pixmap.
@@ -1209,24 +1590,129 @@ class BoardView(QGraphicsView):
             painter.end()
         self._bg_cache = pix
         self._bg_cache_dirty = False
+        return (time.monotonic() - _t0) * 1000.0
+
+    def _ensure_back_cache(self) -> float:
+        """Rebuild the back-side cache pixmap if dirty.
+
+        Walks scene items with ``zValue`` in the back band (0 ≤ z < Z_BOARD),
+        hides them, renders the scene to a pixmap, then leaves them hidden
+        so Qt's own scene paint pass doesn't draw them a second time on top
+        of the board mid blit.  The list of hidden items is kept on
+        ``self._back_hidden_items`` so the next invalidation can restore
+        their visibility before rebuilding (their content may have changed).
+
+        Returns build wall time in milliseconds (0.0 when cache was fresh
+        or there were no back items to draw).
+        """
+        from protoboard.gui.layer_state import Z_BOARD
+        if self._session is None:
+            return 0.0
+        vp_size = self.viewport().size()
+        if vp_size.width() <= 0 or vp_size.height() <= 0:
+            return 0.0
+
+        need_rebuild = (
+            self._back_cache_dirty
+            or self._back_cache is None
+            or (isinstance(self._back_cache, QPixmap)
+                and self._back_cache.size() != vp_size)
+        )
+        if not need_rebuild:
+            return 0.0
+        _t0 = time.monotonic()
+
+        # Restore previously-hidden items so a rebuild on changed content
+        # picks up the new state.
+        for it in getattr(self, "_back_hidden_items", []):
+            try:
+                it.setVisible(True)
+            except RuntimeError:
+                pass  # underlying C++ object gone
+        self._back_hidden_items = []
+
+        # Collect back-side items in scene Z order.
+        back_items = [
+            it for it in self._scene.items()
+            if 0.0 <= it.zValue() < Z_BOARD - 1e-6
+        ]
+        if not back_items:
+            self._back_cache = None
+            self._back_cache_dirty = False
+            return (time.monotonic() - _t0) * 1000.0
+
+        pix = QPixmap(vp_size)
+        pix.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pix)
+        # Hide front + overlay items during the render pass.  Easiest
+        # approach: temporarily flip visibility on EVERYTHING that is NOT
+        # in back_items, render, then restore.  Using setVisible on
+        # currently-invisible items is cheap (just a flag flip).
+        back_set = set(map(id, back_items))
+        temporarily_hidden: list[object] = []
+        try:
+            for it in self._scene.items():
+                if id(it) not in back_set and it.isVisible():
+                    it.setVisible(False)
+                    temporarily_hidden.append(it)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, self._antialiasing)
+            # Source rect = current visible scene area in scene coords.
+            source = self.mapToScene(self.viewport().rect()).boundingRect()
+            target = QRectF(0.0, 0.0, float(vp_size.width()), float(vp_size.height()))
+            self._scene.render(painter, target, source)
+        finally:
+            painter.end()
+            for it in temporarily_hidden:
+                try:
+                    it.setVisible(True)
+                except RuntimeError:
+                    pass
+        # Hide back items permanently until the next invalidation so Qt
+        # doesn't repaint them on top of board_mid in the scene pass.
+        for it in back_items:
+            try:
+                it.setVisible(False)
+                self._back_hidden_items.append(it)
+            except RuntimeError:
+                pass
+
+        self._back_cache = pix
+        self._back_cache_dirty = False
+        return (time.monotonic() - _t0) * 1000.0
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # type: ignore[override]
         super().resizeEvent(event)
         # Viewport changed size — cache pixmap no longer matches; just
         # mark dirty so the next paint rebuilds it.  Display list is
-        # geometry-only and survives viewport size changes.
-        self._invalidate_bg_cache()
+        # geometry-only and survives viewport size changes.  Keep the
+        # anchor so a burst of resize events (Qt batches window-drag)
+        # can fall back on the previous full-quality pixmap stretched
+        # to the new viewport.
+        self._invalidate_bg_cache(keep_anchor=True)
+        # Resizing changes the half-viewport-fit zoom-out floor; if the
+        # current zoom has slid below the new floor, snap back to it so
+        # the user doesn't end up with a board lost in canvas chrome.
+        try:
+            m11_min, m11_max = self._compute_zoom_limits()
+            current = abs(self.transform().m11())
+            if current and (current < m11_min - 1e-6 or current > m11_max + 1e-6):
+                self._apply_view_transform()
+        except Exception:  # noqa: BLE001
+            pass
 
     def scrollContentsBy(self, dx: int, dy: int) -> None:  # type: ignore[override]
-        """Invalidate the bg cache on every pan.
+        """Invalidate the bg cache on every pan, restart the pan-burst timer.
 
         The cached pixmap was rasterised at the previous scroll offset
         (the world→viewport transform encodes scroll position).  Without
         invalidation the user would see the board frozen at the
-        scroll-start position while items above pan correctly.
+        scroll-start position while items above pan correctly.  We keep
+        the anchor pixmap so ``drawBackground`` can blit-and-stretch it
+        during the active burst, then rebuild fresh once the burst ends.
         """
         super().scrollContentsBy(dx, dy)
-        self._invalidate_bg_cache()
+        self._invalidate_bg_cache(keep_anchor=True)
+        self._pan_burst_timer.start()
 
     def _mousePressEvent_impl(self, event: QMouseEvent) -> None:
         ctrl = event.modifiers() & Qt.KeyboardModifier.ControlModifier

@@ -75,9 +75,10 @@ def render_axis_labels(
     # Axis labels live on the canvas outside the board, so the surrounding
     # board_bg colour is the right background — nothing underneath the label
     # could be obscured by it.  Text colour is its own theme entry so the
-    # default stays readable against a dark canvas.
+    # default stays readable against a dark canvas.  Layer alpha is applied
+    # only to the bg pill; text keeps its theme alpha so dimmed axis labels
+    # stay legible.
     text_color = QColor(theme.axis_label_color)
-    text_color.setAlphaF(text_color.alphaF() * alpha)
     bg_color = QColor(theme.board_bg)
     bg_color.setAlphaF(bg_color.alphaF() * alpha)
 

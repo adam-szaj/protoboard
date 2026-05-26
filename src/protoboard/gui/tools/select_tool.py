@@ -828,11 +828,21 @@ class SelectTool(_Tool):
         self._floating_decision = None
         self._floating_severity = "clear"
         if cmds:
-            if len(cmds) == 1:
-                self._session.stack.execute(cmds[0], self._session)
-            else:
-                macro = MacroCommand(cmds, description="Move component")
-                self._session.stack.execute(macro, self._session)
+            from protoboard.domain.commands.base import CommandRejectedError
+            try:
+                if len(cmds) == 1:
+                    self._session.stack.execute(cmds[0], self._session)
+                else:
+                    macro = MacroCommand(cmds, description="Move component")
+                    self._session.stack.execute(macro, self._session)
+            except CommandRejectedError:
+                # Autoroute is running — drop the drag silently.  The
+                # status bar already explains why mutating actions are
+                # disabled; the floating component snaps back to its
+                # source position via the next refresh().
+                if self._view is not None:
+                    self._view.refresh()
+                return
             self._session.layout_changed.emit()
             # Toast about removed wires (Ctrl+Z to undo).
             if n_removed:
@@ -1375,6 +1385,10 @@ class SelectTool(_Tool):
                 ]
 
             self._session.drag_moved.emit()
+            # Move selection-rect highlights with the dragged components so
+            # the frame tracks the new position instead of staying behind.
+            if self._multi_highlights:
+                self._redraw_multi_highlights()
             self._update_drag_overlay(drag_ids, anchor_new)
             # Debounce full classify_drag_commit pass: restart on each snap
             # change.  Fires 1 s after the user stops moving.

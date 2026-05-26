@@ -176,6 +176,50 @@ class RemoveComponentCommand(Command[SchematicState]):
                 )
 
 
+def _enrich_insulated_with_pad_nodes(
+    wire: WireSegment, board: Board,
+) -> WireSegment:
+    """Insert board-pad positions into the path of an *insulated* wire.
+
+    An insulated wire that crosses a pad geometrically between two of its
+    recorded vertices has no "handle" at that pad — simplify, unweave and
+    interactive edits cannot manipulate the path there.  Inserting an
+    explicit pad-vertex at each crossed pad gives downstream tools the
+    nodes they need.  Idempotent — pads already on the path are not
+    duplicated.
+
+    Bare wires are returned unchanged — they're produced with pad-vertices
+    by their callers (RouteTool's ``insert_pad_nodes`` enrichment, A*
+    step-by-step paths) and the bare-diagonal parity model relies on the
+    caller-controlled vertex set.
+
+    A new ``WireSegment`` is returned only when the path actually grows;
+    otherwise the input is returned as-is.  The wire's id is preserved
+    so callers comparing by identity stay consistent.
+    """
+    if not wire.insulated:
+        return wire
+    from protoboard.domain.layout.wire_utils import (
+        board_pads_for_side,
+        insert_pad_nodes,
+    )
+    # Insulated wires sit on one side; their endpoints solder to that side's
+    # pads.  Pads from BOTH sides are relevant for vertex insertion because
+    # the wire's geometric path may pass over a pad that physically exists
+    # on either side (plated-through pads in particular).  Take the union.
+    pads = board_pads_for_side(board, "top") | board_pads_for_side(board, "bottom")
+    new_path = insert_pad_nodes(list(wire.path), pads)
+    if len(new_path) == len(wire.path):
+        return wire
+    return WireSegment(
+        id=wire.id,
+        path=new_path,
+        insulated=wire.insulated,
+        side=wire.side,
+        color=wire.color,
+    )
+
+
 @dataclass
 class AddWireCommand(Command[ComponentState]):
     wire: WireSegment
@@ -185,6 +229,10 @@ class AddWireCommand(Command[ComponentState]):
         return "Add wire"
 
     def apply(self, state: ComponentState) -> None:
+        # Enrich insulated wires with pad-position vertices so simplify /
+        # unweave / edit tools have nodes at every pad the wire physically
+        # crosses.  Idempotent — redo doesn't re-grow the path.
+        self.wire = _enrich_insulated_with_pad_nodes(self.wire, state.board)
         state.layout.wires.append(self.wire)
 
     def revert(self, state: ComponentState) -> None:
@@ -232,6 +280,9 @@ class AddWireWithNetsCommand(Command[ComponentState]):
         self._nets_after[net_id] = after
 
     def apply(self, state: ComponentState) -> None:
+        # Enrich insulated wires the same way AddWireCommand does — single
+        # chokepoint for every wire-creation path.
+        self.wire = _enrich_insulated_with_pad_nodes(self.wire, state.board)
         state.layout.wires.append(self.wire)
         if self._first_apply:
             # Net mutations already applied by resolver — nothing more to do.
@@ -301,6 +352,20 @@ class ReplaceWireSegmentCommand(Command[ComponentState]):
         for wire in state.layout.wires:
             if wire.id == self.wire_id:
                 self._old_path = self.old_path if self.old_path else list(wire.path)
+                # Enrich insulated wires with pad-position vertices (same
+                # invariant as AddWireCommand / load_project migration).
+                # Idempotent — already-enriched paths grow no further.
+                # Skip if state lacks a board (lightweight test stubs).
+                board = getattr(state, "board", None)
+                if wire.insulated and board is not None:
+                    from protoboard.domain.layout.wire_utils import (
+                        board_pads_for_side, insert_pad_nodes,
+                    )
+                    pads = (
+                        board_pads_for_side(board, "top")
+                        | board_pads_for_side(board, "bottom")
+                    )
+                    self.new_path = insert_pad_nodes(self.new_path, pads)
                 wire.path = self.new_path
                 return
         raise KeyError(f"Wire {self.wire_id} not found")
