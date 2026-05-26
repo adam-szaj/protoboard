@@ -621,6 +621,115 @@ class LockComponentCommand(Command[ComponentState]):
 
 
 # ---------------------------------------------------------------------------
+# v2 — Wire / Knot / Fragment commands (operate on Layout.wires_v2 + knots)
+# ---------------------------------------------------------------------------
+
+
+from protoboard.domain.layout.knot import JointKnot as _JointKnot
+from protoboard.domain.layout.knot import Knot as _Knot
+from protoboard.domain.layout.wire import Fragment as _Fragment
+from protoboard.domain.layout.wire import Wire as _Wire
+
+
+@dataclass
+class AddWireV2Command(Command[ComponentState]):
+    """Add a v2 ``Wire`` to ``Layout.wires_v2`` along with any knots it needs.
+
+    Knots already present in ``Layout.knots`` are reused; missing knots are
+    expected to be supplied in ``extra_knots`` (typically fresh JointKnots
+    created by the caller before issuing the command).  PinKnots for the
+    endpoints should be looked up via ``Layout.get_or_create_pin_knot``
+    before constructing the command.
+    """
+
+    wire: _Wire
+    extra_knots: list[_Knot] = field(default_factory=list)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Add wire (v2)"
+
+    def apply(self, state: ComponentState) -> None:
+        for k in self.extra_knots:
+            state.layout.knots.setdefault(k.id, k)
+        state.layout.add_wire_v2(self.wire)
+
+    def revert(self, state: ComponentState) -> None:
+        state.layout.remove_wire_v2(self.wire.id)
+        for k in self.extra_knots:
+            if isinstance(k, _JointKnot):
+                state.layout.knots.pop(k.id, None)
+
+
+@dataclass
+class RemoveWireV2Command(Command[ComponentState]):
+    """Remove a v2 ``Wire`` from ``Layout.wires_v2``; orphan JointKnots removed.
+
+    Stores the original ``Wire`` so ``revert`` can restore it; also records
+    the orphan knots that were dropped so undo restores them.
+    """
+
+    wire_id: uuid.UUID
+    _saved_wire: _Wire | None = field(default=None, init=False, repr=False)
+    _saved_orphan_knots: list[_Knot] = field(default_factory=list, init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Remove wire (v2)"
+
+    def apply(self, state: ComponentState) -> None:
+        wire = state.layout.wires_v2.get(self.wire_id)
+        if wire is None:
+            return
+        orphans: list[_Knot] = []
+        for ref in (wire.a, wire.b):
+            knot = state.layout.knots.get(ref.id)
+            if isinstance(knot, _JointKnot) and knot.wire_ids == frozenset({wire.id}):
+                orphans.append(knot)
+        self._saved_wire = wire
+        self._saved_orphan_knots = orphans
+        state.layout.remove_wire_v2(self.wire_id)
+
+    def revert(self, state: ComponentState) -> None:
+        if self._saved_wire is None:
+            return
+        for k in self._saved_orphan_knots:
+            state.layout.knots.setdefault(k.id, k)
+        state.layout.add_wire_v2(self._saved_wire)
+
+
+@dataclass
+class ReplaceWireFragmentsCommand(Command[ComponentState]):
+    """Replace ``Wire.fragments`` in place — preserving ``Wire.id``.
+
+    This is the explicit v2 counterpart of the path-edit operations
+    (simplify, unweave, nudge, …) that today mutate WireSegment.path or
+    mint fresh segments.  Identity stays stable; highlight, recording and
+    undo follow.
+    """
+
+    wire_id: uuid.UUID
+    new_fragments: tuple[_Fragment, ...]
+    _saved_fragments: tuple[_Fragment, ...] = field(default=(), init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Replace wire fragments"
+
+    def apply(self, state: ComponentState) -> None:
+        wire = state.layout.wires_v2.get(self.wire_id)
+        if wire is None:
+            return
+        self._saved_fragments = wire.fragments
+        state.layout.replace_wire_fragments(self.wire_id, self.new_fragments)
+
+    def revert(self, state: ComponentState) -> None:
+        if not self._saved_fragments:
+            return
+        state.layout.replace_wire_fragments(self.wire_id, self._saved_fragments)
+
+
+# ---------------------------------------------------------------------------
 # Wire-update helper (used by MoveComponentCommand)
 # ---------------------------------------------------------------------------
 

@@ -2326,8 +2326,9 @@ def _nudge_wire(
             return None
 
     from typing import cast, Literal as _Lit
+    # Preserve wire id — nudge is a translation of the same logical wire.
     return WireSegment(
-        id=uuid.uuid4(),
+        id=wire.id,
         path=new_path,
         insulated=wire.insulated,
         side=cast(_Lit["top", "bottom"], wire.side),
@@ -2472,8 +2473,10 @@ def _try_mid_cell_reroute(
         # A WireSegment requires ≥ 2 points; skip these.
         if len(new_path) < 2:
             continue
+        # Preserve wire id — mid-cell reroute is an alternative path for
+        # the same logical wire.
         new_wire = WireSegment(
-            id=uuid.uuid4(),
+            id=wire.id,
             path=new_path,
             insulated=wire.insulated,
             side=wire.side,

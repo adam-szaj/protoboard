@@ -150,6 +150,7 @@ class DRCEngine:
             components=components,
             instances=instances,
             graph=graph,
+            board=board,
             axis_labels=axis_labels,
         )
 
@@ -162,6 +163,7 @@ class DRCEngine:
         graph: ConnectivityGraph,
         cancel_flag: threading.Event | None = None,
         axis_labels: AxisLabelSettings | None = None,
+        board: Board | None = None,
     ) -> list[DRCIssue]:
         # Cancellation: callers running the engine off the main thread
         # pass an Event; the engine bails between checks and inside the
@@ -191,6 +193,10 @@ class DRCEngine:
         issues += _check_bare_wire_interior_cross(
             layout, graph, axis_labels, cancel_flag=cancel_flag,
         )
+        if _cancelled():
+            return issues
+        if board is not None:
+            issues += _check_off_pad_joint(layout, board=board, axis_labels=axis_labels)
         counts: dict[str, int] = {"error": 0, "warning": 0, "info": 0}
         for iss in issues:
             counts[iss.severity] = counts.get(iss.severity, 0) + 1
@@ -594,3 +600,59 @@ def _check_missing_net(
             )
         )
     return issues
+
+
+def _check_off_pad_joint(
+    layout: Layout,
+    board: Board,
+    axis_labels: AxisLabelSettings | None,
+) -> list[DRCIssue]:
+    """v2-model invariant: every JointKnot must sit on a board pad.
+
+    Off-pad t-joints are physically meaningless — the wires meeting there
+    would not actually be in galvanic contact.  Migration from legacy
+    projects can generate them when a wire endpoint sits mid-trace
+    between pads (typically a data-entry error).  This check surfaces
+    each as an error so the user can resolve them by hand.
+    """
+    from protoboard.domain.layout.knot import JointKnot
+    from protoboard.domain.layout.wire_utils import board_pads_for_side
+
+    if not layout.knots:
+        return []
+    all_pads = (
+        board_pads_for_side(board, "top")
+        | board_pads_for_side(board, "bottom")
+    )
+    issues: list[DRCIssue] = []
+    for knot in layout.knots.values():
+        if not isinstance(knot, JointKnot):
+            continue
+        pos = knot.position
+        if _point_on_pads(pos, all_pads):
+            continue
+        affected_wires = [wid for wid in knot.wire_ids]
+        loc_label = _format_location(pos, axis_labels)
+        issues.append(
+            DRCIssue(
+                severity="error",
+                code="OFF_PAD_JOINT",
+                message=(
+                    f"T-joint at {loc_label} is not on any board pad. "
+                    f"Move the joint or remove the wires meeting there."
+                ),
+                locations=[pos],
+                affected_nets=[],
+                affected_wires=affected_wires,
+            )
+        )
+    return issues
+
+
+def _point_on_pads(point: Point, pads: "set[Point]", tol: float = 1e-6) -> bool:
+    if point in pads:
+        return True
+    for p in pads:
+        if abs(p.x - point.x) < tol and abs(p.y - point.y) < tol:
+            return True
+    return False

@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Fragment, Wire, WireSegment
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
@@ -210,6 +210,180 @@ def _build_wire_group(
 
     grp.setZValue(z_base)
     return grp
+
+
+# ---------------------------------------------------------------------------
+# v2 — Wire / Fragment-aware rendering
+# ---------------------------------------------------------------------------
+
+
+def wire_fingerprint_v2(
+    wire: Wire,
+    net_id: uuid.UUID | None,
+    color_override: str | None,
+    z_base: float,
+    base_alpha: float = 1.0,
+    is_bold: bool = False,
+) -> tuple[object, ...]:
+    """Fingerprint for a v2 Wire — accounts for every fragment's side+path.
+
+    The whole wire is one render group, so a single rebuild trigger
+    captures all fragments at once.  ``z_base``/``base_alpha`` come from
+    the *first* fragment's side; per-fragment Z is applied during build
+    (so a top fragment in a mostly-bottom wire still renders above the
+    board layer).
+    """
+    return (
+        tuple(
+            (f.side, tuple((p.x, p.y) for p in f.path))
+            for f in wire.fragments
+        ),
+        wire.insulated,
+        net_id,
+        color_override,
+        round(z_base, 4),
+        round(base_alpha, 4),
+        is_bold,
+    )
+
+
+def update_wire_groups_v2(
+    scene: QGraphicsScene,
+    wires: list[Wire],
+    wire_net_map: dict[uuid.UUID, uuid.UUID],
+    existing_groups: dict[uuid.UUID, QGraphicsItemGroup],
+    existing_fingerprints: dict[uuid.UUID, tuple[object, ...]],
+    net_color_map: dict[uuid.UUID, str | None] | None = None,
+    theme: Theme = DEFAULT_THEME,
+    layers: LayerState = _DEFAULT_LAYERS,
+    highlighted_net_id: uuid.UUID | None = None,
+) -> None:
+    """v2 counterpart of ``update_wire_groups`` operating on ``Wire`` objects."""
+    new_ids = {w.id for w in wires}
+    for wid in list(existing_groups):
+        if wid not in new_ids:
+            scene.removeItem(existing_groups.pop(wid))
+            existing_fingerprints.pop(wid, None)
+
+    for wire in wires:
+        net_id = wire_net_map.get(wire.id)
+        color_override: str | None = (
+            net_color_map.get(net_id) if net_id is not None and net_color_map else None
+        )
+        # Z and alpha follow the FIRST fragment's side; per-fragment Z is
+        # applied during build so other-side fragments render at the
+        # correct depth.
+        side = wire.fragments[0].side
+        base_alpha = layers.alpha_for_wire(side)
+        z_base = layers.z_for_wire(side)
+        is_bold = (
+            highlighted_net_id is not None
+            and net_id is not None
+            and net_id == highlighted_net_id
+        )
+        fp = wire_fingerprint_v2(wire, net_id, color_override, z_base, base_alpha, is_bold)
+
+        if wire.id in existing_groups:
+            if existing_fingerprints.get(wire.id) != fp:
+                scene.removeItem(existing_groups.pop(wire.id))
+                existing_fingerprints.pop(wire.id, None)
+                if base_alpha == 0.0:
+                    continue
+                grp = _build_wire_group_v2(
+                    wire, net_id, color_override, base_alpha, z_base, theme,
+                    layers, glow=False, bold=is_bold,
+                )
+                scene.addItem(grp)
+                existing_groups[wire.id] = grp
+                existing_fingerprints[wire.id] = fp
+            else:
+                grp = existing_groups[wire.id]
+        else:
+            if base_alpha == 0.0:
+                continue
+            grp = _build_wire_group_v2(
+                wire, net_id, color_override, base_alpha, z_base, theme,
+                layers, glow=False, bold=is_bold,
+            )
+            scene.addItem(grp)
+            existing_groups[wire.id] = grp
+            existing_fingerprints[wire.id] = fp
+
+        net_alpha = 1.0 if highlighted_net_id is None or is_bold else theme.highlight_dim_wires
+        existing_groups[wire.id].setOpacity(net_alpha)
+
+
+def _build_wire_group_v2(
+    wire: Wire,
+    net_id: uuid.UUID | None,
+    color_override: str | None,
+    alpha: float,
+    z_base: float,
+    theme: Theme,
+    layers: LayerState,
+    glow: bool,
+    bold: bool = False,
+) -> QGraphicsItemGroup:
+    """Build a QGraphicsItemGroup for one v2 Wire — one group, N fragments."""
+    grp = QGraphicsItemGroup()
+    color = _net_color(net_id, color_override, theme)
+    if alpha < 1.0:
+        color = _dim(color, alpha)
+
+    for frag in wire.fragments:
+        pts = list(frag.path)
+        # Use the fragment's own side for Z so a top fragment in a wire
+        # whose first side is bottom still renders above the board layer.
+        frag_alpha = layers.alpha_for_wire(frag.side)
+        frag_z = layers.z_for_wire(frag.side)
+        frag_color = QColor(color)
+        if frag_alpha < 1.0:
+            frag_color = _dim(frag_color, frag_alpha / max(alpha, 1e-6))
+
+        if glow:
+            glow_color = _net_color(net_id, color_override, theme)
+            glow_color.setAlphaF(theme.route_glow_wire_alpha * alpha)
+            glow_pen = QPen(glow_color, theme.route_glow_wire_width)
+            glow_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            glow_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            for i in range(len(pts) - 1):
+                x1, y1 = pts[i].x, pts[i].y
+                x2, y2 = pts[i + 1].x, pts[i + 1].y
+                g = QGraphicsLineItem(x1, y1, x2, y2)
+                g.setPen(glow_pen)
+                g.setZValue(frag_z - 0.1)
+                grp.addToGroup(g)
+
+        if wire.insulated:
+            _fill_insulated(grp, pts, frag_color, frag_z, theme, bold=bold)
+        else:
+            _fill_bare(grp, pts, frag_color, frag_z, theme, bold=bold)
+
+    # Via markers at fragment boundaries (side transitions).
+    via_color = QColor(getattr(theme, "via_marker_color", "#E0E0E0"))
+    via_radius = float(getattr(theme, "via_marker_radius", 0.18))
+    for i in range(len(wire.fragments) - 1):
+        if wire.fragments[i].side == wire.fragments[i + 1].side:
+            continue
+        boundary = wire.fragments[i].path[-1]
+        marker = _build_via_marker(boundary, via_radius, via_color, z_base + 0.01)
+        grp.addToGroup(marker)
+
+    grp.setZValue(z_base)
+    return grp
+
+
+def _build_via_marker(
+    pos: Point, radius: float, color: QColor, z: float,
+) -> QGraphicsPathItem:
+    """Small filled circle marking a plated-through via point."""
+    path = QPainterPath()
+    path.addEllipse(pos.x - radius, pos.y - radius, 2 * radius, 2 * radius)
+    item = QGraphicsPathItem(path)
+    item.setPen(QPen(color, 0.02))
+    item.setBrush(color)
+    item.setZValue(z)
+    return item
 
 
 def render_wires_with_nets(

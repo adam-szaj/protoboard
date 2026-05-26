@@ -93,8 +93,10 @@ def straighten_wire(
     out.append(wire.path[-1])
     if len(out) == len(wire.path):
         return wire
+    # Preserve wire id: this is an edit of the same logical wire, not a new
+    # one.  Stable identity matters for highlight, recording and undo.
     return WireSegment(
-        id=uuid.uuid4(),
+        id=wire.id,
         path=out,
         insulated=wire.insulated,
         side=wire.side,
@@ -205,8 +207,9 @@ def corner_cut_wire(
 
     if len(cur_path) == len(wire.path):
         return wire
+    # Preserve wire id — corner-cut is a geometry-only edit of the same wire.
     return WireSegment(
-        id=uuid.uuid4(),
+        id=wire.id,
         path=cur_path,
         insulated=wire.insulated,
         side=cast(Literal["top", "bottom"], wire.side),
@@ -1337,8 +1340,9 @@ def generic_simplify_wire(
             out_path=[(p.x, p.y) for p in path],
             mode=mode.value if hasattr(mode, "value") else str(mode),
         )
+    # Preserve wire id — simplify is a path edit of the same logical wire.
     return WireSegment(
-        id=uuid.uuid4(),
+        id=wire.id,
         path=path,
         insulated=wire.insulated,
         side=cast(Literal["top", "bottom"], wire.side),

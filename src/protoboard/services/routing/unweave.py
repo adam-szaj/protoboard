@@ -360,9 +360,10 @@ def _build_swapped_wire(
     at the split pads ``head[-1]`` and ``tail[0]``.
     """
     if same_attrs or pad_safe is None:
-        # Single segment — middle inherits outer's attributes.
+        # Single segment — middle inherits outer's attributes.  Preserve
+        # outer_wire's id (this is an extension, not a creation).
         full_path = head + link_to_mid + mid + link_to_tail + tail
-        return [replace(outer_wire, id=uuid.uuid4(), path=full_path)]
+        return [replace(outer_wire, path=full_path)]
 
     split_a = head[-1]                                       # pad before X
     split_b = tail[0]                                        # pad after Y
@@ -371,19 +372,21 @@ def _build_swapped_wire(
     if not (ok_a and ok_b):
         # Either split pad is unsafe — fall back to single-segment glue.
         full_path = head + link_to_mid + mid + link_to_tail + tail
-        return [replace(outer_wire, id=uuid.uuid4(), path=full_path)]
+        return [replace(outer_wire, path=full_path)]
 
-    # Three-segment build.
+    # Three-segment build.  Head keeps outer_wire.id (continuation of the
+    # outer segment), middle keeps middle_wire.id (continuation of the
+    # absorbed middle), tail is a freshly-split portion of outer with a
+    # new id (it is genuinely a new logical sub-wire of the swap).
     head_path = head + link_to_mid + [mid[0]]
     mid_path = [mid[0]] + mid[1:] if len(mid) > 1 else [mid[0]]
     if mid_path[-1] != mid[-1]:
         mid_path = mid
-    # Make sure middle goes from mid[0] to mid[-1] inclusive (it already does).
     tail_path = [mid[-1]] + link_to_tail + tail
 
-    head_seg = replace(outer_wire, id=uuid.uuid4(), path=head_path)
+    head_seg = replace(outer_wire, path=head_path)
     mid_seg = WireSegment(
-        id=uuid.uuid4(),
+        id=middle_wire.id,
         path=mid_path,
         insulated=middle_wire.insulated,
         side=middle_wire.side,
@@ -613,11 +616,12 @@ def _rebalance_sides(
             for k, seg in enumerate(chain):
                 if seg.side == target_side:
                     continue
-                # Propose flipping just this segment.
+                # Propose flipping just this segment.  Preserve seg.id —
+                # this is an attribute edit, not a creation.
                 from typing import cast as _cast
                 from typing import Literal as _Literal
                 new_seg = replace(
-                    seg, id=uuid.uuid4(),
+                    seg,
                     side=_cast(_Literal["top", "bottom"], target_side),
                 )
                 proposed = [list(c) for c in logical]
@@ -664,9 +668,18 @@ def _to_logical_path(segments: list[WireSegment]) -> list[_LogicalPoint]:
     return result
 
 
-def _from_logical_path(lpath: list[_LogicalPoint]) -> list[WireSegment]:
+def _from_logical_path(
+    lpath: list[_LogicalPoint],
+    seed_ids: list[uuid.UUID] | None = None,
+) -> list[WireSegment]:
     """Inverse of ``_to_logical_path`` — emits a fresh WireSegment whenever
     the (side, insulated) attributes change between consecutive vertices.
+
+    ``seed_ids`` preserves wire identity across the unweave swap: the first
+    N output segments reuse those ids, where N = min(emitted, len(seed_ids)).
+    Without this hint each unweave call would mint fresh UUIDs, breaking
+    highlight / recording / undo for the unchanged segments (the user-
+    reported "3 wires → 7 wires" symptom).
     """
     if len(lpath) < 2:
         return []
@@ -674,13 +687,19 @@ def _from_logical_path(lpath: list[_LogicalPoint]) -> list[WireSegment]:
     cur_path: list[Point] = [lpath[0].point]
     cur_side = lpath[0].side
     cur_ins = lpath[0].insulated
+
+    def _next_id() -> uuid.UUID:
+        if seed_ids and len(segs) < len(seed_ids):
+            return seed_ids[len(segs)]
+        return uuid.uuid4()
+
     for k in range(1, len(lpath)):
         if lpath[k].side != cur_side or lpath[k].insulated != cur_ins:
             # Close current segment at the split pad (last vertex), then
             # open a new one whose first vertex is the same pad.
             cur_path.append(lpath[k].point)
             segs.append(WireSegment(
-                id=uuid.uuid4(),
+                id=_next_id(),
                 path=cur_path,
                 insulated=cur_ins,
                 side=cast(Literal["top", "bottom"], cur_side),
@@ -692,7 +711,7 @@ def _from_logical_path(lpath: list[_LogicalPoint]) -> list[WireSegment]:
             cur_path.append(lpath[k].point)
     if len(cur_path) >= 2:
         segs.append(WireSegment(
-            id=uuid.uuid4(),
+            id=_next_id(),
             path=cur_path,
             insulated=cur_ins,
             side=cast(Literal["top", "bottom"], cur_side),
@@ -1171,8 +1190,12 @@ def _cleanup_shared_pads_pass(
                               shared_pt=(lp_i[s_idx_i].point.x, lp_i[s_idx_i].point.y),
                               reason="no_free_neighbour_or_grows_crossings")
                     continue
-                new_segs_i = _from_logical_path(cand_lp_i)
-                new_segs_j = _from_logical_path(cand_lp_j)
+                new_segs_i = _from_logical_path(
+                    cand_lp_i, seed_ids=[s.id for s in logical[i]],
+                )
+                new_segs_j = _from_logical_path(
+                    cand_lp_j, seed_ids=[s.id for s in logical[j]],
+                )
                 if short_check is not None:
                     proposed = list(logical)
                     proposed[i] = new_segs_i
@@ -1278,9 +1301,12 @@ def _attempt_pair_swap(
     ):
         _log.info("unweave.pair_skip", pair=(i, j), reason="endpoints_lost")
         return False
-    # Convert each logical path back into a chain of WireSegments.
-    new_segs_i = _from_logical_path(new_lp_i)
-    new_segs_j = _from_logical_path(new_lp_j)
+    # Convert each logical path back into a chain of WireSegments.  Reuse
+    # the input segment ids so wire identity survives the swap (a swap is
+    # a redistribution of geometry between two wires, not a creation of
+    # new ones — preserves highlight, recording and undo).
+    new_segs_i = _from_logical_path(new_lp_i, seed_ids=[s.id for s in logical[i]])
+    new_segs_j = _from_logical_path(new_lp_j, seed_ids=[s.id for s in logical[j]])
     if short_check is not None:
         # Propose the swap; pass the entire current `logical` state with
         # i/j swapped so the checker sees the FULL post-swap layout from
@@ -1358,6 +1384,11 @@ def _group_by_endpoints(wires: list[WireSegment]) -> list[list[WireSegment]]:
 def _remerge(segments: list[WireSegment]) -> list[WireSegment]:
     """Fuse consecutive WireSegments that share (side, insulated) and an
     endpoint pad.  Preserves order and never crosses an attribute boundary.
+
+    Identity policy: the fused segment keeps the id of the *first* segment
+    in the run — the second is absorbed.  This preserves wire identity for
+    the dominant wire when a no-op split-and-merge cycle would otherwise
+    have churned UUIDs (segment-proliferation bug, d33ea56).
     """
     if not segments:
         return []
@@ -1371,7 +1402,6 @@ def _remerge(segments: list[WireSegment]) -> list[WireSegment]:
         ):
             fused = replace(
                 prev,
-                id=uuid.uuid4(),
                 path=list(prev.path) + list(nxt.path[1:]),
             )
             out[-1] = fused

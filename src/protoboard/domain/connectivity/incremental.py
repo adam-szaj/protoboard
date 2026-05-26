@@ -36,7 +36,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import pin_world_position
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire, WireSegment
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 
@@ -364,6 +364,107 @@ class ConnectivityGraph:
                 return
             self._split(mr)
 
+        self._remove_intermediate_nodes(record)
+
+    # ------------------------------------------------------------------
+    # v2 (Wire / Fragment / Knot) entry points
+    # ------------------------------------------------------------------
+
+    def add_wire_v2(self, wire: Wire) -> None:
+        """Incorporate a Wire into the graph by adding each fragment in turn.
+
+        All resulting merges aggregate into a single ``WireRecord`` keyed by
+        ``wire.id`` so that ``remove_wire_v2`` can reverse them as a whole.
+        This is the v2 entry point — it does not depend on the legacy
+        ``WireSegment`` storage.
+        """
+        if wire.id in self._wire_records:
+            # Idempotent: a Wire is either present or absent.
+            return
+        self._valid_nodes_cache = None
+        merges_all: list[MergeRecord] = []
+        intermediate_all: list[_NodeKey] = []
+        is_loop_any = False
+        for frag in wire.fragments:
+            side = frag.side
+            path = list(frag.path)
+            if not wire.insulated:
+                path = self._enrich_bare_path(path, side)
+            n_pts = len(path)
+            path_entries: list[NodeEntry] = []
+            for i, pt in enumerate(path):
+                key: _NodeKey = _qkey(pt, side)
+                is_endpoint = (i == 0 or i == n_pts - 1)
+                entry = self._pad_index.get(key)
+                if wire.insulated and not is_endpoint:
+                    private_key: _NodeKey = _qkey(
+                        pt, side + f"_ins_{wire.id.int}_{id(frag)}"
+                    )
+                    private_entry = self._make_node(private_key)
+                    intermediate_all.append(private_key)
+                    entry = private_entry
+                elif entry is None:
+                    transient_key: _NodeKey = _qkey(
+                        pt, side + f"_tr_{wire.id.int}_{id(frag)}"
+                    )
+                    entry = self._make_node(transient_key)
+                    intermediate_all.append(transient_key)
+                path_entries.append(entry)
+            for i in range(len(path_entries) - 1):
+                a = path_entries[i]
+                b = path_entries[i + 1]
+                if a.electric_set is b.electric_set:
+                    is_loop_any = True
+                    continue
+                merged, evicted, split_idx = self._merge(a.electric_set, b.electric_set)
+                merges_all.append(
+                    MergeRecord(merged=merged, evicted=evicted, split_idx=split_idx)
+                )
+        self._wire_records[wire.id] = WireRecord(
+            wire_id=wire.id,
+            merges=merges_all,
+            is_loop=is_loop_any,
+            intermediate_keys=intermediate_all,
+        )
+
+    def remove_wire_v2(self, wire: Wire) -> None:
+        """Remove a Wire from the graph, replaying merges across all fragments."""
+        self._valid_nodes_cache = None
+        record = self._wire_records.pop(wire.id, None)
+        if record is None:
+            return
+        if record.is_loop and not record.merges:
+            self._remove_intermediate_nodes(record)
+            return
+        for mr in reversed(record.merges):
+            if mr.merged not in self._all_sets:
+                self._local_rebuild_after_remove_v2(wire, record)
+                return
+            self._split(mr)
+        self._remove_intermediate_nodes(record)
+
+    def _local_rebuild_after_remove_v2(
+        self, wire: Wire, record: WireRecord
+    ) -> None:
+        """Wire-level fallback rebuild — collects touched keys across fragments."""
+        touched: set[_NodeKey] = set()
+        for frag in wire.fragments:
+            side = frag.side
+            for pt in frag.path:
+                touched.add(_qkey(pt, side))
+        affected_entries: list[NodeEntry] = [
+            self._pad_index[k] for k in touched if k in self._pad_index
+        ]
+        if not affected_entries:
+            self._remove_intermediate_nodes(record)
+            return
+        affected_sets: set[int] = {e.electric_set.id for e in affected_entries}
+        for eset_id in affected_sets:
+            eset_entries = [
+                e for e in self._pad_index.values()
+                if e.electric_set.id == eset_id
+            ]
+            self._rebuild_set(eset_entries)
         self._remove_intermediate_nodes(record)
 
     def are_connected(
