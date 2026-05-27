@@ -178,6 +178,58 @@ class Layout:
                 self.knots[ref.id] = updated
         return removed
 
+    def ensure_wire_knots(self, wire: Wire) -> None:
+        """Backfill ``wire.a``/``wire.b`` from current endpoints if missing.
+
+        Tools that mutate a wire's fragments via
+        ``replace_wire_fragments`` require both endpoint knots to be set.
+        Most runtime wires get knots from ``AddWireCommand`` or the load
+        migration; this method handles wires inserted into ``layout.wires``
+        without going through those paths (test fixtures, legacy code).
+
+        Each missing endpoint is matched against existing ``PinKnot``s by
+        world position (within ``1e-6``); if no pin matches, a fresh
+        ``JointKnot`` is created at the endpoint.  Knot back-refs
+        (``wire_ids``) are updated atomically.
+        """
+        if wire.a is not None and wire.b is not None:
+            return
+        endpoints = (
+            ("a", wire.path[0]),
+            ("b", wire.path[-1]),
+        )
+        for attr, pos in endpoints:
+            if getattr(wire, attr) is not None:
+                continue
+            matched_id: uuid.UUID | None = None
+            if self._pin_resolver is not None:
+                for knot_id in self.pin_knots.values():
+                    pk = self.knots.get(knot_id)
+                    if not isinstance(pk, PinKnot):
+                        continue
+                    try:
+                        pin_pos = self._pin_resolver(pk.pin)
+                    except RuntimeError:
+                        continue
+                    if (
+                        abs(pin_pos.x - pos.x) < 1e-6
+                        and abs(pin_pos.y - pos.y) < 1e-6
+                    ):
+                        matched_id = knot_id
+                        break
+            if matched_id is None:
+                jk = self.create_joint_knot(pos)
+                matched_id = jk.id
+            from protoboard.domain.layout.wire import KnotRef as _KnotRef
+            setattr(wire, attr, _KnotRef(id=matched_id))
+        for ref in (wire.a, wire.b):
+            if ref is None:
+                continue
+            k = self.knots.get(ref.id)
+            if k is None or wire.id in k.wire_ids:
+                continue
+            self.knots[ref.id] = _knot_with_wire(k, wire.id, add=True)
+
     def replace_wire_fragments(
         self,
         wire_id: uuid.UUID,
