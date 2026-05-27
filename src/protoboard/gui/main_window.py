@@ -865,6 +865,10 @@ class MainWindow(QMainWindow):
         if not self._check_unsaved_changes("opening another project"):
             return
         try:
+            from protoboard.services.persistence.project_yaml import (
+                set_migration_library,
+            )
+            set_migration_library(self._session.library)
             (board, layout, schematic, instances,
              routing_settings, layer_overrides, axis_label_settings) = load_project(path)
         except Exception as exc:

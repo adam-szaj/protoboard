@@ -143,13 +143,14 @@ def _knot_to_yaml_dict(knot: object) -> dict[str, Any]:
     raise SerializationError(f"unknown Knot type: {type(knot).__name__}")
 
 
-def _wire_v2_to_yaml_dict(wire: object) -> dict[str, Any]:
+def _wire_to_yaml_dict(wire: object) -> dict[str, Any]:
     from protoboard.domain.layout.wire import Wire as _Wire
     if not isinstance(wire, _Wire):
         raise SerializationError(f"expected Wire, got {type(wire).__name__}")
     if wire.a is None or wire.b is None:
         raise SerializationError(
-            f"Wire {wire.id} is missing knot references (a/b); cannot encode as v2"
+            f"Wire {wire.id} is missing knot references (a/b); "
+            f"call Layout.ensure_wire_knots before saving"
         )
     return {
         "id": str(wire.id),
@@ -168,18 +169,13 @@ def _wire_v2_to_yaml_dict(wire: object) -> dict[str, Any]:
 
 
 def _layout_to_yaml(layout: Layout) -> str:
-    # ``format_version`` lets future loaders refuse or migrate older files
-    # outright after a deprecation window.  v2 introduces the knot/wire/
-    # fragment model alongside the legacy ``wires`` list; both are written
-    # while consumers complete migration in Commit B.
-    # v2 detection: any wire carries explicit knot references, or there are
-    # standalone knots in the layout.  `wires_v2` is the same WireCollection
-    # as `wires`; filtering by ``a is not None`` distinguishes v2-style wires
-    # (knot-aware) from legacy Wire-style wires that share the storage.
-    v2_wires = [w for w in layout.wires if w.a is not None and w.b is not None]
-    has_v2 = bool(v2_wires) or bool(layout.knots)
+    # Single knot-aware format (format_version: 2).  Save ensures every wire
+    # has endpoint knots so the on-disk format is uniform; downstream tools
+    # rely on this invariant.
+    for wire in layout.wires:
+        layout.ensure_wire_knots(wire)
     data: dict[str, Any] = {
-        "format_version": 2 if has_v2 else 1,
+        "format_version": 2,
         "placements": [
             {
                 "component_id": str(pl.component_id),
@@ -209,28 +205,8 @@ def _layout_to_yaml(layout: Layout) -> str:
             }
             for pl in layout.placements.values()
         ],
-        "wires": [
-            {
-                "id": str(w.id),
-                "path": [{"x": p.x, "y": p.y} for p in w.path],
-                "insulated": w.insulated,
-                "side": w.side,
-                **({"color": w.color} if w.color else {}),
-            }
-            for w in layout.wires
-        ],
-        **(
-            {
-                "knots": [_knot_to_yaml_dict(k) for k in layout.knots.values()]
-            }
-            if layout.knots else {}
-        ),
-        **(
-            {
-                "wires_v2": [_wire_v2_to_yaml_dict(w) for w in v2_wires]
-            }
-            if v2_wires else {}
-        ),
+        "knots": [_knot_to_yaml_dict(k) for k in layout.knots.values()],
+        "wires": [_wire_to_yaml_dict(w) for w in layout.wires],
         **(
             {
                 "groups": [
@@ -359,6 +335,62 @@ def load_project(
                 color=_w.color,
             )
 
+    # Legacy projects (no `knots:` / no `a_knot_id` per wire) get their
+    # endpoint knots backfilled now using the standard wire migration.  The
+    # session will re-wire its own pin resolver later; this one is enough
+    # for the in-place upgrade because we only need to validate during
+    # initial knot resolution.
+    if any(w.a is None or w.b is None for w in layout.wires):
+        # Build pin index by enumerating placements + their definitions.
+        # We need the library to look up footprints; library load happens
+        # before load_project at the call site, so plumb it via the
+        # `_library_for_migration` module global set by load_project below.
+        from protoboard.domain.layout.placement import (
+            pin_world_position as _pwp,
+        )
+        pin_index: dict[Point, PinRef] = {}
+        library = _library_for_migration
+        if library is not None:
+            for comp_id, pl in layout.placements.items():
+                inst = instances.get(comp_id)
+                if inst is None:
+                    continue
+                defn = library.get(inst.definition_ref) if hasattr(library, "get") else None
+                if defn is None:
+                    continue
+                n_pins = defn.footprint.pin_count()
+                for pin_num in range(1, n_pins + 1):
+                    try:
+                        pos = _pwp(defn.footprint, pl, pin_num)
+                    except (IndexError, ValueError):
+                        continue
+                    pin_index[pos] = PinRef(component_id=comp_id, pin_number=pin_num)
+        # Use migrate_layout_to_v2 if we have any pin resolution path.
+        if pin_index:
+            from protoboard.services.persistence.wire_migration import (
+                migrate_layout_to_v2,
+            )
+
+            def _resolve(comp_id: uuid.UUID, pin_num: int) -> Point | None:
+                pl = layout.placements.get(comp_id)
+                inst = instances.get(comp_id)
+                if pl is None or inst is None or library is None:
+                    return None
+                defn = library.get(inst.definition_ref)  # type: ignore[attr-defined]
+                if defn is None:
+                    return None
+                try:
+                    return _pwp(defn.footprint, pl, pin_num)
+                except (IndexError, ValueError):
+                    return None
+
+            migrate_layout_to_v2(layout, board, pin_index, _resolve)
+        else:
+            # No library — fall back to lazy backfill (every endpoint
+            # becomes a JointKnot).  Production load always has a library.
+            for w in list(layout.wires):
+                layout.ensure_wire_knots(w)
+
     # Snap legacy fractional offsets (e.g. y=3.503 → 3.5) to the half-grid so
     # the connectivity graph indexes pins and matching board pads as the same
     # node.  Corrections > ±0.5 from the nearest grid intersection are left
@@ -405,6 +437,20 @@ def load_project(
         board, layout, schematic, instances,
         routing_settings, layer_overrides, axis_label_settings,
     )
+
+
+# Library handle for in-load legacy v1→v2 migration.  MainWindow sets this
+# via ``set_migration_library`` before calling load_project so the migrator
+# can resolve pin world positions.  ``None`` means "no library available";
+# the load falls back to JointKnot-only knot backfill (acceptable for tests
+# that don't exercise PinKnot persistence).
+_library_for_migration: "object | None" = None
+
+
+def set_migration_library(library: "object | None") -> None:
+    """Register the ComponentLibrary used during legacy v1→v2 wire migration."""
+    global _library_for_migration
+    _library_for_migration = library
 
 
 # Per-directory record of the last normalize report so the GUI can pick it up
@@ -476,16 +522,17 @@ def _layout_from_yaml(text: str) -> Layout:
             locked=bool(raw.get("locked", False)),
         )
         placements[comp_id] = pl
-    # When the file carries a `wires_v2` block, `_decode_knots_and_wires_v2`
-    # below will populate `layout.wires` from it.  The legacy `wires:` block
-    # is then a duplicate written for transition-era readers; skip it here to
-    # avoid `Wire {id} already in layout` on the second pass.
-    has_wires_v2 = bool(data.get("wires_v2"))
-    wires: list[Wire] = []
-    if not has_wires_v2:
+    # Format v2 stores wires as knot-aware blocks (a_knot_id/b_knot_id/
+    # fragments).  Legacy v1 files carry a flat `wires:` list (path+side+
+    # insulated) and no `knots:` — we load those into a transient list and
+    # let `_legacy_wires_to_knot_aware` below convert them once the layout
+    # is constructed.
+    fmt = int(data.get("format_version", 1))
+    legacy_wires: list[Wire] = []
+    if fmt < 2:
         for raw in data.get("wires") or []:
             path = [Point(float(p["x"]), float(p["y"])) for p in raw["path"]]
-            wires.append(
+            legacy_wires.append(
                 Wire(
                     id=uuid.UUID(raw["id"]),
                     path=path,
@@ -522,25 +569,24 @@ def _layout_from_yaml(text: str) -> Layout:
             rotation=int(raw.get("rotation", 0)),
             origin=origin,
         )
-    from protoboard.domain.layout.wire import WireCollection
     layout = Layout(
         placements=placements,
-        wires=WireCollection(wires),
         groups=groups,
     )
-
-    # v2 model: knots + wires_v2 are stored alongside legacy `wires` (the
-    # latter stays populated for Commit-A-era consumers).  Projects saved
-    # under format_version: 1 won't carry these blocks; they get
-    # reconstructed by `migrate_layout_to_v2` once the caller can resolve
-    # pin world positions (it needs the footprint library).
-    _decode_knots_and_wires_v2(data, layout)
+    if fmt >= 2:
+        _decode_knots_and_wires(data, layout)
+    else:
+        # v1 fallback: legacy wires without knots.  Insert them directly into
+        # the storage; the caller (load_project) will invoke ensure_wire_knots
+        # once the pin resolver is wired up.
+        for w in legacy_wires:
+            layout.wires.append(w)
 
     layout.ensure_root_group()
     return layout
 
 
-def _decode_knots_and_wires_v2(data: dict[str, Any], layout: Layout) -> None:
+def _decode_knots_and_wires(data: dict[str, Any], layout: Layout) -> None:
     from protoboard.domain.layout.knot import JointKnot, Knot, PinKnot
     from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
     raw_knots = data.get("knots") or []
@@ -566,8 +612,8 @@ def _decode_knots_and_wires_v2(data: dict[str, Any], layout: Layout) -> None:
             raise SerializationError(f"unknown knot kind: {kind!r}")
         layout.knots[kid] = knot
 
-    raw_wires_v2 = data.get("wires_v2") or []
-    for raw in raw_wires_v2:
+    raw_wires = data.get("wires") or []
+    for raw in raw_wires:
         wid = uuid.UUID(raw["id"])
         a_id = uuid.UUID(raw["a_knot_id"])
         b_id = uuid.UUID(raw["b_knot_id"])
@@ -597,7 +643,7 @@ def _decode_knots_and_wires_v2(data: dict[str, Any], layout: Layout) -> None:
             insulated=bool(raw["insulated"]),
             color=raw.get("color"),
         )
-        layout.add_wire_v2(wire)
+        layout.add_wire(wire)
 
 
 def _schematic_from_yaml(text: str) -> Schematic:

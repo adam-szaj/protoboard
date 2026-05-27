@@ -53,16 +53,6 @@ class Layout:
         if not isinstance(self.wires, WireCollection):
             self.wires = WireCollection(list(self.wires))
 
-    @property
-    def wires_v2(self) -> WireCollection:
-        """Backward-compat alias — same storage as ``wires``.
-
-        Kept so consumers still using ``layout.wires_v2`` (commands, tests
-        from the cutover transition period) don't break.  Removal scheduled
-        once all callers migrate to ``wires``.
-        """
-        return self.wires
-
     def set_pin_resolver(self, resolver: PinResolver) -> None:
         self._pin_resolver = resolver
 
@@ -136,8 +126,8 @@ class Layout:
         self.knots[knot.id] = knot
         return knot
 
-    def add_wire_v2(self, wire: Wire) -> None:
-        """Insert ``wire`` into ``wires_v2`` and update knot back-refs.
+    def add_wire(self, wire: Wire) -> None:
+        """Insert ``wire`` into ``layout.wires`` and update knot back-refs.
 
         Both endpoint knots must already exist in ``self.knots``.
         """
@@ -154,7 +144,7 @@ class Layout:
             self.knots[ref.id] = _knot_with_wire(knot, wire.id, add=True)
         self.wires[wire.id] = wire
 
-    def remove_wire_v2(self, wire_id: uuid.UUID) -> list[uuid.UUID]:
+    def remove_wire(self, wire_id: uuid.UUID) -> list[uuid.UUID]:
         """Remove a wire and clean up orphan JointKnots.
 
         Returns the list of knot ids that were removed because they became
@@ -360,7 +350,7 @@ class Layout:
         )
         # Apply: remove both wires (this will also try to clean up the
         # joint, which we know is now empty), then add the merged wire.
-        # We don't use remove_wire_v2 because we want exact control.
+        # We don't use remove_wire because we want exact control.
         self.wires.pop(w1.id, None)
         self.wires.pop(w2.id, None)
         # Detach back-refs from the joint and from the remaining endpoints.
@@ -377,7 +367,7 @@ class Layout:
         if isinstance(joint_after, JointKnot) and not joint_after.wire_ids:
             del self.knots[knot_id]
         # Add merged.
-        self.add_wire_v2(merged)
+        self.add_wire(merged)
         return merged
 
 

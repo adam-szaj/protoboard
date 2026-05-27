@@ -32,7 +32,7 @@ from protoboard.domain.commands.component_cmds import (
     PlaceComponentCommand,
     RemoveComponentCommand,
     RemoveWireCommand,
-    ReplaceWireSegmentCommand,
+    ReplaceWireFragmentsCommand,
     SetPinVariantCommand,
     SetWireInsulatedCommand,
     SetWireSideCommand,
@@ -385,25 +385,40 @@ def _remove_wire_from(d: dict[str, Any]) -> RemoveWireCommand:
 _register(RemoveWireCommand, "remove_wire", _remove_wire_to, _remove_wire_from)
 
 
-def _replace_wire_seg_to(cmd: ReplaceWireSegmentCommand) -> dict[str, Any]:
+def _fragment_to(frag: object) -> dict[str, Any]:
     return {
-        "wire_id": _uuid_to(cmd.wire_id),
-        "new_path": [_pt_to(p) for p in cmd.new_path],
-        "old_path": [_pt_to(p) for p in cmd.old_path],
+        "path": [_pt_to(p) for p in frag.path],  # type: ignore[attr-defined]
+        "side": frag.side,  # type: ignore[attr-defined]
     }
 
 
-def _replace_wire_seg_from(d: dict[str, Any]) -> ReplaceWireSegmentCommand:
-    return ReplaceWireSegmentCommand(
+def _fragment_from(d: dict[str, Any]) -> object:
+    from protoboard.domain.layout.wire import Fragment
+    return Fragment(
+        path=[_pt_from(p) for p in d["path"]],
+        side=d["side"],
+    )
+
+
+def _replace_wire_frags_to(cmd: ReplaceWireFragmentsCommand) -> dict[str, Any]:
+    return {
+        "wire_id": _uuid_to(cmd.wire_id),
+        "new_fragments": [_fragment_to(f) for f in cmd.new_fragments],
+        "old_fragments": [_fragment_to(f) for f in cmd.old_fragments],
+    }
+
+
+def _replace_wire_frags_from(d: dict[str, Any]) -> ReplaceWireFragmentsCommand:
+    return ReplaceWireFragmentsCommand(
         wire_id=_uuid_from(d["wire_id"]),
-        new_path=[_pt_from(p) for p in d["new_path"]],
-        old_path=[_pt_from(p) for p in (d.get("old_path") or [])],
+        new_fragments=tuple(_fragment_from(f) for f in d["new_fragments"]),  # type: ignore[misc]
+        old_fragments=tuple(_fragment_from(f) for f in (d.get("old_fragments") or [])),  # type: ignore[misc]
     )
 
 
 _register(
-    ReplaceWireSegmentCommand, "replace_wire_segment",
-    _replace_wire_seg_to, _replace_wire_seg_from,
+    ReplaceWireFragmentsCommand, "replace_wire_fragments",
+    _replace_wire_frags_to, _replace_wire_frags_from,
 )
 
 

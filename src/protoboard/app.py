@@ -74,6 +74,10 @@ def _open_session(
         if project_path is None:
             return None
         try:
+            from protoboard.services.persistence.project_yaml import (
+                set_migration_library,
+            )
+            set_migration_library(library)
             (board, layout, schematic, instances,
              routing_settings, layer_overrides, axis_label_settings) = load_project(project_path)
         except Exception as exc:

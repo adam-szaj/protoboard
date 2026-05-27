@@ -310,17 +310,17 @@ class AddWireCommand(Command[ComponentState]):
             # Redo: re-register joints we created and dropped on revert.
             for jk in self._created_joints:
                 state.layout.knots.setdefault(jk.id, jk)
-        state.layout.add_wire_v2(self.wire)
+        state.layout.add_wire(self.wire)
 
     def revert(self, state: ComponentState) -> None:
-        state.layout.remove_wire_v2(self.wire.id)
+        state.layout.remove_wire(self.wire.id)
         # Joints we created may still hold back-refs to other wires (shared
-        # joint).  ``remove_wire_v2`` already prunes orphans; anything still
+        # joint).  ``remove_wire`` already prunes orphans; anything still
         # in layout.knots is a non-orphan we must leave alone.
         for jk in self._created_joints:
             if jk.id in state.layout.knots:
-                continue  # not orphan after remove_wire_v2; keep
-            # Already removed by remove_wire_v2 as orphan — nothing to do.
+                continue  # not orphan after remove_wire; keep
+            # Already removed by remove_wire as orphan — nothing to do.
 
 
 @dataclass
@@ -387,7 +387,7 @@ class AddWireWithNetsCommand(Command[ComponentState]):
         else:
             for jk in self._created_joints:
                 state.layout.knots.setdefault(jk.id, jk)
-        state.layout.add_wire_v2(self.wire)
+        state.layout.add_wire(self.wire)
         if self._first_apply:
             # Net mutations already applied by resolver — nothing more to do.
             object.__setattr__(self, "_first_apply", False)
@@ -401,7 +401,7 @@ class AddWireWithNetsCommand(Command[ComponentState]):
                 schematic.nets[net_id] = net_after
 
     def revert(self, state: ComponentState) -> None:
-        state.layout.remove_wire_v2(self.wire.id)
+        state.layout.remove_wire(self.wire.id)
         schematic = getattr(state, "schematic")
         for net_id, net_before in self._nets_before.items():
             if net_before is None:
@@ -435,7 +435,7 @@ class RemoveWireCommand(Command[ComponentState]):
                 k = state.layout.knots.get(ref.id)
                 if isinstance(k, JointKnot) and k.wire_ids == frozenset({wire.id}):
                     orphans.append(k)
-            state.layout.remove_wire_v2(self.wire_id)
+            state.layout.remove_wire(self.wire_id)
         else:
             # Legacy fallback — wire without knots (shouldn't happen post
             # AddWireCommand migration, but tolerate during transition).
@@ -448,65 +448,9 @@ class RemoveWireCommand(Command[ComponentState]):
         if self._saved_wire.a is not None and self._saved_wire.b is not None:
             for jk in self._saved_orphan_joints:
                 state.layout.knots.setdefault(jk.id, jk)
-            state.layout.add_wire_v2(self._saved_wire)
+            state.layout.add_wire(self._saved_wire)
         else:
             state.layout.wires.append(self._saved_wire)
-
-
-@dataclass
-class ReplaceWireSegmentCommand(Command[ComponentState]):
-    """Legacy path-edit command — kept only for replaying old recordings.
-
-    New code must use :class:`ReplaceWireFragmentsCommand`.  This class
-    survives so deserialised ``session_commands.yaml`` files predating
-    the wire/knot model can still be replayed: ``apply`` reconstructs
-    fragments from ``new_path`` along the current wire's via boundaries
-    and delegates the actual mutation to the layout's v2 mutator.
-
-    ``old_path``, when supplied, mirrors the historical escape hatch for
-    callers (drag-commit) that mutated ``wire.path`` in place before
-    issuing the command.
-    """
-
-    wire_id: uuid.UUID
-    new_path: list[Point]
-    old_path: list[Point] = field(default_factory=list)
-    _saved_fragments: tuple = field(default=(), init=False, repr=False)  # type: ignore[type-arg]
-
-    @property
-    def description(self) -> str:  # type: ignore[override]
-        return "Edit wire segment (legacy)"
-
-    def apply(self, state: ComponentState) -> None:
-        wire = state.layout.wires.get(self.wire_id)
-        if wire is None:
-            raise KeyError(f"Wire {self.wire_id} not found")
-        # Insulated pad-vertex enrichment kept for backward compat — old
-        # recordings expect this.
-        board = getattr(state, "board", None)
-        if wire.insulated and board is not None:
-            from protoboard.domain.layout.wire_utils import (
-                board_pads_for_side, insert_pad_nodes,
-            )
-            pads = (
-                board_pads_for_side(board, "top")
-                | board_pads_for_side(board, "bottom")
-            )
-            self.new_path = insert_pad_nodes(self.new_path, pads)
-        state.layout.ensure_wire_knots(wire)
-        from protoboard.domain.layout.wire_utils import (
-            rebuild_fragments_from_path,
-        )
-        self._saved_fragments = tuple(wire.fragments)
-        new_fragments = tuple(
-            rebuild_fragments_from_path(wire, list(self.new_path))
-        )
-        state.layout.replace_wire_fragments(self.wire_id, new_fragments)
-
-    def revert(self, state: ComponentState) -> None:
-        if not self._saved_fragments:
-            return
-        state.layout.replace_wire_fragments(self.wire_id, self._saved_fragments)
 
 
 @dataclass
@@ -753,81 +697,11 @@ class LockComponentCommand(Command[ComponentState]):
 
 
 # ---------------------------------------------------------------------------
-# v2 — Wire / Knot / Fragment commands (operate on Layout.wires_v2 + knots)
+# Knot/Fragment-aware path-edit command
 # ---------------------------------------------------------------------------
 
 
-from protoboard.domain.layout.knot import JointKnot as _JointKnot
-from protoboard.domain.layout.knot import Knot as _Knot
 from protoboard.domain.layout.wire import Fragment as _Fragment
-from protoboard.domain.layout.wire import Wire as _Wire
-
-
-@dataclass
-class AddWireV2Command(Command[ComponentState]):
-    """Add a v2 ``Wire`` to ``Layout.wires_v2`` along with any knots it needs.
-
-    Knots already present in ``Layout.knots`` are reused; missing knots are
-    expected to be supplied in ``extra_knots`` (typically fresh JointKnots
-    created by the caller before issuing the command).  PinKnots for the
-    endpoints should be looked up via ``Layout.get_or_create_pin_knot``
-    before constructing the command.
-    """
-
-    wire: _Wire
-    extra_knots: list[_Knot] = field(default_factory=list)
-
-    @property
-    def description(self) -> str:  # type: ignore[override]
-        return "Add wire (v2)"
-
-    def apply(self, state: ComponentState) -> None:
-        for k in self.extra_knots:
-            state.layout.knots.setdefault(k.id, k)
-        state.layout.add_wire_v2(self.wire)
-
-    def revert(self, state: ComponentState) -> None:
-        state.layout.remove_wire_v2(self.wire.id)
-        for k in self.extra_knots:
-            if isinstance(k, _JointKnot):
-                state.layout.knots.pop(k.id, None)
-
-
-@dataclass
-class RemoveWireV2Command(Command[ComponentState]):
-    """Remove a v2 ``Wire`` from ``Layout.wires_v2``; orphan JointKnots removed.
-
-    Stores the original ``Wire`` so ``revert`` can restore it; also records
-    the orphan knots that were dropped so undo restores them.
-    """
-
-    wire_id: uuid.UUID
-    _saved_wire: _Wire | None = field(default=None, init=False, repr=False)
-    _saved_orphan_knots: list[_Knot] = field(default_factory=list, init=False, repr=False)
-
-    @property
-    def description(self) -> str:  # type: ignore[override]
-        return "Remove wire (v2)"
-
-    def apply(self, state: ComponentState) -> None:
-        wire = state.layout.wires_v2.get(self.wire_id)
-        if wire is None:
-            return
-        orphans: list[_Knot] = []
-        for ref in (wire.a, wire.b):
-            knot = state.layout.knots.get(ref.id)
-            if isinstance(knot, _JointKnot) and knot.wire_ids == frozenset({wire.id}):
-                orphans.append(knot)
-        self._saved_wire = wire
-        self._saved_orphan_knots = orphans
-        state.layout.remove_wire_v2(self.wire_id)
-
-    def revert(self, state: ComponentState) -> None:
-        if self._saved_wire is None:
-            return
-        for k in self._saved_orphan_knots:
-            state.layout.knots.setdefault(k.id, k)
-        state.layout.add_wire_v2(self._saved_wire)
 
 
 @dataclass
@@ -853,7 +727,7 @@ class ReplaceWireFragmentsCommand(Command[ComponentState]):
         return "Replace wire fragments"
 
     def apply(self, state: ComponentState) -> None:
-        wire = state.layout.wires_v2.get(self.wire_id)
+        wire = state.layout.wires.get(self.wire_id)
         if wire is None:
             return
         if self.old_fragments:

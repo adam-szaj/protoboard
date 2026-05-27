@@ -370,11 +370,11 @@ class ConnectivityGraph:
     # v2 (Wire / Fragment / Knot) entry points
     # ------------------------------------------------------------------
 
-    def add_wire_v2(self, wire: Wire) -> None:
+    def add_wire(self, wire: Wire) -> None:
         """Incorporate a Wire into the graph by adding each fragment in turn.
 
         All resulting merges aggregate into a single ``WireRecord`` keyed by
-        ``wire.id`` so that ``remove_wire_v2`` can reverse them as a whole.
+        ``wire.id`` so that ``remove_wire`` can reverse them as a whole.
         This is the v2 entry point — it does not depend on the legacy
         ``Wire`` storage.
         """
@@ -427,7 +427,7 @@ class ConnectivityGraph:
             intermediate_keys=intermediate_all,
         )
 
-    def remove_wire_v2(self, wire: Wire) -> None:
+    def remove_wire(self, wire: Wire) -> None:
         """Remove a Wire from the graph, replaying merges across all fragments."""
         self._valid_nodes_cache = None
         record = self._wire_records.pop(wire.id, None)

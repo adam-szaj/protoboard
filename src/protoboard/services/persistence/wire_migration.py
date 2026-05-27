@@ -2,7 +2,7 @@
 """Legacy wire → Wire/Knot/Fragment migration.
 
 Converts ``Layout.wires`` (list of legacy ``Wire``) into the new
-``Layout.wires_v2`` + ``Layout.knots`` representation.  Used both by the
+``Layout.wires`` + ``Layout.knots`` representation.  Used both by the
 v1 → v2 forward-migration on load and by tests/tools that build legacy
 layouts on the fly and want the new model.
 
@@ -78,7 +78,7 @@ def migrate_layout_to_v2(
     placements_pin_index: dict[Point, PinRef],
     pin_position_resolver: PinPositionResolver,
 ) -> MigrationReport:
-    """Populate ``layout.wires_v2`` + ``layout.knots`` from ``layout.wires``.
+    """Populate ``layout.wires`` + ``layout.knots`` from ``layout.wires``.
 
     Args:
         layout: target layout (mutated in place).  ``layout.wires`` stays
@@ -97,11 +97,11 @@ def migrate_layout_to_v2(
         could not be resolved to a pin.  The caller (e.g. the GUI) may
         surface this via a status-bar message.
     """
-    if layout.wires_v2 or layout.knots:
+    if layout.wires or layout.knots:
         # Already migrated (or freshly v2-saved); idempotent no-op.
         return MigrationReport(
             legacy_wire_count=0,
-            new_wire_count=len(layout.wires_v2),
+            new_wire_count=len(layout.wires),
             knot_count=len(layout.knots),
             merges_performed=0,
             off_pad_endpoints=[],
@@ -173,7 +173,7 @@ def migrate_layout_to_v2(
             insulated=seg.insulated,
             color=seg.color,
         )
-        layout.add_wire_v2(wire)
+        layout.add_wire(wire)
 
     # Pass 2: collapse all auto-mergeable 2-incidence joints.  Each merge
     # may create new opportunities (a merged wire might still terminate
@@ -202,7 +202,7 @@ def migrate_layout_to_v2(
 
     report = MigrationReport(
         legacy_wire_count=len(legacy_wires),
-        new_wire_count=len(layout.wires_v2),
+        new_wire_count=len(layout.wires),
         knot_count=len(layout.knots),
         merges_performed=merges,
         off_pad_endpoints=off_pad,
