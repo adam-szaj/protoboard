@@ -172,13 +172,9 @@ class EditorSession(QObject):
         self.board = board
         self.library = library
         self.schematic = Schematic(nets={})
-        self.layout = Layout()
-        self.layout.ensure_root_group()
-        # Knot mutators (replace_wire_fragments, …) resolve PinKnot positions
-        # via this callback — needed once commands switch to v2 add/remove.
-        self.layout.set_pin_resolver(
-            lambda pin: self._resolve_pin_for_knot(pin)
-        )
+        self._layout: Layout = Layout()
+        self._wire_resolver_to(self._layout)
+        self._layout.ensure_root_group()
         # Pre-populate components from library so renderers can look up definitions.
         self.components: dict[str, ComponentDefinition] = {
             name: library.get(name) for name in library.names()
@@ -223,6 +219,27 @@ class EditorSession(QObject):
         # known.  Auto-records every command through CommandStack.
         self.recorder: CommandRecorder = CommandRecorder()
         self.stack.set_recorder(self.recorder)
+
+    @property
+    def layout(self) -> Layout:
+        return self._layout
+
+    @layout.setter
+    def layout(self, value: Layout) -> None:
+        """Swap the layout, re-binding the PinKnot resolver to ``self``.
+
+        ``replace_wire_fragments`` needs a resolver to validate ``PinKnot``
+        positions; without re-binding it on every layout swap, the loader's
+        fresh Layout instance comes in without one and v2 commands crash
+        the moment the user touches a wire.
+        """
+        self._layout = value
+        self._wire_resolver_to(value)
+
+    def _wire_resolver_to(self, layout: Layout) -> None:
+        layout.set_pin_resolver(
+            lambda pin: self._resolve_pin_for_knot(pin)
+        )
 
     def notify_selection(
         self,
