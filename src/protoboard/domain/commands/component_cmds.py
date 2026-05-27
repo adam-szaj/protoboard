@@ -630,7 +630,7 @@ class FlipWireFragmentCommand(Command[ComponentState]):
         original_side = wire.side
 
         # Remove the original wire
-        state.layout.wires = [w for w in state.layout.wires if w.id != self.wire_id]
+        state.layout.wires.pop(self.wire_id, None)
         self._added_ids.clear()
 
         if start == 0 and end == len(path) - 1:
@@ -671,8 +671,8 @@ class FlipWireFragmentCommand(Command[ComponentState]):
         from protoboard.domain.layout.wire import Wire
 
         # Remove added wires
-        added = set(self._added_ids)
-        state.layout.wires = [w for w in state.layout.wires if w.id not in added]
+        for added_id in self._added_ids:
+            state.layout.wires.pop(added_id, None)
         # Restore original
         if self._original_wire is not None:
             state.layout.wires.append(self._original_wire)  # type: ignore[arg-type]
