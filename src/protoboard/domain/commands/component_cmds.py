@@ -25,7 +25,9 @@ from protoboard.domain.layout.placement import (
     pin_world_position,
     validate_pins_on_pads,
 )
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.knot import JointKnot, PinKnot
+from protoboard.domain.layout.wire import KnotRef, Wire
+from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 
 _log = structlog.get_logger(__name__)
@@ -217,12 +219,70 @@ def _enrich_insulated_with_pad_nodes(
         insulated=wire.insulated,
         side=wire.side,
         color=wire.color,
+        a=wire.a,
+        b=wire.b,
     )
+
+
+_EPS_KNOT = 1e-6
+
+
+def _find_pin_at(
+    state: ComponentState, point: Point,
+) -> PinRef | None:
+    """Return the PinRef of the pin sitting at ``point``, or None.
+
+    Scans current placements.  Exact match first, then a tolerant fallback
+    (``1e-6``) to absorb the rounding present in legacy paths.
+    """
+    for comp_id, placement in state.layout.placements.items():
+        inst = state.instances.get(comp_id)
+        if inst is None:
+            continue
+        defn = state.components.get(inst.definition_ref)
+        if defn is None:
+            continue
+        n_pins = defn.footprint.pin_count()
+        for pin_num in range(1, n_pins + 1):
+            try:
+                pos = pin_world_position(defn.footprint, placement, pin_num)
+            except (IndexError, ValueError):
+                continue
+            if (
+                abs(pos.x - point.x) < _EPS_KNOT
+                and abs(pos.y - point.y) < _EPS_KNOT
+            ):
+                return PinRef(component_id=comp_id, pin_number=pin_num)
+    return None
+
+
+def _resolve_endpoint_knot(
+    state: ComponentState, point: Point,
+) -> tuple[KnotRef, JointKnot | None]:
+    """Resolve an endpoint position to (KnotRef, optional created JointKnot).
+
+    Pin hit → reuse/create the singleton PinKnot for that PinRef.
+    Otherwise → create a fresh JointKnot at ``point``.  The created knot
+    (if any) is returned so AddWireCommand.revert can drop it.
+    """
+    pin = _find_pin_at(state, point)
+    if pin is not None:
+        pk = state.layout.get_or_create_pin_knot(pin)
+        return KnotRef(id=pk.id), None
+    # Joint at this position (off-pad joints are flagged by DRC, not here).
+    jk = state.layout.create_joint_knot(point)
+    return KnotRef(id=jk.id), jk
 
 
 @dataclass
 class AddWireCommand(Command[ComponentState]):
     wire: Wire
+    # Joint knots created on first apply; restored on redo, removed on revert.
+    _created_joints: list[JointKnot] = field(
+        default_factory=list, init=False, repr=False
+    )
+    # True once apply() has resolved knots and switched to v2 storage.
+    _knots_resolved: bool = field(default=False, init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -233,10 +293,34 @@ class AddWireCommand(Command[ComponentState]):
         # unweave / edit tools have nodes at every pad the wire physically
         # crosses.  Idempotent — redo doesn't re-grow the path.
         self.wire = _enrich_insulated_with_pad_nodes(self.wire, state.board)
-        state.layout.wires.append(self.wire)
+        if not self._knots_resolved:
+            if self.wire.a is None or self.wire.b is None:
+                start = self.wire.path[0]
+                end = self.wire.path[-1]
+                a_ref, a_created = _resolve_endpoint_knot(state, start)
+                b_ref, b_created = _resolve_endpoint_knot(state, end)
+                self.wire.a = a_ref
+                self.wire.b = b_ref
+                if a_created is not None:
+                    self._created_joints.append(a_created)
+                if b_created is not None:
+                    self._created_joints.append(b_created)
+            self._knots_resolved = True
+        else:
+            # Redo: re-register joints we created and dropped on revert.
+            for jk in self._created_joints:
+                state.layout.knots.setdefault(jk.id, jk)
+        state.layout.add_wire_v2(self.wire)
 
     def revert(self, state: ComponentState) -> None:
-        state.layout.wires.remove(self.wire)
+        state.layout.remove_wire_v2(self.wire.id)
+        # Joints we created may still hold back-refs to other wires (shared
+        # joint).  ``remove_wire_v2`` already prunes orphans; anything still
+        # in layout.knots is a non-orphan we must leave alone.
+        for jk in self._created_joints:
+            if jk.id in state.layout.knots:
+                continue  # not orphan after remove_wire_v2; keep
+            # Already removed by remove_wire_v2 as orphan — nothing to do.
 
 
 @dataclass
@@ -263,6 +347,10 @@ class AddWireWithNetsCommand(Command[ComponentState]):
         default_factory=dict, init=False, repr=False
     )
     _first_apply: bool = field(default=True, init=False, repr=False)
+    _created_joints: list[JointKnot] = field(
+        default_factory=list, init=False, repr=False
+    )
+    _knots_resolved: bool = field(default=False, init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -283,7 +371,23 @@ class AddWireWithNetsCommand(Command[ComponentState]):
         # Enrich insulated wires the same way AddWireCommand does — single
         # chokepoint for every wire-creation path.
         self.wire = _enrich_insulated_with_pad_nodes(self.wire, state.board)
-        state.layout.wires.append(self.wire)
+        if not self._knots_resolved:
+            if self.wire.a is None or self.wire.b is None:
+                start = self.wire.path[0]
+                end = self.wire.path[-1]
+                a_ref, a_created = _resolve_endpoint_knot(state, start)
+                b_ref, b_created = _resolve_endpoint_knot(state, end)
+                self.wire.a = a_ref
+                self.wire.b = b_ref
+                if a_created is not None:
+                    self._created_joints.append(a_created)
+                if b_created is not None:
+                    self._created_joints.append(b_created)
+            self._knots_resolved = True
+        else:
+            for jk in self._created_joints:
+                state.layout.knots.setdefault(jk.id, jk)
+        state.layout.add_wire_v2(self.wire)
         if self._first_apply:
             # Net mutations already applied by resolver — nothing more to do.
             object.__setattr__(self, "_first_apply", False)
@@ -297,7 +401,7 @@ class AddWireWithNetsCommand(Command[ComponentState]):
                 schematic.nets[net_id] = net_after
 
     def revert(self, state: ComponentState) -> None:
-        state.layout.wires.remove(self.wire)
+        state.layout.remove_wire_v2(self.wire.id)
         schematic = getattr(state, "schematic")
         for net_id, net_before in self._nets_before.items():
             if net_before is None:
@@ -310,21 +414,42 @@ class AddWireWithNetsCommand(Command[ComponentState]):
 class RemoveWireCommand(Command[ComponentState]):
     wire_id: uuid.UUID
     _saved_wire: Wire | None = field(default=None, init=False, repr=False)
+    # JointKnots that became orphan when the wire was removed; restored on revert.
+    _saved_orphan_joints: list[JointKnot] = field(
+        default_factory=list, init=False, repr=False
+    )
 
     @property
     def description(self) -> str:  # type: ignore[override]
         return "Remove wire"
 
     def apply(self, state: ComponentState) -> None:
-        for wire in state.layout.wires:
-            if wire.id == self.wire_id:
-                object.__setattr__(self, "_saved_wire", wire)
-                state.layout.wires.remove(wire)
-                return
-        raise KeyError(f"Wire {self.wire_id} not found")
+        wire = state.layout.wires.get(self.wire_id)
+        if wire is None:
+            raise KeyError(f"Wire {self.wire_id} not found")
+        object.__setattr__(self, "_saved_wire", wire)
+        # Capture would-be-orphan JointKnots so revert can put them back.
+        orphans: list[JointKnot] = []
+        if wire.a is not None and wire.b is not None:
+            for ref in (wire.a, wire.b):
+                k = state.layout.knots.get(ref.id)
+                if isinstance(k, JointKnot) and k.wire_ids == frozenset({wire.id}):
+                    orphans.append(k)
+            state.layout.remove_wire_v2(self.wire_id)
+        else:
+            # Legacy fallback — wire without knots (shouldn't happen post
+            # AddWireCommand migration, but tolerate during transition).
+            state.layout.wires.remove(wire)
+        self._saved_orphan_joints = orphans
 
     def revert(self, state: ComponentState) -> None:
-        if self._saved_wire is not None:
+        if self._saved_wire is None:
+            return
+        if self._saved_wire.a is not None and self._saved_wire.b is not None:
+            for jk in self._saved_orphan_joints:
+                state.layout.knots.setdefault(jk.id, jk)
+            state.layout.add_wire_v2(self._saved_wire)
+        else:
             state.layout.wires.append(self._saved_wire)
 
 

@@ -174,6 +174,11 @@ class EditorSession(QObject):
         self.schematic = Schematic(nets={})
         self.layout = Layout()
         self.layout.ensure_root_group()
+        # Knot mutators (replace_wire_fragments, …) resolve PinKnot positions
+        # via this callback — needed once commands switch to v2 add/remove.
+        self.layout.set_pin_resolver(
+            lambda pin: self._resolve_pin_for_knot(pin)
+        )
         # Pre-populate components from library so renderers can look up definitions.
         self.components: dict[str, ComponentDefinition] = {
             name: library.get(name) for name in library.names()
@@ -497,6 +502,21 @@ class EditorSession(QObject):
     # ------------------------------------------------------------------
     # Convenience helpers for component/pin lookups
     # ------------------------------------------------------------------
+
+    def _resolve_pin_for_knot(self, pin: object) -> Point:
+        """PinKnot resolver — bridges Layout's resolver protocol to session.
+
+        Called by ``Layout._knot_position`` whenever a v2 mutator needs the
+        world position of a ``PinKnot``.  Returns the current placement
+        position; raises if the component vanished from the layout (a stale
+        knot — caller should drop it).
+        """
+        pos = self.get_pin_position(pin.component_id, pin.pin_number)  # type: ignore[attr-defined]
+        if pos is None:
+            raise RuntimeError(
+                f"PinKnot resolver: pin {pin} cannot be resolved (component absent)"
+            )
+        return pos
 
     def get_pin_position(
         self,
