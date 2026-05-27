@@ -51,14 +51,52 @@ from protoboard.domain.commands.component_cmds import (
     MoveComponentCommand,
     RemoveComponentCommand,
     RemoveWireCommand,
-    ReplaceWireSegmentCommand,
+    ReplaceWireFragmentsCommand,
 )
 from protoboard.domain.layout.group import (
     all_component_ids,
     top_level_group_for,
 )
 from protoboard.domain.layout.placement import component_bbox, flip_component, pin_world_position, unrotate
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Fragment, Wire
+from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
+
+
+def _replace_wire_path_cmd(
+    layout: object,
+    wire: Wire,
+    new_path: list[Point],
+    old_path: list[Point] | None = None,
+) -> "ReplaceWireFragmentsCommand":
+    """Build a ReplaceWireFragmentsCommand for an in-place path edit.
+
+    Ensures the wire has v2 endpoint knots, rebuilds fragments from
+    ``new_path`` along the existing via boundaries, and snapshots
+    ``old_path`` (defaulting to a single-fragment view of the current
+    wire.side) into ``old_fragments`` for undo.  Callers that mutated
+    wire.path in place before issuing the command must pass the
+    pre-mutation path as ``old_path``.
+    """
+    layout.ensure_wire_knots(wire)  # type: ignore[attr-defined]
+    if old_path is None:
+        old_fragments = tuple(
+            Fragment(path=list(f.path), side=f.side) for f in wire.fragments
+        )
+    elif len(wire.fragments) <= 1:
+        old_fragments = (Fragment(path=list(old_path), side=wire.side),)
+    else:
+        # Multi-fragment wire whose path was changed in place — derive the
+        # pre-edit fragments from the old path.  Same boundary positions
+        # as the current fragments (drag preserves vias).
+        old_fragments = tuple(
+            rebuild_fragments_from_path(wire, list(old_path))
+        )
+    new_fragments = tuple(rebuild_fragments_from_path(wire, list(new_path)))
+    return ReplaceWireFragmentsCommand(
+        wire_id=wire.id,
+        new_fragments=new_fragments,
+        old_fragments=old_fragments,
+    )
 from protoboard.geometry import Point
 from protoboard.gui.board_view import _Tool
 from protoboard.gui.panels.properties_panel import PropertiesPanel
@@ -1509,7 +1547,7 @@ class SelectTool(_Tool):
         )
 
         # Wire-path-change commands for live-dragged wires that need a
-        # ReplaceWireSegmentCommand entry in undo history.
+        # ReplaceWireFragmentsCommand entry in undo history.
         wire_move_cmds: list[object] = []
         for wire in self._session.layout.wires:
             orig_wire_path = self._drag_orig_wire_paths.get(wire.id)
@@ -1518,10 +1556,8 @@ class SelectTool(_Tool):
             if wire.path == orig_wire_path:
                 continue
             wire_move_cmds.append(
-                ReplaceWireSegmentCommand(
-                    wire_id=wire.id,
-                    new_path=list(wire.path),
-                    old_path=orig_wire_path,
+                _replace_wire_path_cmd(
+                    self._session.layout, wire, list(wire.path), orig_wire_path
                 )
             )
 
@@ -1543,7 +1579,7 @@ class SelectTool(_Tool):
                 _seen_remove.add(cmd.wire_id)
             # If a wire is both being path-replaced AND auto-removed, the
             # remove wins (the replace would re-add the bad path on undo).
-            if isinstance(cmd, ReplaceWireSegmentCommand):
+            if isinstance(cmd, ReplaceWireFragmentsCommand):
                 if cmd.wire_id in decision.auto_remove_wire_ids:
                     continue
             deduped.append(cmd)
@@ -2912,10 +2948,8 @@ class SelectTool(_Tool):
             orig_path = self._drag_orig_wire_paths[wire.id]
             if wire.path == orig_path:
                 continue
-            cmds.append(ReplaceWireSegmentCommand(
-                wire_id=wire.id,
-                new_path=list(wire.path),
-                old_path=orig_path,
+            cmds.append(_replace_wire_path_cmd(
+                self._session.layout, wire, list(wire.path), orig_path,
             ))
 
         # Add removal commands for removable crossing wires.
@@ -3922,7 +3956,7 @@ class SelectTool(_Tool):
 
         Uses the project's RoutingSettings.simplify_mode unless
         *mode_override* is one of "chebyshev" / "bare_parity".
-        Builds one ReplaceWireSegmentCommand per wire whose path actually
+        Builds one ReplaceWireFragmentsCommand per wire whose path actually
         changed and packs them into a MacroCommand for atomic undo.
         """
         from typing import cast
@@ -4008,10 +4042,8 @@ class SelectTool(_Tool):
             cmds.append(
                 cast(
                     Command[ComponentState],
-                    ReplaceWireSegmentCommand(
-                        wire_id=wid,
-                        new_path=list(new_wire.path),
-                        old_path=list(wire.path),
+                    _replace_wire_path_cmd(
+                        session.layout, wire, list(new_wire.path), list(wire.path),
                     ),
                 )
             )
@@ -4123,7 +4155,7 @@ class SelectTool(_Tool):
             ):
                 continue  # No-op for this wire.
             # Side or insulation changed — full Remove+Add cycle.  Path-only
-            # changes could use ReplaceWireSegmentCommand, but mixing the two
+            # changes could use ReplaceWireFragmentsCommand, but mixing the two
             # paths complicates undo grouping, so always go Remove+Add.
             cmds.append(cast(Command[ComponentState], RemoveWireCommand(wire_id=wire_in.id)))
             cmds.append(cast(Command[ComponentState], AddWireCommand(wire=wire_out)))
@@ -4284,7 +4316,7 @@ class SelectTool(_Tool):
         endpoints even though the physical conductor rests on several pads.
         Edit-mode hit-test only matches against existing vertices, so those
         intermediate pads would be unselectable.  This helper executes one
-        ReplaceWireSegmentCommand that re-inserts the missing pad vertices —
+        ReplaceWireFragmentsCommand that re-inserts the missing pad vertices —
         idempotent: no command is emitted when the path is already enriched
         or when the wire is insulated.
         """
@@ -4301,10 +4333,9 @@ class SelectTool(_Tool):
         enriched = insert_pad_nodes(list(wire.path), pads)
         if enriched == list(wire.path):
             return
-        from protoboard.domain.commands.component_cmds import (
-            ReplaceWireSegmentCommand,
+        cmd = _replace_wire_path_cmd(
+            self._session.layout, wire, enriched, list(wire.path),
         )
-        cmd = ReplaceWireSegmentCommand(wire_id=wire_id, new_path=enriched)
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
 
@@ -4556,10 +4587,8 @@ class SelectTool(_Tool):
             if len(new_path) < 2:
                 cmds.append(RemoveWireCommand(wire_id=wire.id))
                 return
-            cmds.append(ReplaceWireSegmentCommand(
-                wire_id=wire.id,
-                new_path=new_path,
-                old_path=list(wire.path),
+            cmds.append(_replace_wire_path_cmd(
+                self._session.layout, wire, new_path, list(wire.path),
             ))
 
         # --- Start wire: keep fragment from its outer endpoint to start_idx ---
@@ -4568,10 +4597,8 @@ class SelectTool(_Tool):
             # caller dispatches on `cross` before reaching here).  Preserve
             # the previous semantics for safety.
             new_path = list(start_wire.path[:start_idx + 1])
-            cmds.append(ReplaceWireSegmentCommand(
-                wire_id=start_wire.id,
-                new_path=new_path,
-                old_path=list(start_wire.path),
+            cmds.append(_replace_wire_path_cmd(
+                self._session.layout, start_wire, new_path, list(start_wire.path),
             ))
         else:
             start_outer = self._outer_endpoint_idx(start_wire, ordered[1])
@@ -4785,7 +4812,9 @@ class SelectTool(_Tool):
             return
         self._clear_edit_preview()
         self._cancel_wire_edit()
-        cmd = ReplaceWireSegmentCommand(wire_id=wire.id, new_path=new_path)
+        cmd = _replace_wire_path_cmd(
+            self._session.layout, wire, new_path, list(wire.path),
+        )
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
         self._select_wire(wire.id)
@@ -4986,7 +5015,7 @@ class SelectTool(_Tool):
         """Delete the selected fragment from the wire(s).
 
         Cross-wire: excises the range across multiple wire segments (MacroCommand).
-        Same-wire: if whole wire → RemoveWireCommand; else → ReplaceWireSegmentCommand.
+        Same-wire: if whole wire → RemoveWireCommand; else → ReplaceWireFragmentsCommand.
         """
         if self._edit_start_idx is None or self._edit_end_idx is None:
             return
@@ -5180,7 +5209,9 @@ class SelectTool(_Tool):
             return
         self._clear_edit_preview()
         self._cancel_wire_edit()
-        cmd = ReplaceWireSegmentCommand(wire_id=wire.id, new_path=new_path)
+        cmd = _replace_wire_path_cmd(
+            self._session.layout, wire, new_path, list(wire.path),
+        )
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
         self._select_wire(wire.id)

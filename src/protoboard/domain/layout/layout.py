@@ -255,16 +255,28 @@ class Layout:
             raise ValueError("replace_wire_fragments requires a Wire with both knots")
         a_knot = self.knots[existing.a.id]
         b_knot = self.knots[existing.b.id]
-        if _knot_position(a_knot, self) != a_pos:
+        # Endpoint validation.  A ``JointKnot`` whose only incident wire is
+        # the one being edited is free to follow the wire — wire-only drag
+        # moves a free joint along with its sole wire.  Shared joints (>=2
+        # incident wires) must not move silently because that would shift
+        # other wires too; ditto PinKnots whose position comes from the
+        # placement, not the joint.
+        def _resolve_endpoint(
+            knot: Knot, wire_id_: uuid.UUID, new_pos: Point, label: str,
+        ) -> None:
+            cur = _knot_position(knot, self)
+            if cur == new_pos:
+                return
+            if isinstance(knot, JointKnot) and knot.wire_ids == frozenset({wire_id_}):
+                # Free joint — slide along with the wire.
+                knot.position = new_pos
+                return
             raise ValueError(
-                f"replace_wire_fragments: new path[0]={a_pos} disagrees with "
-                f"knot a position {_knot_position(a_knot, self)}"
+                f"replace_wire_fragments: new {label}={new_pos} disagrees with "
+                f"knot {label[-1]} position {cur}"
             )
-        if _knot_position(b_knot, self) != b_pos:
-            raise ValueError(
-                f"replace_wire_fragments: new path[-1]={b_pos} disagrees with "
-                f"knot b position {_knot_position(b_knot, self)}"
-            )
+        _resolve_endpoint(a_knot, wire_id, a_pos, "path[0]")
+        _resolve_endpoint(b_knot, wire_id, b_pos, "path[-1]")
         # Mutate in place — Wire is mutable now, identity is by id.
         existing.fragments = frag_list
         existing.path = _flatten_fragments(frag_list)

@@ -26,7 +26,8 @@ from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPen
 from PySide6.QtWidgets import QGraphicsLineItem
 
 from protoboard.domain.commands.component_cmds import ReplaceWireFragmentsCommand
-from protoboard.domain.layout.wire import Fragment, Wire
+from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
 from protoboard.geometry import Point
 from protoboard.gui.tools.select_tool import SelectTool
 from protoboard.services.routing.postprocess import (
@@ -36,45 +37,6 @@ from protoboard.services.routing.postprocess import (
 
 
 _PREVIEW_WIDTH = 0.12
-
-
-def _rebuild_fragments_from_path(
-    wire: Wire, new_path: list[Point],
-) -> list[Fragment]:
-    """Split ``new_path`` along the existing fragment boundaries of ``wire``.
-
-    Simplify never moves a via — every via vertex in the original wire
-    survives in ``new_path``.  This walks ``new_path`` once, splitting at
-    each original via position to recover the per-fragment side
-    assignment.  Single-fragment wires collapse trivially.
-    """
-    if len(wire.fragments) <= 1:
-        return [Fragment(path=list(new_path), side=wire.side)]
-    # Multi-fragment case: each interior boundary is a via vertex shared
-    # by the meeting fragments.  Locate every boundary in new_path and
-    # split there.
-    boundary_positions: list[Point] = [
-        frag.path[-1] for frag in wire.fragments[:-1]
-    ]
-    out: list[Fragment] = []
-    cursor = 0
-    for boundary, frag in zip(boundary_positions, wire.fragments):
-        idx = _find_point(new_path, boundary, start=cursor)
-        if idx is None:
-            # Boundary lost — simplify shouldn't be able to do this, but
-            # fall back to a single fragment using the wire's primary side.
-            return [Fragment(path=list(new_path), side=wire.side)]
-        out.append(Fragment(path=list(new_path[cursor : idx + 1]), side=frag.side))
-        cursor = idx
-    out.append(Fragment(path=list(new_path[cursor:]), side=wire.fragments[-1].side))
-    return out
-
-
-def _find_point(path: list[Point], target: Point, *, start: int) -> int | None:
-    for i in range(start, len(path)):
-        if path[i] == target:
-            return i
-    return None
 
 
 def compute_simplified_wire(
@@ -236,7 +198,7 @@ class SimplifyTool(SelectTool):
         # Simplify preserves per-fragment side topology — same-side wires
         # collapse into one fragment; multi-fragment wires keep their split
         # at the same via positions, which simplify never crosses.
-        new_fragments = _rebuild_fragments_from_path(old_wire, new_path)
+        new_fragments = rebuild_fragments_from_path(old_wire, new_path)
         cmd = ReplaceWireFragmentsCommand(
             wire_id=wire_id,
             new_fragments=tuple(new_fragments),

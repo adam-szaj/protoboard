@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     import uuid
 
     from protoboard.domain.board.board import Board
-    from protoboard.domain.layout.wire import Wire
+    from protoboard.domain.layout.wire import Fragment, Wire
 
 
 def board_pads_for_side(board: Board, side: str) -> set[Point]:
@@ -125,6 +125,42 @@ def insert_pad_nodes(
 
     result.append(path[-1])
     return result
+
+
+def rebuild_fragments_from_path(
+    wire: "Wire", new_path: list[Point],
+) -> "list[Fragment]":
+    """Split ``new_path`` along the existing fragment boundaries of ``wire``.
+
+    Path-editing tools (simplify, segment-edit, drag-commit) reshape a
+    wire's path without crossing any of its vias.  Every via vertex of
+    ``wire`` survives in ``new_path``; this walks ``new_path`` once,
+    splitting at each original boundary to recover the per-fragment side
+    assignment.  Single-fragment wires collapse trivially.
+
+    If a boundary cannot be located (shouldn't happen for legal edits),
+    we fall back to a single-fragment wire on the primary side.
+    """
+    from protoboard.domain.layout.wire import Fragment as _Fragment
+    if len(wire.fragments) <= 1:
+        return [_Fragment(path=list(new_path), side=wire.side)]
+    boundary_positions: list[Point] = [
+        frag.path[-1] for frag in wire.fragments[:-1]
+    ]
+    out: list[_Fragment] = []
+    cursor = 0
+    for boundary, frag in zip(boundary_positions, wire.fragments):
+        idx = None
+        for i in range(cursor, len(new_path)):
+            if new_path[i] == boundary:
+                idx = i
+                break
+        if idx is None:
+            return [_Fragment(path=list(new_path), side=wire.side)]
+        out.append(_Fragment(path=list(new_path[cursor : idx + 1]), side=frag.side))
+        cursor = idx
+    out.append(_Fragment(path=list(new_path[cursor:]), side=wire.fragments[-1].side))
+    return out
 
 
 def wire_has_skewed_segment(wire: Wire, tol: float = 1e-6) -> bool:

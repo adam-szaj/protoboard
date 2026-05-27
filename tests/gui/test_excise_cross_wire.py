@@ -21,7 +21,7 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.commands.component_cmds import (
     RemoveWireCommand,
-    ReplaceWireSegmentCommand,
+    ReplaceWireFragmentsCommand,
 )
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net, PinRef
@@ -173,10 +173,16 @@ class TestExciseCrossWire:
         # Find the replace command on wireA.
         replace_a = next(
             c for c in macro._commands
-            if isinstance(c, ReplaceWireSegmentCommand) and c.wire_id == wireA.id
+            if isinstance(c, ReplaceWireFragmentsCommand) and c.wire_id == wireA.id
         )
         # Outer end of wireA is path[-1] (right side), so keep [start_idx..end].
-        assert replace_a.new_path == list(wireA.path[3:])
+        new_path_a = []
+        for frag in replace_a.new_fragments:
+            if not new_path_a:
+                new_path_a.extend(frag.path)
+            else:
+                new_path_a.extend(frag.path[1:])
+        assert new_path_a == list(wireA.path[3:])
         # And wireB, whose outer end is path[0] and edit is at path[0],
         # collapses to nothing → removed entirely.
         assert any(
@@ -217,6 +223,12 @@ class TestExciseCrossWire:
         # wireA outer end is path[-1]; edit at index 3 → keep suffix [3:].
         replace_a = next(
             c for c in macro._commands
-            if isinstance(c, ReplaceWireSegmentCommand) and c.wire_id == wireA.id
+            if isinstance(c, ReplaceWireFragmentsCommand) and c.wire_id == wireA.id
         )
-        assert replace_a.new_path == list(wireA.path[3:])
+        new_path_a = []
+        for frag in replace_a.new_fragments:
+            if not new_path_a:
+                new_path_a.extend(frag.path)
+            else:
+                new_path_a.extend(frag.path[1:])
+        assert new_path_a == list(wireA.path[3:])

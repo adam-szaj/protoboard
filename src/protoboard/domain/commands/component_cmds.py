@@ -835,6 +835,10 @@ class ReplaceWireFragmentsCommand(Command[ComponentState]):
 
     wire_id: uuid.UUID
     new_fragments: tuple[_Fragment, ...]
+    # Caller-supplied pre-mutation fragments; if empty, apply() reads from state.
+    # Mirrors the old_path escape hatch on ReplaceWireSegmentCommand for callers
+    # (drag-commit) that mutate the wire in place before issuing the command.
+    old_fragments: tuple[_Fragment, ...] = field(default=())
     _saved_fragments: tuple[_Fragment, ...] = field(default=(), init=False, repr=False)
 
     @property
@@ -845,7 +849,10 @@ class ReplaceWireFragmentsCommand(Command[ComponentState]):
         wire = state.layout.wires_v2.get(self.wire_id)
         if wire is None:
             return
-        self._saved_fragments = wire.fragments
+        if self.old_fragments:
+            self._saved_fragments = self.old_fragments
+        else:
+            self._saved_fragments = tuple(wire.fragments)
         state.layout.replace_wire_fragments(self.wire_id, self.new_fragments)
 
     def revert(self, state: ComponentState) -> None:
