@@ -522,15 +522,29 @@ def _layout_from_yaml(text: str) -> Layout:
             locked=bool(raw.get("locked", False)),
         )
         placements[comp_id] = pl
-    # Format v2 stores wires as knot-aware blocks (a_knot_id/b_knot_id/
-    # fragments).  Legacy v1 files carry a flat `wires:` list (path+side+
-    # insulated) and no `knots:` — we load those into a transient list and
-    # let `_legacy_wires_to_knot_aware` below convert them once the layout
-    # is constructed.
-    fmt = int(data.get("format_version", 1))
+    # Wire format detection: a knot-aware entry carries ``a_knot_id``.
+    # Legacy entries (path/side/insulated only) are converted to knot-aware
+    # wires later in ``load_project`` once a pin resolver is available.
+    # Transition-period projects exist where ``format_version: 2`` was set
+    # but the ``wires:`` block still held legacy entries (``wires_v2:`` was
+    # the active block); inspect the actual shape rather than trusting the
+    # header.
+    raw_wires_block = data.get("wires") or []
+    raw_wires_v2_block = data.get("wires_v2") or []
+    # Use whichever block contains the knot-aware entries.
+    if raw_wires_v2_block:
+        knot_aware_wires_block = raw_wires_v2_block
+        knot_aware = True
+    elif raw_wires_block and isinstance(raw_wires_block[0], dict) and "a_knot_id" in raw_wires_block[0]:
+        knot_aware_wires_block = raw_wires_block
+        knot_aware = True
+    else:
+        knot_aware_wires_block = []
+        knot_aware = False
+
     legacy_wires: list[Wire] = []
-    if fmt < 2:
-        for raw in data.get("wires") or []:
+    if not knot_aware:
+        for raw in raw_wires_block:
             path = [Point(float(p["x"]), float(p["y"])) for p in raw["path"]]
             legacy_wires.append(
                 Wire(
@@ -573,8 +587,8 @@ def _layout_from_yaml(text: str) -> Layout:
         placements=placements,
         groups=groups,
     )
-    if fmt >= 2:
-        _decode_knots_and_wires(data, layout)
+    if knot_aware:
+        _decode_knots_and_wires(data, layout, knot_aware_wires_block)
     else:
         # v1 fallback: legacy wires without knots.  Insert them directly into
         # the storage; the caller (load_project) will invoke ensure_wire_knots
@@ -586,7 +600,11 @@ def _layout_from_yaml(text: str) -> Layout:
     return layout
 
 
-def _decode_knots_and_wires(data: dict[str, Any], layout: Layout) -> None:
+def _decode_knots_and_wires(
+    data: dict[str, Any],
+    layout: Layout,
+    raw_wires: list[dict[str, Any]] | None = None,
+) -> None:
     from protoboard.domain.layout.knot import JointKnot, Knot, PinKnot
     from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
     raw_knots = data.get("knots") or []
@@ -612,7 +630,8 @@ def _decode_knots_and_wires(data: dict[str, Any], layout: Layout) -> None:
             raise SerializationError(f"unknown knot kind: {kind!r}")
         layout.knots[kid] = knot
 
-    raw_wires = data.get("wires") or []
+    if raw_wires is None:
+        raw_wires = data.get("wires") or []
     for raw in raw_wires:
         wid = uuid.UUID(raw["id"])
         a_id = uuid.UUID(raw["a_knot_id"])
