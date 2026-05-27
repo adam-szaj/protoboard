@@ -169,7 +169,7 @@ def migrate_layout_to_v2(
             id=seg.id,
             a=a_ref,
             b=b_ref,
-            fragments=(Fragment(path=tuple(seg.path), side=seg.side),),
+            fragments=[Fragment(path=list(seg.path), side=seg.side)],
             insulated=seg.insulated,
             color=seg.color,
         )

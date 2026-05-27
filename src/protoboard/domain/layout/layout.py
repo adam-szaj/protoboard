@@ -34,17 +34,6 @@ class Layout:
     # ``.items()`` directly.  Constructor still accepts a ``list[Wire]``
     # (or list[WireSegment], same class) via ``__post_init__`` normalisation.
     wires: WireCollection = field(default_factory=WireCollection)
-
-    def __post_init__(self) -> None:
-        # Normalise list-style construction:
-        # ``Layout(wires=[w1, w2])`` from existing tests stays valid.
-        # mypy thinks the isinstance branches are unreachable (field is typed
-        # as WireCollection), but Python's dataclass __init__ accepts any
-        # value matching no type-check at runtime.
-        if not isinstance(self.wires, WireCollection):
-            self.wires = WireCollection(list(self.wires))
-        if not isinstance(self.wires_v2, WireCollection):
-            self.wires_v2 = WireCollection(list(self.wires_v2))
     groups: dict[uuid.UUID, ComponentGroup] = field(default_factory=dict)
 
     # Knot storage — endpoint hubs for wires.  Populated by v2 commands and
@@ -52,15 +41,27 @@ class Layout:
     knots: dict[uuid.UUID, Knot] = field(default_factory=dict)
     # Index for fast pin -> knot lookup (one PinKnot per PinRef).
     pin_knots: dict[PinRef, uuid.UUID] = field(default_factory=dict)
-    # ``wires_v2`` is a backward-compat view on top of ``wires`` so any
-    # remaining v2-aware code that still references it sees the same data.
-    # Removal scheduled for Cutover Step 3.
-    wires_v2: WireCollection = field(default_factory=WireCollection)
 
     # Resolver for PinKnot world positions.  ``None`` until the caller
     # registers one via ``set_pin_resolver``; required by mutators that
     # validate fragment endpoints against knot positions.
     _pin_resolver: PinResolver | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        # Normalise list-style construction:
+        # ``Layout(wires=[w1, w2])`` from existing tests stays valid.
+        if not isinstance(self.wires, WireCollection):
+            self.wires = WireCollection(list(self.wires))
+
+    @property
+    def wires_v2(self) -> WireCollection:
+        """Backward-compat alias — same storage as ``wires``.
+
+        Kept so consumers still using ``layout.wires_v2`` (commands, tests
+        from the cutover transition period) don't break.  Removal scheduled
+        once all callers migrate to ``wires``.
+        """
+        return self.wires
 
     def set_pin_resolver(self, resolver: PinResolver) -> None:
         self._pin_resolver = resolver
@@ -140,7 +141,7 @@ class Layout:
 
         Both endpoint knots must already exist in ``self.knots``.
         """
-        if wire.id in self.wires_v2:
+        if wire.id in self.wires:
             raise ValueError(f"Wire {wire.id} already in layout")
         if wire.a is None or wire.b is None:
             raise ValueError(
@@ -151,7 +152,7 @@ class Layout:
             if knot is None:
                 raise ValueError(f"Wire endpoint knot {ref.id} not in layout.knots")
             self.knots[ref.id] = _knot_with_wire(knot, wire.id, add=True)
-        self.wires_v2[wire.id] = wire
+        self.wires[wire.id] = wire
 
     def remove_wire_v2(self, wire_id: uuid.UUID) -> list[uuid.UUID]:
         """Remove a wire and clean up orphan JointKnots.
@@ -160,7 +161,7 @@ class Layout:
         orphan (only ``JointKnot``s — ``PinKnot``s survive even with zero
         wires, since the pin itself still exists).
         """
-        wire = self.wires_v2.pop(wire_id, None)
+        wire = self.wires.pop(wire_id, None)
         if wire is None:
             raise KeyError(f"Wire {wire_id} not in layout")
         removed: list[uuid.UUID] = []
@@ -189,7 +190,7 @@ class Layout:
         ``path`` attribute is rebuilt from the new fragments so legacy
         consumers (which read ``wire.path``) see the updated geometry.
         """
-        existing = self.wires_v2.get(wire_id)
+        existing = self.wires.get(wire_id)
         if existing is None:
             raise KeyError(f"Wire {wire_id} not in layout")
         frag_list = list(fragments)
@@ -247,8 +248,8 @@ class Layout:
         if len(joint.wire_ids) != 2:
             return None
         w1_id, w2_id = tuple(joint.wire_ids)
-        w1 = self.wires_v2[w1_id]
-        w2 = self.wires_v2[w2_id]
+        w1 = self.wires[w1_id]
+        w2 = self.wires[w2_id]
         if w1.insulated != w2.insulated:
             return None
         # Orient w1 so its `b` is the joint; orient w2 so its `a` is the joint.
@@ -296,8 +297,8 @@ class Layout:
         # Apply: remove both wires (this will also try to clean up the
         # joint, which we know is now empty), then add the merged wire.
         # We don't use remove_wire_v2 because we want exact control.
-        self.wires_v2.pop(w1.id, None)
-        self.wires_v2.pop(w2.id, None)
+        self.wires.pop(w1.id, None)
+        self.wires.pop(w2.id, None)
         # Detach back-refs from the joint and from the remaining endpoints.
         for w in (w1, w2):
             for ref in (w.a, w.b):

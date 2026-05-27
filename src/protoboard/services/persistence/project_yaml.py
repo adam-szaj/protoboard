@@ -147,6 +147,10 @@ def _wire_v2_to_yaml_dict(wire: object) -> dict[str, Any]:
     from protoboard.domain.layout.wire import Wire as _Wire
     if not isinstance(wire, _Wire):
         raise SerializationError(f"expected Wire, got {type(wire).__name__}")
+    if wire.a is None or wire.b is None:
+        raise SerializationError(
+            f"Wire {wire.id} is missing knot references (a/b); cannot encode as v2"
+        )
     return {
         "id": str(wire.id),
         "a_knot_id": str(wire.a.id),
@@ -168,7 +172,12 @@ def _layout_to_yaml(layout: Layout) -> str:
     # outright after a deprecation window.  v2 introduces the knot/wire/
     # fragment model alongside the legacy ``wires`` list; both are written
     # while consumers complete migration in Commit B.
-    has_v2 = bool(layout.wires_v2) or bool(layout.knots)
+    # v2 detection: any wire carries explicit knot references, or there are
+    # standalone knots in the layout.  `wires_v2` is the same WireCollection
+    # as `wires`; filtering by ``a is not None`` distinguishes v2-style wires
+    # (knot-aware) from legacy WireSegment-style wires that share the storage.
+    v2_wires = [w for w in layout.wires if w.a is not None and w.b is not None]
+    has_v2 = bool(v2_wires) or bool(layout.knots)
     data: dict[str, Any] = {
         "format_version": 2 if has_v2 else 1,
         "placements": [
@@ -218,9 +227,9 @@ def _layout_to_yaml(layout: Layout) -> str:
         ),
         **(
             {
-                "wires_v2": [_wire_v2_to_yaml_dict(w) for w in layout.wires_v2.values()]
+                "wires_v2": [_wire_v2_to_yaml_dict(w) for w in v2_wires]
             }
-            if layout.wires_v2 else {}
+            if v2_wires else {}
         ),
         **(
             {
@@ -507,7 +516,12 @@ def _layout_from_yaml(text: str) -> Layout:
             rotation=int(raw.get("rotation", 0)),
             origin=origin,
         )
-    layout = Layout(placements=placements, wires=wires, groups=groups)
+    from protoboard.domain.layout.wire import WireCollection
+    layout = Layout(
+        placements=placements,
+        wires=WireCollection(wires),
+        groups=groups,
+    )
 
     # v2 model: knots + wires_v2 are stored alongside legacy `wires` (the
     # latter stays populated for Commit-A-era consumers).  Projects saved
@@ -559,16 +573,16 @@ def _decode_knots_and_wires_v2(data: dict[str, Any], layout: Layout) -> None:
         fragments_raw = raw.get("fragments") or []
         if not fragments_raw:
             raise SerializationError(f"wire {wid} has no fragments")
-        fragments = tuple(
+        fragments = [
             Fragment(
-                path=tuple(
+                path=[
                     Point(float(p["x"]), float(p["y"]))
                     for p in f["path"]
-                ),
+                ],
                 side=f["side"],
             )
             for f in fragments_raw
-        )
+        ]
         wire = Wire(
             id=wid,
             a=KnotRef(id=a_id),
