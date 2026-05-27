@@ -1014,6 +1014,21 @@ def _update_wires_for_move(
             for i in range(len(new_path))
         ):
             wire.path = new_path
+            # Keep fragments in sync — same boundary topology, translated
+            # vertices via pin_map.  Single-fragment wires stay single.
+            if wire.fragments:
+                new_fragments_local = []
+                for frag in wire.fragments:
+                    translated = [
+                        pin_map.get(
+                            (round(p.x, 6), round(p.y, 6)), p,
+                        )
+                        for p in frag.path
+                    ]
+                    new_fragments_local.append(
+                        type(frag)(path=translated, side=frag.side),
+                    )
+                wire.fragments = new_fragments_local
         # Drop wire if any segment became skewed (neither orthogonal nor
         # diagonal) after the endpoint translation.  Cannot be represented
         # by the routing/cost model and is almost always a visual artifact
