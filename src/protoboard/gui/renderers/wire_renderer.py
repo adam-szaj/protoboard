@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
-from protoboard.domain.layout.wire import Fragment, Wire, WireSegment
+from protoboard.domain.layout.wire import Fragment, Wire, Wire
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
@@ -64,7 +64,7 @@ def _dim(color: QColor, opacity: float) -> QColor:
 
 
 def wire_fingerprint(
-    wire: WireSegment,
+    wire: Wire,
     net_id: uuid.UUID | None,
     color_override: str | None,
     z_base: float,
@@ -93,7 +93,7 @@ def wire_fingerprint(
 
 def update_wire_groups(
     scene: QGraphicsScene,
-    wires: list[WireSegment],
+    wires: list[Wire],
     wire_net_map: dict[uuid.UUID, uuid.UUID],
     existing_groups: dict[uuid.UUID, QGraphicsItemGroup],
     existing_fingerprints: dict[uuid.UUID, tuple[object, ...]],
@@ -165,7 +165,7 @@ def update_wire_groups(
 
 
 def _build_wire_group(
-    wire: WireSegment,
+    wire: Wire,
     net_id: uuid.UUID | None,
     color_override: str | None,
     alpha: float,
@@ -388,7 +388,7 @@ def _build_via_marker(
 
 def render_wires_with_nets(
     scene: QGraphicsScene,
-    wires: list[WireSegment],
+    wires: list[Wire],
     wire_net_map: dict[uuid.UUID, uuid.UUID],
     net_color_map: dict[uuid.UUID, str | None] | None = None,
     theme: Theme = DEFAULT_THEME,
@@ -409,7 +409,7 @@ def render_wires_with_nets(
 
 def _draw_wire(
     scene: QGraphicsScene,
-    wire: WireSegment,
+    wire: Wire,
     net_id: uuid.UUID | None,
     color_override: str | None = None,
     theme: Theme = DEFAULT_THEME,

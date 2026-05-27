@@ -26,7 +26,7 @@ from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPen
 from PySide6.QtWidgets import QGraphicsLineItem
 
 from protoboard.domain.commands.component_cmds import ReplaceWireSegmentCommand
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.tools.select_tool import SelectTool
 from protoboard.services.routing.postprocess import (
@@ -43,10 +43,10 @@ def compute_simplified_wire(
     wire_id: uuid.UUID,
     *,
     mode: SimplifyMode | None = None,
-) -> WireSegment | None:
+) -> Wire | None:
     """Compute the simplified path for *wire_id* without applying it.
 
-    Returns the new ``WireSegment`` (with a fresh id) when a shortening is
+    Returns the new ``Wire`` (with a fresh id) when a shortening is
     available, or ``None`` when ``generic_simplify_wire`` could not shorten
     the path further.  Callers wanting the raw path use ``result.path``.
     """

@@ -8,7 +8,7 @@ import uuid
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QMouseEvent
 
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.selection_axes import (
@@ -54,8 +54,8 @@ def _press(
     tool.on_press(_ev(x, y, Qt.MouseButton.LeftButton, modifiers), QPointF(x, y))
 
 
-def _add_wire(session: EditorSession, p1: Point, p2: Point) -> WireSegment:
-    wire = WireSegment(
+def _add_wire(session: EditorSession, p1: Point, p2: Point) -> Wire:
+    wire = Wire(
         id=uuid.uuid4(),
         path=[p1, p2],
         insulated=True,

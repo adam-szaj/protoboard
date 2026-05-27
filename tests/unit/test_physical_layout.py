@@ -10,7 +10,7 @@ import pytest
 from protoboard.domain.components.footprints import DIP, SIL
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 
 
@@ -365,7 +365,7 @@ class TestRedragOffsetInverse:
 class TestWireSegment:
     def test_construct(self) -> None:
         wire_id = uuid.uuid4()
-        w = WireSegment(
+        w = Wire(
             id=wire_id,
             path=[Point(0.0, 0.0), Point(1.0, 0.0), Point(2.0, 0.0)],
             insulated=False,
@@ -378,7 +378,7 @@ class TestWireSegment:
         assert w.color is None
 
     def test_insulated_wire_with_color(self) -> None:
-        w = WireSegment(
+        w = Wire(
             id=uuid.uuid4(),
             path=[Point(0.0, 0.0), Point(1.0, 0.0)],
             insulated=True,
@@ -390,7 +390,7 @@ class TestWireSegment:
 
     def test_single_point_path_raises(self) -> None:
         with pytest.raises(ValueError):
-            WireSegment(
+            Wire(
                 id=uuid.uuid4(),
                 path=[Point(0.0, 0.0)],
                 insulated=False,
@@ -399,7 +399,7 @@ class TestWireSegment:
 
     def test_empty_path_raises(self) -> None:
         with pytest.raises(ValueError):
-            WireSegment(
+            Wire(
                 id=uuid.uuid4(),
                 path=[],
                 insulated=False,
@@ -408,7 +408,7 @@ class TestWireSegment:
 
     def test_invalid_side_raises(self) -> None:
         with pytest.raises(ValueError):
-            WireSegment(
+            Wire(
                 id=uuid.uuid4(),
                 path=[Point(0.0, 0.0), Point(1.0, 0.0)],
                 insulated=False,
@@ -416,7 +416,7 @@ class TestWireSegment:
             )
 
     def test_mutable(self) -> None:
-        w = WireSegment(
+        w = Wire(
             id=uuid.uuid4(),
             path=[Point(0.0, 0.0), Point(1.0, 0.0)],
             insulated=False,
@@ -444,7 +444,7 @@ class TestLayout:
         assert comp_id in lay.placements
 
     def test_add_wire(self) -> None:
-        w = WireSegment(
+        w = Wire(
             id=uuid.uuid4(),
             path=[Point(0.0, 0.0), Point(5.0, 0.0)],
             insulated=True,

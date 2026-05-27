@@ -12,7 +12,7 @@ from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.knot import JointKnot, Knot, PinKnot
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import (
-    Fragment, Wire, WireCollection, WireSegment,
+    Fragment, Wire, WireCollection,
 )
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
@@ -32,7 +32,7 @@ class Layout:
     # ``layout.wires.append(w)`` and ``layout.wires.remove(w)`` keep working;
     # v2 consumers can use ``layout.wires.get(id)`` / ``.values()`` /
     # ``.items()`` directly.  Constructor still accepts a ``list[Wire]``
-    # (or list[WireSegment], same class) via ``__post_init__`` normalisation.
+    # (or list[Wire], same class) via ``__post_init__`` normalisation.
     wires: WireCollection = field(default_factory=WireCollection)
     groups: dict[uuid.UUID, ComponentGroup] = field(default_factory=dict)
 

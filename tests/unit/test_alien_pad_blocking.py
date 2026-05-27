@@ -21,7 +21,7 @@ from protoboard.domain.components.footprints import SingleRow
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -55,7 +55,7 @@ def _place(cid, x, y, rotation=90):
 
 
 def _bare_wire(*pts, side="top"):
-    return WireSegment(
+    return Wire(
         id=uuid.uuid4(),
         path=[Point(*p) for p in pts],
         insulated=False,

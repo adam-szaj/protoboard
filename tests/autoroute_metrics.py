@@ -20,7 +20,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import pin_world_position
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.routing.net_status import net_is_complete
@@ -76,7 +76,7 @@ class RunSummary:
 # ---------------------------------------------------------------------------
 
 
-def _manhattan_length(wires: list[WireSegment]) -> float:
+def _manhattan_length(wires: list[Wire]) -> float:
     total = 0.0
     for wire in wires:
         pts = wire.path
@@ -168,7 +168,7 @@ def compute_metrics(
     schematic: Schematic,
     components: dict[str, ComponentDefinition],
     instances: dict,
-    wires: list[WireSegment], # autoroute output wires
+    wires: list[Wire], # autoroute output wires
     wire_mode: str,
     max_rip_up_passes: int,
     max_optimize_iterations: int,
@@ -207,7 +207,7 @@ def compute_metrics(
             if ck is not None:
                 net_canonicals[ck].append(ref)
 
-    wires_by_canonical: dict[object, list[WireSegment]] = defaultdict(list)
+    wires_by_canonical: dict[object, list[Wire]] = defaultdict(list)
     for w in wires:
         ck0 = graph.node_for_pad(w.path[0], w.side)
         if ck0 is not None:

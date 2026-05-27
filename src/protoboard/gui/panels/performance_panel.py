@@ -265,7 +265,7 @@ class PerformancePanel(QWidget):
             self._cost_refresh_timer.start()
 
     def _wires_for_current_scope(self):  # type: ignore[no-untyped-def]
-        """Return the WireSegment list matching the active scope radio."""
+        """Return the Wire list matching the active scope radio."""
         layout = self._session.layout
         all_wires = list(layout.wires)
         if self._scope_all.isChecked():

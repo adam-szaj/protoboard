@@ -11,7 +11,7 @@ from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
@@ -60,7 +60,7 @@ def _pl(x: float, y: float) -> ComponentPlacement:
 
 def _build(
     placements: list[tuple[ComponentInstance, ComponentDefinition, ComponentPlacement]],
-    wires: list[WireSegment] | None = None,
+    wires: list[Wire] | None = None,
     nets: list[Net] | None = None,
 ) -> _SessionStub:
     layout = Layout()
@@ -175,7 +175,7 @@ class TestClassifyDragCommit:
             component_id=inst_b.id, position=Point(0.5, 0.5), rotation=0, side="top"
         )  # pin1 at (0.5, 0.5)
 
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(3.5, 0.5), Point(7.5, 0.5)],
             insulated=True,
@@ -231,7 +231,7 @@ class TestClassifyDragCommit:
             component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top"
         )
         # Skewed segment: (0.5,0.5)→(2.5,3.5) — dx=2, dy=3 — neither ortho nor diag.
-        skewed = WireSegment(
+        skewed = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(2.5, 3.5)],
             insulated=True,
@@ -267,7 +267,7 @@ class TestClassifyDragCommit:
             Net(id=net_b, name="GND",
                 pins=frozenset({PinRef(component_id=inst_b.id, pin_number=1)})),
         ]
-        skewed = WireSegment(
+        skewed = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(2.5, 3.5)],
             insulated=True,

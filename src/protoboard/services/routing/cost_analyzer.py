@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Post-hoc cost analyzer for placed wires.
 
-Walks one-or-more :class:`WireSegment` instances and returns a per-category
+Walks one-or-more :class:`Wire` instances and returns a per-category
 breakdown of routing costs as the autorouter's cost model would have
 charged for them.  The breakdown is intended for inspection in the UI —
 "why did this net cost what it did?"  Covers:
@@ -41,7 +41,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import component_bbox
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import (
     _intersection_point,
@@ -433,8 +433,8 @@ def _classify_crossing(
 
 
 def _count_crossings(
-    analysed: list[WireSegment],
-    all_board_wires: list[WireSegment],
+    analysed: list[Wire],
+    all_board_wires: list[Wire],
     cost_model: RoutingCostModel,
     pad_index: PadIndex | None = None,
 ) -> _CrossCounter:
@@ -477,7 +477,7 @@ def _count_crossings(
     # cell as the next wire's unit step would never register as a
     # crossing, even when the two wires geometrically cross at that
     # point.  Merging collinear runs first sidesteps the issue.
-    def _merged_segments(w: WireSegment) -> list[tuple[Point, Point, str, bool]]:
+    def _merged_segments(w: Wire) -> list[tuple[Point, Point, str, bool]]:
         out: list[tuple[Point, Point, str, bool]] = []
         if len(w.path) < 2:
             return out
@@ -498,7 +498,7 @@ def _count_crossings(
     # outer loop revisits a wire from a different pairing.
     cache: dict[uuid.UUID, list[tuple[Point, Point, str, bool]]] = {}
 
-    def _steps_for(w: WireSegment) -> list[tuple[Point, Point, str, bool]]:
+    def _steps_for(w: Wire) -> list[tuple[Point, Point, str, bool]]:
         v = cache.get(w.id)
         if v is None:
             v = _merged_segments(w)
@@ -579,7 +579,7 @@ def _count_crossings(
 
 
 def analyze_wires(
-    wires: Iterable[WireSegment],
+    wires: Iterable[Wire],
     *,
     board: Board | None = None,
     layout: Layout | None = None,
@@ -588,7 +588,7 @@ def analyze_wires(
     instances: dict[uuid.UUID, ComponentInstance] | None = None,
     under_component_pads: set[Point] | None = None,
     plated_through_pads: set[Point] | None = None,
-    all_board_wires: list[WireSegment] | None = None,
+    all_board_wires: list[Wire] | None = None,
     pad_index: PadIndex | None = None,
 ) -> CostBreakdown:
     """Return a cost breakdown for *wires* under *cost_model*.
@@ -598,7 +598,7 @@ def analyze_wires(
     steps so the count column matches "steps a router would have taken."
 
     Layer changes (vias) are charged once per pair of consecutive
-    ``WireSegment`` objects sharing an endpoint on a plated-through pad
+    ``Wire`` objects sharing an endpoint on a plated-through pad
     but differing in ``side``.  The check is per-wire-list, so passing
     a single wire's segments still yields zero vias.
 
@@ -688,10 +688,10 @@ def analyze_wires(
     # Layer changes: pairs of consecutive wires sharing an endpoint on a
     # plated-through pad but on different sides.  We pair them by exact
     # endpoint match (the autorouter splits a multi-layer path into one
-    # WireSegment per layer at the via).
+    # Wire per layer at the via).
     if _plated_set and len(wires_list) >= 2:
         # Build endpoint→(side, wire) index.
-        endpoints: dict[Point, list[tuple[str, WireSegment]]] = {}
+        endpoints: dict[Point, list[tuple[str, Wire]]] = {}
         for w in wires_list:
             for ep in (w.path[0], w.path[-1]):
                 endpoints.setdefault(ep, []).append((w.side, w))
@@ -711,7 +711,7 @@ def analyze_wires(
     # convenience path working.  When neither is available, crossings
     # are silently skipped.
     cross_counter: _CrossCounter = {}
-    board_wires_for_cross: list[WireSegment] | None = all_board_wires
+    board_wires_for_cross: list[Wire] | None = all_board_wires
     if board_wires_for_cross is None and layout is not None:
         board_wires_for_cross = list(layout.wires)
     if board_wires_for_cross is not None and wires_list:

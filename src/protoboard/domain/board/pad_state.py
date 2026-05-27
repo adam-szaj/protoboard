@@ -399,7 +399,7 @@ if TYPE_CHECKING:
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.placement import ComponentPlacement
-    from protoboard.domain.layout.wire import WireSegment
+    from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.schematic import Schematic
 
 
@@ -556,7 +556,7 @@ class PadIndex:
             self.add_wire(wire, net=wire_net)
 
     def _wire_net_from_existing_pads(
-        self, wire: "WireSegment",
+        self, wire: "Wire",
     ) -> "NetId | None":
         """First path-vertex whose pad already carries a netted PinItem
         determines the wire's net.  Defensive fallback returns None.
@@ -709,7 +709,7 @@ class PadIndex:
 
     def add_wire(
         self,
-        wire: "WireSegment",
+        wire: "Wire",
         net: "NetId | None" = None,
     ) -> None:
         """Place wire items on every pad the wire path touches.
@@ -763,7 +763,7 @@ class PadIndex:
                     footprint.append((key, side, item_xing))
         self._wire_records[wire.id] = _WireFootprint(items=footprint)
 
-    def remove_wire(self, wire: "WireSegment") -> None:
+    def remove_wire(self, wire: "Wire") -> None:
         """Undo every contribution of *wire* recorded in the footprint."""
         rec = self._wire_records.pop(wire.id, None)
         if rec is None:

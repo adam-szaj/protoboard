@@ -25,7 +25,7 @@ from protoboard.domain.layout.placement import (
     pin_world_position,
     validate_pins_on_pads,
 )
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 
 _log = structlog.get_logger(__name__)
@@ -81,7 +81,7 @@ class MoveComponentCommand(Command[ComponentState]):
     # to prevent double-translation when old_pin_pos == new_pin_pos of another component.
     exclude_wire_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
     # Wires before the move — saved for undo.
-    _saved_wires: list[WireSegment] = field(
+    _saved_wires: list[Wire] = field(
         default_factory=list, init=False, repr=False
     )
     _applied: bool = field(default=False, init=False, repr=False)
@@ -177,8 +177,8 @@ class RemoveComponentCommand(Command[SchematicState]):
 
 
 def _enrich_insulated_with_pad_nodes(
-    wire: WireSegment, board: Board,
-) -> WireSegment:
+    wire: Wire, board: Board,
+) -> Wire:
     """Insert board-pad positions into the path of an *insulated* wire.
 
     An insulated wire that crosses a pad geometrically between two of its
@@ -193,7 +193,7 @@ def _enrich_insulated_with_pad_nodes(
     step-by-step paths) and the bare-diagonal parity model relies on the
     caller-controlled vertex set.
 
-    A new ``WireSegment`` is returned only when the path actually grows;
+    A new ``Wire`` is returned only when the path actually grows;
     otherwise the input is returned as-is.  The wire's id is preserved
     so callers comparing by identity stay consistent.
     """
@@ -211,7 +211,7 @@ def _enrich_insulated_with_pad_nodes(
     new_path = insert_pad_nodes(list(wire.path), pads)
     if len(new_path) == len(wire.path):
         return wire
-    return WireSegment(
+    return Wire(
         id=wire.id,
         path=new_path,
         insulated=wire.insulated,
@@ -222,7 +222,7 @@ def _enrich_insulated_with_pad_nodes(
 
 @dataclass
 class AddWireCommand(Command[ComponentState]):
-    wire: WireSegment
+    wire: Wire
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -253,7 +253,7 @@ class AddWireWithNetsCommand(Command[ComponentState]):
     (satisfied at runtime by EditorSession).
     """
 
-    wire: WireSegment
+    wire: Wire
     # net_id → Net before mutation (None = net did not exist yet)
     _nets_before: dict[uuid.UUID, Net | None] = field(
         default_factory=dict, init=False, repr=False
@@ -309,7 +309,7 @@ class AddWireWithNetsCommand(Command[ComponentState]):
 @dataclass
 class RemoveWireCommand(Command[ComponentState]):
     wire_id: uuid.UUID
-    _saved_wire: WireSegment | None = field(default=None, init=False, repr=False)
+    _saved_wire: Wire | None = field(default=None, init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -484,9 +484,9 @@ class FlipWireFragmentCommand(Command[ComponentState]):
         return f"Flip wire fragment to {self.target_side}"
 
     def apply(self, state: ComponentState) -> None:
-        from protoboard.domain.layout.wire import WireSegment
+        from protoboard.domain.layout.wire import Wire
 
-        wire: WireSegment | None = next(
+        wire: Wire | None = next(
             (w for w in state.layout.wires if w.id == self.wire_id), None
         )
         if wire is None:
@@ -503,7 +503,7 @@ class FlipWireFragmentCommand(Command[ComponentState]):
 
         if start == 0 and end == len(path) - 1:
             # Whole wire — just change side, no split
-            new_wire = WireSegment(
+            new_wire = Wire(
                 id=self.wire_id,
                 path=list(path),
                 insulated=wire.insulated,
@@ -525,7 +525,7 @@ class FlipWireFragmentCommand(Command[ComponentState]):
         for seg_path, seg_side in segments:
             if len(seg_path) < 2:
                 continue
-            new_wire = WireSegment(
+            new_wire = Wire(
                 id=uuid.uuid4(),
                 path=list(seg_path),
                 insulated=wire.insulated,
@@ -536,7 +536,7 @@ class FlipWireFragmentCommand(Command[ComponentState]):
             self._added_ids.append(new_wire.id)
 
     def revert(self, state: ComponentState) -> None:
-        from protoboard.domain.layout.wire import WireSegment
+        from protoboard.domain.layout.wire import Wire
 
         # Remove added wires
         added = set(self._added_ids)
@@ -703,7 +703,7 @@ class ReplaceWireFragmentsCommand(Command[ComponentState]):
     """Replace ``Wire.fragments`` in place — preserving ``Wire.id``.
 
     This is the explicit v2 counterpart of the path-edit operations
-    (simplify, unweave, nudge, …) that today mutate WireSegment.path or
+    (simplify, unweave, nudge, …) that today mutate Wire.path or
     mint fresh segments.  Identity stays stable; highlight, recording and
     undo follow.
     """
@@ -859,7 +859,7 @@ def _update_wires_for_move(
 
     from protoboard.domain.layout.wire_utils import wire_has_skewed_segment
 
-    new_wires: list[WireSegment] = []
+    new_wires: list[Wire] = []
     for wire in state.layout.wires:
         if wire.id in exclude_ids:
             # Even excluded (already live-translated) wires may have ended up

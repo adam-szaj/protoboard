@@ -21,7 +21,7 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.connectivity.incremental import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import find_paths
 from protoboard.services.routing.cost_model import RoutingCostModel
@@ -148,7 +148,7 @@ class TestViaOnObstacleCost:
         graph = _empty_graph()
         # Foreign insulated wire ending on top at (3.5, 0.5) — i.e. a pad
         # that is already a vertex of someone else's wire on top.
-        foreign = WireSegment(
+        foreign = Wire(
             id=uuid.uuid4(),
             path=[Point(3.5, 0.5), Point(3.5, 1.5)],
             insulated=True,
@@ -184,7 +184,7 @@ class TestSameNetBypass:
         via (cost = inf, A* must find an alternative)."""
         graph = _empty_graph()
         # Foreign BARE wire on top with vertex on pad (3.5, 0.5).
-        bare = WireSegment(
+        bare = Wire(
             id=uuid.uuid4(),
             path=[Point(2.5, 0.5), Point(3.5, 0.5), Point(4.5, 0.5)],
             insulated=False,

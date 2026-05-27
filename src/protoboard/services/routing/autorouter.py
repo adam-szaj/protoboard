@@ -10,13 +10,13 @@ Strategy:
       the target, truncate it there (same-net wire termination).
    d. If no path found, rip-up the lowest-priority previously routed net
       that overlaps the failed path region and retry.
-3. Return a list of new WireSegment objects (caller adds them to layout).
+3. Return a list of new Wire objects (caller adds them to layout).
 4. Return a list of nets that could not be routed (unrouted report).
 
 Multi-layer routing:
   On perfboard (plated-through holes), the router may switch layers at any
   pad.  Each layer change costs `cost_model.layer_change`.  The resulting
-  path is split into per-layer WireSegment objects.
+  path is split into per-layer Wire objects.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import component_bbox, pin_world_position
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
@@ -87,7 +87,7 @@ def _check_no_net_fusion(
     graph: "ConnectivityGraph",
     schematic: "Schematic",
     current_net: "Net",
-    just_added: "WireSegment",
+    just_added: "Wire",
     fail: bool = False,
     seen_fusions: set[frozenset[str]] | None = None,
 ) -> None:
@@ -142,7 +142,7 @@ def _check_no_net_fusion(
 def _log_preexisting_fusions(
     graph: "ConnectivityGraph",
     schematic: "Schematic",
-    user_wires: list["WireSegment"],
+    user_wires: list["Wire"],
 ) -> set[frozenset[str]]:
     """One-shot diagnostic: log every electric-set fusion that already exists
     before autoroute starts adding wires.
@@ -307,7 +307,7 @@ class PassStats:
 class AutorouteResult:
     """Result returned by :func:`autoroute`."""
 
-    wires: list[WireSegment] = field(default_factory=list)
+    wires: list[Wire] = field(default_factory=list)
     unrouted_nets: list[str] = field(default_factory=list)  # net names
     pass_stats: list[PassStats] = field(default_factory=list)
 
@@ -356,7 +356,7 @@ def _drop_orphan_wires(
             key = _round(endpoint)
             endpoint_counts[key] = endpoint_counts.get(key, 0) + 1
 
-    survivors: list[WireSegment] = []
+    survivors: list[Wire] = []
     n_dropped = 0
     for w in layout.wires:
         if len(w.path) < 2:
@@ -568,7 +568,7 @@ def autoroute(
     n_dropped = _drop_orphan_wires(layout, board, pin_positions)
 
     # Snapshot of user-placed wires — never mutated; each pass starts from here.
-    user_wires: list[WireSegment] = list(layout.wires)
+    user_wires: list[Wire] = list(layout.wires)
 
     _log.info(
         "autoroute.start",
@@ -898,7 +898,7 @@ def _shutdown_pool_fast(
     _log.info("autoroute.optimize.workers_terminated", count=len(workers))
 
 
-def _run_opt_pass_in_process(args: tuple) -> tuple[list[WireSegment], list[str]]:  # type: ignore[type-arg]
+def _run_opt_pass_in_process(args: tuple) -> tuple[list[Wire], list[str]]:  # type: ignore[type-arg]
     """Top-level wrapper for ProcessPoolExecutor — one optimization pass."""
     import os as _os2, threading as _th
     _log.info("autoroute.subprocess.start",
@@ -946,7 +946,7 @@ def _run_opt_pass_in_process(args: tuple) -> tuple[list[WireSegment], list[str]]
 # ---------------------------------------------------------------------------
 
 def _wire_fingerprint(
-    wires: list[WireSegment],
+    wires: list[Wire],
 ) -> frozenset[tuple[tuple[tuple[float, float], ...], str, bool]]:
     """Canonical fingerprint of a wire layout for convergence detection.
 
@@ -967,7 +967,7 @@ def _run_one_pass(
     schematic: Schematic,
     board: Board,
     layout: Layout,
-    user_wires: list[WireSegment],
+    user_wires: list[Wire],
     cost_model: RoutingCostModel,
     max_rip_up_passes: int,
     side: Literal["top", "bottom"],
@@ -985,7 +985,7 @@ def _run_one_pass(
     pass_num: int = 0,
     n_nets: int = 0,
     push_and_shove: bool = True,
-) -> tuple[list[WireSegment], list[str], PassStats]:
+) -> tuple[list[Wire], list[str], PassStats]:
     """Run one full greedy routing pass over *sorted_nets*.
 
     Starts from *user_wires* (the original user-placed wires only) and appends
@@ -994,8 +994,8 @@ def _run_one_pass(
 
     Returns ``(new_wires, unrouted_net_names, pass_stats)``.
     """
-    working_wires: list[WireSegment] = list(user_wires)
-    new_wires: list[WireSegment] = []
+    working_wires: list[Wire] = list(user_wires)
+    new_wires: list[Wire] = []
     unrouted: list[str] = []
     _pass_net_stats: list[NetStats] = []
 
@@ -1132,7 +1132,7 @@ def _route_net(
     schematic: Schematic,
     board: Board,
     layout: Layout,
-    working_wires: list[WireSegment],
+    working_wires: list[Wire],
     components: dict[str, ComponentDefinition],
     instances: dict[uuid.UUID, ComponentInstance],
     side: Literal["top", "bottom"],
@@ -1147,8 +1147,8 @@ def _route_net(
     segment_callback: Callable[[str, int, int], None] | None = None,
     cancel_flag: threading.Event | None = None,
     push_and_shove: bool = True,
-    pass_new_wires: list[WireSegment] | None = None,
-) -> tuple[list[WireSegment], NetStats] | None:
+    pass_new_wires: list[Wire] | None = None,
+) -> tuple[list[Wire], NetStats] | None:
     """Route all connections for *net*.  Returns (wires, stats) or None on failure.
 
     *pass_new_wires* (optional) is the pass-level list of wires routed so far
@@ -1196,7 +1196,7 @@ def _route_net(
         ps: net_id for ps in net_ps
     }
 
-    new_wires: list[WireSegment] = []
+    new_wires: list[Wire] = []
     _ns_nodes = 0
     _ns_ob = 0
     _ns_ripup = 0
@@ -1522,8 +1522,8 @@ def _route_segment_with_ripup(
     target: Point,
     board: Board,
     layout: Layout,
-    working_wires: list[WireSegment],
-    additional_wires: list[WireSegment],
+    working_wires: list[Wire],
+    additional_wires: list[Wire],
     components: dict[str, ComponentDefinition],
     instances: dict[uuid.UUID, ComponentInstance],
     connectivity_graph: ConnectivityGraph,
@@ -1542,10 +1542,10 @@ def _route_segment_with_ripup(
     max_detour_factor: float = 0.0,
     manhattan_dist: float = 0.0,
     push_and_shove: bool = True,
-    pass_new_wires: list[WireSegment] | None = None,
+    pass_new_wires: list[Wire] | None = None,
     wire_to_net_id: dict[uuid.UUID, uuid.UUID | None] | None = None,
     active_net_id: uuid.UUID | None = None,
-) -> tuple[list[WireSegment], dict[str, int]] | None:
+) -> tuple[list[Wire], dict[str, int]] | None:
     """Try to route *target* from any of *source_options*, with rip-up fallback.
 
     Returns (wires, seg_stats) or None.  seg_stats keys:
@@ -1562,7 +1562,7 @@ def _route_segment_with_ripup(
     # blind to the physical occupancy → silent net fusion.  The boolean
     # records whether the wire was donor-owned (in pass_new_wires) so the
     # restore can put it back in the right list.
-    _ripped_wires: list[tuple[WireSegment, bool]] = []
+    _ripped_wires: list[tuple[Wire, bool]] = []
     # Per-segment set of wire-ids that have already been mid-cell-rerouted
     # in this attempts loop.  Prevents two blockers from endlessly bouncing
     # each other when each reroute opens a corridor the other one wants.
@@ -2078,14 +2078,14 @@ def _build_under_component_penalty(
     return result
 
 
-def _path_to_wires(path: list[PathStep], insulated: bool) -> list[WireSegment]:
-    """Convert a (possibly multi-layer) path into one WireSegment per layer segment."""
+def _path_to_wires(path: list[PathStep], insulated: bool) -> list[Wire]:
+    """Convert a (possibly multi-layer) path into one Wire per layer segment."""
     segments = split_path_by_side(path)
-    wires: list[WireSegment] = []
+    wires: list[Wire] = []
     for pts, seg_side in segments:
         if len(pts) < 2:
             continue
-        wires.append(WireSegment(
+        wires.append(Wire(
             id=uuid.uuid4(),
             path=pts,
             insulated=insulated,
@@ -2095,7 +2095,7 @@ def _path_to_wires(path: list[PathStep], insulated: bool) -> list[WireSegment]:
 
 
 def _collect_wire_points(
-    wires: list[WireSegment],
+    wires: list[Wire],
     net_id: uuid.UUID | None,
     net_wires: set[uuid.UUID] | None,
 ) -> set[tuple[Point, str]]:
@@ -2106,14 +2106,14 @@ def _collect_wire_points(
     return pts
 
 
-def _layout_with_wires(layout: Layout, wires: list[WireSegment]) -> Layout:
+def _layout_with_wires(layout: Layout, wires: list[Wire]) -> Layout:
     """Return a Layout view that uses *wires* instead of layout.wires."""
     from dataclasses import replace
     return replace(layout, wires=wires)
 
 
 def _build_wire_occupied(
-    wires: list[WireSegment],
+    wires: list[Wire],
     exclude_wire_id: uuid.UUID | None,
     both_sides: bool = False,
 ) -> dict[tuple[Point, str], uuid.UUID]:
@@ -2165,7 +2165,7 @@ def _build_wire_occupied(
 
 
 def _build_occupied_map(
-    wires: list[WireSegment],
+    wires: list[Wire],
     exclude_wire_id: uuid.UUID | None,
 ) -> dict[Point, uuid.UUID]:
     """Map every grid point covered by existing wires → sentinel UUID.
@@ -2199,7 +2199,7 @@ def _build_occupied_map(
 
 
 def _build_bare_wire_segments(
-    wires: list[WireSegment],
+    wires: list[Wire],
     wire_to_net_id: dict[uuid.UUID, uuid.UUID | None] | None = None,
 ) -> set[tuple[Point, Point, str, uuid.UUID | None]]:
     """Return the set of (p1, p2, side, net_id) tuples for all *bare* (non-insulated) wires.
@@ -2223,7 +2223,7 @@ def _build_bare_wire_segments(
 
 
 def _build_all_seg_index(
-    wires: list[WireSegment],
+    wires: list[Wire],
     wire_to_net_id: dict[uuid.UUID, uuid.UUID | None] | None = None,
 ) -> list[tuple[Point, Point, str, bool, uuid.UUID | None]]:
     """All wire segments as ``(p1, p2, side, is_insulated, net_id)`` tuples.
@@ -2251,7 +2251,7 @@ def _build_all_seg_index(
 
 
 def _build_at_pad_wire_index(
-    wires: list[WireSegment],
+    wires: list[Wire],
     wire_to_net_id: dict[uuid.UUID, uuid.UUID | None] | None = None,
 ) -> tuple[
     dict[tuple[Point, str], int],
@@ -2290,16 +2290,16 @@ def _build_at_pad_wire_index(
 
 
 def _nudge_wire(
-    wire: WireSegment,
+    wire: Wire,
     dx: float,
     dy: float,
     board_pads: set[Point],
-    working_wires: list[WireSegment],
+    working_wires: list[Wire],
     occupied_pins: dict[tuple[Point, str], uuid.UUID],
-) -> WireSegment | None:
+) -> Wire | None:
     """Try to shift *wire* by (dx, dy).
 
-    Returns the shifted WireSegment if all new path points are free board pads
+    Returns the shifted Wire if all new path points are free board pads
     and unoccupied by component pins or other wires, else None.
     """
     new_path = [Point(p.x + dx, p.y + dy) for p in wire.path]
@@ -2327,7 +2327,7 @@ def _nudge_wire(
 
     from typing import cast, Literal as _Lit
     # Preserve wire id — nudge is a translation of the same logical wire.
-    return WireSegment(
+    return Wire(
         id=wire.id,
         path=new_path,
         insulated=wire.insulated,
@@ -2339,8 +2339,8 @@ def _nudge_wire(
 def _try_mid_cell_reroute(
     source: Point,
     target: Point,
-    working_wires: list[WireSegment],
-    additional_wires: list[WireSegment],
+    working_wires: list[Wire],
+    additional_wires: list[Wire],
     connectivity_graph: "ConnectivityGraph",
     cost_model: RoutingCostModel,
     occupied_pins: dict[tuple[Point, str], uuid.UUID],
@@ -2349,7 +2349,7 @@ def _try_mid_cell_reroute(
     under_component_penalty: dict[tuple[Point, str], float],
     already_rerouted: set[uuid.UUID],
     wire_to_net_id: dict[uuid.UUID, uuid.UUID | None] | None = None,
-) -> tuple[WireSegment, WireSegment] | None:
+) -> tuple[Wire, Wire] | None:
     """Mid-cell-preferred push-and-shove (Strategy 1).
 
     Picks a blocking wire that runs through the source↔target corridor
@@ -2403,7 +2403,7 @@ def _try_mid_cell_reroute(
 
         w_src, w_tgt = wire.path[0], wire.path[-1]
         # Estimate the original wire's "cost" as Chebyshev path length
-        # — exact A* cost is not tracked on WireSegment, but the
+        # — exact A* cost is not tracked on Wire, but the
         # Chebyshev count is a tight lower bound that matches the cost
         # of an optimal straight A* run with free_pad=1.0.
         original_cost = sum(
@@ -2470,12 +2470,12 @@ def _try_mid_cell_reroute(
             continue
         # Defensive: A* may return a 1-point trivial path when source is
         # already in target_set (e.g. via extended same-net targets).
-        # A WireSegment requires ≥ 2 points; skip these.
+        # A Wire requires ≥ 2 points; skip these.
         if len(new_path) < 2:
             continue
         # Preserve wire id — mid-cell reroute is an alternative path for
         # the same logical wire.
-        new_wire = WireSegment(
+        new_wire = Wire(
             id=wire.id,
             path=new_path,
             insulated=wire.insulated,
@@ -2490,12 +2490,12 @@ def _try_mid_cell_reroute(
 def _try_push_wire(
     source: Point,
     target: Point,
-    working_wires: list[WireSegment],
-    additional_wires: list[WireSegment],
+    working_wires: list[Wire],
+    additional_wires: list[Wire],
     board: Board,
     occupied_pins: dict[tuple[Point, str], uuid.UUID],
     _board_pads: set[Point] | None = None,
-) -> tuple[WireSegment, WireSegment] | None:
+) -> tuple[Wire, Wire] | None:
     """Try to nudge a blocking wire sideways to open a corridor for routing.
 
     Finds the first wire (not in *additional_wires*) whose path passes through
@@ -2550,11 +2550,11 @@ def _try_push_wire(
 
 
 def _find_wire_to_rip(
-    wires: list[WireSegment],
+    wires: list[Wire],
     source: Point,
     target: Point,
-    protected: list[WireSegment],
-) -> WireSegment | None:
+    protected: list[Wire],
+) -> Wire | None:
     """Find a wire in *wires* (not in *protected*) that lies roughly between source and target."""
     protected_ids = {w.id for w in protected}
     min_x = min(source.x, target.x) - 1

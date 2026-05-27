@@ -18,7 +18,7 @@ from protoboard.domain.components.footprints import SingleRow
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
@@ -180,7 +180,7 @@ class TestAutorouter:
         inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value="")
         inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value="")
 
-        existing_wire = WireSegment(
+        existing_wire = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 0.5), Point(2.5, 0.5)],
             insulated=True,
@@ -657,7 +657,7 @@ class TestAutorouterOptimization:
         result = autoroute(board, layout, schematic, components, instances)
 
         # Collect all (Point, side) positions used by each net's wires.
-        def wire_pads(wires: list[WireSegment]) -> set[tuple[Point, str]]:
+        def wire_pads(wires: list[Wire]) -> set[tuple[Point, str]]:
             pads: set[tuple[Point, str]] = set()
             for w in wires:
                 for pt in w.path:

@@ -26,7 +26,7 @@ from protoboard.domain.layout.normalize import (
     normalize_layout_positions,
 )
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.axis_labels_settings import (
     AxisLabelFormat,
     AxisLabelSettings,
@@ -175,7 +175,7 @@ def _layout_to_yaml(layout: Layout) -> str:
     # v2 detection: any wire carries explicit knot references, or there are
     # standalone knots in the layout.  `wires_v2` is the same WireCollection
     # as `wires`; filtering by ``a is not None`` distinguishes v2-style wires
-    # (knot-aware) from legacy WireSegment-style wires that share the storage.
+    # (knot-aware) from legacy Wire-style wires that share the storage.
     v2_wires = [w for w in layout.wires if w.a is not None and w.b is not None]
     has_v2 = bool(v2_wires) or bool(layout.knots)
     data: dict[str, Any] = {
@@ -337,7 +337,7 @@ def load_project(
     # those crossings — simplify / unweave / edit tools had nothing to grab
     # there.  ``insert_pad_nodes`` is idempotent so already-enriched wires
     # are returned unchanged.
-    from protoboard.domain.layout.wire import WireSegment as _Wire
+    from protoboard.domain.layout.wire import Wire as _Wire
     from protoboard.domain.layout.wire_utils import (
         board_pads_for_side,
         insert_pad_nodes,
@@ -476,11 +476,11 @@ def _layout_from_yaml(text: str) -> Layout:
             locked=bool(raw.get("locked", False)),
         )
         placements[comp_id] = pl
-    wires: list[WireSegment] = []
+    wires: list[Wire] = []
     for raw in data.get("wires") or []:
         path = [Point(float(p["x"]), float(p["y"])) for p in raw["path"]]
         wires.append(
-            WireSegment(
+            Wire(
                 id=uuid.UUID(raw["id"]),
                 path=path,
                 insulated=bool(raw["insulated"]),

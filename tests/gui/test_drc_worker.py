@@ -132,6 +132,6 @@ class TestSnapshotIsolation:
         # issue counts here (the empty Layout has none either way);
         # the point is that ``run()`` does not raise.
         layout.wires.append  # accessing the attribute is enough; we
-        # could push a WireSegment here but the lightweight assertion
+        # could push a Wire here but the lightweight assertion
         # is that .run() completes against the frozen snapshot.
         worker.run()

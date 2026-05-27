@@ -18,7 +18,7 @@ from protoboard.domain.layout.pad_conflict import (
     find_wire_conflicts,
 )
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
@@ -348,8 +348,8 @@ class TestDRCOverlapSharedPins:
 # find_wire_conflicts
 # ---------------------------------------------------------------------------
 
-def _wire(path: list[Point]) -> WireSegment:
-    return WireSegment(
+def _wire(path: list[Point]) -> Wire:
+    return Wire(
         id=uuid.uuid4(), path=path, insulated=True, side="top"
     )
 
@@ -600,7 +600,7 @@ class TestPadIndexPath:
         r1 = _make_inst("R1")
         pl = _placement(r1, 0.5, 0.5, rot=0)
         # Bare wire so PadIndex records it as a bare wire item (top).
-        wire = WireSegment(id=uuid.uuid4(),
+        wire = Wire(id=uuid.uuid4(),
                            path=[Point(0.5, 0.5), Point(0.5, 2.5)],
                            insulated=False, side="top")
         sch = Schematic(nets={})
@@ -637,7 +637,7 @@ class TestPadIndexPath:
         # Bare wire goes from net_a pin (0.5,0.5) straight through (2.5,0.5)
         # which is on net_b — crossing alien pad → conflict.
         from protoboard.domain.layout.pad_conflict import find_wires_crossing_pads
-        wire = WireSegment(id=uuid.uuid4(),
+        wire = Wire(id=uuid.uuid4(),
                            path=[Point(0.5, 0.5), Point(2.5, 0.5)],
                            insulated=False, side="top")
         idx = self._build_index(

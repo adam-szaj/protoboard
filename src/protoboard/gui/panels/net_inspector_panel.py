@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 from protoboard.gui.panels.tree_panel_mixin import TreePanelMixin
 
 if TYPE_CHECKING:
-    from protoboard.domain.layout.wire import WireSegment
+    from protoboard.domain.layout.wire import Wire
     from protoboard.geometry import Point
     from protoboard.gui.board_view import BoardView
     from protoboard.gui.session import EditorSession
@@ -166,7 +166,7 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
         routed = routed_net_ids(session.schematic, graph)
 
         wire_net_map = session.cached_wire_net_map()
-        net_wires: dict[uuid.UUID, list[WireSegment]] = {}
+        net_wires: dict[uuid.UUID, list[Wire]] = {}
         for wire in session.layout.wires:
             nid = wire_net_map.get(wire.id)
             if nid is not None:
@@ -292,7 +292,7 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
 # Pure geometry helpers
 # ---------------------------------------------------------------------------
 
-def _manhattan_length(wires: list["WireSegment"]) -> float:
+def _manhattan_length(wires: list["Wire"]) -> float:
     total = 0.0
     for wire in wires:
         pts = wire.path

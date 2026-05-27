@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
-    from protoboard.domain.layout.wire import WireSegment
+    from protoboard.domain.layout.wire import Wire
 
 from PySide6.QtCore import QObject, Signal
 
@@ -208,11 +208,11 @@ class EditorSession(QObject):
         # every selection click.  Invalidated alongside the graph since
         # it derives from ConnectivityGraph.
         self._wire_net_map_cache: dict[uuid.UUID, uuid.UUID] | None = None
-        # wire.id → WireSegment lookup, populated lazily by
+        # wire.id → Wire lookup, populated lazily by
         # ``wire_by_id()``.  SelectTool's click handlers used to scan
         # ``layout.wires`` for every highlight redraw — O(N²) when the
         # active net has many wires.  Invalidated on every layout change.
-        self._wire_by_id_cache: dict[uuid.UUID, "WireSegment"] | None = None
+        self._wire_by_id_cache: dict[uuid.UUID, "Wire"] | None = None
         self.perf: PerfMetrics = PerfMetrics()
         # Command recorder — wired in by MainWindow once a project path is
         # known.  Auto-records every command through CommandStack.
@@ -322,7 +322,7 @@ class EditorSession(QObject):
             self._under_component_pads_cache = cache
         return cache
 
-    def wire_by_id(self, wire_id: uuid.UUID) -> "WireSegment | None":
+    def wire_by_id(self, wire_id: uuid.UUID) -> "Wire | None":
         """O(1) wire lookup by id.
 
         Replaces the ``next((w for w in layout.wires if w.id == X), None)``

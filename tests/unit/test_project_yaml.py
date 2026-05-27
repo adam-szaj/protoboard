@@ -12,7 +12,7 @@ from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.persistence.project_yaml import load_project, save_project
@@ -161,7 +161,7 @@ class TestBoardRoundtrip:
 class TestWiresRoundtrip:
     def test_wire_path_preserved(self, tmp_path: Path) -> None:
         board = _perfboard()
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
             insulated=True,
@@ -177,7 +177,7 @@ class TestWiresRoundtrip:
 
     def test_wire_color_preserved(self, tmp_path: Path) -> None:
         board = _perfboard()
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5)],
             insulated=False,
@@ -198,7 +198,7 @@ class TestWiresRoundtrip:
         # tools have "handles" there.
         board = _perfboard()
         wid = uuid.uuid4()
-        wire = WireSegment(
+        wire = Wire(
             id=wid,
             path=[Point(0.5, 0.5), Point(4.5, 0.5)],  # straight horizontal
             insulated=True,
@@ -223,7 +223,7 @@ class TestWiresRoundtrip:
     ) -> None:
         # An already-enriched insulated wire round-trips without growing.
         board = _perfboard()
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[
                 Point(0.5, 0.5), Point(1.5, 0.5),
@@ -245,7 +245,7 @@ class TestWiresRoundtrip:
         # parity model relies on caller-controlled vertices — load doesn't
         # touch them.
         board = _perfboard()
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(2.5, 0.5)],
             insulated=False,

@@ -23,7 +23,7 @@ from protoboard.domain.commands.component_cmds import (
     RemoveWireCommand,
     ReplaceWireSegmentCommand,
 )
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
@@ -62,7 +62,7 @@ def chain_session(qtbot: QtBot) -> EditorSession:
     """
     library = load_library([_LIBRARY_DIR])
     sess = EditorSession(board=_perfboard(), library=library)
-    wireA = WireSegment(
+    wireA = Wire(
         id=uuid.uuid4(),
         path=[
             Point(2.5, 9.5),
@@ -76,7 +76,7 @@ def chain_session(qtbot: QtBot) -> EditorSession:
         insulated=False,
         side="bottom",
     )
-    wireB = WireSegment(
+    wireB = Wire(
         id=uuid.uuid4(),
         path=[Point(1.5, 10.5), Point(2.5, 9.5)],
         insulated=False,
@@ -95,9 +95,9 @@ def chain_session(qtbot: QtBot) -> EditorSession:
 
 def _excise(
     sess: EditorSession,
-    start_wire: WireSegment,
+    start_wire: Wire,
     start_idx: int,
-    end_wire: WireSegment,
+    end_wire: Wire,
     end_idx: int,
 ):
     """Drive the cross-wire excise path on a SelectTool bound to *sess*."""
@@ -114,12 +114,12 @@ def _excise(
 
 class TestOuterEndpointIdx:
     def test_outer_is_first_when_last_is_shared(self) -> None:
-        a = WireSegment(
+        a = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 10.5), Point(2.5, 9.5)],
             insulated=False, side="bottom",
         )
-        b = WireSegment(
+        b = Wire(
             id=uuid.uuid4(),
             path=[Point(2.5, 9.5), Point(3.5, 10.5), Point(4.5, 11.5)],
             insulated=False, side="bottom",
@@ -128,12 +128,12 @@ class TestOuterEndpointIdx:
         assert SelectTool._outer_endpoint_idx(a, b) == 0
 
     def test_outer_is_last_when_first_is_shared(self) -> None:
-        a = WireSegment(
+        a = Wire(
             id=uuid.uuid4(),
             path=[Point(2.5, 9.5), Point(3.5, 10.5), Point(4.5, 11.5)],
             insulated=False, side="bottom",
         )
-        b = WireSegment(
+        b = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 10.5), Point(2.5, 9.5)],
             insulated=False, side="bottom",
@@ -142,12 +142,12 @@ class TestOuterEndpointIdx:
         assert SelectTool._outer_endpoint_idx(a, b) == len(a.path) - 1
 
     def test_no_shared_falls_back_to_zero(self) -> None:
-        a = WireSegment(
+        a = Wire(
             id=uuid.uuid4(),
             path=[Point(0, 0), Point(1, 0)],
             insulated=False, side="bottom",
         )
-        b = WireSegment(
+        b = Wire(
             id=uuid.uuid4(),
             path=[Point(10, 10), Point(11, 10)],
             insulated=False, side="bottom",

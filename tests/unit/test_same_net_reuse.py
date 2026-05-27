@@ -17,7 +17,7 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import find_paths
 from protoboard.services.routing.cost_model import RoutingCostModel
@@ -61,7 +61,7 @@ class TestExtendedTargetSet:
         # island-filter would reject them as targets (see two-islands
         # regression test below).
         board = _perfboard(5, 5)
-        existing_wire = WireSegment(
+        existing_wire = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 2.5), Point(2.5, 2.5), Point(3.5, 2.5), Point(4.5, 2.5)],
             side="top",
@@ -141,7 +141,7 @@ class TestTeleportEdges:
         path = [Point(1.5 + i, 0.5) for i in range(6)] + [
             Point(6.5, 0.5 + i) for i in range(1, 7)
         ]
-        bridge_wire = WireSegment(id=uuid.uuid4(), path=path, side="top", insulated=True)
+        bridge_wire = Wire(id=uuid.uuid4(), path=path, side="top", insulated=True)
         lay = Layout(placements={}, wires=[bridge_wire])
         graph = ConnectivityGraph(board=board, layout=lay, components={})
         graph.add_wire(bridge_wire)
@@ -174,7 +174,7 @@ class TestTeleportEdges:
 class TestSourceNotInExtendedTargets:
     """When the source is already a same-net pad-vertex, the extended target
     set must NOT include the source — otherwise A* returns a degenerate
-    1-point path and downstream WireSegment construction fails with
+    1-point path and downstream Wire construction fails with
     'path must have at least 2 points'.
     """
 
@@ -185,7 +185,7 @@ class TestSourceNotInExtendedTargets:
         # Without the source-exclusion fix, target_set would include
         # (1.5, 2.5) and A* would return a 1-point trivial path.
         board = _perfboard(5, 5)
-        bridge = WireSegment(
+        bridge = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 2.5), Point(2.5, 2.5), Point(3.5, 2.5), Point(4.5, 2.5)],
             side="top",
@@ -241,13 +241,13 @@ class TestTwoIslandSafety:
         # step, never reaching island A.
         board = _perfboard(3, 9)
 
-        island_a = WireSegment(
+        island_a = Wire(
             id=uuid.uuid4(),
             path=[Point(7.5, 1.5), Point(8.5, 1.5)],
             side="top",
             insulated=True,
         )
-        island_b = WireSegment(
+        island_b = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 1.5), Point(1.5, 1.5)],
             side="top",

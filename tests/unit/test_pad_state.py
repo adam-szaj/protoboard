@@ -313,7 +313,7 @@ from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 
@@ -329,8 +329,8 @@ def _perfboard(rows: int, cols: int) -> Board:
     ))
 
 
-def _bare_wire(*pts: tuple[float, float], side: str = "top") -> WireSegment:
-    return WireSegment(
+def _bare_wire(*pts: tuple[float, float], side: str = "top") -> Wire:
+    return Wire(
         id=uuid.uuid4(),
         path=[Point(x, y) for x, y in pts],
         insulated=False, side=side,  # type: ignore[arg-type]
@@ -491,7 +491,7 @@ class TestPadIndexClone:
         twin = idx.clone()
         # Remove from clone, original unchanged.
         for wid, _ in list(twin._wire_records.items()):
-            wire_obj = WireSegment(
+            wire_obj = Wire(
                 id=wid, path=[Point(0.5, 0.5), Point(1.5, 0.5)],
                 insulated=False, side="top",
             )

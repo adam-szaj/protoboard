@@ -36,7 +36,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import pin_world_position
-from protoboard.domain.layout.wire import Wire, WireSegment
+from protoboard.domain.layout.wire import Wire, Wire
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 
@@ -271,7 +271,7 @@ class ConnectivityGraph:
         from protoboard.domain.layout.wire_utils import insert_pad_nodes
         return insert_pad_nodes(path, self._board_pads_for_side(side))
 
-    def add_wire(self, wire: WireSegment) -> None:
+    def add_wire(self, wire: Wire) -> None:
         """Incorporate *wire* into the graph, merging sets as needed."""
         self._valid_nodes_cache = None
         side = wire.side
@@ -337,7 +337,7 @@ class ConnectivityGraph:
             intermediate_keys=intermediate,
         )
 
-    def remove_wire(self, wire: WireSegment) -> None:
+    def remove_wire(self, wire: Wire) -> None:
         """Remove *wire* from the graph, splitting sets as needed.
 
         Uses recorded merge history (LIFO) when possible; falls back to a
@@ -376,7 +376,7 @@ class ConnectivityGraph:
         All resulting merges aggregate into a single ``WireRecord`` keyed by
         ``wire.id`` so that ``remove_wire_v2`` can reverse them as a whole.
         This is the v2 entry point — it does not depend on the legacy
-        ``WireSegment`` storage.
+        ``Wire`` storage.
         """
         if wire.id in self._wire_records:
             # Idempotent: a Wire is either present or absent.
@@ -545,7 +545,7 @@ class ConnectivityGraph:
     # ------------------------------------------------------------------
 
     def _local_rebuild_after_remove(
-        self, wire: WireSegment, record: WireRecord
+        self, wire: Wire, record: WireRecord
     ) -> None:
         """Fallback: rebuild connectivity for the nodes touched by *wire*.
 

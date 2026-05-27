@@ -20,7 +20,7 @@ from protoboard.domain.components.footprints import SingleRow
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -76,7 +76,7 @@ def _two_pin_project_with_insulated_wire(
     a_pos: tuple[float, float] = (0.5, 0.5),
     b_pos: tuple[float, float] = (3.5, 0.5),
     extra_components: list[tuple[float, float]] | None = None,
-) -> tuple[Board, Layout, Schematic, dict, dict, WireSegment]:
+) -> tuple[Board, Layout, Schematic, dict, dict, Wire]:
     """Build a board with two SIL2 parts on one net + a manual insulated wire
     connecting them along a free corridor.
 
@@ -124,7 +124,7 @@ def _two_pin_project_with_insulated_wire(
         cur = Point(cur.x + dx, cur.y + dy)
         path.append(cur)
 
-    wire = WireSegment(
+    wire = Wire(
         id=uuid.uuid4(),
         path=path,
         insulated=True,
@@ -194,7 +194,7 @@ class TestEmptyInputs:
     def test_no_insulated_wires_returns_input_unchanged(self) -> None:
         """If every wire is already bare, the optimizer is a no-op."""
         board, layout, sch, comps, insts, wire = _two_pin_project_with_insulated_wire()
-        bare = WireSegment(
+        bare = Wire(
             id=wire.id, path=list(wire.path), insulated=False,
             side=wire.side, color=wire.color,
         )
@@ -307,8 +307,8 @@ class TestRefusesWhenUnsafe:
             Point(1.5, 2.5),
             pin_world_position(defn.footprint, placements[ids[3]], 1),
         ]
-        w1 = WireSegment(id=uuid.uuid4(), path=w1_path, insulated=True, side="top")
-        w2 = WireSegment(id=uuid.uuid4(), path=w2_path, insulated=True, side="top")
+        w1 = Wire(id=uuid.uuid4(), path=w1_path, insulated=True, side="top")
+        w2 = Wire(id=uuid.uuid4(), path=w2_path, insulated=True, side="top")
         layout = Layout(placements=placements, wires=[w1, w2])
 
         req = _make_request(board, layout, schematic, {"COMP": defn}, instances)

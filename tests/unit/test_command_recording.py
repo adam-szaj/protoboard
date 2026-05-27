@@ -25,7 +25,7 @@ from protoboard.domain.commands.net_cmds import (
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.recording import (
@@ -100,7 +100,7 @@ class TestSerializationRoundtrip:
         assert restored.skip_conflict_check is True
 
     def test_wire(self) -> None:
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0, 0), Point(1, 0), Point(1, 1)],
             insulated=True, side="top",
@@ -113,7 +113,7 @@ class TestSerializationRoundtrip:
         assert restored.wire.path == wire.path
 
     def test_add_wire_with_nets_downgrades_to_add_wire(self) -> None:
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0, 0), Point(1, 1)],
             insulated=False, side="bottom",
@@ -126,11 +126,11 @@ class TestSerializationRoundtrip:
         assert restored.wire.id == wire.id
 
     def test_macro(self) -> None:
-        wire1 = WireSegment(
+        wire1 = Wire(
             id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)],
             insulated=True, side="top",
         )
-        wire2 = WireSegment(
+        wire2 = Wire(
             id=uuid.uuid4(), path=[Point(1, 0), Point(1, 1)],
             insulated=False, side="bottom",
         )
@@ -228,7 +228,7 @@ class TestReplay:
         inst = ComponentInstance(id=comp_id, definition_ref="R", refdes="R1", value="10k")
         stack.execute(PlaceComponentCommand(component_id=comp_id, placement=pl, instance=inst), live)
 
-        wire = WireSegment(id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)], insulated=True, side="top")
+        wire = Wire(id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)], insulated=True, side="top")
         stack.execute(AddWireCommand(wire=wire), live)
 
         net_id = uuid.uuid4()
@@ -258,7 +258,7 @@ class TestReplay:
         stack: CommandStack = CommandStack()
         stack.set_recorder(rec)
 
-        wire = WireSegment(id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)], insulated=True, side="top")
+        wire = Wire(id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)], insulated=True, side="top")
         stack.execute(AddWireCommand(wire=wire), live)
         stack.undo(live)  # remove
         # No redo — final state should have zero wires.
@@ -278,7 +278,7 @@ class TestReplay:
         stack: CommandStack = CommandStack()
         stack.set_recorder(rec)
 
-        wire = WireSegment(id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)], insulated=True, side="top")
+        wire = Wire(id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)], insulated=True, side="top")
         stack.execute(AddWireCommand(wire=wire), live)
         stack.execute(SetWireSideCommand(wire_id=wire.id, side="bottom"), live)
         rec.stop()
@@ -295,7 +295,7 @@ class TestReplay:
         stack: CommandStack = CommandStack()
         stack.set_recorder(rec)
 
-        wire = WireSegment(id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)], insulated=True, side="top")
+        wire = Wire(id=uuid.uuid4(), path=[Point(0, 0), Point(1, 0)], insulated=True, side="top")
         stack.execute(AddWireCommand(wire=wire), live)
         stack.execute(RemoveWireCommand(wire_id=wire.id), live)
         rec.stop()

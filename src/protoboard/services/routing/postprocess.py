@@ -27,7 +27,7 @@ _log = structlog.get_logger(__name__)
 from enum import Enum
 from typing import cast, Literal
 
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import (
     _build_bare_seg_index,
@@ -71,8 +71,8 @@ def _collinear(a: Point, b: Point, c: Point) -> bool:
 
 
 def straighten_wire(
-    wire: WireSegment, board_pads: set[Point] | None = None
-) -> WireSegment:
+    wire: Wire, board_pads: set[Point] | None = None
+) -> Wire:
     """Return a copy of *wire* with internal collinear vertices removed.
 
     For a *bare* wire, any internal point that is also a board pad must be
@@ -95,7 +95,7 @@ def straighten_wire(
         return wire
     # Preserve wire id: this is an edit of the same logical wire, not a new
     # one.  Stable identity matters for highlight, recording and undo.
-    return WireSegment(
+    return Wire(
         id=wire.id,
         path=out,
         insulated=wire.insulated,
@@ -121,7 +121,7 @@ def _unit_step(a: Point, b: Point) -> bool:
     return abs(a.x - b.x) + abs(a.y - b.y) == 1.0
 
 
-def _wire_to_bare_segs(wire: WireSegment) -> set[tuple[Point, Point, str]]:
+def _wire_to_bare_segs(wire: Wire) -> set[tuple[Point, Point, str]]:
     """Decompose a wire's path into (p1, p2, side) tuples."""
     segs: set[tuple[Point, Point, str]] = set()
     for a, b in zip(wire.path, wire.path[1:]):
@@ -130,10 +130,10 @@ def _wire_to_bare_segs(wire: WireSegment) -> set[tuple[Point, Point, str]]:
 
 
 def corner_cut_wire(
-    wire: WireSegment,
-    other_bare_wires: list[WireSegment],
+    wire: Wire,
+    other_bare_wires: list[Wire],
     board_pads: set[Point],
-) -> WireSegment:
+) -> Wire:
     """Replace ortho-ortho-90° corners in *wire* with diagonals where safe.
 
     Only bare wires are eligible; the new diagonal must respect the parity
@@ -208,7 +208,7 @@ def corner_cut_wire(
     if len(cur_path) == len(wire.path):
         return wire
     # Preserve wire id — corner-cut is a geometry-only edit of the same wire.
-    return WireSegment(
+    return Wire(
         id=wire.id,
         path=cur_path,
         insulated=wire.insulated,
@@ -222,9 +222,9 @@ def corner_cut_wire(
 # ---------------------------------------------------------------------------
 
 def simplify_wires(
-    wires: list[WireSegment],
+    wires: list[Wire],
     board_pads: set[Point],
-) -> list[WireSegment]:
+) -> list[Wire]:
     """Run straighten + corner-cut over *wires*.
 
     *board_pads* is the set of every valid pad position on the board (used to
@@ -235,7 +235,7 @@ def simplify_wires(
     # First pass: straighten each wire (preserving on-pad vertices for bare).
     straightened = [straighten_wire(w, board_pads) for w in wires]
     # Second pass: corner-cut each wire against the others.
-    out: list[WireSegment] = []
+    out: list[Wire] = []
     for i, w in enumerate(straightened):
         cur = corner_cut_wire(w, straightened, board_pads)
         # Re-straighten after corner-cut may expose new collinear runs.
@@ -427,7 +427,7 @@ def _canonical_subpath(
     return base
 
 
-def _wire_to_segs(wire: WireSegment) -> list[tuple[Point, Point]]:
+def _wire_to_segs(wire: Wire) -> list[tuple[Point, Point]]:
     return list(zip(wire.path, wire.path[1:]))
 
 
@@ -522,7 +522,7 @@ def _segs_overlap_collinear(
 def _count_crossings_with_other(
     subpath_segs: list[tuple[Point, Point]],
     subpath_vertices: list[Point],
-    ow: WireSegment,
+    ow: Wire,
     *,
     skip_pts: set[tuple[float, float]],
 ) -> int:
@@ -625,7 +625,7 @@ def _count_crossings_with_other(
 
 def _candidate_safe_against_others(
     candidate_segs: list[tuple[Point, Point]],
-    other_wires: list[WireSegment],
+    other_wires: list[Wire],
     wire_id: uuid.UUID,
     *,
     wire_side: str | None = None,
@@ -825,7 +825,7 @@ def _candidate_pins_alien(
 
 def _candidate_safe_against_own(
     candidate_segs: list[tuple[Point, Point]],
-    wire: WireSegment,
+    wire: Wire,
     i: int,
     j: int,
 ) -> bool:
@@ -861,7 +861,7 @@ def _seg_passes_through_pad(a: Point, b: Point, pad: Point) -> bool:
 
 def _new_alien_pad_contact(
     candidate_segs: list[tuple[Point, Point]],
-    wire: WireSegment,
+    wire: Wire,
     pad_to_net: dict[Point, uuid.UUID] | None,
     wire_net_id: "uuid.UUID | None" = None,
 ) -> bool:
@@ -1079,8 +1079,8 @@ def _candidate_safe_via_pad_index(
 
 
 def generic_simplify_wire(
-    wire: WireSegment,
-    other_wires: list[WireSegment],
+    wire: Wire,
+    other_wires: list[Wire],
     pin_positions: set[Point] | None = None,
     pad_to_net: dict[Point, uuid.UUID] | None = None,
     *,
@@ -1090,7 +1090,7 @@ def generic_simplify_wire(
     other_wire_nets: "dict[uuid.UUID, uuid.UUID | None] | None" = None,
     pin_net_map: "dict[Point, uuid.UUID] | None" = None,
     pad_index: object = None,
-) -> WireSegment:
+) -> Wire:
     """Shorten *wire* by replacing any subpath ``path[i..j]`` with the
     canonical (grid-aligned shortest) path between its endpoints, when safe.
 
@@ -1139,7 +1139,7 @@ def generic_simplify_wire(
         wire_hi_x = max(p.x for p in wire.path) + 1.0
         wire_lo_y = min(p.y for p in wire.path) - 1.0
         wire_hi_y = max(p.y for p in wire.path) + 1.0
-        relevant_others: list[WireSegment] = []
+        relevant_others: list[Wire] = []
         for ow in other_wires:
             if ow.id == wire.id:
                 continue
@@ -1341,7 +1341,7 @@ def generic_simplify_wire(
             mode=mode.value if hasattr(mode, "value") else str(mode),
         )
     # Preserve wire id — simplify is a path edit of the same logical wire.
-    return WireSegment(
+    return Wire(
         id=wire.id,
         path=path,
         insulated=wire.insulated,
@@ -1351,7 +1351,7 @@ def generic_simplify_wire(
 
 
 def simplify_wires_generic(
-    wires: list[WireSegment],
+    wires: list[Wire],
     pin_positions: set[Point] | None = None,
     pad_to_net: dict[Point, uuid.UUID] | None = None,
     *,
@@ -1360,7 +1360,7 @@ def simplify_wires_generic(
     wire_to_net: "dict[uuid.UUID, uuid.UUID | None] | None" = None,
     pin_net_map: "dict[Point, uuid.UUID] | None" = None,
     pad_index: object = None,
-) -> list[WireSegment]:
+) -> list[Wire]:
     """Run generic_simplify_wire over *wires*, propagating each rewrite back
     into the working list so later wires see the shortened versions when
     checking collisions.  Mirrors the multi-pass behaviour of

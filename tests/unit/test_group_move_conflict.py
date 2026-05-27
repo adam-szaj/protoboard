@@ -14,7 +14,7 @@ from protoboard.domain.layout.pad_conflict import (
     check_group_move_conflicts,
 )
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
@@ -41,8 +41,8 @@ def _pl(comp_id: uuid.UUID, x: float, y: float) -> ComponentPlacement:
     )
 
 
-def _wire(*pts: tuple[float, float]) -> WireSegment:
-    return WireSegment(
+def _wire(*pts: tuple[float, float]) -> Wire:
+    return Wire(
         id=uuid.uuid4(),
         path=[Point(x, y) for x, y in pts],
         insulated=True,

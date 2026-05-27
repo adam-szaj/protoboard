@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import uuid
 
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.services.routing.unweave import (
     count_mutual_crossings,
@@ -14,8 +14,8 @@ from protoboard.services.routing.unweave import (
 )
 
 
-def _wire(*pts: tuple[float, float], insulated: bool = True, side: str = "top") -> WireSegment:
-    return WireSegment(
+def _wire(*pts: tuple[float, float], insulated: bool = True, side: str = "top") -> Wire:
+    return Wire(
         id=uuid.uuid4(),
         path=[Point(x, y) for x, y in pts],
         insulated=insulated,
@@ -561,20 +561,20 @@ class TestUnweaveRegroupAfterSwap:
     def test_idempotent_when_input_is_a_chain(self) -> None:
         """Feeding the algorithm a pre-split chain of WireSegments produces
         the same result as feeding the equivalent single-segment wire."""
-        from protoboard.domain.layout.wire import WireSegment
+        from protoboard.domain.layout.wire import Wire
         from protoboard.geometry import Point
         # Two-pin net split into 3 segments connected at shared pads.
-        seg_a = WireSegment(
+        seg_a = Wire(
             id=uuid.uuid4(),
             path=[Point(0.0, 0.0), Point(1.0, 0.0)],
             insulated=False, side="top",
         )
-        seg_b = WireSegment(
+        seg_b = Wire(
             id=uuid.uuid4(),
             path=[Point(1.0, 0.0), Point(2.0, 0.0)],
             insulated=False, side="top",
         )
-        seg_c = WireSegment(
+        seg_c = Wire(
             id=uuid.uuid4(),
             path=[Point(2.0, 0.0), Point(3.0, 0.0)],
             insulated=False, side="top",
@@ -593,7 +593,7 @@ class TestUnweaveRemerge:
 
     def test_remerge_after_chain_of_identical_swaps(self) -> None:
         # 4-zigzag wires on the same side+insulated should stay as one
-        # WireSegment each after unweave (no splitting required).
+        # Wire each after unweave (no splitting required).
         w1 = _wire(
             (0.0, 0.0), (1.0, 1.0), (2.0, 0.0), (3.0, 1.0), (4.0, 0.0),
         )

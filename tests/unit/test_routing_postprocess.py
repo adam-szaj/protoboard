@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import uuid
 
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.services.routing.postprocess import (
     SimplifyMode,
@@ -16,8 +16,8 @@ from protoboard.services.routing.postprocess import (
 )
 
 
-def _bare(*pts: tuple[float, float], side: str = "top") -> WireSegment:
-    return WireSegment(
+def _bare(*pts: tuple[float, float], side: str = "top") -> Wire:
+    return Wire(
         id=uuid.uuid4(),
         path=[Point(x, y) for x, y in pts],
         insulated=False,
@@ -48,7 +48,7 @@ class TestStraighten:
 
     def test_insulated_collinear_drops_mid_point(self) -> None:
         # An insulated wire floats above the board → safe to drop pad nodes.
-        w = WireSegment(
+        w = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
             insulated=True,
@@ -116,7 +116,7 @@ class TestCornerCut:
         assert len(out.path) == 3  # unchanged
 
     def test_insulated_wire_untouched(self) -> None:
-        w = WireSegment(
+        w = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(1.5, 1.5)],
             insulated=True,
@@ -219,7 +219,7 @@ class TestGenericSimplifyParity:
         _ = w_bad
 
     def test_insulated_ignores_parity_in_both_modes(self) -> None:
-        wi = WireSegment(
+        wi = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 1.5), Point(0.5, 1.5), Point(0.5, 2.5)],
             insulated=True,
@@ -291,7 +291,7 @@ class TestGenericSimplifyAlienPad:
         assert len(out.path) == 3  # unchanged
 
     def test_insulated_ignores_alien_pad(self) -> None:
-        wi = WireSegment(
+        wi = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 1.5), Point(2.5, 2.5), Point(1.5, 3.5)],
             insulated=True,
@@ -340,7 +340,7 @@ class TestGenericSimplifyPadPreservation:
         # interactive wire-edit tool "handles" at every pad the wire
         # geometrically crosses.  Without them the user can collapse a
         # straight insulated wire to two endpoints and lose all editability.
-        wi = WireSegment(
+        wi = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5), Point(3.5, 0.5)],
             insulated=True,
@@ -515,7 +515,7 @@ class TestGenericSimplifyInsulatedEndpoint:
         # heads off-board.  The candidate diagonal of our bare wire would
         # pass exactly through (1.5, 1.5).
         other_net = uuid.uuid4()
-        insulated_other = WireSegment(
+        insulated_other = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 1.5), Point(5.5, 5.5)],
             insulated=True,
@@ -792,7 +792,7 @@ class TestSimplifyNoNewPinContact:
         idx, _comp, _nid = self._make_index_with_pin(
             (1.5, 1.5), pin_net_id=None,
         )
-        w = WireSegment(
+        w = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(2.5, 0.5), Point(2.5, 2.5)],
             insulated=True,
@@ -1052,7 +1052,7 @@ class TestSimplifyNoNewCrossings:
         from protoboard.services.routing.postprocess import (
             _count_crossings_with_other,
         )
-        ow = WireSegment(
+        ow = Wire(
             id=uuid.uuid4(),
             path=[Point(3.5, 0.5), Point(3.5, 4.5)],
             insulated=True, side="top",
@@ -1073,7 +1073,7 @@ class TestSimplifyNoNewCrossings:
         net_a = uuid.uuid4()
         net_b = uuid.uuid4()
         # Wire A on BOTTOM, horizontal at y=4.5 from x=2.5 to x=8.5.
-        wa = WireSegment(
+        wa = Wire(
             id=uuid.uuid4(),
             path=[
                 Point(2.5, 4.5), Point(3.5, 4.5), Point(4.5, 4.5),
@@ -1086,7 +1086,7 @@ class TestSimplifyNoNewCrossings:
         # Endpoints (0.5,0.5) and (8.5,4.5).  Canonical L would lay copper
         # along A's row at y=4.5 (because diag length 4 + ortho along
         # y=4.5).  That's the forbidden overlap.
-        wb = WireSegment(
+        wb = Wire(
             id=uuid.uuid4(),
             path=[
                 Point(0.5, 0.5), Point(0.5, 5.5),
@@ -1120,13 +1120,13 @@ class TestSimplifyNoNewCrossings:
         # an obstacle, the algorithm must NOT fall back to a chain of
         # smaller canonical replacements that compose into a path with
         # more bends than the original.
-        wa = WireSegment(
+        wa = Wire(
             id=uuid.uuid4(),
             path=[Point(4.5, 4.5), Point(4.5, 6.5)],
             insulated=True, side="top",
         )
         # Long L-shape, 1 original bend.
-        wb = WireSegment(
+        wb = Wire(
             id=uuid.uuid4(),
             path=[
                 Point(0.5, 0.5), Point(2.5, 0.5), Point(4.5, 0.5),
@@ -1157,12 +1157,12 @@ class TestSimplifyNoNewCrossings:
         # Both wires insulated.  Original B's L-shape doesn't cross A.
         # Canonical collapse to direct diagonal WOULD cross A.  M ≤ N rule:
         # 1 > 0 → reject.
-        wa = WireSegment(
+        wa = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 3.5), Point(5.5, 3.5)],
             insulated=True, side="top",
         )
-        wb = WireSegment(
+        wb = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(0.5, 6.5), Point(6.5, 6.5)],
             insulated=True, side="top",

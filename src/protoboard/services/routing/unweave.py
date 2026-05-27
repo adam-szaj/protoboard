@@ -31,7 +31,7 @@ The algorithm:
 
 MVP — Phase 1: only wires with **identical** ``side`` and ``insulated``
 attributes are eligible.  Mixed pairs are skipped (would require splitting
-each wire into multiple ``WireSegment``s at the swap points, which is
+each wire into multiple ``Wire``s at the swap points, which is
 deferred to Phase 2).
 """
 
@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import structlog
 
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import _segs_cross
 from protoboard.services.routing.postprocess import _canonical_subpath
@@ -116,7 +116,7 @@ def _dist(a: Point, b: Point) -> float:
 # ---------------------------------------------------------------------------
 
 
-def find_crossings(w1: WireSegment, w2: WireSegment) -> list[Crossing]:
+def find_crossings(w1: Wire, w2: Wire) -> list[Crossing]:
     """Every crossing between 2D projections of w1 and w2.
 
     Returns both:
@@ -163,7 +163,7 @@ def find_crossings(w1: WireSegment, w2: WireSegment) -> list[Crossing]:
 
 
 def _find_shared_pad_crossings(
-    w1: WireSegment, w2: WireSegment,
+    w1: Wire, w2: Wire,
 ) -> list[Crossing]:
     """Crossings where both wires have an interior vertex at the same pad
     AND their directions around that pad interleave (true topological
@@ -246,14 +246,14 @@ PadSafetyFn = "Callable[[Point, str, str, bool], bool]"
 
 
 def _swap_fragment_between(
-    w1: WireSegment, w2: WireSegment, x: Crossing, y: Crossing,
+    w1: Wire, w2: Wire, x: Crossing, y: Crossing,
     *, pad_safe: "Callable[[Point, str, str, bool], bool] | None" = None,
-) -> tuple[list[WireSegment], list[WireSegment]] | None:
+) -> tuple[list[Wire], list[Wire]] | None:
     """Re-glue W1/W2 by cutting the two segments that cross at X and Y.
 
     Returns each new logical wire as a **list of WireSegments**.  When the
     swapped middle fragment shares (side, insulated) with the outer fragments
-    the result is a single WireSegment (legacy behaviour).  When they differ
+    the result is a single Wire (legacy behaviour).  When they differ
     the result is three WireSegments anchored at the split pads — head/outer
     keeps the original (side, insulated), middle inherits from the other
     wire, tail/outer matches head.
@@ -261,7 +261,7 @@ def _swap_fragment_between(
     Splitting is permitted only at pads where ``pad_safe`` returns True (the
     pad is empty or already in the same electric net).  When ``pad_safe`` is
     None or rejects either split point, the function falls back to the
-    legacy single-WireSegment glue, which forces the middle onto the outer's
+    legacy single-Wire glue, which forces the middle onto the outer's
     side — typically the same case the caller already had.
     """
     # Ensure crossing X comes before Y along W1.
@@ -342,8 +342,8 @@ def _swap_fragment_between(
 
 def _build_swapped_wire(
     *,
-    outer_wire: WireSegment,
-    middle_wire: WireSegment,
+    outer_wire: Wire,
+    middle_wire: Wire,
     head: list[Point],
     link_to_mid: list[Point],
     mid: list[Point],
@@ -351,10 +351,10 @@ def _build_swapped_wire(
     tail: list[Point],
     same_attrs: bool,
     pad_safe: "Callable[[Point, str, str, bool], bool] | None",
-) -> list[WireSegment] | None:
+) -> list[Wire] | None:
     """Assemble the new wire after a swap.
 
-    Single WireSegment when (side, insulated) match between outer and middle,
+    Single Wire when (side, insulated) match between outer and middle,
     or when ``pad_safe`` is unavailable / rejects splitting (legacy fallback).
     Otherwise three WireSegments — outer-head, middle, outer-tail — anchored
     at the split pads ``head[-1]`` and ``tail[0]``.
@@ -385,7 +385,7 @@ def _build_swapped_wire(
     tail_path = [mid[-1]] + link_to_tail + tail
 
     head_seg = replace(outer_wire, path=head_path)
-    mid_seg = WireSegment(
+    mid_seg = Wire(
         id=middle_wire.id,
         path=mid_path,
         insulated=middle_wire.insulated,
@@ -457,12 +457,12 @@ def _pick_swap_pair(crossings: list[Crossing]) -> tuple[int, int] | None:
 
 
 def unweave_wires(
-    wires: list[WireSegment],
+    wires: list[Wire],
     *,
     schematic: "Schematic | None" = None,
     graph: "ConnectivityGraph | None" = None,
     board_pads: set[Point] | None = None,
-) -> list[WireSegment]:
+) -> list[Wire]:
     """Reduce mutual crossings within *wires* by topological fragment swaps.
 
     Greedy: scan every wire pair, pick the closest pair of crossings, swap
@@ -484,7 +484,7 @@ def unweave_wires(
     # segments share an endpoint pad.  This makes the driver work correctly
     # whether the caller passes pristine wires or output from a previous
     # unweave pass (split into multiple WireSegments).
-    logical: list[list[WireSegment]] = _group_by_endpoints(wires)
+    logical: list[list[Wire]] = _group_by_endpoints(wires)
 
     # Default board pads from graph.board so callers passing only graph still
     # benefit from pad-preservation on bare links.
@@ -496,7 +496,7 @@ def unweave_wires(
         )
 
     pad_safe: "Callable[[Point, str, str, bool], bool] | None" = None
-    short_check: "Callable[[list[list[WireSegment]]], bool] | None" = None
+    short_check: "Callable[[list[list[Wire]]], bool] | None" = None
     if schematic is not None and graph is not None:
         pad_safe = _make_pad_safety(wires, schematic, graph)
         # Capture the IDs of the original wires up-front; the short-checker
@@ -531,7 +531,7 @@ def unweave_wires(
             for j in range(i + 1, len(logical)):
                 # Pairwise crossings between any segment of logical[i] and
                 # any segment of logical[j].  The current MVP swap operates
-                # on single WireSegment endpoints; pick the most-tangled
+                # on single Wire endpoints; pick the most-tangled
                 # pair of segments to drive a swap.
                 swap_done = _attempt_pair_swap(
                     logical, i, j, pad_safe=pad_safe,
@@ -579,16 +579,16 @@ def unweave_wires(
     )
 
     # Re-merge consecutive segments with identical (side, insulated).
-    merged: list[WireSegment] = []
+    merged: list[Wire] = []
     for segs in logical:
         merged.extend(_remerge(segs))
     return merged
 
 
 def _rebalance_sides(
-    logical: list[list[WireSegment]],
+    logical: list[list[Wire]],
     *,
-    short_check: "Callable[[list[list[WireSegment]]], bool]",
+    short_check: "Callable[[list[list[Wire]]], bool]",
 ) -> None:
     """Try to consolidate each logical wire onto a single side.
 
@@ -647,7 +647,7 @@ class _LogicalPoint:
     insulated: bool
 
 
-def _to_logical_path(segments: list[WireSegment]) -> list[_LogicalPoint]:
+def _to_logical_path(segments: list[Wire]) -> list[_LogicalPoint]:
     """Walk an ordered list of WireSegments and produce a single concatenated
     vertex sequence.  Consecutive segments must share an endpoint pad.
     """
@@ -671,8 +671,8 @@ def _to_logical_path(segments: list[WireSegment]) -> list[_LogicalPoint]:
 def _from_logical_path(
     lpath: list[_LogicalPoint],
     seed_ids: list[uuid.UUID] | None = None,
-) -> list[WireSegment]:
-    """Inverse of ``_to_logical_path`` — emits a fresh WireSegment whenever
+) -> list[Wire]:
+    """Inverse of ``_to_logical_path`` — emits a fresh Wire whenever
     the (side, insulated) attributes change between consecutive vertices.
 
     ``seed_ids`` preserves wire identity across the unweave swap: the first
@@ -683,7 +683,7 @@ def _from_logical_path(
     """
     if len(lpath) < 2:
         return []
-    segs: list[WireSegment] = []
+    segs: list[Wire] = []
     cur_path: list[Point] = [lpath[0].point]
     cur_side = lpath[0].side
     cur_ins = lpath[0].insulated
@@ -698,7 +698,7 @@ def _from_logical_path(
             # Close current segment at the split pad (last vertex), then
             # open a new one whose first vertex is the same pad.
             cur_path.append(lpath[k].point)
-            segs.append(WireSegment(
+            segs.append(Wire(
                 id=_next_id(),
                 path=cur_path,
                 insulated=cur_ins,
@@ -710,7 +710,7 @@ def _from_logical_path(
         else:
             cur_path.append(lpath[k].point)
     if len(cur_path) >= 2:
-        segs.append(WireSegment(
+        segs.append(Wire(
             id=_next_id(),
             path=cur_path,
             insulated=cur_ins,
@@ -729,7 +729,7 @@ def _find_crossings_logical(
     """Crossings between two concatenated logical paths.
 
     Returns Crossings with seg_idx interpreted as the index *within the
-    concatenated path*, so callers must translate back to the per-WireSegment
+    concatenated path*, so callers must translate back to the per-Wire
     granularity if they need it.  Includes both strict-interior segment
     crossings and shared-pad crossings (interleaved directions at a shared
     interior vertex).
@@ -753,13 +753,13 @@ def _find_crossings_logical(
                 wire1_param=t_a, wire2_param=t_b,
             ))
     # Pass 2 — shared-pad crossings (interior vertex shared with topologically
-    # interleaved directions).  Build a synthetic WireSegment so we can reuse
+    # interleaved directions).  Build a synthetic Wire so we can reuse
     # the existing shared-pad detector.
-    fake_w1 = WireSegment(
+    fake_w1 = Wire(
         id=uuid.uuid4(), path=p1,
         insulated=False, side="top",  # side/insulated irrelevant for geometry
     )
-    fake_w2 = WireSegment(
+    fake_w2 = Wire(
         id=uuid.uuid4(), path=p2,
         insulated=False, side="top",
     )
@@ -1110,10 +1110,10 @@ def _count_pair_shared_vertices(
 
 
 def _cleanup_shared_pads_pass(
-    logical: list[list[WireSegment]],
+    logical: list[list[Wire]],
     *,
     pad_safe: "Callable[[Point, str, str, bool], bool] | None",
-    short_check: "Callable[[list[list[WireSegment]]], bool] | None",
+    short_check: "Callable[[list[list[Wire]]], bool] | None",
     board_pads: set[Point] | None,
     forbidden_pads: set[Point] | None,
 ) -> None:
@@ -1257,9 +1257,9 @@ def _find_shared_pad_crossings_logical(
 
 
 def _attempt_pair_swap(
-    logical: list[list[WireSegment]], i: int, j: int,
+    logical: list[list[Wire]], i: int, j: int,
     *, pad_safe: "Callable[[Point, str, str, bool], bool] | None",
-    short_check: "Callable[[list[list[WireSegment]]], bool] | None" = None,
+    short_check: "Callable[[list[list[Wire]]], bool] | None" = None,
     board_pads: set[Point] | None = None,
 ) -> bool:
     """Try one swap between logical wires *i* and *j*, operating on
@@ -1323,7 +1323,7 @@ def _attempt_pair_swap(
     return True
 
 
-def _group_by_endpoints(wires: list[WireSegment]) -> list[list[WireSegment]]:
+def _group_by_endpoints(wires: list[Wire]) -> list[list[Wire]]:
     """Chain WireSegments into ordered logical-wire lists.
 
     Two segments belong to the same logical wire when one's terminal pad
@@ -1344,7 +1344,7 @@ def _group_by_endpoints(wires: list[WireSegment]) -> list[list[WireSegment]]:
         by_end[e].append(i)
 
     visited: set[int] = set()
-    chains: list[list[WireSegment]] = []
+    chains: list[list[Wire]] = []
     for i in range(len(wires)):
         if i in visited or len(wires[i].path) < 2:
             if i not in visited and len(wires[i].path) >= 2:
@@ -1381,7 +1381,7 @@ def _group_by_endpoints(wires: list[WireSegment]) -> list[list[WireSegment]]:
     return chains
 
 
-def _remerge(segments: list[WireSegment]) -> list[WireSegment]:
+def _remerge(segments: list[Wire]) -> list[Wire]:
     """Fuse consecutive WireSegments that share (side, insulated) and an
     endpoint pad.  Preserves order and never crosses an attribute boundary.
 
@@ -1392,7 +1392,7 @@ def _remerge(segments: list[WireSegment]) -> list[WireSegment]:
     """
     if not segments:
         return []
-    out: list[WireSegment] = [segments[0]]
+    out: list[Wire] = [segments[0]]
     for nxt in segments[1:]:
         prev = out[-1]
         if (
@@ -1411,7 +1411,7 @@ def _remerge(segments: list[WireSegment]) -> list[WireSegment]:
 
 
 def _make_pad_safety(
-    all_wires: list[WireSegment],
+    all_wires: list[Wire],
     schematic: "Schematic",
     graph: "ConnectivityGraph",
 ) -> "Callable[[Point, str, str, bool], bool]":
@@ -1453,7 +1453,7 @@ def _make_pad_safety(
 
 
 def _count_bare_same_side_shorts(
-    wires: list[WireSegment],
+    wires: list[Wire],
     graph: "ConnectivityGraph",
 ) -> int:
     """Count strict-interior crossings between bare wires that share a side
@@ -1502,7 +1502,7 @@ def _make_short_checker(
     *,
     target_ids: "set[uuid.UUID] | None" = None,
     check_bare_same_side: bool = False,
-) -> "Callable[[list[list[WireSegment]]], bool]":
+) -> "Callable[[list[list[Wire]]], bool]":
     """Build a *monotonic* checker that rejects a proposed unweave step
     when it would *worsen* the project's electrical invariants relative to
     the baseline layout.
@@ -1545,7 +1545,7 @@ def _make_short_checker(
     # Nothing to enforce if the schematic has no nets — skip the expensive
     # ConnectivityGraph rebuild entirely.  Useful for fixture-free unit tests.
     if not pin_to_net:
-        def _trivially_ok(_proposed: list[list[WireSegment]]) -> bool:
+        def _trivially_ok(_proposed: list[list[Wire]]) -> bool:
             return True
         return _trivially_ok
 
@@ -1595,14 +1595,14 @@ def _make_short_checker(
                 base_layout.wires, _baseline_graph,  # type: ignore[attr-defined]
             )
 
-    def _check(proposed: list[list[WireSegment]]) -> bool:
+    def _check(proposed: list[list[Wire]]) -> bool:
         new_layout = Layout()
         new_layout.placements = base_layout.placements  # type: ignore[attr-defined]
         new_layout.groups = base_layout.groups  # type: ignore[attr-defined]
         # Baseline = every wire from the original layout that is NOT being
         # replaced by `proposed`.  This keeps unrelated nets connected so
         # the checker doesn't fail on wires we never touched.
-        new_wires: list[WireSegment] = []
+        new_wires: list[Wire] = []
         if target_ids is not None:
             for w in base_layout.wires:  # type: ignore[attr-defined]
                 if w.id not in target_ids:
@@ -1670,7 +1670,7 @@ def _make_short_checker(
     return _check
 
 
-def count_mutual_crossings(wires: list[WireSegment]) -> int:
+def count_mutual_crossings(wires: list[Wire]) -> int:
     """Total crossings between every pair of wires in *wires*."""
     total = 0
     for i in range(len(wires)):

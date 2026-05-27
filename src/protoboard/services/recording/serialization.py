@@ -58,7 +58,7 @@ from protoboard.domain.commands.net_cmds import (
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import ComponentGroup, ExportedPin
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.errors import SerializationError
 from protoboard.geometry import Point
 from protoboard.services.persistence.board_yaml import board_from_yaml, board_to_yaml
@@ -158,7 +158,7 @@ def _instance_from(d: dict[str, Any]) -> ComponentInstance:
     )
 
 
-def _wire_to(w: WireSegment) -> dict[str, Any]:
+def _wire_to(w: Wire) -> dict[str, Any]:
     out: dict[str, Any] = {
         "id": _uuid_to(w.id),
         "path": [_pt_to(p) for p in w.path],
@@ -170,8 +170,8 @@ def _wire_to(w: WireSegment) -> dict[str, Any]:
     return out
 
 
-def _wire_from(d: dict[str, Any]) -> WireSegment:
-    return WireSegment(
+def _wire_from(d: dict[str, Any]) -> Wire:
+    return Wire(
         id=_uuid_from(d["id"]),
         path=[_pt_from(p) for p in d["path"]],
         insulated=bool(d["insulated"]),

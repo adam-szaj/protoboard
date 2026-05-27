@@ -13,7 +13,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 
 _NS = "http://www.w3.org/2000/svg"
@@ -175,7 +175,7 @@ def _render_component(
     text.text = inst.refdes
 
 
-def _wire_color(wire: WireSegment, theme: Theme) -> str:
+def _wire_color(wire: Wire, theme: Theme) -> str:
     if not wire.insulated:
         return theme.bare_outline_color
     if wire.color:

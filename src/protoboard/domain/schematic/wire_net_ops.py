@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.layout import Layout
-    from protoboard.domain.layout.wire import WireSegment
+    from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.net import Net
     from protoboard.domain.schematic.schematic import Schematic
     from protoboard.geometry import Point
@@ -69,7 +69,7 @@ class WireNetClassification:
 
 
 def classify_wire_nets(
-    wire: WireSegment,
+    wire: Wire,
     session: _SessionLike,
 ) -> WireNetClassification:
     """Classify the schematic relationship of *wire*'s two endpoints."""

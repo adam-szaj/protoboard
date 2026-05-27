@@ -8,7 +8,7 @@ import uuid
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.normalize import normalize_layout_positions
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 
 
@@ -18,8 +18,8 @@ def _pl(cid: uuid.UUID, x: float, y: float) -> ComponentPlacement:
     )
 
 
-def _wire(*pts: tuple[float, float]) -> WireSegment:
-    return WireSegment(
+def _wire(*pts: tuple[float, float]) -> Wire:
+    return Wire(
         id=uuid.uuid4(),
         path=[Point(x, y) for x, y in pts],
         insulated=True, side="top",

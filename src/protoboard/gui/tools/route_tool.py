@@ -14,7 +14,7 @@ from PySide6.QtWidgets import QApplication, QGraphicsLineItem, QMessageBox
 from protoboard.domain.commands.component_cmds import AddWireCommand, AddWireWithNetsCommand
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.placement import pin_world_position
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.wire_net_ops import find_pin_at
 from protoboard.geometry import Point
 from protoboard.gui.board_view import _Tool
@@ -234,7 +234,7 @@ class RouteTool(_Tool):
                 self._cancel()
                 return
 
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=enriched_path,
             insulated=self._insulated,

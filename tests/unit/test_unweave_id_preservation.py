@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.services.routing.unweave import (
     _from_logical_path,
@@ -83,12 +83,12 @@ class TestFromLogicalPath:
 class TestRemergeIdPreservation:
     def test_fused_segment_keeps_first_id(self) -> None:
         first_id = uuid.uuid4()
-        seg1 = WireSegment(
+        seg1 = Wire(
             id=first_id,
             path=[Point(0, 0), Point(1, 0)],
             insulated=False, side="top",
         )
-        seg2 = WireSegment(
+        seg2 = Wire(
             id=uuid.uuid4(),
             path=[Point(1, 0), Point(2, 0)],
             insulated=False, side="top",
@@ -99,12 +99,12 @@ class TestRemergeIdPreservation:
         assert out[0].path == [Point(0, 0), Point(1, 0), Point(2, 0)]
 
     def test_attribute_break_prevents_fuse(self) -> None:
-        seg1 = WireSegment(
+        seg1 = Wire(
             id=uuid.uuid4(),
             path=[Point(0, 0), Point(1, 0)],
             insulated=False, side="top",
         )
-        seg2 = WireSegment(
+        seg2 = Wire(
             id=uuid.uuid4(),
             path=[Point(1, 0), Point(2, 0)],
             insulated=False, side="bottom",

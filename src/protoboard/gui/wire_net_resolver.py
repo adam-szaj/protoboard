@@ -16,7 +16,7 @@ from protoboard.domain.schematic.wire_net_ops import (
 
 if TYPE_CHECKING:
     from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
-    from protoboard.domain.layout.wire import WireSegment
+    from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.wire_net_ops import WireNetClassification
     from protoboard.gui.session import EditorSession
 
@@ -25,7 +25,7 @@ _log = structlog.get_logger(__name__)
 
 def resolve_wire_nets(
     session: EditorSession,
-    wire: WireSegment,
+    wire: Wire,
     cmd: AddWireWithNetsCommand,
     parent_widget: object = None,
 ) -> bool:

@@ -17,7 +17,7 @@ from protoboard.domain.commands.group_cmds import (
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 
 
@@ -90,8 +90,8 @@ def test_rotate_around_360_is_identity() -> None:
 # Unit tests for _wire_is_internal
 # ---------------------------------------------------------------------------
 
-def _wire(path: list[tuple[float, float]]) -> WireSegment:
-    return WireSegment(
+def _wire(path: list[tuple[float, float]]) -> Wire:
+    return Wire(
         id=uuid.uuid4(),
         path=[Point(x, y) for x, y in path],
         insulated=False,
@@ -140,7 +140,7 @@ def _simple_group(comp_ids: frozenset[uuid.UUID], origin: Point) -> ComponentGro
 def _layout_with_group(
     group: ComponentGroup,
     placements: dict[uuid.UUID, ComponentPlacement],
-    wires: list[WireSegment] | None = None,
+    wires: list[Wire] | None = None,
 ) -> Layout:
     layout = Layout(
         placements=placements,

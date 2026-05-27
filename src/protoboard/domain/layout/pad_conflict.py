@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
-    from protoboard.domain.layout.wire import WireSegment
+    from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.schematic import Schematic
 
 
@@ -56,7 +56,7 @@ class PadConflict:
     # The net of the incoming pin (None if not yet known — always None at placement).
     incoming_net_id: uuid.UUID | None
     incoming_net_name: str | None
-    # Set for wire conflicts — identifies which WireSegment caused the conflict.
+    # Set for wire conflicts — identifies which Wire caused the conflict.
     wire_id: uuid.UUID | None = None
 
 
@@ -161,7 +161,7 @@ def find_wire_conflicts(
     incoming_placement: ComponentPlacement,
     incoming_defn: ComponentDefinition,
     incoming_instance_id: uuid.UUID,
-    wires: list[WireSegment],
+    wires: list[Wire],
     schematic: Schematic,
     point_to_net: dict[tuple[float, float], tuple[uuid.UUID, str]],
     already_conflicted: set[tuple[float, float]],
@@ -170,7 +170,7 @@ def find_wire_conflicts(
     """Return wire conflicts for *incoming_placement*.
 
     A wire conflict occurs when a pin of the incoming component lands on a
-    point that is part of an existing WireSegment's path.
+    point that is part of an existing Wire's path.
 
     *point_to_net* maps rounded (x, y) of any placed pin that has a net to
     (net_id, net_name).  A wire is considered to carry a net when any point
@@ -358,7 +358,7 @@ def _seg_point_dist(px: float, py: float,
 
 
 def find_wires_crossing_pads(
-    wires: list[WireSegment],
+    wires: list[Wire],
     moved_comp_ids: set[uuid.UUID],
     layout_placements: dict[uuid.UUID, ComponentPlacement],
     instances: dict[uuid.UUID, ComponentInstance],
@@ -519,7 +519,7 @@ def check_group_move_conflicts(
     moved_ids: set[uuid.UUID],
     active_group_id: uuid.UUID,
     layout_placements: dict[uuid.UUID, ComponentPlacement],
-    layout_wires: list[WireSegment],
+    layout_wires: list[Wire],
     layout_groups: dict[uuid.UUID, object],
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
@@ -744,7 +744,7 @@ def _compute_bbox(
 
 
 def _wire_is_internal_bbox(
-    wire: WireSegment,
+    wire: Wire,
     bbox: tuple[float, float, float, float],
     tol: float = 0.5,
 ) -> bool:

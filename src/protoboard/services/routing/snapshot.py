@@ -8,7 +8,7 @@ the worker reads from under itself.  ``RouteRequest`` is the immutable
 contract: build it on the main thread *before* the worker starts; the
 worker is structurally unable to see later edits.
 
-Snapshots are shallow on geometry (Point, WireSegment.path, etc.) — those
+Snapshots are shallow on geometry (Point, Wire.path, etc.) — those
 elements are already immutable-by-convention in the codebase (path is a
 list but is never mutated in-place; the codebase always replaces wires
 wholesale via ``ReplaceWireSegmentCommand``).  We freeze the *containers*
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.placement import ComponentPlacement
-    from protoboard.domain.layout.wire import WireSegment
+    from protoboard.domain.layout.wire import Wire
     from protoboard.domain.routing_settings import RoutingSettings
     from protoboard.domain.schematic.net import Net
     from protoboard.domain.schematic.schematic import Schematic
@@ -50,7 +50,7 @@ class LayoutSnapshot:
     ``placements`` is a MappingProxyType — keys/values are unchanged
     references to the original ComponentPlacement objects, but the mapping
     itself rejects mutation.  ``wires`` is a tuple of the original
-    WireSegment references in original order.
+    Wire references in original order.
 
     For the autorouter this is enough: it only ever iterates these
     containers, never mutates them.  Code that *does* need to mutate
@@ -59,7 +59,7 @@ class LayoutSnapshot:
     """
 
     placements: Mapping[uuid.UUID, "ComponentPlacement"]
-    wires: tuple["WireSegment", ...]
+    wires: tuple["Wire", ...]
 
     @classmethod
     def freeze(cls, layout: "Layout") -> "LayoutSnapshot":

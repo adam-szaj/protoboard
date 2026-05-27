@@ -14,7 +14,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
@@ -71,7 +71,7 @@ class TestNetIsComplete:
         r1 = ComponentInstance.new("R", "R1", "10k")
         r2 = ComponentInstance.new("R", "R2", "10k")
         # R1 pin1@(0.5,0.5), pin2@(1.5,0.5); R2 pin1@(2.5,0.5), pin2@(3.5,0.5)
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 0.5), Point(2.5, 0.5)],
             insulated=False,
@@ -141,7 +141,7 @@ class TestRoutedNetIds:
         defn = _r_defn()
         r1 = ComponentInstance.new("R", "R1", "10k")
         r2 = ComponentInstance.new("R", "R2", "10k")
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 0.5), Point(2.5, 0.5)],
             insulated=False,

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import uuid
 
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.services.routing.autorouter import _build_at_pad_wire_index
 from protoboard.services.routing.cost_model import RoutingCostModel
@@ -26,8 +26,8 @@ from protoboard.services.routing.cost_model import RoutingCostModel
 # ---------------------------------------------------------------------------
 
 
-def _wire(insulated: bool, side: str, *pts: tuple[float, float]) -> WireSegment:
-    return WireSegment(
+def _wire(insulated: bool, side: str, *pts: tuple[float, float]) -> Wire:
+    return Wire(
         id=uuid.uuid4(),
         path=[Point(x, y) for x, y in pts],
         insulated=insulated,

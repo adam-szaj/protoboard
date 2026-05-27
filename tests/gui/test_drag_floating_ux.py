@@ -15,7 +15,7 @@ import uuid
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef
 from protoboard.geometry import Point
@@ -97,7 +97,7 @@ class TestSkewedWireCleanup:
         # R1 at (0.5, 0.5), wire from R1.pin1 to a distant pad.
         r1 = _place(board_view, session, 0.5, 0.5)
         r2 = _place(board_view, session, 4.5, 0.5)
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(4.5, 0.5)],
             insulated=True, side="top",
@@ -179,7 +179,7 @@ class TestPinOnForeignWireSoftFloating:
         # foreign-wire conflict (R1 has no net).
         r1 = _place(board_view, session, 0.5, 0.5)
         r2 = _place(board_view, session, 3.5, 0.5)
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(3.5, 0.5), Point(1.5, 0.5), Point(0.5, 1.5)],
             insulated=True, side="top",
@@ -265,7 +265,7 @@ class TestDoubleClickCommitsFloating:
         # on_double_press (instead of [Enter]).
         r1 = _place(board_view, session, 0.5, 0.5)
         r2 = _place(board_view, session, 3.5, 0.5)
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(3.5, 0.5), Point(1.5, 0.5), Point(0.5, 1.5)],
             insulated=True, side="top",

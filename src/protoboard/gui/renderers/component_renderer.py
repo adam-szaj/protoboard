@@ -703,8 +703,8 @@ def render_groups(
                 _find_internal_wires,
                 _pin_positions_for,
             )
-            from protoboard.domain.layout.wire import WireSegment
-            typed_wires = [w for w in wires if isinstance(w, WireSegment)]
+            from protoboard.domain.layout.wire import Wire
+            typed_wires = [w for w in wires if isinstance(w, Wire)]
             all_ids = frozenset(placements.keys())
             group_pins = _pin_positions_for(comp_ids, placements, instances, components)  # type: ignore[arg-type]
             ext_pins = _pin_positions_for(all_ids - comp_ids, placements, instances, components)  # type: ignore[arg-type]

@@ -21,7 +21,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.schematic import PinRef
 from protoboard.geometry import Point
 
@@ -42,7 +42,7 @@ def _perfboard(rows: int, cols: int) -> Board:
 
 def _make_resistor_with_fractional_offset(
     board: Board, offset_y: float
-) -> tuple[ConnectivityGraph, ComponentInstance, WireSegment]:
+) -> tuple[ConnectivityGraph, ComponentInstance, Wire]:
     """Place a 2-pin resistor whose pin-1 anchor sits at y=0.5+offset_y."""
     defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={})
     inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
@@ -53,7 +53,7 @@ def _make_resistor_with_fractional_offset(
         rotation=90, side="top",
     )
     # Wire from board pad (1.5, 0.5) to pad (2.5, 0.5) — same row, exact half-grid.
-    wire = WireSegment(
+    wire = Wire(
         id=uuid.uuid4(),
         path=[Point(1.5, 0.5), Point(2.5, 0.5)],
         insulated=False, side="top",
@@ -90,7 +90,7 @@ class TestConnectivityToleratesFractionalOffsets:
             rotation=90, side="top",
         )
         # Wire endpoint deliberately at 0.503 instead of 0.5.
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 0.503), Point(2.5, 0.5)],
             insulated=False, side="top",

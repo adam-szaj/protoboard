@@ -22,7 +22,7 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.services.routing.autorouter import _try_mid_cell_reroute
 from protoboard.services.routing.cost_model import RoutingCostModel
@@ -46,11 +46,11 @@ def _perfboard(rows: int = 6, cols: int = 6) -> Board:
     )
 
 
-def _make_graph_with_blocker() -> tuple[ConnectivityGraph, WireSegment]:
+def _make_graph_with_blocker() -> tuple[ConnectivityGraph, Wire]:
     board = _perfboard()
     layout = Layout()
     graph = ConnectivityGraph(board, layout, {}, {})
-    blocker = WireSegment(
+    blocker = Wire(
         id=uuid.uuid4(),
         path=[
             Point(0.5, 2.5),
@@ -173,7 +173,7 @@ class TestBudgetCap:
         even considered for reroute."""
         graph, _ = _make_graph_with_blocker()
         # Add a different blocker, far from the corridor.
-        far = WireSegment(
+        far = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 5.5), Point(4.5, 5.5)],
             insulated=False,

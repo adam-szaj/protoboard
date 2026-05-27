@@ -58,7 +58,7 @@ from protoboard.domain.layout.group import (
     top_level_group_for,
 )
 from protoboard.domain.layout.placement import component_bbox, flip_component, pin_world_position, unrotate
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.board_view import _Tool
 from protoboard.gui.panels.properties_panel import PropertiesPanel
@@ -2122,7 +2122,7 @@ class SelectTool(_Tool):
         return True
 
     def _show_wire_menu(
-        self, wire: "WireSegment", scene_pt: QPointF
+        self, wire: "Wire", scene_pt: QPointF
     ) -> bool:
         from PySide6.QtWidgets import QMenu
         from protoboard.domain.commands.component_cmds import (
@@ -4163,7 +4163,7 @@ class SelectTool(_Tool):
         WireSegments (different ``side``/``insulated`` along the path) or
         merge wires sharing endpoint pads.  We therefore replace the whole
         selection: RemoveWireCommand for every selected wire, then
-        AddWireCommand for every new WireSegment, all bundled in a single
+        AddWireCommand for every new Wire, all bundled in a single
         MacroCommand for atomic undo.
         """
         from typing import cast
@@ -4326,7 +4326,7 @@ class SelectTool(_Tool):
                 best_i = i
         return best_i
 
-    def _get_selected_wire(self) -> WireSegment | None:
+    def _get_selected_wire(self) -> Wire | None:
         if self._selected_wire_id is None:
             return None
         return next(
@@ -4337,7 +4337,7 @@ class SelectTool(_Tool):
 
     def _hit_test_wire_node_any(
         self, scene_pt: QPointF
-    ) -> tuple[WireSegment | None, int | None]:
+    ) -> tuple[Wire | None, int | None]:
         """Hit-test wire nodes across all wires of the same net as the start node.
 
         Returns (wire, node_idx) of the closest node within _NODE_HIT_RADIUS,
@@ -4365,7 +4365,7 @@ class SelectTool(_Tool):
         for wid in candidate_ids:
             self._ensure_wire_ready_for_edit(wid)
 
-        best_wire: WireSegment | None = None
+        best_wire: Wire | None = None
         best_idx: int | None = None
         best_d = _NODE_HIT_RADIUS
 
@@ -4397,7 +4397,7 @@ class SelectTool(_Tool):
         start_wire_id: uuid.UUID,
         end_wire_id: uuid.UUID,
         net_id: uuid.UUID,
-    ) -> list[WireSegment] | None:
+    ) -> list[Wire] | None:
         """BFS through wires of *net_id* from start_wire to end_wire.
 
         Two wires are adjacent if any point of one wire lies within 1e-4 of any
@@ -4421,7 +4421,7 @@ class SelectTool(_Tool):
 
         _EPS = 1e-4
 
-        def _shares_point(a: WireSegment, b: WireSegment) -> bool:
+        def _shares_point(a: Wire, b: Wire) -> bool:
             for pa in a.path:
                 for pb in b.path:
                     if abs(pa.x - pb.x) < _EPS and abs(pa.y - pb.y) < _EPS:
@@ -4463,7 +4463,7 @@ class SelectTool(_Tool):
 
     @staticmethod
     def _outer_endpoint_idx(
-        wire: WireSegment, neighbour: WireSegment
+        wire: Wire, neighbour: Wire
     ) -> int:
         """Return 0 or len(path)-1: whichever endpoint of *wire* is NOT shared
         with *neighbour*.
@@ -4540,7 +4540,7 @@ class SelectTool(_Tool):
         cmds: list[object] = []
 
         def _keep_fragment(
-            wire: WireSegment, edit_idx: int, outer_idx: int,
+            wire: Wire, edit_idx: int, outer_idx: int,
         ) -> None:
             """Emit a command that keeps the path slice from outer_idx to edit_idx."""
             last = len(wire.path) - 1
@@ -4607,7 +4607,7 @@ class SelectTool(_Tool):
 
         from protoboard.gui.layer_state import Z_SELECTION
 
-        def _make_wire_group(wire: WireSegment, start_i: int | None, end_i: int | None) -> QGraphicsItemGroup:
+        def _make_wire_group(wire: Wire, start_i: int | None, end_i: int | None) -> QGraphicsItemGroup:
             group = QGraphicsItemGroup()
             pts = wire.path
             for i in range(len(pts) - 1):
@@ -4653,7 +4653,7 @@ class SelectTool(_Tool):
         if self._selected_wire_id is not None:
             self._draw_wire_highlight(self._selected_wire_id)
 
-    def _set_edit_end(self, node_idx: int, wire: WireSegment) -> None:
+    def _set_edit_end(self, node_idx: int, wire: Wire) -> None:
         start = self._edit_start_idx
         if start is None:
             return
@@ -4742,7 +4742,7 @@ class SelectTool(_Tool):
         if cross:
             # Cross-wire: excise the range then stitch in the hand-drawn points.
             from protoboard.domain.commands.component_cmds import AddWireCommand
-            from protoboard.domain.layout.wire import WireSegment as WS
+            from protoboard.domain.layout.wire import Wire as WS
 
             # Resolve side before cancel_wire_edit clears the IDs.
             _sw = next(
@@ -5044,14 +5044,14 @@ class SelectTool(_Tool):
             AddWireCommand,
             ComponentState,
         )
-        from protoboard.domain.layout.wire import WireSegment
+        from protoboard.domain.layout.wire import Wire
 
         cmds: list[Command[ComponentState]] = [
             cast(Command[ComponentState], RemoveWireCommand(wire_id=wire.id))
         ]
         if len(left_path) >= 2:
             cmds.append(cast(Command[ComponentState], AddWireCommand(
-                wire=WireSegment(
+                wire=Wire(
                     id=uuid.uuid4(),
                     path=left_path,
                     insulated=wire.insulated,
@@ -5061,7 +5061,7 @@ class SelectTool(_Tool):
             )))
         if len(right_path) >= 2:
             cmds.append(cast(Command[ComponentState], AddWireCommand(
-                wire=WireSegment(
+                wire=Wire(
                     id=uuid.uuid4(),
                     path=right_path,
                     insulated=wire.insulated,
@@ -5102,7 +5102,7 @@ class SelectTool(_Tool):
 
         if cross:
             from protoboard.domain.commands.component_cmds import AddWireCommand
-            from protoboard.domain.layout.wire import WireSegment as WS
+            from protoboard.domain.layout.wire import Wire as WS
 
             excise_result = self._excise_cross_wire_range()
             if excise_result is None:
@@ -5515,7 +5515,7 @@ class SelectTool(_Tool):
 # ---------------------------------------------------------------------------
 
 
-def _min_dist_to_wire(px: float, py: float, wire: WireSegment) -> float:
+def _min_dist_to_wire(px: float, py: float, wire: Wire) -> float:
     pts = wire.path
     best = math.inf
     for i in range(len(pts) - 1):

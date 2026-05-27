@@ -8,7 +8,7 @@ import uuid
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
@@ -48,7 +48,7 @@ def _add_l_shape_wire(session: EditorSession) -> uuid.UUID:
     The canonical replacement for the full path is the direct diagonal
     (0.5,0.5)→(2.5,2.5) — strictly shorter, so simplify will accept it.
     """
-    w = WireSegment(
+    w = Wire(
         id=uuid.uuid4(),
         path=[Point(0.5, 0.5), Point(2.5, 0.5), Point(2.5, 2.5)],
         insulated=True,
@@ -183,7 +183,7 @@ class TestSimplifyToolApply:
         # for second (does NOT apply the first wire's draft).
         wid_a = _add_l_shape_wire(session)
         # Second wire — different L-shape elsewhere.
-        wb = WireSegment(
+        wb = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 3.5), Point(2.5, 3.5), Point(2.5, 4.5)],
             insulated=True, side="top",
@@ -212,7 +212,7 @@ class TestSimplifyToolNoopWire:
     def test_no_simplification_possible_keeps_draft_empty(
         self, board_view: BoardView, session: EditorSession,
     ) -> None:
-        w = WireSegment(
+        w = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(2.5, 2.5)],
             insulated=True,

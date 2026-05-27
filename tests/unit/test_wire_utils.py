@@ -8,7 +8,7 @@ import pytest
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.layout.wire_utils import (
     board_pads_for_side,
     find_skewed_wires,
@@ -130,9 +130,9 @@ class TestBoardPadsForSide:
         assert Point(0.5, 0.5) in pads
 
 
-def _wire(path: list[Point]) -> WireSegment:
+def _wire(path: list[Point]) -> Wire:
     import uuid as _uuid
-    return WireSegment(id=_uuid.uuid4(), path=path, insulated=True, side="top")
+    return Wire(id=_uuid.uuid4(), path=path, insulated=True, side="top")
 
 
 class TestWireHasSkewedSegment:

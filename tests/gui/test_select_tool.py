@@ -291,11 +291,11 @@ def _add_wire(
     insulated: bool = True,
     side: str = "top",
 ) -> uuid.UUID:
-    """Add a WireSegment directly to the session layout; return its id."""
-    from protoboard.domain.layout.wire import WireSegment
+    """Add a Wire directly to the session layout; return its id."""
+    from protoboard.domain.layout.wire import Wire
     from protoboard.geometry import Point as _Point
 
-    wire = WireSegment(
+    wire = Wire(
         id=uuid.uuid4(),
         path=[_Point(x, y) for x, y in path],
         insulated=insulated,

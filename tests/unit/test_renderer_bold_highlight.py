@@ -5,15 +5,15 @@ from __future__ import annotations
 
 import uuid
 
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.renderers.wire_renderer import wire_fingerprint
 from protoboard.gui.renderers.component_renderer import comp_fingerprint
 from protoboard.domain.layout.placement import ComponentPlacement
 
 
-def _wire(side: str = "top") -> WireSegment:
-    return WireSegment(
+def _wire(side: str = "top") -> Wire:
+    return Wire(
         id=uuid.uuid4(),
         path=[Point(0.5, 0.5), Point(1.5, 0.5)],
         insulated=True,

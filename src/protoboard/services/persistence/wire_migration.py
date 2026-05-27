@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Legacy wire → Wire/Knot/Fragment migration.
 
-Converts ``Layout.wires`` (list of legacy ``WireSegment``) into the new
+Converts ``Layout.wires`` (list of legacy ``Wire``) into the new
 ``Layout.wires_v2`` + ``Layout.knots`` representation.  Used both by the
 v1 → v2 forward-migration on load and by tests/tools that build legacy
 layouts on the fly and want the new model.
@@ -12,7 +12,7 @@ flag were always conceptually one user-meaningful wire, but the storage
 split them whenever ``side`` changed.  This migration rebuilds the
 logical wires by:
 
-1. Resolving every legacy ``WireSegment.path[0]`` / ``path[-1]`` to either
+1. Resolving every legacy ``Wire.path[0]`` / ``path[-1]`` to either
    a ``PinKnot`` (if the endpoint coincides with the world position of
    some component pin) or a fresh ``JointKnot`` on the pad.
 
@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING
 import structlog
 from protoboard.domain.layout.knot import JointKnot
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.wire import Fragment, KnotRef, Wire, WireSegment
+from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 
@@ -139,7 +139,7 @@ def migrate_layout_to_v2(
     plated_pads: frozenset[Point] = frozenset(plated_through_pads(board))
 
     off_pad: list[Point] = []
-    legacy_wires: list[WireSegment] = list(layout.wires)
+    legacy_wires: list[Wire] = list(layout.wires)
 
     # Pass 1: build knots + one Wire per legacy segment.
     joint_at: dict[Point, uuid.UUID] = {}

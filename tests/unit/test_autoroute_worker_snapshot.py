@@ -14,7 +14,7 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import Schematic
@@ -40,8 +40,8 @@ def _perfboard() -> Board:
     return Board(root=grid)
 
 
-def _wire(p0: Point, p1: Point) -> WireSegment:
-    return WireSegment(
+def _wire(p0: Point, p1: Point) -> Wire:
+    return Wire(
         id=uuid.uuid4(),
         path=[p0, p1],
         insulated=True,

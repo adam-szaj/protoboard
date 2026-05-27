@@ -10,7 +10,7 @@ from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.domain.schematic.wire_net_ops import (
@@ -56,8 +56,8 @@ class _FakeSession:
         self.components[inst.definition_ref] = _r_defn()
 
 
-def _wire(a: Point, b: Point) -> WireSegment:
-    return WireSegment(id=uuid.uuid4(), path=[a, b], insulated=True, side="top")
+def _wire(a: Point, b: Point) -> Wire:
+    return Wire(id=uuid.uuid4(), path=[a, b], insulated=True, side="top")
 
 
 # SIL(2) rotation=90: pin1 at (x,y), pin2 at (x+1, y)

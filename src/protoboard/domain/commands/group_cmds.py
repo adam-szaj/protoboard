@@ -10,7 +10,7 @@ from protoboard.domain.commands.base import Command
 from protoboard.domain.commands.component_cmds import ComponentState
 from protoboard.domain.layout.group import ComponentGroup, ExportedPin, all_component_ids, would_create_cycle
 from protoboard.domain.layout.placement import pin_world_position
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 
 
@@ -117,7 +117,7 @@ def _pin_positions_for(
 
 
 def _find_internal_wires(
-    wires: list[WireSegment],
+    wires: list[Wire],
     group_pins: set[tuple[float, float]],
     external_pins: set[tuple[float, float]],
 ) -> set[uuid.UUID]:
@@ -150,7 +150,7 @@ def _find_internal_wires(
 
 
 def _wire_is_internal(
-    wire: WireSegment,
+    wire: Wire,
     bbox: tuple[float, float, float, float],
     tol: float = 0.5,
     pin_positions: set[tuple[float, float]] | None = None,

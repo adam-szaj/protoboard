@@ -140,7 +140,7 @@ def measure_routing_quality(
     """Compute Wire/MST and Hull metrics for every net in *schematic*."""
     from protoboard.domain.layout.placement import pin_world_position
 
-    # Build wire index: net_id → [WireSegment]
+    # Build wire index: net_id → [Wire]
     # We identify a wire's net by checking which net's pins land on its endpoints.
     # Simpler: build pin_pos → net_id map, then for each wire check its endpoints.
     pin_pos_to_net: dict[tuple[float, float], object] = {}

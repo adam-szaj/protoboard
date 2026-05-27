@@ -10,7 +10,7 @@ from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
@@ -20,8 +20,8 @@ from protoboard.geometry import Point
 # ---------------------------------------------------------------------------
 
 
-def _wire() -> WireSegment:
-    return WireSegment(
+def _wire() -> Wire:
+    return Wire(
         id=uuid.uuid4(),
         path=[Point(0.5, 0.5), Point(1.5, 0.5)],
         insulated=True,

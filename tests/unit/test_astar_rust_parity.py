@@ -25,7 +25,7 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import (
     RoutingResult,
@@ -65,7 +65,7 @@ def _perfboard(rows: int, cols: int, plated: bool = True) -> Board:
     return Board(root=grid)
 
 
-def _graph(board: Board, wires: list[WireSegment] | None = None) -> ConnectivityGraph:
+def _graph(board: Board, wires: list[Wire] | None = None) -> ConnectivityGraph:
     lay = Layout(placements={}, wires=wires or [])
     return ConnectivityGraph(board=board, layout=lay, components={})
 
@@ -269,7 +269,7 @@ def _make_scenarios() -> list[tuple[str, Any]]:
 
     # 7. Bare wire crossing — insulated wire pays crossing cost
     b7 = _perfboard(5, 5)
-    wire7 = WireSegment(
+    wire7 = Wire(
         id=uuid.uuid4(),
         path=[Point(0.5, 2.5), Point(1.5, 2.5), Point(2.5, 2.5),
               Point(3.5, 2.5), Point(4.5, 2.5)],
@@ -449,7 +449,7 @@ class TestRustPythonParityEdgeCases:
         test documents the current behaviour rather than asserting identity.
         """
         b = _perfboard(5, 5)
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 2.5), Point(1.5, 2.5), Point(2.5, 2.5),
                   Point(3.5, 2.5), Point(4.5, 2.5)],

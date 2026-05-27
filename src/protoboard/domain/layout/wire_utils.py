@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     import uuid
 
     from protoboard.domain.board.board import Board
-    from protoboard.domain.layout.wire import WireSegment
+    from protoboard.domain.layout.wire import Wire
 
 
 def board_pads_for_side(board: Board, side: str) -> set[Point]:
@@ -127,7 +127,7 @@ def insert_pad_nodes(
     return result
 
 
-def wire_has_skewed_segment(wire: WireSegment, tol: float = 1e-6) -> bool:
+def wire_has_skewed_segment(wire: Wire, tol: float = 1e-6) -> bool:
     """Return True if any segment of *wire* is neither orthogonal nor diagonal.
 
     A segment from (x1,y1) to (x2,y2) is *orthogonal* iff dx==0 or dy==0, and
@@ -151,7 +151,7 @@ def wire_has_skewed_segment(wire: WireSegment, tol: float = 1e-6) -> bool:
 
 
 def find_skewed_wires(
-    wires: Iterable[WireSegment],
+    wires: Iterable[Wire],
     moved_wire_ids: set[uuid.UUID] | frozenset[uuid.UUID] | None = None,
     tol: float = 1e-6,
 ) -> list[uuid.UUID]:

@@ -17,7 +17,7 @@ from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.services.export.bom import export_bom_csv
 from protoboard.services.export.svg import export_svg
@@ -81,7 +81,7 @@ class TestSvgExport:
 
     def test_contains_wire_lines(self) -> None:
         board = _perfboard(1, 3)
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
             insulated=True,

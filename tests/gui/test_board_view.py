@@ -78,10 +78,10 @@ class TestToolManagement:
         # Manually count items before and after adding a wire via layout_changed.
         import uuid
 
-        from protoboard.domain.layout.wire import WireSegment
+        from protoboard.domain.layout.wire import Wire
         from protoboard.geometry import Point
 
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5)],
             insulated=True,
@@ -119,10 +119,10 @@ class TestBoardSandwichCache:
     ) -> None:
         # Add a back-side wire so we have a back item to cache.
         import uuid
-        from protoboard.domain.layout.wire import WireSegment
+        from protoboard.domain.layout.wire import Wire
         from protoboard.geometry import Point
 
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5)],
             insulated=True,

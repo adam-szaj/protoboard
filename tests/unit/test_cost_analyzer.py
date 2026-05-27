@@ -10,7 +10,7 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.services.routing.cost_analyzer import (
     analyze_wires,
@@ -38,8 +38,8 @@ def _perfboard(rows: int, cols: int, *, plated_through: bool = False) -> Board:
     return Board(root=grid)
 
 
-def _wire(*pts: Point, side: str = "top", insulated: bool = True) -> WireSegment:
-    return WireSegment(
+def _wire(*pts: Point, side: str = "top", insulated: bool = True) -> Wire:
+    return Wire(
         id=uuid.uuid4(),
         path=list(pts),
         side=side,  # type: ignore[arg-type]

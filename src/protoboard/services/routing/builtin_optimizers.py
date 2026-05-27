@@ -367,8 +367,8 @@ class InsulatedToBareOptimizer:
                 continue
 
             # All checks pass — flip.
-            from protoboard.domain.layout.wire import WireSegment
-            flipped_wire = WireSegment(
+            from protoboard.domain.layout.wire import Wire
+            flipped_wire = Wire(
                 id=cur.id,
                 path=list(cur.path),
                 insulated=False,

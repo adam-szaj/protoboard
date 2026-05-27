@@ -16,7 +16,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.schematic import PinRef
 from protoboard.geometry import Point
 
@@ -52,7 +52,7 @@ class TestConnectivityGraphBasic:
     def test_wire_joins_two_pads(self) -> None:
         # Perfboard 1×3 with gap=0: pad centers at (0.5,0), (1.5,0), (2.5,0).
         board = _perfboard(1, 3)
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5)],
             insulated=False,
@@ -142,7 +142,7 @@ class TestConnectivityGraphWithComponents:
             side="top",
         )
         # Wire from pin2=(1.5,0.5) to third pad center=(2.5,0.5).
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 0.5), Point(2.5, 0.5)],
             insulated=False,
@@ -172,7 +172,7 @@ class TestElectricalNets:
     def test_wire_creates_one_net_from_two_pads(self) -> None:
         # Pad centers: (0.5,0) and (1.5,0).
         board = _perfboard(1, 2)
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5)],
             insulated=False,
@@ -192,7 +192,7 @@ class TestInsulatedWireIsolation:
         # An insulated wire runs from (0.5,0.5) to (2.5,0.5), crossing over the
         # middle pad at (1.5,0.5).  The middle pad must remain in its own set.
         board = _perfboard(1, 3)
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
             insulated=True,
@@ -215,13 +215,13 @@ class TestInsulatedWireIsolation:
         # 1×3 perfboard. Two insulated wires both pass through (1.5,0.5).
         # They must NOT be merged together via the shared intermediate pad.
         board = _perfboard(1, 3)
-        wire_a = WireSegment(
+        wire_a = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
             insulated=True,
             side="top",
         )
-        wire_b = WireSegment(
+        wire_b = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
             insulated=True,
@@ -237,7 +237,7 @@ class TestInsulatedWireIsolation:
     def test_bare_wire_does_connect_intermediate_pads(self) -> None:
         # Sanity check: a bare (non-insulated) wire crossing a pad SHOULD merge it.
         board = _perfboard(1, 3)
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
             insulated=False,
@@ -257,13 +257,13 @@ class TestInsulatedWireIsolation:
         # Both are bare.  They share the off-pad point (1.0,0.5) but that is
         # NOT a board pad, so they must NOT be merged electrically.
         board = _perfboard(2, 2)
-        wire_a = WireSegment(
+        wire_a = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.0, 0.5), Point(1.5, 0.5)],
             insulated=False,
             side="top",
         )
-        wire_b = WireSegment(
+        wire_b = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 1.5), Point(1.0, 0.5), Point(1.5, 1.5)],
             insulated=False,
@@ -284,7 +284,7 @@ class TestInsulatedWireIsolation:
         # still merge all four pads (the bare conductor contacts every pad it
         # crosses).
         board = _perfboard(1, 4)
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(3.5, 0.5)],  # no intermediate vertices
             insulated=False,
@@ -305,7 +305,7 @@ class TestInsulatedWireIsolation:
         # Mirror of the above: insulated wire shortcut must NOT merge crossed
         # pads — the conductor floats above the board.
         board = _perfboard(1, 4)
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(3.5, 0.5)],
             insulated=True,
@@ -329,7 +329,7 @@ class TestInsulatedWireIsolation:
         # already covered by test_insulated_wire_does_not_merge_intermediate_pads
         # but explicitly in the context of the bare-enrichment fix.
         board = _perfboard(1, 3)
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
             insulated=True,

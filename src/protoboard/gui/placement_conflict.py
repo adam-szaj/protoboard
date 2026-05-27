@@ -360,11 +360,11 @@ def _try_reroute_wire(
 
     Returns an AddWireWithNetsCommand if a path is found, else None.
     """
-    from protoboard.domain.layout.wire import WireSegment
+    from protoboard.domain.layout.wire import Wire
     from protoboard.services.routing.astar import find_paths
     from protoboard.services.routing.cost_model import RoutingCostModel
 
-    if not isinstance(wire, WireSegment) or len(wire.path) < 2:
+    if not isinstance(wire, Wire) or len(wire.path) < 2:
         return None
 
     source = wire.path[0]
@@ -384,7 +384,7 @@ def _try_reroute_wire(
         return None
 
     best = results[0]
-    from protoboard.domain.layout.wire import WireSegment as WS
+    from protoboard.domain.layout.wire import Wire as WS
     import uuid as _uuid
     new_wire = WS(
         id=_uuid.uuid4(),

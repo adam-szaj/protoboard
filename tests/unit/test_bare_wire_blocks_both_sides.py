@@ -15,13 +15,13 @@ from __future__ import annotations
 
 import uuid
 
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.services.routing.autorouter import _build_wire_occupied
 
 
-def _bare(p1: tuple[float, float], p2: tuple[float, float], side: str) -> WireSegment:
-    return WireSegment(
+def _bare(p1: tuple[float, float], p2: tuple[float, float], side: str) -> Wire:
+    return Wire(
         id=uuid.uuid4(),
         path=[Point(*p1), Point(*p2)],
         insulated=False,
@@ -29,8 +29,8 @@ def _bare(p1: tuple[float, float], p2: tuple[float, float], side: str) -> WireSe
     )
 
 
-def _insulated(p1: tuple[float, float], p2: tuple[float, float], side: str) -> WireSegment:
-    return WireSegment(
+def _insulated(p1: tuple[float, float], p2: tuple[float, float], side: str) -> Wire:
+    return Wire(
         id=uuid.uuid4(),
         path=[Point(*p1), Point(*p2)],
         insulated=True,

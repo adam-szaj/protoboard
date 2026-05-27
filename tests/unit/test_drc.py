@@ -13,7 +13,7 @@ from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
@@ -74,7 +74,7 @@ class TestDRCClean:
             component_id=r2.id, position=Point(2.5, 0.5), rotation=90, side="top"
         )
         # Wire: pin2(R1)=(1.5,0.5) to pin1(R2)=(2.5,0.5)
-        mid_wire = WireSegment(
+        mid_wire = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 0.5), Point(2.5, 0.5)],
             insulated=False,
@@ -171,7 +171,7 @@ class TestDRCShort:
             component_id=r2.id, position=Point(2.5, 0.5), rotation=90, side="top"
         )
         # Wire spans all 4 pad centers (shorts both nets).
-        bad_wire = WireSegment(
+        bad_wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(3.5, 0.5)],
             insulated=False,
@@ -500,13 +500,13 @@ class TestDRCBareWireCross:
                 PinRef(component_id=r2.id, pin_number=2),
             },
         )
-        wire_a = WireSegment(
+        wire_a = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 1.5), Point(1.5, 1.5), Point(2.5, 1.5)],
             insulated=False,
             side="top",
         )
-        wire_b = WireSegment(
+        wire_b = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 0.5), Point(1.5, 1.5), Point(1.5, 2.5)],
             insulated=False,
@@ -532,13 +532,13 @@ class TestDRCBareWireCross:
     def test_insulated_crossing_no_issue(self) -> None:
         # Same geometry but both wires insulated → no BARE_WIRE_CROSS.
         board = _perfboard(3, 3)
-        wire_a = WireSegment(
+        wire_a = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 1.5), Point(1.5, 1.5), Point(2.5, 1.5)],
             insulated=True,
             side="top",
         )
-        wire_b = WireSegment(
+        wire_b = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 0.5), Point(1.5, 1.5), Point(1.5, 2.5)],
             insulated=True,
@@ -573,13 +573,13 @@ class TestDRCBareWireInteriorCross:
         # They cross at (1.5, 1.5) which IS a pad — also a vertex of neither
         # path.  Switch to (0.5,0.5)→(1.5,2.5) and (0.5,2.5)→(1.5,0.5): they
         # cross at (1.0, 1.5) — between pads on the y=1.5 row.
-        wire_a = WireSegment(
+        wire_a = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 2.5)],
             insulated=False,
             side="top",
         )
-        wire_b = WireSegment(
+        wire_b = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 2.5), Point(1.5, 0.5)],
             insulated=False,
@@ -601,13 +601,13 @@ class TestDRCBareWireInteriorCross:
     def test_different_sides_no_interior_cross(self) -> None:
         # Same diagonal geometry but wires on top + bottom → no short.
         board = _perfboard(4, 4)
-        wire_a = WireSegment(
+        wire_a = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 2.5)],
             insulated=False,
             side="top",
         )
-        wire_b = WireSegment(
+        wire_b = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 2.5), Point(1.5, 0.5)],
             insulated=False,
@@ -625,13 +625,13 @@ class TestDRCBareWireInteriorCross:
     def test_insulated_interior_cross_no_issue(self) -> None:
         # Same geometry with at least one insulated wire — no short.
         board = _perfboard(4, 4)
-        wire_a = WireSegment(
+        wire_a = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 2.5)],
             insulated=True,
             side="top",
         )
-        wire_b = WireSegment(
+        wire_b = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 2.5), Point(1.5, 0.5)],
             insulated=False,

@@ -13,7 +13,7 @@ import uuid
 
 import pytest
 
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.select_tool import SelectTool
@@ -24,8 +24,8 @@ from protoboard.services.routing.optimizer import (
 )
 
 
-def _wire(p0: Point, p1: Point, *, side: str = "top", insulated: bool = True) -> WireSegment:
-    return WireSegment(
+def _wire(p0: Point, p1: Point, *, side: str = "top", insulated: bool = True) -> Wire:
+    return Wire(
         id=uuid.uuid4(),
         path=[p0, p1],
         insulated=insulated,
@@ -60,10 +60,10 @@ class _ShiftSidesOptimizer:
     display_name = "Flip side (test)"
 
     def optimize(self, request, result, sink):
-        flipped: list[WireSegment] = []
+        flipped: list[Wire] = []
         for w in result.wires:
             other = "bottom" if w.side == "top" else "top"
-            flipped.append(WireSegment(
+            flipped.append(Wire(
                 id=w.id,                # preserve id so handler emits Replace, not Add
                 path=list(w.path),
                 insulated=w.insulated,

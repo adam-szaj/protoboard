@@ -20,14 +20,14 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.schematic import Schematic
 
 
 def assert_no_net_fusion(
     board: Board,
     layout: Layout,
-    extra_wires: list[WireSegment],
+    extra_wires: list[Wire],
     schematic: Schematic,
     components: dict[str, ComponentDefinition],
     instances: dict,  # dict[UUID, ComponentInstance]
@@ -70,7 +70,7 @@ def assert_no_net_fusion(
 def assert_no_redundant_routes(
     board: Board,
     layout: Layout,
-    extra_wires: list[WireSegment],
+    extra_wires: list[Wire],
     components: dict[str, ComponentDefinition],
     instances: dict,  # dict[UUID, ComponentInstance]
 ) -> None:
@@ -89,7 +89,7 @@ def assert_no_redundant_routes(
     a different corridor than the first wire — producing a parallel route.
     """
     all_wires = list(layout.wires) + list(extra_wires)
-    redundant: list[WireSegment] = []
+    redundant: list[Wire] = []
     for w in extra_wires:
         if len(w.path) < 2:
             continue
@@ -155,18 +155,18 @@ def place(cid, x: float, y: float, rotation: int = 90) -> ComponentPlacement:
     )
 
 
-def bare(*pts: tuple[float, float], side: str = "top") -> WireSegment:
+def bare(*pts: tuple[float, float], side: str = "top") -> Wire:
     import uuid as _u
-    return WireSegment(
+    return Wire(
         id=_u.uuid4(),
         path=[Point(*p) for p in pts],
         insulated=False, side=side,  # type: ignore[arg-type]
     )
 
 
-def insulated(*pts: tuple[float, float], side: str = "top") -> WireSegment:
+def insulated(*pts: tuple[float, float], side: str = "top") -> Wire:
     import uuid as _u
-    return WireSegment(
+    return Wire(
         id=_u.uuid4(),
         path=[Point(*p) for p in pts],
         insulated=True, side=side,  # type: ignore[arg-type]

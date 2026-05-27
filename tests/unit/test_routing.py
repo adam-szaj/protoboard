@@ -16,7 +16,7 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import (
@@ -501,7 +501,7 @@ class TestValidNodesByCache:
         board = _perfboard(3, 3)
         graph = ConnectivityGraph(board=board, layout=Layout(placements={}, wires=[]), components={})
         before = graph.valid_nodes_by_side()
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5)],
             insulated=True,
@@ -513,7 +513,7 @@ class TestValidNodesByCache:
 
     def test_cache_invalidated_after_remove_wire(self) -> None:
         board = _perfboard(3, 3)
-        wire = WireSegment(
+        wire = Wire(
             id=uuid.uuid4(),
             path=[Point(0.5, 0.5), Point(1.5, 0.5)],
             insulated=True,

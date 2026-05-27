@@ -9,7 +9,7 @@ import pytest
 
 from protoboard.domain.commands.component_cmds import ReplaceWireSegmentCommand
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.wire import WireSegment
+from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.tools.select_tool import _dedupe_adjacent
 
@@ -19,12 +19,12 @@ from protoboard.gui.tools.select_tool import _dedupe_adjacent
 
 
 class _State:
-    def __init__(self, wires: list[WireSegment]) -> None:
+    def __init__(self, wires: list[Wire]) -> None:
         self.layout = Layout(wires=wires)
 
 
-def _wire(path: list[Point]) -> WireSegment:
-    return WireSegment(id=uuid.uuid4(), path=path, insulated=True, side="top")
+def _wire(path: list[Point]) -> Wire:
+    return Wire(id=uuid.uuid4(), path=path, insulated=True, side="top")
 
 
 # ---------------------------------------------------------------------------

@@ -139,7 +139,7 @@ class TestApplyResultPath:
         self, session_with_net: tuple[EditorSession, uuid.UUID]
     ) -> None:
         from protoboard.domain.commands.component_cmds import AddWireCommand
-        from protoboard.domain.layout.wire import WireSegment
+        from protoboard.domain.layout.wire import Wire
         from protoboard.geometry import Point
 
         session, _net_id = session_with_net
@@ -148,7 +148,7 @@ class TestApplyResultPath:
         session.set_autoroute_active(True)
         try:
             session.set_autoroute_active(False)  # mimic _release_gate first
-            wire = WireSegment(
+            wire = Wire(
                 id=uuid.uuid4(),
                 path=[Point(0.5, 0.5), Point(1.5, 0.5)],
                 insulated=True,
