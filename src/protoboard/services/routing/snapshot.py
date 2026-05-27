@@ -11,7 +11,7 @@ worker is structurally unable to see later edits.
 Snapshots are shallow on geometry (Point, Wire.path, etc.) — those
 elements are already immutable-by-convention in the codebase (path is a
 list but is never mutated in-place; the codebase always replaces wires
-wholesale via ``ReplaceWireSegmentCommand``).  We freeze the *containers*
+wholesale via ``ReplaceWireFragmentsCommand``).  We freeze the *containers*
 that the routing code iterates over: dicts become MappingProxyType,
 lists/sets become tuple/frozenset.
 

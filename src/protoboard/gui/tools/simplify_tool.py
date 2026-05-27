@@ -8,7 +8,7 @@ Workflow:
   - if no draft exists OR the draft is for a different wire → compute the
     simplified path and draw it as a dashed overlay (no command pushed).
   - if a draft already exists for THIS wire → commit it via
-    ``ReplaceWireSegmentCommand`` (atomic, undoable).  Draft cleared.
+    ``ReplaceWireFragmentsCommand`` (atomic, undoable).  Draft cleared.
 * ESC, switching tool, clicking off a wire, or any non-Shift click clears
   the draft.
 

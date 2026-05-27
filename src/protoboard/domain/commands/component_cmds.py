@@ -455,51 +455,58 @@ class RemoveWireCommand(Command[ComponentState]):
 
 @dataclass
 class ReplaceWireSegmentCommand(Command[ComponentState]):
-    """Replace the path of an existing wire (for segment editing).
+    """Legacy path-edit command — kept only for replaying old recordings.
 
-    If *old_path* is provided it is used directly for undo — callers that
-    mutate the wire in-place before executing the command (e.g. drag-move)
-    must supply the original path here so that apply() does not read the
-    already-overwritten state.
+    New code must use :class:`ReplaceWireFragmentsCommand`.  This class
+    survives so deserialised ``session_commands.yaml`` files predating
+    the wire/knot model can still be replayed: ``apply`` reconstructs
+    fragments from ``new_path`` along the current wire's via boundaries
+    and delegates the actual mutation to the layout's v2 mutator.
+
+    ``old_path``, when supplied, mirrors the historical escape hatch for
+    callers (drag-commit) that mutated ``wire.path`` in place before
+    issuing the command.
     """
 
     wire_id: uuid.UUID
     new_path: list[Point]
-    # Caller-supplied pre-mutation path; if empty, apply() reads from state.
     old_path: list[Point] = field(default_factory=list)
-    _old_path: list[Point] = field(default_factory=list, init=False, repr=False)
+    _saved_fragments: tuple = field(default=(), init=False, repr=False)  # type: ignore[type-arg]
 
     @property
     def description(self) -> str:  # type: ignore[override]
-        return "Edit wire segment"
+        return "Edit wire segment (legacy)"
 
     def apply(self, state: ComponentState) -> None:
-        for wire in state.layout.wires:
-            if wire.id == self.wire_id:
-                self._old_path = self.old_path if self.old_path else list(wire.path)
-                # Enrich insulated wires with pad-position vertices (same
-                # invariant as AddWireCommand / load_project migration).
-                # Idempotent — already-enriched paths grow no further.
-                # Skip if state lacks a board (lightweight test stubs).
-                board = getattr(state, "board", None)
-                if wire.insulated and board is not None:
-                    from protoboard.domain.layout.wire_utils import (
-                        board_pads_for_side, insert_pad_nodes,
-                    )
-                    pads = (
-                        board_pads_for_side(board, "top")
-                        | board_pads_for_side(board, "bottom")
-                    )
-                    self.new_path = insert_pad_nodes(self.new_path, pads)
-                wire.path = self.new_path
-                return
-        raise KeyError(f"Wire {self.wire_id} not found")
+        wire = state.layout.wires.get(self.wire_id)
+        if wire is None:
+            raise KeyError(f"Wire {self.wire_id} not found")
+        # Insulated pad-vertex enrichment kept for backward compat — old
+        # recordings expect this.
+        board = getattr(state, "board", None)
+        if wire.insulated and board is not None:
+            from protoboard.domain.layout.wire_utils import (
+                board_pads_for_side, insert_pad_nodes,
+            )
+            pads = (
+                board_pads_for_side(board, "top")
+                | board_pads_for_side(board, "bottom")
+            )
+            self.new_path = insert_pad_nodes(self.new_path, pads)
+        state.layout.ensure_wire_knots(wire)
+        from protoboard.domain.layout.wire_utils import (
+            rebuild_fragments_from_path,
+        )
+        self._saved_fragments = tuple(wire.fragments)
+        new_fragments = tuple(
+            rebuild_fragments_from_path(wire, list(self.new_path))
+        )
+        state.layout.replace_wire_fragments(self.wire_id, new_fragments)
 
     def revert(self, state: ComponentState) -> None:
-        for wire in state.layout.wires:
-            if wire.id == self.wire_id:
-                wire.path = self._old_path
-                return
+        if not self._saved_fragments:
+            return
+        state.layout.replace_wire_fragments(self.wire_id, self._saved_fragments)
 
 
 @dataclass
