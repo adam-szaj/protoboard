@@ -17,9 +17,6 @@ mutable dataclass.  Identity is by ``id`` only; edits should preserve
 ``Layout.replace_wire_fragments`` or direct attribute assignment for path
 edits.
 
-Legacy ``WireSegment`` aliases ``Wire`` — both names refer to the same
-mutable class; the alias is kept so the v1 persistence loader and any
-not-yet-migrated consumer keep working unchanged.
 """
 
 from __future__ import annotations
@@ -81,17 +78,17 @@ class Wire:
     convenience view (and also the canonical storage for single-side
     wires, which is the common case during migration).
 
-    The optional knot references ``a`` / ``b`` track endpoint hubs for
-    consumers using the v2 wire model.  Legacy consumers can construct a
-    Wire without explicit knots (a/b default to None) and operate on
-    ``path``/``side``/``insulated`` just as they did with ``WireSegment``.
+    The optional knot references ``a`` / ``b`` track endpoint hubs.  A
+    Wire without explicit knots (a/b default to None) still works for any
+    consumer that only needs ``path``/``side``/``insulated``.
 
     Two construction styles are supported:
 
-    * **Legacy** (WireSegment-compatible): ``Wire(id=..., path=..., side=...,
-      insulated=...)`` — fragments default to a single same-side fragment.
-    * **v2** (knot-aware): ``Wire(id=..., a=..., b=..., fragments=[...],
-      insulated=...)`` — ``path`` and ``side`` are derived from fragments.
+    * **Path-style**: ``Wire(id=..., path=..., side=..., insulated=...)``
+      — fragments default to a single same-side fragment.
+    * **Fragment-style** (knot-aware): ``Wire(id=..., a=..., b=...,
+      fragments=[...], insulated=...)`` — ``path`` and ``side`` are
+      derived from the fragments.
     """
 
     id: uuid.UUID
@@ -106,8 +103,7 @@ class Wire:
     def __post_init__(self) -> None:
         if self.side not in ("top", "bottom"):
             raise ValueError(f"side must be 'top' or 'bottom'; got {self.side!r}")
-        # Accept tuple/iterable for path too (legacy WireSegment took a list,
-        # but v2 callers pass tuples).
+        # Accept tuple/iterable for path; normalise to a mutable list.
         if self.path and not isinstance(self.path, list):
             self.path = list(self.path)
         if not isinstance(self.fragments, list):
@@ -150,12 +146,6 @@ class Wire:
         if self.fragments:
             return frozenset(f.side for f in self.fragments)
         return frozenset({self.side})
-
-
-# Legacy alias — ``WireSegment`` and ``Wire`` are the same class now.  Code
-# that imported ``WireSegment`` keeps working unchanged; the alias will be
-# removed once all consumers update their imports (Cutover Step 3).
-WireSegment = Wire
 
 
 class WireCollection:
