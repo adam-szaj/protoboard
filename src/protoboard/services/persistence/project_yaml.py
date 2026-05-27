@@ -476,18 +476,24 @@ def _layout_from_yaml(text: str) -> Layout:
             locked=bool(raw.get("locked", False)),
         )
         placements[comp_id] = pl
+    # When the file carries a `wires_v2` block, `_decode_knots_and_wires_v2`
+    # below will populate `layout.wires` from it.  The legacy `wires:` block
+    # is then a duplicate written for transition-era readers; skip it here to
+    # avoid `Wire {id} already in layout` on the second pass.
+    has_wires_v2 = bool(data.get("wires_v2"))
     wires: list[Wire] = []
-    for raw in data.get("wires") or []:
-        path = [Point(float(p["x"]), float(p["y"])) for p in raw["path"]]
-        wires.append(
-            Wire(
-                id=uuid.UUID(raw["id"]),
-                path=path,
-                insulated=bool(raw["insulated"]),
-                side=raw["side"],
-                color=raw.get("color"),
+    if not has_wires_v2:
+        for raw in data.get("wires") or []:
+            path = [Point(float(p["x"]), float(p["y"])) for p in raw["path"]]
+            wires.append(
+                Wire(
+                    id=uuid.UUID(raw["id"]),
+                    path=path,
+                    insulated=bool(raw["insulated"]),
+                    side=raw["side"],
+                    color=raw.get("color"),
+                )
             )
-        )
     from protoboard.domain.layout.group import ComponentGroup, ExportedPin
 
     groups: dict[uuid.UUID, ComponentGroup] = {}
