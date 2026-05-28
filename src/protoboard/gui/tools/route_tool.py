@@ -9,13 +9,12 @@ from typing import TYPE_CHECKING
 import structlog
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPen
-from PySide6.QtWidgets import QApplication, QGraphicsLineItem, QMessageBox
+from PySide6.QtWidgets import QGraphicsLineItem
 
-from protoboard.domain.commands.component_cmds import AddWireCommand, AddWireWithNetsCommand
+from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.layout.wire import Wire
-from protoboard.domain.schematic.wire_net_ops import find_pin_at
 from protoboard.geometry import Point
 from protoboard.gui.board_view import _Tool
 from protoboard.gui.renderers.routing_overlay import render_routing_hints
@@ -32,25 +31,24 @@ _PREVIEW_WIDTH = 0.12
 class RouteTool(_Tool):
     """Multi-segment wire routing: click to add points, Enter/Esc to commit.
 
-    Two modes:
-    - Basic [W]: physical routing only; clicking on a pin of a different/absent
-      net triggers a Yes/Cancel dialog.  Intermediate pad collisions truncate
-      the path to the last safe node.
-    - Net-aware [Shift+W]: same as basic but net assignments are applied
-      automatically without dialogs (auto-Yes).  Holding Shift during a click
-      or at commit provides a one-shot net-aware override.
+    Net-aware throughout: every commit goes through
+    ``resolve_wire_nets`` and the only dialog the user ever sees is the
+    NetMergeDialog when two *different* nets would be merged.  Net
+    creation (BOTH_UNCONNECTED) and net extension (ONE_UNCONNECTED) are
+    silent — they only mutate the schematic when the user confirms the
+    wire commit (Enter).  Per-click confirmations were a usability
+    mistake — at the time of the first click neither the second
+    endpoint nor the wire's full net implication is known.
     """
 
     def __init__(
         self,
         insulated: bool = True,
         side: str = "top",
-        net_aware: bool = False,
     ) -> None:
         super().__init__()
         self._insulated = insulated
         self._side = side
-        self._net_aware = net_aware
         self._points: list[Point] = []
         # Committed segments (between clicked points).
         self._committed_lines: list[QGraphicsLineItem] = []
@@ -77,56 +75,37 @@ class RouteTool(_Tool):
             if sb is not None:
                 sb.showMessage("Pad należy do grupy — wyeksportuj go najpierw (prawy klik → Export pin)", 3000)
             return True  # consume event, block routing
-        shift_held = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-        effective_net_aware = self._net_aware or shift_held
         snapped = self._view.snap(scene_pt)
-
-        # In basic mode, ask for consent when snapping to a pin that would
-        # create or modify a net assignment.
-        if not effective_net_aware and snapped is not None:
-            if not self._consent_to_pin(snapped):
-                return True  # blocked — do not add this point
 
         if len(self._points) == 1:
             self._show_routing_hints(snapped)
         # Turn the live segment into a committed segment.
         if len(self._points) >= 1:
             self._remove_live()
-            self._add_committed_line(self._points[-1], snapped, net_aware=effective_net_aware)
+            self._add_committed_line(self._points[-1], snapped)
         self._points.append(snapped)
         if len(self._points) == 1:
             _log.debug("route.started", start=(snapped.x, snapped.y), insulated=self._insulated, side=self._side)
             self._highlight_start_net(snapped)
         # Immediately show live segment from new point to current cursor.
-        self._add_live_line(snapped, snapped, net_aware=effective_net_aware)
+        self._add_live_line(snapped, snapped)
         return True
 
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         if not self._points:
             return
-        shift_held = bool(QApplication.keyboardModifiers() & Qt.KeyboardModifier.ShiftModifier)
-        effective_net_aware = self._net_aware or shift_held
         self._remove_live()
         snapped = self._view.snap(scene_pt)
-        self._add_live_line(self._points[-1], snapped, net_aware=effective_net_aware)
+        self._add_live_line(self._points[-1], snapped)
 
     def on_key(self, event: QKeyEvent) -> None:
         key = event.key()
-        mods = event.modifiers()
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            shift_held = bool(mods & Qt.KeyboardModifier.ShiftModifier)
-            self._commit(shift_held=shift_held)
+            self._commit()
             event.accept()
         elif key == Qt.Key.Key_Escape:
             self._cancel()
             event.accept()
-        elif key == Qt.Key.Key_W:
-            if bool(mods & Qt.KeyboardModifier.ShiftModifier):
-                self._net_aware = True
-            else:
-                self._net_aware = False
-            self._notify_status()
-            self._redraw_committed_lines()
         elif key == Qt.Key.Key_I:
             self._insulated = not self._insulated
             self._notify_status()
@@ -142,75 +121,15 @@ class RouteTool(_Tool):
         win = self._view.window()
         updater = getattr(win, "_update_route_status", None)
         if updater is not None:
-            updater(self._insulated, self._side, self._net_aware)
+            updater(self._insulated, self._side)
 
     # ------------------------------------------------------------------
 
-    def _consent_to_pin(self, pt: Point) -> bool:
-        """Return True if routing may proceed to *pt*.
-
-        If *pt* is on a pin that would require a net assignment change, shows
-        a Yes/Cancel dialog.  Returns False if the user cancels.
-        """
-        pin = find_pin_at(pt, self._session)
-        if pin is None:
-            return True  # not on any pin — always OK
-
-        from protoboard.domain.schematic.net import PinRef
-        pin_ref = PinRef(component_id=pin[0], pin_number=pin[1])
-        pin_net = self._session.schematic.net_for_pin(pin_ref)
-
-        # Determine net already implied by points placed so far.
-        wire_net = self._net_from_points()
-
-        # none+none: no conflict, allow silently.
-        if pin_net is None and wire_net is None:
-            return True
-        # Same net: no change needed.
-        if pin_net is not None and wire_net is not None and pin_net.id == wire_net:
-            return True
-
-        # Describe what will happen.
-        if pin_net is None and wire_net is not None:
-            net_obj = self._session.schematic.nets.get(wire_net)
-            net_name = net_obj.name if net_obj else "?"
-            msg = f"Ten punkt trafi na pin bez sieci.\nCzy przypisac go do sieci '{net_name}'?"
-        elif pin_net is not None and wire_net is None:
-            msg = f"Ten punkt trafi na pin sieci '{pin_net.name}'.\nCzy przypisac te siec do drutu?"
-        else:
-            net_a_obj = self._session.schematic.nets.get(wire_net) if wire_net else None
-            na = net_a_obj.name if net_a_obj else "?"
-            nb = pin_net.name if pin_net else "?"  # type: ignore[union-attr]
-            msg = f"Ten punkt polaczy sieci '{na}' i '{nb}'.\nCzy scalic sieci?"
-
-        win = self._view.window()
-        reply = QMessageBox.question(
-            win,
-            "Połączenie z siecią",
-            msg,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-        )
-        return reply == QMessageBox.StandardButton.Yes
-
-    def _net_from_points(self) -> uuid.UUID | None:
-        """Return the net UUID implied by already-placed points, or None."""
-        from protoboard.domain.schematic.net import PinRef
-        for pt in self._points:
-            pin = find_pin_at(pt, self._session)
-            if pin is None:
-                continue
-            ref = PinRef(component_id=pin[0], pin_number=pin[1])
-            net = self._session.schematic.net_for_pin(ref)
-            if net is not None:
-                return net.id
-        return None
-
-    def _commit(self, shift_held: bool = False) -> None:
+    def _commit(self) -> None:
         self._session.set_routing_net(None)
         if len(self._points) < 2:
             self._cancel()
             return
-        effective_net_aware = self._net_aware or shift_held
 
         from protoboard.domain.layout.wire_utils import (
             board_pads_for_side,
@@ -227,13 +146,6 @@ class RouteTool(_Tool):
         )
         enriched_path = insert_pad_nodes(raw_path, pads)
 
-        if not effective_net_aware:
-            enriched_path = _trim_at_intermediate_pin_conflict(enriched_path, self._session)
-            if len(enriched_path) < 2:
-                _log.debug("route.cancelled", reason="path_collapsed_after_trim")
-                self._cancel()
-                return
-
         wire = Wire(
             id=uuid.uuid4(),
             path=enriched_path,
@@ -241,17 +153,17 @@ class RouteTool(_Tool):
             side=self._side,  # type: ignore[arg-type]
         )
 
-        if effective_net_aware:
-            from protoboard.gui.wire_net_resolver import resolve_wire_nets
-            cmd: AddWireWithNetsCommand | AddWireCommand = AddWireWithNetsCommand(wire=wire)
-            if not resolve_wire_nets(
-                self._session, wire, cmd, self._view.window()  # type: ignore[arg-type]
-            ):
-                _log.debug("route.cancelled", reason="net_merge_rejected")
-                self._cancel()
-                return
-        else:
-            cmd = AddWireCommand(wire=wire)
+        # Every commit is net-aware: resolve_wire_nets silently extends or
+        # creates nets, shows the NetMergeDialog only when two different
+        # nets would collapse.  Cancel from that dialog aborts the commit.
+        from protoboard.gui.wire_net_resolver import resolve_wire_nets
+        cmd = AddWireWithNetsCommand(wire=wire)
+        if not resolve_wire_nets(
+            self._session, wire, cmd, self._view.window()  # type: ignore[arg-type]
+        ):
+            _log.debug("route.cancelled", reason="net_merge_rejected")
+            self._cancel()
+            return
 
         self._points.clear()
         self._clear_committed()
@@ -259,7 +171,7 @@ class RouteTool(_Tool):
         self._clear_hints()
         self._session.stack.execute(cmd, self._session)
         _log.info("route.committed", wire_id=str(wire.id), points=len(wire.path),
-                  insulated=wire.insulated, net_aware=effective_net_aware)
+                  insulated=wire.insulated)
         self._session.layout_changed.emit()
 
     def _cancel(self) -> None:
@@ -365,37 +277,20 @@ class RouteTool(_Tool):
         # Live line is NOT redrawn here — it will be recreated on the next
         # mouseMoveEvent via on_move() → _add_live_line().
 
-    def _redraw_committed_lines(self) -> None:
-        """Redraw committed lines with the current net_aware color."""
-        self._clear_committed()
-        if len(self._points) >= 2:
-            for i in range(len(self._points) - 1):
-                self._add_committed_line(self._points[i], self._points[i + 1])
-
-    def _preview_color(self, net_aware: bool) -> str:
-        t = self._theme()
-        if net_aware:
-            return t.routing_net_aware_color
-        return t.routing_preview_color
-
     def _clear_hints(self) -> None:
         for item in self._hint_items:
             self._view.scene().removeItem(item)
         self._hint_items.clear()
 
-    def _add_committed_line(self, a: Point, b: Point, *, net_aware: bool | None = None) -> None:
-        if net_aware is None:
-            net_aware = self._net_aware
-        pen = QPen(QColor(self._preview_color(net_aware)), _PREVIEW_WIDTH)
+    def _add_committed_line(self, a: Point, b: Point) -> None:
+        pen = QPen(QColor(self._theme().routing_preview_color), _PREVIEW_WIDTH)
         line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
         line.setPen(pen)
         self._view.scene().addItem(line)
         self._committed_lines.append(line)
 
-    def _add_live_line(self, a: Point, b: Point, *, net_aware: bool | None = None) -> None:
-        if net_aware is None:
-            net_aware = self._net_aware
-        pen = QPen(QColor(self._preview_color(net_aware)), _PREVIEW_WIDTH)
+    def _add_live_line(self, a: Point, b: Point) -> None:
+        pen = QPen(QColor(self._theme().routing_preview_color), _PREVIEW_WIDTH)
         pen.setStyle(Qt.PenStyle.DashLine)
         line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
         line.setPen(pen)
@@ -414,54 +309,3 @@ class RouteTool(_Tool):
         for item in self._committed_lines:
             self._view.scene().removeItem(item)
         self._committed_lines.clear()
-
-
-def _trim_at_intermediate_pin_conflict(
-    path: list[Point],
-    session: object,
-) -> list[Point]:
-    """Trim *path* before the first intermediate node that conflicts with a net.
-
-    Intermediate nodes (indices 1..n-2) that land on a pin are checked.  A
-    conflict exists when the pin's net differs from the wire's implied net (the
-    first net found on any endpoint or earlier node).  none+none is not a
-    conflict.  Returns the (possibly shortened) path; always at least the
-    original slice if no conflict is found.
-    """
-    if len(path) <= 2:
-        return path
-
-    # Determine the net implied by the two endpoints first.
-    from protoboard.domain.schematic.net import PinRef
-
-    def _net_at(pt: Point) -> uuid.UUID | None:
-        pin = find_pin_at(pt, session)  # type: ignore[arg-type]
-        if pin is None:
-            return None
-        ref = PinRef(component_id=pin[0], pin_number=pin[1])
-        net = session.schematic.net_for_pin(ref)  # type: ignore[attr-defined]
-        return net.id if net is not None else None
-
-    # Build the "wire net" from endpoints (same logic as _net_from_points but
-    # operating on a path list).
-    wire_net: uuid.UUID | None = _net_at(path[0]) or _net_at(path[-1])
-
-    for i in range(1, len(path) - 1):
-        pt = path[i]
-        pin = find_pin_at(pt, session)  # type: ignore[arg-type]
-        if pin is None:
-            continue
-        ref = PinRef(component_id=pin[0], pin_number=pin[1])
-        net_obj = session.schematic.net_for_pin(ref)  # type: ignore[attr-defined]
-        pad_net = net_obj.id if net_obj is not None else None
-
-        # none + none → no conflict
-        if pad_net is None and wire_net is None:
-            continue
-        # Same net → no conflict; update wire_net if it was unknown
-        if pad_net == wire_net:
-            continue
-        # wire has net, pad has none (or vice versa), or different nets → conflict
-        return path[:i]
-
-    return path

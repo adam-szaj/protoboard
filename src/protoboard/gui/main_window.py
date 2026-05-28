@@ -117,7 +117,6 @@ class MainWindow(QMainWindow):
         # Tools menu
         KB.ACTION_TOOL_SELECT:          {"label": "&Select"},
         KB.ACTION_TOOL_ROUTE:           {"label": "Route &Wire"},
-        KB.ACTION_TOOL_ROUTE_NET_AWARE: {"label": "Route Wire [Net-aware]"},
         KB.ACTION_TOOL_CUT:             {"label": "&Cut Strip"},
         KB.ACTION_TOOL_SIMPLIFY:        {"label": "Simplify &Wire Tool"},
         KB.ACTION_WIRE_TOGGLE_INSULATED: {"label": "&Insulated"},
@@ -563,7 +562,6 @@ class MainWindow(QMainWindow):
             # Tools
             KB.ACTION_TOOL_SELECT:          self._tool_select,
             KB.ACTION_TOOL_ROUTE:           self._tool_route,
-            KB.ACTION_TOOL_ROUTE_NET_AWARE: lambda: self._tool_route(net_aware=True),
             KB.ACTION_TOOL_CUT:             self._tool_cut,
             KB.ACTION_TOOL_SIMPLIFY:        self._tool_simplify,
             KB.ACTION_WIRE_TOGGLE_INSULATED: lambda: self._set_wire_insulated(not self._wire_insulated),
@@ -797,7 +795,6 @@ class MainWindow(QMainWindow):
 
         tools_menu.addAction(self._actions[KB.ACTION_TOOL_SELECT])
         tools_menu.addAction(self._actions[KB.ACTION_TOOL_ROUTE])
-        tools_menu.addAction(self._actions[KB.ACTION_TOOL_ROUTE_NET_AWARE])
 
         wire_sub = tools_menu.addMenu("  Wire options")
         wire_sub.addAction(self._actions[KB.ACTION_WIRE_TOGGLE_INSULATED])
@@ -1296,18 +1293,18 @@ class MainWindow(QMainWindow):
         msg += " Consider re-routing wires."
         self._status.showMessage(msg, 6000)
 
-    def _tool_route(self, net_aware: bool = False) -> None:
+    def _tool_route(self) -> None:
         tool = self._board_view._active_tool
         if isinstance(tool, RouteTool):
-            # Already routing — just toggle net_aware mode, keep current state.
-            tool._net_aware = net_aware
+            # Already routing — keep current state.  RouteTool is
+            # always net-aware; the only commit-time dialog is the
+            # NetMergeDialog for two-different-nets merges.
             tool._notify_status()
-            tool._redraw_committed_lines()
         else:
             self._board_view.set_tool(
-                RouteTool(insulated=self._wire_insulated, side=self._wire_side, net_aware=net_aware)
+                RouteTool(insulated=self._wire_insulated, side=self._wire_side)
             )
-        self._update_route_status(self._wire_insulated, self._wire_side, net_aware)
+        self._update_route_status(self._wire_insulated, self._wire_side)
 
     def _set_wire_insulated(self, insulated: bool) -> None:
         self._wire_insulated = insulated
@@ -1339,12 +1336,10 @@ class MainWindow(QMainWindow):
                     self._library_panel.setFocus()
                     break
 
-    def _update_route_status(self, insulated: bool, side: str, net_aware: bool = False) -> None:
+    def _update_route_status(self, insulated: bool, side: str) -> None:
         style = "Insulated" if insulated else "Bare"
-        mode = "[NET] " if net_aware else ""
-        hint = "[W] basic" if net_aware else "[Shift+W] net-aware"
         self._mode_label.setText(
-            f"Route Wire {mode} {style} [{side}]  [I] toggle  [T/B] side  {hint}  [Enter] commit  [Esc] cancel"
+            f"Route Wire {style} [{side}]  [I] toggle  [T/B] side  [Enter] commit  [Esc] cancel"
         )
 
     def _toggle_fullscreen(self) -> None:
@@ -1635,7 +1630,6 @@ class MainWindow(QMainWindow):
         KB.ACTION_WIRE_SIDE_BOTTOM,
         KB.ACTION_DISCONNECT_PIN,
         KB.ACTION_TOOL_ROUTE,
-        KB.ACTION_TOOL_ROUTE_NET_AWARE,
         KB.ACTION_TOOL_CUT,
         KB.ACTION_AUTOROUTE,
         KB.ACTION_SIMPLIFY_WIRE,

@@ -56,7 +56,6 @@ ACTION_DISCONNECT_PIN = "disconnect_pin"
 
 ACTION_TOOL_SELECT = "tool_select"
 ACTION_TOOL_ROUTE = "tool_route"
-ACTION_TOOL_ROUTE_NET_AWARE = "tool_route_net_aware"
 ACTION_TOOL_CUT = "tool_cut"
 ACTION_TOOL_SIMPLIFY = "tool_simplify"
 
@@ -141,7 +140,6 @@ DEFAULTS: dict[str, str] = {
     ACTION_DISCONNECT_PIN: "",
     ACTION_TOOL_SELECT: "S",
     ACTION_TOOL_ROUTE: "W",
-    ACTION_TOOL_ROUTE_NET_AWARE: "Shift+W",
     ACTION_TOOL_CUT: "C",
     ACTION_TOOL_SIMPLIFY: "Shift+S",
     ACTION_MIRROR_H: "H",
@@ -213,7 +211,6 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_DISCONNECT_PIN: "Disconnect Pin from Net",
     ACTION_TOOL_SELECT: "Select Tool",
     ACTION_TOOL_ROUTE: "Route Wire Tool",
-    ACTION_TOOL_ROUTE_NET_AWARE: "Route Wire Tool (Net-aware)",
     ACTION_TOOL_CUT: "Cut Strip Tool",
     ACTION_TOOL_SIMPLIFY: "Simplify Wire Tool",
     ACTION_MIRROR_H: "Mirror Horizontal",
