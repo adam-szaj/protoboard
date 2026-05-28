@@ -241,3 +241,54 @@ class TestEndpointMergeOnPin:
             if isinstance(k, PinKnot)
         ]
         assert len(pin_knots) == 1
+
+
+class TestInteriorSplitOnAdd:
+    """AddWireCommand should T-junction-split an existing wire when the
+    new wire's endpoint lands on its interior vertex."""
+
+    def test_new_wire_endpoint_on_interior_splits(self) -> None:
+        state = _State()
+        # First wire passes through (2.5, 0.5) (a pad-vertex on the way).
+        _add(state, [(0.5, 0.5), (4.5, 0.5)])
+        wires_before = len(state.layout.wires)
+        # Second wire ends at the middle of the first.
+        _add(state, [(2.5, 2.5), (2.5, 0.5)])
+        # Expect three wires total: split halves + the new one.
+        assert len(state.layout.wires) == wires_before + 2
+        # And a shared hub (JointKnot) at (2.5, 0.5) with degree-3.
+        from protoboard.domain.layout.knot import JointKnot
+        hub_candidates = [
+            k for k in state.layout.knots.values()
+            if isinstance(k, JointKnot)
+            and abs(k.position.x - 2.5) < 1e-9
+            and abs(k.position.y - 0.5) < 1e-9
+        ]
+        assert len(hub_candidates) == 1
+        assert len(hub_candidates[0].wire_ids) == 3
+
+    def test_undo_split_restores_first_wire(self) -> None:
+        state = _State()
+        _add(state, [(0.5, 0.5), (4.5, 0.5)])
+        wires_before = len(state.layout.wires)
+        cmd2 = _add(state, [(2.5, 2.5), (2.5, 0.5)])
+        assert len(state.layout.wires) == wires_before + 2
+        cmd2.revert(state)
+        # Original wire is back as one piece; new wire is gone.
+        assert len(state.layout.wires) == wires_before
+        # And no JointKnot at the split position (was a non-pin pad —
+        # the hub created by make_t_junction was orphan after revert).
+        from protoboard.domain.layout.knot import JointKnot
+        hub_candidates = [
+            k for k in state.layout.knots.values()
+            if isinstance(k, JointKnot)
+            and abs(k.position.x - 2.5) < 1e-9
+            and abs(k.position.y - 0.5) < 1e-9
+        ]
+        assert len(hub_candidates) == 0
+
+    def test_no_split_when_no_interior_collision(self) -> None:
+        state = _State()
+        _add(state, [(0.5, 0.5), (2.5, 0.5)])
+        cmd2 = _add(state, [(2.5, 2.5), (3.5, 2.5)])
+        assert cmd2._splits == []

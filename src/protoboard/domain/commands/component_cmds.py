@@ -301,6 +301,126 @@ def _resolve_endpoint_knot(
     return KnotRef(id=jk.id), jk
 
 
+def _split_existing_wires_at_endpoints(
+    state: ComponentState, wire: Wire,
+) -> "list[_SplitRecord]":
+    """For each endpoint of ``wire`` that lands on the interior vertex
+    of an existing wire, atomically build a T-junction (split that
+    wire and re-anchor ``wire``'s endpoint to the shared hub).
+
+    Returns one ``_SplitRecord`` per split so revert can stitch the
+    split halves back into a single wire.  Pin endpoints of ``wire``
+    still take precedence over interior hits — pins are physical hubs
+    and never demote an existing wire to T-junction status.
+    """
+    from protoboard.domain.layout.wire_utils import (
+        find_wire_with_interior_vertex_at,
+        make_t_junction,
+    )
+    records: list[_SplitRecord] = []
+    if wire.a is None or wire.b is None:
+        return records
+    # Snapshot original wire endpoint positions — these don't move,
+    # but the wire's own ``a``/``b`` knot refs may change as the
+    # splits retarget them to the shared hub.
+    for endpoint_name, point in (("a", wire.path[0]), ("b", wire.path[-1])):
+        hit = find_wire_with_interior_vertex_at(state.layout, point)
+        if hit is None:
+            continue
+        w_through, vertex_idx = hit
+        if w_through.id == wire.id:
+            continue
+        # Snapshot the pre-split state of the wire we're about to cut,
+        # so revert can rebuild it from one piece.
+        snapshot = _snapshot_wire(w_through, state.layout)
+        try:
+            w_a, w_b, _, hub = make_t_junction(
+                state.layout, w_through, vertex_idx, wire, endpoint_name,
+            )
+        except ValueError:
+            continue
+        records.append(_SplitRecord(
+            original=snapshot,
+            new_a_id=w_a.id,
+            new_b_id=w_b.id,
+            hub_id=hub.id,  # type: ignore[union-attr]
+            incoming_endpoint=endpoint_name,
+        ))
+    return records
+
+
+@dataclass
+class _SplitRecord:
+    """Snapshot of one ``make_t_junction`` for revert."""
+
+    original: _WireSnapshot
+    new_a_id: uuid.UUID
+    new_b_id: uuid.UUID
+    hub_id: uuid.UUID
+    incoming_endpoint: str  # "a" or "b"
+
+
+def _restore_split(
+    state: ComponentState, wire: Wire, rec: _SplitRecord,
+) -> None:
+    """Inverse of ``make_t_junction`` — replace the two split halves
+    with the original wire and detach ``wire``'s endpoint from the
+    shared hub.
+    """
+    from protoboard.domain.layout.wire import Fragment as _Fragment
+    # Detach wire's endpoint from the hub: revert its knot ref to the
+    # original endpoint knot id, which was preserved on the wire
+    # itself before make_t_junction ran (we stored it in ``rec`` only
+    # implicitly — derive it from the wire's pre-split endpoint).
+    # Concretely: the wire's matching endpoint knot was the same as
+    # what AddWireCommand resolved earlier; ``make_t_junction``
+    # swapped it to the hub.  AddWireCommand.revert removes the wire
+    # entirely, so we don't need to revert the knot ref here —
+    # restore the wires the split consumed.
+    for new_id in (rec.new_a_id, rec.new_b_id):
+        if state.layout.wires.get(new_id) is not None:
+            state.layout.remove_wire(new_id)
+    # Drop the hub if no other wires reference it (it was created by
+    # make_t_junction and is now orphan after removing the two halves).
+    hub = state.layout.knots.get(rec.hub_id)
+    if hub is not None:
+        from protoboard.domain.layout.knot import JointKnot
+        if isinstance(hub, JointKnot):
+            if not (hub.wire_ids - {rec.new_a_id, rec.new_b_id, wire.id}):
+                state.layout.knots.pop(rec.hub_id, None)
+    # Revive the original wire from snapshot.
+    snap = rec.original
+    fragments = [
+        _Fragment(path=list(p), side=s)  # type: ignore[arg-type]
+        for p, s in zip(snap.fragment_paths, snap.fragment_sides)
+    ]
+    revived = Wire(
+        id=snap.wire_id,
+        path=list(snap.path),
+        insulated=snap.insulated,
+        side=snap.side,  # type: ignore[arg-type]
+        color=snap.color,
+        fragments=fragments,
+        a=KnotRef(id=snap.a_id),
+        b=KnotRef(id=snap.b_id),
+    )
+    # Outer knots of the original may have been pruned by remove_wire
+    # earlier (orphan after split); revive them from snapshot like
+    # _restore_collapse does.
+    from protoboard.domain.layout.knot import JointKnot as _JK
+    for knot_id, snap_knot in (
+        (snap.a_id, snap.a_knot), (snap.b_id, snap.b_knot),
+    ):
+        if knot_id in state.layout.knots:
+            continue
+        if snap_knot is None:
+            continue
+        state.layout.knots[knot_id] = _JK(
+            id=knot_id, position=snap_knot.position,
+        )
+    state.layout.add_wire(revived)
+
+
 def _collapse_endpoint_joints(
     state: ComponentState, wire: Wire,
 ) -> "list[_CollapseRecord]":
@@ -479,6 +599,12 @@ class AddWireCommand(Command[ComponentState]):
     )
     # True once apply() has resolved knots and switched to v2 storage.
     _knots_resolved: bool = field(default=False, init=False, repr=False)
+    # Split records — one per endpoint that produced a T-junction by
+    # cutting an existing wire at the meeting pad.  Empty when no
+    # interior-vertex collision was detected.
+    _splits: list[_SplitRecord] = field(
+        default_factory=list, init=False, repr=False
+    )
     # Collapse records — one per endpoint that fused with a neighbouring
     # wire of matching ``insulated``.  Empty when no fusion happened.
     _collapses: list[_CollapseRecord] = field(
@@ -515,6 +641,14 @@ class AddWireCommand(Command[ComponentState]):
         # ``self.wire`` from a collapse snapshot — it's already in layout.
         if self.wire.id not in state.layout.wires:
             state.layout.add_wire(self.wire)
+        # Interior-vertex split: when an endpoint of ``self.wire`` lands
+        # on the interior vertex of an existing wire, atomically split
+        # that wire and re-anchor our endpoint to the shared hub
+        # (T-junction with degree-3 at the meeting pad).  ``make_t_junction``
+        # mutates ``self.wire``'s ``a``/``b`` knot refs in place.
+        new_splits = _split_existing_wires_at_endpoints(state, self.wire)
+        if new_splits and not self._splits:
+            self._splits = new_splits
         # Endpoint-merge: when this wire's endpoint sits on an off-pin pad
         # already used by exactly one other wire and they share
         # ``insulated``, the two wires represent one solderable artifact —
@@ -540,7 +674,13 @@ class AddWireCommand(Command[ComponentState]):
             if self.wire.id in state.layout.wires:
                 state.layout.remove_wire(self.wire.id)
         else:
-            state.layout.remove_wire(self.wire.id)
+            if self.wire.id in state.layout.wires:
+                state.layout.remove_wire(self.wire.id)
+        # Undo any T-junction splits we created so the wires we cut
+        # are restored to their pre-split single-piece form.  Run after
+        # we removed ``self.wire`` so the hub becomes orphan-eligible.
+        for rec in reversed(self._splits):
+            _restore_split(state, self.wire, rec)
         # Joints we created may still hold back-refs to other wires (shared
         # joint).  ``remove_wire`` already prunes orphans; anything still
         # in layout.knots is a non-orphan we must leave alone.
@@ -578,6 +718,9 @@ class AddWireWithNetsCommand(Command[ComponentState]):
         default_factory=list, init=False, repr=False
     )
     _knots_resolved: bool = field(default=False, init=False, repr=False)
+    _splits: list[_SplitRecord] = field(
+        default_factory=list, init=False, repr=False
+    )
     _collapses: list[_CollapseRecord] = field(
         default_factory=list, init=False, repr=False
     )
@@ -619,7 +762,13 @@ class AddWireWithNetsCommand(Command[ComponentState]):
                 state.layout.knots.setdefault(jk.id, jk)
         if self.wire.id not in state.layout.wires:
             state.layout.add_wire(self.wire)
-        # Endpoint-merge — see AddWireCommand.apply for the rationale.
+        # Interior-vertex split + endpoint-merge — see AddWireCommand.apply
+        # for the full rationale.  Same ordering matters: split first so
+        # the hub exists at degree-3 before merge looks for degree-2
+        # endpoint joints to collapse.
+        new_splits = _split_existing_wires_at_endpoints(state, self.wire)
+        if new_splits and not self._splits:
+            self._splits = new_splits
         new_collapses = _collapse_endpoint_joints(state, self.wire)
         if new_collapses and not self._collapses:
             self._collapses = new_collapses
@@ -640,6 +789,8 @@ class AddWireWithNetsCommand(Command[ComponentState]):
             _restore_collapse(state, rec)
         if self.wire.id in state.layout.wires:
             state.layout.remove_wire(self.wire.id)
+        for rec in reversed(self._splits):
+            _restore_split(state, self.wire, rec)
         schematic = getattr(state, "schematic")
         for net_id, net_before in self._nets_before.items():
             if net_before is None:
