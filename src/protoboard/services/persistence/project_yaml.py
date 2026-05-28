@@ -65,10 +65,28 @@ def save_project(
     # Canonicalise before encoding: any wires that meet end-to-end on an
     # off-pin pad with matching ``insulated`` get fused into a single
     # Wire so the on-disk format never represents the same physical
-    # artifact as multiple ``Wire`` instances.  Idempotent for projects
-    # already saved in canonical form.
-    from protoboard.domain.layout.wire_utils import merge_endpoint_wires
-    _fused_on_save = merge_endpoint_wires(layout, board)
+    # artifact as multiple ``Wire`` instances.  Run interior-vertex
+    # split first so T-junctions get the shared knot before the merge
+    # pass evaluates degree-2 conditions.  Merging can re-introduce
+    # interior collisions (a merged wire's interior may now coincide
+    # with a third wire's endpoint), so alternate split / merge until
+    # both report no progress.  Idempotent for projects already saved
+    # in canonical form.
+    from protoboard.domain.layout.wire_utils import (
+        merge_endpoint_wires,
+        split_wires_at_endpoint_collisions,
+    )
+    _splits_on_save = 0
+    _fused_on_save = 0
+    for _ in range(16):
+        _s = split_wires_at_endpoint_collisions(layout)
+        _f = merge_endpoint_wires(layout, board)
+        _splits_on_save += _s
+        _fused_on_save += _f
+        if _s == 0 and _f == 0:
+            break
+    if _splits_on_save:
+        _log.info("project.endpoint_split_on_save", splits=_splits_on_save)
     if _fused_on_save:
         _log.info("project.endpoint_merge_on_save", fused=_fused_on_save)
     _write(directory / "board.yaml", board_to_yaml(board))
@@ -436,11 +454,30 @@ def load_project(
     # underlying model carries them as two artifacts with a degree-1
     # JointKnot each, but they represent one continuous solderable
     # piece.  Run the endpoint-merge pass once at load so the runtime
-    # model matches what the user sees.
-    from protoboard.domain.layout.wire_utils import merge_endpoint_wires
-    _fused = merge_endpoint_wires(layout, board)
-    if _fused:
-        _log.info("project.endpoint_merge", fused=_fused)
+    # model matches what the user sees.  Run the interior-vertex split
+    # first so T-junctions (W1 endpoint on W2 mid-vertex) get cut into
+    # three wires meeting at a shared JointKnot.
+    #
+    # Merging can produce new interior-vertex collisions (the merged
+    # wire's interior may now coincide with a third wire's endpoint), so
+    # alternate split / merge until both passes report no progress.
+    from protoboard.domain.layout.wire_utils import (
+        merge_endpoint_wires,
+        split_wires_at_endpoint_collisions,
+    )
+    _total_splits = 0
+    _total_fused = 0
+    for _ in range(16):  # hard cap; typical convergence in ≤ 3 rounds
+        _s = split_wires_at_endpoint_collisions(layout)
+        _f = merge_endpoint_wires(layout, board)
+        _total_splits += _s
+        _total_fused += _f
+        if _s == 0 and _f == 0:
+            break
+    if _total_splits:
+        _log.info("project.endpoint_split", splits=_total_splits)
+    if _total_fused:
+        _log.info("project.endpoint_merge", fused=_total_fused)
     _log.info(
         "project.loaded",
         path=str(directory),

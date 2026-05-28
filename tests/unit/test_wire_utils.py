@@ -387,3 +387,91 @@ class TestMergeEndpointWires:
         assert len(joints_at_pad_after) == 1
         # The surviving joint has both wires as back-refs.
         assert len(joints_at_pad_after[0].wire_ids) == 2
+
+
+class TestSplitWiresAtEndpointCollisions:
+    """T-junction normalisation: every W1 endpoint that lands on an
+    interior vertex of W2 becomes a degree-3 hub (W1, W2a, W2b).
+
+    The atomic ``make_t_junction`` path avoids the split→merge livelock
+    a two-step pipeline produces."""
+
+    @staticmethod
+    def _make_layout_with_t_junction():
+        """W2 runs horizontally past (2.5, 0.5); W1 ends at that pad."""
+        from protoboard.domain.layout.knot import JointKnot
+        from protoboard.domain.layout.layout import Layout
+        from protoboard.domain.layout.wire import KnotRef, Wire
+        import uuid as _uuid
+        layout = Layout(placements={}, wires=[])
+        # Outer joints for both wires.
+        j_w2_a = JointKnot(id=_uuid.uuid4(), position=Point(0.5, 0.5))
+        j_w2_b = JointKnot(id=_uuid.uuid4(), position=Point(4.5, 0.5))
+        j_w1_a = JointKnot(id=_uuid.uuid4(), position=Point(2.5, 2.5))
+        j_w1_b = JointKnot(id=_uuid.uuid4(), position=Point(2.5, 0.5))
+        for k in (j_w2_a, j_w2_b, j_w1_a, j_w1_b):
+            layout.knots[k.id] = k
+        w2 = Wire(
+            id=_uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(2.5, 0.5), Point(4.5, 0.5)],
+            insulated=True, side="top",
+            a=KnotRef(id=j_w2_a.id), b=KnotRef(id=j_w2_b.id),
+        )
+        w1 = Wire(
+            id=_uuid.uuid4(),
+            path=[Point(2.5, 2.5), Point(2.5, 0.5)],
+            insulated=True, side="top",
+            a=KnotRef(id=j_w1_a.id), b=KnotRef(id=j_w1_b.id),
+        )
+        layout.add_wire(w2)
+        layout.add_wire(w1)
+        return layout, w1, w2
+
+    def test_splits_w2_and_anchors_w1(self) -> None:
+        from protoboard.domain.layout.knot import JointKnot
+        from protoboard.domain.layout.wire_utils import (
+            split_wires_at_endpoint_collisions,
+        )
+        layout, w1, w2 = self._make_layout_with_t_junction()
+        fixes = split_wires_at_endpoint_collisions(layout)
+        assert fixes == 1
+        # W2 became two wires; W1 stayed.  Total: 3.
+        assert len(layout.wires) == 3
+        # Find the hub at (2.5, 0.5).
+        hub_candidates = [
+            k for k in layout.knots.values()
+            if isinstance(k, JointKnot)
+            and abs(k.position.x - 2.5) < 1e-9
+            and abs(k.position.y - 0.5) < 1e-9
+        ]
+        assert len(hub_candidates) == 1
+        hub = hub_candidates[0]
+        # Three wires meet at the hub.
+        assert len(hub.wire_ids) == 3
+
+    def test_idempotent(self) -> None:
+        from protoboard.domain.layout.wire_utils import (
+            split_wires_at_endpoint_collisions,
+        )
+        layout, _w1, _w2 = self._make_layout_with_t_junction()
+        split_wires_at_endpoint_collisions(layout)
+        # Second pass on a now-canonical layout — no further fixes.
+        assert split_wires_at_endpoint_collisions(layout) == 0
+
+    def test_merge_does_not_undo_split(self) -> None:
+        """Regression: the two-step (split, merge) pipeline produced an
+        infinite livelock because merge_endpoint_wires saw the new hub
+        as a degree-2 joint and collapsed it.  ``make_t_junction``
+        builds the hub at degree-3 in one atomic step."""
+        from protoboard.domain.layout.wire_utils import (
+            merge_endpoint_wires,
+            split_wires_at_endpoint_collisions,
+        )
+        board = _perfboard(5, 5)
+        layout, _w1, _w2 = self._make_layout_with_t_junction()
+        split_wires_at_endpoint_collisions(layout)
+        # Merge pass — must NOT recombine the split halves.
+        merge_endpoint_wires(layout, board)
+        assert len(layout.wires) == 3  # still T-junction
+        # And a second split pass finds nothing.
+        assert split_wires_at_endpoint_collisions(layout) == 0
