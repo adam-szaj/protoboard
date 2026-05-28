@@ -462,6 +462,7 @@ def unweave_wires(
     schematic: "Schematic | None" = None,
     graph: "ConnectivityGraph | None" = None,
     board_pads: set[Point] | None = None,
+    allow_layer_change: bool = True,
 ) -> list[Wire]:
     """Reduce mutual crossings within *wires* by topological fragment swaps.
 
@@ -475,6 +476,13 @@ def unweave_wires(
     different ``side`` or different ``insulated`` converge by changing layer
     mid-path through a galvanic pad connection.  Without them the legacy
     single-segment glue is used (wire keeps its original outer attributes).
+
+    ``allow_layer_change`` (default True) gates the side-changing branch:
+    when False, every candidate swap that would introduce a fragment on a
+    different board side is rejected via the pad-safety predicate and the
+    algorithm falls back to single-side glue.  Wires never grow new side
+    transitions and never spawn mid-path vias.  Routing-settings callers
+    pass ``rs.allow_layer_change`` here.
 
     Returns the list of WireSegments after all swaps and a final re-merge of
     consecutive segments that share (side, insulated).  The output may
@@ -498,7 +506,9 @@ def unweave_wires(
     pad_safe: "Callable[[Point, str, str, bool], bool] | None" = None
     short_check: "Callable[[list[list[Wire]]], bool] | None" = None
     if schematic is not None and graph is not None:
-        pad_safe = _make_pad_safety(wires, schematic, graph)
+        pad_safe = _make_pad_safety(
+            wires, schematic, graph, allow_layer_change=allow_layer_change,
+        )
         # Capture the IDs of the original wires up-front; the short-checker
         # subtracts these (and only these) from the baseline so post-swap
         # WireSegments don't duplicate.  Newly-created WireSegments from
@@ -1414,6 +1424,8 @@ def _make_pad_safety(
     all_wires: list[Wire],
     schematic: "Schematic",
     graph: "ConnectivityGraph",
+    *,
+    allow_layer_change: bool = True,
 ) -> "Callable[[Point, str, str, bool], bool]":
     """Build the pad-safety predicate used by ``_swap_fragment_between``.
 
@@ -1423,6 +1435,11 @@ def _make_pad_safety(
       - the pad on the *new* side belongs to the same electric set as the
         pad on the *current* side (plated-through or already in this net), OR
       - the pad on the new side is not part of any other net (empty pad).
+
+    When ``allow_layer_change`` is False every side-changing query returns
+    False — unweave then falls back to single-side glue and never produces
+    multi-side wires.  Same-side queries are still answered truthfully so
+    insulated/bare changes inside one layer remain available.
     """
     # Collect pad positions that belong to any net (via pins).
     pad_to_net_id: dict[tuple[float, float], object] = {}
@@ -1438,6 +1455,8 @@ def _make_pad_safety(
     def _safe(pad: Point, current_side: str, new_side: str, _insulated: bool) -> bool:
         if current_side == new_side:
             return True  # no side change needed
+        if not allow_layer_change:
+            return False
         node_cur = graph.node_for_pad(pad, current_side)
         node_new = graph.node_for_pad(pad, new_side)
         if node_new is None:

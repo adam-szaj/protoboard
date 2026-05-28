@@ -4252,6 +4252,7 @@ class SelectTool(_Tool):
             targets,
             schematic=session.schematic,
             graph=session.connectivity_graph(),
+            allow_layer_change=session.routing_settings.allow_layer_change,
         )
         dt_ms = (_time.monotonic() - _t0) * 1000.0
         after = count_mutual_crossings(out)

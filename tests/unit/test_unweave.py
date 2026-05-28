@@ -321,6 +321,31 @@ class TestUnweaveSideChangeSplitting:
         sides = {w.side for w in out}
         assert sides == {"top", "bottom"}
 
+    def test_allow_layer_change_false_blocks_side_splits(self) -> None:
+        """``allow_layer_change=False`` must keep every output wire on its
+        input side — no mid-path fragments on the other layer, even when
+        the (fake) graph reports every pad as plated-through."""
+        graph, schematic = self._make_safe_pad_safe()
+        w1 = _wire(
+            (0.0, 0.0), (1.0, 1.0), (2.0, 0.0), (3.0, 1.0), (4.0, 0.0),
+            side="top",
+        )
+        w2 = _wire(
+            (4.0, 1.0), (3.0, 0.0), (2.0, 1.0), (1.0, 0.0), (0.0, 1.0),
+            side="bottom",
+        )
+        out = unweave_wires(
+            [w1, w2],
+            schematic=schematic,
+            graph=graph,
+            allow_layer_change=False,
+        )
+        # No wire may carry fragments on both sides.
+        for w in out:
+            assert len(w.sides) == 1, (
+                f"wire {w.id} has fragments on multiple sides: {w.sides}"
+            )
+
 
 class TestUnweaveConnectivityPreserved:
     """Critical invariant: after unweave, every original net's pin set must

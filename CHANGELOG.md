@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unweave honours allow_layer_change (2026-05-28)
+
+- `unweave_wires` gained an ``allow_layer_change`` kwarg that gates the
+  side-changing branch of the swap algorithm.  When False, every candidate
+  swap that would move a fragment onto the other board side is rejected
+  via the pad-safety predicate and the fallback single-side glue is used;
+  output wires never grow new top/bottom transitions.  ``SelectTool``
+  threads ``session.routing_settings.allow_layer_change`` into the call so
+  the user toggle takes effect for the manual unweave action too.
+
 ### Autoroute memory + off-board precondition (2026-05-27)
 
 - A* (``astar.py``) previously carried the full ``list[PathStep]`` in
