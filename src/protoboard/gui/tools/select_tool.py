@@ -1087,14 +1087,19 @@ class SelectTool(_Tool):
             # Check component bbox.
             hit = self._hit_test_bbox(scene_pt) if self._filter_components() else None
             if hit is not None:
-                if hit in self._selected_ids:
+                if hit in self._selected_ids or hit == self._selected_id:
+                    # Toggle off: remove from multi-set, drop primary if
+                    # it was the one — Ctrl+click on a selected item is
+                    # a deselect, not a re-select.
                     self._selected_ids.discard(hit)
+                    if self._selected_id == hit:
+                        self._deselect()
                     self._redraw_multi_highlights()
                 else:
                     self._selected_ids.add(hit)
                     self._draw_multi_highlight(hit)
-                self._deselect_wire()
-                self._select_primary(hit)
+                    self._deselect_wire()
+                    self._select_primary(hit)
                 return True
 
             # Check wire.
@@ -1102,8 +1107,11 @@ class SelectTool(_Tool):
                 self._hit_test_wire(scene_pt) if self._filter_wires() else None
             )
             if wire_hit is not None:
-                if wire_hit in self._selected_wire_ids:
+                if wire_hit in self._selected_wire_ids or wire_hit == self._selected_wire_id:
+                    # Toggle off: same logic as components.
                     self._selected_wire_ids.discard(wire_hit)
+                    if self._selected_wire_id == wire_hit:
+                        self._deselect_wire()
                     self._redraw_multi_wire_highlights()
                 else:
                     self._selected_wire_ids.add(wire_hit)

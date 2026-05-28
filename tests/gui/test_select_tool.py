@@ -1129,3 +1129,76 @@ class TestMergeFragmentsCommand:
         baseline_depth = len(session.stack._undo)
         tool._merge_fragments_in_wires(set())
         assert len(session.stack._undo) == baseline_depth
+
+
+class TestCtrlClickDeselect:
+    """Ctrl+click on an already-selected component / wire toggles it off."""
+
+    def test_ctrl_click_on_selected_component_removes_it(
+        self, board_view: BoardView, session: EditorSession,
+    ) -> None:
+        inst1 = _place_component(board_view, session, 1.5, 1.5)
+        inst2 = _place_component(board_view, session, 4.5, 4.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # Build a 2-component multi-selection.
+        _ctrl_press(tool, 1.5, 1.5)
+        _ctrl_press(tool, 4.5, 4.5)
+        selected = set(tool._selected_ids) | (
+            {tool._selected_id} if tool._selected_id else set()
+        )
+        assert selected == {inst1.id, inst2.id}
+        # Ctrl+click on the first one — it should drop out.
+        _ctrl_press(tool, 1.5, 1.5)
+        selected = set(tool._selected_ids) | (
+            {tool._selected_id} if tool._selected_id else set()
+        )
+        assert selected == {inst2.id}
+
+    def test_ctrl_click_on_primary_selected_component_drops_primary(
+        self, board_view: BoardView, session: EditorSession,
+    ) -> None:
+        inst = _place_component(board_view, session, 1.5, 1.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # First Ctrl+click promotes it to primary.
+        _ctrl_press(tool, 1.5, 1.5)
+        assert tool._selected_id == inst.id
+        # Second Ctrl+click drops it entirely (was the only selection).
+        _ctrl_press(tool, 1.5, 1.5)
+        assert tool._selected_id is None
+        assert inst.id not in tool._selected_ids
+
+    def test_ctrl_click_on_multi_selected_wire_removes_it(
+        self, board_view: BoardView, session: EditorSession,
+    ) -> None:
+        # Seed multi-selection: wid1 as primary (would normally come
+        # from a plain click), wid2 added via Ctrl+click.  Ctrl+clicking
+        # wid2 again should drop only wid2 — without re-selecting it via
+        # ``_select_primary`` (the bug this fix addresses).
+        wid1 = _add_wire(session, [(0.5, 1.5), (4.5, 1.5)])
+        wid2 = _add_wire(session, [(0.5, 3.5), (4.5, 3.5)])
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._selected_wire_ids.add(wid1)
+        tool._selected_wire_ids.add(wid2)
+        # Drive the toggle branch directly (the wire-edit branch fires
+        # only when the wire is *primary*; here both are multi-selected
+        # without a primary).
+        from PySide6.QtCore import QPointF as _QPF
+        tool._hit_test_wire = lambda _pt: wid2  # type: ignore[method-assign]
+        tool.on_press(
+            QMouseEvent(
+                QMouseEvent.Type.MouseButtonPress,
+                _QPF(2.5, 3.5), _QPF(2.5, 3.5),
+                Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.ControlModifier,
+            ),
+            _QPF(2.5, 3.5),
+        )
+        assert wid2 not in tool._selected_wire_ids
+        assert wid1 in tool._selected_wire_ids
