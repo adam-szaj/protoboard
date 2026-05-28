@@ -1520,8 +1520,7 @@ class SelectTool(_Tool):
                     self._session.stack.execute(macro, self._session)
                 self._session.layout_changed.emit()
             self._drag_overlay.reset(self._view.scene())
-            if self._selected_id is not None:
-                self._select_primary(self._selected_id)
+            self._refresh_all_highlights()
             return
 
         # --- Non-group drag: classifier-driven pipeline ---
@@ -1607,8 +1606,7 @@ class SelectTool(_Tool):
                 self._session.layout_changed.emit()
             self._drag_overlay.reset(self._view.scene())
             self._corner_text.hide(self._view.scene())
-            if self._selected_id is not None:
-                self._select_primary(self._selected_id)
+            self._refresh_all_highlights()
             return
 
         if decision.severity == DragSeverity.CLEAR:
@@ -1637,8 +1635,7 @@ class SelectTool(_Tool):
                     self._session.layout_changed.emit()
                 self._drag_overlay.reset(self._view.scene())
                 self._corner_text.hide(self._view.scene())
-                if self._selected_id is not None:
-                    self._select_primary(self._selected_id)
+                self._refresh_all_highlights()
                 return
             # CLEAR + auto-accept off → fall through into floating state.
 
@@ -1650,8 +1647,8 @@ class SelectTool(_Tool):
             decision=decision,
         )
         self._session.layout_changed.emit()
-        if self._selected_id is not None and not self._is_floating():
-            self._select_primary(self._selected_id)
+        if not self._is_floating():
+            self._refresh_all_highlights()
 
     def on_key(self, event: QKeyEvent) -> None:
         key = event.key()
@@ -3241,6 +3238,39 @@ class SelectTool(_Tool):
         for cid in self._selected_ids:
             self._draw_multi_highlight(cid)
 
+    def _refresh_all_highlights(self) -> None:
+        """Redraw every selection highlight (primary + multi components +
+        primary + multi wires) from the current selection state.
+
+        Used after drag-commit / autoroute / unweave / simplify when the
+        scene's positions changed but the tool kept its selection — the
+        existing highlight items still sit in stale positions.  Each
+        sub-redraw clears its current items and re-creates them from
+        ``_selected_*`` state, so the result is always consistent with
+        the current model.
+
+        Prunes stale ids: any selection that no longer maps to a real
+        component / wire in the layout is dropped first.  This handles
+        commands like ``unweave_wires`` which replace wires with new ids.
+        """
+        existing_comps = set(self._session.layout.placements.keys())
+        existing_wires = {w.id for w in self._session.layout.wires}
+        if self._selected_id is not None and self._selected_id not in existing_comps:
+            self._selected_id = None
+            self._highlight = None
+        self._selected_ids &= existing_comps
+        if self._selected_wire_id is not None and self._selected_wire_id not in existing_wires:
+            self._selected_wire_id = None
+            self._wire_highlight = None
+        self._selected_wire_ids &= existing_wires
+
+        if self._selected_id is not None:
+            self._select_primary(self._selected_id)
+        self._redraw_multi_highlights()
+        if self._selected_wire_id is not None:
+            self._draw_wire_highlight(self._selected_wire_id)
+        self._redraw_multi_wire_highlights()
+
     def _select_group(self, group_id: uuid.UUID) -> None:
         """Select a group as a unit: clears individual selection, sets group highlight."""
         from protoboard.domain.layout.group import all_component_ids
@@ -4083,6 +4113,7 @@ class SelectTool(_Tool):
         )
         session.stack.execute(cmd, session)
         session.layout_changed.emit()
+        self._refresh_all_highlights()
 
     # ------------------------------------------------------------------
     # Optimize selected wires via plugin
@@ -4324,6 +4355,11 @@ class SelectTool(_Tool):
         session.stack.execute(cmd, session)
         session.invalidate_graph()
         session.layout_changed.emit()
+        # Unweave swaps fragments between wires and may emit fresh ids
+        # for split halves — the old selection ids no longer map to
+        # real wires.  ``_refresh_all_highlights`` prunes stale ids and
+        # redraws what survives.
+        self._refresh_all_highlights()
         _log.info("unweave.committed",
                   description=cmd.description,
                   n_remove=len(targets), n_add=len(out),
@@ -4407,6 +4443,7 @@ class SelectTool(_Tool):
             )
         session.stack.execute(cmd, session)
         session.layout_changed.emit()
+        self._refresh_all_highlights()
         _log.info(
             "wire.merge_fragments_done",
             n_wires=n_collapsed_wires,
