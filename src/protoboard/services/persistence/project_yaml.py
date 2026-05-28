@@ -62,6 +62,15 @@ def save_project(
 ) -> None:
     _log.info("project.saving", path=str(directory))
     directory.mkdir(parents=True, exist_ok=True)
+    # Canonicalise before encoding: any wires that meet end-to-end on an
+    # off-pin pad with matching ``insulated`` get fused into a single
+    # Wire so the on-disk format never represents the same physical
+    # artifact as multiple ``Wire`` instances.  Idempotent for projects
+    # already saved in canonical form.
+    from protoboard.domain.layout.wire_utils import merge_endpoint_wires
+    _fused_on_save = merge_endpoint_wires(layout, board)
+    if _fused_on_save:
+        _log.info("project.endpoint_merge_on_save", fused=_fused_on_save)
     _write(directory / "board.yaml", board_to_yaml(board))
     _write(directory / "layout.yaml", _layout_to_yaml(layout))
     _write(directory / "schematic.yaml", _schematic_to_yaml(schematic))
@@ -421,6 +430,17 @@ def load_project(
             placements=len(report.placements),
             wires=len(report.wires),
         )
+    # Canonicalise wires: legacy projects (and projects saved before the
+    # AddWireCommand endpoint-merge fix) may contain pairs of separate
+    # ``Wire`` instances meeting end-to-end on an off-pin pad — the
+    # underlying model carries them as two artifacts with a degree-1
+    # JointKnot each, but they represent one continuous solderable
+    # piece.  Run the endpoint-merge pass once at load so the runtime
+    # model matches what the user sees.
+    from protoboard.domain.layout.wire_utils import merge_endpoint_wires
+    _fused = merge_endpoint_wires(layout, board)
+    if _fused:
+        _log.info("project.endpoint_merge", fused=_fused)
     _log.info(
         "project.loaded",
         path=str(directory),

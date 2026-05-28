@@ -8,9 +8,10 @@ import pytest
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Fragment, Wire
 from protoboard.domain.layout.wire_utils import (
     board_pads_for_side,
+    coalesce_same_side_fragments,
     find_skewed_wires,
     insert_pad_nodes,
     plated_through_pads,
@@ -201,3 +202,188 @@ class TestFindSkewedWires:
         bad = _wire([Point(0.5, 0.5), Point(2.5, 3.5)])
         ids = find_skewed_wires([good, bad], moved_wire_ids=None)
         assert ids == [bad.id]
+
+
+class TestCoalesceSameSideFragments:
+    """Pure helper: fuse consecutive same-side fragments, keep via boundaries.
+
+    Never invoked by domain constructors or commit paths — callers (an
+    explicit user action, an algorithm step) decide when to apply it.
+    """
+
+    def test_empty_input_returns_empty(self) -> None:
+        assert coalesce_same_side_fragments([]) == []
+
+    def test_single_fragment_passes_through(self) -> None:
+        f = Fragment(path=[Point(0.5, 0.5), Point(2.5, 0.5)], side="top")
+        out = coalesce_same_side_fragments([f])
+        assert len(out) == 1
+        assert out[0].path == [Point(0.5, 0.5), Point(2.5, 0.5)]
+        assert out[0].side == "top"
+
+    def test_two_same_side_fragments_fuse(self) -> None:
+        a = Fragment(path=[Point(0.5, 0.5), Point(2.5, 0.5)], side="top")
+        b = Fragment(path=[Point(2.5, 0.5), Point(4.5, 0.5)], side="top")
+        out = coalesce_same_side_fragments([a, b])
+        assert len(out) == 1
+        # Boundary vertex (2.5, 0.5) appears once, not twice.
+        assert out[0].path == [
+            Point(0.5, 0.5), Point(2.5, 0.5), Point(4.5, 0.5)
+        ]
+        assert out[0].side == "top"
+
+    def test_three_same_side_fragments_fuse_into_one(self) -> None:
+        a = Fragment(path=[Point(0.5, 0.5), Point(1.5, 0.5)], side="top")
+        b = Fragment(path=[Point(1.5, 0.5), Point(2.5, 0.5)], side="top")
+        c = Fragment(path=[Point(2.5, 0.5), Point(3.5, 0.5)], side="top")
+        out = coalesce_same_side_fragments([a, b, c])
+        assert len(out) == 1
+        assert out[0].path == [
+            Point(0.5, 0.5), Point(1.5, 0.5),
+            Point(2.5, 0.5), Point(3.5, 0.5),
+        ]
+
+    def test_via_boundary_preserved(self) -> None:
+        # top → bottom: real via, must not collapse.
+        a = Fragment(path=[Point(0.5, 0.5), Point(2.5, 0.5)], side="top")
+        b = Fragment(path=[Point(2.5, 0.5), Point(4.5, 0.5)], side="bottom")
+        out = coalesce_same_side_fragments([a, b])
+        assert len(out) == 2
+        assert out[0].side == "top"
+        assert out[1].side == "bottom"
+        # Boundary point present on both sides of the via.
+        assert out[0].path[-1] == Point(2.5, 0.5)
+        assert out[1].path[0] == Point(2.5, 0.5)
+
+    def test_same_side_around_via_fuse_around_unchanged_boundary(self) -> None:
+        # top → bottom → top: only the via (top→bottom and bottom→top) survives,
+        # but two top fragments on either side of a single bottom fragment
+        # must NOT fuse — there is a real bottom fragment between them.
+        a = Fragment(path=[Point(0.5, 0.5), Point(1.5, 0.5)], side="top")
+        b = Fragment(path=[Point(1.5, 0.5), Point(2.5, 0.5)], side="bottom")
+        c = Fragment(path=[Point(2.5, 0.5), Point(3.5, 0.5)], side="top")
+        out = coalesce_same_side_fragments([a, b, c])
+        assert len(out) == 3
+        assert [f.side for f in out] == ["top", "bottom", "top"]
+
+    def test_mixed_run_fuses_only_consecutive_same_side(self) -> None:
+        # top, top, bottom, top, top — expect top-fused, bottom, top-fused.
+        f1 = Fragment(path=[Point(0.5, 0.5), Point(1.5, 0.5)], side="top")
+        f2 = Fragment(path=[Point(1.5, 0.5), Point(2.5, 0.5)], side="top")
+        f3 = Fragment(path=[Point(2.5, 0.5), Point(3.5, 0.5)], side="bottom")
+        f4 = Fragment(path=[Point(3.5, 0.5), Point(4.5, 0.5)], side="top")
+        f5 = Fragment(path=[Point(4.5, 0.5), Point(5.5, 0.5)], side="top")
+        out = coalesce_same_side_fragments([f1, f2, f3, f4, f5])
+        assert [f.side for f in out] == ["top", "bottom", "top"]
+        assert [len(f.path) for f in out] == [3, 2, 3]
+
+    def test_does_not_mutate_input(self) -> None:
+        a = Fragment(path=[Point(0.5, 0.5), Point(2.5, 0.5)], side="top")
+        b = Fragment(path=[Point(2.5, 0.5), Point(4.5, 0.5)], side="top")
+        original_a_path = list(a.path)
+        original_b_path = list(b.path)
+        _ = coalesce_same_side_fragments([a, b])
+        assert a.path == original_a_path
+        assert b.path == original_b_path
+
+    def test_tuple_input_accepted(self) -> None:
+        a = Fragment(path=[Point(0.5, 0.5), Point(2.5, 0.5)], side="top")
+        b = Fragment(path=[Point(2.5, 0.5), Point(4.5, 0.5)], side="top")
+        out = coalesce_same_side_fragments((a, b))
+        assert len(out) == 1
+        assert out[0].path == [
+            Point(0.5, 0.5), Point(2.5, 0.5), Point(4.5, 0.5)
+        ]
+
+
+class TestMergeEndpointWires:
+    """Pure helper: fuse pairs of wires meeting end-to-end on off-pin pads
+    with matching ``insulated``.  Used by load_project / save_project to
+    keep on-disk format canonical."""
+
+    @staticmethod
+    def _make_layout_with_two_meeting_wires(
+        *, insulated_a: bool = True, insulated_b: bool = True,
+    ):
+        """Build a Layout with two single-fragment wires meeting at (2.5, 0.5).
+
+        Each gets its own JointKnot at the meeting pad — exactly the
+        shape the autoroute / legacy load path produces before this
+        helper runs.
+        """
+        from protoboard.domain.layout.knot import JointKnot
+        from protoboard.domain.layout.layout import Layout
+        from protoboard.domain.layout.wire import KnotRef, Wire
+        layout = Layout(placements={}, wires=[])
+        # Outer endpoints (left & right) each get a degree-1 joint.
+        import uuid as _uuid
+        ja = JointKnot(id=_uuid.uuid4(), position=Point(0.5, 0.5))
+        jb_w1 = JointKnot(id=_uuid.uuid4(), position=Point(2.5, 0.5))
+        jb_w2 = JointKnot(id=_uuid.uuid4(), position=Point(2.5, 0.5))
+        jc = JointKnot(id=_uuid.uuid4(), position=Point(4.5, 0.5))
+        for k in (ja, jb_w1, jb_w2, jc):
+            layout.knots[k.id] = k
+        w1 = Wire(
+            id=_uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(2.5, 0.5)],
+            insulated=insulated_a, side="top",
+            a=KnotRef(id=ja.id), b=KnotRef(id=jb_w1.id),
+        )
+        w2 = Wire(
+            id=_uuid.uuid4(),
+            path=[Point(2.5, 0.5), Point(4.5, 0.5)],
+            insulated=insulated_b, side="top",
+            a=KnotRef(id=jb_w2.id), b=KnotRef(id=jc.id),
+        )
+        layout.add_wire(w1)
+        layout.add_wire(w2)
+        return layout, _perfboard(5, 5)
+
+    def test_matching_insulated_fuses(self) -> None:
+        from protoboard.domain.layout.wire_utils import merge_endpoint_wires
+        layout, board = self._make_layout_with_two_meeting_wires()
+        assert len(layout.wires) == 2
+        fused = merge_endpoint_wires(layout, board)
+        assert fused == 1
+        assert len(layout.wires) == 1
+
+    def test_mismatched_insulated_keeps_separate(self) -> None:
+        from protoboard.domain.layout.wire_utils import merge_endpoint_wires
+        layout, board = self._make_layout_with_two_meeting_wires(
+            insulated_a=True, insulated_b=False,
+        )
+        fused = merge_endpoint_wires(layout, board)
+        assert fused == 0
+        assert len(layout.wires) == 2
+
+    def test_idempotent_after_first_pass(self) -> None:
+        from protoboard.domain.layout.wire_utils import merge_endpoint_wires
+        layout, board = self._make_layout_with_two_meeting_wires()
+        merge_endpoint_wires(layout, board)
+        # Second invocation must do nothing — already canonical.
+        fused2 = merge_endpoint_wires(layout, board)
+        assert fused2 == 0
+
+    def test_colocated_joints_coalesce(self) -> None:
+        from protoboard.domain.layout.wire_utils import merge_colocated_joints
+        layout, _board = self._make_layout_with_two_meeting_wires()
+        # Before: two separate joints sitting at (2.5, 0.5).
+        from protoboard.domain.layout.knot import JointKnot
+        joints_at_pad = [
+            k for k in layout.knots.values()
+            if isinstance(k, JointKnot)
+            and abs(k.position.x - 2.5) < 1e-9
+            and abs(k.position.y - 0.5) < 1e-9
+        ]
+        assert len(joints_at_pad) == 2
+        dropped = merge_colocated_joints(layout)
+        assert dropped == 1
+        joints_at_pad_after = [
+            k for k in layout.knots.values()
+            if isinstance(k, JointKnot)
+            and abs(k.position.x - 2.5) < 1e-9
+            and abs(k.position.y - 0.5) < 1e-9
+        ]
+        assert len(joints_at_pad_after) == 1
+        # The surviving joint has both wires as back-refs.
+        assert len(joints_at_pad_after[0].wire_ids) == 2

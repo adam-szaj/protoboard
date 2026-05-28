@@ -7,6 +7,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Endpoint-merge at load and save (2026-05-28)
+
+- New pure helpers ``wire_utils.merge_colocated_joints(layout)`` and
+  ``wire_utils.merge_endpoint_wires(layout, board)``.  The first
+  coalesces ``JointKnot``s that sit on the same pad — autoroute /
+  legacy load paths sometimes leave two degree-1 joints at one pad
+  instead of one shared degree-2 joint, hiding fusable wire chains
+  from ``try_collapse_joint``.  The second then runs
+  ``try_collapse_joint`` until every same-``insulated`` degree-2 joint
+  has been resolved (chains of N wires need N-1 passes).
+- ``load_project`` calls ``merge_endpoint_wires`` after the normalize
+  pass — legacy projects automatically migrate to the canonical "one
+  continuous artifact = one Wire" representation.
+- ``save_project`` calls ``merge_endpoint_wires`` before encoding so
+  the on-disk YAML is always canonical — saved files never represent
+  the same physical artifact as multiple ``Wire`` instances.
+- The micek project (255 wires, 0 multi-fragment, 28 degree-1 joints
+  before) loads as 242 wires (13 fused), 7 multi-fragment wires for
+  the real cross-side vias.
+
+### Endpoint-merge in AddWireCommand (2026-05-28)
+
+- ``AddWireCommand`` / ``AddWireWithNetsCommand`` now fuse the new wire
+  with a neighbouring wire when their endpoints meet on an **off-pin
+  pad** and share ``insulated``.  Previously each apply created a
+  separate ``JointKnot`` per wire at the meeting pad — two wires sat
+  end-to-end at the same coordinate but the underlying model held them
+  as distinct ``Wire`` instances with degree-1 joints, contradicting
+  the "one continuous solderable artifact = one Wire" intent.
+- ``_resolve_endpoint_knot`` now reuses an existing ``JointKnot`` at the
+  endpoint position when no pin is there, so the shared joint exists
+  before ``add_wire`` is called.
+- After insertion, ``_collapse_endpoint_joints`` runs
+  ``Layout.try_collapse_joint`` on each endpoint joint: when degree=2
+  and both wires share ``insulated``, the two wires fuse.  Same-side
+  meetings collapse into one single-fragment Wire; cross-side meetings
+  on a plated-through pad collapse into one multi-fragment Wire (via
+  boundary at the pad).  ``insulated`` mismatch and pin endpoints
+  prevent fusion — those remain as separate artifacts.
+- Revert restores the pre-collapse state from snapshots
+  (``_WireSnapshot`` per source wire + joint position), including any
+  outer ``JointKnot``s that ``remove_wire`` pruned as orphans.
+
+### Merge same-side fragments command (2026-05-27)
+
+- New pure helper ``wire_utils.coalesce_same_side_fragments(fragments)``
+  fuses consecutive fragments that share ``side`` into one fragment,
+  preserving real via boundaries (top↔bottom).  Operates only on
+  ``side``; ``insulated`` is per-wire and not consulted.
+- Wired up as a user-triggered command ``ACTION_MERGE_WIRE_FRAGMENTS``
+  ("Merge Same-Side Fragments"): appears in the wire context menu when
+  any selected wire has ≥2 fragments, dispatched through main-window
+  shortcut, and locked alongside other hard-mutate actions during
+  autoroute.  Implementation calls ``coalesce_same_side_fragments`` on
+  each selected wire and packs the resulting
+  ``ReplaceWireFragmentsCommand``s into a ``MacroCommand`` (single
+  undo step).  Wires with no adjacent same-side runs are silently
+  skipped.
+- The helper is **never** invoked automatically — domain constructors,
+  load/save paths, and commit pipelines stay transparent.  Fusion only
+  happens when the user explicitly asks for it.
+
+### Wire-edit excise endpoint crash fix (2026-05-27)
+
+- ``SelectTool._excise_cross_wire_range`` (and the matching single-wire
+  branch in ``_commit_wire_edit``) previously used
+  ``_replace_wire_path_cmd`` to shrink the kept fragment of a start /
+  end wire when excising a chain.  The shrink moves the wire's *inner*
+  endpoint to ``path[edit_idx]``, but the wire's pre-existing inner knot
+  still points at the original endpoint — ``Layout.replace_wire_fragments``
+  refused to move a ``PinKnot`` (or a shared ``JointKnot``) and raised
+  ``ValueError`` mid-commit, leaving a half-applied macro and crashing
+  the Qt event loop.  Replaced with ``RemoveWireCommand`` +
+  ``AddWireCommand`` (fresh wire, fresh endpoint knots) so the new
+  endpoints get resolved cleanly.
+
+### Wire-edit ready-for-edit helper (2026-05-27)
+
+- ``_ensure_wire_ready_for_edit`` (SelectTool) now enriches insulated
+  wires as well as bare ones, and considers pads from **both** board
+  sides so a wire passing geometrically over a pad on the opposite
+  layer still gains a vertex handle.  Brings the on-edit helper in line
+  with AddWireCommand / RouteTool which already enrich on insert.
+
 ### Unweave honours allow_layer_change (2026-05-28)
 
 - `unweave_wires` gained an ``allow_layer_change`` kwarg that gates the

@@ -170,19 +170,20 @@ class TestExciseCrossWire:
         assert result is not None
         macro, _start, _end = result
 
-        # Find the replace command on wireA.
-        replace_a = next(
-            c for c in macro._commands
-            if isinstance(c, ReplaceWireFragmentsCommand) and c.wire_id == wireA.id
+        # WireA inner endpoint moves to path[3]; we replace it with a fresh
+        # wire (Remove + Add) so endpoint knots get re-resolved.  Find both
+        # commands and verify the added wire's path is the kept suffix.
+        from protoboard.domain.commands.component_cmds import AddWireCommand
+        assert any(
+            isinstance(c, RemoveWireCommand) and c.wire_id == wireA.id
+            for c in macro._commands
         )
-        # Outer end of wireA is path[-1] (right side), so keep [start_idx..end].
-        new_path_a = []
-        for frag in replace_a.new_fragments:
-            if not new_path_a:
-                new_path_a.extend(frag.path)
-            else:
-                new_path_a.extend(frag.path[1:])
-        assert new_path_a == list(wireA.path[3:])
+        added_a = next(
+            c for c in macro._commands
+            if isinstance(c, AddWireCommand)
+            and c.wire.path[0] == wireA.path[3]
+        )
+        assert list(added_a.wire.path) == list(wireA.path[3:])
         # And wireB, whose outer end is path[0] and edit is at path[0],
         # collapses to nothing → removed entirely.
         assert any(
@@ -221,14 +222,15 @@ class TestExciseCrossWire:
             for c in macro._commands
         )
         # wireA outer end is path[-1]; edit at index 3 → keep suffix [3:].
-        replace_a = next(
-            c for c in macro._commands
-            if isinstance(c, ReplaceWireFragmentsCommand) and c.wire_id == wireA.id
+        # Replaced via Remove + AddWire so endpoint knots get re-resolved.
+        from protoboard.domain.commands.component_cmds import AddWireCommand
+        assert any(
+            isinstance(c, RemoveWireCommand) and c.wire_id == wireA.id
+            for c in macro._commands
         )
-        new_path_a = []
-        for frag in replace_a.new_fragments:
-            if not new_path_a:
-                new_path_a.extend(frag.path)
-            else:
-                new_path_a.extend(frag.path[1:])
-        assert new_path_a == list(wireA.path[3:])
+        added_a = next(
+            c for c in macro._commands
+            if isinstance(c, AddWireCommand)
+            and c.wire.path[0] == wireA.path[3]
+        )
+        assert list(added_a.wire.path) == list(wireA.path[3:])

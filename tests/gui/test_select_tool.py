@@ -744,9 +744,10 @@ class TestWireClickCycle:
 
 
 class TestWireEditPadEnrichment:
-    """Bare wires laid as shortcuts must materialise board-pad vertices on
-    edit-time so hit-test can pick a pad pin in the middle of the shortcut.
-    Insulated wires must NOT be enriched — they float above the board."""
+    """Wires laid as shortcuts must materialise board-pad vertices on edit-time
+    so hit-test can pick a pad pin in the middle of the shortcut.  Applies to
+    both bare and insulated wires — vertex handles are what allow the user to
+    grab the wire mid-path, regardless of side semantics."""
 
     def test_bare_shortcut_enriched_on_hit_test(
         self, board_view: BoardView, session: EditorSession
@@ -788,11 +789,12 @@ class TestWireEditPadEnrichment:
         # Second call must not push another undo step (path already enriched).
         assert stack_depth_after_first == stack_depth_after_second
 
-    def test_insulated_wire_not_enriched(
+    def test_insulated_wire_enriched_on_edit(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        # Insulated wire floats above the board — pad-vertices must NOT be
-        # added even when it shortcuts across pads.
+        # Insulated wires also need pad-vertex handles so the user can grab
+        # them mid-path during edit.  AddWireCommand already enriches on
+        # insert; this verifies the on-edit helper agrees.
         wire_id = _add_wire(
             session, [(0.5, 0.5), (4.5, 0.5)], insulated=True
         )
@@ -805,7 +807,9 @@ class TestWireEditPadEnrichment:
 
         new_wire = next(w for w in session.layout.wires if w.id == wire_id)
         coords = [(p.x, p.y) for p in new_wire.path]
-        assert coords == [(0.5, 0.5), (4.5, 0.5)]
+        assert coords == [
+            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5)
+        ]
 
     def test_already_enriched_path_no_op(
         self, board_view: BoardView, session: EditorSession
@@ -993,3 +997,135 @@ class TestComponentDragAnchorSnap:
         snapped = board_view.snap(_QPF(50.0, 50.0))
         assert (snapped.x - 0.5) == int(snapped.x - 0.5), snapped
         assert (snapped.y - 0.5) == int(snapped.y - 0.5), snapped
+
+
+class TestMergeFragmentsCommand:
+    """User-triggered Merge Same-Side Fragments action.
+
+    Builds wires with multiple Fragments (boundary at every via) directly in
+    the layout, runs the command on the selection, and checks that adjacent
+    same-side fragments fuse while real via boundaries (top↔bottom) survive.
+    """
+
+    @staticmethod
+    def _add_multi_fragment_wire(
+        session: EditorSession,
+        fragments: list[tuple[list[tuple[float, float]], str]],
+    ) -> uuid.UUID:
+        """Insert a Wire built from an explicit list of (path, side) fragments."""
+        from protoboard.domain.layout.wire import Fragment, Wire
+        from protoboard.geometry import Point as _Point
+        frag_list = [
+            Fragment(
+                path=[_Point(x, y) for x, y in pts],
+                side=side,  # type: ignore[arg-type]
+            )
+            for pts, side in fragments
+        ]
+        wire = Wire(
+            id=uuid.uuid4(),
+            fragments=frag_list,
+            insulated=True,
+        )
+        session.layout.wires.append(wire)
+        return wire.id
+
+    def test_same_side_fragments_fuse(
+        self, board_view: BoardView, session: EditorSession,
+    ) -> None:
+        # Two top-side fragments sharing the boundary (2.5, 0.5).  Merge
+        # should collapse them into a single fragment.
+        wire_id = self._add_multi_fragment_wire(
+            session,
+            [
+                ([(0.5, 0.5), (2.5, 0.5)], "top"),
+                ([(2.5, 0.5), (4.5, 0.5)], "top"),
+            ],
+        )
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._selected_wire_id = wire_id
+        tool._merge_fragments_in_wires({wire_id})
+
+        new_wire = next(w for w in session.layout.wires if w.id == wire_id)
+        assert len(new_wire.fragments) == 1
+        assert new_wire.fragments[0].side == "top"
+        assert [(p.x, p.y) for p in new_wire.fragments[0].path] == [
+            (0.5, 0.5), (2.5, 0.5), (4.5, 0.5),
+        ]
+
+    def test_via_boundary_preserved(
+        self, board_view: BoardView, session: EditorSession,
+    ) -> None:
+        # top → bottom → top: only the cross-side boundaries are real vias;
+        # nothing should fuse here.
+        wire_id = self._add_multi_fragment_wire(
+            session,
+            [
+                ([(0.5, 0.5), (1.5, 0.5)], "top"),
+                ([(1.5, 0.5), (2.5, 0.5)], "bottom"),
+                ([(2.5, 0.5), (3.5, 0.5)], "top"),
+            ],
+        )
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._selected_wire_id = wire_id
+        tool._merge_fragments_in_wires({wire_id})
+
+        new_wire = next(w for w in session.layout.wires if w.id == wire_id)
+        assert len(new_wire.fragments) == 3
+        assert [f.side for f in new_wire.fragments] == ["top", "bottom", "top"]
+
+    def test_single_fragment_wire_is_no_op(
+        self, board_view: BoardView, session: EditorSession,
+    ) -> None:
+        # Wire that already has a single fragment — command must not push
+        # a command onto the undo stack.
+        wire_id = _add_wire(
+            session, [(0.5, 0.5), (4.5, 0.5)], insulated=False
+        )
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        baseline_depth = len(session.stack._undo)
+        tool._merge_fragments_in_wires({wire_id})
+        assert len(session.stack._undo) == baseline_depth
+
+    def test_merge_is_undoable(
+        self, board_view: BoardView, session: EditorSession,
+    ) -> None:
+        wire_id = self._add_multi_fragment_wire(
+            session,
+            [
+                ([(0.5, 0.5), (2.5, 0.5)], "top"),
+                ([(2.5, 0.5), (4.5, 0.5)], "top"),
+            ],
+        )
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._merge_fragments_in_wires({wire_id})
+        assert len(next(
+            w for w in session.layout.wires if w.id == wire_id
+        ).fragments) == 1
+
+        session.stack.undo(session)
+        assert len(next(
+            w for w in session.layout.wires if w.id == wire_id
+        ).fragments) == 2
+
+    def test_empty_selection_no_op(
+        self, board_view: BoardView, session: EditorSession,
+    ) -> None:
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        baseline_depth = len(session.stack._undo)
+        tool._merge_fragments_in_wires(set())
+        assert len(session.stack._undo) == baseline_depth

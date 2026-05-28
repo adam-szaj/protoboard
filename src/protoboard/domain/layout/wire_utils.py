@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import math
+import uuid
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
     import uuid
 
     from protoboard.domain.board.board import Board
+    from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.wire import Fragment, Wire
 
 
@@ -163,6 +165,151 @@ def rebuild_fragments_from_path(
     return out
 
 
+def coalesce_same_side_fragments(
+    fragments: list["Fragment"] | tuple["Fragment", ...],
+) -> "list[Fragment]":
+    """Fuse consecutive fragments that share ``side`` into a single fragment.
+
+    Pure function — does not mutate the input.  Returns a new list whose
+    consecutive entries always differ in ``side`` (so any remaining
+    boundary marks a real via through a plated-through pad).  Single
+    fragments and empty input pass through unchanged.
+
+    Boundary vertex policy: when two fragments fuse, the boundary point
+    (shared between ``prev.path[-1]`` and ``nxt.path[0]``) appears once
+    in the fused path.
+
+    This helper is intentionally pure and **never invoked automatically**
+    by domain constructors or commit paths — callers (an explicit
+    "merge fragments" action, a step inside unweave / simplify) decide
+    when fusion is appropriate for their context.  ``insulated`` is a
+    per-wire attribute, so it is *not* consulted here; this only fuses
+    on ``side``.
+    """
+    from protoboard.domain.layout.wire import Fragment as _Fragment
+    if not fragments:
+        return []
+    out: list[_Fragment] = [
+        _Fragment(path=list(fragments[0].path), side=fragments[0].side)
+    ]
+    for nxt in fragments[1:]:
+        prev = out[-1]
+        if prev.side == nxt.side:
+            # Share the boundary vertex — drop the duplicate.
+            prev.path.extend(nxt.path[1:])
+        else:
+            out.append(_Fragment(path=list(nxt.path), side=nxt.side))
+    return out
+
+
+def merge_colocated_joints(layout: "Layout") -> int:
+    """Fuse pairs of ``JointKnot``s sharing a position into one knot.
+
+    Two wires laid through the same off-pin pad at different times may
+    each carry their own ``JointKnot`` at that pad — the back-refs end
+    up split (each joint has degree=1) and ``try_collapse_joint``
+    therefore can't see the chain.  This pass coalesces such colocated
+    joints: for every pad position with ≥2 joints, pick the
+    lexicographically smallest id as the winner, retarget every wire
+    that referenced a loser knot to the winner instead, then delete the
+    loser knots.  Returns the number of loser knots that were dropped.
+    Pure with respect to wire identity (paths/fragments untouched).
+    """
+    from collections import defaultdict
+    from protoboard.domain.layout.knot import JointKnot
+    from protoboard.domain.layout.wire import KnotRef as _KnotRef
+    by_pos: dict[tuple[float, float], list[uuid.UUID]] = defaultdict(list)
+    for knot in layout.knots.values():
+        if isinstance(knot, JointKnot):
+            key = (round(knot.position.x, 6), round(knot.position.y, 6))
+            by_pos[key].append(knot.id)
+    dropped = 0
+    for _key, ids in by_pos.items():
+        if len(ids) < 2:
+            continue
+        ids_sorted = sorted(ids, key=str)
+        winner = ids_sorted[0]
+        losers = ids_sorted[1:]
+        winner_knot = layout.knots[winner]
+        # Collect wire ids referenced by losers so we can retarget them
+        # to the winner and accumulate their back-refs there.
+        loser_wire_ids: set[uuid.UUID] = set()
+        for loser_id in losers:
+            loser_knot = layout.knots.get(loser_id)
+            if not isinstance(loser_knot, JointKnot):
+                continue
+            loser_wire_ids |= loser_knot.wire_ids
+        # Retarget wires.
+        for wid in loser_wire_ids:
+            w = layout.wires.get(wid)
+            if w is None:
+                continue
+            if w.a is not None and w.a.id in losers:
+                w.a = _KnotRef(id=winner)
+            if w.b is not None and w.b.id in losers:
+                w.b = _KnotRef(id=winner)
+        # Move wire_ids onto the winner.
+        layout.knots[winner] = JointKnot(
+            id=winner,
+            position=winner_knot.position,
+            wire_ids=winner_knot.wire_ids | loser_wire_ids,
+        )
+        # Drop losers.
+        for loser_id in losers:
+            layout.knots.pop(loser_id, None)
+            dropped += 1
+    return dropped
+
+
+def merge_endpoint_wires(layout: "Layout", board: "Board") -> int:
+    """Fuse every pair of wires sharing a JointKnot with matching ``insulated``.
+
+    Two passes:
+    * Pass 1 — ``merge_colocated_joints``: coalesce JointKnots that
+      occupy the same pad position so a shared hub exists wherever wires
+      physically touch.
+    * Pass 2 — iterate ``layout.knots`` and call
+      ``Layout.try_collapse_joint`` on every ``JointKnot`` whose
+      ``wire_ids`` has length 2 and whose two incident wires share
+      ``insulated``.  Repeat until no more collapses succeed (a chain
+      of three+ wires needs N-1 passes).
+
+    Returns the total number of wires that disappeared because they
+    fused into a neighbour.  Pure: only wire / knot identity changes —
+    ``wire.path`` / ``wire.fragments`` only change to reflect the union
+    of the source paths (multi-fragment Wire is produced for cross-side
+    via collapses).
+    """
+    from protoboard.domain.layout.knot import JointKnot
+    merge_colocated_joints(layout)
+    pt_pads = frozenset(plated_through_pads(board))
+    total_fused = 0
+    progress = True
+    while progress:
+        progress = False
+        # Snapshot ids — try_collapse_joint mutates the dict.
+        for knot_id in list(layout.knots.keys()):
+            knot = layout.knots.get(knot_id)
+            if not isinstance(knot, JointKnot):
+                continue
+            if len(knot.wire_ids) != 2:
+                continue
+            w_ids = tuple(knot.wire_ids)
+            w1 = layout.wires.get(w_ids[0])
+            w2 = layout.wires.get(w_ids[1])
+            if w1 is None or w2 is None:
+                continue
+            if w1.insulated != w2.insulated:
+                continue
+            merged = layout.try_collapse_joint(
+                knot_id, plated_through_pads=pt_pads,
+            )
+            if merged is not None:
+                total_fused += 1
+                progress = True
+    return total_fused
+
+
 def wire_has_skewed_segment(wire: Wire, tol: float = 1e-6) -> bool:
     """Return True if any segment of *wire* is neither orthogonal nor diagonal.
 
@@ -210,6 +357,9 @@ __all__ = [
     "board_pads_for_side",
     "plated_through_pads",
     "insert_pad_nodes",
+    "coalesce_same_side_fragments",
+    "merge_colocated_joints",
+    "merge_endpoint_wires",
     "wire_has_skewed_segment",
     "find_skewed_wires",
 ]

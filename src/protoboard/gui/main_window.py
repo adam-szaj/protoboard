@@ -154,6 +154,7 @@ class MainWindow(QMainWindow):
         KB.ACTION_RELATION_NEIGHBORS:       {"label": "Relation: Neighbors"},
         KB.ACTION_SIMPLIFY_WIRE:            {"label": "Simplify Selected Wires"},
         KB.ACTION_UNWEAVE_WIRES:            {"label": "Unweave Selected Wires"},
+        KB.ACTION_MERGE_WIRE_FRAGMENTS:     {"label": "Merge Same-Side Fragments"},
         KB.ACTION_HIGHLIGHT_TOGGLE:         {"label": "Highlight Toggle"},
     }
 
@@ -590,6 +591,7 @@ class MainWindow(QMainWindow):
             KB.ACTION_RELATION_NEIGHBORS:       lambda: self._set_relation_by_name("neighbors"),
             KB.ACTION_SIMPLIFY_WIRE:            self._simplify_selected_wires,
             KB.ACTION_UNWEAVE_WIRES:            self._unweave_selected_wires,
+            KB.ACTION_MERGE_WIRE_FRAGMENTS:     self._merge_fragments_in_selected_wires,
             # ACTION_HIGHLIGHT_TOGGLE: kept as an alias of clear-highlight
             # for now — the historic intent was "drop the persistent stack
             # entry like Esc".  Wire it to _clear_highlight so the action
@@ -832,6 +834,16 @@ class MainWindow(QMainWindow):
 
         act_spread = tools_menu.addAction("S&pread Components")
         act_spread.triggered.connect(self._spread_components)
+
+        tools_menu.addSeparator()
+
+        # Wire operations on the current selection.  Each is a no-op with a
+        # status-bar message when the selection doesn't match its
+        # precondition (no wires for simplify, <2 wires for unweave, no
+        # fragments to fuse for merge).
+        tools_menu.addAction(self._actions[KB.ACTION_SIMPLIFY_WIRE])
+        tools_menu.addAction(self._actions[KB.ACTION_UNWEAVE_WIRES])
+        tools_menu.addAction(self._actions[KB.ACTION_MERGE_WIRE_FRAGMENTS])
 
         tools_menu.addSeparator()
 
@@ -1628,6 +1640,7 @@ class MainWindow(QMainWindow):
         KB.ACTION_AUTOROUTE,
         KB.ACTION_SIMPLIFY_WIRE,
         KB.ACTION_UNWEAVE_WIRES,
+        KB.ACTION_MERGE_WIRE_FRAGMENTS,
         KB.ACTION_RUN_DRC,
     })
 
@@ -2853,3 +2866,14 @@ class MainWindow(QMainWindow):
             self._status.showMessage("Unweave: select at least 2 wires.", 3000)
             return
         tool._unweave_wires(wire_ids)
+
+    def _merge_fragments_in_selected_wires(self) -> None:
+        """Fuse consecutive same-side fragments in every selected wire."""
+        tool = self._select_tool
+        wire_ids: set[uuid.UUID] = set(tool._selected_wire_ids)
+        if tool._selected_wire_id is not None:
+            wire_ids.add(tool._selected_wire_id)
+        if not wire_ids:
+            self._status.showMessage("Merge fragments: select a wire first.", 3000)
+            return
+        tool._merge_fragments_in_wires(wire_ids)

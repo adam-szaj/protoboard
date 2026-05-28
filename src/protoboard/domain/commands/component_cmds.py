@@ -256,12 +256,36 @@ def _find_pin_at(
     return None
 
 
+def _find_joint_at(
+    state: ComponentState, point: Point,
+) -> JointKnot | None:
+    """Return the existing JointKnot at ``point`` (within ``_EPS_KNOT``).
+
+    Walks ``layout.knots.values()`` once — fine for typical boards (knots
+    are O(wires)).  Pin knots are *not* returned; pin lookup goes through
+    ``_find_pin_at`` so that pin identity wins over joint identity at the
+    same pad.
+    """
+    for knot in state.layout.knots.values():
+        if not isinstance(knot, JointKnot):
+            continue
+        if (
+            abs(knot.position.x - point.x) < _EPS_KNOT
+            and abs(knot.position.y - point.y) < _EPS_KNOT
+        ):
+            return knot
+    return None
+
+
 def _resolve_endpoint_knot(
     state: ComponentState, point: Point,
 ) -> tuple[KnotRef, JointKnot | None]:
     """Resolve an endpoint position to (KnotRef, optional created JointKnot).
 
     Pin hit → reuse/create the singleton PinKnot for that PinRef.
+    Existing JointKnot at this position → reuse it (so two wires meeting at
+    the same off-pin pad share one hub, which is what
+    ``Layout.try_collapse_joint`` and the renderer expect).
     Otherwise → create a fresh JointKnot at ``point``.  The created knot
     (if any) is returned so AddWireCommand.revert can drop it.
     """
@@ -269,9 +293,181 @@ def _resolve_endpoint_knot(
     if pin is not None:
         pk = state.layout.get_or_create_pin_knot(pin)
         return KnotRef(id=pk.id), None
+    existing = _find_joint_at(state, point)
+    if existing is not None:
+        return KnotRef(id=existing.id), None
     # Joint at this position (off-pad joints are flagged by DRC, not here).
     jk = state.layout.create_joint_knot(point)
     return KnotRef(id=jk.id), jk
+
+
+def _collapse_endpoint_joints(
+    state: ComponentState, wire: Wire,
+) -> "list[_CollapseRecord]":
+    """Run ``Layout.try_collapse_joint`` on both endpoints of ``wire``.
+
+    Walks ``wire.a`` and ``wire.b`` (after they have been resolved and the
+    wire inserted).  When an endpoint joint has exactly two incident wires
+    with matching ``insulated``, fuse them into a single Wire — the joint
+    disappears, the two source wires are replaced by one ``merged`` wire
+    keeping the smaller id (deterministic).
+
+    Returns a list of records describing each collapse so the AddWireCommand
+    can roll the layout back on revert.  The list may contain 0, 1, or 2
+    entries (one per endpoint that collapsed).  Pin endpoints are never
+    collapsed — pins are physical hubs and remain solder targets.
+    """
+    from protoboard.domain.layout.wire_utils import plated_through_pads
+    records: list[_CollapseRecord] = []
+    # Materialise plated-through set once; cheap on small boards, used by
+    # the cross-side collapse branch.  ``try_collapse_joint`` wants
+    # ``frozenset`` so freeze here once.
+    pt_pads = frozenset(plated_through_pads(state.board))
+    # Track endpoint joint ids to visit.  We snapshot the current wire's
+    # endpoints because the collapse can replace ``wire`` mid-loop (the
+    # merged Wire inherits the lower of the two ids).
+    if wire.a is None or wire.b is None:
+        return records
+    endpoint_ids = (wire.a.id, wire.b.id)
+    for ep_id in endpoint_ids:
+        # Look up joint freshly each iteration — the previous collapse may
+        # have shifted the current wire's identity (new ``wire.a``/``b``).
+        knot = state.layout.knots.get(ep_id)
+        if not isinstance(knot, JointKnot):
+            continue
+        if len(knot.wire_ids) != 2:
+            continue
+        w_ids = tuple(knot.wire_ids)
+        # Only collapse when the *other* wire has matching ``insulated`` —
+        # ``try_collapse_joint`` already checks this, but we snapshot the
+        # two source wires for revert before invoking it.
+        w1 = state.layout.wires.get(w_ids[0])
+        w2 = state.layout.wires.get(w_ids[1])
+        if w1 is None or w2 is None:
+            continue
+        if w1.insulated != w2.insulated:
+            continue
+        snapshot = _CollapseRecord(
+            joint_id=ep_id,
+            joint_pos=knot.position,
+            w1_snapshot=_snapshot_wire(w1, state.layout),
+            w2_snapshot=_snapshot_wire(w2, state.layout),
+        )
+        merged = state.layout.try_collapse_joint(
+            ep_id, plated_through_pads=pt_pads,
+        )
+        if merged is None:
+            continue
+        snapshot.merged_wire_id = merged.id
+        records.append(snapshot)
+        # Re-pin the wire so the second-endpoint pass sees the merged wire.
+        wire = merged
+    return records
+
+
+@dataclass
+class _WireSnapshot:
+    """Frozen copy of a Wire's fields, sufficient to recreate it on revert."""
+
+    wire_id: uuid.UUID
+    path: list[Point]
+    insulated: bool
+    side: str
+    color: "str | None"
+    a_id: uuid.UUID
+    b_id: uuid.UUID
+    # Per-fragment side breakdown — preserves multi-fragment wires
+    # (via boundaries).
+    fragment_sides: list[str]
+    fragment_paths: list[list[Point]]
+    # Snapshots of the endpoint knots themselves so revert can revive any
+    # that ``remove_wire`` later pruned as orphans (outer joints of the
+    # source wires that had no other incident wire than this one).  Keyed
+    # by knot id; ``None`` for ``PinKnot`` entries — pins live in
+    # ``layout.pin_knots`` and survive ``remove_wire`` independently.
+    a_knot: "JointKnot | None"
+    b_knot: "JointKnot | None"
+
+
+def _snapshot_wire(w: Wire, layout: Layout) -> _WireSnapshot:
+    assert w.a is not None and w.b is not None
+    a_knot = layout.knots.get(w.a.id)
+    b_knot = layout.knots.get(w.b.id)
+    return _WireSnapshot(
+        wire_id=w.id,
+        path=list(w.path),
+        insulated=w.insulated,
+        side=w.side,
+        color=w.color,
+        a_id=w.a.id,
+        b_id=w.b.id,
+        fragment_sides=[f.side for f in w.fragments],
+        fragment_paths=[list(f.path) for f in w.fragments],
+        a_knot=a_knot if isinstance(a_knot, JointKnot) else None,
+        b_knot=b_knot if isinstance(b_knot, JointKnot) else None,
+    )
+
+
+@dataclass
+class _CollapseRecord:
+    """Snapshot of one ``try_collapse_joint`` operation for revert."""
+
+    joint_id: uuid.UUID
+    joint_pos: Point
+    w1_snapshot: _WireSnapshot
+    w2_snapshot: _WireSnapshot
+    merged_wire_id: "uuid.UUID | None" = None
+
+
+def _restore_collapse(state: ComponentState, rec: _CollapseRecord) -> None:
+    """Inverse of ``try_collapse_joint`` — split the merged wire back into two.
+
+    Removes the merged wire (which prunes any outer JointKnots that have
+    no other incident wire), revives the central joint that was consumed
+    by the collapse, revives any outer joints that ``remove_wire`` pruned
+    as orphans, and re-inserts the two source wires.  PinKnots survive
+    ``remove_wire`` independently — no revival needed for those.
+    """
+    from protoboard.domain.layout.wire import Fragment as _Fragment
+    if rec.merged_wire_id is not None:
+        merged = state.layout.wires.get(rec.merged_wire_id)
+        if merged is not None:
+            state.layout.remove_wire(merged.id)
+    # Re-create the central joint consumed by the merge.
+    if rec.joint_id not in state.layout.knots:
+        revived_joint = JointKnot(id=rec.joint_id, position=rec.joint_pos)
+        state.layout.knots[rec.joint_id] = revived_joint
+    # Re-create any outer JointKnots that ``remove_wire`` pruned as
+    # orphans.  ``add_wire`` below will repopulate their ``wire_ids``.
+    for snap in (rec.w1_snapshot, rec.w2_snapshot):
+        for knot_id, snap_knot in (
+            (snap.a_id, snap.a_knot), (snap.b_id, snap.b_knot),
+        ):
+            if knot_id in state.layout.knots:
+                continue
+            if snap_knot is None:
+                continue
+            # Revive with empty wire_ids; add_wire repopulates.
+            state.layout.knots[knot_id] = JointKnot(
+                id=knot_id, position=snap_knot.position,
+            )
+    # Re-insert both source wires.
+    for snap in (rec.w1_snapshot, rec.w2_snapshot):
+        fragments = [
+            _Fragment(path=list(p), side=s)  # type: ignore[arg-type]
+            for p, s in zip(snap.fragment_paths, snap.fragment_sides)
+        ]
+        revived = Wire(
+            id=snap.wire_id,
+            path=list(snap.path),
+            insulated=snap.insulated,
+            side=snap.side,  # type: ignore[arg-type]
+            color=snap.color,
+            fragments=fragments,
+            a=KnotRef(id=snap.a_id),
+            b=KnotRef(id=snap.b_id),
+        )
+        state.layout.add_wire(revived)
 
 
 @dataclass
@@ -283,6 +479,11 @@ class AddWireCommand(Command[ComponentState]):
     )
     # True once apply() has resolved knots and switched to v2 storage.
     _knots_resolved: bool = field(default=False, init=False, repr=False)
+    # Collapse records — one per endpoint that fused with a neighbouring
+    # wire of matching ``insulated``.  Empty when no fusion happened.
+    _collapses: list[_CollapseRecord] = field(
+        default_factory=list, init=False, repr=False
+    )
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -310,10 +511,36 @@ class AddWireCommand(Command[ComponentState]):
             # Redo: re-register joints we created and dropped on revert.
             for jk in self._created_joints:
                 state.layout.knots.setdefault(jk.id, jk)
-        state.layout.add_wire(self.wire)
+        # add_wire is a no-op on redo when the previous revert restored
+        # ``self.wire`` from a collapse snapshot — it's already in layout.
+        if self.wire.id not in state.layout.wires:
+            state.layout.add_wire(self.wire)
+        # Endpoint-merge: when this wire's endpoint sits on an off-pin pad
+        # already used by exactly one other wire and they share
+        # ``insulated``, the two wires represent one solderable artifact —
+        # fuse them through ``try_collapse_joint``.  Pin endpoints are
+        # never fused (pins are physical hubs).  We record each collapse
+        # so revert() can undo it on demand.  Recompute on every apply
+        # (including redo) so the layout state matches what the first
+        # apply produced — the recorded snapshots are only used by revert.
+        new_collapses = _collapse_endpoint_joints(state, self.wire)
+        if new_collapses and not self._collapses:
+            self._collapses = new_collapses
 
     def revert(self, state: ComponentState) -> None:
-        state.layout.remove_wire(self.wire.id)
+        if self._collapses:
+            # Undo collapses in reverse order — ``_restore_collapse``
+            # reinstates BOTH source wires (including ``self.wire`` in its
+            # pre-collapse form, so we don't remove it again here).
+            for rec in reversed(self._collapses):
+                _restore_collapse(state, rec)
+            # Now drop just ``self.wire`` so the layout reaches the
+            # pre-apply state (one wire = the other source = neighbour
+            # that existed before this AddWireCommand fired).
+            if self.wire.id in state.layout.wires:
+                state.layout.remove_wire(self.wire.id)
+        else:
+            state.layout.remove_wire(self.wire.id)
         # Joints we created may still hold back-refs to other wires (shared
         # joint).  ``remove_wire`` already prunes orphans; anything still
         # in layout.knots is a non-orphan we must leave alone.
@@ -351,6 +578,9 @@ class AddWireWithNetsCommand(Command[ComponentState]):
         default_factory=list, init=False, repr=False
     )
     _knots_resolved: bool = field(default=False, init=False, repr=False)
+    _collapses: list[_CollapseRecord] = field(
+        default_factory=list, init=False, repr=False
+    )
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -387,7 +617,12 @@ class AddWireWithNetsCommand(Command[ComponentState]):
         else:
             for jk in self._created_joints:
                 state.layout.knots.setdefault(jk.id, jk)
-        state.layout.add_wire(self.wire)
+        if self.wire.id not in state.layout.wires:
+            state.layout.add_wire(self.wire)
+        # Endpoint-merge — see AddWireCommand.apply for the rationale.
+        new_collapses = _collapse_endpoint_joints(state, self.wire)
+        if new_collapses and not self._collapses:
+            self._collapses = new_collapses
         if self._first_apply:
             # Net mutations already applied by resolver — nothing more to do.
             object.__setattr__(self, "_first_apply", False)
@@ -401,7 +636,10 @@ class AddWireWithNetsCommand(Command[ComponentState]):
                 schematic.nets[net_id] = net_after
 
     def revert(self, state: ComponentState) -> None:
-        state.layout.remove_wire(self.wire.id)
+        for rec in reversed(self._collapses):
+            _restore_collapse(state, rec)
+        if self.wire.id in state.layout.wires:
+            state.layout.remove_wire(self.wire.id)
         schematic = getattr(state, "schematic")
         for net_id, net_before in self._nets_before.items():
             if net_before is None:

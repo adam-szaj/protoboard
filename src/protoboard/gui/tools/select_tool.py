@@ -2021,6 +2021,21 @@ class SelectTool(_Tool):
                     )
                     act_unweave.setData(("unweave_wires", target_wire_ids))
 
+                # Merge same-side fragments — only show when at least one
+                # selected wire actually has fragments to fuse (avoids a
+                # dead menu entry on simple single-fragment wires).
+                _mergeable_wires = [
+                    w for w in self._session.layout.wires
+                    if w.id in target_wire_ids and len(w.fragments) >= 2
+                ]
+                if _mergeable_wires:
+                    merge_label = (
+                        f"Merge same-side fragments"
+                        f"{' (' + str(len(_mergeable_wires)) + ' wires)' if len(_mergeable_wires) > 1 else ''}"
+                    )
+                    act_merge = menu.addAction(merge_label)
+                    act_merge.setData(("merge_wire_fragments", target_wire_ids))
+
         if not has_items:
             return False
 
@@ -2105,6 +2120,10 @@ class SelectTool(_Tool):
         elif action == "unweave_wires":
             _, target_wire_ids = data
             self._unweave_wires(target_wire_ids)
+
+        elif action == "merge_wire_fragments":
+            _, target_wire_ids = data
+            self._merge_fragments_in_wires(target_wire_ids)
 
         elif action == "select_same_nets":
             _, cid = data
@@ -4306,31 +4325,122 @@ class SelectTool(_Tool):
             + (f" ({len(targets)}→{len(out)} segments)" if len(targets) != len(out) else "")
         )
 
+    def _merge_fragments_in_wires(
+        self,
+        wire_ids: set[uuid.UUID] | frozenset[uuid.UUID],
+    ) -> None:
+        """Fuse consecutive same-side fragments inside each wire in *wire_ids*.
+
+        Iterates every selected wire and applies
+        ``coalesce_same_side_fragments`` to its ``fragments`` list.  Wires
+        whose fragments collapse (multi-fragment same-side run becomes one
+        fragment) get a ``ReplaceWireFragmentsCommand``; wires with no
+        adjacent same-side runs are silently skipped.  Real via boundaries
+        (top↔bottom transitions) are preserved.
+
+        User-triggered only — never called from constructors or commit paths.
+        Reuses the existing ReplaceWireFragmentsCommand so undo/redo and the
+        rest of the wire identity invariants come along for free.
+        """
+        from typing import cast
+        from protoboard.domain.commands.base import Command, MacroCommand
+        from protoboard.domain.commands.component_cmds import (
+            ReplaceWireFragmentsCommand,
+        )
+        from protoboard.domain.layout.wire_utils import coalesce_same_side_fragments
+
+        session = self._session
+        if session is None:
+            return
+        if not wire_ids:
+            self._status_msg("Merge fragments: select a wire first.")
+            return
+
+        all_wires = session.layout.wires
+        cmds: list[Command[ComponentState]] = []
+        n_collapsed_wires = 0
+        n_fragments_removed = 0
+        for wid in wire_ids:
+            wire = next((w for w in all_wires if w.id == wid), None)
+            if wire is None:
+                continue
+            if len(wire.fragments) < 2:
+                continue
+            merged = coalesce_same_side_fragments(wire.fragments)
+            if len(merged) == len(wire.fragments):
+                continue
+            n_collapsed_wires += 1
+            n_fragments_removed += len(wire.fragments) - len(merged)
+            session.layout.ensure_wire_knots(wire)
+            old_fragments = tuple(
+                Fragment(path=list(f.path), side=f.side) for f in wire.fragments
+            )
+            cmds.append(cast(
+                Command[ComponentState],
+                ReplaceWireFragmentsCommand(
+                    wire_id=wire.id,
+                    new_fragments=tuple(merged),
+                    old_fragments=old_fragments,
+                ),
+            ))
+
+        if not cmds:
+            self._status_msg(
+                "Merge fragments: no adjacent same-side fragments to fuse."
+            )
+            return
+
+        if len(cmds) == 1:
+            cmd: Command[ComponentState] = cmds[0]
+        else:
+            cmd = MacroCommand(  # type: ignore[assignment]
+                cmds,
+                description=f"Merge fragments in {len(cmds)} wires",
+            )
+        session.stack.execute(cmd, session)
+        session.layout_changed.emit()
+        _log.info(
+            "wire.merge_fragments_done",
+            n_wires=n_collapsed_wires,
+            n_fragments_removed=n_fragments_removed,
+        )
+        self._status_msg(
+            f"Merged {n_fragments_removed} fragment boundaries "
+            f"across {n_collapsed_wires} wire(s)."
+        )
+
     # ------------------------------------------------------------------
     # Wire segment editing
     # ------------------------------------------------------------------
 
     def _ensure_wire_ready_for_edit(self, wire_id: uuid.UUID) -> None:
-        """For a bare wire, materialise every board-pad on its path as a vertex.
+        """Materialise every board-pad on a wire's path as a vertex.
 
-        Bare wires laid as shortcuts (or post-simplified) may carry only their
+        Wires laid as shortcuts (or post-simplified) may carry only their
         endpoints even though the physical conductor rests on several pads.
         Edit-mode hit-test only matches against existing vertices, so those
         intermediate pads would be unselectable.  This helper executes one
         ReplaceWireFragmentsCommand that re-inserts the missing pad vertices —
-        idempotent: no command is emitted when the path is already enriched
-        or when the wire is insulated.
+        idempotent: no command is emitted when the path is already enriched.
+
+        Pads from BOTH sides of the board are considered — a wire passing
+        geometrically over a pad that exists only on the opposite side still
+        needs that node (plated-through pads in particular).  Applies to
+        bare and insulated wires alike.
         """
         wire = next(
             (w for w in self._session.layout.wires if w.id == wire_id), None
         )
-        if wire is None or wire.insulated or len(wire.path) < 2:
+        if wire is None or len(wire.path) < 2:
             return
         from protoboard.domain.layout.wire_utils import (
             board_pads_for_side,
             insert_pad_nodes,
         )
-        pads = board_pads_for_side(self._session.board, wire.side)
+        pads = (
+            board_pads_for_side(self._session.board, "top")
+            | board_pads_for_side(self._session.board, "bottom")
+        )
         enriched = insert_pad_nodes(list(wire.path), pads)
         if enriched == list(wire.path):
             return
@@ -4574,8 +4684,17 @@ class SelectTool(_Tool):
         def _keep_fragment(
             wire: Wire, edit_idx: int, outer_idx: int,
         ) -> None:
-            """Emit a command that keeps the path slice from outer_idx to edit_idx."""
-            last = len(wire.path) - 1
+            """Emit commands that keep the path slice from outer_idx to edit_idx.
+
+            The slice moves the *inner* endpoint to ``path[edit_idx]``.  The
+            wire's existing inner knot still points at the original endpoint,
+            so a plain ``replace_wire_fragments`` would fail (PinKnot can't
+            slide, shared JointKnot can't drag other wires).  Use
+            Remove + AddWire instead so the new wire gets fresh knots
+            resolved at its actual endpoints.
+            """
+            from protoboard.domain.commands.component_cmds import AddWireCommand
+            from protoboard.domain.layout.wire import Wire as _W
             if edit_idx == outer_idx:
                 # Edit lies on the outer endpoint — nothing left to keep.
                 cmds.append(RemoveWireCommand(wire_id=wire.id))
@@ -4588,19 +4707,35 @@ class SelectTool(_Tool):
             if len(new_path) < 2:
                 cmds.append(RemoveWireCommand(wire_id=wire.id))
                 return
-            cmds.append(_replace_wire_path_cmd(
-                self._session.layout, wire, new_path, list(wire.path),
-            ))
+            cmds.append(RemoveWireCommand(wire_id=wire.id))
+            cmds.append(AddWireCommand(wire=_W(
+                id=uuid.uuid4(),
+                path=new_path,
+                insulated=wire.insulated,
+                side=wire.side,
+                color=wire.color,
+            )))
 
         # --- Start wire: keep fragment from its outer endpoint to start_idx ---
         if len(ordered) == 1:
             # Single-wire excise is handled by a separate code path (the
-            # caller dispatches on `cross` before reaching here).  Preserve
-            # the previous semantics for safety.
+            # caller dispatches on `cross` before reaching here).  Use the
+            # same Remove + AddWire approach as _keep_fragment so endpoint
+            # knot resolution stays consistent.
+            from protoboard.domain.commands.component_cmds import AddWireCommand
+            from protoboard.domain.layout.wire import Wire as _W
             new_path = list(start_wire.path[:start_idx + 1])
-            cmds.append(_replace_wire_path_cmd(
-                self._session.layout, start_wire, new_path, list(start_wire.path),
-            ))
+            if len(new_path) < 2:
+                cmds.append(RemoveWireCommand(wire_id=start_wire.id))
+            else:
+                cmds.append(RemoveWireCommand(wire_id=start_wire.id))
+                cmds.append(AddWireCommand(wire=_W(
+                    id=uuid.uuid4(),
+                    path=new_path,
+                    insulated=start_wire.insulated,
+                    side=start_wire.side,
+                    color=start_wire.color,
+                )))
         else:
             start_outer = self._outer_endpoint_idx(start_wire, ordered[1])
             _keep_fragment(start_wire, start_idx, start_outer)
