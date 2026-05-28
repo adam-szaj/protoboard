@@ -98,11 +98,18 @@ def _extend_net(
     cmd: AddWireWithNetsCommand,
     cl: WireNetClassification,
 ) -> None:
-    assert cl.pin_a is not None and cl.pin_b is not None
     net = cl.net_a if cl.net_a is not None else cl.net_b
     assert net is not None
-    unconnected = cl.pin_b if cl.net_a is not None else cl.pin_a
-    new_ref = PinRef(component_id=unconnected[0], pin_number=unconnected[1])
+    # The "unconnected" endpoint may have a pin (classical case — add
+    # the pin to the net) or may not (the wire-touch fallback —
+    # nothing to add to the pin list; the new wire joins the net via
+    # geometric contact and the connectivity graph picks it up).
+    unconnected_pin = cl.pin_b if cl.net_a is not None else cl.pin_a
+    if unconnected_pin is None:
+        # Pure wire-to-wire join: no pin to register.
+        _log.info("wire_net.joined_via_wire_touch", net=net.name)
+        return
+    new_ref = PinRef(component_id=unconnected_pin[0], pin_number=unconnected_pin[1])
     cmd.record_net_change(net.id, before=_snapshot(net), after=None)
     net.pins.add(new_ref)
     cmd._nets_after[net.id] = _snapshot(net)

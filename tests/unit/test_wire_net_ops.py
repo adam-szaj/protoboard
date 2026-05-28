@@ -240,3 +240,76 @@ class TestClassifyDifferentNets:
         assert cl.net_a is not None
         assert cl.net_b is not None
         assert cl.net_a.id != cl.net_b.id
+
+
+# ---------------------------------------------------------------------------
+# Auto-net via wire-touch (W1's endpoint lands on an existing wire of
+# some net — W1 inherits that net even though one of its endpoints is
+# not on a pin)
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyWireTouchAutoNet:
+    def test_new_wire_endpoint_on_existing_wire_interior_inherits_net(
+        self,
+    ) -> None:
+        # R1 and R2 are connected by a horizontal bus running through
+        # (1.5, 0.5)..(3.5, 0.5).  The bus has net VCC.  R3 lives
+        # below; a new wire goes from R3.pin1 up to the bus middle
+        # (2.5, 0.5).  R3.pin1 has no net of its own, so the
+        # classification should report ONE_UNCONNECTED with net_a=VCC,
+        # letting _extend_net add R3.pin1 to VCC.
+        s = _FakeSession()
+        r1 = _make_inst("R1")
+        r2 = _make_inst("R2")
+        r3 = _make_inst("R3")
+        s.place(r1, _placement(r1, 0.5, 0.5))
+        s.place(r2, _placement(r2, 2.5, 0.5))
+        s.place(r3, _placement(r3, 2.5, 2.5))
+        # VCC connects R1.pin2 and R2.pin1.
+        vcc = Net(
+            id=uuid.uuid4(),
+            name="VCC",
+            pins={
+                PinRef(component_id=r1.id, pin_number=2),
+                PinRef(component_id=r2.id, pin_number=1),
+            },
+        )
+        s.schematic.nets[vcc.id] = vcc
+        # Existing bus wire from R1.pin2 → R2.pin1, passing through
+        # (2.5, 0.5) as an interior vertex (well, here it lands on
+        # R2.pin1; but classification is invariant to that).
+        bus = Wire(
+            id=uuid.uuid4(),
+            path=[_R1_PIN2, Point(2.5, 0.5)],
+            insulated=True, side="top",
+        )
+        s.layout.wires.append(bus)
+        # New wire: R3.pin1 (2.5, 2.5) → bus interior (2.5, 0.5).
+        new_wire = _wire(Point(2.5, 2.5), _R2_PIN1)
+        cl = classify_wire_nets(new_wire, s)
+        assert cl.kind == WireNetKind.ONE_UNCONNECTED
+        # net_b derives from R2.pin1 (which IS on VCC) — and pin_b
+        # too points at R2.pin1.  pin_a points at R3.pin1, which
+        # was unconnected.
+        assert cl.net_b is not None and cl.net_b.id == vcc.id
+        assert cl.net_a is None
+        # pin_a is R3.pin1.
+        assert cl.pin_a == (r3.id, 1)
+
+    def test_endpoint_on_wire_interior_no_pin_no_net_pure_wire(
+        self,
+    ) -> None:
+        # Two stub wires meet at a pad without any pin involvement;
+        # neither has a net.  Result: NO_PINS — nothing schematic
+        # changes.
+        s = _FakeSession()
+        wire1 = Wire(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(2.5, 0.5)],
+            insulated=True, side="top",
+        )
+        s.layout.wires.append(wire1)
+        new_wire = _wire(Point(2.5, 0.5), Point(4.5, 0.5))
+        cl = classify_wire_nets(new_wire, s)
+        assert cl.kind == WireNetKind.NO_PINS
