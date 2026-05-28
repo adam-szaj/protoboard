@@ -225,6 +225,50 @@ _OTHER_SIDE: dict[str, str] = {"top": "bottom", "bottom": "top"}
 # A routed path step: grid position + which layer it lives on.
 PathStep = tuple[Point, str]
 
+# Heap entries used to carry a full ``list[PathStep]`` per push and grew it
+# with ``path + [step]`` on every neighbour expansion — O(path_len) memory
+# per push and O(N²) total for N expansions.  On large boards (80×60
+# plated-through perfboard, VCC routes) that copy dominated and pushed
+# resident set size past 10 GB.
+#
+# The replacement is a singly-linked list of (parent, step) cells: each push
+# allocates one 2-tuple regardless of path length.  Many heap entries share
+# their prefix in memory.  ``_unfold_path_chain`` materialises the linked
+# list back into a ``list[PathStep]`` once, at goal time (or for tracing
+# / rollback) — paying O(path_len) only on the few entries that actually
+# need it.
+_PathChain = tuple["_PathChain | None", PathStep] | None
+
+
+def _unfold_path_chain(chain: _PathChain) -> list[PathStep]:
+    """Walk a linked-list path chain head-first; return steps in route order.
+
+    The chain stores tail → head (each cell's first slot is its predecessor),
+    so we collect into a list and reverse once.  Cheap and only called at
+    goal / trace / rollback boundaries — not in the hot loop.
+    """
+    out: list[PathStep] = []
+    node = chain
+    while node is not None:
+        parent, step = node
+        out.append(step)
+        node = parent
+    out.reverse()
+    return out
+
+
+def _fold_path_chain(steps: list[PathStep]) -> _PathChain:
+    """Inverse of ``_unfold_path_chain`` — build a chain from an ordered list.
+
+    Used by the deferred-via rollback branch which has to rewrite a slice
+    of the materialised path back into a chain so it can be pushed onto
+    the heap again.
+    """
+    chain: _PathChain = None
+    for step in steps:
+        chain = (chain, step)
+    return chain
+
 # Executor for parallel universe A*.  Default is *sequential* — see
 # project_silent_crash_post_upgrade memory: a worker thread garbage-collecting
 # concurrently with Qt's paintEvent on the main thread can segfault inside
@@ -352,7 +396,7 @@ class _SharedState:
 # When deferred_via_lookahead == 0, all six trailing fields are constant zero;
 # the cost cost per entry is 5 extra floats — marginal vs the path list copy.
 _HE = tuple[
-    float, float, int, float, float, int, float, float, list[PathStep],
+    float, float, int, float, float, int, float, float, _PathChain,
     int, float, float, float, float, float,
 ]
 
@@ -616,9 +660,10 @@ def _universe_worker(
             nodes_expanded += 1
 
             if (cx, cy) in _tgt:
+                goal_path = _unfold_path_chain(path)
                 shared.record_found(nodes_expanded)
                 shared.result_queue.put(RoutingResult(
-                    path=path, cost=g, insulated=insulated,
+                    path=goal_path, cost=g, insulated=insulated,
                     nodes_expanded=nodes_expanded,
                 ))
                 if _trace is not None:
@@ -626,7 +671,7 @@ def _universe_worker(
                         "e": "goal",
                         "pos": [cx, cy, cur_side],
                         "g": g,
-                        "path": [[p.x, p.y, s] for p, s in path],
+                        "path": [[p.x, p.y, s] for p, s in goal_path],
                         "nodes_expanded": nodes_expanded,
                     }) + "\n")
                     _trace.close()
@@ -949,21 +994,26 @@ def _universe_worker(
                                     # OLD side, drop the via marker, use
                                     # shadow accumulated g + new step cost.
                                     # Find via index by matching pre_via.
+                                    # Materialise the chain once for the
+                                    # rewrite (rare branch, cost OK).
+                                    _path_list = _unfold_path_chain(path)
                                     _via_idx = -1
-                                    for _i in range(len(path) - 1, -1, -1):
-                                        _pp, _pps = path[_i]
+                                    for _i in range(len(_path_list) - 1, -1, -1):
+                                        _pp, _pps = _path_list[_i]
                                         if _pp.x == pre_via_x and _pp.y == pre_via_y:
                                             _via_idx = _i
                                             break
                                     if _via_idx >= 0:
-                                        # path[via_idx] is the via duplicate
-                                        # entry (Point at via cell on new
-                                        # side); path[via_idx-1] is the
-                                        # last entry on old side.  Flip
+                                        # _path_list[via_idx] is the via
+                                        # duplicate entry (Point at via
+                                        # cell on new side); [via_idx-1] is
+                                        # the last entry on old side.  Flip
                                         # post-via entries to old side and
                                         # drop the via marker.
-                                        _new_path = list(path[:_via_idx])
-                                        for _pp, _pps in path[_via_idx + 1:]:
+                                        _new_path: list[PathStep] = list(
+                                            _path_list[:_via_idx]
+                                        )
+                                        for _pp, _pps in _path_list[_via_idx + 1:]:
                                             _new_path.append((_pp, _old_side))
                                         _new_path.append((npos, _old_side))
                                         _rollback_path = _new_path
@@ -997,7 +1047,7 @@ def _universe_worker(
                         _seq += 1
                         neighbor_entries.append((
                             _rb_nf, _rollback_g, _seq, nx, ny, _old_side_idx,
-                            ndx, ndy, _rollback_path,
+                            ndx, ndy, _fold_path_chain(_rollback_path),
                             0, 0.0, 0.0, 0.0, 0.0, 0.0,
                         ))
                     if _trace_neighbours is not None:
@@ -1022,7 +1072,7 @@ def _universe_worker(
                 _seq += 1
                 neighbor_entries.append(
                     (nf, ng, _seq, nx, ny, cs_idx, ndx, ndy,
-                     path + [(npos, cur_side)],
+                     (path, (npos, cur_side)),
                      next_via_pending, next_pre_via_x, next_pre_via_y,
                      next_shadow_g, next_shadow_dx, next_shadow_dy)
                 )
@@ -1128,7 +1178,7 @@ def _universe_worker(
                             _seq += 1
                             via_entry = (
                                 nf, ng, _seq, cx, cy, other_idx, 0.0, 0.0,
-                                path + [(pos, other_side)],
+                                (path, (pos, other_side)),
                                 via_next_pending, via_next_pre_x,
                                 via_next_pre_y, via_next_shadow_g,
                                 via_next_shadow_dx, via_next_shadow_dy,
@@ -1176,7 +1226,7 @@ def _universe_worker(
                             nf, ng, _seq,
                             _dx_t, _dy_t, _dside_idx,
                             0.0, 0.0,
-                            path + [(Point(_dx_t, _dy_t), _dside)],
+                            (path, (Point(_dx_t, _dy_t), _dside)),
                             0, 0.0, 0.0, 0.0, 0.0, 0.0,
                         ))
 
@@ -1256,7 +1306,7 @@ def _astar_parallel(
         (
             h0(source.x, source.y), 0.0, 0,
             source.x, source.y, side_idx, 0.0, 0.0,
-            [(source, source_side)],
+            (None, (source, source_side)),
             # Deferred-via state: not pending at source.
             0,         # via_pending
             0.0, 0.0,  # pre_via_x, pre_via_y
@@ -1641,8 +1691,9 @@ def _astar(
 
     _seq = 0
     side_idx = 0 if source_side == "top" else 1
-    heap: list[tuple[float, float, int, float, float, int, float, float, list[PathStep]]] = [
-        (h(source.x, source.y), 0.0, _seq, source.x, source.y, side_idx, 0.0, 0.0, [(source, source_side)])
+    heap: list[tuple[float, float, int, float, float, int, float, float, _PathChain]] = [
+        (h(source.x, source.y), 0.0, _seq, source.x, source.y, side_idx, 0.0, 0.0,
+         (None, (source, source_side)))
     ]
     visited: dict[tuple[float, float, int, float, float], float] = {}
 
@@ -1656,7 +1707,7 @@ def _astar(
         visited[state_key] = g
 
         if pos in target_set:
-            return RoutingResult(path=path, cost=g)
+            return RoutingResult(path=_unfold_path_chain(path), cost=g)
 
         for ndx, ndy, dist_mult in _NEIGHBOURS:
             npos = Point(cx + ndx, cy + ndy)
@@ -1689,7 +1740,8 @@ def _astar(
             nf = ng + h(npos.x, npos.y)
             _seq += 1
             heapq.heappush(
-                heap, (nf, ng, _seq, npos.x, npos.y, cs_idx, ndx, ndy, path + [(npos, cur_side)])
+                heap, (nf, ng, _seq, npos.x, npos.y, cs_idx, ndx, ndy,
+                       (path, (npos, cur_side)))
             )
 
         if pos in vias:
@@ -1703,7 +1755,8 @@ def _astar(
                         nf = ng + h(cx, cy)
                         _seq += 1
                         heapq.heappush(
-                            heap, (nf, ng, _seq, pos.x, pos.y, other_idx, 0.0, 0.0, path + [(pos, other_side)])
+                            heap, (nf, ng, _seq, pos.x, pos.y, other_idx, 0.0, 0.0,
+                                   (path, (pos, other_side)))
                         )
 
     return None

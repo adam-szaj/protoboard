@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Autoroute memory + off-board precondition (2026-05-27)
+
+- A* (``astar.py``) previously carried the full ``list[PathStep]`` in
+  every heap entry and grew it with ``path + [step]`` on each neighbour
+  push.  On dense boards (80×60 plated-through perfboard) with no
+  detour budget (``max_detour_factor=0.0``) the heap stored hundreds of
+  thousands of entries × path length, pushing RSS past 10 GB on a
+  single VCC route.  Replaced with a singly-linked-list path chain
+  (one 2-tuple ``(parent, step)`` per push); shared prefixes coalesce
+  in memory, ``_unfold_path_chain`` materialises the list only at goal
+  / trace / rollback time.  Same routes produced; large drop in peak
+  RSS on hard searches.
+- New autoroute precondition: ``OFF_BOARD_PIN``.  Any pin in the
+  schematic whose world position is not on the board grid raises
+  ``AutoroutePreconditionError`` before A* runs.  An off-board pin has
+  no valid node in the routing graph, so without an early bail-out
+  A* explores the whole board attempting to reach an unreachable
+  target — the same path-as-list explosion above.  Error message
+  names the component / pin / net and tells the user to move the
+  component back onto the board.
+
 ### Wire model refactor — Knot / Fragment domain (2026-05-27)
 
 Two-commit refactor that introduces a richer wire model alongside the legacy

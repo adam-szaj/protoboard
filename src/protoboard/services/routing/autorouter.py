@@ -478,6 +478,51 @@ def autoroute(
     # Build pin-position lookup: PinRef → (world_position, side).
     pin_positions = _build_pin_positions(layout, components, instances)
 
+    # Off-board precondition: pins outside the board grid have no valid
+    # node in the routing graph.  A* started from such a pin would
+    # explore the entire grid trying to reach an unreachable target —
+    # with ``max_detour_factor=0.0`` (no budget cap) this exhausts memory
+    # on dense boards.  Bail out before A* sees anything.
+    from protoboard.services.drc.engine import DRCIssue as _DRCIssue
+    from protoboard.domain.layout.wire_utils import board_pads_for_side
+    _board_pad_set = (
+        board_pads_for_side(board, "top")
+        | board_pads_for_side(board, "bottom")
+    )
+    if net_ids is not None:
+        _nets_to_check = [n for n in schematic.nets.values() if n.id in net_ids]
+    else:
+        _nets_to_check = list(schematic.nets.values())
+    _off_board_issues: list[_DRCIssue] = []
+    for _net in _nets_to_check:
+        for _ref in _net.pins:
+            _ps = pin_positions.get(_ref)
+            if _ps is None:
+                continue
+            _pt, _side = _ps
+            if _pt not in _board_pad_set:
+                _off_board_issues.append(_DRCIssue(
+                    severity="error",
+                    code="OFF_BOARD_PIN",
+                    message=(
+                        f"Pin {_ref.pin_number} of component {_ref.component_id} "
+                        f"on net '{_net.name}' is outside the board grid "
+                        f"({_pt}).  Move the component onto the board before "
+                        f"autorouting."
+                    ),
+                    locations=[_pt],
+                    affected_nets=[_net.id],
+                    affected_pins=[_ref],
+                    affected_components=[_ref.component_id],
+                ))
+    if _off_board_issues:
+        _log.error(
+            "autoroute.precondition_failed",
+            blocking_count=len(_off_board_issues),
+            codes=["OFF_BOARD_PIN"],
+        )
+        raise AutoroutePreconditionError(_off_board_issues)
+
     # Build a map: (world_position, side) → net_id for every placed pin that
     # belongs to a net, registered on BOTH layers (plated-through hole).
     point_side_to_net: dict[tuple[Point, str], uuid.UUID] = {}
