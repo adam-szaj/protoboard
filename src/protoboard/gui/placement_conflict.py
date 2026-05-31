@@ -430,230 +430,49 @@ def classify_drag_commit(
 ) -> "DragCommitDecision":
     """Classify the current (post-drag) layout state for commit.
 
-    Pure logic — never constructs a Qt dialog.  Returns a
-    :class:`protoboard.gui.tools.drag_commit_decision.DragCommitDecision`.
+    Thin wrapper around :class:`DragDetector`. Builds a
+    :class:`DragSnapshot` from *session* (including a fresh PadIndex
+    when ``session.board`` is available) and delegates classification
+    to the detector configured with a :class:`DRCEnforcingStrategy`.
 
-    The classifier inspects ``session.layout`` as it stands *now* (the live
-    drag has already updated placements and wires in place).  It considers,
-    in worst-of order:
-
-    * pure body-on-body overlap with a non-moved component → HARD
-    * DIFFERENT_NETS pad-on-pad with a non-moved component → HARD
-    * PIN_ON_WIRE_* / ONE_UNCONNECTED / BOTH_UNCONNECTED → SOFT
-    * wires now crossing alien pads (``find_wires_crossing_pads``) → SOFT
-    * wires whose path became skewed after drag (``find_skewed_wires``) → SOFT
-    * nothing → CLEAR
+    Pure logic — never constructs a Qt dialog.
     """
-    from protoboard.domain.layout.pad_conflict import (
-        ConflictKind,
-        find_wire_conflicts,
-        find_wires_crossing_pads,
-    )
-    from protoboard.domain.layout.wire_utils import find_skewed_wires
-    from protoboard.gui.tools.drag_commit_decision import (
-        DragCommitDecision,
-        DragSeverity,
-    )
+    from protoboard.services.drag_detector import DragDetector, DragSnapshot
+    from protoboard.services.pad_strategy import DRCEnforcingStrategy
 
-    hard_pads: list[Point] = []
-    soft_pads: list[Point] = []
-    remove_wires: set[uuid.UUID] = set()
-    net_actions: list[object] = []
-    descriptions: list[str] = []
-
-    # Lazy-built PadIndex over the current (post-drag) layout.  Reused
-    # across every moved component + wire-crossing check.
-    _drag_pad_index: object | None = None
-
-    # --- 1. Per-moved-component pad + body conflicts ---
-    pad_conflicts_all: list[PadConflict] = []
-    for cid in moved_comp_ids:
-        pl = session.layout.placements.get(cid)
-        inst = session.instances.get(cid)
-        if pl is None or inst is None:
-            continue
-        defn = session.components.get(inst.definition_ref)
-        if defn is None:
-            continue
-
-        # Pure body-overlap (mirrors _move_blocked / check_and_resolve preamble).
-        incoming_bbox = component_bbox(
-            defn.footprint, pl, defn.component_class
-        )
-        body_overlap_refdes: str | None = None
-        for other_id, other_pl in session.layout.placements.items():
-            if other_id == cid or other_id in moved_comp_ids:
-                continue
-            other_inst = session.instances.get(other_id)
-            if other_inst is None:
-                continue
-            other_defn = session.components.get(other_inst.definition_ref)
-            if other_defn is None:
-                continue
-            other_bbox = component_bbox(
-                other_defn.footprint, other_pl, other_defn.component_class
-            )
-            if not incoming_bbox.intersects(other_bbox):
-                continue
-            # If any pin coincides, it's a shared-pad case (handled below).
-            has_pin_overlap = False
-            for in_pin in range(1, defn.footprint.pin_count() + 1):
-                in_pos = pin_world_position(defn.footprint, pl, in_pin)
-                for ot_pin in range(1, other_defn.footprint.pin_count() + 1):
-                    ot_pos = pin_world_position(
-                        other_defn.footprint, other_pl, ot_pin
-                    )
-                    if abs(in_pos.x - ot_pos.x) < 1e-4 and abs(in_pos.y - ot_pos.y) < 1e-4:
-                        has_pin_overlap = True
-                        break
-                if has_pin_overlap:
-                    break
-            if not has_pin_overlap:
-                body_overlap_refdes = other_inst.refdes
-                # Use pin 1 as positional marker.
-                hard_pads.append(pin_world_position(defn.footprint, pl, 1))
-
-        if body_overlap_refdes is not None:
-            descriptions.append(
-                f"{inst.refdes} body overlap with {body_overlap_refdes}"
-            )
-
-        # Pad-on-pad conflicts.  We rebuild a fresh PadIndex over the
-        # *current* (post-drag) layout when the session exposes a board:
-        # the drag handler mutates placements/wires in-place and emits
-        # ``drag_moved`` only, not ``layout_changed``, so the cached index
-        # is stale w.r.t. the live drag state.  Build is ~3 ms per call
-        # (memory: perf.pad_index_build_ms).  Test stubs without a ``board``
-        # attribute fall back to the legacy from-layout path.
-        if _drag_pad_index is None and hasattr(session, "board"):
-            try:
-                from protoboard.domain.board.pad_state import PadIndex
-                _drag_pad_index = PadIndex(
-                    board=session.board,
-                    layout=session.layout,
-                    schematic=session.schematic,
-                    components=session.components,
-                    instances=session.instances,
-                )
-            except Exception:  # noqa: BLE001
-                _drag_pad_index = None
-        pad_cs = find_conflicts(
-            incoming_placement=pl,
-            incoming_defn=defn,
-            incoming_instance_id=cid,
-            layout_placements=session.layout.placements,
-            instances=session.instances,
-            components=session.components,
-            schematic=session.schematic,
-            pad_index=_drag_pad_index,
-        )
-        pad_conflicts_all.extend(pad_cs)
-        for c in pad_cs:
-            if c.kind == ConflictKind.DIFFERENT_NETS:
-                hard_pads.append(c.position)
-                descriptions.append(
-                    f"{inst.refdes} pin {c.incoming_pin}: different-net conflict"
-                )
-            elif c.kind in (
-                ConflictKind.ONE_UNCONNECTED,
-                ConflictKind.BOTH_UNCONNECTED,
-            ):
-                soft_pads.append(c.position)
-                descriptions.append(
-                    f"{inst.refdes} pin {c.incoming_pin}: shared pad (will join net)"
-                )
-
-        # Wire conflicts (pin on alien wire).
-        point_to_net: dict[tuple[float, float], tuple[uuid.UUID, str]] = {}
-        for net in session.schematic.nets.values():
-            for ref in net.pins:
-                p = session.get_pin_position(ref.component_id, ref.pin_number)
-                if p is None:
-                    continue
-                point_to_net[(_round(p.x), _round(p.y))] = (net.id, net.name)
-        already_conflicted = {
-            (_round(c.position.x), _round(c.position.y)) for c in pad_cs
-        }
-        wire_cs = find_wire_conflicts(
-            incoming_placement=pl,
-            incoming_defn=defn,
-            incoming_instance_id=cid,
-            wires=session.layout.wires,
-            schematic=session.schematic,
-            point_to_net=point_to_net,
-            already_conflicted=already_conflicted,
-            pad_index=_drag_pad_index,
-        )
-        # Rule 6 strict: ANY wire on a pin pad is a conflict — even
-        # the same-net case ("intentional contact") is physically
-        # awkward (pin sterczy nad padem) and gets removed on commit.
-        # The user can re-route the wire to a separate hub afterwards.
-        for c in wire_cs:
-            soft_pads.append(c.position)
-            if c.wire_id is not None:
-                remove_wires.add(c.wire_id)
-            if c.kind == ConflictKind.PIN_ON_WIRE_SAME_NET:
-                descriptions.append(
-                    f"{inst.refdes} pin {c.incoming_pin} on same-net wire "
-                    f"(will remove — re-route through a separate hub)"
-                )
-            else:
-                descriptions.append(
-                    f"{inst.refdes} pin {c.incoming_pin} on foreign wire "
-                    f"(will remove)"
-                )
-
-    # --- 2. Wires crossing alien pads after the move ---
-    crossing = find_wires_crossing_pads(
-        wires=session.layout.wires,
-        moved_comp_ids=moved_comp_ids,
-        layout_placements=session.layout.placements,
+    pad_index = _build_drag_pad_index(session)
+    snapshot = DragSnapshot(
+        pad_index=pad_index,
+        placements=session.layout.placements,
         instances=session.instances,
         components=session.components,
         schematic=session.schematic,
-        moved_wire_ids=set(dragged_wire_ids),
-        pad_index=_drag_pad_index,
+        wires=list(session.layout.wires),
     )
-    if crossing:
-        remove_wires.update(crossing)
-        descriptions.append(
-            f"{len(crossing)} wire(s) cross alien pads (will remove)"
+    detector = DragDetector(DRCEnforcingStrategy())
+    return detector.classify(
+        snapshot,
+        moved_comp_ids=set(moved_comp_ids),
+        dragged_wire_ids=frozenset(dragged_wire_ids),
+    )
+
+
+def _build_drag_pad_index(session: "EditorSession") -> "object | None":
+    """Build a fresh PadIndex reflecting the live (post-drag) layout.
+
+    Returns None when *session* lacks a ``board`` (test stubs) or
+    construction fails — callers fall back to legacy from-layout paths.
+    """
+    if not hasattr(session, "board"):
+        return None
+    try:
+        from protoboard.domain.board.pad_state import PadIndex
+        return PadIndex(
+            board=session.board,
+            layout=session.layout,
+            schematic=session.schematic,
+            components=session.components,
+            instances=session.instances,
         )
-
-    # --- 3. Skewed wires (only inspect ones that were dragged) ---
-    skewed = find_skewed_wires(
-        session.layout.wires, moved_wire_ids=set(dragged_wire_ids)
-    )
-    if skewed:
-        remove_wires.update(skewed)
-        descriptions.append(
-            f"{len(skewed)} wire(s) became skewed (will remove)"
-        )
-
-    # --- 4. Determine severity ---
-    if hard_pads:
-        severity = DragSeverity.HARD
-    elif soft_pads or remove_wires:
-        severity = DragSeverity.SOFT
-    else:
-        severity = DragSeverity.CLEAR
-
-    _log.debug(
-        "drag.classify_commit",
-        severity=severity.value,
-        moved=[str(c) for c in moved_comp_ids],
-        dragged_wires=[str(w) for w in dragged_wire_ids],
-        auto_remove_wires=[str(w) for w in remove_wires],
-        hard_pads=[(p.x, p.y) for p in hard_pads],
-        soft_pads=[(p.x, p.y) for p in soft_pads],
-        descriptions=descriptions,
-    )
-
-    return DragCommitDecision(
-        severity=severity,
-        description="; ".join(descriptions),
-        auto_remove_wire_ids=tuple(remove_wires),
-        auto_net_actions=tuple(net_actions),
-        blocking_pad_positions=tuple(hard_pads),
-        overlay_pad_positions=tuple(soft_pads),
-    )
+    except Exception:  # noqa: BLE001
+        return None

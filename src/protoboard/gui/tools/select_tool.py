@@ -136,6 +136,19 @@ _NODE_RADIUS = 0.13
 _log = structlog.get_logger(__name__)
 
 
+def _dbg_enabled() -> bool:
+    """Cheap gate for hot-path debug logs.
+
+    structlog forwards to stdlib logging, so the stdlib level filter is
+    authoritative.  Guarding ``_log.debug(...)`` calls whose payload
+    builds list/dict comprehensions avoids paying that cost when the
+    logger is off (drag overlay runs at ~60 fps; an unguarded debug
+    payload with 6 comprehensions burns measurable cycles).
+    """
+    import logging
+    return logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
+
+
 class SelectTool(_Tool):
     """Click/rubber-band to select; drag to move; R to rotate; Del to delete."""
 
@@ -235,6 +248,11 @@ class SelectTool(_Tool):
         self._floating_decision: object | None = None   # DragCommitDecision | None
         self._floating_severity: str = "clear"          # "clear" | "soft" | "hard"
         self._drag_timer: QTimer | None = None  # built lazily on first drag
+        # PadIndex trial state — cloned from session at drag-start and
+        # mutated incrementally per snap so we don't rebuild the full
+        # index on every grid step (~3 ms × N snaps becomes ~3 ms +
+        # ~0.2 ms × N).  None when no drag is active.
+        self._drag_pad_index: object | None = None
 
     # ------------------------------------------------------------------
     # _Tool interface
@@ -877,23 +895,40 @@ class SelectTool(_Tool):
             return
 
         from protoboard.domain.commands.base import Command
+        from protoboard.domain.commands.component_cmds import (
+            TranslateAnchoredWiresCommand,
+        )
 
         cmds: list[Command[ComponentState]] = []
-        # Wire commands (remove/add) must run BEFORE MoveComponentCommand so that
-        # _update_wires_for_move (called inside MoveComponentCommand.apply) does not
-        # encounter wires that are about to be removed and accidentally drop them
-        # from layout.wires before RemoveWireCommand can find them by ID.
+        # Wire removals (decision.auto_remove_wire_ids) come first so a
+        # following TranslateAnchoredWiresCommand doesn't observe wires
+        # the user already opted to drop.
         for cmd in self._floating_extra_cmds:
             cmds.append(cmd)  # type: ignore[arg-type]
         n_removed = sum(
             1 for c in self._floating_extra_cmds
             if type(c).__name__ == "RemoveWireCommand"
         )
+        # Each moved component contributes a pair: translate its
+        # anchored wires first (so foreign wires whose path merely
+        # passes through old pin positions are not touched), then move
+        # the component itself with placement_only=True. Splitting the
+        # work into discrete commands keeps the macro's undo behaviour
+        # transparent and matches the refactor's "no hidden wire
+        # mutations in MoveComponentCommand" goal.
         for cid in self._floating_ids:
             new_pl = self._session.layout.placements.get(cid)
             old_pl = self._floating_orig_placements.get(cid)
             if new_pl is None or old_pl is None:
                 continue
+            cmds.append(
+                TranslateAnchoredWiresCommand(
+                    component_id=cid,
+                    new_placement=new_pl,
+                    old_placement=old_pl,
+                    exclude_wire_ids=self._floating_dragged_wire_ids,
+                )
+            )
             cmds.append(
                 MoveComponentCommand(
                     component_id=cid,
@@ -901,6 +936,7 @@ class SelectTool(_Tool):
                     old_placement=old_pl,
                     skip_conflict_check=True,
                     exclude_wire_ids=self._floating_dragged_wire_ids,
+                    placement_only=True,
                 )
             )
         self._clear_floating_highlights()
@@ -913,6 +949,7 @@ class SelectTool(_Tool):
         self._floating_dragged_wire_ids = frozenset()
         self._floating_decision = None
         self._floating_severity = "clear"
+        self._clear_drag_pad_index()
         if cmds:
             from protoboard.domain.commands.base import CommandRejectedError
             try:
@@ -964,6 +1001,7 @@ class SelectTool(_Tool):
         self._floating_dragged_wire_ids = frozenset()
         self._floating_decision = None
         self._floating_severity = "clear"
+        self._clear_drag_pad_index()
         self._session.layout_changed.emit()
 
     def _clear_floating(self) -> None:
@@ -972,6 +1010,51 @@ class SelectTool(_Tool):
         self._floating_orig_placements = {}
         self._floating_extra_cmds = []
         self._floating_dragged_wire_ids = frozenset()
+
+    # ------------------------------------------------------------------
+    # PadIndex trial state (Step 5 of drag-pipeline refactor)
+    # ------------------------------------------------------------------
+
+    def _ensure_drag_pad_index(
+        self, drag_ids: "set[uuid.UUID]",
+    ) -> "object | None":
+        """Return the trial PadIndex, building it lazily on first use.
+
+        Clones session.pad_index() once per drag operation; subsequent
+        calls within the same drag re-sync moved components in-place
+        rather than rebuilding from scratch.
+        """
+        if not drag_ids:
+            return None
+        from protoboard.domain.board.pad_state import PadIndex
+        try:
+            if self._drag_pad_index is None:
+                session_idx = self._session.pad_index()
+                self._drag_pad_index = session_idx.clone()
+            assert isinstance(self._drag_pad_index, PadIndex)
+            for cid in drag_ids:
+                pl = self._session.layout.placements.get(cid)
+                inst = self._session.instances.get(cid)
+                if pl is None or inst is None:
+                    continue
+                defn = self._session.components.get(inst.definition_ref)
+                if defn is None:
+                    continue
+                self._drag_pad_index.remove_component(cid)
+                self._drag_pad_index.add_component(
+                    cid, pl, defn, schematic=self._session.schematic,
+                )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning(
+                "drag.pad_index.refresh_failed",
+                error=str(exc),
+            )
+            self._drag_pad_index = None
+        return self._drag_pad_index
+
+    def _clear_drag_pad_index(self) -> None:
+        """Discard the trial PadIndex.  Called from commit/cancel paths."""
+        self._drag_pad_index = None
 
     def _draw_floating_highlights(self) -> None:
         if self._view is None:
@@ -1019,6 +1102,7 @@ class SelectTool(_Tool):
         self._dragging = False
         self._drag_orig_positions = {}
         self._drag_orig_wire_paths = {}
+        self._clear_drag_pad_index()
         if self._view is not None:
             self._drag_overlay.reset(self._view.scene())
         self._cancel_wire_edit()
@@ -2867,19 +2951,21 @@ class SelectTool(_Tool):
         self, drag_ids: set[uuid.UUID], snapped: Point
     ) -> None:
         """Recompute and redraw drag conflict overlay (throttled to snapped grid)."""
-        _log.info(
-            "drag.overlay.enter",
-            drag_ids=[str(c)[:8] for c in drag_ids],
-            snapped=(snapped.x, snapped.y),
-            needs_update=self._drag_overlay.needs_update(snapped),
-        )
+        if _dbg_enabled():
+            _log.debug(
+                "drag.overlay.enter",
+                drag_ids=[str(c)[:8] for c in drag_ids],
+                snapped=(snapped.x, snapped.y),
+                needs_update=self._drag_overlay.needs_update(snapped),
+            )
         if not self._drag_overlay.needs_update(snapped):
             return
-        _log.info(
-            "drag.overlay.update",
-            drag_ids=[str(c)[:8] for c in drag_ids],
-            snapped=(snapped.x, snapped.y),
-        )
+        if _dbg_enabled():
+            _log.debug(
+                "drag.overlay.update",
+                drag_ids=[str(c)[:8] for c in drag_ids],
+                snapped=(snapped.x, snapped.y),
+            )
         from protoboard.domain.layout.pad_conflict import (
             MoveConflictSeverity,
             MoveConflictResult,
@@ -2914,113 +3000,52 @@ class SelectTool(_Tool):
                 pad_index=_drag_idx,
             )
         else:
-            # Non-group drag: pad-pad (BLOCKED) + pin-on-wire (REMOVABLE).
-            # ``find_wires_crossing_pads`` (the post-move skewed-wire check)
-            # is still skipped during live drag — it rebuilds the full pad
-            # map on every grid step and dominates mouse-move latency.
-            # It runs on mouse-release instead. Pin-on-wire detection here
-            # is cheap (per-pin scan over a fresh PadIndex; build is ~3 ms
-            # on real boards — same cost the timer-driven full validation
-            # already pays).
-            from protoboard.domain.layout.pad_conflict import (
-                ConflictKind,
-                find_conflicts,
-                find_wire_conflicts,
+            # Non-group drag: delegate to the DragDetector so live overlay
+            # and release-time commit pipeline share one classifier. The
+            # detector produces a DragCommitDecision; we adapt it to the
+            # overlay's MoveConflictResult shape (HARD → BLOCKED, SOFT →
+            # REMOVABLE, CLEAR → CLEAR).
+            from protoboard.services.drag_detector import (
+                DragDetector,
+                DragSnapshot,
             )
-            from protoboard.geometry import Point as _Point
-            blocking: list[_Point] = []
-            removable: list[_Point] = []
-            removable_wire_ids: list[uuid.UUID] = []
-            # Build a fresh PadIndex over the live (post-drag) layout. The
-            # session's cached pad_index is stale because drag mutates
-            # placements/wires in place without emitting layout_changed.
-            from protoboard.domain.board.pad_state import PadIndex as _PadIndex
-            try:
-                _drag_idx: _PadIndex | None = _PadIndex(
-                    board=self._session.board,
-                    layout=self._session.layout,
-                    schematic=self._session.schematic,
-                    components=self._session.components,
-                    instances=self._session.instances,
-                )
-            except Exception as exc:  # noqa: BLE001
-                _log.warning(
-                    "drag.overlay.pad_index_build_failed",
-                    error=str(exc),
-                )
-                _drag_idx = None
-            # point_to_net for the wire net-resolution fallback (used by
-            # find_wire_conflicts when pad_index lookup yields no net).
-            point_to_net: dict[tuple[float, float], tuple[uuid.UUID, str]] = {}
-            for net in self._session.schematic.nets.values():
-                for ref in net.pins:
-                    p = self._session.get_pin_position(
-                        ref.component_id, ref.pin_number,
-                    )
-                    if p is not None:
-                        point_to_net[(round(p.x, 4), round(p.y, 4))] = (net.id, net.name)
-            for cid in drag_ids:
-                pl = self._session.layout.placements.get(cid)
-                inst = self._session.instances.get(cid)
-                if pl is None or inst is None:
-                    continue
-                defn = self._session.components.get(inst.definition_ref)
-                if defn is None:
-                    continue
-                for c in find_conflicts(
-                    pl, defn, cid,
-                    self._session.layout.placements,
-                    self._session.instances,
-                    self._session.components,
-                    self._session.schematic,
-                ):
-                    if c.kind == ConflictKind.DIFFERENT_NETS:
-                        blocking.append(c.position)
-                # Pin-on-wire — REMOVABLE (yellow overlay). The same
-                # check runs on commit; surfacing it live lets the user
-                # see the conflict the moment a pin lands on a foreign
-                # wire instead of waiting for the 1 s debounced timer.
-                already = {(round(p.x, 4), round(p.y, 4)) for p in blocking}
-                _wc_list = list(find_wire_conflicts(
-                    incoming_placement=pl,
-                    incoming_defn=defn,
-                    incoming_instance_id=cid,
-                    wires=self._session.layout.wires,
-                    schematic=self._session.schematic,
-                    point_to_net=point_to_net,
-                    already_conflicted=already,
-                    pad_index=_drag_idx,
-                ))
-                _log.info(
-                    "drag.overlay.find_wire_conflicts",
-                    cid=str(cid)[:8],
-                    n_conflicts=len(_wc_list),
-                    kinds=[wc.kind.value for wc in _wc_list],
-                    positions=[(wc.position.x, wc.position.y) for wc in _wc_list],
-                    wire_ids=[str(wc.wire_id)[:8] if wc.wire_id else None for wc in _wc_list],
-                    already_count=len(already),
-                )
-                # Rule 6 strict: ANY wire on a pin pad is a conflict —
-                # bare or insulated, foreign-net or same-net. The
-                # physical constraint (pin sticks out of the pad, wire
-                # gets in the way) holds even when the schematic says
-                # the nets match; the user must still route through a
-                # separate hub, not through the pin's pad.
-                for wc in _wc_list:
-                    removable.append(wc.position)
-                    if wc.wire_id is not None:
-                        removable_wire_ids.append(wc.wire_id)
-            if blocking:
+            from protoboard.services.pad_strategy import DRCEnforcingStrategy
+            from protoboard.gui.tools.drag_commit_decision import DragSeverity
+
+            _drag_idx = self._ensure_drag_pad_index(drag_ids)
+
+            snapshot = DragSnapshot(
+                pad_index=_drag_idx,
+                placements=self._session.layout.placements,
+                instances=self._session.instances,
+                components=self._session.components,
+                schematic=self._session.schematic,
+                wires=list(self._session.layout.wires),
+            )
+            detector = DragDetector(DRCEnforcingStrategy())
+            decision = detector.classify(
+                snapshot,
+                moved_comp_ids=set(drag_ids),
+                dragged_wire_ids=frozenset(
+                    self._drag_orig_wire_paths.keys()
+                ),
+            )
+
+            if decision.severity is DragSeverity.HARD:
                 result = MoveConflictResult(
                     severity=MoveConflictSeverity.BLOCKED,
-                    blocking_pad_positions=blocking,
+                    blocking_pad_positions=list(
+                        decision.blocking_pad_positions
+                    ),
                     removable_wire_ids=[],
                 )
-            elif removable:
+            elif decision.severity is DragSeverity.SOFT:
                 result = MoveConflictResult(
                     severity=MoveConflictSeverity.REMOVABLE,
-                    blocking_pad_positions=removable,
-                    removable_wire_ids=removable_wire_ids,
+                    blocking_pad_positions=list(
+                        decision.overlay_pad_positions
+                    ),
+                    removable_wire_ids=list(decision.auto_remove_wire_ids),
                 )
             else:
                 result = MoveConflictResult(
@@ -3028,14 +3053,24 @@ class SelectTool(_Tool):
                     blocking_pad_positions=[],
                     removable_wire_ids=[],
                 )
-            _log.info(
-                "drag.overlay.result",
-                severity=result.severity.name,
-                blocking=[(p.x, p.y) for p in blocking],
-                removable=[(p.x, p.y) for p in removable],
-                removable_wire_ids=[str(w)[:8] for w in removable_wire_ids],
-                pad_index_built=_drag_idx is not None,
-            )
+            self._drag_last_decision = decision
+            self._update_corner_text_from_decision(decision)
+            if _dbg_enabled():
+                _log.debug(
+                    "drag.overlay.result",
+                    severity=result.severity.name,
+                    decision_severity=decision.severity.value,
+                    blocking=[
+                        (p.x, p.y) for p in decision.blocking_pad_positions
+                    ],
+                    removable=[
+                        (p.x, p.y) for p in decision.overlay_pad_positions
+                    ],
+                    removable_wire_ids=[
+                        str(w)[:8] for w in decision.auto_remove_wire_ids
+                    ],
+                    pad_index_built=_drag_idx is not None,
+                )
 
         # Compute drag bbox for outline.
         bbox = self._drag_bbox(drag_ids)

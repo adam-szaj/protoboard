@@ -32,6 +32,12 @@ from protoboard.geometry import Point
 
 _log = structlog.get_logger(__name__)
 
+
+def _dbg_enabled() -> bool:
+    """Cheap gate for hot-path debug logs (see ``select_tool._dbg_enabled``)."""
+    import logging
+    return logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
+
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.schematic.net import Net
@@ -119,6 +125,12 @@ class MoveComponentCommand(Command[ComponentState]):
     # Wire IDs already translated by live drag — skip in _update_wires_for_move
     # to prevent double-translation when old_pin_pos == new_pin_pos of another component.
     exclude_wire_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
+    # When True, the command mutates only ``layout.placements`` and leaves
+    # all wires alone. The drag-commit pipeline uses this in conjunction
+    # with a preceding ``TranslateAnchoredWiresCommand`` so that wire
+    # translation is a first-class, undo-distinct step instead of an
+    # invisible side effect of the move.
+    placement_only: bool = field(default=False)
     # Wires before the move — saved for undo.
     _saved_wires: list[Wire] = field(
         default_factory=list, init=False, repr=False
@@ -144,19 +156,22 @@ class MoveComponentCommand(Command[ComponentState]):
                 state.layout.placements[self.component_id] = self.old_placement
                 return
         object.__setattr__(self, "_applied", True)
-        object.__setattr__(self, "_saved_wires", list(state.layout.wires))
+        if not self.placement_only:
+            object.__setattr__(self, "_saved_wires", list(state.layout.wires))
         state.layout.placements[self.component_id] = self.new_placement
-        _update_wires_for_move(
-            state, self.component_id, self.old_placement, self.new_placement,
-            self.exclude_wire_ids,
-        )
+        if not self.placement_only:
+            _update_wires_for_move(
+                state, self.component_id, self.old_placement, self.new_placement,
+                self.exclude_wire_ids,
+            )
         _warn_pins_off_pads(state, self.component_id, self.new_placement)
 
     def revert(self, state: ComponentState) -> None:
         if not self._applied:
             return
         state.layout.placements[self.component_id] = self.old_placement
-        state.layout.wires[:] = self._saved_wires
+        if not self.placement_only:
+            state.layout.wires[:] = self._saved_wires
 
 
 @dataclass
@@ -1100,6 +1115,135 @@ class RemoveWireCommand(Command[ComponentState]):
 
 
 @dataclass
+class TranslateAnchoredWiresCommand(Command[ComponentState]):
+    """Translate wires anchored to a moved component's pins.
+
+    Spun out of ``MoveComponentCommand`` so the drag-commit pipeline
+    can sequence wire translation as a distinct, undo-able step. The
+    underlying helper is shared with the legacy in-Move path —
+    behavior is identical, but observability and rollback are not.
+
+    Anchoring is decided by ``_update_wires_for_move``'s PinKnot
+    check: only wires whose endpoints reference this component's pins
+    are translated; foreign wires whose path happens to pass through
+    the old pin position are left alone (this is what fixes the
+    "foreign wire glued to moved pin" bug ``eae4cd4``).
+
+    Undo snapshots both the wires list *and* each wire's path/fragments
+    so a translated-in-place wire can be restored even if the list
+    itself is unchanged. Pure list snapshot (the pattern
+    ``MoveComponentCommand`` uses) restores only the list identity but
+    leaves mutated wires mutated.
+    """
+
+    component_id: uuid.UUID
+    new_placement: ComponentPlacement
+    old_placement: ComponentPlacement
+    exclude_wire_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
+    _saved_wires: list[Wire] = field(
+        default_factory=list, init=False, repr=False,
+    )
+    _saved_paths: dict[uuid.UUID, list[Point]] = field(
+        default_factory=dict, init=False, repr=False,
+    )
+    _saved_fragments: dict[uuid.UUID, list[object]] = field(
+        default_factory=dict, init=False, repr=False,
+    )
+    _applied: bool = field(default=False, init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return f"Translate wires anchored to component {self.component_id}"
+
+    def apply(self, state: ComponentState) -> None:
+        object.__setattr__(self, "_saved_wires", list(state.layout.wires))
+        object.__setattr__(
+            self, "_saved_paths",
+            {w.id: list(w.path) for w in state.layout.wires},
+        )
+        object.__setattr__(
+            self, "_saved_fragments",
+            {w.id: list(w.fragments) for w in state.layout.wires},
+        )
+        object.__setattr__(self, "_applied", True)
+        _update_wires_for_move(
+            state,
+            self.component_id,
+            self.old_placement,
+            self.new_placement,
+            self.exclude_wire_ids,
+        )
+
+    def revert(self, state: ComponentState) -> None:
+        if not self._applied:
+            return
+        state.layout.wires[:] = self._saved_wires
+        for wire in state.layout.wires:
+            old_path = self._saved_paths.get(wire.id)
+            if old_path is not None:
+                wire.path = list(old_path)
+            old_frags = self._saved_fragments.get(wire.id)
+            if old_frags is not None:
+                wire.fragments = list(old_frags)  # type: ignore[assignment]
+
+
+@dataclass
+class DropWiresCommand(Command[ComponentState]):
+    """Remove a set of wires atomically.
+
+    Equivalent to executing N ``RemoveWireCommand`` instances but
+    snapshotted as a single undo step — used by the drag-commit
+    pipeline when the detector decides several wires must go (skewed,
+    crossing alien pads, pin-on-wire). Saves the affected wires plus
+    any orphan joints so revert restores both.
+    """
+
+    wire_ids: frozenset[uuid.UUID]
+    _saved_wires: list[Wire] = field(
+        default_factory=list, init=False, repr=False,
+    )
+    _saved_orphan_joints: list[JointKnot] = field(
+        default_factory=list, init=False, repr=False,
+    )
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        n = len(self.wire_ids)
+        return f"Drop {n} wire{'s' if n != 1 else ''}"
+
+    def apply(self, state: ComponentState) -> None:
+        saved: list[Wire] = []
+        orphans: list[JointKnot] = []
+        for wid in self.wire_ids:
+            wire = state.layout.wires.get(wid)
+            if wire is None:
+                continue
+            saved.append(wire)
+            if wire.a is not None and wire.b is not None:
+                for ref in (wire.a, wire.b):
+                    k = state.layout.knots.get(ref.id)
+                    if isinstance(k, JointKnot) and k.wire_ids == frozenset(
+                        {wire.id},
+                    ):
+                        orphans.append(k)
+                state.layout.remove_wire(wid)
+            else:
+                state.layout.wires.remove(wire)
+        object.__setattr__(self, "_saved_wires", saved)
+        object.__setattr__(self, "_saved_orphan_joints", orphans)
+
+    def revert(self, state: ComponentState) -> None:
+        for wire in self._saved_wires:
+            if wire.a is not None and wire.b is not None:
+                for jk in self._saved_orphan_joints:
+                    if jk.id in {wire.a.id, wire.b.id}:
+                        state.layout.knots.setdefault(jk.id, jk)
+                state.layout.add_wire(wire)
+            else:
+                state.layout.wires.append(wire)
+
+
+@dataclass
 class SetWireInsulatedCommand(Command[ComponentState]):
     """Toggle the insulated flag of a wire."""
 
@@ -1550,16 +1694,17 @@ def _update_wires_for_move(
     if not pin_map:
         return
 
-    _log.debug(
-        "drag.update_wires_for_move.start",
-        comp_id=str(comp_id),
-        refdes=getattr(inst, "refdes", "?"),
-        exclude=[str(wid) for wid in exclude_ids],
-        pin_map=[
-            (k, (v.x, v.y)) for k, v in pin_map.items()
-        ],
-        wires_in=[str(w.id) for w in state.layout.wires],
-    )
+    if _dbg_enabled():
+        _log.debug(
+            "drag.update_wires_for_move.start",
+            comp_id=str(comp_id),
+            refdes=getattr(inst, "refdes", "?"),
+            exclude=[str(wid) for wid in exclude_ids],
+            pin_map=[
+                (k, (v.x, v.y)) for k, v in pin_map.items()
+            ],
+            wires_in=[str(w.id) for w in state.layout.wires],
+        )
 
     from protoboard.domain.layout.wire_utils import wire_has_skewed_segment
 
@@ -1617,11 +1762,12 @@ def _update_wires_for_move(
             # with a skewed segment if the component's pin offsets stretched
             # the path unevenly. Drop those.
             if wire_has_skewed_segment(wire):
-                _log.debug(
-                    "drag.update_wires_for_move.drop_excluded_skewed",
-                    wire_id=str(wire.id),
-                    path=[(p.x, p.y) for p in wire.path],
-                )
+                if _dbg_enabled():
+                    _log.debug(
+                        "drag.update_wires_for_move.drop_excluded_skewed",
+                        wire_id=str(wire.id),
+                        path=[(p.x, p.y) for p in wire.path],
+                    )
                 continue
             new_wires.append(wire)
             continue
@@ -1651,15 +1797,16 @@ def _update_wires_for_move(
         # Drop wire if it collapsed (all points identical or < 2 distinct).
         distinct = {(round(p.x, 6), round(p.y, 6)) for p in new_path}
         if len(distinct) < 2:
-            _log.debug(
-                "drag.update_wires_for_move.drop_collapsed",
-                wire_id=str(wire.id),
-                old_path=[(p.x, p.y) for p in wire.path],
-                new_path=[(p.x, p.y) for p in new_path],
-                pin_map_hits=pin_map_hits,
-            )
+            if _dbg_enabled():
+                _log.debug(
+                    "drag.update_wires_for_move.drop_collapsed",
+                    wire_id=str(wire.id),
+                    old_path=[(p.x, p.y) for p in wire.path],
+                    new_path=[(p.x, p.y) for p in new_path],
+                    pin_map_hits=pin_map_hits,
+                )
             continue
-        if pin_map_hits:
+        if pin_map_hits and _dbg_enabled():
             _log.debug(
                 "drag.update_wires_for_move.translated",
                 wire_id=str(wire.id),
@@ -1693,17 +1840,19 @@ def _update_wires_for_move(
         # by the routing/cost model and is almost always a visual artifact
         # of repeated drag.
         if wire_has_skewed_segment(wire):
-            _log.debug(
-                "drag.update_wires_for_move.drop_skewed",
-                wire_id=str(wire.id),
-                path=[(p.x, p.y) for p in wire.path],
-            )
+            if _dbg_enabled():
+                _log.debug(
+                    "drag.update_wires_for_move.drop_skewed",
+                    wire_id=str(wire.id),
+                    path=[(p.x, p.y) for p in wire.path],
+                )
             continue
         new_wires.append(wire)
 
-    _log.debug(
-        "drag.update_wires_for_move.done",
-        comp_id=str(comp_id),
-        wires_out=[str(w.id) for w in new_wires],
-    )
+    if _dbg_enabled():
+        _log.debug(
+            "drag.update_wires_for_move.done",
+            comp_id=str(comp_id),
+            wires_out=[str(w.id) for w in new_wires],
+        )
     state.layout.wires[:] = new_wires

@@ -15,6 +15,12 @@ from typing import TYPE_CHECKING
 import structlog
 _log = structlog.get_logger(__name__)
 
+
+def _dbg_enabled() -> bool:
+    """Cheap gate for hot-path debug logs (see ``select_tool._dbg_enabled``)."""
+    import logging
+    return logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
+
 from protoboard.domain.layout.placement import ComponentPlacement, component_bbox, pin_world_position
 from protoboard.geometry import Point
 
@@ -181,6 +187,14 @@ def find_wire_conflicts(
 
     When *pad_index* is provided, wire/net lookups consult it instead of
     rebuilding from *wires* and *point_to_net*.
+
+    Note for drag-pipeline callers: prefer
+    :class:`protoboard.services.drag_detector.DragDetector` over calling
+    this function directly. The detector wraps this helper plus
+    :func:`find_conflicts` and :func:`find_wires_crossing_pads` behind
+    a single strategy-aware entry point. This function is kept as a
+    pure helper for the detector and for the dialog-driven
+    ``check_and_resolve`` path in ``placement_conflict.py``.
     """
     # Net name lookup — even with pad_index we still need the net's name
     # (PadIndex only carries net IDs).
@@ -345,15 +359,16 @@ def _wire_hit_via_pad_index(
                 wire_item = it
                 hit_side = opposite
                 break
-    _log.debug(
-        "wire_hit.lookup",
-        position=(position.x, position.y),
-        side=side,
-        items_own=[type(it).__name__ for it in items_own],
-        items_opp=[type(it).__name__ for it in items_opp],
-        wire_item=type(wire_item).__name__ if wire_item else None,
-        hit_side=hit_side if wire_item else None,
-    )
+    if _dbg_enabled():
+        _log.debug(
+            "wire_hit.lookup",
+            position=(position.x, position.y),
+            side=side,
+            items_own=[type(it).__name__ for it in items_own],
+            items_opp=[type(it).__name__ for it in items_opp],
+            wire_item=type(wire_item).__name__ if wire_item else None,
+            hit_side=hit_side if wire_item else None,
+        )
     if wire_item is None:
         return None
     net_id = pad.electrical_net_on(hit_side)  # type: ignore[arg-type]
