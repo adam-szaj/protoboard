@@ -6,7 +6,7 @@ from __future__ import annotations
 import threading
 import uuid
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import structlog
 from protoboard.domain.axis_labels_settings import (
@@ -24,6 +24,9 @@ from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import _segs_cross
+
+if TYPE_CHECKING:
+    from protoboard.domain.board.pad_state import PadIndex
 
 _log = structlog.get_logger(__name__)
 _Severity = Literal["error", "warning", "info"]
@@ -137,6 +140,7 @@ class DRCEngine:
         components: dict[str, ComponentDefinition],
         instances: dict[uuid.UUID, ComponentInstance],
         axis_labels: AxisLabelSettings | None = None,
+        pad_index: "PadIndex | None" = None,
     ) -> list[DRCIssue]:
         graph = ConnectivityGraph(
             board=board,
@@ -152,6 +156,7 @@ class DRCEngine:
             graph=graph,
             board=board,
             axis_labels=axis_labels,
+            pad_index=pad_index,
         )
 
     def check_with_graph(
@@ -164,6 +169,7 @@ class DRCEngine:
         cancel_flag: threading.Event | None = None,
         axis_labels: AxisLabelSettings | None = None,
         board: Board | None = None,
+        pad_index: "PadIndex | None" = None,
     ) -> list[DRCIssue]:
         # Cancellation: callers running the engine off the main thread
         # pass an Event; the engine bails between checks and inside the
@@ -196,11 +202,15 @@ class DRCEngine:
         if _cancelled():
             return issues
         if board is not None:
-            issues += _check_off_pad_joint(layout, board=board, axis_labels=axis_labels)
+            issues += _check_off_pad_joint(
+                layout, board=board, axis_labels=axis_labels,
+                pad_index=pad_index,
+            )
             if _cancelled():
                 return issues
             issues += _check_off_board_pins(
                 board, layout, components, instances, axis_labels,
+                pad_index=pad_index,
             )
         if _cancelled():
             return issues
@@ -614,6 +624,8 @@ def _check_off_pad_joint(
     layout: Layout,
     board: Board,
     axis_labels: AxisLabelSettings | None,
+    *,
+    pad_index: "PadIndex | None" = None,
 ) -> list[DRCIssue]:
     """v2-model invariant: every JointKnot must sit on a board pad.
 
@@ -622,22 +634,33 @@ def _check_off_pad_joint(
     projects can generate them when a wire endpoint sits mid-trace
     between pads (typically a data-entry error).  This check surfaces
     each as an error so the user can resolve them by hand.
+
+    Fast path: when *pad_index* is supplied, "is this position a
+    pad?" reduces to a single dict lookup per joint via
+    :meth:`PadIndex.pad_at`. The legacy ``board_pads_for_side`` set
+    rebuild fires only when the engine is called without a pad_index
+    (DRC-from-disk smoke tests, scripts).
     """
     from protoboard.domain.layout.knot import JointKnot
-    from protoboard.domain.layout.wire_utils import board_pads_for_side
 
     if not layout.knots:
         return []
-    all_pads = (
-        board_pads_for_side(board, "top")
-        | board_pads_for_side(board, "bottom")
-    )
+    all_pads: set[Point] | None = None
+    if pad_index is None:
+        from protoboard.domain.layout.wire_utils import board_pads_for_side
+        all_pads = (
+            board_pads_for_side(board, "top")
+            | board_pads_for_side(board, "bottom")
+        )
     issues: list[DRCIssue] = []
     for knot in layout.knots.values():
         if not isinstance(knot, JointKnot):
             continue
         pos = knot.position
-        if _point_on_pads(pos, all_pads):
+        if pad_index is not None:
+            if pad_index.pad_at(pos) is not None:
+                continue
+        elif _point_on_pads(pos, all_pads or set()):
             continue
         affected_wires = [wid for wid in knot.wire_ids]
         loc_label = _format_location(pos, axis_labels)
@@ -663,6 +686,8 @@ def _check_off_board_pins(
     components: dict[str, ComponentDefinition],
     instances: dict[uuid.UUID, ComponentInstance],
     axis_labels: AxisLabelSettings | None,
+    *,
+    pad_index: "PadIndex | None" = None,
 ) -> list[DRCIssue]:
     """Every placed component pin must land on an existing board pad.
 
@@ -676,12 +701,19 @@ def _check_off_board_pins(
     (``board_pads_for_side`` already includes plated-through pads on both
     sides).  Reuses code ``OFF_BOARD_PIN`` so the autoroute precondition
     treats engine-time and runtime detections identically.
-    """
-    from protoboard.domain.layout.wire_utils import board_pads_for_side
 
-    top_pads = board_pads_for_side(board, "top")
-    bottom_pads = board_pads_for_side(board, "bottom")
-    pads_by_side = {"top": top_pads, "bottom": bottom_pads}
+    Fast path: when *pad_index* is supplied, each pin's "on a board
+    pad?" check reduces to one :meth:`PadIndex.pad_at` lookup +
+    :meth:`PadLayers.has_layer` test.  Legacy fallback (no pad_index)
+    rebuilds the two ``board_pads_for_side`` sets per call.
+    """
+    pads_by_side: dict[str, set[Point]] | None = None
+    if pad_index is None:
+        from protoboard.domain.layout.wire_utils import board_pads_for_side
+        pads_by_side = {
+            "top": board_pads_for_side(board, "top"),
+            "bottom": board_pads_for_side(board, "bottom"),
+        }
 
     issues: list[DRCIssue] = []
     for comp_id, placement in layout.placements.items():
@@ -691,10 +723,26 @@ def _check_off_board_pins(
         defn = components.get(inst.definition_ref)
         if defn is None:
             continue
-        side_pads = pads_by_side[placement.side]
+        side = placement.side
         for pin_num in range(1, defn.footprint.pin_count() + 1):
             wp = pin_world_position(defn.footprint, placement, pin_num)
-            if _point_on_pads(wp, side_pads):
+            on_pad = False
+            if pad_index is not None:
+                pad = pad_index.pad_at(wp)
+                # Pin is accessible from `side` when either the pad
+                # has copper on that side or the pad is plated-through
+                # (the pin physically bridges both layers through the
+                # hole — rule 3 / 5).
+                if pad is not None and (
+                    pad.layers.has_layer(side)
+                    or pad.layers.plated_through
+                ):
+                    on_pad = True
+            else:
+                assert pads_by_side is not None
+                if _point_on_pads(wp, pads_by_side[side]):
+                    on_pad = True
+            if on_pad:
                 continue
             loc_label = _format_location(wp, axis_labels)
             pin_name = defn.pin_names.get(pin_num, str(pin_num))
