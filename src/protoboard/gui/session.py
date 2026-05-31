@@ -503,6 +503,12 @@ class EditorSession(QObject):
         """
         t0 = time.monotonic()
         engine = DRCEngine()
+        # Main-thread DRC: hand the live pad_index over so the fast
+        # path in `_check_off_pad_joint` / `_check_off_board_pins`
+        # (Step 4) kicks in. Worker-thread DRC (`DRCWorker.run`) builds
+        # its own snapshot inside the worker and stays on the legacy
+        # path — sharing this mutable pad_index across threads would
+        # be a race.
         issues = engine.check_with_graph(
             schematic=self.schematic,
             layout=self.layout,
@@ -510,6 +516,8 @@ class EditorSession(QObject):
             instances=self.instances,
             graph=self.connectivity_graph(),
             axis_labels=self.axis_label_settings,
+            board=self.board,
+            pad_index=self.pad_index(),
         )
         self.perf.drc_ms = (time.monotonic() - t0) * 1000
         self.set_drc_issues(issues)
