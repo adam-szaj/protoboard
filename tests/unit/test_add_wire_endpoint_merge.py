@@ -418,3 +418,100 @@ class TestEndpointMergeCrossNet:
         # Two distinct joints — one per net — must remain.
         assert len(joints_here) == 2
         assert all(len(k.wire_ids) == 1 for k in joints_here)
+
+
+# ---------------------------------------------------------------------------
+# Strategy-driven net gates (rule 8 — _find_pin_at via can_place_pin)
+# ---------------------------------------------------------------------------
+
+
+class _StrategyState(_SchematicState):
+    """SchematicState that also exposes ``pad_index`` and ``strategy_for``
+    — the two attributes ``_resolve_endpoint_knot`` reads through the
+    duck-typed ``_strategy_from_state``/``_pad_index_from_state``
+    helpers.  Used by tests that need the Strategy-driven net gate
+    (rule 8 ``can_place_pin``) to actually fire."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._pad_index_cache = None
+
+    def pad_index(self):
+        if self._pad_index_cache is None:
+            from protoboard.domain.board.pad_state import PadIndex
+            self._pad_index_cache = PadIndex(
+                board=self.board, layout=self.layout, schematic=self.schematic,
+                components=self.components, instances=self.instances,
+            )
+        return self._pad_index_cache
+
+    def invalidate_pad_index(self) -> None:
+        self._pad_index_cache = None
+
+    def strategy_for(self, subsystem: str):
+        from protoboard.services.pad_strategy import (
+            StrategyConfig, make_strategy,
+        )
+        return make_strategy(subsystem, StrategyConfig.from_session(self, subsystem))
+
+
+class TestPinNetGate:
+    """Rule 8 — :func:`_find_pin_at` consults the DRC strategy and
+    refuses to return a pin whose net would conflict with the incoming
+    wire's net.  When the gate rejects, the resolver falls back to
+    creating a fresh JointKnot at the same position (the geometry
+    still exists — the model just doesn't pretend the wires are
+    bonded through the pin)."""
+
+    def test_foreign_net_wire_does_not_attach_to_pin(self) -> None:
+        state = _StrategyState()
+        r1 = _place_pin_at(state, "R1", Point(0.5, 0.5))
+        r2 = _place_pin_at(state, "R2", Point(4.5, 0.5))
+        _net_with(state, "NET_A", (r1, 1))
+        _net_with(state, "NET_B", (r2, 1))
+        state.invalidate_pad_index()
+        # Wire of NET_B starts at R2's pin (resolves wire net to NET_B
+        # via _wire_intended_net) and ends ON R1's pin (NET_A).
+        _add(state, [(4.5, 0.5), (0.5, 0.5)])
+        # The wire was added, but its endpoint at (0.5, 0.5) is NOT a
+        # PinKnot referencing R1 — the strategy gate rejected, so we
+        # fell through to JointKnot.
+        wire = list(state.layout.wires)[0]
+        assert wire.b is not None
+        end_knot = state.layout.knots[wire.b.id]
+        assert isinstance(end_knot, JointKnot), (
+            "wire of NET_B must not solder to R1's NET_A pin; expected "
+            "JointKnot fallback"
+        )
+
+    def test_same_net_wire_attaches_to_pin(self) -> None:
+        """Sanity inverse: same-net wire ends at the pin via PinKnot."""
+        state = _StrategyState()
+        r1 = _place_pin_at(state, "R1", Point(0.5, 0.5))
+        r2 = _place_pin_at(state, "R2", Point(4.5, 0.5))
+        _net_with(state, "NET_AB", (r1, 1), (r2, 1))
+        state.invalidate_pad_index()
+        _add(state, [(4.5, 0.5), (0.5, 0.5)])
+        wire = list(state.layout.wires)[0]
+        assert wire.b is not None
+        end_knot = state.layout.knots[wire.b.id]
+        assert isinstance(end_knot, PinKnot)
+
+    def test_orphan_wire_attaches_to_pin(self) -> None:
+        """A wire with no resolved net (no pin on path → orphan)
+        should still attach to the pin — orphans are tolerated; the
+        new wire inherits the pin's net via the existing T-junction
+        machinery on the next pass."""
+        state = _StrategyState()
+        r1 = _place_pin_at(state, "R1", Point(0.5, 0.5))
+        _net_with(state, "NET_A", (r1, 1))
+        state.invalidate_pad_index()
+        # Wire from off-pad (2.5, 2.5) to R1's pin (0.5, 0.5) — no
+        # other pin on the path so the wire is net-less.
+        _add(state, [(2.5, 2.5), (0.5, 0.5)])
+        wire = list(state.layout.wires)[0]
+        assert wire.b is not None
+        # Endpoint resolves to R1's PinKnot — orphan + named is the
+        # ASSIGN_NET case, which still ALLOWs the pin attachment.
+        end_knot = state.layout.knots[wire.b.id]
+        assert isinstance(end_knot, PinKnot)
