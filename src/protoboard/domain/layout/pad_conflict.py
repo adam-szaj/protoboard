@@ -281,17 +281,26 @@ def _wire_hit_via_pad_index(
     side: str,
     net_name_by_id: dict[uuid.UUID, str],
 ) -> tuple[uuid.UUID, tuple[uuid.UUID, str] | None] | None:
-    """Find a wire whose path vertex lands on *position* on *side*.
+    """Find a wire whose path touches *position* on *side*.
 
     Returns (wire_id, wire_net_info) where wire_net_info is
     (net_id, net_name) when the wire carries a known net, else None.
-    Returns None when no wire vertex sits on this pad on this side.
+    Returns None when no wire item sits on this pad on this side.
 
-    "Wire" here means a path-vertex Item (BareWireItem/InsulatedWireItem)
-    — matches legacy semantics, which only checked wire.path coords.
+    "Touches" covers both path-vertex items (BareWireItem,
+    InsulatedWireItem) and *mid-segment crossings*
+    (BareWireCrossing, InsulatedWireCrossing).  The crossing case
+    matters for drag-conflict detection: when a user drops a
+    component pin onto the middle of an existing bare wire's segment
+    (no vertex coincides with the pad — the wire just passes over),
+    the pad still hosts a BareWireCrossing item and a same-pad pin
+    of a foreign net would short it.  The pre-2026-05-31 implementation
+    matched only vertex items and silently missed every such case.
     """
     from protoboard.domain.board.pad_state import (
+        BareWireCrossing,
         BareWireItem,
+        InsulatedWireCrossing,
         InsulatedWireItem,
         SHORT_CIRCUIT,
     )
@@ -302,7 +311,12 @@ def _wire_hit_via_pad_index(
     side_lit = "top" if side == "top" else "bottom"
     wire_item = None
     for it in pad.physically_blocked_on(side_lit):  # type: ignore[arg-type]
-        if isinstance(it, (BareWireItem, InsulatedWireItem)):
+        if isinstance(it, (
+            BareWireItem,
+            BareWireCrossing,
+            InsulatedWireItem,
+            InsulatedWireCrossing,
+        )):
             wire_item = it
             break
     if wire_item is None:

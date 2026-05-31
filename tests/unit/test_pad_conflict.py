@@ -594,7 +594,16 @@ class TestPadIndexPath:
         assert out == []
 
     def test_find_wire_conflicts_via_pad_index(self) -> None:
-        """find_wire_conflicts with pad_index detects pin landing on wire."""
+        """find_wire_conflicts with pad_index detects pin landing on wire.
+
+        Two pins of R1 (SIL(2) rot=0 at (0.5, 0.5)) sit on the wire:
+          * pin 1 (0.5, 0.5) — wire endpoint (BareWireItem)
+          * pin 2 (0.5, 1.5) — wire mid-segment (BareWireCrossing)
+        Both must surface as conflicts; the historic pre-2026-05-31
+        implementation missed the crossing case (only vertex items
+        were inspected), letting the user silently drop a multi-pin
+        connector across an existing bare wire.
+        """
         board = _perfboard(3, 3)
         defn = _r_defn()
         r1 = _make_inst("R1")
@@ -614,9 +623,10 @@ class TestPadIndexPath:
             point_to_net={}, already_conflicted=set(),
             pad_index=idx,
         )
-        assert len(out) == 1
-        assert out[0].wire_id == wire.id
-        assert out[0].kind == ConflictKind.PIN_ON_WIRE_UNCONNECTED
+        assert len(out) == 2
+        assert {c.incoming_pin for c in out} == {1, 2}
+        assert all(c.wire_id == wire.id for c in out)
+        assert all(c.kind == ConflictKind.PIN_ON_WIRE_UNCONNECTED for c in out)
 
     def test_find_wires_crossing_pads_via_pad_index(self) -> None:
         """find_wires_crossing_pads with pad_index detects bare wire crossing
@@ -666,3 +676,69 @@ class TestPadIndexPath:
         )
         assert out == legacy
         assert wire.id in out
+
+    def test_multi_pin_connector_dropped_on_foreign_net_wire(self) -> None:
+        """User regression 2026-05-31: a 3-pin connector dragged onto a
+        foreign-net bare wire must report a conflict on every pin,
+        even when the connector's pins land on *mid-segment* pads of
+        the wire (no path vertex coincides with the pin).
+
+        Before the fix, ``_wire_hit_via_pad_index`` filtered out
+        BareWireCrossing items, so a connector pin landing on the
+        interior of an existing wire silently passed validation and
+        the wire was left in place after the drag commit — a hard
+        short with the connector's net.
+
+        Hard rule: NO foreign wire may sit on a pin's pad
+        (semantics rule 6).
+        """
+        from protoboard.domain.components.footprints import SIL
+
+        board = _perfboard(7, 3)
+        # 3-pin SIL connector at (1.5..3.5, 0.5) on top.
+        conn_defn = ComponentDefinition(
+            name="J", footprint=SIL(3), pin_names={1: "A", 2: "B", 3: "C"},
+        )
+        conn = ComponentInstance.new(definition_ref="J", refdes="J1", value="")
+        pl_conn = _placement(conn, 1.5, 0.5, rot=0)  # pins (1.5,0.5),(1.5,1.5),(1.5,2.5)
+        # Foreign-net bare wire spanning (1.5, 0.5)→(1.5, 2.5) — every
+        # connector pin lands on it (endpoint, middle vertex,
+        # endpoint).  Wire belongs to NET_FOREIGN via an anchor pin
+        # off to the side.
+        anchor = ComponentInstance.new(definition_ref="J", refdes="ANCHOR", value="")
+        pl_anchor = _placement(anchor, 5.5, 0.5, rot=0)
+        net_foreign = Net(
+            id=uuid.uuid4(), name="FOREIGN",
+            pins={PinRef(component_id=anchor.id, pin_number=1)},
+        )
+        sch = Schematic(nets={net_foreign.id: net_foreign})
+        wire = Wire(id=uuid.uuid4(),
+                    path=[Point(1.5, 0.5), Point(1.5, 2.5)],
+                    insulated=False, side="top")
+        idx = self._build_index(
+            board, {anchor.id: pl_anchor}, {anchor.id: anchor},
+            {"J": conn_defn}, sch, wires=[wire],
+        )
+        # point_to_net for anchor's pin so the wire resolves to FOREIGN.
+        # Coords are pre-rounded (matching find_wire_conflicts internals).
+        point_to_net: dict[tuple[float, float], tuple[uuid.UUID, str]] = {
+            (5.5, 0.5): (net_foreign.id, "FOREIGN"),
+        }
+        # New: also include the wire's start endpoint as carrying the
+        # net so find_wire_conflicts's legacy net-resolution path
+        # (used in the schematic-less leg) sees it.  PadIndex path
+        # already knows from electrical_net_on().
+        out = find_wire_conflicts(
+            incoming_placement=pl_conn, incoming_defn=conn_defn,
+            incoming_instance_id=conn.id,
+            wires=[wire], schematic=sch,
+            point_to_net=point_to_net, already_conflicted=set(),
+            pad_index=idx,
+        )
+        # All three connector pins lie on the wire — every one must
+        # be reported as a conflict.
+        assert len(out) == 3, (
+            f"expected 3 conflicts, got {len(out)}: "
+            f"{[(c.incoming_pin, c.kind) for c in out]}"
+        )
+        assert {c.incoming_pin for c in out} == {1, 2, 3}
