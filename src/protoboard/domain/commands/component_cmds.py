@@ -1550,7 +1550,65 @@ def _update_wires_for_move(
     if not pin_map:
         return
 
+    _log.debug(
+        "drag.update_wires_for_move.start",
+        comp_id=str(comp_id),
+        refdes=getattr(inst, "refdes", "?"),
+        exclude=[str(wid) for wid in exclude_ids],
+        pin_map=[
+            (k, (v.x, v.y)) for k, v in pin_map.items()
+        ],
+        wires_in=[str(w.id) for w in state.layout.wires],
+    )
+
     from protoboard.domain.layout.wire_utils import wire_has_skewed_segment
+
+    def _wire_anchored_at_comp_pin(
+        w: Wire, pin_num: int, old_pin_pos: Point,
+    ) -> bool:
+        """True if *w* is logically anchored to ``(comp_id, pin_num)``.
+
+        Anchor evidence comes in two flavours:
+
+        1. **Strong** — either endpoint knot ref is a PinKnot whose
+           ``pin`` points at ``(comp_id, pin_num)``. This is the
+           canonical post-2026-05-27 wire model and the only
+           dependable signal.
+        2. **Weak fallback** — the wire carries *no* knot refs at all
+           (legacy persistence, hand-constructed test wires) AND one
+           of its path endpoints sits on ``old_pin_pos``. We can't
+           prove ownership, but treating the endpoint as anchored is
+           the historic behaviour ``_update_wires_for_move`` had
+           before the fix — needed by tests like
+           ``test_skewed_wire_dropped_on_drag_commit``.
+
+        Without this gate, ``_update_wires_for_move`` would drag every
+        wire whose path happens to pass through the *old* pin position
+        — a foreign wire ending or crossing at (x, y) before the move
+        would silently snap to the new pin position, sticking itself
+        to the moved component (user-observed bug 2026-05-31).
+        """
+        # Strong: explicit PinKnot ref.
+        has_any_knot_ref = False
+        for ref in (w.a, w.b):
+            if ref is None:
+                continue
+            has_any_knot_ref = True
+            knot = state.layout.knots.get(ref.id)
+            if isinstance(knot, PinKnot):
+                if (knot.pin.component_id == comp_id
+                        and knot.pin.pin_number == pin_num):
+                    return True
+        if has_any_knot_ref:
+            return False
+        # Weak fallback: orphan wire with no knot refs at all. Match
+        # endpoints (not interior vertices) against old pin position.
+        if not w.path:
+            return False
+        for endpoint in (w.path[0], w.path[-1]):
+            if _pts_equal(endpoint, old_pin_pos):
+                return True
+        return False
 
     new_wires: list[Wire] = []
     for wire in state.layout.wires:
@@ -1559,29 +1617,69 @@ def _update_wires_for_move(
             # with a skewed segment if the component's pin offsets stretched
             # the path unevenly. Drop those.
             if wire_has_skewed_segment(wire):
+                _log.debug(
+                    "drag.update_wires_for_move.drop_excluded_skewed",
+                    wire_id=str(wire.id),
+                    path=[(p.x, p.y) for p in wire.path],
+                )
                 continue
             new_wires.append(wire)
             continue
+        # Build a per-wire pin_map containing only entries for pins the
+        # wire is *actually* anchored to (via PinKnot endpoint refs).
+        # Wires that merely *cross* an old pin position without being
+        # soldered to it are left untouched — translating them would
+        # drag a foreign wire onto the new pin location.
+        wire_pin_map: dict[tuple[float, float], Point] = {}
+        for pin_num in range(1, n_pins + 1):
+            old_pos = pin_world_position(defn.footprint, old_pl, pin_num)
+            new_pos = pin_world_position(defn.footprint, new_pl, pin_num)
+            if _pts_equal(old_pos, new_pos):
+                continue
+            if _wire_anchored_at_comp_pin(wire, pin_num, old_pos):
+                wire_pin_map[(round(old_pos.x, 6), round(old_pos.y, 6))] = new_pos
         new_path: list[Point] = []
+        pin_map_hits: list[tuple[tuple[float, float], tuple[float, float]]] = []
         for pt in wire.path:
             key = (round(pt.x, 6), round(pt.y, 6))
-            new_path.append(pin_map.get(key, pt))
+            mapped = wire_pin_map.get(key)
+            if mapped is not None:
+                pin_map_hits.append((key, (mapped.x, mapped.y)))
+                new_path.append(mapped)
+            else:
+                new_path.append(pt)
         # Drop wire if it collapsed (all points identical or < 2 distinct).
         distinct = {(round(p.x, 6), round(p.y, 6)) for p in new_path}
         if len(distinct) < 2:
+            _log.debug(
+                "drag.update_wires_for_move.drop_collapsed",
+                wire_id=str(wire.id),
+                old_path=[(p.x, p.y) for p in wire.path],
+                new_path=[(p.x, p.y) for p in new_path],
+                pin_map_hits=pin_map_hits,
+            )
             continue
+        if pin_map_hits:
+            _log.debug(
+                "drag.update_wires_for_move.translated",
+                wire_id=str(wire.id),
+                old_path=[(p.x, p.y) for p in wire.path],
+                new_path=[(p.x, p.y) for p in new_path],
+                pin_map_hits=pin_map_hits,
+            )
         if any(
             not _pts_equal(new_path[i], wire.path[i])
             for i in range(len(new_path))
         ):
             wire.path = new_path
             # Keep fragments in sync — same boundary topology, translated
-            # vertices via pin_map.  Single-fragment wires stay single.
+            # vertices via the per-wire pin_map.  Single-fragment wires
+            # stay single.
             if wire.fragments:
                 new_fragments_local = []
                 for frag in wire.fragments:
                     translated = [
-                        pin_map.get(
+                        wire_pin_map.get(
                             (round(p.x, 6), round(p.y, 6)), p,
                         )
                         for p in frag.path
@@ -1595,7 +1693,17 @@ def _update_wires_for_move(
         # by the routing/cost model and is almost always a visual artifact
         # of repeated drag.
         if wire_has_skewed_segment(wire):
+            _log.debug(
+                "drag.update_wires_for_move.drop_skewed",
+                wire_id=str(wire.id),
+                path=[(p.x, p.y) for p in wire.path],
+            )
             continue
         new_wires.append(wire)
 
+    _log.debug(
+        "drag.update_wires_for_move.done",
+        comp_id=str(comp_id),
+        wires_out=[str(w.id) for w in new_wires],
+    )
     state.layout.wires[:] = new_wires

@@ -629,6 +629,17 @@ def classify_drag_commit(
     else:
         severity = DragSeverity.CLEAR
 
+    _log.debug(
+        "drag.classify_commit",
+        severity=severity.value,
+        moved=[str(c) for c in moved_comp_ids],
+        dragged_wires=[str(w) for w in dragged_wire_ids],
+        auto_remove_wires=[str(w) for w in remove_wires],
+        hard_pads=[(p.x, p.y) for p in hard_pads],
+        soft_pads=[(p.x, p.y) for p in soft_pads],
+        descriptions=descriptions,
+    )
+
     return DragCommitDecision(
         severity=severity,
         description="; ".join(descriptions),

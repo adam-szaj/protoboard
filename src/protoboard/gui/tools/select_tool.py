@@ -854,6 +854,17 @@ class SelectTool(_Tool):
         """Commit floating state to CommandStack.  Refuses on HARD severity."""
         if not self._floating_ids:
             return
+        _log.debug(
+            "drag.commit_floating.start",
+            floating_ids=[str(c) for c in self._floating_ids],
+            severity=self._floating_severity,
+            extra_cmds=[type(c).__name__ for c in self._floating_extra_cmds],
+            extra_remove_wire_ids=[
+                str(c.wire_id) for c in self._floating_extra_cmds
+                if type(c).__name__ == "RemoveWireCommand"
+            ],
+            wires_before=[str(w.id) for w in self._session.layout.wires],
+        )
         from protoboard.gui.tools.drag_commit_decision import DragSeverity
         if self._floating_severity == DragSeverity.HARD.value:
             win = self._view.window() if self._view is not None else None
@@ -919,6 +930,11 @@ class SelectTool(_Tool):
                     self._view.refresh()
                 return
             self._session.layout_changed.emit()
+            _log.debug(
+                "drag.commit_floating.done",
+                wires_after=[str(w.id) for w in self._session.layout.wires],
+                n_removed=n_removed,
+            )
             # Toast about removed wires (Ctrl+Z to undo).
             if n_removed:
                 win = self._view.window() if self._view is not None else None
