@@ -36,16 +36,23 @@ union:
 from __future__ import annotations
 
 import uuid
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field, replace
-from typing import ClassVar, Literal
+from dataclasses import dataclass, field
+from typing import ClassVar, Literal, TypeAlias
 
+from protoboard.domain.board.layer import PHYSICAL_LAYERS, LayerId
 from protoboard.domain.board.pads import PadLayers
 from protoboard.geometry import Point
 
 NetId = uuid.UUID
-Side = Literal["top", "bottom"]
-_SIDES: tuple[Side, Side] = ("top", "bottom")
+
+# ``Side`` is the historical alias for "which copper layer". Kept as a
+# type alias for backward compatibility — every signature using ``side``
+# accepts an arbitrary ``LayerId`` now, but the runtime values in MVP
+# are still ``"top"`` / ``"bottom"`` (`PHYSICAL_LAYERS`). Future kapton
+# layers will use ids like ``"tape:top+1"`` — the same APIs accept them
+# without changes.
+Side: TypeAlias = LayerId
+_SIDES: tuple[LayerId, LayerId] = PHYSICAL_LAYERS
 
 # Sentinel returned by ``Pad.electrical_net_on`` when more than one distinct
 # non-None net touches the same side at the same time.  Algorithms (DRC
@@ -165,161 +172,185 @@ def _item_is_through_hole(item: Item) -> bool:
 
 
 @dataclass
-class Pad(ABC):
+class Pad:
     """One physical hole on the board with its current occupancy state.
 
-    Subclasses encapsulate the side-propagation rule for electrical
-    contributions.  The base class owns all mutation bookkeeping; the
-    only abstract hook is ``_side_propagation``.
+    Storage is keyed by ``LayerId`` so the model accepts arbitrary
+    layers (the MVP populates only ``"top"`` and ``"bottom"`` — the
+    physical copper layers; the kapton tape follow-up will add
+    additional entries like ``"tape:top+1"`` without changing this
+    class).
+
+    Side-propagation rules are derived from ``layers`` directly via
+    :meth:`PadLayers.plated_neighbours` — no subclass dispatch is
+    required. The three legacy subclasses
+    (:class:`SingleSidedBoardPad`, :class:`IsolatedDoubleSidedBoardPad`,
+    :class:`ConnectedDoubleSidedBoardPad`) remain as thin aliases
+    purely so existing ``isinstance(...)`` checks (used in
+    ``tests/unit/test_pad_state.py``) continue to type-check. They
+    carry no extra behaviour and will be removed once callers stop
+    asking for the specific class.
     """
 
     position: Point
     layers: PadLayers
     strip_group_id: int | None = None
 
-    # Per-side electrical net.  ``SHORT_CIRCUIT`` sentinel marks a pad
-    # whose recorded sources include more than one distinct non-None net.
-    electrical_net: tuple[NetId | None, NetId | None] = (None, None)
+    # Per-layer electrical net.  ``SHORT_CIRCUIT`` sentinel marks a
+    # layer whose recorded sources include more than one distinct
+    # non-None net. Populated lazily — only layers that have been
+    # touched appear as keys; query helpers treat absence as ``None``.
+    electrical_net: dict[LayerId, NetId | None | object] = field(
+        default_factory=dict
+    )
 
-    # Per-side physical occupants.  Each side keeps the list of Items
+    # Per-layer physical occupants. Each layer keeps the list of Items
     # whose physical presence prevents another wire being routed
-    # through this pad on that side.
-    physically_blocked: tuple[list[Item], list[Item]] = field(
-        default_factory=lambda: ([], [])
+    # through this pad on that layer.
+    physically_blocked: dict[LayerId, list[Item]] = field(
+        default_factory=dict
     )
 
-    # Internal bookkeeping: which Item id contributed which net per side.
-    # When multiple items share the same net, removing one of them must
-    # not drop the net — only when the LAST contributor of that net is
-    # gone.  Map item.id → contributed net (or None if the item only
-    # blocks physically).
-    _net_sources: tuple[dict[uuid.UUID, NetId | None],
-                         dict[uuid.UUID, NetId | None]] = field(
-        default_factory=lambda: ({}, {})
+    # Internal bookkeeping: which Item id contributed which net per
+    # layer. When multiple items share the same net, removing one of
+    # them must not drop the net — only when the LAST contributor of
+    # that net is gone. Map item.id → contributed net (or None if the
+    # item only blocks physically).
+    _net_sources: dict[LayerId, dict[uuid.UUID, NetId | None]] = field(
+        default_factory=dict
     )
 
     # ------------------------------------------------------------------
-    # Side-propagation hook (subclass-specific)
+    # Side-propagation hook
     # ------------------------------------------------------------------
 
-    @abstractmethod
-    def _side_propagation(self, item: Item, source_side: Side) -> set[Side]:
-        """Return the set of sides on which *item* contributes its net.
+    def _propagation(self, item: Item, source_side: LayerId) -> set[LayerId]:
+        """Return the set of layers on which *item* contributes its net.
 
-        For items that don't contribute electrically (insulated crossing,
-        component body), return ``set()``.
+        Pin (through-hole) **always** bonds every physical side of the
+        board, even ones with no copper — the metal lead pierces the
+        whole stack and exposes a conductor on both faces (rule 5 of
+        pad/pin/wire/junction semantics, footnote *).
+
+        Other electrical items contribute to their own layer plus any
+        layers galvanically bonded to it (``plated_through`` →
+        ``BOTTOM`` is bonded to ``TOP`` and vice-versa).
+
+        Items that don't contribute electrically (insulated crossing,
+        component body) are filtered out by callers via
+        :func:`_item_contributes_electrically` before reaching here.
         """
+        if _item_is_through_hole(item):
+            # Pin always bonds every physical layer of the board, no
+            # matter which sides actually have copper. The kapton
+            # follow-up will need to revisit this — a pin still
+            # pierces tape over hole, but tape between two copper
+            # layers blocks the lead path.
+            return set(PHYSICAL_LAYERS)
+        if not self.layers.has_layer(source_side):
+            # A wire on the unarmed side of a single-sided pad has no
+            # copper to bond to — physical presence is recorded
+            # (caller invokes _physical_propagation separately) but no
+            # electrical contribution.
+            return set()
+        return {source_side} | set(self.layers.plated_neighbours(source_side))
 
     # ------------------------------------------------------------------
-    # Side-physical hook (which sides receive the physical blocker)
+    # Side-physical hook (which layers receive the physical blocker)
     # ------------------------------------------------------------------
 
-    def _physical_propagation(self, item: Item, source_side: Side) -> set[Side]:
-        """Return the set of sides on which *item* physically blocks.
+    def _physical_propagation(
+        self, item: Item, source_side: LayerId,
+    ) -> set[LayerId]:
+        """Return the set of layers on which *item* physically blocks.
 
-        Default: a wire/pin on side X physically occupies side X only.
-        Pins are special — they pierce the board, so they block both
-        sides regardless of board type.  Subclasses may override if
-        needed (none currently do).
+        Default: a wire on layer X physically occupies layer X only.
+        Pins are special — they pierce the board, so they block every
+        physical layer (rule 5).
         """
         if isinstance(item, PinItem):
-            return set(_SIDES)
+            return set(PHYSICAL_LAYERS)
         return {source_side}
 
     # ------------------------------------------------------------------
     # Public properties (read-only views)
     # ------------------------------------------------------------------
 
-    def electrical_net_on(self, side: Side) -> NetId | None | object:
+    def electrical_net_on(self, side: LayerId) -> NetId | None | object:
         """Net touching the copper on *side*, ``None``, or
         ``SHORT_CIRCUIT``."""
-        idx = _SIDES.index(side)
-        return self.electrical_net[idx]
+        return self.electrical_net.get(side)
 
-    def physically_blocked_on(self, side: Side) -> list[Item]:
+    def physically_blocked_on(self, side: LayerId) -> list[Item]:
         """Items physically occupying this side."""
-        idx = _SIDES.index(side)
-        return self.physically_blocked[idx]
+        return self.physically_blocked.get(side, [])
 
-    def is_free(self, side: Side) -> bool:
+    def is_free(self, side: LayerId) -> bool:
         """No electrical net AND no physical blockers on *side*."""
         return (
-            self.electrical_net_on(side) is None
-            and not self.physically_blocked_on(side)
+            self.electrical_net.get(side) is None
+            and not self.physically_blocked.get(side)
         )
 
     # ------------------------------------------------------------------
     # Internal mutation API (called by PadIndex)
     # ------------------------------------------------------------------
 
-    def _add_item(self, item: Item, source_side: Side) -> None:
+    def _add_item(self, item: Item, source_side: LayerId) -> None:
         """Record *item* as occupying this pad, propagating per rules."""
         # Physical placement
-        phys_sides = self._physical_propagation(item, source_side)
-        new_phys = list(self.physically_blocked)
-        for s in phys_sides:
-            idx = _SIDES.index(s)
-            new_phys[idx] = list(new_phys[idx])
-            new_phys[idx].append(item)
-        self.physically_blocked = (new_phys[0], new_phys[1])
+        for s in self._physical_propagation(item, source_side):
+            self.physically_blocked.setdefault(s, []).append(item)
 
         # Electrical contribution
         if _item_contributes_electrically(item):
-            elec_sides = self._side_propagation(item, source_side)
-            new_sources = list(self._net_sources)
-            for s in elec_sides:
-                idx = _SIDES.index(s)
-                new_sources[idx] = dict(new_sources[idx])
-                new_sources[idx][item.id] = item.net  # type: ignore[attr-defined]
-            self._net_sources = (new_sources[0], new_sources[1])
+            for s in self._propagation(item, source_side):
+                self._net_sources.setdefault(s, {})[item.id] = (
+                    item.net  # type: ignore[attr-defined]
+                )
             self._recompute_electrical()
 
     def _remove_item(self, item_id: uuid.UUID) -> None:
         """Remove every record of *item_id* from this pad."""
-        new_phys = list(self.physically_blocked)
-        for idx in (0, 1):
-            new_phys[idx] = [
-                it for it in new_phys[idx] if it.id != item_id
-            ]
-        self.physically_blocked = (new_phys[0], new_phys[1])
-
-        new_sources = list(self._net_sources)
-        for idx in (0, 1):
-            if item_id in new_sources[idx]:
-                new_sources[idx] = dict(new_sources[idx])
-                del new_sources[idx][item_id]
-        self._net_sources = (new_sources[0], new_sources[1])
+        for side, items in list(self.physically_blocked.items()):
+            kept = [it for it in items if it.id != item_id]
+            if kept:
+                self.physically_blocked[side] = kept
+            else:
+                del self.physically_blocked[side]
+        for side, sources in list(self._net_sources.items()):
+            if item_id in sources:
+                del sources[item_id]
+                if not sources:
+                    del self._net_sources[side]
         self._recompute_electrical()
 
     def _recompute_electrical(self) -> None:
         """Update ``electrical_net`` from ``_net_sources``."""
-        new_net: list[NetId | None | object] = [None, None]
-        for idx in (0, 1):
-            nets = {n for n in self._net_sources[idx].values() if n is not None}
-            if len(nets) == 0:
-                # No netted source — but unconnected sources (pin with no
-                # net assigned, floating wire) may still mark the side as
-                # "claimed" for routing purposes.  For now we mirror
-                # legacy semantics: electrical_net stays None.
-                new_net[idx] = None
-            elif len(nets) == 1:
-                new_net[idx] = next(iter(nets))
-            else:
-                new_net[idx] = SHORT_CIRCUIT
-        self.electrical_net = (
-            new_net[0],  # type: ignore[assignment]
-            new_net[1],  # type: ignore[assignment]
-        )
+        # Drop stale layer entries (e.g. all sources removed) and
+        # rebuild from the current ``_net_sources`` map.
+        self.electrical_net = {}
+        for side, sources in self._net_sources.items():
+            nets = {n for n in sources.values() if n is not None}
+            if len(nets) == 1:
+                self.electrical_net[side] = next(iter(nets))
+            elif len(nets) > 1:
+                self.electrical_net[side] = SHORT_CIRCUIT
+            # No netted source — but unconnected sources (pin with no
+            # net assigned, floating wire) may still mark the layer as
+            # "claimed" for routing purposes. We mirror legacy
+            # semantics here: electrical_net stays absent (treated as
+            # ``None`` by readers).
 
     # ------------------------------------------------------------------
     # Iteration & misc.
     # ------------------------------------------------------------------
 
-    def iter_items(self, side: Side | None = None):
-        """Iterate Items on *side* (or both sides if None)."""
+    def iter_items(self, side: LayerId | None = None):
+        """Iterate Items on *side* (or every layer if None)."""
         if side is None:
             seen: set[uuid.UUID] = set()
-            for items in self.physically_blocked:
+            for items in self.physically_blocked.values():
                 for it in items:
                     if it.id not in seen:
                         seen.add(it.id)
@@ -329,58 +360,45 @@ class Pad(ABC):
 
 
 # ---------------------------------------------------------------------------
-# Subclasses — concrete propagation rules
+# Subclass aliases — kept for backward compatibility with isinstance() callers
 # ---------------------------------------------------------------------------
+#
+# The unified :class:`Pad` derives every propagation rule from
+# ``PadLayers.plated_neighbours`` — no specialised subclass logic is
+# needed. The three classes below remain so existing isinstance checks
+# (notably in ``tests/unit/test_pad_state.py``) continue to compile.
+# Once those callers stop discriminating by class, the aliases can be
+# removed in a follow-up.
 
 
 @dataclass
 class SingleSidedBoardPad(Pad):
     """A pad on a single-sided board.
 
-    Only one of ``layers.top``/``layers.bottom`` is True; the other side
-    has no copper and cannot carry an electrical net via a wire physically
-    lying on it.  Pins still pierce both sides.
+    Deprecated discriminator — behaviour lives on :class:`Pad`. Only
+    one of ``layers.top``/``layers.bottom`` is True; the other side has
+    no copper. Pins still pierce both sides.
     """
-
-    def _side_propagation(self, item: Item, source_side: Side) -> set[Side]:
-        if _item_is_through_hole(item):
-            # Pin / via — exposes conductor on both sides regardless of
-            # whether copper is physically there on the other side.  See
-            # footnote `*` in the user's table.
-            return set(_SIDES)
-        # A wire on the armed side contributes its net only to that side.
-        # A wire on the unarmed side has no copper to bond to: physical
-        # presence is recorded (so other wires can't route here) but no
-        # electrical contribution.
-        if source_side == "top" and self.layers.top:
-            return {"top"}
-        if source_side == "bottom" and self.layers.bottom:
-            return {"bottom"}
-        return set()
 
 
 @dataclass
 class IsolatedDoubleSidedBoardPad(Pad):
     """A double-sided pad whose through-hole is NOT plated.
 
-    Both top and bottom carry copper, but they are electrically
-    independent at this pad — only a pin or wire-side-change that
-    physically bridges the hole can connect them.
+    Deprecated discriminator — behaviour lives on :class:`Pad`. Both
+    top and bottom carry copper, but they are electrically independent
+    until a pin or wire-side-change physically bridges the hole.
     """
-
-    def _side_propagation(self, item: Item, source_side: Side) -> set[Side]:
-        if _item_is_through_hole(item):
-            return set(_SIDES)
-        return {source_side}
 
 
 @dataclass
 class ConnectedDoubleSidedBoardPad(Pad):
-    """A plated-through pad — top and bottom are one electrical node."""
+    """A plated-through pad — top and bottom are one electrical node.
 
-    def _side_propagation(self, item: Item, source_side: Side) -> set[Side]:
-        # Any electrical contribution on either side merges to both.
-        return set(_SIDES)
+    Deprecated discriminator — behaviour lives on :class:`Pad`. The
+    galvanic bond between sides is encoded in
+    ``PadLayers.plated_through``.
+    """
 
 
 # ---------------------------------------------------------------------------

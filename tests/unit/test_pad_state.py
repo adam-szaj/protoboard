@@ -127,20 +127,20 @@ class TestConnectedDoubleSidedBoardPad:
 
     def test_empty(self) -> None:
         p = self._make()
-        assert p.electrical_net == (None, None)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (None, None)
         assert p.is_free("top") and p.is_free("bottom")
 
     def test_bare_top_propagates_to_both(self) -> None:
         p = self._make()
         n = _net()
         p._add_item(_bare(n), "top")
-        assert p.electrical_net == (n, n)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, n)
 
     def test_bare_bottom_propagates_to_both(self) -> None:
         p = self._make()
         n = _net()
         p._add_item(_bare(n), "bottom")
-        assert p.electrical_net == (n, n)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, n)
 
     def test_insulated_endpoint_top_electrical_both(self) -> None:
         # InsulatedWireItem (endpoint) is electrical contact at the solder
@@ -148,13 +148,13 @@ class TestConnectedDoubleSidedBoardPad:
         p = self._make()
         n = _net()
         p._add_item(_ins(n), "top")
-        assert p.electrical_net == (n, n)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, n)
 
     def test_insulated_crossing_no_electrical(self) -> None:
         # Mid-segment of an insulated wire is purely air contact.
         p = self._make()
         p._add_item(_ins_xing(_net()), "top")
-        assert p.electrical_net == (None, None)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (None, None)
         # But physically blocks the top side.
         assert len(p.physically_blocked_on("top")) == 1
         assert len(p.physically_blocked_on("bottom")) == 0
@@ -163,7 +163,7 @@ class TestConnectedDoubleSidedBoardPad:
         p = self._make()
         n = _net()
         p._add_item(_pin(n), "top")
-        assert p.electrical_net == (n, n)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, n)
         # Pin physically blocks both sides (through-hole).
         assert len(p.physically_blocked_on("top")) == 1
         assert len(p.physically_blocked_on("bottom")) == 1
@@ -171,7 +171,7 @@ class TestConnectedDoubleSidedBoardPad:
     def test_component_body_no_electrical(self) -> None:
         p = self._make()
         p._add_item(_body(), "top")
-        assert p.electrical_net == (None, None)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (None, None)
         assert len(p.physically_blocked_on("top")) == 1
         assert len(p.physically_blocked_on("bottom")) == 0
 
@@ -192,26 +192,26 @@ class TestIsolatedDoubleSidedBoardPad:
         p = self._make()
         n = _net()
         p._add_item(_bare(n), "top")
-        assert p.electrical_net == (n, None)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, None)
 
     def test_bare_bottom_only_to_bottom(self) -> None:
         p = self._make()
         n = _net()
         p._add_item(_bare(n), "bottom")
-        assert p.electrical_net == (None, n)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (None, n)
 
     def test_insulated_endpoint_top_only(self) -> None:
         p = self._make()
         n = _net()
         p._add_item(_ins(n), "top")
-        assert p.electrical_net == (n, None)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, None)
 
     def test_pin_propagates_both(self) -> None:
         # Pin bridges the hole via its metal lead.
         p = self._make()
         n = _net()
         p._add_item(_pin(n), "top")
-        assert p.electrical_net == (n, n)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, n)
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +228,7 @@ class TestSingleSidedBoardPad:
         )
         n = _net()
         p._add_item(_bare(n), "top")
-        assert p.electrical_net == (n, None)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, None)
 
     def test_bare_on_unarmed_side_no_electrical(self) -> None:
         # Top-only board, wire placed on bottom (no copper).  Physical
@@ -239,7 +239,7 @@ class TestSingleSidedBoardPad:
         )
         n = _net()
         p._add_item(_bare(n), "bottom")
-        assert p.electrical_net == (None, None)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (None, None)
         assert len(p.physically_blocked_on("bottom")) == 1
 
     def test_pin_propagates_both_even_unarmed(self) -> None:
@@ -251,7 +251,7 @@ class TestSingleSidedBoardPad:
         )
         n = _net()
         p._add_item(_pin(n), "top")
-        assert p.electrical_net == (n, n)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, n)
 
 
 # ---------------------------------------------------------------------------
@@ -270,12 +270,12 @@ class TestMultiSourceTracking:
         w2 = _bare(n)
         p._add_item(w1, "top")
         p._add_item(w2, "top")
-        assert p.electrical_net == (n, n)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, n)
         p._remove_item(w1.id)
         # Still net n because w2 remains.
-        assert p.electrical_net == (n, n)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (n, n)
         p._remove_item(w2.id)
-        assert p.electrical_net == (None, None)
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (None, None)
 
     def test_different_nets_on_same_side_returns_short_sentinel(self) -> None:
         p = ConnectedDoubleSidedBoardPad(
@@ -298,8 +298,8 @@ class TestMultiSourceTracking:
         w = _bare(n)
         p._add_item(w, "top")
         p._remove_item(w.id)
-        assert p.electrical_net == (None, None)
-        assert p.physically_blocked == ([], [])
+        assert (p.electrical_net_on('top'), p.electrical_net_on('bottom')) == (None, None)
+        assert p.physically_blocked_on('top') == [] and p.physically_blocked_on('bottom') == []
 
 
 # ---------------------------------------------------------------------------
@@ -384,7 +384,7 @@ class TestPadIndexBuild:
         pin_pad = idx.pad_at(Point(0.5, 0.5))
         assert pin_pad is not None
         # Pin on plated-through pad propagates to both sides.
-        assert pin_pad.electrical_net == (net_id, net_id)
+        assert (pin_pad.electrical_net_on('top'), pin_pad.electrical_net_on('bottom')) == (net_id, net_id)
         # PinItem present on both sides (through-hole).
         assert len(pin_pad.physically_blocked_on("top")) == 1
         assert len(pin_pad.physically_blocked_on("bottom")) == 1

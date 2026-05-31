@@ -450,22 +450,41 @@ requirementami. Implementacja w osobnym dokumencie architektury.
 
 Dla każdego callsite (autoroute cost, DRC checks, simplify,
 drag-conflict, T-junction gates, joint reuse, pin reuse) sprawdzić
-zgodność z regułami 5–9 i kaptonem. Wzór wpisu:
+zgodność z regułami 5–9 i kaptonem.
+
+Statusy: **zgodny** = reguła egzekwowana; **niepełny** = częściowo
+(jakiś case nie pokryty); **brakuje** = reguła w ogóle nie egzekwowana
+przez ten callsite; **n/a** = reguła z założenia nie dotyczy.
+
+Audit z 2026-05-31, branch `main` po commitach `1b971f3` (docs merge)
+i `0065500` (T-junction net gates + nowe DRC checks).
 
 | Callsite | Reguła 5 (pin penetracja) | Reguła 6 (foreign wire/pin) | Reguła 7 (joint exclusivity) | Reguła 8 (pin gating) | Reguła 9 (half-orphan) | Pad modifiers (kapton) |
 |---|---|---|---|---|---|---|
-| `_check_short` | ? | ? | ? | ? | n/a | ? |
-| `_check_bare_wire_interior_cross` | n/a | ? | n/a | n/a | n/a | ? |
-| `can_form_t_junction` | ? | ? | ? | ? | n/a | ? |
-| `_find_joint_at` | ? | ? | ? | ? | n/a | ? |
-| `_find_pin_at` | ? | ? | n/a | ? | n/a | ? |
-| `astar.cost` | ? | ? | ? | ? | n/a | ? |
-| `_check_floating_pins` | n/a | n/a | n/a | n/a | ? | n/a |
+| `_check_short` (drc/engine.py:298) | zgodny — operuje na `graph.node_for_pin`, plated-through zaimplikowane przez electric-set merge | n/a — bridge przez pin/foreign wire wykryje jako short tej samej drogi | n/a — joint exclusivity gated wcześniej w `_find_joint_at`/`can_form_t_junction`; short tu to konsekwencja, nie creation | n/a — pin gating to `_find_pin_at` | n/a | brakuje — graph builder ignoruje kapton (nie istnieje w modelu) |
+| `_check_bare_wire_interior_cross` (drc/engine.py:465) | n/a — sprawdza segmenty między padami, pin penetracja nie dotyczy | niepełny — wykrywa cross między różnymi electric-set, ale nie reguły 6 (drut nad pinem) | n/a | n/a | n/a | brakuje |
+| `_check_bare_wire_cross` (drc/engine.py:385) | zgodny — używa `graph.node_for_pin` (plated-through już zmergowany) i rejestruje obie strony per pad | brakuje — wykrywa tylko bare↔bare, nie bare/insulated nad pinem | n/a | n/a | n/a | brakuje |
+| `_check_off_pad_joint` (drc/engine.py:613) | n/a | n/a | niepełny — sprawdza tylko geometrię (joint na padzie), nie egzekwuje exclusivity zawartości | n/a | brakuje — half-orphan joint na plated_through niesygnalizowany | brakuje — `board_pads_for_side` nie zna kaptonu |
+| `_check_off_board_pins` (drc/engine.py:660) | zgodny — pin musi być na padzie; plated_through respected przez `board_pads_for_side` | n/a | n/a | n/a | n/a | brakuje |
+| `can_form_t_junction` (wire_utils.py:736) | zgodny — `_wire_net_id` respectuje plated_through dla pin-resolution | niepełny — CONFLICT_REJECT dla różnych netów, ale nie sprawdza czy wire przechodzi przez pad pinu (reguła 6 strict) | zgodny — SAFE/CONFLICT_REJECT egzekwuje exclusivity przy tworzeniu | brakuje — `ASSIGN_NET_TO_INCOMING_PIN` zakłada że pin akceptuje wire, brak własnej walidacji can_place_pin | n/a | brakuje |
+| `_find_joint_at` (component_cmds.py:259) | zgodny — `plated_pads` check dla cross-side joints | niepełny — odrzuca foreign-net incoming i orphan-incoming gdy joint named, ale nie sprawdza reguły 6 dla wire over-pin | zgodny — post-creation gate (nowa runda) | n/a — pin nie joint | n/a | brakuje |
+| `_find_pin_at` (component_cmds.py:230) | n/a — sama lokalizacja pinu | brakuje — wie tylko że "tu jest pin", nie weryfikuje czy incoming wire jest legalny | n/a | brakuje — brak `can_place_pin` net gate (reguła 8 explicitly missing per memory) | n/a | brakuje |
+| `astar.cost` (astar.py:404-548) | zgodny — `_collect_plated_through_pads` rules vias only on plated; pin penetracja przez `valid_nodes` setup | niepełny — `wire_over_foreign_wire_pad`/`occupied_by_other_net` to soft cost, nie hard reject; reguła 6 dla pinów milcząco przez `foreign_wire_cells` | niepełny — `via_on_foreign_pad` jako soft cost; joint creation gated przez post-routing `split_wires_at_endpoint_collisions` | brakuje — autoroute zakłada same-net target, nie ma `can_place_pin` check | n/a — autoroute nie konsumuje half-orphan jako destynacji (zasada 9 follow-up) | brakuje |
+| `autorouter._check_preconditions` (autorouter.py:486+) | zgodny — `OFF_BOARD_PIN` per pin na właściwej stronie | brakuje | brakuje — `_AUTOROUTE_BLOCKING_DRC_CODES = {SHORT}` blocks only on existing shorts | brakuje | brakuje — nie wykrywa half-orphan jako legal target | brakuje |
+| `_check_floating_pins` (drc/engine.py:359) | n/a | n/a | n/a | n/a | brakuje — koncept "floating pin" ≠ half-orphan wire; reguła 9 dotyczy wire'ów bez solder mate | n/a |
 
-`?` = wymaga audytu i dopisania konkretnego statusu
-(zgodny/niepełny/brakuje). Po wypełnieniu tabeli będziemy wiedzieli
-dokładnie co trzeba zmienić w implementacji przed projektem warstwy
-Pad/PadLayer/Strategy.
+## Acceptance criteria dla migracji
+
+Tabela pokazuje że **rzeczywista lista zmian semantycznych** to:
+
+- **Reguła 6 strict (bez wyjątku insulated interior)**: brakuje wszędzie poza T-junction creation gate. Wymaga: dodać check "wire interior over pin/wire-pin pad" do `_check_bare_wire_cross` LUB nowy check `WIRE_OVER_PIN`.
+- **Reguła 8 (`can_place_pin` net gate)**: brakuje w `_find_pin_at`, `can_form_t_junction` (`ASSIGN_NET_TO_INCOMING_PIN` path), `astar.cost`. Wymaga: nowa metoda strategii `can_place_pin(pad, our_net) -> Decision` + integracja.
+- **Reguła 9 (half-orphan)**: brakuje całkowicie jako koncept. `_check_floating_pins` to coś innego (nieplaced pin). Wymaga: nowy DRC check `HALF_ORPHAN_WIRE` (warning) + autorouter używa half-orphan endpoint jako candidate destination.
+- **Kapton (`Pad modifiers`)**: brakuje wszędzie — out of scope MVP (follow-up).
+
+Reguły 5 i 7 są generalnie egzekwowane, choć rozsiane po wielu callsites — refactor przeniesie je za jedną strategię (`DRCEnforcingStrategy`).
+
+**Po wszystkich Step (1–7)** ponownie audit każdej komórki — wszystkie poza kapton-kolumny powinny być `zgodny`. Pozostałe `brakuje`/`niepełny` to TODO follow-up.
 
 ---
 

@@ -193,6 +193,12 @@ class EditorSession(QObject):
         self._autoroute_active: bool = False
         self._graph: ConnectivityGraph | None = None  # rebuilt lazily; None = stale
         self._pad_index: "PadIndex | None" = None
+        # PadStrategy overrides keyed by subsystem name. Empty by default —
+        # `strategy_for(...)` falls back to the project- and subsystem-
+        # specific defaults assembled by `StrategyConfig.from_session`.
+        # Tests inject mocks via `override_strategy`; production tools
+        # may inject a tuned strategy per session.
+        self._strategy_overrides: dict[str, object] = {}
         self._comp_spatial_index: dict[tuple[int, int], list[uuid.UUID]] | None = None
         self._wire_spatial_index: dict[tuple[int, int], list[uuid.UUID]] | None = None
         # Cached pad-walk sets used by post-hoc cost analysis.  Both depend
@@ -431,6 +437,46 @@ class EditorSession(QObject):
             )
             self.perf.pad_index_build_ms = (time.monotonic() - t0) * 1000
         return self._pad_index
+
+    def strategy_for(self, subsystem: str) -> object:
+        """Return the :class:`PadStrategy` bound to *subsystem* for this
+        session.
+
+        Order of precedence:
+        1. Test override set via :meth:`override_strategy` — returned as-is.
+        2. Default strategy assembled by :func:`pad_strategy.make_strategy`,
+           using project knobs from ``self.settings`` (currently only
+           ``strict_tape_joints``) and the subsystem-specific defaults
+           from :meth:`StrategyConfig.from_session`.
+
+        ``subsystem`` accepts ``"drc"``, ``"autoroute"``, ``"simplify"``.
+        The return type is ``object`` to keep this module light on
+        imports — callers receive a :class:`PadStrategy` Protocol
+        instance and can rely on duck typing.
+        """
+        override = self._strategy_overrides.get(subsystem)
+        if override is not None:
+            return override
+        from protoboard.services.pad_strategy import (
+            StrategyConfig,
+            make_strategy,
+        )
+        cfg = StrategyConfig.from_session(self, subsystem)  # type: ignore[arg-type]
+        return make_strategy(subsystem, cfg)  # type: ignore[arg-type]
+
+    def override_strategy(self, subsystem: str, strategy: object | None) -> None:
+        """Install (or clear, when *strategy* is None) a custom
+        :class:`PadStrategy` for *subsystem*.
+
+        Intended for unit tests that need a deterministic verdict.
+        Production tools should rely on :meth:`strategy_for` and
+        adjust knobs via :class:`StrategyConfig`/``EditorSession``
+        settings instead.
+        """
+        if strategy is None:
+            self._strategy_overrides.pop(subsystem, None)
+        else:
+            self._strategy_overrides[subsystem] = strategy
 
     def comp_spatial_index(self) -> dict[tuple[int, int], list[uuid.UUID]]:
         """Return grid-cell → comp_id index, rebuilding lazily after layout_changed."""
