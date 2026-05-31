@@ -28,3 +28,9 @@ class HighlightProfile:
     neighbor_pen_rgba: tuple[int, int, int, int] = (0, 255, 120, 210)
     dim_components: float = 0.20
     dim_wires: float = 0.20
+    # Opacity applied to *highlighted* components (the items the user
+    # actually wants to see).  Default 1.0 keeps the historic
+    # "highlighted = fully opaque" behaviour.  RouteTool overrides this
+    # to ~0.4 during an active wire drag so the user can see pin
+    # geometry hidden under a body (DIP, SOIC, etc.).
+    highlight_alpha: float = 1.0

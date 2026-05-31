@@ -55,16 +55,23 @@ class RouteTool(_Tool):
         # Single live segment from last point to cursor — None when not active.
         self._live_line: QGraphicsLineItem | None = None
         self._hint_items: list[QGraphicsLineItem] = []
+        # Background dim overlay shown during active wire drag.  None
+        # while idle; QGraphicsRectItem after _set_route_highlight().
+        self._dim_overlay: object | None = None
+        # Track whether the transient highlight + dim overlay are
+        # currently pushed so commit/cancel can pop exactly once.
+        self._route_highlight_active: bool = False
 
     def activate(self, session: object, view: object) -> None:
         super().activate(session, view)  # type: ignore[arg-type]
-        from protoboard.gui.highlight_state import HighlightEntry, PROFILE_DIMMED_1
-        self._session.highlight_stack.push_transient(  # type: ignore[attr-defined]
-            HighlightEntry(profile=PROFILE_DIMMED_1, label="Route", transient=True)
-        )
+        # No transient highlight on bare activation — RouteTool only
+        # dims when the user is actively pulling a wire (i.e. after the
+        # first click).  Standby mode keeps the normal view so the user
+        # can scan the layout for the starting pad.
+        self._route_highlight_active = False
 
     def deactivate(self) -> None:
-        self._session.highlight_stack.pop_transient()  # type: ignore[attr-defined]
+        self._clear_route_highlight()
         self._cancel()
 
     def on_press(self, event: QMouseEvent, scene_pt: QPointF) -> bool:
@@ -127,6 +134,7 @@ class RouteTool(_Tool):
 
     def _commit(self) -> None:
         self._session.set_routing_net(None)
+        self._clear_route_highlight()
         if len(self._points) < 2:
             self._cancel()
             return
@@ -181,6 +189,7 @@ class RouteTool(_Tool):
         self._clear_committed()
         self._remove_live()
         self._clear_hints()
+        self._clear_route_highlight()
         self._session.set_routing_net(None)
 
     def _show_routing_hints(self, source: Point) -> None:
@@ -253,22 +262,112 @@ class RouteTool(_Tool):
 
         BoardView unions this with whatever HighlightStack is showing, so a
         user-pinned persistent highlight on a different net stays visible.
+        Also pushes a transient highlight entry that adds the
+        route-active visual treatment: stronger dim on unrelated items,
+        semi-transparent routed components (so the user can see pin
+        geometry hidden under SVG bodies), and a background dim overlay.
         """
         graph = self._session.connectivity_graph()
         source_node = graph.node_for_pad(source, self._side)
         if source_node is None:
+            self._set_route_highlight(net_id=None)
             return
         for net in self._session.schematic.nets.values():
             for ref in net.pins:
                 if graph.node_for_pin(ref) == source_node:
                     self._session.set_routing_net(net.id)
+                    self._set_route_highlight(net_id=net.id)
                     return
+        # Start pad isn't on any pin → orphan route.  Still want the
+        # dim+overlay treatment, just without a netted highlight.
+        self._set_route_highlight(net_id=None)
+
+    # ------------------------------------------------------------------
+    # Route-active visual treatment (Etap 2 + 3)
+    # ------------------------------------------------------------------
+
+    def _set_route_highlight(self, *, net_id: "uuid.UUID | None") -> None:
+        """Push transient highlight entry + show background dim overlay.
+
+        Idempotent — repeat calls within the same drag are no-ops.
+        Cleared by :meth:`_clear_route_highlight`.
+        """
+        if self._route_highlight_active:
+            return
+        from protoboard.gui.highlight_state import (
+            HighlightEntry,
+            PROFILE_ROUTE_ACTIVE,
+        )
+        comp_ids: frozenset[uuid.UUID] = frozenset()
+        if net_id is not None:
+            net = self._session.schematic.nets.get(net_id)
+            if net is not None:
+                comp_ids = frozenset(ref.component_id for ref in net.pins)
+        self._session.highlight_stack.push_transient(  # type: ignore[attr-defined]
+            HighlightEntry(
+                comp_ids=comp_ids,
+                net_id=net_id,
+                profile=PROFILE_ROUTE_ACTIVE,
+                label="Route active",
+                transient=True,
+            )
+        )
+        self._add_dim_overlay()
+        self._route_highlight_active = True
+
+    def _clear_route_highlight(self) -> None:
+        """Pop transient highlight + remove background dim overlay."""
+        if not self._route_highlight_active:
+            return
+        self._session.highlight_stack.pop_transient()  # type: ignore[attr-defined]
+        self._remove_dim_overlay()
+        self._route_highlight_active = False
+
+    def _add_dim_overlay(self) -> None:
+        """Add a semi-transparent dark rectangle covering the whole scene.
+
+        Sits below the components/wires (z = -10) but above the board
+        background, so unrelated items dim further while the routed
+        items (already at higher z + boosted by bold highlight) remain
+        visible.  Removed by ``_remove_dim_overlay``.
+        """
+        from PySide6.QtWidgets import QGraphicsRectItem
+        from PySide6.QtGui import QBrush, QColor
+        from PySide6.QtCore import Qt as _Qt
+        scene = self._view.scene()
+        if scene is None:
+            return
+        rect_item = QGraphicsRectItem(scene.sceneRect())
+        # 50% black overlay — strong enough to push background away
+        # while the bold routed pads (z >> 0) stay legible above it.
+        rect_item.setBrush(QBrush(QColor(0, 0, 0, 128)))
+        rect_item.setPen(_Qt.PenStyle.NoPen)
+        # Z chosen by inspection of board_view layering: comp groups
+        # live around z=2, wires around z=1-3.  -0.5 puts the overlay
+        # above the board background (board z = -10) but below all
+        # interactive items.
+        rect_item.setZValue(-0.5)
+        scene.addItem(rect_item)
+        self._dim_overlay = rect_item
+
+    def _remove_dim_overlay(self) -> None:
+        if self._dim_overlay is None:
+            return
+        try:
+            self._view.scene().removeItem(self._dim_overlay)  # type: ignore[arg-type]
+        except RuntimeError:
+            pass  # scene already cleared
+        self._dim_overlay = None
 
     def on_scene_cleared(self) -> None:
         """Called after every refresh() — redraw committed lines from _points."""
         self._committed_lines.clear()
         self._live_line = None   # C++ object deleted by scene.clear(); drop ref
         self._hint_items.clear()
+        # Background dim overlay is also a scene item — clear the
+        # reference so the next _add_dim_overlay() doesn't try to
+        # remove a freed C++ object.
+        self._dim_overlay = None
 
         # Redraw committed segments from stored point sequence.
         if len(self._points) >= 2:
@@ -276,6 +375,10 @@ class RouteTool(_Tool):
                 self._add_committed_line(self._points[i], self._points[i + 1])
         # Live line is NOT redrawn here — it will be recreated on the next
         # mouseMoveEvent via on_move() → _add_live_line().
+        # Re-add the background dim overlay if a route is in flight; the
+        # scene clear wiped it.
+        if self._route_highlight_active:
+            self._add_dim_overlay()
 
     def _clear_hints(self) -> None:
         for item in self._hint_items:

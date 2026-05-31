@@ -56,6 +56,20 @@ PROFILE_DIMMED_2 = HighlightProfile(
     dim_wires=0.12,
 )
 
+# RouteTool — active wire drag (after first click).  Strong dim on
+# everything except the routed net.  Routed components themselves stay
+# fully opaque — the user explicitly asked for active comps at 100%
+# (the under-body pin visibility we hoped to add by dropping
+# highlight_alpha turned out to be more confusing than helpful).
+PROFILE_ROUTE_ACTIVE = HighlightProfile(
+    pad_marker_rgba=(255, 220, 0, 160),
+    pad_marker_radius=0.28,
+    unconnected_rgba=(255, 140, 0, 180),
+    dim_components=0.12,
+    dim_wires=0.12,
+    highlight_alpha=1.0,
+)
+
 
 # ---------------------------------------------------------------------------
 # HighlightEntry

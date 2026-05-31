@@ -434,9 +434,11 @@ class BoardView(QGraphicsView):
         if isinstance(profile_obj, HighlightProfile):
             dim_c = profile_obj.dim_components
             dim_w = profile_obj.dim_wires
+            hi_alpha = profile_obj.highlight_alpha
         else:
             dim_c = _base.highlight_dim_components
             dim_w = _base.highlight_dim_wires
+            hi_alpha = 1.0
 
         # Expand each net into its member component ids.
         for nid in net_ids:
@@ -450,7 +452,7 @@ class BoardView(QGraphicsView):
         for comp_id, grp in self._comp_groups.items():
             if isinstance(grp, QGraphicsItemGroup):
                 if comp_id in highlighted_comp_ids:
-                    grp.setOpacity(1.0)
+                    grp.setOpacity(hi_alpha)
                 else:
                     grp.setOpacity(max(0.04, dim_c))
 

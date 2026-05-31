@@ -114,6 +114,14 @@ def _make_select_pen(color_str: str, width: float) -> QPen:
     return pen
 _RUBBER_BAND_PEN_LR = QPen(QColor(0, 200, 255, 180), 0.06)   # left-to-right: solid
 _RUBBER_BAND_PEN_RL = QPen(QColor(0, 200, 255, 180), 0.06)   # right-to-left: dashed
+
+# Minimum scene-space distance (raster units) the cursor must travel
+# from the press point before on_move starts mutating placements/wire
+# paths.  A bare click on a pin keeps a few sub-raster jitter pixels;
+# that must not be misread as the start of a drag.  Half a raster
+# (0.5) is below the snap step so any genuine drag immediately
+# crosses it.
+_DRAG_START_THRESHOLD = 0.5
 _RUBBER_BAND_PEN_RL.setStyle(Qt.PenStyle.DashLine)
 _RUBBER_BAND_FILL_LR = QColor(0, 200, 255, 20)
 _RUBBER_BAND_FILL_RL = QColor(0, 200, 255, 10)
@@ -166,6 +174,15 @@ class SelectTool(_Tool):
         self._drag_orig_positions: dict[uuid.UUID, Point] = {}
         self._drag_orig_wire_paths: dict[uuid.UUID, list[Point]] = {}
         self._drag_anchor_offset: tuple[float, float] = (0.0, 0.0)
+        # Scene-space point captured on LPM press.  on_move ignores
+        # cursor motion until the user has dragged ~half a raster from
+        # this point, so a plain click on a pin (small jitter) doesn't
+        # mutate anything.  Cleared on release.
+        self._drag_press_scene_pt: QPointF | None = None
+        # Latched once the threshold has been crossed for the current
+        # drag — prevents the gate from re-arming if the user wiggles
+        # back to within the threshold mid-drag.
+        self._drag_threshold_crossed: bool = False
         # Rubber-band state.
         self._rubber_band_start: QPointF | None = None
         self._rubber_band_item: QGraphicsRectItem | None = None
@@ -1100,6 +1117,8 @@ class SelectTool(_Tool):
     def deactivate(self) -> None:
         self._cancel_redrag()
         self._dragging = False
+        self._drag_press_scene_pt = None
+        self._drag_threshold_crossed = False
         self._drag_orig_positions = {}
         self._drag_orig_wire_paths = {}
         self._clear_drag_pad_index()
@@ -1293,6 +1312,8 @@ class SelectTool(_Tool):
                 # Begin drag of all group members.
                 self._drag_overlay.reset(self._view.scene())
                 self._dragging = True
+                self._drag_press_scene_pt = QPointF(scene_pt)
+                self._drag_threshold_crossed = False
                 self._drag_orig_positions = {}
                 self._drag_orig_wire_paths = {}
                 snapped = self._view.snap(scene_pt, exclude_ids=frozenset(grp_members))
@@ -1387,6 +1408,8 @@ class SelectTool(_Tool):
             self._drag_last_decision = None
             self._stop_drag_validation_timer()
             self._dragging = True
+            self._drag_press_scene_pt = QPointF(scene_pt)
+            self._drag_threshold_crossed = False
             self._drag_orig_positions = {}
             self._drag_orig_wire_paths = {}
             drag_ids = self._selected_ids if self._selected_ids else {hit}
@@ -1452,6 +1475,8 @@ class SelectTool(_Tool):
                 # Klik na już zaznaczony drut → drag całej selekcji.
                 snapped = self._view.snap(scene_pt)
                 self._dragging = True
+                self._drag_press_scene_pt = QPointF(scene_pt)
+                self._drag_threshold_crossed = False
                 self._drag_orig_positions = {}
                 self._drag_orig_wire_paths = {}
                 # Anchor offset: użyj pierwszego punktu klikniętego drutu.
@@ -1512,6 +1537,8 @@ class SelectTool(_Tool):
             if self._is_locked_in_group(bbox_hit):
                 return True
             self._dragging = True
+            self._drag_press_scene_pt = QPointF(scene_pt)
+            self._drag_threshold_crossed = False
             self._drag_orig_positions = {}
             self._drag_orig_wire_paths = {}
             drag_ids = self._selected_ids if self._selected_ids else {bbox_hit}
@@ -1607,6 +1634,21 @@ class SelectTool(_Tool):
             return
 
         if self._dragging:
+            # Drag-start threshold: don't mutate anything until the
+            # cursor has travelled at least _DRAG_START_THRESHOLD raster
+            # units from the press point.  Otherwise sub-pixel jitter
+            # on a plain LPM click is interpreted as a drag and the
+            # subsequent on_release path tries to "commit a move that
+            # didn't happen" (user-observed 2026-06-01).
+            if (
+                not self._drag_threshold_crossed
+                and self._drag_press_scene_pt is not None
+            ):
+                dx = scene_pt.x() - self._drag_press_scene_pt.x()
+                dy = scene_pt.y() - self._drag_press_scene_pt.y()
+                if dx * dx + dy * dy < _DRAG_START_THRESHOLD * _DRAG_START_THRESHOLD:
+                    return
+                self._drag_threshold_crossed = True
             anchor_id = self._selected_id
             drag_ids = (
                 self._selected_ids if self._selected_ids
@@ -1699,8 +1741,19 @@ class SelectTool(_Tool):
 
         if not self._dragging:
             return
+        # Pure click (threshold never crossed) — selection was already
+        # applied in on_press, and nothing was mutated.  Reset the
+        # drag-pending state and exit without invoking the floating
+        # pipeline.
+        threshold_crossed = self._drag_threshold_crossed
         self._dragging = False
+        self._drag_press_scene_pt = None
+        self._drag_threshold_crossed = False
         self._stop_drag_validation_timer()
+        if not threshold_crossed:
+            self._drag_orig_positions = {}
+            self._drag_orig_wire_paths = {}
+            return
 
         drag_ids = (
             self._selected_ids
