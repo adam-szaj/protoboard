@@ -1264,9 +1264,19 @@ class SelectTool(_Tool):
             return False
 
         # --- Klik na obrysie grupy — zaznacz grupę jako całość ---
-        group_outline_hit = (
-            self._hit_test_group_outline(scene_pt) if self._filter_groups() else None
-        )
+        # First check whether the click landed on an *exported pin* of a
+        # child group: those pins are the group's external interface, so
+        # they must accept normal pin clicks (route start, Shift+LPM net
+        # highlight) even though they sit geometrically inside the
+        # group's outline rect.  Without this short-circuit the outline
+        # branch below grabs the click and selects the whole group,
+        # masking the exported-pin semantics entirely.
+        if self._click_is_on_exported_pin(scene_pt):
+            group_outline_hit = None
+        else:
+            group_outline_hit = (
+                self._hit_test_group_outline(scene_pt) if self._filter_groups() else None
+            )
         if group_outline_hit is not None:
             self._cancel_wire_edit()
             self._deselect_wire()
@@ -1773,11 +1783,27 @@ class SelectTool(_Tool):
             floating_moved.add(cid)
 
         dragged_wire_ids = frozenset(self._drag_orig_wire_paths.keys())
-        decision = classify_drag_commit(
-            session=self._session,
-            moved_comp_ids=floating_moved or drag_ids,
-            dragged_wire_ids=dragged_wire_ids,
-        )
+        # Only run the drag classifier when *something actually moved*.
+        # A bare click (mouse-down + immediate mouse-up at the same
+        # snap) used to fall into this branch with
+        # ``moved_comp_ids=drag_ids`` — the classifier then reported
+        # every wire legitimately soldered to the clicked component's
+        # pins as a rule-6-strict conflict and the wire-only branch
+        # below silently executed ``RemoveWireCommand`` on each one
+        # (user-observed bug 2026-05-31: "klik na pin = odłączenie
+        # przewodów").  Skip classification when nothing moved.
+        if floating_moved or self._drag_orig_wire_paths:
+            decision = classify_drag_commit(
+                session=self._session,
+                moved_comp_ids=floating_moved or drag_ids,
+                dragged_wire_ids=dragged_wire_ids,
+            )
+        else:
+            from protoboard.gui.tools.drag_commit_decision import (
+                DragCommitDecision,
+                DragSeverity,
+            )
+            decision = DragCommitDecision(severity=DragSeverity.CLEAR)
 
         # Wire-path-change commands for live-dragged wires that need a
         # ReplaceWireFragmentsCommand entry in undo history.
@@ -5746,6 +5772,48 @@ class SelectTool(_Tool):
     # ------------------------------------------------------------------
     # Group navigation helpers
     # ------------------------------------------------------------------
+
+    def _click_is_on_exported_pin(
+        self, scene_pt: QPointF, tol: float = 0.6,
+    ) -> bool:
+        """Return True if *scene_pt* lies on an exported pin of any
+        child group of the current active group.
+
+        Mirrors :meth:`BoardView.is_locked_pin` but inverted: it asks
+        "is this pin part of a child group's *external interface*?"
+        rather than "is this pin locked away?".  Used by on_press to
+        preserve normal pin semantics (route start, Shift+LPM net
+        highlight) on exported pins even though they sit inside their
+        parent group's outline rect.
+        """
+        from protoboard.domain.layout.group import all_component_ids
+        groups = self._session.layout.groups
+        active_group = groups.get(self._current_group_id)
+        if active_group is None:
+            return False
+        exported: set[tuple[uuid.UUID, int]] = set()
+        member_ids: set[uuid.UUID] = set()
+        for child_gid in active_group.child_group_ids:
+            child_group = groups.get(child_gid)
+            if child_group is None:
+                continue
+            for cid in all_component_ids(groups, child_gid):
+                member_ids.add(cid)
+            for ep in child_group.exported_pins:
+                exported.add((ep.component_id, ep.pin_number))
+        if not exported:
+            return False
+        px, py = scene_pt.x(), scene_pt.y()
+        tol_sq = tol * tol
+        for comp_id in member_ids:
+            for pin_num, p in self._session.iter_pin_positions(comp_id):
+                if (comp_id, pin_num) not in exported:
+                    continue
+                dx = px - p.x
+                dy = py - p.y
+                if dx * dx + dy * dy < tol_sq:
+                    return True
+        return False
 
     def _hit_test_group_outline(self, scene_pt: QPointF) -> uuid.UUID | None:
         """Return group_id if the click landed on a group outline rect item."""
