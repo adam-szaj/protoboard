@@ -491,10 +491,31 @@ class DRCEnforcingStrategy(_BaseStrategy):
         pad: Pad,
         our_net: NetId | None,
     ) -> Decision:
-        # A pin's electrical contribution lands on every physical
-        # layer of the board. If any layer already carries a
-        # different net, that's an immediate short.
+        # Rule 6 strict: NO wire (foreign or same-net, bare or
+        # insulated, vertex or crossing) may sit on a pin's pad. The
+        # pin physically sticks above the pad — a wire underneath
+        # gets in the way of soldering and obstructs the conductor.
+        # The electrical short check (rule 5: pin galvanises every
+        # layer) is a separate sub-clause below.
+        from protoboard.domain.board.pad_state import (
+            BareWireCrossing,
+            BareWireItem,
+            InsulatedWireCrossing,
+            InsulatedWireItem,
+        )
         for layer in pad.layers.layer_ids():
+            for it in pad.physically_blocked_on(layer):
+                if isinstance(it, (
+                    BareWireItem,
+                    BareWireCrossing,
+                    InsulatedWireItem,
+                    InsulatedWireCrossing,
+                )):
+                    return Decision.reject(
+                        f"pin at {pad.position} cannot share its pad "
+                        f"with a wire (any net, any layer) — re-route "
+                        f"the wire to a separate hub"
+                    )
             net = self._pad_net(pad, layer)
             if net is SHORT_CIRCUIT:
                 return Decision.reject(

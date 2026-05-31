@@ -130,13 +130,19 @@ class TestCanPlacePin:
         d = s.can_place_pin(_plated_pad(), our_net=_net())
         assert d.verdict is Verdict.ALLOW
 
-    def test_pad_with_same_net_allows(self) -> None:
+    def test_pad_with_same_net_wire_still_rejects(self) -> None:
+        """Rule 6 strict: ANY wire on a pin's pad is rejected, even
+        when the schematic nets match. The pin's leg physically
+        obstructs any wire passing over the same pad — the user must
+        route the wire to a separate hub.
+        """
         s = DRCEnforcingStrategy()
         n = _net()
         pad = _plated_pad()
         pad._add_item(BareWireItem(id=uuid.uuid4(), net=n), "top")
         d = s.can_place_pin(pad, our_net=n)
-        assert d.verdict is Verdict.ALLOW
+        assert d.verdict is Verdict.REJECT
+        assert d.reason is not None and "wire" in d.reason.lower()
 
     def test_pad_with_foreign_net_rejects(self) -> None:
         s = DRCEnforcingStrategy()

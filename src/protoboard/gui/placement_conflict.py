@@ -584,15 +584,24 @@ def classify_drag_commit(
             already_conflicted=already_conflicted,
             pad_index=_drag_pad_index,
         )
+        # Rule 6 strict: ANY wire on a pin pad is a conflict — even
+        # the same-net case ("intentional contact") is physically
+        # awkward (pin sterczy nad padem) and gets removed on commit.
+        # The user can re-route the wire to a separate hub afterwards.
         for c in wire_cs:
-            if c.kind == ConflictKind.PIN_ON_WIRE_SAME_NET:
-                continue  # intentional contact — no action needed
             soft_pads.append(c.position)
             if c.wire_id is not None:
                 remove_wires.add(c.wire_id)
-            descriptions.append(
-                f"{inst.refdes} pin {c.incoming_pin} on foreign wire (will remove)"
-            )
+            if c.kind == ConflictKind.PIN_ON_WIRE_SAME_NET:
+                descriptions.append(
+                    f"{inst.refdes} pin {c.incoming_pin} on same-net wire "
+                    f"(will remove — re-route through a separate hub)"
+                )
+            else:
+                descriptions.append(
+                    f"{inst.refdes} pin {c.incoming_pin} on foreign wire "
+                    f"(will remove)"
+                )
 
     # --- 2. Wires crossing alien pads after the move ---
     crossing = find_wires_crossing_pads(

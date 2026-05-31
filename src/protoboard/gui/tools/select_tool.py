@@ -3000,9 +3000,13 @@ class SelectTool(_Tool):
                     wire_ids=[str(wc.wire_id)[:8] if wc.wire_id else None for wc in _wc_list],
                     already_count=len(already),
                 )
+                # Rule 6 strict: ANY wire on a pin pad is a conflict —
+                # bare or insulated, foreign-net or same-net. The
+                # physical constraint (pin sticks out of the pad, wire
+                # gets in the way) holds even when the schematic says
+                # the nets match; the user must still route through a
+                # separate hub, not through the pin's pad.
                 for wc in _wc_list:
-                    if wc.kind == ConflictKind.PIN_ON_WIRE_SAME_NET:
-                        continue
                     removable.append(wc.position)
                     if wc.wire_id is not None:
                         removable_wire_ids.append(wc.wire_id)
