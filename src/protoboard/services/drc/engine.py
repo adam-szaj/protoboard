@@ -197,6 +197,14 @@ class DRCEngine:
             return issues
         if board is not None:
             issues += _check_off_pad_joint(layout, board=board, axis_labels=axis_labels)
+            if _cancelled():
+                return issues
+            issues += _check_off_board_pins(
+                board, layout, components, instances, axis_labels,
+            )
+        if _cancelled():
+            return issues
+        issues += _check_group_exports(schematic, layout, instances)
         counts: dict[str, int] = {"error": 0, "warning": 0, "info": 0}
         for iss in issues:
             counts[iss.severity] = counts.get(iss.severity, 0) + 1
@@ -646,6 +654,169 @@ def _check_off_pad_joint(
                 affected_wires=affected_wires,
             )
         )
+    return issues
+
+
+def _check_off_board_pins(
+    board: Board,
+    layout: Layout,
+    components: dict[str, ComponentDefinition],
+    instances: dict[uuid.UUID, ComponentInstance],
+    axis_labels: AxisLabelSettings | None,
+) -> list[DRCIssue]:
+    """Every placed component pin must land on an existing board pad.
+
+    Covers two failure modes the user cares about together: the component
+    is dragged off the board outline, or it spans a hole between pad
+    clusters (cuts, missing strip segments).  Per-pin granularity rather
+    than bbox so that *partial* off-board placements surface the exact
+    pins that won't have a routing target.
+
+    Pin is checked against pads accessible from the component's own side
+    (``board_pads_for_side`` already includes plated-through pads on both
+    sides).  Reuses code ``OFF_BOARD_PIN`` so the autoroute precondition
+    treats engine-time and runtime detections identically.
+    """
+    from protoboard.domain.layout.wire_utils import board_pads_for_side
+
+    top_pads = board_pads_for_side(board, "top")
+    bottom_pads = board_pads_for_side(board, "bottom")
+    pads_by_side = {"top": top_pads, "bottom": bottom_pads}
+
+    issues: list[DRCIssue] = []
+    for comp_id, placement in layout.placements.items():
+        inst = instances.get(comp_id)
+        if inst is None:
+            continue
+        defn = components.get(inst.definition_ref)
+        if defn is None:
+            continue
+        side_pads = pads_by_side[placement.side]
+        for pin_num in range(1, defn.footprint.pin_count() + 1):
+            wp = pin_world_position(defn.footprint, placement, pin_num)
+            if _point_on_pads(wp, side_pads):
+                continue
+            loc_label = _format_location(wp, axis_labels)
+            pin_name = defn.pin_names.get(pin_num, str(pin_num))
+            issues.append(
+                DRCIssue(
+                    severity="error",
+                    code="OFF_BOARD_PIN",
+                    message=(
+                        f"Pin {pin_num} ({pin_name}) of {inst.refdes} at "
+                        f"{loc_label} is not on a board pad on the "
+                        f"{placement.side} side. Move the component onto "
+                        f"the board."
+                    ),
+                    locations=[wp],
+                    affected_nets=[],
+                    affected_pins=[PinRef(component_id=comp_id, pin_number=pin_num)],
+                    affected_components=[comp_id],
+                )
+            )
+    return issues
+
+
+def _check_group_exports(
+    schematic: Schematic,
+    layout: Layout,
+    instances: dict[uuid.UUID, ComponentInstance],
+) -> list[DRCIssue]:
+    """Validate that every non-root group's ``exported_pins`` reflects its
+    external interface.
+
+    For each group G (recursive — includes nested sub-groups, skips ROOT):
+      * For every *external net* of G — one whose pins include at least one
+        component outside G's recursive component set, **or** is a global
+        net (VCC/GND) — at least one of G's pins on that net must appear in
+        ``G.exported_pins``.  Otherwise emit ``GROUP_MISSING_EXPORT``
+        (error; autoroute precondition).
+      * Every entry in ``G.exported_pins`` whose net is *not* external
+        (purely internal to G, non-global) is a stale export — emit
+        ``GROUP_BOGUS_EXPORT`` (warning).
+
+    Pins in ``exported_pins`` that don't reference any net at all are
+    silently ignored — they're either orphan exports or unplaced pins, and
+    the user explicitly chose to suppress that case.
+    """
+    from protoboard.domain.layout.group import ExportedPin, all_component_ids
+    from protoboard.domain.layout.layout import ROOT_GROUP_ID
+
+    issues: list[DRCIssue] = []
+    for gid, group in layout.groups.items():
+        if gid == ROOT_GROUP_ID:
+            continue
+        member_ids = all_component_ids(layout.groups, gid)
+        if not member_ids:
+            continue
+
+        # Pre-compute which nets are external to *this* group.
+        external_net_ids: set[uuid.UUID] = set()
+        # For each external net: which of G's pins are on it?
+        external_pins_by_net: dict[uuid.UUID, list[PinRef]] = {}
+        for net in schematic.nets.values():
+            member_pins = [p for p in net.pins if p.component_id in member_ids]
+            if not member_pins:
+                continue
+            has_outside = any(p.component_id not in member_ids for p in net.pins)
+            if has_outside or net.global_net:
+                external_net_ids.add(net.id)
+                external_pins_by_net[net.id] = member_pins
+
+        exported_set: set[PinRef] = {
+            PinRef(component_id=ep.component_id, pin_number=ep.pin_number)
+            for ep in group.exported_pins
+        }
+
+        # MISSING: external net with zero exported coverage.
+        for net_id, member_pins in external_pins_by_net.items():
+            if not any(p in exported_set for p in member_pins):
+                net = schematic.nets[net_id]
+                group_label = group.name or f"<{str(gid)[:8]}>"
+                msg = (
+                    f"Group {group_label!r} connects to external net "
+                    f"{net.name!r} via {_format_pin_list(member_pins, instances)} "
+                    f"but exports no pin on that net. Add at least one pin to "
+                    f"the group's exported interface."
+                )
+                issues.append(
+                    DRCIssue(
+                        severity="error",
+                        code="GROUP_MISSING_EXPORT",
+                        message=msg,
+                        locations=[],
+                        affected_nets=[net_id],
+                        affected_pins=list(member_pins),
+                        affected_components=[p.component_id for p in member_pins],
+                    )
+                )
+
+        # BOGUS: exported pin whose net is not external.
+        for ep in group.exported_pins:
+            ref = PinRef(component_id=ep.component_id, pin_number=ep.pin_number)
+            net = schematic.net_for_pin(ref)
+            if net is None:
+                continue  # orphan — user opted to ignore
+            if net.id in external_net_ids:
+                continue
+            group_label = group.name or f"<{str(gid)[:8]}>"
+            msg = (
+                f"Group {group_label!r} exports pin {_format_pin(ref, instances)} "
+                f"but its net {net.name!r} stays inside the group. Either "
+                f"unexport the pin or connect the net to something outside "
+                f"the group."
+            )
+            issues.append(
+                DRCIssue(
+                    severity="warning",
+                    code="GROUP_BOGUS_EXPORT",
+                    message=msg,
+                    locations=[],
+                    affected_nets=[net.id],
+                    affected_pins=[ref],
+                    affected_components=[ref.component_id],
+                )
+            )
     return issues
 
 

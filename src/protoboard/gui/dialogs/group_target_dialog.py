@@ -7,6 +7,7 @@ import uuid
 from typing import Literal
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -41,6 +42,7 @@ class GroupTargetDialog(QDialog):
         self.mode: Literal["new", "existing"] = "new"
         self.new_name: str = default_name
         self.target_group_id: uuid.UUID | None = None
+        self.auto_export_external: bool = True
 
         layout = QVBoxLayout(self)
 
@@ -70,6 +72,17 @@ class GroupTargetDialog(QDialog):
         form_existing.addRow("Group:", self._group_combo)
         layout.addLayout(form_existing)
 
+        # --- Auto-export checkbox ---
+        self._auto_export = QCheckBox(
+            "Auto-export pins connected to external nets"
+        )
+        self._auto_export.setChecked(True)
+        self._auto_export.setToolTip(
+            "Mark every pin whose net leaves the group (or is a global net "
+            "like VCC/GND) as an exported group connection point."
+        )
+        layout.addWidget(self._auto_export)
+
         # Enable/disable widgets on radio change.
         self._radio_new.toggled.connect(self._update_state)
         self._update_state()
@@ -94,4 +107,5 @@ class GroupTargetDialog(QDialog):
         else:
             self.mode = "existing"
             self.target_group_id = self._group_combo.currentData()
+        self.auto_export_external = self._auto_export.isChecked()
         self.accept()

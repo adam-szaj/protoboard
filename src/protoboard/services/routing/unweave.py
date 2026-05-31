@@ -534,7 +534,36 @@ def unweave_wires(
               has_short_check=short_check is not None,
               has_board_pads=board_pads is not None,
               n_board_pads=len(board_pads) if board_pads is not None else 0)
+
+    def _state_fingerprint(state: list[list[Wire]]) -> tuple:
+        """Hashable snapshot of every wire path in *state*.
+
+        Used by the livelock guard below.  Two states with identical
+        wire paths produce the same fingerprint regardless of which
+        pair drove the most recent swap, so the global view catches
+        cycles even when no single pair shows a self-recurring loop.
+        """
+        return tuple(
+            tuple(
+                tuple((round(p.x, 6), round(p.y, 6)) for p in seg.path)
+                for seg in chain
+            )
+            for chain in state
+        )
+
+    # Livelock guard: real-world swap chains have produced sequences
+    # where pair (i, j) gets repeatedly flipped between two equivalent
+    # geometries because each side of the swap satisfies the local
+    # invariants but neither reduces the global crossing count
+    # monotonically (see reference_big_project user report 2026-05-30
+    # — 178 identical-fingerprint swaps for pair (0, 1)).  Without a
+    # cycle detector the main thread spins until ``max_iter`` runs out
+    # or the user kills the process.  Track every post-swap state
+    # fingerprint; the second time we see one, we are in a cycle.
+    seen_fingerprints: set[tuple] = set()
+    seen_fingerprints.add(_state_fingerprint(logical))
     swap_count = 0
+    livelock = False
     for it_idx in range(max_iter):
         progressed = False
         for i in range(len(logical)):
@@ -550,15 +579,30 @@ def unweave_wires(
                 )
                 if swap_done:
                     swap_count += 1
+                    fp = _state_fingerprint(logical)
+                    if fp in seen_fingerprints:
+                        _log.warning(
+                            "unweave.livelock_detected",
+                            iter=it_idx, pair=(i, j), total_swaps=swap_count,
+                            n_seen_states=len(seen_fingerprints),
+                        )
+                        # Abort the whole pass — keep the swaps we
+                        # already committed (they may have reduced some
+                        # crossings before the cycle started) but stop
+                        # the runaway loop.
+                        livelock = True
+                        break
+                    seen_fingerprints.add(fp)
                     _log.info("unweave.swap_done",
                               iter=it_idx, pair=(i, j), total_swaps=swap_count)
                     progressed = True
                     break
-            if progressed:
+            if progressed or livelock:
                 break
-        if not progressed:
+        if livelock or not progressed:
             _log.info("unweave.swap_phase_done",
-                      iterations=it_idx, total_swaps=swap_count)
+                      iterations=it_idx, total_swaps=swap_count,
+                      reason="livelock" if livelock else "no_progress")
             break
 
     # Side unification is a separate concern handled by a future pass.

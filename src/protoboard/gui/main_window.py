@@ -432,7 +432,6 @@ class MainWindow(QMainWindow):
         # Signals.
         self._board_view.cursor_moved.connect(self._on_cursor_moved)
         self._board_view.escape_tool.connect(self._tool_select)
-        self._board_view.spread_requested.connect(self._spread_components)
         self._library_panel.component_selected.connect(self._tool_place)
         self._netlist_panel.instance_selected.connect(self._board_view.select_component)
         self._components_panel.instance_selected.connect(self._board_view.select_component)
@@ -1843,12 +1842,19 @@ class MainWindow(QMainWindow):
         """Select all components and wires."""
         tool = self._ensure_select_tool()
         if tool is None:
+            _log.info("select_all.no_tool")
             return
         session = self._session
         tool._selected_ids = set(session.layout.placements.keys())
         tool._selected_wire_ids = {w.id for w in session.layout.wires}
         tool._redraw_multi_highlights()
         tool._redraw_multi_wire_highlights()
+        _log.info(
+            "select_all.applied",
+            n_components=len(tool._selected_ids),
+            n_wires=len(tool._selected_wire_ids),
+            n_multi_highlight_items=len(tool._multi_highlights),
+        )
 
     def _deselect_all(self) -> None:
         """Deselect all components and wires."""

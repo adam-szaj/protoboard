@@ -793,3 +793,63 @@ class TestUnweaveTangled03Fixture:
         out = unweave_wires(upper_wires, schematic=schematic, graph=graph)
         after = count_mutual_crossings(out)
         assert after <= before, "should never increase crossings"
+
+
+class TestUnweaveLivelockGuard:
+    """The main pass must abort cleanly when swaps cycle through
+    previously-seen states.  Regression: with the reference_big_project
+    selection of 9 wires the algorithm produced 178 identical-fingerprint
+    swaps for pair (0, 1) before the user killed the process.
+    """
+
+    def test_livelock_aborts_loop(self, monkeypatch) -> None:
+        """Stub ``_attempt_pair_swap`` so the first swap mutates the
+        state and the second 'swap' reverts to the original geometry.
+        The cycle detector must trip on iteration 2 (second swap) and
+        end the pass — without it we'd spin forever.
+        """
+        from protoboard.services.routing import unweave as uw_mod
+
+        # Two unrelated diagonals; no actual crossings, but the stub
+        # forces ``_attempt_pair_swap`` to return True regardless.
+        w1 = _wire((0.0, 0.0), (4.0, 4.0))
+        w2 = _wire((0.0, 4.0), (4.0, 0.0))
+
+        original = w1.path[:]
+        flipped  = list(reversed(original))
+        call = {"n": 0}
+
+        def fake_swap(logical, i, j, *, pad_safe, short_check, board_pads):
+            """Toggle wire[i].path between two known states on each call.
+
+            The cycle detector hashes the full ``logical`` state, so
+            making two swaps return to a previously-seen geometry is
+            the minimal way to trip it.
+            """
+            call["n"] += 1
+            # First call: flip wire 0's path direction.  Second call:
+            # restore — the *post-swap* fingerprint after call #2 equals
+            # the very first fingerprint, which is in ``seen_fingerprints``.
+            seg = logical[0][0]
+            if call["n"] == 1:
+                logical[0] = [Wire(
+                    id=seg.id, path=list(flipped),
+                    insulated=seg.insulated, side=seg.side,
+                )]
+            else:
+                logical[0] = [Wire(
+                    id=seg.id, path=list(original),
+                    insulated=seg.insulated, side=seg.side,
+                )]
+            return True
+
+        monkeypatch.setattr(uw_mod, "_attempt_pair_swap", fake_swap)
+
+        # Must terminate — without the cycle guard this loops until
+        # max_iter (≥16 for 2-vertex inputs); with the guard it bails
+        # on call #2 when the fingerprint repeats.
+        out = unweave_wires([w1, w2])
+        assert call["n"] == 2, f"expected exactly 2 swap attempts, got {call['n']}"
+        # State is whatever the stub last left — we just need the loop
+        # to have exited cleanly.
+        assert isinstance(out, list)

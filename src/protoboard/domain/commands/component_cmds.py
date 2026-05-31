@@ -257,35 +257,123 @@ def _find_pin_at(
 
 
 def _find_joint_at(
-    state: ComponentState, point: Point,
+    state: ComponentState,
+    point: Point,
+    *,
+    side: str | None = None,
+    net_id: uuid.UUID | None = None,
 ) -> JointKnot | None:
-    """Return the existing JointKnot at ``point`` (within ``_EPS_KNOT``).
+    """Return an existing JointKnot at ``point`` that is *compatible* with
+    the incoming wire's ``side`` and ``net_id``.
 
-    Walks ``layout.knots.values()`` once — fine for typical boards (knots
-    are O(wires)).  Pin knots are *not* returned; pin lookup goes through
-    ``_find_pin_at`` so that pin identity wins over joint identity at the
-    same pad.
+    Pre-fix this returned the first JointKnot at the position regardless
+    of who else was hanging off it.  That let an autoroute pass build a
+    single degree-N JointKnot where wires of different schematic nets
+    converged on the same off-pad point — the *reference_big_project*
+    bug.
+
+    Compatibility:
+      * If the joint already carries any wire on a different ``side``
+        **and the position is not a plated-through pad** → skip; top
+        and bottom can only share one solder joint via a via.
+      * If any incident wire resolves to a net different from ``net_id``
+        (both sides explicit, not None) → skip; merging would short two
+        nets.  Net-less wires already on the joint are tolerated.
+
+    ``side`` / ``net_id`` of ``None`` mean "caller does not know" (legacy
+    call sites pre-fix) — behave like before and return the first hit.
     """
+    schematic = getattr(state, "schematic", None)
+    plated_pads: frozenset[Point] | None = None
     for knot in state.layout.knots.values():
         if not isinstance(knot, JointKnot):
             continue
-        if (
+        if not (
             abs(knot.position.x - point.x) < _EPS_KNOT
             and abs(knot.position.y - point.y) < _EPS_KNOT
         ):
+            continue
+        if side is None and net_id is None:
+            return knot
+        # Inspect every wire currently hanging off this joint.
+        incompatible = False
+        for wid in knot.wire_ids:
+            w = state.layout.wires.get(wid)
+            if w is None:
+                continue
+            if side is not None and w.side != side:
+                # Cross-side joint is only legal on a plated-through pad
+                # (a real via electrically bridging the two layers).
+                if plated_pads is None:
+                    from protoboard.domain.layout.wire_utils import (
+                        plated_through_pads,
+                    )
+                    plated_pads = frozenset(plated_through_pads(state.board))
+                if knot.position not in plated_pads:
+                    incompatible = True
+                    break
+            if schematic is not None:
+                from protoboard.domain.layout.wire_utils import _wire_net_id
+                w_net = _wire_net_id(
+                    w, schematic, state.layout, state.instances, state.components,
+                    board=state.board,
+                )
+                # Reject when:
+                #  - both nets are explicit and differ, OR
+                #  - the joint has an explicit net but incoming wire is
+                #    net-less (an orphan must not silently join a named
+                #    joint — that lets the autoroute chain merge a
+                #    foreign-net hub via an unnamed link),
+                #  - incoming has a net but the joint's wire is on a
+                #    different explicit net (symmetric case).
+                if (
+                    (w_net is not None and net_id is not None and w_net != net_id)
+                    or (w_net is not None and net_id is None)
+                ):
+                    incompatible = True
+                    break
+        if not incompatible:
             return knot
     return None
 
 
+def _wire_intended_net(
+    state: ComponentState, wire: Wire,
+) -> uuid.UUID | None:
+    """Resolve *wire* to a schematic net id via its endpoint pins.
+
+    Returns None when the wire touches no pin (orphan / pure
+    knot-to-knot junction) or when the state has no schematic.  Used by
+    AddWireCommand to gate joint reuse so an autoroute pass cannot
+    merge wires of different nets into a phantom shared hub.
+
+    Passes ``state.board`` so cross-side pin resolution through
+    plated-through pads works — the autoroute common case where a wire
+    is on the bottom layer but the component pin lives on top.
+    """
+    schematic = getattr(state, "schematic", None)
+    if schematic is None:
+        return None
+    from protoboard.domain.layout.wire_utils import _wire_net_id
+    return _wire_net_id(
+        wire, schematic, state.layout, state.instances, state.components,
+        board=state.board,
+    )
+
+
 def _resolve_endpoint_knot(
-    state: ComponentState, point: Point,
+    state: ComponentState,
+    point: Point,
+    *,
+    side: str | None = None,
+    net_id: uuid.UUID | None = None,
 ) -> tuple[KnotRef, JointKnot | None]:
     """Resolve an endpoint position to (KnotRef, optional created JointKnot).
 
     Pin hit → reuse/create the singleton PinKnot for that PinRef.
-    Existing JointKnot at this position → reuse it (so two wires meeting at
-    the same off-pin pad share one hub, which is what
-    ``Layout.try_collapse_joint`` and the renderer expect).
+    Existing JointKnot at this position **and compatible with the
+    incoming wire's ``side`` / ``net_id``** → reuse it (so two wires of
+    the same net meeting at the same off-pin pad share one hub).
     Otherwise → create a fresh JointKnot at ``point``.  The created knot
     (if any) is returned so AddWireCommand.revert can drop it.
     """
@@ -293,7 +381,7 @@ def _resolve_endpoint_knot(
     if pin is not None:
         pk = state.layout.get_or_create_pin_knot(pin)
         return KnotRef(id=pk.id), None
-    existing = _find_joint_at(state, point)
+    existing = _find_joint_at(state, point, side=side, net_id=net_id)
     if existing is not None:
         return KnotRef(id=existing.id), None
     # Joint at this position (off-pad joints are flagged by DRC, not here).
@@ -314,12 +402,18 @@ def _split_existing_wires_at_endpoints(
     and never demote an existing wire to T-junction status.
     """
     from protoboard.domain.layout.wire_utils import (
+        TJunctionVerdict,
+        can_form_t_junction,
         find_wire_with_interior_vertex_at,
         make_t_junction,
     )
     records: list[_SplitRecord] = []
     if wire.a is None or wire.b is None:
         return records
+    # EditorSession exposes the full SchematicState; bare-bones tests
+    # may pass a ComponentState without ``.schematic``.  Resolve it
+    # defensively so the gate is permissive on those.
+    schematic = getattr(state, "schematic", None)
     # Snapshot original wire endpoint positions — these don't move,
     # but the wire's own ``a``/``b`` knot refs may change as the
     # splits retarget them to the shared hub.
@@ -330,6 +424,30 @@ def _split_existing_wires_at_endpoints(
         w_through, vertex_idx = hit
         if w_through.id == wire.id:
             continue
+        # Net-conflict gate.  When a fresh wire endpoint sits inside an
+        # existing wire of a different net, we leave the geometry as a
+        # crossing — collapsing it into a shared hub would short the two
+        # nets.  When the endpoint is a pin with no net yet, the verdict
+        # tells us which net to assign before splicing.
+        verdict, orphan_pin, net_to_assign = can_form_t_junction(
+            w_through, wire, endpoint_name,
+            schematic=schematic,
+            layout=state.layout,
+            instances=state.instances,
+            components=state.components,
+            board=state.board,
+        )
+        if verdict is TJunctionVerdict.CONFLICT_REJECT:
+            continue
+        if verdict is TJunctionVerdict.INCOMPATIBLE_GEOMETRY:
+            continue
+        if verdict is TJunctionVerdict.ASSIGN_NET_TO_INCOMING_PIN:
+            if schematic is None or orphan_pin is None or net_to_assign is None:
+                continue
+            net = schematic.nets.get(net_to_assign)
+            if net is None:
+                continue
+            net.pins.add(orphan_pin)
         # Snapshot the pre-split state of the wire we're about to cut,
         # so revert can rebuild it from one piece.
         snapshot = _snapshot_wire(w_through, state.layout)
@@ -338,6 +456,14 @@ def _split_existing_wires_at_endpoints(
                 state.layout, w_through, vertex_idx, wire, endpoint_name,
             )
         except ValueError:
+            # Revert the speculative pin assignment if the split itself
+            # failed — we don't want a dangling pin-to-net link without
+            # the corresponding geometry.
+            if verdict is TJunctionVerdict.ASSIGN_NET_TO_INCOMING_PIN:
+                if schematic is not None and orphan_pin is not None and net_to_assign is not None:
+                    _net = schematic.nets.get(net_to_assign)
+                    if _net is not None:
+                        _net.pins.discard(orphan_pin)
             continue
         records.append(_SplitRecord(
             original=snapshot,
@@ -624,8 +750,17 @@ class AddWireCommand(Command[ComponentState]):
             if self.wire.a is None or self.wire.b is None:
                 start = self.wire.path[0]
                 end = self.wire.path[-1]
-                a_ref, a_created = _resolve_endpoint_knot(state, start)
-                b_ref, b_created = _resolve_endpoint_knot(state, end)
+                # Constrain joint reuse to compatible existing joints so
+                # an autoroute pass cannot fuse wires of different nets
+                # into a phantom degree-N hub at an off-pin pad (the
+                # reference_big_project bug).
+                wire_net_id = _wire_intended_net(state, self.wire)
+                a_ref, a_created = _resolve_endpoint_knot(
+                    state, start, side=self.wire.side, net_id=wire_net_id,
+                )
+                b_ref, b_created = _resolve_endpoint_knot(
+                    state, end, side=self.wire.side, net_id=wire_net_id,
+                )
                 self.wire.a = a_ref
                 self.wire.b = b_ref
                 if a_created is not None:
@@ -1110,6 +1245,13 @@ class ReplaceWireFragmentsCommand(Command[ComponentState]):
     # (drag-commit) that mutate the wire in place before issuing the command.
     old_fragments: tuple[_Fragment, ...] = field(default=())
     _saved_fragments: tuple[_Fragment, ...] = field(default=(), init=False, repr=False)
+    # Pre-apply positions of any free (degree-1) JointKnot endpoints, so
+    # revert can slide them back to the original spot even when an
+    # interleaved RemoveWireCommand later restored a sibling wire onto
+    # the same joint (which would otherwise push degree above 1 and
+    # cause ``replace_wire_fragments`` to refuse the slide).
+    _saved_a_pos: "Point | None" = field(default=None, init=False, repr=False)
+    _saved_b_pos: "Point | None" = field(default=None, init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -1123,11 +1265,38 @@ class ReplaceWireFragmentsCommand(Command[ComponentState]):
             self._saved_fragments = self.old_fragments
         else:
             self._saved_fragments = tuple(wire.fragments)
+        # Snapshot pre-apply JointKnot positions so revert can restore
+        # them irrespective of how many wires the joint ends up holding
+        # at revert time (see _saved_a_pos / _saved_b_pos docstring).
+        if wire.a is not None:
+            ka = state.layout.knots.get(wire.a.id)
+            if isinstance(ka, JointKnot):
+                self._saved_a_pos = ka.position
+        if wire.b is not None:
+            kb = state.layout.knots.get(wire.b.id)
+            if isinstance(kb, JointKnot):
+                self._saved_b_pos = kb.position
         state.layout.replace_wire_fragments(self.wire_id, self.new_fragments)
 
     def revert(self, state: ComponentState) -> None:
         if not self._saved_fragments:
             return
+        # Restore JointKnot positions FIRST, so the subsequent
+        # ``replace_wire_fragments`` call sees endpoints that match the
+        # saved fragments and skips the slide-validation that would
+        # otherwise reject a degree-2+ joint (the joint may have grown
+        # incident-wire count between apply and revert when an
+        # interleaved ``RemoveWireCommand`` was reverted before us).
+        wire = state.layout.wires.get(self.wire_id)
+        if wire is not None:
+            if wire.a is not None and self._saved_a_pos is not None:
+                ka = state.layout.knots.get(wire.a.id)
+                if isinstance(ka, JointKnot):
+                    ka.position = self._saved_a_pos
+            if wire.b is not None and self._saved_b_pos is not None:
+                kb = state.layout.knots.get(wire.b.id)
+                if isinstance(kb, JointKnot):
+                    kb.position = self._saved_b_pos
         state.layout.replace_wire_fragments(self.wire_id, self._saved_fragments)
 
 

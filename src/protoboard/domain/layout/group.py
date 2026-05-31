@@ -5,8 +5,14 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from protoboard.geometry import Point
+
+if TYPE_CHECKING:
+    from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.schematic.schematic import Schematic
 
 
 @dataclass(frozen=True)
@@ -84,6 +90,55 @@ def top_level_group_for(
     while current in parent:
         current = parent[current]
     return current
+
+
+def external_pins_for_components(
+    component_ids: frozenset[uuid.UUID],
+    schematic: "Schematic",
+) -> frozenset[ExportedPin]:
+    """Return pins on *component_ids* that connect to the world outside the set.
+
+    A pin is "external" if its net either:
+      * contains a pin on a component outside *component_ids*, or
+      * is a global net (VCC/GND etc.) — by definition reaches the world.
+
+    Pure function — no side effects, no Qt.  Used to seed exported_pins when
+    creating/extending a group and by the "Export auto" context-menu entry.
+    """
+    result: set[ExportedPin] = set()
+    for net in schematic.nets.values():
+        member_pins = [p for p in net.pins if p.component_id in component_ids]
+        if not member_pins:
+            continue
+        has_outside = any(p.component_id not in component_ids for p in net.pins)
+        if has_outside or net.global_net:
+            for p in member_pins:
+                result.add(ExportedPin(component_id=p.component_id, pin_number=p.pin_number))
+    return frozenset(result)
+
+
+def all_pins_for_components(
+    component_ids: frozenset[uuid.UUID],
+    instances: dict[uuid.UUID, "ComponentInstance"],
+    definitions: dict[str, "ComponentDefinition"],
+) -> frozenset[ExportedPin]:
+    """Return every pin of every component in *component_ids*.
+
+    Used by the "Export all pins" context-menu entry.  Skips components or
+    definitions that cannot be resolved (defensive — should not happen in a
+    well-formed layout, but the menu handler is best-effort).
+    """
+    result: set[ExportedPin] = set()
+    for cid in component_ids:
+        inst = instances.get(cid)
+        if inst is None:
+            continue
+        defn = definitions.get(inst.definition_ref)
+        if defn is None:
+            continue
+        for pin_num in range(1, defn.footprint.pin_count() + 1):
+            result.add(ExportedPin(component_id=cid, pin_number=pin_num))
+    return frozenset(result)
 
 
 def would_create_cycle(

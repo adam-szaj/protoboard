@@ -54,6 +54,7 @@ from protoboard.domain.commands.component_cmds import (
     ReplaceWireFragmentsCommand,
 )
 from protoboard.domain.layout.group import (
+    ExportedPin,
     all_component_ids,
     top_level_group_for,
 )
@@ -338,6 +339,35 @@ class SelectTool(_Tool):
                 return False
             return True
         return False
+
+    def _wire_safe_to_drag(
+        self, wire: "Wire", drag_ids: "set[uuid.UUID]",
+    ) -> bool:
+        """True iff *wire* can be translated by the same delta as *drag_ids*
+        without producing endpoints that disagree with PinKnot positions.
+
+        A wire is safe when every PinKnot endpoint resolves to a pin of a
+        component inside *drag_ids* — those pins follow the drag, so the
+        translated path still terminates on them.  When any endpoint
+        anchors to a component **outside** *drag_ids* (typically a
+        locked sub-group member that the group filter dropped from the
+        drag set), the path slides off-pad and a subsequent
+        ``ReplaceWireFragmentsCommand.apply`` raises ``ValueError`` in
+        ``replace_wire_fragments`` (endpoint vs knot mismatch).
+
+        Selecting a wire that's anchored to a locked component is fine
+        for highlight / inspection, but it must **not** join the drag
+        translation set — drop it here.
+        """
+        from protoboard.domain.layout.knot import PinKnot
+        for ref in (wire.a, wire.b):
+            if ref is None:
+                continue
+            knot = self._session.layout.knots.get(ref.id)
+            if isinstance(knot, PinKnot):
+                if knot.pin.component_id not in drag_ids:
+                    return False
+        return True
 
     # ------------------------------------------------------------------
     # Relation class (which correlated set the auto-highlight reflects)
@@ -1036,6 +1066,19 @@ class SelectTool(_Tool):
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         if _CLICK_PROFILE:
             self._click_t0 = _click_t0
+        # Reset per-drag "log once" flag so on_move re-logs on next drag.
+        self._drag_logged_once = False
+        _log.info(
+            "on_press.enter",
+            scene=(round(scene_pt.x(), 2), round(scene_pt.y(), 2)),
+            ctrl=ctrl, shift=shift,
+            n_selected_comps=len(self._selected_ids),
+            n_selected_wires=len(self._selected_wire_ids),
+            primary_comp=str(self._selected_id)[:8] if self._selected_id else None,
+            primary_wire=str(self._selected_wire_id)[:8] if self._selected_wire_id else None,
+            is_floating=self._is_floating(),
+            is_editing_wire=self._is_editing_wire(),
+        )
 
         # --- Floating state: click commits (same as Enter) ---
         if self._is_floating() and not ctrl:
@@ -1169,9 +1212,15 @@ class SelectTool(_Tool):
 
         # --- Normal left click: hit-test component or wire ---
         hit = self._hit_test(scene_pt) if self._filter_components() else None
+        _log.info(
+            "on_press.hit_test_pin",
+            hit_comp=str(hit)[:8] if hit else None,
+            filter_components=self._filter_components(),
+        )
         if hit is not None:
             # Block interaction with components outside the active group context.
             if not self._is_accessible(hit):
+                _log.info("on_press.not_accessible", hit=str(hit)[:8])
                 return False
             # Determine which pin (if any) was under the cursor — needed for
             # both shift-driven relation∩filter selection and auto-highlight.
@@ -1194,7 +1243,18 @@ class SelectTool(_Tool):
             )
             # If the hit component is in a group that we haven't entered yet,
             # redirect the selection to that group's representative ID.
+            hit_pre_resolve = hit
             hit = self._resolve_group_hit(hit)
+            in_selection = hit in self._selected_ids
+            _log.info(
+                "on_press.normal_lpm.branch_pin",
+                hit_pre_resolve=str(hit_pre_resolve)[:8],
+                hit_post_resolve=str(hit)[:8],
+                resolved_to_proxy=hit != hit_pre_resolve,
+                in_selection=in_selection,
+                n_selected_ids=len(self._selected_ids),
+                decision="keep_multi" if in_selection else "fresh_single",
+            )
             self._cancel_wire_edit()
             if hit not in self._selected_ids:
                 # Fresh single-component click — clear all existing selection.
@@ -1220,10 +1280,20 @@ class SelectTool(_Tool):
             self._drag_orig_positions = {}
             self._drag_orig_wire_paths = {}
             drag_ids = self._selected_ids if self._selected_ids else {hit}
+            n_drag_ids_before_filter = len(drag_ids)
             # Drop grouped-but-not-active components from the drag set so
             # multi-selections that span both free and grouped components
             # only carry the free ones.
             drag_ids = {cid for cid in drag_ids if not self._is_locked_in_group(cid)}
+            _log.info(
+                "on_press.drag_start.normal_lpm",
+                hit=str(hit)[:8],
+                n_drag_ids_before_filter=n_drag_ids_before_filter,
+                n_drag_ids_after_group_filter=len(drag_ids),
+                n_selected_ids=len(self._selected_ids),
+                n_selected_wire_ids=len(self._selected_wire_ids),
+                hit_in_drag_ids=hit in drag_ids,
+            )
             snapped = self._view.snap(scene_pt, exclude_ids=frozenset(drag_ids))
             for cid in drag_ids:
                 pl = self._session.layout.placements.get(cid)
@@ -1239,13 +1309,29 @@ class SelectTool(_Tool):
             # Snapshot original wire paths for any selected wires.
             # Iterate selection (typically tiny) and look up by id, not the
             # other way around — the full wire list can be thousands long.
+            n_wire_drop_anchor_outside = 0
             for wid in self._selected_wire_ids:
                 w = self._session.wire_by_id(wid)
-                if w is not None:
-                    self._drag_orig_wire_paths[wid] = list(w.path)
+                if w is None:
+                    continue
+                if not self._wire_safe_to_drag(w, drag_ids):
+                    n_wire_drop_anchor_outside += 1
+                    continue
+                self._drag_orig_wire_paths[wid] = list(w.path)
+            _log.info(
+                "on_press.drag_ready",
+                n_drag_orig_positions=len(self._drag_orig_positions),
+                n_drag_orig_wire_paths=len(self._drag_orig_wire_paths),
+                n_wire_drop_anchor_outside=n_wire_drop_anchor_outside,
+            )
             return True
 
         wire_hit = self._hit_test_wire(scene_pt) if self._filter_wires() else None
+        _log.info(
+            "on_press.hit_test_wire",
+            wire_hit=str(wire_hit)[:8] if wire_hit else None,
+            in_selection=(wire_hit in self._selected_wire_ids) if wire_hit else None,
+        )
         if wire_hit is not None:
             self._cancel_wire_edit()
             if shift:
@@ -1267,14 +1353,27 @@ class SelectTool(_Tool):
                     )
                     # Use wire anchor as synthetic "selected_id" anchor.
                     self._selected_id = None
-                for wid in self._selected_wire_ids:
-                    wobj = self._session.wire_by_id(wid)
-                    if wobj:
-                        self._drag_orig_wire_paths[wid] = list(wobj.path)
-                for cid in self._selected_ids:
+                # Components to translate with the wire drag: free
+                # selection minus locked sub-group members.
+                drag_ids_local = {
+                    cid for cid in self._selected_ids
+                    if not self._is_locked_in_group(cid)
+                }
+                for cid in drag_ids_local:
                     pl = self._session.layout.placements.get(cid)
                     if pl is not None:
                         self._drag_orig_positions[cid] = pl.position
+                # Wires safe to translate: every PinKnot endpoint must
+                # resolve to a component in drag_ids_local — otherwise
+                # the translated path will end up off-pad relative to
+                # the un-moved pin (see _wire_safe_to_drag docstring).
+                for wid in self._selected_wire_ids:
+                    wobj = self._session.wire_by_id(wid)
+                    if wobj is None:
+                        continue
+                    if not self._wire_safe_to_drag(wobj, drag_ids_local):
+                        continue
+                    self._drag_orig_wire_paths[wid] = list(wobj.path)
             else:
                 self._clear_multi_selection()
                 self._clear_multi_wire_selection()
@@ -1287,6 +1386,12 @@ class SelectTool(_Tool):
         # This allows dragging a multi-selection by clicking anywhere inside
         # a selected component's body, not just near a pin.
         bbox_hit = self._hit_test_bbox(scene_pt) if self._filter_components() else None
+        _log.info(
+            "on_press.hit_test_bbox",
+            bbox_hit=str(bbox_hit)[:8] if bbox_hit else None,
+            in_selection=(bbox_hit in self._selected_ids) if bbox_hit else None,
+            is_primary=(bbox_hit == self._selected_id) if bbox_hit else None,
+        )
         if bbox_hit is not None and (
             bbox_hit in self._selected_ids
             or bbox_hit == self._selected_id
@@ -1300,7 +1405,14 @@ class SelectTool(_Tool):
             self._drag_orig_positions = {}
             self._drag_orig_wire_paths = {}
             drag_ids = self._selected_ids if self._selected_ids else {bbox_hit}
+            n_drag_ids_before_filter = len(drag_ids)
             drag_ids = {cid for cid in drag_ids if not self._is_locked_in_group(cid)}
+            _log.info(
+                "on_press.drag_start.bbox_lpm",
+                bbox_hit=str(bbox_hit)[:8],
+                n_drag_ids_before_filter=n_drag_ids_before_filter,
+                n_drag_ids_after_group_filter=len(drag_ids),
+            )
             snapped = self._view.snap(scene_pt, exclude_ids=frozenset(drag_ids))
             for cid in drag_ids:
                 pl = self._session.layout.placements.get(cid)
@@ -1314,11 +1426,15 @@ class SelectTool(_Tool):
                 )
             for wid in self._selected_wire_ids:
                 w = self._session.wire_by_id(wid)
-                if w is not None:
-                    self._drag_orig_wire_paths[wid] = list(w.path)
+                if w is None:
+                    continue
+                if not self._wire_safe_to_drag(w, drag_ids):
+                    continue
+                self._drag_orig_wire_paths[wid] = list(w.path)
             return True
 
         # Nothing hit — clear connectivity highlight and start rubber-band.
+        _log.info("on_press.nothing_hit_rubber_band")
         self._cancel_wire_edit()
         self._clear_multi_selection()
         self._deselect()
@@ -1386,6 +1502,16 @@ class SelectTool(_Tool):
                 self._selected_ids if self._selected_ids
                 else ({anchor_id} if anchor_id else set())
             )
+            # Log once per drag start (when delta first becomes non-zero).
+            if not getattr(self, "_drag_logged_once", False):
+                _log.info(
+                    "on_move.drag_first_tick",
+                    n_drag_ids=len(drag_ids),
+                    n_drag_orig_positions=len(self._drag_orig_positions),
+                    anchor_id=str(anchor_id)[:8] if anchor_id else None,
+                    n_selected_ids=len(self._selected_ids),
+                )
+                self._drag_logged_once = True
             # Snap the ANCHOR (pin 1 / wire start) to the nearest pad, not the
             # raw cursor.  Project where the anchor would land for the raw
             # cursor position, then snap that to the pad grid — this way the
@@ -1768,7 +1894,14 @@ class SelectTool(_Tool):
         from protoboard.gui.layer_state import Z_OVERLAY
 
         menu = QMenu(self._view)
-        has_items = False
+        has_items = True  # View section is always present
+
+        # ── View section (universal) ──────────────────────────────────────────
+        act_center = menu.addAction("Wyśrodkuj widok tutaj")
+        act_center.setData(("view_center", scene_pt))
+        act_escape = menu.addAction("Anuluj narzędzie (Esc)")
+        act_escape.setData(("view_escape",))
+        menu.addSeparator()
 
         # Temporary hover-highlight items (pin circle on scene during menu hover).
         _hover_items: list[object] = []
@@ -1848,7 +1981,19 @@ class SelectTool(_Tool):
                     ):
                         from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
                         from protoboard.domain.layout.group import ExportedPin
-                        menu.addSection(f"{inst.refdes} — export/unexport pins")
+                        sm_export = menu.addMenu(
+                            f"{inst.refdes} — export/unexport pins…"
+                        )
+                        # Bulk actions act on the *entire active group*, not
+                        # just the right-clicked component — that's where
+                        # exported_pins live.
+                        act_export_all = sm_export.addAction("Export all pins")
+                        act_export_all.setData(("export_all_pins", active_gid))
+                        act_export_auto = sm_export.addAction(
+                            "Export auto (pins on external nets)"
+                        )
+                        act_export_auto.setData(("export_auto_pins", active_gid))
+                        sm_export.addSeparator()
                         for pin_num in range(1, defn.footprint.pin_count() + 1):
                             ep = ExportedPin(component_id=comp_id, pin_number=pin_num)
                             pin_name = defn.pin_names.get(pin_num, str(pin_num))
@@ -1859,7 +2004,7 @@ class SelectTool(_Tool):
                                 if already
                                 else f"  Export pin {pin_num} ({pin_name}){marker}"
                             )
-                            act = menu.addAction(label)
+                            act = sm_export.addAction(label)
                             act.setData(("export_pin", active_gid, ep, already))
                             act.hovered.connect(
                                 lambda _cid=comp_id, _pn=pin_num: _hover_pin(_cid, _pn)
@@ -1875,10 +2020,14 @@ class SelectTool(_Tool):
                         pin_name = defn.pin_names.get(pin_num, str(pin_num))
                         netted_pins.append((pin_num, pin_name, net.name))
                 if netted_pins:
-                    menu.addSection(f"{inst.refdes} — disconnect pin from net")
+                    sm_disconnect = menu.addMenu(
+                        f"{inst.refdes} — disconnect pin from net…"
+                    )
                     for pin_num, pin_name, net_name in netted_pins:
                         marker = " ◀" if pin_num == clicked_pin else ""
-                        act = menu.addAction(f"Pin {pin_num} ({pin_name})  ←  {net_name}{marker}")
+                        act = sm_disconnect.addAction(
+                            f"Pin {pin_num} ({pin_name})  ←  {net_name}{marker}"
+                        )
                         act.setData(("disconnect", comp_id, pin_num))
                         act.hovered.connect(
                             lambda _cid=comp_id, _pn=pin_num: _hover_pin(_cid, _pn)
@@ -2053,7 +2202,14 @@ class SelectTool(_Tool):
             return True
         action = data[0]
 
-        if action == "lock":
+        if action == "view_center":
+            _, pt = data
+            self._view.center_on_scene_point(pt)
+
+        elif action == "view_escape":
+            self._view.escape_tool.emit()
+
+        elif action == "lock":
             _, target_ids, new_locked = data
             from protoboard.domain.commands.base import MacroCommand
             cmds_lock = [
@@ -2077,6 +2233,50 @@ class SelectTool(_Tool):
                     self._session,
                 )
                 self._session.layout_changed.emit()
+
+        elif action == "export_all_pins":
+            _, group_id = data
+            from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
+            from protoboard.domain.layout.group import all_pins_for_components
+            grp = self._session.layout.groups.get(group_id)
+            if grp is not None:
+                merged_ids = frozenset(
+                    all_component_ids(self._session.layout.groups, group_id)
+                )
+                new_exported = all_pins_for_components(
+                    merged_ids,
+                    self._session.instances,
+                    self._session.components,
+                )
+                if new_exported != grp.exported_pins:
+                    self._session.stack.execute(
+                        SetExportedPinsCommand(
+                            group_id=group_id, new_exported=new_exported
+                        ),
+                        self._session,
+                    )
+                    self._session.layout_changed.emit()
+
+        elif action == "export_auto_pins":
+            _, group_id = data
+            from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
+            from protoboard.domain.layout.group import external_pins_for_components
+            grp = self._session.layout.groups.get(group_id)
+            if grp is not None:
+                merged_ids = frozenset(
+                    all_component_ids(self._session.layout.groups, group_id)
+                )
+                new_exported = external_pins_for_components(
+                    merged_ids, self._session.schematic
+                )
+                if new_exported != grp.exported_pins:
+                    self._session.stack.execute(
+                        SetExportedPinsCommand(
+                            group_id=group_id, new_exported=new_exported
+                        ),
+                        self._session,
+                    )
+                    self._session.layout_changed.emit()
 
         elif action == "disconnect":
             _, cid, pin_num = data
@@ -5482,8 +5682,16 @@ class SelectTool(_Tool):
         if not ids:
             return None
 
-        from protoboard.domain.commands.group_cmds import AddToGroupCommand, CreateGroupCommand
-        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.commands.group_cmds import (
+            AddToGroupCommand,
+            CreateGroupCommand,
+            SetExportedPinsCommand,
+        )
+        from protoboard.domain.layout.group import (
+            ComponentGroup,
+            all_component_ids,
+            external_pins_for_components,
+        )
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.gui.dialogs.group_target_dialog import GroupTargetDialog
 
@@ -5508,10 +5716,16 @@ class SelectTool(_Tool):
             return None
 
         if dlg.mode == "new":
+            exported: frozenset[ExportedPin] = frozenset()
+            if dlg.auto_export_external:
+                exported = external_pins_for_components(
+                    ids, self._session.schematic
+                )
             new_group = ComponentGroup(
                 id=uuid.uuid4(),
                 name=dlg.new_name or default_name,
                 component_ids=ids,
+                exported_pins=exported,
             )
             cmd = CreateGroupCommand(group=new_group)
             self._session.stack.execute(cmd, self._session)
@@ -5534,6 +5748,23 @@ class SelectTool(_Tool):
                 component_ids=ids,
             )
             self._session.stack.execute(cmd_add, self._session)
+            if dlg.auto_export_external:
+                # Recompute external pins for the *whole* group after merge —
+                # adding components can both add and remove external pins
+                # (a previously-external net may now be fully internal).
+                merged_ids = frozenset(
+                    all_component_ids(self._session.layout.groups, target_id)
+                )
+                new_exported = external_pins_for_components(
+                    merged_ids, self._session.schematic
+                )
+                if new_exported != self._session.layout.groups[target_id].exported_pins:
+                    self._session.stack.execute(
+                        SetExportedPinsCommand(
+                            group_id=target_id, new_exported=new_exported
+                        ),
+                        self._session,
+                    )
             self._session.layout_changed.emit()
             self._select_group(target_id)
             return target_id

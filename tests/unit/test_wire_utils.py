@@ -475,3 +475,200 @@ class TestSplitWiresAtEndpointCollisions:
         assert len(layout.wires) == 3  # still T-junction
         # And a second split pass finds nothing.
         assert split_wires_at_endpoint_collisions(layout) == 0
+
+
+class TestTJunctionNetGate:
+    """``split_wires_at_endpoint_collisions`` and ``AddWireCommand`` must
+    refuse to splice a T-junction between wires of different schematic
+    nets — collapsing them into a shared hub would short the two nets.
+
+    Regression: the postprocess pass in ``save_project`` / ``load_project``
+    treated every endpoint-on-interior-vertex collision as a T-junction
+    regardless of intent, which on ``reference_big_project`` chained 22
+    nets into one 150-pin electric cluster.
+    """
+
+    @staticmethod
+    def _two_resistor_setup():
+        """Build (board, layout, schematic, components, instances) with
+        two single-pin resistors R1 and R2 each on their own net, plus
+        a third resistor R3 on a third net far away — the geometry is
+        irrelevant; only the net membership of the wire endpoints is
+        what the gate inspects."""
+        from protoboard.domain.components.definition import ComponentDefinition
+        from protoboard.domain.components.footprints import SIL
+        from protoboard.domain.components.instance import ComponentInstance
+        from protoboard.domain.layout.layout import Layout
+        from protoboard.domain.layout.placement import ComponentPlacement
+        from protoboard.domain.schematic.net import Net, PinRef
+        from protoboard.domain.schematic.schematic import Schematic
+        import uuid as _uuid
+
+        board = _perfboard(3, 10)
+        defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+
+        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        # SIL(2) rot=90: pin1=(x, 0.5), pin2=(x+1, 0.5).
+        placements = {
+            r1.id: ComponentPlacement(
+                component_id=r1.id, position=Point(0.5, 0.5),
+                rotation=90, side="top",
+            ),
+            r2.id: ComponentPlacement(
+                component_id=r2.id, position=Point(0.5, 2.5),
+                rotation=90, side="top",
+            ),
+        }
+        net_a = Net(
+            id=_uuid.uuid4(), name="NET_A",
+            pins={PinRef(component_id=r1.id, pin_number=1)},
+        )
+        net_b = Net(
+            id=_uuid.uuid4(), name="NET_B",
+            pins={PinRef(component_id=r2.id, pin_number=1)},
+        )
+        schematic = Schematic(nets={net_a.id: net_a, net_b.id: net_b})
+        layout = Layout(placements=placements, wires=[])
+        components = {defn.name: defn}
+        instances = {r1.id: r1, r2.id: r2}
+        return board, layout, schematic, components, instances, r1, r2, net_a, net_b
+
+    @staticmethod
+    def _add_two_crossing_wires(layout, p_a, p_b):
+        """W_through: horizontal NET_A wire at y=0.5 passing through
+        (interior) point ``p_b``.  W_incoming: vertical NET_B wire whose
+        endpoint b lands on ``p_b``.  Both insulated.
+        """
+        from protoboard.domain.layout.knot import JointKnot
+        from protoboard.domain.layout.wire import KnotRef, Wire
+        import uuid as _uuid
+
+        # W_through: NET_A endpoints at R1/pin1 (0.5, 0.5) and far right
+        # (5.5, 0.5), passing through interior vertex p_b on its path.
+        j_th_a = JointKnot(id=_uuid.uuid4(), position=Point(0.5, 0.5))
+        j_th_b = JointKnot(id=_uuid.uuid4(), position=Point(5.5, 0.5))
+        layout.knots[j_th_a.id] = j_th_a
+        layout.knots[j_th_b.id] = j_th_b
+        w_through = Wire(
+            id=_uuid.uuid4(),
+            path=[Point(0.5, 0.5), p_b, Point(5.5, 0.5)],
+            insulated=True, side="top",
+            a=KnotRef(id=j_th_a.id), b=KnotRef(id=j_th_b.id),
+        )
+        # W_incoming: NET_B endpoints — pin2 of R2 at (0.5, 2.5) and the
+        # collision point p_b.
+        j_in_a = JointKnot(id=_uuid.uuid4(), position=p_a)
+        j_in_b = JointKnot(id=_uuid.uuid4(), position=p_b)
+        layout.knots[j_in_a.id] = j_in_a
+        layout.knots[j_in_b.id] = j_in_b
+        w_incoming = Wire(
+            id=_uuid.uuid4(),
+            path=[p_a, p_b],
+            insulated=True, side="top",
+            a=KnotRef(id=j_in_a.id), b=KnotRef(id=j_in_b.id),
+        )
+        layout.add_wire(w_through)
+        layout.add_wire(w_incoming)
+        return w_through, w_incoming
+
+    def test_split_skipped_when_nets_differ(self) -> None:
+        """Two insulated wires of different nets crossing at an interior
+        vertex must stay as two separate wires; no T-junction is built."""
+        from protoboard.domain.layout.wire_utils import (
+            split_wires_at_endpoint_collisions,
+        )
+        board, layout, schematic, components, instances, r1, r2, net_a, net_b = (
+            self._two_resistor_setup()
+        )
+        # W_through anchors at R1/pin1 → NET_A.
+        # W_incoming anchors at R2/pin1 (a) and at (2.5, 0.5) (b) — the
+        # collision point sits on W_through's interior vertex.
+        self._add_two_crossing_wires(
+            layout, p_a=Point(0.5, 2.5), p_b=Point(2.5, 0.5),
+        )
+        fixes = split_wires_at_endpoint_collisions(
+            layout,
+            schematic=schematic,
+            instances=instances,
+            components=components,
+        )
+        assert fixes == 0
+        assert len(layout.wires) == 2  # no split happened
+        # NET_B did not steal NET_A's pin and vice versa.
+        assert {p.component_id for p in net_a.pins} == {r1.id}
+        assert {p.component_id for p in net_b.pins} == {r2.id}
+
+    def test_split_proceeds_when_nets_match(self) -> None:
+        """Same setup but both wires on NET_A — the T-junction is legal."""
+        from protoboard.domain.layout.wire_utils import (
+            split_wires_at_endpoint_collisions,
+        )
+        from protoboard.domain.schematic.net import PinRef
+        board, layout, schematic, components, instances, r1, r2, net_a, net_b = (
+            self._two_resistor_setup()
+        )
+        # Move R2's pin into NET_A so both wires resolve to the same net.
+        net_a.pins.add(PinRef(component_id=r2.id, pin_number=1))
+        net_b.pins.clear()
+        self._add_two_crossing_wires(
+            layout, p_a=Point(0.5, 2.5), p_b=Point(2.5, 0.5),
+        )
+        fixes = split_wires_at_endpoint_collisions(
+            layout,
+            schematic=schematic,
+            instances=instances,
+            components=components,
+        )
+        assert fixes == 1
+        assert len(layout.wires) == 3  # w_through got split
+
+    def test_legacy_callers_without_schematic_keep_old_behaviour(self) -> None:
+        """When no schematic/instances/components are passed the gate is
+        permissive — pure geometry tests still produce a T-junction."""
+        from protoboard.domain.layout.wire_utils import (
+            split_wires_at_endpoint_collisions,
+        )
+        board, layout, _sch, _comps, _insts, _r1, _r2, _na, _nb = (
+            self._two_resistor_setup()
+        )
+        self._add_two_crossing_wires(
+            layout, p_a=Point(0.5, 2.5), p_b=Point(2.5, 0.5),
+        )
+        # No schematic context → old geometry-only behaviour.
+        fixes = split_wires_at_endpoint_collisions(layout)
+        assert fixes == 1
+        assert len(layout.wires) == 3
+
+    def test_can_form_t_junction_rejects_incompatible_sides(self) -> None:
+        """A wire on ``top`` and a wire on ``bottom`` cannot share one
+        solder joint — verdict is INCOMPATIBLE_GEOMETRY regardless of
+        net membership."""
+        from protoboard.domain.layout.wire import KnotRef, Wire
+        from protoboard.domain.layout.knot import JointKnot
+        from protoboard.domain.layout.wire_utils import (
+            TJunctionVerdict,
+            can_form_t_junction,
+        )
+        import uuid as _uuid
+        j1 = JointKnot(id=_uuid.uuid4(), position=Point(0.5, 0.5))
+        j2 = JointKnot(id=_uuid.uuid4(), position=Point(2.5, 0.5))
+        j3 = JointKnot(id=_uuid.uuid4(), position=Point(1.5, 0.5))
+        j4 = JointKnot(id=_uuid.uuid4(), position=Point(1.5, 2.5))
+        w_top = Wire(
+            id=_uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(1.5, 0.5), Point(2.5, 0.5)],
+            insulated=True, side="top",
+            a=KnotRef(id=j1.id), b=KnotRef(id=j2.id),
+        )
+        w_bottom = Wire(
+            id=_uuid.uuid4(),
+            path=[Point(1.5, 2.5), Point(1.5, 0.5)],
+            insulated=True, side="bottom",
+            a=KnotRef(id=j4.id), b=KnotRef(id=j3.id),
+        )
+        verdict, orphan, net_id = can_form_t_junction(
+            w_top, w_bottom, "b",
+        )
+        assert verdict is TJunctionVerdict.INCOMPATIBLE_GEOMETRY
+        assert orphan is None and net_id is None

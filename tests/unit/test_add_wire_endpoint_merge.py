@@ -292,3 +292,129 @@ class TestInteriorSplitOnAdd:
         _add(state, [(0.5, 0.5), (2.5, 0.5)])
         cmd2 = _add(state, [(2.5, 2.5), (3.5, 2.5)])
         assert cmd2._splits == []
+
+
+# ---------------------------------------------------------------------------
+# Cross-net joint reuse → MUST refuse to share a single hub
+# ---------------------------------------------------------------------------
+
+
+class _SchematicState(_State):
+    """State with a real Schematic — required for AddWireCommand to gate
+    cross-net joint reuse.  Each wire is anchored at the start endpoint
+    to a 1-pin SIL component pinned to a different net so the wire's
+    intended net resolves unambiguously."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        from protoboard.domain.schematic.schematic import Schematic
+        self.schematic = Schematic(nets={})
+
+
+def _place_pin_at(
+    state: _SchematicState, refdes: str, pos: Point, side: str = "top",
+) -> ComponentInstance:
+    """Drop a 1-pin SIL component at *pos* on *side*.  Returns the new instance."""
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.footprints import SIL
+    from protoboard.domain.layout.placement import ComponentPlacement
+    defn_name = f"_R_{refdes}"
+    defn = ComponentDefinition(name=defn_name, footprint=SIL(1), pin_names={1: "P"})
+    state.components[defn_name] = defn
+    inst = ComponentInstance.new(definition_ref=defn_name, refdes=refdes, value="")
+    state.instances[inst.id] = inst
+    state.layout.placements[inst.id] = ComponentPlacement(
+        component_id=inst.id, position=pos, rotation=0, side=side,  # type: ignore[arg-type]
+    )
+    return inst
+
+
+def _net_with(
+    state: _SchematicState, name: str, *pins: tuple[ComponentInstance, int],
+) -> uuid.UUID:
+    from protoboard.domain.schematic.net import Net, PinRef
+    nid = uuid.uuid4()
+    state.schematic.nets[nid] = Net(
+        id=nid, name=name,
+        pins={PinRef(component_id=i.id, pin_number=p) for i, p in pins},
+    )
+    return nid
+
+
+class TestEndpointMergeCrossNet:
+    """Two wires of different schematic nets meeting at an off-pin pad
+    must NOT share a JointKnot — that would short the two nets via a
+    phantom solder joint.  Regression: the reference_big_project bug
+    where 4 wires of mixed nets converged on (25.5, 6.5) and produced
+    a 22-net electric cluster."""
+
+    def test_cross_net_endpoints_get_separate_joints(self) -> None:
+        state = _SchematicState()
+        # Pins anchor each wire to a distinct net.
+        r1 = _place_pin_at(state, "R1", Point(0.5, 0.5))
+        r2 = _place_pin_at(state, "R2", Point(4.5, 0.5))
+        # NET_A spans R1 only; NET_B spans R2 only.  Both wires "meet" at
+        # off-pin pad (2.5, 0.5).
+        _net_with(state, "NET_A", (r1, 1))
+        _net_with(state, "NET_B", (r2, 1))
+        _add(state, [(0.5, 0.5), (2.5, 0.5)])
+        _add(state, [(4.5, 0.5), (2.5, 0.5)])
+        # Two joints at (2.5, 0.5), one per net — not one shared hub.
+        joints_here = [
+            k for k in state.layout.knots.values()
+            if isinstance(k, JointKnot)
+            and abs(k.position.x - 2.5) < 1e-9
+            and abs(k.position.y - 0.5) < 1e-9
+        ]
+        assert len(joints_here) == 2
+        # Each joint has exactly its own wire.
+        assert all(len(k.wire_ids) == 1 for k in joints_here)
+
+    def test_same_net_endpoints_share_one_joint(self) -> None:
+        """Sanity: same-net wires meeting at an off-pin pad must still
+        share one hub (so they can fuse via merge_endpoint_wires later)."""
+        state = _SchematicState()
+        r1 = _place_pin_at(state, "R1", Point(0.5, 0.5))
+        r2 = _place_pin_at(state, "R2", Point(4.5, 0.5))
+        _net_with(state, "NET_AB", (r1, 1), (r2, 1))
+        _add(state, [(0.5, 0.5), (2.5, 0.5)])
+        _add(state, [(4.5, 0.5), (2.5, 0.5)])
+        joints_here = [
+            k for k in state.layout.knots.values()
+            if isinstance(k, JointKnot)
+            and abs(k.position.x - 2.5) < 1e-9
+            and abs(k.position.y - 0.5) < 1e-9
+        ]
+        # Either one shared joint (degree 2) or zero (if collapsed into
+        # one wire).  The key invariant is: there is no phantom split.
+        assert len(joints_here) <= 1
+
+    def test_cross_net_with_pin_on_top_wire_on_bottom(self) -> None:
+        """The autoroute scenario from reference_big_project: each wire is
+        on the BOTTOM layer but its component pin sits on the TOP layer
+        of the same plated-through hole.  The cross-net joint gate must
+        still recognise the bottom wire as belonging to the top pin's
+        net (via through-hole) and refuse to share a hub between two
+        different nets meeting at an off-pad point."""
+        state = _SchematicState()
+        # Override the 5×5 default with a board big enough to host an
+        # off-pad meeting point at (3.5, 2.5).  Plated-through, so the
+        # bottom wires reach the top pins electrically.
+        state.board = _perfboard(rows=4, cols=8)
+        # R1 (NET_A) at (0.5, 0.5) TOP, R2 (NET_B) at (6.5, 0.5) TOP.
+        r1 = _place_pin_at(state, "R1", Point(0.5, 0.5), side="top")
+        r2 = _place_pin_at(state, "R2", Point(6.5, 0.5), side="top")
+        _net_with(state, "NET_A", (r1, 1))
+        _net_with(state, "NET_B", (r2, 1))
+        # Both wires routed on BOTTOM, meeting at off-pad (3.5, 2.5).
+        _add(state, [(0.5, 0.5), (3.5, 2.5)], side="bottom")
+        _add(state, [(6.5, 0.5), (3.5, 2.5)], side="bottom")
+        joints_here = [
+            k for k in state.layout.knots.values()
+            if isinstance(k, JointKnot)
+            and abs(k.position.x - 3.5) < 1e-9
+            and abs(k.position.y - 2.5) < 1e-9
+        ]
+        # Two distinct joints — one per net — must remain.
+        assert len(joints_here) == 2
+        assert all(len(k.wire_ids) == 1 for k in joints_here)

@@ -78,9 +78,34 @@ def save_project(
     )
     _splits_on_save = 0
     _fused_on_save = 0
+    # Components dict from the migration-registered library — needed so
+    # split_wires_at_endpoint_collisions can reject net-conflicting
+    # T-junctions (insulated wire crossing another insulated wire on a
+    # different net must stay a crossing, not collapse into a shared
+    # hub).  Falls back to None when no library is registered (legacy
+    # tests); the split pass then behaves geometry-only as before.
+    _components_for_split: "dict[str, object] | None" = None
+    if _library_for_migration is not None and hasattr(
+        _library_for_migration, "names",
+    ):
+        _components_for_split = {
+            _name: _library_for_migration.get(_name)  # type: ignore[union-attr]
+            for _name in _library_for_migration.names()  # type: ignore[union-attr]
+        }
     for _ in range(16):
-        _s = split_wires_at_endpoint_collisions(layout)
-        _f = merge_endpoint_wires(layout, board)
+        _s = split_wires_at_endpoint_collisions(
+            layout,
+            schematic=schematic,
+            instances=instances,
+            components=_components_for_split,  # type: ignore[arg-type]
+            board=board,
+        )
+        _f = merge_endpoint_wires(
+            layout, board,
+            schematic=schematic,
+            instances=instances,
+            components=_components_for_split,  # type: ignore[arg-type]
+        )
         _splits_on_save += _s
         _fused_on_save += _f
         if _s == 0 and _f == 0:
@@ -467,9 +492,32 @@ def load_project(
     )
     _total_splits = 0
     _total_fused = 0
+    # Same net-conflict gate as save_project (see note there).  Build the
+    # components dict from the registered library so cross-net insulated
+    # crossings stay as crossings instead of getting spliced into shared
+    # hubs.  No-op when no library was registered (legacy tests).
+    _components_for_split: "dict[str, object] | None" = None
+    if _library_for_migration is not None and hasattr(
+        _library_for_migration, "names",
+    ):
+        _components_for_split = {
+            _name: _library_for_migration.get(_name)  # type: ignore[union-attr]
+            for _name in _library_for_migration.names()  # type: ignore[union-attr]
+        }
     for _ in range(16):  # hard cap; typical convergence in ≤ 3 rounds
-        _s = split_wires_at_endpoint_collisions(layout)
-        _f = merge_endpoint_wires(layout, board)
+        _s = split_wires_at_endpoint_collisions(
+            layout,
+            schematic=schematic,
+            instances=instances,
+            components=_components_for_split,  # type: ignore[arg-type]
+            board=board,
+        )
+        _f = merge_endpoint_wires(
+            layout, board,
+            schematic=schematic,
+            instances=instances,
+            components=_components_for_split,  # type: ignore[arg-type]
+        )
         _total_splits += _s
         _total_fused += _f
         if _s == 0 and _f == 0:

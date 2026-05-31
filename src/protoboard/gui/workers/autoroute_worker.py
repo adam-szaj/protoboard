@@ -135,6 +135,7 @@ class AutorouteWorker(QThread):
 
     def run(self) -> None:
         import dataclasses as _dc
+        import gc as _gc
         import threading as _t
         import structlog as _sl
         from protoboard.services.routing.autorouter import (
@@ -181,62 +182,80 @@ class AutorouteWorker(QThread):
                 ),
             )
 
+        # Worker-thread GC quiet zone — covers the router call AND every
+        # optimizer in the chain.  CPython 3.14 has a race where cyclic
+        # GC ``mark_stacks`` walking the heap from the worker thread
+        # SIGSEGVs while the main thread is inside a Qt paintEvent (see
+        # memory ``project_silent_crash_post_upgrade`` and
+        # ``project_enhanced_router_gc_fix``).  Disabling cyclic GC here
+        # protects every registered router/optimizer without each plugin
+        # having to know about the workaround; refcount dealloc keeps
+        # memory bounded and a single ``gc.collect()`` at the end
+        # reclaims cycles created during the pass.
+        _gc_was_enabled = _gc.isenabled()
+        if _gc_was_enabled:
+            _gc.disable()
         try:
-            router = (
-                registry.get(self._router_name)
-                if self._router_name is not None
-                else registry.default()
-            )
-            result: AutorouteResult = router.route(request, sink)
-
-            # Chain optimizers in declared order.  Each optimizer's output
-            # feeds the next.  An empty list explicitly disables all
-            # post-processing.  Cancellation is checked between optimizers
-            # so a long chain remains responsive to the Cancel button.
-            from protoboard.services.routing.optimizer import (
-                incompatibility_reasons,
-            )
-            for opt_name in self._optimizer_names or []:
-                if sink.cancelled():
-                    raise AutorouteCancelled
-                try:
-                    opt = optimizer_registry.get(opt_name)
-                except KeyError:
-                    _sl.get_logger(__name__).warning(
-                        "autoroute_worker.optimizer_missing", name=opt_name,
-                    )
-                    continue
-                # Defense-in-depth: even if the UI accidentally lets the
-                # user check an incompatible optimizer (or routing.yaml
-                # was hand-edited), skip it at runtime so the chain
-                # remains predictable.
-                reasons = incompatibility_reasons(
-                    opt.capabilities(), request.routing_settings,
+            try:
+                router = (
+                    registry.get(self._router_name)
+                    if self._router_name is not None
+                    else registry.default()
                 )
-                if reasons:
-                    _sl.get_logger(__name__).warning(
-                        "autoroute_worker.optimizer_skipped_incompatible",
-                        name=opt_name,
-                        reasons=reasons,
-                    )
-                    continue
-                result = opt.optimize(request, result, sink)
-        except AutorouteCancelled:
-            self.finished.emit(AutorouteResult())
-            return
-        except AutoroutePreconditionError as exc:
-            # Format the issues into a human-readable message.  The dialog
-            # caller can split on newlines for a list view.
-            lines = [str(exc), ""]
-            for iss in exc.issues:
-                lines.append(f"  • [{iss.code}] {iss.message}")
-            self.error.emit("\n".join(lines))
-            return
-        except Exception as exc:  # noqa: BLE001
-            self.error.emit(str(exc))
-            return
+                result: AutorouteResult = router.route(request, sink)
 
-        self.finished.emit(result)
+                # Chain optimizers in declared order.  Each optimizer's output
+                # feeds the next.  An empty list explicitly disables all
+                # post-processing.  Cancellation is checked between optimizers
+                # so a long chain remains responsive to the Cancel button.
+                from protoboard.services.routing.optimizer import (
+                    incompatibility_reasons,
+                )
+                for opt_name in self._optimizer_names or []:
+                    if sink.cancelled():
+                        raise AutorouteCancelled
+                    try:
+                        opt = optimizer_registry.get(opt_name)
+                    except KeyError:
+                        _sl.get_logger(__name__).warning(
+                            "autoroute_worker.optimizer_missing", name=opt_name,
+                        )
+                        continue
+                    # Defense-in-depth: even if the UI accidentally lets the
+                    # user check an incompatible optimizer (or routing.yaml
+                    # was hand-edited), skip it at runtime so the chain
+                    # remains predictable.
+                    reasons = incompatibility_reasons(
+                        opt.capabilities(), request.routing_settings,
+                    )
+                    if reasons:
+                        _sl.get_logger(__name__).warning(
+                            "autoroute_worker.optimizer_skipped_incompatible",
+                            name=opt_name,
+                            reasons=reasons,
+                        )
+                        continue
+                    result = opt.optimize(request, result, sink)
+            except AutorouteCancelled:
+                self.finished.emit(AutorouteResult())
+                return
+            except AutoroutePreconditionError as exc:
+                # Format the issues into a human-readable message.  The dialog
+                # caller can split on newlines for a list view.
+                lines = [str(exc), ""]
+                for iss in exc.issues:
+                    lines.append(f"  • [{iss.code}] {iss.message}")
+                self.error.emit("\n".join(lines))
+                return
+            except Exception as exc:  # noqa: BLE001
+                self.error.emit(str(exc))
+                return
+
+            self.finished.emit(result)
+        finally:
+            if _gc_was_enabled:
+                _gc.enable()
+                _gc.collect()
 
     # ------------------------------------------------------------------
     # Private

@@ -645,3 +645,285 @@ class TestDRCBareWireInteriorCross:
         )
         interior = [i for i in issues if i.code == "BARE_WIRE_INTERIOR_CROSS"]
         assert interior == []
+
+
+class TestDRCGroupExports:
+    """Group ``exported_pins`` must cover every external net and nothing more.
+
+    External = the net touches a component outside the group, or is global
+    (VCC/GND).  Missing coverage → GROUP_MISSING_EXPORT (error, blocks
+    autoroute).  Exported pin on a purely-internal net → GROUP_BOGUS_EXPORT
+    (warning).
+    """
+
+    @staticmethod
+    def _three_resistor_setup() -> tuple[
+        Board, ComponentDefinition,
+        ComponentInstance, ComponentInstance, ComponentInstance,
+        Schematic, dict, dict, dict[uuid.UUID, ComponentPlacement],
+    ]:
+        from protoboard.domain.schematic.net import PinRef as _PinRef
+        board = _perfboard(1, 7)
+        defn = _r_defn()
+        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        r3 = ComponentInstance.new(definition_ref="R", refdes="R3", value="10k")
+        placements = {
+            r1.id: ComponentPlacement(component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="top"),
+            r2.id: ComponentPlacement(component_id=r2.id, position=Point(2.5, 0.5), rotation=90, side="top"),
+            r3.id: ComponentPlacement(component_id=r3.id, position=Point(4.5, 0.5), rotation=90, side="top"),
+        }
+        in_net = Net(
+            id=uuid.uuid4(), name="VCC",
+            pins={_PinRef(component_id=r1.id, pin_number=1)},
+            global_net=True,
+        )
+        ab_net = Net(
+            id=uuid.uuid4(), name="AB",
+            pins={
+                _PinRef(component_id=r1.id, pin_number=2),
+                _PinRef(component_id=r2.id, pin_number=1),
+                _PinRef(component_id=r3.id, pin_number=1),
+            },
+        )
+        out_net = Net(
+            id=uuid.uuid4(), name="OUT",
+            pins={_PinRef(component_id=r3.id, pin_number=2)},
+        )
+        sch = Schematic(nets={n.id: n for n in (in_net, ab_net, out_net)})
+        return (
+            board, defn, r1, r2, r3, sch,
+            {defn.name: defn},
+            {r1.id: r1, r2.id: r2, r3.id: r3},
+            placements,
+        )
+
+    def test_missing_export_for_external_net(self) -> None:
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        board, defn, r1, r2, r3, sch, comps, insts, placements = self._three_resistor_setup()
+        gid = uuid.uuid4()
+        grp = ComponentGroup(
+            id=gid, name="G1",
+            component_ids=frozenset({r1.id, r2.id}),
+            exported_pins=frozenset(),
+        )
+        root_grp = ComponentGroup(
+            id=ROOT_GROUP_ID, name="root",
+            component_ids=frozenset(), child_group_ids=frozenset({gid}),
+        )
+        lay = Layout(
+            placements=placements, wires=[],
+            groups={ROOT_GROUP_ID: root_grp, gid: grp},
+        )
+        issues = DRCEngine().check(
+            board=board, schematic=sch, layout=lay,
+            components=comps, instances=insts,
+        )
+        missing = [i for i in issues if i.code == "GROUP_MISSING_EXPORT"]
+        assert len(missing) == 2
+        assert all(i.severity == "error" for i in missing)
+        net_names = sorted(sch.nets[i.affected_nets[0]].name for i in missing)
+        assert net_names == ["AB", "VCC"]
+
+    def test_complete_export_no_issues(self) -> None:
+        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        board, defn, r1, r2, r3, sch, comps, insts, placements = self._three_resistor_setup()
+        gid = uuid.uuid4()
+        grp = ComponentGroup(
+            id=gid, name="G1",
+            component_ids=frozenset({r1.id, r2.id}),
+            exported_pins=frozenset({
+                ExportedPin(component_id=r1.id, pin_number=1),  # VCC (global)
+                ExportedPin(component_id=r1.id, pin_number=2),  # AB
+            }),
+        )
+        root_grp = ComponentGroup(
+            id=ROOT_GROUP_ID, name="root",
+            component_ids=frozenset(), child_group_ids=frozenset({gid}),
+        )
+        lay = Layout(
+            placements=placements, wires=[],
+            groups={ROOT_GROUP_ID: root_grp, gid: grp},
+        )
+        issues = DRCEngine().check(
+            board=board, schematic=sch, layout=lay,
+            components=comps, instances=insts,
+        )
+        assert [i for i in issues if i.code.startswith("GROUP_")] == []
+
+    def test_bogus_export_on_internal_net(self) -> None:
+        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.domain.schematic.net import PinRef as _PinRef
+        board = _perfboard(1, 5)
+        defn = _r_defn()
+        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        placements = {
+            r1.id: ComponentPlacement(component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="top"),
+            r2.id: ComponentPlacement(component_id=r2.id, position=Point(2.5, 0.5), rotation=90, side="top"),
+        }
+        vcc = Net(id=uuid.uuid4(), name="VCC", global_net=True,
+                  pins={_PinRef(component_id=r1.id, pin_number=1)})
+        gnd = Net(id=uuid.uuid4(), name="GND", global_net=True,
+                  pins={_PinRef(component_id=r2.id, pin_number=2)})
+        mid = Net(id=uuid.uuid4(), name="MID",
+                  pins={_PinRef(component_id=r1.id, pin_number=2),
+                        _PinRef(component_id=r2.id, pin_number=1)})
+        sch = Schematic(nets={n.id: n for n in (vcc, gnd, mid)})
+        gid = uuid.uuid4()
+        grp = ComponentGroup(
+            id=gid, name="G1",
+            component_ids=frozenset({r1.id, r2.id}),
+            exported_pins=frozenset({
+                ExportedPin(component_id=r1.id, pin_number=1),  # VCC, ok
+                ExportedPin(component_id=r2.id, pin_number=2),  # GND, ok
+                ExportedPin(component_id=r1.id, pin_number=2),  # MID, BOGUS
+            }),
+        )
+        root_grp = ComponentGroup(
+            id=ROOT_GROUP_ID, name="root",
+            component_ids=frozenset(), child_group_ids=frozenset({gid}),
+        )
+        lay = Layout(
+            placements=placements, wires=[],
+            groups={ROOT_GROUP_ID: root_grp, gid: grp},
+        )
+        issues = DRCEngine().check(
+            board=board, schematic=sch, layout=lay,
+            components={defn.name: defn},
+            instances={r1.id: r1, r2.id: r2},
+        )
+        bogus = [i for i in issues if i.code == "GROUP_BOGUS_EXPORT"]
+        assert len(bogus) == 1
+        assert bogus[0].severity == "warning"
+        assert sch.nets[bogus[0].affected_nets[0]].name == "MID"
+        assert [i for i in issues if i.code == "GROUP_MISSING_EXPORT"] == []
+
+    def test_nested_group_uses_recursive_membership(self) -> None:
+        """Sub-group's external-net set is computed against its OWN recursive
+        members.  A net spanning sub-group and parent's siblings is external
+        to the sub-group, internal to the parent."""
+        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        board, defn, r1, r2, r3, sch, comps, insts, placements = self._three_resistor_setup()
+        inner_gid = uuid.uuid4()
+        outer_gid = uuid.uuid4()
+        inner = ComponentGroup(
+            id=inner_gid, name="Inner",
+            component_ids=frozenset({r1.id, r2.id}),
+            exported_pins=frozenset(),  # missing — will fire
+        )
+        outer = ComponentGroup(
+            id=outer_gid, name="Outer",
+            component_ids=frozenset({r3.id}),
+            child_group_ids=frozenset({inner_gid}),
+            exported_pins=frozenset({
+                ExportedPin(component_id=r1.id, pin_number=1),  # VCC (global)
+                ExportedPin(component_id=r3.id, pin_number=2),  # OUT
+            }),
+        )
+        root_grp = ComponentGroup(
+            id=ROOT_GROUP_ID, name="root",
+            component_ids=frozenset(), child_group_ids=frozenset({outer_gid}),
+        )
+        lay = Layout(
+            placements=placements, wires=[],
+            groups={ROOT_GROUP_ID: root_grp, outer_gid: outer, inner_gid: inner},
+        )
+        issues = DRCEngine().check(
+            board=board, schematic=sch, layout=lay,
+            components=comps, instances=insts,
+        )
+        missing = [i for i in issues if i.code == "GROUP_MISSING_EXPORT"]
+        # Inner sees VCC (global) and AB (R3 outside inner) as external.
+        # Outer sees VCC (global) and OUT (single pin) — both covered.
+        assert {sch.nets[i.affected_nets[0]].name for i in missing} == {"VCC", "AB"}
+
+
+class TestAutoroutePreconditionBlocksMissingExport:
+    def test_missing_export_code_in_blocker_set(self) -> None:
+        from protoboard.services.routing.autorouter import (
+            _AUTOROUTE_BLOCKING_DRC_CODES,
+        )
+        assert "GROUP_MISSING_EXPORT" in _AUTOROUTE_BLOCKING_DRC_CODES
+        assert "SHORT" in _AUTOROUTE_BLOCKING_DRC_CODES
+        assert "OFF_BOARD_PIN" in _AUTOROUTE_BLOCKING_DRC_CODES
+
+
+class TestDRCOffBoardPin:
+    """Every placed component pin must land on a board pad on its side.
+
+    Detects two failure modes: component dragged off the outline, and
+    component spanning a gap between pad clusters (cuts).
+    """
+
+    def test_component_fully_on_board_no_issue(self) -> None:
+        board = _perfboard(1, 4)
+        defn = _r_defn()
+        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        # SIL(2) rot=90: pin1@(0.5,0.5), pin2@(1.5,0.5) — both on board.
+        placements = {r1.id: ComponentPlacement(
+            component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="top",
+        )}
+        lay = Layout(placements=placements, wires=[])
+        sch = Schematic(nets={})
+        issues = DRCEngine().check(
+            board=board, schematic=sch, layout=lay,
+            components={defn.name: defn},
+            instances={r1.id: r1},
+        )
+        assert [i for i in issues if i.code == "OFF_BOARD_PIN"] == []
+
+    def test_component_overhanging_board_flags_pin(self) -> None:
+        board = _perfboard(1, 2)  # pads at x=0.5, 1.5
+        defn = _r_defn()
+        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        # pin1@(1.5, 0.5)=on board last pad, pin2@(2.5, 0.5)=off board.
+        placements = {r1.id: ComponentPlacement(
+            component_id=r1.id, position=Point(1.5, 0.5), rotation=90, side="top",
+        )}
+        lay = Layout(placements=placements, wires=[])
+        sch = Schematic(nets={})
+        issues = DRCEngine().check(
+            board=board, schematic=sch, layout=lay,
+            components={defn.name: defn},
+            instances={r1.id: r1},
+        )
+        off = [i for i in issues if i.code == "OFF_BOARD_PIN"]
+        assert len(off) == 1
+        assert off[0].severity == "error"
+        assert off[0].affected_pins[0].pin_number == 2
+        assert off[0].affected_components[0] == r1.id
+
+    def test_top_only_pad_rejects_bottom_side_pin(self) -> None:
+        """Pad with top=True, bottom=False, plated_through=False cannot host
+        a component placed on the bottom side."""
+        grid = BoardGrid(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=False, plated_through=False),
+            ),
+            rows=1, cols=2, row_gap=0.0, col_gap=0.0,
+        )
+        board = Board(root=grid)
+        defn = _r_defn()
+        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        placements = {r1.id: ComponentPlacement(
+            component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="bottom",
+        )}
+        lay = Layout(placements=placements, wires=[])
+        sch = Schematic(nets={})
+        issues = DRCEngine().check(
+            board=board, schematic=sch, layout=lay,
+            components={defn.name: defn},
+            instances={r1.id: r1},
+        )
+        off = [i for i in issues if i.code == "OFF_BOARD_PIN"]
+        # Both pins miss — both bottom side, neither pad reaches bottom.
+        assert len(off) == 2

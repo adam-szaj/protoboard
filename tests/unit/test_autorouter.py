@@ -526,22 +526,24 @@ class TestAutorouterOptimization:
     def test_unrouted_net_stays_unrouted_through_optimization(self) -> None:
         """A net that cannot be routed must appear exactly once in unrouted_nets.
 
-        Build a 1×3 board where the only path between pin A and pin B is through
+        Build a 2×3 board where the only path between pin A and pin B is through
         a pin of a different net — impossible to route.  The optimization passes
         must not retry the failed net and must not duplicate it in unrouted_nets.
+
+        (Board height 2 instead of 1 so that pin2 of each rot=0 SIL(2) lands on
+        a real pad — required by the OFF_BOARD_PIN DRC precondition.)
         """
-        board = _perfboard(1, 3)
+        board = _perfboard(2, 3)
         defn = _sil2_def()
-        # Three components in a 1×3 board.
-        # pin positions (rot=90): pin1=(x,0.5), pin2=(x+1,0.5)
+        # Three components in row 0; pin2 of each falls into row 1.
+        # rot=0 SIL(2): pin1=(x,y), pin2=(x,y+1)
         cid_a = uuid.uuid4()
         cid_b = uuid.uuid4()
         cid_c = uuid.uuid4()
         inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value="")
         inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value="")
         inst_c = ComponentInstance(id=cid_c, definition_ref="COMP", refdes="R3", value="")
-        # pin1 on col 0.5, pin2 on col 1.5
-        # Arrange: R1-pin2=(0.5,0.5), blocker at (1.5,0.5), R2-pin1=(2.5,0.5)
+        # Arrange: R1-pin1=(0.5,0.5), blocker at (1.5,0.5), R3-pin1=(2.5,0.5)
         layout = Layout(placements={
             cid_a: ComponentPlacement(component_id=cid_a, position=Point(0.5, 0.5),
                                       rotation=0, side="top"),   # pin1=(0.5,0.5)

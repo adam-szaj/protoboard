@@ -8,6 +8,8 @@ import uuid
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
+from enum import Enum
+
 from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.geometry import Point
 
@@ -15,9 +17,44 @@ if TYPE_CHECKING:
     import uuid
 
     from protoboard.domain.board.board import Board
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.knot import JointKnot
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.wire import Fragment, Wire
+    from protoboard.domain.schematic.net import PinRef
+    from protoboard.domain.schematic.schematic import Schematic
+
+
+class TJunctionVerdict(Enum):
+    """Outcome of evaluating whether two wires may form a T-junction.
+
+    A T-junction electrically merges *w_through* and *w_incoming* at the
+    meeting vertex (the intermediate point of *w_through* becomes a
+    shared :class:`JointKnot`).  Producing one between wires that should
+    stay electrically separate is exactly the bug observed in
+    *reference_big_project* — a chain of insulated crossings collapsed
+    into one giant electric cluster spanning 18 nets.
+
+    * ``SAFE`` — both endpoints resolve to compatible nets (matching, or
+      one side genuinely net-less so the join doesn't bridge anything).
+      The caller may invoke :func:`make_t_junction`.
+    * ``ASSIGN_NET_TO_INCOMING_PIN`` — *w_incoming*'s endpoint is a pin
+      with no net assignment; the caller should assign it the
+      *w_through* net **before** materialising the T-junction.  Returned
+      with the ``orphan_pin`` field populated.
+    * ``CONFLICT_REJECT`` — both wires have explicit nets and they
+      differ.  Caller must leave the geometry as a *crossing* (no
+      shared hub).
+    * ``INCOMPATIBLE_GEOMETRY`` — sides differ, or other physical reason
+      a single hub is meaningless (a top-side wire and a bottom-side
+      wire can't share a single solder joint without a via).
+    """
+
+    SAFE = "safe"
+    ASSIGN_NET_TO_INCOMING_PIN = "assign_net_to_incoming_pin"
+    CONFLICT_REJECT = "conflict_reject"
+    INCOMPATIBLE_GEOMETRY = "incompatible_geometry"
 
 
 def board_pads_for_side(board: Board, side: str) -> set[Point]:
@@ -393,44 +430,100 @@ def _flatten_fragments(fragments: "list[Fragment]") -> list[Point]:
     return out
 
 
-def merge_colocated_joints(layout: "Layout") -> int:
-    """Fuse pairs of ``JointKnot``s sharing a position into one knot.
+def merge_colocated_joints(
+    layout: "Layout",
+    *,
+    schematic: "Schematic | None" = None,
+    instances: "dict[uuid.UUID, ComponentInstance] | None" = None,
+    components: "dict[str, ComponentDefinition] | None" = None,
+    board: "Board | None" = None,
+) -> int:
+    """Fuse ``JointKnot``s sharing a position into one knot **per bucket**.
 
-    Two wires laid through the same off-pin pad at different times may
-    each carry their own ``JointKnot`` at that pad — the back-refs end
-    up split (each joint has degree=1) and ``try_collapse_joint``
-    therefore can't see the chain.  This pass coalesces such colocated
-    joints: for every pad position with ≥2 joints, pick the
-    lexicographically smallest id as the winner, retarget every wire
-    that referenced a loser knot to the winner instead, then delete the
-    loser knots.  Returns the number of loser knots that were dropped.
-    Pure with respect to wire identity (paths/fragments untouched).
+    A bucket is defined by ``(position, side, net)`` of the wires hanging
+    off each joint.  Two joints in the same pad position whose wires
+    belong to different schematic nets, or to different sides, are
+    physically distinct solder joints and must stay separate — fusing
+    them was the *reference_big_project* bug where 4 wires of mixed
+    sides and mixed nets ended up sharing one degree-4 knot, scaling
+    into a 22-net electric cluster.
+
+    Each joint in this pass has the invariant that all its incident
+    wires share one ``(side, net)`` — that's what
+    :func:`split_wires_at_endpoint_collisions` and
+    :func:`make_t_junction` produce.  We classify per joint and group
+    by ``(position, side, net)``; only within a bucket do we coalesce
+    by picking the lexicographically smallest joint id as winner and
+    retargeting wire back-refs.  Returns the number of loser knots
+    dropped.  Behaves like the pre-fix code when ``schematic`` is not
+    supplied (legacy tests).
     """
     from collections import defaultdict
     from protoboard.domain.layout.knot import JointKnot
     from protoboard.domain.layout.wire import KnotRef as _KnotRef
-    by_pos: dict[tuple[float, float], list[uuid.UUID]] = defaultdict(list)
+
+    # Classify each joint by the (side, net) of its incident wires.
+    # When a joint's wires don't agree on side or net, the joint is
+    # already in an inconsistent state — leave it alone (don't make it
+    # worse by fusing with neighbours).
+    def _joint_bucket(
+        knot: "JointKnot",
+    ) -> "tuple[str, uuid.UUID | None] | None":
+        sides: set[str] = set()
+        nets: set["uuid.UUID | None"] = set()
+        for wid in knot.wire_ids:
+            w = layout.wires.get(wid)
+            if w is None:
+                continue
+            sides.add(w.side)
+            if schematic is not None and instances is not None and components is not None:
+                nets.add(_wire_net_id(w, schematic, layout, instances, components, board=board))
+        if len(sides) > 1:
+            return None
+        if not sides:
+            return None
+        if schematic is None:
+            return (next(iter(sides)), None)
+        # Allow joints whose wires are partially-net-resolved: a net set
+        # of {None, X} represents "some wires are net-less" — that's
+        # still compatible with bucket X (net-less wires inherit X).
+        explicit = {n for n in nets if n is not None}
+        if len(explicit) > 1:
+            return None  # inconsistent — leave alone
+        return (next(iter(sides)), next(iter(explicit), None))
+
+    by_bucket: "dict[tuple[float, float, str, uuid.UUID | None], list[uuid.UUID]]" = (
+        defaultdict(list)
+    )
     for knot in layout.knots.values():
-        if isinstance(knot, JointKnot):
-            key = (round(knot.position.x, 6), round(knot.position.y, 6))
-            by_pos[key].append(knot.id)
+        if not isinstance(knot, JointKnot):
+            continue
+        bucket = _joint_bucket(knot)
+        if bucket is None:
+            continue
+        side, net_id = bucket
+        key = (
+            round(knot.position.x, 6),
+            round(knot.position.y, 6),
+            side,
+            net_id,
+        )
+        by_bucket[key].append(knot.id)
+
     dropped = 0
-    for _key, ids in by_pos.items():
+    for _key, ids in by_bucket.items():
         if len(ids) < 2:
             continue
         ids_sorted = sorted(ids, key=str)
         winner = ids_sorted[0]
         losers = ids_sorted[1:]
         winner_knot = layout.knots[winner]
-        # Collect wire ids referenced by losers so we can retarget them
-        # to the winner and accumulate their back-refs there.
         loser_wire_ids: set[uuid.UUID] = set()
         for loser_id in losers:
             loser_knot = layout.knots.get(loser_id)
             if not isinstance(loser_knot, JointKnot):
                 continue
             loser_wire_ids |= loser_knot.wire_ids
-        # Retarget wires.
         for wid in loser_wire_ids:
             w = layout.wires.get(wid)
             if w is None:
@@ -439,13 +532,11 @@ def merge_colocated_joints(layout: "Layout") -> int:
                 w.a = _KnotRef(id=winner)
             if w.b is not None and w.b.id in losers:
                 w.b = _KnotRef(id=winner)
-        # Move wire_ids onto the winner.
         layout.knots[winner] = JointKnot(
             id=winner,
             position=winner_knot.position,
             wire_ids=winner_knot.wire_ids | loser_wire_ids,
         )
-        # Drop losers.
         for loser_id in losers:
             layout.knots.pop(loser_id, None)
             dropped += 1
@@ -553,7 +644,182 @@ def make_t_junction(
     return w_a, w_b, w_incoming, hub
 
 
-def split_wires_at_endpoint_collisions(layout: "Layout") -> int:
+def _pin_at(
+    position: "Point",
+    side: str,
+    layout: "Layout",
+    instances: "dict[uuid.UUID, ComponentInstance]",
+    components: "dict[str, ComponentDefinition]",
+    *,
+    tol: float = 1e-6,
+    plated_pads: "frozenset[Point] | None" = None,
+) -> "PinRef | None":
+    """Return the PinRef of a component pin landing on *position*.
+
+    Side semantics:
+      * When ``plated_pads`` is provided and ``position`` is a
+        plated-through pad, accept pins from either side — the via
+        bridges them electrically into one node.
+      * Otherwise restrict to pins whose placement side equals *side*.
+
+    Used by :func:`_wire_net_id` so wires routed on the bottom layer
+    that terminate at a top-side component pin (the autoroute common
+    case for through-hole parts) resolve to the right schematic net.
+    """
+    from protoboard.domain.layout.placement import pin_world_position
+    from protoboard.domain.schematic.net import PinRef
+
+    cross_side_ok = (
+        plated_pads is not None
+        and any(
+            abs(p.x - position.x) < tol and abs(p.y - position.y) < tol
+            for p in plated_pads
+        )
+    )
+    for comp_id, placement in layout.placements.items():
+        if not cross_side_ok and placement.side != side:
+            continue
+        inst = instances.get(comp_id)
+        if inst is None:
+            continue
+        defn = components.get(inst.definition_ref)
+        if defn is None:
+            continue
+        for pin_num in range(1, defn.footprint.pin_count() + 1):
+            wp = pin_world_position(defn.footprint, placement, pin_num)
+            if abs(wp.x - position.x) < tol and abs(wp.y - position.y) < tol:
+                return PinRef(component_id=comp_id, pin_number=pin_num)
+    return None
+
+
+def _wire_net_id(
+    wire: "Wire",
+    schematic: "Schematic",
+    layout: "Layout",
+    instances: "dict[uuid.UUID, ComponentInstance]",
+    components: "dict[str, ComponentDefinition]",
+    *,
+    board: "Board | None" = None,
+) -> "uuid.UUID | None":
+    """Resolve *wire* to a schematic net id.
+
+    Strategy: scan every vertex of the path looking for a pin sitting on
+    that point.  Same-side pins always match; cross-side pins also
+    match when the pad is plated-through (a via bridges top↔bottom
+    electrically into one node) — that case dominates real-world
+    autoroute output, where a wire ends on the bottom layer but the
+    component pin lives on the top layer of the same hole.  Without
+    the plated-through allowance, ``_wire_net_id`` returned None for
+    every through-hole termination and the cross-net joint gate
+    silently no-op'd.
+
+    Returns ``None`` when the wire touches no pin at all — those are
+    wires hanging on knot-to-knot junctions, electrically "neutral"
+    until a downstream join determines the net.
+    """
+    plated: "frozenset[Point] | None" = (
+        frozenset(plated_through_pads(board)) if board is not None else None
+    )
+    for vertex in wire.path:
+        pin = _pin_at(
+            vertex, wire.side, layout, instances, components,
+            plated_pads=plated,
+        )
+        if pin is None:
+            continue
+        net = schematic.net_for_pin(pin)
+        if net is not None:
+            return net.id
+    return None
+
+
+def can_form_t_junction(
+    w_through: "Wire",
+    w_incoming: "Wire",
+    incoming_endpoint: str,
+    *,
+    schematic: "Schematic | None" = None,
+    layout: "Layout | None" = None,
+    instances: "dict[uuid.UUID, ComponentInstance] | None" = None,
+    components: "dict[str, ComponentDefinition] | None" = None,
+    board: "Board | None" = None,
+) -> "tuple[TJunctionVerdict, PinRef | None, uuid.UUID | None]":
+    """Decide whether *w_incoming*'s ``incoming_endpoint`` may bond to
+    *w_through*'s interior to form a T-junction.
+
+    Returns ``(verdict, orphan_pin, net_id_to_assign)``.  ``orphan_pin``
+    and ``net_id_to_assign`` are populated only when the verdict is
+    ``ASSIGN_NET_TO_INCOMING_PIN`` — the caller assigns that pin to that
+    net before invoking :func:`make_t_junction`.
+
+    Rules (per user spec 2026-05-30):
+
+    * Sides must match.  A wire on ``top`` and a wire on ``bottom``
+      cannot share one solder joint.  ``INCOMPATIBLE_GEOMETRY``.
+    * When schematic context is missing (legacy callers), behave as the
+      pre-fix code did: return ``SAFE``.  Pure-geometry callsites
+      (in-memory tests) still work without schematic plumbing.
+    * Resolve each wire's net via the pin lookup on its path.
+    * If either net is ``None`` (no pin on path) the join doesn't bridge
+      any *declared* net → ``SAFE``.
+    * If both nets are equal → ``SAFE``.
+    * If both nets are set and differ → ``CONFLICT_REJECT``.
+    * If *w_incoming*'s endpoint is a pin whose schematic net is unset,
+      and *w_through* has a known net → ``ASSIGN_NET_TO_INCOMING_PIN``
+      (the caller must execute the assignment, then the T-junction).
+    """
+    if w_through.side != w_incoming.side:
+        return TJunctionVerdict.INCOMPATIBLE_GEOMETRY, None, None
+    if schematic is None or layout is None or instances is None or components is None:
+        return TJunctionVerdict.SAFE, None, None
+
+    net_through = _wire_net_id(w_through, schematic, layout, instances, components, board=board)
+    net_incoming = _wire_net_id(w_incoming, schematic, layout, instances, components, board=board)
+
+    if net_through is None and net_incoming is None:
+        # Both wires are net-less (orphan chains).  Merging them does
+        # not bridge any declared net — safe.
+        return TJunctionVerdict.SAFE, None, None
+    if net_through is None or net_incoming is None:
+        # One side has a net, the other doesn't.  The "ASSIGN_NET" path
+        # below handles the case where the orphan endpoint is on a pin
+        # with no net assignment; otherwise reject — joining an orphan
+        # chain to a named wire silently drags the chain into that net.
+        # Pin on incoming endpoint with no net + wire_through has net →
+        # the join wants to drag the orphan pin into wire_through's net.
+        if net_through is not None and net_incoming is None:
+            ep_point = (
+                w_incoming.path[0] if incoming_endpoint == "a"
+                else w_incoming.path[-1]
+            )
+            _orphan_plated = (
+                frozenset(plated_through_pads(board)) if board is not None else None
+            )
+            orphan = _pin_at(
+                ep_point, w_incoming.side, layout, instances, components,
+                plated_pads=_orphan_plated,
+            )
+            if orphan is not None and schematic.net_for_pin(orphan) is None:
+                return (
+                    TJunctionVerdict.ASSIGN_NET_TO_INCOMING_PIN,
+                    orphan,
+                    net_through,
+                )
+        return TJunctionVerdict.CONFLICT_REJECT, None, None
+
+    if net_through == net_incoming:
+        return TJunctionVerdict.SAFE, None, None
+    return TJunctionVerdict.CONFLICT_REJECT, None, None
+
+
+def split_wires_at_endpoint_collisions(
+    layout: "Layout",
+    *,
+    schematic: "Schematic | None" = None,
+    instances: "dict[uuid.UUID, ComponentInstance] | None" = None,
+    components: "dict[str, ComponentDefinition] | None" = None,
+    board: "Board | None" = None,
+) -> int:
     """Find every wire endpoint that sits on another wire's interior
     vertex and atomically build a T-junction there.
 
@@ -586,6 +852,25 @@ def split_wires_at_endpoint_collisions(layout: "Layout") -> int:
                 w2, vertex_idx = hit
                 if w2.id == w1.id:
                     continue
+                # Gate the T-junction by net compatibility.  Persistence
+                # passes (load/save) call this without an authoritative
+                # net-rewrite path, so we only treat SAFE as a green
+                # light here; ASSIGN_NET cases require a caller that can
+                # mutate the schematic (e.g. AddWireCommand).  Without
+                # the gate, an insulated wire crossing another insulated
+                # wire of a different net would get spliced into a
+                # shared hub on load — that's the bug that produced the
+                # 22-net cluster in reference_big_project.
+                verdict, _orphan, _net = can_form_t_junction(
+                    w2, w1, endpoint_name,
+                    schematic=schematic,
+                    layout=layout,
+                    instances=instances,
+                    components=components,
+                    board=board,
+                )
+                if verdict is not TJunctionVerdict.SAFE:
+                    continue
                 try:
                     make_t_junction(layout, w2, vertex_idx, w1, endpoint_name)
                 except ValueError:
@@ -598,7 +883,14 @@ def split_wires_at_endpoint_collisions(layout: "Layout") -> int:
     return fixes
 
 
-def merge_endpoint_wires(layout: "Layout", board: "Board") -> int:
+def merge_endpoint_wires(
+    layout: "Layout",
+    board: "Board",
+    *,
+    schematic: "Schematic | None" = None,
+    instances: "dict[uuid.UUID, ComponentInstance] | None" = None,
+    components: "dict[str, ComponentDefinition] | None" = None,
+) -> int:
     """Fuse every pair of wires sharing a JointKnot with matching ``insulated``.
 
     Two passes:
@@ -611,6 +903,13 @@ def merge_endpoint_wires(layout: "Layout", board: "Board") -> int:
       ``insulated``.  Repeat until no more collapses succeed (a chain
       of three+ wires needs N-1 passes).
 
+    When ``schematic`` is provided, both passes refuse to fuse wires
+    that resolve to different schematic nets — a JointKnot represents a
+    physical solder joint shared by wires of one net (see the docstring
+    on :class:`JointKnot`), so collapsing wires of two different nets
+    creates a phantom short.  Legacy callers that omit ``schematic``
+    fall back to the geometry-only behaviour.
+
     Returns the total number of wires that disappeared because they
     fused into a neighbour.  Pure: only wire / knot identity changes —
     ``wire.path`` / ``wire.fragments`` only change to reflect the union
@@ -618,7 +917,13 @@ def merge_endpoint_wires(layout: "Layout", board: "Board") -> int:
     via collapses).
     """
     from protoboard.domain.layout.knot import JointKnot
-    merge_colocated_joints(layout)
+    merge_colocated_joints(
+        layout,
+        schematic=schematic,
+        instances=instances,
+        components=components,
+        board=board,
+    )
     pt_pads = frozenset(plated_through_pads(board))
     total_fused = 0
     progress = True
@@ -638,6 +943,20 @@ def merge_endpoint_wires(layout: "Layout", board: "Board") -> int:
                 continue
             if w1.insulated != w2.insulated:
                 continue
+            # Net gate: collapsing two wires fuses their endpoints; if
+            # the wires belong to different declared nets the fused
+            # result would short the nets together.  Skip in that case
+            # and leave both wires as a 2-wire knot — physically OK as
+            # the joint is at the shared pad, semantically a crossing.
+            if (
+                schematic is not None
+                and instances is not None
+                and components is not None
+            ):
+                n1 = _wire_net_id(w1, schematic, layout, instances, components, board=board)
+                n2 = _wire_net_id(w2, schematic, layout, instances, components, board=board)
+                if n1 is not None and n2 is not None and n1 != n2:
+                    continue
             merged = layout.try_collapse_joint(
                 knot_id, plated_through_pads=pt_pads,
             )

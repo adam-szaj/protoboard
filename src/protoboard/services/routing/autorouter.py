@@ -270,7 +270,9 @@ class AutoroutePreconditionError(Exception):
 # touching a routed pin of another.  It only becomes blocking when the
 # shared pad fuses two different schematic nets, which DRC reports
 # separately as ``SHORT``.  So we block on SHORT only.
-_AUTOROUTE_BLOCKING_DRC_CODES: frozenset[str] = frozenset({"SHORT"})
+_AUTOROUTE_BLOCKING_DRC_CODES: frozenset[str] = frozenset(
+    {"SHORT", "GROUP_MISSING_EXPORT", "OFF_BOARD_PIN"}
+)
 
 
 @dataclass

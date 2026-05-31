@@ -66,7 +66,6 @@ class BoardView(QGraphicsView):
     cursor_moved = Signal(float, float)  # raster x, y of cursor
     pad_clicked = Signal(float, float)  # snapped raster x, y
     escape_tool = Signal()  # right-click or Esc — return to Select
-    spread_requested = Signal()  # canvas context menu → Spread all components
 
     def __init__(self, session: EditorSession, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1210,16 +1209,11 @@ class BoardView(QGraphicsView):
         menu = QMenu(self)
         act_center = menu.addAction("Wyśrodkuj widok tutaj")
         act_escape = menu.addAction("Anuluj narzędzie (Esc)")
-        menu.addSeparator()
-        act_spread = menu.addAction("Spread all components")
-        act_spread.setEnabled(bool(self._session.layout.placements))
         chosen = menu.exec(self.mapToGlobal(vp_pos))
         if chosen is act_center:
             self.center_on_scene_point(scene_pt)
         elif chosen is act_escape:
             self.escape_tool.emit()
-        elif chosen is act_spread:
-            self.spread_requested.emit()
 
     # ------------------------------------------------------------------
     # Qt event handlers
