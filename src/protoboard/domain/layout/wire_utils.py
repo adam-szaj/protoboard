@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     import uuid
 
     from protoboard.domain.board.board import Board
+    from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.knot import JointKnot
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Fragment, Wire
     from protoboard.domain.schematic.net import PinRef
     from protoboard.domain.schematic.schematic import Schematic
+    from protoboard.services.pad_strategy import PadStrategy
 
 
 class TJunctionVerdict(Enum):
@@ -700,6 +702,7 @@ def _wire_net_id(
     components: "dict[str, ComponentDefinition]",
     *,
     board: "Board | None" = None,
+    pad_index: "PadIndex | None" = None,
 ) -> "uuid.UUID | None":
     """Resolve *wire* to a schematic net id.
 
@@ -713,10 +716,28 @@ def _wire_net_id(
     every through-hole termination and the cross-net joint gate
     silently no-op'd.
 
+    When ``pad_index`` is provided, the wire's net falls out directly
+    from :meth:`PadIndex.electrical_net_at` — no per-vertex pin scan,
+    no plated_through_pads rebuild.  Hot-path callers (autorouter,
+    DRC) get O(1) lookup per vertex; legacy callers (load, persistence)
+    fall back to the pin-scan implementation.
+
     Returns ``None`` when the wire touches no pin at all — those are
     wires hanging on knot-to-knot junctions, electrically "neutral"
     until a downstream join determines the net.
     """
+    if pad_index is not None:
+        # Hot path — query the index directly. SHORT_CIRCUIT pads are
+        # ambiguous so we fall through to the per-vertex pin scan
+        # below; in practice short pads are rare and DRC has already
+        # flagged them.
+        from protoboard.domain.board.pad_state import SHORT_CIRCUIT
+        for vertex in wire.path:
+            net = pad_index.electrical_net_at(vertex, wire.side)
+            if net is None or net is SHORT_CIRCUIT:
+                continue
+            return net  # type: ignore[no-any-return]
+        return None
     plated: "frozenset[Point] | None" = (
         frozenset(plated_through_pads(board)) if board is not None else None
     )
@@ -743,6 +764,8 @@ def can_form_t_junction(
     instances: "dict[uuid.UUID, ComponentInstance] | None" = None,
     components: "dict[str, ComponentDefinition] | None" = None,
     board: "Board | None" = None,
+    pad_index: "PadIndex | None" = None,
+    strategy: "PadStrategy | None" = None,
 ) -> "tuple[TJunctionVerdict, PinRef | None, uuid.UUID | None]":
     """Decide whether *w_incoming*'s ``incoming_endpoint`` may bond to
     *w_through*'s interior to form a T-junction.
@@ -767,26 +790,90 @@ def can_form_t_junction(
     * If *w_incoming*'s endpoint is a pin whose schematic net is unset,
       and *w_through* has a known net → ``ASSIGN_NET_TO_INCOMING_PIN``
       (the caller must execute the assignment, then the T-junction).
+
+    When ``strategy`` and ``pad_index`` are provided the strategy is
+    consulted *as a veto*: a SAFE verdict can be downgraded to
+    CONFLICT_REJECT if the strategy returns REJECT (e.g. simplify
+    strict mode forbidding a crossing the DRC rules tolerate).
+    ASSIGN_NET cases are not gated by the strategy — they encode the
+    net-inheritance flow the calling AddWireCommand still has to
+    enact.
     """
     if w_through.side != w_incoming.side:
         return TJunctionVerdict.INCOMPATIBLE_GEOMETRY, None, None
     if schematic is None or layout is None or instances is None or components is None:
         return TJunctionVerdict.SAFE, None, None
 
-    net_through = _wire_net_id(w_through, schematic, layout, instances, components, board=board)
-    net_incoming = _wire_net_id(w_incoming, schematic, layout, instances, components, board=board)
+    net_through = _wire_net_id(
+        w_through, schematic, layout, instances, components,
+        board=board, pad_index=pad_index,
+    )
+    net_incoming = _wire_net_id(
+        w_incoming, schematic, layout, instances, components,
+        board=board, pad_index=pad_index,
+    )
 
+    verdict, orphan, net_to_assign = _classify_t_junction(
+        w_through=w_through,
+        w_incoming=w_incoming,
+        incoming_endpoint=incoming_endpoint,
+        net_through=net_through,
+        net_incoming=net_incoming,
+        schematic=schematic,
+        layout=layout,
+        instances=instances,
+        components=components,
+        board=board,
+    )
+
+    if (
+        strategy is not None
+        and pad_index is not None
+        and verdict is TJunctionVerdict.SAFE
+    ):
+        # Veto path — let the strategy reject a soft-rule case (e.g.
+        # SimplifyStrictStrategy refuses bare-on-bare even when nets
+        # match). Strategy's ASSIGN_NET is ignored here because the
+        # net-inheritance path already handles it via the verdict
+        # returned by `_classify_t_junction`.
+        from protoboard.services.pad_strategy import Verdict
+        ep_point = (
+            w_incoming.path[0] if incoming_endpoint == "a"
+            else w_incoming.path[-1]
+        )
+        pad = pad_index.pad_at(ep_point)
+        if pad is not None:
+            cross_layer = w_through.side != w_incoming.side  # always False here
+            d = strategy.can_form_t_junction(
+                pad, w_through.side, net_through, net_incoming, cross_layer,
+            )
+            if d.verdict is Verdict.REJECT:
+                return TJunctionVerdict.CONFLICT_REJECT, None, None
+
+    return verdict, orphan, net_to_assign
+
+
+def _classify_t_junction(
+    *,
+    w_through: "Wire",
+    w_incoming: "Wire",
+    incoming_endpoint: str,
+    net_through: "uuid.UUID | None",
+    net_incoming: "uuid.UUID | None",
+    schematic: "Schematic",
+    layout: "Layout",
+    instances: "dict[uuid.UUID, ComponentInstance]",
+    components: "dict[str, ComponentDefinition]",
+    board: "Board | None",
+) -> "tuple[TJunctionVerdict, PinRef | None, uuid.UUID | None]":
+    """Apply the net-equality + orphan-pin verdict logic.
+
+    Split out of :func:`can_form_t_junction` so the strategy veto
+    branch and the pure verdict logic stay independently readable.
+    """
     if net_through is None and net_incoming is None:
-        # Both wires are net-less (orphan chains).  Merging them does
-        # not bridge any declared net — safe.
         return TJunctionVerdict.SAFE, None, None
     if net_through is None or net_incoming is None:
-        # One side has a net, the other doesn't.  The "ASSIGN_NET" path
-        # below handles the case where the orphan endpoint is on a pin
-        # with no net assignment; otherwise reject — joining an orphan
-        # chain to a named wire silently drags the chain into that net.
-        # Pin on incoming endpoint with no net + wire_through has net →
-        # the join wants to drag the orphan pin into wire_through's net.
         if net_through is not None and net_incoming is None:
             ep_point = (
                 w_incoming.path[0] if incoming_endpoint == "a"
@@ -806,7 +893,6 @@ def can_form_t_junction(
                     net_through,
                 )
         return TJunctionVerdict.CONFLICT_REJECT, None, None
-
     if net_through == net_incoming:
         return TJunctionVerdict.SAFE, None, None
     return TJunctionVerdict.CONFLICT_REJECT, None, None
