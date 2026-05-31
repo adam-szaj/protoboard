@@ -50,6 +50,7 @@ from protoboard.services.routing.congestion import build_congestion_map
 from protoboard.services.routing.cost_model import RoutingCostModel
 
 if TYPE_CHECKING:
+    from protoboard.domain.board.pad_state import PadIndex
     from protoboard.services.drc.engine import DRCIssue
     from protoboard.services.routing.postprocess import SimplifyMode
 
@@ -406,6 +407,7 @@ def autoroute(
     push_and_shove: bool = True,
     enable_simplify_pass: bool = True,
     simplify_mode: "SimplifyMode | None" = None,
+    pad_index: "PadIndex | None" = None,
 ) -> AutorouteResult:
     """Route all unrouted nets in *schematic* and return new wire segments.
 
@@ -463,6 +465,7 @@ def autoroute(
     _drc_issues = DRCEngine().check(
         board=board, schematic=schematic, layout=layout,
         components=components, instances=instances,
+        pad_index=pad_index,
     )
     _blocking = [
         iss for iss in _drc_issues
@@ -486,11 +489,17 @@ def autoroute(
     # with ``max_detour_factor=0.0`` (no budget cap) this exhausts memory
     # on dense boards.  Bail out before A* sees anything.
     from protoboard.services.drc.engine import DRCIssue as _DRCIssue
-    from protoboard.domain.layout.wire_utils import board_pads_for_side
-    _board_pad_set = (
-        board_pads_for_side(board, "top")
-        | board_pads_for_side(board, "bottom")
-    )
+    # When a pad_index is supplied, derive the board pad set from it in
+    # a single dict-keys() pass — otherwise fall back to the historical
+    # board.atoms() walk.
+    if pad_index is not None:
+        _board_pad_set = {pad.position for pad in pad_index.iter_pads()}
+    else:
+        from protoboard.domain.layout.wire_utils import board_pads_for_side
+        _board_pad_set = (
+            board_pads_for_side(board, "top")
+            | board_pads_for_side(board, "bottom")
+        )
     if net_ids is not None:
         _nets_to_check = [n for n in schematic.nets.values() if n.id in net_ids]
     else:
@@ -548,7 +557,15 @@ def autoroute(
         all_pin_positions[(pt, "bottom")] = net_id
 
     # Collect plated-through pad positions from the board for via routing.
-    plated_through_pads = _collect_plated_through_pads(board) if allow_layer_change else set()
+    if not allow_layer_change:
+        plated_through_pads: set[Point] = set()
+    elif pad_index is not None:
+        plated_through_pads = {
+            p.position for p in pad_index.iter_pads()
+            if p.layers.plated_through
+        }
+    else:
+        plated_through_pads = _collect_plated_through_pads(board)
 
     # Build a penalty map for pads on the top layer that lie under a component
     # body.  Routing there is legal but physically awkward; bottom is preferred.
