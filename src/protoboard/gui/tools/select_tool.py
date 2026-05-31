@@ -2867,11 +2867,17 @@ class SelectTool(_Tool):
         self, drag_ids: set[uuid.UUID], snapped: Point
     ) -> None:
         """Recompute and redraw drag conflict overlay (throttled to snapped grid)."""
+        _log.info(
+            "drag.overlay.enter",
+            drag_ids=[str(c)[:8] for c in drag_ids],
+            snapped=(snapped.x, snapped.y),
+            needs_update=self._drag_overlay.needs_update(snapped),
+        )
         if not self._drag_overlay.needs_update(snapped):
             return
-        _log.debug(
+        _log.info(
             "drag.overlay.update",
-            drag_ids=[str(c) for c in drag_ids],
+            drag_ids=[str(c)[:8] for c in drag_ids],
             snapped=(snapped.x, snapped.y),
         )
         from protoboard.domain.layout.pad_conflict import (
@@ -2975,7 +2981,7 @@ class SelectTool(_Tool):
                 # see the conflict the moment a pin lands on a foreign
                 # wire instead of waiting for the 1 s debounced timer.
                 already = {(round(p.x, 4), round(p.y, 4)) for p in blocking}
-                for wc in find_wire_conflicts(
+                _wc_list = list(find_wire_conflicts(
                     incoming_placement=pl,
                     incoming_defn=defn,
                     incoming_instance_id=cid,
@@ -2984,7 +2990,17 @@ class SelectTool(_Tool):
                     point_to_net=point_to_net,
                     already_conflicted=already,
                     pad_index=_drag_idx,
-                ):
+                ))
+                _log.info(
+                    "drag.overlay.find_wire_conflicts",
+                    cid=str(cid)[:8],
+                    n_conflicts=len(_wc_list),
+                    kinds=[wc.kind.value for wc in _wc_list],
+                    positions=[(wc.position.x, wc.position.y) for wc in _wc_list],
+                    wire_ids=[str(wc.wire_id)[:8] if wc.wire_id else None for wc in _wc_list],
+                    already_count=len(already),
+                )
+                for wc in _wc_list:
                     if wc.kind == ConflictKind.PIN_ON_WIRE_SAME_NET:
                         continue
                     removable.append(wc.position)
@@ -3008,12 +3024,12 @@ class SelectTool(_Tool):
                     blocking_pad_positions=[],
                     removable_wire_ids=[],
                 )
-            _log.debug(
+            _log.info(
                 "drag.overlay.result",
                 severity=result.severity.name,
                 blocking=[(p.x, p.y) for p in blocking],
                 removable=[(p.x, p.y) for p in removable],
-                removable_wire_ids=[str(w) for w in removable_wire_ids],
+                removable_wire_ids=[str(w)[:8] for w in removable_wire_ids],
                 pad_index_built=_drag_idx is not None,
             )
 

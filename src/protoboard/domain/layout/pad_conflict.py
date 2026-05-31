@@ -307,10 +307,24 @@ def _wire_hit_via_pad_index(
 
     pad = pad_index.pad_at(position)
     if pad is None:
+        _log.debug(
+            "wire_hit.no_pad",
+            position=(position.x, position.y),
+            side=side,
+        )
         return None
-    side_lit = "top" if side == "top" else "bottom"
+    # Pin penetrates the board (rule 5) — a foreign wire on EITHER side
+    # of the pad creates a conflict with the incoming pin. Scan both
+    # physical layers; prefer a hit on the pin's own side but fall back
+    # to the opposite side. Without this, dropping a top-side pin onto
+    # a bottom-side foreign wire produces no conflict.
+    own_side: str = "top" if side == "top" else "bottom"
+    opposite: str = "bottom" if own_side == "top" else "top"
     wire_item = None
-    for it in pad.physically_blocked_on(side_lit):  # type: ignore[arg-type]
+    hit_side: str = own_side
+    items_own = pad.physically_blocked_on(own_side)  # type: ignore[arg-type]
+    items_opp = pad.physically_blocked_on(opposite)  # type: ignore[arg-type]
+    for it in items_own:
         if isinstance(it, (
             BareWireItem,
             BareWireCrossing,
@@ -318,10 +332,31 @@ def _wire_hit_via_pad_index(
             InsulatedWireCrossing,
         )):
             wire_item = it
+            hit_side = own_side
             break
     if wire_item is None:
+        for it in items_opp:
+            if isinstance(it, (
+                BareWireItem,
+                BareWireCrossing,
+                InsulatedWireItem,
+                InsulatedWireCrossing,
+            )):
+                wire_item = it
+                hit_side = opposite
+                break
+    _log.debug(
+        "wire_hit.lookup",
+        position=(position.x, position.y),
+        side=side,
+        items_own=[type(it).__name__ for it in items_own],
+        items_opp=[type(it).__name__ for it in items_opp],
+        wire_item=type(wire_item).__name__ if wire_item else None,
+        hit_side=hit_side if wire_item else None,
+    )
+    if wire_item is None:
         return None
-    net_id = pad.electrical_net_on(side_lit)  # type: ignore[arg-type]
+    net_id = pad.electrical_net_on(hit_side)  # type: ignore[arg-type]
     if net_id is None or net_id is SHORT_CIRCUIT:
         return wire_item.id, None
     name = net_name_by_id.get(net_id)  # type: ignore[arg-type]
