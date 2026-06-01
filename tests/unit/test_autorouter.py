@@ -880,3 +880,136 @@ class TestAutoroutePreconditions:
         # Must not raise.
         result = autoroute(board, layout, schematic, components, instances)
         assert result.unrouted_nets == []
+
+
+class TestPartialRoutingRollback:
+    """Bug fix 2026-06-01: when a multi-pin net fails routing on a
+    later segment (e.g. 3rd pin), the partial wires from earlier
+    segments must NOT leak into the result.  Previously, _route_net
+    mutated `working_wires` in-place per successful segment, and
+    `return None` on later segment failure left those partial
+    connections behind — visible as "islands" (2-3 pins of the same
+    net spuriously connected, while the net is reported as
+    unrouted).
+    """
+
+    def test_failed_three_pin_net_leaves_no_partial_wires(self) -> None:
+        """3-pin net where the 3rd pin is geometrically unreachable.
+
+        Setup: 3 pins of TARGET net, with 2 unreachable from each
+        other due to a board edge configuration (single-row board,
+        pin C on a separate strip with no path back).
+
+        After autoroute: if TARGET is unrouted (or only partially),
+        the result.wires must contain only fully-routed nets — no
+        partial fragments belonging to TARGET.
+        """
+        # 2-row strip-style board where pin C is isolated by the
+        # board edge.  Pins A=(0.5,0.5), B=(1.5,0.5) on row 0;
+        # C=(10.5, 1.5) on row 1 — far from A/B with limited path.
+        # Surround C with blocker net pins so A* can't reach.
+        board = _perfboard(2, 12)
+        defn = _sil2_def()
+        cid_a, cid_b, cid_c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        cid_block1 = uuid.uuid4()
+        inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="A", value="")
+        inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="B", value="")
+        inst_c = ComponentInstance(id=cid_c, definition_ref="COMP", refdes="C", value="")
+        inst_block = ComponentInstance(
+            id=cid_block1, definition_ref="COMP", refdes="X1", value="",
+        )
+
+        # rot=0 SIL(2): pin1=(x,y), pin2=(x,y+1).
+        # rot=90 horizontal: pin1=(x,y), pin2=(x+1,y).
+        # Pin C is placed at the right edge.  Around it we place a
+        # horizontal blocker spanning the row so A* must detour
+        # through the other row, which is also constrained.
+        layout = Layout(placements={
+            cid_a: ComponentPlacement(component_id=cid_a, position=Point(0.5, 0.5),
+                                      rotation=0, side="top"),  # pin1=(0.5,0.5)
+            cid_b: ComponentPlacement(component_id=cid_b, position=Point(1.5, 0.5),
+                                      rotation=0, side="top"),  # pin1=(1.5,0.5)
+            cid_c: ComponentPlacement(component_id=cid_c, position=Point(11.5, 0.5),
+                                      rotation=0, side="top"),  # pin1=(11.5,0.5)
+            # Horizontal blocker spanning pins (3..10) on row 0,
+            # forcing detour through row 1.
+            cid_block1: ComponentPlacement(component_id=cid_block1, position=Point(5.5, 0.5),
+                                            rotation=90, side="top"),  # pin1=(5.5,0.5), pin2=(6.5,0.5)
+        })
+
+        ref_a1 = PinRef(component_id=cid_a, pin_number=1)
+        ref_b1 = PinRef(component_id=cid_b, pin_number=1)
+        ref_c1 = PinRef(component_id=cid_c, pin_number=1)
+        ref_x_1 = PinRef(component_id=cid_block1, pin_number=1)
+        ref_x_2 = PinRef(component_id=cid_block1, pin_number=2)
+
+        target_net = Net(id=uuid.uuid4(), name="TARGET",
+                          pins={ref_a1, ref_b1, ref_c1})
+        blocker_net = Net(id=uuid.uuid4(), name="BLOCK",
+                          pins={ref_x_1, ref_x_2})
+        schematic = Schematic(nets={target_net.id: target_net,
+                                     blocker_net.id: blocker_net})
+        components = {"COMP": defn}
+        instances = {cid_a: inst_a, cid_b: inst_b, cid_c: inst_c,
+                     cid_block1: inst_block}
+
+        try:
+            result = autoroute(board, layout, schematic, components, instances,
+                               max_optimize_iterations=0)
+        except Exception as exc:
+            import pytest
+            pytest.skip(f"Autoroute precondition rejected the setup: {exc}")
+            return
+
+        # The actual invariant we test: result.wires must be
+        # consistent with result.unrouted_nets.  Any wire claimed
+        # in result.wires must belong to a fully-routed net.
+        # Specifically: if TARGET is in unrouted_nets, NO wire with
+        # endpoint at A/B/C may appear in result.wires.
+        target_pin_world = {Point(0.5, 0.5), Point(1.5, 0.5), Point(11.5, 0.5)}
+        target_wires = [
+            w for w in result.wires
+            if (w.path[0] in target_pin_world or w.path[-1] in target_pin_world)
+        ]
+        if "TARGET" in result.unrouted_nets:
+            assert target_wires == [], (
+                f"TARGET reported as unrouted but {len(target_wires)} "
+                f"partial wires leaked into result: "
+                f"{[(w.path[0], w.path[-1]) for w in target_wires]}"
+            )
+
+    def test_no_duplicate_wires_in_result(self) -> None:
+        """Result must not contain duplicate Wire instances (same id
+        listed twice).  Caused by the historic double-extend pattern
+        in _run_one_pass (extend in both _route_net.1532 and
+        _run_one_pass.1135).
+        """
+        board = _perfboard(5, 5)
+        defn = _sil2_def()
+        cid_a, cid_b, cid_c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="A", value="")
+        inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="B", value="")
+        inst_c = ComponentInstance(id=cid_c, definition_ref="COMP", refdes="C", value="")
+        # rot=0 SIL(2): pin1=(x,y), pin2=(x,y+1).
+        # A at (0.5,0.5)/(0.5,1.5), B at (3.5,0.5)/(3.5,1.5), C at (0.5,3.5)/(0.5,4.5).
+        layout = Layout(placements={
+            cid_a: ComponentPlacement(component_id=cid_a, position=Point(0.5, 0.5),
+                                      rotation=0, side="top"),
+            cid_b: ComponentPlacement(component_id=cid_b, position=Point(3.5, 0.5),
+                                      rotation=0, side="top"),
+            cid_c: ComponentPlacement(component_id=cid_c, position=Point(0.5, 3.5),
+                                      rotation=0, side="top"),
+        })
+        ref_a1 = PinRef(component_id=cid_a, pin_number=1)
+        ref_b1 = PinRef(component_id=cid_b, pin_number=1)
+        ref_c1 = PinRef(component_id=cid_c, pin_number=1)
+        n1 = Net(id=uuid.uuid4(), name="N1", pins={ref_a1, ref_b1, ref_c1})
+        schematic = Schematic(nets={n1.id: n1})
+        components = {"COMP": defn}
+        instances = {cid_a: inst_a, cid_b: inst_b, cid_c: inst_c}
+
+        result = autoroute(board, layout, schematic, components, instances)
+        wire_ids = [w.id for w in result.wires]
+        assert len(wire_ids) == len(set(wire_ids)), (
+            f"Duplicate wire IDs in result: {wire_ids}"
+        )

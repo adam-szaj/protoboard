@@ -381,6 +381,7 @@ def _drop_orphan_wires(
 
     if n_dropped:
         layout.wires[:] = survivors
+        layout.invalidate_interior_vertex_index()
     return n_dropped
 
 
@@ -1132,7 +1133,11 @@ def _run_one_pass(
         else:
             routed_wires, net_st = routed
             new_wires.extend(routed_wires)
-            working_wires.extend(routed_wires)
+            # working_wires was already extended in-place by _route_net
+            # (per successful segment, line ~1549).  Don't double-extend —
+            # historically this duplicated each wire in working_wires,
+            # which threw off subsequent nets' bare_segs / at_pad indices
+            # (they treated the same wire as two separate obstacles).
             _pass_net_stats.append(net_st)
 
     ps = PassStats(
@@ -1515,6 +1520,23 @@ def _route_net(
                     src_pos=f"({best_src_pt[0].x},{best_src_pt[0].y})",
                     tgt_pos=f"({target_pt.x},{target_pt.y})",
                 )
+            # Roll back partial wires from working_wires + current_graph.
+            # _route_net mutates working_wires (caller's list, by reference)
+            # per successful segment.  On net failure we must undo those
+            # mutations so subsequent nets see a clean state — otherwise
+            # they treat partial-net pads as occupied and bias A* away
+            # from those routes.  (current_graph is local to _route_net
+            # but we still scrub it for symmetry; same with the same_net
+            # pad-vertex bookkeeping.)
+            for w in new_wires:
+                try:
+                    working_wires.remove(w)
+                except ValueError:
+                    pass
+                try:
+                    current_graph.remove_wire(w)
+                except Exception:  # noqa: BLE001
+                    pass
             return None
         if _DEEP_DEBUG:
             _log.debug(
@@ -1537,9 +1559,23 @@ def _route_net(
         # would only see the wire's own side and `_truncate_at_same_net_wire`
         # could let a later route walk past it, producing a redundant edge in
         # the donor net's spanning tree.
+        #
+        # Critical: insulated wires make electrical contact ONLY at their
+        # two endpoints — intermediate path vertices DO NOT touch the pads
+        # they cross.  So for an insulated wire we must restrict the
+        # cur_net_wire_points set to just the endpoints; otherwise the
+        # next segment's _truncate_at_same_net_wire will stop on an
+        # intermediate vertex that has no electric contact, producing a
+        # wire that visually intersects the existing wire but doesn't
+        # actually connect — the symptom is a "mini-island" of net pins
+        # that the algorithm thinks it absorbed (user-observed
+        # 2026-06-01: GND with 48 pins, 4 left as a separate electric set).
         _OTHER = {"top": "bottom", "bottom": "top"}
         for w in routed_wires:
-            for pt in w.path:
+            contact_pts = (
+                [w.path[0], w.path[-1]] if w.insulated else list(w.path)
+            )
+            for pt in contact_pts:
                 cur_net_wire_points.add((pt, w.side))
                 if pt in plated_through_pads:
                     cur_net_wire_points.add((pt, _OTHER[w.side]))
