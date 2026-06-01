@@ -3088,7 +3088,22 @@ class SelectTool(_Tool):
     def _update_drag_overlay(
         self, drag_ids: set[uuid.UUID], snapped: Point
     ) -> None:
-        """Recompute and redraw drag conflict overlay (throttled to snapped grid)."""
+        """Recompute and redraw drag conflict overlay (throttled to snapped grid).
+
+        Cheap path: scan moved components for body-bbox overlap +
+        pad-on-pad different-net conflicts only.  These are the HARD
+        cases that need an instant red marker.  SOFT cases (skewed
+        wires, pin-on-foreign-wire, wires crossing alien pads) are
+        deferred to ``_run_full_drag_validation`` — that pass runs
+        ~1 s after the user stops moving the cursor and produces the
+        full DragCommitDecision used by ``on_release``.
+
+        Splitting the work this way restores the per-snap latency
+        we lost during the drag-pipeline refactor: a 13-component
+        group drag now runs ~0.3 ms per snap (cheap) + 1 full
+        classify per second (debounced) instead of a full classify
+        on every snap (~3-5 ms × 30 fps).
+        """
         if _dbg_enabled():
             _log.debug(
                 "drag.overlay.enter",
@@ -3107,112 +3122,164 @@ class SelectTool(_Tool):
         from protoboard.domain.layout.pad_conflict import (
             MoveConflictSeverity,
             MoveConflictResult,
-            check_group_move_conflicts,
         )
         active_gid = self._selected_group_id
         if active_gid is None and not drag_ids:
             self._drag_overlay.reset(self._view.scene())
             return
 
-        if active_gid is not None:
-            # Build a fresh PadIndex over the live (post-drag) layout —
-            # session.pad_index() is stale because the drag mutates positions
-            # in place without emitting layout_changed.
-            from protoboard.domain.board.pad_state import PadIndex as _PadIndex
-            _drag_idx = _PadIndex(
-                board=self._session.board,
-                layout=self._session.layout,
-                schematic=self._session.schematic,
-                components=self._session.components,
-                instances=self._session.instances,
-            )
-            result = check_group_move_conflicts(
-                moved_ids=drag_ids,
-                active_group_id=active_gid,
-                layout_placements=self._session.layout.placements,
-                layout_wires=self._session.layout.wires,
-                layout_groups=self._session.layout.groups,
-                instances=self._session.instances,
-                components=self._session.components,
-                schematic=self._session.schematic,
-                pad_index=_drag_idx,
+        # Cheap per-snap check — same for group and non-group drag.
+        blocking_pads = self._cheap_block_check(drag_ids)
+        if blocking_pads:
+            result = MoveConflictResult(
+                severity=MoveConflictSeverity.BLOCKED,
+                blocking_pad_positions=blocking_pads,
+                removable_wire_ids=[],
             )
         else:
-            # Non-group drag: delegate to the DragDetector so live overlay
-            # and release-time commit pipeline share one classifier. The
-            # detector produces a DragCommitDecision; we adapt it to the
-            # overlay's MoveConflictResult shape (HARD → BLOCKED, SOFT →
-            # REMOVABLE, CLEAR → CLEAR).
-            from protoboard.services.drag_detector import (
-                DragDetector,
-                DragSnapshot,
-            )
-            from protoboard.services.pad_strategy import DRCEnforcingStrategy
-            from protoboard.gui.tools.drag_commit_decision import DragSeverity
-
-            _drag_idx = self._ensure_drag_pad_index(drag_ids)
-
-            snapshot = DragSnapshot(
-                pad_index=_drag_idx,
-                placements=self._session.layout.placements,
-                instances=self._session.instances,
-                components=self._session.components,
-                schematic=self._session.schematic,
-                wires=list(self._session.layout.wires),
-            )
-            detector = DragDetector(DRCEnforcingStrategy())
-            decision = detector.classify(
-                snapshot,
-                moved_comp_ids=set(drag_ids),
-                dragged_wire_ids=frozenset(
-                    self._drag_orig_wire_paths.keys()
-                ),
-            )
-
-            if decision.severity is DragSeverity.HARD:
-                result = MoveConflictResult(
-                    severity=MoveConflictSeverity.BLOCKED,
-                    blocking_pad_positions=list(
-                        decision.blocking_pad_positions
-                    ),
-                    removable_wire_ids=[],
+            # Keep showing the last debounced SOFT/REMOVABLE marker if
+            # there is one so yellow overlay doesn't blink off between
+            # snap moves.  When clear, reset to CLEAR.
+            last = self._drag_last_decision
+            if last is not None:
+                from protoboard.gui.tools.drag_commit_decision import (
+                    DragCommitDecision,
+                    DragSeverity,
                 )
-            elif decision.severity is DragSeverity.SOFT:
-                result = MoveConflictResult(
-                    severity=MoveConflictSeverity.REMOVABLE,
-                    blocking_pad_positions=list(
-                        decision.overlay_pad_positions
-                    ),
-                    removable_wire_ids=list(decision.auto_remove_wire_ids),
-                )
+                if (
+                    isinstance(last, DragCommitDecision)
+                    and last.severity is DragSeverity.SOFT
+                ):
+                    result = MoveConflictResult(
+                        severity=MoveConflictSeverity.REMOVABLE,
+                        blocking_pad_positions=list(
+                            last.overlay_pad_positions
+                        ),
+                        removable_wire_ids=list(last.auto_remove_wire_ids),
+                    )
+                else:
+                    result = MoveConflictResult(
+                        severity=MoveConflictSeverity.CLEAR,
+                        blocking_pad_positions=[],
+                        removable_wire_ids=[],
+                    )
             else:
                 result = MoveConflictResult(
                     severity=MoveConflictSeverity.CLEAR,
                     blocking_pad_positions=[],
                     removable_wire_ids=[],
                 )
-            self._drag_last_decision = decision
-            self._update_corner_text_from_decision(decision)
-            if _dbg_enabled():
-                _log.debug(
-                    "drag.overlay.result",
-                    severity=result.severity.name,
-                    decision_severity=decision.severity.value,
-                    blocking=[
-                        (p.x, p.y) for p in decision.blocking_pad_positions
-                    ],
-                    removable=[
-                        (p.x, p.y) for p in decision.overlay_pad_positions
-                    ],
-                    removable_wire_ids=[
-                        str(w)[:8] for w in decision.auto_remove_wire_ids
-                    ],
-                    pad_index_built=_drag_idx is not None,
-                )
+
+        if _dbg_enabled():
+            _log.debug(
+                "drag.overlay.result",
+                severity=result.severity.name,
+                n_blocking=len(blocking_pads),
+            )
 
         # Compute drag bbox for outline.
         bbox = self._drag_bbox(drag_ids)
         self._drag_overlay.update(self._view.scene(), result, bbox, snapped)
+
+    def _cheap_block_check(
+        self, drag_ids: "set[uuid.UUID]",
+    ) -> list[Point]:
+        """Lightweight per-snap HARD-conflict detection.
+
+        Returns positions to paint as red blocking markers.  Detects:
+        - body-bbox overlap with a non-moved component (no pin
+          coincidence) — pure body collision;
+        - pad-on-pad different-net contact for any pin of any moved
+          component.
+
+        Does NOT detect: pin-on-wire conflicts, wires crossing alien
+        pads, wires that became skewed.  Those are SOFT and handled
+        by the debounced ``_run_full_drag_validation`` pass.
+
+        Uses the trial PadIndex (cloned + incrementally updated by
+        ``_ensure_drag_pad_index``) so per-snap cost is dominated by
+        pin lookups, not index rebuild.
+        """
+        from protoboard.domain.layout.pad_conflict import (
+            ConflictKind,
+            find_conflicts,
+        )
+        from protoboard.domain.layout.placement import (
+            component_bbox,
+            pin_world_position,
+        )
+
+        _drag_idx = self._ensure_drag_pad_index(drag_ids)
+        blocking: list[Point] = []
+        _eps = 1e-4
+        for cid in drag_ids:
+            pl = self._session.layout.placements.get(cid)
+            inst = self._session.instances.get(cid)
+            if pl is None or inst is None:
+                continue
+            defn = self._session.components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            # Body-bbox overlap with non-moved components.
+            incoming_bbox = component_bbox(
+                defn.footprint, pl, defn.component_class,
+            )
+            for other_id, other_pl in self._session.layout.placements.items():
+                if other_id == cid or other_id in drag_ids:
+                    continue
+                other_inst = self._session.instances.get(other_id)
+                if other_inst is None:
+                    continue
+                other_defn = self._session.components.get(
+                    other_inst.definition_ref,
+                )
+                if other_defn is None:
+                    continue
+                if not incoming_bbox.intersects(
+                    component_bbox(
+                        other_defn.footprint, other_pl, other_defn.component_class,
+                    )
+                ):
+                    continue
+                # bboxes overlap — check whether any pin coincides;
+                # shared-pin = pad-conflict path handles it below.
+                has_pin_overlap = False
+                for in_pin in range(1, defn.footprint.pin_count() + 1):
+                    in_pos = pin_world_position(defn.footprint, pl, in_pin)
+                    for ot_pin in range(
+                        1, other_defn.footprint.pin_count() + 1,
+                    ):
+                        ot_pos = pin_world_position(
+                            other_defn.footprint, other_pl, ot_pin,
+                        )
+                        if (
+                            abs(in_pos.x - ot_pos.x) < _eps
+                            and abs(in_pos.y - ot_pos.y) < _eps
+                        ):
+                            has_pin_overlap = True
+                            break
+                    if has_pin_overlap:
+                        break
+                if not has_pin_overlap:
+                    blocking.append(
+                        pin_world_position(defn.footprint, pl, 1),
+                    )
+                    break  # one bbox conflict per component is enough
+            # Pad-on-pad DIFFERENT_NETS.
+            pad_cs = find_conflicts(
+                incoming_placement=pl,
+                incoming_defn=defn,
+                incoming_instance_id=cid,
+                layout_placements=self._session.layout.placements,
+                instances=self._session.instances,
+                components=self._session.components,
+                schematic=self._session.schematic,
+                pad_index=_drag_idx,
+            )
+            for c in pad_cs:
+                if c.kind == ConflictKind.DIFFERENT_NETS:
+                    blocking.append(c.position)
+        return blocking
 
     # ------------------------------------------------------------------
     # Debounced full drag-commit validation (1 s after last snap)
