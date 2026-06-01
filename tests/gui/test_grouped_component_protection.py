@@ -85,26 +85,32 @@ class TestSelectionAllowedForGrouped:
 
 
 class TestDragBlocked:
-    def test_drag_does_not_start_with_groups_filter_off(
+    def test_press_on_grouped_component_arms_group_drag(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        """User-reported bug: with the GROUPS filter off, clicking a
-        component inside a group used to start a single-component drag,
-        breaking the group's layout."""
+        """Click on a component inside a non-active group arms a
+        group-level drag (per the 2026-06-01 group selection refactor).
+
+        Previously the click was blocked entirely; now it expands
+        selection to the whole group and arms drag — a subsequent
+        cursor motion beyond the threshold moves the group, while a
+        plain release leaves the group selected but unmoved.  Clicking
+        a single component without crossing the drag threshold is
+        effectively "select group", not "modify component".
+        """
         inst = _place(board_view, session, 0.5, 0.5)
-        _make_group(session, [inst.id])
+        gid = _make_group(session, [inst.id])
         board_view.set_tool(SelectTool())
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
-        # Disable GROUPS in the filter so the group-outline-hit shortcut
-        # (which drags the whole group) is skipped — this is the failure
-        # mode the user originally reported.
         tool.set_filter(SelectionFilter.COMPONENTS | SelectionFilter.WIRES)
         _press(tool, 0.5, 0.5)
-        # Selection still allowed (highlight nets, properties)…
-        assert tool._selected_id == inst.id
-        # …but drag must NOT have armed.
-        assert tool._dragging is False
+        # Selection expanded to the whole group.
+        assert inst.id in tool._selected_ids
+        assert tool._selected_group_id == gid
+        # Drag is armed — but cursor hasn't moved, so no mutation yet.
+        assert tool._dragging is True
+        assert tool._drag_threshold_crossed is False
 
     def test_drag_starts_after_entering_group(
         self, board_view: BoardView, session: EditorSession

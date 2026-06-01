@@ -572,12 +572,17 @@ class BoardView(QGraphicsView):
         if not outline_by_gid:
             return
         # Pre-resolve once: which wires are internal to each group?
-        # Using structural classification (PinKnot endpoint refs) so
-        # the membership is stable while neighbouring groups move
-        # around — geometric "nearest pin" would briefly assign a
-        # dragged wire to a stationary group whose outline would then
-        # stretch toward the moving group (2026-06-01 bug).
-        from protoboard.domain.commands.group_cmds import _find_internal_wires
+        # Net-aware classifier (group_ownership.find_owned_wires) handles
+        # T-junction half-orphans correctly: tails of internal nets are
+        # owned, tails of exported nets are not — so the outline neither
+        # shrinks at drag-start nor stretches over interface wires.
+        from protoboard.domain.layout.group_ownership import find_owned_wires
+        # Resolve wire→net once for this paint; cached on session.
+        try:
+            wire_net_map = self._session.cached_wire_net_map() if self._session is not None else {}
+        except Exception:  # noqa: BLE001
+            wire_net_map = {}
+        schematic = getattr(self._session, "schematic", None) if self._session is not None else None
         for gid, rect_item in outline_by_gid.items():
             grp_obj = layout.groups.get(gid)
             if grp_obj is None or gid == ROOT_GROUP_ID:
@@ -599,19 +604,23 @@ class BoardView(QGraphicsView):
                     ys.append(p.y)
             if not xs:
                 continue
-            # Include internal-wire vertices so the live outline
-            # matches the statically-rendered one (otherwise the
-            # outline shrinks at drag-start and re-grows at release).
+            # Include owned-wire vertices so the live outline matches
+            # the statically-rendered one (otherwise outline shrinks
+            # at drag-start and re-grows at release).
             try:
-                internal_wire_ids = _find_internal_wires(
+                owned_wire_ids = find_owned_wires(
                     list(layout.wires),
-                    set(),  # geometric pins unused on structural path
-                    set(),
-                    group_comp_ids=comp_ids,
+                    grp_obj,
+                    wire_net_map=wire_net_map,
                     knots=layout.knots,  # type: ignore[arg-type]
+                    group_comp_ids=comp_ids,
+                    schematic=schematic,
+                    placements=placements,
+                    instances=instances,
+                    definitions=components,
                 )
                 for w in layout.wires:
-                    if w.id not in internal_wire_ids:
+                    if w.id not in owned_wire_ids:
                         continue
                     for p in w.path:
                         xs.append(p.x)
@@ -1070,6 +1079,8 @@ class BoardView(QGraphicsView):
                 theme=_theme,
                 active_group_id=self._active_group_id,
                 view_scale=self._scale,
+                wire_net_map=self._session.cached_wire_net_map(),
+                schematic=self._session.schematic,
             ))
         if self._session.axis_label_settings.any_enabled():
             from protoboard.gui.renderers.axis_labels_renderer import (

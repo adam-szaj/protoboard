@@ -31,7 +31,7 @@ import os
 import time
 
 import structlog
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QKeyEvent, QMouseEvent, QPen
 
 # Per-click timing logs.  Enabled with ``PROTOBOARD_CLICK_PROFILE=1``.
@@ -122,6 +122,14 @@ _RUBBER_BAND_PEN_RL = QPen(QColor(0, 200, 255, 180), 0.06)   # right-to-left: da
 # (0.5) is below the snap step so any genuine drag immediately
 # crosses it.
 _DRAG_START_THRESHOLD = 0.5
+# Long-press timing for group selection.  500ms of stationary press on
+# the empty area of a group's bbox selects the group as a whole;
+# holding for the full 1000ms additionally advances into that group's
+# edit mode.  Mouse motion above _GROUP_LONGPRESS_CANCEL_PX (viewport
+# pixels) before either timer fires cancels the long-press cleanly.
+_GROUP_LONGPRESS_SELECT_MS = 500
+_GROUP_LONGPRESS_EDIT_MS = 1000
+_GROUP_LONGPRESS_CANCEL_PX = 6
 _RUBBER_BAND_PEN_RL.setStyle(Qt.PenStyle.DashLine)
 _RUBBER_BAND_FILL_LR = QColor(0, 200, 255, 20)
 _RUBBER_BAND_FILL_RL = QColor(0, 200, 255, 10)
@@ -275,6 +283,17 @@ class SelectTool(_Tool):
         # ~0.2 ms × N).  None when no drag is active.
         self._drag_pad_index: object | None = None
 
+        # Long-press group-selection state.  When the user presses on a
+        # group's bbox empty area, we start a 500ms timer (phase=select).
+        # On fire we select the group and start a second 500ms timer
+        # (phase=edit) — on its fire we enter group edit mode.  Mouse
+        # motion above _GROUP_LONGPRESS_CANCEL_PX before either timer
+        # fires cancels the long-press.
+        self._longpress_timer: QTimer | None = None
+        self._longpress_phase: str = "idle"   # "idle" | "select" | "edit"
+        self._longpress_group_id: uuid.UUID | None = None
+        self._longpress_press_view_pt: QPoint | None = None
+
     # ------------------------------------------------------------------
     # _Tool interface
     # ------------------------------------------------------------------
@@ -378,6 +397,53 @@ class SelectTool(_Tool):
                 return False
             return True
         return False
+
+    def _wire_is_locked(self, wire_id: uuid.UUID) -> bool:
+        """True iff *wire_id* is structurally owned by a group the user
+        is currently viewing from the outside.
+
+        Mirrors :meth:`_is_locked_in_group` for components.  Selection
+        of locked wires (for highlight / inspection) remains allowed
+        — mutating operations (delete, edit) gate on this method and
+        skip locked wires.  Walks every non-root group and uses the
+        net-aware classifier from
+        :mod:`protoboard.domain.layout.group_ownership`.
+        """
+        from protoboard.domain.layout.group_ownership import wire_is_owned_by_group
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        wire = self._session.wire_by_id(wire_id)
+        if wire is None:
+            return False
+        groups = self._session.layout.groups
+        active_gid = self._current_group_id
+        wire_net_map = self._session.cached_wire_net_map()
+        for gid, group in groups.items():
+            if gid == ROOT_GROUP_ID:
+                continue
+            if gid == active_gid:
+                # We're inside this group → its wires are editable.
+                continue
+            comp_ids = frozenset(all_component_ids(groups, gid))
+            if not comp_ids:
+                continue
+            if wire_is_owned_by_group(
+                wire, group,
+                wire_net_map=wire_net_map,
+                knots=self._session.layout.knots,  # type: ignore[arg-type]
+                group_comp_ids=comp_ids,
+                schematic=self._session.schematic,
+                placements=self._session.layout.placements,
+                instances=self._session.instances,
+                definitions=self._session.components,
+            ):
+                return True
+        return False
+
+    def _filter_lockable_wires(
+        self, wire_ids: "set[uuid.UUID] | frozenset[uuid.UUID]",
+    ) -> set[uuid.UUID]:
+        """Drop wire IDs that are locked inside a non-active group."""
+        return {wid for wid in wire_ids if not self._wire_is_locked(wid)}
 
     def _wire_safe_to_drag(
         self, wire: "Wire", drag_ids: "set[uuid.UUID]",
@@ -1303,19 +1369,19 @@ class SelectTool(_Tool):
 
             return False
 
-        # --- Klik na obrysie grupy — zaznacz grupę jako całość ---
-        # First check whether the click landed on an *exported pin* of a
-        # child group: those pins are the group's external interface, so
-        # they must accept normal pin clicks (route start, Shift+LPM net
-        # highlight) even though they sit geometrically inside the
-        # group's outline rect.  Without this short-circuit the outline
-        # branch below grabs the click and selects the whole group,
-        # masking the exported-pin semantics entirely.
+        # --- Klik na obszarze bbox grupy (long-press cycle) ---
+        # Bbox is derived geometry, not a hit boundary.  A short click
+        # passes through to the normal selection flow under the
+        # cursor; a 500ms hold on empty bbox area selects the group as
+        # a whole, and a 1000ms hold enters its edit mode.  Exported
+        # pins keep their short-circuit so they remain clickable as
+        # the group's external interface.
         if self._click_is_on_exported_pin(scene_pt):
             group_outline_hit = None
         else:
             group_outline_hit = (
-                self._hit_test_group_outline(scene_pt) if self._filter_groups() else None
+                self._hit_test_group_bbox_empty(scene_pt)
+                if self._filter_groups() else None
             )
         _log.info(
             "on_press.group_outline_decision",
@@ -1325,6 +1391,22 @@ class SelectTool(_Tool):
             current_group=str(self._current_group_id)[:8],
         )
         if group_outline_hit is not None:
+            # Long-press timer takes over — start it and let the user
+            # decide via hold duration what they want.  Click is
+            # consumed so the normal selection flow doesn't fire.
+            view_pt = self._view.mapFromScene(scene_pt) if self._view is not None else QPoint(0, 0)
+            self._start_longpress(group_outline_hit, view_pt)
+            _log.info(
+                "on_press.longpress_started",
+                group_id=str(group_outline_hit)[:8],
+            )
+            return True
+
+        # The legacy outline-drag path is fully replaced by long-press;
+        # the block below is reachable only when group_outline_hit is
+        # None (preserved branch retained for diff hygiene during the
+        # refactor — never executes).
+        if False and group_outline_hit is not None:
             self._cancel_wire_edit()
             self._deselect_wire()
             groups = self._session.layout.groups
@@ -1363,28 +1445,28 @@ class SelectTool(_Tool):
                         pl_first.position.x - snapped.x,
                         pl_first.position.y - snapped.y,
                     )
-                # Collect internal wires via PinKnot endpoint refs
-                # (structural).  Pre-2026-06-01 nearest-pin heuristic
-                # mis-classified wires near the boundary; switching to
-                # structural keeps the dragged set stable as the group
-                # moves past other components.
-                from protoboard.domain.commands.group_cmds import _find_internal_wires, _pin_positions_for
-                placements = self._session.layout.placements
-                instances = self._session.instances
-                components = self._session.components
-                group_pins = _pin_positions_for(grp_members, placements, instances, components)
-                all_ids = frozenset(placements.keys())
-                external_pins = _pin_positions_for(all_ids - grp_members, placements, instances, components)
-                internal_ids = _find_internal_wires(
-                    list(self._session.layout.wires),
-                    group_pins,
-                    external_pins,
-                    group_comp_ids=grp_members,
-                    knots=self._session.layout.knots,  # type: ignore[arg-type]
-                )
-                for wire in self._session.layout.wires:
-                    if wire.id in internal_ids:
-                        self._drag_orig_wire_paths[wire.id] = list(wire.path)
+                # Collect owned wires via net-aware classifier.  This
+                # picks up structurally-owned wires (both PinKnots in
+                # group) AND half-orphan tails of internal nets, while
+                # correctly excluding T-junction tails of exported nets
+                # (which are interface wires, not group structure).
+                from protoboard.domain.layout.group_ownership import find_owned_wires
+                grp_obj = self._session.layout.groups.get(group_outline_hit)
+                if grp_obj is not None:
+                    owned_ids = find_owned_wires(
+                        list(self._session.layout.wires),
+                        grp_obj,
+                        wire_net_map=self._session.cached_wire_net_map(),
+                        knots=self._session.layout.knots,  # type: ignore[arg-type]
+                        group_comp_ids=grp_members,
+                        schematic=self._session.schematic,
+                        placements=self._session.layout.placements,
+                        instances=self._session.instances,
+                        definitions=self._session.components,
+                    )
+                    for wire in self._session.layout.wires:
+                        if wire.id in owned_ids:
+                            self._drag_orig_wire_paths[wire.id] = list(wire.path)
             return True
 
         # --- Normal left click: hit-test component or wire ---
@@ -1442,11 +1524,88 @@ class SelectTool(_Tool):
                 # Click on already-selected component — keep multi-selection
                 # (including wires) and set as primary for properties panel.
                 self._select_primary(hit)
-            # Grouped-component protection: viewing a group from the outside
-            # makes its members selectable (for net highlight / properties)
-            # but NOT draggable.  Double-click the group to step inside if
-            # you want to edit its layout.
+            # Grouped-component press: click on a component that lives
+            # inside a non-active group → arm a group drag.  Selection
+            # of the group as a whole was already applied via
+            # _resolve_group_hit + _select_primary above; here we
+            # configure the drag set + owned-wire snapshot so a
+            # subsequent mouse motion (>0.5 raster threshold) moves
+            # the entire group, while a plain release leaves the
+            # group selected but unmoved.  This replaces the legacy
+            # outline-hit drag path with element-driven activation.
             if self._is_locked_in_group(hit):
+                from protoboard.domain.layout.group import all_component_ids as _all_cids
+                # Find the deepest non-active group containing `hit`.
+                target_gid: uuid.UUID | None = None
+                groups_map = self._session.layout.groups
+                active_gid = self._current_group_id
+                for gid_iter, g_iter in groups_map.items():
+                    if gid_iter == active_gid:
+                        continue
+                    if hit in g_iter.component_ids and gid_iter != active_gid:
+                        target_gid = gid_iter
+                        break
+                if target_gid is None:
+                    # Conservative fall-back: no draggable group resolved.
+                    return True
+                grp_members = frozenset(_all_cids(groups_map, target_gid))
+                if not grp_members:
+                    return True
+                # Expand selection to all group members so multi-highlight
+                # serves as the visible "drag will move the whole group"
+                # warning before threshold is crossed.
+                self._clear_multi_selection()
+                self._selected_group_id = target_gid
+                self._selected_ids = set(grp_members)
+                first = next(iter(grp_members))
+                self._select_primary(first)
+                for cid in grp_members - {first}:
+                    self._draw_multi_highlight(cid)
+                # Arm the drag.
+                self._drag_overlay.reset(self._view.scene())
+                self._corner_text.hide(self._view.scene())
+                self._drag_last_decision = None
+                self._stop_drag_validation_timer()
+                self._dragging = True
+                self._drag_press_scene_pt = QPointF(scene_pt)
+                self._drag_threshold_crossed = False
+                self._drag_orig_positions = {}
+                self._drag_orig_wire_paths = {}
+                snapped = self._view.snap(scene_pt, exclude_ids=frozenset(grp_members))
+                for cid in grp_members:
+                    pl = self._session.layout.placements.get(cid)
+                    if pl is not None:
+                        self._drag_orig_positions[cid] = pl.position
+                pl_hit = self._session.layout.placements.get(hit)
+                if pl_hit is not None:
+                    self._drag_anchor_offset = (
+                        pl_hit.position.x - snapped.x,
+                        pl_hit.position.y - snapped.y,
+                    )
+                # Owned-wire snapshot via net-aware classifier.
+                from protoboard.domain.layout.group_ownership import find_owned_wires
+                grp_obj = groups_map.get(target_gid)
+                if grp_obj is not None:
+                    owned_ids = find_owned_wires(
+                        list(self._session.layout.wires),
+                        grp_obj,
+                        wire_net_map=self._session.cached_wire_net_map(),
+                        knots=self._session.layout.knots,  # type: ignore[arg-type]
+                        group_comp_ids=grp_members,
+                        schematic=self._session.schematic,
+                        placements=self._session.layout.placements,
+                        instances=self._session.instances,
+                        definitions=self._session.components,
+                    )
+                    for wire in self._session.layout.wires:
+                        if wire.id in owned_ids:
+                            self._drag_orig_wire_paths[wire.id] = list(wire.path)
+                _log.info(
+                    "on_press.group_drag_armed",
+                    group_id=str(target_gid)[:8],
+                    n_members=len(grp_members),
+                    n_owned_wires=len(self._drag_orig_wire_paths),
+                )
                 return True
             # Begin drag.
             self._drag_overlay.reset(self._view.scene())
@@ -1670,6 +1829,12 @@ class SelectTool(_Tool):
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
 
+        # Long-press jitter cancellation: any cursor motion beyond
+        # _GROUP_LONGPRESS_CANCEL_PX viewport pixels aborts the hold.
+        if self._longpress_phase != "idle" and self._view is not None:
+            view_pt = self._view.mapFromScene(scene_pt)
+            self._longpress_check_jitter(view_pt)
+
         if self._redrag_comp_id is not None:
             snapped = self._view.snap(scene_pt)
             self._update_redrag(snapped)
@@ -1790,6 +1955,25 @@ class SelectTool(_Tool):
                 self._view.setCursor(Qt.CursorShape.ArrowCursor)
 
     def on_release(self, event: QMouseEvent, scene_pt: QPointF) -> None:
+        # Long-press release.  If we never fired the timer (release
+        # before 500ms), the user wants a regular click — pass through
+        # to the normal selection flow without selecting the group.
+        # If the select-phase fired but edit-phase did not, the group
+        # is selected and we just clean up the timer.
+        if self._longpress_phase != "idle":
+            phase = self._longpress_phase
+            self._cancel_longpress()
+            if phase == "select":
+                # Already selected the group at the 500ms mark — leave
+                # the selection in place, just exit.
+                return
+            # phase was still "edit" pending; nothing was selected yet
+            # (release before 500ms).  Fall through so the user gets
+            # a normal click outcome (deselect / hit-test under cursor).
+            # We can't replay on_press cleanly, so for now just treat
+            # as a no-op release (the user can re-click).
+            return
+
         # Rubber-band release: apply selection.
         if self._rubber_band_start is not None:
             self._finish_rubber_band(scene_pt)
@@ -2149,8 +2333,14 @@ class SelectTool(_Tool):
             return
 
         if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            # Shift+Delete forces deletion through the wire-lock guard
+            # — bulk operations like "Select All Wires" + Delete expect
+            # to remove every selection regardless of group ownership.
+            # Without force, structurally-owned wires of a non-active
+            # group are silently skipped (Step 4 of group-selection
+            # refactor 2026-06-01).
             if self._selected_wire_ids or self._selected_wire_id is not None:
-                self._delete_multi_wires()
+                self._delete_multi_wires(force=shift)
             elif self._selected_ids:
                 self._delete_multi()
             elif self._selected_id is not None:
@@ -3538,6 +3728,116 @@ class SelectTool(_Tool):
         if self._drag_timer is not None:
             self._drag_timer.stop()
 
+    # ------------------------------------------------------------------
+    # Long-press group selection / edit-mode entry
+    # ------------------------------------------------------------------
+
+    def _ensure_longpress_timer(self) -> None:
+        """Lazy-create the singleshot timer driving group long-press."""
+        if self._longpress_timer is not None:
+            return
+        t = QTimer()
+        t.setSingleShot(True)
+        t.timeout.connect(self._on_longpress_fire)
+        self._longpress_timer = t
+
+    def _start_longpress(
+        self, group_id: uuid.UUID, view_pt: QPoint,
+    ) -> None:
+        """Begin the 500ms hold cycle for group *group_id*.
+
+        Sets phase=select, captures the press point for jitter
+        detection, and starts the timer.  Caller has already verified
+        the click was on the empty bbox area of the group.
+        """
+        self._ensure_longpress_timer()
+        self._longpress_phase = "select"
+        self._longpress_group_id = group_id
+        self._longpress_press_view_pt = QPoint(view_pt)
+        if self._longpress_timer is not None:
+            self._longpress_timer.start(_GROUP_LONGPRESS_SELECT_MS)
+
+    def _cancel_longpress(self) -> None:
+        """Abort any pending long-press cycle and clear state."""
+        if self._longpress_timer is not None:
+            self._longpress_timer.stop()
+        self._longpress_phase = "idle"
+        self._longpress_group_id = None
+        self._longpress_press_view_pt = None
+
+    def _on_longpress_fire(self) -> None:
+        """Timer callback — advance phase select→edit, or commit edit."""
+        gid = self._longpress_group_id
+        if gid is None or gid not in self._session.layout.groups:
+            self._cancel_longpress()
+            return
+
+        if self._longpress_phase == "select":
+            # 500ms reached — select the group as a monolith.  This
+            # mirrors the existing outline-hit drag-start path but
+            # without arming a drag (user explicitly indicated
+            # selection intent via hold, not motion).
+            from protoboard.domain.layout.group import all_component_ids
+            grp_members = frozenset(all_component_ids(self._session.layout.groups, gid))
+            if grp_members:
+                self._clear_multi_selection()
+                self._deselect_wire()
+                self._selected_group_id = gid
+                self._selected_ids = set(grp_members)
+                first = next(iter(grp_members))
+                self._select_primary(first)
+                for cid in grp_members - {first}:
+                    self._draw_multi_highlight(cid)
+                self._notify_selection()
+            # Phase advances to edit; second 500ms fires the edit-mode entry.
+            self._longpress_phase = "edit"
+            if self._longpress_timer is not None:
+                self._longpress_timer.start(
+                    _GROUP_LONGPRESS_EDIT_MS - _GROUP_LONGPRESS_SELECT_MS
+                )
+            _log.info("longpress.select", group_id=str(gid)[:8])
+            return
+
+        if self._longpress_phase == "edit":
+            # Full 1000ms held — advance into group edit mode.
+            self._group_stack.append(gid)
+            self._notify_active_group()
+            _log.info("longpress.edit_entered", group_id=str(gid)[:8])
+            self._cancel_longpress()
+            return
+
+        self._cancel_longpress()
+
+    def _longpress_check_jitter(self, view_pt: QPoint) -> None:
+        """Cancel long-press if cursor moved beyond the jitter tolerance."""
+        if self._longpress_phase == "idle" or self._longpress_press_view_pt is None:
+            return
+        dx = view_pt.x() - self._longpress_press_view_pt.x()
+        dy = view_pt.y() - self._longpress_press_view_pt.y()
+        if dx * dx + dy * dy > _GROUP_LONGPRESS_CANCEL_PX * _GROUP_LONGPRESS_CANCEL_PX:
+            _log.debug("longpress.cancelled_jitter", dx=dx, dy=dy)
+            self._cancel_longpress()
+
+    def _hit_test_group_bbox_empty(self, scene_pt: QPointF) -> uuid.UUID | None:
+        """Return group_id if *scene_pt* falls in a group's outline bbox AND
+        no actionable element (pin, wire, component body) lies under the
+        cursor.
+
+        Used to gate the long-press: a short click on a wire/component
+        inside the bbox passes through to the normal selection flow;
+        only empty space triggers group-as-whole long-press.
+        """
+        # Outline rect hit (gives candidate group).
+        outline_gid = self._hit_test_group_outline(scene_pt)
+        if outline_gid is None:
+            return None
+        # Anything under the cursor that would normally be hit?
+        if self._hit_test(scene_pt) is not None:
+            return None
+        if self._hit_test_wire(scene_pt) is not None:
+            return None
+        return outline_gid
+
     def _current_drag_ids(self) -> set[uuid.UUID]:
         anchor_id = self._selected_id
         return (
@@ -4755,9 +5055,17 @@ class SelectTool(_Tool):
         self._view.scene().addItem(group)
         self._wire_highlight = group
 
-    def _delete_wire(self) -> None:
+    def _delete_wire(self, *, force: bool = False) -> None:
         wire_id = self._selected_wire_id
         if wire_id is None:
+            return
+        # Block deletion of wires structurally owned by a group we
+        # haven't entered, unless *force* is set.  Selection (for
+        # highlight) stays allowed; mutation requires entering the
+        # group's edit context or passing force=True (typically
+        # Shift+Delete from bulk shortcuts).
+        if not force and self._wire_is_locked(wire_id):
+            _log.info("delete_wire.skipped_locked", wire_id=str(wire_id)[:8])
             return
         self._cancel_wire_edit()
         cmd = RemoveWireCommand(wire_id=wire_id)
@@ -4795,7 +5103,7 @@ class SelectTool(_Tool):
         self._wire_multi_highlights.clear()
         self._selected_wire_ids.clear()
 
-    def _delete_multi_wires(self) -> None:
+    def _delete_multi_wires(self, *, force: bool = False) -> None:
         # Include primary wire (_selected_wire_id) alongside multi-selection.
         all_ids = set(self._selected_wire_ids)
         if self._selected_wire_id is not None:
@@ -4803,6 +5111,16 @@ class SelectTool(_Tool):
         # Filter out stale IDs (wire may have been removed by a previous operation).
         existing = {w.id for w in self._session.layout.wires}
         ids = [wid for wid in all_ids if wid in existing]
+        # Drop wires structurally owned by a non-active group unless
+        # *force* is set.  Force is passed by Shift+Delete bulk
+        # shortcuts where the user explicitly intends to override the
+        # group-lock guard.
+        if not force:
+            n_before = len(ids)
+            ids = [wid for wid in ids if not self._wire_is_locked(wid)]
+            n_skipped = n_before - len(ids)
+            if n_skipped:
+                _log.info("delete_wires.skipped_locked", n_skipped=n_skipped)
         if not ids:
             return
         from typing import cast

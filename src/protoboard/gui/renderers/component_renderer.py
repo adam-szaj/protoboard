@@ -654,6 +654,8 @@ def render_groups(
     theme: Theme = DEFAULT_THEME,
     active_group_id: uuid.UUID | None = None,
     view_scale: float = 1.0,
+    wire_net_map: "dict[uuid.UUID, uuid.UUID] | None" = None,
+    schematic: object | None = None,
 ) -> list[QGraphicsItem]:
     """Render a dotted outline around each group's bounding box.
 
@@ -697,33 +699,28 @@ def render_groups(
                 positions.append(pin_world_position(defn.footprint, pl, n + 1))
         if not positions:
             continue
-        # Extend bbox to include all points of internal wires.
+        # Extend bbox to include all points of owned wires (net-aware
+        # classification — half-orphan tails of *internal* nets count
+        # as owned, tails of *exported* nets do not).
         if wires:
-            from protoboard.domain.commands.group_cmds import (
-                _find_internal_wires,
-                _pin_positions_for,
-            )
+            from protoboard.domain.layout.group_ownership import find_owned_wires
             from protoboard.domain.layout.wire import Wire
+            from protoboard.domain.schematic.schematic import Schematic as _Schematic
             typed_wires = [w for w in wires if isinstance(w, Wire)]
-            all_ids = frozenset(placements.keys())
-            group_pins = _pin_positions_for(comp_ids, placements, instances, components)  # type: ignore[arg-type]
-            ext_pins = _pin_positions_for(all_ids - comp_ids, placements, instances, components)  # type: ignore[arg-type]
-            # Structural classification (PinKnot endpoint refs) — the
-            # geometric nearest-pin fallback would mis-classify a
-            # foreign group's wire as internal when its endpoint
-            # briefly sits closer to one of this group's pins than to
-            # its own, e.g. mid-drag (user-observed 2026-06-01:
-            # stationary group's outline visibly stretched toward a
-            # group being dragged past it).
-            internal_ids = _find_internal_wires(
+            sch_obj = schematic if isinstance(schematic, _Schematic) else None
+            owned_ids = find_owned_wires(
                 typed_wires,
-                group_pins,
-                ext_pins,
-                group_comp_ids=comp_ids,
+                group,
+                wire_net_map=wire_net_map or {},
                 knots=layout.knots,  # type: ignore[arg-type]
+                group_comp_ids=comp_ids,
+                schematic=sch_obj,
+                placements=placements,
+                instances=instances,
+                definitions=components,
             )
             for w in typed_wires:
-                if w.id in internal_ids:
+                if w.id in owned_ids:
                     positions.extend(w.path)
         xs = [p.x for p in positions]
         ys = [p.y for p in positions]
