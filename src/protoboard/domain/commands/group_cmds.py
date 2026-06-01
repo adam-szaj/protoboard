@@ -120,12 +120,72 @@ def _find_internal_wires(
     wires: list[Wire],
     group_pins: set[tuple[float, float]],
     external_pins: set[tuple[float, float]],
+    *,
+    group_comp_ids: "frozenset[uuid.UUID] | None" = None,
+    knots: "dict[uuid.UUID, object] | None" = None,
 ) -> set[uuid.UUID]:
-    """Return IDs of wires whose both endpoints have their nearest pin inside the group.
+    """Return IDs of wires that belong logically to the group.
 
-    For each endpoint the nearest pin (from all components) is found; the wire
-    is internal iff both nearest pins belong to the group.
+    Structural classification (preferred): a wire is internal iff
+    *both* of its endpoint knots are :class:`PinKnot`s anchored to
+    pins of components in ``group_comp_ids``.  This is stable under
+    drag — endpoint identity comes from the wire's own ``KnotRef``,
+    not from a nearest-pin geometric heuristic.  It also gives the
+    right answer for JointKnot endpoints (joints are never "in" any
+    particular group; their wires need both ends evaluated by their
+    *other* endpoint's PinKnot membership — see below).
+
+    Geometric fallback (legacy): when ``group_comp_ids`` or ``knots``
+    is None, fall back to the nearest-pin heuristic.  This path is
+    structurally fragile — during a drag where one group's wire end
+    is being translated toward another group's pin, the heuristic
+    will briefly classify the dragged wire as internal to the
+    stationary group and inflate that group's outline rect to
+    enclose the foreign wire (user-observed 2026-06-01).  Callers
+    that have access to ``layout.knots`` should always pass it.
+
+    Implementation detail for joint-terminated wires under the
+    structural path: an endpoint that resolves to a :class:`JointKnot`
+    has no "component" of its own.  In that case we still count the
+    wire as internal as long as the *other* endpoint is a PinKnot
+    inside the group.  This matches the rendering intent: joints
+    that hang off a group's pin via a short tail visually belong to
+    the group.
     """
+    if group_comp_ids is not None and knots is not None:
+        from protoboard.domain.layout.knot import JointKnot, PinKnot
+        result: set[uuid.UUID] = set()
+        for wire in wires:
+            if len(wire.path) < 2 or wire.a is None or wire.b is None:
+                continue
+            ka = knots.get(wire.a.id)
+            kb = knots.get(wire.b.id)
+            if ka is None or kb is None:
+                continue
+
+            def _endpoint_in_group(knot: object) -> bool:
+                if isinstance(knot, PinKnot):
+                    return knot.pin.component_id in group_comp_ids
+                # JointKnot: ambiguous.  Treat as compatible — see
+                # docstring: a joint at the end of a group-pin wire
+                # is visually part of the group.
+                return isinstance(knot, JointKnot)
+
+            if (
+                _endpoint_in_group(ka)
+                and _endpoint_in_group(kb)
+                # At least one endpoint must be a PinKnot in the
+                # group; joint-joint wires are never anyone's
+                # internal wire.
+                and (
+                    (isinstance(ka, PinKnot) and ka.pin.component_id in group_comp_ids)
+                    or (isinstance(kb, PinKnot) and kb.pin.component_id in group_comp_ids)
+                )
+            ):
+                result.add(wire.id)
+        return result
+
+    # Geometric fallback.
     all_pins = group_pins | external_pins
     if not all_pins:
         return set()
@@ -140,7 +200,7 @@ def _find_internal_wires(
                 best_in_group = (px, py) in group_pins
         return best_in_group
 
-    result: set[uuid.UUID] = set()
+    result = set()
     for wire in wires:
         if len(wire.path) < 2:
             continue
@@ -388,11 +448,20 @@ class RotateGroupCommand(Command[ComponentState]):
                 old_pls[cid] = pl.copy()  # type: ignore[union-attr]
         object.__setattr__(self, "_old_placements", old_pls)
 
-        # Identify internal wires via graph reachability (pre-rotation positions).
+        # Identify internal wires via PinKnot endpoint refs (structural,
+        # immune to drag-time pin geometry).  Geometric helpers still
+        # filled in as a fallback for unit tests that build wires
+        # without knot refs.
         group_pins = _pin_positions_for(comp_ids, state.layout.placements, state.instances, state.components)
         all_comp_ids = frozenset(state.layout.placements.keys())
         external_pins = _pin_positions_for(all_comp_ids - comp_ids, state.layout.placements, state.instances, state.components)
-        internal_wire_ids = _find_internal_wires(state.layout.wires, group_pins, external_pins)
+        internal_wire_ids = _find_internal_wires(
+            state.layout.wires,
+            group_pins,
+            external_pins,
+            group_comp_ids=comp_ids,
+            knots=state.layout.knots,  # type: ignore[arg-type]
+        )
 
         # Rotate each placement.
         for cid in comp_ids:

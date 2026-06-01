@@ -571,6 +571,13 @@ class BoardView(QGraphicsView):
                 continue
         if not outline_by_gid:
             return
+        # Pre-resolve once: which wires are internal to each group?
+        # Using structural classification (PinKnot endpoint refs) so
+        # the membership is stable while neighbouring groups move
+        # around — geometric "nearest pin" would briefly assign a
+        # dragged wire to a stationary group whose outline would then
+        # stretch toward the moving group (2026-06-01 bug).
+        from protoboard.domain.commands.group_cmds import _find_internal_wires
         for gid, rect_item in outline_by_gid.items():
             grp_obj = layout.groups.get(gid)
             if grp_obj is None or gid == ROOT_GROUP_ID:
@@ -592,6 +599,27 @@ class BoardView(QGraphicsView):
                     ys.append(p.y)
             if not xs:
                 continue
+            # Include internal-wire vertices so the live outline
+            # matches the statically-rendered one (otherwise the
+            # outline shrinks at drag-start and re-grows at release).
+            try:
+                internal_wire_ids = _find_internal_wires(
+                    list(layout.wires),
+                    set(),  # geometric pins unused on structural path
+                    set(),
+                    group_comp_ids=comp_ids,
+                    knots=layout.knots,  # type: ignore[arg-type]
+                )
+                for w in layout.wires:
+                    if w.id not in internal_wire_ids:
+                        continue
+                    for p in w.path:
+                        xs.append(p.x)
+                        ys.append(p.y)
+            except Exception:  # noqa: BLE001
+                # Defensive: never let a wire-classification glitch
+                # break live drag — fall back to pin-only bbox.
+                pass
             x0 = min(xs) - margin
             y0 = min(ys) - margin
             w = max(xs) - min(xs) + 2 * margin

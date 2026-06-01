@@ -708,7 +708,20 @@ def render_groups(
             all_ids = frozenset(placements.keys())
             group_pins = _pin_positions_for(comp_ids, placements, instances, components)  # type: ignore[arg-type]
             ext_pins = _pin_positions_for(all_ids - comp_ids, placements, instances, components)  # type: ignore[arg-type]
-            internal_ids = _find_internal_wires(typed_wires, group_pins, ext_pins)
+            # Structural classification (PinKnot endpoint refs) — the
+            # geometric nearest-pin fallback would mis-classify a
+            # foreign group's wire as internal when its endpoint
+            # briefly sits closer to one of this group's pins than to
+            # its own, e.g. mid-drag (user-observed 2026-06-01:
+            # stationary group's outline visibly stretched toward a
+            # group being dragged past it).
+            internal_ids = _find_internal_wires(
+                typed_wires,
+                group_pins,
+                ext_pins,
+                group_comp_ids=comp_ids,
+                knots=layout.knots,  # type: ignore[arg-type]
+            )
             for w in typed_wires:
                 if w.id in internal_ids:
                     positions.extend(w.path)

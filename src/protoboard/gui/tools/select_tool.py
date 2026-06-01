@@ -1363,7 +1363,11 @@ class SelectTool(_Tool):
                         pl_first.position.x - snapped.x,
                         pl_first.position.y - snapped.y,
                     )
-                # Collect internal wires via graph reachability.
+                # Collect internal wires via PinKnot endpoint refs
+                # (structural).  Pre-2026-06-01 nearest-pin heuristic
+                # mis-classified wires near the boundary; switching to
+                # structural keeps the dragged set stable as the group
+                # moves past other components.
                 from protoboard.domain.commands.group_cmds import _find_internal_wires, _pin_positions_for
                 placements = self._session.layout.placements
                 instances = self._session.instances
@@ -1371,7 +1375,13 @@ class SelectTool(_Tool):
                 group_pins = _pin_positions_for(grp_members, placements, instances, components)
                 all_ids = frozenset(placements.keys())
                 external_pins = _pin_positions_for(all_ids - grp_members, placements, instances, components)
-                internal_ids = _find_internal_wires(self._session.layout.wires, group_pins, external_pins)
+                internal_ids = _find_internal_wires(
+                    list(self._session.layout.wires),
+                    group_pins,
+                    external_pins,
+                    group_comp_ids=grp_members,
+                    knots=self._session.layout.knots,  # type: ignore[arg-type]
+                )
                 for wire in self._session.layout.wires:
                     if wire.id in internal_ids:
                         self._drag_orig_wire_paths[wire.id] = list(wire.path)
