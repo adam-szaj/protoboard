@@ -1296,11 +1296,23 @@ class SelectTool(_Tool):
             group_outline_hit = (
                 self._hit_test_group_outline(scene_pt) if self._filter_groups() else None
             )
+        _log.info(
+            "on_press.group_outline_decision",
+            scene_pt=(round(scene_pt.x(), 2), round(scene_pt.y(), 2)),
+            outline_hit=str(group_outline_hit)[:8] if group_outline_hit else None,
+            on_exported_pin=self._click_is_on_exported_pin(scene_pt),
+            current_group=str(self._current_group_id)[:8],
+        )
         if group_outline_hit is not None:
             self._cancel_wire_edit()
             self._deselect_wire()
             groups = self._session.layout.groups
             grp_members = frozenset(all_component_ids(groups, group_outline_hit))
+            _log.info(
+                "on_press.group_outline.start_drag",
+                group_id=str(group_outline_hit)[:8],
+                n_members=len(grp_members),
+            )
             if grp_members:
                 self._clear_multi_selection()
                 self._selected_group_id = group_outline_hit
@@ -1649,6 +1661,12 @@ class SelectTool(_Tool):
                 if dx * dx + dy * dy < _DRAG_START_THRESHOLD * _DRAG_START_THRESHOLD:
                     return
                 self._drag_threshold_crossed = True
+                _log.info(
+                    "on_move.threshold_crossed",
+                    dist=round((dx * dx + dy * dy) ** 0.5, 3),
+                    n_drag_orig_positions=len(self._drag_orig_positions),
+                    selected_group=str(self._selected_group_id)[:8] if self._selected_group_id else None,
+                )
             anchor_id = self._selected_id
             drag_ids = (
                 self._selected_ids if self._selected_ids
@@ -5869,19 +5887,58 @@ class SelectTool(_Tool):
         return False
 
     def _hit_test_group_outline(self, scene_pt: QPointF) -> uuid.UUID | None:
-        """Return group_id if the click landed on a group outline rect item."""
+        """Return group_id if the click landed on a group outline rect item.
+
+        Multiple outlines can overlap at the click point (sibling groups
+        whose bounding rects touch / nest).  Pick the outline with the
+        *smallest* bounding rect — that is the most specific match and
+        matches the user's intuition ("I clicked on the inner group").
+        Without this disambiguation Qt's scene.items() Z-order would
+        sometimes return the outer group instead, leaving the inner
+        group "uwięziona" — outline-grabbed by its parent so drag
+        never starts on it (user-observed 2026-06-01).
+        """
+        groups = self._session.layout.groups
+        active = groups.get(self._current_group_id)
+        candidates: list[tuple[float, uuid.UUID]] = []
         for item in self._view.scene().items(scene_pt):
             tag = item.data(1) if hasattr(item, "data") else None
-            if tag == "group_outline":
-                raw = item.data(0)
-                if raw:
-                    gid = uuid.UUID(str(raw))
-                    # Only outline-clicks for child groups of active group.
-                    groups = self._session.layout.groups
-                    active = groups.get(self._current_group_id)
-                    if active and gid in active.child_group_ids:
-                        return gid
-        return None
+            if tag != "group_outline":
+                continue
+            raw = item.data(0)
+            if not raw:
+                continue
+            gid = uuid.UUID(str(raw))
+            if not (active and gid in active.child_group_ids):
+                continue
+            # Bounding-rect area — items() already filtered to those
+            # whose shape contains scene_pt, so we use sceneBoundingRect
+            # to rank "specificity".
+            try:
+                br = item.sceneBoundingRect()
+                area = float(br.width()) * float(br.height())
+            except Exception:  # noqa: BLE001
+                area = float("inf")
+            candidates.append((area, gid))
+        if not candidates:
+            _log.debug(
+                "hit_test_group_outline.empty",
+                scene_pt=(round(scene_pt.x(), 2), round(scene_pt.y(), 2)),
+                active_group=str(self._current_group_id)[:8],
+            )
+            return None
+        candidates.sort(key=lambda t: t[0])
+        chosen = candidates[0][1]
+        _log.debug(
+            "hit_test_group_outline.chosen",
+            scene_pt=(round(scene_pt.x(), 2), round(scene_pt.y(), 2)),
+            chosen=str(chosen)[:8],
+            n_candidates=len(candidates),
+            candidates=[
+                (str(g)[:8], round(a, 2)) for a, g in candidates
+            ],
+        )
+        return chosen
 
     def _resolve_group_hit(self, comp_id: uuid.UUID) -> uuid.UUID:
         """If comp_id is inside a child group not yet entered, return the first

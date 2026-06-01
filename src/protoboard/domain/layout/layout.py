@@ -224,6 +224,8 @@ class Layout:
         self,
         wire_id: uuid.UUID,
         fragments: list[Fragment] | tuple[Fragment, ...],
+        *,
+        skip_pin_knot_validation: bool = False,
     ) -> Wire:
         """Atomically replace a wire's fragments, preserving its id.
 
@@ -231,6 +233,19 @@ class Layout:
         that change the path of a wire never mint a new id.  The wire's
         ``path`` attribute is rebuilt from the new fragments so legacy
         consumers (which read ``wire.path``) see the updated geometry.
+
+        ``skip_pin_knot_validation``: when True, PinKnot endpoints are
+        accepted regardless of whether their resolved world position
+        matches the new fragment endpoint.  Used by the group-drag
+        undo path: ``ReplaceWireFragmentsCommand.revert`` runs *before*
+        the paired ``MoveComponentCommand.revert``, so the placement
+        still reflects the post-drag state when we try to restore the
+        pre-drag fragments — PinKnot position resolver therefore
+        disagrees with the pre-drag path endpoints by exactly the drag
+        delta.  Move.revert later restores the placement and the two
+        states reconverge.  Skipping validation here keeps the
+        intermediate state silently inconsistent, which is fine because
+        the rest of the macro will fix it within the same revert pass.
         """
         existing = self.wires.get(wire_id)
         if existing is None:
@@ -260,6 +275,13 @@ class Layout:
             if isinstance(knot, JointKnot) and knot.wire_ids == frozenset({wire_id_}):
                 # Free joint — slide along with the wire.
                 knot.position = new_pos
+                return
+            if skip_pin_knot_validation and isinstance(knot, PinKnot):
+                # Caller (group-drag undo) knows the placement will be
+                # reverted later in the same macro and the disagreement
+                # is transient.  Accept the fragment mutation; the path
+                # will line up with the pin position as soon as
+                # MoveComponentCommand.revert runs.
                 return
             raise ValueError(
                 f"replace_wire_fragments: new {label}={new_pos} disagrees with "

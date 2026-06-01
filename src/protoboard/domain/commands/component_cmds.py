@@ -1563,7 +1563,17 @@ class ReplaceWireFragmentsCommand(Command[ComponentState]):
                 kb = state.layout.knots.get(wire.b.id)
                 if isinstance(kb, JointKnot):
                     kb.position = self._saved_b_pos
-        state.layout.replace_wire_fragments(self.wire_id, self._saved_fragments)
+        # PinKnot positions resolve through ``layout._pin_resolver`` from
+        # the current placement, which a sibling ``MoveComponentCommand``
+        # in the same macro may not have reverted yet.  Skip PinKnot
+        # endpoint validation: Move.revert later in this revert pass
+        # will bring the pin back to the position our saved fragments
+        # expect.  See replace_wire_fragments docstring.
+        state.layout.replace_wire_fragments(
+            self.wire_id,
+            self._saved_fragments,
+            skip_pin_knot_validation=True,
+        )
 
 
 # ---------------------------------------------------------------------------
