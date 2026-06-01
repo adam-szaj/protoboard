@@ -3292,24 +3292,29 @@ class SelectTool(_Tool):
         wire ids surfaced here are merged into the group drag's
         removable_wire_ids so RemoveWireCommand strips them when the
         macro commits.
+
+        Walks the PadIndex directly (not via ``find_wire_conflicts``)
+        because the latter reports at most one wire per pin via
+        ``_wire_hit_via_pad_index`` — a pad hosting wire items on
+        both top *and* bottom (through-hole pin) would only surface
+        one of them and the other would stay behind after commit
+        (user-observed 2026-06-01).
         """
-        from protoboard.domain.layout.pad_conflict import find_wire_conflicts
-        net_name_by_id: dict[uuid.UUID, str] = {
-            net.id: net.name for net in self._session.schematic.nets.values()
-        }
-        # point_to_net for the legacy fallback path inside find_wire_conflicts.
-        point_to_net: dict[tuple[float, float], tuple[uuid.UUID, str]] = {}
-        for net in self._session.schematic.nets.values():
-            for ref in net.pins:
-                pos = self._session.get_pin_position(
-                    ref.component_id, ref.pin_number,
-                )
-                if pos is None:
-                    continue
-                point_to_net[(round(pos.x, 4), round(pos.y, 4))] = (
-                    net.id, net.name,
-                )
-        _ = net_name_by_id  # reserved for future reason-string upgrades
+        from protoboard.domain.board.pad_state import (
+            BareWireCrossing,
+            BareWireItem,
+            InsulatedWireCrossing,
+            InsulatedWireItem,
+        )
+        from protoboard.domain.layout.placement import pin_world_position
+
+        _WIRE_ITEM_TYPES = (
+            BareWireItem,
+            BareWireCrossing,
+            InsulatedWireItem,
+            InsulatedWireCrossing,
+        )
+        internal_wire_ids = set(self._drag_orig_wire_paths.keys())
         out: set[uuid.UUID] = set()
         for cid in drag_ids:
             pl = self._session.layout.placements.get(cid)
@@ -3319,22 +3324,21 @@ class SelectTool(_Tool):
             defn = self._session.components.get(inst.definition_ref)
             if defn is None:
                 continue
-            wcs = find_wire_conflicts(
-                incoming_placement=pl,
-                incoming_defn=defn,
-                incoming_instance_id=cid,
-                wires=list(self._session.layout.wires),
-                schematic=self._session.schematic,
-                point_to_net=point_to_net,
-                already_conflicted=set(),
-                pad_index=pad_index,  # type: ignore[arg-type]
-            )
-            for wc in wcs:
-                if wc.wire_id is not None:
-                    out.add(wc.wire_id)
-        # Exclude wires that were dragged along with the group (they're
-        # internal, follow the group, not "alien").
-        out -= set(self._drag_orig_wire_paths.keys())
+            for pin_num in range(1, defn.footprint.pin_count() + 1):
+                pin_pos = pin_world_position(defn.footprint, pl, pin_num)
+                pad = pad_index.pad_at(pin_pos) if pad_index is not None else None  # type: ignore[attr-defined]
+                if pad is None:
+                    continue
+                # Scan both physical layers so a through-hole pin
+                # catches wires on either side of the board.
+                for layer in ("top", "bottom"):
+                    for it in pad.physically_blocked_on(layer):
+                        if not isinstance(it, _WIRE_ITEM_TYPES):
+                            continue
+                        wid = getattr(it, "id", None)
+                        if wid is None or wid in internal_wire_ids:
+                            continue
+                        out.add(wid)
         return out
 
     def _cheap_conflict_check(
@@ -3477,20 +3481,26 @@ class SelectTool(_Tool):
                 pad = _drag_idx.pad_at(pin_pos)  # type: ignore[attr-defined]
                 if pad is None:
                     continue
-                wire_hit_id: uuid.UUID | None = None
+                # A pin can sit on a pad that hosts wire items on BOTH
+                # sides (top + bottom) — e.g. through-hole pad with a
+                # bare wire on top *and* an insulated wire on bottom.
+                # Collect every foreign-wire id on either side so commit
+                # removes all of them, not just the first one scanned.
+                pin_hit = False
                 for layer in ("top", "bottom"):
                     for it in pad.physically_blocked_on(layer):
-                        if isinstance(it, _WIRE_ITEM_TYPES):
-                            wid = getattr(it, "id", None)
-                            if wid is None or wid in internal_wire_ids:
-                                continue
-                            wire_hit_id = wid
-                            break
-                    if wire_hit_id is not None:
-                        break
-                if wire_hit_id is not None:
+                        if not isinstance(it, _WIRE_ITEM_TYPES):
+                            continue
+                        wid = getattr(it, "id", None)
+                        if wid is None or wid in internal_wire_ids:
+                            continue
+                        if wid in soft_wire_ids:
+                            pin_hit = True
+                            continue
+                        soft_wire_ids.add(wid)
+                        pin_hit = True
+                if pin_hit:
                     soft_pads.append(pin_pos)
-                    soft_wire_ids.add(wire_hit_id)
         return hard_pads, soft_pads, soft_wire_ids
 
     # ------------------------------------------------------------------
