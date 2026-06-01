@@ -183,6 +183,10 @@ class SelectTool(_Tool):
         # drag — prevents the gate from re-arming if the user wiggles
         # back to within the threshold mid-drag.
         self._drag_threshold_crossed: bool = False
+        # Blocking pad positions captured by _build_group_drag_commands
+        # when a group drag would land on a different-net pin.  Consumed
+        # by on_release to drive the floating-state HARD UX, then reset.
+        self._group_drag_block_pads: list[Point] = []
         # Rubber-band state.
         self._rubber_band_start: QPointF | None = None
         self._rubber_band_item: QGraphicsRectItem | None = None
@@ -1805,9 +1809,7 @@ class SelectTool(_Tool):
                                       if k in drag_ids})
 
         if effective_group_id is not None:
-            # --- Atomic group drag: check all conflicts first, revert all on block ---
-            # Group drag stays on the atomic-block path: groups must remain
-            # geometrically coherent, partial commits aren't meaningful.
+            # --- Atomic group drag: check all conflicts first ---
             from protoboard.domain.layout.group import all_component_ids
             full_ids = set(all_component_ids(
                 self._session.layout.groups, effective_group_id
@@ -1816,8 +1818,47 @@ class SelectTool(_Tool):
             effective_drag = full_ids if full_ids else drag_ids
             _saved_group_id = self._selected_group_id
             self._selected_group_id = effective_group_id
+            self._group_drag_block_pads = []
             commands = self._build_group_drag_commands(effective_drag) or []
             self._selected_group_id = _saved_group_id
+            # Blocked branch: push the whole group into floating-state
+            # HARD so the user gets the red overlay + Esc/Enter UX
+            # instead of a silent revert + status-bar message.
+            if self._group_drag_block_pads:
+                from protoboard.gui.tools.drag_commit_decision import (
+                    DragCommitDecision,
+                    DragSeverity,
+                )
+                floating_orig: dict[uuid.UUID, ComponentPlacement] = {}
+                for cid in effective_drag:
+                    pl = self._session.layout.placements.get(cid)
+                    orig = self._drag_orig_positions.get(cid)
+                    if pl is None or orig is None:
+                        continue
+                    old_pl = pl.copy()
+                    old_pl.position = orig
+                    floating_orig[cid] = old_pl
+                hard_decision = DragCommitDecision(
+                    severity=DragSeverity.HARD,
+                    description="Group drag would short different nets",
+                    blocking_pad_positions=tuple(self._group_drag_block_pads),
+                )
+                blocking_pads_copy = list(self._group_drag_block_pads)
+                self._group_drag_block_pads = []
+                self._enter_floating(
+                    set(effective_drag),
+                    floating_orig,
+                    extra_cmds=[],
+                    dragged_wire_ids=frozenset(self._drag_orig_wire_paths.keys()),
+                    decision=hard_decision,
+                )
+                self._drag_orig_wire_paths = {}
+                self._session.layout_changed.emit()
+                _log.info(
+                    "drag.release.group_blocked_floating",
+                    n_blocking_pads=len(blocking_pads_copy),
+                )
+                return
             self._drag_orig_wire_paths = {}
             if commands:
                 if len(commands) == 1:
@@ -3361,33 +3402,22 @@ class SelectTool(_Tool):
                   removable_wires=[str(i) for i in result.removable_wire_ids])
 
         if result.severity == MoveConflictSeverity.BLOCKED:
-            _log.info("build_group_drag.reverting",
-                      drag_ids=[str(i) for i in drag_ids],
-                      orig_positions={str(k): (v.x, v.y)
-                                      for k, v in self._drag_orig_positions.items()
-                                      if k in drag_ids})
-            # Revert ALL group members atomically.
-            for cid in drag_ids:
-                orig = self._drag_orig_positions.get(cid)
-                if orig is not None:
-                    pl = self._session.layout.placements.get(cid)
-                    if pl is not None:
-                        _log.debug("build_group_drag.revert_component",
-                                   cid=str(cid),
-                                   from_pos=(pl.position.x, pl.position.y),
-                                   to_pos=(orig.x, orig.y))
-                        pl.position = orig
-            # Revert internal wire paths.
-            reverted_wires = 0
-            for wire in self._session.layout.wires:
-                if wire.id in self._drag_orig_wire_paths:
-                    wire.path = list(self._drag_orig_wire_paths[wire.id])
-                    reverted_wires += 1
-            _log.info("build_group_drag.reverted", wires=reverted_wires)
-            sb = getattr(self._view.window(), "statusBar", lambda: None)()
-            if sb is not None:
-                sb.showMessage("Przesunięcie grupy zablokowane — konflikt sieci.", 4000)
-            self._session.layout_changed.emit()
+            # Do not revert placements here — leave the group where the
+            # user dropped it and let the caller (on_release) push the
+            # group into the floating-state UX: red overlay markers on
+            # the blocking pads, [Esc] cancels and rolls back, dragging
+            # further moves the group to a legal spot.  Matches the
+            # single-component drag pipeline behaviour for HARD severity
+            # (user-requested 2026-06-01).
+            object.__setattr__(
+                self, "_group_drag_block_pads",
+                list(result.blocking_pad_positions),
+            )
+            _log.info(
+                "build_group_drag.blocked_to_floating",
+                drag_ids=[str(i) for i in drag_ids],
+                blocking_pads=[(p.x, p.y) for p in result.blocking_pad_positions],
+            )
             return None
 
         # Build move + wire-replace commands.
@@ -5898,9 +5928,11 @@ class SelectTool(_Tool):
         group "uwięziona" — outline-grabbed by its parent so drag
         never starts on it (user-observed 2026-06-01).
         """
+        from PySide6.QtWidgets import QGraphicsRectItem
         groups = self._session.layout.groups
         active = groups.get(self._current_group_id)
         candidates: list[tuple[float, uuid.UUID]] = []
+        # Strict hit-test: only items returned by scene.items(scene_pt).
         for item in self._view.scene().items(scene_pt):
             tag = item.data(1) if hasattr(item, "data") else None
             if tag != "group_outline":
@@ -5911,31 +5943,83 @@ class SelectTool(_Tool):
             gid = uuid.UUID(str(raw))
             if not (active and gid in active.child_group_ids):
                 continue
-            # Bounding-rect area — items() already filtered to those
-            # whose shape contains scene_pt, so we use sceneBoundingRect
-            # to rank "specificity".
             try:
                 br = item.sceneBoundingRect()
                 area = float(br.width()) * float(br.height())
             except Exception:  # noqa: BLE001
                 area = float("inf")
             candidates.append((area, gid))
-        if not candidates:
+        if candidates:
+            candidates.sort(key=lambda t: t[0])
+            chosen = candidates[0][1]
+            _log.debug(
+                "hit_test_group_outline.chosen",
+                scene_pt=(round(scene_pt.x(), 2), round(scene_pt.y(), 2)),
+                chosen=str(chosen)[:8],
+                n_candidates=len(candidates),
+            )
+            return chosen
+        # Strict scene.items() returned no outline candidate.  Fall back
+        # to scanning *all* outline rects in the scene and matching by
+        # geometric containment.  Qt's QGraphicsRectItem shape includes
+        # the rect's interior, so scene.items(point) should normally
+        # find it — but if a child item (e.g. a transparent group fill)
+        # has captured the hit-test or the rect's Z-order pushed it
+        # below something that swallows the event, fall through here so
+        # the click still works.  Diagnostic log lists every outline
+        # whose rect contains the point so a future "drag won't start"
+        # report can pinpoint whether the click was in or out of the
+        # group's bounding box.
+        px, py = scene_pt.x(), scene_pt.y()
+        fallback: list[tuple[float, uuid.UUID, tuple[float, float, float, float]]] = []
+        for item in self._view.scene().items():
+            if not isinstance(item, QGraphicsRectItem):
+                continue
+            tag = item.data(1) if hasattr(item, "data") else None
+            if tag != "group_outline":
+                continue
+            raw = item.data(0)
+            if not raw:
+                continue
+            try:
+                gid = uuid.UUID(str(raw))
+            except (ValueError, TypeError):
+                continue
+            if not (active and gid in active.child_group_ids):
+                continue
+            try:
+                br = item.sceneBoundingRect()
+            except Exception:  # noqa: BLE001
+                continue
+            if (br.x() <= px <= br.x() + br.width()
+                    and br.y() <= py <= br.y() + br.height()):
+                fallback.append(
+                    (
+                        float(br.width()) * float(br.height()),
+                        gid,
+                        (
+                            round(br.x(), 2), round(br.y(), 2),
+                            round(br.x() + br.width(), 2),
+                            round(br.y() + br.height(), 2),
+                        ),
+                    )
+                )
+        if not fallback:
             _log.debug(
                 "hit_test_group_outline.empty",
                 scene_pt=(round(scene_pt.x(), 2), round(scene_pt.y(), 2)),
                 active_group=str(self._current_group_id)[:8],
             )
             return None
-        candidates.sort(key=lambda t: t[0])
-        chosen = candidates[0][1]
-        _log.debug(
-            "hit_test_group_outline.chosen",
+        fallback.sort(key=lambda t: t[0])
+        chosen = fallback[0][1]
+        _log.info(
+            "hit_test_group_outline.fallback_geometric",
             scene_pt=(round(scene_pt.x(), 2), round(scene_pt.y(), 2)),
             chosen=str(chosen)[:8],
-            n_candidates=len(candidates),
+            n_candidates=len(fallback),
             candidates=[
-                (str(g)[:8], round(a, 2)) for a, g in candidates
+                (str(g)[:8], bbox) for _a, g, bbox in fallback
             ],
         )
         return chosen
