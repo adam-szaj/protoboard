@@ -930,6 +930,17 @@ class SelectTool(_Tool):
             1 for c in self._floating_extra_cmds
             if type(c).__name__ == "RemoveWireCommand"
         )
+        # Wires removed above must also be excluded from the
+        # ``TranslateAnchoredWiresCommand`` pass below — otherwise its
+        # ``_update_wires_for_move`` may re-translate (and drop as
+        # skewed) a wire the macro already removed, leaving the later
+        # RemoveWireCommand staring at a missing wire (KeyError
+        # observed 2026-06-01 on group drag).
+        removed_ids = frozenset(
+            c.wire_id for c in self._floating_extra_cmds
+            if type(c).__name__ == "RemoveWireCommand"
+        )
+        translate_exclude = self._floating_dragged_wire_ids | removed_ids
         # Each moved component contributes a pair: translate its
         # anchored wires first (so foreign wires whose path merely
         # passes through old pin positions are not touched), then move
@@ -947,7 +958,7 @@ class SelectTool(_Tool):
                     component_id=cid,
                     new_placement=new_pl,
                     old_placement=old_pl,
-                    exclude_wire_ids=self._floating_dragged_wire_ids,
+                    exclude_wire_ids=translate_exclude,
                 )
             )
             cmds.append(
@@ -956,7 +967,7 @@ class SelectTool(_Tool):
                     new_placement=new_pl,
                     old_placement=old_pl,
                     skip_conflict_check=True,
-                    exclude_wire_ids=self._floating_dragged_wire_ids,
+                    exclude_wire_ids=translate_exclude,
                     placement_only=True,
                 )
             )
@@ -3489,6 +3500,37 @@ class SelectTool(_Tool):
 
         # Build move + wire-replace commands.
         cmds: list[Command[ComponentState]] = []
+        # RemoveWireCommand for any wire the conflict scan marked as
+        # removable goes FIRST in the macro.  Otherwise the subsequent
+        # MoveComponentCommand → ``_update_wires_for_move`` may
+        # translate an endpoint of one of those wires (because the wire
+        # is anchored to a moved component via a PinKnot) and drop the
+        # wire as skewed, leaving the RemoveWireCommand later in the
+        # macro with nothing to remove (KeyError, user-observed
+        # 2026-06-01).
+        removable_wire_ids: set[uuid.UUID] = set()
+        if result.severity == MoveConflictSeverity.REMOVABLE:
+            id_set = set(result.removable_wire_ids)
+            for wire in self._session.layout.wires:
+                if wire.id in id_set:
+                    cmds.append(RemoveWireCommand(wire_id=wire.id))
+                    removable_wire_ids.add(wire.id)
+            sb = getattr(self._view.window(), "statusBar", lambda: None)()
+            if sb is not None:
+                sb.showMessage(
+                    f"Usunięto {len(result.removable_wire_ids)} drut(ów) kolidujących po przesunięciu grupy.",
+                    4000,
+                )
+
+        # Wires already-removed must also be excluded from Move's
+        # ``_update_wires_for_move`` pass — otherwise the helper still
+        # sees the (now-deleted) wire entries during enumeration when
+        # the layout mutation hasn't been flushed.  Use the union of
+        # internal-drag wires and removable wires.
+        move_exclude = frozenset(
+            self._drag_orig_wire_paths.keys()
+        ) | frozenset(removable_wire_ids)
+
         for cid in drag_ids:
             pl = self._session.layout.placements.get(cid)
             orig = self._drag_orig_positions.get(cid)
@@ -3503,7 +3545,7 @@ class SelectTool(_Tool):
                 new_placement=pl,
                 old_placement=old_pl,
                 skip_conflict_check=True,  # already verified by check_group_move_conflicts
-                exclude_wire_ids=frozenset(self._drag_orig_wire_paths.keys()),
+                exclude_wire_ids=move_exclude,
             ))
 
         for wire in self._session.layout.wires:
@@ -3515,19 +3557,6 @@ class SelectTool(_Tool):
             cmds.append(_replace_wire_path_cmd(
                 self._session.layout, wire, list(wire.path), orig_path,
             ))
-
-        # Add removal commands for removable crossing wires.
-        if result.severity == MoveConflictSeverity.REMOVABLE:
-            id_set = set(result.removable_wire_ids)
-            for wire in self._session.layout.wires:
-                if wire.id in id_set:
-                    cmds.append(RemoveWireCommand(wire_id=wire.id))
-            sb = getattr(self._view.window(), "statusBar", lambda: None)()
-            if sb is not None:
-                sb.showMessage(
-                    f"Usunięto {len(result.removable_wire_ids)} drut(ów) kolidujących po przesunięciu grupy.",
-                    4000,
-                )
 
         return cmds  # type: ignore[return-value]
 

@@ -1087,7 +1087,21 @@ class RemoveWireCommand(Command[ComponentState]):
     def apply(self, state: ComponentState) -> None:
         wire = state.layout.wires.get(self.wire_id)
         if wire is None:
-            raise KeyError(f"Wire {self.wire_id} not found")
+            # Macro race: a prior command in the same macro already
+            # dropped this wire (e.g. ``_update_wires_for_move`` dropped
+            # it as ``skewed`` after translating a PinKnot endpoint by
+            # the drag delta).  The wire would have been removed
+            # anyway, so treat this as a successful no-op rather than
+            # crashing the macro.  Revert is a no-op too — when undo
+            # walks back through the macro, the sibling command that
+            # actually removed the wire will restore it.
+            object.__setattr__(self, "_saved_wire", None)
+            object.__setattr__(self, "_saved_orphan_joints", [])
+            _log.debug(
+                "remove_wire.skipped_already_gone",
+                wire_id=str(self.wire_id),
+            )
+            return
         object.__setattr__(self, "_saved_wire", wire)
         # Capture would-be-orphan JointKnots so revert can put them back.
         orphans: list[JointKnot] = []
