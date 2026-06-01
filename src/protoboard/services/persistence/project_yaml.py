@@ -700,6 +700,7 @@ def _layout_from_yaml(text: str) -> Layout:
         # once the pin resolver is wired up.
         for w in legacy_wires:
             layout.wires.append(w)
+        layout.invalidate_interior_vertex_index()
 
     layout.ensure_root_group()
     return layout

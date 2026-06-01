@@ -254,14 +254,14 @@ def _enrich_insulated_with_pad_nodes(
     if not wire.insulated:
         return wire
     from protoboard.domain.layout.wire_utils import (
-        board_pads_for_side,
+        board_pads_union,
         insert_pad_nodes,
     )
     # Insulated wires sit on one side; their endpoints solder to that side's
     # pads.  Pads from BOTH sides are relevant for vertex insertion because
     # the wire's geometric path may pass over a pad that physically exists
-    # on either side (plated-through pads in particular).  Take the union.
-    pads = board_pads_for_side(board, "top") | board_pads_for_side(board, "bottom")
+    # on either side (plated-through pads in particular).
+    pads = board_pads_union(board)
     new_path = insert_pad_nodes(list(wire.path), pads)
     if len(new_path) == len(wire.path):
         return wire

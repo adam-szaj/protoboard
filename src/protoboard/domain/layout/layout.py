@@ -47,6 +47,20 @@ class Layout:
     # validate fragment endpoints against knot positions.
     _pin_resolver: PinResolver | None = field(default=None, repr=False)
 
+    # Lazy spatial index of wire interior vertices.  Built on first
+    # access; invalidated by any wire mutation (add/remove).  Maps
+    # rounded (x, y) → list of (wire_id, vertex_idx) for every interior
+    # vertex (index 1..len-2 — excludes endpoints).  Used by
+    # `find_wire_with_interior_vertex_at` to avoid an O(W × path) scan
+    # on every AddWireCommand split-check; collapses the cost to O(1)
+    # bucket lookup + a handful of position comparisons per call.
+    # The bucket coordinate is the rounded integer (x, y) since pad
+    # centres sit at integer + 0.5; rounding produces a stable key
+    # that survives sub-pixel float noise.
+    _interior_vertex_index: "dict[tuple[int, int], list[tuple[uuid.UUID, int]]] | None" = field(
+        default=None, repr=False,
+    )
+
     def __post_init__(self) -> None:
         # Normalise list-style construction:
         # ``Layout(wires=[w1, w2])`` from existing tests stays valid.
@@ -126,6 +140,39 @@ class Layout:
         self.knots[knot.id] = knot
         return knot
 
+    def invalidate_interior_vertex_index(self) -> None:
+        """Drop the cached interior-vertex index.
+
+        Called by every wire mutator (`add_wire`, `remove_wire`,
+        `replace_wire_fragments`) and by external mutators that bypass
+        these methods (legacy `wires.append` paths in tests).  Cheap
+        — sets the cache to ``None``; next lookup rebuilds.
+        """
+        self._interior_vertex_index = None
+
+    def interior_vertex_index(
+        self,
+    ) -> "dict[tuple[int, int], list[tuple[uuid.UUID, int]]]":
+        """Return the lazy-built interior-vertex index.
+
+        Maps rounded ``(x, y)`` cell → list of ``(wire_id, vertex_idx)``
+        for every interior vertex (index in [1, len-2]) of every wire
+        in the layout.  Rebuilt on demand; invalidated on any wire
+        mutation.  Used by `find_wire_with_interior_vertex_at` for
+        O(1) lookup instead of an O(W × path) scan.
+        """
+        cache = self._interior_vertex_index
+        if cache is not None:
+            return cache
+        cache = {}
+        for wire in self.wires:
+            for i in range(1, len(wire.path) - 1):
+                v = wire.path[i]
+                key = (round(v.x), round(v.y))
+                cache.setdefault(key, []).append((wire.id, i))
+        self._interior_vertex_index = cache
+        return cache
+
     def add_wire(self, wire: Wire) -> None:
         """Insert ``wire`` into ``layout.wires`` and update knot back-refs.
 
@@ -143,6 +190,7 @@ class Layout:
                 raise ValueError(f"Wire endpoint knot {ref.id} not in layout.knots")
             self.knots[ref.id] = _knot_with_wire(knot, wire.id, add=True)
         self.wires[wire.id] = wire
+        self.invalidate_interior_vertex_index()
 
     def remove_wire(self, wire_id: uuid.UUID) -> list[uuid.UUID]:
         """Remove a wire and clean up orphan JointKnots.
@@ -166,6 +214,7 @@ class Layout:
                 removed.append(ref.id)
             else:
                 self.knots[ref.id] = updated
+        self.invalidate_interior_vertex_index()
         return removed
 
     def ensure_wire_knots(self, wire: Wire) -> None:
@@ -293,6 +342,7 @@ class Layout:
         existing.fragments = frag_list
         existing.path = _flatten_fragments(frag_list)
         existing.side = frag_list[0].side
+        self.invalidate_interior_vertex_index()
         return existing
 
     def try_collapse_joint(

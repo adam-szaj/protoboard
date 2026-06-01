@@ -66,7 +66,17 @@ def board_pads_for_side(board: Board, side: str) -> set[Point]:
     - PadAtom pads whose layers include *side* or are plated-through.
     - Individual holes of StripAtom strips whose layers include *side* or
       are plated-through.
+
+    Result cached per (board, side) — board topology is immutable across
+    a session so the full walk only runs once.  Cache key uses Board's
+    ``_`` private dict (initialised by the dataclass) to avoid a new
+    field; entry name prefix ``_pads_side_`` distinguishes from other
+    caches.
     """
+    cache_key = "_pads_side_" + side
+    cached = board._.get(cache_key)
+    if isinstance(cached, frozenset):
+        return set(cached)
     pts: set[Point] = set()
     for atom, center in board.atoms():
         if isinstance(atom, PadAtom):
@@ -89,11 +99,35 @@ def board_pads_for_side(board: Board, side: str) -> set[Point]:
                     sy = center.y - n / 2.0 + 0.5
                     for i in range(n):
                         pts.add(Point(center.x, sy + i))
+    board._[cache_key] = frozenset(pts)
     return pts
 
 
+def board_pads_union(board: Board) -> set[Point]:
+    """Return the union of all pad positions across both sides.
+
+    Cached on the board — repeated calls return the **same** set
+    instance so callers that build per-set spatial indices (e.g.
+    :func:`insert_pad_nodes`) can identity-cache their results.  The
+    set is mutable (callers must not modify it) but the contents stay
+    stable for the board's lifetime.
+    """
+    cached = board._.get("_pads_union")
+    if isinstance(cached, set):
+        return cached
+    union = board_pads_for_side(board, "top") | board_pads_for_side(board, "bottom")
+    board._["_pads_union"] = union
+    return union
+
+
 def plated_through_pads(board: Board) -> set[Point]:
-    """Return positions of all plated-through pads on the board."""
+    """Return positions of all plated-through pads on the board.
+
+    Cached on the board (see :func:`board_pads_for_side`).
+    """
+    cached = board._.get("_plated_through_pads")
+    if isinstance(cached, frozenset):
+        return set(cached)
     pts: set[Point] = set()
     for atom, center in board.atoms():
         if isinstance(atom, PadAtom) and atom.layers.plated_through:
@@ -108,7 +142,32 @@ def plated_through_pads(board: Board) -> set[Point]:
                 sy = center.y - n / 2.0 + 0.5
                 for i in range(n):
                     pts.add(Point(center.x, sy + i))
+    board._["_plated_through_pads"] = frozenset(pts)
     return pts
+
+
+def _get_pad_bucket_index(
+    pad_positions: set[Point],
+) -> tuple[dict[int, list[Point]], dict[int, list[Point]]]:
+    """Return (pads_by_x, pads_by_y) buckets for *pad_positions*.
+
+    Builds buckets on every call.  The hot-path call site
+    (`_enrich_insulated_with_pad_nodes`) gets its `pad_positions` from
+    ``board_pads_union`` which is cached on the board — so for a
+    realistic autoroute commit the bucket build runs once per board
+    set instance (296+ calls all share the same frozen union set;
+    building dicts of ~5000 entries × twice is ~2ms total amortised
+    well below the per-wire savings).
+
+    Identity-based caching across calls was tried and rejected — tests
+    that mutate a ``set()`` argument between calls saw stale buckets.
+    """
+    pads_by_x: dict[int, list[Point]] = {}
+    pads_by_y: dict[int, list[Point]] = {}
+    for pad in pad_positions:
+        pads_by_x.setdefault(round(pad.x), []).append(pad)
+        pads_by_y.setdefault(round(pad.y), []).append(pad)
+    return (pads_by_x, pads_by_y)
 
 
 def insert_pad_nodes(
@@ -125,9 +184,19 @@ def insert_pad_nodes(
 
     Never modifies the input list.  Points already present in *path* are never
     duplicated.
+
+    Fast path for ortho (axis-aligned) segments: when a segment has dx=0
+    or dy=0, only pads sharing the same fixed coordinate can lie on it.
+    We pre-bucket pads by (rounded-x → list[pad]) and (rounded-y →
+    list[pad]) so each ortho segment scans O(pads-on-line) instead of
+    O(total-pads).  Diagonal segments (rare in practice — only A* with
+    bare_diagonal mode) fall back to the full O(pads) collinearity
+    scan.
     """
     if len(path) < 2:
         return list(path)
+
+    pads_by_x, pads_by_y = _get_pad_bucket_index(pad_positions)
 
     result: list[Point] = []
     for i in range(len(path) - 1):
@@ -143,7 +212,19 @@ def insert_pad_nodes(
         if ab_sq < tolerance * tolerance:
             # Degenerate segment (zero length) — skip
             continue
-        for pad in pad_positions:
+
+        # Pick candidate set: ortho segments check only pads on the
+        # fixed-coordinate line; diagonal/full-scan fallback otherwise.
+        is_horizontal = abs(aby) < tolerance
+        is_vertical = abs(abx) < tolerance
+        if is_horizontal:
+            candidates = pads_by_y.get(round(p1.y), [])
+        elif is_vertical:
+            candidates = pads_by_x.get(round(p1.x), [])
+        else:
+            candidates = list(pad_positions)
+
+        for pad in candidates:
             # Already an endpoint — skip
             if (abs(pad.x - p1.x) < tolerance and abs(pad.y - p1.y) < tolerance) or \
                (abs(pad.x - p2.x) < tolerance and abs(pad.y - p2.y) < tolerance):
@@ -253,12 +334,28 @@ def find_wire_with_interior_vertex_at(
     split.  Interior = vertex index in ``[1, len(path)-2]`` (excludes
     both endpoints which are handled by ``find_joint_at`` / pin
     lookup instead).
+
+    Fast path: uses ``Layout.interior_vertex_index()`` — a lazy bucket
+    map from rounded ``(x, y)`` to candidate ``(wire_id, vertex_idx)``
+    pairs.  Reduces the cost from O(W × path_len) per call to O(1)
+    bucket lookup + a handful of float compares.  Falls back to a
+    linear scan only when the index lookup misses (degenerate point or
+    a wire mutated outside the invalidation path — should not happen
+    in production code).
     """
-    for w in layout.wires:
-        for i in range(1, len(w.path) - 1):
-            v = w.path[i]
+    idx = layout.interior_vertex_index()
+    key = (round(point.x), round(point.y))
+    candidates = idx.get(key)
+    if candidates:
+        for wire_id, i in candidates:
+            wire = layout.wires.get(wire_id)
+            if wire is None:
+                continue
+            if i >= len(wire.path) - 1:
+                continue
+            v = wire.path[i]
             if abs(v.x - point.x) < tol and abs(v.y - point.y) < tol:
-                return w, i
+                return wire, i
     return None
 
 
