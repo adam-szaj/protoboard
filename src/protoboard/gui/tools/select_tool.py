@@ -981,10 +981,8 @@ class SelectTool(_Tool):
         self._floating_dragged_wire_ids = frozenset()
         self._floating_decision = None
         self._floating_severity = "clear"
-        # Drop the cached debounced decision so a follow-up drag starts
-        # from a clean slate — otherwise _cheap_block_check's
-        # "keep last SOFT marker between snap moves" logic resurrects
-        # the yellow overlay even when the new drag has no conflicts.
+        # Drop the cached debounced/cheap decision so a follow-up drag
+        # starts from a clean slate.
         self._drag_last_decision = None
         self._clear_drag_pad_index()
         if cmds:
@@ -3208,25 +3206,57 @@ class SelectTool(_Tool):
             self._drag_overlay.reset(self._view.scene())
             return
 
-        # Cheap per-snap check — same for group and non-group drag.
-        blocking_pads = self._cheap_block_check(drag_ids)
-        if blocking_pads:
+        # Cheap per-snap check — HARD first, then SOFT (pin-on-wire).
+        hard_pads, soft_pads, soft_wire_ids = self._cheap_conflict_check(
+            drag_ids,
+        )
+        if hard_pads:
             result = MoveConflictResult(
                 severity=MoveConflictSeverity.BLOCKED,
-                blocking_pad_positions=blocking_pads,
+                blocking_pad_positions=hard_pads,
                 removable_wire_ids=[],
             )
+            # Cache the HARD decision so on_release can build a
+            # floating-HARD state without re-running the cheap pass.
+            from protoboard.gui.tools.drag_commit_decision import (
+                DragCommitDecision,
+                DragSeverity,
+            )
+            self._drag_last_decision = DragCommitDecision(
+                severity=DragSeverity.HARD,
+                description="Drop would short different nets",
+                blocking_pad_positions=tuple(hard_pads),
+            )
+            self._update_corner_text_from_decision(
+                self._drag_last_decision,
+            )
+        elif soft_pads:
+            result = MoveConflictResult(
+                severity=MoveConflictSeverity.REMOVABLE,
+                blocking_pad_positions=soft_pads,
+                removable_wire_ids=list(soft_wire_ids),
+            )
+            from protoboard.gui.tools.drag_commit_decision import (
+                DragCommitDecision,
+                DragSeverity,
+            )
+            n_remove = len(soft_wire_ids)
+            self._drag_last_decision = DragCommitDecision(
+                severity=DragSeverity.SOFT,
+                description=(
+                    f"Drop usuwa {n_remove} drut(ów) "
+                    f"— [Enter] zatwierdź, [Esc] cofnij"
+                ),
+                auto_remove_wire_ids=tuple(soft_wire_ids),
+                overlay_pad_positions=tuple(soft_pads),
+            )
+            self._update_corner_text_from_decision(
+                self._drag_last_decision,
+            )
         else:
-            # The cheap path didn't flag anything HARD.  Snap moved
-            # since the last debounced validation, so the previously
-            # cached SOFT marker (if any) is stale — drop it.  The
-            # 1 s debounce timer will repopulate ``_drag_last_decision``
-            # if there's a SOFT condition at the new position.
-            # Without this drop, the user moves out of a conflict
-            # zone but the yellow overlay sticks until the timer
-            # fires again, and on a follow-up drag the previous
-            # decision resurrects the marker even on free space
-            # (user-observed 2026-06-01).
+            # No HARD, no SOFT — fully clear at this snap.  Drop any
+            # stale cached decision so the overlay resets immediately
+            # and a follow-up drag starts fresh.
             self._drag_last_decision = None
             self._update_corner_text_from_decision(None)
             result = MoveConflictResult(
@@ -3239,7 +3269,9 @@ class SelectTool(_Tool):
             _log.debug(
                 "drag.overlay.result",
                 severity=result.severity.name,
-                n_blocking=len(blocking_pads),
+                n_hard=len(hard_pads),
+                n_soft=len(soft_pads),
+                n_soft_wires=len(soft_wire_ids),
             )
 
         # Compute drag bbox for outline.
@@ -3305,25 +3337,46 @@ class SelectTool(_Tool):
         out -= set(self._drag_orig_wire_paths.keys())
         return out
 
-    def _cheap_block_check(
+    def _cheap_conflict_check(
         self, drag_ids: "set[uuid.UUID]",
-    ) -> list[Point]:
-        """Lightweight per-snap HARD-conflict detection.
+    ) -> "tuple[list[Point], list[Point], set[uuid.UUID]]":
+        """Lightweight per-snap conflict detection — HARD and SOFT.
 
-        Returns positions to paint as red blocking markers.  Detects:
-        - body-bbox overlap with a non-moved component (no pin
-          coincidence) — pure body collision;
-        - pad-on-pad different-net contact for any pin of any moved
-          component.
+        Returns ``(hard_pads, soft_pads, soft_wire_ids)``:
 
-        Does NOT detect: pin-on-wire conflicts, wires crossing alien
-        pads, wires that became skewed.  Those are SOFT and handled
-        by the debounced ``_run_full_drag_validation`` pass.
+        * ``hard_pads`` — positions to paint as RED blocking markers.
+          Detected: body-bbox overlap with a non-moved component (no
+          pin coincidence) + pad-on-pad different-net contact.
 
-        Uses the trial PadIndex (cloned + incrementally updated by
-        ``_ensure_drag_pad_index``) so per-snap cost is dominated by
-        pin lookups, not index rebuild.
+        * ``soft_pads`` — positions to paint as YELLOW removable
+          markers.  Detected: pin lands on an alien wire (rule 6
+          strict — bare or insulated, any net, any side).  Cheap
+          because PadIndex already records which items occupy each
+          pad per side; we just iterate moved pins × O(1) pad lookups.
+
+        * ``soft_wire_ids`` — wire IDs to feed into the SOFT
+          ``DragCommitDecision.auto_remove_wire_ids`` on release so
+          the commit pipeline auto-removes them.
+
+        HARD takes priority over SOFT in the caller; if any hard pad
+        is reported, the soft results may still be returned for
+        future use but the overlay should render RED.
+
+        Does NOT detect: wires *crossing* alien pads (interior
+        segments that pass over a pad without a vertex), skewed
+        wires after a drag-translation.  Those remain in the
+        debounced ``_run_full_drag_validation`` pass because they
+        require a full wire-vs-pad-grid sweep (~ms).
+
+        Performance: ~1 µs per pin lookup through the trial PadIndex.
+        For a 13-pin group: ~13 µs HARD + ~13 µs SOFT per snap.
         """
+        from protoboard.domain.board.pad_state import (
+            BareWireCrossing,
+            BareWireItem,
+            InsulatedWireCrossing,
+            InsulatedWireItem,
+        )
         from protoboard.domain.layout.pad_conflict import (
             ConflictKind,
             find_conflicts,
@@ -3334,8 +3387,19 @@ class SelectTool(_Tool):
         )
 
         _drag_idx = self._ensure_drag_pad_index(drag_ids)
-        blocking: list[Point] = []
+        hard_pads: list[Point] = []
+        soft_pads: list[Point] = []
+        soft_wire_ids: set[uuid.UUID] = set()
+        # Internal wires (dragged with the group) must not count as
+        # foreign-wire conflicts — they follow the move legitimately.
+        internal_wire_ids = set(self._drag_orig_wire_paths.keys())
         _eps = 1e-4
+        _WIRE_ITEM_TYPES = (
+            BareWireItem,
+            BareWireCrossing,
+            InsulatedWireItem,
+            InsulatedWireCrossing,
+        )
         for cid in drag_ids:
             pl = self._session.layout.placements.get(cid)
             inst = self._session.instances.get(cid)
@@ -3344,7 +3408,7 @@ class SelectTool(_Tool):
             defn = self._session.components.get(inst.definition_ref)
             if defn is None:
                 continue
-            # Body-bbox overlap with non-moved components.
+            # --- HARD: body-bbox overlap with non-moved components ---
             incoming_bbox = component_bbox(
                 defn.footprint, pl, defn.component_class,
             )
@@ -3365,8 +3429,6 @@ class SelectTool(_Tool):
                     )
                 ):
                     continue
-                # bboxes overlap — check whether any pin coincides;
-                # shared-pin = pad-conflict path handles it below.
                 has_pin_overlap = False
                 for in_pin in range(1, defn.footprint.pin_count() + 1):
                     in_pos = pin_world_position(defn.footprint, pl, in_pin)
@@ -3385,11 +3447,11 @@ class SelectTool(_Tool):
                     if has_pin_overlap:
                         break
                 if not has_pin_overlap:
-                    blocking.append(
+                    hard_pads.append(
                         pin_world_position(defn.footprint, pl, 1),
                     )
                     break  # one bbox conflict per component is enough
-            # Pad-on-pad DIFFERENT_NETS.
+            # --- HARD: pad-on-pad DIFFERENT_NETS ---
             pad_cs = find_conflicts(
                 incoming_placement=pl,
                 incoming_defn=defn,
@@ -3402,8 +3464,34 @@ class SelectTool(_Tool):
             )
             for c in pad_cs:
                 if c.kind == ConflictKind.DIFFERENT_NETS:
-                    blocking.append(c.position)
-        return blocking
+                    hard_pads.append(c.position)
+            # --- SOFT: pin-on-foreign-wire (rule 6 strict) ---
+            # Pin penetrates the board (rule 5) → scan both sides per
+            # pad.  PadIndex.physically_blocked_on() is O(1) and lists
+            # are short; cost is dominated by the per-pin loop, not
+            # the per-pad scan.
+            if _drag_idx is None:
+                continue
+            for pin_num in range(1, defn.footprint.pin_count() + 1):
+                pin_pos = pin_world_position(defn.footprint, pl, pin_num)
+                pad = _drag_idx.pad_at(pin_pos)  # type: ignore[attr-defined]
+                if pad is None:
+                    continue
+                wire_hit_id: uuid.UUID | None = None
+                for layer in ("top", "bottom"):
+                    for it in pad.physically_blocked_on(layer):
+                        if isinstance(it, _WIRE_ITEM_TYPES):
+                            wid = getattr(it, "id", None)
+                            if wid is None or wid in internal_wire_ids:
+                                continue
+                            wire_hit_id = wid
+                            break
+                    if wire_hit_id is not None:
+                        break
+                if wire_hit_id is not None:
+                    soft_pads.append(pin_pos)
+                    soft_wire_ids.add(wire_hit_id)
+        return hard_pads, soft_pads, soft_wire_ids
 
     # ------------------------------------------------------------------
     # Debounced full drag-commit validation (1 s after last snap)
