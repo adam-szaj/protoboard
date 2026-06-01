@@ -3192,6 +3192,65 @@ class SelectTool(_Tool):
         bbox = self._drag_bbox(drag_ids)
         self._drag_overlay.update(self._view.scene(), result, bbox, snapped)
 
+    def _pin_on_wire_remove_ids(
+        self,
+        drag_ids: "set[uuid.UUID]",
+        pad_index: object,
+    ) -> "set[uuid.UUID]":
+        """Return wire IDs that should be auto-removed because a moved
+        component's pin landed on top of them (rule 6 strict).
+
+        Run as a release-time supplement to ``check_group_move_conflicts``
+        which only covers pad-on-pad collisions and wires geometrically
+        crossing alien pads — not the "pin lands on wire" case.  The
+        wire ids surfaced here are merged into the group drag's
+        removable_wire_ids so RemoveWireCommand strips them when the
+        macro commits.
+        """
+        from protoboard.domain.layout.pad_conflict import find_wire_conflicts
+        net_name_by_id: dict[uuid.UUID, str] = {
+            net.id: net.name for net in self._session.schematic.nets.values()
+        }
+        # point_to_net for the legacy fallback path inside find_wire_conflicts.
+        point_to_net: dict[tuple[float, float], tuple[uuid.UUID, str]] = {}
+        for net in self._session.schematic.nets.values():
+            for ref in net.pins:
+                pos = self._session.get_pin_position(
+                    ref.component_id, ref.pin_number,
+                )
+                if pos is None:
+                    continue
+                point_to_net[(round(pos.x, 4), round(pos.y, 4))] = (
+                    net.id, net.name,
+                )
+        _ = net_name_by_id  # reserved for future reason-string upgrades
+        out: set[uuid.UUID] = set()
+        for cid in drag_ids:
+            pl = self._session.layout.placements.get(cid)
+            inst = self._session.instances.get(cid)
+            if pl is None or inst is None:
+                continue
+            defn = self._session.components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            wcs = find_wire_conflicts(
+                incoming_placement=pl,
+                incoming_defn=defn,
+                incoming_instance_id=cid,
+                wires=list(self._session.layout.wires),
+                schematic=self._session.schematic,
+                point_to_net=point_to_net,
+                already_conflicted=set(),
+                pad_index=pad_index,  # type: ignore[arg-type]
+            )
+            for wc in wcs:
+                if wc.wire_id is not None:
+                    out.add(wc.wire_id)
+        # Exclude wires that were dragged along with the group (they're
+        # internal, follow the group, not "alien").
+        out -= set(self._drag_orig_wire_paths.keys())
+        return out
+
     def _cheap_block_check(
         self, drag_ids: "set[uuid.UUID]",
     ) -> list[Point]:
@@ -3473,6 +3532,31 @@ class SelectTool(_Tool):
             moved_wire_ids=set(self._drag_orig_wire_paths.keys()),
             pad_index=_drag_idx,
         )
+        # check_group_move_conflicts only knows about pad-on-pad
+        # collisions and wires *crossing* pads after the move.  It does
+        # NOT cover pin-on-wire conflicts (rule 6 strict: a pin landing
+        # on top of an alien wire's vertex / mid-segment).  The
+        # debounced live overlay catches these via DragDetector, but
+        # the release-time path missed them — a group dropped with its
+        # pins on a foreign wire used to commit silently, leaving the
+        # wire behind (user-observed 2026-06-01, Group6 case).  Run the
+        # same DragDetector pass here and merge its auto_remove_wire_ids
+        # into the result.
+        wire_remove_ids = self._pin_on_wire_remove_ids(drag_ids, _drag_idx)
+        if wire_remove_ids:
+            merged = list({*result.removable_wire_ids, *wire_remove_ids})
+            from protoboard.domain.layout.pad_conflict import (
+                MoveConflictResult,
+            )
+            result = MoveConflictResult(
+                severity=(
+                    result.severity
+                    if result.severity == MoveConflictSeverity.BLOCKED
+                    else MoveConflictSeverity.REMOVABLE
+                ),
+                blocking_pad_positions=result.blocking_pad_positions,
+                removable_wire_ids=merged,
+            )
 
         _log.info("build_group_drag.conflict_result",
                   severity=result.severity.value,
