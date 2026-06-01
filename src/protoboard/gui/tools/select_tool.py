@@ -981,6 +981,11 @@ class SelectTool(_Tool):
         self._floating_dragged_wire_ids = frozenset()
         self._floating_decision = None
         self._floating_severity = "clear"
+        # Drop the cached debounced decision so a follow-up drag starts
+        # from a clean slate — otherwise _cheap_block_check's
+        # "keep last SOFT marker between snap moves" logic resurrects
+        # the yellow overlay even when the new drag has no conflicts.
+        self._drag_last_decision = None
         self._clear_drag_pad_index()
         if cmds:
             from protoboard.domain.commands.base import CommandRejectedError
@@ -1033,6 +1038,9 @@ class SelectTool(_Tool):
         self._floating_dragged_wire_ids = frozenset()
         self._floating_decision = None
         self._floating_severity = "clear"
+        # Clear cached debounced decision so the next drag starts
+        # fresh (see _commit_floating note).
+        self._drag_last_decision = None
         self._clear_drag_pad_index()
         self._session.layout_changed.emit()
 
@@ -1338,6 +1346,9 @@ class SelectTool(_Tool):
                     self._draw_multi_highlight(cid)
                 # Begin drag of all group members.
                 self._drag_overlay.reset(self._view.scene())
+                self._corner_text.hide(self._view.scene())
+                self._drag_last_decision = None
+                self._stop_drag_validation_timer()
                 self._dragging = True
                 self._drag_press_scene_pt = QPointF(scene_pt)
                 self._drag_threshold_crossed = False
@@ -1501,6 +1512,8 @@ class SelectTool(_Tool):
             if wire_hit in self._selected_wire_ids:
                 # Klik na już zaznaczony drut → drag całej selekcji.
                 snapped = self._view.snap(scene_pt)
+                self._drag_last_decision = None
+                self._stop_drag_validation_timer()
                 self._dragging = True
                 self._drag_press_scene_pt = QPointF(scene_pt)
                 self._drag_threshold_crossed = False
@@ -1563,6 +1576,8 @@ class SelectTool(_Tool):
             # Grouped-component protection — see the matching guard above.
             if self._is_locked_in_group(bbox_hit):
                 return True
+            self._drag_last_decision = None
+            self._stop_drag_validation_timer()
             self._dragging = True
             self._drag_press_scene_pt = QPointF(scene_pt)
             self._drag_threshold_crossed = False
@@ -1870,6 +1885,59 @@ class SelectTool(_Tool):
                     n_blocking_pads=len(blocking_pads_copy),
                 )
                 return
+            # Group drag with wire removals or other SOFT conditions →
+            # enter floating SOFT so the user gets a yellow overlay and
+            # explicit Enter/Esc/double-click confirmation, matching
+            # the single-component drag UX.  This is what tells the
+            # user that the commit will delete N wires before they
+            # accept it.
+            soft_remove_cmds = [
+                c for c in commands
+                if type(c).__name__ == "RemoveWireCommand"
+            ]
+            if soft_remove_cmds:
+                from protoboard.gui.tools.drag_commit_decision import (
+                    DragCommitDecision,
+                    DragSeverity,
+                )
+                floating_orig_soft: dict[uuid.UUID, ComponentPlacement] = {}
+                for cid in effective_drag:
+                    pl = self._session.layout.placements.get(cid)
+                    orig = self._drag_orig_positions.get(cid)
+                    if pl is None or orig is None:
+                        continue
+                    old_pl = pl.copy()
+                    old_pl.position = orig
+                    floating_orig_soft[cid] = old_pl
+                # Non-RemoveWireCommand entries (Move + ReplaceFragments)
+                # are rebuilt by _commit_floating from the floating
+                # snapshot; the only extras we need to forward are the
+                # wire removals the user is being asked to accept.
+                n_removable = len(soft_remove_cmds)
+                soft_decision = DragCommitDecision(
+                    severity=DragSeverity.SOFT,
+                    description=(
+                        f"Group drop usuwa {n_removable} drut(ów) "
+                        f"— [Enter] zatwierdź, [Esc] cofnij"
+                    ),
+                    auto_remove_wire_ids=tuple(
+                        c.wire_id for c in soft_remove_cmds  # type: ignore[attr-defined]
+                    ),
+                )
+                self._enter_floating(
+                    set(effective_drag),
+                    floating_orig_soft,
+                    extra_cmds=list(soft_remove_cmds),
+                    dragged_wire_ids=frozenset(self._drag_orig_wire_paths.keys()),
+                    decision=soft_decision,
+                )
+                self._drag_orig_wire_paths = {}
+                self._session.layout_changed.emit()
+                _log.info(
+                    "drag.release.group_soft_floating",
+                    n_remove=n_removable,
+                )
+                return
             self._drag_orig_wire_paths = {}
             if commands:
                 if len(commands) == 1:
@@ -1879,6 +1947,7 @@ class SelectTool(_Tool):
                     self._session.stack.execute(macro, self._session)
                 self._session.layout_changed.emit()
             self._drag_overlay.reset(self._view.scene())
+            self._drag_last_decision = None
             self._refresh_all_highlights()
             return
 
@@ -3148,38 +3217,23 @@ class SelectTool(_Tool):
                 removable_wire_ids=[],
             )
         else:
-            # Keep showing the last debounced SOFT/REMOVABLE marker if
-            # there is one so yellow overlay doesn't blink off between
-            # snap moves.  When clear, reset to CLEAR.
-            last = self._drag_last_decision
-            if last is not None:
-                from protoboard.gui.tools.drag_commit_decision import (
-                    DragCommitDecision,
-                    DragSeverity,
-                )
-                if (
-                    isinstance(last, DragCommitDecision)
-                    and last.severity is DragSeverity.SOFT
-                ):
-                    result = MoveConflictResult(
-                        severity=MoveConflictSeverity.REMOVABLE,
-                        blocking_pad_positions=list(
-                            last.overlay_pad_positions
-                        ),
-                        removable_wire_ids=list(last.auto_remove_wire_ids),
-                    )
-                else:
-                    result = MoveConflictResult(
-                        severity=MoveConflictSeverity.CLEAR,
-                        blocking_pad_positions=[],
-                        removable_wire_ids=[],
-                    )
-            else:
-                result = MoveConflictResult(
-                    severity=MoveConflictSeverity.CLEAR,
-                    blocking_pad_positions=[],
-                    removable_wire_ids=[],
-                )
+            # The cheap path didn't flag anything HARD.  Snap moved
+            # since the last debounced validation, so the previously
+            # cached SOFT marker (if any) is stale — drop it.  The
+            # 1 s debounce timer will repopulate ``_drag_last_decision``
+            # if there's a SOFT condition at the new position.
+            # Without this drop, the user moves out of a conflict
+            # zone but the yellow overlay sticks until the timer
+            # fires again, and on a follow-up drag the previous
+            # decision resurrects the marker even on free space
+            # (user-observed 2026-06-01).
+            self._drag_last_decision = None
+            self._update_corner_text_from_decision(None)
+            result = MoveConflictResult(
+                severity=MoveConflictSeverity.CLEAR,
+                blocking_pad_positions=[],
+                removable_wire_ids=[],
+            )
 
         if _dbg_enabled():
             _log.debug(
@@ -3451,16 +3505,24 @@ class SelectTool(_Tool):
         self._update_corner_text_from_decision(decision)
 
     def _update_corner_text_from_decision(self, decision: object) -> None:
-        """Show or hide the corner banner based on *decision*."""
+        """Show or hide the corner banner based on *decision*.
+
+        ``decision=None`` hides the banner — used when the cached
+        debounced decision expires (snap moved away from the conflict
+        zone, see ``_update_drag_overlay``).
+        """
         from PySide6.QtGui import QColor
         from protoboard.gui.tools.drag_commit_decision import (
             DragCommitDecision,
             DragSeverity,
         )
-        if not isinstance(decision, DragCommitDecision):
-            return
-        scene = self._view.scene()
+        scene = self._view.scene() if self._view is not None else None
         if scene is None:
+            return
+        if decision is None:
+            self._corner_text.hide(scene)
+            return
+        if not isinstance(decision, DragCommitDecision):
             return
         if decision.severity == DragSeverity.CLEAR or not decision.description:
             self._corner_text.hide(scene)
