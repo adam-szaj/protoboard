@@ -53,6 +53,11 @@ from protoboard.domain.commands.component_cmds import (
     RemoveWireCommand,
     ReplaceWireFragmentsCommand,
 )
+from protoboard.domain.commands.drag_cmds import MoveDragSetCommand
+from protoboard.gui.drag_preferences import (
+    DragPreferences,
+    DragSessionOverrides,
+)
 from protoboard.domain.layout.group import (
     ExportedPin,
     all_component_ids,
@@ -276,6 +281,12 @@ class SelectTool(_Tool):
         self._drag_last_decision: object | None = None  # DragCommitDecision | None
         self._floating_decision: object | None = None   # DragCommitDecision | None
         self._floating_severity: str = "clear"          # "clear" | "soft" | "hard"
+        # Per-session "Don't ask again" overrides for unified drag model
+        # soft-conflict resolution (2026-06-02).  Reset on app restart;
+        # never persisted.
+        self._drag_session_overrides: DragSessionOverrides = (
+            DragSessionOverrides()
+        )
         self._drag_timer: QTimer | None = None  # built lazily on first drag
         # PadIndex trial state — cloned from session at drag-start and
         # mutated incrementally per snap so we don't rebuild the full
@@ -956,7 +967,21 @@ class SelectTool(_Tool):
             self._update_corner_text_from_decision(decision)
 
     def _commit_floating(self) -> None:
-        """Commit floating state to CommandStack.  Refuses on HARD severity."""
+        """Commit floating state to CommandStack.  Refuses on HARD severity.
+
+        Two paths:
+
+        * **Unified drag model (2026-06-02)** — when
+          ``self._floating_decision.wire_classification`` is not None,
+          dispatch to :meth:`_commit_floating_unified` which routes
+          through :class:`MoveDragSetCommand` with preference-driven
+          soft-conflict resolution.
+        * **Legacy** — fall through to the original macro-of-
+          ``TranslateAnchoredWires`` + ``MoveComponent`` + per-component
+          drop_skewed pipeline.  Used when ``decision.wire_classification``
+          is None (test stubs, group rotation, other entry points that
+          haven't migrated yet).
+        """
         if not self._floating_ids:
             return
         _log.debug(
@@ -970,7 +995,10 @@ class SelectTool(_Tool):
             ],
             wires_before=[str(w.id) for w in self._session.layout.wires],
         )
-        from protoboard.gui.tools.drag_commit_decision import DragSeverity
+        from protoboard.gui.tools.drag_commit_decision import (
+            DragCommitDecision,
+            DragSeverity,
+        )
         if self._floating_severity == DragSeverity.HARD.value:
             win = self._view.window() if self._view is not None else None
             sb = win.statusBar() if win is not None and hasattr(win, "statusBar") else None
@@ -979,6 +1007,16 @@ class SelectTool(_Tool):
                     "Konflikt: nie można zatwierdzić w tym miejscu (Esc aby cofnąć)",
                     3000,
                 )
+            return
+
+        # Try the unified drag model path first.  Falls back to legacy
+        # if the decision doesn't carry a wire_classification.
+        decision = self._floating_decision
+        if (
+            isinstance(decision, DragCommitDecision)
+            and decision.wire_classification is not None
+        ):
+            self._commit_floating_unified(decision)
             return
 
         from protoboard.domain.commands.base import Command
@@ -1082,6 +1120,405 @@ class SelectTool(_Tool):
                         f"Usunięto {n_removed} drut(ów) (Ctrl+Z by cofnąć)",
                         4000,
                     )
+
+    # ------------------------------------------------------------------
+    # Unified drag model commit (2026-06-02)
+    # ------------------------------------------------------------------
+
+    def _commit_floating_unified(self, decision: object) -> None:
+        """Commit using MoveDragSetCommand + preference-driven soft resolution.
+
+        Path:
+        1. Load effective drag preferences (app settings + session overrides).
+        2. Resolve each soft-conflict bucket through dialogs/preferences.
+           Cancel anywhere → stay floating.
+        3. Build MoveDragSetCommand with the resolved drop set + the
+           classification's travels_with_drag set (internal +
+           half_orphan_internal wires that translate atomically).
+        4. Execute as a single atomic command on the stack.
+        5. Schedule post-commit autoroute for any nets the user opted to
+           reroute (cross-group disconnect → Reroute).
+        """
+        from protoboard.gui.tools.drag_commit_decision import (
+            DragCommitDecision,
+        )
+        assert isinstance(decision, DragCommitDecision)
+        cls = decision.wire_classification
+        if cls is None:
+            # Shouldn't happen — caller verified.  Defensive bail.
+            return
+
+        prefs = self._effective_drag_preferences()
+
+        # 1. Resolve each soft-conflict bucket.  Each helper returns
+        #    (drop_ids, reroute_net_ids) or None on user cancel.
+        free_result = self._resolve_pref_free(
+            prefs.free_wire,
+            frozenset(decision.free_drop_wire_ids),
+        )
+        if free_result is None:
+            return  # user cancelled — stay floating
+        sgroup_result = self._resolve_pref_sgroup(
+            prefs.stationary_group_wire,
+            frozenset(decision.stationary_group_drop_wire_ids),
+        )
+        if sgroup_result is None:
+            return
+        disconnect_result = self._resolve_pref_disconnect(
+            prefs.cross_group_disconnect,
+            frozenset(decision.cross_group_disconnect_wire_ids),
+        )
+        if disconnect_result is None:
+            return
+
+        free_drop, _ = free_result
+        sgroup_drop, _ = sgroup_result
+        disconnect_drop, reroute_net_ids = disconnect_result
+
+        # 2. Build MoveDragSetCommand.
+        delta = self._compute_drag_delta()
+        if delta is None:
+            # No moved component yet (drag-end with zero delta) — fall
+            # through to legacy path.  Defensive: real drags always
+            # have a delta by the time _commit_floating fires.
+            return self._commit_floating_legacy_fallback()
+        members: dict[
+            uuid.UUID,
+            "tuple[ComponentPlacement, ComponentPlacement]",
+        ] = {}
+        for cid in self._floating_ids:
+            new_pl = self._session.layout.placements.get(cid)
+            old_pl = self._floating_orig_placements.get(cid)
+            if new_pl is None or old_pl is None:
+                continue
+            members[cid] = (old_pl, new_pl)
+        dropped = free_drop | sgroup_drop | disconnect_drop
+
+        # ReplaceWireFragmentsCommand entries in _floating_extra_cmds
+        # (live-translated wire path changes) are absorbed by
+        # MoveDragSetCommand's internal_wire_ids translation — they
+        # become redundant.  Filter them out.  RemoveWireCommand
+        # entries are equally absorbed by the dropped set.
+        # (Some test paths pass through _floating_extra_cmds with
+        # non-wire commands like AddWireCommand — those are kept and
+        # bundled as a macro after MoveDragSetCommand.)
+        side_cmds: list[object] = []
+        for cmd in self._floating_extra_cmds:
+            name = type(cmd).__name__
+            if name in {"ReplaceWireFragmentsCommand", "RemoveWireCommand"}:
+                continue
+            side_cmds.append(cmd)
+
+        cmd = MoveDragSetCommand(
+            members=members,
+            internal_wire_ids=cls.travels_with_drag,
+            dropped_wire_ids=frozenset(dropped),
+            delta=delta,
+        )
+
+        # 3. Clear floating state BEFORE executing — execute() may emit
+        #    signals that trigger refreshes which read this state.
+        n_dropped = len(dropped)
+        self._clear_floating_highlights()
+        if self._view is not None:
+            self._drag_overlay.reset(self._view.scene())
+            self._corner_text.hide(self._view.scene())
+        self._floating_ids = set()
+        self._floating_orig_placements = {}
+        self._floating_extra_cmds = []
+        self._floating_dragged_wire_ids = frozenset()
+        self._floating_decision = None
+        self._floating_severity = "clear"
+        self._drag_last_decision = None
+        self._clear_drag_pad_index()
+
+        # 4. Execute.  Bundle side_cmds via MacroCommand if any.
+        from protoboard.domain.commands.base import CommandRejectedError
+        try:
+            if side_cmds:
+                bundle: list[object] = [cmd, *side_cmds]
+                macro: MacroCommand[ComponentState] = MacroCommand(
+                    bundle,  # type: ignore[arg-type]
+                    description="Move drag set",
+                )
+                self._session.stack.execute(macro, self._session)
+            else:
+                self._session.stack.execute(cmd, self._session)
+        except CommandRejectedError:
+            if self._view is not None:
+                self._view.refresh()
+            return
+
+        self._session.layout_changed.emit()
+        _log.debug(
+            "drag.commit_floating.unified.done",
+            members=[str(c)[:8] for c in members],
+            internal=[str(w)[:8] for w in cls.travels_with_drag],
+            dropped=[str(w)[:8] for w in dropped],
+            reroute_nets=[str(n)[:8] for n in reroute_net_ids],
+            delta=(delta.x, delta.y),
+        )
+
+        # 5. Toast + post-commit autoroute.
+        if n_dropped:
+            win = self._view.window() if self._view is not None else None
+            sb = (
+                win.statusBar()
+                if win is not None and hasattr(win, "statusBar")
+                else None
+            )
+            if sb is not None:
+                sb.showMessage(
+                    f"Usunięto {n_dropped} drut(ów) (Ctrl+Z by cofnąć)",
+                    4000,
+                )
+        if reroute_net_ids:
+            self._dispatch_post_drag_autoroute(reroute_net_ids)
+
+    def _commit_floating_legacy_fallback(self) -> None:
+        """Defensive fallback when unified path can't compute a delta.
+
+        Mirror of the legacy ``_commit_floating`` tail-end so test stubs
+        with zero-delta drags still terminate cleanly.  Returns
+        immediately without mutating state.
+        """
+        self._clear_floating_highlights()
+        if self._view is not None:
+            self._drag_overlay.reset(self._view.scene())
+            self._corner_text.hide(self._view.scene())
+        self._floating_ids = set()
+        self._floating_orig_placements = {}
+        self._floating_extra_cmds = []
+        self._floating_dragged_wire_ids = frozenset()
+        self._floating_decision = None
+        self._floating_severity = "clear"
+        self._drag_last_decision = None
+        self._clear_drag_pad_index()
+
+    # ------------------------------------------------------------------
+    # Unified drag helpers: preferences, dialogs, delta, autoroute
+    # ------------------------------------------------------------------
+
+    def _effective_drag_preferences(self) -> DragPreferences:
+        """Merge persistent AppSettings with per-session overrides."""
+        from protoboard.gui.app_settings import load_app_settings
+        base = DragPreferences.from_app_settings(load_app_settings())
+        return self._drag_session_overrides.effective(base)
+
+    def _resolve_pref_free(
+        self,
+        preference: str,
+        wire_ids: frozenset[uuid.UUID],
+    ) -> tuple[set[uuid.UUID], set[uuid.UUID]] | None:
+        """Resolve the ``drag.free_wire_conflict`` preference.
+
+        Returns ``(drop_ids, reroute_net_ids)`` or None on user cancel.
+        Free wires never reroute (no owning context) — only drop.
+        """
+        if not wire_ids:
+            return set(), set()
+        if preference == "auto-remove":
+            return set(wire_ids), set()
+        if preference == "auto-reroute":
+            return set(wire_ids), self._net_ids_for_wires(wire_ids)
+        if preference == "block":
+            # Re-classify as HARD — already escalated when we reach here?
+            # Conservative: refuse commit by returning None.
+            self._show_status_bar(
+                "Konflikt z wolnym drutem zablokowany przez preferencje (Esc cofnij)",
+            )
+            return None
+        # ask-remove / ask-reroute → dialog.  ask-remove is simple
+        # Yes/Cancel; ask-reroute reuses disconnect dialog for symmetry.
+        from protoboard.gui.dialogs.drag_ask_remove_dialog import (
+            DragAskRemoveDialog,
+        )
+        from PySide6.QtWidgets import QDialog
+        n = len(wire_ids)
+        parent = self._view if self._view is not None else None
+        dlg = DragAskRemoveDialog(
+            title="Usunąć wolne druty?",
+            message=(
+                f"Drag spowoduje usunięcie {n} wolnych drut(ów). "
+                f"Kontynuować?"
+            ),
+            parent=parent,  # type: ignore[arg-type]
+        )
+        accepted = dlg.exec() == QDialog.DialogCode.Accepted
+        if dlg.session_opt_out() and accepted:
+            self._drag_session_overrides.free_wire = "auto-remove"
+        if not accepted:
+            return None
+        if preference == "ask-reroute":
+            return set(wire_ids), self._net_ids_for_wires(wire_ids)
+        return set(wire_ids), set()
+
+    def _resolve_pref_sgroup(
+        self,
+        preference: str,
+        wire_ids: frozenset[uuid.UUID],
+    ) -> tuple[set[uuid.UUID], set[uuid.UUID]] | None:
+        """Resolve the ``drag.stationary_group_wire_conflict`` preference."""
+        if not wire_ids:
+            return set(), set()
+        if preference == "auto-remove":
+            return set(wire_ids), set()
+        if preference == "auto-reroute":
+            return set(wire_ids), self._net_ids_for_wires(wire_ids)
+        if preference == "block":
+            self._show_status_bar(
+                "Konflikt z drutem stacjonarnej grupy zablokowany przez preferencje",
+            )
+            return None
+        from protoboard.gui.dialogs.drag_ask_remove_dialog import (
+            DragAskRemoveDialog,
+        )
+        from PySide6.QtWidgets import QDialog
+        n = len(wire_ids)
+        parent = self._view if self._view is not None else None
+        dlg = DragAskRemoveDialog(
+            title="Usunąć druty obcej grupy?",
+            message=(
+                f"Drag wymaga usunięcia {n} drut(ów) należących "
+                f"do innej grupy.  Kontynuować?"
+            ),
+            parent=parent,  # type: ignore[arg-type]
+        )
+        accepted = dlg.exec() == QDialog.DialogCode.Accepted
+        if dlg.session_opt_out() and accepted:
+            self._drag_session_overrides.stationary_group_wire = "auto-remove"
+        if not accepted:
+            return None
+        if preference == "ask-reroute":
+            return set(wire_ids), self._net_ids_for_wires(wire_ids)
+        return set(wire_ids), set()
+
+    def _resolve_pref_disconnect(
+        self,
+        preference: str,
+        wire_ids: frozenset[uuid.UUID],
+    ) -> tuple[set[uuid.UUID], set[uuid.UUID]] | None:
+        """Resolve the ``drag.cross_group_disconnect`` preference.
+
+        Cross-group wires offer Reroute / Drop / Cancel — Reroute drops
+        the wire AND dispatches autoroute on the affected nets.
+        """
+        if not wire_ids:
+            return set(), set()
+        if preference == "auto-remove":
+            return set(wire_ids), set()
+        if preference == "auto-reroute":
+            return set(wire_ids), self._net_ids_for_wires(wire_ids)
+        if preference == "block":
+            self._show_status_bar(
+                "Drag rozłączyłby sieć — zablokowane przez preferencje (Esc cofnij)",
+            )
+            return None
+        # ask-remove / ask-reroute → full disconnect dialog.
+        from protoboard.gui.dialogs.drag_disconnect_dialog import (
+            DragDisconnectAction,
+            DragDisconnectDialog,
+        )
+        from PySide6.QtWidgets import QDialog
+        n = len(wire_ids)
+        affected_nets = self._net_names_for_wires(wire_ids)
+        parent = self._view if self._view is not None else None
+        dlg = DragDisconnectDialog(
+            n_wires=n,
+            affected_nets=affected_nets,
+            parent=parent,  # type: ignore[arg-type]
+        )
+        result = dlg.exec()
+        action = dlg.chosen_action()
+        if dlg.session_opt_out() and result == QDialog.DialogCode.Accepted:
+            mapped = (
+                "auto-reroute" if action == DragDisconnectAction.REROUTE
+                else "auto-remove"
+            )
+            self._drag_session_overrides.cross_group_disconnect = mapped
+        if action == DragDisconnectAction.CANCEL:
+            return None
+        if action == DragDisconnectAction.REROUTE:
+            return set(wire_ids), self._net_ids_for_wires(wire_ids)
+        # DROP
+        return set(wire_ids), set()
+
+    def _net_ids_for_wires(
+        self, wire_ids: frozenset[uuid.UUID],
+    ) -> set[uuid.UUID]:
+        """Map wire IDs to their net IDs via cached_wire_net_map."""
+        getter = getattr(self._session, "cached_wire_net_map", None)
+        if not callable(getter):
+            return set()
+        try:
+            m = getter()
+        except Exception:  # noqa: BLE001
+            return set()
+        result: set[uuid.UUID] = set()
+        for wid in wire_ids:
+            nid = m.get(wid)
+            if nid is not None:
+                result.add(nid)
+        return result
+
+    def _net_names_for_wires(
+        self, wire_ids: frozenset[uuid.UUID],
+    ) -> list[str]:
+        """Human-readable net names for dialog display (sorted, deduped)."""
+        net_ids = self._net_ids_for_wires(wire_ids)
+        names: list[str] = []
+        sch = getattr(self._session, "schematic", None)
+        if sch is None:
+            return names
+        for nid in net_ids:
+            net = sch.nets.get(nid)
+            if net is not None:
+                names.append(net.name)
+        return sorted(set(names))
+
+    def _compute_drag_delta(self) -> Point | None:
+        """Average delta across moved members — every member moves by
+        the same vector in a valid drag.
+
+        Returns None if no member has both an old and a new placement.
+        """
+        for cid in self._floating_ids:
+            new_pl = self._session.layout.placements.get(cid)
+            old_pl = self._floating_orig_placements.get(cid)
+            if new_pl is not None and old_pl is not None:
+                return Point(
+                    new_pl.position.x - old_pl.position.x,
+                    new_pl.position.y - old_pl.position.y,
+                )
+        return None
+
+    def _dispatch_post_drag_autoroute(
+        self, net_ids: set[uuid.UUID],
+    ) -> None:
+        """Schedule an autoroute pass on *net_ids* after commit.
+
+        Fires via QTimer.singleShot(0, ...) so the drag's stack.execute
+        and signal cascade complete before routing starts.
+        """
+        if not net_ids:
+            return
+        # Best-effort dispatch — fall back to a no-op if the main
+        # window's autoroute entry isn't reachable from the tool.
+        win = self._view.window() if self._view is not None else None
+        autoroute = getattr(win, "_autoroute_nets", None) if win else None
+        if not callable(autoroute):
+            _log.info(
+                "drag.post_commit_autoroute.skipped_no_entry",
+                n_nets=len(net_ids),
+            )
+            return
+        QTimer.singleShot(0, lambda: autoroute(net_ids))
+
+    def _show_status_bar(self, msg: str, timeout_ms: int = 3000) -> None:
+        win = self._view.window() if self._view is not None else None
+        sb = win.statusBar() if win is not None and hasattr(win, "statusBar") else None
+        if sb is not None:
+            sb.showMessage(msg, timeout_ms)
 
     def _cancel_floating(self) -> None:
         """Revert floating state — restore original positions without a command."""
@@ -2207,10 +2644,13 @@ class SelectTool(_Tool):
         # (user-observed bug 2026-05-31: "klik na pin = odłączenie
         # przewodów").  Skip classification when nothing moved.
         if floating_moved or self._drag_orig_wire_paths:
+            # drag_set_members enables the unified drag model in
+            # DragDetector — 5-way classification + preference buckets.
             decision = classify_drag_commit(
                 session=self._session,
                 moved_comp_ids=floating_moved or drag_ids,
                 dragged_wire_ids=dragged_wire_ids,
+                drag_set_members=frozenset(floating_moved or drag_ids),
             )
         else:
             from protoboard.gui.tools.drag_commit_decision import (
@@ -3897,6 +4337,7 @@ class SelectTool(_Tool):
             session=self._session,
             moved_comp_ids=drag_ids,
             dragged_wire_ids=dragged_wires,
+            drag_set_members=frozenset(drag_ids),
         )
         self._drag_last_decision = decision
 
