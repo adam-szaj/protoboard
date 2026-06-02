@@ -1840,8 +1840,29 @@ def _route_segment_with_ripup(
             # Build pad-occupancy from existing wires.
             # - Insulated wire: blocks only its own side.
             # - Bare wire: blocks both sides.
+            #
+            # CRITICAL: wires of the *active* net are filtered out — own
+            # wires from earlier segments of this same net must NOT
+            # block subsequent segments.  Without this filter, the
+            # second/third segment of a multi-island net (e.g. SCL with
+            # 4 pins in 3 islands) sees the first segment's path as
+            # ``occupied_by_other_net = inf`` and the entire same-net
+            # corridor becomes impassable.  Detected on
+            # reference_big_project 2026-06-02 (SCL routing failed
+            # after seg 0 although a path existed).
+            _same_net_wire_ids: set[uuid.UUID] = set()
+            if active_net_id is not None and wire_to_net_id is not None:
+                _same_net_wire_ids = {
+                    _wid for _wid, _nid in wire_to_net_id.items()
+                    if _nid == active_net_id
+                }
+            _wires_for_occupancy = (
+                [_w for _w in working_wires if _w.id not in _same_net_wire_ids]
+                if _same_net_wire_ids
+                else working_wires
+            )
             wire_occupied = _build_wire_occupied(
-                working_wires,
+                _wires_for_occupancy,
                 exclude_wire_id=None,
                 both_sides=not try_insulated,
             )
@@ -2241,6 +2262,23 @@ def _build_wire_occupied(
             sides: tuple[str, ...] = ("top", "bottom")
         else:
             sides = ("top", "bottom") if both_sides else (wire.side,)
+        # Insulated wires only make electrical contact at their two
+        # endpoints — their body floats above the board.  A new route
+        # may freely cross over an insulated wire's intermediate path
+        # vertices without short-circuiting.  Block only the endpoints
+        # for insulated wires; block every vertex for bare wires (whose
+        # full path is in physical contact with every pad it crosses).
+        # Without this distinction, multi-island insulated nets like
+        # SCL on reference_big_project become unroutable: the dense
+        # mat of insulated wires from other nets paints the entire
+        # corridor as "occupied_by_other_net = inf" even though the new
+        # wire would physically float over them (user-observed
+        # 2026-06-02).
+        if wire.insulated:
+            for pt in (wire.path[0], wire.path[-1]):
+                for s in sides:
+                    occupied[(pt, s)] = _sentinel
+            continue
         for i in range(len(wire.path) - 1):
             p1 = wire.path[i]
             p2 = wire.path[i + 1]
