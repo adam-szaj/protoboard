@@ -184,7 +184,10 @@ class DRCEngine:
         issues += _check_overlap(layout, components, instances, axis_labels)
         if _cancelled():
             return issues
-        issues += _check_short(schematic, layout, graph, instances, axis_labels)
+        issues += _check_short(
+            schematic, layout, graph, instances,
+            components=components, axis_labels=axis_labels,
+        )
         if _cancelled():
             return issues
         issues += _check_missing_net(schematic, graph, instances)
@@ -310,6 +313,7 @@ def _check_short(
     layout: Layout,
     graph: ConnectivityGraph,
     instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition] | None = None,
     axis_labels: AxisLabelSettings | None = None,
 ) -> list[DRCIssue]:
     """Detect pads from different nets connected in the physical layout."""
@@ -337,13 +341,49 @@ def _check_short(
                     break
         return out
 
+    # Resolve a pin world position (used to point the GUI's "centre on
+    # SHORT" action at a real, visible pad instead of the electric set's
+    # arbitrary canonical key — which is the lex-min (x, y, side) of all
+    # members and can fall on (0, 0) for a multi-net cluster spanning
+    # the whole board).
+    def _pin_pos(ref: PinRef) -> Point | None:
+        if components is None:
+            return None
+        pl = layout.placements.get(ref.component_id)
+        inst = instances.get(ref.component_id)
+        if pl is None or inst is None:
+            return None
+        defn = components.get(inst.definition_ref)
+        if defn is None:
+            return None
+        try:
+            return pin_world_position(defn.footprint, pl, ref.pin_number)
+        except Exception:  # noqa: BLE001
+            return None
+
     for node, net_ids in node_nets.items():
         if len(net_ids) > 1:
             nx, ny, side = node
-            loc_pt = Point(nx, ny)
             net_id_list = sorted(net_ids, key=str)
             pins_here = node_pins.get(node, [])
             wires_here = _wires_touching(node)
+            # Pick a visible location for the GUI's "centre on issue"
+            # action.  Preference order: first pin endpoint resolved
+            # via the components/instances lookup; failing that, first
+            # endpoint of any wire that touches the shorted node;
+            # falling back to the canonical electric-set key (which
+            # may be (0, 0) — not visually useful but always set).
+            loc_pt: Point = Point(nx, ny)
+            for ref in pins_here:
+                p = _pin_pos(ref)
+                if p is not None:
+                    loc_pt = p
+                    break
+            else:
+                if wires_here:
+                    w = layout.wires.get(wires_here[0])
+                    if w is not None and w.path:
+                        loc_pt = w.path[0]
             net_str = _format_nets(net_id_list, schematic)
             pin_str = _format_pin_list(pins_here, instances, max_items=4)
             loc_str = _format_location(loc_pt, axis_labels)
