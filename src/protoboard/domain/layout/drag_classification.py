@@ -39,8 +39,11 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from protoboard.domain.layout.group_ownership import net_is_internal_to_group
-from protoboard.domain.layout.knot import JointKnot, PinKnot
+from protoboard.domain.layout.group_ownership import (
+    endpoint_pin_component as _endpoint_pin_component,
+    net_is_internal_to_group,
+)
+from protoboard.domain.layout.knot import JointKnot
 
 if TYPE_CHECKING:
     from protoboard.domain.layout.group import ComponentGroup
@@ -74,17 +77,6 @@ class DragWireClassification:
     def travels_with_drag(self) -> frozenset[uuid.UUID]:
         """Wires whose path must translate atomically with the drag delta."""
         return self.internal | self.half_orphan_internal
-
-
-def _endpoint_pin_component(knot: "Knot | None") -> uuid.UUID | None:
-    """Return ``knot.pin.component_id`` if knot is a PinKnot, else None.
-
-    Duplicated from ``group_ownership._endpoint_pin_component`` (private
-    there) to avoid importing a name marked as internal.  Trivial helper.
-    """
-    if isinstance(knot, PinKnot):
-        return knot.pin.component_id
-    return None
 
 
 def _net_internal_to_any_member_group(

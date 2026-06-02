@@ -1204,4 +1204,67 @@ __all__ = [
     "split_wires_at_endpoint_collisions",
     "wire_has_skewed_segment",
     "find_skewed_wires",
+    "remove_wire_capturing_orphans",
+    "restore_wire_with_orphans",
 ]
+
+
+def remove_wire_capturing_orphans(
+    layout: "Layout",
+    wire_id: uuid.UUID,
+) -> "tuple[Wire | None, list[JointKnot]]":
+    """Remove *wire_id* from *layout* while snapshotting orphan joints.
+
+    Returns ``(wire, orphan_joints)`` where:
+
+    * ``wire`` is the removed Wire (or None if it was already gone —
+      can legally happen mid-macro when a sibling command preempts the
+      removal),
+    * ``orphan_joints`` are ``JointKnot`` endpoints whose only
+      registered wire was *wire_id*, captured BEFORE the actual removal
+      so callers can re-insert them on revert.
+
+    Single source of truth for ``RemoveWireCommand``,
+    ``DropWiresCommand``, ``MoveDragSetCommand`` (and any future
+    command that removes a wire while preserving undo-state).
+    Previously each inlined the same orphan-capture + ``remove_wire``
+    sequence with subtle drift between copies — the bug-pattern that
+    has hit this codebase multiple times.
+
+    Does NOT call ``layout.invalidate_interior_vertex_index()`` —
+    callers know whether they need to invalidate.
+    """
+    from protoboard.domain.layout.knot import JointKnot
+    wire = layout.wires.get(wire_id)
+    if wire is None:
+        return None, []
+    orphans: list[JointKnot] = []
+    if wire.a is not None and wire.b is not None:
+        for ref in (wire.a, wire.b):
+            k = layout.knots.get(ref.id)
+            if isinstance(k, JointKnot) and k.wire_ids == frozenset({wire.id}):
+                orphans.append(k)
+        layout.remove_wire(wire_id)
+    else:
+        layout.wires.remove(wire)
+    return wire, orphans
+
+
+def restore_wire_with_orphans(
+    layout: "Layout",
+    wire: "Wire",
+    orphans: "list[JointKnot]",
+) -> None:
+    """Re-insert *wire* and any of *orphans* it references back into *layout*.
+
+    Mirror of :func:`remove_wire_capturing_orphans` — call from revert
+    paths.  Idempotent against already-restored joints (uses
+    ``setdefault``).
+    """
+    if wire.a is not None and wire.b is not None:
+        for jk in orphans:
+            if jk.id in {wire.a.id, wire.b.id}:
+                layout.knots.setdefault(jk.id, jk)
+        layout.add_wire(wire)
+    else:
+        layout.wires.append(wire)

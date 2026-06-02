@@ -34,7 +34,7 @@ from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Rect
 from protoboard.services.drc.engine import DRCEngine, DRCIssue
 from protoboard.domain.components.body_type import BodyTypeSpec
 from protoboard.services.library.body_type_loader import load_body_types
@@ -596,20 +596,21 @@ class EditorSession(QObject):
     ) -> Point | None:
         """Return the world position of *pin_number* on *comp_id*, or None.
 
-        Returns None if the component or its definition is not found, or if
-        *pin_number* is out of range for the footprint.
+        Thin wrapper over
+        :func:`protoboard.domain.layout.placement.resolve_pin_world_position`
+        — the canonical pin-resolution chain.  Returns None on any
+        missing intermediate (no placement / instance / definition,
+        or pin number out of range).
         """
-        placement = self.layout.placements.get(comp_id)
-        inst = self.instances.get(comp_id)
-        if placement is None or inst is None:
-            return None
-        defn = self.components.get(inst.definition_ref)
-        if defn is None:
-            return None
-        try:
-            return pin_world_position(defn.footprint, placement, pin_number)
-        except (IndexError, ValueError):
-            return None
+        from protoboard.domain.layout.placement import (
+            resolve_pin_world_position,
+        )
+        return resolve_pin_world_position(
+            comp_id, pin_number,
+            placements=self.layout.placements,
+            instances=self.instances,
+            components=self.components,
+        )
 
     def iter_pin_positions(
         self,
@@ -618,10 +619,13 @@ class EditorSession(QObject):
         """Return [(pin_number, world_pos), …] for every pin of *comp_id*.
 
         Returns an empty list if the component or its definition is not found.
+        Every pin resolution delegates to the canonical safety chain.
         """
-        placement = self.layout.placements.get(comp_id)
+        from protoboard.domain.layout.placement import (
+            resolve_pin_world_position,
+        )
         inst = self.instances.get(comp_id)
-        if placement is None or inst is None:
+        if inst is None:
             return []
         defn = self.components.get(inst.definition_ref)
         if defn is None:
@@ -629,9 +633,49 @@ class EditorSession(QObject):
         result: list[tuple[int, Point]] = []
         for n in range(defn.footprint.pin_count()):
             pin_num = n + 1
-            try:
-                pos = pin_world_position(defn.footprint, placement, pin_num)
+            pos = resolve_pin_world_position(
+                comp_id, pin_num,
+                placements=self.layout.placements,
+                instances=self.instances,
+                components=self.components,
+            )
+            if pos is not None:
                 result.append((pin_num, pos))
-            except (IndexError, ValueError):
-                continue
         return result
+
+    def component_bbox(self, comp_id: uuid.UUID) -> "Rect | None":
+        """Return the world-space bounding rect of *comp_id*, or None.
+
+        Returns None when the component lacks a placement or its
+        definition / footprint is unresolvable.  Canonical GUI-facing
+        wrapper around :func:`domain.layout.placement.component_bbox`
+        so renderers/tools never have to inline the (placement,
+        instance, definition) lookup themselves.
+        """
+        from protoboard.domain.layout.placement import component_bbox
+        placement = self.layout.placements.get(comp_id)
+        if placement is None:
+            return None
+        inst = self.instances.get(comp_id)
+        if inst is None:
+            return None
+        defn = self.components.get(inst.definition_ref)
+        if defn is None:
+            return None
+        try:
+            return component_bbox(defn.footprint, placement, defn.component_class)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def component_definition(
+        self, comp_id: uuid.UUID,
+    ) -> "ComponentDefinition | None":
+        """Return the ComponentDefinition for *comp_id*, or None.
+
+        Resolves the placement → instance → definition chain so renderers
+        and tools needing the footprint don't have to inline it.
+        """
+        inst = self.instances.get(comp_id)
+        if inst is None:
+            return None
+        return self.components.get(inst.definition_ref)

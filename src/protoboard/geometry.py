@@ -12,6 +12,28 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+# Coordinate quantisation precision used throughout the codebase for
+# float-equality on world coordinates.  Pad centres land on
+# ``integer + 0.5`` half-unit positions, so rounding to 4 decimal places
+# is safe (far below the half-unit granularity) and matches the
+# precision other modules use for dict keys.
+_COORD_ROUNDING_DIGITS = 4
+
+
+def round_coord(v: float) -> float:
+    """Round *v* to the canonical coordinate precision.
+
+    Single source of truth for "make a float coordinate hashable / safe
+    for equality".  Previously each of
+    ``services/routing/autorouter._round``,
+    ``domain/layout/pad_conflict._round``,
+    ``gui/placement_conflict._round`` reimplemented the same
+    ``round(v, 4)`` — three copies that drifted is the same bug-pattern
+    that hit ``_pin_pos`` resolution before.
+    """
+    return round(v, _COORD_ROUNDING_DIGITS)
+
+
 @dataclass(frozen=True, slots=True)
 class Point:
     """A 2D point in raster units."""

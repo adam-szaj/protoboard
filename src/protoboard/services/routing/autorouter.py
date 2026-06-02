@@ -340,8 +340,10 @@ def _drop_orphan_wires(
     if not layout.wires:
         return 0
 
+    from protoboard.geometry import round_coord as _round_coord
+
     def _round(p: Point) -> tuple[float, float]:
-        return (round(p.x, 4), round(p.y, 4))
+        return (_round_coord(p.x), _round_coord(p.y))
 
     anchored: set[tuple[float, float]] = set()
     for _atom, pos in board.atoms():

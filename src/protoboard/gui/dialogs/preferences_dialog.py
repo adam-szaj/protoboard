@@ -1169,6 +1169,9 @@ class _DragPage(QWidget):
     in PreferencesDialog persist via save_app_settings(self._settings).
     """
 
+    # (value, label) pairs.  Values MUST stay in sync with
+    # ``protoboard.gui.drag_preferences.DRAG_CONFLICT_VALUES`` — the
+    # assertion below catches drift.  Labels are UI-facing only.
     _CONFLICT_CHOICES: list[tuple[str, str]] = [
         ("auto-remove", "Auto-remove (silent)"),
         ("ask-remove", "Ask before removing"),
@@ -1181,6 +1184,10 @@ class _DragPage(QWidget):
         self, settings: AppSettings, parent: QWidget | None = None,
     ) -> None:
         from PySide6.QtWidgets import QFormLayout
+        from protoboard.gui.drag_preferences import DRAG_CONFLICT_VALUES
+        assert {v for v, _l in self._CONFLICT_CHOICES} == DRAG_CONFLICT_VALUES, (
+            "DragPage choices drifted from DRAG_CONFLICT_VALUES — keep them in sync"
+        )
 
         super().__init__(parent)
         self._settings = settings

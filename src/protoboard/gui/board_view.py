@@ -553,8 +553,9 @@ class BoardView(QGraphicsView):
 
         from protoboard.domain.layout.group import all_component_ids
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        from protoboard.domain.layout.placement import pin_world_position
         layout = self._session.layout
+        # Used by find_owned_wires below (group-outline ownership classifier).
+        placements = layout.placements
         instances = self._session.instances
         components = self._session.components
         theme = self._theme_override if self._theme_override is not None else DEFAULT_THEME
@@ -596,15 +597,7 @@ class BoardView(QGraphicsView):
             xs: list[float] = []
             ys: list[float] = []
             for cid in comp_ids:
-                pl = placements.get(cid)
-                inst = instances.get(cid)
-                if pl is None or inst is None:
-                    continue
-                defn = components.get(inst.definition_ref)
-                if defn is None:
-                    continue
-                for pn in range(1, defn.footprint.pin_count() + 1):
-                    p = pin_world_position(defn.footprint, pl, pn)
+                for _pn, p in self._session.iter_pin_positions(cid):
                     xs.append(p.x)
                     ys.append(p.y)
             if not xs:
@@ -779,7 +772,6 @@ class BoardView(QGraphicsView):
         """Fit view to the active group's components; falls back to fit_board() for ROOT."""
         from protoboard.domain.layout.group import all_component_ids
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        from protoboard.domain.layout.placement import component_bbox
 
         session = self._session
         active = self._active_group_id
@@ -793,14 +785,9 @@ class BoardView(QGraphicsView):
         xs: list[float] = []
         ys: list[float] = []
         for cid in comp_ids:
-            pl = session.layout.placements.get(cid)
-            inst = session.instances.get(cid)
-            if pl is None or inst is None:
+            bbox = session.component_bbox(cid)
+            if bbox is None:
                 continue
-            defn = session.components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            bbox = component_bbox(defn.footprint, pl, defn.component_class)
             xs += [bbox.x, bbox.x + bbox.width]
             ys += [bbox.y, bbox.y + bbox.height]
 
@@ -823,8 +810,6 @@ class BoardView(QGraphicsView):
 
     def fit_selection(self) -> None:
         """Fit view to the bounding box of selected components and wires."""
-        from protoboard.domain.layout.placement import component_bbox
-
         tool = self._active_tool
         sel_comp_ids: set = getattr(tool, "_selected_ids", set())
         sel_wire_ids: set = getattr(tool, "_selected_wire_ids", set())
@@ -838,14 +823,9 @@ class BoardView(QGraphicsView):
         ys: list[float] = []
 
         for cid in sel_comp_ids:
-            pl = session.layout.placements.get(cid)
-            inst = session.instances.get(cid)
-            if pl is None or inst is None:
+            bbox = session.component_bbox(cid)
+            if bbox is None:
                 continue
-            defn = session.components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            bbox = component_bbox(defn.footprint, pl, defn.component_class)
             xs += [bbox.x, bbox.x + bbox.width]
             ys += [bbox.y, bbox.y + bbox.height]
 

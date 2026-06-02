@@ -1085,7 +1085,12 @@ class RemoveWireCommand(Command[ComponentState]):
         return "Remove wire"
 
     def apply(self, state: ComponentState) -> None:
-        wire = state.layout.wires.get(self.wire_id)
+        from protoboard.domain.layout.wire_utils import (
+            remove_wire_capturing_orphans,
+        )
+        wire, orphans = remove_wire_capturing_orphans(
+            state.layout, self.wire_id,
+        )
         if wire is None:
             # Macro race: a prior command in the same macro already
             # dropped this wire (e.g. ``_update_wires_for_move`` dropped
@@ -1103,29 +1108,17 @@ class RemoveWireCommand(Command[ComponentState]):
             )
             return
         object.__setattr__(self, "_saved_wire", wire)
-        # Capture would-be-orphan JointKnots so revert can put them back.
-        orphans: list[JointKnot] = []
-        if wire.a is not None and wire.b is not None:
-            for ref in (wire.a, wire.b):
-                k = state.layout.knots.get(ref.id)
-                if isinstance(k, JointKnot) and k.wire_ids == frozenset({wire.id}):
-                    orphans.append(k)
-            state.layout.remove_wire(self.wire_id)
-        else:
-            # Legacy fallback — wire without knots (shouldn't happen post
-            # AddWireCommand migration, but tolerate during transition).
-            state.layout.wires.remove(wire)
         self._saved_orphan_joints = orphans
 
     def revert(self, state: ComponentState) -> None:
         if self._saved_wire is None:
             return
-        if self._saved_wire.a is not None and self._saved_wire.b is not None:
-            for jk in self._saved_orphan_joints:
-                state.layout.knots.setdefault(jk.id, jk)
-            state.layout.add_wire(self._saved_wire)
-        else:
-            state.layout.wires.append(self._saved_wire)
+        from protoboard.domain.layout.wire_utils import (
+            restore_wire_with_orphans,
+        )
+        restore_wire_with_orphans(
+            state.layout, self._saved_wire, self._saved_orphan_joints,
+        )
 
 
 @dataclass
@@ -1226,35 +1219,28 @@ class DropWiresCommand(Command[ComponentState]):
         return f"Drop {n} wire{'s' if n != 1 else ''}"
 
     def apply(self, state: ComponentState) -> None:
+        from protoboard.domain.layout.wire_utils import (
+            remove_wire_capturing_orphans,
+        )
         saved: list[Wire] = []
         orphans: list[JointKnot] = []
         for wid in self.wire_ids:
-            wire = state.layout.wires.get(wid)
+            wire, w_orphans = remove_wire_capturing_orphans(state.layout, wid)
             if wire is None:
                 continue
             saved.append(wire)
-            if wire.a is not None and wire.b is not None:
-                for ref in (wire.a, wire.b):
-                    k = state.layout.knots.get(ref.id)
-                    if isinstance(k, JointKnot) and k.wire_ids == frozenset(
-                        {wire.id},
-                    ):
-                        orphans.append(k)
-                state.layout.remove_wire(wid)
-            else:
-                state.layout.wires.remove(wire)
+            orphans.extend(w_orphans)
         object.__setattr__(self, "_saved_wires", saved)
         object.__setattr__(self, "_saved_orphan_joints", orphans)
 
     def revert(self, state: ComponentState) -> None:
+        from protoboard.domain.layout.wire_utils import (
+            restore_wire_with_orphans,
+        )
         for wire in self._saved_wires:
-            if wire.a is not None and wire.b is not None:
-                for jk in self._saved_orphan_joints:
-                    if jk.id in {wire.a.id, wire.b.id}:
-                        state.layout.knots.setdefault(jk.id, jk)
-                state.layout.add_wire(wire)
-            else:
-                state.layout.wires.append(wire)
+            restore_wire_with_orphans(
+                state.layout, wire, self._saved_orphan_joints,
+            )
 
 
 @dataclass

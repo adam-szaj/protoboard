@@ -51,6 +51,7 @@ if TYPE_CHECKING:
 
 
 __all__ = [
+    "endpoint_pin_component",
     "net_is_internal_to_group",
     "wire_is_owned_by_group",
     "wire_in_group_bbox",
@@ -136,15 +137,26 @@ def net_is_internal_to_group(
     return has_group_pin
 
 
-def _endpoint_pin_component(
+def endpoint_pin_component(
     knot: "Knot | None",
 ) -> uuid.UUID | None:
-    """Return ``knot.pin.component_id`` if knot is a PinKnot, else None."""
+    """Return ``knot.pin.component_id`` if knot is a PinKnot, else None.
+
+    Public helper — both this module and
+    :mod:`protoboard.domain.layout.drag_classification` need to decide
+    whether a wire endpoint is anchored to a component pin and, if so,
+    to which component.
+    """
     from protoboard.domain.layout.knot import PinKnot
     if isinstance(knot, PinKnot):
         pin = knot.pin  # narrow for type-checkers that don't follow runtime_checkable
         return pin.component_id
     return None
+
+
+# Module-private alias kept so the existing internal callers below need
+# no edits; new code should use the public ``endpoint_pin_component``.
+_endpoint_pin_component = endpoint_pin_component
 
 
 def _pin_endpoint_matches_path(

@@ -100,9 +100,17 @@ def _pin_positions_for(
     instances: dict[uuid.UUID, object],
     components: dict[str, object],
 ) -> set[tuple[float, float]]:
-    """Return world positions of all pins of the given component IDs."""
-    from protoboard.domain.layout.placement import ComponentPlacement
+    """Return world positions of all pins of the given component IDs.
+
+    Each pin resolution delegates to
+    :func:`protoboard.domain.layout.placement.resolve_pin_world_position`
+    so the same safety chain is used everywhere.
+    """
     from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.layout.placement import (
+        ComponentPlacement,
+        resolve_pin_world_position,
+    )
     positions: set[tuple[float, float]] = set()
     for cid in comp_ids:
         pl = placements.get(cid)
@@ -111,8 +119,14 @@ def _pin_positions_for(
         if not isinstance(pl, ComponentPlacement) or not isinstance(defn, ComponentDefinition):
             continue
         for n in range(defn.footprint.pin_count()):
-            p = pin_world_position(defn.footprint, pl, n + 1)
-            positions.add((p.x, p.y))
+            p = resolve_pin_world_position(
+                cid, n + 1,
+                placements=placements,  # type: ignore[arg-type]
+                instances=instances,  # type: ignore[arg-type]
+                components=components,  # type: ignore[arg-type]
+            )
+            if p is not None:
+                positions.add((p.x, p.y))
     return positions
 
 

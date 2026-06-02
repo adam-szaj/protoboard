@@ -648,14 +648,18 @@ def _get_pin_position(
     comp_id: uuid.UUID,
     pin_number: int,
 ) -> Point | None:
-    pl = snapshot.placements.get(comp_id)
-    inst = snapshot.instances.get(comp_id)
-    if pl is None or inst is None:
-        return None
-    defn = snapshot.components.get(inst.definition_ref)
-    if defn is None:
-        return None
-    return pin_world_position(defn.footprint, pl, pin_number)
+    """Thin wrapper over :func:`resolve_pin_world_position` for a snapshot.
+
+    Kept as a module-level alias for callsite convenience; the actual
+    safety chain lives in domain.layout.placement.
+    """
+    from protoboard.domain.layout.placement import resolve_pin_world_position
+    return resolve_pin_world_position(
+        comp_id, pin_number,
+        placements=snapshot.placements,
+        instances=snapshot.instances,
+        components=snapshot.components,
+    )
 
 
 __all__ = ["DragDetector", "DragSnapshot"]

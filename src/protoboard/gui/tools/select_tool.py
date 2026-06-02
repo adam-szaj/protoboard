@@ -902,20 +902,12 @@ class SelectTool(_Tool):
                     self._highlight_items.append(circle)
 
         elif relation == RelationClass.NEIGHBORS:
-            from protoboard.domain.layout.placement import component_bbox
             rgba_fill = profile.neighbor_rect_rgba
             rgba_pen = profile.neighbor_pen_rgba
             for other_id in correlated_comps:
-                pl = session.layout.placements.get(other_id)
-                if pl is None:
+                bbox = session.component_bbox(other_id)
+                if bbox is None:
                     continue
-                inst = session.instances.get(other_id)
-                if inst is None:
-                    continue
-                defn = session.components.get(inst.definition_ref)
-                if defn is None:
-                    continue
-                bbox = component_bbox(defn.footprint, pl, defn.component_class.value)
                 rect_item = QGraphicsRectItem(
                     QRectF(bbox.x, bbox.y, bbox.width, bbox.height)
                 )
@@ -1306,15 +1298,25 @@ class SelectTool(_Tool):
         base = DragPreferences.from_app_settings(load_app_settings())
         return self._drag_session_overrides.effective(base)
 
-    def _resolve_pref_free(
+    def _resolve_pref_ask_remove(
         self,
         preference: str,
         wire_ids: frozenset[uuid.UUID],
+        *,
+        dialog_title: str,
+        dialog_message_template: str,
+        block_status_message: str,
+        session_override_attr: str,
     ) -> tuple[set[uuid.UUID], set[uuid.UUID]] | None:
-        """Resolve the ``drag.free_wire_conflict`` preference.
+        """Shared resolution path for the two ask-remove categories
+        (free wire / stationary-group wire).
+
+        Both categories share an identical state machine that only
+        diverges in dialog labels and which ``DragSessionOverrides``
+        field caches the user's opt-out.  ``dialog_message_template``
+        receives the wire count via ``{n}``.
 
         Returns ``(drop_ids, reroute_net_ids)`` or None on user cancel.
-        Free wires never reroute (no owning context) — only drop.
         """
         if not wire_ids:
             return set(), set()
@@ -1323,14 +1325,11 @@ class SelectTool(_Tool):
         if preference == "auto-reroute":
             return set(wire_ids), self._net_ids_for_wires(wire_ids)
         if preference == "block":
-            # Re-classify as HARD — already escalated when we reach here?
-            # Conservative: refuse commit by returning None.
-            self._show_status_bar(
-                "Konflikt z wolnym drutem zablokowany przez preferencje (Esc cofnij)",
-            )
+            self._show_status_bar(block_status_message)
             return None
         # ask-remove / ask-reroute → dialog.  ask-remove is simple
-        # Yes/Cancel; ask-reroute reuses disconnect dialog for symmetry.
+        # Yes/Cancel; ask-reroute uses the same dialog and adds the
+        # affected nets to the reroute set on accept.
         from protoboard.gui.dialogs.drag_ask_remove_dialog import (
             DragAskRemoveDialog,
         )
@@ -1338,21 +1337,43 @@ class SelectTool(_Tool):
         n = len(wire_ids)
         parent = self._view if self._view is not None else None
         dlg = DragAskRemoveDialog(
-            title="Usunąć wolne druty?",
-            message=(
-                f"Drag spowoduje usunięcie {n} wolnych drut(ów). "
-                f"Kontynuować?"
-            ),
+            title=dialog_title,
+            message=dialog_message_template.format(n=n),
             parent=parent,  # type: ignore[arg-type]
         )
         accepted = dlg.exec() == QDialog.DialogCode.Accepted
         if dlg.session_opt_out() and accepted:
-            self._drag_session_overrides.free_wire = "auto-remove"
+            setattr(
+                self._drag_session_overrides,
+                session_override_attr,
+                "auto-remove",
+            )
         if not accepted:
             return None
         if preference == "ask-reroute":
             return set(wire_ids), self._net_ids_for_wires(wire_ids)
         return set(wire_ids), set()
+
+    def _resolve_pref_free(
+        self,
+        preference: str,
+        wire_ids: frozenset[uuid.UUID],
+    ) -> tuple[set[uuid.UUID], set[uuid.UUID]] | None:
+        """Resolve the ``drag.free_wire_conflict`` preference.
+
+        Free wires (no owning group) — the user just wants a yes/no.
+        """
+        return self._resolve_pref_ask_remove(
+            preference, wire_ids,
+            dialog_title="Usunąć wolne druty?",
+            dialog_message_template=(
+                "Drag spowoduje usunięcie {n} wolnych drut(ów).  Kontynuować?"
+            ),
+            block_status_message=(
+                "Konflikt z wolnym drutem zablokowany przez preferencje (Esc cofnij)"
+            ),
+            session_override_attr="free_wire",
+        )
 
     def _resolve_pref_sgroup(
         self,
@@ -1360,39 +1381,18 @@ class SelectTool(_Tool):
         wire_ids: frozenset[uuid.UUID],
     ) -> tuple[set[uuid.UUID], set[uuid.UUID]] | None:
         """Resolve the ``drag.stationary_group_wire_conflict`` preference."""
-        if not wire_ids:
-            return set(), set()
-        if preference == "auto-remove":
-            return set(wire_ids), set()
-        if preference == "auto-reroute":
-            return set(wire_ids), self._net_ids_for_wires(wire_ids)
-        if preference == "block":
-            self._show_status_bar(
-                "Konflikt z drutem stacjonarnej grupy zablokowany przez preferencje",
-            )
-            return None
-        from protoboard.gui.dialogs.drag_ask_remove_dialog import (
-            DragAskRemoveDialog,
-        )
-        from PySide6.QtWidgets import QDialog
-        n = len(wire_ids)
-        parent = self._view if self._view is not None else None
-        dlg = DragAskRemoveDialog(
-            title="Usunąć druty obcej grupy?",
-            message=(
-                f"Drag wymaga usunięcia {n} drut(ów) należących "
-                f"do innej grupy.  Kontynuować?"
+        return self._resolve_pref_ask_remove(
+            preference, wire_ids,
+            dialog_title="Usunąć druty obcej grupy?",
+            dialog_message_template=(
+                "Drag wymaga usunięcia {n} drut(ów) należących do innej grupy.  "
+                "Kontynuować?"
             ),
-            parent=parent,  # type: ignore[arg-type]
+            block_status_message=(
+                "Konflikt z drutem stacjonarnej grupy zablokowany przez preferencje"
+            ),
+            session_override_attr="stationary_group_wire",
         )
-        accepted = dlg.exec() == QDialog.DialogCode.Accepted
-        if dlg.session_opt_out() and accepted:
-            self._drag_session_overrides.stationary_group_wire = "auto-remove"
-        if not accepted:
-            return None
-        if preference == "ask-reroute":
-            return set(wire_ids), self._net_ids_for_wires(wire_ids)
-        return set(wire_ids), set()
 
     def _resolve_pref_disconnect(
         self,
@@ -1443,6 +1443,66 @@ class SelectTool(_Tool):
             return set(wire_ids), self._net_ids_for_wires(wire_ids)
         # DROP
         return set(wire_ids), set()
+
+    def _snapshot_owned_wire_paths(
+        self,
+        group_id: uuid.UUID,
+        group_comp_ids: frozenset[uuid.UUID],
+        *,
+        include_both_pin_in_set: bool,
+    ) -> None:
+        """Populate ``self._drag_orig_wire_paths`` with wires that should
+        travel with the group's drag.
+
+        Net-aware ownership (via :func:`find_owned_wires`) covers
+        structurally-owned wires (both PinKnots in the group) and
+        half-orphan tails of internal nets while excluding T-junction
+        tails of exported nets.
+
+        When ``include_both_pin_in_set`` is True an additional pass also
+        snapshots wires whose two PinKnot endpoints both reference
+        components in ``group_comp_ids`` even if the underlying net is
+        external (e.g. manually-routed SCL between group members).
+        Without that pass, per-component MoveComponentCommand
+        translates one endpoint while the other stays, the wire turns
+        skewed and gets dropped — bug 2026-06-02 producing SHORTs on
+        reference_big_project after a group drag.
+
+        Idempotent against ``self._drag_orig_wire_paths`` for the same
+        wire id; safe to call from multiple on_press code paths.
+        """
+        from protoboard.domain.layout.group_ownership import find_owned_wires
+        from protoboard.domain.layout.knot import PinKnot
+        grp_obj = self._session.layout.groups.get(group_id)
+        if grp_obj is None:
+            return
+        owned_ids = find_owned_wires(
+            list(self._session.layout.wires),
+            grp_obj,
+            wire_net_map=self._session.cached_wire_net_map(),
+            knots=self._session.layout.knots,  # type: ignore[arg-type]
+            group_comp_ids=group_comp_ids,
+            schematic=self._session.schematic,
+            placements=self._session.layout.placements,
+            instances=self._session.instances,
+            definitions=self._session.components,
+        )
+        knots = self._session.layout.knots
+        for wire in self._session.layout.wires:
+            if wire.id in owned_ids:
+                self._drag_orig_wire_paths[wire.id] = list(wire.path)
+                continue
+            if not include_both_pin_in_set:
+                continue
+            if wire.a is None or wire.b is None:
+                continue
+            ka = knots.get(wire.a.id)
+            kb = knots.get(wire.b.id)
+            if not isinstance(ka, PinKnot) or not isinstance(kb, PinKnot):
+                continue
+            if (ka.pin.component_id in group_comp_ids
+                    and kb.pin.component_id in group_comp_ids):
+                self._drag_orig_wire_paths[wire.id] = list(wire.path)
 
     def _net_ids_for_wires(
         self, wire_ids: frozenset[uuid.UUID],
@@ -1603,18 +1663,12 @@ class SelectTool(_Tool):
         if self._view is None:
             return
         self._clear_floating_highlights()
-        from protoboard.domain.layout.placement import component_bbox
         from protoboard.gui.layer_state import Z_SELECTION
         scene = self._view.scene()
         for cid in self._floating_ids:
-            pl = self._session.layout.placements.get(cid)
-            inst = self._session.instances.get(cid)
-            if pl is None or inst is None:
+            bbox = self._session.component_bbox(cid)
+            if bbox is None:
                 continue
-            defn = self._session.components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            bbox = component_bbox(defn.footprint, pl, defn.component_class)
             rect = QGraphicsRectItem(QRectF(bbox.x, bbox.y, bbox.width, bbox.height))
             pen = QPen(QColor(255, 200, 0, 200), 0.08)
             pen.setStyle(Qt.PenStyle.DashLine)
@@ -1889,23 +1943,10 @@ class SelectTool(_Tool):
                 # group) AND half-orphan tails of internal nets, while
                 # correctly excluding T-junction tails of exported nets
                 # (which are interface wires, not group structure).
-                from protoboard.domain.layout.group_ownership import find_owned_wires
-                grp_obj = self._session.layout.groups.get(group_outline_hit)
-                if grp_obj is not None:
-                    owned_ids = find_owned_wires(
-                        list(self._session.layout.wires),
-                        grp_obj,
-                        wire_net_map=self._session.cached_wire_net_map(),
-                        knots=self._session.layout.knots,  # type: ignore[arg-type]
-                        group_comp_ids=grp_members,
-                        schematic=self._session.schematic,
-                        placements=self._session.layout.placements,
-                        instances=self._session.instances,
-                        definitions=self._session.components,
-                    )
-                    for wire in self._session.layout.wires:
-                        if wire.id in owned_ids:
-                            self._drag_orig_wire_paths[wire.id] = list(wire.path)
+                self._snapshot_owned_wire_paths(
+                    group_outline_hit, grp_members,
+                    include_both_pin_in_set=False,
+                )
             return True
 
         # --- Normal left click: hit-test component or wire ---
@@ -2028,47 +2069,16 @@ class SelectTool(_Tool):
                         pl_hit.position.x - snapped.x,
                         pl_hit.position.y - snapped.y,
                     )
-                # Owned-wire snapshot via net-aware classifier.
-                from protoboard.domain.layout.group_ownership import find_owned_wires
-                from protoboard.domain.layout.knot import PinKnot as _PinKnot
-                grp_obj = groups_map.get(target_gid)
-                if grp_obj is not None:
-                    owned_ids = find_owned_wires(
-                        list(self._session.layout.wires),
-                        grp_obj,
-                        wire_net_map=self._session.cached_wire_net_map(),
-                        knots=self._session.layout.knots,  # type: ignore[arg-type]
-                        group_comp_ids=grp_members,
-                        schematic=self._session.schematic,
-                        placements=self._session.layout.placements,
-                        instances=self._session.instances,
-                        definitions=self._session.components,
-                    )
-                    # Owned-by-net classifier covers internal-net wires and
-                    # both-PinKnots cases.  But a manually-routed wire whose
-                    # two endpoints both anchor to pins of moved components
-                    # MUST also travel with the drag — even when its net
-                    # is external (e.g. SCL with two endpoints on group
-                    # pins).  Without including those, the per-component
-                    # MoveComponentCommand translates one endpoint while
-                    # the other stays, the wire turns skewed, and gets
-                    # dropped — silently severing the external-net wire
-                    # (user-observed 2026-06-02 on reference_big_project,
-                    # producing SHORTs after each group drag).
-                    knots = self._session.layout.knots
-                    for wire in self._session.layout.wires:
-                        if wire.id in owned_ids:
-                            self._drag_orig_wire_paths[wire.id] = list(wire.path)
-                            continue
-                        if wire.a is None or wire.b is None:
-                            continue
-                        ka = knots.get(wire.a.id)
-                        kb = knots.get(wire.b.id)
-                        if not isinstance(ka, _PinKnot) or not isinstance(kb, _PinKnot):
-                            continue
-                        if (ka.pin.component_id in grp_members
-                                and kb.pin.component_id in grp_members):
-                            self._drag_orig_wire_paths[wire.id] = list(wire.path)
+                # Owned-wire snapshot via net-aware classifier.  Element-
+                # press drag also adds "both PinKnots on group pins" wires
+                # so manually-routed exported-net wires between group
+                # members travel with the drag too (otherwise they turn
+                # skewed and get dropped — bug 2026-06-02 producing
+                # SHORTs on reference_big_project).
+                self._snapshot_owned_wire_paths(
+                    target_gid, grp_members,
+                    include_both_pin_in_set=True,
+                )
                 _log.info(
                     "on_press.group_drag_armed",
                     group_id=str(target_gid)[:8],
@@ -3978,7 +3988,6 @@ class SelectTool(_Tool):
             InsulatedWireCrossing,
             InsulatedWireItem,
         )
-        from protoboard.domain.layout.placement import pin_world_position
 
         _WIRE_ITEM_TYPES = (
             BareWireItem,
@@ -3989,15 +3998,7 @@ class SelectTool(_Tool):
         internal_wire_ids = set(self._drag_orig_wire_paths.keys())
         out: set[uuid.UUID] = set()
         for cid in drag_ids:
-            pl = self._session.layout.placements.get(cid)
-            inst = self._session.instances.get(cid)
-            if pl is None or inst is None:
-                continue
-            defn = self._session.components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            for pin_num in range(1, defn.footprint.pin_count() + 1):
-                pin_pos = pin_world_position(defn.footprint, pl, pin_num)
+            for _pin_num, pin_pos in self._session.iter_pin_positions(cid):
                 pad = pad_index.pad_at(pin_pos) if pad_index is not None else None  # type: ignore[attr-defined]
                 if pad is None:
                     continue
@@ -4057,11 +4058,6 @@ class SelectTool(_Tool):
             ConflictKind,
             find_conflicts,
         )
-        from protoboard.domain.layout.placement import (
-            component_bbox,
-            pin_world_position,
-        )
-
         _drag_idx = self._ensure_drag_pad_index(drag_ids)
         hard_pads: list[Point] = []
         soft_pads: list[Point] = []
@@ -4085,47 +4081,32 @@ class SelectTool(_Tool):
             if defn is None:
                 continue
             # --- HARD: body-bbox overlap with non-moved components ---
-            incoming_bbox = component_bbox(
-                defn.footprint, pl, defn.component_class,
-            )
-            for other_id, other_pl in self._session.layout.placements.items():
+            incoming_bbox = self._session.component_bbox(cid)
+            if incoming_bbox is None:
+                continue
+            incoming_pin_positions = [
+                pos for _pn, pos in self._session.iter_pin_positions(cid)
+            ]
+            for other_id, _other_pl in self._session.layout.placements.items():
                 if other_id == cid or other_id in drag_ids:
                     continue
-                other_inst = self._session.instances.get(other_id)
-                if other_inst is None:
+                other_bbox = self._session.component_bbox(other_id)
+                if other_bbox is None or not incoming_bbox.intersects(other_bbox):
                     continue
-                other_defn = self._session.components.get(
-                    other_inst.definition_ref,
+                other_pin_positions = [
+                    pos for _pn, pos in
+                    self._session.iter_pin_positions(other_id)
+                ]
+                has_pin_overlap = any(
+                    abs(in_pos.x - ot_pos.x) < _eps
+                    and abs(in_pos.y - ot_pos.y) < _eps
+                    for in_pos in incoming_pin_positions
+                    for ot_pos in other_pin_positions
                 )
-                if other_defn is None:
-                    continue
-                if not incoming_bbox.intersects(
-                    component_bbox(
-                        other_defn.footprint, other_pl, other_defn.component_class,
-                    )
-                ):
-                    continue
-                has_pin_overlap = False
-                for in_pin in range(1, defn.footprint.pin_count() + 1):
-                    in_pos = pin_world_position(defn.footprint, pl, in_pin)
-                    for ot_pin in range(
-                        1, other_defn.footprint.pin_count() + 1,
-                    ):
-                        ot_pos = pin_world_position(
-                            other_defn.footprint, other_pl, ot_pin,
-                        )
-                        if (
-                            abs(in_pos.x - ot_pos.x) < _eps
-                            and abs(in_pos.y - ot_pos.y) < _eps
-                        ):
-                            has_pin_overlap = True
-                            break
-                    if has_pin_overlap:
-                        break
                 if not has_pin_overlap:
-                    hard_pads.append(
-                        pin_world_position(defn.footprint, pl, 1),
-                    )
+                    pin1_pos = self._session.get_pin_position(cid, 1)
+                    if pin1_pos is not None:
+                        hard_pads.append(pin1_pos)
                     break  # one bbox conflict per component is enough
             # --- HARD: pad-on-pad DIFFERENT_NETS ---
             pad_cs = find_conflicts(
@@ -4148,8 +4129,7 @@ class SelectTool(_Tool):
             # the per-pad scan.
             if _drag_idx is None:
                 continue
-            for pin_num in range(1, defn.footprint.pin_count() + 1):
-                pin_pos = pin_world_position(defn.footprint, pl, pin_num)
+            for _pin_num, pin_pos in self._session.iter_pin_positions(cid):
                 pad = _drag_idx.pad_at(pin_pos)  # type: ignore[attr-defined]
                 if pad is None:
                     continue
@@ -4506,14 +4486,9 @@ class SelectTool(_Tool):
 
         # PadIndex over live (post-drag) layout — session.pad_index() is
         # stale until the next layout_changed.emit() at commit time.
-        from protoboard.domain.board.pad_state import PadIndex as _PadIndex
-        _drag_idx = _PadIndex(
-            board=self._session.board,
-            layout=self._session.layout,
-            schematic=self._session.schematic,
-            components=self._session.components,
-            instances=self._session.instances,
-        )
+        # Shared helper with placement_conflict.classify_drag_commit.
+        from protoboard.gui.placement_conflict import _build_drag_pad_index
+        _drag_idx = _build_drag_pad_index(self._session)
         result = check_group_move_conflicts(
             moved_ids=drag_ids,
             active_group_id=active_gid,
@@ -5319,14 +5294,10 @@ class SelectTool(_Tool):
         session = self._session
         selected: set[uuid.UUID] = set()
         if self._filter_components():
-            for comp_id, placement in session.layout.placements.items():
-                inst = session.instances.get(comp_id)
-                if inst is None:
+            for comp_id in session.layout.placements:
+                bbox = session.component_bbox(comp_id)
+                if bbox is None:
                     continue
-                defn = session.components.get(inst.definition_ref)
-                if defn is None:
-                    continue
-                bbox = component_bbox(defn.footprint, placement, defn.component_class)
                 bx0 = bbox.x
                 by0 = bbox.y
                 bx1 = bbox.x + bbox.width
@@ -7506,7 +7477,6 @@ class SelectTool(_Tool):
         if scene is None:
             return
         session = self._session
-        from protoboard.domain.layout.placement import component_bbox
         from protoboard.gui.layer_state import Z_OVERLAY
         self._clear_connectivity_highlight()
 
@@ -7520,16 +7490,9 @@ class SelectTool(_Tool):
         self._highlight_comp_ids = connected
 
         for other_id in connected:
-            pl = session.layout.placements.get(other_id)
-            if pl is None:
+            bbox = session.component_bbox(other_id)
+            if bbox is None:
                 continue
-            inst = session.instances.get(other_id)
-            if inst is None:
-                continue
-            defn = session.components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            bbox = component_bbox(defn.footprint, pl, defn.component_class.value)
             rect = QGraphicsRectItem(QRectF(bbox.x, bbox.y, bbox.width, bbox.height))
             rect.setPen(QPen(QColor(0, 255, 120, 210), 0.07))
             rect.setBrush(QBrush(QColor(0, 255, 120, 25)))

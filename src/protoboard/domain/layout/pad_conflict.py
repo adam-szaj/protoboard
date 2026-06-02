@@ -285,8 +285,9 @@ def find_wire_conflicts(
     return conflicts
 
 
-def _round(v: float) -> float:
-    return round(v, 4)
+# Module-level alias keeping the legacy ``_round`` callsites within
+# this file working — single implementation now lives in geometry.py.
+from protoboard.geometry import round_coord as _round  # noqa: E402
 
 
 def _wire_hit_via_pad_index(

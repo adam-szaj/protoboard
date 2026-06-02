@@ -5,10 +5,14 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from protoboard.domain.components.footprints import FootprintTemplate
 from protoboard.geometry import Point, Rect
+
+if TYPE_CHECKING:
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.instance import ComponentInstance
 
 # Component classes whose leads can be bent freely — only the pads matter for
 # collision/selection purposes, not the floating body between them.
@@ -181,6 +185,48 @@ def pin_world_position(
         placement.position.x + rotated.x,
         placement.position.y + rotated.y,
     )
+
+
+def resolve_pin_world_position(
+    comp_id: uuid.UUID,
+    pin_number: int,
+    *,
+    placements: dict[uuid.UUID, ComponentPlacement],
+    instances: "dict[uuid.UUID, ComponentInstance]",
+    components: "dict[str, ComponentDefinition]",
+) -> Point | None:
+    """Resolve world position of *(comp_id, pin_number)* with full safety chain.
+
+    Canonical helper for every "resolve a pin to a world Point" callsite.
+    Returns ``None`` when:
+
+    * the component has no placement,
+    * the instance is unknown,
+    * the definition is missing, or
+    * the pin number is out of range / footprint resolution raises.
+
+    Previously each callsite (drc/engine, drag_detector, group_cmds,
+    select_tool, session.get_pin_position) inlined the same chain with
+    slightly different error handling.  Bug 2737f15 (DRC SHORT pointing
+    at (0,0) instead of the offending pad) was a direct consequence —
+    one callsite hit the missing-defn branch and silently returned a
+    sentinel pad.
+
+    Pure function — no Qt, no side effects.
+    """
+    placement = placements.get(comp_id)
+    if placement is None:
+        return None
+    inst = instances.get(comp_id)
+    if inst is None:
+        return None
+    defn = components.get(inst.definition_ref)
+    if defn is None:
+        return None
+    try:
+        return pin_world_position(defn.footprint, placement, pin_number)
+    except (IndexError, ValueError):
+        return None
 
 
 def validate_pins_on_pads(

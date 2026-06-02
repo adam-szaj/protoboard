@@ -160,23 +160,19 @@ class MoveDragSetCommand(Command["ComponentState"]):
                 wire.fragments = new_frags
 
         # 5. Remove dropped wires (and capture orphan joints for revert).
+        #    Shared helper with RemoveWireCommand / DropWiresCommand —
+        #    keep them in sync via wire_utils, not via copy-paste.
+        from protoboard.domain.layout.wire_utils import (
+            remove_wire_capturing_orphans,
+        )
         saved_dropped: list["Wire"] = []
         saved_orphans: list[JointKnot] = []
         for wid in self.dropped_wire_ids:
-            wire = state.layout.wires.get(wid)
+            wire, orphans = remove_wire_capturing_orphans(state.layout, wid)
             if wire is None:
                 continue
             saved_dropped.append(wire)
-            if wire.a is not None and wire.b is not None:
-                for ref in (wire.a, wire.b):
-                    k = state.layout.knots.get(ref.id)
-                    if isinstance(k, JointKnot) and k.wire_ids == frozenset(
-                        {wire.id},
-                    ):
-                        saved_orphans.append(k)
-                state.layout.remove_wire(wid)
-            else:
-                state.layout.wires.remove(wire)
+            saved_orphans.extend(orphans)
         object.__setattr__(self, "_saved_dropped_wires", saved_dropped)
         object.__setattr__(self, "_saved_orphan_joints", saved_orphans)
 
@@ -202,14 +198,13 @@ class MoveDragSetCommand(Command["ComponentState"]):
 
         # 1. Restore dropped wires (+ orphan joints) first, so the
         #    sibling re-translation below sees the full wire set.
+        from protoboard.domain.layout.wire_utils import (
+            restore_wire_with_orphans,
+        )
         for wire in self._saved_dropped_wires:
-            if wire.a is not None and wire.b is not None:
-                for jk in self._saved_orphan_joints:
-                    if jk.id in {wire.a.id, wire.b.id}:
-                        state.layout.knots.setdefault(jk.id, jk)
-                state.layout.add_wire(wire)
-            else:
-                state.layout.wires.append(wire)
+            restore_wire_with_orphans(
+                state.layout, wire, self._saved_orphan_joints,
+            )
 
         # 2. Untranslate internal wires.
         for wid, old_path in self._saved_paths.items():

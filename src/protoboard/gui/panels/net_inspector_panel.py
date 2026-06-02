@@ -200,14 +200,9 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
             # Collect placed pin positions for this net.
             pin_pts: list[Point] = []
             for ref in net.pins:
-                pl   = session.layout.placements.get(ref.component_id)
-                inst = session.instances.get(ref.component_id)
-                if pl is None or inst is None:
-                    continue
-                defn = session.components.get(inst.definition_ref)
-                if defn is None or ref.pin_number > defn.pin_count:
-                    continue
-                pin_pts.append(pin_world_position(defn.footprint, pl, ref.pin_number))
+                pos = session.get_pin_position(ref.component_id, ref.pin_number)
+                if pos is not None:
+                    pin_pts.append(pos)
 
             # Wire/MST ratio.
             mst = _mst_manhattan(pin_pts)

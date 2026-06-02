@@ -345,21 +345,19 @@ def _check_short(
     # SHORT" action at a real, visible pad instead of the electric set's
     # arbitrary canonical key — which is the lex-min (x, y, side) of all
     # members and can fall on (0, 0) for a multi-net cluster spanning
-    # the whole board).
+    # the whole board).  Thin wrapper over the canonical safety chain.
     def _pin_pos(ref: PinRef) -> Point | None:
         if components is None:
             return None
-        pl = layout.placements.get(ref.component_id)
-        inst = instances.get(ref.component_id)
-        if pl is None or inst is None:
-            return None
-        defn = components.get(inst.definition_ref)
-        if defn is None:
-            return None
-        try:
-            return pin_world_position(defn.footprint, pl, ref.pin_number)
-        except Exception:  # noqa: BLE001
-            return None
+        from protoboard.domain.layout.placement import (
+            resolve_pin_world_position,
+        )
+        return resolve_pin_world_position(
+            ref.component_id, ref.pin_number,
+            placements=layout.placements,
+            instances=instances,
+            components=components,
+        )
 
     for node, net_ids in node_nets.items():
         if len(net_ids) > 1:
