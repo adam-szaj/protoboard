@@ -1553,13 +1553,20 @@ class SelectTool(_Tool):
                     return True
                 # Expand selection to all group members so multi-highlight
                 # serves as the visible "drag will move the whole group"
-                # warning before threshold is crossed.
+                # warning before threshold is crossed.  The clicked
+                # component (`hit`) MUST become the primary — it is the
+                # anchor used by `on_move` to compute the drag delta.
+                # Picking an arbitrary `next(iter(grp_members))` here
+                # left the anchor offset pointing at one component
+                # while `_selected_id` referenced a different one,
+                # causing the whole group to slide by (anchor_comp -
+                # primary_comp) on the first cursor move (user-observed
+                # 2026-06-02: group jumps out from under the cursor).
                 self._clear_multi_selection()
                 self._selected_group_id = target_gid
                 self._selected_ids = set(grp_members)
-                first = next(iter(grp_members))
-                self._select_primary(first)
-                for cid in grp_members - {first}:
+                self._select_primary(hit)
+                for cid in grp_members - {hit}:
                     self._draw_multi_highlight(cid)
                 # Arm the drag.
                 self._drag_overlay.reset(self._view.scene())
@@ -1584,6 +1591,7 @@ class SelectTool(_Tool):
                     )
                 # Owned-wire snapshot via net-aware classifier.
                 from protoboard.domain.layout.group_ownership import find_owned_wires
+                from protoboard.domain.layout.knot import PinKnot as _PinKnot
                 grp_obj = groups_map.get(target_gid)
                 if grp_obj is not None:
                     owned_ids = find_owned_wires(
@@ -1597,8 +1605,30 @@ class SelectTool(_Tool):
                         instances=self._session.instances,
                         definitions=self._session.components,
                     )
+                    # Owned-by-net classifier covers internal-net wires and
+                    # both-PinKnots cases.  But a manually-routed wire whose
+                    # two endpoints both anchor to pins of moved components
+                    # MUST also travel with the drag — even when its net
+                    # is external (e.g. SCL with two endpoints on group
+                    # pins).  Without including those, the per-component
+                    # MoveComponentCommand translates one endpoint while
+                    # the other stays, the wire turns skewed, and gets
+                    # dropped — silently severing the external-net wire
+                    # (user-observed 2026-06-02 on reference_big_project,
+                    # producing SHORTs after each group drag).
+                    knots = self._session.layout.knots
                     for wire in self._session.layout.wires:
                         if wire.id in owned_ids:
+                            self._drag_orig_wire_paths[wire.id] = list(wire.path)
+                            continue
+                        if wire.a is None or wire.b is None:
+                            continue
+                        ka = knots.get(wire.a.id)
+                        kb = knots.get(wire.b.id)
+                        if not isinstance(ka, _PinKnot) or not isinstance(kb, _PinKnot):
+                            continue
+                        if (ka.pin.component_id in grp_members
+                                and kb.pin.component_id in grp_members):
                             self._drag_orig_wire_paths[wire.id] = list(wire.path)
                 _log.info(
                     "on_press.group_drag_armed",
