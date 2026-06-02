@@ -1161,8 +1161,114 @@ class _BoardPage(QWidget):
 # ---------------------------------------------------------------------------
 
 
+class _DragPage(QWidget):
+    """Preferences page for drag-time soft-conflict resolution.
+
+    Three combo-boxes (one per category) + lock-internal-wires default.
+    Shares the parent dialog's AppSettings instance so Apply / OK paths
+    in PreferencesDialog persist via save_app_settings(self._settings).
+    """
+
+    _CONFLICT_CHOICES: list[tuple[str, str]] = [
+        ("auto-remove", "Auto-remove (silent)"),
+        ("ask-remove", "Ask before removing"),
+        ("auto-reroute", "Auto-reroute affected nets"),
+        ("ask-reroute", "Ask: reroute / drop / cancel"),
+        ("block", "Block drag (HARD)"),
+    ]
+
+    def __init__(
+        self, settings: AppSettings, parent: QWidget | None = None,
+    ) -> None:
+        from PySide6.QtWidgets import QFormLayout
+
+        super().__init__(parent)
+        self._settings = settings
+        vbox = QVBoxLayout(self)
+        vbox.setSpacing(12)
+
+        grp = QGroupBox("Soft conflict resolution")
+        form = QFormLayout(grp)
+        note = QLabel(
+            "How the commit pipeline reacts when a drag would touch wires.\n"
+            "Defaults preserve existing wires unless the user opts in."
+        )
+        note.setStyleSheet("color: #888; font-size: 11px;")
+        note.setWordWrap(True)
+        form.addRow(note)
+
+        self._free_combo = self._make_combo(settings.drag_free_wire_conflict)
+        self._free_combo.setToolTip(
+            "Free wires (not owned by any group) crossed by a moved pin.",
+        )
+        form.addRow("Free wire on path", self._free_combo)
+
+        self._sgroup_combo = self._make_combo(
+            settings.drag_stationary_group_wire_conflict,
+        )
+        self._sgroup_combo.setToolTip(
+            "Wires owned by a stationary (non-dragged) group.\n"
+            "Modifying them crosses group boundaries — confirm by default.",
+        )
+        form.addRow("Stationary group wire", self._sgroup_combo)
+
+        self._disconnect_combo = self._make_combo(
+            settings.drag_cross_group_disconnect,
+        )
+        self._disconnect_combo.setToolTip(
+            "Wires between a drag-set member and the rest of the board.\n"
+            "Drag would disconnect them; default lets the user choose.",
+        )
+        form.addRow("Cross-group disconnect", self._disconnect_combo)
+
+        vbox.addWidget(grp)
+
+        grp2 = QGroupBox("Group defaults")
+        v2 = QVBoxLayout(grp2)
+        self._lock_default_cb = QCheckBox(
+            "Lock internal wires by default for new groups",
+        )
+        self._lock_default_cb.setChecked(settings.drag_default_lock_internal_wires)
+        self._lock_default_cb.setToolTip(
+            "When set, new groups treat their internal wires as HARD\n"
+            "obstacles to foreign drags (no auto-remove).  Existing\n"
+            "groups are unaffected — toggle per-group in Properties.",
+        )
+        v2.addWidget(self._lock_default_cb)
+        vbox.addWidget(grp2)
+
+        vbox.addStretch()
+
+    def _make_combo(self, current: str) -> "QComboBox":
+        from PySide6.QtWidgets import QComboBox
+        combo = QComboBox()
+        for value, label in self._CONFLICT_CHOICES:
+            combo.addItem(label, value)
+        # Set selection to current preference.
+        for i in range(combo.count()):
+            if combo.itemData(i) == current:
+                combo.setCurrentIndex(i)
+                break
+        return combo
+
+    def apply(self) -> None:
+        self._settings.drag_free_wire_conflict = (
+            self._free_combo.currentData() or "auto-remove"
+        )
+        self._settings.drag_stationary_group_wire_conflict = (
+            self._sgroup_combo.currentData() or "ask-remove"
+        )
+        self._settings.drag_cross_group_disconnect = (
+            self._disconnect_combo.currentData() or "ask-reroute"
+        )
+        self._settings.drag_default_lock_internal_wires = (
+            self._lock_default_cb.isChecked()
+        )
+        save_app_settings(self._settings)
+
+
 class PreferencesDialog(QDialog):
-    """Application preferences — Shortcuts, Colours, Paths, Routing, Board."""
+    """Application preferences — Shortcuts, Colours, Paths, Routing, Drag, Board."""
 
     def __init__(
         self,
@@ -1195,7 +1301,7 @@ class PreferencesDialog(QDialog):
         self._nav = QListWidget()
         self._nav.setFixedWidth(140)
         self._nav.setSpacing(2)
-        for label in ("Shortcuts", "Colours", "Paths", "Routing", "Board"):
+        for label in ("Shortcuts", "Colours", "Paths", "Routing", "Drag", "Board"):
             item = QListWidgetItem(label)
             item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             self._nav.addItem(item)
@@ -1209,6 +1315,7 @@ class PreferencesDialog(QDialog):
         self._routing_page: _RoutingPage | None = (
             _RoutingPage(session, app_settings, self) if session is not None else None
         )
+        self._drag_page = _DragPage(app_settings, self)
         self._board_page: _BoardPage | None = (
             _BoardPage(session, self) if session is not None else None
         )
@@ -1221,6 +1328,7 @@ class PreferencesDialog(QDialog):
             placeholder = QLabel("Open a project to configure routing settings.")
             placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._stack.addWidget(placeholder)
+        self._stack.addWidget(self._drag_page)
         if self._board_page is not None:
             self._stack.addWidget(self._board_page)
         else:
@@ -1265,7 +1373,9 @@ class PreferencesDialog(QDialog):
                 self._on_paths_applied(self._paths_page._settings)
         elif idx == 3 and self._routing_page is not None:
             self._routing_page.apply()
-        elif idx == 4 and self._board_page is not None:
+        elif idx == 4:
+            self._drag_page.apply()
+        elif idx == 5 and self._board_page is not None:
             self._board_page.apply()
             if self._on_axis_labels_applied:
                 self._on_axis_labels_applied()
@@ -1283,6 +1393,7 @@ class PreferencesDialog(QDialog):
             self._on_paths_applied(self._paths_page._settings)
         if self._routing_page is not None:
             self._routing_page.apply()
+        self._drag_page.apply()
         if self._board_page is not None:
             self._board_page.apply()
             if self._on_axis_labels_applied:

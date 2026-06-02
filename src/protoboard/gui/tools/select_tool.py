@@ -1220,6 +1220,7 @@ class SelectTool(_Tool):
         #    signals that trigger refreshes which read this state.
         n_dropped = len(dropped)
         self._clear_floating_highlights()
+        self._clear_drag_ghost_state()
         if self._view is not None:
             self._drag_overlay.reset(self._view.scene())
             self._corner_text.hide(self._view.scene())
@@ -1530,6 +1531,7 @@ class SelectTool(_Tool):
             if orig_path is not None:
                 wire.path = list(orig_path)
         self._clear_floating_highlights()
+        self._clear_drag_ghost_state()
         if self._view is not None:
             self._drag_overlay.reset(self._view.scene())
             self._corner_text.hide(self._view.scene())
@@ -4382,6 +4384,57 @@ class SelectTool(_Tool):
 
         # Corner text feedback.
         self._update_corner_text_from_decision(decision)
+
+        # Live drag ghosting (unified drag model, 2026-06-02).  Apply
+        # per-wire opacity to surface which wires will be dropped vs
+        # rerouted when the user releases.  Wires not in any bucket
+        # render at full opacity.
+        self._apply_drag_ghost_state(decision)
+
+    def _apply_drag_ghost_state(self, decision: object) -> None:
+        """Update wire ghosting per the decision's drag-state buckets.
+
+        * free_drop ∪ stationary_group_drop → opacity 0.3 (silent drop)
+        * cross_group_disconnect → opacity 0.5 (user-decision pending)
+        * everything else → opacity 1.0 (no drag state)
+
+        Reset (all wires → 1.0) is done by passing ``decision=None`` or
+        a decision with empty buckets; callers should also reset when
+        the drag ends (``_cancel_floating`` / ``_commit_floating``
+        already clear ``_drag_last_decision``, so a subsequent refresh
+        cycle wipes the overlay).
+        """
+        from protoboard.gui.tools.drag_commit_decision import (
+            DragCommitDecision,
+        )
+        if self._view is None:
+            return
+        states: dict[uuid.UUID, str] = {}
+        if isinstance(decision, DragCommitDecision):
+            for wid in decision.free_drop_wire_ids:
+                states[wid] = "drop"
+            for wid in decision.stationary_group_drop_wire_ids:
+                states[wid] = "drop"
+            for wid in decision.cross_group_disconnect_wire_ids:
+                states[wid] = "disconnect"
+        setter = getattr(self._view, "set_wire_drag_state", None)
+        if callable(setter):
+            setter(states)
+
+    def _clear_drag_ghost_state(self) -> None:
+        """Reset every wire's opacity to normal (1.0).
+
+        Called from commit/cancel paths so the wire pre-drag style
+        returns after the drag is over.
+        """
+        if self._view is None:
+            return
+        setter = getattr(self._view, "set_wire_drag_state", None)
+        if not callable(setter):
+            return
+        # Iterate every known wire group and request "normal".
+        all_wire_ids = {w.id for w in self._session.layout.wires}
+        setter({wid: "normal" for wid in all_wire_ids})
 
     def _update_corner_text_from_decision(self, decision: object) -> None:
         """Show or hide the corner banner based on *decision*.

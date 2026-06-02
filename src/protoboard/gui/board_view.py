@@ -30,7 +30,12 @@ from PySide6.QtGui import (
     QResizeEvent,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
+from PySide6.QtWidgets import (
+    QGraphicsItemGroup,
+    QGraphicsScene,
+    QGraphicsView,
+    QWidget,
+)
 
 from protoboard.domain.board.boxes import StripAtom
 from protoboard.domain.connectivity.graph import ConnectivityGraph
@@ -634,6 +639,34 @@ class BoardView(QGraphicsView):
             w = max(xs) - min(xs) + 2 * margin
             h = max(ys) - min(ys) + 2 * margin
             rect_item.setRect(QRectF(x0, y0, w, h))
+
+    def set_wire_drag_state(
+        self,
+        states: dict[uuid.UUID, str],
+    ) -> None:
+        """Apply per-wire drag ghosting overlay (2026-06-02 unified drag).
+
+        states maps ``wire.id → "drop" | "disconnect" | "normal"`` where:
+
+        * ``"drop"`` — opacity 0.3 (wire will be removed on commit)
+        * ``"disconnect"`` — opacity 0.5 (cross-group; user decides drop/reroute)
+        * ``"normal"`` — opacity 1.0 (cleared / no drag state)
+
+        Called from ``SelectTool._update_drag_overlay`` whenever the
+        debounced classifier produces a new decision.  Wires not in
+        the map are left untouched — callers can use ``"normal"``
+        explicitly to clear a previously-applied state.
+        """
+        for wire_id, state in states.items():
+            grp = self._wire_groups.get(wire_id)
+            if not isinstance(grp, QGraphicsItemGroup):
+                continue
+            if state == "drop":
+                grp.setOpacity(0.3)
+            elif state == "disconnect":
+                grp.setOpacity(0.5)
+            else:
+                grp.setOpacity(1.0)
 
     def set_theme(self, theme: object) -> None:
         from protoboard.gui.theme import Theme

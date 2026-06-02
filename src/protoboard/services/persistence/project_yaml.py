@@ -284,6 +284,10 @@ def _layout_to_yaml(layout: Layout) -> str:
                         ),
                         **({"rotation": g.rotation} if g.rotation != 0 else {}),
                         **({"origin": {"x": g.origin.x, "y": g.origin.y}} if g.origin is not None else {}),
+                        **(
+                            {"lock_internal_wires": True}
+                            if g.lock_internal_wires else {}
+                        ),
                     }
                     for g in layout.groups.values()
                 ]
@@ -712,6 +716,7 @@ def _layout_from_yaml(text: str) -> Layout:
             exported_pins=exported_pins,
             rotation=int(raw.get("rotation", 0)),
             origin=origin,
+            lock_internal_wires=bool(raw.get("lock_internal_wires", False)),
         )
     layout = Layout(
         placements=placements,

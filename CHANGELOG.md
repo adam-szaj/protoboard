@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Unified drag model — atomic delta + preference-driven soft resolution (2026-06-02)
+
+Pełen refactor drag-pipeline naprawiający silent cross-group wire data
+loss opisany w `docs/bug-drag-skewed-wire-shorts.md`.
+
+* **5-way wire classification** (`domain/layout/drag_classification.py`):
+  per drag set wires partycjonowane na `internal` / `cross_group_disconnect`
+  / `half_orphan_internal` / `half_orphan_external` / `external`. Net+pin
+  oparta, bez geometrycznych heurystyk.
+* **MoveDragSetCommand** (`domain/commands/drag_cmds.py`): atomic single-pass
+  delta translation; zastępuje macro
+  `[TranslateAnchoredWires + MoveComponent(placement_only=True) + RemoveWire×N]`
+  które po drodze produkowało intermediate skewed wire states (źródło
+  silent drop).
+* **Preference-driven soft resolution**: 3 kategorie konfliktu (free wire
+  / stationary group wire / cross-group disconnect) × 5 wartości
+  (auto-remove / ask-remove / auto-reroute / ask-reroute / block).
+  Domyślne wartości konserwatywne (preserve existing wires).
+* **Dialogi z opt-out**: `DragDisconnectDialog` (Reroute/Drop/Cancel) i
+  `DragAskRemoveDialog` (Yes/Cancel) z checkboxem "Don't ask again for
+  this session" → `DragSessionOverrides` cache.
+* **Live drag ghosting**: drop wires renderowane z opacity 0.3, cross-group
+  disconnect z 0.5, normal z 1.0 (`BoardView.set_wire_drag_state`).
+* **`ComponentGroup.lock_internal_wires` field**: opt-in promocja
+  soft conflicts na HARD gdy foreign drag dotyka internal wires
+  zabezpieczonej grupy.
+* **PreferencesDialog "Drag" tab**: 3 combo-boxes + checkbox lock-default.
+
+Legacy `MoveComponentCommand(placement_only=False)` +
+`TranslateAnchoredWiresCommand` + `_update_wires_for_move` pozostają
+jako deprecated shim dla back-compat z command recordings starszymi
+niż 2026-06-02.
+
 ### Endpoint-merge at load and save (2026-05-28)
 
 - New pure helpers ``wire_utils.merge_colocated_joints(layout)`` and

@@ -43,6 +43,13 @@ class ComponentGroup:
     exported_pins: frozenset[ExportedPin] = field(default_factory=frozenset)
     rotation: int = 0
     origin: Point | None = None
+    # Unified drag model (2026-06-02): when True, this group's internal
+    # wires are treated as a HARD obstacle for foreign drags (a moved
+    # pin landing on one of them blocks the commit instead of being
+    # auto-resolved).  Default False preserves legacy soft-conflict
+    # behaviour.  Toggled via PreferencesDialog default + per-group
+    # Properties checkbox.
+    lock_internal_wires: bool = False
 
 
 def all_component_ids(
