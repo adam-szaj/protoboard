@@ -667,6 +667,13 @@ class _RoutingPage(QWidget):
         self._max_detour.setSpecialValueText("unlimited")
         gen_form.addRow("Max detour factor", self._max_detour)
 
+        self._skip_autoroute_dialog = QCheckBox()
+        self._skip_autoroute_dialog.setToolTip(
+            "When checked, F6 / Analysis → Autoroute starts immediately\n"
+            "using the saved settings instead of opening the pre-flight dialog."
+        )
+        gen_form.addRow("Skip autoroute dialog", self._skip_autoroute_dialog)
+
         gen_grp.setLayout(gen_form)
         vbox.addWidget(gen_grp)
 
@@ -1009,6 +1016,7 @@ class _RoutingPage(QWidget):
                 self._simplify_mode.setCurrentIndex(i)
                 break
         self._max_detour.setValue(rs.max_detour_factor)
+        self._skip_autoroute_dialog.setChecked(rs.skip_autoroute_dialog)
 
     def _restore_defaults(self) -> None:
         self._load_from_settings(self._defaults)
@@ -1028,7 +1036,7 @@ class _RoutingPage(QWidget):
             simplify_mode=_resolve_simplify_mode(self._simplify_mode.currentData()),
             max_detour_factor=self._max_detour.value(),
             router_name=rs_old.router_name,
-            skip_autoroute_dialog=rs_old.skip_autoroute_dialog,
+            skip_autoroute_dialog=self._skip_autoroute_dialog.isChecked(),
             optimizer_chain=rs_old.optimizer_chain,
             cost_preset=self._cost_preset.currentData() or "default",
             # Per-project overrides come from the dynamic spinbox grid
