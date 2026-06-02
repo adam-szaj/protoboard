@@ -27,6 +27,10 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from protoboard.domain.layout.drag_classification import (
+    DragWireClassification,
+    classify_wires_for_drag,
+)
 from protoboard.domain.layout.pad_conflict import (
     ConflictKind,
     PadConflict,
@@ -51,6 +55,8 @@ if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.layout.group import ComponentGroup
+    from protoboard.domain.layout.knot import Knot
     from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.schematic import Schematic
@@ -81,6 +87,14 @@ class DragSnapshot:
     not copied — the caller must not mutate the underlying layout
     between :meth:`DragDetector.classify` and consumption of the
     result.
+
+    Unified drag model (2026-06-02) extras — when ``drag_set_members``
+    is non-empty the detector also produces a
+    :class:`DragWireClassification` and partitions wire-removal hints
+    into preference-bucketed sets (free / stationary-group /
+    cross-group-disconnect).  Legacy callers passing only the older
+    arguments still get the original single-bucket
+    ``auto_remove_wire_ids`` result.
     """
 
     pad_index: "PadIndex | None"
@@ -89,6 +103,32 @@ class DragSnapshot:
     components: dict[str, "ComponentDefinition"]
     schematic: "Schematic"
     wires: list["Wire"] = field(default_factory=list)
+    drag_set_members: frozenset[uuid.UUID] = field(default_factory=frozenset)
+    """Component IDs the drag moves atomically.  Empty disables the
+    new classification path; ``classify`` falls back to the legacy
+    auto-remove-everything behaviour."""
+
+    wire_net_map: dict[uuid.UUID, uuid.UUID] = field(default_factory=dict)
+    """``wire.id → net.id`` map (typically
+    ``EditorSession.cached_wire_net_map()``).  Required by half-orphan
+    classification — without it, all half-orphans land in the
+    ``half_orphan_external`` bucket (drop on commit)."""
+
+    knots: "dict[uuid.UUID, Knot]" = field(default_factory=dict)
+    """``layout.knots`` — required for endpoint flavour resolution
+    in the wire classifier."""
+
+    member_groups: "list[ComponentGroup]" = field(default_factory=list)
+    """Groups whose ``component_ids`` overlap ``drag_set_members``.
+    Empty when dragging a free component or a pure-free multi-selection;
+    used only for half-orphan internal-net resolution."""
+
+    stationary_locked_groups: "list[ComponentGroup]" = field(
+        default_factory=list,
+    )
+    """Stationary groups (not in drag set) with
+    ``lock_internal_wires=True``.  Owned wires of these groups promote
+    soft conflicts to HARD when a moved pin lands on them."""
 
 
 class DragDetector:
@@ -239,9 +279,79 @@ class DragDetector:
                 f"{len(skewed)} wire(s) became skewed (will remove)"
             )
 
-        if hard_pads:
+        # --- Unified drag model classification (2026-06-02) ---
+        # When the caller supplied drag_set_members, partition every wire
+        # that would be removed into the three preference-driven buckets:
+        # free / stationary-group / cross-group-disconnect.  Wires that
+        # are part of the drag set's structural body
+        # (internal / half_orphan_internal) must NEVER auto-remove —
+        # they should travel with the drag delta in
+        # ``MoveDragSetCommand``.
+        wire_classification: DragWireClassification | None = None
+        free_drop: set[uuid.UUID] = set()
+        sgroup_drop: set[uuid.UUID] = set()
+        cross_disc: set[uuid.UUID] = set()
+        hard_locked_pads: list[Point] = []
+
+        if snapshot.drag_set_members:
+            wire_classification = classify_wires_for_drag(
+                wires=snapshot.wires,
+                drag_set_members=snapshot.drag_set_members,
+                knots=snapshot.knots,
+                wire_net_map=snapshot.wire_net_map,
+                schematic=snapshot.schematic,
+                member_groups=snapshot.member_groups,
+            )
+            # Wires structurally part of the drag set must not be
+            # bucketed as removable — they travel with the delta.
+            travels = wire_classification.travels_with_drag
+            removable = remove_wires - travels
+
+            # Wires owned by any stationary group (drag set excluded)
+            # land in sgroup_drop; the rest are free.
+            sgroup_wire_ids = self._stationary_group_owned_wires(
+                wires=snapshot.wires,
+                drag_set_members=snapshot.drag_set_members,
+                stationary_groups=[
+                    g for g in self._all_groups_for_snapshot(snapshot)
+                    if g not in snapshot.member_groups
+                ],
+                knots=snapshot.knots,
+                wire_net_map=snapshot.wire_net_map,
+                schematic=snapshot.schematic,
+            )
+
+            for wid in removable:
+                if wid in wire_classification.cross_group_disconnect:
+                    cross_disc.add(wid)
+                elif wid in sgroup_wire_ids:
+                    sgroup_drop.add(wid)
+                else:
+                    free_drop.add(wid)
+            # cross_group_disconnect wires that were NOT picked up as
+            # remove_wires (no skewed/cross/pin-on-wire issue) still need
+            # a user decision — the drag breaks the connection, and the
+            # user must choose drop or reroute.
+            for wid in wire_classification.cross_group_disconnect:
+                if wid not in cross_disc:
+                    cross_disc.add(wid)
+
+            # Stationary groups with lock_internal_wires=True promote
+            # soft pad conflicts (moved pin lands on owned wire) to HARD.
+            locked_wires_to_pads = self._lock_internal_pad_positions(
+                stationary_locked_groups=snapshot.stationary_locked_groups,
+                wires=snapshot.wires,
+                wire_net_map=snapshot.wire_net_map,
+                knots=snapshot.knots,
+                schematic=snapshot.schematic,
+                conflict_wire_ids=sgroup_drop | cross_disc | free_drop,
+            )
+            hard_locked_pads.extend(locked_wires_to_pads)
+
+        # Severity (worst wins).  Hard-locked group wires escalate to HARD.
+        if hard_pads or hard_locked_pads:
             severity = DragSeverity.HARD
-        elif soft_pads or remove_wires:
+        elif soft_pads or remove_wires or cross_disc:
             severity = DragSeverity.SOFT
         else:
             severity = DragSeverity.CLEAR
@@ -253,18 +363,121 @@ class DragDetector:
                 moved=[str(c)[:8] for c in moved_comp_ids],
                 dragged_wires=[str(w)[:8] for w in dragged_wire_ids],
                 auto_remove_wires=[str(w)[:8] for w in remove_wires],
+                free_drop=[str(w)[:8] for w in free_drop],
+                sgroup_drop=[str(w)[:8] for w in sgroup_drop],
+                cross_disc=[str(w)[:8] for w in cross_disc],
                 hard=[(p.x, p.y) for p in hard_pads],
                 soft=[(p.x, p.y) for p in soft_pads],
             )
 
+        # Combine HARD pads (geometric body/pin overlap + locked-wire
+        # promotion) for the overlay.
+        all_hard_pads: tuple[Point, ...] = tuple(hard_pads) + tuple(
+            hard_locked_pads,
+        )
         return DragCommitDecision(
             severity=severity,
             description="; ".join(descriptions),
             auto_remove_wire_ids=tuple(remove_wires),
             auto_net_actions=tuple(net_actions),
-            blocking_pad_positions=tuple(hard_pads),
+            blocking_pad_positions=all_hard_pads,
             overlay_pad_positions=tuple(soft_pads),
+            wire_classification=wire_classification,
+            free_drop_wire_ids=tuple(free_drop),
+            stationary_group_drop_wire_ids=tuple(sgroup_drop),
+            cross_group_disconnect_wire_ids=tuple(cross_disc),
+            hard_locked_wire_pads=tuple(hard_locked_pads),
         )
+
+    # ------------------------------------------------------------------
+    # Unified drag model helpers (2026-06-02)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _all_groups_for_snapshot(
+        snapshot: "DragSnapshot",
+    ) -> "list[ComponentGroup]":
+        """Best-effort group list — for stationary-group classification
+        we need every group, not just the member subset.  The snapshot
+        carries member_groups + stationary_locked_groups; this helper
+        returns their union.  Callers wanting full layout.groups must
+        supply both sets at construction time.
+        """
+        return list(snapshot.member_groups) + list(
+            snapshot.stationary_locked_groups,
+        )
+
+    @staticmethod
+    def _stationary_group_owned_wires(
+        wires: "list[Wire]",
+        drag_set_members: frozenset[uuid.UUID],
+        stationary_groups: "list[ComponentGroup]",
+        knots: "dict[uuid.UUID, Knot]",
+        wire_net_map: dict[uuid.UUID, uuid.UUID],
+        schematic: "Schematic | None",
+    ) -> set[uuid.UUID]:
+        """Wires owned by any stationary group (member-disjoint).
+
+        Used to bucket auto-remove candidates as "needs ask-remove"
+        when they belong to a group the drag set is not part of.
+        """
+        from protoboard.domain.layout.group_ownership import (
+            wire_is_owned_by_group,
+        )
+        result: set[uuid.UUID] = set()
+        for group in stationary_groups:
+            if group.component_ids & drag_set_members:
+                continue
+            for wire in wires:
+                if wire.id in result:
+                    continue
+                if wire_is_owned_by_group(
+                    wire, group,
+                    wire_net_map=wire_net_map,
+                    knots=knots,
+                    group_comp_ids=group.component_ids,
+                    schematic=schematic,
+                ):
+                    result.add(wire.id)
+        return result
+
+    @staticmethod
+    def _lock_internal_pad_positions(
+        stationary_locked_groups: "list[ComponentGroup]",
+        wires: "list[Wire]",
+        wire_net_map: dict[uuid.UUID, uuid.UUID],
+        knots: "dict[uuid.UUID, Knot]",
+        schematic: "Schematic | None",
+        conflict_wire_ids: set[uuid.UUID],
+    ) -> list[Point]:
+        """Pad positions where a moved pin landed on a wire owned by a
+        stationary group with ``lock_internal_wires=True``.
+
+        Each such pad is HARD — drag must be refused.  Returned as a
+        flat list of pad positions (vertices of the offending wires)
+        so the overlay can mark them red.
+        """
+        from protoboard.domain.layout.group_ownership import (
+            wire_is_owned_by_group,
+        )
+        if not stationary_locked_groups or not conflict_wire_ids:
+            return []
+        pads: list[Point] = []
+        wire_by_id = {w.id: w for w in wires}
+        for group in stationary_locked_groups:
+            for wid in conflict_wire_ids:
+                wire = wire_by_id.get(wid)
+                if wire is None:
+                    continue
+                if wire_is_owned_by_group(
+                    wire, group,
+                    wire_net_map=wire_net_map,
+                    knots=knots,
+                    group_comp_ids=group.component_ids,
+                    schematic=schematic,
+                ):
+                    pads.extend(list(wire.path))
+        return pads
 
     # ------------------------------------------------------------------
     # Internals — body overlap + strategy-driven wire check

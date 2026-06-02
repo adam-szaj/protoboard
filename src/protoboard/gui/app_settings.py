@@ -12,6 +12,18 @@ from pathlib import Path
 from protoboard.paths import APP_SETTINGS_FILE as _CONFIG_PATH
 
 
+# Allowed values for drag soft-conflict resolution preferences.  Any
+# value outside this set in the YAML falls back to the dataclass
+# default — protects against typos cementing into a broken state.
+_DRAG_CONFLICT_VALUES = frozenset({
+    "auto-remove",
+    "ask-remove",
+    "auto-reroute",
+    "ask-reroute",
+    "block",
+})
+
+
 @dataclass
 class AppSettings:
     """Persistent application preferences."""
@@ -50,6 +62,15 @@ class AppSettings:
     # Each entry maps preset_name → {cost_key: weight}.  Editing via
     # PreferencesDialog.  See protoboard.services.routing.cost_presets.
     cost_presets: dict[str, dict[str, float]] = field(default_factory=dict)
+    # Drag-time soft conflict resolution.  Each field is one of
+    # "auto-remove" / "ask-remove" / "auto-reroute" / "ask-reroute" /
+    # "block" — see docs/bug-drag-skewed-wire-shorts.md.  Defaults
+    # picked to be conservative (preserve existing wires unless the
+    # user opts in).
+    drag_free_wire_conflict: str = "auto-remove"
+    drag_stationary_group_wire_conflict: str = "ask-remove"
+    drag_cross_group_disconnect: str = "ask-reroute"
+    drag_default_lock_internal_wires: bool = False
 
 
 def load_app_settings() -> AppSettings:
@@ -95,6 +116,20 @@ def load_app_settings() -> AppSettings:
             aa = render.get("antialiasing")
             if isinstance(aa, bool):
                 s.antialiasing = aa
+        drag = data.get("drag")
+        if isinstance(drag, dict):
+            for yaml_key, attr_name in (
+                ("free_wire_conflict", "drag_free_wire_conflict"),
+                ("stationary_group_wire_conflict",
+                 "drag_stationary_group_wire_conflict"),
+                ("cross_group_disconnect", "drag_cross_group_disconnect"),
+            ):
+                v = drag.get(yaml_key)
+                if isinstance(v, str) and v in _DRAG_CONFLICT_VALUES:
+                    setattr(s, attr_name, v)
+            lock = drag.get("default_lock_internal_wires")
+            if isinstance(lock, bool):
+                s.drag_default_lock_internal_wires = lock
         cp = data.get("cost_presets")
         if isinstance(cp, dict):
             from protoboard.services.routing.cost_presets import builtin_preset_names
@@ -140,6 +175,14 @@ def save_app_settings(settings: AppSettings) -> None:
         }
         data["render"] = {
             "antialiasing": settings.antialiasing,
+        }
+        data["drag"] = {
+            "free_wire_conflict": settings.drag_free_wire_conflict,
+            "stationary_group_wire_conflict":
+                settings.drag_stationary_group_wire_conflict,
+            "cross_group_disconnect": settings.drag_cross_group_disconnect,
+            "default_lock_internal_wires":
+                settings.drag_default_lock_internal_wires,
         }
         if settings.cost_presets:
             data["cost_presets"] = {

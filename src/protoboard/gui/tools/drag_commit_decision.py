@@ -21,8 +21,14 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from protoboard.geometry import Point
+
+if TYPE_CHECKING:
+    from protoboard.domain.layout.drag_classification import (
+        DragWireClassification,
+    )
 
 
 class DragSeverity(Enum):
@@ -55,6 +61,38 @@ class DragCommitDecision:
 
     overlay_pad_positions: tuple[Point, ...] = field(default_factory=tuple)
     """Pad/wire-point positions associated with SOFT severity — informational."""
+
+    # --- Unified drag model (2026-06-02) ---
+    # The fields below carry the 5-way wire classification produced by
+    # ``DragDetector`` when ``drag_set_members`` is supplied on the
+    # ``DragSnapshot``.  When None / empty, ``SelectTool`` falls back
+    # to the legacy ``auto_remove_wire_ids`` pipeline.
+
+    wire_classification: "DragWireClassification | None" = None
+    """Full 5-way partition of wires under the drag; None when caller did
+    not provide drag_set_members (legacy fallback path)."""
+
+    free_drop_wire_ids: tuple[uuid.UUID, ...] = field(default_factory=tuple)
+    """Wires the detector resolved as free (no owning group) and would
+    drop on commit — subject to ``drag.free_wire_conflict`` preference."""
+
+    stationary_group_drop_wire_ids: tuple[uuid.UUID, ...] = field(
+        default_factory=tuple,
+    )
+    """Wires owned by stationary groups (not in drag set) that the
+    detector wants to drop — subject to
+    ``drag.stationary_group_wire_conflict`` preference."""
+
+    cross_group_disconnect_wire_ids: tuple[uuid.UUID, ...] = field(
+        default_factory=tuple,
+    )
+    """Wires that would be torn apart by the drag (one PinKnot in set,
+    other outside) — subject to ``drag.cross_group_disconnect``
+    preference (default ask-reroute)."""
+
+    hard_locked_wire_pads: tuple[Point, ...] = field(default_factory=tuple)
+    """Pad positions where a moved pin would land on a wire owned by a
+    ``lock_internal_wires=True`` group — promotes severity to HARD."""
 
     @property
     def is_clear(self) -> bool:
