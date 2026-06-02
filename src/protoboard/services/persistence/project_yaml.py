@@ -504,20 +504,35 @@ def load_project(
             _name: _library_for_migration.get(_name)  # type: ignore[union-attr]
             for _name in _library_for_migration.names()  # type: ignore[union-attr]
         }
+    # Canonicalisation: split+merge wire endpoints until stable.  This
+    # is a best-effort cleanup — if the saved layout violates internal
+    # invariants (orphan knot refs, dangling wire endpoints, etc.), the
+    # merge step can raise ValueError.  We catch it so the load still
+    # succeeds; the user opens the project in a "potentially
+    # inconsistent" state and DRC will flag the issues.
+    _canon_failed_at: tuple[str, str] | None = None  # (phase, error_str)
     for _ in range(16):  # hard cap; typical convergence in ≤ 3 rounds
-        _s = split_wires_at_endpoint_collisions(
-            layout,
-            schematic=schematic,
-            instances=instances,
-            components=_components_for_split,  # type: ignore[arg-type]
-            board=board,
-        )
-        _f = merge_endpoint_wires(
-            layout, board,
-            schematic=schematic,
-            instances=instances,
-            components=_components_for_split,  # type: ignore[arg-type]
-        )
+        try:
+            _s = split_wires_at_endpoint_collisions(
+                layout,
+                schematic=schematic,
+                instances=instances,
+                components=_components_for_split,  # type: ignore[arg-type]
+                board=board,
+            )
+        except (ValueError, KeyError) as exc:
+            _canon_failed_at = ("split", str(exc))
+            break
+        try:
+            _f = merge_endpoint_wires(
+                layout, board,
+                schematic=schematic,
+                instances=instances,
+                components=_components_for_split,  # type: ignore[arg-type]
+            )
+        except (ValueError, KeyError) as exc:
+            _canon_failed_at = ("merge", str(exc))
+            break
         _total_splits += _s
         _total_fused += _f
         if _s == 0 and _f == 0:
@@ -526,6 +541,16 @@ def load_project(
         _log.info("project.endpoint_split", splits=_total_splits)
     if _total_fused:
         _log.info("project.endpoint_merge", fused=_total_fused)
+    if _canon_failed_at is not None:
+        _log.warning(
+            "project.canonicalisation_failed",
+            phase=_canon_failed_at[0],
+            error=_canon_failed_at[1],
+            note=(
+                "Project loaded with stale internal state. Run DRC to find "
+                "and fix orphan/dangling wires."
+            ),
+        )
     _log.info(
         "project.loaded",
         path=str(directory),
