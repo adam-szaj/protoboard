@@ -194,6 +194,17 @@ class DragDetector:
                 already_conflicted=already_conflicted,
             )
             for wc, reason in wire_conflicts:
+                # Skip conflicts where the wire is one of the group's
+                # own wires being translated together with the move.
+                # By construction the wire moves *with* the pin (its
+                # path was offset by the same delta), so the geometric
+                # coincidence is a self-relation, not a conflict.
+                # Without this filter, a group's own internal wire
+                # ending on a group pin would be auto-deleted on every
+                # commit — silently producing shorts when subsequent
+                # auto-route reroutes through the cleared corridor.
+                if wc.wire_id is not None and wc.wire_id in dragged_wire_ids:
+                    continue
                 soft_pads.append(wc.position)
                 if wc.wire_id is not None:
                     remove_wires.add(wc.wire_id)
