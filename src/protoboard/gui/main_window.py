@@ -2847,7 +2847,10 @@ class MainWindow(QMainWindow):
 
     def _simplify_selected_wires(self) -> None:
         """Run generic_simplify_wire on every currently-selected wire."""
-        tool = self._select_tool
+        # Prefer the active tool — SimplifyTool / RouteTool are SelectTool
+        # subclasses with their own selection state, and the user's wire
+        # picks live there, not in the permanent _select_tool fallback.
+        tool = self._get_select_tool() or self._select_tool
         wire_ids: set[uuid.UUID] = set(tool._selected_wire_ids)
         if tool._selected_wire_id is not None:
             wire_ids.add(tool._selected_wire_id)
@@ -2858,7 +2861,7 @@ class MainWindow(QMainWindow):
 
     def _unweave_selected_wires(self) -> None:
         """Topologically un-weave mutual crossings of the selected wires."""
-        tool = self._select_tool
+        tool = self._get_select_tool() or self._select_tool
         wire_ids: set[uuid.UUID] = set(tool._selected_wire_ids)
         if tool._selected_wire_id is not None:
             wire_ids.add(tool._selected_wire_id)
@@ -2869,7 +2872,7 @@ class MainWindow(QMainWindow):
 
     def _merge_fragments_in_selected_wires(self) -> None:
         """Fuse consecutive same-side fragments in every selected wire."""
-        tool = self._select_tool
+        tool = self._get_select_tool() or self._select_tool
         wire_ids: set[uuid.UUID] = set(tool._selected_wire_ids)
         if tool._selected_wire_id is not None:
             wire_ids.add(tool._selected_wire_id)
