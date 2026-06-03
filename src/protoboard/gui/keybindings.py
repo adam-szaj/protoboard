@@ -107,6 +107,24 @@ ACTION_LAYER_5 = "layer_5"
 ACTION_LAYER_6 = "layer_6"
 ACTION_LAYER_7 = "layer_7"
 ACTION_LAYER_8 = "layer_8"
+ACTION_LAYERS_RESET = "layers_reset"
+
+# File menu — previously anonymous addAction("…", slot) entries promoted
+# to first-class action-ids so they can be rebound via Preferences.
+ACTION_IMPORT_KICAD_NET = "import_kicad_net"
+ACTION_EXPORT_KICAD_NET = "export_kicad_net"
+ACTION_EXPORT_SVG = "export_svg"
+ACTION_EXPORT_PDF = "export_pdf"
+ACTION_EXPORT_PNG = "export_png"
+ACTION_EXPORT_BOM = "export_bom"
+ACTION_CLOSE_PROJECT = "close_project"
+
+# Board edit — previously anonymous menu entries.
+ACTION_BOARD_RESIZE = "board_resize"
+ACTION_BOARD_SPREAD = "board_spread"
+
+# Settings / devtools.
+ACTION_GEN_SHORTCUT_CONFIG = "gen_shortcut_config"
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -180,6 +198,17 @@ DEFAULTS: dict[str, str] = {
     ACTION_LAYER_6: "6",
     ACTION_LAYER_7: "7",
     ACTION_LAYER_8: "8",
+    ACTION_LAYERS_RESET: "",
+    ACTION_IMPORT_KICAD_NET: "",
+    ACTION_EXPORT_KICAD_NET: "",
+    ACTION_EXPORT_SVG: "",
+    ACTION_EXPORT_PDF: "",
+    ACTION_EXPORT_PNG: "",
+    ACTION_EXPORT_BOM: "",
+    ACTION_CLOSE_PROJECT: "",
+    ACTION_BOARD_RESIZE: "",
+    ACTION_BOARD_SPREAD: "",
+    ACTION_GEN_SHORTCUT_CONFIG: "",
 }
 
 # Human-readable names (for future Preferences dialog).
@@ -248,6 +277,17 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_LAYER_3: "Layer 3 (Components Bottom)",
     ACTION_LAYER_4: "Layer 4 (Wires Top)",
     ACTION_LAYER_5: "Layer 5 (Wires Bottom)",
+    ACTION_LAYERS_RESET: "Reset All Layers",
+    ACTION_IMPORT_KICAD_NET: "Import KiCAD .net…",
+    ACTION_EXPORT_KICAD_NET: "Export KiCAD .net…",
+    ACTION_EXPORT_SVG: "Export SVG…",
+    ACTION_EXPORT_PDF: "Export PDF…",
+    ACTION_EXPORT_PNG: "Export PNG…",
+    ACTION_EXPORT_BOM: "Export BOM CSV…",
+    ACTION_CLOSE_PROJECT: "Close Project",
+    ACTION_BOARD_RESIZE: "Resize Board…",
+    ACTION_BOARD_SPREAD: "Spread Components",
+    ACTION_GEN_SHORTCUT_CONFIG: "Generate Shortcut Config File",
     ACTION_LAYER_6: "Layer 6 (Labels)",
     ACTION_LAYER_7: "Layer 7 (Pin Names)",
     ACTION_LAYER_8: "Layer 8 (Connections)",

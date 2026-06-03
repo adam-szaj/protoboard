@@ -589,6 +589,20 @@ class MainWindow(QMainWindow):
             KB.ACTION_SIMPLIFY_WIRE:            self._simplify_selected_wires,
             KB.ACTION_UNWEAVE_WIRES:            self._unweave_selected_wires,
             KB.ACTION_MERGE_WIRE_FRAGMENTS:     self._merge_fragments_in_selected_wires,
+            # File / project I/O
+            KB.ACTION_IMPORT_KICAD_NET:         self._import_kicad_net,
+            KB.ACTION_EXPORT_KICAD_NET:         self._export_kicad_net,
+            KB.ACTION_EXPORT_SVG:               self._export_svg,
+            KB.ACTION_EXPORT_PDF:               self._export_pdf,
+            KB.ACTION_EXPORT_PNG:               self._export_png,
+            KB.ACTION_EXPORT_BOM:               self._export_bom,
+            KB.ACTION_CLOSE_PROJECT:            self._close_project,
+            # Board edit
+            KB.ACTION_BOARD_RESIZE:             self._resize_board,
+            KB.ACTION_BOARD_SPREAD:             self._spread_components,
+            KB.ACTION_LAYERS_RESET:             self._reset_layers,
+            # Devtools
+            KB.ACTION_GEN_SHORTCUT_CONFIG:      self._generate_shortcut_config,
             # ACTION_HIGHLIGHT_TOGGLE: kept as an alias of clear-highlight
             # for now — the historic intent was "drop the persistent stack
             # entry like Esc".  Wire it to _clear_highlight so the action
@@ -663,30 +677,19 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
-        act_import_net = file_menu.addAction("&Import KiCAD .net…")
-        act_import_net.triggered.connect(self._import_kicad_net)
-
-        act_export_net = file_menu.addAction("Export KiCAD .net…")
-        act_export_net.triggered.connect(self._export_kicad_net)
+        file_menu.addAction(self._actions[KB.ACTION_IMPORT_KICAD_NET])
+        file_menu.addAction(self._actions[KB.ACTION_EXPORT_KICAD_NET])
 
         file_menu.addSeparator()
 
-        act_export_svg = file_menu.addAction("Export SVG…")
-        act_export_svg.triggered.connect(self._export_svg)
-
-        act_export_pdf = file_menu.addAction("Export PDF…")
-        act_export_pdf.triggered.connect(self._export_pdf)
-
-        act_export_png = file_menu.addAction("Export PNG…")
-        act_export_png.triggered.connect(self._export_png)
-
-        act_export_bom = file_menu.addAction("Export BOM CSV…")
-        act_export_bom.triggered.connect(self._export_bom)
+        file_menu.addAction(self._actions[KB.ACTION_EXPORT_SVG])
+        file_menu.addAction(self._actions[KB.ACTION_EXPORT_PDF])
+        file_menu.addAction(self._actions[KB.ACTION_EXPORT_PNG])
+        file_menu.addAction(self._actions[KB.ACTION_EXPORT_BOM])
 
         file_menu.addSeparator()
 
-        act_close = file_menu.addAction("&Close Project")
-        act_close.triggered.connect(self._close_project)
+        file_menu.addAction(self._actions[KB.ACTION_CLOSE_PROJECT])
 
         file_menu.addSeparator()
 
@@ -725,8 +728,7 @@ class MainWindow(QMainWindow):
         edit_menu.addSeparator()
 
         generate_menu = edit_menu.addMenu("&Generate")
-        act_gen_shortcuts = generate_menu.addAction("Shortcut Config &File")
-        act_gen_shortcuts.triggered.connect(self._generate_shortcut_config)
+        generate_menu.addAction(self._actions[KB.ACTION_GEN_SHORTCUT_CONFIG])
 
         # ── Select ────────────────────────────────────────────────────────
         select_menu = mb.addMenu("&Select")
@@ -774,8 +776,7 @@ class MainWindow(QMainWindow):
         for _field_name, _display_name, action_id in self._LAYER_ENTRIES:
             layers_menu.addAction(self._actions[action_id])
         layers_menu.addSeparator()
-        act_reset_layers = layers_menu.addAction("Reset All Layers")
-        act_reset_layers.triggered.connect(self._reset_layers)
+        layers_menu.addAction(self._actions[KB.ACTION_LAYERS_RESET])
 
         view_menu.addSeparator()
 
@@ -821,15 +822,13 @@ class MainWindow(QMainWindow):
 
         tools_menu.addSeparator()
 
-        act_resize_board = tools_menu.addAction("&Resize Board…")
-        act_resize_board.triggered.connect(self._resize_board)
+        tools_menu.addAction(self._actions[KB.ACTION_BOARD_RESIZE])
 
         tools_menu.addSeparator()
 
         tools_menu.addAction(self._actions[KB.ACTION_AUTOROUTE])
 
-        act_spread = tools_menu.addAction("S&pread Components")
-        act_spread.triggered.connect(self._spread_components)
+        tools_menu.addAction(self._actions[KB.ACTION_BOARD_SPREAD])
 
         tools_menu.addSeparator()
 
