@@ -236,6 +236,10 @@ class MainWindow(QMainWindow):
         self._wire_insulated: bool = True
         self._wire_side: str = "top"
 
+        # Highlight toggle: snapshot of persistent entries when the
+        # user hits the toggle to hide them, restored on next press.
+        self._highlight_snapshot: list = []
+
         # Per-layer manual visibility overrides — restored from session if available.
         self._layer_overrides = session.layer_overrides
         self._board_view._layer_overrides = self._layer_overrides
@@ -618,11 +622,9 @@ class MainWindow(QMainWindow):
             KB.ACTION_NET_TOGGLE_GLOBAL:        self._net_toggle_global,
             KB.ACTION_NET_DELETE:               self._net_delete,
             KB.ACTION_PIN_ASSIGN_NET:           self._pin_assign_net,
-            # ACTION_HIGHLIGHT_TOGGLE: kept as an alias of clear-highlight
-            # for now — the historic intent was "drop the persistent stack
-            # entry like Esc".  Wire it to _clear_highlight so the action
-            # has a working handler.
-            KB.ACTION_HIGHLIGHT_TOGGLE:         self._clear_highlight,
+            # True on/off toggle for persistent highlight — snapshot
+            # the active entries and restore them on next press.
+            KB.ACTION_HIGHLIGHT_TOGGLE:         self._highlight_toggle,
         }
         # Layer 1..8 — bind layer-index via default-arg lambda to avoid the
         # late-binding closure pitfall.  The first positional arg swallows
@@ -1737,6 +1739,31 @@ class MainWindow(QMainWindow):
     def _clear_highlight(self) -> None:
         """Clear all persistent highlight entries from the stack."""
         self._session.highlight_stack.clear()
+
+    def _highlight_toggle(self) -> None:
+        """Toggle highlight: hide if visible, restore last hidden if not.
+
+        - If there's a persistent highlight on the stack, snapshot it
+          and clear (so the user can momentarily see the board "raw").
+        - If there isn't and we have a snapshot, restore it.
+        - If neither — no-op.
+
+        This makes the keybinding behave like a true on/off switch
+        instead of the legacy alias-for-clear behaviour.
+        """
+        stack = self._session.highlight_stack
+        if stack.has_persistent():
+            # Snapshot every persistent entry, in stack order, so the
+            # restore re-pushes them with the same ordering.
+            self._highlight_snapshot = [
+                e for e in stack._stack  # type: ignore[attr-defined]
+                if not e.transient and not e.auto
+            ]
+            stack.clear()
+        elif self._highlight_snapshot:
+            for entry in self._highlight_snapshot:
+                stack.push(entry)
+            self._highlight_snapshot = []
 
     def _update_highlight_action(self) -> None:
         """Enable 'Clear Highlight' only when there are persistent entries."""
