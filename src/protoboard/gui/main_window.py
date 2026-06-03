@@ -13,7 +13,7 @@ from protoboard.gui.app_settings import AppSettings
 from protoboard.gui.window_state import load_window_state, save_window_state
 
 from PySide6.QtCore import Qt, QTimer, QFileSystemWatcher, Signal
-from PySide6.QtGui import QAction, QCloseEvent, QKeyEvent, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeyEvent, QKeySequence
 from PySide6.QtWidgets import (
     QDialog,
     QDockWidget,
@@ -114,14 +114,16 @@ class MainWindow(QMainWindow):
         KB.ACTION_FIT_BOARD:     {"label": "&Fit Board"},
         KB.ACTION_FIT_AREA:      {"label": "Fit &Area"},
         KB.ACTION_FIT_SELECTION: {"label": "Fit &Selection"},
-        # Tools menu
-        KB.ACTION_TOOL_SELECT:          {"label": "&Select"},
-        KB.ACTION_TOOL_ROUTE:           {"label": "Route &Wire"},
-        KB.ACTION_TOOL_CUT:             {"label": "&Cut Strip"},
-        KB.ACTION_TOOL_SIMPLIFY:        {"label": "Simplify &Wire Tool"},
-        KB.ACTION_WIRE_TOGGLE_INSULATED: {"label": "&Insulated"},
-        KB.ACTION_WIRE_SIDE_TOP:         {"label": "Side: &Top"},
-        KB.ACTION_WIRE_SIDE_BOTTOM:      {"label": "Side: &Bottom"},
+        # Tools menu — tool modes are checkable + mutually exclusive
+        # (grouped via QActionGroup in _register_actions); wire-state
+        # actions are checkable so menu shows current Route-tool state.
+        KB.ACTION_TOOL_SELECT:          {"label": "&Select", "checkable": True},
+        KB.ACTION_TOOL_ROUTE:           {"label": "Route &Wire", "checkable": True},
+        KB.ACTION_TOOL_CUT:             {"label": "&Cut Strip", "checkable": True},
+        KB.ACTION_TOOL_SIMPLIFY:        {"label": "Simplify &Wire Tool", "checkable": True},
+        KB.ACTION_WIRE_TOGGLE_INSULATED: {"label": "&Insulated", "checkable": True},
+        KB.ACTION_WIRE_SIDE_TOP:         {"label": "Side: &Top", "checkable": True},
+        KB.ACTION_WIRE_SIDE_BOTTOM:      {"label": "Side: &Bottom", "checkable": True},
         KB.ACTION_REDRAG_PINS:           {"label": "Re-drag &Pins"},
         KB.ACTION_WIRE_SET_INSULATED:    {"label": "Wire: Set &Insulated"},
         KB.ACTION_WIRE_SET_BARE:         {"label": "Wire: Set &Bare"},
@@ -639,6 +641,32 @@ class MainWindow(QMainWindow):
             for field_name, _label, layer_action_id in self._LAYER_ENTRIES
         }
 
+        # ── Tool-mode QActionGroup ──────────────────────────────────────
+        # Select / Route / Cut / Simplify are mutually exclusive.  Use the
+        # Optional exclusion policy so PlaceTool (and other transient tools
+        # without an action) can leave the whole group unchecked.
+        self._tool_action_group = QActionGroup(self)
+        self._tool_action_group.setExclusionPolicy(
+            QActionGroup.ExclusionPolicy.Exclusive
+        )
+        for _tool_aid in (
+            KB.ACTION_TOOL_SELECT,
+            KB.ACTION_TOOL_ROUTE,
+            KB.ACTION_TOOL_CUT,
+            KB.ACTION_TOOL_SIMPLIFY,
+        ):
+            self._tool_action_group.addAction(self._actions[_tool_aid])
+
+        # Wire-side radio group (Top vs Bottom).  No third state — when
+        # neither is checked the user hasn't picked a side yet (initial
+        # state is forced in _set_wire_side()).
+        self._wire_side_group = QActionGroup(self)
+        self._wire_side_group.setExclusionPolicy(
+            QActionGroup.ExclusionPolicy.Exclusive
+        )
+        for _side_aid in (KB.ACTION_WIRE_SIDE_TOP, KB.ACTION_WIRE_SIDE_BOTTOM):
+            self._wire_side_group.addAction(self._actions[_side_aid])
+
     # ------------------------------------------------------------------
     # Backward-compat aliases — historic per-attribute names kept as
     # properties so existing callsites (_update_undo_redo, _sync_view_actions,
@@ -1077,9 +1105,25 @@ class MainWindow(QMainWindow):
     # Tool switches
     # ------------------------------------------------------------------
 
+    def _sync_tool_check(self, active_action_id: str | None) -> None:
+        """Reflect active tool in the tool QActionGroup checkmark.
+
+        Pass *None* when a tool without an associated ACTION_TOOL_* is
+        active (e.g. PlaceTool); the exclusive-optional group then shows
+        nothing checked.
+        """
+        for aid in (
+            KB.ACTION_TOOL_SELECT,
+            KB.ACTION_TOOL_ROUTE,
+            KB.ACTION_TOOL_CUT,
+            KB.ACTION_TOOL_SIMPLIFY,
+        ):
+            self._actions[aid].setChecked(aid == active_action_id)
+
     def _tool_select(self) -> None:
         self._board_view.set_tool(self._select_tool)
         self._mode_label.setText("Select")
+        self._sync_tool_check(KB.ACTION_TOOL_SELECT)
 
     def _tool_place(self, definition_ref: str, pin_variant: object = None) -> None:
         variant_str = str(pin_variant) if pin_variant is not None else None
@@ -1088,6 +1132,8 @@ class MainWindow(QMainWindow):
         if variant_str:
             label = f"{definition_ref} [{variant_str}]"
         self._mode_label.setText(f"Place {label}  [R] rotate")
+        # PlaceTool has no ACTION_TOOL_* — clear the radio.
+        self._sync_tool_check(None)
 
     def _tool_place_instance(self, instance_id: uuid.UUID) -> None:
         """Activate PlaceTool for a specific netlist-imported instance."""
@@ -1104,6 +1150,7 @@ class MainWindow(QMainWindow):
         self._mode_label.setText(
             f"Place {inst.refdes} ({inst.value})  [R] rotate"
         )
+        self._sync_tool_check(None)
 
     def _auto_place_instances(self, instance_ids: list[uuid.UUID]) -> None:
         """Auto-place a list of component instances using net-gravity heuristic."""
@@ -1301,6 +1348,7 @@ class MainWindow(QMainWindow):
                 RouteTool(insulated=self._wire_insulated, side=self._wire_side)
             )
         self._update_route_status(self._wire_insulated, self._wire_side)
+        self._sync_tool_check(KB.ACTION_TOOL_ROUTE)
 
     def _set_wire_insulated(self, insulated: bool) -> None:
         self._wire_insulated = insulated
@@ -1425,12 +1473,14 @@ class MainWindow(QMainWindow):
     def _tool_cut(self) -> None:
         self._board_view.set_tool(CutTool())
         self._mode_label.setText("Cut Strip — click near a strip")
+        self._sync_tool_check(KB.ACTION_TOOL_CUT)
 
     def _tool_simplify(self) -> None:
         self._board_view.set_tool(SimplifyTool())
         self._mode_label.setText(
             "Simplify Wire — LPM: select (as Select), Shift+LPM on wire: apply simplify"
         )
+        self._sync_tool_check(KB.ACTION_TOOL_SIMPLIFY)
 
     # ------------------------------------------------------------------
     # File actions
