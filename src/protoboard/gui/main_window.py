@@ -125,6 +125,7 @@ class MainWindow(QMainWindow):
         KB.ACTION_WIRE_SIDE_TOP:         {"label": "Side: &Top", "checkable": True},
         KB.ACTION_WIRE_SIDE_BOTTOM:      {"label": "Side: &Bottom", "checkable": True},
         KB.ACTION_REDRAG_PINS:           {"label": "Re-drag &Pins"},
+        KB.ACTION_FOCUS_LIBRARY:         {"label": "&Add Component…"},
         KB.ACTION_WIRE_SET_INSULATED:    {"label": "Wire: Set &Insulated"},
         KB.ACTION_WIRE_SET_BARE:         {"label": "Wire: Set &Bare"},
         KB.ACTION_WIRE_MOVE_TO_TOP:      {"label": "Wire: Move to &Top Layer"},
@@ -353,14 +354,12 @@ class MainWindow(QMainWindow):
         tb_comp.setObjectName("tb_comp")
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_comp)
 
-        act_comp_add = tb_comp.addAction("+ Add")
-        act_comp_del = tb_comp.addAction("− Del")
-        act_comp_cw  = tb_comp.addAction("↻ CW")
-        act_comp_ccw = tb_comp.addAction("↺ CCW")
-        act_comp_add.triggered.connect(self._focus_library_for_add)
-        act_comp_del.triggered.connect(self._delete_selection)
-        act_comp_cw.triggered.connect(self._rotate_cw)
-        act_comp_ccw.triggered.connect(self._rotate_ccw)
+        # Toolbar buttons reuse the registered QActions so their shortcut
+        # tooltip ("A", "Del", "R", "Shift+R") is shown by Qt automatically.
+        tb_comp.addAction(self._actions[KB.ACTION_FOCUS_LIBRARY])
+        tb_comp.addAction(self._actions[KB.ACTION_DELETE])
+        tb_comp.addAction(self._actions[KB.ACTION_ROTATE_CW])
+        tb_comp.addAction(self._actions[KB.ACTION_ROTATE_CCW])
 
         # ── Toolbar: Analysis ────────────────────────────────────────────
         tb_analysis = QToolBar("Analysis", self)
@@ -605,6 +604,8 @@ class MainWindow(QMainWindow):
             KB.ACTION_LAYERS_RESET:             self._reset_layers,
             # Devtools
             KB.ACTION_GEN_SHORTCUT_CONFIG:      self._generate_shortcut_config,
+            # Component creation
+            KB.ACTION_FOCUS_LIBRARY:            self._focus_library_for_add,
             # ACTION_HIGHLIGHT_TOGGLE: kept as an alias of clear-highlight
             # for now — the historic intent was "drop the persistent stack
             # entry like Esc".  Wire it to _clear_highlight so the action
@@ -739,6 +740,8 @@ class MainWindow(QMainWindow):
 
         # Component submenu (SEL1 / SELN component operations).
         component_menu = design_menu.addMenu("&Component")
+        component_menu.addAction(self._actions[KB.ACTION_FOCUS_LIBRARY])
+        component_menu.addSeparator()
         component_menu.addAction(self._actions[KB.ACTION_ROTATE_CW])
         component_menu.addAction(self._actions[KB.ACTION_ROTATE_CCW])
         component_menu.addAction(self._actions[KB.ACTION_FLIP])

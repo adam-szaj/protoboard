@@ -126,6 +126,10 @@ ACTION_BOARD_SPREAD = "board_spread"
 # Settings / devtools.
 ACTION_GEN_SHORTCUT_CONFIG = "gen_shortcut_config"
 
+# Component creation — focus the Library panel so the user can pick
+# a part to place.  Default shortcut "A" matches the KiCAD convention.
+ACTION_FOCUS_LIBRARY = "focus_library"
+
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
@@ -209,6 +213,7 @@ DEFAULTS: dict[str, str] = {
     ACTION_BOARD_RESIZE: "",
     ACTION_BOARD_SPREAD: "",
     ACTION_GEN_SHORTCUT_CONFIG: "",
+    ACTION_FOCUS_LIBRARY: "A",
 }
 
 # Human-readable names (for future Preferences dialog).
@@ -288,6 +293,7 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_BOARD_RESIZE: "Resize Board…",
     ACTION_BOARD_SPREAD: "Spread Components",
     ACTION_GEN_SHORTCUT_CONFIG: "Generate Shortcut Config File",
+    ACTION_FOCUS_LIBRARY: "Add Component (focus Library)",
     ACTION_LAYER_6: "Layer 6 (Labels)",
     ACTION_LAYER_7: "Layer 7 (Pin Names)",
     ACTION_LAYER_8: "Layer 8 (Connections)",
