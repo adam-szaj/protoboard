@@ -696,6 +696,9 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self._actions[KB.ACTION_QUIT])
 
         # ── Edit ──────────────────────────────────────────────────────────
+        # History + Design hub + Board hub + Preferences.  Domain edit
+        # operations (Component/Wire/Net/Group) live under "Edit ► Design ►",
+        # board-level edits (Resize / Cut Strip / Spread) under "Edit ► Board ►".
         edit_menu = mb.addMenu("&Edit")
 
         edit_menu.addAction(self._actions[KB.ACTION_UNDO])
@@ -703,23 +706,54 @@ class MainWindow(QMainWindow):
 
         edit_menu.addSeparator()
 
-        edit_menu.addAction(self._actions[KB.ACTION_DELETE])
+        # ── Edit ► Design ──────────────────────────────────────────────
+        design_menu = edit_menu.addMenu("&Design")
 
-        edit_menu.addSeparator()
+        # Component submenu (SEL1 / SELN component operations).
+        component_menu = design_menu.addMenu("&Component")
+        component_menu.addAction(self._actions[KB.ACTION_ROTATE_CW])
+        component_menu.addAction(self._actions[KB.ACTION_ROTATE_CCW])
+        component_menu.addAction(self._actions[KB.ACTION_FLIP])
+        component_menu.addSeparator()
+        component_menu.addAction(self._actions[KB.ACTION_REDRAG_PINS])
+        component_menu.addSeparator()
+        component_menu.addAction(self._actions[KB.ACTION_DELETE])
 
-        edit_menu.addAction(self._actions[KB.ACTION_CLEAR_HIGHLIGHT])
+        # Wire submenu — tool mode + per-mode options + selection-bulk ops.
+        wire_menu = design_menu.addMenu("&Wire")
+        wire_menu.addAction(self._actions[KB.ACTION_TOOL_ROUTE])
+        wire_menu.addSeparator()
+        wire_menu.addAction(self._actions[KB.ACTION_WIRE_TOGGLE_INSULATED])
+        wire_menu.addAction(self._actions[KB.ACTION_WIRE_SIDE_TOP])
+        wire_menu.addAction(self._actions[KB.ACTION_WIRE_SIDE_BOTTOM])
+        wire_menu.addSeparator()
+        wire_menu.addAction(self._actions[KB.ACTION_WIRE_SET_INSULATED])
+        wire_menu.addAction(self._actions[KB.ACTION_WIRE_SET_BARE])
+        wire_menu.addAction(self._actions[KB.ACTION_WIRE_MOVE_TO_TOP])
+        wire_menu.addAction(self._actions[KB.ACTION_WIRE_MOVE_TO_BOTTOM])
+        wire_menu.addAction(self._actions[KB.ACTION_WIRE_FLIP])
+        wire_menu.addSeparator()
+        wire_menu.addAction(self._actions[KB.ACTION_TOOL_SIMPLIFY])
+        wire_menu.addAction(self._actions[KB.ACTION_SIMPLIFY_WIRE])
+        wire_menu.addAction(self._actions[KB.ACTION_UNWEAVE_WIRES])
+        wire_menu.addAction(self._actions[KB.ACTION_MERGE_WIRE_FRAGMENTS])
 
-        edit_menu.addSeparator()
+        # Net submenu — pin/net assignment (other net ops live in the
+        # Nets editor panel for now; faza 1b will lift them to action-ids).
+        net_menu = design_menu.addMenu("&Net")
+        net_menu.addAction(self._actions[KB.ACTION_DISCONNECT_PIN])
 
-        edit_menu.addAction(self._actions[KB.ACTION_ROTATE_CW])
-        edit_menu.addAction(self._actions[KB.ACTION_ROTATE_CCW])
-        edit_menu.addAction(self._actions[KB.ACTION_FLIP])
+        # Group submenu.
+        group_menu = design_menu.addMenu("&Group")
+        group_menu.addAction(self._actions[KB.ACTION_GROUP])
+        group_menu.addAction(self._actions[KB.ACTION_UNGROUP])
+        group_menu.addAction(self._actions[KB.ACTION_EXIT_GROUP])
 
-        edit_menu.addSeparator()
-
-        edit_menu.addAction(self._actions[KB.ACTION_GROUP])
-        edit_menu.addAction(self._actions[KB.ACTION_UNGROUP])
-        edit_menu.addAction(self._actions[KB.ACTION_EXIT_GROUP])
+        # ── Edit ► Board ───────────────────────────────────────────────
+        board_menu = edit_menu.addMenu("&Board")
+        board_menu.addAction(self._actions[KB.ACTION_BOARD_RESIZE])
+        board_menu.addAction(self._actions[KB.ACTION_TOOL_CUT])
+        board_menu.addAction(self._actions[KB.ACTION_BOARD_SPREAD])
 
         edit_menu.addSeparator()
 
@@ -731,7 +765,13 @@ class MainWindow(QMainWindow):
         generate_menu.addAction(self._actions[KB.ACTION_GEN_SHORTCUT_CONFIG])
 
         # ── Select ────────────────────────────────────────────────────────
+        # Selection mode + bulk selection + highlight (highlight is a
+        # selection-meta concept, so it lives here rather than under Edit).
         select_menu = mb.addMenu("&Select")
+
+        select_menu.addAction(self._actions[KB.ACTION_TOOL_SELECT])
+
+        select_menu.addSeparator()
 
         select_menu.addAction(self._actions[KB.ACTION_SELECT_ALL])
         select_menu.addAction(self._actions[KB.ACTION_DESELECT_ALL])
@@ -745,6 +785,10 @@ class MainWindow(QMainWindow):
 
         select_menu.addAction(self._actions[KB.ACTION_SELECT_ALL_WIRES])
         select_menu.addAction(self._actions[KB.ACTION_DESELECT_ALL_WIRES])
+
+        select_menu.addSeparator()
+
+        select_menu.addAction(self._actions[KB.ACTION_CLEAR_HIGHLIGHT])
 
         # ── View ──────────────────────────────────────────────────────────
         view_menu = mb.addMenu("&View")
@@ -790,59 +834,13 @@ class MainWindow(QMainWindow):
 
         view_menu.addAction(self._actions[KB.ACTION_FULLSCREEN])
 
-        # ── Tools ─────────────────────────────────────────────────────────
-        tools_menu = mb.addMenu("&Tools")
+        # ── Analysis ──────────────────────────────────────────────────────
+        # DRC + autoroute.  Tool modes (Select/Route/Cut/Simplify) live under
+        # Select / Edit ► Design ► Wire / Edit ► Board respectively.
+        analysis_menu = mb.addMenu("&Analysis")
 
-        tools_menu.addAction(self._actions[KB.ACTION_TOOL_SELECT])
-        tools_menu.addAction(self._actions[KB.ACTION_TOOL_ROUTE])
-
-        wire_sub = tools_menu.addMenu("  Wire options")
-        wire_sub.addAction(self._actions[KB.ACTION_WIRE_TOGGLE_INSULATED])
-        wire_sub.addAction(self._actions[KB.ACTION_WIRE_SIDE_TOP])
-        wire_sub.addAction(self._actions[KB.ACTION_WIRE_SIDE_BOTTOM])
-
-        tools_menu.addAction(self._actions[KB.ACTION_TOOL_CUT])
-        tools_menu.addAction(self._actions[KB.ACTION_TOOL_SIMPLIFY])
-
-        tools_menu.addSeparator()
-
-        tools_menu.addAction(self._actions[KB.ACTION_REDRAG_PINS])
-
-        tools_menu.addSeparator()
-
-        tools_menu.addAction(self._actions[KB.ACTION_WIRE_SET_INSULATED])
-        tools_menu.addAction(self._actions[KB.ACTION_WIRE_SET_BARE])
-        tools_menu.addAction(self._actions[KB.ACTION_WIRE_MOVE_TO_TOP])
-        tools_menu.addAction(self._actions[KB.ACTION_WIRE_MOVE_TO_BOTTOM])
-        tools_menu.addAction(self._actions[KB.ACTION_WIRE_FLIP])
-
-        tools_menu.addSeparator()
-
-        tools_menu.addAction(self._actions[KB.ACTION_DISCONNECT_PIN])
-
-        tools_menu.addSeparator()
-
-        tools_menu.addAction(self._actions[KB.ACTION_BOARD_RESIZE])
-
-        tools_menu.addSeparator()
-
-        tools_menu.addAction(self._actions[KB.ACTION_AUTOROUTE])
-
-        tools_menu.addAction(self._actions[KB.ACTION_BOARD_SPREAD])
-
-        tools_menu.addSeparator()
-
-        # Wire operations on the current selection.  Each is a no-op with a
-        # status-bar message when the selection doesn't match its
-        # precondition (no wires for simplify, <2 wires for unweave, no
-        # fragments to fuse for merge).
-        tools_menu.addAction(self._actions[KB.ACTION_SIMPLIFY_WIRE])
-        tools_menu.addAction(self._actions[KB.ACTION_UNWEAVE_WIRES])
-        tools_menu.addAction(self._actions[KB.ACTION_MERGE_WIRE_FRAGMENTS])
-
-        tools_menu.addSeparator()
-
-        tools_menu.addAction(self._actions[KB.ACTION_RUN_DRC])
+        analysis_menu.addAction(self._actions[KB.ACTION_RUN_DRC])
+        analysis_menu.addAction(self._actions[KB.ACTION_AUTOROUTE])
 
 
     # ------------------------------------------------------------------
