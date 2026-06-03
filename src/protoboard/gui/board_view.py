@@ -1261,8 +1261,8 @@ class BoardView(QGraphicsView):
     def _show_canvas_menu(self, vp_pos: QPoint, scene_pt: QPointF) -> None:
         from PySide6.QtWidgets import QMenu
         menu = QMenu(self)
-        act_center = menu.addAction("Wyśrodkuj widok tutaj")
-        act_escape = menu.addAction("Anuluj narzędzie (Esc)")
+        act_center = menu.addAction("Center view here")
+        act_escape = menu.addAction("Cancel tool (Esc)")
         chosen = menu.exec(self.mapToGlobal(vp_pos))
         if chosen is act_center:
             self.center_on_scene_point(scene_pt)

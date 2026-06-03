@@ -979,12 +979,12 @@ class MainWindow(QMainWindow):
             n_wp = len(normalize_report.wires)
             parts = []
             if n_pl:
-                parts.append(f"{n_pl} pozycji komponentów")
+                parts.append(f"{n_pl} component placement(s)")
             if n_wp:
-                parts.append(f"{n_wp} punkt(ów) przewodów")
+                parts.append(f"{n_wp} wire point(s)")
             self.statusBar().showMessage(
-                "Naprawiono offsety legacy: " + " + ".join(parts)
-                + " (zapisz projekt, aby utrwalić)",
+                "Snapped legacy offsets: " + " + ".join(parts)
+                + " (save the project to persist)",
                 8000,
             )
             self._session.mark_dirty()

@@ -996,7 +996,7 @@ class SelectTool(_Tool):
             sb = win.statusBar() if win is not None and hasattr(win, "statusBar") else None
             if sb is not None:
                 sb.showMessage(
-                    "Konflikt: nie można zatwierdzić w tym miejscu (Esc aby cofnąć)",
+                    "Conflict: cannot commit here (Esc to cancel)",
                     3000,
                 )
             return
@@ -1109,7 +1109,7 @@ class SelectTool(_Tool):
                 sb = win.statusBar() if win is not None and hasattr(win, "statusBar") else None
                 if sb is not None:
                     sb.showMessage(
-                        f"Usunięto {n_removed} drut(ów) (Ctrl+Z by cofnąć)",
+                        f"Removed {n_removed} wire(s) (Ctrl+Z to undo)",
                         4000,
                     )
 
@@ -1262,7 +1262,7 @@ class SelectTool(_Tool):
             )
             if sb is not None:
                 sb.showMessage(
-                    f"Usunięto {n_dropped} drut(ów) (Ctrl+Z by cofnąć)",
+                    f"Removed {n_dropped} wire(s) (Ctrl+Z to undo)",
                     4000,
                 )
         if reroute_net_ids:
@@ -1365,12 +1365,12 @@ class SelectTool(_Tool):
         """
         return self._resolve_pref_ask_remove(
             preference, wire_ids,
-            dialog_title="Usunąć wolne druty?",
+            dialog_title="Remove free wires?",
             dialog_message_template=(
-                "Drag spowoduje usunięcie {n} wolnych drut(ów).  Kontynuować?"
+                "Drag will remove {n} free wire(s).  Continue?"
             ),
             block_status_message=(
-                "Konflikt z wolnym drutem zablokowany przez preferencje (Esc cofnij)"
+                "Free-wire conflict blocked by preferences (Esc to cancel)"
             ),
             session_override_attr="free_wire",
         )
@@ -1383,13 +1383,13 @@ class SelectTool(_Tool):
         """Resolve the ``drag.stationary_group_wire_conflict`` preference."""
         return self._resolve_pref_ask_remove(
             preference, wire_ids,
-            dialog_title="Usunąć druty obcej grupy?",
+            dialog_title="Remove foreign-group wires?",
             dialog_message_template=(
-                "Drag wymaga usunięcia {n} drut(ów) należących do innej grupy.  "
-                "Kontynuować?"
+                "Drag requires removing {n} wire(s) belonging to another group.  "
+                "Continue?"
             ),
             block_status_message=(
-                "Konflikt z drutem stacjonarnej grupy zablokowany przez preferencje"
+                "Stationary-group wire conflict blocked by preferences"
             ),
             session_override_attr="stationary_group_wire",
         )
@@ -1412,7 +1412,7 @@ class SelectTool(_Tool):
             return set(wire_ids), self._net_ids_for_wires(wire_ids)
         if preference == "block":
             self._show_status_bar(
-                "Drag rozłączyłby sieć — zablokowane przez preferencje (Esc cofnij)",
+                "Drag would disconnect a net — blocked by preferences (Esc to cancel)",
             )
             return None
         # ask-remove / ask-reroute → full disconnect dialog.
@@ -2588,8 +2588,8 @@ class SelectTool(_Tool):
                 soft_decision = DragCommitDecision(
                     severity=DragSeverity.SOFT,
                     description=(
-                        f"Group drop usuwa {n_removable} drut(ów) "
-                        f"— [Enter] zatwierdź, [Esc] cofnij"
+                        f"Group drop removes {n_removable} wire(s) "
+                        f"— [Enter] confirm, [Esc] cancel"
                     ),
                     auto_remove_wire_ids=tuple(
                         c.wire_id for c in soft_remove_cmds  # type: ignore[attr-defined]
@@ -2895,9 +2895,9 @@ class SelectTool(_Tool):
         has_items = True  # View section is always present
 
         # ── View section (universal) ──────────────────────────────────────────
-        act_center = menu.addAction("Wyśrodkuj widok tutaj")
+        act_center = menu.addAction("Center view here")
         act_center.setData(("view_center", scene_pt))
-        act_escape = menu.addAction("Anuluj narzędzie (Esc)")
+        act_escape = menu.addAction("Cancel tool (Esc)")
         act_escape.setData(("view_escape",))
         menu.addSeparator()
 
@@ -3926,8 +3926,8 @@ class SelectTool(_Tool):
             self._drag_last_decision = DragCommitDecision(
                 severity=DragSeverity.SOFT,
                 description=(
-                    f"Drop usuwa {n_remove} drut(ów) "
-                    f"— [Enter] zatwierdź, [Esc] cofnij"
+                    f"Drop removes {n_remove} wire(s) "
+                    f"— [Enter] confirm, [Esc] cancel"
                 ),
                 auto_remove_wire_ids=tuple(soft_wire_ids),
                 overlay_pad_positions=tuple(soft_pads),
@@ -4571,7 +4571,7 @@ class SelectTool(_Tool):
             sb = getattr(self._view.window(), "statusBar", lambda: None)()
             if sb is not None:
                 sb.showMessage(
-                    f"Usunięto {len(result.removable_wire_ids)} drut(ów) kolidujących po przesunięciu grupy.",
+                    f"Removed {len(result.removable_wire_ids)} colliding wire(s) after group move.",
                     4000,
                 )
 
@@ -4642,7 +4642,7 @@ class SelectTool(_Tool):
         sb = getattr(self._view.window(), "statusBar", lambda: None)()
         if sb is not None:
             sb.showMessage(
-                f"Usunięto {len(cmds)} drut(ów) kolidujących po przesunięciu.", 4000
+                f"Removed {len(cmds)} colliding wire(s) after move.", 4000
             )
         return cmds
 

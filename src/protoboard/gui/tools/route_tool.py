@@ -80,7 +80,7 @@ class RouteTool(_Tool):
         if self._view.is_locked_pin(scene_pt):
             sb = self._view.window().statusBar()
             if sb is not None:
-                sb.showMessage("Pad należy do grupy — wyeksportuj go najpierw (prawy klik → Export pin)", 3000)
+                sb.showMessage("Pad belongs to a group — export it first (right-click → Export pin)", 3000)
             return True  # consume event, block routing
         snapped = self._view.snap(scene_pt)
 
