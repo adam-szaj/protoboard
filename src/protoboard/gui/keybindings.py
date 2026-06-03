@@ -130,6 +130,11 @@ ACTION_GEN_SHORTCUT_CONFIG = "gen_shortcut_config"
 # a part to place.  Default shortcut "A" matches the KiCAD convention.
 ACTION_FOCUS_LIBRARY = "focus_library"
 
+# Lock / Unlock selected components.  Toggle: if every component in
+# the selection is already locked, unlock them all; otherwise lock the
+# whole selection.  No default shortcut.
+ACTION_LOCK_TOGGLE = "lock_toggle"
+
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
@@ -214,6 +219,7 @@ DEFAULTS: dict[str, str] = {
     ACTION_BOARD_SPREAD: "",
     ACTION_GEN_SHORTCUT_CONFIG: "",
     ACTION_FOCUS_LIBRARY: "A",
+    ACTION_LOCK_TOGGLE: "",
 }
 
 # Human-readable names (for future Preferences dialog).
@@ -294,6 +300,7 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_BOARD_SPREAD: "Spread Components",
     ACTION_GEN_SHORTCUT_CONFIG: "Generate Shortcut Config File",
     ACTION_FOCUS_LIBRARY: "Add Component (focus Library)",
+    ACTION_LOCK_TOGGLE: "Lock / Unlock Selected",
     ACTION_LAYER_6: "Layer 6 (Labels)",
     ACTION_LAYER_7: "Layer 7 (Pin Names)",
     ACTION_LAYER_8: "Layer 8 (Connections)",

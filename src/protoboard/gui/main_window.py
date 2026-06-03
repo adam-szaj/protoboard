@@ -126,6 +126,7 @@ class MainWindow(QMainWindow):
         KB.ACTION_WIRE_SIDE_BOTTOM:      {"label": "Side: &Bottom", "checkable": True},
         KB.ACTION_REDRAG_PINS:           {"label": "Re-drag &Pins"},
         KB.ACTION_FOCUS_LIBRARY:         {"label": "&Add Component…"},
+        KB.ACTION_LOCK_TOGGLE:           {"label": "&Lock / Unlock"},
         KB.ACTION_WIRE_SET_INSULATED:    {"label": "Wire: Set &Insulated"},
         KB.ACTION_WIRE_SET_BARE:         {"label": "Wire: Set &Bare"},
         KB.ACTION_WIRE_MOVE_TO_TOP:      {"label": "Wire: Move to &Top Layer"},
@@ -606,6 +607,8 @@ class MainWindow(QMainWindow):
             KB.ACTION_GEN_SHORTCUT_CONFIG:      self._generate_shortcut_config,
             # Component creation
             KB.ACTION_FOCUS_LIBRARY:            self._focus_library_for_add,
+            # Lock / unlock selected components
+            KB.ACTION_LOCK_TOGGLE:              self._lock_toggle,
             # ACTION_HIGHLIGHT_TOGGLE: kept as an alias of clear-highlight
             # for now — the historic intent was "drop the persistent stack
             # entry like Esc".  Wire it to _clear_highlight so the action
@@ -747,6 +750,8 @@ class MainWindow(QMainWindow):
         component_menu.addAction(self._actions[KB.ACTION_FLIP])
         component_menu.addSeparator()
         component_menu.addAction(self._actions[KB.ACTION_REDRAG_PINS])
+        component_menu.addSeparator()
+        component_menu.addAction(self._actions[KB.ACTION_LOCK_TOGGLE])
         component_menu.addSeparator()
         component_menu.addAction(self._actions[KB.ACTION_DELETE])
 
@@ -1744,6 +1749,49 @@ class MainWindow(QMainWindow):
         # Simulate Del key through SelectTool's handler.
         event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier)
         tool.on_key(event)
+
+    def _lock_toggle(self) -> None:
+        """Toggle lock on every component in the current selection.
+
+        If every component in the selection is already locked → unlock
+        them all.  Otherwise lock the whole selection (idempotent for
+        already-locked entries).
+        """
+        from protoboard.domain.commands.base import MacroCommand
+        from protoboard.domain.commands.component_cmds import LockComponentCommand
+
+        tool = self._get_select_tool()
+        if tool is None:
+            return
+        targets: set[uuid.UUID] = set()
+        if tool._selected_ids:
+            targets.update(tool._selected_ids)
+        if tool._selected_id is not None:
+            targets.add(tool._selected_id)
+        if not targets:
+            self._status.showMessage("Nothing selected to lock.", 3000)
+            return
+
+        placements = self._session.layout.placements
+        valid = [cid for cid in targets if cid in placements]
+        if not valid:
+            return
+
+        all_locked = all(placements[cid].locked for cid in valid)
+        new_locked = not all_locked
+        cmds = [
+            LockComponentCommand(component_id=cid, locked=new_locked)
+            for cid in valid
+            if placements[cid].locked != new_locked
+        ]
+        if not cmds:
+            return
+        macro = MacroCommand(cmds) if len(cmds) > 1 else cmds[0]
+        self._session.stack.execute(macro, self._session)
+        self._session.layout_changed.emit()
+        self._update_undo_redo()
+        verb = "Locked" if new_locked else "Unlocked"
+        self._status.showMessage(f"{verb} {len(cmds)} component(s).", 3000)
 
     def _rotate_cw(self) -> None:
         tool = self._get_select_tool()
