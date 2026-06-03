@@ -135,6 +135,18 @@ ACTION_FOCUS_LIBRARY = "focus_library"
 # whole selection.  No default shortcut.
 ACTION_LOCK_TOGGLE = "lock_toggle"
 
+# Net operations.  These delegate to the Nets editor panel — top-menu
+# entries raise the panel and invoke the panel's slot so the user can
+# rename / colour / toggle global / delete the currently selected net,
+# or create a new one.  No default shortcuts.
+ACTION_NET_NEW = "net_new"
+ACTION_NET_RENAME = "net_rename"
+ACTION_NET_SET_COLOR = "net_set_color"
+ACTION_NET_CLEAR_COLOR = "net_clear_color"
+ACTION_NET_TOGGLE_GLOBAL = "net_toggle_global"
+ACTION_NET_DELETE = "net_delete"
+ACTION_PIN_ASSIGN_NET = "pin_assign_net"
+
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
@@ -220,6 +232,13 @@ DEFAULTS: dict[str, str] = {
     ACTION_GEN_SHORTCUT_CONFIG: "",
     ACTION_FOCUS_LIBRARY: "A",
     ACTION_LOCK_TOGGLE: "",
+    ACTION_NET_NEW: "",
+    ACTION_NET_RENAME: "",
+    ACTION_NET_SET_COLOR: "",
+    ACTION_NET_CLEAR_COLOR: "",
+    ACTION_NET_TOGGLE_GLOBAL: "",
+    ACTION_NET_DELETE: "",
+    ACTION_PIN_ASSIGN_NET: "",
 }
 
 # Human-readable names (for future Preferences dialog).
@@ -301,6 +320,13 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_GEN_SHORTCUT_CONFIG: "Generate Shortcut Config File",
     ACTION_FOCUS_LIBRARY: "Add Component (focus Library)",
     ACTION_LOCK_TOGGLE: "Lock / Unlock Selected",
+    ACTION_NET_NEW: "Net: New…",
+    ACTION_NET_RENAME: "Net: Rename…",
+    ACTION_NET_SET_COLOR: "Net: Set Color…",
+    ACTION_NET_CLEAR_COLOR: "Net: Clear Color",
+    ACTION_NET_TOGGLE_GLOBAL: "Net: Toggle Global",
+    ACTION_NET_DELETE: "Net: Delete",
+    ACTION_PIN_ASSIGN_NET: "Pin: Assign to Net…",
     ACTION_LAYER_6: "Layer 6 (Labels)",
     ACTION_LAYER_7: "Layer 7 (Pin Names)",
     ACTION_LAYER_8: "Layer 8 (Connections)",

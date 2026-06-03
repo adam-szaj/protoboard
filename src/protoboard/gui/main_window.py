@@ -609,6 +609,15 @@ class MainWindow(QMainWindow):
             KB.ACTION_FOCUS_LIBRARY:            self._focus_library_for_add,
             # Lock / unlock selected components
             KB.ACTION_LOCK_TOGGLE:              self._lock_toggle,
+            # Net editor delegations — each raises the Nets tab and
+            # invokes the matching NetsEditorPanel slot.
+            KB.ACTION_NET_NEW:                  self._net_new,
+            KB.ACTION_NET_RENAME:               self._net_rename,
+            KB.ACTION_NET_SET_COLOR:            self._net_set_color,
+            KB.ACTION_NET_CLEAR_COLOR:          self._net_clear_color,
+            KB.ACTION_NET_TOGGLE_GLOBAL:        self._net_toggle_global,
+            KB.ACTION_NET_DELETE:               self._net_delete,
+            KB.ACTION_PIN_ASSIGN_NET:           self._pin_assign_net,
             # ACTION_HIGHLIGHT_TOGGLE: kept as an alias of clear-highlight
             # for now — the historic intent was "drop the persistent stack
             # entry like Esc".  Wire it to _clear_highlight so the action
@@ -774,9 +783,20 @@ class MainWindow(QMainWindow):
         wire_menu.addAction(self._actions[KB.ACTION_UNWEAVE_WIRES])
         wire_menu.addAction(self._actions[KB.ACTION_MERGE_WIRE_FRAGMENTS])
 
-        # Net submenu — pin/net assignment (other net ops live in the
-        # Nets editor panel for now; faza 1b will lift them to action-ids).
+        # Net submenu — top-menu entries delegate to NetsEditorPanel
+        # which keeps the implementation single-sourced.  Each entry
+        # raises the Nets tab and invokes the panel's slot on the
+        # currently selected net.
         net_menu = design_menu.addMenu("&Net")
+        net_menu.addAction(self._actions[KB.ACTION_NET_NEW])
+        net_menu.addSeparator()
+        net_menu.addAction(self._actions[KB.ACTION_NET_RENAME])
+        net_menu.addAction(self._actions[KB.ACTION_NET_SET_COLOR])
+        net_menu.addAction(self._actions[KB.ACTION_NET_CLEAR_COLOR])
+        net_menu.addAction(self._actions[KB.ACTION_NET_TOGGLE_GLOBAL])
+        net_menu.addAction(self._actions[KB.ACTION_NET_DELETE])
+        net_menu.addSeparator()
+        net_menu.addAction(self._actions[KB.ACTION_PIN_ASSIGN_NET])
         net_menu.addAction(self._actions[KB.ACTION_DISCONNECT_PIN])
 
         # Group submenu.
@@ -1749,6 +1769,48 @@ class MainWindow(QMainWindow):
         # Simulate Del key through SelectTool's handler.
         event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete, Qt.KeyboardModifier.NoModifier)
         tool.on_key(event)
+
+    def _focus_nets_panel(self) -> None:
+        """Switch the left dock to the Nets tab and give it focus.
+
+        Same idiom as _focus_library_for_add — top-menu Net actions
+        delegate to NetsEditorPanel slots which work on its currently
+        selected net, so the panel needs to be visible first.
+        """
+        for child in self.findChildren(QTabWidget):
+            for i in range(child.count()):
+                if child.tabText(i) == "Nets":
+                    child.setCurrentIndex(i)
+                    self._nets_editor_panel.setFocus()
+                    return
+
+    def _net_new(self) -> None:
+        self._focus_nets_panel()
+        self._nets_editor_panel._on_add_net()
+
+    def _net_rename(self) -> None:
+        self._focus_nets_panel()
+        self._nets_editor_panel._on_rename_net()
+
+    def _net_set_color(self) -> None:
+        self._focus_nets_panel()
+        self._nets_editor_panel._on_set_color()
+
+    def _net_clear_color(self) -> None:
+        self._focus_nets_panel()
+        self._nets_editor_panel._on_clear_color()
+
+    def _net_toggle_global(self) -> None:
+        self._focus_nets_panel()
+        self._nets_editor_panel._on_toggle_global()
+
+    def _net_delete(self) -> None:
+        self._focus_nets_panel()
+        self._nets_editor_panel._on_delete_net()
+
+    def _pin_assign_net(self) -> None:
+        self._focus_nets_panel()
+        self._nets_editor_panel._on_assign_pin()
 
     def _lock_toggle(self) -> None:
         """Toggle lock on every component in the current selection.
