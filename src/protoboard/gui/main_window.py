@@ -1961,16 +1961,18 @@ class MainWindow(QMainWindow):
         self._group_set_exported(frozenset())
 
     def _group_autoroute(self) -> None:
-        """Autoroute internal connections of the active group, recursively.
+        """Autoroute connections that live inside the active group.
 
-        Internal = nets whose every pin sits on a component inside the
-        group (or any nested sub-group), excluding global nets.  When
-        the active group has no internal nets, fall back to a status
-        message rather than launching the worker.
+        Any net (including externals and globals) is routed when it has
+        ≥2 pins on components in the group's recursive component set —
+        but only between those in-group pins.  External pins are hidden
+        from the router on this pass via a schematic projection; they
+        remain in the real schematic and can be routed later from a
+        parent context.
         """
         from protoboard.domain.layout.group import (
             all_component_ids,
-            internal_net_ids_for_components,
+            schematic_projection_for_group,
         )
 
         if not self._session.schematic.nets:
@@ -1982,15 +1984,20 @@ class MainWindow(QMainWindow):
         merged_ids = frozenset(
             all_component_ids(self._session.layout.groups, gid)
         )
-        net_ids = set(
-            internal_net_ids_for_components(merged_ids, self._session.schematic)
+        projection = schematic_projection_for_group(
+            merged_ids, self._session.schematic
         )
-        if not net_ids:
+        if not projection.nets:
             self._status.showMessage(
-                "Group has no fully-internal nets to route.", 3000
+                "Group has no nets with internal connectivity to route.",
+                3000,
             )
             return
-        self._autoroute_with_net_ids(net_ids)
+        self._autoroute_with_net_ids(
+            net_ids=None,  # route every net in the projection
+            schematic_override=projection,
+            title_prefix="Autoroute group",
+        )
 
     def _lock_toggle(self) -> None:
         """Toggle lock on every component in the current selection.
@@ -2327,14 +2334,19 @@ class MainWindow(QMainWindow):
         self._autoroute_with_net_ids(net_ids)
 
     def _autoroute_with_net_ids(
-        self, net_ids: set[uuid.UUID] | None
+        self,
+        net_ids: set[uuid.UUID] | None,
+        *,
+        schematic_override: object | None = None,
+        title_prefix: str = "Autoroute",
     ) -> None:
         """Launch the autoroute worker over an explicit net set.
 
         ``net_ids = None`` routes every net in the schematic.  Used by
         ``_autoroute`` (which derives the set from selection / Net
-        Inspector / fallback) and by ``_group_autoroute`` (internal nets
-        of the active group).
+        Inspector / fallback) and by ``_group_autoroute`` (which passes
+        a per-group schematic projection so external nets get routed
+        only between their in-group pins).
         """
         from protoboard.gui.dialogs.autoroute_dialog import AutorouteDialog
         from protoboard.gui.workers.autoroute_worker import AutorouteWorker
@@ -2366,7 +2378,7 @@ class MainWindow(QMainWindow):
         )
 
         dlg = QProgressDialog("Initialising autorouter…", "Cancel", 0, 100, self)
-        dlg.setWindowTitle(f"Autoroute{title_suffix}")
+        dlg.setWindowTitle(f"{title_prefix}{title_suffix}")
         # Non-modal: the main window stays interactive.  Hard-mutate
         # actions (place / route / undo / etc.) are gated by
         # ``session.autoroute_active`` below, but inspection, view ops,
@@ -2383,7 +2395,7 @@ class MainWindow(QMainWindow):
         worker = AutorouteWorker(
             board=self._session.board,
             layout=self._session.layout,
-            schematic=self._session.schematic,
+            schematic=schematic_override or self._session.schematic,  # type: ignore[arg-type]
             components=self._session.components,
             instances=self._session.instances,
             routing_settings=run_settings,

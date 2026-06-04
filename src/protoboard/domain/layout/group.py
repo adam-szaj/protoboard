@@ -134,10 +134,6 @@ def internal_net_ids_for_components(
       * every one of its pins sits on a component in *component_ids*, **and**
       * the net is not marked global (global nets reach the whole board
         and are routed at the project level, not per-group).
-
-    Used by the "Autoroute group" action to restrict routing to the
-    connections living inside a group (and, by extension, inside its
-    sub-groups when *component_ids* is the recursive flattening).
     """
     result: set[uuid.UUID] = set()
     for net in schematic.nets.values():
@@ -148,6 +144,47 @@ def internal_net_ids_for_components(
         if all(p.component_id in component_ids for p in net.pins):
             result.add(net.id)
     return frozenset(result)
+
+
+def schematic_projection_for_group(
+    component_ids: frozenset[uuid.UUID],
+    schematic: "Schematic",
+) -> "Schematic":
+    """Return a projection of *schematic* that keeps only the pins that
+    belong to components in *component_ids*.
+
+    For each net in the source schematic, the projection contains a net
+    with the same id/name/color/global flag but only the subset of pins
+    whose ``component_id`` is in *component_ids*.  Nets with fewer than
+    two surviving pins are dropped — there is nothing to route inside
+    the group for those nets even though their wires elsewhere stay
+    intact.
+
+    Used by the "Autoroute group" action to restrict the router's
+    notion of connectivity to "what must be wired up inside the group"
+    while still respecting global net membership for things like
+    plated-through hole sharing.  External pins of the net (those on
+    components outside the group) are simply hidden from the router on
+    this pass; they remain in the real schematic, untouched.
+    """
+    from protoboard.domain.schematic.schematic import Schematic
+    from protoboard.domain.schematic.net import Net
+
+    projected_nets: dict[uuid.UUID, Net] = {}
+    for net in schematic.nets.values():
+        internal_pins = {
+            p for p in net.pins if p.component_id in component_ids
+        }
+        if len(internal_pins) < 2:
+            continue
+        projected_nets[net.id] = Net(
+            id=net.id,
+            name=net.name,
+            pins=internal_pins,
+            color=net.color,
+            global_net=net.global_net,
+        )
+    return Schematic(nets=projected_nets)
 
 
 def all_pins_for_components(

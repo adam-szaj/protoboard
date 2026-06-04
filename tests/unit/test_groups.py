@@ -556,3 +556,116 @@ class TestInternalNetIds:
             frozenset({n["c1"], n["c2"]}), sch
         )
         assert n["empty"] not in result
+
+
+class TestSchematicProjectionForGroup:
+    """schematic_projection_for_group prepares the router input for
+    "Autoroute group": every net is restricted to the pins inside the
+    group, and nets with fewer than 2 internal pins are dropped."""
+
+    def _build(self) -> tuple[
+        "Schematic",  # type: ignore[name-defined]  # noqa: F821
+        dict[str, uuid.UUID],
+    ]:
+        from protoboard.domain.schematic.net import Net, PinRef
+        from protoboard.domain.schematic.schematic import Schematic
+
+        c1, c2, c3 = (uuid.uuid4() for _ in range(3))
+        n_internal = Net(
+            id=uuid.uuid4(),
+            name="N_INT",
+            pins={PinRef(c1, 1), PinRef(c2, 1)},
+        )
+        # External-to-group net: pins on c1+c2 (in group) AND c3 (outside).
+        # Projection should keep only the in-group pins.
+        n_ext = Net(
+            id=uuid.uuid4(),
+            name="N_EXT",
+            pins={PinRef(c1, 2), PinRef(c2, 2), PinRef(c3, 1)},
+        )
+        # Net with only one in-group pin — dropped from projection.
+        n_lonely = Net(
+            id=uuid.uuid4(),
+            name="N_LONELY",
+            pins={PinRef(c1, 3), PinRef(c3, 2)},
+        )
+        n_global = Net(
+            id=uuid.uuid4(),
+            name="VCC",
+            pins={PinRef(c1, 4), PinRef(c2, 3), PinRef(c3, 3)},
+            global_net=True,
+        )
+        sch = Schematic(nets={
+            n_internal.id: n_internal,
+            n_ext.id: n_ext,
+            n_lonely.id: n_lonely,
+            n_global.id: n_global,
+        })
+        return sch, {"c1": c1, "c2": c2, "c3": c3,
+                     "int": n_internal.id, "ext": n_ext.id,
+                     "lonely": n_lonely.id, "vcc": n_global.id}
+
+    def test_internal_net_preserved(self) -> None:
+        from protoboard.domain.layout.group import schematic_projection_for_group
+
+        sch, n = self._build()
+        proj = schematic_projection_for_group(
+            frozenset({n["c1"], n["c2"]}), sch
+        )
+        assert n["int"] in proj.nets
+        assert len(proj.nets[n["int"]].pins) == 2
+
+    def test_external_net_keeps_only_internal_pins(self) -> None:
+        """N_EXT has pins on c1, c2, c3.  Inside group {c1, c2} the
+        projection keeps c1/c2 pins and drops the c3 pin."""
+        from protoboard.domain.layout.group import schematic_projection_for_group
+
+        sch, n = self._build()
+        proj = schematic_projection_for_group(
+            frozenset({n["c1"], n["c2"]}), sch
+        )
+        assert n["ext"] in proj.nets
+        projected_ext = proj.nets[n["ext"]]
+        component_ids = {p.component_id for p in projected_ext.pins}
+        assert component_ids == {n["c1"], n["c2"]}
+
+    def test_lonely_net_dropped(self) -> None:
+        """A net with only one pin inside the group has nothing to wire
+        up — dropped from the projection."""
+        from protoboard.domain.layout.group import schematic_projection_for_group
+
+        sch, n = self._build()
+        proj = schematic_projection_for_group(
+            frozenset({n["c1"], n["c2"]}), sch
+        )
+        assert n["lonely"] not in proj.nets
+
+    def test_global_net_kept_when_at_least_two_internal_pins(self) -> None:
+        """Global nets are still routed inside the group when 2+ of
+        their pins fall inside.  Per user (2026-06-04) Autoroute Group
+        routes *any* net with internal connectivity, not just fully
+        internal ones."""
+        from protoboard.domain.layout.group import schematic_projection_for_group
+
+        sch, n = self._build()
+        proj = schematic_projection_for_group(
+            frozenset({n["c1"], n["c2"]}), sch
+        )
+        assert n["vcc"] in proj.nets
+        assert proj.nets[n["vcc"]].global_net is True
+        # External c3 pin dropped.
+        assert {p.component_id for p in proj.nets[n["vcc"]].pins} == {
+            n["c1"], n["c2"]
+        }
+
+    def test_projection_preserves_net_identity(self) -> None:
+        """The projected nets keep the original id/name/color so wires
+        produced by the router can be merged back into the schematic."""
+        from protoboard.domain.layout.group import schematic_projection_for_group
+
+        sch, n = self._build()
+        proj = schematic_projection_for_group(
+            frozenset({n["c1"], n["c2"]}), sch
+        )
+        assert proj.nets[n["int"]].name == sch.nets[n["int"]].name
+        assert proj.nets[n["ext"]].name == sch.nets[n["ext"]].name
