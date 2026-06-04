@@ -2986,6 +2986,10 @@ class SelectTool(_Tool):
                             "Export auto (pins on external nets)"
                         )
                         act_export_auto.setData(("export_auto_pins", active_gid))
+                        act_export_clear = sm_export.addAction(
+                            "Unexport all pins"
+                        )
+                        act_export_clear.setData(("clear_all_pins", active_gid))
                         sm_export.addSeparator()
                         for pin_num in range(1, defn.footprint.pin_count() + 1):
                             ep = ExportedPin(component_id=comp_id, pin_number=pin_num)
@@ -3002,6 +3006,15 @@ class SelectTool(_Tool):
                             act.hovered.connect(
                                 lambda _cid=comp_id, _pn=pin_num: _hover_pin(_cid, _pn)
                             )
+
+                    # Autoroute the active group (acts on the group as a
+                    # whole — independent of which component was right-
+                    # clicked).  Delegates to MainWindow's slot so the
+                    # worker plumbing stays single-sourced.
+                    act_ar_grp = menu.addAction(
+                        "Autoroute group (internal connections)"
+                    )
+                    act_ar_grp.setData(("autoroute_group", active_gid))
 
                 # Disconnect pin from net
                 from protoboard.domain.schematic.net import PinRef
@@ -3270,6 +3283,28 @@ class SelectTool(_Tool):
                         self._session,
                     )
                     self._session.layout_changed.emit()
+
+        elif action == "clear_all_pins":
+            _, group_id = data
+            from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
+            grp = self._session.layout.groups.get(group_id)
+            if grp is not None and grp.exported_pins:
+                self._session.stack.execute(
+                    SetExportedPinsCommand(
+                        group_id=group_id, new_exported=frozenset()
+                    ),
+                    self._session,
+                )
+                self._session.layout_changed.emit()
+
+        elif action == "autoroute_group":
+            # Delegate to MainWindow's slot — keeps the worker plumbing
+            # single-sourced and the dialog/progress UX consistent with
+            # the top-menu entry.
+            mw = self._view.window() if self._view is not None else None
+            slot = getattr(mw, "_group_autoroute", None)
+            if callable(slot):
+                slot()
 
         elif action == "disconnect":
             _, cid, pin_num = data
