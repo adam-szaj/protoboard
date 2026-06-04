@@ -7256,6 +7256,7 @@ class SelectTool(_Tool):
         from protoboard.domain.commands.group_cmds import (
             AddToGroupCommand,
             CreateGroupCommand,
+            RemoveFromGroupCommand,
             SetExportedPinsCommand,
         )
         from protoboard.domain.layout.group import (
@@ -7300,12 +7301,25 @@ class SelectTool(_Tool):
             )
             cmd = CreateGroupCommand(group=new_group)
             self._session.stack.execute(cmd, self._session)
-            # Register new group as a child of the active group.
+            # Register new group as a child of the active group.  Also
+            # detach the components from the parent's direct membership
+            # so the "one component is in exactly one group" invariant
+            # holds — otherwise drag/rotate hit-tests find the components
+            # as directs of the parent before walking into the child and
+            # never enter the group-drag-arming path (user-observed
+            # 2026-06-04).  RemoveFromGroupCommand subtracts an
+            # intersection by default, so it's a no-op when the
+            # components weren't directs (Ctrl+G from root).
             cmd_attach = AddToGroupCommand(
                 group_id=active_gid,
                 child_group_ids=frozenset({new_group.id}),
             )
             self._session.stack.execute(cmd_attach, self._session)
+            cmd_detach = RemoveFromGroupCommand(
+                group_id=active_gid,
+                component_ids=ids,
+            )
+            self._session.stack.execute(cmd_detach, self._session)
             self._session.layout_changed.emit()
             self._select_group(new_group.id)
             return new_group.id
@@ -7319,6 +7333,15 @@ class SelectTool(_Tool):
                 component_ids=ids,
             )
             self._session.stack.execute(cmd_add, self._session)
+            # Same invariant fix as the "new group" branch: when adding
+            # to an existing child group, detach the components from the
+            # active group's direct membership.
+            if target_id != active_gid:
+                cmd_detach_existing = RemoveFromGroupCommand(
+                    group_id=active_gid,
+                    component_ids=ids,
+                )
+                self._session.stack.execute(cmd_detach_existing, self._session)
             if dlg.auto_export_external:
                 # Recompute external pins for the *whole* group after merge —
                 # adding components can both add and remove external pins

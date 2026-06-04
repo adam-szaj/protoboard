@@ -12,6 +12,7 @@ from protoboard.domain.commands.group_cmds import (
     AddToGroupCommand,
     CreateGroupCommand,
     DisbandGroupCommand,
+    RemoveFromGroupCommand,
     RenameGroupCommand,
 )
 from protoboard.domain.layout.group import (
@@ -20,7 +21,7 @@ from protoboard.domain.layout.group import (
     top_level_group_for,
     would_create_cycle,
 )
-from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.layout import Layout, ROOT_GROUP_ID
 
 # ---------------------------------------------------------------------------
 # Minimal state stub
@@ -264,3 +265,78 @@ class TestRenameGroupCommand:
         cmd.apply(state)
         cmd.revert(state)
         assert state.layout.groups[g.id].name == "Old"
+
+
+# ---------------------------------------------------------------------------
+# Invariant: a component lives in exactly one group at any tree depth.
+# Repro for the 2026-06-04 bug where Ctrl+G inside an edited parent left
+# the components as direct members of BOTH the parent and the new child,
+# which broke _is_locked_in_group hit-tests for nested drag/rotate.
+# ---------------------------------------------------------------------------
+
+
+class TestNestedGroupInvariant:
+    def test_create_subgroup_inside_active_parent_detaches_components(self) -> None:
+        """The Ctrl+G command sequence (Create + AddToGroup + RemoveFromGroup)
+        leaves each component as a direct member of exactly one group."""
+        state = _State()
+        c1, c2 = uuid.uuid4(), uuid.uuid4()
+        parent = ComponentGroup(
+            id=uuid.uuid4(),
+            name="A",
+            component_ids=frozenset({c1, c2}),
+        )
+        state.layout.groups[parent.id] = parent
+
+        # Replay the command sequence that _group_for_selection runs for
+        # "Ctrl+G on selected components inside an edited parent group".
+        child = ComponentGroup(
+            id=uuid.uuid4(),
+            name="B",
+            component_ids=frozenset({c1, c2}),
+        )
+        CreateGroupCommand(group=child).apply(state)
+        AddToGroupCommand(
+            group_id=parent.id,
+            child_group_ids=frozenset({child.id}),
+        ).apply(state)
+        RemoveFromGroupCommand(
+            group_id=parent.id,
+            component_ids=frozenset({c1, c2}),
+        ).apply(state)
+
+        # Invariant: the components are now direct members of B only,
+        # and B is a child of A; A has no direct members.
+        assert state.layout.groups[child.id].component_ids == frozenset({c1, c2})
+        assert state.layout.groups[parent.id].component_ids == frozenset()
+        assert state.layout.groups[parent.id].child_group_ids == frozenset({child.id})
+        # And the recursive collector still reports both under A.
+        assert all_component_ids(state.layout.groups, parent.id) == frozenset({c1, c2})
+
+    def test_create_subgroup_at_root_no_op_detach(self) -> None:
+        """Ctrl+G at root level: components were never direct members of
+        root, so the RemoveFromGroupCommand is a harmless no-op."""
+        state = _State()
+        # Seed root group (the GUI always has one).
+        root = ComponentGroup(id=ROOT_GROUP_ID, name="", component_ids=frozenset())
+        state.layout.groups[ROOT_GROUP_ID] = root
+
+        c1 = uuid.uuid4()
+        child = ComponentGroup(
+            id=uuid.uuid4(),
+            name="G",
+            component_ids=frozenset({c1}),
+        )
+        CreateGroupCommand(group=child).apply(state)
+        AddToGroupCommand(
+            group_id=ROOT_GROUP_ID,
+            child_group_ids=frozenset({child.id}),
+        ).apply(state)
+        RemoveFromGroupCommand(
+            group_id=ROOT_GROUP_ID,
+            component_ids=frozenset({c1}),
+        ).apply(state)
+
+        assert state.layout.groups[child.id].component_ids == frozenset({c1})
+        assert state.layout.groups[ROOT_GROUP_ID].component_ids == frozenset()
+        assert child.id in state.layout.groups[ROOT_GROUP_ID].child_group_ids
