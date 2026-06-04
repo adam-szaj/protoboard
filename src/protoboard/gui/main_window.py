@@ -1935,19 +1935,17 @@ class MainWindow(QMainWindow):
         self._group_set_exported(new_exported)
 
     def _group_export_all(self) -> None:
-        from protoboard.domain.layout.group import (
-            all_component_ids,
-            all_pins_for_components,
-        )
+        from protoboard.domain.layout.group import exposable_surface
 
         gid = self._active_group_or_warn()
         if gid is None:
             return
-        merged_ids = frozenset(
-            all_component_ids(self._session.layout.groups, gid)
-        )
-        new_exported = all_pins_for_components(
-            merged_ids, self._session.instances, self._session.components
+        # Encapsulation: "all" = pins of direct members + each direct
+        # child's re-exportable interface.  Grandchild pins surface only
+        # via explicit re-exports at each intermediate level.
+        new_exported = exposable_surface(
+            self._session.layout.groups, gid,
+            self._session.instances, self._session.components,
         )
         self._group_set_exported(new_exported)
 

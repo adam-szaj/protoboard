@@ -2969,43 +2969,91 @@ class SelectTool(_Tool):
                 active_gid = self._current_group_id
                 if active_gid != ROOT_GROUP_ID:
                     active_grp = self._session.layout.groups.get(active_gid)
-                    if active_grp is not None and comp_id in all_component_ids(
-                        self._session.layout.groups, active_gid
-                    ):
+                    if active_grp is not None:
                         from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
                         from protoboard.domain.layout.group import ExportedPin
-                        sm_export = menu.addMenu(
-                            f"{inst.refdes} — export/unexport pins…"
-                        )
-                        # Bulk actions act on the *entire active group*, not
-                        # just the right-clicked component — that's where
-                        # exported_pins live.
-                        act_export_all = sm_export.addAction("Export all pins")
-                        act_export_all.setData(("export_all_pins", active_gid))
-                        act_export_auto = sm_export.addAction(
-                            "Export auto (pins on external nets)"
-                        )
-                        act_export_auto.setData(("export_auto_pins", active_gid))
-                        act_export_clear = sm_export.addAction(
-                            "Unexport all pins"
-                        )
-                        act_export_clear.setData(("clear_all_pins", active_gid))
-                        sm_export.addSeparator()
-                        for pin_num in range(1, defn.footprint.pin_count() + 1):
-                            ep = ExportedPin(component_id=comp_id, pin_number=pin_num)
-                            pin_name = defn.pin_names.get(pin_num, str(pin_num))
-                            already = ep in active_grp.exported_pins
-                            marker = " ◀" if pin_num == clicked_pin else ""
-                            label = (
-                                f"✓ Unexport pin {pin_num} ({pin_name}){marker}"
-                                if already
-                                else f"  Export pin {pin_num} ({pin_name}){marker}"
+                        is_direct_member = comp_id in active_grp.component_ids
+                        # Direct child groups that have something to re-export.
+                        reexportable_children = [
+                            (
+                                cid,
+                                self._session.layout.groups[cid],
                             )
-                            act = sm_export.addAction(label)
-                            act.setData(("export_pin", active_gid, ep, already))
-                            act.hovered.connect(
-                                lambda _cid=comp_id, _pn=pin_num: _hover_pin(_cid, _pn)
+                            for cid in active_grp.child_group_ids
+                            if cid in self._session.layout.groups
+                            and self._session.layout.groups[cid].exported_pins
+                        ]
+                        if is_direct_member or reexportable_children:
+                            sm_export = menu.addMenu(
+                                f"{inst.refdes} — export/unexport pins…"
                             )
+                            # Bulk actions act on the *entire active group*.
+                            act_export_all = sm_export.addAction("Export all pins")
+                            act_export_all.setData(("export_all_pins", active_gid))
+                            act_export_auto = sm_export.addAction(
+                                "Export auto (pins on external nets)"
+                            )
+                            act_export_auto.setData(("export_auto_pins", active_gid))
+                            act_export_clear = sm_export.addAction(
+                                "Unexport all pins"
+                            )
+                            act_export_clear.setData(("clear_all_pins", active_gid))
+                            sm_export.addSeparator()
+                            # Per-pin entries only for direct members of the
+                            # active group — the encapsulated re-export model
+                            # forbids flat-exporting a pin that lives in a
+                            # nested sub-group.
+                            if is_direct_member:
+                                for pin_num in range(1, defn.footprint.pin_count() + 1):
+                                    ep = ExportedPin(
+                                        component_id=comp_id, pin_number=pin_num
+                                    )
+                                    pin_name = defn.pin_names.get(pin_num, str(pin_num))
+                                    already = ep in active_grp.exported_pins
+                                    marker = " ◀" if pin_num == clicked_pin else ""
+                                    label = (
+                                        f"✓ Unexport pin {pin_num} ({pin_name}){marker}"
+                                        if already
+                                        else f"  Export pin {pin_num} ({pin_name}){marker}"
+                                    )
+                                    act = sm_export.addAction(label)
+                                    act.setData(
+                                        ("export_pin", active_gid, ep, already)
+                                    )
+                                    act.hovered.connect(
+                                        lambda _cid=comp_id, _pn=pin_num: _hover_pin(_cid, _pn)
+                                    )
+                            # Re-export submenu per direct child group: each
+                            # entry toggles whether one of child.exported_pins
+                            # also sits in active_grp.exported_pins — i.e.
+                            # whether the active group surfaces that pin to
+                            # its own parent.  Plan §3.6.
+                            for child_id, child_grp in reexportable_children:
+                                sm_child = sm_export.addMenu(
+                                    f"Re-export from sub-group "
+                                    f"{child_grp.name or str(child_id)[:8]}"
+                                )
+                                for ep in sorted(
+                                    child_grp.exported_pins,
+                                    key=lambda e: (str(e.component_id), e.pin_number),
+                                ):
+                                    ep_inst = self._session.instances.get(ep.component_id)
+                                    refdes = ep_inst.refdes if ep_inst else "?"
+                                    pin_label = f"{refdes} pin {ep.pin_number}"
+                                    already_re = ep in active_grp.exported_pins
+                                    re_label = (
+                                        f"✓ Un-re-export {pin_label}"
+                                        if already_re
+                                        else f"  Re-export {pin_label}"
+                                    )
+                                    act_re = sm_child.addAction(re_label)
+                                    act_re.setData(
+                                        ("export_pin", active_gid, ep, already_re)
+                                    )
+                                    act_re.hovered.connect(
+                                        lambda _cid=ep.component_id, _pn=ep.pin_number:
+                                        _hover_pin(_cid, _pn)
+                                    )
 
                     # Autoroute the active group (acts on the group as a
                     # whole — independent of which component was right-
@@ -3243,14 +3291,15 @@ class SelectTool(_Tool):
         elif action == "export_all_pins":
             _, group_id = data
             from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
-            from protoboard.domain.layout.group import all_pins_for_components
+            from protoboard.domain.layout.group import exposable_surface
             grp = self._session.layout.groups.get(group_id)
             if grp is not None:
-                merged_ids = frozenset(
-                    all_component_ids(self._session.layout.groups, group_id)
-                )
-                new_exported = all_pins_for_components(
-                    merged_ids,
+                # Encapsulation: "all" = pins of direct members + each direct
+                # child's re-exportable interface.  Grandchild pins surface
+                # only after the parent of the relevant intermediate group
+                # explicitly re-exports them at that level.
+                new_exported = exposable_surface(
+                    self._session.layout.groups, group_id,
                     self._session.instances,
                     self._session.components,
                 )
