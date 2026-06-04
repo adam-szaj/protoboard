@@ -812,6 +812,11 @@ def _check_group_exports(
     external interface.
 
     For each group G (recursive — includes nested sub-groups, skips ROOT):
+      * Every entry in ``G.exported_pins`` must satisfy the encapsulated
+        re-export chain — the pin's component is either a direct member
+        of G or has been re-exported by a direct child of G.  Otherwise
+        emit ``GROUP_INVALID_EXPORT`` (error).  Checked first so chain
+        violations don't mask the other classes below.
       * For every *external net* of G — one whose pins include at least one
         component outside G's recursive component set, **or** is a global
         net (VCC/GND) — at least one of G's pins on that net must appear in
@@ -825,13 +830,44 @@ def _check_group_exports(
     silently ignored — they're either orphan exports or unplaced pins, and
     the user explicitly chose to suppress that case.
     """
-    from protoboard.domain.layout.group import ExportedPin, all_component_ids
+    from protoboard.domain.layout.group import (
+        all_component_ids,
+        validate_exported_pins,
+    )
     from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
     issues: list[DRCIssue] = []
     for gid, group in layout.groups.items():
         if gid == ROOT_GROUP_ID:
             continue
+
+        # INVALID: exported pin breaks the encapsulated re-export chain.
+        # Checked first because a grandchild pin floating in G.exported_pins
+        # would otherwise satisfy MISSING for the net it lives on while
+        # bypassing the intermediate group's interface.
+        invalid = validate_exported_pins(layout.groups, gid)
+        for ep in invalid:
+            ref = PinRef(component_id=ep.component_id, pin_number=ep.pin_number)
+            group_label = group.name or f"<{str(gid)[:8]}>"
+            msg = (
+                f"Group {group_label!r} exports pin {_format_pin(ref, instances)} "
+                f"but the pin lives on a component that is neither a direct "
+                f"member of this group nor re-exported by a direct sub-group. "
+                f"Re-export the pin at each intermediate group or remove the "
+                f"export."
+            )
+            issues.append(
+                DRCIssue(
+                    severity="error",
+                    code="GROUP_INVALID_EXPORT",
+                    message=msg,
+                    locations=[],
+                    affected_nets=[],
+                    affected_pins=[ref],
+                    affected_components=[ref.component_id],
+                )
+            )
+
         member_ids = all_component_ids(layout.groups, gid)
         if not member_ids:
             continue
@@ -877,8 +913,11 @@ def _check_group_exports(
                     )
                 )
 
-        # BOGUS: exported pin whose net is not external.
+        # BOGUS: exported pin whose net is not external.  Skip entries
+        # already flagged as INVALID to avoid stacking warnings on errors.
         for ep in group.exported_pins:
+            if ep in invalid:
+                continue
             ref = PinRef(component_id=ep.component_id, pin_number=ep.pin_number)
             net = schematic.net_for_pin(ref)
             if net is None:

@@ -843,6 +843,227 @@ class TestDRCGroupExports:
         assert {sch.nets[i.affected_nets[0]].name for i in missing} == {"VCC", "AB"}
 
 
+class TestDRCGroupInvalidExport:
+    """`G.exported_pins` must satisfy the encapsulated re-export chain
+    (see docs/group-export-encapsulation.md):
+
+      ep.component_id ∈ G.component_ids
+      OR ep ∈ ⋃ child.exported_pins  (for direct children)
+
+    Grandchild flat exports — where a pin lives in C but neither C's parent
+    B nor any intermediate group re-exports it — must produce
+    GROUP_INVALID_EXPORT (error).
+    """
+
+    def test_grandchild_flat_export_flagged_invalid(self) -> None:
+        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.domain.schematic.net import PinRef as _PinRef
+        board = _perfboard(1, 5)
+        defn = _r_defn()
+        r_inner = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        r_outside = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        placements = {
+            r_inner.id: ComponentPlacement(component_id=r_inner.id, position=Point(0.5, 0.5), rotation=90, side="top"),
+            r_outside.id: ComponentPlacement(component_id=r_outside.id, position=Point(2.5, 0.5), rotation=90, side="top"),
+        }
+        ext_net = Net(
+            id=uuid.uuid4(), name="EXT",
+            pins={
+                _PinRef(component_id=r_inner.id, pin_number=1),
+                _PinRef(component_id=r_outside.id, pin_number=1),
+            },
+        )
+        sch = Schematic(nets={ext_net.id: ext_net})
+
+        # C contains r_inner and exports its pin 1.
+        # B contains C but does NOT re-export.
+        # A flat-exports r_inner pin 1 → INVALID.
+        ep = ExportedPin(component_id=r_inner.id, pin_number=1)
+        c_gid = uuid.uuid4()
+        b_gid = uuid.uuid4()
+        a_gid = uuid.uuid4()
+        c = ComponentGroup(
+            id=c_gid, name="C",
+            component_ids=frozenset({r_inner.id}),
+            exported_pins=frozenset({ep}),
+        )
+        b = ComponentGroup(
+            id=b_gid, name="B",
+            child_group_ids=frozenset({c_gid}),
+            # Note: B does NOT re-export ep.
+        )
+        a = ComponentGroup(
+            id=a_gid, name="A",
+            child_group_ids=frozenset({b_gid}),
+            exported_pins=frozenset({ep}),
+        )
+        root_grp = ComponentGroup(
+            id=ROOT_GROUP_ID, name="root",
+            component_ids=frozenset(), child_group_ids=frozenset({a_gid}),
+        )
+        lay = Layout(
+            placements=placements, wires=[],
+            groups={
+                ROOT_GROUP_ID: root_grp,
+                a_gid: a, b_gid: b, c_gid: c,
+            },
+        )
+        issues = DRCEngine().check(
+            board=board, schematic=sch, layout=lay,
+            components={defn.name: defn},
+            instances={r_inner.id: r_inner, r_outside.id: r_outside},
+        )
+        invalid = [i for i in issues if i.code == "GROUP_INVALID_EXPORT"]
+        # Both A and B violate: A exports ep, B doesn't re-export it.
+        # C is fine because the pin is a direct member.
+        invalid_groups = {tuple(i.affected_pins)[0] for i in invalid}
+        # PinRef equality — should be the ep's pin on both A and B's lists.
+        from protoboard.domain.schematic.net import PinRef as _PR
+        assert _PR(component_id=r_inner.id, pin_number=1) in invalid_groups
+        assert any("A" in i.message for i in invalid)
+        # B does not export ep at all — only A is invalid.
+        assert len(invalid) == 1
+        assert invalid[0].severity == "error"
+
+    def test_chain_makes_export_valid_no_issue(self) -> None:
+        # Same tree but B re-exports ep → A's entry is chain-legal, no
+        # INVALID issue.
+        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.domain.schematic.net import PinRef as _PinRef
+        board = _perfboard(1, 5)
+        defn = _r_defn()
+        r_inner = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        r_outside = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        placements = {
+            r_inner.id: ComponentPlacement(component_id=r_inner.id, position=Point(0.5, 0.5), rotation=90, side="top"),
+            r_outside.id: ComponentPlacement(component_id=r_outside.id, position=Point(2.5, 0.5), rotation=90, side="top"),
+        }
+        ext_net = Net(
+            id=uuid.uuid4(), name="EXT",
+            pins={
+                _PinRef(component_id=r_inner.id, pin_number=1),
+                _PinRef(component_id=r_outside.id, pin_number=1),
+            },
+        )
+        sch = Schematic(nets={ext_net.id: ext_net})
+
+        ep = ExportedPin(component_id=r_inner.id, pin_number=1)
+        c_gid = uuid.uuid4()
+        b_gid = uuid.uuid4()
+        a_gid = uuid.uuid4()
+        c = ComponentGroup(
+            id=c_gid, name="C",
+            component_ids=frozenset({r_inner.id}),
+            exported_pins=frozenset({ep}),
+        )
+        b = ComponentGroup(
+            id=b_gid, name="B",
+            child_group_ids=frozenset({c_gid}),
+            exported_pins=frozenset({ep}),  # re-export
+        )
+        a = ComponentGroup(
+            id=a_gid, name="A",
+            child_group_ids=frozenset({b_gid}),
+            exported_pins=frozenset({ep}),
+        )
+        root_grp = ComponentGroup(
+            id=ROOT_GROUP_ID, name="root",
+            component_ids=frozenset(), child_group_ids=frozenset({a_gid}),
+        )
+        lay = Layout(
+            placements=placements, wires=[],
+            groups={
+                ROOT_GROUP_ID: root_grp,
+                a_gid: a, b_gid: b, c_gid: c,
+            },
+        )
+        issues = DRCEngine().check(
+            board=board, schematic=sch, layout=lay,
+            components={defn.name: defn},
+            instances={r_inner.id: r_inner, r_outside.id: r_outside},
+        )
+        assert [i for i in issues if i.code == "GROUP_INVALID_EXPORT"] == []
+
+    def test_invalid_not_double_flagged_as_bogus(self) -> None:
+        """An INVALID export must not also generate a BOGUS warning —
+        the user gets one error per offending entry."""
+        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.domain.schematic.net import PinRef as _PinRef
+        board = _perfboard(1, 5)
+        defn = _r_defn()
+        r_inner = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        r_outside = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        placements = {
+            r_inner.id: ComponentPlacement(component_id=r_inner.id, position=Point(0.5, 0.5), rotation=90, side="top"),
+            r_outside.id: ComponentPlacement(component_id=r_outside.id, position=Point(2.5, 0.5), rotation=90, side="top"),
+        }
+        # Net stays fully inside C (no outside pin, not global).  An INVALID
+        # flat export on A would normally also count as BOGUS for A — assert
+        # only INVALID fires.
+        internal_net = Net(
+            id=uuid.uuid4(), name="INT",
+            pins={
+                _PinRef(component_id=r_inner.id, pin_number=1),
+                _PinRef(component_id=r_outside.id, pin_number=1),
+            },
+        )
+        sch = Schematic(nets={internal_net.id: internal_net})
+
+        ep = ExportedPin(component_id=r_inner.id, pin_number=1)
+        c_gid = uuid.uuid4()
+        a_gid = uuid.uuid4()
+        # A contains C (and r_outside as a direct member).  Net is fully
+        # inside A's recursive set → BOGUS would normally apply to ep on A.
+        # But ep is also chain-invalid (C exports it; A's child C does so
+        # directly, so actually... we need C wrapped in B).
+        b_gid = uuid.uuid4()
+        c = ComponentGroup(
+            id=c_gid, name="C",
+            component_ids=frozenset({r_inner.id}),
+            exported_pins=frozenset({ep}),
+        )
+        b = ComponentGroup(
+            id=b_gid, name="B",
+            child_group_ids=frozenset({c_gid}),
+            # B does not re-export.
+        )
+        a = ComponentGroup(
+            id=a_gid, name="A",
+            component_ids=frozenset({r_outside.id}),
+            child_group_ids=frozenset({b_gid}),
+            exported_pins=frozenset({ep}),
+        )
+        root_grp = ComponentGroup(
+            id=ROOT_GROUP_ID, name="root",
+            component_ids=frozenset(), child_group_ids=frozenset({a_gid}),
+        )
+        lay = Layout(
+            placements=placements, wires=[],
+            groups={
+                ROOT_GROUP_ID: root_grp,
+                a_gid: a, b_gid: b, c_gid: c,
+            },
+        )
+        issues = DRCEngine().check(
+            board=board, schematic=sch, layout=lay,
+            components={defn.name: defn},
+            instances={r_inner.id: r_inner, r_outside.id: r_outside},
+        )
+        a_issues_invalid = [
+            i for i in issues if i.code == "GROUP_INVALID_EXPORT"
+            and "A" in i.message
+        ]
+        a_issues_bogus = [
+            i for i in issues if i.code == "GROUP_BOGUS_EXPORT"
+            and "A" in i.message
+        ]
+        assert len(a_issues_invalid) == 1
+        assert a_issues_bogus == []
+
+
 class TestAutoroutePreconditionBlocksMissingExport:
     def test_missing_export_code_in_blocker_set(self) -> None:
         from protoboard.services.routing.autorouter import (
