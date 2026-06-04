@@ -215,6 +215,15 @@ class DRCEngine:
                 board, layout, components, instances, axis_labels,
                 pad_index=pad_index,
             )
+            if _cancelled():
+                return issues
+            issues += _check_wire_pin_on_plated_through(
+                layout, board=board, axis_labels=axis_labels,
+                pad_index=pad_index,
+            )
+            if _cancelled():
+                return issues
+        issues += _check_half_orphan_wires(layout, axis_labels)
         if _cancelled():
             return issues
         issues += _check_group_exports(schematic, layout, instances)
@@ -942,6 +951,114 @@ def _check_group_exports(
                     affected_components=[ref.component_id],
                 )
             )
+    return issues
+
+
+def _check_wire_pin_on_plated_through(
+    layout: Layout,
+    board: Board,
+    axis_labels: AxisLabelSettings | None,
+    *,
+    pad_index: "PadIndex | None" = None,
+) -> list[DRCIssue]:
+    """Wire-pin invariant (docs/wire-pin-implementation.md §2.1): every
+    :class:`WirePinKnot` must sit on a board pad whose ``plated_through``
+    flag is set.
+
+    A wire-pin's whole point is the through-hole terminal (rule 5 — pin
+    pierces every physical layer).  Off-pad wire-pins or wire-pins on
+    non-plated pads have no fabricable interpretation and must be
+    surfaced as an error.  Typical sources:
+
+    * the user converted an endpoint and then dragged it to a pad that
+      doesn't have ``plated_through``,
+    * board geometry was later edited (a pad was downgraded to
+      single-sided) without removing the wire-pin first.
+    """
+    from protoboard.domain.layout.knot import WirePinKnot
+
+    if not layout.knots:
+        return []
+    issues: list[DRCIssue] = []
+    for knot in layout.knots.values():
+        if not isinstance(knot, WirePinKnot):
+            continue
+        pos = knot.position
+        loc_label = _format_location(pos, axis_labels)
+        plated = False
+        if pad_index is not None:
+            pad = pad_index.pad_at(pos)
+            plated = pad is not None and pad.layers.plated_through
+        else:
+            from protoboard.domain.layout.wire_utils import plated_through_pads
+            plated = _point_on_pads(pos, set(plated_through_pads(board)))
+        if plated:
+            continue
+        affected_wires = list(knot.wire_ids)
+        issues.append(
+            DRCIssue(
+                severity="error",
+                code="WIRE_PIN_OFF_PLATED_THROUGH",
+                message=(
+                    f"Wire-pin at {loc_label} is not on a plated-through "
+                    f"pad. Move the wire endpoint to a plated-through pad "
+                    f"or convert it back to a free endpoint."
+                ),
+                locations=[pos],
+                affected_nets=[],
+                affected_wires=affected_wires,
+            )
+        )
+    return issues
+
+
+def _check_half_orphan_wires(
+    layout: Layout,
+    axis_labels: AxisLabelSettings | None,
+) -> list[DRCIssue]:
+    """Rule 9 (docs/pad-pin-wire-junction-semantics.md §192): a wire
+    endpoint that has no solder mate is a *half-orphan* — warn so the
+    user decides whether to delete the wire, extend it, or promote the
+    endpoint to a wire-pin.
+
+    "Solder mate" means the endpoint knot is shared with another wire
+    (t-junction) or it is a :class:`WirePinKnot` (deliberate terminal).
+    A lone :class:`JointKnot` with one incident wire is half-orphan.
+
+    PinKnot endpoints are by definition anchored to a real component
+    pin — never half-orphan even if no other wire shares the pin.
+    """
+    from protoboard.domain.layout.knot import JointKnot, WirePinKnot
+
+    issues: list[DRCIssue] = []
+    for wire in layout.wires:
+        if wire.a is None or wire.b is None:
+            continue
+        for side, ref in (("a", wire.a), ("b", wire.b)):
+            knot = layout.knots.get(ref.id)
+            if not isinstance(knot, JointKnot):
+                continue
+            if len(knot.wire_ids) != 1:
+                # Shared with another wire — that's a t-junction, not orphan.
+                continue
+            assert wire.id in knot.wire_ids
+            pos = knot.position
+            loc_label = _format_location(pos, axis_labels)
+            issues.append(
+                DRCIssue(
+                    severity="warning",
+                    code="HALF_ORPHAN_WIRE",
+                    message=(
+                        f"Wire endpoint at {loc_label} has no solder mate. "
+                        f"Delete the wire, extend it, or convert the "
+                        f"endpoint to a wire-pin."
+                    ),
+                    locations=[pos],
+                    affected_nets=[],
+                    affected_wires=[wire.id],
+                )
+            )
+    _ = WirePinKnot  # mark used — type narrows JointKnot guard above
     return issues
 
 

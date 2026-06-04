@@ -1148,3 +1148,199 @@ class TestDRCOffBoardPin:
         off = [i for i in issues if i.code == "OFF_BOARD_PIN"]
         # Both pins miss — both bottom side, neither pad reaches bottom.
         assert len(off) == 2
+
+
+# ---------------------------------------------------------------------------
+# HALF_ORPHAN_WIRE + WIRE_PIN_OFF_PLATED_THROUGH
+# (docs/wire-pin-implementation.md §3.5; rule 9 in pad-pin-wire-junction-semantics)
+# ---------------------------------------------------------------------------
+
+
+def _bare_perfboard(rows: int, cols: int, plated: bool) -> Board:
+    """Variant of _perfboard that lets a test control plated-through."""
+    return Board(root=BoardGrid(
+        width_policy=SizePolicy.HUG,
+        height_policy=SizePolicy.HUG,
+        cell=PadAtom(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            layers=PadLayers(top=True, bottom=True, plated_through=plated),
+        ),
+        rows=rows, cols=cols, row_gap=0.0, col_gap=0.0,
+    ))
+
+
+class TestDRCHalfOrphanWire:
+    """A wire endpoint with a sole-owner JointKnot is half-orphan.  DRC
+    fires a warning so the user decides: delete the wire, extend it, or
+    convert the endpoint to a wire-pin.
+    """
+
+    def _make_half_orphan_layout(self) -> Layout:
+        from protoboard.domain.layout.knot import JointKnot
+        from protoboard.domain.layout.wire import KnotRef
+
+        lay = Layout(placements={}, wires=[])
+        ka = JointKnot(id=uuid.uuid4(), position=Point(0.5, 0.5))
+        kb = JointKnot(id=uuid.uuid4(), position=Point(1.5, 0.5))
+        lay.knots[ka.id] = ka
+        lay.knots[kb.id] = kb
+        wire = Wire(
+            id=uuid.uuid4(), path=[Point(0.5, 0.5), Point(1.5, 0.5)],
+            side="top", a=KnotRef(id=ka.id), b=KnotRef(id=kb.id),
+        )
+        lay.add_wire(wire)
+        return lay
+
+    def test_lone_joint_endpoint_fires_warning(self) -> None:
+        board = _bare_perfboard(1, 3, plated=True)
+        lay = self._make_half_orphan_layout()
+        issues = DRCEngine().check(
+            board=board, schematic=Schematic(nets={}), layout=lay,
+            components={}, instances={},
+        )
+        half = [i for i in issues if i.code == "HALF_ORPHAN_WIRE"]
+        # Both endpoints are lone joints → 2 warnings.
+        assert len(half) == 2
+        assert all(i.severity == "warning" for i in half)
+
+    def test_t_junction_endpoint_not_orphan(self) -> None:
+        # JointKnot shared with another wire is a t-junction, not an
+        # orphan — must not fire HALF_ORPHAN_WIRE.
+        from protoboard.domain.layout.knot import JointKnot
+        from protoboard.domain.layout.wire import KnotRef
+
+        board = _bare_perfboard(1, 3, plated=True)
+        lay = Layout(placements={}, wires=[])
+        ka = JointKnot(id=uuid.uuid4(), position=Point(0.5, 0.5))
+        kb = JointKnot(id=uuid.uuid4(), position=Point(1.5, 0.5))
+        kc = JointKnot(id=uuid.uuid4(), position=Point(2.5, 0.5))
+        lay.knots[ka.id] = ka
+        lay.knots[kb.id] = kb
+        lay.knots[kc.id] = kc
+        w1 = Wire(
+            id=uuid.uuid4(), path=[Point(0.5, 0.5), Point(1.5, 0.5)],
+            side="top", a=KnotRef(id=ka.id), b=KnotRef(id=kb.id),
+        )
+        w2 = Wire(
+            id=uuid.uuid4(), path=[Point(1.5, 0.5), Point(2.5, 0.5)],
+            side="top", a=KnotRef(id=kb.id), b=KnotRef(id=kc.id),
+        )
+        lay.add_wire(w1)
+        lay.add_wire(w2)
+        # kb is shared by both wires (t-junction), ka and kc are still
+        # half-orphan.
+        issues = DRCEngine().check(
+            board=board, schematic=Schematic(nets={}), layout=lay,
+            components={}, instances={},
+        )
+        half_ids = {
+            (i.locations[0].x, i.locations[0].y)
+            for i in issues if i.code == "HALF_ORPHAN_WIRE"
+        }
+        assert (0.5, 0.5) in half_ids
+        assert (2.5, 0.5) in half_ids
+        assert (1.5, 0.5) not in half_ids  # t-junction, not orphan
+
+    def test_wire_pin_endpoint_not_orphan(self) -> None:
+        # Promoting an endpoint to a wire-pin suppresses the warning —
+        # rule 9: "convert to wire-pin" is one of the three options
+        # offered to the user when the orphan fires.
+        from protoboard.domain.commands.component_cmds import (
+            ConvertEndpointToWirePinCommand,
+        )
+
+        board = _bare_perfboard(1, 3, plated=True)
+        lay = self._make_half_orphan_layout()
+        # Look up wire id (only one in lay).
+        wire = next(iter(lay.wires))
+        # ConvertEndpointToWirePinCommand needs a state proxy.
+
+        class _State:
+            def __init__(self, lay: Layout, board: Board) -> None:
+                self.board = board
+                self.layout = lay
+                self.instances: dict[uuid.UUID, ComponentInstance] = {}
+                self.components: dict[str, ComponentDefinition] = {}
+
+        state = _State(lay, board)
+        ConvertEndpointToWirePinCommand(
+            wire_id=wire.id, endpoint="a", net_id=None,
+        ).apply(state)  # type: ignore[arg-type]
+        ConvertEndpointToWirePinCommand(
+            wire_id=wire.id, endpoint="b", net_id=None,
+        ).apply(state)  # type: ignore[arg-type]
+        issues = DRCEngine().check(
+            board=board, schematic=Schematic(nets={}), layout=lay,
+            components={}, instances={},
+        )
+        assert [i for i in issues if i.code == "HALF_ORPHAN_WIRE"] == []
+
+
+class TestDRCWirePinOffPlatedThrough:
+    """Wire-pin must sit on a plated-through pad — rule 5 (through-hole
+    propagation).  Off-plated wire-pin is an error.
+    """
+
+    def _make_wire_pin_layout(self, position: Point) -> Layout:
+        from protoboard.domain.layout.knot import JointKnot, WirePinKnot
+        from protoboard.domain.layout.wire import KnotRef
+
+        lay = Layout(placements={}, wires=[])
+        ka = JointKnot(id=uuid.uuid4(), position=position)
+        kb = JointKnot(
+            id=uuid.uuid4(),
+            position=Point(position.x + 1.0, position.y),
+        )
+        lay.knots[ka.id] = ka
+        lay.knots[kb.id] = kb
+        wire = Wire(
+            id=uuid.uuid4(),
+            path=[position, Point(position.x + 1.0, position.y)],
+            side="top", a=KnotRef(id=ka.id), b=KnotRef(id=kb.id),
+        )
+        lay.add_wire(wire)
+        # Promote ka to wire-pin at the given position.
+        lay.knots[ka.id] = WirePinKnot(
+            id=ka.id, position=position, net_id=None,
+            wire_ids=frozenset({wire.id}),
+        )
+        return lay
+
+    def test_wire_pin_on_plated_through_no_issue(self) -> None:
+        board = _bare_perfboard(1, 3, plated=True)
+        lay = self._make_wire_pin_layout(Point(0.5, 0.5))
+        issues = DRCEngine().check(
+            board=board, schematic=Schematic(nets={}), layout=lay,
+            components={}, instances={},
+        )
+        assert [
+            i for i in issues if i.code == "WIRE_PIN_OFF_PLATED_THROUGH"
+        ] == []
+
+    def test_wire_pin_on_isolated_pad_fires_error(self) -> None:
+        # Pad without plated-through → error.
+        board = _bare_perfboard(1, 3, plated=False)
+        lay = self._make_wire_pin_layout(Point(0.5, 0.5))
+        issues = DRCEngine().check(
+            board=board, schematic=Schematic(nets={}), layout=lay,
+            components={}, instances={},
+        )
+        bad = [
+            i for i in issues if i.code == "WIRE_PIN_OFF_PLATED_THROUGH"
+        ]
+        assert len(bad) == 1
+        assert bad[0].severity == "error"
+
+    def test_wire_pin_off_pad_fires_error(self) -> None:
+        # Position between pads → error.
+        board = _bare_perfboard(1, 3, plated=True)
+        lay = self._make_wire_pin_layout(Point(0.7, 0.7))
+        issues = DRCEngine().check(
+            board=board, schematic=Schematic(nets={}), layout=lay,
+            components={}, instances={},
+        )
+        bad = [
+            i for i in issues if i.code == "WIRE_PIN_OFF_PLATED_THROUGH"
+        ]
+        assert len(bad) == 1
