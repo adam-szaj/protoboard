@@ -106,11 +106,21 @@ def net_is_internal_to_group(
     net_id: uuid.UUID | None,
     group: "ComponentGroup",
     schematic: "Schematic | None",
+    groups: "dict[uuid.UUID, ComponentGroup] | None" = None,
 ) -> bool:
     """True iff *net_id* identifies a net living entirely inside *group*.
 
-    Net is internal iff every pin of the net belongs to a group component
-    AND none of those pins is exported AND the net is not global.
+    Net is internal iff every pin of the net belongs to a component in
+    the group's *recursive* membership AND none of those pins is exported
+    AND the net is not global.
+
+    When *groups* is provided the recursive set is computed via
+    ``all_component_ids(groups, group.id)``.  Without it the check falls
+    back to ``group.component_ids`` (direct members only) — accepted for
+    flat-tree callers and existing tests, but unsafe for nested layouts:
+    a net spanning the group and one of its grandchildren would be
+    misclassified as external.  New callers in nested contexts should
+    pass *groups* explicitly.
     """
     if net_id is None or schematic is None:
         return False
@@ -121,7 +131,11 @@ def net_is_internal_to_group(
         return False
     if not net.pins:
         return False
-    group_comp_ids = group.component_ids
+    if groups is not None:
+        from protoboard.domain.layout.group import all_component_ids
+        group_comp_ids = all_component_ids(groups, group.id)
+    else:
+        group_comp_ids = group.component_ids
     exported = {(ep.component_id, ep.pin_number) for ep in group.exported_pins}
     has_group_pin = False
     for pin in net.pins:
