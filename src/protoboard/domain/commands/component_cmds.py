@@ -1297,6 +1297,124 @@ class SetWireSideCommand(Command[ComponentState]):
                 return
 
 
+# ---------------------------------------------------------------------------
+# Wire-pin conversion (docs/wire-pin-implementation.md §3.6)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ConvertEndpointToWirePinCommand(Command[ComponentState]):
+    """Promote a half-orphan wire endpoint to a persistent wire-pin.
+
+    Replaces the wire's named endpoint (``"a"`` or ``"b"``) — currently a
+    :class:`JointKnot` — with a :class:`WirePinKnot` at the same id and
+    position.  ID-preserving replacement keeps the wire's ``KnotRef``
+    intact; no wire path, fragment, or back-reference needs to change.
+
+    Preconditions checked at apply-time (raise ``ValueError``):
+
+    * the named endpoint exists,
+    * the endpoint knot is a ``JointKnot`` (not already a wire-pin or a
+      component-pin anchor),
+    * the joint has exactly one incident wire, this one (i.e. it is a
+      half-orphan endpoint, not a t-junction hub).
+
+    Pad-coincidence and plated-through enforcement live in DRC
+    (``WIRE_PIN_OFF_PLATED_THROUGH``), not here — the GUI guards
+    against creating wire-pins on disqualified pads at menu-build
+    time.
+    """
+
+    wire_id: uuid.UUID
+    endpoint: str  # "a" or "b"
+    net_id: uuid.UUID | None  # snapshot of the wire's current net at conversion
+    _old_knot: JointKnot | None = field(default=None, init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Convert endpoint to wire-pin"
+
+    def _ref(self, wire: "Wire") -> "KnotRef | None":
+        return wire.a if self.endpoint == "a" else wire.b
+
+    def apply(self, state: ComponentState) -> None:
+        if self.endpoint not in ("a", "b"):
+            raise ValueError(
+                f"endpoint must be 'a' or 'b'; got {self.endpoint!r}"
+            )
+        wire = state.layout.wires.get(self.wire_id)
+        if wire is None:
+            raise KeyError(f"Wire {self.wire_id} not found")
+        ref = self._ref(wire)
+        if ref is None:
+            raise ValueError(
+                f"Wire {self.wire_id} has no {self.endpoint!r} endpoint to convert"
+            )
+        knot = state.layout.knots.get(ref.id)
+        if not isinstance(knot, JointKnot):
+            raise ValueError(
+                f"endpoint {self.endpoint!r} of wire {self.wire_id} is "
+                f"{type(knot).__name__ if knot else 'missing'}, expected JointKnot"
+            )
+        if knot.wire_ids != frozenset({self.wire_id}):
+            raise ValueError(
+                f"joint {ref.id} is not a sole-owner half-orphan "
+                f"(wire_ids={knot.wire_ids}); cannot convert to wire-pin"
+            )
+        self._old_knot = knot
+        state.layout.knots[ref.id] = WirePinKnot(
+            id=knot.id,
+            position=knot.position,
+            net_id=self.net_id,
+            wire_ids=knot.wire_ids,
+        )
+
+    def revert(self, state: ComponentState) -> None:
+        if self._old_knot is None:
+            return
+        wire = state.layout.wires.get(self.wire_id)
+        if wire is None:
+            return
+        ref = self._ref(wire)
+        if ref is None:
+            return
+        state.layout.knots[ref.id] = self._old_knot
+
+
+@dataclass
+class ConvertWirePinToEndpointCommand(Command[ComponentState]):
+    """Inverse of :class:`ConvertEndpointToWirePinCommand`.
+
+    Replaces the named :class:`WirePinKnot` with a :class:`JointKnot` at
+    the same id and position.  The wire's ``KnotRef`` keeps pointing at
+    the same id, so no wire-side edits are required.
+    """
+
+    wire_pin_id: uuid.UUID
+    _old_knot: WirePinKnot | None = field(default=None, init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Convert wire-pin back to free endpoint"
+
+    def apply(self, state: ComponentState) -> None:
+        knot = state.layout.knots.get(self.wire_pin_id)
+        if not isinstance(knot, WirePinKnot):
+            raise ValueError(
+                f"knot {self.wire_pin_id} is "
+                f"{type(knot).__name__ if knot else 'missing'}, expected WirePinKnot"
+            )
+        self._old_knot = knot
+        state.layout.knots[self.wire_pin_id] = JointKnot(
+            id=knot.id, position=knot.position, wire_ids=knot.wire_ids,
+        )
+
+    def revert(self, state: ComponentState) -> None:
+        if self._old_knot is None:
+            return
+        state.layout.knots[self.wire_pin_id] = self._old_knot
+
+
 @dataclass
 class SetPinVariantCommand(Command[ComponentState]):
     """Change the pin-name variant of a component instance."""
