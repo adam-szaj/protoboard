@@ -17,11 +17,14 @@ from protoboard.domain.commands.group_cmds import (
 )
 from protoboard.domain.layout.group import (
     ComponentGroup,
+    ExportedPin,
     all_component_ids,
+    exposable_surface,
     parent_group_of,
     promote_selection_to_top_level,
     top_level_group_for,
     top_level_group_under,
+    validate_exported_pins,
     would_create_cycle,
 )
 from protoboard.domain.layout.layout import Layout, ROOT_GROUP_ID
@@ -669,3 +672,341 @@ class TestSchematicProjectionForGroup:
         )
         assert proj.nets[n["int"]].name == sch.nets[n["int"]].name
         assert proj.nets[n["ext"]].name == sch.nets[n["ext"]].name
+
+
+# ---------------------------------------------------------------------------
+# exposable_surface / validate_exported_pins
+# (encapsulated re-export chain — docs/group-export-encapsulation.md)
+# ---------------------------------------------------------------------------
+
+
+def _make_defn(pin_count: int, name: str = "DUT") -> "ComponentDefinition":
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.footprints import SingleRow
+
+    return ComponentDefinition(
+        name=name,
+        footprint=SingleRow(n=pin_count),
+        pin_names={i: f"P{i}" for i in range(1, pin_count + 1)},
+    )
+
+
+def _make_inst(defn_ref: str, refdes: str) -> "ComponentInstance":
+    from protoboard.domain.components.instance import ComponentInstance
+
+    return ComponentInstance.new(definition_ref=defn_ref, refdes=refdes, value="")
+
+
+class TestExposableSurface:
+    def test_leaf_group_direct_pins_only(self) -> None:
+        defn = _make_defn(pin_count=3)
+        inst = _make_inst("DUT", "U1")
+        g = _make_group(comp_ids=frozenset({inst.id}))
+        groups = {g.id: g}
+        surface = exposable_surface(
+            groups, g.id, {inst.id: inst}, {"DUT": defn}
+        )
+        assert surface == frozenset(
+            ExportedPin(component_id=inst.id, pin_number=p) for p in (1, 2, 3)
+        )
+
+    def test_includes_child_reexports(self) -> None:
+        # A directly contains nothing; B (child of A) contains U1 and exports its pin 2.
+        defn = _make_defn(pin_count=3)
+        u1 = _make_inst("DUT", "U1")
+        ep = ExportedPin(component_id=u1.id, pin_number=2)
+        b = _make_group(
+            name="B", comp_ids=frozenset({u1.id})
+        )
+        b = ComponentGroup(
+            id=b.id, name=b.name, component_ids=b.component_ids,
+            exported_pins=frozenset({ep}),
+        )
+        a = _make_group(name="A", child_ids=frozenset({b.id}))
+        groups = {a.id: a, b.id: b}
+        surface = exposable_surface(
+            groups, a.id, {u1.id: u1}, {"DUT": defn}
+        )
+        assert ep in surface
+        # A has no direct members; only B's exports show up.
+        assert surface == frozenset({ep})
+
+    def test_excludes_grandchild_unless_chain(self) -> None:
+        # A[B[C]], C exports c1 pin 1, B does NOT re-export.
+        defn = _make_defn(pin_count=2)
+        c1 = _make_inst("DUT", "C1")
+        ep = ExportedPin(component_id=c1.id, pin_number=1)
+        c = _make_group(name="C", comp_ids=frozenset({c1.id}))
+        c = ComponentGroup(
+            id=c.id, name=c.name, component_ids=c.component_ids,
+            exported_pins=frozenset({ep}),
+        )
+        b = _make_group(name="B", child_ids=frozenset({c.id}))
+        # B has no direct components and no exports — empty surface to A.
+        a = _make_group(name="A", child_ids=frozenset({b.id}))
+        groups = {a.id: a, b.id: b, c.id: c}
+        surface = exposable_surface(
+            groups, a.id, {c1.id: c1}, {"DUT": defn}
+        )
+        assert surface == frozenset()  # B blocks the chain.
+
+    def test_chain_propagates_when_child_reexports(self) -> None:
+        # A[B[C]], C exports c1 pin 1, B re-exports it → surface(A) contains it.
+        defn = _make_defn(pin_count=2)
+        c1 = _make_inst("DUT", "C1")
+        ep = ExportedPin(component_id=c1.id, pin_number=1)
+        c = _make_group(name="C", comp_ids=frozenset({c1.id}))
+        c = ComponentGroup(
+            id=c.id, name=c.name, component_ids=c.component_ids,
+            exported_pins=frozenset({ep}),
+        )
+        b = _make_group(name="B", child_ids=frozenset({c.id}))
+        b = ComponentGroup(
+            id=b.id, name=b.name, child_group_ids=b.child_group_ids,
+            exported_pins=frozenset({ep}),
+        )
+        a = _make_group(name="A", child_ids=frozenset({b.id}))
+        groups = {a.id: a, b.id: b, c.id: c}
+        surface = exposable_surface(
+            groups, a.id, {c1.id: c1}, {"DUT": defn}
+        )
+        assert ep in surface
+
+    def test_unknown_group_returns_empty(self) -> None:
+        assert exposable_surface({}, uuid.uuid4(), {}, {}) == frozenset()
+
+    def test_missing_instance_skipped(self) -> None:
+        # Direct member without a corresponding instance entry → no pins added.
+        g = _make_group(comp_ids=frozenset({uuid.uuid4()}))
+        groups = {g.id: g}
+        assert exposable_surface(groups, g.id, {}, {}) == frozenset()
+
+
+class TestValidateExportedPins:
+    def test_no_exports_is_valid(self) -> None:
+        g = _make_group()
+        assert validate_exported_pins({g.id: g}, g.id) == frozenset()
+
+    def test_direct_member_pin_is_valid(self) -> None:
+        cid = uuid.uuid4()
+        ep = ExportedPin(component_id=cid, pin_number=1)
+        g = ComponentGroup(
+            id=uuid.uuid4(),
+            name="G",
+            component_ids=frozenset({cid}),
+            exported_pins=frozenset({ep}),
+        )
+        assert validate_exported_pins({g.id: g}, g.id) == frozenset()
+
+    def test_grandchild_flat_export_is_invalid(self) -> None:
+        # A[B[C]]; A.exported_pins lists a pin of c1 (which lives in C).
+        # B doesn't re-export it → A's entry is invalid.
+        c_comp = uuid.uuid4()
+        ep = ExportedPin(component_id=c_comp, pin_number=1)
+        c = ComponentGroup(
+            id=uuid.uuid4(), name="C", component_ids=frozenset({c_comp}),
+            exported_pins=frozenset({ep}),
+        )
+        b = ComponentGroup(
+            id=uuid.uuid4(), name="B", child_group_ids=frozenset({c.id}),
+        )
+        a = ComponentGroup(
+            id=uuid.uuid4(), name="A", child_group_ids=frozenset({b.id}),
+            exported_pins=frozenset({ep}),
+        )
+        groups = {a.id: a, b.id: b, c.id: c}
+        assert validate_exported_pins(groups, a.id) == frozenset({ep})
+
+    def test_chain_makes_export_valid(self) -> None:
+        # Same setup but B also re-exports the pin → A's entry is valid.
+        c_comp = uuid.uuid4()
+        ep = ExportedPin(component_id=c_comp, pin_number=1)
+        c = ComponentGroup(
+            id=uuid.uuid4(), name="C", component_ids=frozenset({c_comp}),
+            exported_pins=frozenset({ep}),
+        )
+        b = ComponentGroup(
+            id=uuid.uuid4(), name="B", child_group_ids=frozenset({c.id}),
+            exported_pins=frozenset({ep}),
+        )
+        a = ComponentGroup(
+            id=uuid.uuid4(), name="A", child_group_ids=frozenset({b.id}),
+            exported_pins=frozenset({ep}),
+        )
+        groups = {a.id: a, b.id: b, c.id: c}
+        assert validate_exported_pins(groups, a.id) == frozenset()
+        assert validate_exported_pins(groups, b.id) == frozenset()
+        assert validate_exported_pins(groups, c.id) == frozenset()
+
+    def test_mixed_exports_returns_only_invalid(self) -> None:
+        # A has a direct member c_self (valid) + a flat grandchild export (invalid).
+        c_self = uuid.uuid4()
+        c_grand = uuid.uuid4()
+        ep_self = ExportedPin(component_id=c_self, pin_number=1)
+        ep_grand = ExportedPin(component_id=c_grand, pin_number=1)
+        c = ComponentGroup(
+            id=uuid.uuid4(), name="C", component_ids=frozenset({c_grand}),
+            exported_pins=frozenset({ep_grand}),
+        )
+        b = ComponentGroup(
+            id=uuid.uuid4(), name="B", child_group_ids=frozenset({c.id}),
+            # B doesn't re-export ep_grand.
+        )
+        a = ComponentGroup(
+            id=uuid.uuid4(), name="A",
+            component_ids=frozenset({c_self}),
+            child_group_ids=frozenset({b.id}),
+            exported_pins=frozenset({ep_self, ep_grand}),
+        )
+        groups = {a.id: a, b.id: b, c.id: c}
+        assert validate_exported_pins(groups, a.id) == frozenset({ep_grand})
+
+    def test_unknown_group_returns_empty(self) -> None:
+        assert validate_exported_pins({}, uuid.uuid4()) == frozenset()
+
+
+# ---------------------------------------------------------------------------
+# external_pins_for_group — encapsulated replacement for
+# external_pins_for_components.  Walks G's component tree but only
+# surfaces direct-member pins + child re-exports.
+# ---------------------------------------------------------------------------
+
+
+class TestExternalPinsForGroup:
+    def _build_sch(
+        self, names: dict[str, uuid.UUID]
+    ) -> "Schematic":  # type: ignore[name-defined]  # noqa: F821
+        """Build a schematic with one external net (c1 in G, c_out outside)
+        and one internal net (c1↔c2 both in G)."""
+        from protoboard.domain.schematic.net import Net, PinRef
+        from protoboard.domain.schematic.schematic import Schematic
+
+        n_ext = Net(
+            id=uuid.uuid4(), name="N_EXT",
+            pins={PinRef(names["c1"], 1), PinRef(names["c_out"], 1)},
+        )
+        n_int = Net(
+            id=uuid.uuid4(), name="N_INT",
+            pins={PinRef(names["c1"], 2), PinRef(names["c2"], 1)},
+        )
+        return Schematic(nets={n_ext.id: n_ext, n_int.id: n_int})
+
+    def test_flat_group_direct_member_pin_exported(self) -> None:
+        from protoboard.domain.layout.group import external_pins_for_group
+
+        c1, c2, c_out = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        names = {"c1": c1, "c2": c2, "c_out": c_out}
+        sch = self._build_sch(names)
+
+        g = _make_group(comp_ids=frozenset({c1, c2}))
+        groups = {g.id: g}
+        result = external_pins_for_group(groups, g.id, sch)
+        # c1 pin 1 reaches outside via N_EXT → must be re-exported.
+        # c1 pin 2 is fully internal — NOT exported.
+        assert result == frozenset({ExportedPin(component_id=c1, pin_number=1)})
+
+    def test_grandchild_pin_not_promoted_when_chain_broken(self) -> None:
+        # A[B[c1, c2]]; B does NOT export c1.  Auto-export on A must NOT
+        # surface c1 — encapsulation says A cannot see what B doesn't expose.
+        from protoboard.domain.layout.group import external_pins_for_group
+
+        c1, c2, c_out = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        names = {"c1": c1, "c2": c2, "c_out": c_out}
+        sch = self._build_sch(names)
+
+        b = _make_group(name="B", comp_ids=frozenset({c1, c2}))
+        a = _make_group(name="A", child_ids=frozenset({b.id}))
+        groups = {a.id: a, b.id: b}
+        # Even though c1 reaches outside via N_EXT, A cannot expose it
+        # because B's interface doesn't include c1.
+        assert external_pins_for_group(groups, a.id, sch) == frozenset()
+
+    def test_grandchild_pin_surfaces_when_child_reexports(self) -> None:
+        from protoboard.domain.layout.group import external_pins_for_group
+
+        c1, c2, c_out = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        names = {"c1": c1, "c2": c2, "c_out": c_out}
+        sch = self._build_sch(names)
+
+        ep = ExportedPin(component_id=c1, pin_number=1)
+        b = ComponentGroup(
+            id=uuid.uuid4(), name="B",
+            component_ids=frozenset({c1, c2}),
+            exported_pins=frozenset({ep}),
+        )
+        a = ComponentGroup(
+            id=uuid.uuid4(), name="A", child_group_ids=frozenset({b.id}),
+        )
+        groups = {a.id: a, b.id: b}
+        assert external_pins_for_group(groups, a.id, sch) == frozenset({ep})
+
+    def test_global_net_pin_exported_via_direct_member(self) -> None:
+        from protoboard.domain.layout.group import external_pins_for_group
+        from protoboard.domain.schematic.net import Net, PinRef
+        from protoboard.domain.schematic.schematic import Schematic
+
+        c1, c2 = uuid.uuid4(), uuid.uuid4()
+        # Global net fully inside the group's component set — still external
+        # by virtue of being global (reaches the whole board).
+        n_vcc = Net(
+            id=uuid.uuid4(), name="VCC",
+            pins={PinRef(c1, 3), PinRef(c2, 3)},
+            global_net=True,
+        )
+        sch = Schematic(nets={n_vcc.id: n_vcc})
+        g = _make_group(comp_ids=frozenset({c1, c2}))
+        groups = {g.id: g}
+        result = external_pins_for_group(groups, g.id, sch)
+        assert result == frozenset({
+            ExportedPin(component_id=c1, pin_number=3),
+            ExportedPin(component_id=c2, pin_number=3),
+        })
+
+    def test_pure_internal_net_not_exported(self) -> None:
+        # No outside pin, not global → must not produce any exports.
+        from protoboard.domain.layout.group import external_pins_for_group
+        from protoboard.domain.schematic.net import Net, PinRef
+        from protoboard.domain.schematic.schematic import Schematic
+
+        c1, c2 = uuid.uuid4(), uuid.uuid4()
+        n_int = Net(
+            id=uuid.uuid4(), name="N", pins={PinRef(c1, 1), PinRef(c2, 1)},
+        )
+        sch = Schematic(nets={n_int.id: n_int})
+        g = _make_group(comp_ids=frozenset({c1, c2}))
+        groups = {g.id: g}
+        assert external_pins_for_group(groups, g.id, sch) == frozenset()
+
+    def test_unknown_group_returns_empty(self) -> None:
+        from protoboard.domain.layout.group import external_pins_for_group
+        from protoboard.domain.schematic.schematic import Schematic
+
+        assert external_pins_for_group(
+            {}, uuid.uuid4(), Schematic(nets={})
+        ) == frozenset()
+
+    def test_child_reexport_not_on_outside_net_not_promoted(self) -> None:
+        # B re-exports c2 pin 1, but that pin lies on a fully internal net.
+        # A's auto-export must NOT include c2 — re-exports only surface
+        # when their underlying net actually reaches outside G.
+        from protoboard.domain.layout.group import external_pins_for_group
+
+        c1, c2, c_out = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        names = {"c1": c1, "c2": c2, "c_out": c_out}
+        sch = self._build_sch(names)
+
+        ep_internal = ExportedPin(component_id=c2, pin_number=1)
+        b = ComponentGroup(
+            id=uuid.uuid4(), name="B",
+            component_ids=frozenset({c1, c2}),
+            exported_pins=frozenset({ep_internal}),
+        )
+        a = ComponentGroup(
+            id=uuid.uuid4(), name="A", child_group_ids=frozenset({b.id}),
+        )
+        groups = {a.id: a, b.id: b}
+        # N_INT (c1.pin2 ↔ c2.pin1) is fully inside A's recursive set →
+        # neither leg is external to A → c2 not promoted.
+        # N_EXT goes through c1.pin1, but B doesn't re-export c1 → also not
+        # promoted.
+        assert external_pins_for_group(groups, a.id, sch) == frozenset()

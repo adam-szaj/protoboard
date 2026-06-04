@@ -71,6 +71,88 @@ def all_component_ids(
     return frozenset(result)
 
 
+def exposable_surface(
+    groups: dict[uuid.UUID, ComponentGroup],
+    group_id: uuid.UUID,
+    instances: dict[uuid.UUID, "ComponentInstance"],
+    definitions: dict[str, "ComponentDefinition"],
+) -> frozenset[ExportedPin]:
+    """Return the set of pins that *may* legally appear in ``G.exported_pins``.
+
+    Encapsulated re-export model (see ``docs/group-export-encapsulation.md``):
+
+        exposable(G) = {ExportedPin(c, p) for c in G.component_ids
+                                          for p in pins_of(c)}
+                       ∪ ⋃{child.exported_pins for child ∈ G.child_group_ids}
+
+    A pin may sit on G's interface only if it lives on a *direct* member of G
+    or has already been exported by a *direct* child group.  Pins nested
+    inside grandchildren are invisible from G's perspective until each level
+    along the chain explicitly re-exports them.
+
+    Pure function — no side effects.  Used by validators and by the
+    "Re-export from sub-group …" PPM submenu.
+    """
+    group = groups.get(group_id)
+    if group is None:
+        return frozenset()
+    surface: set[ExportedPin] = set()
+    # Direct members: every pin of every direct-member component.
+    for cid in group.component_ids:
+        inst = instances.get(cid)
+        if inst is None:
+            continue
+        defn = definitions.get(inst.definition_ref)
+        if defn is None:
+            continue
+        for pin_num in range(1, defn.footprint.pin_count() + 1):
+            surface.add(ExportedPin(component_id=cid, pin_number=pin_num))
+    # Direct children's re-exportable interface.
+    for child_id in group.child_group_ids:
+        child = groups.get(child_id)
+        if child is None:
+            continue
+        surface |= child.exported_pins
+    return frozenset(surface)
+
+
+def validate_exported_pins(
+    groups: dict[uuid.UUID, ComponentGroup],
+    group_id: uuid.UUID,
+) -> frozenset[ExportedPin]:
+    """Return the subset of ``G.exported_pins`` that violates encapsulation.
+
+    An exported pin is *invalid* when its component is neither a direct member
+    of G nor re-exported by a direct child of G — i.e. the re-export chain is
+    broken and the pin cannot legitimately appear at G's interface.
+
+    Does not need pin counts: the check only consults ``component_ids`` of G
+    and ``exported_pins`` of each direct child.  Returned set may be empty
+    (G's exports are all chain-legal).
+
+    Used by DRC ``GROUP_INVALID_EXPORT`` and the persistence-loader
+    auto-migration pass.
+    """
+    group = groups.get(group_id)
+    if group is None:
+        return frozenset()
+    direct_members = group.component_ids
+    child_exports: set[ExportedPin] = set()
+    for child_id in group.child_group_ids:
+        child = groups.get(child_id)
+        if child is None:
+            continue
+        child_exports |= child.exported_pins
+    invalid: set[ExportedPin] = set()
+    for ep in group.exported_pins:
+        if ep.component_id in direct_members:
+            continue
+        if ep in child_exports:
+            continue
+        invalid.add(ep)
+    return frozenset(invalid)
+
+
 def top_level_group_for(
     groups: dict[uuid.UUID, ComponentGroup],
     component_id: uuid.UUID,
@@ -121,6 +203,67 @@ def external_pins_for_components(
         if has_outside or net.global_net:
             for p in member_pins:
                 result.add(ExportedPin(component_id=p.component_id, pin_number=p.pin_number))
+    return frozenset(result)
+
+
+def external_pins_for_group(
+    groups: dict[uuid.UUID, ComponentGroup],
+    group_id: uuid.UUID,
+    schematic: "Schematic",
+) -> frozenset[ExportedPin]:
+    """Return the minimal re-export set for *group_id* that satisfies
+    encapsulation (see ``docs/group-export-encapsulation.md``).
+
+    For every net that reaches outside G's recursive component set (or is
+    global), pick *at least one* pin from G's exposable surface — i.e.
+    either a pin of a direct member of G or a pin already re-exported by
+    a direct child of G.  Pins on grandchildren that the chain doesn't
+    surface are deliberately not promoted: such nets are expected to be
+    exposed by the parent of the relevant intermediate group first.
+
+    Used by the "Export Auto" GUI action.  Replaces the legacy
+    ``external_pins_for_components`` which mixed grandchildren pins into
+    G's interface freely, breaking the black-box contract.
+
+    Pure function — no side effects, no Qt.
+    """
+    group = groups.get(group_id)
+    if group is None:
+        return frozenset()
+
+    direct_members = group.component_ids
+    recursive_members = all_component_ids(groups, group_id)
+
+    child_reexports: set[ExportedPin] = set()
+    for child_id in group.child_group_ids:
+        child = groups.get(child_id)
+        if child is None:
+            continue
+        child_reexports |= child.exported_pins
+
+    result: set[ExportedPin] = set()
+    for net in schematic.nets.values():
+        if not net.pins:
+            continue
+        has_inside = any(p.component_id in recursive_members for p in net.pins)
+        if not has_inside:
+            continue
+        has_outside = any(
+            p.component_id not in recursive_members for p in net.pins
+        )
+        if not (has_outside or net.global_net):
+            continue
+        for p in net.pins:
+            if p.component_id in direct_members:
+                result.add(
+                    ExportedPin(
+                        component_id=p.component_id, pin_number=p.pin_number
+                    )
+                )
+        net_pin_set = {(p.component_id, p.pin_number) for p in net.pins}
+        for ep in child_reexports:
+            if (ep.component_id, ep.pin_number) in net_pin_set:
+                result.add(ep)
     return frozenset(result)
 
 
