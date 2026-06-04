@@ -622,6 +622,12 @@ class MainWindow(QMainWindow):
             KB.ACTION_NET_TOGGLE_GLOBAL:        self._net_toggle_global,
             KB.ACTION_NET_DELETE:               self._net_delete,
             KB.ACTION_PIN_ASSIGN_NET:           self._pin_assign_net,
+            # Group operations on the active (entered) group
+            KB.ACTION_GROUP_RENAME:             self._group_rename,
+            KB.ACTION_GROUP_EXPORT_AUTO:        self._group_export_auto,
+            KB.ACTION_GROUP_EXPORT_ALL:         self._group_export_all,
+            KB.ACTION_GROUP_EXPORT_CLEAR:       self._group_export_clear,
+            KB.ACTION_GROUP_AUTOROUTE:          self._group_autoroute,
             # True on/off toggle for persistent highlight — snapshot
             # the active entries and restore them on next press.
             KB.ACTION_HIGHLIGHT_TOGGLE:         self._highlight_toggle,
@@ -806,6 +812,15 @@ class MainWindow(QMainWindow):
         group_menu.addAction(self._actions[KB.ACTION_GROUP])
         group_menu.addAction(self._actions[KB.ACTION_UNGROUP])
         group_menu.addAction(self._actions[KB.ACTION_EXIT_GROUP])
+        group_menu.addSeparator()
+        group_menu.addAction(self._actions[KB.ACTION_GROUP_RENAME])
+        export_sub = group_menu.addMenu("Exported &Pins")
+        export_sub.addAction(self._actions[KB.ACTION_GROUP_EXPORT_AUTO])
+        export_sub.addAction(self._actions[KB.ACTION_GROUP_EXPORT_ALL])
+        export_sub.addSeparator()
+        export_sub.addAction(self._actions[KB.ACTION_GROUP_EXPORT_CLEAR])
+        group_menu.addSeparator()
+        group_menu.addAction(self._actions[KB.ACTION_GROUP_AUTOROUTE])
 
         # ── Edit ► Board ───────────────────────────────────────────────
         board_menu = edit_menu.addMenu("&Board")
@@ -1839,6 +1854,144 @@ class MainWindow(QMainWindow):
         self._focus_nets_panel()
         self._nets_editor_panel._on_assign_pin()
 
+    # ------------------------------------------------------------------
+    # Group operations on the active (entered) group
+    # ------------------------------------------------------------------
+
+    def _active_group_or_warn(self) -> uuid.UUID | None:
+        """Return the active group ID, or show a status message and
+        return None when the user is at root."""
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.gui.tools.select_tool import SelectTool
+
+        tool = self._board_view._active_tool
+        if not isinstance(tool, SelectTool):
+            self._status.showMessage(
+                "Group action requires the Select tool.", 3000
+            )
+            return None
+        gid = tool._current_group_id
+        if gid == ROOT_GROUP_ID:
+            self._status.showMessage(
+                "Enter a group first (long-press its outline or double-click a member).",
+                4000,
+            )
+            return None
+        return gid
+
+    def _group_rename(self) -> None:
+        from PySide6.QtWidgets import QInputDialog
+        from protoboard.domain.commands.group_cmds import RenameGroupCommand
+
+        gid = self._active_group_or_warn()
+        if gid is None:
+            return
+        group = self._session.layout.groups.get(gid)
+        if group is None:
+            return
+        name, ok = QInputDialog.getText(
+            self, "Rename group", "New name:", text=group.name
+        )
+        if not ok:
+            return
+        name = name.strip()
+        if not name or name == group.name:
+            return
+        self._session.stack.execute(
+            RenameGroupCommand(group_id=gid, new_name=name), self._session
+        )
+        self._session.layout_changed.emit()
+        self._update_undo_redo()
+
+    def _group_set_exported(self, new_exported: frozenset) -> None:  # type: ignore[type-arg]
+        """Common back-end for the three Export menu entries."""
+        from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
+
+        gid = self._active_group_or_warn()
+        if gid is None:
+            return
+        group = self._session.layout.groups.get(gid)
+        if group is None:
+            return
+        if new_exported == group.exported_pins:
+            self._status.showMessage("No change to exported pins.", 2000)
+            return
+        self._session.stack.execute(
+            SetExportedPinsCommand(group_id=gid, new_exported=new_exported),
+            self._session,
+        )
+        self._session.layout_changed.emit()
+        self._update_undo_redo()
+
+    def _group_export_auto(self) -> None:
+        from protoboard.domain.layout.group import (
+            all_component_ids,
+            external_pins_for_components,
+        )
+
+        gid = self._active_group_or_warn()
+        if gid is None:
+            return
+        merged_ids = frozenset(
+            all_component_ids(self._session.layout.groups, gid)
+        )
+        new_exported = external_pins_for_components(
+            merged_ids, self._session.schematic
+        )
+        self._group_set_exported(new_exported)
+
+    def _group_export_all(self) -> None:
+        from protoboard.domain.layout.group import (
+            all_component_ids,
+            all_pins_for_components,
+        )
+
+        gid = self._active_group_or_warn()
+        if gid is None:
+            return
+        merged_ids = frozenset(
+            all_component_ids(self._session.layout.groups, gid)
+        )
+        new_exported = all_pins_for_components(
+            merged_ids, self._session.instances, self._session.components
+        )
+        self._group_set_exported(new_exported)
+
+    def _group_export_clear(self) -> None:
+        self._group_set_exported(frozenset())
+
+    def _group_autoroute(self) -> None:
+        """Autoroute internal connections of the active group, recursively.
+
+        Internal = nets whose every pin sits on a component inside the
+        group (or any nested sub-group), excluding global nets.  When
+        the active group has no internal nets, fall back to a status
+        message rather than launching the worker.
+        """
+        from protoboard.domain.layout.group import (
+            all_component_ids,
+            internal_net_ids_for_components,
+        )
+
+        if not self._session.schematic.nets:
+            QMessageBox.information(self, "Autoroute", "No nets to route.")
+            return
+        gid = self._active_group_or_warn()
+        if gid is None:
+            return
+        merged_ids = frozenset(
+            all_component_ids(self._session.layout.groups, gid)
+        )
+        net_ids = set(
+            internal_net_ids_for_components(merged_ids, self._session.schematic)
+        )
+        if not net_ids:
+            self._status.showMessage(
+                "Group has no fully-internal nets to route.", 3000
+            )
+            return
+        self._autoroute_with_net_ids(net_ids)
+
     def _lock_toggle(self) -> None:
         """Toggle lock on every component in the current selection.
 
@@ -2139,10 +2292,6 @@ class MainWindow(QMainWindow):
 
     def _autoroute(self) -> None:
         """Open the autoroute dialog, then start the router in a background thread."""
-        from protoboard.gui.dialogs.autoroute_dialog import AutorouteDialog
-        from protoboard.gui.workers.autoroute_worker import AutorouteWorker
-        from PySide6.QtWidgets import QProgressDialog
-
         if not self._session.schematic.nets:
             QMessageBox.information(self, "Autoroute", "No nets to route.")
             return
@@ -2175,6 +2324,22 @@ class MainWindow(QMainWindow):
             # Fall back to Net Inspector selection, then all nets.
             inspector_ids = self._net_inspector_panel.selected_net_ids()
             net_ids = inspector_ids if inspector_ids else None
+        self._autoroute_with_net_ids(net_ids)
+
+    def _autoroute_with_net_ids(
+        self, net_ids: set[uuid.UUID] | None
+    ) -> None:
+        """Launch the autoroute worker over an explicit net set.
+
+        ``net_ids = None`` routes every net in the schematic.  Used by
+        ``_autoroute`` (which derives the set from selection / Net
+        Inspector / fallback) and by ``_group_autoroute`` (internal nets
+        of the active group).
+        """
+        from protoboard.gui.dialogs.autoroute_dialog import AutorouteDialog
+        from protoboard.gui.workers.autoroute_worker import AutorouteWorker
+        from PySide6.QtWidgets import QProgressDialog
+
         title_suffix = f" ({len(net_ids)} nets)" if net_ids else " (all nets)"
 
         # Show pre-flight dialog unless user opted to skip it.

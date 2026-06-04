@@ -539,7 +539,7 @@ Fazami, każda z testem smoke:
 2. **Wprowadź `_add_toolbar_group()`** helper i przepisz `_build_toolbar` na 2 toolbary (A/B).
 3. **`QActionGroup` dla 4 narzędzi** + checkable state-actions dla Insulated/Side/Mirror/Camera + sync z modelem (`_wire_insulated`, `_wire_side`, `_camera_side`).
 4. **Przebuduj `_build_menu`** wg §6, w `Edit` zostaje tylko historia + Preferences + Keyboard Shortcuts.
-5. **Status bar widgets** zamiast tekstu w toolbarze.
+5. ~~Status bar widgets zamiast tekstu w toolbarze.~~ **Anulowane (2026-06-03)**: po fazie 3 (checkable QActions + QActionGroup sync) statusbar już pokazuje pełny stan w `_mode_label` (Route mode wypisuje insulated/side; Select/Cut/Simplify mają własne etykiety) i `_view_label` (camera+mirror). Toolbar Wire/View duplikuje to jako szybkie checkable toggle — to świadoma redundancja, daje 1-klik dostęp. Trzy źródła (menu/toolbar/statusbar) są synced przez `_set_wire_side`/`_set_wire_insulated`/`_sync_view_actions`. Faza zbędna.
 6. **PPM cleanup** — język + Lock/Unlock w głównym menu.
 7. **Usuń `ACTION_HIGHLIGHT_TOGGLE`** alias.
 

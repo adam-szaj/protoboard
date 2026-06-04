@@ -473,3 +473,86 @@ class TestSelectionPromotion:
         assert parent_group_of(groups, n["C"]) == n["A"]
         # ROOT itself has no parent.
         assert parent_group_of(groups, ROOT_GROUP_ID) is None
+
+
+# ---------------------------------------------------------------------------
+# internal_net_ids_for_components — drives the "Autoroute group" action,
+# which restricts routing to nets that live entirely inside the group's
+# recursive component set.
+# ---------------------------------------------------------------------------
+
+
+class TestInternalNetIds:
+    def _build(self) -> tuple[
+        "Schematic",  # type: ignore[name-defined]  # noqa: F821
+        dict[str, uuid.UUID],
+    ]:
+        from protoboard.domain.schematic.net import Net, PinRef
+        from protoboard.domain.schematic.schematic import Schematic
+
+        c1, c2, c3, c4 = (uuid.uuid4() for _ in range(4))
+        n_internal = Net(
+            id=uuid.uuid4(),
+            name="N_INT",
+            pins={PinRef(c1, 1), PinRef(c2, 1)},
+        )
+        n_external = Net(
+            id=uuid.uuid4(),
+            name="N_EXT",
+            pins={PinRef(c1, 2), PinRef(c3, 1)},  # c3 outside group
+        )
+        n_global = Net(
+            id=uuid.uuid4(),
+            name="VCC",
+            pins={PinRef(c1, 3), PinRef(c2, 2)},
+            global_net=True,
+        )
+        n_empty = Net(id=uuid.uuid4(), name="N_EMPTY", pins=set())
+        sch = Schematic(nets={
+            n_internal.id: n_internal,
+            n_external.id: n_external,
+            n_global.id: n_global,
+            n_empty.id: n_empty,
+        })
+        names = {"c1": c1, "c2": c2, "c3": c3, "c4": c4,
+                 "int": n_internal.id, "ext": n_external.id,
+                 "vcc": n_global.id, "empty": n_empty.id}
+        return sch, names
+
+    def test_internal_net_collected(self) -> None:
+        from protoboard.domain.layout.group import internal_net_ids_for_components
+
+        sch, n = self._build()
+        result = internal_net_ids_for_components(
+            frozenset({n["c1"], n["c2"]}), sch
+        )
+        assert result == frozenset({n["int"]})
+
+    def test_external_net_excluded(self) -> None:
+        from protoboard.domain.layout.group import internal_net_ids_for_components
+
+        sch, n = self._build()
+        # Group {c1} alone: N_INT no longer fully internal (c2 outside),
+        # N_EXT still external (c3 outside).
+        result = internal_net_ids_for_components(frozenset({n["c1"]}), sch)
+        assert result == frozenset()
+
+    def test_global_net_excluded_even_when_fully_internal(self) -> None:
+        from protoboard.domain.layout.group import internal_net_ids_for_components
+
+        sch, n = self._build()
+        # VCC pins are on {c1, c2}; both in the group — but VCC is global
+        # and must NOT be reported as internal.
+        result = internal_net_ids_for_components(
+            frozenset({n["c1"], n["c2"]}), sch
+        )
+        assert n["vcc"] not in result
+
+    def test_empty_net_excluded(self) -> None:
+        from protoboard.domain.layout.group import internal_net_ids_for_components
+
+        sch, n = self._build()
+        result = internal_net_ids_for_components(
+            frozenset({n["c1"], n["c2"]}), sch
+        )
+        assert n["empty"] not in result

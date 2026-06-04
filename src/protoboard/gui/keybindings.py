@@ -147,6 +147,15 @@ ACTION_NET_TOGGLE_GLOBAL = "net_toggle_global"
 ACTION_NET_DELETE = "net_delete"
 ACTION_PIN_ASSIGN_NET = "pin_assign_net"
 
+# Group operations that act on the active (entered) group.  Rename and
+# exported-pin management used to live only in the right-click menu;
+# Autoroute Group is new (recursive, internal-only routing).
+ACTION_GROUP_RENAME = "group_rename"
+ACTION_GROUP_EXPORT_AUTO = "group_export_auto"
+ACTION_GROUP_EXPORT_ALL = "group_export_all"
+ACTION_GROUP_EXPORT_CLEAR = "group_export_clear"
+ACTION_GROUP_AUTOROUTE = "group_autoroute"
+
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
@@ -239,6 +248,11 @@ DEFAULTS: dict[str, str] = {
     ACTION_NET_TOGGLE_GLOBAL: "",
     ACTION_NET_DELETE: "",
     ACTION_PIN_ASSIGN_NET: "",
+    ACTION_GROUP_RENAME: "",
+    ACTION_GROUP_EXPORT_AUTO: "",
+    ACTION_GROUP_EXPORT_ALL: "",
+    ACTION_GROUP_EXPORT_CLEAR: "",
+    ACTION_GROUP_AUTOROUTE: "",
 }
 
 # Human-readable names (for future Preferences dialog).
@@ -327,6 +341,11 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_NET_TOGGLE_GLOBAL: "Net: Toggle Global",
     ACTION_NET_DELETE: "Net: Delete",
     ACTION_PIN_ASSIGN_NET: "Pin: Assign to Net…",
+    ACTION_GROUP_RENAME: "Group: Rename Active…",
+    ACTION_GROUP_EXPORT_AUTO: "Group: Export Auto (external nets)",
+    ACTION_GROUP_EXPORT_ALL: "Group: Export All Pins",
+    ACTION_GROUP_EXPORT_CLEAR: "Group: Clear Exported Pins",
+    ACTION_GROUP_AUTOROUTE: "Group: Autoroute Internal Connections",
     ACTION_LAYER_6: "Layer 6 (Labels)",
     ACTION_LAYER_7: "Layer 7 (Pin Names)",
     ACTION_LAYER_8: "Layer 8 (Connections)",

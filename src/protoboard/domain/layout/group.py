@@ -124,6 +124,32 @@ def external_pins_for_components(
     return frozenset(result)
 
 
+def internal_net_ids_for_components(
+    component_ids: frozenset[uuid.UUID],
+    schematic: "Schematic",
+) -> frozenset[uuid.UUID]:
+    """Return the IDs of nets that are fully internal to *component_ids*.
+
+    A net is internal when:
+      * every one of its pins sits on a component in *component_ids*, **and**
+      * the net is not marked global (global nets reach the whole board
+        and are routed at the project level, not per-group).
+
+    Used by the "Autoroute group" action to restrict routing to the
+    connections living inside a group (and, by extension, inside its
+    sub-groups when *component_ids* is the recursive flattening).
+    """
+    result: set[uuid.UUID] = set()
+    for net in schematic.nets.values():
+        if net.global_net:
+            continue
+        if not net.pins:
+            continue
+        if all(p.component_id in component_ids for p in net.pins):
+            result.add(net.id)
+    return frozenset(result)
+
+
 def all_pins_for_components(
     component_ids: frozenset[uuid.UUID],
     instances: dict[uuid.UUID, "ComponentInstance"],
