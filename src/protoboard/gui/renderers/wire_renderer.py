@@ -6,9 +6,9 @@ from __future__ import annotations
 import uuid
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen
 from PySide6.QtWidgets import (
-    QGraphicsItemGroup, QGraphicsLineItem,
+    QGraphicsEllipseItem, QGraphicsItem, QGraphicsItemGroup, QGraphicsLineItem,
     QGraphicsPathItem, QGraphicsScene,
 )
 
@@ -492,6 +492,78 @@ def _fill_bare(
 # Keep old names as aliases so existing call-sites in tests/RouteTool still work.
 _draw_insulated = _fill_insulated  # type: ignore[assignment]
 _draw_bare = _fill_bare            # type: ignore[assignment]
+
+
+# ── Wire-pin glyph ───────────────────────────────────────────────────────────
+
+
+def render_wire_pins(
+    scene: QGraphicsScene,
+    wire_pins: "list[tuple[Point, uuid.UUID | None]]",
+    net_color_map: "dict[uuid.UUID, str | None] | None" = None,
+    theme: Theme = DEFAULT_THEME,
+    layers: LayerState = _DEFAULT_LAYERS,
+) -> "list[QGraphicsItem]":
+    """Draw wire-pin glyphs on top of their pads.
+
+    A wire-pin renders as a concentric ring in the owning wire's net
+    colour with an inner mark distinguishable from a regular component
+    pin (which is rendered by the board/component renderer as a solid
+    dot).  Visual idiom: "this pad has a soldered wire terminal but no
+    component body".
+
+    *wire_pins* is a list of ``(position, net_id)`` pairs — caller is
+    expected to walk ``layout.knots.values()`` filtering on
+    :class:`WirePinKnot` and snapshotting ``knot.position`` and
+    ``knot.net_id`` (the wire-pin's own net snapshot).
+
+    Returns the list of scene items added so the caller can track and
+    remove them on incremental redraw.
+    """
+    if not wire_pins:
+        return []
+    added: "list[QGraphicsItem]" = []
+    outer_r = theme.pad_radius * 1.1
+    inner_r = theme.pad_radius * 0.45
+    # Wire-pins live on the topmost layer the board has — render with
+    # the larger of the two side alphas so they remain visible from
+    # either camera side.
+    alpha = max(layers.alpha_for_wire("top"), layers.alpha_for_wire("bottom"))
+    if alpha == 0.0:
+        return []
+    z_base = max(layers.z_for_wire("top"), layers.z_for_wire("bottom")) + 0.1
+    for pos, net_id in wire_pins:
+        color_str = theme.bare_outline_color
+        if net_id is not None and net_color_map:
+            override = net_color_map.get(net_id)
+            if override:
+                color_str = override
+        net_color = QColor(color_str)
+        net_color.setAlphaF(alpha)
+        inner_color = QColor(theme.pad_color)
+        inner_color.setAlphaF(alpha)
+
+        # Outer ring in net colour.
+        ring = QGraphicsEllipseItem(
+            pos.x - outer_r, pos.y - outer_r, outer_r * 2.0, outer_r * 2.0,
+        )
+        ring.setBrush(QBrush(net_color))
+        ring.setPen(QPen(QColor(0, 0, 0, 0), 0))
+        ring.setZValue(z_base)
+        scene.addItem(ring)
+        added.append(ring)
+
+        # Inner dot in pad colour to give the concentric "donut" look —
+        # the wire-pin is distinct from a solid component-pin dot.
+        dot = QGraphicsEllipseItem(
+            pos.x - inner_r, pos.y - inner_r, inner_r * 2.0, inner_r * 2.0,
+        )
+        dot.setBrush(QBrush(inner_color))
+        dot.setPen(QPen(QColor(0, 0, 0, 0), 0))
+        dot.setZValue(z_base + 0.01)
+        scene.addItem(dot)
+        added.append(dot)
+    return added
 
 
 # ── Ratsnest ─────────────────────────────────────────────────────────────────

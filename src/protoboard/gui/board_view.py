@@ -153,6 +153,9 @@ class BoardView(QGraphicsView):
         # wire_id → QGraphicsItemGroup; persists across refreshes for reuse.
         self._wire_groups: dict[uuid.UUID, object] = {}
         self._wire_fingerprints: dict[uuid.UUID, tuple[object, ...]] = {}
+        # Wire-pin glyph items — rebuilt from scratch on each refresh
+        # since the set is typically small.
+        self._wire_pin_items: list[object] = []
         # comp_id → placement.position at last full refresh (drag delta origin).
         self._drag_orig_group_pos: dict[uuid.UUID, object] = {}
         # wire_id → wire.path[0] at last full refresh (drag delta origin for wires).
@@ -1034,6 +1037,32 @@ class BoardView(QGraphicsView):
             layers=layers,
             highlighted_net_id=self._effective_highlighted_net(),
         )
+
+        # ── Wire-pin glyphs ───────────────────────────────────────────────────
+        # Clear and rebuild the small wire-pin overlay each refresh —
+        # the set is typically tiny and fingerprinting would be overkill.
+        from protoboard.domain.layout.knot import WirePinKnot
+        from protoboard.gui.renderers.wire_renderer import render_wire_pins
+
+        for it in self._wire_pin_items:
+            try:
+                self._scene.removeItem(it)  # type: ignore[arg-type]
+            except Exception:
+                pass
+        self._wire_pin_items.clear()
+        wire_pins: list[tuple[Point, uuid.UUID | None]] = [
+            (k.position, k.net_id)
+            for k in self._session.layout.knots.values()
+            if isinstance(k, WirePinKnot)
+        ]
+        if wire_pins:
+            self._wire_pin_items = list(render_wire_pins(  # type: ignore[arg-type]
+                self._scene,
+                wire_pins,
+                net_color_map=net_color_map,
+                theme=_theme,
+                layers=layers,
+            ))
 
         # ── Components (group reuse) ──────────────────────────────────────────
         update_component_groups(
