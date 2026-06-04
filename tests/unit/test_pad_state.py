@@ -20,6 +20,9 @@ from protoboard.domain.board.pad_state import (
     IsolatedDoubleSidedBoardPad,
     PinItem,
     SingleSidedBoardPad,
+    WirePinItem,
+    _item_contributes_electrically,
+    _item_is_through_hole,
 )
 from protoboard.domain.board.pads import PadLayers
 from protoboard.geometry import Point
@@ -108,6 +111,10 @@ def _ins_xing(net: uuid.UUID | None = None) -> InsulatedWireCrossing:
 
 def _body() -> ComponentBody:
     return ComponentBody(id=uuid.uuid4())
+
+
+def _wire_pin(net: uuid.UUID | None = None) -> WirePinItem:
+    return WirePinItem(id=uuid.uuid4(), net=net)
 
 
 PT = Point(0.5, 0.5)
@@ -502,3 +509,79 @@ class TestPadIndexClone:
         assert pad_orig is not None and pad_twin is not None
         assert pad_orig.electrical_net_on("top") == n
         assert pad_twin.electrical_net_on("top") is None
+
+
+# ---------------------------------------------------------------------------
+# WirePinItem — virtual goldpin (rule 5 + 6 equivalence with PinItem)
+# ---------------------------------------------------------------------------
+
+
+class TestWirePinItem:
+    """A wire-pin is electrically and physically equivalent to a real
+    PinItem: through-hole propagation to all physical layers, blocks
+    foreign wire interiors.  See docs/wire-pin-implementation.md §2.2.
+    """
+
+    def _make_plated_through(self) -> ConnectedDoubleSidedBoardPad:
+        return ConnectedDoubleSidedBoardPad(
+            position=PT,
+            layers=PadLayers(top=True, bottom=True, plated_through=True),
+        )
+
+    def test_through_hole_predicate(self) -> None:
+        # Rule 5: wire-pin pierces the hole, propagates to every side.
+        assert _item_is_through_hole(_wire_pin()) is True
+
+    def test_contributes_electrically(self) -> None:
+        assert _item_contributes_electrically(_wire_pin()) is True
+
+    def test_pin_distinguishable(self) -> None:
+        # Distinct .kind makes it possible to filter renderers/labels —
+        # the wire-pin has no refdes, no PinRef.
+        wp = _wire_pin()
+        p = _pin()
+        assert wp.kind == "wire_pin"
+        assert p.kind == "pin"
+
+    def test_propagates_both_sides_on_plated_through(self) -> None:
+        p = self._make_plated_through()
+        n = _net()
+        p._add_item(_wire_pin(n), "top")
+        # Rule 5: through-hole, same as a real pin.
+        assert (
+            p.electrical_net_on("top"),
+            p.electrical_net_on("bottom"),
+        ) == (n, n)
+
+    def test_physically_blocks_both_sides(self) -> None:
+        p = self._make_plated_through()
+        p._add_item(_wire_pin(_net()), "top")
+        # Through-hole physical presence — pin pierces both sides.
+        assert len(p.physically_blocked_on("top")) == 1
+        assert len(p.physically_blocked_on("bottom")) == 1
+
+    def test_equivalent_to_pin_on_isolated_pad(self) -> None:
+        # Isolated double-sided pad (no plated_through): pin / wire-pin
+        # still propagate to both sides because rule 5 says through-hole
+        # items pierce the stack regardless of board type (the lead
+        # exists in both layers' copper rings simultaneously).
+        pad = IsolatedDoubleSidedBoardPad(
+            position=PT,
+            layers=PadLayers(top=True, bottom=True, plated_through=False),
+        )
+        n = _net()
+        pad._add_item(_wire_pin(n), "top")
+        assert pad.electrical_net_on("top") == n
+        assert pad.electrical_net_on("bottom") == n
+
+    def test_net_inherited_on_short_when_mixed_with_foreign_pin(self) -> None:
+        # Wire-pin + foreign component pin on same pad → SHORT_CIRCUIT
+        # behavior matches PinItem + PinItem.  Rule 6 catches this at the
+        # DRC layer (no wire over wire-pin pad), but raw multi-source
+        # state must register the conflict.
+        pad = self._make_plated_through()
+        n_a = _net()
+        n_b = _net()
+        pad._add_item(_wire_pin(n_a), "top")
+        pad._add_item(_pin(n_b), "top")
+        assert pad.electrical_net_on("top") is SHORT_CIRCUIT

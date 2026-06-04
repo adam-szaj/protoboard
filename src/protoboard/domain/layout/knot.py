@@ -82,3 +82,41 @@ class JointKnot:
         if not isinstance(other, JointKnot):
             return NotImplemented
         return self.id == other.id
+
+
+@dataclass
+class WirePinKnot:
+    """Deliberate terminal at a wire endpoint — the wire's own "goldpin".
+
+    Unlike :class:`JointKnot`, a wire-pin is the *intentional* end of a
+    single wire: the user converted a half-orphan endpoint into a
+    persistent solder point on the pad.  Unlike :class:`PinKnot` there
+    is no component anchor; the wire-pin owns its position directly.
+
+    Invariants (enforced by command layer + DRC):
+
+    * ``wire_ids`` contains exactly one id — the owning wire's.
+      Removing that wire deletes the knot via the same orphan cleanup
+      path :meth:`Layout.remove_wire` already uses.
+    * ``position`` lies on a board pad whose ``plated_through`` flag is
+      set — the wire-pin is a through-hole terminal (rule 5).
+    * ``net_id`` snapshots the owning wire's net at conversion time and
+      tracks it: when ``SetWireNetCommand`` (or any net-changing edit)
+      mutates the wire's net, the wire-pin's net follows.
+
+    See ``docs/wire-pin-implementation.md`` and rule 9 in
+    ``docs/pad-pin-wire-junction-semantics.md``.
+    """
+
+    id: uuid.UUID
+    position: Point
+    net_id: uuid.UUID | None
+    wire_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
+
+    def __hash__(self) -> int:
+        return hash(self.id)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, WirePinKnot):
+            return NotImplemented
+        return self.id == other.id

@@ -76,6 +76,25 @@ class PinItem:
 
 
 @dataclass(frozen=True, slots=True)
+class WirePinItem:
+    """A wire-pin (virtual goldpin) soldered into the pad.
+
+    Electrically and physically equivalent to :class:`PinItem` — the
+    user solidered a wire endpoint as a deliberate terminal.  Pierces
+    the hole, propagates the net to every physical layer (rule 5),
+    blocks foreign wire interiors over the pad (rule 6).
+
+    Distinguished from ``PinItem`` only so callers that care about
+    component identity (e.g. labels, refdes, group exports) can
+    skip it.  See ``docs/wire-pin-implementation.md``.
+    """
+
+    id: uuid.UUID            # WirePinKnot id
+    net: NetId | None
+    kind: ClassVar[str] = "wire_pin"
+
+
+@dataclass(frozen=True, slots=True)
 class BareWireItem:
     """A bare wire's path vertex (endpoint or intermediate) on this pad."""
 
@@ -135,6 +154,7 @@ class ComponentBody:
 # Union type alias — for type hints in the rest of the codebase.
 Item = (
     PinItem
+    | WirePinItem
     | BareWireItem
     | BareWireCrossing
     | InsulatedWireItem
@@ -146,24 +166,24 @@ Item = (
 def _item_contributes_electrically(item: Item) -> bool:
     """True if *item* contributes its net to the side it is placed on.
 
-    Pins, bare wires (vertex or crossing), and insulated wire endpoints
-    contact copper; insulated mid-path vertices and component bodies do
-    not.
+    Pins, wire-pins, bare wires (vertex or crossing), and insulated
+    wire endpoints contact copper; insulated mid-path vertices and
+    component bodies do not.
     """
-    return isinstance(item, (PinItem, BareWireItem, BareWireCrossing,
-                              InsulatedWireItem))
+    return isinstance(item, (PinItem, WirePinItem, BareWireItem,
+                              BareWireCrossing, InsulatedWireItem))
 
 
 def _item_is_through_hole(item: Item) -> bool:
     """True if *item* exposes a conductor in the through-hole and thus
     propagates electrically to both pad sides regardless of board type.
 
-    Pins are physically pushed through the hole; a wire that changes
-    sides at this pad has its conductor in the hole too.  Bare and
-    insulated wire endpoints sit on top of the copper ring on their own
-    side only — they propagate only per board-type rules.
+    Pins and wire-pins are physically pushed through the hole; a wire
+    that changes sides at this pad has its conductor in the hole too.
+    Bare and insulated wire endpoints sit on top of the copper ring on
+    their own side only — they propagate only per board-type rules.
     """
-    return isinstance(item, PinItem)
+    return isinstance(item, (PinItem, WirePinItem))
 
 
 # ---------------------------------------------------------------------------
@@ -265,10 +285,10 @@ class Pad:
         """Return the set of layers on which *item* physically blocks.
 
         Default: a wire on layer X physically occupies layer X only.
-        Pins are special — they pierce the board, so they block every
-        physical layer (rule 5).
+        Pins and wire-pins are special — they pierce the board, so they
+        block every physical layer (rule 5).
         """
-        if isinstance(item, PinItem):
+        if isinstance(item, (PinItem, WirePinItem)):
             return set(PHYSICAL_LAYERS)
         return {source_side}
 

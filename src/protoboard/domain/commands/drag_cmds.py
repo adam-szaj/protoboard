@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from protoboard.domain.commands.base import Command
-from protoboard.domain.layout.knot import JointKnot
+from protoboard.domain.layout.knot import JointKnot, WirePinKnot
 from protoboard.geometry import Point
 
 if TYPE_CHECKING:
@@ -102,7 +102,7 @@ class MoveDragSetCommand(Command["ComponentState"]):
     _saved_dropped_wires: list["Wire"] = field(
         default_factory=list, init=False, repr=False,
     )
-    _saved_orphan_joints: list[JointKnot] = field(
+    _saved_orphan_joints: list[JointKnot | WirePinKnot] = field(
         default_factory=list, init=False, repr=False,
     )
     _applied: bool = field(default=False, init=False, repr=False)
@@ -166,7 +166,7 @@ class MoveDragSetCommand(Command["ComponentState"]):
             remove_wire_capturing_orphans,
         )
         saved_dropped: list["Wire"] = []
-        saved_orphans: list[JointKnot] = []
+        saved_orphans: list[JointKnot | WirePinKnot] = []
         for wid in self.dropped_wire_ids:
             wire, orphans = remove_wire_capturing_orphans(state.layout, wid)
             if wire is None:

@@ -309,11 +309,15 @@ def wire_is_owned_by_group(
         return False
 
     # Half-orphan: exactly one endpoint is a PinKnot of a group
-    # component, the other is a JointKnot.  Sanity check the joint
-    # endpoint, then resolve net membership.
-    if not a_in and not isinstance(ka, JointKnot):
+    # component, the other is a free-position knot (JointKnot or
+    # WirePinKnot — a wire-pin is a deliberate terminal but
+    # ownership-wise behaves like a free joint: it doesn't anchor to
+    # any other group).  Sanity check the free endpoint, then resolve
+    # net membership.
+    from protoboard.domain.layout.knot import WirePinKnot
+    if not a_in and not isinstance(ka, (JointKnot, WirePinKnot)):
         return False
-    if not b_in and not isinstance(kb, JointKnot):
+    if not b_in and not isinstance(kb, (JointKnot, WirePinKnot)):
         return False
 
     net_id = wire_net_map.get(wire.id)

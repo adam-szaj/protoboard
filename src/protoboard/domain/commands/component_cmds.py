@@ -25,7 +25,7 @@ from protoboard.domain.layout.placement import (
     pin_world_position,
     validate_pins_on_pads,
 )
-from protoboard.domain.layout.knot import JointKnot, PinKnot
+from protoboard.domain.layout.knot import JointKnot, PinKnot, WirePinKnot
 from protoboard.domain.layout.wire import KnotRef, Wire
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
@@ -1076,7 +1076,7 @@ class RemoveWireCommand(Command[ComponentState]):
     wire_id: uuid.UUID
     _saved_wire: Wire | None = field(default=None, init=False, repr=False)
     # JointKnots that became orphan when the wire was removed; restored on revert.
-    _saved_orphan_joints: list[JointKnot] = field(
+    _saved_orphan_joints: list[JointKnot | WirePinKnot] = field(
         default_factory=list, init=False, repr=False
     )
 
@@ -1209,7 +1209,7 @@ class DropWiresCommand(Command[ComponentState]):
     _saved_wires: list[Wire] = field(
         default_factory=list, init=False, repr=False,
     )
-    _saved_orphan_joints: list[JointKnot] = field(
+    _saved_orphan_joints: list[JointKnot | WirePinKnot] = field(
         default_factory=list, init=False, repr=False,
     )
 
@@ -1223,7 +1223,7 @@ class DropWiresCommand(Command[ComponentState]):
             remove_wire_capturing_orphans,
         )
         saved: list[Wire] = []
-        orphans: list[JointKnot] = []
+        orphans: list[JointKnot | WirePinKnot] = []
         for wid in self.wire_ids:
             wire, w_orphans = remove_wire_capturing_orphans(state.layout, wid)
             if wire is None:

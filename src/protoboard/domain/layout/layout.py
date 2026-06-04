@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, replace
 
 import structlog
 from protoboard.domain.layout.group import ComponentGroup
-from protoboard.domain.layout.knot import JointKnot, Knot, PinKnot
+from protoboard.domain.layout.knot import JointKnot, Knot, PinKnot, WirePinKnot
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import (
     Fragment, Wire, WireCollection,
@@ -209,7 +209,14 @@ class Layout:
             if knot is None:
                 continue
             updated = _knot_with_wire(knot, wire_id, add=False)
-            if isinstance(updated, JointKnot) and not updated.wire_ids:
+            # Free-position knots (JointKnot, WirePinKnot) with no remaining
+            # incident wire are deleted.  Rule for WirePinKnot: lifetime is
+            # strictly tied to the owning wire — when the wire goes, the
+            # wire-pin goes (docs/wire-pin-implementation.md §2.1).
+            if (
+                isinstance(updated, (JointKnot, WirePinKnot))
+                and not updated.wire_ids
+            ):
                 del self.knots[ref.id]
                 removed.append(ref.id)
             else:
@@ -321,8 +328,15 @@ class Layout:
             cur = _knot_position(knot, self)
             if cur == new_pos:
                 return
-            if isinstance(knot, JointKnot) and knot.wire_ids == frozenset({wire_id_}):
-                # Free joint — slide along with the wire.
+            if (
+                isinstance(knot, (JointKnot, WirePinKnot))
+                and knot.wire_ids == frozenset({wire_id_})
+            ):
+                # Free-position sole-owner knot (orphan joint or wire-pin):
+                # slide along with the wire.  Wire-pin's pad-coincidence
+                # invariant is rechecked at the next DRC pass — the
+                # fragment edit itself trusts that the caller put it on
+                # a valid pad.
                 knot.position = new_pos
                 return
             if skip_pin_knot_validation and isinstance(knot, PinKnot):
@@ -458,6 +472,11 @@ def _knot_with_wire(knot: Knot, wire_id: uuid.UUID, *, add: bool) -> Knot:
         return PinKnot(id=knot.id, pin=knot.pin, wire_ids=new_ids)
     if isinstance(knot, JointKnot):
         return JointKnot(id=knot.id, position=knot.position, wire_ids=new_ids)
+    if isinstance(knot, WirePinKnot):
+        return WirePinKnot(
+            id=knot.id, position=knot.position,
+            net_id=knot.net_id, wire_ids=new_ids,
+        )
     raise TypeError(f"unknown Knot subtype: {type(knot).__name__}")
 
 
@@ -468,7 +487,7 @@ def _knot_position(knot: Knot, layout: Layout) -> Point:
     ``Layout.set_pin_resolver``.  A missing resolver is a programmer error
     and raises ``RuntimeError``.
     """
-    if isinstance(knot, JointKnot):
+    if isinstance(knot, (JointKnot, WirePinKnot)):
         return knot.position
     if isinstance(knot, PinKnot):
         resolver = layout._pin_resolver

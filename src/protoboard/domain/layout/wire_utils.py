@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
-    from protoboard.domain.layout.knot import JointKnot
+    from protoboard.domain.layout.knot import JointKnot, WirePinKnot
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.wire import Fragment, Wire
     from protoboard.domain.schematic.net import PinRef
@@ -1212,7 +1212,7 @@ __all__ = [
 def remove_wire_capturing_orphans(
     layout: "Layout",
     wire_id: uuid.UUID,
-) -> "tuple[Wire | None, list[JointKnot]]":
+) -> "tuple[Wire | None, list[JointKnot | WirePinKnot]]":
     """Remove *wire_id* from *layout* while snapshotting orphan joints.
 
     Returns ``(wire, orphan_joints)`` where:
@@ -1220,9 +1220,12 @@ def remove_wire_capturing_orphans(
     * ``wire`` is the removed Wire (or None if it was already gone —
       can legally happen mid-macro when a sibling command preempts the
       removal),
-    * ``orphan_joints`` are ``JointKnot`` endpoints whose only
-      registered wire was *wire_id*, captured BEFORE the actual removal
-      so callers can re-insert them on revert.
+    * ``orphan_joints`` are free-position endpoints (``JointKnot`` or
+      ``WirePinKnot``) whose only registered wire was *wire_id*,
+      captured BEFORE the actual removal so callers can re-insert them
+      on revert.  Wire-pins are tied to their owning wire (lifetime
+      invariant), so they must be revived together with the wire on
+      undo — same idiom as orphan joints.
 
     Single source of truth for ``RemoveWireCommand``,
     ``DropWiresCommand``, ``MoveDragSetCommand`` (and any future
@@ -1234,15 +1237,18 @@ def remove_wire_capturing_orphans(
     Does NOT call ``layout.invalidate_interior_vertex_index()`` —
     callers know whether they need to invalidate.
     """
-    from protoboard.domain.layout.knot import JointKnot
+    from protoboard.domain.layout.knot import JointKnot, WirePinKnot
     wire = layout.wires.get(wire_id)
     if wire is None:
         return None, []
-    orphans: list[JointKnot] = []
+    orphans: "list[JointKnot | WirePinKnot]" = []
     if wire.a is not None and wire.b is not None:
         for ref in (wire.a, wire.b):
             k = layout.knots.get(ref.id)
-            if isinstance(k, JointKnot) and k.wire_ids == frozenset({wire.id}):
+            if (
+                isinstance(k, (JointKnot, WirePinKnot))
+                and k.wire_ids == frozenset({wire.id})
+            ):
                 orphans.append(k)
         layout.remove_wire(wire_id)
     else:
@@ -1253,7 +1259,7 @@ def remove_wire_capturing_orphans(
 def restore_wire_with_orphans(
     layout: "Layout",
     wire: "Wire",
-    orphans: "list[JointKnot]",
+    orphans: "list[JointKnot | WirePinKnot]",
 ) -> None:
     """Re-insert *wire* and any of *orphans* it references back into *layout*.
 

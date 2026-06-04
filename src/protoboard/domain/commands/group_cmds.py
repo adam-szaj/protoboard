@@ -179,7 +179,7 @@ def _find_internal_wires(
     # Fallback path: no group object provided.  Use structural-only
     # classification (both endpoints PinKnot of group components).
     if group_comp_ids is not None and knots is not None:
-        from protoboard.domain.layout.knot import JointKnot, PinKnot
+        from protoboard.domain.layout.knot import JointKnot, PinKnot, WirePinKnot
         result: set[uuid.UUID] = set()
         for wire in wires:
             if len(wire.path) < 2 or wire.a is None or wire.b is None:
@@ -192,7 +192,10 @@ def _find_internal_wires(
             def _endpoint_in_group(knot: object) -> bool:
                 if isinstance(knot, PinKnot):
                     return knot.pin.component_id in group_comp_ids
-                return isinstance(knot, JointKnot)
+                # Free-position endpoints (joint or wire-pin) count as
+                # "in-group" structurally — the actual group affiliation
+                # comes from the *other* endpoint and the net check.
+                return isinstance(knot, (JointKnot, WirePinKnot))
 
             if (
                 _endpoint_in_group(ka)
