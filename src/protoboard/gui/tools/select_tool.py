@@ -3461,9 +3461,12 @@ class SelectTool(_Tool):
     ) -> bool:
         from PySide6.QtWidgets import QMenu
         from protoboard.domain.commands.component_cmds import (
+            ConvertEndpointToWirePinCommand,
+            ConvertWirePinToEndpointCommand,
             SetWireInsulatedCommand,
             SetWireSideCommand,
         )
+        from protoboard.domain.layout.knot import JointKnot, WirePinKnot
         from typing import cast
         from protoboard.domain.commands.base import Command
 
@@ -3504,6 +3507,32 @@ class SelectTool(_Tool):
             act_flip = menu.addAction(f"Flip fragment to {other_side} layer  [F]")
             act_flip.setData(("flip_fragment", other_side))
 
+        # Wire-pin conversion — only for the clicked endpoint when it is
+        # eligible (single wire under cursor, endpoint within click
+        # tolerance).  See docs/wire-pin-implementation.md §3.7.
+        if wire.id in target_ids and len(target_ids) == 1:
+            endpoint_side = self._closest_wire_endpoint(wire, scene_pt)
+            if endpoint_side is not None:
+                ref = wire.a if endpoint_side == "a" else wire.b
+                if ref is not None:
+                    knot = self._session.layout.knots.get(ref.id)
+                    if isinstance(knot, JointKnot) and knot.wire_ids == frozenset({wire.id}):
+                        # Half-orphan endpoint on a plated-through pad —
+                        # offer promotion.
+                        if self._endpoint_eligible_for_wire_pin(knot.position):
+                            menu.addSeparator()
+                            act_wp = menu.addAction(
+                                "Convert endpoint to wire-pin"
+                            )
+                            act_wp.setData(("convert_to_wire_pin", endpoint_side))
+                    elif isinstance(knot, WirePinKnot):
+                        # Already a wire-pin → offer revert.
+                        menu.addSeparator()
+                        act_unwp = menu.addAction(
+                            "Convert wire-pin back to free endpoint"
+                        )
+                        act_unwp.setData(("convert_from_wire_pin", knot.id))
+
         chosen = menu.exec(
             self._view.mapToGlobal(self._view.mapFromScene(scene_pt))
         )
@@ -3513,6 +3542,25 @@ class SelectTool(_Tool):
         action, value = chosen.data()
         if action == "flip_fragment":
             self._flip_wire_fragment()
+            return True
+        if action == "convert_to_wire_pin":
+            wire_net_id = self._session.cached_wire_net_map().get(wire.id)
+            cmd_wp: Command[ComponentState] = cast(
+                Command[ComponentState],
+                ConvertEndpointToWirePinCommand(
+                    wire_id=wire.id, endpoint=value, net_id=wire_net_id,
+                ),
+            )
+            self._session.stack.execute(cmd_wp, self._session)
+            self._session.layout_changed.emit()
+            return True
+        if action == "convert_from_wire_pin":
+            cmd_unwp: Command[ComponentState] = cast(
+                Command[ComponentState],
+                ConvertWirePinToEndpointCommand(wire_pin_id=value),
+            )
+            self._session.stack.execute(cmd_unwp, self._session)
+            self._session.layout_changed.emit()
             return True
         raw_cmds: list[Command[ComponentState]]
         if action == "insulated":
@@ -3535,6 +3583,41 @@ class SelectTool(_Tool):
         self._session.stack.execute(cmd, self._session)
         self._session.layout_changed.emit()
         return True
+
+    def _closest_wire_endpoint(
+        self, wire: "Wire", scene_pt: QPointF,
+    ) -> "str | None":
+        """Return "a" or "b" if either endpoint is within click tolerance
+        of *scene_pt*, else None.  Helper for the wire-pin PPM entry —
+        the action only makes sense when the user clicked near an
+        endpoint, not somewhere mid-path.
+        """
+        if not wire.path or wire.a is None or wire.b is None:
+            return None
+        sx, sy = scene_pt.x(), scene_pt.y()
+        tol = 0.6  # one-half pad pitch — generous, PPM is forgiving
+        a_pos = wire.path[0]
+        b_pos = wire.path[-1]
+        d_a = (a_pos.x - sx) ** 2 + (a_pos.y - sy) ** 2
+        d_b = (b_pos.x - sx) ** 2 + (b_pos.y - sy) ** 2
+        if d_a <= tol * tol and d_a <= d_b:
+            return "a"
+        if d_b <= tol * tol:
+            return "b"
+        return None
+
+    def _endpoint_eligible_for_wire_pin(self, position: "Point") -> bool:
+        """True iff *position* coincides with a plated-through pad.
+
+        Wire-pin invariant requires the pad to be plated-through; the
+        PPM action must be greyed out (here: omitted) otherwise.  Uses
+        the session's cached plated-through set for the hot path.
+        """
+        pads = self._session.cached_plated_through_pads()
+        for p in pads:
+            if abs(p.x - position.x) < 1e-6 and abs(p.y - position.y) < 1e-6:
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # Single component selection
