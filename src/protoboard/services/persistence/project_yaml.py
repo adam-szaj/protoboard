@@ -177,6 +177,7 @@ def _instances_to_yaml(instances: dict[uuid.UUID, ComponentInstance]) -> str:
 def _knot_to_yaml_dict(knot: object) -> dict[str, Any]:
     from protoboard.domain.layout.knot import JointKnot as _Joint
     from protoboard.domain.layout.knot import PinKnot as _Pin
+    from protoboard.domain.layout.knot import WirePinKnot as _WirePin
     if isinstance(knot, _Pin):
         return {
             "id": str(knot.id),
@@ -185,6 +186,13 @@ def _knot_to_yaml_dict(knot: object) -> dict[str, Any]:
                 "component_id": str(knot.pin.component_id),
                 "pin_number": knot.pin.pin_number,
             },
+        }
+    if isinstance(knot, _WirePin):
+        return {
+            "id": str(knot.id),
+            "kind": "wire_pin",
+            "position": {"x": knot.position.x, "y": knot.position.y},
+            "net_id": str(knot.net_id) if knot.net_id is not None else None,
         }
     if isinstance(knot, _Joint):
         return {
@@ -822,7 +830,9 @@ def _decode_knots_and_wires(
     layout: Layout,
     raw_wires: list[dict[str, Any]] | None = None,
 ) -> None:
-    from protoboard.domain.layout.knot import JointKnot, Knot, PinKnot
+    from protoboard.domain.layout.knot import (
+        JointKnot, Knot, PinKnot, WirePinKnot,
+    )
     from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
     raw_knots = data.get("knots") or []
     for raw in raw_knots:
@@ -843,6 +853,14 @@ def _decode_knots_and_wires(
                 float(raw["position"]["y"]),
             )
             knot = JointKnot(id=kid, position=pos)
+        elif kind == "wire_pin":
+            pos = Point(
+                float(raw["position"]["x"]),
+                float(raw["position"]["y"]),
+            )
+            raw_net = raw.get("net_id")
+            net_id = uuid.UUID(raw_net) if raw_net is not None else None
+            knot = WirePinKnot(id=kid, position=pos, net_id=net_id)
         else:
             raise SerializationError(f"unknown knot kind: {kind!r}")
         layout.knots[kid] = knot

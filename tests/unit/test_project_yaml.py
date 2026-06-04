@@ -437,3 +437,121 @@ class TestEncapsulatedExportMigration:
         save_project(tmp_path, board, lay_loaded, sch, instances=insts)
         _, lay_again, *_ = load_project(tmp_path)
         assert lay_again.groups[g.id].exported_pins == frozenset({ep})
+
+
+class TestWirePinPersistence:
+    """Wire-pin knots survive save/load with their position + net snapshot
+    (docs/wire-pin-implementation.md §3.9).
+    """
+
+    def _save_wire_with_wire_pins(
+        self, tmp_path: Path, board: Board,
+    ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID | None]:
+        """Construct a wire with both endpoints promoted to wire-pins, save it,
+        return (wire_id, knot_a_id, knot_b_id, net_id_a).
+        """
+        from protoboard.domain.commands.component_cmds import (
+            ConvertEndpointToWirePinCommand,
+        )
+        from protoboard.domain.layout.knot import JointKnot
+        from protoboard.domain.layout.wire import KnotRef
+
+        lay = Layout(placements={}, wires=[])
+        ka = JointKnot(id=uuid.uuid4(), position=Point(0.5, 0.5))
+        kb = JointKnot(id=uuid.uuid4(), position=Point(1.5, 0.5))
+        lay.knots[ka.id] = ka
+        lay.knots[kb.id] = kb
+        wire = Wire(
+            id=uuid.uuid4(),
+            path=[Point(0.5, 0.5), Point(1.5, 0.5)],
+            insulated=True, side="top",
+            a=KnotRef(id=ka.id), b=KnotRef(id=kb.id),
+        )
+        lay.add_wire(wire)
+
+        class _S:
+            def __init__(self, lay: Layout) -> None:
+                self.board = board
+                self.layout = lay
+                self.instances: dict[uuid.UUID, ComponentInstance] = {}
+                self.components: dict[str, object] = {}
+
+        state = _S(lay)
+        net_a = uuid.uuid4()
+        ConvertEndpointToWirePinCommand(
+            wire_id=wire.id, endpoint="a", net_id=net_a,
+        ).apply(state)  # type: ignore[arg-type]
+        ConvertEndpointToWirePinCommand(
+            wire_id=wire.id, endpoint="b", net_id=None,
+        ).apply(state)  # type: ignore[arg-type]
+
+        save_project(tmp_path, board, lay, Schematic(nets={}))
+        return wire.id, ka.id, kb.id, net_a
+
+    def test_round_trip_preserves_wire_pin_kind(self, tmp_path: Path) -> None:
+        from protoboard.domain.layout.knot import WirePinKnot
+
+        board = _perfboard()
+        _, ka_id, kb_id, _ = self._save_wire_with_wire_pins(tmp_path, board)
+        _, lay_loaded, _, _, _, _, _ = load_project(tmp_path)
+        a_knot = lay_loaded.knots[ka_id]
+        b_knot = lay_loaded.knots[kb_id]
+        assert isinstance(a_knot, WirePinKnot)
+        assert isinstance(b_knot, WirePinKnot)
+
+    def test_round_trip_preserves_position(self, tmp_path: Path) -> None:
+        board = _perfboard()
+        _, ka_id, kb_id, _ = self._save_wire_with_wire_pins(tmp_path, board)
+        _, lay_loaded, _, _, _, _, _ = load_project(tmp_path)
+        from protoboard.domain.layout.knot import WirePinKnot
+        a_knot = lay_loaded.knots[ka_id]
+        b_knot = lay_loaded.knots[kb_id]
+        assert isinstance(a_knot, WirePinKnot)
+        assert isinstance(b_knot, WirePinKnot)
+        assert a_knot.position == Point(0.5, 0.5)
+        assert b_knot.position == Point(1.5, 0.5)
+
+    def test_round_trip_preserves_net_snapshot(self, tmp_path: Path) -> None:
+        # net_id="..." preserved as uuid; "null" preserved as None.
+        board = _perfboard()
+        _, ka_id, kb_id, net_a = self._save_wire_with_wire_pins(tmp_path, board)
+        _, lay_loaded, _, _, _, _, _ = load_project(tmp_path)
+        from protoboard.domain.layout.knot import WirePinKnot
+        a_knot = lay_loaded.knots[ka_id]
+        b_knot = lay_loaded.knots[kb_id]
+        assert isinstance(a_knot, WirePinKnot)
+        assert isinstance(b_knot, WirePinKnot)
+        assert a_knot.net_id == net_a
+        assert b_knot.net_id is None
+
+    def test_unknown_kind_raises(self, tmp_path: Path) -> None:
+        # Forward-compat: unknown kind in YAML is an error (legacy
+        # versions seeing future kinds fail fast).  Need a non-empty
+        # wires block whose first element looks knot-aware
+        # ("a_knot_id" present) so _layout_from_yaml routes to the
+        # knot-aware decoder.
+        import yaml as _yaml
+        from protoboard.services.persistence.project_yaml import (
+            SerializationError, _layout_from_yaml,
+        )
+        kid = str(uuid.uuid4())
+        bad_yaml = _yaml.safe_dump({
+            "format_version": 2,
+            "placements": [],
+            "knots": [
+                {"id": kid, "kind": "future_pin_kind"},
+            ],
+            "wires": [
+                {
+                    "id": str(uuid.uuid4()),
+                    "a_knot_id": kid,
+                    "b_knot_id": kid,
+                    "path": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 0.0}],
+                    "side": "top",
+                    "insulated": False,
+                },
+            ],
+        })
+        import pytest
+        with pytest.raises(SerializationError, match="unknown knot kind"):
+            _layout_from_yaml(bad_yaml)
