@@ -1924,19 +1924,13 @@ class MainWindow(QMainWindow):
         self._update_undo_redo()
 
     def _group_export_auto(self) -> None:
-        from protoboard.domain.layout.group import (
-            all_component_ids,
-            external_pins_for_components,
-        )
+        from protoboard.domain.layout.group import external_pins_for_group
 
         gid = self._active_group_or_warn()
         if gid is None:
             return
-        merged_ids = frozenset(
-            all_component_ids(self._session.layout.groups, gid)
-        )
-        new_exported = external_pins_for_components(
-            merged_ids, self._session.schematic
+        new_exported = external_pins_for_group(
+            self._session.layout.groups, gid, self._session.schematic
         )
         self._group_set_exported(new_exported)
 

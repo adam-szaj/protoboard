@@ -3266,14 +3266,12 @@ class SelectTool(_Tool):
         elif action == "export_auto_pins":
             _, group_id = data
             from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
-            from protoboard.domain.layout.group import external_pins_for_components
+            from protoboard.domain.layout.group import external_pins_for_group
             grp = self._session.layout.groups.get(group_id)
             if grp is not None:
-                merged_ids = frozenset(
-                    all_component_ids(self._session.layout.groups, group_id)
-                )
-                new_exported = external_pins_for_components(
-                    merged_ids, self._session.schematic
+                new_exported = external_pins_for_group(
+                    self._session.layout.groups, group_id,
+                    self._session.schematic,
                 )
                 if new_exported != grp.exported_pins:
                     self._session.stack.execute(
@@ -7292,7 +7290,7 @@ class SelectTool(_Tool):
         from protoboard.domain.layout.group import (
             ComponentGroup,
             all_component_ids,
-            external_pins_for_components,
+            external_pins_for_group,
             parent_group_of,
             promote_selection_to_top_level,
         )
@@ -7338,22 +7336,26 @@ class SelectTool(_Tool):
                 n_promoted_groups=len(promoted_groups),
                 promoted_group_ids=[str(g)[:8] for g in promoted_groups],
             )
+            new_group_id = uuid.uuid4()
             exported: frozenset[ExportedPin] = frozenset()
             if dlg.auto_export_external:
-                # External-pin detection still needs the full component
-                # set (including those reached through promoted groups),
-                # otherwise nets internal to the new group's subtree
-                # would be reported as external.
-                full_ids_for_export: set[uuid.UUID] = set(promoted_free)
-                for g_id in promoted_groups:
-                    full_ids_for_export |= all_component_ids(
-                        self._session.layout.groups, g_id
-                    )
-                exported = external_pins_for_components(
-                    frozenset(full_ids_for_export), self._session.schematic
+                # The new group doesn't exist in session.layout.groups yet
+                # — splice it into a transient dict so the encapsulated
+                # helper can read direct members + child re-exports the
+                # same way it does for any other group.
+                transient = ComponentGroup(
+                    id=new_group_id,
+                    name=dlg.new_name or default_name,
+                    component_ids=promoted_free,
+                    child_group_ids=promoted_groups,
+                )
+                groups_with_new = dict(self._session.layout.groups)
+                groups_with_new[new_group_id] = transient
+                exported = external_pins_for_group(
+                    groups_with_new, new_group_id, self._session.schematic
                 )
             new_group = ComponentGroup(
-                id=uuid.uuid4(),
+                id=new_group_id,
                 name=dlg.new_name or default_name,
                 component_ids=promoted_free,
                 child_group_ids=promoted_groups,
@@ -7422,11 +7424,9 @@ class SelectTool(_Tool):
                 # Recompute external pins for the *whole* group after merge —
                 # adding components can both add and remove external pins
                 # (a previously-external net may now be fully internal).
-                merged_ids = frozenset(
-                    all_component_ids(self._session.layout.groups, target_id)
-                )
-                new_exported = external_pins_for_components(
-                    merged_ids, self._session.schematic
+                new_exported = external_pins_for_group(
+                    self._session.layout.groups, target_id,
+                    self._session.schematic,
                 )
                 if new_exported != self._session.layout.groups[target_id].exported_pins:
                     self._session.stack.execute(
