@@ -171,3 +171,86 @@ def would_create_cycle(
         if g is not None:
             stack.extend(g.child_group_ids)
     return False
+
+
+def top_level_group_under(
+    groups: dict[uuid.UUID, ComponentGroup],
+    active_id: uuid.UUID,
+    comp_id: uuid.UUID,
+) -> uuid.UUID | None:
+    """Return the "top-level" group containing *comp_id* under *active_id*.
+
+    "Top-level under active" means: walking the group tree downward from
+    *active_id*, the first child group on the path to *comp_id*.
+
+    Examples (with active = A):
+      - tree A[B[C[c1]]], comp_id=c1 → returns B (the direct child of A
+        whose subtree contains c1).
+      - tree A[c1, B[c2]], comp_id=c1 → returns None (c1 is a direct
+        member of active itself, not nested in any child group).
+      - tree A[c1], B[c2] (B sibling of A), comp_id=c2 → returns None
+        (c2 lives outside active's subtree; promotion does not reach it).
+
+    Used by Ctrl+G's selection-promotion rule: a selected component
+    nested in a child group is treated as proxy for the whole top-level
+    structure containing it under the current editing context.
+    """
+    active = groups.get(active_id)
+    if active is None:
+        return None
+    for child_id in active.child_group_ids:
+        if comp_id in all_component_ids(groups, child_id):
+            return child_id
+    return None
+
+
+def promote_selection_to_top_level(
+    groups: dict[uuid.UUID, ComponentGroup],
+    active_id: uuid.UUID,
+    selected_comp_ids: frozenset[uuid.UUID],
+) -> tuple[frozenset[uuid.UUID], frozenset[uuid.UUID]]:
+    """Split *selected_comp_ids* into (free components, top-level group IDs).
+
+    For each selected component, find its "top-level under active" group
+    (see :func:`top_level_group_under`).  If found, the component is
+    consumed by that group — the group ID lands in the second return
+    value, and every component the group recursively contains is
+    removed from the first return value.
+
+    Returns:
+        (free_comp_ids, child_group_ids) — disjoint sets safe to pass
+        directly as ``component_ids`` and ``child_group_ids`` of a
+        newly created :class:`ComponentGroup`.
+
+    Order-independent: the same input produces the same output
+    regardless of ``selected_comp_ids`` iteration order.
+    """
+    promoted_groups: set[uuid.UUID] = set()
+    consumed_components: set[uuid.UUID] = set()
+
+    for comp_id in selected_comp_ids:
+        if comp_id in consumed_components:
+            continue
+        top_gid = top_level_group_under(groups, active_id, comp_id)
+        if top_gid is None:
+            continue
+        promoted_groups.add(top_gid)
+        consumed_components |= all_component_ids(groups, top_gid)
+
+    free_components = frozenset(selected_comp_ids - consumed_components)
+    return free_components, frozenset(promoted_groups)
+
+
+def parent_group_of(
+    groups: dict[uuid.UUID, ComponentGroup],
+    child_id: uuid.UUID,
+) -> uuid.UUID | None:
+    """Return the group that lists *child_id* in its ``child_group_ids``.
+
+    Each group can have at most one parent (the tree invariant), so the
+    first match wins.  Returns None if no group references *child_id*.
+    """
+    for gid, g in groups.items():
+        if child_id in g.child_group_ids:
+            return gid
+    return None

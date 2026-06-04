@@ -2278,31 +2278,26 @@ class SelectTool(_Tool):
         hit = self._hit_test(scene_pt)
         if hit is None:
             hit = self._hit_test_bbox(scene_pt)
-        groups = self._session.layout.groups
-        current_group_id = self._current_group_id
-        parent_group = groups.get(current_group_id)
-        _log.info(
-            "group.double_click",
-            hit=str(hit) if hit else None,
-            current_group=str(current_group_id),
-            child_group_ids=[str(g) for g in (parent_group.child_group_ids if parent_group else [])],
-            group_stack_depth=len(self._group_stack),
-        )
         if hit is None:
             return False
+        groups = self._session.layout.groups
+        parent_group = groups.get(self._current_group_id)
+        if parent_group is None:
+            return False
         # Find which child group of the current group contains this component.
-        if parent_group is not None:
-            for child_gid in parent_group.child_group_ids:
-                members = all_component_ids(groups, child_gid)
-                if hit in members:
-                    self._group_stack.append(child_gid)
-                    _log.info("group.entered", group_id=str(child_gid), stack_depth=len(self._group_stack))
-                    self._clear_multi_selection()
-                    self._deselect()
-                    self._select_primary(hit)
-                    self._notify_active_group()
-                    return True
-        _log.info("group.double_click_no_entry", reason="hit not in any child group")
+        for child_gid in parent_group.child_group_ids:
+            if hit in all_component_ids(groups, child_gid):
+                self._group_stack.append(child_gid)
+                _log.info(
+                    "group.entered",
+                    group_id=str(child_gid)[:8],
+                    stack_depth=len(self._group_stack),
+                )
+                self._clear_multi_selection()
+                self._deselect()
+                self._select_primary(hit)
+                self._notify_active_group()
+                return True
         return False
 
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
@@ -7263,6 +7258,8 @@ class SelectTool(_Tool):
             ComponentGroup,
             all_component_ids,
             external_pins_for_components,
+            parent_group_of,
+            promote_selection_to_top_level,
         )
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.gui.dialogs.group_target_dialog import GroupTargetDialog
@@ -7288,38 +7285,82 @@ class SelectTool(_Tool):
             return None
 
         if dlg.mode == "new":
+            # Selection-promotion: any selected component nested inside
+            # a child group of the active context is "promoted" to its
+            # top-level structure under active.  The whole group then
+            # joins the new group as a sub-group (not as flattened
+            # directs), preserving hierarchy.  Free / direct-of-active
+            # components stay as directs.  Rule confirmed 2026-06-04:
+            # one selected member ⇒ whole group treated as a unit.
+            promoted_free, promoted_groups = promote_selection_to_top_level(
+                self._session.layout.groups, active_gid, ids
+            )
+            _log.info(
+                "group_for_selection.promotion",
+                active_gid=str(active_gid)[:8],
+                n_selected=len(ids),
+                n_free_after=len(promoted_free),
+                n_promoted_groups=len(promoted_groups),
+                promoted_group_ids=[str(g)[:8] for g in promoted_groups],
+            )
             exported: frozenset[ExportedPin] = frozenset()
             if dlg.auto_export_external:
+                # External-pin detection still needs the full component
+                # set (including those reached through promoted groups),
+                # otherwise nets internal to the new group's subtree
+                # would be reported as external.
+                full_ids_for_export: set[uuid.UUID] = set(promoted_free)
+                for g_id in promoted_groups:
+                    full_ids_for_export |= all_component_ids(
+                        self._session.layout.groups, g_id
+                    )
                 exported = external_pins_for_components(
-                    ids, self._session.schematic
+                    frozenset(full_ids_for_export), self._session.schematic
                 )
             new_group = ComponentGroup(
                 id=uuid.uuid4(),
                 name=dlg.new_name or default_name,
-                component_ids=ids,
+                component_ids=promoted_free,
+                child_group_ids=promoted_groups,
                 exported_pins=exported,
             )
             cmd = CreateGroupCommand(group=new_group)
             self._session.stack.execute(cmd, self._session)
+            # Detach every promoted sub-group from its current parent —
+            # that parent is always `active_gid` for direct children of
+            # active (the only kind promotion produces), but use
+            # parent_group_of() defensively so future hierarchical
+            # selections still work.
+            for promoted_gid in promoted_groups:
+                old_parent = parent_group_of(
+                    self._session.layout.groups, promoted_gid
+                )
+                if old_parent is not None:
+                    self._session.stack.execute(
+                        RemoveFromGroupCommand(
+                            group_id=old_parent,
+                            child_group_ids=frozenset({promoted_gid}),
+                        ),
+                        self._session,
+                    )
             # Register new group as a child of the active group.  Also
-            # detach the components from the parent's direct membership
-            # so the "one component is in exactly one group" invariant
-            # holds — otherwise drag/rotate hit-tests find the components
-            # as directs of the parent before walking into the child and
-            # never enter the group-drag-arming path (user-observed
-            # 2026-06-04).  RemoveFromGroupCommand subtracts an
-            # intersection by default, so it's a no-op when the
-            # components weren't directs (Ctrl+G from root).
+            # detach the free components from the parent's direct
+            # membership so the "one component is in exactly one group"
+            # invariant holds — otherwise drag/rotate hit-tests find
+            # the components as directs of the parent before walking
+            # into the child and never enter the group-drag-arming path
+            # (user-observed 2026-06-04).
             cmd_attach = AddToGroupCommand(
                 group_id=active_gid,
                 child_group_ids=frozenset({new_group.id}),
             )
             self._session.stack.execute(cmd_attach, self._session)
-            cmd_detach = RemoveFromGroupCommand(
-                group_id=active_gid,
-                component_ids=ids,
-            )
-            self._session.stack.execute(cmd_detach, self._session)
+            if promoted_free:
+                cmd_detach = RemoveFromGroupCommand(
+                    group_id=active_gid,
+                    component_ids=promoted_free,
+                )
+                self._session.stack.execute(cmd_detach, self._session)
             self._session.layout_changed.emit()
             self._select_group(new_group.id)
             return new_group.id
