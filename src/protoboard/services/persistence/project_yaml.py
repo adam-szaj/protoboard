@@ -718,6 +718,9 @@ def _layout_from_yaml(text: str) -> Layout:
             origin=origin,
             lock_internal_wires=bool(raw.get("lock_internal_wires", False)),
         )
+
+    _migrate_encapsulated_exports(groups)
+
     layout = Layout(
         placements=placements,
         groups=groups,
@@ -734,6 +737,84 @@ def _layout_from_yaml(text: str) -> Layout:
 
     layout.ensure_root_group()
     return layout
+
+
+def _migrate_encapsulated_exports(
+    groups: "dict[uuid.UUID, Any]",
+) -> None:
+    """Strip exports that violate the encapsulated re-export chain.
+
+    Walks *groups* leaves → root, dropping every entry in each group's
+    ``exported_pins`` whose component is neither a direct member of the
+    group nor re-exported by a direct child.  Required because legacy
+    projects (saved before docs/group-export-encapsulation.md was
+    enforced) freely listed grandchild pins in any ancestor's flat
+    ``exported_pins`` set; with encapsulation in force those entries
+    become invisible to the snap layer and renderer, so removing them
+    silently is safer than carrying inconsistent state forward.
+
+    The traversal is bottom-up so each parent sees its children's
+    *already-migrated* exported sets when computing legality.  Mutates
+    *groups* in place (frozen dataclass replacement).
+    """
+    from protoboard.domain.layout.group import (
+        ComponentGroup,
+        validate_exported_pins,
+    )
+
+    if not groups:
+        return
+
+    children_of: dict[uuid.UUID, frozenset[uuid.UUID]] = {
+        gid: g.child_group_ids for gid, g in groups.items()
+    }
+    in_degree = {gid: len(c) for gid, c in children_of.items()}
+    # Leaves first (groups with no child groups).
+    ordered: list[uuid.UUID] = []
+    pending = [gid for gid, d in in_degree.items() if d == 0]
+    parent_of: dict[uuid.UUID, uuid.UUID] = {}
+    for gid, g in groups.items():
+        for cid in g.child_group_ids:
+            parent_of[cid] = gid
+    while pending:
+        gid = pending.pop()
+        ordered.append(gid)
+        parent = parent_of.get(gid)
+        if parent is not None:
+            in_degree[parent] -= 1
+            if in_degree[parent] == 0:
+                pending.append(parent)
+    # If there are cycles (shouldn't happen — invariant enforced
+    # elsewhere) we still process the remaining groups in arbitrary order;
+    # the invariant won't be perfectly enforced for the cycle members but
+    # we don't want migration to crash the load.
+    for gid in groups:
+        if gid not in ordered:
+            ordered.append(gid)
+
+    for gid in ordered:
+        invalid = validate_exported_pins(groups, gid)
+        if not invalid:
+            continue
+        g = groups[gid]
+        new_exported = g.exported_pins - invalid
+        groups[gid] = ComponentGroup(
+            id=g.id,
+            name=g.name,
+            component_ids=g.component_ids,
+            child_group_ids=g.child_group_ids,
+            exported_pins=new_exported,
+            rotation=g.rotation,
+            origin=g.origin,
+            lock_internal_wires=g.lock_internal_wires,
+        )
+        _log.info(
+            "load.migrate_encapsulated_exports",
+            group_id=str(gid)[:8],
+            group_name=g.name,
+            stripped=len(invalid),
+            kept=len(new_exported),
+        )
 
 
 def _decode_knots_and_wires(

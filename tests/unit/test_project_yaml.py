@@ -304,3 +304,136 @@ class TestPinVariantRoundtrip:
         _, _, _, loaded_instances, _, _, _ = load_project(tmp_path)
         loaded = loaded_instances[inst.id]
         assert loaded.pin_variant is None
+
+
+class TestEncapsulatedExportMigration:
+    """Loader strips group exports that violate the re-export chain
+    (docs/group-export-encapsulation.md §3.3).  Legacy projects with
+    flat grandchild exports load silently with the invalid entries
+    removed."""
+
+    def _save_layout_with_groups(
+        self, tmp_path: Path, board: Board, groups: dict, comp_ids: set
+    ) -> None:
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
+        from protoboard.domain.layout.group import ComponentGroup
+        # The migration runs irrespective of placements/wires; pass an
+        # empty layout with just the groups we care about.
+        root = ComponentGroup(
+            id=ROOT_GROUP_ID, name="root",
+            component_ids=frozenset(),
+            child_group_ids=frozenset(g.id for g in groups.values() if g.id != ROOT_GROUP_ID),
+        )
+        all_groups = {ROOT_GROUP_ID: root, **groups}
+        lay = Layout(placements={}, wires=[], groups=all_groups)
+        save_project(tmp_path, board, lay, Schematic(nets={}))
+
+    def test_grandchild_flat_export_stripped(self, tmp_path: Path) -> None:
+        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+
+        board = _perfboard()
+        c_comp = uuid.uuid4()
+        ep = ExportedPin(component_id=c_comp, pin_number=1)
+        c = ComponentGroup(
+            id=uuid.uuid4(), name="C",
+            component_ids=frozenset({c_comp}),
+            exported_pins=frozenset({ep}),
+        )
+        b = ComponentGroup(
+            id=uuid.uuid4(), name="B",
+            child_group_ids=frozenset({c.id}),
+        )
+        a = ComponentGroup(
+            id=uuid.uuid4(), name="A",
+            child_group_ids=frozenset({b.id}),
+            exported_pins=frozenset({ep}),
+        )
+        self._save_layout_with_groups(
+            tmp_path, board, {a.id: a, b.id: b, c.id: c}, {c_comp}
+        )
+        _, lay_loaded, _, _, _, _, _ = load_project(tmp_path)
+        # A's invalid flat export is stripped; C's direct-member export survives.
+        assert lay_loaded.groups[a.id].exported_pins == frozenset()
+        assert lay_loaded.groups[c.id].exported_pins == frozenset({ep})
+
+    def test_chain_legal_exports_preserved(self, tmp_path: Path) -> None:
+        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+
+        board = _perfboard()
+        c_comp = uuid.uuid4()
+        ep = ExportedPin(component_id=c_comp, pin_number=1)
+        c = ComponentGroup(
+            id=uuid.uuid4(), name="C",
+            component_ids=frozenset({c_comp}),
+            exported_pins=frozenset({ep}),
+        )
+        b = ComponentGroup(
+            id=uuid.uuid4(), name="B",
+            child_group_ids=frozenset({c.id}),
+            exported_pins=frozenset({ep}),  # B re-exports → chain ok
+        )
+        a = ComponentGroup(
+            id=uuid.uuid4(), name="A",
+            child_group_ids=frozenset({b.id}),
+            exported_pins=frozenset({ep}),
+        )
+        self._save_layout_with_groups(
+            tmp_path, board, {a.id: a, b.id: b, c.id: c}, {c_comp}
+        )
+        _, lay_loaded, _, _, _, _, _ = load_project(tmp_path)
+        # All three keep the export — chain holds at every level.
+        assert lay_loaded.groups[a.id].exported_pins == frozenset({ep})
+        assert lay_loaded.groups[b.id].exported_pins == frozenset({ep})
+        assert lay_loaded.groups[c.id].exported_pins == frozenset({ep})
+
+    def test_mixed_legal_and_invalid(self, tmp_path: Path) -> None:
+        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+
+        board = _perfboard()
+        a_direct = uuid.uuid4()
+        c_grand = uuid.uuid4()
+        ep_legal = ExportedPin(component_id=a_direct, pin_number=2)
+        ep_invalid = ExportedPin(component_id=c_grand, pin_number=1)
+
+        c = ComponentGroup(
+            id=uuid.uuid4(), name="C",
+            component_ids=frozenset({c_grand}),
+            exported_pins=frozenset({ep_invalid}),
+        )
+        b = ComponentGroup(
+            id=uuid.uuid4(), name="B",
+            child_group_ids=frozenset({c.id}),
+            # No re-export, so ep_invalid breaks the chain at B and beyond.
+        )
+        a = ComponentGroup(
+            id=uuid.uuid4(), name="A",
+            component_ids=frozenset({a_direct}),
+            child_group_ids=frozenset({b.id}),
+            exported_pins=frozenset({ep_legal, ep_invalid}),
+        )
+        self._save_layout_with_groups(
+            tmp_path, board, {a.id: a, b.id: b, c.id: c}, {a_direct, c_grand}
+        )
+        _, lay_loaded, _, _, _, _, _ = load_project(tmp_path)
+        # A keeps the direct-member export only.
+        assert lay_loaded.groups[a.id].exported_pins == frozenset({ep_legal})
+
+    def test_round_trip_legal_unchanged(self, tmp_path: Path) -> None:
+        # Save → load → save → load: legal exports survive every cycle.
+        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+
+        board = _perfboard()
+        comp = uuid.uuid4()
+        ep = ExportedPin(component_id=comp, pin_number=1)
+        g = ComponentGroup(
+            id=uuid.uuid4(), name="G",
+            component_ids=frozenset({comp}),
+            exported_pins=frozenset({ep}),
+        )
+        self._save_layout_with_groups(tmp_path, board, {g.id: g}, {comp})
+        _, lay_loaded, sch, insts, *_ = load_project(tmp_path)
+        assert lay_loaded.groups[g.id].exported_pins == frozenset({ep})
+        # Round-trip again — invalid migration must be idempotent.
+        save_project(tmp_path, board, lay_loaded, sch, instances=insts)
+        _, lay_again, *_ = load_project(tmp_path)
+        assert lay_again.groups[g.id].exported_pins == frozenset({ep})
