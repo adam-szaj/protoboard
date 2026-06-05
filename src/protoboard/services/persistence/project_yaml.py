@@ -636,6 +636,87 @@ def load_project(
                 ],
             )
 
+    # Snap stale PinKnot-anchored wire endpoints back to their pin's
+    # resolved world position.  A previous session's partial macro
+    # commit (Move applied but ReplaceWireFragments failed in the same
+    # macro) saved a wire whose path[0]/path[-1] is offset from the
+    # pin it nominally connects to — usually by the drag delta.  On
+    # reload the misalignment seeds the next drag's macro into the
+    # same failure mode: ``replace_wire_fragments: new path[0]
+    # disagrees with PinKnot position``.  Snap each offending endpoint
+    # back to the pin position so the layout opens consistent.
+    if _library_for_migration is not None and layout.wires and layout.knots:
+        from protoboard.domain.layout.knot import PinKnot as _PK
+        from protoboard.domain.layout.placement import pin_world_position as _pwp
+        snapped_endpoints: list[dict[str, object]] = []
+        for w in layout.wires:
+            if w.a is None or w.b is None:
+                continue
+            for endpoint_label, ref, path_idx in (
+                ("a", w.a, 0), ("b", w.b, -1),
+            ):
+                k = layout.knots.get(ref.id)
+                if not isinstance(k, _PK):
+                    continue
+                comp_id = k.pin.component_id
+                pl = layout.placements.get(comp_id)
+                inst = instances.get(comp_id)
+                if pl is None or inst is None:
+                    continue
+                defn = (
+                    _library_for_migration.get(inst.definition_ref)  # type: ignore[attr-defined]
+                    if hasattr(_library_for_migration, "get") else None
+                )
+                if defn is None:
+                    continue
+                try:
+                    pin_pos = _pwp(defn.footprint, pl, k.pin.pin_number)
+                except (IndexError, ValueError):
+                    continue
+                if not w.path:
+                    continue
+                cur = w.path[path_idx]
+                dx = pin_pos.x - cur.x
+                dy = pin_pos.y - cur.y
+                # Sub-grid drift (< 0.1 raster) is float noise; leave alone.
+                # Sub-pad mismatch (>= 0.4) is what the group-ownership
+                # sanity check already rejects — exactly the bug we're
+                # repairing.  Snap aggressively.
+                if abs(dx) < 0.1 and abs(dy) < 0.1:
+                    continue
+                # Translate the WHOLE wire by (dx, dy) so the other
+                # endpoint and intermediate vertices move together —
+                # otherwise a single-vertex snap would skew the path.
+                # The other endpoint is checked independently in this
+                # loop; if it doesn't need snapping, the per-endpoint
+                # delta will be (0, 0) and the wire stops drifting.
+                w.path = [
+                    type(p)(p.x + dx, p.y + dy) for p in w.path
+                ]
+                if w.fragments:
+                    new_frags: list[object] = []
+                    for frag in w.fragments:
+                        new_frag_path = [
+                            type(p)(p.x + dx, p.y + dy) for p in frag.path
+                        ]
+                        new_frags.append(
+                            type(frag)(path=new_frag_path, side=frag.side),
+                        )
+                    w.fragments = new_frags  # type: ignore[assignment]
+                snapped_endpoints.append({
+                    "wire_id": str(w.id)[:8],
+                    "endpoint": endpoint_label,
+                    "comp": str(comp_id)[:8],
+                    "pin": k.pin.pin_number,
+                    "delta": (round(dx, 3), round(dy, 3)),
+                })
+        if snapped_endpoints:
+            _log.info(
+                "project.stale_wire_paths_snapped",
+                n_snapped=len(snapped_endpoints),
+                examples=snapped_endpoints[:10],
+            )
+
     _log.info(
         "project.loaded",
         path=str(directory),

@@ -69,17 +69,12 @@ class MacroCommand(Command[T], Generic[T]):
         return all(c.allowed_during_autoroute for c in self._commands)
 
     def apply(self, state: T) -> None:
+        applied: list["Command[T]"] = []
         for i, cmd in enumerate(self._commands):
             try:
                 cmd.apply(state)
-            except Exception:
-                # Surface where in the macro we died.  MacroCommand has
-                # no rollback today, so the sub-commands that already
-                # applied have *mutated state* — they are not in the
-                # undo stack (the macro will not be appended), and the
-                # user is left with a partially-committed layout.  Log
-                # the index + already-applied summary so a bug-reporter
-                # can correlate with the resulting orphan state.
+            except Exception as exc:
+                # Surface where in the macro we died.
                 _log.error(
                     "macro.apply.failed",
                     macro_desc=self.description,
@@ -94,7 +89,46 @@ class MacroCommand(Command[T], Generic[T]):
                         type(c).__name__ for c in self._commands[i + 1:]
                     ],
                 )
-                raise
+                # Roll back every sub-command that already applied, in
+                # reverse order, so the layout never lingers in a
+                # half-committed state.  Without this, the next auto-
+                # save persists the partial state and the bug
+                # compounds across sessions (the case that produced
+                # stale wire.path data resurfacing as
+                # ``replace_wire_fragments: new path[0] disagrees
+                # with PinKnot position`` after a project reload).
+                rollback_errors: list[tuple[int, str]] = []
+                for j, c in enumerate(reversed(applied)):
+                    try:
+                        c.revert(state)
+                    except Exception as rb_exc:  # noqa: BLE001
+                        # Best-effort: if one sub-revert fails, keep
+                        # rolling back the rest so we shrink the partial
+                        # surface as much as possible.  Each failure is
+                        # logged so future investigation has the trail.
+                        rollback_errors.append(
+                            (len(applied) - 1 - j, repr(rb_exc)),
+                        )
+                if rollback_errors:
+                    _log.error(
+                        "macro.apply.rollback_errors",
+                        macro_desc=self.description,
+                        original_failed_at=i,
+                        n_errors=len(rollback_errors),
+                        errors=rollback_errors[:5],
+                    )
+                else:
+                    _log.info(
+                        "macro.apply.rolled_back",
+                        macro_desc=self.description,
+                        original_failed_at=i,
+                        n_rolled_back=len(applied),
+                    )
+                # Re-raise so the caller (CommandStack.execute) doesn't
+                # add the macro to the undo stack — layout is back to
+                # pre-apply state, so there is nothing to undo.
+                raise exc
+            applied.append(cmd)
 
     def revert(self, state: T) -> None:
         for cmd in reversed(self._commands):

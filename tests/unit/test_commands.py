@@ -235,3 +235,108 @@ class TestRemoveComponentCommand:
         cmd.revert(sess)
         assert net.id in sess.schematic.nets
         assert ref in sess.schematic.nets[net.id].pins
+
+
+# ---------------------------------------------------------------------------
+# MacroCommand atomic rollback on partial-failure
+# ---------------------------------------------------------------------------
+
+
+class _FailingCmd(Command[_Counter]):
+    """Sub-command whose apply() unconditionally raises."""
+    description = "always fails"
+
+    def apply(self, state: _Counter) -> None:
+        raise RuntimeError("intentional failure")
+
+    def revert(self, state: _Counter) -> None:
+        # Should never be called; if it is, the rollback machinery is
+        # double-counting.  Mark with sentinel.
+        state.value += 1000
+
+
+class _FailingRevertCmd(Command[_Counter]):
+    """Sub-command whose revert() raises (used to test rollback-error logging)."""
+    description = "revert fails"
+
+    def __init__(self) -> None:
+        self.applied = False
+
+    def apply(self, state: _Counter) -> None:
+        self.applied = True
+        state.value += 1
+
+    def revert(self, state: _Counter) -> None:
+        raise RuntimeError("rollback failure")
+
+
+class TestMacroCommandAtomic:
+    def test_failure_rolls_back_already_applied(self) -> None:
+        from protoboard.domain.commands.base import MacroCommand
+        counter = _Counter()
+        # Two increments + one failing → after raise, counter should be 0.
+        macro = MacroCommand(
+            [_IncrCmd(), _IncrCmd(), _FailingCmd()],
+            description="test",
+        )
+        with pytest.raises(RuntimeError, match="intentional failure"):
+            macro.apply(counter)
+        assert counter.value == 0
+
+    def test_failure_at_first_command_no_rollback_needed(self) -> None:
+        from protoboard.domain.commands.base import MacroCommand
+        counter = _Counter()
+        macro = MacroCommand(
+            [_FailingCmd(), _IncrCmd()], description="test",
+        )
+        with pytest.raises(RuntimeError):
+            macro.apply(counter)
+        # First command failed before any state change; nothing to revert.
+        assert counter.value == 0
+
+    def test_success_path_unchanged(self) -> None:
+        from protoboard.domain.commands.base import MacroCommand
+        counter = _Counter()
+        macro = MacroCommand(
+            [_IncrCmd(), _IncrCmd(), _IncrCmd()], description="test",
+        )
+        macro.apply(counter)
+        assert counter.value == 3
+
+    def test_rollback_error_does_not_swallow_original_exception(self) -> None:
+        from protoboard.domain.commands.base import MacroCommand
+        counter = _Counter()
+        # One applied-but-revert-fails + one failing.  Rollback for the
+        # first cmd will raise; the original RuntimeError must still
+        # surface.
+        macro = MacroCommand(
+            [_FailingRevertCmd(), _FailingCmd()], description="test",
+        )
+        with pytest.raises(RuntimeError, match="intentional failure"):
+            macro.apply(counter)
+        # The applied-then-failed-to-revert command's apply ran (value=1),
+        # revert raised (value untouched), so counter stays at 1 — best
+        # effort.  The contract is: "do not silently lose the original
+        # exception"; full state restoration is best-effort.
+        assert counter.value == 1
+
+    def test_stack_does_not_record_failed_macro(self) -> None:
+        from protoboard.domain.commands.base import CommandStack, MacroCommand
+        counter = _Counter()
+        stack: CommandStack[_Counter] = CommandStack()
+        # Pre-load with a successful command so the undo stack is non-empty.
+        stack.execute(_IncrCmd(), counter)
+        assert counter.value == 1
+        macro = MacroCommand(
+            [_IncrCmd(), _FailingCmd()], description="failing macro",
+        )
+        with pytest.raises(RuntimeError):
+            stack.execute(macro, counter)
+        # State must be back to the post-first-execute snapshot
+        # (rolled back the inner _IncrCmd), and undo stack must still
+        # contain only the first command.
+        assert counter.value == 1
+        # Undoing one step should revert the first IncrCmd, NOT some
+        # leftover macro entry.
+        stack.undo(counter)
+        assert counter.value == 0
