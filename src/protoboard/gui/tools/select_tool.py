@@ -4251,6 +4251,7 @@ class SelectTool(_Tool):
             InsulatedWireCrossing,
             InsulatedWireItem,
         )
+        from protoboard.domain.layout.knot import PinKnot
 
         _WIRE_ITEM_TYPES = (
             BareWireItem,
@@ -4258,7 +4259,28 @@ class SelectTool(_Tool):
             InsulatedWireItem,
             InsulatedWireCrossing,
         )
-        internal_wire_ids = set(self._drag_orig_wire_paths.keys())
+        # Exempt every wire that is structurally anchored to a moved
+        # component — those wires follow the drag automatically (via
+        # ``_drag_orig_wire_paths`` for owned wires, or via the
+        # per-component MoveComponent / TranslateAnchoredWires pass
+        # for shared-endpoint half-orphans).  Without this superset,
+        # a wire excluded from owned-set by the group-ownership free-
+        # knot guard would be misclassified as a pin-on-wire conflict
+        # with its own pin (the moved component's PinKnot endpoint),
+        # asking the user to delete a wire that belongs to the group.
+        internal_wire_ids: set[uuid.UUID] = set(self._drag_orig_wire_paths.keys())
+        knots = self._session.layout.knots
+        for w in self._session.layout.wires:
+            for ref in (w.a, w.b):
+                if ref is None:
+                    continue
+                k = knots.get(ref.id)
+                if not isinstance(k, PinKnot):
+                    continue
+                if k.pin.component_id in drag_ids:
+                    internal_wire_ids.add(w.id)
+                    break
+
         out: set[uuid.UUID] = set()
         for cid in drag_ids:
             for _pin_num, pin_pos in self._session.iter_pin_positions(cid):
