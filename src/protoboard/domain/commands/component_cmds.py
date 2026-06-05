@@ -354,6 +354,15 @@ def _find_pin_at(
                 and abs(pos.y - point.y) < _EPS_KNOT
             ):
                 continue
+            pin_ref = PinRef(component_id=comp_id, pin_number=pin_num)
+            # If a PinKnot for this pin already exists, the pin is already
+            # accepting wire connections — adding one more is a legal
+            # multi-degree pin junction.  Strategy.can_place_pin's rule 6
+            # check (reject when pad has any wire item) is intended for
+            # *new pin placement*, not for additional wires soldering to
+            # an existing pin; gate it on the absence of a PinKnot.
+            if pin_ref in state.layout.pin_knots:
+                return pin_ref
             if strategy is not None and pad_idx is not None:
                 pad = pad_idx.pad_at(pos)
                 if pad is not None:
@@ -366,7 +375,7 @@ def _find_pin_at(
                         # (which will run its own net gate via
                         # _find_joint_at).
                         continue
-            return PinRef(component_id=comp_id, pin_number=pin_num)
+            return pin_ref
     return None
 
 
