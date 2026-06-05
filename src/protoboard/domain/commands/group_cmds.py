@@ -98,6 +98,90 @@ def _group_bbox(
     return min(xs), min(ys), max(xs), max(ys)
 
 
+def _recompute_group_origin(
+    state: "ComponentState", group_id: uuid.UUID,
+) -> "Point | None":
+    """Snapshot the current group's origin, then recompute it from the
+    recursive component bbox top-left and replace the group with the new
+    value.  Returns the *old* origin so the caller can stash it for
+    revert.
+
+    No-op (returns None) when the group is missing or has no resolvable
+    pins.  Calling this after every membership/placement mutation keeps
+    ``group.origin`` aligned with the bbox top-left invariant.
+
+    Drag follows automatically: every moved component triggers
+    recompute, the new top-left bbox is the translated old top-left,
+    so the origin moves by the drag delta.  Rotate is NOT a caller —
+    rotate must keep the pre-rotation origin as the immutable pivot.
+    """
+    group = state.layout.groups.get(group_id)
+    if group is None:
+        return None
+    comp_ids = all_component_ids(state.layout.groups, group_id)
+    if not comp_ids:
+        return group.origin
+    # Tests may pass a minimal ComponentState stub that lacks instances
+    # or components — in that case we can't resolve pin positions, so
+    # the helper is a no-op (returns current origin).  Production callers
+    # always have a fully-populated state.
+    instances = getattr(state, "instances", None)
+    components = getattr(state, "components", None)
+    if instances is None or components is None:
+        return group.origin
+    new_origin = _group_origin(
+        comp_ids,
+        state.layout.placements,  # type: ignore[arg-type]
+        instances,  # type: ignore[arg-type]
+        components,  # type: ignore[arg-type]
+    )
+    if new_origin is None:
+        # No resolvable pin (placements without instances, broken refs).
+        # Leave origin as-is to avoid wiping a value that's still useful
+        # for rendering / hit-test.
+        return group.origin
+    old_origin = group.origin
+    if old_origin is not None and (
+        old_origin.x == new_origin.x and old_origin.y == new_origin.y
+    ):
+        # Unchanged — skip the dict mutation entirely to keep
+        # CommandStack and downstream caches quiet.
+        return old_origin
+    state.layout.groups[group_id] = _replace_group(group, origin=new_origin)
+    return old_origin
+
+
+def _groups_containing_component(
+    groups: dict[uuid.UUID, ComponentGroup], component_id: uuid.UUID,
+) -> set[uuid.UUID]:
+    """Return every group id whose recursive component set contains
+    *component_id*.
+
+    Used by MoveComponentCommand to recompute origin of every affected
+    group when one of its members moves.  Direct-member match + parent
+    chain via child_group_ids until the root.
+    """
+    direct: set[uuid.UUID] = set()
+    for gid, g in groups.items():
+        if component_id in g.component_ids:
+            direct.add(gid)
+    # Walk parents.
+    parent_map: dict[uuid.UUID, uuid.UUID] = {}
+    for gid, g in groups.items():
+        for cid in g.child_group_ids:
+            parent_map[cid] = gid
+    result: set[uuid.UUID] = set(direct)
+    pending = list(direct)
+    while pending:
+        gid = pending.pop()
+        parent = parent_map.get(gid)
+        if parent is None or parent in result:
+            continue
+        result.add(parent)
+        pending.append(parent)
+    return result
+
+
 def _pin_positions_for(
     comp_ids: frozenset[uuid.UUID],
     placements: dict[uuid.UUID, object],
@@ -256,13 +340,32 @@ class CreateGroupCommand(Command[ComponentState]):
     """Create a new group from a set of component IDs."""
 
     group: ComponentGroup
+    # Snapshot of self.group at first apply so revert (and redo) put back
+    # the same object the caller built — second apply gets origin sync'd
+    # in-place but revert restores the pre-sync form.  Marginal but keeps
+    # undo bit-identical.
+    _orig_group: "ComponentGroup | None" = field(
+        default=None, init=False, repr=False
+    )
 
     @property
     def description(self) -> str:  # type: ignore[override]
         return f"Create group '{self.group.name}'"
 
     def apply(self, state: ComponentState) -> None:
+        if self._orig_group is None:
+            object.__setattr__(self, "_orig_group", self.group)
         state.layout.groups[self.group.id] = self.group
+        # Sync origin to the bbox top-left of the new group's current
+        # placements.  Callers (PPM "create group") usually pass origin=
+        # None expecting the command to materialise it; this is the
+        # canonical place to do so.
+        _recompute_group_origin(state, self.group.id)
+        # Pick up any in-place mutation so subsequent applies (redo) see
+        # the synced origin.
+        synced = state.layout.groups.get(self.group.id)
+        if synced is not None:
+            object.__setattr__(self, "group", synced)
 
     def revert(self, state: ComponentState) -> None:
         state.layout.groups.pop(self.group.id, None)
@@ -339,6 +442,9 @@ class AddToGroupCommand(Command[ComponentState]):
             component_ids=group.component_ids | self.component_ids,
             child_group_ids=group.child_group_ids | self.child_group_ids,
         )
+        # Membership change ⇒ bbox top-left moves ⇒ origin recompute.
+        # Old origin is captured inside _old_group above; revert restores it.
+        _recompute_group_origin(state, self.group_id)
 
     def revert(self, state: ComponentState) -> None:
         if self._old_group is not None:
@@ -370,6 +476,9 @@ class RemoveFromGroupCommand(Command[ComponentState]):
             component_ids=group.component_ids - self.component_ids,
             child_group_ids=group.child_group_ids - self.child_group_ids,
         )
+        # Membership change ⇒ bbox top-left may change ⇒ origin recompute.
+        # Old origin is captured inside _old_group above; revert restores it.
+        _recompute_group_origin(state, self.group_id)
 
     def revert(self, state: ComponentState) -> None:
         if self._old_group is not None:

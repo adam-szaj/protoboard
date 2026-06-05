@@ -136,6 +136,12 @@ class MoveComponentCommand(Command[ComponentState]):
         default_factory=list, init=False, repr=False
     )
     _applied: bool = field(default=False, init=False, repr=False)
+    # Pre-move origin of every group that recursively contained the moved
+    # component.  Snapshotted at apply() and restored on revert() so the
+    # bbox-top-left invariant survives undo/redo.  Empty until apply().
+    _saved_group_origins: "dict[uuid.UUID, object]" = field(
+        default_factory=dict, init=False, repr=False
+    )
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -165,6 +171,25 @@ class MoveComponentCommand(Command[ComponentState]):
                 self.exclude_wire_ids,
             )
         _warn_pins_off_pads(state, self.component_id, self.new_placement)
+        # Sync origin of every group that recursively contains this
+        # component.  In a group drag this fires once per moved member,
+        # but the final state (after all moves apply) has origin =
+        # bbox-top-left of the new placements — which is exactly the
+        # old origin translated by the drag delta.  Single-component
+        # drags get the same treatment, so origin always tracks the
+        # group's current bbox top-left, satisfying the user-facing
+        # invariant: "(0,0) of a group lives at the top-left pin".
+        from protoboard.domain.commands.group_cmds import (
+            _groups_containing_component,
+            _recompute_group_origin,
+        )
+        saved: dict[uuid.UUID, object] = {}
+        for gid in _groups_containing_component(
+            state.layout.groups, self.component_id,
+        ):
+            old = _recompute_group_origin(state, gid)
+            saved[gid] = old
+        object.__setattr__(self, "_saved_group_origins", saved)
 
     def revert(self, state: ComponentState) -> None:
         if not self._applied:
@@ -172,6 +197,18 @@ class MoveComponentCommand(Command[ComponentState]):
         state.layout.placements[self.component_id] = self.old_placement
         if not self.placement_only:
             state.layout.wires[:] = self._saved_wires
+        # Restore the pre-move origin of every group we touched in apply.
+        # Re-using _replace_group keeps the rest of the ComponentGroup
+        # immutable-style intact.
+        if self._saved_group_origins:
+            from protoboard.domain.commands.group_cmds import _replace_group
+            for gid, old_origin in self._saved_group_origins.items():
+                grp = state.layout.groups.get(gid)
+                if grp is None:
+                    continue
+                state.layout.groups[gid] = _replace_group(
+                    grp, origin=old_origin,
+                )
 
 
 @dataclass
