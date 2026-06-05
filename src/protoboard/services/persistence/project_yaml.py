@@ -563,6 +563,79 @@ def load_project(
                 "and fix orphan/dangling wires."
             ),
         )
+
+    # Prune duplicate-connection wires.  Two wires sharing the same
+    # unordered ``{a_knot_id, b_knot_id}`` + side + insulated represent
+    # the same physical conductor — legacy projects accumulated these
+    # when autoroute commits ran on layouts with stale wire.path data
+    # (rotate/drag pipelines pre-2026-06-05 sometimes left wire.path
+    # de-synced from knot positions; the router's connectivity graph
+    # missed the existing connection and routed a parallel wire).  Now
+    # detected and discarded silently at load.  Each kept wire is the
+    # *first* one encountered (load order); the dropped ones lose their
+    # uuid, but no electrical content.
+    if layout.wires:
+        from protoboard.domain.layout.wire import Wire as _W
+        seen_connection_sigs: set[tuple[object, ...]] = set()
+        kept_wires: list[_W] = []
+        dropped: list[tuple[str, tuple[object, ...]]] = []
+        for w in list(layout.wires):
+            if w.a is None or w.b is None:
+                kept_wires.append(w)  # type: ignore[arg-type]
+                continue
+            endpoint_xor = w.a.id.int ^ w.b.id.int
+            sig = ("knots", endpoint_xor, w.side, w.insulated)
+            if sig in seen_connection_sigs:
+                dropped.append((str(w.id), sig))
+                # Detach the dropped wire from its endpoint knots so
+                # knot.wire_ids no longer references the dead uuid.
+                for ref in (w.a, w.b):
+                    k = layout.knots.get(ref.id)
+                    if k is None:
+                        continue
+                    new_ids = k.wire_ids - {w.id}
+                    # Replace knot in-place.  All three Knot subtypes
+                    # take wire_ids as kwarg.
+                    from protoboard.domain.layout.knot import (
+                        JointKnot as _JK,
+                        PinKnot as _PK,
+                        WirePinKnot as _WK,
+                    )
+                    if isinstance(k, _PK):
+                        layout.knots[ref.id] = _PK(
+                            id=k.id, pin=k.pin, wire_ids=new_ids,
+                        )
+                    elif isinstance(k, _WK):
+                        layout.knots[ref.id] = _WK(
+                            id=k.id, position=k.position,
+                            net_id=k.net_id, wire_ids=new_ids,
+                        )
+                    elif isinstance(k, _JK):
+                        # Sole-owner free joint with the dead wire as
+                        # its only incident → drop the knot.
+                        if new_ids:
+                            layout.knots[ref.id] = _JK(
+                                id=k.id, position=k.position,
+                                wire_ids=new_ids,
+                            )
+                        else:
+                            del layout.knots[ref.id]
+                continue
+            seen_connection_sigs.add(sig)
+            kept_wires.append(w)  # type: ignore[arg-type]
+        if dropped:
+            layout.wires[:] = kept_wires  # type: ignore[assignment]
+            layout.invalidate_interior_vertex_index()
+            _log.info(
+                "project.duplicate_wires_pruned",
+                n_dropped=len(dropped),
+                n_kept=len(kept_wires),
+                n_total_before=len(dropped) + len(kept_wires),
+                first_examples=[
+                    {"dropped_id": d[0][:8]} for d in dropped[:10]
+                ],
+            )
+
     _log.info(
         "project.loaded",
         path=str(directory),
