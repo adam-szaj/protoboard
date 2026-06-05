@@ -1044,11 +1044,37 @@ class SelectTool(_Tool):
         # work into discrete commands keeps the macro's undo behaviour
         # transparent and matches the refactor's "no hidden wire
         # mutations in MoveComponentCommand" goal.
+        cmd_delta_log: list[dict[str, object]] = []
         for cid in self._floating_ids:
             new_pl = self._session.layout.placements.get(cid)
             old_pl = self._floating_orig_placements.get(cid)
             if new_pl is None or old_pl is None:
+                cmd_delta_log.append({
+                    "comp_id": str(cid)[:8],
+                    "skipped": True,
+                    "reason": "missing_placement",
+                    "new_pl": (
+                        (new_pl.position.x, new_pl.position.y)
+                        if new_pl is not None else None
+                    ),
+                    "old_pl": (
+                        (old_pl.position.x, old_pl.position.y)
+                        if old_pl is not None else None
+                    ),
+                })
                 continue
+            cmd_delta_log.append({
+                "comp_id": str(cid)[:8],
+                "skipped": False,
+                "new_pos": (new_pl.position.x, new_pl.position.y),
+                "old_pos": (old_pl.position.x, old_pl.position.y),
+                "new_rot": new_pl.rotation,
+                "old_rot": old_pl.rotation,
+                "delta": (
+                    new_pl.position.x - old_pl.position.x,
+                    new_pl.position.y - old_pl.position.y,
+                ),
+            })
             cmds.append(
                 TranslateAnchoredWiresCommand(
                     component_id=cid,
@@ -1067,6 +1093,21 @@ class SelectTool(_Tool):
                     placement_only=True,
                 )
             )
+        _log.info(
+            "drag.commit_floating.legacy_macro",
+            n_floating=len(self._floating_ids),
+            n_translate_exclude=len(translate_exclude),
+            n_dragged_wire_ids=len(self._floating_dragged_wire_ids),
+            n_removed_wire_ids=len(removed_ids),
+            n_extra_cmds=len(self._floating_extra_cmds),
+            severity=self._floating_severity,
+            decision_has_classification=(
+                getattr(self._floating_decision, "wire_classification", None)
+                is not None
+            ),
+            per_component=cmd_delta_log,
+            total_cmds=len(cmds),
+        )
         self._clear_floating_highlights()
         if self._view is not None:
             self._drag_overlay.reset(self._view.scene())
@@ -1097,6 +1138,36 @@ class SelectTool(_Tool):
                 if self._view is not None:
                     self._view.refresh()
                 return
+            except Exception as exc:
+                # Floating commit (legacy path) failed mid-macro.
+                # MacroCommand.apply already logged macro.apply.failed;
+                # this extra layer pins it specifically to
+                # _commit_floating so the bug-reporter can tell legacy
+                # path from group-drag path (different builder, same
+                # macro shape, different failure mode).
+                cmd_summary = [
+                    {
+                        "i": i,
+                        "type": type(c).__name__,
+                        **(
+                            {"wire_id": str(getattr(c, "wire_id"))[:8]}
+                            if hasattr(c, "wire_id") else {}
+                        ),
+                        **(
+                            {"comp_id": str(getattr(c, "component_id"))[:8]}
+                            if hasattr(c, "component_id") else {}
+                        ),
+                    }
+                    for i, c in enumerate(cmds)
+                ]
+                _log.error(
+                    "drag.commit_floating.legacy_macro_failed",
+                    exc_type=type(exc).__name__,
+                    exc_msg=str(exc),
+                    n_commands=len(cmds),
+                    commands=cmd_summary,
+                )
+                raise
             self._session.layout_changed.emit()
             _log.debug(
                 "drag.commit_floating.done",
@@ -2606,11 +2677,43 @@ class SelectTool(_Tool):
                 return
             self._drag_orig_wire_paths = {}
             if commands:
-                if len(commands) == 1:
-                    self._session.stack.execute(commands[0], self._session)
-                else:
-                    macro = MacroCommand(commands, description="Move selection")
-                    self._session.stack.execute(macro, self._session)
+                try:
+                    if len(commands) == 1:
+                        self._session.stack.execute(commands[0], self._session)
+                    else:
+                        macro = MacroCommand(commands, description="Move selection")
+                        self._session.stack.execute(macro, self._session)
+                except Exception as exc:
+                    # Group-drag commit raised — log enough context to
+                    # tell which sub-command in the macro broke things
+                    # and how much of the layout already mutated before
+                    # the abort (MacroCommand has no rollback today, so
+                    # partial state survives the exception and shows up
+                    # as orphan wires / split groups in subsequent
+                    # interactions).
+                    cmd_summary = [
+                        {
+                            "i": i,
+                            "type": type(c).__name__,
+                            **(
+                                {"wire_id": str(getattr(c, "wire_id"))[:8]}
+                                if hasattr(c, "wire_id") else {}
+                            ),
+                            **(
+                                {"comp_id": str(getattr(c, "component_id"))[:8]}
+                                if hasattr(c, "component_id") else {}
+                            ),
+                        }
+                        for i, c in enumerate(commands)
+                    ]
+                    _log.error(
+                        "drag.release.group_macro_failed",
+                        exc_type=type(exc).__name__,
+                        exc_msg=str(exc),
+                        n_commands=len(commands),
+                        commands=cmd_summary,
+                    )
+                    raise
                 self._session.layout_changed.emit()
             self._drag_overlay.reset(self._view.scene())
             self._drag_last_decision = None
@@ -4770,7 +4873,78 @@ class SelectTool(_Tool):
             cmds.append(_replace_wire_path_cmd(
                 self._session.layout, wire, list(wire.path), orig_path,
             ))
+            # Diagnostic: log wire endpoint state at command construction
+            # so a replace_wire_fragments mismatch (raised inside the
+            # macro apply) can be traced back to the per-wire decision
+            # this group-drag made.  Looking for: knot kinds, knot
+            # positions vs the new path endpoints, which moving
+            # component anchors each endpoint.
+            from protoboard.domain.layout.knot import (
+                JointKnot as _JK,
+                PinKnot as _PK,
+                WirePinKnot as _WK,
+            )
+            ka = (
+                self._session.layout.knots.get(wire.a.id)
+                if wire.a is not None else None
+            )
+            kb = (
+                self._session.layout.knots.get(wire.b.id)
+                if wire.b is not None else None
+            )
 
+            def _knot_desc(k: object, ref_id: uuid.UUID | None) -> dict[str, object]:
+                if k is None:
+                    return {"kind": None, "ref_id": str(ref_id)[:8] if ref_id else None}
+                kind = (
+                    "PinKnot" if isinstance(k, _PK)
+                    else "WirePinKnot" if isinstance(k, _WK)
+                    else "JointKnot" if isinstance(k, _JK)
+                    else type(k).__name__
+                )
+                desc: dict[str, object] = {
+                    "kind": kind,
+                    "id": str(k.id)[:8],
+                    "n_owners": len(k.wire_ids),
+                }
+                if isinstance(k, _PK):
+                    desc["pin"] = (
+                        f"{str(k.pin.component_id)[:8]}/p{k.pin.pin_number}"
+                    )
+                    desc["anchor_moved"] = (
+                        k.pin.component_id in drag_ids
+                    )
+                elif isinstance(k, (_JK, _WK)):
+                    desc["pos"] = (k.position.x, k.position.y)
+                return desc
+
+            _log.debug(
+                "build_group_drag.wire_replace_cmd",
+                wire_id=str(wire.id)[:8],
+                old_path_a=(orig_path[0].x, orig_path[0].y) if orig_path else None,
+                old_path_b=(orig_path[-1].x, orig_path[-1].y) if orig_path else None,
+                new_path_a=(wire.path[0].x, wire.path[0].y) if wire.path else None,
+                new_path_b=(wire.path[-1].x, wire.path[-1].y) if wire.path else None,
+                a=_knot_desc(ka, wire.a.id if wire.a else None),
+                b=_knot_desc(kb, wire.b.id if wire.b else None),
+            )
+
+        _log.info(
+            "build_group_drag.macro_summary",
+            active_gid=str(active_gid)[:8],
+            n_drag_ids=len(drag_ids),
+            n_drag_orig_wire_paths=len(self._drag_orig_wire_paths),
+            n_remove_cmds=len(removable_wire_ids),
+            n_move_cmds=sum(
+                1 for c in cmds
+                if type(c).__name__ == "MoveComponentCommand"
+            ),
+            n_replace_cmds=sum(
+                1 for c in cmds
+                if type(c).__name__ == "ReplaceWireFragmentsCommand"
+            ),
+            total_cmds=len(cmds),
+        )
         return cmds  # type: ignore[return-value]
 
     def _remove_crossing_wires(

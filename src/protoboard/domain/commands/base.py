@@ -69,8 +69,32 @@ class MacroCommand(Command[T], Generic[T]):
         return all(c.allowed_during_autoroute for c in self._commands)
 
     def apply(self, state: T) -> None:
-        for cmd in self._commands:
-            cmd.apply(state)
+        for i, cmd in enumerate(self._commands):
+            try:
+                cmd.apply(state)
+            except Exception:
+                # Surface where in the macro we died.  MacroCommand has
+                # no rollback today, so the sub-commands that already
+                # applied have *mutated state* — they are not in the
+                # undo stack (the macro will not be appended), and the
+                # user is left with a partially-committed layout.  Log
+                # the index + already-applied summary so a bug-reporter
+                # can correlate with the resulting orphan state.
+                _log.error(
+                    "macro.apply.failed",
+                    macro_desc=self.description,
+                    failed_at=i,
+                    failed_cmd=type(cmd).__name__,
+                    applied_count=i,
+                    total=len(self._commands),
+                    applied_summary=[
+                        type(c).__name__ for c in self._commands[:i]
+                    ],
+                    pending_summary=[
+                        type(c).__name__ for c in self._commands[i + 1:]
+                    ],
+                )
+                raise
 
     def revert(self, state: T) -> None:
         for cmd in reversed(self._commands):

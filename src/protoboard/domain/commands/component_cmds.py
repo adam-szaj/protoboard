@@ -1173,6 +1173,7 @@ class TranslateAnchoredWiresCommand(Command[ComponentState]):
             {w.id: list(w.fragments) for w in state.layout.wires},
         )
         object.__setattr__(self, "_applied", True)
+        wires_before = {w.id: list(w.path) for w in state.layout.wires}
         _update_wires_for_move(
             state,
             self.component_id,
@@ -1180,6 +1181,45 @@ class TranslateAnchoredWiresCommand(Command[ComponentState]):
             self.new_placement,
             self.exclude_wire_ids,
         )
+        # Per-component diagnostic: how many wires changed path, were
+        # dropped (skewed/collapsed), or were left alone.  Group-floating
+        # commit chains many of these — without per-cmd stats it's
+        # impossible to tell which component's translation lost a wire.
+        if _dbg_enabled():
+            after_ids = {w.id for w in state.layout.wires}
+            dropped = [
+                str(wid) for wid in wires_before if wid not in after_ids
+            ]
+            changed = []
+            for w in state.layout.wires:
+                old = wires_before.get(w.id)
+                if old is None:
+                    continue
+                if old != w.path:
+                    changed.append(str(w.id)[:8])
+            _log.debug(
+                "translate_anchored_wires.summary",
+                comp_id=str(self.component_id)[:8],
+                old_pos=(
+                    self.old_placement.position.x,
+                    self.old_placement.position.y,
+                ),
+                new_pos=(
+                    self.new_placement.position.x,
+                    self.new_placement.position.y,
+                ),
+                delta=(
+                    self.new_placement.position.x - self.old_placement.position.x,
+                    self.new_placement.position.y - self.old_placement.position.y,
+                ),
+                n_excluded=len(self.exclude_wire_ids),
+                n_wires_before=len(wires_before),
+                n_wires_after=len(state.layout.wires),
+                n_dropped=len(dropped),
+                n_changed=len(changed),
+                dropped=dropped[:10],  # cap to keep log readable
+                changed=changed[:10],
+            )
 
     def revert(self, state: ComponentState) -> None:
         if not self._applied:
