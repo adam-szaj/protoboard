@@ -320,6 +320,22 @@ def wire_is_owned_by_group(
     if not b_in and not isinstance(kb, (JointKnot, WirePinKnot)):
         return False
 
+    # Shared free-knot endpoint: if the JointKnot/WirePinKnot on the
+    # free side has more than this single wire as an owner, the joint
+    # acts as a structural anchor — translating it during a group drag
+    # would silently move the foreign wires that share it.  The
+    # follow-up replace_wire_fragments slide gate
+    # (knot.wire_ids == {wire_id}) explicitly bails out in that case,
+    # which then aborts the macro.  Mark the wire as not-owned so the
+    # drag pipeline never picks it up; the half-orphan stays put while
+    # the group's pin endpoint moves with the component, producing the
+    # expected "wire stretched / dropped on commit" behaviour instead
+    # of a hard exception.
+    free_knot = kb if a_in else ka
+    if isinstance(free_knot, (JointKnot, WirePinKnot)):
+        if len(free_knot.wire_ids) > 1:
+            return False
+
     net_id = wire_net_map.get(wire.id)
     return net_is_internal_to_group(net_id, group, schematic)
 
