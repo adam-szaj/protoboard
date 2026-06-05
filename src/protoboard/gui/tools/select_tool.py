@@ -1543,7 +1543,7 @@ class SelectTool(_Tool):
         wire id; safe to call from multiple on_press code paths.
         """
         from protoboard.domain.layout.group_ownership import find_owned_wires
-        from protoboard.domain.layout.knot import PinKnot
+        from protoboard.domain.layout.knot import JointKnot, PinKnot, WirePinKnot
         grp_obj = self._session.layout.groups.get(group_id)
         if grp_obj is None:
             return
@@ -1559,21 +1559,73 @@ class SelectTool(_Tool):
             definitions=self._session.components,
         )
         knots = self._session.layout.knots
+        # Diagnostic: classify each wire that is rejected, so a misowned
+        # manual-route wire surfaces in the log with the reason.
+        rejected_diag: list[dict[str, object]] = []
         for wire in self._session.layout.wires:
             if wire.id in owned_ids:
                 self._drag_orig_wire_paths[wire.id] = list(wire.path)
                 continue
-            if not include_both_pin_in_set:
-                continue
             if wire.a is None or wire.b is None:
+                if include_both_pin_in_set:
+                    rejected_diag.append({
+                        "wire_id": str(wire.id)[:8],
+                        "reason": "no_knot_refs",
+                    })
                 continue
             ka = knots.get(wire.a.id)
             kb = knots.get(wire.b.id)
-            if not isinstance(ka, PinKnot) or not isinstance(kb, PinKnot):
-                continue
-            if (ka.pin.component_id in group_comp_ids
-                    and kb.pin.component_id in group_comp_ids):
-                self._drag_orig_wire_paths[wire.id] = list(wire.path)
+            if include_both_pin_in_set:
+                if isinstance(ka, PinKnot) and isinstance(kb, PinKnot):
+                    a_in = ka.pin.component_id in group_comp_ids
+                    b_in = kb.pin.component_id in group_comp_ids
+                    if a_in and b_in:
+                        self._drag_orig_wire_paths[wire.id] = list(wire.path)
+                        continue
+                    rejected_diag.append({
+                        "wire_id": str(wire.id)[:8],
+                        "reason": "both_pin_but_outside_group",
+                        "a_pin": f"{str(ka.pin.component_id)[:8]}/p{ka.pin.pin_number}",
+                        "b_pin": f"{str(kb.pin.component_id)[:8]}/p{kb.pin.pin_number}",
+                        "a_in_grp": a_in, "b_in_grp": b_in,
+                    })
+                else:
+                    # Manual-route wire that didn't materialise as
+                    # PinKnot+PinKnot — surface for investigation.
+                    def _kdesc(k: object, ref_id: uuid.UUID) -> dict[str, object]:
+                        if isinstance(k, PinKnot):
+                            return {
+                                "kind": "PinKnot",
+                                "pin": f"{str(k.pin.component_id)[:8]}/p{k.pin.pin_number}",
+                                "in_grp": k.pin.component_id in group_comp_ids,
+                            }
+                        elif isinstance(k, JointKnot):
+                            return {
+                                "kind": "JointKnot",
+                                "pos": (k.position.x, k.position.y),
+                                "owners": len(k.wire_ids),
+                            }
+                        elif isinstance(k, WirePinKnot):
+                            return {
+                                "kind": "WirePinKnot",
+                                "pos": (k.position.x, k.position.y),
+                                "owners": len(k.wire_ids),
+                            }
+                        return {"kind": type(k).__name__ if k else None}
+                    rejected_diag.append({
+                        "wire_id": str(wire.id)[:8],
+                        "reason": "half_or_full_orphan",
+                        "a": _kdesc(ka, wire.a.id),
+                        "b": _kdesc(kb, wire.b.id),
+                    })
+        if rejected_diag:
+            _log.debug(
+                "arm_group_drag.rejected_wires",
+                group_id=str(group_id)[:8],
+                n_owned=len(owned_ids),
+                n_rejected=len(rejected_diag),
+                rejected=rejected_diag[:15],
+            )
 
     def _net_ids_for_wires(
         self, wire_ids: frozenset[uuid.UUID],
@@ -4282,6 +4334,10 @@ class SelectTool(_Tool):
                     break
 
         out: set[uuid.UUID] = set()
+        # Diagnostic: log every wire that gets flagged so the next
+        # "drag removes a wire that should be exempt" report drops out
+        # of a single log line.
+        hit_diag: list[dict[str, object]] = []
         for cid in drag_ids:
             for _pin_num, pin_pos in self._session.iter_pin_positions(cid):
                 pad = pad_index.pad_at(pin_pos) if pad_index is not None else None  # type: ignore[attr-defined]
@@ -4297,6 +4353,21 @@ class SelectTool(_Tool):
                         if wid is None or wid in internal_wire_ids:
                             continue
                         out.add(wid)
+                        hit_diag.append({
+                            "comp": str(cid)[:8],
+                            "pin": _pin_num,
+                            "pin_pos": (pin_pos.x, pin_pos.y),
+                            "wire_id": str(wid)[:8],
+                            "kind": type(it).__name__,
+                            "layer": layer,
+                        })
+        if hit_diag:
+            _log.info(
+                "pin_on_wire.flagged",
+                n_flagged=len(out),
+                n_internal_exempt=len(internal_wire_ids),
+                hits=hit_diag[:15],
+            )
         return out
 
     def _cheap_conflict_check(
