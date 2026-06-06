@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal
 
 from protoboard.domain.components.footprints import FootprintTemplate
 from protoboard.geometry import Point, Rect
+from protoboard.services.call_counters import counted
 
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
@@ -156,6 +157,7 @@ def flip_component(
     return new_pl
 
 
+@counted("pin_world_position")
 def pin_world_position(
     footprint: FootprintTemplate,
     placement: ComponentPlacement,

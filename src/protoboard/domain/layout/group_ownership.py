@@ -40,6 +40,8 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
+from protoboard.services.call_counters import counted
+
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
@@ -66,6 +68,7 @@ __all__ = [
 _PIN_PATH_MATCH_TOL = 0.4
 
 
+@counted("find_owned_wires")
 def find_owned_wires(
     wires: list["Wire"],
     group: "ComponentGroup",
@@ -161,6 +164,7 @@ def net_is_internal_to_group(
     return has_group_pin
 
 
+@counted("endpoint_pin_component")
 def endpoint_pin_component(
     knot: "Knot | None",
 ) -> uuid.UUID | None:
@@ -183,6 +187,7 @@ def endpoint_pin_component(
 _endpoint_pin_component = endpoint_pin_component
 
 
+@counted("_pin_endpoint_matches_path")
 def _pin_endpoint_matches_path(
     knot: "Knot",
     wire_endpoint: object,
@@ -261,6 +266,7 @@ def _pin_endpoint_matches_path(
 _MISSING: object = object()
 
 
+@counted("wire_is_owned_by_group")
 def wire_is_owned_by_group(
     wire: "Wire",
     group: "ComponentGroup",

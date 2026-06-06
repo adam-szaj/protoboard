@@ -18,6 +18,7 @@ from protoboard.domain.board.boxes import (
 )
 from protoboard.domain.board.layout_engine import LayoutNode, layout
 from protoboard.geometry import Point, Rect, Size
+from protoboard.services.call_counters import counted
 from protoboard.units import DEFAULT_PITCH_MM, Millimeter
 
 from typing import TYPE_CHECKING
@@ -60,6 +61,7 @@ class Board:
         _ = Millimeter  # noqa: F841
         return size
 
+    @counted("Board.atoms")
     def atoms(self) -> Iterator[tuple[Box, Point]]:
         """Yield (atom, world_center_position) pairs in DFS order.
 
@@ -74,9 +76,21 @@ class Board:
         """
         cached = self._.get("_atoms_list")
         if cached is None:
-            cached = tuple(_walk_atoms(self.layout))
-            self._["_atoms_list"] = cached
+            cached = self._build_atoms_list()
         return iter(cached)  # type: ignore[arg-type]
+
+    @counted("Board._build_atoms_list")
+    def _build_atoms_list(self) -> tuple:  # type: ignore[type-arg]
+        """The cache-miss branch of :meth:`atoms`.
+
+        Split out so the call counter records only the actual
+        DFS rebuilds; cache hits return without invoking this
+        method.  Production should see exactly one
+        ``Board._build_atoms_list`` call per Board instance.
+        """
+        built = tuple(_walk_atoms(self.layout))
+        self._["_atoms_list"] = built
+        return built
 
     def make_pad(
         self,

@@ -12,6 +12,7 @@ from enum import Enum
 
 from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.geometry import Point
+from protoboard.services.call_counters import counted
 
 if TYPE_CHECKING:
     import uuid
@@ -149,6 +150,7 @@ def plated_through_pads(board: Board) -> set[Point]:
 _PAD_BUCKET_CACHE: "dict[int, tuple[int, tuple[dict[int, list[Point]], dict[int, list[Point]]]]]" = {}
 
 
+@counted("_get_pad_bucket_index")
 def _get_pad_bucket_index(
     pad_positions: set[Point],
 ) -> tuple[dict[int, list[Point]], dict[int, list[Point]]]:
@@ -175,6 +177,22 @@ def _get_pad_bucket_index(
     cached = _PAD_BUCKET_CACHE.get(key)
     if cached is not None and cached[0] == n:
         return cached[1]
+    return _build_pad_bucket_index(pad_positions, key, n)
+
+
+@counted("_build_pad_bucket_index")
+def _build_pad_bucket_index(
+    pad_positions: set[Point], key: int, n: int,
+) -> tuple[dict[int, list[Point]], dict[int, list[Point]]]:
+    """The cache-miss path of :func:`_get_pad_bucket_index`.
+
+    Split out so that ``@counted`` can record only the actual bucket
+    rebuilds — the cache-hit path returns without invoking this
+    function at all, giving the call counter a clean signal for fix
+    #1.  Production should see ``_build_pad_bucket_index`` fire once
+    per unique ``id(pad_positions)`` and never again until the
+    underlying set instance is replaced.
+    """
     pads_by_x: dict[int, list[Point]] = {}
     pads_by_y: dict[int, list[Point]] = {}
     for pad in pad_positions:
@@ -194,6 +212,7 @@ def clear_pad_bucket_cache() -> None:
     _PAD_BUCKET_CACHE.clear()
 
 
+@counted("insert_pad_nodes")
 def insert_pad_nodes(
     path: list[Point],
     pad_positions: set[Point],

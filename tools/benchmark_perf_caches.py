@@ -1,50 +1,62 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Reproducible micro-benchmark for the three perf-cache fixes.
+"""Reproducible call-count benchmark for the three perf-cache fixes.
 
-Loads a fixture once, then runs a fixed workload that exercises each
-hot path the caches are supposed to accelerate.  Reports per-operation
-medians and totals so a before/after comparison on the SAME workload
-is a one-line diff instead of two profiling sessions with arbitrary
-user activity.
+Loads a fixture once, then runs a fixed workload exercising each hot
+path the caches accelerate.  Reports per-action call counts collected
+via :mod:`protoboard.services.call_counters` so before/after
+comparisons are deterministic — no wall-clock noise, no PID-tied
+sampling — and so the observed counts can be compared against the
+theoretical complexity each fix targets.
 
 Usage:
     uv run python tools/benchmark_perf_caches.py FIXTURE_DIR [--iters N]
                                                               [--no-cache]
+                                                              [--max-depth N]
+                                                              [--filter PATTERN]
                                                               [--json PATH]
+                                                              [--compare PATH]
 
 ``--no-cache`` monkey-patches the three caches off so the same
-workload runs in the "before fix" mode.  Pair it with a plain run
-on the same fixture to read the speedup directly:
+workload runs in the "before fix" mode.  Pair it with a plain run on
+the same fixture to read the speedup directly:
 
-    uv run python tools/benchmark_perf_caches.py tests/gold_performance_test_check
-    uv run python tools/benchmark_perf_caches.py tests/gold_performance_test_check --no-cache
+    uv run python tools/benchmark_perf_caches.py micek2
+    uv run python tools/benchmark_perf_caches.py micek2 --no-cache
 
-The benchmarked operations:
+The benchmarked actions (each wrapped in its own top-level @counted
+label so children show up as ``action.<inner>``):
 
-  1. ``board.atoms()``                 — fix #3
-  2. ``insert_pad_nodes`` on N wires    — fix #1
-  3. ``find_owned_wires(all wires)``    — fix #2
+  1. ``atoms_walk``        — drives ``Board.atoms()``                (fix #3)
+  2. ``pad_node_insert``   — drives ``insert_pad_nodes`` ×50 paths   (fix #1)
+  3. ``ownership_all``     — drives ``find_owned_wires`` once         (fix #2)
+  4. ``ownership_groups``  — drives ``find_owned_wires`` once per group
 
-Each is run ``--iters`` times (default 100).  The first iteration is
-discarded as warm-up.  Output: min / median / mean / total wall time
-plus an aggregate "delta vs --no-cache" if a paired JSON is provided.
+Output: per-action call counts grouped by path.  Use ``--max-depth``
+to cap how deep the recorded stack may grow (useful for keeping the
+report short — depth 2 shows only direct children of each action).
+Use ``--filter`` to restrict counting to specific path prefixes; the
+syntax matches :func:`call_counters.set_path_filter` —
+``"a.b.*;g.h.*"`` etc.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import statistics
 import sys
-import time
-from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 # Make `protoboard` importable when run as a script.
 _REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO / "src"))
 
 from protoboard.paths import BUILTIN_LIBRARY_DIR
+from protoboard.services.call_counters import (
+    counted,
+    fresh_counters,
+    snapshot,
+)
 from protoboard.services.library.loader import load_library
 from protoboard.services.persistence.project_yaml import (
     load_project,
@@ -52,90 +64,42 @@ from protoboard.services.persistence.project_yaml import (
 )
 
 
-@dataclass
-class _Stats:
-    name: str
-    samples: list[float]
-
-    @property
-    def n(self) -> int:
-        return len(self.samples)
-
-    @property
-    def total_ms(self) -> float:
-        return sum(self.samples) * 1000.0
-
-    @property
-    def median_ms(self) -> float:
-        return statistics.median(self.samples) * 1000.0
-
-    @property
-    def mean_ms(self) -> float:
-        return statistics.mean(self.samples) * 1000.0
-
-    @property
-    def min_ms(self) -> float:
-        return min(self.samples) * 1000.0
-
-    def to_dict(self) -> dict[str, float]:
-        return {
-            "n": self.n,
-            "total_ms": round(self.total_ms, 3),
-            "median_ms": round(self.median_ms, 4),
-            "mean_ms": round(self.mean_ms, 4),
-            "min_ms": round(self.min_ms, 4),
-        }
-
-
-def _measure(name: str, fn, iters: int) -> _Stats:
-    """Run *fn* ``iters`` times, return per-call wall-time samples
-    (first sample discarded as warm-up)."""
-    samples: list[float] = []
-    for i in range(iters + 1):
-        t0 = time.perf_counter()
-        fn()
-        elapsed = time.perf_counter() - t0
-        if i > 0:  # skip warm-up
-            samples.append(elapsed)
-    return _Stats(name=name, samples=samples)
+# ---------------------------------------------------------------------------
+# Cache toggling
+# ---------------------------------------------------------------------------
 
 
 def _disable_caches() -> None:
     """Monkey-patch the three caches OFF for an apples-to-apples
     "pre-fix" benchmark.  Restoration is process-scoped — exit after."""
-    # Fix #1: kill the pad-bucket identity cache.
     import protoboard.domain.layout.wire_utils as wu
-    _original_bucket = None
-    for name in ("_get_pad_bucket_index",):
-        original = getattr(wu, name)
-        if not hasattr(original, "_uncached"):
-            def uncached(pad_positions, _o=original):  # type: ignore[no-untyped-def]
-                # Force rebuild every call by bypassing the cache dict.
-                pads_by_x: dict[int, list] = {}
-                pads_by_y: dict[int, list] = {}
-                for pad in pad_positions:
-                    pads_by_x.setdefault(round(pad.x), []).append(pad)
-                    pads_by_y.setdefault(round(pad.y), []).append(pad)
-                return (pads_by_x, pads_by_y)
-            uncached._uncached = True  # type: ignore[attr-defined]
-            setattr(wu, name, uncached)
 
-    # Fix #3: kill the atoms() cache.
+    original_bucket = wu._get_pad_bucket_index
+
+    def uncached_bucket(pad_positions, _o=original_bucket):  # type: ignore[no-untyped-def]
+        # Force rebuild every call by bypassing the module-level cache.
+        pads_by_x: dict[int, list] = {}
+        pads_by_y: dict[int, list] = {}
+        for pad in pad_positions:
+            pads_by_x.setdefault(round(pad.x), []).append(pad)
+            pads_by_y.setdefault(round(pad.y), []).append(pad)
+        return (pads_by_x, pads_by_y)
+    # Preserve the @counted wrapper so the call still shows up in
+    # snapshots even when uncached.
+    wu._get_pad_bucket_index = counted("_get_pad_bucket_index")(uncached_bucket)  # type: ignore[assignment]
+
     import protoboard.domain.board.board as board_mod
-    original_atoms = board_mod.Board.atoms
+    from protoboard.domain.board.board import _walk_atoms as _orig_walk
 
     def uncached_atoms(self):  # type: ignore[no-untyped-def]
-        # Skip the cache lookup, walk every time.
-        from protoboard.domain.board.board import _walk_atoms
-        yield from _walk_atoms(self.layout)
-    board_mod.Board.atoms = uncached_atoms  # type: ignore[assignment,method-assign]
+        yield from _orig_walk(self.layout)
+    board_mod.Board.atoms = counted("Board.atoms")(uncached_atoms)  # type: ignore[assignment,method-assign]
 
-    # Fix #2: kill the find_owned_wires pin-world cache.
     import protoboard.domain.layout.group_ownership as go
-    original_find = go.find_owned_wires
 
     def uncached_find(*args, **kwargs):  # type: ignore[no-untyped-def]
-        # Strip the cache-passing path; iterate per-wire without sharing.
+        # Replicate find_owned_wires but pass _pin_world_cache=None
+        # to wire_is_owned_by_group so every call re-resolves the pin.
         from protoboard.domain.layout.group_ownership import (
             wire_is_owned_by_group,
         )
@@ -150,8 +114,6 @@ def _disable_caches() -> None:
         definitions = kwargs.get("definitions")
         result: set = set()
         for w in wires:
-            # Fresh None cache each call → mimics pre-fix behaviour
-            # (no shared memoisation across wires).
             if wire_is_owned_by_group(
                 w, group,
                 wire_net_map=wire_net_map,
@@ -165,7 +127,12 @@ def _disable_caches() -> None:
             ):
                 result.add(w.id)
         return result
-    go.find_owned_wires = uncached_find  # type: ignore[assignment]
+    go.find_owned_wires = counted("find_owned_wires")(uncached_find)  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
+# Fixture loading
+# ---------------------------------------------------------------------------
 
 
 def _load_fixture(fixture: Path):
@@ -176,8 +143,16 @@ def _load_fixture(fixture: Path):
     return board, layout, schematic, instances, components
 
 
-def _build_workloads(board, layout, schematic, instances, components):
-    """Return three callables wrapping the operations under test."""
+# ---------------------------------------------------------------------------
+# Workload actions (each wrapped in its own @counted so children show
+# up as e.g. ``ownership_all.find_owned_wires.pin_world_position``).
+# ---------------------------------------------------------------------------
+
+
+def _build_actions(board, layout, schematic, instances, components):
+    """Return a dict of action callables, plus stats about the
+    workload (so the caller can attach the n_wires / n_pads context
+    to the JSON output)."""
     from protoboard.geometry import Point
     from protoboard.domain.layout.group_ownership import find_owned_wires
     from protoboard.domain.layout.wire_utils import (
@@ -187,40 +162,40 @@ def _build_workloads(board, layout, schematic, instances, components):
 
     pads = board_pads_union(board)
     bounds = board.bounds
-    # 50 synthetic paths spanning the board on integer rows.
-    paths = []
-    for i in range(50):
-        y = float(int(bounds.height * (i + 1) / 51)) + 0.5
-        paths.append([Point(0.5, y), Point(bounds.width - 0.5, y)])
+    paths = [
+        [Point(0.5, float(int(bounds.height * (i + 1) / 51)) + 0.5),
+         Point(bounds.width - 0.5, float(int(bounds.height * (i + 1) / 51)) + 0.5)]
+        for i in range(50)
+    ]
 
-    def op_atoms() -> None:
+    @counted("atoms_walk")
+    def atoms_walk() -> None:
         # Consume the iterator so caching has measurable effect.
         for _ in board.atoms():
             pass
 
-    def op_insert_pad_nodes() -> None:
+    @counted("pad_node_insert")
+    def pad_node_insert() -> None:
         for p in paths:
             insert_pad_nodes(p, pads)
 
-    # Build a wire-net map and group-comp set covering the entire layout
-    # (one group containing every component) so find_owned_wires runs on
-    # all wires.
+    # Build wire-net map covering whatever schematic pins we can match
+    # (good-enough for the half-orphan paths in wire_is_owned_by_group).
     wire_net_map: dict = {}
+    from protoboard.domain.layout.knot import PinKnot
+    from protoboard.domain.schematic.net import PinRef
     for net in schematic.nets.values():
         for wire in layout.wires:
             for ref in (wire.a, wire.b):
                 if ref is None:
                     continue
                 k = layout.knots.get(ref.id)
-                if k is None:
-                    continue
-                from protoboard.domain.layout.knot import PinKnot
                 if not isinstance(k, PinKnot):
                     continue
-                from protoboard.domain.schematic.net import PinRef
                 if PinRef(k.pin.component_id, k.pin.pin_number) in net.pins:
                     wire_net_map[wire.id] = net.id
                     break
+
     all_comp_ids = frozenset(layout.placements.keys())
     from protoboard.domain.layout.group import ComponentGroup
     import uuid as _uuid
@@ -232,11 +207,12 @@ def _build_workloads(board, layout, schematic, instances, components):
     )
     wires_list = list(layout.wires)
 
-    def op_find_owned_wires() -> None:
+    @counted("ownership_all")
+    def ownership_all() -> None:
         find_owned_wires(
             wires_list, universal_group,
             wire_net_map=wire_net_map,
-            knots=layout.knots,  # type: ignore[arg-type]
+            knots=layout.knots,
             group_comp_ids=all_comp_ids,
             schematic=schematic,
             placements=layout.placements,
@@ -244,21 +220,18 @@ def _build_workloads(board, layout, schematic, instances, components):
             definitions=components,
         )
 
-    # Per-group classifier batch — mimics BoardView.refresh which calls
-    # find_owned_wires once per non-root group.  Worst-case for the
-    # pin-world cache because each group adds duplicate lookups on the
-    # same pins (every overlapping ancestor group sees the same wires).
-    groups_list = [
+    real_groups = [
         g for gid, g in layout.groups.items()
         if g.name != "_root"
     ] or [universal_group]
 
-    def op_find_owned_wires_per_group() -> None:
-        for g in groups_list:
+    @counted("ownership_groups")
+    def ownership_groups() -> None:
+        for g in real_groups:
             find_owned_wires(
                 wires_list, g,
                 wire_net_map=wire_net_map,
-                knots=layout.knots,  # type: ignore[arg-type]
+                knots=layout.knots,
                 group_comp_ids=g.component_ids,
                 schematic=schematic,
                 placements=layout.placements,
@@ -266,36 +239,76 @@ def _build_workloads(board, layout, schematic, instances, components):
                 definitions=components,
             )
 
-    return (
-        op_atoms, op_insert_pad_nodes, op_find_owned_wires,
-        op_find_owned_wires_per_group, len(wires_list), len(pads),
-        len(groups_list),
-    )
+    actions: dict[str, Callable[[], None]] = {
+        "atoms_walk": atoms_walk,
+        "pad_node_insert": pad_node_insert,
+        "ownership_all": ownership_all,
+        "ownership_groups": ownership_groups,
+    }
+    workload = {
+        "n_wires": len(wires_list),
+        "n_pads": len(pads),
+        "n_groups": len(real_groups),
+        "n_paths": len(paths),
+        "n_components": len(layout.placements),
+    }
+    return actions, workload
 
 
-def _format_row(stats: _Stats) -> str:
-    return (
-        f"  {stats.name:32s}  n={stats.n:4d}  "
-        f"min={stats.min_ms:8.3f}ms  med={stats.median_ms:8.3f}ms  "
-        f"mean={stats.mean_ms:8.3f}ms  total={stats.total_ms:8.1f}ms"
-    )
+# ---------------------------------------------------------------------------
+# Run / report
+# ---------------------------------------------------------------------------
+
+
+def _run_action(
+    fn: Callable[[], None], iters: int,
+    max_depth: int | None, path_filter: str | None,
+) -> dict[str, int]:
+    """Run *fn* ``iters`` times under counter capture; return snapshot."""
+    with fresh_counters(max_depth=max_depth, path_filter=path_filter):
+        for _ in range(iters):
+            fn()
+        return snapshot()
+
+
+def _print_action_report(
+    label: str, iters: int, counts: dict[str, int],
+) -> None:
+    print(f"\n=== {label}  ({iters} iterations) ===")
+    if not counts:
+        print("  (no counts — filter matched nothing or counters disabled)")
+        return
+    # Sort by path so the hierarchy reads nicely.
+    width = max(len(p) for p in counts)
+    for path in sorted(counts):
+        n = counts[path]
+        per_iter = n / iters
+        print(f"  {path:<{width}}  {n:>8d}  (per-iter: {per_iter:>8.2f})")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("fixture", type=Path)
     parser.add_argument(
-        "--iters", type=int, default=100,
-        help="per-op iterations (default: 100; first is warm-up)",
+        "--iters", type=int, default=20,
+        help="iterations per action (default: 20)",
     )
     parser.add_argument(
         "--no-cache", action="store_true",
-        help="monkey-patch caches off → simulates pre-fix performance",
+        help="monkey-patch caches off → simulates pre-fix call counts",
+    )
+    parser.add_argument(
+        "--max-depth", type=int, default=None,
+        help="cap recorded stack depth (passed to call_counters)",
+    )
+    parser.add_argument(
+        "--filter", type=str, default=None,
+        help='path filter, e.g. "ownership_all.**;ownership_groups.**"',
     )
     parser.add_argument("--json", type=Path, help="write JSON results")
     parser.add_argument(
         "--compare", type=Path,
-        help="JSON of a previous --no-cache run to diff against",
+        help="JSON of a previous run to diff against",
     )
     args = parser.parse_args()
 
@@ -311,34 +324,30 @@ def main() -> int:
 
     print(f"Loading {args.fixture}…", file=sys.stderr)
     board, layout, schematic, instances, components = _load_fixture(args.fixture)
-    ops = _build_workloads(board, layout, schematic, instances, components)
-    (
-        op_atoms, op_insert, op_find, op_find_per_group,
-        n_wires, n_pads, n_groups,
-    ) = ops
+    actions, workload = _build_actions(
+        board, layout, schematic, instances, components,
+    )
 
     print(f"Mode: {mode_label}")
-    print(f"Fixture: {args.fixture.name}  "
-          f"wires={n_wires}  pads={n_pads}  groups={n_groups}  "
-          f"iters={args.iters}")
-    print()
+    print(f"Fixture: {args.fixture.name}  " + "  ".join(
+        f"{k}={v}" for k, v in workload.items()
+    ))
+    print(f"max_depth={args.max_depth}  filter={args.filter!r}")
 
-    results = [
-        _measure("board.atoms()", op_atoms, args.iters),
-        _measure("insert_pad_nodes×50 paths", op_insert, args.iters),
-        _measure("find_owned_wires(all-in-one)", op_find, args.iters),
-        _measure("find_owned_wires×N groups", op_find_per_group, args.iters),
-    ]
-    for s in results:
-        print(_format_row(s))
+    per_action: dict[str, dict[str, int]] = {}
+    for name, fn in actions.items():
+        counts = _run_action(fn, args.iters, args.max_depth, args.filter)
+        per_action[name] = counts
+        _print_action_report(name, args.iters, counts)
 
     payload = {
         "fixture": str(args.fixture),
         "mode": "no-cache" if args.no_cache else "cached",
         "iters": args.iters,
-        "n_wires": n_wires,
-        "n_pads": n_pads,
-        "results": {s.name: s.to_dict() for s in results},
+        "max_depth": args.max_depth,
+        "filter": args.filter,
+        "workload": workload,
+        "actions": per_action,
     }
 
     if args.json:
@@ -349,16 +358,28 @@ def main() -> int:
     if args.compare:
         other = json.loads(args.compare.read_text())
         other_mode = other.get("mode", "?")
-        print(f"\n=== Comparison vs {args.compare.name} (mode={other_mode}) ===")
-        for s in results:
-            o = other["results"].get(s.name)
-            if o is None:
+        print(f"\n=== Δ vs {args.compare.name} (mode={other_mode}) ===")
+        for action_name, our_counts in per_action.items():
+            other_counts = other.get("actions", {}).get(action_name, {})
+            paths = sorted(set(our_counts) | set(other_counts))
+            if not paths:
                 continue
-            ratio = o["median_ms"] / s.median_ms if s.median_ms > 0 else float("inf")
-            direction = "faster" if ratio >= 1.0 else "slower"
-            display_ratio = ratio if ratio >= 1.0 else 1.0 / ratio
-            print(f"  {s.name:32s}  {o['median_ms']:8.3f}ms → "
-                  f"{s.median_ms:8.3f}ms  ({display_ratio:5.2f}× {direction})")
+            print(f"\n  {action_name}:")
+            width = max(len(p) for p in paths)
+            for p in paths:
+                a = other_counts.get(p, 0)
+                b = our_counts.get(p, 0)
+                if a == b:
+                    ratio_str = "        same"
+                elif a == 0:
+                    ratio_str = f"   0 → {b} (new)"
+                elif b == 0:
+                    ratio_str = f"   {a} → 0 (gone)"
+                elif a > b:
+                    ratio_str = f"{a/b:5.2f}× fewer"
+                else:
+                    ratio_str = f"{b/a:5.2f}× more"
+                print(f"    {p:<{width}}  {a:>8d} → {b:>8d}  {ratio_str}")
 
     return 0
 
