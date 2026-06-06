@@ -867,6 +867,7 @@ class DiodeBody(BodyShape):
 
 class TO92Body(BodyShape):
     def draw(self, positions, fill, border, alpha, z, theme=DEFAULT_THEME):
+        fill = QColor(0x40, 0x40, 0x40,a=0xa0)
         if len(positions) < 3:
             return GenericBody().draw(positions, fill, border, alpha, z, theme)
 
@@ -894,16 +895,18 @@ class TO92Body(BodyShape):
         row_dy = positions[2].y - positions[0].y
         # Perpendicular pointing left of row direction
         perp_x = -row_dy / perp_len
-        perp_y = row_dx / perp_len
+        perp_y = -row_dx / perp_len
 
         mm = theme.raster_pitch_mm
         w = theme.to92_body_width_mm  / mm
         h = theme.to92_body_height_mm / mm
-        body_offset = 1.0 / mm   # ~1 mm gap from pin row to body edge
+        body_offset = 0 # 0.50 / mm   # ~1 mm gap from pin row to body edge
 
         # Body centre
-        cx = p_mid.x + perp_x * (body_offset + h / 2) + 2
-        cy = p_mid.y + perp_y * (body_offset + h / 2)
+        cx = p_mid.x + perp_x * body_offset
+        # cx = p_mid.x + perp_x * (h / 2) + 2
+        cy = p_mid.y + perp_y * body_offset
+        # cy = p_mid.y + perp_y * (h / 2)
 
         # Angle of the pin row
         row_angle = math.degrees(math.atan2(row_dy, row_dx))
@@ -912,6 +915,7 @@ class TO92Body(BodyShape):
         path = QPainterPath()
         # In local frame: flat bottom at y=+h/2, rounded top at y=-h/2
         # bottom flat edge
+        print(f"w/2: {w/2} h: {h/2}")
         path.moveTo(-w / 2, h / 2)
         path.lineTo(w / 2, h / 2)
         # right side up
@@ -929,6 +933,7 @@ class TO92Body(BodyShape):
 
         t = QTransform()
         t.translate(cx, cy)
+        # print(f"cx: {cx} cy: {cy}")
         t.rotate(row_angle)
         body.setTransform(t)
 
