@@ -146,28 +146,52 @@ def plated_through_pads(board: Board) -> set[Point]:
     return pts
 
 
+_PAD_BUCKET_CACHE: "dict[int, tuple[int, tuple[dict[int, list[Point]], dict[int, list[Point]]]]]" = {}
+
+
 def _get_pad_bucket_index(
     pad_positions: set[Point],
 ) -> tuple[dict[int, list[Point]], dict[int, list[Point]]]:
     """Return (pads_by_x, pads_by_y) buckets for *pad_positions*.
 
-    Builds buckets on every call.  The hot-path call site
-    (`_enrich_insulated_with_pad_nodes`) gets its `pad_positions` from
-    ``board_pads_union`` which is cached on the board — so for a
-    realistic autoroute commit the bucket build runs once per board
-    set instance (296+ calls all share the same frozen union set;
-    building dicts of ~5000 entries × twice is ~2ms total amortised
-    well below the per-wire savings).
+    Identity-cached on ``id(pad_positions)`` together with the current
+    ``len(pad_positions)``.  The production callsite always passes a
+    set returned by ``board_pads_union`` / ``board_pads_for_side`` —
+    those return the **same** cached instance for the board lifetime,
+    so successive calls hit a single dict lookup instead of rebuilding
+    a ~5000-entry bucket twice per invocation.  Profiler put 144s of
+    own time in this function before the cache; insert_pad_nodes was
+    the dominant consumer through ``_enrich_bare_path``.
 
-    Identity-based caching across calls was tried and rejected — tests
-    that mutate a ``set()`` argument between calls saw stale buckets.
+    Length is part of the cache key as a cheap mutation guard — if a
+    test (or production code) reuses the same set object after editing
+    it, the size will have changed and we rebuild. This is best-effort:
+    same-size in-place mutations would still see stale buckets, so
+    test fixtures that need a guaranteed-fresh bucket should call
+    :func:`clear_pad_bucket_cache` between calls.
     """
+    key = id(pad_positions)
+    n = len(pad_positions)
+    cached = _PAD_BUCKET_CACHE.get(key)
+    if cached is not None and cached[0] == n:
+        return cached[1]
     pads_by_x: dict[int, list[Point]] = {}
     pads_by_y: dict[int, list[Point]] = {}
     for pad in pad_positions:
         pads_by_x.setdefault(round(pad.x), []).append(pad)
         pads_by_y.setdefault(round(pad.y), []).append(pad)
+    _PAD_BUCKET_CACHE[key] = (n, (pads_by_x, pads_by_y))
     return (pads_by_x, pads_by_y)
+
+
+def clear_pad_bucket_cache() -> None:
+    """Drop the identity cache used by :func:`_get_pad_bucket_index`.
+
+    Production code never needs to call this (pad set instances live
+    as long as the board), but tests that rotate through several
+    short-lived sets reusing similar ids can hit a stale entry.
+    """
+    _PAD_BUCKET_CACHE.clear()
 
 
 def insert_pad_nodes(

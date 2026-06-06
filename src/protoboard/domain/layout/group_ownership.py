@@ -86,6 +86,15 @@ def find_owned_wires(
     PinKnot's resolved world position) — used to filter out wires whose
     path was left stale by a buggy drag/load path.
     """
+    # One shared cache for pin world positions across all wires in this
+    # batch.  Placements/instances/definitions are constant within the
+    # call, so resolving each (component, pin) once eliminates the
+    # per-wire footprint walk that used to dominate refresh time when
+    # many wires share endpoint components.  Empty when sanity check
+    # is disabled (no placements/instances/definitions).
+    pin_world_cache: dict[tuple[uuid.UUID, int], object] | None = None
+    if placements is not None and instances is not None and definitions is not None:
+        pin_world_cache = {}
     result: set[uuid.UUID] = set()
     for w in wires:
         if wire_is_owned_by_group(
@@ -97,6 +106,7 @@ def find_owned_wires(
             placements=placements,
             instances=instances,
             definitions=definitions,
+            _pin_world_cache=pin_world_cache,
         ):
             result.add(w.id)
     return result
@@ -179,6 +189,7 @@ def _pin_endpoint_matches_path(
     placements: "dict[uuid.UUID, ComponentPlacement]",
     instances: "dict[uuid.UUID, ComponentInstance]",
     definitions: "dict[str, ComponentDefinition]",
+    pin_world_cache: "dict[tuple[uuid.UUID, int], object] | None" = None,
 ) -> bool:
     """True iff *knot* is a PinKnot whose resolved world position matches
     *wire_endpoint* within ``_PIN_PATH_MATCH_TOL``.
@@ -187,32 +198,67 @@ def _pin_endpoint_matches_path(
     PinKnot ref intact but path was not translated).  Such wires
     should not count as anchored to the group — their visual
     position is desynchronised from the structural anchor.
+
+    ``pin_world_cache`` (when supplied) memoises resolved pin world
+    positions per ``(component_id, pin_number)`` so a batch ownership
+    classification (``find_owned_wires`` over N wires × M groups)
+    doesn't re-walk the footprint for every wire.  A sentinel
+    ``False`` value caches "resolution failed" so we don't retry.
+    The caller is responsible for cache lifetime; a fresh dict per
+    ``find_owned_wires`` call is the canonical scope (placements are
+    constant within that call).
     """
     from protoboard.domain.layout.knot import PinKnot
-    from protoboard.domain.layout.placement import pin_world_position
     if not isinstance(knot, PinKnot):
         return False
     pin = knot.pin
-    pl = placements.get(pin.component_id)
-    if pl is None:
-        return False
-    inst = instances.get(pin.component_id)
-    if inst is None:
-        return False
-    defn = definitions.get(inst.definition_ref)
-    if defn is None:
-        return False
-    try:
-        wp = pin_world_position(defn.footprint, pl, pin.pin_number)
-    except Exception:  # noqa: BLE001
-        return False
+    cache_key = (pin.component_id, pin.pin_number)
+    wp: object | None = None
+    if pin_world_cache is not None:
+        cached = pin_world_cache.get(cache_key, _MISSING)
+        if cached is not _MISSING:
+            if cached is False:
+                return False
+            wp = cached
+    if wp is None:
+        from protoboard.domain.layout.placement import pin_world_position
+        pl = placements.get(pin.component_id)
+        if pl is None:
+            if pin_world_cache is not None:
+                pin_world_cache[cache_key] = False  # type: ignore[assignment]
+            return False
+        inst = instances.get(pin.component_id)
+        if inst is None:
+            if pin_world_cache is not None:
+                pin_world_cache[cache_key] = False  # type: ignore[assignment]
+            return False
+        defn = definitions.get(inst.definition_ref)
+        if defn is None:
+            if pin_world_cache is not None:
+                pin_world_cache[cache_key] = False  # type: ignore[assignment]
+            return False
+        try:
+            wp = pin_world_position(defn.footprint, pl, pin.pin_number)
+        except Exception:  # noqa: BLE001
+            if pin_world_cache is not None:
+                pin_world_cache[cache_key] = False  # type: ignore[assignment]
+            return False
+        if pin_world_cache is not None:
+            pin_world_cache[cache_key] = wp
     ep_x = getattr(wire_endpoint, "x", None)
     ep_y = getattr(wire_endpoint, "y", None)
     if ep_x is None or ep_y is None:
         return False
-    dx = abs(float(wp.x) - float(ep_x))
-    dy = abs(float(wp.y) - float(ep_y))
+    wp_x = getattr(wp, "x", None)
+    wp_y = getattr(wp, "y", None)
+    if wp_x is None or wp_y is None:
+        return False
+    dx = abs(float(wp_x) - float(ep_x))
+    dy = abs(float(wp_y) - float(ep_y))
     return dx <= _PIN_PATH_MATCH_TOL and dy <= _PIN_PATH_MATCH_TOL
+
+
+_MISSING: object = object()
 
 
 def wire_is_owned_by_group(
@@ -226,6 +272,7 @@ def wire_is_owned_by_group(
     placements: "dict[uuid.UUID, ComponentPlacement] | None" = None,
     instances: "dict[uuid.UUID, ComponentInstance] | None" = None,
     definitions: "dict[str, ComponentDefinition] | None" = None,
+    _pin_world_cache: "dict[tuple[uuid.UUID, int], object] | None" = None,
 ) -> bool:
     """True iff *wire* structurally belongs to *group*.
 
@@ -270,12 +317,14 @@ def wire_is_owned_by_group(
     if placements is not None and instances is not None and definitions is not None:
         if a_comp is not None and wire.path and not _pin_endpoint_matches_path(
             ka, wire.path[0], placements, instances, definitions,
+            pin_world_cache=_pin_world_cache,
         ):
             # PinKnot a is stale — treat as if the endpoint were a
             # loose joint (no group anchor on this side).
             a_comp = None
         if b_comp is not None and wire.path and not _pin_endpoint_matches_path(
             kb, wire.path[-1], placements, instances, definitions,
+            pin_world_cache=_pin_world_cache,
         ):
             b_comp = None
 

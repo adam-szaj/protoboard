@@ -61,8 +61,22 @@ class Board:
         return size
 
     def atoms(self) -> Iterator[tuple[Box, Point]]:
-        """Yield (atom, world_center_position) pairs in DFS order."""
-        yield from _walk_atoms(self.layout)
+        """Yield (atom, world_center_position) pairs in DFS order.
+
+        Result is cached on the board's private dict — the box tree is
+        immutable for the session's lifetime, so successive walks
+        replay a pre-materialised list instead of recursing through the
+        layout tree again.  Profiler put 28s of own time in
+        ``_walk_atoms`` before the cache; consumers like
+        ``board_pads_for_side``, ``MoveComponentCommand`` pad sanity
+        check, and the connectivity graph all called it on every
+        operation.
+        """
+        cached = self._.get("_atoms_list")
+        if cached is None:
+            cached = tuple(_walk_atoms(self.layout))
+            self._["_atoms_list"] = cached
+        return iter(cached)  # type: ignore[arg-type]
 
     def make_pad(
         self,
