@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: MIT
+# Default toolbar layout — shipped with the application.
+#
+# On first start the GUI copies this file to
+#   ~/.config/protoboard/toolbars.yaml
+# and from then on edits live there (the Customize Toolbars… dialog
+# writes the same format).  To restore defaults, delete the user copy
+# or use the dialog's "Reset to defaults" button.
+#
+# Format:
+#   <toolbar_group>:
+#     - <action_id>            # references KB.ACTION_* in keybindings.py
+#     - <action_id>
+#
+# Every entry must match an ActionSpec id in
+# src/protoboard/gui/actions.py — unknown ids are skipped with a
+# warning in the log.  Order in the list = visual order on the toolbar.
+#
+# Toolbars created with an empty list are hidden until the user adds
+# an action via the dialog (or restores defaults).
+
+tools:
+  - tool_select
+  - tool_route
+  - tool_cut
+  - tool_simplify
+
+selection: []  # populated by SelectionFilterWidget + HighlightModeWidget
+               # at runtime; no QActions live here.
+
+view:
+  - camera_toggle
+  - mirror_h
+  - mirror_v
+
+zoom:
+  - zoom_in
+  - zoom_out
+  - fit_area
+  - fit_board
+  - fit_selection
+
+wire:
+  - wire_toggle_insulated
+  - wire_side_top
+  - wire_side_bottom
+
+component:
+  - focus_library
+  - delete
+  - rotate_cw
+  - rotate_ccw
+
+analysis:
+  - run_drc
+  - autoroute

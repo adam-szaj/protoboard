@@ -232,122 +232,21 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, perf_dock)
         self.tabifyDockWidget(layers_dock, perf_dock)
 
-        # ── Toolbar: Tools ──────────────────────────────────────────────
-        tb_tools = QToolBar("Tools", self)
-        tb_tools.setMovable(False)
-        tb_tools.setObjectName("tb_tools")
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_tools)
+        # ── Toolbars ─────────────────────────────────────────────────────
+        # Layout is loaded from ~/.config/protoboard/toolbars.yaml — the
+        # builder already realised every QAction onto its toolbar during
+        # _register_actions().  Here we only attach the live widget
+        # toolbars (Selection) that cannot live in the spec list.
+        self._install_widget_toolbars()
 
-        # Reuse the QActions registered in _register_actions() so the
-        # toolbar buttons share one identity with menu entries and global
-        # WindowShortcut handlers.  Creating fresh toolbar QActions
-        # (the old code) led to handler duplication and at least one
-        # Qt platform (Wayland/X11 mix) refusing to fire the shortcut.
-        tb_tools.addAction(self._actions[KB.ACTION_TOOL_SELECT])
-        tb_tools.addAction(self._actions[KB.ACTION_TOOL_ROUTE])
-        tb_tools.addAction(self._actions[KB.ACTION_TOOL_CUT])
-        tb_tools.addAction(self._actions[KB.ACTION_TOOL_SIMPLIFY])
-
-        # ── Toolbar: Selection (filter + highlight relation) ─────────────
-        tb_selection = QToolBar("Selection", self)
-        tb_selection.setMovable(True)
-        tb_selection.setObjectName("tb_selection")
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_selection)
-
-        from protoboard.gui.panels.selection_filter_widget import SelectionFilterWidget
-        from protoboard.gui.panels.highlight_mode_widget import HighlightModeWidget
-        self._sel_filter_widget = SelectionFilterWidget(self)
-        self._sel_filter_widget.set_tool(self._select_tool)
-        tb_selection.addWidget(self._sel_filter_widget)
-        tb_selection.addSeparator()
-        self._hl_mode_widget = HighlightModeWidget(self)
-        self._hl_mode_widget.set_tool(self._select_tool)
-        tb_selection.addWidget(self._hl_mode_widget)
-
-        # ── Toolbar: View ────────────────────────────────────────────────
-        tb_view = QToolBar("View", self)
-        tb_view.setMovable(False)
-        tb_view.setObjectName("tb_view")
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_view)
-
-        self._act_camera_tb = tb_view.addAction("⊙ Bottom [X]")
-        self._act_camera_tb.setCheckable(True)
-        self._act_mirror_tb = tb_view.addAction("⟺H [H]")
-        self._act_mirror_tb.setCheckable(True)
-        self._act_mirror_v_tb = tb_view.addAction("⟺V [V]")
-        self._act_mirror_v_tb.setCheckable(True)
-        self._act_camera_tb.triggered.connect(lambda: self._set_camera("toggle"))
-        self._act_mirror_tb.triggered.connect(self._mirror_view)
-        self._act_mirror_v_tb.triggered.connect(self._mirror_view_v)
-
-        # ── Toolbar: Zoom ────────────────────────────────────────────────
-        tb_zoom = QToolBar("Zoom", self)
-        tb_zoom.setMovable(False)
-        tb_zoom.setObjectName("tb_zoom")
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_zoom)
-
-        act_zoom_in_tb  = tb_zoom.addAction("+ Zoom In")
-        act_zoom_out_tb = tb_zoom.addAction("− Zoom Out")
-        tb_zoom.addSeparator()
-        act_fit_area_tb  = tb_zoom.addAction("⊡ Fit Area")
-        act_fit_board_tb = tb_zoom.addAction("⊞ Fit Board")
-        act_fit_sel_tb   = tb_zoom.addAction("⊟ Fit Sel")
-        act_zoom_in_tb.triggered.connect(lambda: self._board_view.zoom_by(1.3))
-        act_zoom_out_tb.triggered.connect(lambda: self._board_view.zoom_by(1 / 1.3))
-        act_fit_area_tb.triggered.connect(self._fit_area)
-        act_fit_board_tb.triggered.connect(self._fit_board)
-        act_fit_sel_tb.triggered.connect(self._fit_selection)
-
-        # ── Toolbar: Wire ────────────────────────────────────────────────
-        tb_wire = QToolBar("Wire", self)
-        tb_wire.setMovable(True)
-        tb_wire.setObjectName("tb_wire")
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_wire)
-
-        self._act_tb_insulated = tb_wire.addAction("Ins [I]")
-        self._act_tb_insulated.setCheckable(True)
-        self._act_tb_insulated.setChecked(self._wire_insulated)
-        self._act_tb_top = tb_wire.addAction("Top [T]")
-        self._act_tb_top.setCheckable(True)
-        self._act_tb_top.setChecked(self._wire_side == "top")
-        self._act_tb_bottom = tb_wire.addAction("Bottom [B]")
-        self._act_tb_bottom.setCheckable(True)
-        self._act_tb_bottom.setChecked(self._wire_side == "bottom")
-        self._act_tb_insulated.triggered.connect(
-            lambda checked: self._set_wire_insulated(checked)
-        )
-        self._act_tb_top.triggered.connect(lambda: self._set_wire_side("top"))
-        self._act_tb_bottom.triggered.connect(lambda: self._set_wire_side("bottom"))
-
-        # ── Toolbar: Component ───────────────────────────────────────────
-        tb_comp = QToolBar("Component", self)
-        tb_comp.setMovable(True)
-        tb_comp.setObjectName("tb_comp")
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_comp)
-
-        # Toolbar buttons reuse the registered QActions so their shortcut
-        # tooltip ("A", "Del", "R", "Shift+R") is shown by Qt automatically.
-        tb_comp.addAction(self._actions[KB.ACTION_FOCUS_LIBRARY])
-        tb_comp.addAction(self._actions[KB.ACTION_DELETE])
-        tb_comp.addAction(self._actions[KB.ACTION_ROTATE_CW])
-        tb_comp.addAction(self._actions[KB.ACTION_ROTATE_CCW])
-
-        # ── Toolbar: Analysis ────────────────────────────────────────────
-        tb_analysis = QToolBar("Analysis", self)
-        tb_analysis.setMovable(False)
-        tb_analysis.setObjectName("tb_analysis")
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_analysis)
-
-        act_drc          = tb_analysis.addAction("DRC [F5]")
-        act_autoroute_tb = tb_analysis.addAction("Autoroute [F6]")
-        act_autoroute_tb.setToolTip(
-            "Autoroute all nets (F6).\n"
-            "Select nets in the Inspector panel first to route only those nets."
-        )
-        act_spread_tb    = tb_analysis.addAction("Spread")
-        act_drc.triggered.connect(self._run_drc)
-        act_autoroute_tb.triggered.connect(self._autoroute)
-        act_spread_tb.triggered.connect(self._spread_components)
+        # Refresh checkable state so toolbar buttons match the current
+        # wire route mode after toolbars have been populated.
+        if (insulated_act := self._actions.get(KB.ACTION_WIRE_TOGGLE_INSULATED)) is not None:
+            insulated_act.setChecked(self._wire_insulated)
+        if (top_act := self._actions.get(KB.ACTION_WIRE_SIDE_TOP)) is not None:
+            top_act.setChecked(self._wire_side == "top")
+        if (bot_act := self._actions.get(KB.ACTION_WIRE_SIDE_BOTTOM)) is not None:
+            bot_act.setChecked(self._wire_side == "bottom")
 
         # Status bar.
         self._status = QStatusBar(self)
@@ -494,11 +393,22 @@ class MainWindow(QMainWindow):
             field_name for field_name, _label, _aid in self._LAYER_ENTRIES
         ]
 
+        # Toolbar layout lives in YAML — load once and pass to the
+        # builder, which realises each group's QToolBar in declaration
+        # order.  ``ensure_user_toolbars_file_exists`` copies the
+        # shipped default file into the user's config dir on first run.
+        from protoboard.gui.toolbar_config import (
+            ensure_user_toolbars_file_exists, load_toolbar_config,
+        )
+        ensure_user_toolbars_file_exists()
+        toolbar_layout = load_toolbar_config()
+
         self._registry = build_actions(
             self,
             ALL_ACTIONS,
             self._keybindings,
             slot_owners={"mw": self},
+            toolbar_layout=toolbar_layout,
         )
         # Preserve the historical attribute names so the rest of the
         # codebase (PPM handlers, tests, _apply_all_keybindings, etc.)
@@ -1077,8 +987,8 @@ class MainWindow(QMainWindow):
 
     def _set_wire_insulated(self, insulated: bool) -> None:
         self._wire_insulated = insulated
+        # One QAction lives in both menu and toolbar — setChecked updates both.
         self._act_wire_insulated.setChecked(insulated)
-        self._act_tb_insulated.setChecked(insulated)
         tool = self._board_view._active_tool
         if isinstance(tool, RouteTool):
             tool._insulated = insulated
@@ -1088,8 +998,6 @@ class MainWindow(QMainWindow):
         self._wire_side = side
         self._act_wire_top.setChecked(side == "top")
         self._act_wire_bottom.setChecked(side == "bottom")
-        self._act_tb_top.setChecked(side == "top")
-        self._act_tb_bottom.setChecked(side == "bottom")
         tool = self._board_view._active_tool
         if isinstance(tool, RouteTool):
             tool._side = side
@@ -1106,6 +1014,70 @@ class MainWindow(QMainWindow):
 
     def _zoom_out(self) -> None:
         self._board_view.zoom_by(1 / 1.3)
+
+    def _install_widget_toolbars(self) -> None:
+        """Attach the Selection toolbar which hosts live QWidgets
+        (filter combobox, highlight mode dropdown).  These cannot ride
+        the spec list because they are not QActions; they live in their
+        own non-customisable toolbar so the user dialog never has to
+        deal with widget-shaped toolbar contents."""
+        from protoboard.gui.panels.selection_filter_widget import SelectionFilterWidget
+        from protoboard.gui.panels.highlight_mode_widget import HighlightModeWidget
+
+        tb_selection = QToolBar("Selection", self)
+        tb_selection.setMovable(True)
+        tb_selection.setFloatable(True)
+        tb_selection.setObjectName("tb_selection")
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb_selection)
+
+        self._sel_filter_widget = SelectionFilterWidget(self)
+        self._sel_filter_widget.set_tool(self._select_tool)
+        tb_selection.addWidget(self._sel_filter_widget)
+        tb_selection.addSeparator()
+        self._hl_mode_widget = HighlightModeWidget(self)
+        self._hl_mode_widget.set_tool(self._select_tool)
+        tb_selection.addWidget(self._hl_mode_widget)
+
+    def _open_toolbar_customize(self) -> None:
+        """Open the Customize Toolbars dialog.  On accept, reloads the
+        toolbar layout from disk and rebuilds every QToolBar in place."""
+        from protoboard.gui.dialogs.toolbar_customize_dialog import (
+            ToolbarCustomizeDialog,
+        )
+        dlg = ToolbarCustomizeDialog(
+            main_window=self,
+            registry=self._registry,
+            parent=self,
+        )
+        dlg.exec()
+        if dlg.changed:
+            self._reload_toolbar_layout()
+
+    def _reload_toolbar_layout(self) -> None:
+        """Re-read ``toolbars.yaml`` and rebuild every spec-driven toolbar
+        in place.  Widget-shaped toolbars (Selection) are left alone —
+        they are installed by ``_install_widget_toolbars``."""
+        from protoboard.gui.toolbar_config import load_toolbar_config
+        layout = load_toolbar_config()
+        for group, toolbar in list(self._registry.toolbars.items()):
+            toolbar.clear()
+            for aid in layout.get(group, []):
+                act = self._actions.get(aid)
+                if act is not None:
+                    toolbar.addAction(act)
+        # If the YAML mentions a group whose toolbar didn't exist yet
+        # (first time the user populates an empty group), create it.
+        from protoboard.gui.action_builder import _ensure_toolbar
+        for group, action_ids in layout.items():
+            if group in self._registry.toolbars:
+                continue
+            if not action_ids:
+                continue
+            toolbar = _ensure_toolbar(self, group, self._registry)
+            for aid in action_ids:
+                act = self._actions.get(aid)
+                if act is not None:
+                    toolbar.addAction(act)
 
     def _convert_endpoint_to_wire_pin_action(self) -> None:
         """Promote the half-orphan endpoint of the singly-selected wire to a wire-pin.
@@ -1263,13 +1235,11 @@ class MainWindow(QMainWindow):
         mh = self._board_view.view_transform == "mirror_h"
         mv = self._board_view.view_transform == "mirror_v"
         bottom = self._board_view.camera_side == "bottom"
+        # All three QActions live in both menu and toolbar — single setChecked syncs both.
         self._act_mirror.setChecked(mh)
-        self._act_mirror_tb.setChecked(mh)
         self._act_mirror_v.setChecked(mv)
-        self._act_mirror_v_tb.setChecked(mv)
         self._act_camera_top.setChecked(not bottom)
         self._act_camera_bottom.setChecked(bottom)
-        self._act_camera_tb.setChecked(bottom)
         self._update_view_label()
 
     def _update_view_label(self) -> None:

@@ -162,6 +162,9 @@ ACTION_GROUP_EXPORT_ALL = "group_export_all"
 ACTION_GROUP_EXPORT_CLEAR = "group_export_clear"
 ACTION_GROUP_AUTOROUTE = "group_autoroute"
 
+# View ► Customize Toolbars — opens a dialog that edits toolbars.yaml.
+ACTION_CUSTOMIZE_TOOLBARS = "customize_toolbars"
+
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
@@ -261,6 +264,7 @@ DEFAULTS: dict[str, str] = {
     ACTION_GROUP_EXPORT_ALL: "",
     ACTION_GROUP_EXPORT_CLEAR: "",
     ACTION_GROUP_AUTOROUTE: "",
+    ACTION_CUSTOMIZE_TOOLBARS: "",
 }
 
 # Human-readable names (for future Preferences dialog).
@@ -359,6 +363,7 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_LAYER_6: "Layer 6 (Labels)",
     ACTION_LAYER_7: "Layer 7 (Pin Names)",
     ACTION_LAYER_8: "Layer 8 (Connections)",
+    ACTION_CUSTOMIZE_TOOLBARS: "Customize Toolbars…",
 }
 
 # ---------------------------------------------------------------------------

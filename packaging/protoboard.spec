@@ -19,6 +19,14 @@ datas = [
     (str(PROJECT_ROOT / "README.md"), "."),
     (str(PROJECT_ROOT / "CHANGELOG.md"), "."),
     (str(PROJECT_ROOT / "LICENSE"), "."),
+    # Default toolbar layout shipped with the application — copied to
+    # ~/.config/protoboard/toolbars.yaml on first start.  Bundled next
+    # to paths.py so ``Path(__file__).parent`` resolves correctly in
+    # both source checkout and the PyInstaller one-folder dist.
+    (
+        str(PROJECT_ROOT / "src" / "protoboard" / "default_toolbars.yaml"),
+        "protoboard",
+    ),
 ]
 
 # Drop any data entries whose source path is missing — keeps the spec

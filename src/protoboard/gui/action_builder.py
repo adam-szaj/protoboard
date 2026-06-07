@@ -7,11 +7,21 @@ user-visible feature now means:
 1. Add a single :class:`ActionSpec` entry to
    :data:`protoboard.gui.actions.ALL_ACTIONS`.
 2. Add the slot method on ``MainWindow`` (or a registered sub-owner).
-3. Done — keybinding, menu placement and toolbar all follow from (1).
+3. (Optional) Drop the action into
+   :data:`protoboard.paths.BUILTIN_DEFAULT_TOOLBARS_FILE` if it should
+   appear on a toolbar out of the box.
 
 ``ActionRegistry`` is **per-MainWindow**.  ProtoboardDesigner is a
 single-window application; should it gain a second window, each window
 gets its own registry constructed against its own slot owners.
+
+Toolbar layout is **full-state** in the user's
+``~/.config/protoboard/toolbars.yaml`` — there is no "default placement
+embedded in the spec" path any more.  The builder receives the
+already-loaded layout dict and walks it, looking up action ids in the
+registry it just built and dropping them onto the corresponding
+QToolBar.  Empty groups create no toolbar at all (cleaner UX than an
+empty bar).
 """
 
 from __future__ import annotations
@@ -19,7 +29,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QActionGroup, QIcon, QKeySequence
@@ -28,32 +38,6 @@ from PySide6.QtWidgets import QMainWindow, QMenu, QMenuBar, QToolBar
 from protoboard.errors import ActionRegistrationError
 from protoboard.gui import keybindings as KB
 from protoboard.gui.actions import ActionSpec, MenuPath, ToolbarGroup
-
-if TYPE_CHECKING:  # avoid import cycle at runtime
-    pass
-
-
-# ---------------------------------------------------------------------------
-# Toolbar customisation hook (placeholder until Phase 4)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class ToolbarCustomization:
-    """User-supplied per-toolbar add/remove diff.
-
-    Phase 4 persists this in ``app_settings.yaml``.  Until then the
-    builder accepts ``None`` and applies no overrides.
-
-    Attributes:
-        added: ``{group: [action_id, ...]}`` — extra actions to show on
-            a toolbar regardless of the spec's ``default_toolbar``.
-        removed: ``{group: [action_id, ...]}`` — actions to hide even if
-            their spec lists this group as the default.
-    """
-
-    added: Mapping[ToolbarGroup, Sequence[str]] = field(default_factory=dict)
-    removed: Mapping[ToolbarGroup, Sequence[str]] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +117,7 @@ def build_actions(
     keybindings: KB.KeyBindings,
     *,
     slot_owners: Mapping[str, object],
-    toolbar_customization: ToolbarCustomization | None = None,
+    toolbar_layout: Mapping[ToolbarGroup, Sequence[str]] | None = None,
     menu_bar: QMenuBar | None = None,
 ) -> ActionRegistry:
     """Create QActions for every spec and wire them into menus + toolbars.
@@ -148,8 +132,10 @@ def build_actions(
         slot_owners: ``{owner_key: object}`` — at minimum ``{"mw": main_window}``.
             Sub-tools (SelectTool, RouteTool) register themselves under
             their own keys so dotted slot names resolve there.
-        toolbar_customization: Optional user-saved overrides for toolbar
-            placement.  ``None`` means "apply spec defaults only."
+        toolbar_layout: Full-state ``{group: [action_id, ...]}`` mapping
+            loaded from ``toolbars.yaml``.  ``None`` means "build no
+            toolbars at all" (used by tests that only care about the
+            menu / shortcut side).
         menu_bar: Where to attach top-level menus.  Defaults to
             ``main_window.menuBar()``.  Tests pass an explicit bar.
 
@@ -162,7 +148,6 @@ def build_actions(
     """
     registry = ActionRegistry()
     bar = menu_bar if menu_bar is not None else main_window.menuBar()
-    customization = toolbar_customization or ToolbarCustomization()
 
     seen_ids: set[str] = set()
     for spec in specs:
@@ -205,14 +190,8 @@ def build_actions(
                 menu.addSeparator()
             menu.addAction(action)
 
-        toolbar_group = _resolve_toolbar_placement(spec, customization)
-        if toolbar_group is not None:
-            toolbar = _ensure_toolbar(main_window, toolbar_group, registry)
-            toolbar.addAction(action)
-
-    _apply_pure_customization_additions(
-        main_window, customization, registry,
-    )
+    if toolbar_layout is not None:
+        _apply_toolbar_layout(main_window, toolbar_layout, registry)
 
     return registry
 
@@ -260,60 +239,44 @@ def _ensure_toolbar(
     group: ToolbarGroup,
     registry: ActionRegistry,
 ) -> QToolBar:
-    """Create the QToolBar for ``group`` once and cache it."""
+    """Create the QToolBar for ``group`` once and cache it.  Every
+    toolbar is created movable + floatable; user controls visibility
+    and ordering via the Customize Toolbars dialog or by editing
+    ``toolbars.yaml`` directly."""
     cached = registry.toolbars.get(group)
     if cached is not None:
         return cached
     toolbar = main_window.addToolBar(group.capitalize())
     toolbar.setObjectName(f"tb_{group}")
+    toolbar.setMovable(True)
+    toolbar.setFloatable(True)
     toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
     registry.toolbars[group] = toolbar
     return toolbar
 
 
-def _resolve_toolbar_placement(
-    spec: ActionSpec,
-    customization: ToolbarCustomization,
-) -> ToolbarGroup | None:
-    """Compose spec default with user add/remove diff.
-
-    Returns the toolbar where the action should appear *now*, or
-    ``None`` if it should not appear on any toolbar.  User ``removed``
-    overrides the spec default; user ``added`` is applied separately
-    by :func:`_apply_pure_customization_additions` because a single
-    action could be promoted to a toolbar group it does not natively
-    list.
-    """
-    default = spec.default_toolbar
-    if default is None:
-        return None
-    removed = customization.removed.get(default, ())
-    if spec.id in removed:
-        return None
-    return default
-
-
-def _apply_pure_customization_additions(
+def _apply_toolbar_layout(
     main_window: QMainWindow,
-    customization: ToolbarCustomization,
+    layout: Mapping[ToolbarGroup, Sequence[str]],
     registry: ActionRegistry,
 ) -> None:
-    """Honour ``customization.added`` even for actions whose spec has
-    ``default_toolbar=None``.  Skips unknown ids silently — the YAML may
-    pre-date a spec removal."""
-    for group, ids in customization.added.items():
-        for action_id in ids:
-            action = registry.actions.get(action_id)
+    """Realise the full-state toolbar layout on top of an already-built
+    ``ActionRegistry``.  Unknown action ids are silently skipped — the
+    YAML may pre-date a spec removal or rename; the loader logs each
+    occurrence at warning level."""
+    for group, action_ids in layout.items():
+        if not action_ids:
+            continue
+        toolbar = _ensure_toolbar(main_window, group, registry)
+        for aid in action_ids:
+            action = registry.actions.get(aid)
             if action is None:
                 continue
-            toolbar = _ensure_toolbar(main_window, group, registry)
-            if action not in toolbar.actions():
-                toolbar.addAction(action)
+            toolbar.addAction(action)
 
 
 __all__ = [
     "ActionRegistry",
-    "ToolbarCustomization",
     "build_actions",
     "resolve_slot",
 ]

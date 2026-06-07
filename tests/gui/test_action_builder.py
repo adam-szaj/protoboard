@@ -7,7 +7,7 @@ the suite stays decoupled from MainWindow.  Coverage:
 * slot resolution (bare name + dotted owner.method)
 * shortcut application from a KeyBindings instance
 * menu placement, including submenu reuse and separators
-* toolbar placement and customisation diff (added / removed)
+* toolbar placement from the full-state ``toolbar_layout`` mapping
 * exclusive QActionGroup wiring
 * error cases (unknown slot, duplicate id, missing owner)
 """
@@ -25,7 +25,6 @@ from protoboard.errors import ActionRegistrationError
 from protoboard.gui import keybindings as KB
 from protoboard.gui.action_builder import (
     ActionRegistry,
-    ToolbarCustomization,
     build_actions,
     resolve_slot,
 )
@@ -154,7 +153,7 @@ class TestBuildActions:
         mw = _MwStub()
         specs = (
             ActionSpec(id="save", label="&Save", slot_name="_save",
-                       menu_path=("File",), default_toolbar=None),
+                       menu_path=("File",)),
         )
         reg = build_actions(
             main_window, specs, kb_empty,
@@ -162,7 +161,6 @@ class TestBuildActions:
         )
         assert "save" in reg.actions
         assert isinstance(reg.actions["save"], QAction)
-        # Handler invocation routes to the stub.
         reg.handlers["save"]()
         assert mw.calls == [("_save", ())]
 
@@ -174,7 +172,7 @@ class TestBuildActions:
         kb = KB.KeyBindings(_bindings={"save": "Ctrl+S"})
         specs = (
             ActionSpec(id="save", label="&Save", slot_name="_save",
-                       menu_path=("File",), default_toolbar=None),
+                       menu_path=("File",)),
         )
         reg = build_actions(main_window, specs, kb, slot_owners={"mw": mw})
         assert reg.actions["save"].shortcut().toString() == "Ctrl+S"
@@ -186,8 +184,7 @@ class TestBuildActions:
     ) -> None:
         mw = _MwStub()
         specs = (
-            ActionSpec(id="x", label="X", slot_name="_save",
-                       menu_path=None, default_toolbar=None),
+            ActionSpec(id="x", label="X", slot_name="_save", menu_path=None),
         )
         reg = build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
         assert reg.actions["x"].shortcut().isEmpty()
@@ -200,25 +197,19 @@ class TestBuildActions:
         mw = _MwStub()
         specs = (
             ActionSpec(id="a", label="A", slot_name="_save",
-                       menu_path=("Edit", "Design", "Wire"),
-                       default_toolbar=None),
+                       menu_path=("Edit", "Design", "Wire")),
             ActionSpec(id="b", label="B", slot_name="_toggle_thing",
-                       menu_path=("Edit", "Design", "Wire"),
-                       default_toolbar=None),
+                       menu_path=("Edit", "Design", "Wire")),
             ActionSpec(id="c", label="C", slot_name="_save",
-                       menu_path=("Edit", "Design"),
-                       default_toolbar=None),
+                       menu_path=("Edit", "Design")),
         )
         reg = build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
         wire_menu = reg.menus[("Edit", "Design", "Wire")]
-        # Both A and B share the same Wire submenu.
         labels = [a.text() for a in wire_menu.actions()]
         assert labels == ["A", "B"]
-        # Edit ► Design has C as direct child plus the Wire submenu.
         design_menu = reg.menus[("Edit", "Design")]
         design_children = [a.text() for a in design_menu.actions()]
         assert "C" in design_children
-        # And the Wire submenu sits inside it as a sub-action.
         sub_menus = [a.menu() for a in design_menu.actions() if a.menu() is not None]
         assert wire_menu in sub_menus
 
@@ -230,15 +221,13 @@ class TestBuildActions:
         mw = _MwStub()
         specs = (
             ActionSpec(id="a", label="A", slot_name="_save",
-                       menu_path=("File",), default_toolbar=None),
+                       menu_path=("File",)),
             ActionSpec(id="b", label="B", slot_name="_save",
-                       menu_path=("File",), default_toolbar=None,
-                       separator_before=True),
+                       menu_path=("File",), separator_before=True),
         )
         reg = build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
         file_menu = reg.menus[("File",)]
         actions = file_menu.actions()
-        # Expect: A, separator, B
         assert actions[0].text() == "A"
         assert actions[1].isSeparator()
         assert actions[2].text() == "B"
@@ -250,27 +239,11 @@ class TestBuildActions:
     ) -> None:
         mw = _MwStub()
         specs = (
-            ActionSpec(id="orphan", label="Orphan", slot_name="_save",
-                       menu_path=None, default_toolbar=None),
+            ActionSpec(id="orphan", label="Orphan", slot_name="_save", menu_path=None),
         )
         reg = build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
         assert reg.menus == {}
-        # But the QAction still exists for shortcut routing.
         assert "orphan" in reg.actions
-
-    def test_toolbar_default_placement(
-        self,
-        main_window: QMainWindow,
-        kb_empty: KB.KeyBindings,
-    ) -> None:
-        mw = _MwStub()
-        specs = (
-            ActionSpec(id="run_drc", label="Run DRC", slot_name="_save",
-                       menu_path=("Analysis",), default_toolbar="analysis"),
-        )
-        reg = build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
-        assert "analysis" in reg.toolbars
-        assert reg.actions["run_drc"] in reg.toolbars["analysis"].actions()
 
     def test_action_group_makes_actions_exclusive(
         self,
@@ -280,11 +253,9 @@ class TestBuildActions:
         mw = _MwStub()
         specs = (
             ActionSpec(id="t1", label="T1", slot_name="_save",
-                       menu_path=None, default_toolbar=None,
-                       checkable=True, action_group="tool"),
+                       menu_path=None, checkable=True, action_group="tool"),
             ActionSpec(id="t2", label="T2", slot_name="_save",
-                       menu_path=None, default_toolbar=None,
-                       checkable=True, action_group="tool"),
+                       menu_path=None, checkable=True, action_group="tool"),
         )
         reg = build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
         group = reg.action_groups["tool"]
@@ -299,11 +270,9 @@ class TestBuildActions:
         mw = _MwStub()
         specs = (
             ActionSpec(id="top", label="Top", slot_name="_move_wire_to_side",
-                       menu_path=None, default_toolbar=None,
-                       shortcut_args=("top",)),
+                       menu_path=None, shortcut_args=("top",)),
             ActionSpec(id="bot", label="Bot", slot_name="_move_wire_to_side",
-                       menu_path=None, default_toolbar=None,
-                       shortcut_args=("bottom",)),
+                       menu_path=None, shortcut_args=("bottom",)),
         )
         reg = build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
         reg.handlers["top"]()
@@ -315,59 +284,101 @@ class TestBuildActions:
 
 
 # ---------------------------------------------------------------------------
-# Customisation
+# Toolbar layout (full-state ``toolbar_layout`` mapping)
 # ---------------------------------------------------------------------------
 
 
-class TestToolbarCustomization:
-    def test_removed_hides_from_default_toolbar(
+class TestToolbarLayout:
+    def test_layout_places_actions_in_named_order(
         self,
         main_window: QMainWindow,
         kb_empty: KB.KeyBindings,
     ) -> None:
         mw = _MwStub()
         specs = (
-            ActionSpec(id="a", label="A", slot_name="_save",
-                       menu_path=None, default_toolbar="view"),
+            ActionSpec(id="a", label="A", slot_name="_save", menu_path=None),
+            ActionSpec(id="b", label="B", slot_name="_save", menu_path=None),
+            ActionSpec(id="c", label="C", slot_name="_save", menu_path=None),
         )
-        custom = ToolbarCustomization(removed={"view": ["a"]})
+        layout = {"view": ["b", "a", "c"]}  # type: ignore[dict-item]
         reg = build_actions(
             main_window, specs, kb_empty,
-            slot_owners={"mw": mw}, toolbar_customization=custom,
+            slot_owners={"mw": mw},
+            toolbar_layout=layout,
         )
-        # Toolbar never created when the only action was removed.
-        assert "view" not in reg.toolbars
+        bar = reg.toolbars["view"]
+        # Toolbar actions appear in YAML order, not spec order.
+        assert [a.text() for a in bar.actions()] == ["B", "A", "C"]
 
-    def test_added_promotes_orphan_to_toolbar(
+    def test_unknown_id_in_layout_silently_skipped(
         self,
         main_window: QMainWindow,
         kb_empty: KB.KeyBindings,
     ) -> None:
         mw = _MwStub()
         specs = (
-            ActionSpec(id="orphan", label="Orphan", slot_name="_save",
-                       menu_path=None, default_toolbar=None),
+            ActionSpec(id="a", label="A", slot_name="_save", menu_path=None),
         )
-        custom = ToolbarCustomization(added={"view": ["orphan"]})
+        layout = {"view": ["a", "ghost"]}  # type: ignore[dict-item]
         reg = build_actions(
             main_window, specs, kb_empty,
-            slot_owners={"mw": mw}, toolbar_customization=custom,
+            slot_owners={"mw": mw},
+            toolbar_layout=layout,
         )
-        assert reg.actions["orphan"] in reg.toolbars["view"].actions()
+        bar = reg.toolbars["view"]
+        assert [a.text() for a in bar.actions()] == ["A"]
 
-    def test_added_unknown_id_silently_ignored(
+    def test_empty_group_skipped(
         self,
         main_window: QMainWindow,
         kb_empty: KB.KeyBindings,
     ) -> None:
         mw = _MwStub()
-        custom = ToolbarCustomization(added={"view": ["ghost"]})
-        reg = build_actions(
-            main_window, (), kb_empty,
-            slot_owners={"mw": mw}, toolbar_customization=custom,
+        specs = (
+            ActionSpec(id="a", label="A", slot_name="_save", menu_path=None),
         )
-        # No toolbar created for an empty addition set.
+        layout = {"view": []}  # type: ignore[dict-item]
+        reg = build_actions(
+            main_window, specs, kb_empty,
+            slot_owners={"mw": mw},
+            toolbar_layout=layout,
+        )
+        # Empty group creates no QToolBar — keeps the UI uncluttered.
         assert "view" not in reg.toolbars
+
+    def test_no_layout_creates_no_toolbars(
+        self,
+        main_window: QMainWindow,
+        kb_empty: KB.KeyBindings,
+    ) -> None:
+        mw = _MwStub()
+        specs = (
+            ActionSpec(id="a", label="A", slot_name="_save", menu_path=("File",)),
+        )
+        reg = build_actions(
+            main_window, specs, kb_empty,
+            slot_owners={"mw": mw},
+        )
+        assert reg.toolbars == {}
+
+    def test_toolbars_are_movable(
+        self,
+        main_window: QMainWindow,
+        kb_empty: KB.KeyBindings,
+    ) -> None:
+        mw = _MwStub()
+        specs = (
+            ActionSpec(id="a", label="A", slot_name="_save", menu_path=None),
+        )
+        layout = {"view": ["a"]}  # type: ignore[dict-item]
+        reg = build_actions(
+            main_window, specs, kb_empty,
+            slot_owners={"mw": mw},
+            toolbar_layout=layout,
+        )
+        bar = reg.toolbars["view"]
+        assert bar.isMovable()
+        assert bar.isFloatable()
 
 
 # ---------------------------------------------------------------------------
@@ -383,10 +394,8 @@ class TestBuildActionsErrors:
     ) -> None:
         mw = _MwStub()
         specs = (
-            ActionSpec(id="dup", label="A", slot_name="_save",
-                       menu_path=None, default_toolbar=None),
-            ActionSpec(id="dup", label="B", slot_name="_save",
-                       menu_path=None, default_toolbar=None),
+            ActionSpec(id="dup", label="A", slot_name="_save", menu_path=None),
+            ActionSpec(id="dup", label="B", slot_name="_save", menu_path=None),
         )
         with pytest.raises(ActionRegistrationError, match="duplicate"):
             build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
@@ -398,8 +407,7 @@ class TestBuildActionsErrors:
     ) -> None:
         mw = _MwStub()
         specs = (
-            ActionSpec(id="x", label="X", slot_name="_nope",
-                       menu_path=None, default_toolbar=None),
+            ActionSpec(id="x", label="X", slot_name="_nope", menu_path=None),
         )
         with pytest.raises(ActionRegistrationError):
             build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
@@ -409,12 +417,9 @@ class TestBuildActionsErrors:
         main_window: QMainWindow,
         kb_empty: KB.KeyBindings,
     ) -> None:
-        # Tuples cannot be empty in the field type, but a bare-cast bug
-        # could slip ``()`` in.  Verify the builder defends against it.
         mw = _MwStub()
         spec = ActionSpec(
-            id="x", label="X", slot_name="_save",
-            menu_path=(), default_toolbar=None,
+            id="x", label="X", slot_name="_save", menu_path=(),
         )
         with pytest.raises(ActionRegistrationError, match="non-empty"):
             build_actions(main_window, (spec,), kb_empty, slot_owners={"mw": mw})
@@ -434,10 +439,9 @@ class TestActionTrigger:
         mw = _MwStub()
         specs = (
             ActionSpec(id="save", label="&Save", slot_name="_save",
-                       menu_path=("File",), default_toolbar=None),
+                       menu_path=("File",)),
         )
         reg = build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
-        # Trigger via QAction directly — verifies the lambda adapter.
         reg.actions["save"].trigger()
         assert mw.calls == [("_save", ())]
 
@@ -464,11 +468,9 @@ class TestActionRegistryShape:
         mw = _MwStub()
         specs = (
             ActionSpec(id="a", label="A", slot_name="_save",
-                       menu_path=("Edit", "Design"),
-                       default_toolbar=None),
+                       menu_path=("Edit", "Design")),
         )
         reg = build_actions(main_window, specs, kb_empty, slot_owners={"mw": mw})
-        # Builder records every prefix it created, not just the leaf.
         assert ("Edit",) in reg.menus
         assert ("Edit", "Design") in reg.menus
         assert isinstance(reg.menus[("Edit",)], QMenu)

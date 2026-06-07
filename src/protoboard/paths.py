@@ -32,6 +32,7 @@ THEME_FILE: Path        = CONFIG_DIR / "theme.yaml"
 WINDOW_STATE_FILE: Path = CONFIG_DIR / "window_state.yaml"
 APP_SETTINGS_FILE: Path = CONFIG_DIR / "app_settings.yaml"
 RECENT_PROJECTS_FILE: Path = CONFIG_DIR / "recent.json"
+TOOLBARS_FILE: Path = CONFIG_DIR / "toolbars.yaml"
 
 # ---------------------------------------------------------------------------
 # User data directory  (~/.local/share/protoboard/)
@@ -73,3 +74,11 @@ _PKG_ROOT: Path = _find_package_root()
 
 BUILTIN_LIBRARY_DIR: Path = _PKG_ROOT / "library"
 BUILTIN_ASSETS_DIR: Path   = _PKG_ROOT / "assets"
+
+# Default toolbar layout shipped with the package — copied to
+# ``TOOLBARS_FILE`` on first start (when the user has no override).
+# Lives inside the ``protoboard`` Python package so hatchling /
+# PyInstaller pick it up automatically as part of the wheel.
+BUILTIN_DEFAULT_TOOLBARS_FILE: Path = (
+    Path(__file__).resolve().parent / "default_toolbars.yaml"
+)
