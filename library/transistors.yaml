@@ -43,6 +43,34 @@ components:
     extends: _PNP
     pin_names: {1: E, 2: B, 3: C}
 
+  - name: _MOSFET_TO220_GDS
+    footprint: {type: TO220}
+    pin_names: {1: Gate, 2: Drain, 3: Source}
+
+  - name: _MOSFET_TO220_GDS_N
+    component_class: transistor_nmos
+    extends: _MOSFET_TO220_GDS
+
+  - name: _MOSFET_TO220_GDS_P
+    component_class: transistor_pmos
+    extends: _MOSFET_TO220_GDS
+
+  - name: IRF540_N
+    extends: _MOSFET_TO220_GDS_N
+    description: "IRF540 N-MOSFET Power transistor [GDS]"
+
+  - name: IRFP3705_N
+    extends: _MOSFET_TO220_GDS_N
+    description: "IRF3705 N-MOSFET Power transistor [GDS]"
+
+  - name: IRFP3710_N
+    extends: _MOSFET_TO220_GDS_N
+    description: "IRF3710 N-MOSFET Power transistor [GDS]"
+
+  - name: IRF9540_P
+    extends: _MOSFET_TO220_GDS_P
+    description: "IRFP9540 P-MOSFET Power transistor [GDS]"
+
   # -----------------------------------------------------------------------
   # NPN BJT
   # -----------------------------------------------------------------------

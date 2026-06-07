@@ -113,9 +113,9 @@ class Theme:
     radial_body_radius: float = 0.35        # circular body radius
     to92_body_width_mm: float = 4.25    # TO-92 body width  ≈4.5 mm
     to92_body_height_mm: float = 3.25   # TO-92 body height ≈4.0 mm
-    to220_body_width_mm: float = 9.0   # TO-220 body width  ≈9 mm
-    to220_body_height_mm: float = 4.5  # TO-220 body height ≈4.5 mm
-    to220_tab_height_mm: float = 1.5   # metal mounting tab extension
+    to220_body_width_mm: float = 10.0   # TO-220 body width  ≈9 mm
+    to220_body_height_mm: float = 4.3  # TO-220 body height ≈4.5 mm
+    to220_tab_height_mm: float = 1.3   # metal mounting tab extension
     dip_notch_radius: float = 0.25
     sil_slot_size: float = 0.40             # per-pin slot square size
 

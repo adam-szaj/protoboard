@@ -986,15 +986,15 @@ class TO220Body(BodyShape):
         w     = theme.to220_body_width_mm  / mm
         h     = theme.to220_body_height_mm / mm
         tab_h = theme.to220_tab_height_mm  / mm
-        body_offset = 1.0 / mm   # ~1 mm gap from pin row to body edge
+        body_offset = -1.50 / mm   # ~1 mm gap from pin row to body edge
 
         # Body centre (rectangular, no D-shape)
-        cx = p_mid.x + perp_x * (body_offset + h / 2)
-        cy = p_mid.y + perp_y * (body_offset + h / 2)
+        cx = p_mid.x - perp_x * (body_offset + h / 2)
+        cy = p_mid.y - perp_y * (body_offset + h / 2)
 
-        # Tab centre (behind body)
-        tx = p_mid.x + perp_x * (body_offset + h + tab_h / 2)
-        ty = p_mid.y + perp_y * (body_offset + h + tab_h / 2)
+        # Tab centre (on top of body)
+        tx = p_mid.x - perp_x * (body_offset + h - tab_h / 2)
+        ty = p_mid.y - perp_y * (body_offset + h - tab_h / 2)
 
         items: list[QGraphicsItem] = []
         lead = _lead_pen(theme, alpha)
@@ -1010,26 +1010,13 @@ class TO220Body(BodyShape):
             line.setZValue(z - 0.01)
             items.append(line)
 
-        # Metal tab (slightly wider, darker)
-        tab_path = QPainterPath()
-        overhang = 0.25 / mm
-        tab_path.addRoundedRect(QRectF(-w / 2 - overhang, -tab_h / 2, w + 2 * overhang, tab_h), 0.1 / mm, 0.1 / mm)
-        tab = QGraphicsPathItem(tab_path)
-        tab_color = QColor(border)
-        tab_color.setAlphaF(alpha * theme.body_tab_opacity)
-        tab.setBrush(QBrush(tab_color))
-        tab.setPen(_body_pen(border, alpha, width=theme.body_tab_pen_width))
-        tab.setZValue(z - 0.005)
-        t_tab = QTransform()
-        t_tab.translate(tx, ty)
-        t_tab.rotate(row_angle)
-        tab.setTransform(t_tab)
-        items.append(tab)
 
         # Main body (rectangular)
         body_path = QPainterPath()
         body_path.addRoundedRect(QRectF(-w / 2, -h / 2, w, h), r, r)
         body = QGraphicsPathItem(body_path)
+        fill = QColor(0x40, 0x40, 0x40)
+        fill.setAlphaF(alpha * theme.body_tab_opacity)
         body.setBrush(QBrush(fill))
         body.setPen(bp)
         body.setZValue(z)
@@ -1038,6 +1025,22 @@ class TO220Body(BodyShape):
         t_body.rotate(row_angle)
         body.setTransform(t_body)
         items.append(body)
+
+        # Metal tab (slightly wider, darker)
+        tab_path = QPainterPath()
+        overhang = 0.0 / mm
+        tab_path.addRoundedRect(QRectF(-w / 2 - overhang, -tab_h / 2, w + 2 * overhang, tab_h), 0.1 / mm, 0.1 / mm)
+        tab = QGraphicsPathItem(tab_path)
+        tab_color = QColor(0xdd,0xdd,0xdd)
+        tab_color.setAlphaF(alpha * theme.body_tab_opacity)
+        tab.setBrush(QBrush(tab_color))
+        tab.setPen(_body_pen(border, alpha, width=theme.body_tab_pen_width))
+        tab.setZValue(z + 0.005)
+        t_tab = QTransform()
+        t_tab.translate(tx, ty)
+        t_tab.rotate(row_angle)
+        tab.setTransform(t_tab)
+        items.append(tab)
 
         return items
 
