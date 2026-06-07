@@ -312,6 +312,12 @@ ALL_ACTIONS: tuple[ActionSpec, ...] = (
     # orphan: highlight on/off snapshot toggle — fires when user wants
     # to peek the un-highlighted view; no good menu home.
     ActionSpec(id=KB.ACTION_HIGHLIGHT_TOGGLE, label="Highlight Toggle", slot_name="_highlight_toggle", menu_path=None, default_toolbar=None),
+    # Wire-pin conversion — primary entry point is the wire PPM (right
+    # click on an endpoint).  Top-menu entries below operate on the
+    # currently selected wire(s); status-bar messages explain when the
+    # selection isn't eligible.
+    ActionSpec(id=KB.ACTION_WIRE_CONVERT_TO_WIRE_PIN,   label="Wire: Convert Endpoint to &Wire-pin",        slot_name="_convert_endpoint_to_wire_pin_action", menu_path=_EDIT_DESIGN_WIRE, default_toolbar=None),
+    ActionSpec(id=KB.ACTION_WIRE_CONVERT_FROM_WIRE_PIN, label="Wire: Convert Wire-pin &Back to Endpoint",   slot_name="_convert_wire_pin_to_endpoint_action", menu_path=_EDIT_DESIGN_WIRE, default_toolbar=None),
 )
 
 
