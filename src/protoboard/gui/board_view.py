@@ -1955,10 +1955,22 @@ class BoardView(QGraphicsView):
                 it.setVisible(False)
                 temporarily_hidden.append(it)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, self._antialiasing)
-            # Source rect = current visible scene area in scene coords.
-            source = self.mapToScene(self.viewport().rect()).boundingRect()
-            target = QRectF(0.0, 0.0, float(vp_size.width()), float(vp_size.height()))
-            self._scene.render(painter, target, source)
+            # Apply the same world→viewport transform Qt uses for the
+            # front paint pass.  Critical under mirror_h / mirror_v:
+            # ``scene.render(target, source)`` would map source→target
+            # with positive scale only, dropping the mirror sign and
+            # leaving back-side items un-mirrored while front items
+            # (painted normally by Qt) still honour viewportTransform.
+            # Result: opposite-side wires "wander" — they end up at the
+            # un-mirrored X (or Y) position next to mirrored components.
+            # Setting the painter transform here mirrors the back-cache
+            # pixmap the same way Qt mirrors the front pass; both then
+            # blit at identity in paintEvent and land aligned.
+            painter.setTransform(self.viewportTransform())
+            # Render every visible scene item through the painter —
+            # ``QGraphicsScene.render`` with no source/target rects
+            # honours the painter's current transform.
+            self._scene.render(painter)
         finally:
             painter.end()
             for it in temporarily_hidden:
