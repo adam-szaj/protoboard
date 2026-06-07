@@ -3047,7 +3047,7 @@ class MainWindow(QMainWindow):
         self._hl_mode_widget.set_tool(self._select_tool)
         self._hl_mode_widget.relation_changed.emit(relation)
 
-    def _cycle_relation(self, *, forward: bool) -> None:
+    def _cycle_relation(self, forward: bool) -> None:
         """Cycle through RelationClass values forward or backward."""
         from protoboard.gui.selection_axes import RelationClass
         relations = list(RelationClass)
