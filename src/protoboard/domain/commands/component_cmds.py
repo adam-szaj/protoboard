@@ -1358,11 +1358,20 @@ class SetWireInsulatedCommand(Command[ComponentState]):
 
 @dataclass
 class SetWireSideCommand(Command[ComponentState]):
-    """Move a wire to the top or bottom layer."""
+    """Move a wire to the top or bottom layer.
+
+    Mutates both ``wire.side`` and every fragment's ``side`` — the
+    on-disk format keys side off the fragment list, so updating just
+    ``wire.side`` would round-trip incorrectly (the loader rebuilds
+    ``wire.side`` from ``fragments[0].side``).
+    """
 
     wire_id: uuid.UUID
     side: str  # "top" or "bottom"
     _old_side: str = field(default="top", init=False, repr=False)
+    _old_fragment_sides: list[str] = field(
+        default_factory=list, init=False, repr=False,
+    )
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -1372,7 +1381,14 @@ class SetWireSideCommand(Command[ComponentState]):
         for wire in state.layout.wires:
             if wire.id == self.wire_id:
                 self._old_side = wire.side
+                self._old_fragment_sides = [f.side for f in wire.fragments]
                 wire.side = self.side  # type: ignore[assignment]
+                new_fragments = []
+                for frag in wire.fragments:
+                    new_fragments.append(
+                        type(frag)(path=list(frag.path), side=self.side),  # type: ignore[arg-type]
+                    )
+                wire.fragments = new_fragments  # type: ignore[assignment]
                 return
         raise KeyError(f"Wire {self.wire_id} not found")
 
@@ -1380,6 +1396,15 @@ class SetWireSideCommand(Command[ComponentState]):
         for wire in state.layout.wires:
             if wire.id == self.wire_id:
                 wire.side = self._old_side  # type: ignore[assignment]
+                if self._old_fragment_sides:
+                    new_fragments = []
+                    for frag, old_side in zip(
+                        wire.fragments, self._old_fragment_sides,
+                    ):
+                        new_fragments.append(
+                            type(frag)(path=list(frag.path), side=old_side),  # type: ignore[arg-type]
+                        )
+                    wire.fragments = new_fragments  # type: ignore[assignment]
                 return
 
 
