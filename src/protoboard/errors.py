@@ -12,3 +12,8 @@ class LayoutError(ProtoboardError):
 
 class SerializationError(ProtoboardError):
     """Raised when YAML (de)serialization fails."""
+
+
+class ActionRegistrationError(ProtoboardError):
+    """Raised when the action-registry builder cannot wire an ActionSpec
+    (unknown slot, duplicate id, missing menu parent, etc.)."""
