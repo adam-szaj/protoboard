@@ -207,6 +207,12 @@ def update_component_groups(
     """Create/update/remove per-component QGraphicsItemGroups without scene clear.
 
     Groups whose fingerprint is unchanged are left untouched in the scene.
+
+    Net-highlight opacity (dim non-highlighted components, boost
+    highlighted ones) is **not** applied here — the canonical place is
+    ``BoardView._apply_highlight_opacity`` which reads the active
+    HighlightProfile (``highlight_alpha`` for highlighted comps,
+    ``dim_components`` for the rest) and runs after every refresh.
     """
     pin_net: dict[PinRef, uuid.UUID] = {}
     if schematic is not None:
@@ -299,12 +305,13 @@ def update_component_groups(
             existing_groups[comp_id] = grp
             existing_fingerprints[comp_id] = fp
 
-        # Apply opacity for group-context dimming and net highlight — O(1) per group.
-        group_alpha = alpha_map.get(comp_id, 1.0)
-        if highlighted_net_id is not None:
-            net_dim = 1.0 if comp_id in highlighted_comp_ids else theme.highlight_dim_components
-            group_alpha = max(0.04, group_alpha * net_dim)
-        grp.setOpacity(group_alpha)
+        # Apply group-context dimming — O(1) per group.  Net-highlight
+        # opacity (highlighted vs dimmed comps) is layered on top by
+        # ``BoardView._apply_highlight_opacity`` after every refresh, so
+        # we deliberately don't touch it here.  Doing so previously
+        # clobbered the route-active dim profile every time a refresh
+        # fired during a wire drag.
+        grp.setOpacity(alpha_map.get(comp_id, 1.0))
 
 
 def render_components(

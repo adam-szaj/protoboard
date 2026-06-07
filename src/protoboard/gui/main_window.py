@@ -3034,6 +3034,10 @@ class MainWindow(QMainWindow):
 
     def _open_preferences(self) -> None:
         from protoboard.gui.dialogs.preferences_dialog import PreferencesDialog
+        # Pass ``parent=None`` so the dialog opens as an independent
+        # top-level window that the user can freely position anywhere
+        # on the desktop without dragging the main window with it.
+        # Modality is enforced explicitly via setWindowModality below.
         dlg = PreferencesDialog(
             keybindings=self._keybindings,
             theme=self._theme,
@@ -3043,8 +3047,10 @@ class MainWindow(QMainWindow):
             on_paths_applied=self._on_paths_applied,
             on_axis_labels_applied=self._on_axis_labels_applied,
             session=self._session,
-            parent=self,
+            parent=None,
         )
+        from PySide6.QtCore import Qt as _Qt
+        dlg.setWindowModality(_Qt.WindowModality.ApplicationModal)
         dlg.exec()
 
     def _on_axis_labels_applied(self) -> None:

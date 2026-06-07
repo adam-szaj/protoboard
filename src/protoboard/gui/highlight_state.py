@@ -56,18 +56,19 @@ PROFILE_DIMMED_2 = HighlightProfile(
     dim_wires=0.12,
 )
 
-# RouteTool — active wire drag (after first click).  Strong dim on
-# everything except the routed net.  Routed components themselves stay
-# fully opaque — the user explicitly asked for active comps at 100%
-# (the under-body pin visibility we hoped to add by dropping
-# highlight_alpha turned out to be more confusing than helpful).
+# RouteTool — active wire drag (after first click).  Mirrors the
+# net-members highlight profile (strong dim on everything except the
+# routed net) but lowers ``highlight_alpha`` so the routed components
+# themselves go semi-transparent — the wire being drawn under a DIP /
+# SOIC body would otherwise be hidden under it.  Matches
+# ``theme.ghost_comp_alpha``.
 PROFILE_ROUTE_ACTIVE = HighlightProfile(
-    pad_marker_rgba=(255, 220, 0, 160),
+    pad_marker_rgba=(255, 255, 0, 255),
     pad_marker_radius=0.28,
-    unconnected_rgba=(255, 140, 0, 180),
-    dim_components=0.12,
-    dim_wires=0.12,
-    highlight_alpha=1.0,
+    unconnected_rgba=(255, 255, 0, 255),
+    dim_components=0.50,
+    dim_wires=0.50,
+    highlight_alpha=0.35,
 )
 
 

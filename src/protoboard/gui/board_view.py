@@ -1151,6 +1151,15 @@ class BoardView(QGraphicsView):
         # we'd previously hidden so they're available to be re-rendered.
         self._invalidate_back_cache()
 
+        # ── Final highlight pass ─────────────────────────────────────────────
+        # ``update_component_groups`` no longer applies net-highlight dimming
+        # (it would clobber the route-active profile during a wire drag).
+        # The canonical highlight pass therefore has to run after every
+        # refresh, otherwise Net Inspector / Selection highlights would be
+        # lost the moment any unrelated refresh fires (drag, undo, theme
+        # change, etc.).
+        self._apply_highlight_opacity()
+
         _ms = (time.monotonic() - _t0) * 1000
         self._session.perf.record_refresh(_ms)
         self._session.perf.scene_items = len(self._scene.items())

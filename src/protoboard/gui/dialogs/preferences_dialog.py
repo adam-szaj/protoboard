@@ -89,7 +89,14 @@ class _ShortcutsPage(QWidget):
 
         self._table = QTableWidget(0, 2)
         self._table.setHorizontalHeaderLabels(["Action", "Shortcut"])
-        self._table.horizontalHeader().setStretchLastSection(True)
+        header = self._table.horizontalHeader()
+        # Action column auto-fits the longest label; Shortcut column
+        # consumes the rest of the row width.  Without ResizeToContents
+        # the default ~100px crops long action names like
+        # "Component → Toggle Footprint Side".
+        from PySide6.QtWidgets import QHeaderView
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self._table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         self._table.verticalHeader().setVisible(False)
         layout.addWidget(self._table)
@@ -1300,8 +1307,15 @@ class PreferencesDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Preferences")
         self.setMinimumSize(680, 520)
+        # Top-level window with full WM decorations (title bar, minimise,
+        # maximise, close).  ``Qt.Window`` decouples the dialog from the
+        # parent's geometry so the user can freely move it around the
+        # desktop — without it some window managers (Wayland/GNOME)
+        # anchor the dialog to the main window.  The context-help "?"
+        # button is dropped because we don't wire help into preferences.
         self.setWindowFlags(
-            self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
+            (self.windowFlags() | Qt.WindowType.Window)
+            & ~Qt.WindowType.WindowContextHelpButtonHint
         )
 
         self._on_keybindings_applied = on_keybindings_applied
