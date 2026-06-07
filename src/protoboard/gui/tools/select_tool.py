@@ -3558,7 +3558,7 @@ class SelectTool(_Tool):
 
         elif action == "merge_wire_fragments":
             _, target_wire_ids = data
-            self._merge_fragments_in_wires(target_wire_ids)
+            self._merge_wires_and_fragments(frozenset(target_wire_ids))
 
         elif action == "select_same_nets":
             _, cid = data
@@ -6432,26 +6432,37 @@ class SelectTool(_Tool):
             + (f" ({len(targets)}→{len(out)} segments)" if len(targets) != len(out) else "")
         )
 
-    def _merge_fragments_in_wires(
+    def _merge_wires_and_fragments(
         self,
-        wire_ids: set[uuid.UUID] | frozenset[uuid.UUID],
+        wire_ids: "frozenset[uuid.UUID] | None",
     ) -> None:
-        """Fuse consecutive same-side fragments inside each wire in *wire_ids*.
+        """Two-phase wire merge — best-effort fuse + fragment coalesce.
 
-        Iterates every selected wire and applies
-        ``coalesce_same_side_fragments`` to its ``fragments`` list.  Wires
-        whose fragments collapse (multi-fragment same-side run becomes one
-        fragment) get a ``ReplaceWireFragmentsCommand``; wires with no
-        adjacent same-side runs are silently skipped.  Real via boundaries
-        (top↔bottom transitions) are preserved.
+        Phase 1 — :class:`FuseTouchingWiresCommand` collapses every
+        pair of wires that share a 2-degree off-pin JointKnot and have
+        matching ``insulated`` (the same merge ``save_project`` runs
+        on disk).  Pin endpoints and pad junctions of 3+ wires are
+        never fused.
 
-        User-triggered only — never called from constructors or commit paths.
-        Reuses the existing ReplaceWireFragmentsCommand so undo/redo and the
-        rest of the wire identity invariants come along for free.
+        Phase 2 — for every wire still in the (possibly reduced)
+        scope, run :func:`coalesce_same_side_fragments` to drop
+        spurious same-side fragment boundaries that the wire-fuse
+        phase may have introduced via cross-side collapse.
+
+        ``wire_ids=None`` means "operate on the whole layout";
+        otherwise the scope is restricted to the supplied ids (and
+        phase 1 only fuses joints whose BOTH incident wires are in
+        the set).  Both phases run as a single MacroCommand so undo
+        rolls them back atomically.
+
+        User-triggered only — never called from constructors or
+        commit paths.  Reuses existing commands so wire identity,
+        knot back-references, and undo/redo keep working.
         """
         from typing import cast
         from protoboard.domain.commands.base import Command, MacroCommand
         from protoboard.domain.commands.component_cmds import (
+            FuseTouchingWiresCommand,
             ReplaceWireFragmentsCommand,
         )
         from protoboard.domain.layout.wire_utils import coalesce_same_side_fragments
@@ -6459,15 +6470,45 @@ class SelectTool(_Tool):
         session = self._session
         if session is None:
             return
-        if not wire_ids:
-            self._status_msg("Merge fragments: select a wire first.")
-            return
+
+        # Phase 1 — fuse touching wires.  We execute the command in a
+        # standalone fashion (not bundled into the final macro) so the
+        # phase-2 pass can read the post-fuse layout state and snapshot
+        # the right fragment lists for ReplaceWireFragmentsCommand.
+        # If phase 1 fails partway, MacroCommand's atomic rollback in
+        # the stack semantics still keeps us consistent — but only the
+        # phase that's running.  To get atomic undo for both phases we
+        # bundle them as a single MacroCommand after phase 1's effect
+        # has been observed.
+        fuse_cmd = FuseTouchingWiresCommand(wire_ids=wire_ids)
+        # Dry-run by applying then immediately reverting wouldn't give
+        # us the post-fuse snapshot we need; instead we apply, observe,
+        # build the phase-2 sub-commands, then revert phase 1 so the
+        # final MacroCommand starts from the original state.
+        fuse_cmd.apply(session)
+        n_fused = len(fuse_cmd._records)
+
+        # After phase 1, derive the scope for phase 2.  Wires whose ids
+        # disappeared (consumed by a fuse) drop out; wires that were
+        # *produced* by a fuse get included so their fragments are
+        # checked.  When no scope was supplied, just look at every wire
+        # left in the layout.
+        post_fuse_wire_ids: set[uuid.UUID]
+        if wire_ids is None:
+            post_fuse_wire_ids = {w.id for w in session.layout.wires}
+        else:
+            survived = {wid for wid in wire_ids if wid in session.layout.wires}
+            merged_ids = {
+                rec.merged_wire_id for rec in fuse_cmd._records
+                if rec.merged_wire_id is not None
+            }
+            post_fuse_wire_ids = survived | merged_ids
 
         all_wires = session.layout.wires
-        cmds: list[Command[ComponentState]] = []
-        n_collapsed_wires = 0
+        frag_cmds: list[Command[ComponentState]] = []
+        n_fragment_wires = 0
         n_fragments_removed = 0
-        for wid in wire_ids:
+        for wid in post_fuse_wire_ids:
             wire = next((w for w in all_wires if w.id == wid), None)
             if wire is None:
                 continue
@@ -6476,13 +6517,13 @@ class SelectTool(_Tool):
             merged = coalesce_same_side_fragments(wire.fragments)
             if len(merged) == len(wire.fragments):
                 continue
-            n_collapsed_wires += 1
+            n_fragment_wires += 1
             n_fragments_removed += len(wire.fragments) - len(merged)
             session.layout.ensure_wire_knots(wire)
             old_fragments = tuple(
                 Fragment(path=list(f.path), side=f.side) for f in wire.fragments
             )
-            cmds.append(cast(
+            frag_cmds.append(cast(
                 Command[ComponentState],
                 ReplaceWireFragmentsCommand(
                     wire_id=wire.id,
@@ -6491,31 +6532,46 @@ class SelectTool(_Tool):
                 ),
             ))
 
-        if not cmds:
-            self._status_msg(
-                "Merge fragments: no adjacent same-side fragments to fuse."
-            )
+        # Roll back phase 1 so the macro re-applies both phases atomically.
+        fuse_cmd.revert(session)
+
+        if n_fused == 0 and not frag_cmds:
+            scope_label = "selection" if wire_ids is not None else "layout"
+            self._status_msg(f"Merge wires: nothing to merge in {scope_label}.")
             return
 
-        if len(cmds) == 1:
-            cmd: Command[ComponentState] = cmds[0]
+        macro_parts: list[Command[ComponentState]] = []
+        if n_fused > 0:
+            macro_parts.append(cast(Command[ComponentState], fuse_cmd))
+        macro_parts.extend(frag_cmds)
+        if len(macro_parts) == 1:
+            cmd: Command[ComponentState] = macro_parts[0]
         else:
             cmd = MacroCommand(  # type: ignore[assignment]
-                cmds,
-                description=f"Merge fragments in {len(cmds)} wires",
+                macro_parts,
+                description=(
+                    f"Merge wires ({n_fused} fused, "
+                    f"{n_fragment_wires} fragment-collapsed)"
+                ),
             )
         session.stack.execute(cmd, session)
         session.layout_changed.emit()
         self._refresh_all_highlights()
         _log.info(
-            "wire.merge_fragments_done",
-            n_wires=n_collapsed_wires,
+            "wire.merge_done",
+            n_wires_fused=n_fused,
+            n_fragment_wires=n_fragment_wires,
             n_fragments_removed=n_fragments_removed,
         )
-        self._status_msg(
-            f"Merged {n_fragments_removed} fragment boundaries "
-            f"across {n_collapsed_wires} wire(s)."
-        )
+        parts = []
+        if n_fused:
+            parts.append(f"fused {n_fused} wire pair(s)")
+        if n_fragment_wires:
+            parts.append(
+                f"collapsed {n_fragments_removed} fragment boundaries in "
+                f"{n_fragment_wires} wire(s)"
+            )
+        self._status_msg("Merge wires: " + "; ".join(parts) + ".")
 
     # ------------------------------------------------------------------
     # Wire segment editing

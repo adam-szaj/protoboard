@@ -1408,6 +1408,100 @@ class SetWireSideCommand(Command[ComponentState]):
                 return
 
 
+@dataclass
+class FuseTouchingWiresCommand(Command[ComponentState]):
+    """Collapse every pair of wires that share a 2-degree JointKnot.
+
+    Walks every JointKnot in the layout (optionally filtered to a
+    caller-supplied wire-id scope), and for each joint whose
+    ``wire_ids`` size is 2 and whose two incident wires share
+    ``insulated``, runs :meth:`Layout.try_collapse_joint` to fuse the
+    pair into a single wire.
+
+    Runs repeatedly until no more collapses succeed — a chain of N
+    touching wires needs N-1 passes.  Each successful collapse is
+    snapshotted as a :class:`_CollapseRecord` so ``revert`` can split
+    every fused pair back into its two source wires (in reverse
+    order, mirroring AddWireCommand's collapse-undo path).
+
+    Two distinct wires meeting on an off-pin pad are an artifact of
+    autoroute / drag / cut intermediate states — physically they
+    represent one solderable conductor.  The save-time pass already
+    fuses them (``project.endpoint_merge_on_save``) but the runtime
+    layout keeps them as separate Wire instances until either the
+    file is reopened or this command runs.
+    """
+
+    wire_ids: "frozenset[uuid.UUID] | None" = None  # None → whole layout
+    _records: list["_CollapseRecord"] = field(
+        default_factory=list, init=False, repr=False,
+    )
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        scope = "all" if self.wire_ids is None else f"{len(self.wire_ids)} wire(s)"
+        return f"Fuse touching wires ({scope})"
+
+    def apply(self, state: ComponentState) -> None:
+        from protoboard.domain.layout.wire_utils import plated_through_pads
+        pt_pads = frozenset(plated_through_pads(state.board))
+        records: list[_CollapseRecord] = []
+        # Iterate until no more collapses fire; one pass is not enough
+        # for a chain of three or more touching wires.
+        progress = True
+        while progress:
+            progress = False
+            for knot_id in list(state.layout.knots.keys()):
+                knot = state.layout.knots.get(knot_id)
+                if not isinstance(knot, JointKnot):
+                    continue
+                if len(knot.wire_ids) != 2:
+                    continue
+                w_ids = tuple(knot.wire_ids)
+                w1 = state.layout.wires.get(w_ids[0])
+                w2 = state.layout.wires.get(w_ids[1])
+                if w1 is None or w2 is None:
+                    continue
+                if w1.insulated != w2.insulated:
+                    continue
+                # Scope filter: when the caller restricted us to a
+                # wire-id set, only collapse joints whose BOTH incident
+                # wires are in the set.  Otherwise a "merge selected"
+                # action might silently pull in unrelated wires.
+                if self.wire_ids is not None and not (
+                    w1.id in self.wire_ids and w2.id in self.wire_ids
+                ):
+                    continue
+                snapshot = _CollapseRecord(
+                    joint_id=knot_id,
+                    joint_pos=knot.position,
+                    w1_snapshot=_snapshot_wire(w1, state.layout),
+                    w2_snapshot=_snapshot_wire(w2, state.layout),
+                )
+                merged = state.layout.try_collapse_joint(
+                    knot_id, plated_through_pads=pt_pads,
+                )
+                if merged is None:
+                    continue
+                snapshot.merged_wire_id = merged.id
+                records.append(snapshot)
+                progress = True
+        # Record only on first apply — redo reuses the recorded
+        # snapshots' joint ids (recompute would give a different
+        # result if the layout state already differs from the
+        # post-apply snapshot, which can't happen here because we
+        # roll back fully).
+        if records and not self._records:
+            self._records = records
+
+    def revert(self, state: ComponentState) -> None:
+        # Undo collapses in reverse order — _restore_collapse reinstates
+        # both source wires.  Each iteration drops the merged wire and
+        # re-inserts the two pre-fuse wires.
+        for rec in reversed(self._records):
+            _restore_collapse(state, rec)
+
+
 # ---------------------------------------------------------------------------
 # Wire-pin conversion (docs/wire-pin-implementation.md §3.6)
 # ---------------------------------------------------------------------------

@@ -1047,7 +1047,7 @@ class TestMergeFragmentsCommand:
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
         tool._selected_wire_id = wire_id
-        tool._merge_fragments_in_wires({wire_id})
+        tool._merge_wires_and_fragments(frozenset({wire_id}))
 
         new_wire = next(w for w in session.layout.wires if w.id == wire_id)
         assert len(new_wire.fragments) == 1
@@ -1074,7 +1074,7 @@ class TestMergeFragmentsCommand:
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
         tool._selected_wire_id = wire_id
-        tool._merge_fragments_in_wires({wire_id})
+        tool._merge_wires_and_fragments(frozenset({wire_id}))
 
         new_wire = next(w for w in session.layout.wires if w.id == wire_id)
         assert len(new_wire.fragments) == 3
@@ -1093,7 +1093,7 @@ class TestMergeFragmentsCommand:
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
         baseline_depth = len(session.stack._undo)
-        tool._merge_fragments_in_wires({wire_id})
+        tool._merge_wires_and_fragments(frozenset({wire_id}))
         assert len(session.stack._undo) == baseline_depth
 
     def test_merge_is_undoable(
@@ -1110,7 +1110,7 @@ class TestMergeFragmentsCommand:
         board_view.set_tool(SelectTool())
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
-        tool._merge_fragments_in_wires({wire_id})
+        tool._merge_wires_and_fragments(frozenset({wire_id}))
         assert len(next(
             w for w in session.layout.wires if w.id == wire_id
         ).fragments) == 1
@@ -1127,7 +1127,7 @@ class TestMergeFragmentsCommand:
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
         baseline_depth = len(session.stack._undo)
-        tool._merge_fragments_in_wires(set())
+        tool._merge_wires_and_fragments(frozenset())
         assert len(session.stack._undo) == baseline_depth
 
 

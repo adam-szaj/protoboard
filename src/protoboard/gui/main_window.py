@@ -201,7 +201,7 @@ class MainWindow(QMainWindow):
         KB.ACTION_RELATION_NEIGHBORS:       {"label": "Relation: Neighbors"},
         KB.ACTION_SIMPLIFY_WIRE:            {"label": "Simplify Selected Wires"},
         KB.ACTION_UNWEAVE_WIRES:            {"label": "Unweave Selected Wires"},
-        KB.ACTION_MERGE_WIRE_FRAGMENTS:     {"label": "Merge Same-Side Fragments"},
+        KB.ACTION_MERGE_WIRES:              {"label": "Merge Wires"},
         KB.ACTION_HIGHLIGHT_TOGGLE:         {"label": "Highlight Toggle"},
     }
 
@@ -638,7 +638,7 @@ class MainWindow(QMainWindow):
             KB.ACTION_RELATION_NEIGHBORS:       lambda: self._set_relation_by_name("neighbors"),
             KB.ACTION_SIMPLIFY_WIRE:            self._simplify_selected_wires,
             KB.ACTION_UNWEAVE_WIRES:            self._unweave_selected_wires,
-            KB.ACTION_MERGE_WIRE_FRAGMENTS:     self._merge_fragments_in_selected_wires,
+            KB.ACTION_MERGE_WIRES:              self._merge_wires_action,
             # File / project I/O
             KB.ACTION_IMPORT_KICAD_NET:         self._import_kicad_net,
             KB.ACTION_EXPORT_KICAD_NET:         self._export_kicad_net,
@@ -833,7 +833,7 @@ class MainWindow(QMainWindow):
         wire_menu.addAction(self._actions[KB.ACTION_TOOL_SIMPLIFY])
         wire_menu.addAction(self._actions[KB.ACTION_SIMPLIFY_WIRE])
         wire_menu.addAction(self._actions[KB.ACTION_UNWEAVE_WIRES])
-        wire_menu.addAction(self._actions[KB.ACTION_MERGE_WIRE_FRAGMENTS])
+        wire_menu.addAction(self._actions[KB.ACTION_MERGE_WIRES])
 
         # Net submenu — top-menu entries delegate to NetsEditorPanel
         # which keeps the implementation single-sourced.  Each entry
@@ -1769,7 +1769,7 @@ class MainWindow(QMainWindow):
         KB.ACTION_AUTOROUTE,
         KB.ACTION_SIMPLIFY_WIRE,
         KB.ACTION_UNWEAVE_WIRES,
-        KB.ACTION_MERGE_WIRE_FRAGMENTS,
+        KB.ACTION_MERGE_WIRES,
         KB.ACTION_RUN_DRC,
     })
 
@@ -3328,13 +3328,23 @@ class MainWindow(QMainWindow):
             return
         tool._unweave_wires(wire_ids)
 
-    def _merge_fragments_in_selected_wires(self) -> None:
-        """Fuse consecutive same-side fragments in every selected wire."""
+    def _merge_wires_action(self) -> None:
+        """User-triggered merge: fuse touching wires + collapse same-side fragments.
+
+        Scope:
+        * If any wires are selected — restrict to that set.
+        * Otherwise — operate on the entire layout.
+
+        Two-phase: first collapse adjacent wires sharing an off-pin
+        2-degree JointKnot (``FuseTouchingWiresCommand``), then run the
+        per-wire fragment coalescer.  The wire-merge phase can produce
+        a multi-fragment Wire (cross-side via collapse), so it has to
+        run before the fragment pass to give it a chance to act on the
+        merged result.
+        """
         tool = self._get_select_tool() or self._select_tool
         wire_ids: set[uuid.UUID] = set(tool._selected_wire_ids)
         if tool._selected_wire_id is not None:
             wire_ids.add(tool._selected_wire_id)
-        if not wire_ids:
-            self._status.showMessage("Merge fragments: select a wire first.", 3000)
-            return
-        tool._merge_fragments_in_wires(wire_ids)
+        scope = frozenset(wire_ids) if wire_ids else None
+        tool._merge_wires_and_fragments(scope)

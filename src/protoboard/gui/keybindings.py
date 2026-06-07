@@ -82,7 +82,11 @@ ACTION_RUN_DRC = "run_drc"
 ACTION_AUTOROUTE = "autoroute"
 ACTION_SIMPLIFY_WIRE = "simplify_wire"
 ACTION_UNWEAVE_WIRES = "unweave_wires"
-ACTION_MERGE_WIRE_FRAGMENTS = "merge_wire_fragments"
+ACTION_MERGE_WIRES = "merge_wires"
+# Legacy alias retained for any saved-preferences files that still
+# reference the old id.  Display name + slot mapping below resolve
+# through ACTION_MERGE_WIRES.
+ACTION_MERGE_WIRE_FRAGMENTS = ACTION_MERGE_WIRES
 
 ACTION_HIGHLIGHT_TOGGLE = "highlight_toggle"   # toggle highlight on/off
 ACTION_HIGHLIGHT_CYCLE  = "highlight_cycle"    # cycle through relation classes
@@ -211,7 +215,7 @@ DEFAULTS: dict[str, str] = {
     ACTION_AUTOROUTE: "F6",
     ACTION_SIMPLIFY_WIRE: "",
     ACTION_UNWEAVE_WIRES: "",
-    ACTION_MERGE_WIRE_FRAGMENTS: "",
+    ACTION_MERGE_WIRES: "",
     ACTION_HIGHLIGHT_TOGGLE: "",
     ACTION_HIGHLIGHT_CYCLE: "`",
     ACTION_CLEAR_HIGHLIGHT: "Ctrl+Shift+H",
@@ -309,7 +313,7 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_AUTOROUTE: "Autoroute All Nets",
     ACTION_SIMPLIFY_WIRE: "Simplify Selected Wires",
     ACTION_UNWEAVE_WIRES: "Unweave Selected Wires",
-    ACTION_MERGE_WIRE_FRAGMENTS: "Merge Same-Side Fragments",
+    ACTION_MERGE_WIRES: "Merge Wires",
     ACTION_HIGHLIGHT_TOGGLE: "Highlight Toggle",
     ACTION_HIGHLIGHT_CYCLE: "Cycle Relation Class",
     ACTION_CLEAR_HIGHLIGHT: "Clear Persistent Highlight",
