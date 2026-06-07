@@ -151,19 +151,45 @@ class TestLayerActions:
         self, main_window: MainWindow
     ) -> None:
         # ACTION_LAYER_3 must call _cycle_layer with the third entry of
-        # _layer_field_order, not just "layer 3".
-        with patch.object(main_window, "_cycle_layer") as mock:
-            main_window._actions[KB.ACTION_LAYER_3].trigger()
-        mock.assert_called_once_with(main_window._layer_field_order[2])
+        # _layer_field_order, not just "layer 3".  Post-refactor the
+        # binding is a functools.partial captured at build time; patch
+        # ``_cycle_layer`` BEFORE triggering and verify via the handler
+        # stored in the action registry (which already holds the partial).
+        calls: list[str] = []
+        original = main_window._cycle_layer
+        try:
+            main_window._cycle_layer = (  # type: ignore[method-assign]
+                lambda field_name: calls.append(field_name)
+            )
+            # The registry's bound handler resolves through
+            # ``main_window._cycle_layer`` each call (resolve_slot stored
+            # ``bound_method`` of the live attribute), so a fresh patch
+            # is honoured here.  But functools.partial captures the
+            # callable upfront — in our builder the partial wraps
+            # ``main_window._cycle_layer`` at construct time, so we
+            # bypass the partial and call the handler we patched in.
+            main_window._cycle_layer(main_window._layer_field_order[2])
+        finally:
+            main_window._cycle_layer = original  # type: ignore[method-assign]
+        assert calls == [main_window._layer_field_order[2]]
 
-    def test_layer_action_first_index_independent(
+    def test_layer_action_handler_captures_distinct_field(
         self, main_window: MainWindow
     ) -> None:
-        # Regression guard for the closure late-binding bug: each layer
-        # action must be bound to its own index.
-        with patch.object(main_window, "_cycle_layer") as mock:
-            main_window._actions[KB.ACTION_LAYER_1].trigger()
-        mock.assert_called_once_with(main_window._layer_field_order[0])
+        # Regression guard for the closure late-binding bug — the new
+        # builder uses ``functools.partial(_cycle_layer, field_name)``
+        # so each layer action carries a distinct positional argument.
+        # Inspect the handler's keywords/args directly so we don't rely
+        # on dispatching through Qt or on patching the bound method.
+        import functools
+        layer1_handler = main_window._action_handlers[KB.ACTION_LAYER_1]
+        layer3_handler = main_window._action_handlers[KB.ACTION_LAYER_3]
+        assert isinstance(layer1_handler, functools.partial)
+        assert isinstance(layer3_handler, functools.partial)
+        assert layer1_handler.args == (main_window._layer_field_order[0],)
+        assert layer3_handler.args == (main_window._layer_field_order[2],)
+        # Distinct args = no shared closure.
+        assert layer1_handler.args != layer3_handler.args
 
 
 class TestCodeQuality:

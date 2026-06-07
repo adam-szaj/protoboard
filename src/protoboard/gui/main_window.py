@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import dataclasses
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 import structlog
@@ -31,6 +32,8 @@ from PySide6.QtWidgets import (
 
 from protoboard.geometry import Point
 from protoboard.gui import recent_projects
+from protoboard.gui.action_builder import build_actions
+from protoboard.gui.actions import ALL_ACTIONS
 from protoboard.gui.board_view import BoardView
 from protoboard.gui import keybindings as KB
 from protoboard.gui.panels.components_panel import ComponentsPanel
@@ -119,91 +122,10 @@ class MainWindow(QMainWindow):
     return_to_welcome = Signal()
 
     # ------------------------------------------------------------------
-    # Action metadata — declarative table consumed by _register_actions().
-    # Each entry holds a menu label (with mnemonics) and optional flags.
-    # Actions not listed here fall back to KB.DISPLAY_NAMES for their label
-    # and use neutral defaults (enabled, not checkable).
+    # Action metadata moved to ``src/protoboard/gui/actions.py`` —
+    # ``ALL_ACTIONS`` is the single source of truth.  This class still
+    # owns slot methods; ``_register_actions`` calls ``build_actions``.
     # ------------------------------------------------------------------
-    _ACTION_METADATA: dict[str, dict[str, object]] = {
-        # File menu
-        KB.ACTION_SAVE:    {"label": "&Save"},
-        KB.ACTION_SAVE_AS: {"label": "Save &As…"},
-        KB.ACTION_QUIT:    {"label": "&Quit"},
-        # Edit menu
-        KB.ACTION_UNDO:    {"label": "&Undo", "enabled": False},
-        KB.ACTION_REDO:    {"label": "&Redo", "enabled": False},
-        KB.ACTION_DELETE:  {"label": "&Delete"},
-        KB.ACTION_CLEAR_HIGHLIGHT: {"label": "Clear &Highlight", "enabled": False},
-        KB.ACTION_ROTATE_CW:  {"label": "Rotate &CW"},
-        KB.ACTION_ROTATE_CCW: {"label": "Rotate CC&W"},
-        KB.ACTION_FLIP:       {"label": "&Flip"},
-        KB.ACTION_GROUP:      {"label": "&Group Selection"},
-        KB.ACTION_UNGROUP:    {"label": "&Ungroup"},
-        KB.ACTION_EXIT_GROUP: {"label": "&Exit Group"},
-        KB.ACTION_PREFERENCES: {"label": "&Preferences…"},
-        # Select menu
-        KB.ACTION_SELECT_ALL:               {"label": "Select &All"},
-        KB.ACTION_DESELECT_ALL:             {"label": "&Deselect All"},
-        KB.ACTION_SELECT_ALL_COMPONENTS:    {"label": "Select All &Components"},
-        KB.ACTION_DESELECT_ALL_COMPONENTS:  {"label": "Deselect All C&omponents"},
-        KB.ACTION_SELECT_ALL_WIRES:         {"label": "Select All &Wires"},
-        KB.ACTION_DESELECT_ALL_WIRES:       {"label": "Deselect All Wi&res"},
-        # View menu
-        KB.ACTION_CAMERA_TOGGLE: {"label": "Camera: To&ggle"},
-        KB.ACTION_MIRROR_H:      {"label": "Mirror &Horizontal", "checkable": True},
-        KB.ACTION_MIRROR_V:      {"label": "Mirror &Vertical",   "checkable": True},
-        KB.ACTION_FULLSCREEN:    {"label": "&Full Screen"},
-        KB.ACTION_ZOOM_IN:       {"label": "Zoom &In"},
-        KB.ACTION_ZOOM_OUT:      {"label": "Zoom &Out"},
-        KB.ACTION_FIT_BOARD:     {"label": "&Fit Board"},
-        KB.ACTION_FIT_AREA:      {"label": "Fit &Area"},
-        KB.ACTION_FIT_SELECTION: {"label": "Fit &Selection"},
-        # Tools menu — tool modes are checkable + mutually exclusive
-        # (grouped via QActionGroup in _register_actions); wire-state
-        # actions are checkable so menu shows current Route-tool state.
-        KB.ACTION_TOOL_SELECT:          {"label": "&Select", "checkable": True},
-        KB.ACTION_TOOL_ROUTE:           {"label": "Route &Wire", "checkable": True},
-        KB.ACTION_TOOL_CUT:             {"label": "&Cut Strip", "checkable": True},
-        KB.ACTION_TOOL_SIMPLIFY:        {"label": "Simplify &Wire Tool", "checkable": True},
-        KB.ACTION_WIRE_TOGGLE_INSULATED: {"label": "&Insulated", "checkable": True},
-        KB.ACTION_WIRE_SIDE_TOP:         {"label": "Side: &Top", "checkable": True},
-        KB.ACTION_WIRE_SIDE_BOTTOM:      {"label": "Side: &Bottom", "checkable": True},
-        KB.ACTION_REDRAG_PINS:           {"label": "Re-drag &Pins"},
-        KB.ACTION_FOCUS_LIBRARY:         {"label": "&Add Component…"},
-        KB.ACTION_LOCK_TOGGLE:           {"label": "&Lock / Unlock"},
-        KB.ACTION_WIRE_SET_INSULATED:    {"label": "Wire: Set &Insulated"},
-        KB.ACTION_WIRE_SET_BARE:         {"label": "Wire: Set &Bare"},
-        KB.ACTION_WIRE_MOVE_TO_TOP:      {"label": "Wire: Move to &Top Layer"},
-        KB.ACTION_WIRE_MOVE_TO_BOTTOM:   {"label": "Wire: Move to &Bottom Layer"},
-        KB.ACTION_WIRE_FLIP:             {"label": "Wire: &Flip to Opposite Layer"},
-        KB.ACTION_DISCONNECT_PIN:        {"label": "&Disconnect Pin from Net…"},
-        KB.ACTION_AUTOROUTE:             {"label": "&Autoroute Nets… [Inspector selection or all]"},
-        KB.ACTION_RUN_DRC:               {"label": "Run &DRC"},
-        # Layer cycling
-        KB.ACTION_LAYER_1: {"label": "Board"},
-        KB.ACTION_LAYER_2: {"label": "Components Top"},
-        KB.ACTION_LAYER_3: {"label": "Components Bottom"},
-        KB.ACTION_LAYER_4: {"label": "Wires Top"},
-        KB.ACTION_LAYER_5: {"label": "Wires Bottom"},
-        KB.ACTION_LAYER_6: {"label": "Labels"},
-        KB.ACTION_LAYER_7: {"label": "Pin Names"},
-        KB.ACTION_LAYER_8: {"label": "Connections"},
-        # Orphan actions (no menu entry — only keyboard shortcut)
-        KB.ACTION_FILTER_TOGGLE_COMPONENTS: {"label": "Filter: Toggle Components"},
-        KB.ACTION_FILTER_TOGGLE_WIRES:      {"label": "Filter: Toggle Wires"},
-        KB.ACTION_FILTER_TOGGLE_GROUPS:     {"label": "Filter: Toggle Groups"},
-        KB.ACTION_HIGHLIGHT_CYCLE:          {"label": "Cycle Relation Class"},
-        KB.ACTION_RELATION_CYCLE_BACK:      {"label": "Cycle Relation Class (Back)"},
-        KB.ACTION_RELATION_NONE:            {"label": "Relation: None"},
-        KB.ACTION_RELATION_LOGICAL_NET:     {"label": "Relation: Same Logical Net"},
-        KB.ACTION_RELATION_PHYSICAL_NET:    {"label": "Relation: Same Physical Net"},
-        KB.ACTION_RELATION_UNCONNECTED:     {"label": "Relation: Unconnected Pins"},
-        KB.ACTION_RELATION_NEIGHBORS:       {"label": "Relation: Neighbors"},
-        KB.ACTION_SIMPLIFY_WIRE:            {"label": "Simplify Selected Wires"},
-        KB.ACTION_UNWEAVE_WIRES:            {"label": "Unweave Selected Wires"},
-        KB.ACTION_MERGE_WIRES:              {"label": "Merge Wires"},
-        KB.ACTION_HIGHLIGHT_TOGGLE:         {"label": "Highlight Toggle"},
-    }
 
     def __init__(
         self,
@@ -560,145 +482,34 @@ class MainWindow(QMainWindow):
     ]
 
     def _register_actions(self) -> None:
-        """Create one QAction per entry in the handler map.
+        """Build QActions, menus and action groups via the declarative spec list.
 
-        All QActions are added to ``self`` (QMainWindow) with the default
-        ``Qt.ShortcutContext.WindowShortcut`` so Qt routes their shortcut
-        regardless of whether they are subsequently put in a menu.  Menu
-        items consume them via ``self._actions[KB.ACTION_X]``; orphan
-        entries (no menu) still fire their handler on the bound shortcut.
+        See :mod:`protoboard.gui.actions` for the ALL_ACTIONS list and
+        :mod:`protoboard.gui.action_builder` for the builder.  Top-level
+        menus are wired here too — the spec ``menu_path`` drives placement
+        automatically.  Dynamic items (Recent files, Camera Top/Bottom)
+        are still added by ``_build_menu`` after this method returns.
         """
         self._layer_field_order: list[str] = [
             field_name for field_name, _label, _aid in self._LAYER_ENTRIES
         ]
 
-        # Per-instance handler map — built here because handlers need bound
-        # ``self``.  Order does not matter — Qt does the routing.
-        self._action_handlers: dict[str, "Callable[[], None]"] = {
-            # File
-            KB.ACTION_SAVE:    self._save,
-            KB.ACTION_SAVE_AS: self._save_as,
-            KB.ACTION_QUIT:    self.close,
-            # Edit
-            KB.ACTION_UNDO:    self._undo,
-            KB.ACTION_REDO:    self._redo,
-            KB.ACTION_DELETE:  self._delete_selection,
-            KB.ACTION_CLEAR_HIGHLIGHT: self._clear_highlight,
-            KB.ACTION_ROTATE_CW:  self._rotate_cw,
-            KB.ACTION_ROTATE_CCW: self._rotate_ccw,
-            KB.ACTION_FLIP:       self._flip_selection,
-            KB.ACTION_GROUP:      self._group_selection,
-            KB.ACTION_UNGROUP:    self._ungroup_selection,
-            KB.ACTION_EXIT_GROUP: self._exit_group,
-            KB.ACTION_PREFERENCES: self._open_preferences,
-            # Select
-            KB.ACTION_SELECT_ALL:               self._select_all,
-            KB.ACTION_DESELECT_ALL:             self._deselect_all,
-            KB.ACTION_SELECT_ALL_COMPONENTS:    self._select_all_components,
-            KB.ACTION_DESELECT_ALL_COMPONENTS:  self._deselect_all_components,
-            KB.ACTION_SELECT_ALL_WIRES:         self._select_all_wires,
-            KB.ACTION_DESELECT_ALL_WIRES:       self._deselect_all_wires,
-            # View
-            KB.ACTION_CAMERA_TOGGLE: lambda: self._set_camera("toggle"),
-            KB.ACTION_MIRROR_H:      self._mirror_view,
-            KB.ACTION_MIRROR_V:      self._mirror_view_v,
-            KB.ACTION_FULLSCREEN:    self._toggle_fullscreen,
-            KB.ACTION_ZOOM_IN:       lambda: self._board_view.zoom_by(1.3),
-            KB.ACTION_ZOOM_OUT:      lambda: self._board_view.zoom_by(1 / 1.3),
-            KB.ACTION_FIT_BOARD:     self._fit_board,
-            KB.ACTION_FIT_AREA:      self._fit_area,
-            KB.ACTION_FIT_SELECTION: self._fit_selection,
-            # Tools
-            KB.ACTION_TOOL_SELECT:          self._tool_select,
-            KB.ACTION_TOOL_ROUTE:           self._tool_route,
-            KB.ACTION_TOOL_CUT:             self._tool_cut,
-            KB.ACTION_TOOL_SIMPLIFY:        self._tool_simplify,
-            KB.ACTION_WIRE_TOGGLE_INSULATED: lambda: self._set_wire_insulated(not self._wire_insulated),
-            KB.ACTION_WIRE_SIDE_TOP:         lambda: self._set_wire_side("top"),
-            KB.ACTION_WIRE_SIDE_BOTTOM:      lambda: self._set_wire_side("bottom"),
-            KB.ACTION_REDRAG_PINS:           self._redrag_pins,
-            KB.ACTION_WIRE_SET_INSULATED:    lambda: self._set_selected_wire_insulated(True),
-            KB.ACTION_WIRE_SET_BARE:         lambda: self._set_selected_wire_insulated(False),
-            KB.ACTION_WIRE_MOVE_TO_TOP:      lambda: self._move_selected_wires_to_side("top"),
-            KB.ACTION_WIRE_MOVE_TO_BOTTOM:   lambda: self._move_selected_wires_to_side("bottom"),
-            KB.ACTION_WIRE_FLIP:             lambda: self._move_selected_wires_to_side(None),
-            KB.ACTION_DISCONNECT_PIN:        self._disconnect_pin,
-            KB.ACTION_AUTOROUTE:             self._autoroute,
-            KB.ACTION_RUN_DRC:               self._run_drc,
-            # Orphan — no menu entry, only keyboard shortcut.
-            KB.ACTION_FILTER_TOGGLE_COMPONENTS: lambda: self._toggle_filter("components"),
-            KB.ACTION_FILTER_TOGGLE_WIRES:      lambda: self._toggle_filter("wires"),
-            KB.ACTION_FILTER_TOGGLE_GROUPS:     lambda: self._toggle_filter("groups"),
-            KB.ACTION_HIGHLIGHT_CYCLE:          lambda: self._cycle_relation(forward=True),
-            KB.ACTION_RELATION_CYCLE_BACK:      lambda: self._cycle_relation(forward=False),
-            KB.ACTION_RELATION_NONE:            lambda: self._set_relation_by_name("none"),
-            KB.ACTION_RELATION_LOGICAL_NET:     lambda: self._set_relation_by_name("same_logical_net"),
-            KB.ACTION_RELATION_PHYSICAL_NET:    lambda: self._set_relation_by_name("same_physical_net"),
-            KB.ACTION_RELATION_UNCONNECTED:     lambda: self._set_relation_by_name("unconnected_pins"),
-            KB.ACTION_RELATION_NEIGHBORS:       lambda: self._set_relation_by_name("neighbors"),
-            KB.ACTION_SIMPLIFY_WIRE:            self._simplify_selected_wires,
-            KB.ACTION_UNWEAVE_WIRES:            self._unweave_selected_wires,
-            KB.ACTION_MERGE_WIRES:              self._merge_wires_action,
-            # File / project I/O
-            KB.ACTION_IMPORT_KICAD_NET:         self._import_kicad_net,
-            KB.ACTION_EXPORT_KICAD_NET:         self._export_kicad_net,
-            KB.ACTION_EXPORT_SVG:               self._export_svg,
-            KB.ACTION_EXPORT_PDF:               self._export_pdf,
-            KB.ACTION_EXPORT_PNG:               self._export_png,
-            KB.ACTION_EXPORT_BOM:               self._export_bom,
-            KB.ACTION_CLOSE_PROJECT:            self._close_project,
-            # Board edit
-            KB.ACTION_BOARD_RESIZE:             self._resize_board,
-            KB.ACTION_BOARD_SPREAD:             self._spread_components,
-            KB.ACTION_LAYERS_RESET:             self._reset_layers,
-            # Devtools
-            KB.ACTION_GEN_SHORTCUT_CONFIG:      self._generate_shortcut_config,
-            # Component creation
-            KB.ACTION_FOCUS_LIBRARY:            self._focus_library_for_add,
-            # Lock / unlock selected components
-            KB.ACTION_LOCK_TOGGLE:              self._lock_toggle,
-            # Net editor delegations — each raises the Nets tab and
-            # invokes the matching NetsEditorPanel slot.
-            KB.ACTION_NET_NEW:                  self._net_new,
-            KB.ACTION_NET_RENAME:               self._net_rename,
-            KB.ACTION_NET_SET_COLOR:            self._net_set_color,
-            KB.ACTION_NET_CLEAR_COLOR:          self._net_clear_color,
-            KB.ACTION_NET_TOGGLE_GLOBAL:        self._net_toggle_global,
-            KB.ACTION_NET_DELETE:               self._net_delete,
-            KB.ACTION_PIN_ASSIGN_NET:           self._pin_assign_net,
-            # Group operations on the active (entered) group
-            KB.ACTION_GROUP_RENAME:             self._group_rename,
-            KB.ACTION_GROUP_EXPORT_AUTO:        self._group_export_auto,
-            KB.ACTION_GROUP_EXPORT_ALL:         self._group_export_all,
-            KB.ACTION_GROUP_EXPORT_CLEAR:       self._group_export_clear,
-            KB.ACTION_GROUP_AUTOROUTE:          self._group_autoroute,
-            # True on/off toggle for persistent highlight — snapshot
-            # the active entries and restore them on next press.
-            KB.ACTION_HIGHLIGHT_TOGGLE:         self._highlight_toggle,
-        }
-        # Layer 1..8 — bind layer-index via default-arg lambda to avoid the
-        # late-binding closure pitfall.  The first positional arg swallows
-        # Qt's QAction.triggered(checked=False) so it doesn't bleed into the
-        # default-arg index slot.
-        for idx, (_field, _label, layer_action_id) in enumerate(self._LAYER_ENTRIES):
-            self._action_handlers[layer_action_id] = (
-                lambda *_args, i=idx: self._cycle_layer(self._layer_field_order[i])
-            )
+        self._registry = build_actions(
+            self,
+            ALL_ACTIONS,
+            self._keybindings,
+            slot_owners={"mw": self},
+        )
+        # Preserve the historical attribute names so the rest of the
+        # codebase (PPM handlers, tests, _apply_all_keybindings, etc.)
+        # keeps reading the same dict — these are live views, not copies.
+        self._actions: dict[str, QAction] = self._registry.actions
+        self._action_handlers: dict[str, Callable[[], None]] = self._registry.handlers
 
-        self._actions: dict[str, QAction] = {}
-        for action_id, handler in self._action_handlers.items():
-            meta = self._ACTION_METADATA.get(action_id, {})
-            label = meta.get("label") or KB.DISPLAY_NAMES.get(action_id, action_id)
-            act = QAction(label, self)
-            act.setShortcut(self._ks(action_id))
+        # Force WindowShortcut on every QAction — builder leaves the
+        # default (ShortcutContext is set on the QAction by Qt itself).
+        for act in self._actions.values():
             act.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
-            if meta.get("checkable", False):
-                act.setCheckable(True)
-            if not meta.get("enabled", True):
-                act.setEnabled(False)
-            act.triggered.connect(handler)
-            self._actions[action_id] = act
-            self.addAction(act)
 
         # Derived view: layer field-name → QAction, for _refresh_layer_menu().
         self._layer_actions: dict[str, QAction] = {
@@ -706,31 +517,18 @@ class MainWindow(QMainWindow):
             for field_name, _label, layer_action_id in self._LAYER_ENTRIES
         }
 
-        # ── Tool-mode QActionGroup ──────────────────────────────────────
-        # Select / Route / Cut / Simplify are mutually exclusive.  Use the
-        # Optional exclusion policy so PlaceTool (and other transient tools
-        # without an action) can leave the whole group unchecked.
-        self._tool_action_group = QActionGroup(self)
+        # Stronger exclusion policy on the two declared groups — the
+        # builder uses default Exclusive (1-and-only-1) which matches.
+        # Re-asserted here for clarity and to keep the symbol stable for
+        # callsites that reference ``self._tool_action_group``.
+        self._tool_action_group: QActionGroup = self._registry.action_groups["tool"]
         self._tool_action_group.setExclusionPolicy(
             QActionGroup.ExclusionPolicy.Exclusive
         )
-        for _tool_aid in (
-            KB.ACTION_TOOL_SELECT,
-            KB.ACTION_TOOL_ROUTE,
-            KB.ACTION_TOOL_CUT,
-            KB.ACTION_TOOL_SIMPLIFY,
-        ):
-            self._tool_action_group.addAction(self._actions[_tool_aid])
-
-        # Wire-side radio group (Top vs Bottom).  No third state — when
-        # neither is checked the user hasn't picked a side yet (initial
-        # state is forced in _set_wire_side()).
-        self._wire_side_group = QActionGroup(self)
+        self._wire_side_group: QActionGroup = self._registry.action_groups["wire_side"]
         self._wire_side_group.setExclusionPolicy(
             QActionGroup.ExclusionPolicy.Exclusive
         )
-        for _side_aid in (KB.ACTION_WIRE_SIDE_TOP, KB.ACTION_WIRE_SIDE_BOTTOM):
-            self._wire_side_group.addAction(self._actions[_side_aid])
 
     # ------------------------------------------------------------------
     # Backward-compat aliases — historic per-attribute names kept as
@@ -755,209 +553,47 @@ class MainWindow(QMainWindow):
     def _act_wire_bottom(self) -> QAction: return self._actions[KB.ACTION_WIRE_SIDE_BOTTOM]
 
     def _build_menu(self) -> None:
-        mb: QMenuBar = self.menuBar()
+        """Splice the dynamic menu items (Recent files, Camera Top/Bottom)
+        into the QMenus the builder created from ``ALL_ACTIONS``.
 
-        # ── File ──────────────────────────────────────────────────────────
-        file_menu = mb.addMenu("&File")
+        Most menu wiring is data-driven now — see
+        :data:`protoboard.gui.actions.ALL_ACTIONS`.  Only two things stay
+        hand-built here:
 
-        file_menu.addAction(self._actions[KB.ACTION_SAVE])
-        file_menu.addAction(self._actions[KB.ACTION_SAVE_AS])
+        * ``File ► Open Recent`` — submenu populated from RecentProjects
+          at runtime, not a static QAction.
+        * ``View ► Camera ► Top / Bottom`` — exclusive radio pair whose
+          checked state mirrors :attr:`_camera_bottom`; managed alongside
+          the configurable ``ACTION_CAMERA_TOGGLE`` action.
+        """
+        file_menu = self._registry.menus[("File",)]
+        view_menu = self._registry.menus[("View",)]
 
-        file_menu.addSeparator()
-
-        self._recent_menu: QMenu = file_menu.addMenu("Open &Recent")
+        # ── Recent files submenu ── insert between Save As… and the
+        # Import/Export separator block.  ``insertMenu`` requires a
+        # ``before`` QAction — pick the Import KiCAD entry as the anchor
+        # so Recent lands right above it (matches the legacy layout).
+        import_act = self._actions[KB.ACTION_IMPORT_KICAD_NET]
+        self._recent_menu = QMenu("Open &Recent", self)
+        file_menu.insertMenu(import_act, self._recent_menu)
         self._populate_recent_menu()
 
-        file_menu.addSeparator()
-
-        file_menu.addAction(self._actions[KB.ACTION_IMPORT_KICAD_NET])
-        file_menu.addAction(self._actions[KB.ACTION_EXPORT_KICAD_NET])
-
-        file_menu.addSeparator()
-
-        file_menu.addAction(self._actions[KB.ACTION_EXPORT_SVG])
-        file_menu.addAction(self._actions[KB.ACTION_EXPORT_PDF])
-        file_menu.addAction(self._actions[KB.ACTION_EXPORT_PNG])
-        file_menu.addAction(self._actions[KB.ACTION_EXPORT_BOM])
-
-        file_menu.addSeparator()
-
-        file_menu.addAction(self._actions[KB.ACTION_CLOSE_PROJECT])
-
-        file_menu.addSeparator()
-
-        file_menu.addAction(self._actions[KB.ACTION_QUIT])
-
-        # ── Edit ──────────────────────────────────────────────────────────
-        # History + Design hub + Board hub + Preferences.  Domain edit
-        # operations (Component/Wire/Net/Group) live under "Edit ► Design ►",
-        # board-level edits (Resize / Cut Strip / Spread) under "Edit ► Board ►".
-        edit_menu = mb.addMenu("&Edit")
-
-        edit_menu.addAction(self._actions[KB.ACTION_UNDO])
-        edit_menu.addAction(self._actions[KB.ACTION_REDO])
-
-        edit_menu.addSeparator()
-
-        # ── Edit ► Design ──────────────────────────────────────────────
-        design_menu = edit_menu.addMenu("&Design")
-
-        # Component submenu (SEL1 / SELN component operations).
-        component_menu = design_menu.addMenu("&Component")
-        component_menu.addAction(self._actions[KB.ACTION_FOCUS_LIBRARY])
-        component_menu.addSeparator()
-        component_menu.addAction(self._actions[KB.ACTION_ROTATE_CW])
-        component_menu.addAction(self._actions[KB.ACTION_ROTATE_CCW])
-        component_menu.addAction(self._actions[KB.ACTION_FLIP])
-        component_menu.addSeparator()
-        component_menu.addAction(self._actions[KB.ACTION_REDRAG_PINS])
-        component_menu.addSeparator()
-        component_menu.addAction(self._actions[KB.ACTION_LOCK_TOGGLE])
-        component_menu.addSeparator()
-        component_menu.addAction(self._actions[KB.ACTION_DELETE])
-
-        # Wire submenu — tool mode + per-mode options + selection-bulk ops.
-        wire_menu = design_menu.addMenu("&Wire")
-        wire_menu.addAction(self._actions[KB.ACTION_TOOL_ROUTE])
-        wire_menu.addSeparator()
-        wire_menu.addAction(self._actions[KB.ACTION_WIRE_TOGGLE_INSULATED])
-        wire_menu.addAction(self._actions[KB.ACTION_WIRE_SIDE_TOP])
-        wire_menu.addAction(self._actions[KB.ACTION_WIRE_SIDE_BOTTOM])
-        wire_menu.addSeparator()
-        wire_menu.addAction(self._actions[KB.ACTION_WIRE_SET_INSULATED])
-        wire_menu.addAction(self._actions[KB.ACTION_WIRE_SET_BARE])
-        wire_menu.addAction(self._actions[KB.ACTION_WIRE_MOVE_TO_TOP])
-        wire_menu.addAction(self._actions[KB.ACTION_WIRE_MOVE_TO_BOTTOM])
-        wire_menu.addAction(self._actions[KB.ACTION_WIRE_FLIP])
-        wire_menu.addSeparator()
-        wire_menu.addAction(self._actions[KB.ACTION_TOOL_SIMPLIFY])
-        wire_menu.addAction(self._actions[KB.ACTION_SIMPLIFY_WIRE])
-        wire_menu.addAction(self._actions[KB.ACTION_UNWEAVE_WIRES])
-        wire_menu.addAction(self._actions[KB.ACTION_MERGE_WIRES])
-
-        # Net submenu — top-menu entries delegate to NetsEditorPanel
-        # which keeps the implementation single-sourced.  Each entry
-        # raises the Nets tab and invokes the panel's slot on the
-        # currently selected net.
-        net_menu = design_menu.addMenu("&Net")
-        net_menu.addAction(self._actions[KB.ACTION_NET_NEW])
-        net_menu.addSeparator()
-        net_menu.addAction(self._actions[KB.ACTION_NET_RENAME])
-        net_menu.addAction(self._actions[KB.ACTION_NET_SET_COLOR])
-        net_menu.addAction(self._actions[KB.ACTION_NET_CLEAR_COLOR])
-        net_menu.addAction(self._actions[KB.ACTION_NET_TOGGLE_GLOBAL])
-        net_menu.addAction(self._actions[KB.ACTION_NET_DELETE])
-        net_menu.addSeparator()
-        net_menu.addAction(self._actions[KB.ACTION_PIN_ASSIGN_NET])
-        net_menu.addAction(self._actions[KB.ACTION_DISCONNECT_PIN])
-
-        # Group submenu.
-        group_menu = design_menu.addMenu("&Group")
-        group_menu.addAction(self._actions[KB.ACTION_GROUP])
-        group_menu.addAction(self._actions[KB.ACTION_UNGROUP])
-        group_menu.addAction(self._actions[KB.ACTION_EXIT_GROUP])
-        group_menu.addSeparator()
-        group_menu.addAction(self._actions[KB.ACTION_GROUP_RENAME])
-        export_sub = group_menu.addMenu("Exported &Pins")
-        export_sub.addAction(self._actions[KB.ACTION_GROUP_EXPORT_AUTO])
-        export_sub.addAction(self._actions[KB.ACTION_GROUP_EXPORT_ALL])
-        export_sub.addSeparator()
-        export_sub.addAction(self._actions[KB.ACTION_GROUP_EXPORT_CLEAR])
-        group_menu.addSeparator()
-        group_menu.addAction(self._actions[KB.ACTION_GROUP_AUTOROUTE])
-
-        # ── Edit ► Board ───────────────────────────────────────────────
-        board_menu = edit_menu.addMenu("&Board")
-        board_menu.addAction(self._actions[KB.ACTION_BOARD_RESIZE])
-        board_menu.addAction(self._actions[KB.ACTION_TOOL_CUT])
-        board_menu.addAction(self._actions[KB.ACTION_BOARD_SPREAD])
-
-        edit_menu.addSeparator()
-
-        edit_menu.addAction(self._actions[KB.ACTION_PREFERENCES])
-
-        edit_menu.addSeparator()
-
-        generate_menu = edit_menu.addMenu("&Generate")
-        generate_menu.addAction(self._actions[KB.ACTION_GEN_SHORTCUT_CONFIG])
-
-        # ── Select ────────────────────────────────────────────────────────
-        # Selection mode + bulk selection + highlight (highlight is a
-        # selection-meta concept, so it lives here rather than under Edit).
-        select_menu = mb.addMenu("&Select")
-
-        select_menu.addAction(self._actions[KB.ACTION_TOOL_SELECT])
-
-        select_menu.addSeparator()
-
-        select_menu.addAction(self._actions[KB.ACTION_SELECT_ALL])
-        select_menu.addAction(self._actions[KB.ACTION_DESELECT_ALL])
-
-        select_menu.addSeparator()
-
-        select_menu.addAction(self._actions[KB.ACTION_SELECT_ALL_COMPONENTS])
-        select_menu.addAction(self._actions[KB.ACTION_DESELECT_ALL_COMPONENTS])
-
-        select_menu.addSeparator()
-
-        select_menu.addAction(self._actions[KB.ACTION_SELECT_ALL_WIRES])
-        select_menu.addAction(self._actions[KB.ACTION_DESELECT_ALL_WIRES])
-
-        select_menu.addSeparator()
-
-        select_menu.addAction(self._actions[KB.ACTION_CLEAR_HIGHLIGHT])
-
-        # ── View ──────────────────────────────────────────────────────────
-        view_menu = mb.addMenu("&View")
-
-        # Camera side (which physical side is in front).  Two checkable items
-        # without shortcut, plus the configurable toggle that lives in the
-        # action registry.
-        self._act_camera_top: QAction = view_menu.addAction("Camera: &Top")
+        # ── Camera Top/Bottom radio pair ── insert before the toggle
+        # entry.  These QActions live outside the spec list because Qt
+        # exclusion grouping for the camera pair pre-dates the registry
+        # and ``ACTION_CAMERA_TOGGLE`` already provides the keyboard-
+        # configurable side flip.
+        camera_toggle_act = self._actions[KB.ACTION_CAMERA_TOGGLE]
+        self._act_camera_top = QAction("Camera: &Top", self)
         self._act_camera_top.setCheckable(True)
         self._act_camera_top.setChecked(True)
         self._act_camera_top.triggered.connect(lambda: self._set_camera("top"))
+        view_menu.insertAction(camera_toggle_act, self._act_camera_top)
 
-        self._act_camera_bottom: QAction = view_menu.addAction("Camera: &Bottom")
+        self._act_camera_bottom = QAction("Camera: &Bottom", self)
         self._act_camera_bottom.setCheckable(True)
         self._act_camera_bottom.triggered.connect(lambda: self._set_camera("bottom"))
-
-        view_menu.addAction(self._actions[KB.ACTION_CAMERA_TOGGLE])
-
-        view_menu.addSeparator()
-
-        # Visual transform (independent of camera).
-        view_menu.addAction(self._actions[KB.ACTION_MIRROR_H])
-        view_menu.addAction(self._actions[KB.ACTION_MIRROR_V])
-
-        view_menu.addSeparator()
-
-        # ── Layers submenu ────────────────────────────────────────────
-        layers_menu = view_menu.addMenu("&Layers")
-        for _field_name, _display_name, action_id in self._LAYER_ENTRIES:
-            layers_menu.addAction(self._actions[action_id])
-        layers_menu.addSeparator()
-        layers_menu.addAction(self._actions[KB.ACTION_LAYERS_RESET])
-
-        view_menu.addSeparator()
-
-        view_menu.addAction(self._actions[KB.ACTION_ZOOM_IN])
-        view_menu.addAction(self._actions[KB.ACTION_ZOOM_OUT])
-        view_menu.addAction(self._actions[KB.ACTION_FIT_BOARD])
-        view_menu.addAction(self._actions[KB.ACTION_FIT_AREA])
-        view_menu.addAction(self._actions[KB.ACTION_FIT_SELECTION])
-
-        view_menu.addSeparator()
-
-        view_menu.addAction(self._actions[KB.ACTION_FULLSCREEN])
-
-        # ── Analysis ──────────────────────────────────────────────────────
-        # DRC + autoroute.  Tool modes (Select/Route/Cut/Simplify) live under
-        # Select / Edit ► Design ► Wire / Edit ► Board respectively.
-        analysis_menu = mb.addMenu("&Analysis")
-
-        analysis_menu.addAction(self._actions[KB.ACTION_RUN_DRC])
-        analysis_menu.addAction(self._actions[KB.ACTION_AUTOROUTE])
+        view_menu.insertAction(camera_toggle_act, self._act_camera_bottom)
 
 
     # ------------------------------------------------------------------
@@ -1458,6 +1094,18 @@ class MainWindow(QMainWindow):
         if isinstance(tool, RouteTool):
             tool._side = side
             self._update_route_status(self._wire_insulated, side)
+
+    def _toggle_wire_insulated(self) -> None:
+        self._set_wire_insulated(not self._wire_insulated)
+
+    def _wire_flip_action(self) -> None:
+        self._move_selected_wires_to_side(None)
+
+    def _zoom_in(self) -> None:
+        self._board_view.zoom_by(1.3)
+
+    def _zoom_out(self) -> None:
+        self._board_view.zoom_by(1 / 1.3)
 
     def _focus_library_for_add(self) -> None:
         """Switch to library tab and focus search, so user can pick a component."""
