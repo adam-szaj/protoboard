@@ -20,54 +20,54 @@ if TYPE_CHECKING:
 @dataclass
 class Theme:
     # ── Board ────────────────────────────────────────────────────────────────
-    board_bg: str = "#444444"
+    board_bg: str = "#FF5E5C64"
     board_frame_color: str = "#FFFFFF"        # root box outline
     board_frame_width: float = 0.06
     board_sub_frame_color: str = "#FFFFFF80"  # non-root box outline (AARRGGBB → alpha 60)
     board_sub_frame_width: float = 0.04
 
-    pad_color: str = "#666666"
+    pad_color: str = "#70000000"
     pad_radius: float = 0.35
     pad_outline_color: str = "#222222"
     pad_outline_width: float = 0.04
-    hole_color: str = "#1A1A1A"
+    hole_color: str = "#FFFFFFFF"
 
-    strip_color: str = "#C8A030"
+    strip_color: str = "#FFC8A030"
     strip_radius: float = 0.30
     strip_track_color: str = "#A07020"
     strip_track_outline: str = "#7A5010"
     strip_track_outline_width: float = 0.03
     isolated_color: str = "#666666"
-    isolated_x_color: str = "#FF4040"
+    isolated_x_color: str = "#FFFF4040"
     isolated_x_width: float = 0.08
 
     # ── Wires ────────────────────────────────────────────────────────────────
     net_colors: list[str] = field(default_factory=lambda: [
-        "#E03030",  # red
-        "#3060E0",  # blue
-        "#30A030",  # green
-        "#E0A020",  # amber
-        "#A030A0",  # purple
-        "#20B0B0",  # cyan
-        "#E06020",  # orange
-        "#B08020",  # olive
+        "#FFE03030",  # red
+        "#FF3060E0",  # blue
+        "#FF30A030",  # green
+        "#FFE0A020",  # amber
+        "#FFA030A0",  # purple
+        "#FF20B0B0",  # cyan
+        "#FFE06020",  # orange
+        "#FFB08020",  # olive
     ])
     net_color_unassigned: str = "#A0A0A0"
 
-    bare_width: float = 0.12
-    bare_outline_color: str = "#888888"
-    bare_outline_width: float = 0.24
+    bare_width: float = 0.2
+    bare_outline_color: str = "#FFFFFFFF"
+    bare_outline_width: float = 0.3
 
-    ins_width: float = 0.18
-    ins_outline_color: str = "#000000"
-    ins_outline_width: float = 0.28
+    ins_width: float = 0.17
+    ins_outline_color: str = "#FF241F31"
+    ins_outline_width: float = 0.3
 
-    ratsnest_color: str = "#a0ff5050"   # #AARRGGBB
+    ratsnest_color: str = "#FFF6D32D"   # #AARRGGBB
     ratsnest_width: float = 0.08
 
     # ── Components ───────────────────────────────────────────────────────────
-    comp_fill_color: str = "#e1e1e1c8"  # #AARRGGBB
-    comp_border: str = "#222222"
+    comp_fill_color: str = "#FF8FF0A4"  # #AARRGGBB
+    comp_border: str = "#FF222222"
 
     pin_color_fallback: str = "#CC2222"  # when no schematic loaded
     pin_radius: float = 0.18
@@ -84,9 +84,9 @@ class Theme:
         "#7AE620",  # lime
     ])
 
-    refdes_color: str = "#333333"
+    refdes_color: str = "#FF1C71D8"
     refdes_font_size: float = 0.55
-    overlay_font_size: float = 8.0
+    overlay_font_size: float = 15.0
     label_bg_color: str = "#B0FFFFFF"
 
     # Alpha of the second (mid) blit of the board pixmap in the layered
@@ -99,10 +99,10 @@ class Theme:
     # Axis labels (column/row indices rendered around the board).  They sit
     # over the surrounding canvas, not over the board itself, so they reuse
     # ``board_bg`` for their background pill rather than ``label_bg_color``.
-    axis_label_color: str = "#cccccc"
+    axis_label_color: str = "#FFFFFFFF"
 
     # Component lead lines (wire between pins and body)
-    lead_color: str = "#888888"
+    lead_color: str = "#FF000000"
     lead_width: float = 0.06
 
     # Raster calibration — used to convert SVG mm dimensions to raster units
@@ -139,21 +139,21 @@ class Theme:
     ghost_label_b: int = 100
     ghost_label_a: int = 128
 
-    group_pen_color: str = "#a064c8ff"   # #AARRGGBB
-    group_pen_width: float = 0.08
-    group_fill_color: str = "#4064c8ff"  # #AARRGGBB
-    group_name_color: str = "#c864c8ff"  # #AARRGGBB
+    group_pen_color: str = "#FFC0BFBC"   # #AARRGGBB
+    group_pen_width: float = 0.0
+    group_fill_color: str = "#1C0020BB"  # #AARRGGBB
+    group_name_color: str = "#FF241F31"  # #AARRGGBB
     group_margin: float = 0.6
-    group_active_color: str = "#c8dc3232"      # active group outline (red)
-    group_active_fill_color: str = "#0fdc3232"  # active group fill
+    group_active_color: str = "#C8DC3232"      # active group outline (red)
+    group_active_fill_color: str = "#35FF4242"  # active group fill
     group_dim_pen_alpha: int = 60    # alpha for dimmed child group outline
     group_dim_fill_alpha: int = 20   # alpha for dimmed child group fill
     group_dim_name_alpha: int = 60   # alpha for dimmed child group label
 
-    select_color: str = "#ff00ffff"      # single selection outline
-    select_width: float = 0.08
-    multi_select_color: str = "#ff00ffff"  # multi selection outline
-    multi_select_width: float = 0.06
+    select_color: str = "#FF00FFFF"      # single selection outline
+    select_width: float = 0.07
+    multi_select_color: str = "#FF00FFFF"  # multi selection outline
+    multi_select_width: float = 0.05
 
     # ── Tool feedback ────────────────────────────────────────────────────────
     placement_reach_color: str = "#7800c850"      # reachable pad highlight
@@ -162,8 +162,8 @@ class Theme:
     routing_net_aware_color: str = "#b400c853"     # route wire preview (net-aware [Shift+W])
 
     # ── Component pins & markers ─────────────────────────────────────────────
-    pin_width_complete: float = 0.04    # pin with assigned net (solid)
-    pin_width_incomplete: float = 0.06  # pin without net (dashed)
+    pin_width_complete: float = 0.08    # pin with assigned net (solid)
+    pin_width_incomplete: float = 0.08  # pin without net (dashed)
     pin_label_fallback_color: str = "#ff777777"
     pin1_marker_color: str = "#ff777777"
     component_origin_cross_color: str = "#dcc86400"
@@ -171,14 +171,14 @@ class Theme:
 
     # ── Exported pins ────────────────────────────────────────────────────────
     exported_pin_color: str = "#c800c850"
-    exported_pin_pen_color: str = "#ff008c32"
-    exported_pin_pen_width: float = 0.03
+    exported_pin_pen_color: str = "#FFED333B"
+    exported_pin_pen_width: float = 0.13
 
     # ── Component body details ────────────────────────────────────────────────
-    body_led_stripe_color: str = "#ff444444"
+    body_led_stripe_color: str = "#FF241F31"
     body_diode_cathode_color: str = "#ff202028"
     body_diode_anode_color: str = "#ff808088"
-    body_slot_opacity: float = 0.5
+    body_slot_opacity: float = 0.63
     body_tab_opacity: float = 0.6
     body_slot_pen_width: float = 0.04
     body_tab_pen_width: float = 0.04
@@ -192,13 +192,13 @@ class Theme:
     hint_width: float = 0.10
 
     # ── Layer automatic alphas ───────────────────────────────────────────────
-    back_alpha: float = 0.30         # non-camera-side layers
-    board_ghost_alpha: float = 0.55  # board while placing/routing
-    ghost_comp_alpha: float = 0.25   # components while placing/routing
+    back_alpha: float = 0.9          # non-camera-side layers
+    board_ghost_alpha: float = 0.51  # board while placing/routing
+    ghost_comp_alpha: float = 0.89   # components while placing/routing
 
     # ── Net / group highlight dim ────────────────────────────────────────────
-    highlight_dim_components: float = 0.20  # alpha for dimmed components
-    highlight_dim_wires: float = 0.20       # alpha for dimmed wires
+    highlight_dim_components: float = 0.4   # alpha for dimmed components
+    highlight_dim_wires: float = 0.4        # alpha for dimmed wires
     # ── Net highlight: bold (tier-1) ─────────────────────────────────────────
     # Tier-1 net highlight (routing in-progress, Net Inspector selection):
     # - pins of the highlighted net grow to nearly the size of the pad and
