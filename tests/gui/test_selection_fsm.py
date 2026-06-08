@@ -19,9 +19,11 @@ import pytest
 
 from protoboard.gui.selection_axes import RelationClass
 from protoboard.gui.selection_fsm import (
+    BasisScope,
     Hit,
     SelectionFSM,
     SelectionState,
+    SetOp,
     StackLayer,
 )
 
@@ -409,3 +411,45 @@ class TestTrivialPredicate:
         assert st.depth == StackLayer.MULTI_SELECTION
         assert st.primary == _a2
         assert st.multi == frozenset({_a2})
+
+
+# ---------------------------------------------------------------------------
+# Phase 2c enums — sanity tests for BasisScope and SetOp
+# ---------------------------------------------------------------------------
+
+
+class TestBasisScopeEnum:
+    """`BasisScope` is an IntEnum with two members.  Spec rev 2, Axis A.
+
+    These tests pin the int values + ordering so downstream code that
+    relies on `if scope == BasisScope.SINGLE: ...` short-circuits stays
+    honest, and so accidentally renumbering doesn't silently flip
+    semantics.
+    """
+
+    def test_member_count(self) -> None:
+        assert len(BasisScope) == 2
+
+    def test_int_values(self) -> None:
+        assert int(BasisScope.SINGLE) == 0
+        assert int(BasisScope.RELATION) == 1
+
+    def test_members_distinct(self) -> None:
+        assert BasisScope.SINGLE != BasisScope.RELATION
+
+
+class TestSetOpEnum:
+    """`SetOp` is an IntEnum with three members.  Spec rev 2, Axis B."""
+
+    def test_member_count(self) -> None:
+        assert len(SetOp) == 3
+
+    def test_int_values(self) -> None:
+        assert int(SetOp.SET) == 0
+        assert int(SetOp.ADD) == 1
+        assert int(SetOp.REMOVE) == 2
+
+    def test_members_distinct(self) -> None:
+        assert SetOp.SET != SetOp.ADD
+        assert SetOp.SET != SetOp.REMOVE
+        assert SetOp.ADD != SetOp.REMOVE

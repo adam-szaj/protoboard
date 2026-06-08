@@ -76,6 +76,42 @@ class Hit:
 
 
 # ---------------------------------------------------------------------------
+# Click interaction enums — spec rev 2 (docs/highlight-state-machine.txt)
+# ---------------------------------------------------------------------------
+
+
+class BasisScope(IntEnum):
+    """Which set a click contributes to the selection op.
+
+    ``SINGLE``   — only ``{hit}``.
+    ``RELATION`` — ``relation(hit)`` per current ``RelationClass`` (the
+                   backtick-cycled enum).  When ``RelationClass.NONE``
+                   is active, ``RELATION`` collapses to ``SINGLE``.
+
+    Mapped from modifier keys at the call site (Alt → ``RELATION``,
+    else ``SINGLE``).  Spec rev 2, Axis A.
+    """
+
+    SINGLE = 0
+    RELATION = 1
+
+
+class SetOp(IntEnum):
+    """What we do with the basis relative to the current selection.
+
+    ``SET``    — ``selection := basis``.  No modifier.
+    ``ADD``    — ``selection := selection ∪ basis``.  Ctrl.
+    ``REMOVE`` — ``selection := selection \\ basis``.  Ctrl+Shift.
+
+    Spec rev 2, Axis B.
+    """
+
+    SET = 0
+    ADD = 1
+    REMOVE = 2
+
+
+# ---------------------------------------------------------------------------
 # Stack layer enum — ordered so ``int(layer) - 1`` is the pop target
 # ---------------------------------------------------------------------------
 
