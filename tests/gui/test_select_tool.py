@@ -1269,3 +1269,184 @@ class TestCtrlClickDeselect:
         )
         assert wid2 not in tool._selected_wire_ids
         assert wid1 in tool._selected_wire_ids
+
+
+# ---------------------------------------------------------------------------
+# Phase 2b — same-primary LMB pops one FSM layer on release
+# ---------------------------------------------------------------------------
+
+
+def _shift_press(tool: SelectTool, x: float, y: float) -> None:
+    tool.on_press(
+        QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            QPointF(x, y),
+            QPointF(x, y),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.ShiftModifier,
+        ),
+        QPointF(x, y),
+    )
+
+
+class TestSamePrimaryDeselectOnRelease:
+    """Phase 2b: press + release on the *same primary* without crossing
+    the drag threshold pops one FSM layer (SELECTION → HIGHLIGHT).
+
+    Drag-armed release (threshold crossed during the press→release window)
+    must NOT pop — it is a drag, not a deselect.
+    """
+
+    def test_pin_lmb_on_primary_pops_to_highlight(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._select_primary(inst.id)
+        # Push an auto-highlight so the HIGHLIGHT layer is actually present.
+        tool._apply_interaction(comp_id=inst.id, pin_number=1, shift_held=False)
+        assert tool._selected_id == inst.id
+        had_highlight_before = tool._has_active_highlight()
+
+        # Drive a press + release at the pin centre (no drag).
+        tool._hit_test = lambda _pt: inst.id  # type: ignore[method-assign]
+        tool._hit_test_pin_for_comp = lambda _pt, _hit: (inst.id, 1)  # type: ignore[method-assign]
+        _press(tool, 0.5, 0.5)
+        assert tool._pending_deselect_on_release is True
+        _release(tool, 0.5, 0.5)
+
+        assert tool._selected_id is None
+        assert tool._pending_deselect_on_release is False
+        # Highlight layer is preserved per the FSM (deselect, keep visual context).
+        if had_highlight_before:
+            assert tool._has_active_highlight() is True
+
+    def test_pin_lmb_then_drag_does_not_deselect(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._select_primary(inst.id)
+        tool._hit_test = lambda _pt: inst.id  # type: ignore[method-assign]
+        tool._hit_test_pin_for_comp = lambda _pt, _hit: (inst.id, 1)  # type: ignore[method-assign]
+
+        _press(tool, 0.5, 0.5)
+        assert tool._pending_deselect_on_release is True
+        # Move far enough to cross the drag threshold.
+        _move(tool, 5.0, 5.0)
+        assert tool._pending_deselect_on_release is False
+        _release(tool, 5.0, 5.0)
+
+        # Primary survives the drag — it was a move, not a click.
+        assert tool._selected_id == inst.id
+
+    def test_bbox_lmb_on_primary_pops_to_highlight(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._select_primary(inst.id)
+        tool._apply_interaction(comp_id=inst.id, pin_number=None, shift_held=False)
+
+        # bbox path: pin hit miss, bbox hit lands on primary.
+        tool._hit_test = lambda _pt: None  # type: ignore[method-assign]
+        tool._hit_test_wire = lambda _pt: None  # type: ignore[method-assign]
+        tool._hit_test_bbox = lambda _pt: inst.id  # type: ignore[method-assign]
+        _press(tool, 1.0, 1.0)
+        assert tool._pending_deselect_on_release is True
+        _release(tool, 1.0, 1.0)
+        assert tool._selected_id is None
+
+    def test_lmb_on_different_component_does_not_arm(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst_a = _place_component(board_view, session, 0.5, 0.5)
+        inst_b = _place_component(board_view, session, 2.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._select_primary(inst_a.id)
+        # Now click on inst_b — fresh primary, no pop arm.
+        tool._hit_test = lambda _pt: inst_b.id  # type: ignore[method-assign]
+        tool._hit_test_pin_for_comp = lambda _pt, _hit: (inst_b.id, 1)  # type: ignore[method-assign]
+        _press(tool, 2.5, 0.5)
+        assert tool._pending_deselect_on_release is False
+        _release(tool, 2.5, 0.5)
+        assert tool._selected_id == inst_b.id
+
+
+class TestShiftLmbFsmTransitions:
+    """Phase 2b: Shift+LMB extends / resets / collapses per FSM rules,
+    instead of the legacy "replace with relation ∩ filter" semantics."""
+
+    def test_shift_lmb_on_primary_collapses_to_highlight(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._select_primary(inst.id)
+        tool._apply_interaction(comp_id=inst.id, pin_number=1, shift_held=False)
+        assert tool._selected_id == inst.id
+
+        tool._hit_test = lambda _pt: inst.id  # type: ignore[method-assign]
+        tool._hit_test_pin_for_comp = lambda _pt, _hit: (inst.id, 1)  # type: ignore[method-assign]
+        _shift_press(tool, 0.5, 0.5)
+
+        # Shift on the primary collapses to HIGHLIGHT — primary dropped.
+        assert tool._selected_id is None
+        # Highlight entry survives.
+        assert tool._has_active_highlight() is True
+
+    def test_shift_lmb_cross_relation_resets(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Two components on different (no) nets → cross-relation.
+        inst_a = _place_component(board_view, session, 0.5, 0.5)
+        inst_b = _place_component(board_view, session, 5.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._select_primary(inst_a.id)
+        tool._apply_interaction(comp_id=inst_a.id, pin_number=1, shift_held=False)
+
+        tool._hit_test = lambda _pt: inst_b.id  # type: ignore[method-assign]
+        tool._hit_test_pin_for_comp = lambda _pt, _hit: (inst_b.id, 1)  # type: ignore[method-assign]
+        _shift_press(tool, 5.5, 0.5)
+
+        # Cross-relation reset — new hit becomes primary.
+        assert tool._selected_id == inst_b.id
+
+
+class TestEmptyCanvasIsEsc:
+    """Sanity: empty-canvas LMB pops one layer (same as Esc).  Already
+    asserted by Phase 2a; pinned here so Phase 2b regressions can't
+    silently turn empty-canvas into "clear everything"."""
+
+    def test_empty_canvas_pops_multi_only(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst_a = _place_component(board_view, session, 0.5, 0.5)
+        inst_b = _place_component(board_view, session, 1.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._select_primary(inst_a.id)
+        tool._selected_ids = {inst_a.id, inst_b.id}
+        # Empty-canvas click — patch hit-tests to all return None.
+        tool._hit_test = lambda _pt: None  # type: ignore[method-assign]
+        tool._hit_test_wire = lambda _pt: None  # type: ignore[method-assign]
+        tool._hit_test_bbox = lambda _pt: None  # type: ignore[method-assign]
+        tool._hit_test_group_bbox_empty = lambda _pt: None  # type: ignore[method-assign]
+        _press(tool, 20.0, 20.0)
+        # Multi cleared; primary remains.
+        assert tool._selected_ids == set()
+        assert tool._selected_id == inst_a.id
