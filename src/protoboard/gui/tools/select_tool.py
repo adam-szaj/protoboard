@@ -910,12 +910,38 @@ class SelectTool(_Tool):
         (see [[selection-fsm-refactor-2026-06-08]] fix on promotion
         ordering).
         """
-        # Decision 5: no-op when SET basis equals current selection.
-        if (
-            new_primary is not None
-            and len(comp_basis) + len(wire_basis) == 1
-            and self._is_selection_exactly(comp_basis, wire_basis)
+        # Decision 5 (extended): no-op-on-set when basis is already
+        # contained in the current selection — but still re-anchor the
+        # primary to the clicked hit if it changed.  Classic UX:
+        # clicking on an element of a multi-selection makes that
+        # element the new Properties-panel anchor (and the drag-anchor)
+        # without dropping the multi.  The multi sets and highlight
+        # stack stay untouched.
+        #
+        # NOTE: legacy convention is `primary ∈ _selected_ids` when a
+        # multi-selection is active (rubber-band sets `_selected_ids`
+        # to the full set then calls `_select_primary` on one of them,
+        # leaving the new primary inside the multi).  Drag-arm reads
+        # `_selected_ids` as the canonical drag set, so we must not
+        # discard the new primary from it here.
+        if new_primary is not None and self._basis_already_in_selection(
+            comp_basis, wire_basis,
         ):
+            saved_multi_comps = set(self._selected_ids)
+            saved_multi_wires = set(self._selected_wire_ids)
+            if new_primary.kind == "component" and isinstance(new_primary.id, uuid.UUID):
+                if self._selected_id != new_primary.id:
+                    self._promote_primary(new_primary)
+                    self._selected_ids = saved_multi_comps
+                    self._selected_wire_ids = saved_multi_wires
+                    self._redraw_multi_highlights()
+            elif new_primary.kind == "wire" and isinstance(new_primary.id, uuid.UUID):
+                if self._selected_wire_id != new_primary.id:
+                    self._promote_primary(new_primary)
+                    self._selected_wire_ids = saved_multi_wires
+                    self._selected_ids = saved_multi_comps
+                    self._redraw_multi_wire_highlights()
+            self._notify_selection()
             return
 
         self._deselect()
@@ -928,12 +954,34 @@ class SelectTool(_Tool):
         # subsequent _draw_multi_* calls authoritative).
         self._promote_primary(new_primary)
 
+        # Multi-set semantics: legacy code keeps the primary in its
+        # own field (`_selected_id` / `_selected_wire_id`) and the
+        # multi sets list the EXTRA members.  When the basis is a
+        # singleton equal to the new primary, both multi sets stay
+        # empty — depth is SELECTION, not MULTI.  Only "RELATION basis"
+        # with more than one element populates the multi sets, and
+        # even then we skip the primary id to avoid drawing a multi
+        # rect on top of the SELECTION highlight.
+        primary_comp_id = new_primary.id if (
+            new_primary is not None
+            and new_primary.kind == "component"
+            and isinstance(new_primary.id, uuid.UUID)
+        ) else None
+        primary_wire_id = new_primary.id if (
+            new_primary is not None
+            and new_primary.kind == "wire"
+            and isinstance(new_primary.id, uuid.UUID)
+        ) else None
         if self._filter_components():
             for cid in comp_basis:
+                if cid == primary_comp_id:
+                    continue
                 self._selected_ids.add(cid)
                 self._draw_multi_highlight(cid)
         if self._filter_wires():
             for wid in wire_basis:
+                if wid == primary_wire_id:
+                    continue
                 self._selected_wire_ids.add(wid)
                 self._draw_multi_wire_highlight(wid)
 
@@ -964,17 +1012,57 @@ class SelectTool(_Tool):
             self._set_selection(comp_basis, wire_basis, new_primary)
             return
 
+        # Capture the old primary before promotion — once it's no
+        # longer the anchor we need to move it into the multi set so
+        # the bright selection rect stays visible.
+        prior_comp_primary = self._selected_id
+        prior_wire_primary = self._selected_wire_id
+
         # Promote first so the about-to-be-added wire basis isn't
         # wiped by _select_wire's _deselect_wire side-effect.
         self._promote_primary(new_primary)
 
+        new_primary_comp_id = new_primary.id if (
+            new_primary is not None
+            and new_primary.kind == "component"
+            and isinstance(new_primary.id, uuid.UUID)
+        ) else None
+        new_primary_wire_id = new_primary.id if (
+            new_primary is not None
+            and new_primary.kind == "wire"
+            and isinstance(new_primary.id, uuid.UUID)
+        ) else None
+
+        # The previous primary is now "just a multi member" — record
+        # it explicitly so it keeps its bright rect.
+        if (
+            prior_comp_primary is not None
+            and prior_comp_primary != new_primary_comp_id
+            and prior_comp_primary not in self._selected_ids
+            and self._filter_components()
+        ):
+            self._selected_ids.add(prior_comp_primary)
+            self._draw_multi_highlight(prior_comp_primary)
+        if (
+            prior_wire_primary is not None
+            and prior_wire_primary != new_primary_wire_id
+            and prior_wire_primary not in self._selected_wire_ids
+            and self._filter_wires()
+        ):
+            self._selected_wire_ids.add(prior_wire_primary)
+            self._draw_multi_wire_highlight(prior_wire_primary)
+
         if self._filter_components():
             for cid in comp_basis:
+                if cid == new_primary_comp_id:
+                    continue
                 if cid not in self._selected_ids:
                     self._selected_ids.add(cid)
                     self._draw_multi_highlight(cid)
         if self._filter_wires():
             for wid in wire_basis:
+                if wid == new_primary_wire_id:
+                    continue
                 if wid not in self._selected_wire_ids:
                     self._selected_wire_ids.add(wid)
                     self._draw_multi_wire_highlight(wid)
@@ -1025,6 +1113,27 @@ class SelectTool(_Tool):
     # ----------------------------------------------------------------
     # Helpers shared by the three op functions
     # ----------------------------------------------------------------
+
+    def _basis_already_in_selection(
+        self,
+        comp_basis: set[uuid.UUID],
+        wire_basis: set[uuid.UUID],
+    ) -> bool:
+        """True when every basis member is already in the selection.
+
+        Powers the extended decision-5 no-op: plain LMB on an element
+        that is currently part of the multi-selection (primary or
+        otherwise) leaves the entire selection intact, so the user
+        can drag the group.  Distinct from `_is_selection_exactly`
+        which only matches the singleton-primary case.
+        """
+        current_comps: set[uuid.UUID] = set(self._selected_ids)
+        if self._selected_id is not None:
+            current_comps.add(self._selected_id)
+        current_wires: set[uuid.UUID] = set(self._selected_wire_ids)
+        if self._selected_wire_id is not None:
+            current_wires.add(self._selected_wire_id)
+        return comp_basis <= current_comps and wire_basis <= current_wires
 
     def _is_selection_exactly(
         self,
@@ -2629,6 +2738,7 @@ class SelectTool(_Tool):
             return False
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        alt = bool(event.modifiers() & Qt.KeyboardModifier.AltModifier)
         if _CLICK_PROFILE:
             self._click_t0 = _click_t0
         # Reset per-drag "log once" flag so on_move re-logs on next drag.
@@ -2636,7 +2746,7 @@ class SelectTool(_Tool):
         _log.info(
             "on_press.enter",
             scene=(round(scene_pt.x(), 2), round(scene_pt.y(), 2)),
-            ctrl=ctrl, shift=shift,
+            ctrl=ctrl, shift=shift, alt=alt,
             n_selected_comps=len(self._selected_ids),
             n_selected_wires=len(self._selected_wire_ids),
             primary_comp=str(self._selected_id)[:8] if self._selected_id else None,
@@ -2683,50 +2793,35 @@ class SelectTool(_Tool):
                 self._set_edit_end(hit_idx, hit_wire)
             return True
 
-        # --- Ctrl+click: wire node or add/remove from multi-selection ---
+        # --- Ctrl+click: spec rev 2 dispatch (ADD or REMOVE) ---
+        # Wire-edit start on Ctrl+LMB-on-wire-node is retained until
+        # Etap 5 moves it to the [E] key.  Everything else routes
+        # through the orthogonal dispatcher.
         if ctrl:
-            # Check for wire node click on the single-selected wire (starts edit).
-            if self._selected_wire_id is not None:
+            # Wire-edit start on Ctrl+LMB-on-wire-node (legacy path,
+            # to be moved to [E] in Etap 5).
+            if self._selected_wire_id is not None and not shift:
                 idx = self._hit_test_wire_node(scene_pt)
                 if idx is not None:
                     self._start_wire_edit(idx)
                     return True
 
-            # Check component bbox.
-            hit = self._hit_test_bbox(scene_pt) if self._filter_components() else None
-            if hit is not None:
-                if hit in self._selected_ids or hit == self._selected_id:
-                    # Toggle off: remove from multi-set, drop primary if
-                    # it was the one — Ctrl+click on a selected item is
-                    # a deselect, not a re-select.
-                    self._selected_ids.discard(hit)
-                    if self._selected_id == hit:
-                        self._deselect()
-                    self._redraw_multi_highlights()
-                else:
-                    self._selected_ids.add(hit)
-                    self._draw_multi_highlight(hit)
-                    self._deselect_wire()
-                    self._select_primary(hit)
-                return True
-
-            # Check wire.
-            wire_hit = (
-                self._hit_test_wire(scene_pt) if self._filter_wires() else None
+            # All other Ctrl[+Shift][+Alt] clicks go through the
+            # selection-op dispatcher.  No drag-arm — Ctrl/Ctrl+Shift
+            # are explicit set-ops, never drag initiators (spec rev 2).
+            self._cancel_wire_edit()
+            hit_obj = self._build_hit_from_press(scene_pt)
+            basis_scope, op = self._decode_modifier_matrix(
+                ctrl=ctrl, shift=shift, alt=alt,
             )
-            if wire_hit is not None:
-                if wire_hit in self._selected_wire_ids or wire_hit == self._selected_wire_id:
-                    # Toggle off: same logic as components.
-                    self._selected_wire_ids.discard(wire_hit)
-                    if self._selected_wire_id == wire_hit:
-                        self._deselect_wire()
-                    self._redraw_multi_wire_highlights()
-                else:
-                    self._selected_wire_ids.add(wire_hit)
-                    self._draw_multi_wire_highlight(wire_hit)
-                return True
-
-            return False
+            _log.info(
+                "on_press.dispatch.ctrl",
+                op=op.name, basis_scope=basis_scope.name,
+                hit_kind=hit_obj.kind if hit_obj else None,
+                hit_id=str(hit_obj.id)[:8] if hit_obj and isinstance(hit_obj.id, uuid.UUID) else None,
+            )
+            self._apply_selection_op(hit_obj, basis_scope, op)
+            return True
 
         # --- Klik na obszarze bbox grupy (long-press cycle) ---
         # Bbox is derived geometry, not a hit boundary.  A short click
@@ -2832,58 +2927,54 @@ class SelectTool(_Tool):
             pin_hit = self._hit_test_pin_for_comp(scene_pt, hit) if self._view is not None else None
             pin_comp_id, pin_number = (pin_hit if pin_hit is not None else (hit, None))
 
-            if shift:
-                # Phase 2b: FSM-driven Shift+LMB — extend / reset /
-                # collapse depending on same-relation predicate.
-                # No drag; explicit consume.
-                self._cancel_wire_edit()
-                self._apply_shift_interaction_fsm(
-                    comp_id=pin_comp_id, pin_number=pin_number,
-                )
-                return True
+            # Spec rev 2: Shift+LMB without Ctrl falls through to plain
+            # LMB (SET, SINGLE).  No more "shift = extend".  Ctrl was
+            # already routed above.
 
-            # Plain LPM: trigger auto-highlight, then perform the usual
-            # primary-select + drag flow.
-            self._apply_interaction(
-                comp_id=pin_comp_id, pin_number=pin_number, shift_held=False,
+            # Phase 2c dispatch: build Hit, decode modifiers, apply op.
+            # The pin-hit path still arms a drag below when SET-on-self
+            # leaves the primary in place, so we keep the dispatcher
+            # call inline rather than returning early.
+            from protoboard.gui.selection_fsm import Hit
+            hit_obj_pin: "Hit | None" = Hit("component", pin_comp_id) if pin_comp_id is not None else None
+            basis_scope_pin, op_pin = self._decode_modifier_matrix(
+                ctrl=ctrl, shift=shift, alt=alt,
             )
+            _log.info(
+                "on_press.dispatch.pin",
+                op=op_pin.name, basis_scope=basis_scope_pin.name,
+                pin_comp=str(pin_comp_id)[:8] if pin_comp_id else None,
+                pin_number=pin_number,
+            )
+            self._apply_selection_op(hit_obj_pin, basis_scope_pin, op_pin)
+            # The legacy pin-pin "primary-set + drag-arm" code below
+            # remains so a plain LMB that lands on a pin can be dragged
+            # into a new position.  The dispatcher already promoted
+            # primary + populated multi; the legacy path then snapshots
+            # original positions / wire paths for the drag.
             # If the hit component is in a group that we haven't entered yet,
             # redirect the selection to that group's representative ID.
+            # Dispatcher above already executed the SET — `_selected_id`
+            # is the hit (or proxy-resolved group anchor).  We only
+            # need to detect group-locked promotion + drag-arm for
+            # plain LMB.  Ctrl/Ctrl+Shift returned earlier so no drag
+            # is ever armed under those modifiers.
+            if ctrl:
+                return True
             hit_pre_resolve = hit
             hit = self._resolve_group_hit(hit)
-            in_selection = hit in self._selected_ids
             _log.info(
                 "on_press.normal_lpm.branch_pin",
                 hit_pre_resolve=str(hit_pre_resolve)[:8],
                 hit_post_resolve=str(hit)[:8],
                 resolved_to_proxy=hit != hit_pre_resolve,
-                in_selection=in_selection,
                 n_selected_ids=len(self._selected_ids),
-                decision="keep_multi" if in_selection else "fresh_single",
             )
             self._cancel_wire_edit()
-            # Phase 2b: detect "same primary" — LMB on the exact object
-            # already at SELECTION primary.  Arm a pop-on-release; if
-            # the drag threshold trips we clear the arm so the click
-            # turns into a drag instead of a deselect.
-            same_primary = (hit == self._selected_id)
-            if hit not in self._selected_ids:
-                # Fresh single-component click — clear all existing selection.
-                self._deselect_wire()
-                self._clear_multi_selection()
+            # If the dispatcher resolved hit-via-group, force the proxy
+            # group id to be the primary so drag-arm anchors correctly.
+            if hit != hit_pre_resolve:
                 self._select_primary(hit)
-            else:
-                # Click on already-selected component — keep multi-selection
-                # (including wires) and set as primary for properties panel.
-                self._select_primary(hit)
-            if same_primary:
-                self._pending_deselect_on_release = True
-                if _dbg_enabled():
-                    _log.debug(
-                        "on_press.arm_pop_on_release",
-                        via="pin_lmb",
-                        primary=str(hit)[:8],
-                    )
             # Grouped-component press: click on a component that lives
             # inside a non-active group → arm a group drag.  Selection
             # of the group as a whole was already applied via
@@ -3031,71 +3122,66 @@ class SelectTool(_Tool):
         )
         if wire_hit is not None:
             self._cancel_wire_edit()
-            if shift:
-                # Phase 2b: FSM-driven Shift+LMB on a wire.
-                self._apply_shift_interaction_fsm(wire_id=wire_hit)
+            # Spec rev 2: route plain / Alt LMB through the dispatcher.
+            # Ctrl / Ctrl+Shift were already routed above.
+            from protoboard.gui.selection_fsm import Hit
+            wire_was_primary_before = (wire_hit == self._selected_wire_id)
+            basis_scope_w, op_w = self._decode_modifier_matrix(
+                ctrl=ctrl, shift=shift, alt=alt,
+            )
+            _log.info(
+                "on_press.dispatch.wire",
+                op=op_w.name, basis_scope=basis_scope_w.name,
+                wire=str(wire_hit)[:8],
+                was_primary=wire_was_primary_before,
+            )
+            self._apply_selection_op(Hit("wire", wire_hit), basis_scope_w, op_w)
+
+            # Drag-arm: only when SET resolved to "this wire is now
+            # the selection" (or already was) — equivalent to the
+            # legacy "wire_hit in self._selected_wire_ids" gate.
+            if wire_hit != self._selected_wire_id and wire_hit not in self._selected_wire_ids:
                 return True
-            if wire_hit in self._selected_wire_ids:
-                # Klik na już zaznaczony drut → drag całej selekcji.
-                # Phase 2b: if the wire is the sole primary, arm a pop-
-                # on-release so a plain click (no drag) deselects per
-                # FSM semantics.
-                if (
-                    wire_hit == self._selected_wire_id
-                    and len(self._selected_wire_ids) <= 1
-                    and not self._selected_ids
-                ):
-                    self._pending_deselect_on_release = True
-                    if _dbg_enabled():
-                        _log.debug(
-                            "on_press.arm_pop_on_release",
-                            via="wire_lmb",
-                            primary=str(wire_hit)[:8],
-                        )
-                snapped = self._view.snap(scene_pt)
-                self._drag_last_decision = None
-                self._stop_drag_validation_timer()
-                self._dragging = True
-                self._drag_press_scene_pt = QPointF(scene_pt)
-                self._drag_threshold_crossed = False
-                self._drag_orig_positions = {}
-                self._drag_orig_wire_paths = {}
-                # Anchor offset: użyj pierwszego punktu klikniętego drutu.
-                wire_obj = self._session.wire_by_id(wire_hit)
-                if wire_obj and wire_obj.path:
-                    self._drag_anchor_offset = (
-                        wire_obj.path[0].x - snapped.x,
-                        wire_obj.path[0].y - snapped.y,
-                    )
-                    # Use wire anchor as synthetic "selected_id" anchor.
-                    self._selected_id = None
-                # Components to translate with the wire drag: free
-                # selection minus locked sub-group members.
-                drag_ids_local = {
-                    cid for cid in self._selected_ids
-                    if not self._is_locked_in_group(cid)
-                }
-                for cid in drag_ids_local:
-                    pl = self._session.layout.placements.get(cid)
-                    if pl is not None:
-                        self._drag_orig_positions[cid] = pl.position
-                # Wires safe to translate: every PinKnot endpoint must
-                # resolve to a component in drag_ids_local — otherwise
-                # the translated path will end up off-pad relative to
-                # the un-moved pin (see _wire_safe_to_drag docstring).
-                for wid in self._selected_wire_ids:
-                    wobj = self._session.wire_by_id(wid)
-                    if wobj is None:
-                        continue
-                    if not self._wire_safe_to_drag(wobj, drag_ids_local):
-                        continue
-                    self._drag_orig_wire_paths[wid] = list(wobj.path)
-            else:
-                self._clear_multi_selection()
-                self._clear_multi_wire_selection()
-                self._deselect()
-                # Plain LPM on a wire: select it + auto-highlight relation.
-                self._apply_interaction(wire_id=wire_hit, shift_held=False)
+            snapped = self._view.snap(scene_pt)
+            self._drag_last_decision = None
+            self._stop_drag_validation_timer()
+            self._dragging = True
+            self._drag_press_scene_pt = QPointF(scene_pt)
+            self._drag_threshold_crossed = False
+            self._drag_orig_positions = {}
+            self._drag_orig_wire_paths = {}
+            wire_obj = self._session.wire_by_id(wire_hit)
+            if wire_obj and wire_obj.path:
+                self._drag_anchor_offset = (
+                    wire_obj.path[0].x - snapped.x,
+                    wire_obj.path[0].y - snapped.y,
+                )
+                self._selected_id = None
+            drag_ids_local = {
+                cid for cid in self._selected_ids
+                if not self._is_locked_in_group(cid)
+            }
+            for cid in drag_ids_local:
+                pl = self._session.layout.placements.get(cid)
+                if pl is not None:
+                    self._drag_orig_positions[cid] = pl.position
+            for wid in self._selected_wire_ids:
+                wobj = self._session.wire_by_id(wid)
+                if wobj is None:
+                    continue
+                if not self._wire_safe_to_drag(wobj, drag_ids_local):
+                    continue
+                self._drag_orig_wire_paths[wid] = list(wobj.path)
+            # Also include the primary single-wire-selection in the
+            # drag snapshot — when SET created a fresh primary the
+            # multi-set is empty but the user can still drag it.
+            if (
+                self._selected_wire_id is not None
+                and self._selected_wire_id not in self._drag_orig_wire_paths
+            ):
+                primary_wire = self._session.wire_by_id(self._selected_wire_id)
+                if primary_wire is not None:
+                    self._drag_orig_wire_paths[self._selected_wire_id] = list(primary_wire.path)
             return True
 
         # Check if click is inside bbox of an already-selected component.
@@ -3113,22 +3199,30 @@ class SelectTool(_Tool):
             or bbox_hit == self._selected_id
         ):
             self._cancel_wire_edit()
-            # Phase 2b: bbox click on sole primary arms pop-on-release.
-            if (
-                bbox_hit == self._selected_id
-                and len(self._selected_ids) <= 1
-                and not self._selected_wire_ids
-            ):
-                self._pending_deselect_on_release = True
-                if _dbg_enabled():
-                    _log.debug(
-                        "on_press.arm_pop_on_release",
-                        via="bbox_lmb",
-                        primary=str(bbox_hit)[:8],
-                    )
-            self._select_primary(bbox_hit)
+            # Spec rev 2: bbox-on-selected → dispatcher (SET/SINGLE
+            # collapses to no-op on same primary), then drag-arm if
+            # plain LMB.
+            from protoboard.gui.selection_fsm import Hit
+            basis_scope_b, op_b = self._decode_modifier_matrix(
+                ctrl=ctrl, shift=shift, alt=alt,
+            )
+            _log.info(
+                "on_press.dispatch.bbox",
+                op=op_b.name, basis_scope=basis_scope_b.name,
+                bbox=str(bbox_hit)[:8],
+            )
+            self._apply_selection_op(Hit("component", bbox_hit), basis_scope_b, op_b)
+            # Promote bbox_hit explicitly — `_apply_selection_op` may
+            # have left it untouched in the no-op same-primary branch
+            # but downstream drag-arm code expects `_selected_id ==
+            # bbox_hit` regardless.
+            if self._selected_id != bbox_hit and not ctrl:
+                self._select_primary(bbox_hit)
             # Grouped-component protection — see the matching guard above.
             if self._is_locked_in_group(bbox_hit):
+                return True
+            # Ctrl / Ctrl+Shift never initiate drag (spec rev 2).
+            if ctrl:
                 return True
             self._drag_last_decision = None
             self._stop_drag_validation_timer()
