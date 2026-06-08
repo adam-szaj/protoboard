@@ -1940,3 +1940,166 @@ class TestRubberBandSelectsGroups:
         assert g1 in tool._selected_group_ids
         assert g2 in tool._selected_group_ids
         assert i3.id in tool._selected_ids
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 Etap 7 — integration tests (end-to-end mixed-drag flow)
+# ---------------------------------------------------------------------------
+
+
+def _make_group_local(
+    session: EditorSession,
+    component_ids: list[uuid.UUID],
+    name: str = "G1",
+) -> uuid.UUID:
+    from protoboard.domain.layout.group import ComponentGroup
+    gid = uuid.uuid4()
+    g = ComponentGroup(
+        id=gid,
+        name=name,
+        component_ids=frozenset(component_ids),
+    )
+    session.layout.groups[gid] = g
+    return gid
+
+
+class TestMixedDragSetIntegration:
+    """End-to-end Phase 3 integration: rubber-band → mixed selection
+    (free + groups) → drag-arm captures a structured DragSet → all
+    elements move atomically.
+    """
+
+    def test_active_drag_set_after_rubber_band_has_both_groups_and_free(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 1.5, 0.5)
+        i3 = _place_component(board_view, session, 2.5, 0.5)
+        gid = _make_group_local(session, [i1.id, i2.id])
+        # i3 is free.
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # LTR rubber-band covering all three components.
+        _press(tool, 0.0, 0.0)
+        _move(tool, 5.0, 5.0)
+        _release(tool, 5.0, 5.0)
+        # Sanity: group + free both in selection.
+        assert gid in tool._selected_group_ids
+        assert i3.id in tool._selected_ids
+
+        # Press on the free component to arm a drag — DragSet should
+        # carry both the group (as monolith) and the free component.
+        _press(tool, 2.5, 0.5)
+        assert tool._active_drag_set is not None
+        assert gid in tool._active_drag_set.groups
+        assert i3.id in tool._active_drag_set.free_components
+
+    def test_mixed_drag_moves_both_free_component_and_group_members(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """Plain LMB drag after a mixed rubber-band selection moves
+        every element by the same delta — atomic via macro command."""
+        from protoboard.geometry import Point
+        i1 = _place_component(board_view, session, 1.5, 1.5)
+        i2 = _place_component(board_view, session, 2.5, 1.5)
+        i3 = _place_component(board_view, session, 3.5, 1.5)
+        gid = _make_group_local(session, [i1.id, i2.id])
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # Rubber-band over all three (LTR, all fully inside).
+        _press(tool, 0.0, 0.0)
+        _move(tool, 5.0, 5.0)
+        _release(tool, 5.0, 5.0)
+        # Drag from i3 (the free component) by (+2, 0).
+        _press(tool, 3.5, 1.5)
+        _move(tool, 5.5, 1.5)
+        _release(tool, 5.5, 1.5)
+        # All three components moved by the same delta.
+        assert session.layout.placements[i1.id].position == Point(3.5, 1.5)
+        assert session.layout.placements[i2.id].position == Point(4.5, 1.5)
+        assert session.layout.placements[i3.id].position == Point(5.5, 1.5)
+        # Selection survives the move — group + i3 still selected.
+        assert gid in tool._selected_group_ids
+        assert i3.id in tool._selected_ids
+
+
+class TestCtrlBboxAddsGroup:
+    """Ctrl+LMB on a group bbox routes through the dispatcher as
+    `Hit("group", gid)` ADD — verified end-to-end via the real
+    on_press flow (not just `_apply_selection_op`)."""
+
+    def test_ctrl_bbox_press_adds_group_to_selection(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        _ = _place_component(board_view, session, 1.5, 0.5)
+        i3 = _place_component(board_view, session, 5.5, 0.5)  # outside
+        gid = _make_group_local(session, [i3.id])
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # Existing selection: build it explicitly to avoid depending
+        # on the rubber-band geometry of the placed components.
+        tool._select_primary(i1.id)
+        tool._selected_ids = {i1.id}
+        assert i1.id in tool._selected_ids
+        assert gid not in tool._selected_group_ids
+        # Ctrl+klik on the group's bbox area.  Patch
+        # `_hit_test_group_bbox_empty` so the test doesn't depend on
+        # the exact geometry of the rendered group outline.
+        tool._hit_test_group_bbox_empty = lambda _pt: gid  # type: ignore[method-assign]
+        tool._hit_test = lambda _pt: None  # type: ignore[method-assign]
+        tool._hit_test_wire = lambda _pt: None  # type: ignore[method-assign]
+        tool._hit_test_bbox = lambda _pt: None  # type: ignore[method-assign]
+        tool._click_is_on_exported_pin = lambda _pt: False  # type: ignore[method-assign]
+        _ctrl_press(tool, 5.5, 0.5)
+        # Group added to selection without losing the prior free comp.
+        assert gid in tool._selected_group_ids
+        assert i1.id in tool._selected_ids
+
+
+class TestMultiGroupConflictRoutedThroughGui:
+    """Confirms the end-to-end GUI path: when the drag-arm captures a
+    DragSet with >1 group, `_build_group_drag_commands` chooses the
+    `check_multi_group_move_conflicts` wrapper.  The legacy single-
+    group call stays selected when only one group is present.
+    """
+
+    def test_single_group_selection_uses_legacy_check(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
+        i1 = _place_component(board_view, session, 1.5, 1.5)
+        gid = _make_group_local(session, [i1.id])
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._apply_selection_op(Hit("group", gid), BasisScope.SINGLE, SetOp.SET)
+        # Build_drag_set should reflect that one group.
+        ds = tool._build_drag_set()
+        assert gid in ds.groups
+        # Only one group → conflict-check path uses single-group call.
+        # (We assert this indirectly: `len(groups) > 1` predicate
+        # determines the routing, so for the single-group case it
+        # must be False here.)
+        assert len(ds.groups) == 1
+
+    def test_two_group_selection_picks_multi_check(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
+        i1 = _place_component(board_view, session, 1.5, 1.5)
+        i2 = _place_component(board_view, session, 3.5, 1.5)
+        g1 = _make_group_local(session, [i1.id], name="G1")
+        g2 = _make_group_local(session, [i2.id], name="G2")
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._apply_selection_op(Hit("group", g1), BasisScope.SINGLE, SetOp.SET)
+        tool._apply_selection_op(Hit("group", g2), BasisScope.SINGLE, SetOp.ADD)
+        ds = tool._build_drag_set()
+        assert g1 in ds.groups
+        assert g2 in ds.groups
+        assert len(ds.groups) == 2

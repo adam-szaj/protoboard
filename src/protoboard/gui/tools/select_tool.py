@@ -548,6 +548,38 @@ class SelectTool(_Tool):
             return True
         return False
 
+    def _is_drag_locked(self, comp_id: uuid.UUID) -> bool:
+        """Drag-pipeline variant of `_is_locked_in_group`.
+
+        Phase 3: when the user has explicitly added a group to the
+        selection (it lives in ``_selected_group_ids``), every member
+        of that group becomes drag-eligible — they move together with
+        the group monolith.  Plain ``_is_locked_in_group`` still
+        returns True for them (the *outside-view* lock for delete /
+        rotate / flip stays in force until they enter the group), but
+        the drag path treats them as members of the active DragSet.
+
+        Used by the three drag-arm filter sites in `on_press`.  All
+        other layout-mutating ops (delete, rotate, flip) keep calling
+        `_is_locked_in_group` unchanged.
+        """
+        if not self._is_locked_in_group(comp_id):
+            return False
+        groups = self._session.layout.groups
+        for gid in self._selected_group_ids:
+            g = groups.get(gid)
+            if g is None:
+                continue
+            if comp_id in g.component_ids:
+                return False
+            # Walk child groups recursively so nested groups also unlock.
+            from protoboard.domain.layout.group import (
+                all_component_ids as _all_member_ids,
+            )
+            if comp_id in _all_member_ids(groups, gid):
+                return False
+        return True
+
     def _wire_is_locked(self, wire_id: uuid.UUID) -> bool:
         """True iff *wire_id* is structurally owned by a group the user
         is currently viewing from the outside.
@@ -1324,15 +1356,24 @@ class SelectTool(_Tool):
         """Run the existing hit-tests in priority order and return a Hit.
 
         Priority:
-          1. component pin (`_hit_test`)
-          2. wire body (`_hit_test_wire`)
-          3. component bbox (`_hit_test_bbox`)
-          4. group outline (long-press only — out of scope here)
+          1. component pin (``_hit_test``)
+          2. wire body (``_hit_test_wire``)
+          3. group outline (``_hit_test_group_bbox_empty``) — Phase 3
+             so Ctrl/Ctrl+Shift+LMB on a group bbox can ADD / REMOVE
+             the group from the selection.
+          4. component bbox (``_hit_test_bbox``)
 
         Returns None for empty canvas.  Pin number is intentionally
         not preserved on the Hit — relation resolution can recover it
         from scene_pt if needed via `_hit_test_pin_for_comp`.  This
         keeps Hit hashable + comparable by id alone.
+
+        Note: plain (no-modifier) LMB on a group bbox is intercepted
+        earlier in ``on_press`` (separate ``group_outline_hit`` block)
+        so this priority order only matters for the dispatcher branches
+        (Ctrl, Ctrl+Shift, Alt).  Putting group outline above bbox
+        ensures a Ctrl+klik on an outline doesn't accidentally select
+        the underlying component instead.
         """
         from protoboard.gui.selection_fsm import Hit
 
@@ -1344,6 +1385,10 @@ class SelectTool(_Tool):
             wire_hit = self._hit_test_wire(scene_pt)
             if wire_hit is not None:
                 return Hit("wire", wire_hit)
+        if self._filter_groups() and not self._click_is_on_exported_pin(scene_pt):
+            group_hit = self._hit_test_group_bbox_empty(scene_pt)
+            if group_hit is not None:
+                return Hit("group", group_hit)
         if self._filter_components():
             bbox_hit = self._hit_test_bbox(scene_pt)
             if bbox_hit is not None:
@@ -3079,8 +3124,10 @@ class SelectTool(_Tool):
             n_drag_ids_before_filter = len(drag_ids)
             # Drop grouped-but-not-active components from the drag set so
             # multi-selections that span both free and grouped components
-            # only carry the free ones.
-            drag_ids = {cid for cid in drag_ids if not self._is_locked_in_group(cid)}
+            # only carry the free ones.  Phase 3: members of a group
+            # the user explicitly added to `_selected_group_ids` stay
+            # in the drag because they move with the group monolith.
+            drag_ids = {cid for cid in drag_ids if not self._is_drag_locked(cid)}
             _log.info(
                 "on_press.drag_start.normal_lpm",
                 hit=str(hit)[:8],
@@ -3172,7 +3219,7 @@ class SelectTool(_Tool):
                 self._selected_id = None
             drag_ids_local = {
                 cid for cid in self._selected_ids
-                if not self._is_locked_in_group(cid)
+                if not self._is_drag_locked(cid)
             }
             for cid in drag_ids_local:
                 pl = self._session.layout.placements.get(cid)
@@ -3248,7 +3295,8 @@ class SelectTool(_Tool):
             self._active_drag_set = self._build_drag_set(fallback_component=bbox_hit)
             drag_ids = self._selected_ids if self._selected_ids else {bbox_hit}
             n_drag_ids_before_filter = len(drag_ids)
-            drag_ids = {cid for cid in drag_ids if not self._is_locked_in_group(cid)}
+            # Phase 3: members of a selected group stay drag-eligible.
+            drag_ids = {cid for cid in drag_ids if not self._is_drag_locked(cid)}
             _log.info(
                 "on_press.drag_start.bbox_lpm",
                 bbox_hit=str(bbox_hit)[:8],
