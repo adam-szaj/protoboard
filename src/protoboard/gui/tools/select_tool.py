@@ -2508,21 +2508,12 @@ class SelectTool(_Tool):
             return True
 
         # --- Ctrl+click: spec rev 2 dispatch (ADD or REMOVE) ---
-        # Wire-edit start on Ctrl+LMB-on-wire-node is retained until
-        # Etap 5 moves it to the [E] key.  Everything else routes
-        # through the orthogonal dispatcher.
+        # Wire-edit start moved to the [E] key (spec rev 2 reserves
+        # Ctrl+LMB exclusively for ADD-to-selection).
         if ctrl:
-            # Wire-edit start on Ctrl+LMB-on-wire-node (legacy path,
-            # to be moved to [E] in Etap 5).
-            if self._selected_wire_id is not None and not shift:
-                idx = self._hit_test_wire_node(scene_pt)
-                if idx is not None:
-                    self._start_wire_edit(idx)
-                    return True
-
-            # All other Ctrl[+Shift][+Alt] clicks go through the
-            # selection-op dispatcher.  No drag-arm — Ctrl/Ctrl+Shift
-            # are explicit set-ops, never drag initiators (spec rev 2).
+            # All Ctrl[+Shift][+Alt] clicks go through the selection-op
+            # dispatcher.  No drag-arm — Ctrl/Ctrl+Shift are explicit
+            # set-ops, never drag initiators (spec rev 2).
             self._cancel_wire_edit()
             hit_obj = self._build_hit_from_press(scene_pt)
             basis_scope, op = self._decode_modifier_matrix(
@@ -3594,6 +3585,19 @@ class SelectTool(_Tool):
             event.accept()
         elif key == Qt.Key.Key_G and ctrl:
             self._group_for_selection()
+        elif key == Qt.Key.Key_E and not ctrl and not alt and not shift:
+            # Spec rev 2: [E] enters wire-edit mode for the current
+            # SELECTION-on-wire.  Replaces the legacy Ctrl+LMB-on-
+            # wire-node entry (Ctrl is now ADD-to-selection).
+            if self._selected_wire_id is not None:
+                self._start_wire_edit(0)
+                _log.info(
+                    "key.wire_edit.started",
+                    wire_id=str(self._selected_wire_id)[:8],
+                )
+                event.accept()
+            else:
+                _log.info("key.wire_edit.no_wire_primary")
         elif key == Qt.Key.Key_Escape:
             from protoboard.domain.layout.layout import ROOT_GROUP_ID
             if len(self._group_stack) > 1:  # inside a subgroup
