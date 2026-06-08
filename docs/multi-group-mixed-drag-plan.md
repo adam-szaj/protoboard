@@ -1,8 +1,29 @@
-# Phase 3 — multi-group / mixed-drag
+# Phase 3 — multi-group / mixed-drag — **DONE**
 
-Date: 2026-06-08
-Status: planned, decisions confirmed 2026-06-08
+Date: 2026-06-08 (planned) → 2026-06-09 (complete)
+Status: ✅ DONE — all 8 etapy merged to main
 Prerequisite: Phase 2c (commit 5e514ef) on main.
+
+## Commits on main
+
+| Etap | Commit | Treść |
+|------|--------|-------|
+| 1 — DragSet | `ecce144` | `gui/drag_set.py` + 17 unit testów |
+| 2 — `_selected_group_ids: set` | `38fe96b` | shim `_selected_group_id` jako property |
+| 3 — DragSet w on_press | `f5c1554` | `_active_drag_set` snapshot na drag-arm |
+| 4 — multi-group conflict-check | `9f533c5` | `check_multi_group_move_conflicts` + decision 4 SOFT |
+| 5 — Hit("group") + long-press migracja | `3538ad6` | dispatcher 3rd basis + plain-LMB-on-bbox = SET single group |
+| 6 — rubber-band selektuje grupy | `b028921` | LTR all-inside / RTL any-inside |
+| 7 — integration tests + fixes | `cec2970` | `_is_drag_locked` + `_build_hit_from_press` group hit |
+| 8 — spec rev 3 + memo | (this commit) | `docs/highlight-state-machine.txt` rev 3 |
+
+**Test status: 2435 passed**, 0 regresji.
+
+**Co działa end-to-end:**
+- Multi-group selection: Ctrl+klik na każdą bbox dodaje grupę; rubber-band z LTR all-inside
+- Mixed drag: rubber-band łapie free komponenty + grupy, drag przesuwa wszystko atomowo jednym delta
+- Multi-group conflict-check: SOFT dla collisions wewnątrz drag-set (decision 4), HARD przeciwko statycznym komponentom
+- Plain LMB na group bbox = natychmiastowy SET (bez 500 ms czekania); 1 s hold zostaje dla enter-group
 
 ## Decyzje użytkownika (2026-06-08)
 

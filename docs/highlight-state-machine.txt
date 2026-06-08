@@ -1,11 +1,18 @@
-Selection / highlight / Esc state machine — spec rev 2 (2026-06-08)
+Selection / highlight / Esc state machine — spec rev 3 (2026-06-09)
 ====================================================================
 
-This document supersedes the prior FSM spec (rev 1, 2026-06-08 morning).
-The change: replace the Shift+LMB toggle with an orthogonal
-"basis-scope" × "set-op" modifier matrix.  Implementation lives in
-SelectTool; FSM layers stay the same as rev 1 (NORMAL/HIGHLIGHT/
-SELECTION/MULTI_SELECTION).
+Rev 3 extends rev 2 (2026-06-08, orthogonal basis-scope × set-op
+matrix) with **groups as first-class hits**.  Multi-group and mixed
+(free + group) selections are now possible, drag pipelines treat
+them as atomic, and the legacy 500 ms long-press select-phase is
+gone (replaced by plain-LMB-on-bbox dispatcher routing).
+
+Click semantics + FSM layers + decisions 1-5 from rev 2 are
+unchanged.  New material: a third Hit kind, a status-bar `g:N`
+slot, the rubber-band semantics for groups, and the wire-edit
+keybinding ([E]).  Implementation lives in SelectTool +
+`gui/drag_set.py` + `domain/layout/pad_conflict.py` (multi-group
+wrapper).
 
 Notation
 --------
@@ -14,6 +21,17 @@ Notation
 - A click resolves to a (hit, basis_scope, op) triple.
 - "hit" is the object under the cursor (component / wire / group)
   or None if the click landed on empty canvas.
+
+Hit kinds (rev 3)
+-----------------
+| Kind        | Storage                | Notes                                |
+|-------------|------------------------|--------------------------------------|
+| component   | `_selected_id` / `_selected_ids`             | one primary + multi set    |
+| wire        | `_selected_wire_id` / `_selected_wire_ids`   | one primary + multi set    |
+| group       | `_selected_group_ids: set[UUID]`             | no separate "primary group"; the
+                                                                 first member of the group is promoted
+                                                                 to component-primary (anchor for
+                                                                 Properties panel + drag)    |
 
 
 Click semantics — two orthogonal axes
@@ -49,6 +67,26 @@ Modifier matrix (full)
 | Ctrl+Alt+LMB            | RELATION    | ADD    |
 | Ctrl+Shift+LMB          | SINGLE      | REMOVE |
 | Ctrl+Shift+Alt+LMB      | RELATION    | REMOVE |
+
+Phase 3 group routing (rev 3)
+-----------------------------
+A click whose hit-test resolves to a group outline (bbox of a group
+the user is viewing from the outside) builds `Hit("group", gid)`
+and drives the same matrix:
+
+| Keys                | Effect on `_selected_group_ids`              |
+|---------------------|----------------------------------------------|
+| LMB                 | SET: clear + add `{gid}`; first member is
+                       promoted to component-primary               |
+| Ctrl+LMB            | ADD: union `{gid}`                           |
+| Ctrl+Shift+LMB      | REMOVE: subtract `{gid}` (also removes its
+                       members from `_selected_ids`)               |
+
+Alt is currently a no-op on groups (RELATION-scope basis is
+collapsed to SINGLE because "relation of a group" is undefined —
+the whole group is already a monolith).  Plain LMB on bbox arms the
+1 s enter-group timer in parallel with the SET — the legacy 500 ms
+select-phase is gone (decision 2 / spec rev 3).
 
 
 Primary anchor (Properties panel)
@@ -98,8 +136,8 @@ Asymmetric on purpose: ADD reveals more context, REMOVE does not
 hide it.  Esc remains the single "clear everything" gesture.
 
 
-Drag and rubber-band (decision 1, 5)
-====================================
+Drag and rubber-band (decision 1, 5; rev 3 group rules)
+=======================================================
 - Plain LMB drag on an object in selection → drag the selection
 - Plain LMB drag on an object outside selection → SET + drag
 - Plain LMB drag in empty space → rubber-band, op = SET
@@ -113,6 +151,49 @@ Drag and rubber-band (decision 1, 5)
   To drag a multi-selection: build it with Ctrl-clicks, then
   plain-LMB-drag on one of the selected items.
 
+Rev 3 — rubber-band picks up groups:
+- LTR drag: a group is selected iff every member's bbox is fully
+  inside the rect.
+- RTL drag: a group is selected iff any member's bbox intersects
+  the rect.
+- When a group is captured by rubber-band, its members are NOT
+  also added to the free-component bucket — they move via the
+  group monolith.  Free top-level components inside the rect stay
+  in the free bucket (mixed selection).
+
+Rev 3 — drag pipeline carries a `DragSet`:
+- `_active_drag_set: DragSet` is captured at press time on every
+  drag-arm path (pin / wire / bbox / group-locked).
+- `DragSet.free_components`: top-level not inside any selected group.
+- `DragSet.groups`: selected group monoliths.
+- `DragSet.wires`: selected wires.
+- `DragSet.all_component_ids(groups_map)` expands the structure
+  to a flat set for the commit-time MoveDragSetCommand /
+  MoveGroupCommand / Move pipeline.
+- Members of a selected group remain drag-eligible (the
+  `_is_drag_locked` predicate overrides `_is_locked_in_group`
+  for the duration of the drag).
+
+
+Multi-group conflict check (rev 3 decision 4)
+=============================================
+When the drag set contains more than one group, the release-time
+classifier uses `check_multi_group_move_conflicts(drag_set, ...)`
+instead of the legacy single-group `check_group_move_conflicts`.
+
+Rule: **intra-drag-set collisions are SOFT.**  A pad-pad overlap
+between two members of the moving drag set (free vs. free, free
+vs. group, group vs. group) is NOT a hard block — those are "the
+user's stuff" moving together.  Hard blocks remain for collisions
+with components outside the drag set, and for wires crossing into
+the interior of a moving subgroup (each captured group contributes
+its subgroups to the protected-bbox set).
+
+The single-group caller (legacy long-press drag) keeps using
+`check_group_move_conflicts` unchanged; the multi-group wrapper
+forwards to it with `extra_protected_group_ids` so the subgroup-
+bbox protection union covers every drag-set group's children.
+
 
 Wire-edit mode (decision 2)
 ===========================
@@ -121,6 +202,20 @@ single-wire SELECTION layer.  The legacy Ctrl+LMB-on-wire-node entry
 is removed (Ctrl+LMB is now ADD).  Inside wire-edit, LMB adds points;
 Esc / Enter exits.  Outside SELECTION-on-wire, [E] is a no-op (status
 bar: "Select a wire first").
+
+
+Long-press migration (rev 3 decision 2)
+=======================================
+The 500 ms long-press select-phase is removed.  Plain LMB on a
+group bbox now dispatches `Hit("group", gid)` SET immediately —
+the user no longer waits 500 ms to see the group highlighted.
+
+The 1 s enter-group hold remains.  It only arms when the user
+pressed without modifiers (Ctrl / Ctrl+Shift / Alt clicks are
+explicit set-ops, never enter-group gestures).  Mouse motion past
+the cancel-pixel threshold (`_GROUP_LONGPRESS_CANCEL_PX`) aborts
+the enter-group cycle so a drag of the freshly-selected group
+monolith isn't mistaken for an enter-group gesture.
 
 
 FSM layer transitions (canonical form)
