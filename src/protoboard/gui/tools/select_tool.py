@@ -26,6 +26,7 @@ if TYPE_CHECKING:
         RelationProfile,
         SelectionFilter,
     )
+    from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
 
 import os
 import time
@@ -808,6 +809,399 @@ class SelectTool(_Tool):
             correlated_wires=correlated_wires,
         )
         self._notify_selection()
+
+    # ================================================================
+    # Phase 2c — orthogonal selection-op dispatcher
+    # ----------------------------------------------------------------
+    # Spec: docs/highlight-state-machine.txt (rev 2).
+    # Implements the modifier matrix Alt(basis_scope) × Ctrl/Shift(op).
+    # Called from on_press once Etap 3 lands; meanwhile coexists with
+    # the legacy Phase 2b machinery (`_apply_shift_interaction_fsm` and
+    # its helpers) which are deleted in Etap 4.
+    # ================================================================
+
+    def _apply_selection_op(
+        self,
+        hit: "Hit | None",
+        basis_scope: "BasisScope",
+        op: "SetOp",
+    ) -> None:
+        """Central dispatcher for every LMB click in Phase 2c.
+
+        Resolves the basis (single hit or relation set) and delegates
+        to the matching helper.  Empty-canvas semantics follow spec
+        rev 2: SET pops one FSM layer, ADD/REMOVE are no-ops.
+        """
+        from protoboard.gui.selection_fsm import SetOp
+
+        if hit is None:
+            # Spec rev 2, empty canvas:
+            #   SET    → pop one layer
+            #   ADD    → A ∪ ∅ = A  (no-op)
+            #   REMOVE → A \ ∅ = A  (no-op)
+            if op == SetOp.SET:
+                self._esc_pop_one_layer()
+            return
+
+        # Build the basis sets (separated for components vs wires
+        # because the legacy storage fields are split too).
+        comp_basis, wire_basis = self._resolve_basis(hit, basis_scope)
+
+        if op == SetOp.SET:
+            self._set_selection(comp_basis, wire_basis, new_primary=hit)
+        elif op == SetOp.ADD:
+            self._add_to_selection(comp_basis, wire_basis, new_primary=hit)
+        elif op == SetOp.REMOVE:
+            self._remove_from_selection(comp_basis, wire_basis)
+
+    def _resolve_basis(
+        self,
+        hit: "Hit",
+        basis_scope: "BasisScope",
+    ) -> tuple[set[uuid.UUID], set[uuid.UUID]]:
+        """Materialise (comp_basis, wire_basis) from a Hit + scope.
+
+        SINGLE basis → just the hit itself (single-element set in the
+        matching bucket, empty in the other).
+        RELATION basis → resolve via the existing `_resolve_relation`
+        with the current `RelationClass`, which respects RelationClass.
+        NONE by collapsing to SINGLE.
+        """
+        from protoboard.gui.selection_fsm import BasisScope
+        from protoboard.gui.selection_axes import RelationClass
+
+        if basis_scope == BasisScope.SINGLE or self._relation == RelationClass.NONE:
+            comps: set[uuid.UUID] = set()
+            wires: set[uuid.UUID] = set()
+            if hit.kind == "component" and isinstance(hit.id, uuid.UUID):
+                comps.add(hit.id)
+            elif hit.kind == "wire" and isinstance(hit.id, uuid.UUID):
+                wires.add(hit.id)
+            return comps, wires
+
+        # RELATION scope: reuse the same resolver the legacy code uses.
+        wire_id: uuid.UUID | None = None
+        comp_id: uuid.UUID | None = None
+        pin_number: int | None = None
+        if hit.kind == "wire" and isinstance(hit.id, uuid.UUID):
+            wire_id = hit.id
+        elif hit.kind == "component" and isinstance(hit.id, uuid.UUID):
+            comp_id = hit.id
+        correlated_comps, correlated_wires = self._resolve_relation(
+            self._relation,
+            wire_id=wire_id,
+            comp_id=comp_id,
+            pin_number=pin_number,
+        )
+        return correlated_comps, correlated_wires
+
+    def _set_selection(
+        self,
+        comp_basis: set[uuid.UUID],
+        wire_basis: set[uuid.UUID],
+        new_primary: "Hit | None",
+    ) -> None:
+        """SET op — selection := basis.
+
+        Decision 5 (no-op on same primary): if the click resolves to
+        the exact same singleton already at SELECTION, skip the rebuild.
+        Otherwise clear everything, populate the basis sets, then
+        promote the new primary so the multi-rect highlights survive
+        (see [[selection-fsm-refactor-2026-06-08]] fix on promotion
+        ordering).
+        """
+        # Decision 5: no-op when SET basis equals current selection.
+        if (
+            new_primary is not None
+            and len(comp_basis) + len(wire_basis) == 1
+            and self._is_selection_exactly(comp_basis, wire_basis)
+        ):
+            return
+
+        self._deselect()
+        self._deselect_wire()
+        self._clear_multi_selection()
+        self._clear_multi_wire_selection()
+
+        # Promote first (decision: _select_wire/_deselect_wire wipes
+        # the multi wire set; promoting before population keeps the
+        # subsequent _draw_multi_* calls authoritative).
+        self._promote_primary(new_primary)
+
+        if self._filter_components():
+            for cid in comp_basis:
+                self._selected_ids.add(cid)
+                self._draw_multi_highlight(cid)
+        if self._filter_wires():
+            for wid in wire_basis:
+                self._selected_wire_ids.add(wid)
+                self._draw_multi_wire_highlight(wid)
+
+        # Highlight (decision 4, A.1): reset to relation(new_primary).
+        self._refresh_highlight_from_hit(new_primary)
+        self._notify_selection()
+
+    def _add_to_selection(
+        self,
+        comp_basis: set[uuid.UUID],
+        wire_basis: set[uuid.UUID],
+        new_primary: "Hit | None",
+    ) -> None:
+        """ADD op — selection := selection ∪ basis.
+
+        If the current state is NORMAL (empty selection), ADD is
+        equivalent to SET — push to SELECTION with new_primary as
+        anchor.  Otherwise extend the multi sets, switch primary to
+        the new hit, and grow the highlight union.
+        """
+        if (
+            not self._selected_ids
+            and not self._selected_wire_ids
+            and self._selected_id is None
+            and self._selected_wire_id is None
+        ):
+            # ADD into empty → behave like SET.
+            self._set_selection(comp_basis, wire_basis, new_primary)
+            return
+
+        # Promote first so the about-to-be-added wire basis isn't
+        # wiped by _select_wire's _deselect_wire side-effect.
+        self._promote_primary(new_primary)
+
+        if self._filter_components():
+            for cid in comp_basis:
+                if cid not in self._selected_ids:
+                    self._selected_ids.add(cid)
+                    self._draw_multi_highlight(cid)
+        if self._filter_wires():
+            for wid in wire_basis:
+                if wid not in self._selected_wire_ids:
+                    self._selected_wire_ids.add(wid)
+                    self._draw_multi_wire_highlight(wid)
+
+        # Highlight UNION — relation of the new hit joins the existing
+        # highlight without clearing it (decision 2, spec rev 2).
+        self._extend_highlight_with_hit(new_primary)
+        self._notify_selection()
+
+    def _remove_from_selection(
+        self,
+        comp_basis: set[uuid.UUID],
+        wire_basis: set[uuid.UUID],
+    ) -> None:
+        """REMOVE op — selection := selection \\ basis.
+
+        Subtracts from multi sets; drops primary if it was in the
+        removed basis.  Highlight is *not* touched (decision 4, A.1).
+        If the selection collapses to empty, depth becomes HIGHLIGHT
+        (highlight union stays so user retains visual context).
+        """
+        # Drop primary if it falls inside the basis.
+        if self._selected_id is not None and self._selected_id in comp_basis:
+            self._deselect()
+        if self._selected_wire_id is not None and self._selected_wire_id in wire_basis:
+            self._deselect_wire()
+
+        # Subtract from multi sets.
+        removed_comps = self._selected_ids & comp_basis
+        removed_wires = self._selected_wire_ids & wire_basis
+        self._selected_ids -= comp_basis
+        self._selected_wire_ids -= wire_basis
+
+        # Redraw multi highlights from scratch — cheaper than
+        # individually removing the right scene items.
+        if removed_comps:
+            self._redraw_multi_highlights()
+        if removed_wires:
+            self._redraw_multi_wire_highlights()
+
+        # Decision 1: primary becomes None after REMOVE.  Note the
+        # _deselect()/_deselect_wire() calls above already nulled
+        # _selected_id / _selected_wire_id when applicable.  We do
+        # NOT auto-promote a surviving lone multi member — user must
+        # click it explicitly to make it the anchor.
+        self._notify_selection()
+
+    # ----------------------------------------------------------------
+    # Helpers shared by the three op functions
+    # ----------------------------------------------------------------
+
+    def _is_selection_exactly(
+        self,
+        comp_basis: set[uuid.UUID],
+        wire_basis: set[uuid.UUID],
+    ) -> bool:
+        """True when current selection is exactly the basis singleton.
+
+        Used by decision 5 (plain LMB on current primary is a no-op).
+        """
+        if len(comp_basis) == 1 and not wire_basis:
+            (cid,) = comp_basis
+            return (
+                self._selected_id == cid
+                and not self._selected_ids
+                and not self._selected_wire_ids
+                and self._selected_wire_id is None
+            )
+        if len(wire_basis) == 1 and not comp_basis:
+            (wid,) = wire_basis
+            return (
+                self._selected_wire_id == wid
+                and not self._selected_wire_ids
+                and not self._selected_ids
+                and self._selected_id is None
+            )
+        return False
+
+    def _promote_primary(self, hit: "Hit | None") -> None:
+        """Set hit as the Properties-panel anchor.
+
+        Mirrors the legacy `_select_primary` / `_select_wire` split
+        based on hit kind.  Safe to call with None (no-op).
+        """
+        if hit is None:
+            return
+        if hit.kind == "component" and isinstance(hit.id, uuid.UUID):
+            self._select_primary(hit.id)
+        elif hit.kind == "wire" and isinstance(hit.id, uuid.UUID):
+            self._select_wire(hit.id)
+
+    def _refresh_highlight_from_hit(self, hit: "Hit | None") -> None:
+        """Reset highlight to relation(hit), or clear if hit is None.
+
+        Wrapper over the existing `_refresh_auto_highlight` so callers
+        can pass a Hit instead of fishing out comp_id / wire_id /
+        pin_number themselves.
+        """
+        if hit is None:
+            self._clear_connectivity_highlight()
+            session = self._session
+            if session is not None:
+                session.highlight_stack.clear_auto("select_tool")
+            return
+        if hit.kind == "wire" and isinstance(hit.id, uuid.UUID):
+            self._refresh_auto_highlight(wire_id=hit.id)
+        elif hit.kind == "component" and isinstance(hit.id, uuid.UUID):
+            self._refresh_auto_highlight(comp_id=hit.id)
+
+    def _extend_highlight_with_hit(self, hit: "Hit | None") -> None:
+        """Grow the auto-highlight stack entry by relation(hit).
+
+        Decision 2 (spec rev 2): ADD ops grow the highlight union
+        instead of replacing it.  Implementation reads the current
+        auto entry, merges relation(hit) into it, and pushes the
+        merged entry back.
+        """
+        if hit is None:
+            return
+        session = self._session
+        if session is None:
+            return
+
+        # Resolve the relation set for the new hit.
+        wire_id: uuid.UUID | None = None
+        comp_id: uuid.UUID | None = None
+        if hit.kind == "wire" and isinstance(hit.id, uuid.UUID):
+            wire_id = hit.id
+        elif hit.kind == "component" and isinstance(hit.id, uuid.UUID):
+            comp_id = hit.id
+        rel_comps, rel_wires = self._resolve_relation(
+            self._relation, wire_id=wire_id, comp_id=comp_id, pin_number=None,
+        )
+
+        # Read current auto entry; union the new relation into it.
+        current = session.highlight_stack.active()
+        if current is None:
+            # No prior entry → behaves like reset to relation(hit).
+            self._refresh_highlight_from_hit(hit)
+            return
+
+        merged_comps = frozenset(current.comp_ids) | frozenset(rel_comps)
+        merged_wires = frozenset(current.wire_ids) | frozenset(rel_wires)
+        if (
+            merged_comps == frozenset(current.comp_ids)
+            and merged_wires == frozenset(current.wire_ids)
+        ):
+            # No new content — nothing to do.
+            return
+
+        # Build a new HighlightEntry with the union; profile stays
+        # whatever was on the active entry.
+        from protoboard.gui.highlight_state import HighlightEntry
+        merged = HighlightEntry(
+            comp_ids=merged_comps,
+            wire_ids=merged_wires,
+            net_id=current.net_id,
+            profile=current.profile,
+            label=current.label,
+        )
+        session.highlight_stack.push_auto(merged, source_id="select_tool")
+
+    # ----------------------------------------------------------------
+    # Modifier matrix decoder + Hit builder
+    # ----------------------------------------------------------------
+
+    def _decode_modifier_matrix(
+        self,
+        *,
+        ctrl: bool,
+        shift: bool,
+        alt: bool,
+    ) -> "tuple[BasisScope, SetOp]":
+        """Translate Qt modifier flags → (basis_scope, op) per spec rev 2.
+
+        Spec table:
+          | ctrl | shift | alt | op     | basis    |
+          |  -   |   -   |  -  | SET    | SINGLE   |
+          |  -   |   -   |  +  | SET    | RELATION |
+          |  +   |   -   |  -  | ADD    | SINGLE   |
+          |  +   |   -   |  +  | ADD    | RELATION |
+          |  +   |   +   |  -  | REMOVE | SINGLE   |
+          |  +   |   +   |  +  | REMOVE | RELATION |
+
+        Note Shift without Ctrl currently falls through to plain LMB
+        (SET, SINGLE).  This frees Shift for tool-specific overrides
+        like SimplifyTool's draft/apply gesture without colliding
+        with the FSM.
+        """
+        from protoboard.gui.selection_fsm import BasisScope, SetOp
+        op = (
+            SetOp.REMOVE if (ctrl and shift) else
+            SetOp.ADD    if ctrl else
+            SetOp.SET
+        )
+        basis_scope = BasisScope.RELATION if alt else BasisScope.SINGLE
+        return basis_scope, op
+
+    def _build_hit_from_press(self, scene_pt: "QPointF") -> "Hit | None":
+        """Run the existing hit-tests in priority order and return a Hit.
+
+        Priority:
+          1. component pin (`_hit_test`)
+          2. wire body (`_hit_test_wire`)
+          3. component bbox (`_hit_test_bbox`)
+          4. group outline (long-press only — out of scope here)
+
+        Returns None for empty canvas.  Pin number is intentionally
+        not preserved on the Hit — relation resolution can recover it
+        from scene_pt if needed via `_hit_test_pin_for_comp`.  This
+        keeps Hit hashable + comparable by id alone.
+        """
+        from protoboard.gui.selection_fsm import Hit
+
+        if self._filter_components():
+            pin_hit = self._hit_test(scene_pt)
+            if pin_hit is not None:
+                return Hit("component", pin_hit)
+        if self._filter_wires():
+            wire_hit = self._hit_test_wire(scene_pt)
+            if wire_hit is not None:
+                return Hit("wire", wire_hit)
+        if self._filter_components():
+            bbox_hit = self._hit_test_bbox(scene_pt)
+            if bbox_hit is not None:
+                return Hit("component", bbox_hit)
+        return None
 
     def _refresh_auto_highlight(
         self,
