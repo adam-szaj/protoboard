@@ -1198,85 +1198,8 @@ class TestMergeFragmentsCommand:
         assert len(session.stack._undo) == baseline_depth
 
 
-class TestCtrlClickDeselect:
-    """Ctrl+click on an already-selected component / wire toggles it off."""
-
-    def test_ctrl_click_on_selected_component_removes_it(
-        self, board_view: BoardView, session: EditorSession,
-    ) -> None:
-        inst1 = _place_component(board_view, session, 1.5, 1.5)
-        inst2 = _place_component(board_view, session, 4.5, 4.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # Build a 2-component multi-selection.
-        _ctrl_press(tool, 1.5, 1.5)
-        _ctrl_press(tool, 4.5, 4.5)
-        selected = set(tool._selected_ids) | (
-            {tool._selected_id} if tool._selected_id else set()
-        )
-        assert selected == {inst1.id, inst2.id}
-        # Ctrl+click on the first one — it should drop out.
-        _ctrl_press(tool, 1.5, 1.5)
-        selected = set(tool._selected_ids) | (
-            {tool._selected_id} if tool._selected_id else set()
-        )
-        assert selected == {inst2.id}
-
-    def test_ctrl_click_on_primary_selected_component_drops_primary(
-        self, board_view: BoardView, session: EditorSession,
-    ) -> None:
-        inst = _place_component(board_view, session, 1.5, 1.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # First Ctrl+click promotes it to primary.
-        _ctrl_press(tool, 1.5, 1.5)
-        assert tool._selected_id == inst.id
-        # Second Ctrl+click drops it entirely (was the only selection).
-        _ctrl_press(tool, 1.5, 1.5)
-        assert tool._selected_id is None
-        assert inst.id not in tool._selected_ids
-
-    def test_ctrl_click_on_multi_selected_wire_removes_it(
-        self, board_view: BoardView, session: EditorSession,
-    ) -> None:
-        # Seed multi-selection: wid1 as primary (would normally come
-        # from a plain click), wid2 added via Ctrl+click.  Ctrl+clicking
-        # wid2 again should drop only wid2 — without re-selecting it via
-        # ``_select_primary`` (the bug this fix addresses).
-        wid1 = _add_wire(session, [(0.5, 1.5), (4.5, 1.5)])
-        wid2 = _add_wire(session, [(0.5, 3.5), (4.5, 3.5)])
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._selected_wire_ids.add(wid1)
-        tool._selected_wire_ids.add(wid2)
-        # Drive the toggle branch directly (the wire-edit branch fires
-        # only when the wire is *primary*; here both are multi-selected
-        # without a primary).
-        from PySide6.QtCore import QPointF as _QPF
-        tool._hit_test_wire = lambda _pt: wid2  # type: ignore[method-assign]
-        tool.on_press(
-            QMouseEvent(
-                QMouseEvent.Type.MouseButtonPress,
-                _QPF(2.5, 3.5), _QPF(2.5, 3.5),
-                Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
-                Qt.KeyboardModifier.ControlModifier,
-            ),
-            _QPF(2.5, 3.5),
-        )
-        assert wid2 not in tool._selected_wire_ids
-        assert wid1 in tool._selected_wire_ids
-
-
-# ---------------------------------------------------------------------------
-# Phase 2b — same-primary LMB pops one FSM layer on release
-# ---------------------------------------------------------------------------
-
-
-def _shift_press(tool: SelectTool, x: float, y: float) -> None:
+def _ctrl_shift_press(tool: SelectTool, x: float, y: float) -> None:
+    """Ctrl+Shift+LMB — REMOVE op per spec rev 2."""
     tool.on_press(
         QMouseEvent(
             QMouseEvent.Type.MouseButtonPress,
@@ -1284,155 +1207,76 @@ def _shift_press(tool: SelectTool, x: float, y: float) -> None:
             QPointF(x, y),
             Qt.MouseButton.LeftButton,
             Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.ShiftModifier,
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
         ),
         QPointF(x, y),
     )
 
 
-class TestSamePrimaryDeselectOnRelease:
-    """Phase 2b: press + release on the *same primary* without crossing
-    the drag threshold pops one FSM layer (SELECTION → HIGHLIGHT).
+class TestCtrlAddCtrlShiftRemove:
+    """Spec rev 2: Ctrl+LMB = ADD to selection, Ctrl+Shift+LMB = REMOVE.
 
-    Drag-armed release (threshold crossed during the press→release window)
-    must NOT pop — it is a drag, not a deselect.
+    These replace the legacy `TestCtrlClickDeselect` which asserted
+    the old "Ctrl toggles" semantics.  The new contract:
+      * Ctrl+LMB on un-selected hit → add hit to multi-set.
+      * Ctrl+LMB on already-selected hit → no-op (decision-5 extended).
+      * Ctrl+Shift+LMB on selected hit → remove from selection.  If
+        the removed hit was the primary, primary becomes None
+        (decision 1, REMOVE).
     """
 
-    def test_pin_lmb_on_primary_pops_to_highlight(
-        self, board_view: BoardView, session: EditorSession
+    def test_ctrl_lmb_adds_to_selection(
+        self, board_view: BoardView, session: EditorSession,
     ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
+        inst1 = _place_component(board_view, session, 1.5, 1.5)
+        inst2 = _place_component(board_view, session, 4.5, 4.5)
         board_view.set_tool(SelectTool())
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
-        tool._select_primary(inst.id)
-        # Push an auto-highlight so the HIGHLIGHT layer is actually present.
-        tool._apply_interaction(comp_id=inst.id, pin_number=1, shift_held=False)
-        assert tool._selected_id == inst.id
-        had_highlight_before = tool._has_active_highlight()
+        # Plain LMB on inst1 → SET primary.
+        _press(tool, 1.5, 1.5)
+        assert tool._selected_id == inst1.id
+        # Ctrl+LMB on inst2 → ADD; primary moves to inst2, inst1 enters multi.
+        _ctrl_press(tool, 4.5, 4.5)
+        assert tool._selected_id == inst2.id
+        full = set(tool._selected_ids) | ({tool._selected_id} if tool._selected_id else set())
+        assert full == {inst1.id, inst2.id}
 
-        # Drive a press + release at the pin centre (no drag).
-        tool._hit_test = lambda _pt: inst.id  # type: ignore[method-assign]
-        tool._hit_test_pin_for_comp = lambda _pt, _hit: (inst.id, 1)  # type: ignore[method-assign]
-        _press(tool, 0.5, 0.5)
-        assert tool._pending_deselect_on_release is True
-        _release(tool, 0.5, 0.5)
+    def test_ctrl_shift_lmb_removes_from_selection(
+        self, board_view: BoardView, session: EditorSession,
+    ) -> None:
+        inst1 = _place_component(board_view, session, 1.5, 1.5)
+        inst2 = _place_component(board_view, session, 4.5, 4.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        _press(tool, 1.5, 1.5)
+        _ctrl_press(tool, 4.5, 4.5)
+        # Both components selected.
+        # Ctrl+Shift on inst1 (not primary) → drops it from multi.
+        _ctrl_shift_press(tool, 1.5, 1.5)
+        full = set(tool._selected_ids) | ({tool._selected_id} if tool._selected_id else set())
+        assert inst1.id not in full
+        assert inst2.id in full
 
+    def test_ctrl_shift_lmb_on_primary_drops_primary_to_none(
+        self, board_view: BoardView, session: EditorSession,
+    ) -> None:
+        inst1 = _place_component(board_view, session, 1.5, 1.5)
+        inst2 = _place_component(board_view, session, 4.5, 4.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        _press(tool, 1.5, 1.5)
+        _ctrl_press(tool, 4.5, 4.5)
+        # inst2 is now primary.
+        assert tool._selected_id == inst2.id
+        # Ctrl+Shift on primary → primary becomes None per decision 1.
+        _ctrl_shift_press(tool, 4.5, 4.5)
         assert tool._selected_id is None
-        assert tool._pending_deselect_on_release is False
-        # Highlight layer is preserved per the FSM (deselect, keep visual context).
-        if had_highlight_before:
-            assert tool._has_active_highlight() is True
+        # inst1 still in multi (it was not removed).
+        assert inst1.id in tool._selected_ids
 
-    def test_pin_lmb_then_drag_does_not_deselect(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._select_primary(inst.id)
-        tool._hit_test = lambda _pt: inst.id  # type: ignore[method-assign]
-        tool._hit_test_pin_for_comp = lambda _pt, _hit: (inst.id, 1)  # type: ignore[method-assign]
-
-        _press(tool, 0.5, 0.5)
-        assert tool._pending_deselect_on_release is True
-        # Move far enough to cross the drag threshold.
-        _move(tool, 5.0, 5.0)
-        assert tool._pending_deselect_on_release is False
-        _release(tool, 5.0, 5.0)
-
-        # Primary survives the drag — it was a move, not a click.
-        assert tool._selected_id == inst.id
-
-    def test_bbox_lmb_on_primary_pops_to_highlight(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._select_primary(inst.id)
-        tool._apply_interaction(comp_id=inst.id, pin_number=None, shift_held=False)
-
-        # bbox path: pin hit miss, bbox hit lands on primary.
-        tool._hit_test = lambda _pt: None  # type: ignore[method-assign]
-        tool._hit_test_wire = lambda _pt: None  # type: ignore[method-assign]
-        tool._hit_test_bbox = lambda _pt: inst.id  # type: ignore[method-assign]
-        _press(tool, 1.0, 1.0)
-        assert tool._pending_deselect_on_release is True
-        _release(tool, 1.0, 1.0)
-        assert tool._selected_id is None
-
-    def test_lmb_on_different_component_does_not_arm(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst_a = _place_component(board_view, session, 0.5, 0.5)
-        inst_b = _place_component(board_view, session, 2.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._select_primary(inst_a.id)
-        # Now click on inst_b — fresh primary, no pop arm.
-        tool._hit_test = lambda _pt: inst_b.id  # type: ignore[method-assign]
-        tool._hit_test_pin_for_comp = lambda _pt, _hit: (inst_b.id, 1)  # type: ignore[method-assign]
-        _press(tool, 2.5, 0.5)
-        assert tool._pending_deselect_on_release is False
-        _release(tool, 2.5, 0.5)
-        assert tool._selected_id == inst_b.id
-
-
-class TestShiftLmbFsmTransitions:
-    """Phase 2b: Shift+LMB extends / resets / collapses per FSM rules,
-    instead of the legacy "replace with relation ∩ filter" semantics."""
-
-    def test_shift_lmb_on_primary_collapses_to_highlight(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._select_primary(inst.id)
-        tool._apply_interaction(comp_id=inst.id, pin_number=1, shift_held=False)
-        assert tool._selected_id == inst.id
-
-        tool._hit_test = lambda _pt: inst.id  # type: ignore[method-assign]
-        tool._hit_test_pin_for_comp = lambda _pt, _hit: (inst.id, 1)  # type: ignore[method-assign]
-        _shift_press(tool, 0.5, 0.5)
-
-        # Shift on the primary collapses to HIGHLIGHT — primary dropped.
-        assert tool._selected_id is None
-        # Highlight entry survives.
-        assert tool._has_active_highlight() is True
-
-    def test_shift_lmb_cross_relation_resets(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        # Two components on different (no) nets → cross-relation.
-        inst_a = _place_component(board_view, session, 0.5, 0.5)
-        inst_b = _place_component(board_view, session, 5.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._select_primary(inst_a.id)
-        tool._apply_interaction(comp_id=inst_a.id, pin_number=1, shift_held=False)
-
-        tool._hit_test = lambda _pt: inst_b.id  # type: ignore[method-assign]
-        tool._hit_test_pin_for_comp = lambda _pt, _hit: (inst_b.id, 1)  # type: ignore[method-assign]
-        _shift_press(tool, 5.5, 0.5)
-
-        # Cross-relation reset — new hit becomes primary.
-        assert tool._selected_id == inst_b.id
-        # Regression guard: the relation set must end up in
-        # _selected_ids as MULTI bright-rect highlights, not just on
-        # the auto stack.  Earlier Phase 2b ordering called
-        # _select_primary AFTER populating _selected_ids, which left
-        # the multi set intact for components — but the wire-promotion
-        # path called _select_wire → _deselect_wire → wipe the multi
-        # wire set.  Symmetric reorder: promote first, populate later.
-        # Component path: hit's component should be in the multi set.
-        assert inst_b.id in tool._selected_ids
 
 
 class TestEmptyCanvasIsEsc:
@@ -1459,3 +1303,225 @@ class TestEmptyCanvasIsEsc:
         # Multi cleared; primary remains.
         assert tool._selected_ids == set()
         assert tool._selected_id == inst_a.id
+
+
+# ---------------------------------------------------------------------------
+# Phase 2c — orthogonal modifier matrix (spec rev 2)
+# ---------------------------------------------------------------------------
+
+
+class TestSelectionOpMatrix:
+    """Cover the 3 set-ops × 2 basis-scopes from spec rev 2.
+
+    Drives `_apply_selection_op` directly (no Qt hit-test geometry
+    needed).  Tests assert post-op state of `_selected_id`,
+    `_selected_ids`, `_selected_wire_id`, `_selected_wire_ids`.
+    """
+
+    def test_set_single_empty_pushes_to_selection(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._apply_selection_op(Hit("component", inst.id), BasisScope.SINGLE, SetOp.SET)
+        assert tool._selected_id == inst.id
+        assert tool._selected_ids == set()
+
+    def test_set_with_none_pops_layer(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, SetOp
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._select_primary(inst.id)
+        # SET ∅ = pop one layer
+        tool._apply_selection_op(None, BasisScope.SINGLE, SetOp.SET)
+        assert tool._selected_id is None
+
+    def test_add_with_none_is_noop(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, SetOp
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._select_primary(inst.id)
+        tool._apply_selection_op(None, BasisScope.SINGLE, SetOp.ADD)
+        assert tool._selected_id == inst.id  # unchanged
+
+    def test_remove_with_none_is_noop(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, SetOp
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._select_primary(inst.id)
+        tool._apply_selection_op(None, BasisScope.SINGLE, SetOp.REMOVE)
+        assert tool._selected_id == inst.id  # unchanged
+
+    def test_add_single_when_empty_acts_as_set(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._apply_selection_op(Hit("component", inst.id), BasisScope.SINGLE, SetOp.ADD)
+        assert tool._selected_id == inst.id
+
+    def test_add_single_grows_multi_selection(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 2.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._apply_selection_op(Hit("component", i1.id), BasisScope.SINGLE, SetOp.SET)
+        tool._apply_selection_op(Hit("component", i2.id), BasisScope.SINGLE, SetOp.ADD)
+        assert tool._selected_id == i2.id  # last hit is primary
+        assert i1.id in tool._selected_ids  # i1 stays as multi member
+
+    def test_remove_single_drops_from_multi(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 2.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._apply_selection_op(Hit("component", i1.id), BasisScope.SINGLE, SetOp.SET)
+        tool._apply_selection_op(Hit("component", i2.id), BasisScope.SINGLE, SetOp.ADD)
+        # Remove i1 (which is the non-primary multi member).
+        tool._apply_selection_op(Hit("component", i1.id), BasisScope.SINGLE, SetOp.REMOVE)
+        assert i1.id not in tool._selected_ids
+        assert i1.id != tool._selected_id
+
+    def test_set_with_same_basis_is_noop(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._select_primary(inst.id)
+        # Decision 5: same primary basis = no-op.
+        tool._apply_selection_op(Hit("component", inst.id), BasisScope.SINGLE, SetOp.SET)
+        assert tool._selected_id == inst.id
+
+    def test_set_relation_basis_includes_net_members(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
+        import uuid as _uuid
+        from protoboard.domain.schematic.net import Net, PinRef
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 3.5, 0.5)
+        net = Net(id=_uuid.uuid4(), name="N1", pins={
+            PinRef(i1.id, 1), PinRef(i2.id, 1),
+        })
+        session.schematic.nets[net.id] = net
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._apply_selection_op(Hit("component", i1.id), BasisScope.RELATION, SetOp.SET)
+        full = set(tool._selected_ids) | ({tool._selected_id} if tool._selected_id else set())
+        assert i1.id in full
+        assert i2.id in full
+
+
+class TestPrimaryAnchorRules:
+    """Decision 1 (spec rev 2): primary after SET = hit; after ADD =
+    hit; after REMOVE = None (Properties panel clears).
+    """
+
+    def test_remove_clears_primary(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._apply_selection_op(Hit("component", inst.id), BasisScope.SINGLE, SetOp.SET)
+        assert tool._selected_id == inst.id
+        tool._apply_selection_op(Hit("component", inst.id), BasisScope.SINGLE, SetOp.REMOVE)
+        assert tool._selected_id is None
+
+    def test_add_promotes_new_hit_to_primary(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 2.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._apply_selection_op(Hit("component", i1.id), BasisScope.SINGLE, SetOp.SET)
+        tool._apply_selection_op(Hit("component", i2.id), BasisScope.SINGLE, SetOp.ADD)
+        # New hit is the anchor.
+        assert tool._selected_id == i2.id
+
+
+class TestHighlightUnion:
+    """Decision 2 (spec rev 2, A.1): ADD grows the highlight union,
+    REMOVE leaves highlight untouched.
+    """
+
+    def test_set_resets_highlight_to_relation_of_hit(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
+        import uuid as _uuid
+        from protoboard.domain.schematic.net import Net, PinRef
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 3.5, 0.5)
+        net = Net(id=_uuid.uuid4(), name="N1", pins={
+            PinRef(i1.id, 1), PinRef(i2.id, 1),
+        })
+        session.schematic.nets[net.id] = net
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._apply_selection_op(Hit("component", i1.id), BasisScope.SINGLE, SetOp.SET)
+        entry = session.highlight_stack.active()
+        assert entry is not None
+        # Highlight should at least include the hit's net members.
+        assert i2.id in entry.comp_ids or i1.id in entry.comp_ids
+
+    def test_remove_keeps_highlight(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
+        import uuid as _uuid
+        from protoboard.domain.schematic.net import Net, PinRef
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 3.5, 0.5)
+        net = Net(id=_uuid.uuid4(), name="N1", pins={
+            PinRef(i1.id, 1), PinRef(i2.id, 1),
+        })
+        session.schematic.nets[net.id] = net
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._apply_selection_op(Hit("component", i1.id), BasisScope.SINGLE, SetOp.SET)
+        before = session.highlight_stack.active()
+        assert before is not None
+        comps_before = frozenset(before.comp_ids)
+        # REMOVE i1 — highlight should be unchanged (A.1).
+        tool._apply_selection_op(Hit("component", i1.id), BasisScope.SINGLE, SetOp.REMOVE)
+        after = session.highlight_stack.active()
+        assert after is not None
+        assert frozenset(after.comp_ids) == comps_before

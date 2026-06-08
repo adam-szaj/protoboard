@@ -235,10 +235,19 @@ class TestLeftClickSemantics:
 # Click semantics — Shift+LPM (relation ∩ filter)
 # ---------------------------------------------------------------------------
 
-class TestShiftLeftClickSemantics:
-    def test_shift_lpm_selects_all_net_components(
+class TestAltLeftClickSemantics:
+    """Spec rev 2: Alt+LMB sets selection to the basis = relation(hit).
+
+    Replaces the old `TestShiftLeftClickSemantics` — Shift no longer
+    has its own selection semantics; relation-scope selection moved
+    to Alt.  These tests drive the dispatcher directly so the wire
+    hit-test geometry isn't required.
+    """
+
+    def test_alt_lmb_selects_all_net_components(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
         i1 = _place(board_view, session, 0.5, 0.5)
         i2 = _place(board_view, session, 3.5, 0.5)
         from protoboard.domain.schematic.net import Net, PinRef
@@ -252,13 +261,15 @@ class TestShiftLeftClickSemantics:
         tool.set_relation(RelationClass.SAME_LOGICAL_NET)
         tool.set_filter(SelectionFilter.ALL)
         board_view.refresh()
-        tool._apply_interaction(comp_id=i1.id, pin_number=1, shift_held=True)
-        assert i1.id in tool._selected_ids
-        assert i2.id in tool._selected_ids
+        tool._apply_selection_op(Hit("component", i1.id), BasisScope.RELATION, SetOp.SET)
+        full = set(tool._selected_ids) | ({tool._selected_id} if tool._selected_id else set())
+        assert i1.id in full
+        assert i2.id in full
 
-    def test_shift_lpm_filter_excludes_wires(
+    def test_alt_lmb_filter_excludes_wires(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
         i1 = _place(board_view, session, 0.5, 0.5)
         i2 = _place(board_view, session, 3.5, 0.5)
         from protoboard.domain.schematic.net import Net, PinRef
@@ -271,10 +282,10 @@ class TestShiftLeftClickSemantics:
         tool = board_view._active_tool
         assert isinstance(tool, SelectTool)
         tool.set_relation(RelationClass.SAME_LOGICAL_NET)
-        # Filter excludes wires — Shift+LPM must not select the net's wire.
+        # Filter excludes wires — Alt+LMB must not select the net's wire.
         tool.set_filter(SelectionFilter.COMPONENTS | SelectionFilter.GROUPS)
         board_view.refresh()
-        tool._apply_interaction(comp_id=i1.id, pin_number=1, shift_held=True)
+        tool._apply_selection_op(Hit("component", i1.id), BasisScope.RELATION, SetOp.SET)
         assert wire.id not in tool._selected_wire_ids
 
 
