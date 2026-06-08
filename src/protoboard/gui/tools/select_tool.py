@@ -218,6 +218,12 @@ class SelectTool(_Tool):
         # and brush when the rubber-band actually flips orientation,
         # avoiding an unconditional setPen/setBrush per frame.
         self._rubber_band_last_lr: bool | None = None
+        # Phase 2c: which set-op the current rubber-band should apply.
+        # SET on plain LMB, ADD on Ctrl, REMOVE on Ctrl+Shift.  Alt is
+        # blocked in rubber-band (spec rev 2 decision 1).  Captured on
+        # press, consumed by _finish_rubber_band.
+        from protoboard.gui.selection_fsm import SetOp
+        self._rubber_band_op: SetOp = SetOp.SET
         # Wire selection (single — for editing).
         self._selected_wire_id: uuid.UUID | None = None
         self._wire_highlight: QGraphicsItemGroup | None = None
@@ -2965,15 +2971,25 @@ class SelectTool(_Tool):
                 self._drag_orig_wire_paths[wid] = list(w.path)
             return True
 
-        # Nothing hit — empty-canvas click is equivalent to Esc per
-        # docs/highlight-state-machine.txt.  Pop one selection layer
-        # (multi → selection → highlight → normal) instead of clearing
-        # everything; the user can still wipe the slate with two or
-        # three Esc presses.  Rubber-band still starts so a click+drag
-        # in empty space performs a marquee select.
-        _log.info("on_press.nothing_hit_rubber_band")
+        # Nothing hit — spec rev 2 empty-canvas semantics:
+        #   plain LMB / Alt+LMB → SET ∅, pops one layer
+        #   Ctrl+LMB           → ADD ∅, no-op for current set
+        #   Ctrl+Shift+LMB     → REMOVE ∅, no-op for current set
+        # Rubber-band starts unconditionally; the op captured here
+        # drives whether the rectangle-hit basis is SET / ADD / REMOVE
+        # when the user releases.  Alt is blocked in rubber-band.
+        from protoboard.gui.selection_fsm import SetOp
+        _, rb_op = self._decode_modifier_matrix(ctrl=ctrl, shift=shift, alt=False)
+        self._rubber_band_op = rb_op
+        _log.info(
+            "on_press.nothing_hit_rubber_band",
+            rb_op=rb_op.name,
+        )
         self._cancel_wire_edit()
-        self._esc_pop_one_layer()
+        if rb_op == SetOp.SET:
+            # SET ∅ on a no-drag release == pop one layer.  ADD / REMOVE
+            # are no-ops on empty so we skip the pop preemptively.
+            self._esc_pop_one_layer()
         self._rubber_band_start = scene_pt
         return True
 
@@ -6358,18 +6374,56 @@ class SelectTool(_Tool):
                 ):
                     selected_wires.add(wire.id)
 
-        if selected or selected_wires:
-            _log.debug("selection.rubber_band",
-                       mode="ltr" if left_to_right else "rtl",
-                       components=len(selected), wires=len(selected_wires))
-            self._selected_ids = selected
-            self._redraw_multi_highlights()
-            self._selected_wire_ids = selected_wires
-            self._redraw_multi_wire_highlights()
-            if selected:
-                self._select_primary(next(iter(selected)))
-            else:
-                self._notify_selection()
+        from protoboard.gui.selection_fsm import Hit, SetOp
+
+        rb_op = self._rubber_band_op
+        # Reset to default so the next rubber-band starts clean.
+        self._rubber_band_op = SetOp.SET
+
+        _log.info(
+            "selection.rubber_band",
+            mode="ltr" if left_to_right else "rtl",
+            components=len(selected), wires=len(selected_wires),
+            op=rb_op.name,
+        )
+        if not selected and not selected_wires:
+            # Empty basis — ADD/REMOVE are no-ops, SET pops one layer
+            # (already done preemptively on press).  Nothing to do.
+            return
+
+        # Pick one of the basis members as the new primary anchor so
+        # Properties panel + drag-arm have a target.  Components win
+        # over wires (consistent with legacy single-select primary
+        # preference).
+        anchor: Hit | None = None
+        if selected:
+            anchor = Hit("component", next(iter(selected)))
+        elif selected_wires:
+            anchor = Hit("wire", next(iter(selected_wires)))
+
+        if rb_op == SetOp.SET:
+            self._set_selection(selected, selected_wires, new_primary=anchor)
+        elif rb_op == SetOp.ADD:
+            self._add_to_selection(selected, selected_wires, new_primary=anchor)
+        elif rb_op == SetOp.REMOVE:
+            self._remove_from_selection(selected, selected_wires)
+            return
+
+        # Rubber-band convention: the primary is also a multi-set
+        # member so drag-arm sees the full set in `_selected_ids` /
+        # `_selected_wire_ids`.  Legacy callers (drag, properties
+        # panel) expect this; the single-click dispatcher skips the
+        # primary out of multi to avoid double-render, so we restore
+        # it here only for rubber-band.
+        if anchor is not None:
+            if anchor.kind == "component" and isinstance(anchor.id, uuid.UUID):
+                if anchor.id not in self._selected_ids:
+                    self._selected_ids.add(anchor.id)
+                    self._draw_multi_highlight(anchor.id)
+            elif anchor.kind == "wire" and isinstance(anchor.id, uuid.UUID):
+                if anchor.id not in self._selected_wire_ids:
+                    self._selected_wire_ids.add(anchor.id)
+                    self._draw_multi_wire_highlight(anchor.id)
 
     def _clear_rubber_band(self) -> None:
         # Stop pending throttle ticks first — a tick firing after the
