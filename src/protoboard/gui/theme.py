@@ -64,6 +64,12 @@ class Theme:
 
     ratsnest_color: str = "#FFF6D32D"   # #AARRGGBB
     ratsnest_width: float = 0.08
+    # Ratsnest line colour used when a net's pins are all connected
+    # internally but the net is split across multiple physically
+    # disconnected electrical islands (e.g. two routed sub-nets that
+    # were never joined).  Different colour highlights the layout
+    # error vs. plain "yet to be routed".
+    ratsnest_islands_color: str = "#FFA347BA"  # purple — "attention"
 
     # ── Components ───────────────────────────────────────────────────────────
     comp_fill_color: str = "#FF8FF0A4"  # #AARRGGBB

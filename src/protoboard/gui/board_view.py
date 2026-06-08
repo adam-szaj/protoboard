@@ -91,6 +91,12 @@ class BoardView(QGraphicsView):
         # runtime and invalidates cached pixmaps.
         self._antialiasing: bool = True
         self.setRenderHint(QPainter.RenderHint.Antialiasing, self._antialiasing)
+        # Connections (ratsnest) layer render mode — mirrors
+        # ``AppSettings.ratsnest_mode``.  "full" = K_n graph per island;
+        # "closest" = nearest-other-pin per pin.  MainWindow pushes
+        # changes via ``set_ratsnest_mode`` so the dialog edit lands
+        # without a full session reload.
+        self._ratsnest_mode: str = "full"
         # DontSavePainterState avoids QPainter.save()/restore() around every
         # item — meaningful at 14k items per paint.  Items in this app set
         # their own pen/brush per draw, so the saved state was unused anyway.
@@ -289,6 +295,15 @@ class BoardView(QGraphicsView):
         zoom_refresh_ms = max(0, int(zoom_refresh_ms))
         self._rubber_band_throttle_ms = rubber_band_ms
         self._label_vis_timer.setInterval(zoom_refresh_ms)
+
+    def set_ratsnest_mode(self, mode: str) -> None:
+        """Switch the Connections layer between ``"full"`` (K_n graph)
+        and ``"closest"`` (nearest-other-pin) line modes.  No-op when
+        the mode is already active; otherwise refresh the overlay."""
+        if mode not in ("full", "closest") or mode == self._ratsnest_mode:
+            return
+        self._ratsnest_mode = mode
+        self.refresh()
 
     def set_antialiasing(self, enabled: bool) -> None:
         """Toggle Antialiasing render hint and rebuild raster caches.
@@ -1116,8 +1131,14 @@ class BoardView(QGraphicsView):
         # ── Overlays (always recreated — fast, few items) ────────────────────
         new_overlays: list[object] = []
         from protoboard.gui.layer_state import LayerVisibility
+        ratsnest_vis = self._layer_overrides.ratsnest
         if (self._session.schematic.nets
-                and self._layer_overrides.ratsnest != LayerVisibility.HIDDEN):
+                and ratsnest_vis != LayerVisibility.HIDDEN):
+            # Ghost mode: only unrouted nets are drawn (current
+            # legacy behaviour).  Full mode: every net gets at least
+            # its missing-link or multi-island warning lines.
+            ghost_mode = (ratsnest_vis == LayerVisibility.GHOST)
+            rmode = self._ratsnest_mode
             new_overlays.extend(render_ratsnest(
                 self._scene,
                 self._session.schematic,
@@ -1126,6 +1147,9 @@ class BoardView(QGraphicsView):
                 self._session.components,
                 routed_nets=routed,
                 theme=_theme,
+                graph=self._session.connectivity_graph(),
+                mode=rmode,
+                ghost=ghost_mode,
             ))
         if self._session.layout.groups:
             new_overlays.extend(render_groups(

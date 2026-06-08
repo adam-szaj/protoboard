@@ -275,6 +275,7 @@ class _ColorsPage(QWidget):
             ("ins_width",           "Insulated wire fill width",      theme.ins_width),
             ("ins_outline_width",   "Insulated wire outline width",   theme.ins_outline_width),
             ("ratsnest_color",      "Ratsnest colour",                theme.ratsnest_color),
+            ("ratsnest_islands_color", "Ratsnest colour (multi-island warning)", theme.ratsnest_islands_color),
         ])
 
         # net_colors palette (8 entries)
@@ -572,6 +573,39 @@ class _PathsPage(QWidget):
         render_layout.addWidget(self._antialiasing_cb)
         vbox.addWidget(render_grp)
 
+        # Connections layer (ratsnest) — line-mode selector.  Full draws
+        # every pair within an unrouted net (K_n graph); Closest draws
+        # only each pin → nearest other pin.  Multi-island nets always
+        # use the "ratsnest_islands_color" warning colour from the theme
+        # regardless of this setting.
+        from PySide6.QtWidgets import QButtonGroup, QRadioButton
+        conn_grp = QGroupBox("Connections layer (ratsnest)")
+        conn_layout = QVBoxLayout(conn_grp)
+        self._ratsnest_mode_group = QButtonGroup(conn_grp)
+        self._ratsnest_full_rb = QRadioButton(
+            "Full — all pin pairs in a net (K_n graph)"
+        )
+        self._ratsnest_full_rb.setToolTip(
+            "Draw a line between every pair of pins in a net.  Maximum "
+            "information; can look busy on dense designs."
+        )
+        self._ratsnest_closest_rb = QRadioButton(
+            "Closest — each pin to its nearest neighbour"
+        )
+        self._ratsnest_closest_rb.setToolTip(
+            "Draw one line per pin to its closest other pin in the same "
+            "net.  Less clutter; doesn't show every missing pair."
+        )
+        self._ratsnest_mode_group.addButton(self._ratsnest_full_rb)
+        self._ratsnest_mode_group.addButton(self._ratsnest_closest_rb)
+        if settings.ratsnest_mode == "closest":
+            self._ratsnest_closest_rb.setChecked(True)
+        else:
+            self._ratsnest_full_rb.setChecked(True)
+        conn_layout.addWidget(self._ratsnest_full_rb)
+        conn_layout.addWidget(self._ratsnest_closest_rb)
+        vbox.addWidget(conn_grp)
+
         vbox.addStretch()
 
         self._default_projects_dir: Path | None = settings.default_projects_dir
@@ -585,6 +619,9 @@ class _PathsPage(QWidget):
         self._settings.rubber_band_throttle_ms = self._rubber_ms.value()
         self._settings.zoom_refresh_ms = self._zoom_ms.value()
         self._settings.antialiasing = self._antialiasing_cb.isChecked()
+        self._settings.ratsnest_mode = (
+            "closest" if self._ratsnest_closest_rb.isChecked() else "full"
+        )
         save_app_settings(self._settings)
 
     def _pick_projects_dir(self) -> None:

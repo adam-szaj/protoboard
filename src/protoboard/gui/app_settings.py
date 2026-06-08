@@ -69,6 +69,12 @@ class AppSettings:
     drag_stationary_group_wire_conflict: str = "ask-remove"
     drag_cross_group_disconnect: str = "ask-reroute"
     drag_default_lock_internal_wires: bool = False
+    # Connections (ratsnest) layer render mode.  "full" draws every pair
+    # in a net (K_n graph) so the user sees every missing link; "closest"
+    # draws just the nearest-other-pin per pin which keeps the overlay
+    # readable on dense designs.  Multi-island nets always use the
+    # ``ratsnest_islands_color`` from Theme regardless of mode.
+    ratsnest_mode: str = "full"  # "full" | "closest"
 
 
 def load_app_settings() -> AppSettings:
@@ -114,6 +120,9 @@ def load_app_settings() -> AppSettings:
             aa = render.get("antialiasing")
             if isinstance(aa, bool):
                 s.antialiasing = aa
+            rmode = render.get("ratsnest_mode")
+            if isinstance(rmode, str) and rmode in ("full", "closest"):
+                s.ratsnest_mode = rmode
         drag = data.get("drag")
         if isinstance(drag, dict):
             for yaml_key, attr_name in (
@@ -173,6 +182,7 @@ def save_app_settings(settings: AppSettings) -> None:
         }
         data["render"] = {
             "antialiasing": settings.antialiasing,
+            "ratsnest_mode": settings.ratsnest_mode,
         }
         data["drag"] = {
             "free_wire_conflict": settings.drag_free_wire_conflict,

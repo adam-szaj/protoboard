@@ -577,35 +577,257 @@ def render_ratsnest(
     components: dict[str, ComponentDefinition],
     routed_nets: set[uuid.UUID] | None,
     theme: Theme = DEFAULT_THEME,
+    *,
+    graph: "object | None" = None,
+    mode: str = "full",
+    ghost: bool = False,
 ) -> list[QGraphicsLineItem]:
-    """Draw crow-flies lines for unrouted pin pairs in incomplete nets.
+    """Render the Connections (ratsnest) overlay.
 
-    Returns the list of added items so the caller can track and remove them.
+    Args:
+        scene: target scene; lines are added with ``scene.addItem``.
+        schematic, placements, instances, components: standard render
+            inputs (pin world positions are derived from these).
+        routed_nets: net ids considered "fully routed" — used only to
+            gate Ghost mode (Ghost skips them, Full does not).  Pass
+            None to draw nothing (caller signalled the overlay is off).
+        theme: source of ``ratsnest_color`` and ``ratsnest_islands_color``.
+        graph: optional ``ConnectivityGraph``; required for **island
+            detection**.  When None, every unrouted net is treated as a
+            single bag of pins (legacy behaviour).
+        mode: ``"full"`` draws all pairs (K_n) inside each "to connect"
+            point set; ``"closest"`` draws each pin to its nearest other
+            pin only.  Multi-island nets use the same mode but
+            inter-island, picking the nearest knot pair between each
+            island pair.
+        ghost: when True, only unrouted nets are drawn (current Ghost
+            mode semantics).  When False (Full mode), every net is
+            drawn — even fully routed ones still get island-warning
+            lines if their electrical sets are split.
+
+    Returns the list of added QGraphicsLineItems so the caller can
+    remove them on the next refresh.
     """
     if routed_nets is None:
         return []
 
-    color = QColor(theme.ratsnest_color)
-    pen = QPen(color, theme.ratsnest_width)
-    pen.setStyle(Qt.PenStyle.DotLine)
-    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    base_color = QColor(theme.ratsnest_color)
+    base_pen = QPen(base_color, theme.ratsnest_width)
+    base_pen.setStyle(Qt.PenStyle.DotLine)
+    base_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
 
+    islands_color = QColor(theme.ratsnest_islands_color)
+    islands_pen = QPen(islands_color, theme.ratsnest_width)
+    islands_pen.setStyle(Qt.PenStyle.DotLine)
+    islands_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+
+    use_closest = (mode == "closest")
     added: list[QGraphicsLineItem] = []
     for net in schematic.nets.values():
-        if net.id in routed_nets:
+        net_routed = net.id in routed_nets
+        if ghost and net_routed:
+            # Ghost mode hides anything that's already a single
+            # electrical set.  Multi-island nets stay visible because
+            # ``net_is_complete`` already marked them as unrouted.
             continue
-        pin_positions = _placed_pin_positions(
-            net.pins, placements, instances, components
+
+        # Partition this net's pin positions by electric set.  When no
+        # graph is supplied the whole net is one "island" — keeps the
+        # function usable from tests / save-as-svg paths.
+        islands = _pin_islands_for_net(
+            net.pins, placements, instances, components, graph,
         )
-        if len(pin_positions) < 2:
+        # Strip empty islands (pins not yet placed) — happens whenever
+        # a schematic references a component still floating in the
+        # library panel.
+        islands = [isl for isl in islands if isl]
+        if not islands:
             continue
-        for i in range(len(pin_positions) - 1):
-            a, b = pin_positions[i], pin_positions[i + 1]
-            line = QGraphicsLineItem(a.x, a.y, b.x, b.y)
-            line.setPen(pen)
-            scene.addItem(line)
-            added.append(line)
+
+        if len(islands) == 1:
+            # Plain "to be routed" net.  In Full mode we still want to
+            # show the missing links; in Ghost mode we only got here
+            # because the net is unrouted.
+            pen = base_pen
+            for line in _lines_within_island(islands[0], use_closest):
+                a, b = line
+                item = QGraphicsLineItem(a.x, a.y, b.x, b.y)
+                item.setPen(pen)
+                scene.addItem(item)
+                added.append(item)
+            continue
+
+        # Multi-island: at least one electrical set per net pair needs
+        # an inter-island connection.  Use the islands warning colour
+        # regardless of mode.
+        pen = islands_pen
+        for line in _lines_between_islands(islands, use_closest):
+            a, b = line
+            item = QGraphicsLineItem(a.x, a.y, b.x, b.y)
+            item.setPen(pen)
+            scene.addItem(item)
+            added.append(item)
     return added
+
+
+def _pin_islands_for_net(
+    pins: "set[PinRef]",
+    placements: dict[uuid.UUID, ComponentPlacement],
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+    graph: "object | None",
+) -> list[list[Point]]:
+    """Partition the net's placed pin positions by electric set.
+
+    Returns a list of pin-position lists, one per electric set.  Pins
+    whose component is not placed (no entry in ``placements``) are
+    dropped.  Without ``graph`` the whole net is returned as a single
+    list — legacy single-island behaviour.
+    """
+    if graph is None:
+        return [_placed_pin_positions(pins, placements, instances, components)]
+
+    node_for_pin = getattr(graph, "node_for_pin", None)
+    if node_for_pin is None:
+        return [_placed_pin_positions(pins, placements, instances, components)]
+
+    by_island: dict[object, list[Point]] = {}
+    unassigned: list[Point] = []
+    for ref in pins:
+        pl = placements.get(ref.component_id)
+        inst = instances.get(ref.component_id)
+        if pl is None or inst is None:
+            continue
+        defn = components.get(inst.definition_ref)
+        if defn is None or ref.pin_number > defn.pin_count:
+            continue
+        pos = pin_world_position(defn.footprint, pl, ref.pin_number)
+        node = node_for_pin(ref)
+        if node is None:
+            unassigned.append(pos)
+        else:
+            by_island.setdefault(node, []).append(pos)
+    result: list[list[Point]] = list(by_island.values())
+    if unassigned:
+        # Each pad outside the connectivity graph becomes its own
+        # singleton island so the inter-island pass still links it up.
+        result.extend([p] for p in unassigned)
+    return result
+
+
+def _lines_within_island(
+    points: list[Point], use_closest: bool,
+) -> list[tuple[Point, Point]]:
+    """Lines drawn *inside* a single island — only used when the net is
+    not yet routed (1 island, missing links).
+
+    ``use_closest`` switches between K_n graph (every pair) and the
+    nearest-other-pin rule (one line per pin to its closest neighbour;
+    deduped so the same pair isn't drawn twice).
+    """
+    n = len(points)
+    if n < 2:
+        return []
+    if not use_closest:
+        return [
+            (points[i], points[j])
+            for i in range(n)
+            for j in range(i + 1, n)
+        ]
+    drawn: set[tuple[int, int]] = set()
+    lines: list[tuple[Point, Point]] = []
+    for i in range(n):
+        best_j: int | None = None
+        best_d2: float = float("inf")
+        for j in range(n):
+            if j == i:
+                continue
+            d2 = _dist_sq(points[i], points[j])
+            if d2 < best_d2:
+                best_d2 = d2
+                best_j = j
+        if best_j is None:
+            continue
+        pair = (min(i, best_j), max(i, best_j))
+        if pair in drawn:
+            continue
+        drawn.add(pair)
+        lines.append((points[i], points[best_j]))
+    return lines
+
+
+def _lines_between_islands(
+    islands: list[list[Point]], use_closest: bool,
+) -> list[tuple[Point, Point]]:
+    """Lines connecting multiple electrical islands of the same net.
+
+    For each island pair, find the closest cross-island knot pair and
+    draw one line.  In ``"full"`` mode we connect every island pair
+    (still a K_n in island-space, but with at most one line per pair,
+    not one per pin pair).  In ``"closest"`` mode we connect each
+    island only to its single nearest neighbour island, also collapsed
+    by the pair-dedup so the result is a forest, not a multigraph.
+    """
+    k = len(islands)
+    if k < 2:
+        return []
+    if not use_closest:
+        lines: list[tuple[Point, Point]] = []
+        for i in range(k):
+            for j in range(i + 1, k):
+                pair = _closest_cross_pair(islands[i], islands[j])
+                if pair is not None:
+                    lines.append(pair)
+        return lines
+
+    drawn: set[tuple[int, int]] = set()
+    lines = []
+    for i in range(k):
+        best_j: int | None = None
+        best_d2: float = float("inf")
+        best_pair: tuple[Point, Point] | None = None
+        for j in range(k):
+            if j == i:
+                continue
+            pair = _closest_cross_pair(islands[i], islands[j])
+            if pair is None:
+                continue
+            d2 = _dist_sq(pair[0], pair[1])
+            if d2 < best_d2:
+                best_d2 = d2
+                best_j = j
+                best_pair = pair
+        if best_j is None or best_pair is None:
+            continue
+        key = (min(i, best_j), max(i, best_j))
+        if key in drawn:
+            continue
+        drawn.add(key)
+        lines.append(best_pair)
+    return lines
+
+
+def _closest_cross_pair(
+    a: list[Point], b: list[Point],
+) -> tuple[Point, Point] | None:
+    """Return the closest (pa, pb) where pa ∈ a, pb ∈ b."""
+    if not a or not b:
+        return None
+    best: tuple[Point, Point] | None = None
+    best_d2: float = float("inf")
+    for pa in a:
+        for pb in b:
+            d2 = _dist_sq(pa, pb)
+            if d2 < best_d2:
+                best_d2 = d2
+                best = (pa, pb)
+    return best
+
+
+def _dist_sq(a: Point, b: Point) -> float:
+    dx = a.x - b.x
+    dy = a.y - b.y
+    return dx * dx + dy * dy
 
 
 def _placed_pin_positions(
