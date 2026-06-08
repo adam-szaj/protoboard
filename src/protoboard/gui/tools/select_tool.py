@@ -5620,18 +5620,43 @@ class SelectTool(_Tool):
         # Shared helper with placement_conflict.classify_drag_commit.
         from protoboard.gui.placement_conflict import _build_drag_pad_index
         _drag_idx = _build_drag_pad_index(self._session)
-        result = check_group_move_conflicts(
-            moved_ids=drag_ids,
-            active_group_id=active_gid,
-            layout_placements=self._session.layout.placements,
-            layout_wires=self._session.layout.wires,
-            layout_groups=self._session.layout.groups,
-            instances=self._session.instances,
-            components=self._session.components,
-            schematic=self._session.schematic,
-            moved_wire_ids=set(self._drag_orig_wire_paths.keys()),
-            pad_index=_drag_idx,
-        )
+        # Phase 3: when `_active_drag_set` carries multiple groups (or
+        # is mixed free+group), prefer `check_multi_group_move_conflicts`
+        # so intra-drag-set collisions are SOFT per spec rev 3 dec 4.
+        # Falls back to single-group call when only one group / no
+        # DragSet captured (keeps legacy long-press path untouched).
+        if (
+            self._active_drag_set is not None
+            and len(self._active_drag_set.groups) > 1
+        ):
+            from protoboard.domain.layout.pad_conflict import (
+                check_multi_group_move_conflicts,
+            )
+            result = check_multi_group_move_conflicts(
+                drag_set=self._active_drag_set,
+                active_group_id=active_gid,
+                layout_placements=self._session.layout.placements,
+                layout_wires=self._session.layout.wires,
+                layout_groups=self._session.layout.groups,
+                instances=self._session.instances,
+                components=self._session.components,
+                schematic=self._session.schematic,
+                moved_wire_ids=set(self._drag_orig_wire_paths.keys()),
+                pad_index=_drag_idx,
+            )
+        else:
+            result = check_group_move_conflicts(
+                moved_ids=drag_ids,
+                active_group_id=active_gid,
+                layout_placements=self._session.layout.placements,
+                layout_wires=self._session.layout.wires,
+                layout_groups=self._session.layout.groups,
+                instances=self._session.instances,
+                components=self._session.components,
+                schematic=self._session.schematic,
+                moved_wire_ids=set(self._drag_orig_wire_paths.keys()),
+                pad_index=_drag_idx,
+            )
         # check_group_move_conflicts only knows about pad-on-pad
         # collisions and wires *crossing* pads after the move.  It does
         # NOT cover pin-on-wire conflicts (rule 6 strict: a pin landing

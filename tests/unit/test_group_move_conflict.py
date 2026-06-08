@@ -367,3 +367,155 @@ class TestCheckGroupMoveConflictsPadIndex:
             pad_index=idx,
         )
         assert via_idx.severity == MoveConflictSeverity.CLEAR
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — multi-group / mixed-drag conflict scenarios (spec rev 3 dec 4)
+# ---------------------------------------------------------------------------
+
+
+class TestMultiGroupMoveConflicts:
+    """Spec rev 3 decision 4 says intra-drag-set collisions are SOFT —
+    anything inside the moving DragSet is "the user's stuff" and a
+    pad-pad overlap between two of its members must not block.
+
+    These tests drive `check_multi_group_move_conflicts(drag_set, ...)`
+    directly (the new Phase 3 wrapper).  Compat with the legacy
+    single-group function is preserved separately by
+    TestCheckGroupMoveConflicts above.
+    """
+
+    def test_two_free_components_in_drag_set_collide_is_clear(
+        self,
+    ) -> None:
+        """Two free top-level components moving together that happen
+        to coincide after the move — both in DragSet → CLEAR (intra-
+        drag-set SOFT, no block)."""
+        from protoboard.domain.layout.pad_conflict import (
+            check_multi_group_move_conflicts,
+        )
+        from protoboard.gui.drag_set import DragSet
+
+        net_a, net_b = uuid.uuid4(), uuid.uuid4()
+        defn = _defn("A")
+        inst_a = _inst(defn)
+        inst_b = _inst(defn)
+        # Both end up at the same position post-drag (worst case).
+        pl_a = _pl(inst_a.id, 3.0, 0.0)
+        pl_b = _pl(inst_b.id, 3.0, 0.0)
+        groups = _root_group(inst_a.id, inst_b.id)
+        sch = _schematic(
+            (net_a, [(inst_a.id, 1)]),
+            (net_b, [(inst_b.id, 1)]),
+        )
+        drag_set = DragSet(
+            free_components=frozenset({inst_a.id, inst_b.id}),
+        )
+
+        result = check_multi_group_move_conflicts(
+            drag_set=drag_set,
+            active_group_id=ROOT_GID,
+            layout_placements={inst_a.id: pl_a, inst_b.id: pl_b},
+            layout_wires=[],
+            layout_groups=groups,  # type: ignore[arg-type]
+            instances={inst_a.id: inst_a, inst_b.id: inst_b},
+            components={"A": defn},
+            schematic=sch,
+        )
+        # Both members are in drag_set → pad-pad SKIP, result CLEAR.
+        assert result.severity == MoveConflictSeverity.CLEAR
+
+    def test_drag_set_member_collides_with_static_component_blocks(
+        self,
+    ) -> None:
+        """A DragSet member landing on a *static* (non-moved) pad → BLOCKED."""
+        from protoboard.domain.layout.pad_conflict import (
+            check_multi_group_move_conflicts,
+        )
+        from protoboard.gui.drag_set import DragSet
+
+        net_a, net_b = uuid.uuid4(), uuid.uuid4()
+        defn = _defn("A")
+        inst_drag = _inst(defn)
+        inst_static = _inst(defn)
+        pl_drag = _pl(inst_drag.id, 3.0, 0.0)   # post-drag position
+        pl_static = _pl(inst_static.id, 3.0, 0.0)  # not moving, same pad
+        groups = _root_group(inst_drag.id, inst_static.id)
+        sch = _schematic(
+            (net_a, [(inst_drag.id, 1)]),
+            (net_b, [(inst_static.id, 1)]),
+        )
+        drag_set = DragSet(
+            free_components=frozenset({inst_drag.id}),  # static NOT in drag
+        )
+
+        result = check_multi_group_move_conflicts(
+            drag_set=drag_set,
+            active_group_id=ROOT_GID,
+            layout_placements={inst_drag.id: pl_drag, inst_static.id: pl_static},
+            layout_wires=[],
+            layout_groups=groups,  # type: ignore[arg-type]
+            instances={inst_drag.id: inst_drag, inst_static.id: inst_static},
+            components={"A": defn},
+            schematic=sch,
+        )
+        assert result.severity == MoveConflictSeverity.BLOCKED
+
+    def test_empty_drag_set_is_clear(self) -> None:
+        """Empty DragSet → CLEAR (nothing to move, no conflicts possible)."""
+        from protoboard.domain.layout.pad_conflict import (
+            check_multi_group_move_conflicts,
+        )
+        from protoboard.gui.drag_set import DragSet
+
+        groups = _root_group()
+        result = check_multi_group_move_conflicts(
+            drag_set=DragSet(),
+            active_group_id=ROOT_GID,
+            layout_placements={},
+            layout_wires=[],
+            layout_groups=groups,  # type: ignore[arg-type]
+            instances={},
+            components={},
+            schematic=_schematic(),
+        )
+        assert result.severity == MoveConflictSeverity.CLEAR
+
+    def test_single_group_through_multi_wrapper_matches_legacy(self) -> None:
+        """Multi-group wrapper applied to a single-group DragSet must
+        give identical result to the legacy single-group call."""
+        from protoboard.domain.layout.pad_conflict import (
+            check_multi_group_move_conflicts,
+        )
+        from protoboard.gui.drag_set import DragSet
+
+        defn = _defn("A")
+        inst = _inst(defn)
+        pl = _pl(inst.id, 0.0, 0.0)
+        groups = _root_group(inst.id)
+
+        # Legacy single-group call.
+        legacy = check_group_move_conflicts(
+            moved_ids={inst.id},
+            active_group_id=ROOT_GID,
+            layout_placements={inst.id: pl},
+            layout_wires=[],
+            layout_groups=groups,
+            instances={inst.id: inst},
+            components={defn.name: defn},
+            schematic=_schematic(),
+        )
+
+        # New multi-group call wrapping a DragSet with one free comp.
+        drag_set = DragSet(free_components=frozenset({inst.id}))
+        new = check_multi_group_move_conflicts(
+            drag_set=drag_set,
+            active_group_id=ROOT_GID,
+            layout_placements={inst.id: pl},
+            layout_wires=[],
+            layout_groups=groups,  # type: ignore[arg-type]
+            instances={inst.id: inst},
+            components={defn.name: defn},
+            schematic=_schematic(),
+        )
+        assert legacy.severity == new.severity

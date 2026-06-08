@@ -591,6 +591,7 @@ def check_group_move_conflicts(
     schematic: Schematic,
     moved_wire_ids: set[uuid.UUID] | None = None,
     pad_index: "PadIndex | None" = None,
+    extra_protected_group_ids: "set[uuid.UUID] | None" = None,
 ) -> MoveConflictResult:
     """Classify conflicts that arise when *moved_ids* are at their current (post-drag) positions.
 
@@ -607,6 +608,15 @@ def check_group_move_conflicts(
     find_wires_crossing_pads calls.  When None — the default — the
     legacy from-layout path is used, which already operates on the
     post-move *layout_placements* dict the caller passed in.
+
+    *extra_protected_group_ids* (Phase 3): additional group IDs whose
+    sub-groups should be treated as protected monoliths (their internal
+    wires are HARD-blocking just like the *active_group_id*'s subgroups
+    would be).  Used by :func:`check_multi_group_move_conflicts` for
+    drag sets that move several groups atomically — each group in the
+    drag set contributes its own subgroup-bbox set so an intra-drag-set
+    wire crossing still hard-blocks when it cuts through a moving
+    subgroup's interior.  ``None`` preserves single-group semantics.
     """
     from protoboard.domain.layout.group import ComponentGroup, all_component_ids
 
@@ -669,6 +679,24 @@ def check_group_move_conflicts(
             pad_index=pad_index,
         )
         for c in conflicts:
+            # Phase 3 (spec rev 3 dec 4): intra-drag-set collisions are
+            # SOFT — when two drag-set members happen to land on the
+            # same pad they're "the user's stuff" moving together;
+            # `find_conflicts` doesn't know about the wider moved_ids
+            # set so we filter here.  Wire conflicts (existing_comp_id
+            # == UUID(int=0)) are unaffected — they're handled by the
+            # wire-crossing pass below.
+            if (
+                c.existing_comp_id != uuid.UUID(int=0)
+                and c.existing_comp_id in moved_ids
+            ):
+                _log.debug(
+                    "group_move.intra_drag_set_skip",
+                    comp_id=str(comp_id)[:8],
+                    other=str(c.existing_comp_id)[:8],
+                    pos=(c.position.x, c.position.y),
+                )
+                continue
             _log.debug("group_move.pad_conflict",
                        comp_id=str(comp_id),
                        kind=c.kind.value,
@@ -725,25 +753,33 @@ def check_group_move_conflicts(
         )
 
     # --- 3. Classify each crossing wire ---
-    # Collect subgroup component IDs (direct child groups of active group).
-    active_group = layout_groups.get(active_group_id)
+    # Collect subgroup component IDs (direct child groups of active group +
+    # any extra protected groups passed by the multi-group caller).
+    protected_parent_gids: set[uuid.UUID] = {active_group_id}
+    if extra_protected_group_ids:
+        protected_parent_gids |= extra_protected_group_ids
+
     subgroup_comp_ids: set[uuid.UUID] = set()
-    if isinstance(active_group, ComponentGroup):
-        for child_gid in active_group.child_group_ids:
-            subgroup_comp_ids |= set(all_component_ids(
+    subgroup_bboxes: list[tuple[float, float, float, float]] = []
+    for parent_gid in protected_parent_gids:
+        parent_group = layout_groups.get(parent_gid)
+        if not isinstance(parent_group, ComponentGroup):
+            continue
+        for child_gid in parent_group.child_group_ids:
+            child_ids = all_component_ids(
                 layout_groups,  # type: ignore[arg-type]
                 child_gid,
-            ))
-
-    # Build bboxes for subgroups to identify internal wires.
-    subgroup_bboxes: list[tuple[float, float, float, float]] = []
-    if isinstance(active_group, ComponentGroup):
-        for child_gid in active_group.child_group_ids:
-            child_ids = all_component_ids(layout_groups, child_gid)  # type: ignore[arg-type]
+            )
+            subgroup_comp_ids |= set(child_ids)
             bbox = _compute_bbox(child_ids, layout_placements, instances, components)
             if bbox is not None:
                 subgroup_bboxes.append(bbox)
-    _log.debug("group_move.subgroup_bboxes", count=len(subgroup_bboxes), bboxes=subgroup_bboxes)
+    _log.debug(
+        "group_move.subgroup_bboxes",
+        count=len(subgroup_bboxes),
+        bboxes=subgroup_bboxes,
+        protected_parents=[str(g)[:8] for g in protected_parent_gids],
+    )
 
     for wire_id in crossing_ids:
         wire = next((w for w in layout_wires if w.id == wire_id), None)
@@ -780,6 +816,77 @@ def check_group_move_conflicts(
         severity=MoveConflictSeverity.CLEAR,
         blocking_pad_positions=[],
         removable_wire_ids=[],
+    )
+
+
+def check_multi_group_move_conflicts(
+    drag_set: "object",  # protoboard.gui.drag_set.DragSet
+    active_group_id: uuid.UUID,
+    layout_placements: dict[uuid.UUID, ComponentPlacement],
+    layout_wires: list[Wire],
+    layout_groups: dict[uuid.UUID, object],
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+    schematic: Schematic,
+    moved_wire_ids: set[uuid.UUID] | None = None,
+    pad_index: "PadIndex | None" = None,
+) -> MoveConflictResult:
+    """Multi-group / mixed-drag conflict classifier (Phase 3, spec rev 3).
+
+    A *drag_set* may move several groups + free top-level components +
+    explicit wires atomically by one delta.  Spec-rev-3 decision 4
+    says intra-drag-set collisions are SOFT — anything inside the
+    moving set is "the user's stuff" so a pad-pad overlap between
+    two elements both in the drag is not a hard block.  Wires
+    crossing into a moving subgroup's interior remain HARD-blocked
+    (subgroup is still a sealed monolith).
+
+    Implementation: delegates to :func:`check_group_move_conflicts`
+    with ``moved_ids = drag_set.all_component_ids(layout_groups)`` and
+    ``extra_protected_group_ids = drag_set.groups - {active_group_id}``.
+    The inner function already skips fellow-moved components in its
+    pad-pad pass (line ``if other_id in moved_ids: continue``), so
+    SOFT-intra is automatic once every drag-set member appears in
+    ``moved_ids``.
+
+    Args:
+        drag_set: :class:`protoboard.gui.drag_set.DragSet` — the
+            structured snapshot built at press time.  Typed as
+            ``object`` here to keep the domain module Qt-free.
+        active_group_id: The user's current group context (root or a
+            sub-group entered via long-press 1 s).  Its child groups
+            stay protected.
+        Other args: same as :func:`check_group_move_conflicts`.
+    """
+    # Resolve flat moved_ids from the DragSet.
+    moved_ids: set[uuid.UUID] = set(
+        drag_set.all_component_ids(layout_groups)  # type: ignore[attr-defined]
+    )
+
+    extra_groups: set[uuid.UUID] = (
+        set(drag_set.groups) - {active_group_id}  # type: ignore[attr-defined]
+    )
+
+    _log.debug(
+        "multi_group_move.check.start",
+        n_moved=len(moved_ids),
+        active_group_id=str(active_group_id)[:8],
+        drag_set_groups=[str(g)[:8] for g in drag_set.groups],  # type: ignore[attr-defined]
+        extra_groups=[str(g)[:8] for g in extra_groups],
+    )
+
+    return check_group_move_conflicts(
+        moved_ids=moved_ids,
+        active_group_id=active_group_id,
+        layout_placements=layout_placements,
+        layout_wires=layout_wires,
+        layout_groups=layout_groups,
+        instances=instances,
+        components=components,
+        schematic=schematic,
+        moved_wire_ids=moved_wire_ids,
+        pad_index=pad_index,
+        extra_protected_group_ids=extra_groups if extra_groups else None,
     )
 
 
