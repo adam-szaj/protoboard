@@ -784,6 +784,14 @@ class SelectTool(_Tool):
             comp_id=comp_id,
             pin_number=pin_number,
         )
+        # Promote the freshly-hit object to primary FIRST — _select_wire
+        # calls _deselect_wire → _clear_multi_wire_selection, which would
+        # wipe a just-populated multi set if we promoted after.  Same
+        # logic for the component path keeps the ordering symmetric.
+        if comp_id is not None:
+            self._select_primary(comp_id)
+        elif wire_id is not None:
+            self._select_wire(wire_id)
         if self._filter_components():
             for cid in correlated_comps:
                 self._selected_ids.add(cid)
@@ -792,12 +800,6 @@ class SelectTool(_Tool):
             for wid in correlated_wires:
                 self._selected_wire_ids.add(wid)
                 self._draw_multi_wire_highlight(wid)
-        # Promote the freshly-hit object to primary so MULTI has a
-        # well-defined anchor for future Shift extensions.
-        if comp_id is not None:
-            self._select_primary(comp_id)
-        elif wire_id is not None:
-            self._select_wire(wire_id)
         self._refresh_auto_highlight(
             wire_id=wire_id,
             comp_id=comp_id,

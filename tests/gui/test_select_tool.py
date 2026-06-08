@@ -1424,6 +1424,15 @@ class TestShiftLmbFsmTransitions:
 
         # Cross-relation reset — new hit becomes primary.
         assert tool._selected_id == inst_b.id
+        # Regression guard: the relation set must end up in
+        # _selected_ids as MULTI bright-rect highlights, not just on
+        # the auto stack.  Earlier Phase 2b ordering called
+        # _select_primary AFTER populating _selected_ids, which left
+        # the multi set intact for components — but the wire-promotion
+        # path called _select_wire → _deselect_wire → wipe the multi
+        # wire set.  Symmetric reorder: promote first, populate later.
+        # Component path: hit's component should be in the multi set.
+        assert inst_b.id in tool._selected_ids
 
 
 class TestEmptyCanvasIsEsc:
