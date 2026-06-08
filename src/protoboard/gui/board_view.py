@@ -690,7 +690,7 @@ class BoardView(QGraphicsView):
         self.refresh()
 
     def set_view_transform(self, transform: str) -> None:
-        """Set the visual transform: 'normal', 'mirror_h', or 'mirror_v'."""
+        """Set the visual transform: 'normal', 'mirror_h', 'mirror_v', or 'mirror_hv'."""
         if transform == self._view_transform:
             return
         self._view_transform = transform
@@ -698,10 +698,26 @@ class BoardView(QGraphicsView):
         self._apply_view_transform()
         self.refresh()
 
+    def _has_mirror_h(self) -> bool:
+        return self._view_transform in ("mirror_h", "mirror_hv")
+
+    def _has_mirror_v(self) -> bool:
+        return self._view_transform in ("mirror_v", "mirror_hv")
+
+    @staticmethod
+    def _compose_view_transform(*, h: bool, v: bool) -> str:
+        if h and v:
+            return "mirror_hv"
+        if h:
+            return "mirror_h"
+        if v:
+            return "mirror_v"
+        return "normal"
+
     def _apply_view_transform(self) -> None:
         """Recompute the QGraphicsView scale matrix from current state."""
-        sx = -1.0 if self._view_transform == "mirror_h" else 1.0
-        sy = -1.0 if self._view_transform == "mirror_v" else 1.0
+        sx = -1.0 if self._has_mirror_h() else 1.0
+        sy = -1.0 if self._has_mirror_v() else 1.0
         # Preserve current zoom magnitude, apply sign flips.  Clamp to
         # current viewport-derived limits so a window resize that shrank
         # the allowed window doesn't leave us out of range.
@@ -734,16 +750,17 @@ class BoardView(QGraphicsView):
         if updater is not None:
             updater(side)
 
-    # Convenience toggles (used by menu/keyboard).
+    # Convenience toggles (used by menu/keyboard).  Each axis flips
+    # independently so combining H + V produces ``mirror_hv``.
     def toggle_mirror_h(self) -> None:
-        self.set_view_transform(
-            "normal" if self._view_transform == "mirror_h" else "mirror_h"
-        )
+        self.set_view_transform(self._compose_view_transform(
+            h=not self._has_mirror_h(), v=self._has_mirror_v(),
+        ))
 
     def toggle_mirror_v(self) -> None:
-        self.set_view_transform(
-            "normal" if self._view_transform == "mirror_v" else "mirror_v"
-        )
+        self.set_view_transform(self._compose_view_transform(
+            h=self._has_mirror_h(), v=not self._has_mirror_v(),
+        ))
 
     def toggle_camera(self) -> None:
         self.set_camera_side(
@@ -756,7 +773,7 @@ class BoardView(QGraphicsView):
 
     @property
     def is_mirrored(self) -> bool:
-        return self._view_transform == "mirror_h"
+        return self._has_mirror_h()
 
     def fit_board(self) -> None:
         """Scale and center the view to fit the board bounds."""
@@ -1955,22 +1972,45 @@ class BoardView(QGraphicsView):
                 it.setVisible(False)
                 temporarily_hidden.append(it)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, self._antialiasing)
-            # Apply the same world→viewport transform Qt uses for the
-            # front paint pass.  Critical under mirror_h / mirror_v:
-            # ``scene.render(target, source)`` would map source→target
-            # with positive scale only, dropping the mirror sign and
-            # leaving back-side items un-mirrored while front items
-            # (painted normally by Qt) still honour viewportTransform.
-            # Result: opposite-side wires "wander" — they end up at the
-            # un-mirrored X (or Y) position next to mirrored components.
-            # Setting the painter transform here mirrors the back-cache
-            # pixmap the same way Qt mirrors the front pass; both then
-            # blit at identity in paintEvent and land aligned.
-            painter.setTransform(self.viewportTransform())
-            # Render every visible scene item through the painter —
-            # ``QGraphicsScene.render`` with no source/target rects
-            # honours the painter's current transform.
-            self._scene.render(painter)
+            # Source rect = current visible scene area in scene coords.
+            source = self.mapToScene(self.viewport().rect()).boundingRect()
+            vp_w = float(vp_size.width())
+            vp_h = float(vp_size.height())
+            # ``scene.render(painter, target, source)`` maps source→target
+            # as a positive-scale affine — it cannot reproduce the
+            # mirror_h / mirror_v sign that ``viewportTransform`` carries
+            # for the front paint pass.  Flipping the target rect itself
+            # achieves the mirror: an inverted target tells Qt to draw
+            # the source's left edge at what would have been the right
+            # edge of the un-mirrored target, etc.  The blit step in
+            # paintEvent then copies the already-mirrored pixmap at
+            # identity, aligning back items with the front pass.
+            sx = -1.0 if self._has_mirror_h() else 1.0
+            sy = -1.0 if self._has_mirror_v() else 1.0
+            if sx >= 0 and sy >= 0:
+                target = QRectF(0.0, 0.0, vp_w, vp_h)
+            else:
+                # Build the inverted target by swapping left↔right or
+                # top↔bottom so width/height stay positive but Qt's
+                # source→target mapping picks up the negative scale.
+                left   = vp_w if sx < 0 else 0.0
+                right  = 0.0  if sx < 0 else vp_w
+                top    = vp_h if sy < 0 else 0.0
+                bottom = 0.0  if sy < 0 else vp_h
+                target = QRectF(
+                    min(left, right),
+                    min(top, bottom),
+                    abs(right - left),
+                    abs(bottom - top),
+                )
+                # Apply the sign via painter transform around the target
+                # centre so the rasteriser stays inside the pixmap.
+                cx = target.center().x()
+                cy = target.center().y()
+                painter.translate(cx, cy)
+                painter.scale(sx, sy)
+                painter.translate(-cx, -cy)
+            self._scene.render(painter, target, source)
         finally:
             painter.end()
             for it in temporarily_hidden:

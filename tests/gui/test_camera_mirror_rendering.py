@@ -228,7 +228,7 @@ class TestMapToSceneUnderMirror:
 
     @pytest.mark.parametrize(
         "transform",
-        ["normal", "mirror_h", "mirror_v"],
+        ["normal", "mirror_h", "mirror_v", "mirror_hv"],
     )
     def test_source_rect_covers_same_scene_area(
         self,
@@ -290,12 +290,9 @@ class TestOppositeSideWireBackCache:
     @pytest.mark.parametrize(
         "camera,transform",
         [
-            ("top", "normal"),
-            ("top", "mirror_h"),
-            ("top", "mirror_v"),
-            ("bottom", "normal"),
-            ("bottom", "mirror_h"),
-            ("bottom", "mirror_v"),
+            (cam, tr)
+            for cam in ("top", "bottom")
+            for tr in ("normal", "mirror_h", "mirror_v", "mirror_hv")
         ],
     )
     def test_bottom_wire_scene_position_stable(
@@ -380,7 +377,7 @@ class TestBackCacheSourceRect:
 
     @pytest.mark.parametrize(
         "transform",
-        ["normal", "mirror_h", "mirror_v"],
+        ["normal", "mirror_h", "mirror_v", "mirror_hv"],
     )
     def test_source_rect_for_scene_render_is_normalised(
         self,
@@ -438,7 +435,7 @@ class TestBackCachePixmapAppliesMirrorTransform:
 
     @pytest.mark.parametrize(
         "transform",
-        ["normal", "mirror_h", "mirror_v"],
+        ["normal", "mirror_h", "mirror_v", "mirror_hv"],
     )
     def test_back_cache_pixmap_position_matches_front_paint(
         self,
@@ -508,7 +505,7 @@ class TestSceneContentsStableAcrossToggles:
         baseline = _count()
 
         for cam in ("top", "bottom"):
-            for tr in ("normal", "mirror_h", "mirror_v"):
+            for tr in ("normal", "mirror_h", "mirror_v", "mirror_hv"):
                 board_view.set_camera_side(cam)
                 board_view.set_view_transform(tr)
                 board_view.refresh()

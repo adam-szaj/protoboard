@@ -1232,10 +1232,12 @@ class MainWindow(QMainWindow):
 
     def _sync_view_actions(self) -> None:
         """Synchronise all view-related checkable actions with BoardView state."""
-        mh = self._board_view.view_transform == "mirror_h"
-        mv = self._board_view.view_transform == "mirror_v"
+        transform = self._board_view.view_transform
+        mh = transform in ("mirror_h", "mirror_hv")
+        mv = transform in ("mirror_v", "mirror_hv")
         bottom = self._board_view.camera_side == "bottom"
-        # All three QActions live in both menu and toolbar — single setChecked syncs both.
+        # Each axis QAction reflects its own flag — both can be checked
+        # simultaneously when the user combines Mirror H + Mirror V.
         self._act_mirror.setChecked(mh)
         self._act_mirror_v.setChecked(mv)
         self._act_camera_top.setChecked(not bottom)
@@ -1244,8 +1246,13 @@ class MainWindow(QMainWindow):
 
     def _update_view_label(self) -> None:
         camera = self._board_view.camera_side.capitalize()   # "Top" | "Bottom"
-        transform = self._board_view.view_transform          # "normal"|"mirror_h"|"mirror_v"
-        mirror_tag = {"normal": "N", "mirror_h": "H", "mirror_v": "V"}[transform]
+        transform = self._board_view.view_transform
+        mirror_tag = {
+            "normal":    "N",
+            "mirror_h":  "H",
+            "mirror_v":  "V",
+            "mirror_hv": "HV",
+        }.get(transform, "?")
         self._view_label.setText(f"{camera}  Mirror:{mirror_tag}   ")
 
     def _resize_board(self) -> None:

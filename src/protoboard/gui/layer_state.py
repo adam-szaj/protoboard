@@ -8,11 +8,12 @@ camera_side : "top" | "bottom"
     Drives the z-stack: camera-side elements are in front, opposite side behind.
     Changing camera side also changes the active editing side (RouteTool._side).
 
-view_transform : "normal" | "mirror_h" | "mirror_v"
+view_transform : "normal" | "mirror_h" | "mirror_v" | "mirror_hv"
     Pure visual transformation of the scene, independent of camera side.
-    normal   — no flip; right-top of board stays at right-top of screen.
-    mirror_h — flip around vertical axis (left↔right, i.e. negate X scale).
-    mirror_v — flip around horizontal axis (top↔bottom, i.e. negate Y scale).
+    normal    — no flip; right-top of board stays at right-top of screen.
+    mirror_h  — flip around vertical axis (left↔right, i.e. negate X scale).
+    mirror_v  — flip around horizontal axis (top↔bottom, i.e. negate Y scale).
+    mirror_hv — both axes flipped; equivalent to a 180° rotation visually.
     These can be combined with either camera side → 6 distinct views.
 
 overrides : LayerOverrides
@@ -34,7 +35,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
 
-ViewTransform = Literal["normal", "mirror_h", "mirror_v"]
+ViewTransform = Literal["normal", "mirror_h", "mirror_v", "mirror_hv"]
 
 # ---------------------------------------------------------------------------
 # Z-value anchors
@@ -241,10 +242,10 @@ class LayerState:
     # ------------------------------------------------------------------
 
     def scene_scale_x(self) -> float:
-        return -1.0 if self.view_transform == "mirror_h" else 1.0
+        return -1.0 if self.view_transform in ("mirror_h", "mirror_hv") else 1.0
 
     def scene_scale_y(self) -> float:
-        return -1.0 if self.view_transform == "mirror_v" else 1.0
+        return -1.0 if self.view_transform in ("mirror_v", "mirror_hv") else 1.0
 
     def needs_text_counter_transform(self) -> bool:
         return self.view_transform != "normal"
