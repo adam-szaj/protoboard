@@ -197,13 +197,6 @@ class SelectTool(_Tool):
         # drag — prevents the gate from re-arming if the user wiggles
         # back to within the threshold mid-drag.
         self._drag_threshold_crossed: bool = False
-        # Phase 2b: armed when on_press lands LMB on the *exact* primary
-        # (`hit == self._selected_id` for components, same for wires).
-        # If on_release fires before the drag threshold is crossed, the
-        # release path treats this as a same-object click and pops one
-        # FSM layer (SELECTION → HIGHLIGHT).  Cleared in on_move when
-        # the threshold trips so a drag never doubles as a deselect.
-        self._pending_deselect_on_release: bool = False
         # Blocking pad positions captured by _build_group_drag_commands
         # when a group drag would land on a different-net pin.  Consumed
         # by on_release to drive the floating-state HARD UX, then reset.
@@ -269,18 +262,6 @@ class SelectTool(_Tool):
         from protoboard.gui.selection_axes import RelationClass, SelectionFilter
         self._filter: SelectionFilter = SelectionFilter.ALL
         self._relation: RelationClass = RelationClass.SAME_LOGICAL_NET
-        # Explicit click-FSM (docs/highlight-state-machine.txt).  The
-        # FSM mirrors what the legacy selection code does, then drives
-        # the per-layer pop semantics for Esc + deselect-on-same-object.
-        # Full Shift+extends migration is Phase 2b — for now the FSM
-        # shadows legacy state and exposes step_esc / step_lmb hooks
-        # used by the Esc handler and the on_press "click same primary
-        # deselects" branch.
-        from protoboard.gui.selection_fsm import SelectionFSM
-        self._fsm: SelectionFSM = SelectionFSM(
-            same_relation=self._fsm_same_relation,
-            initial_relation=self._relation,
-        )
         # Last click source — used for auto-highlight refresh after relation change.
         self._hl_source_wire: uuid.UUID | None = None
         self._hl_source_comp: uuid.UUID | None = None
@@ -544,14 +525,17 @@ class SelectTool(_Tool):
         pin_number: int | None = None,
         shift_held: bool = False,
     ) -> None:
-        """Apply selection + auto-highlight to a click on (comp_id/pin_number) or wire_id.
+        """Legacy compatibility shim — kept for older tests that drive
+        SelectTool by calling this method directly.
 
-        LPM:           selection = clicked object (component selection is done
-                       by on_press, wire selection here); highlight = full
-                       relation set ignoring the filter.
-        Shift+LPM:     selection extended to relation ∩ filter (components and
-                       wires both contribute); highlight = same as LPM.
+        New code should use `_apply_selection_op(hit, basis_scope, op)`
+        instead.  This shim implements only the `shift_held=False`
+        behaviour (single-hit SET): select the clicked wire, refresh
+        the auto-highlight.  The `shift_held=True` REPLACE branch from
+        Phase 2b is gone — spec rev 2 routes Shift through the
+        dispatcher.
         """
+        del shift_held  # kept for backwards compatibility, unused
         _t_enter = time.monotonic() if _CLICK_PROFILE else 0.0
         self._hl_source_wire = wire_id
         self._hl_source_comp = comp_id
@@ -571,33 +555,11 @@ class SelectTool(_Tool):
                 n_correlated_wires=len(correlated_wires),
             )
 
-        if shift_held:
-            # Selection = relation ∩ filter (replace any prior multi-selection).
-            self._deselect()
-            self._deselect_wire()
-            self._clear_multi_selection()
-            self._clear_multi_wire_selection()
-            if self._filter_components():
-                for cid in correlated_comps:
-                    self._selected_ids.add(cid)
-                    self._draw_multi_highlight(cid)
-            if self._filter_wires():
-                for wid in correlated_wires:
-                    self._selected_wire_ids.add(wid)
-                    self._draw_multi_wire_highlight(wid)
-            _log.info(
-                "selection.multi_wire",
-                via="shift_apply_interaction",
-                n_wires=len(self._selected_wire_ids),
-                n_comps=len(self._selected_ids),
-                wire_ids=[str(w) for w in self._selected_wire_ids],
-            )
-        else:
-            # LPM without Shift: select only the clicked object.  Component
-            # selection is handled by on_press before us; wire selection is
-            # delegated here.
-            if wire_id is not None:
-                self._select_wire(wire_id)
+        # Wire selection is the only thing the non-shift legacy path
+        # used to do here — component selection was always handled in
+        # on_press.  Preserve that for shim callers.
+        if wire_id is not None:
+            self._select_wire(wire_id)
 
         _t_before_refresh = time.monotonic() if _CLICK_PROFILE else 0.0
         self._refresh_auto_highlight(
@@ -621,194 +583,6 @@ class SelectTool(_Tool):
                 total_ms=round((time.monotonic() - _t_enter) * 1000, 1),
             )
 
-    # ----------------------------------------------------------------
-    # Phase 2b: Shift+LMB → FSM-style extend / reset / collapse
-    # ----------------------------------------------------------------
-
-    def _apply_shift_interaction_fsm(
-        self,
-        *,
-        wire_id: uuid.UUID | None = None,
-        comp_id: uuid.UUID | None = None,
-        pin_number: int | None = None,
-    ) -> None:
-        """Shift+LMB dispatcher implementing the FSM transitions.
-
-        Replaces the legacy ``_apply_interaction(shift_held=True)`` REPLACE
-        semantics (where every Shift+LMB rebuilt selection from
-        ``relation ∩ filter``).  The new behaviour:
-
-        * **Same relation, hit ∉ multi+primary** → *extend* the existing
-          multi-selection by ``hit`` (and its relation set, intersected
-          with the active filter).
-        * **Cross relation** → *reset* to a fresh MULTI layer: clear the
-          old multi, replace primary, push the new relation's highlight.
-          Equivalent to the user's legacy Shift+LMB on a different net.
-        * **Hit == primary or hit ∈ multi** → *collapse* to HIGHLIGHT:
-          drop primary + multi, keep the highlight auto-entry.
-
-        The function does not touch the click-profile timing path — Shift
-        clicks are rare enough that the extra branch isn't worth the
-        instrumentation noise.
-        """
-        from protoboard.gui.selection_fsm import Hit
-
-        # Build the Hit currency the FSM speaks.
-        if wire_id is not None:
-            hit = Hit("wire", wire_id)
-        elif comp_id is not None:
-            hit = Hit("component", comp_id)
-        else:
-            if _dbg_enabled():
-                _log.debug("shift_interaction.no_hit_bail")
-            return
-
-        primary_hit = self._fsm_current_hit()
-        # Membership check — is the hit already inside the visible
-        # multi-set?  Use string-typed comparison so wire and component
-        # ids never collide.
-        in_multi = False
-        if hit.kind == "component" and isinstance(hit.id, uuid.UUID):
-            in_multi = (
-                hit.id in self._selected_ids
-                and hit.id != self._selected_id
-            )
-        elif hit.kind == "wire" and isinstance(hit.id, uuid.UUID):
-            in_multi = (
-                hit.id in self._selected_wire_ids
-                and hit.id != self._selected_wire_id
-            )
-
-        if primary_hit is not None and hit == primary_hit:
-            # Collapse — Shift on the primary pops back to HIGHLIGHT
-            # without losing the auto-entry.
-            if _dbg_enabled():
-                _log.debug("shift_interaction.collapse.primary", hit=str(hit.id)[:8])
-            self._collapse_to_highlight_layer()
-            return
-        if in_multi:
-            if _dbg_enabled():
-                _log.debug("shift_interaction.collapse.in_multi", hit=str(hit.id)[:8])
-            self._collapse_to_highlight_layer()
-            return
-
-        # Same relation?  Only meaningful when we already have a primary.
-        same_rel = (
-            primary_hit is not None
-            and self._fsm_same_relation(hit, primary_hit, self._relation)
-        )
-        if primary_hit is not None and same_rel:
-            if _dbg_enabled():
-                _log.debug("shift_interaction.extend.same_relation", hit=str(hit.id)[:8])
-            self._extend_multi_with_hit(
-                wire_id=wire_id, comp_id=comp_id, pin_number=pin_number,
-            )
-            return
-
-        # Cross-relation or no prior primary → reset to a fresh MULTI
-        # layer around the new hit's relation.
-        if _dbg_enabled():
-            _log.debug(
-                "shift_interaction.reset.cross_or_fresh",
-                hit=str(hit.id)[:8],
-                had_primary=primary_hit is not None,
-            )
-        self._reset_to_fresh_multi(
-            wire_id=wire_id, comp_id=comp_id, pin_number=pin_number,
-        )
-
-    def _collapse_to_highlight_layer(self) -> None:
-        """Drop MULTI + SELECTION but keep the auto highlight entry."""
-        self._clear_multi_selection()
-        self._clear_multi_wire_selection()
-        self._deselect()
-        self._deselect_wire()
-        self._notify_selection()
-
-    def _extend_multi_with_hit(
-        self,
-        *,
-        wire_id: uuid.UUID | None = None,
-        comp_id: uuid.UUID | None = None,
-        pin_number: int | None = None,
-    ) -> None:
-        """Add the new hit's relation set to the existing MULTI layer.
-
-        The relation set is intersected with the active filter — Shift+LMB
-        on a component while the filter is ``WIRES_ONLY`` extends only
-        the wires of the new relation.
-        """
-        correlated_comps, correlated_wires = self._resolve_relation(
-            self._relation,
-            wire_id=wire_id,
-            comp_id=comp_id,
-            pin_number=pin_number,
-        )
-        if self._filter_components():
-            for cid in correlated_comps:
-                if cid not in self._selected_ids:
-                    self._selected_ids.add(cid)
-                    self._draw_multi_highlight(cid)
-        if self._filter_wires():
-            for wid in correlated_wires:
-                if wid not in self._selected_wire_ids:
-                    self._selected_wire_ids.add(wid)
-                    self._draw_multi_wire_highlight(wid)
-        # Keep highlight in sync with the (possibly newly enlarged) net.
-        self._refresh_auto_highlight(
-            wire_id=wire_id,
-            comp_id=comp_id,
-            pin_number=pin_number,
-            correlated_comps=correlated_comps,
-            correlated_wires=correlated_wires,
-        )
-        self._notify_selection()
-
-    def _reset_to_fresh_multi(
-        self,
-        *,
-        wire_id: uuid.UUID | None = None,
-        comp_id: uuid.UUID | None = None,
-        pin_number: int | None = None,
-    ) -> None:
-        """Cross-relation Shift+LMB: replace selection with the new
-        relation ∩ filter.  Mirrors the legacy shift behaviour, but
-        only fires on a cross-relation jump rather than on every Shift.
-        """
-        self._deselect()
-        self._deselect_wire()
-        self._clear_multi_selection()
-        self._clear_multi_wire_selection()
-        correlated_comps, correlated_wires = self._resolve_relation(
-            self._relation,
-            wire_id=wire_id,
-            comp_id=comp_id,
-            pin_number=pin_number,
-        )
-        # Promote the freshly-hit object to primary FIRST — _select_wire
-        # calls _deselect_wire → _clear_multi_wire_selection, which would
-        # wipe a just-populated multi set if we promoted after.  Same
-        # logic for the component path keeps the ordering symmetric.
-        if comp_id is not None:
-            self._select_primary(comp_id)
-        elif wire_id is not None:
-            self._select_wire(wire_id)
-        if self._filter_components():
-            for cid in correlated_comps:
-                self._selected_ids.add(cid)
-                self._draw_multi_highlight(cid)
-        if self._filter_wires():
-            for wid in correlated_wires:
-                self._selected_wire_ids.add(wid)
-                self._draw_multi_wire_highlight(wid)
-        self._refresh_auto_highlight(
-            wire_id=wire_id,
-            comp_id=comp_id,
-            pin_number=pin_number,
-            correlated_comps=correlated_comps,
-            correlated_wires=correlated_wires,
-        )
-        self._notify_selection()
 
     # ================================================================
     # Phase 2c — orthogonal selection-op dispatcher
@@ -1392,51 +1166,6 @@ class SelectTool(_Tool):
             profile=rprof,
         )
 
-    # ----------------------------------------------------------------
-    # FSM glue (Phase 2a)
-    # ----------------------------------------------------------------
-
-    def _fsm_same_relation(
-        self,
-        hit: "object",  # protoboard.gui.selection_fsm.Hit
-        relative_to: "object",
-        relation: "RelationClass",
-    ) -> bool:
-        """Same-relation predicate consumed by the SelectionFSM.
-
-        Maps each ``Hit`` to its logical net id (via the existing
-        helpers) and compares.  When either side has no net (e.g. a
-        bbox click on a no-net component), default to "different
-        relation" so Shift+LMB falls back to a fresh multi-set.
-        """
-        from protoboard.gui.selection_axes import RelationClass
-
-        if relation == RelationClass.NONE:
-            return False
-        net_a = self._fsm_hit_net_id(hit)
-        net_b = self._fsm_hit_net_id(relative_to)
-        if net_a is None or net_b is None:
-            return False
-        return net_a == net_b
-
-    def _fsm_hit_net_id(self, hit: "object") -> "uuid.UUID | None":
-        """Map a ``Hit`` to a logical net id when one exists."""
-        # Local import keeps this module independent of selection_fsm
-        # at construction time; selection_fsm has no Qt deps so this
-        # is purely about ordering.
-        kind = getattr(hit, "kind", None)
-        hit_id = getattr(hit, "id", None)
-        if kind == "wire" and isinstance(hit_id, uuid.UUID):
-            return self._resolve_logical_net(wire_id=hit_id)
-        if kind == "component" and isinstance(hit_id, uuid.UUID):
-            # Component bbox click — no pin context; use first net.
-            session = self._session
-            if session is None:
-                return None
-            for net_obj in session.schematic.nets.values():
-                if any(pr.component_id == hit_id for pr in net_obj.pins):
-                    return net_obj.id
-        return None
 
     def _esc_pop_one_layer(self) -> None:
         """Pop one layer of the FSM-style selection stack.
@@ -1517,21 +1246,6 @@ class SelectTool(_Tool):
         # (source_id="select_tool").  Any active entry whose comp/wire
         # set is non-empty counts.
         return bool(entry.comp_ids or entry.wire_ids or entry.net_id)
-
-    def _fsm_current_hit(self) -> "object | None":
-        """Build a ``Hit`` from the legacy ``_selected_*`` fields.
-
-        Used to keep the FSM in step with legacy mutations until Phase
-        2b takes the FSM as authoritative.  Returns the primary
-        selection if any, else ``None``.
-        """
-        from protoboard.gui.selection_fsm import Hit
-
-        if self._selected_id is not None:
-            return Hit("component", self._selected_id)
-        if self._selected_wire_id is not None:
-            return Hit("wire", self._selected_wire_id)
-        return None
 
     def _resolve_relation_net_ids(
         self,
@@ -3341,12 +3055,6 @@ class SelectTool(_Tool):
                 if dx * dx + dy * dy < _DRAG_START_THRESHOLD * _DRAG_START_THRESHOLD:
                     return
                 self._drag_threshold_crossed = True
-                # Phase 2b: drag started — this click is no longer a
-                # candidate for pop-on-release.
-                if self._pending_deselect_on_release:
-                    if _dbg_enabled():
-                        _log.debug("on_move.pending_deselect_cleared")
-                    self._pending_deselect_on_release = False
                 _log.info(
                     "on_move.threshold_crossed",
                     dist=round((dx * dx + dy * dy) ** 0.5, 3),
@@ -3469,8 +3177,6 @@ class SelectTool(_Tool):
         # drag-pending state and exit without invoking the floating
         # pipeline.
         threshold_crossed = self._drag_threshold_crossed
-        pending_pop = self._pending_deselect_on_release
-        self._pending_deselect_on_release = False
         self._dragging = False
         self._drag_press_scene_pt = None
         self._drag_threshold_crossed = False
@@ -3478,14 +3184,10 @@ class SelectTool(_Tool):
         if not threshold_crossed:
             self._drag_orig_positions = {}
             self._drag_orig_wire_paths = {}
-            # Phase 2b: same-primary press + release without drag →
-            # pop one FSM layer (deselect, keep highlight).  Matches
-            # the [normal, highlight, selection] -(lmb-click{same-object})
-            # -> [normal, highlight] rule from docs/highlight-state-machine.txt.
-            if pending_pop:
-                if _dbg_enabled():
-                    _log.debug("on_release.pop_one_layer.same_primary")
-                self._esc_pop_one_layer()
+            # Spec rev 2 (decision 5, A no-op): plain LMB on the
+            # current primary is a no-op — the dispatcher already
+            # handled selection mutation on press; the release path
+            # has nothing to commit when the threshold never crossed.
             return
 
         drag_ids = (
