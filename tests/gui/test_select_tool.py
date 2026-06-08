@@ -1844,3 +1844,99 @@ class TestHitGroupDispatcher:
         )
         s = tool.selection_summary()
         assert "g:2]" in s
+
+
+class TestRubberBandSelectsGroups:
+    """Phase 3 Etap 6: rubber-band picks up groups.
+
+    Spec rev 3 decision 3:
+      * LTR (left-to-right drag) = every group member bbox inside rect.
+      * RTL (right-to-left drag) = any group member bbox intersects rect.
+    """
+
+    def _make_group(
+        self,
+        session: EditorSession,
+        component_ids: list[uuid.UUID],
+        name: str = "G1",
+    ) -> uuid.UUID:
+        from protoboard.domain.layout.group import ComponentGroup
+        gid = uuid.uuid4()
+        g = ComponentGroup(
+            id=gid,
+            name=name,
+            component_ids=frozenset(component_ids),
+        )
+        session.layout.groups[gid] = g
+        return gid
+
+    def test_ltr_rubber_band_catches_fully_enclosed_group(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 1.5, 0.5)
+        gid = self._make_group(session, [i1.id, i2.id])
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # LTR drag covering both i1 and i2.
+        _press(tool, 0.0, 0.0)
+        _move(tool, 5.0, 5.0)
+        _release(tool, 5.0, 5.0)
+        assert gid in tool._selected_group_ids
+        # All members expanded into _selected_ids per rubber-band convention.
+        assert i1.id in tool._selected_ids
+        assert i2.id in tool._selected_ids
+
+    def test_ltr_rubber_band_skips_partially_enclosed_group(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 6.5, 0.5)  # outside drag rect
+        gid = self._make_group(session, [i1.id, i2.id])
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # LTR drag covers only i1, not i2 → group must NOT be selected.
+        _press(tool, 0.0, 0.0)
+        _move(tool, 3.0, 3.0)
+        _release(tool, 3.0, 3.0)
+        assert gid not in tool._selected_group_ids
+
+    def test_rtl_rubber_band_catches_partially_intersected_group(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 6.5, 0.5)  # outside drag rect
+        gid = self._make_group(session, [i1.id, i2.id])
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # RTL drag (end-x < start-x) covering only i1 → group selected
+        # because RTL semantics is "any member intersects".
+        _press(tool, 3.0, 3.0)
+        _move(tool, 0.0, 0.0)
+        _release(tool, 0.0, 0.0)
+        assert gid in tool._selected_group_ids
+
+    def test_rubber_band_summary_reflects_group_count(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 1.5, 0.5)
+        i3 = _place_component(board_view, session, 2.5, 0.5)
+        g1 = self._make_group(session, [i1.id], name="G1")
+        g2 = self._make_group(session, [i2.id], name="G2")
+        # i3 is free (no group).
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        _press(tool, 0.0, 0.0)
+        _move(tool, 5.0, 5.0)
+        _release(tool, 5.0, 5.0)
+        s = tool.selection_summary()
+        # Both groups + one free component should be reflected.
+        assert "g:2]" in s
+        assert g1 in tool._selected_group_ids
+        assert g2 in tool._selected_group_ids
+        assert i3.id in tool._selected_ids

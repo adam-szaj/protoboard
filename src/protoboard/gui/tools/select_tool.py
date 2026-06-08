@@ -6679,6 +6679,48 @@ class SelectTool(_Tool):
                 ):
                     selected_wires.add(wire.id)
 
+        # Phase 3: rubber-band selects groups too.  Spec rev 3 decision 3:
+        # LTR = every member bbox fully inside the rect.
+        # RTL = any member bbox intersects the rect.
+        # Alt is blocked in rubber-band (no relation-scope makes sense
+        # for a literal rectangle selection — captured at on_press as
+        # plain SET / Ctrl ADD / Ctrl+Shift REMOVE).
+        selected_groups: set[uuid.UUID] = set()
+        if self._filter_groups():
+            from protoboard.domain.layout.group import (
+                all_component_ids as _all_member_ids,
+            )
+            for gid, _grp in session.layout.groups.items():
+                members = _all_member_ids(session.layout.groups, gid)
+                if not members:
+                    continue
+                # Materialise member bboxes once per group.
+                member_bboxes: list[tuple[float, float, float, float]] = []
+                for cid in members:
+                    bbox = session.component_bbox(cid)
+                    if bbox is None:
+                        continue
+                    member_bboxes.append((
+                        bbox.x, bbox.y,
+                        bbox.x + bbox.width, bbox.y + bbox.height,
+                    ))
+                if not member_bboxes:
+                    continue
+                if left_to_right:
+                    # All members fully inside the rect.
+                    if all(
+                        bx0 >= rx0 and by0 >= ry0 and bx1 <= rx1 and by1 <= ry1
+                        for bx0, by0, bx1, by1 in member_bboxes
+                    ):
+                        selected_groups.add(gid)
+                else:
+                    # Any member's bbox intersects the rect.
+                    if any(
+                        bx0 < rx1 and bx1 > rx0 and by0 < ry1 and by1 > ry0
+                        for bx0, by0, bx1, by1 in member_bboxes
+                    ):
+                        selected_groups.add(gid)
+
         from protoboard.gui.selection_fsm import Hit, SetOp
 
         rb_op = self._rubber_band_op
@@ -6689,29 +6731,56 @@ class SelectTool(_Tool):
             "selection.rubber_band",
             mode="ltr" if left_to_right else "rtl",
             components=len(selected), wires=len(selected_wires),
+            groups=len(selected_groups),
             op=rb_op.name,
         )
-        if not selected and not selected_wires:
+        if not selected and not selected_wires and not selected_groups:
             # Empty basis — ADD/REMOVE are no-ops, SET pops one layer
             # (already done preemptively on press).  Nothing to do.
             return
 
         # Pick one of the basis members as the new primary anchor so
         # Properties panel + drag-arm have a target.  Components win
-        # over wires (consistent with legacy single-select primary
-        # preference).
+        # over groups win over wires (consistent with legacy single-
+        # select primary preference; groups give the anchor via their
+        # first member through `_promote_primary`).
         anchor: Hit | None = None
         if selected:
             anchor = Hit("component", next(iter(selected)))
+        elif selected_groups:
+            anchor = Hit("group", next(iter(selected_groups)))
         elif selected_wires:
             anchor = Hit("wire", next(iter(selected_wires)))
 
+        # Drop the rubber-band-captured components that already live
+        # inside a captured group — those move via the group monolith,
+        # not as free members, and double-adding them into both pools
+        # would render the multi rect on top of itself.  Done after
+        # anchor selection so a rubber-band that catches just a single
+        # group still has a non-None anchor.
+        if selected_groups:
+            from protoboard.domain.layout.group import (
+                all_component_ids as _all_member_ids,
+            )
+            covered: set[uuid.UUID] = set()
+            for gid in selected_groups:
+                covered |= _all_member_ids(session.layout.groups, gid)
+            selected -= covered
+
         if rb_op == SetOp.SET:
-            self._set_selection(selected, selected_wires, new_primary=anchor)
+            self._set_selection(
+                selected, selected_wires, new_primary=anchor,
+                group_basis=selected_groups,
+            )
         elif rb_op == SetOp.ADD:
-            self._add_to_selection(selected, selected_wires, new_primary=anchor)
+            self._add_to_selection(
+                selected, selected_wires, new_primary=anchor,
+                group_basis=selected_groups,
+            )
         elif rb_op == SetOp.REMOVE:
-            self._remove_from_selection(selected, selected_wires)
+            self._remove_from_selection(
+                selected, selected_wires, group_basis=selected_groups,
+            )
             return
 
         # Rubber-band convention: the primary is also a multi-set
