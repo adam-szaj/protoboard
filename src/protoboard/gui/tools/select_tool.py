@@ -316,7 +316,7 @@ class SelectTool(_Tool):
         # motion above _GROUP_LONGPRESS_CANCEL_PX before either timer
         # fires cancels the long-press.
         self._longpress_timer: QTimer | None = None
-        self._longpress_phase: str = "idle"   # "idle" | "select" | "edit"
+        self._longpress_phase: str = "idle"   # "idle" | "edit"
         self._longpress_group_id: uuid.UUID | None = None
         self._longpress_press_view_pt: QPoint | None = None
 
@@ -755,32 +755,50 @@ class SelectTool(_Tool):
                 self._esc_pop_one_layer()
             return
 
-        # Build the basis sets (separated for components vs wires
-        # because the legacy storage fields are split too).
-        comp_basis, wire_basis = self._resolve_basis(hit, basis_scope)
+        # Build the basis sets (separated for components vs wires vs
+        # groups because the legacy storage fields are split too).
+        comp_basis, wire_basis, group_basis = self._resolve_basis(hit, basis_scope)
 
         if op == SetOp.SET:
-            self._set_selection(comp_basis, wire_basis, new_primary=hit)
+            self._set_selection(
+                comp_basis, wire_basis, new_primary=hit, group_basis=group_basis,
+            )
         elif op == SetOp.ADD:
-            self._add_to_selection(comp_basis, wire_basis, new_primary=hit)
+            self._add_to_selection(
+                comp_basis, wire_basis, new_primary=hit, group_basis=group_basis,
+            )
         elif op == SetOp.REMOVE:
-            self._remove_from_selection(comp_basis, wire_basis)
+            self._remove_from_selection(
+                comp_basis, wire_basis, group_basis=group_basis,
+            )
 
     def _resolve_basis(
         self,
         hit: "Hit",
         basis_scope: "BasisScope",
-    ) -> tuple[set[uuid.UUID], set[uuid.UUID]]:
-        """Materialise (comp_basis, wire_basis) from a Hit + scope.
+    ) -> tuple[set[uuid.UUID], set[uuid.UUID], set[uuid.UUID]]:
+        """Materialise (comp_basis, wire_basis, group_basis) from a Hit + scope.
 
         SINGLE basis → just the hit itself (single-element set in the
-        matching bucket, empty in the other).
+        matching bucket, empty in the others).
         RELATION basis → resolve via the existing `_resolve_relation`
-        with the current `RelationClass`, which respects RelationClass.
-        NONE by collapsing to SINGLE.
+        with the current `RelationClass`, which respects
+        ``RelationClass.NONE`` by collapsing to SINGLE.
+
+        Phase 3: ``Hit("group", gid)`` is a first-class kind — it lands
+        in the third element of the tuple (``group_basis``) and the
+        SET/ADD/REMOVE helpers route it onto ``_selected_group_ids``
+        instead of `_selected_ids`/`_selected_wire_ids`.  RELATION
+        scope on a group hit currently falls through to SINGLE because
+        a "relation of a group" has no well-defined meaning yet — the
+        whole group is already a monolith.
         """
         from protoboard.gui.selection_fsm import BasisScope
         from protoboard.gui.selection_axes import RelationClass
+
+        # Group hits never go through the relation resolver.
+        if hit.kind == "group" and isinstance(hit.id, uuid.UUID):
+            return set(), set(), {hit.id}
 
         if basis_scope == BasisScope.SINGLE or self._relation == RelationClass.NONE:
             comps: set[uuid.UUID] = set()
@@ -789,7 +807,7 @@ class SelectTool(_Tool):
                 comps.add(hit.id)
             elif hit.kind == "wire" and isinstance(hit.id, uuid.UUID):
                 wires.add(hit.id)
-            return comps, wires
+            return comps, wires, set()
 
         # RELATION scope: reuse the same resolver the legacy code uses.
         wire_id: uuid.UUID | None = None
@@ -805,13 +823,14 @@ class SelectTool(_Tool):
             comp_id=comp_id,
             pin_number=pin_number,
         )
-        return correlated_comps, correlated_wires
+        return correlated_comps, correlated_wires, set()
 
     def _set_selection(
         self,
         comp_basis: set[uuid.UUID],
         wire_basis: set[uuid.UUID],
         new_primary: "Hit | None",
+        group_basis: "set[uuid.UUID] | None" = None,
     ) -> None:
         """SET op — selection := basis.
 
@@ -821,7 +840,15 @@ class SelectTool(_Tool):
         promote the new primary so the multi-rect highlights survive
         (see [[selection-fsm-refactor-2026-06-08]] fix on promotion
         ordering).
+
+        Phase 3: ``group_basis`` (when non-empty) replaces
+        ``_selected_group_ids``; combined with empty comp/wire basis
+        a ``Hit("group", gid)`` click yields a single-group SET that
+        also expands every group member into ``_selected_ids`` so
+        downstream code (drag, highlight, summary) sees the full set.
         """
+        group_basis = group_basis or set()
+
         # Decision 5 (extended): no-op-on-set when basis is already
         # contained in the current selection — but still re-anchor the
         # primary to the clicked hit if it changed.  Classic UX:
@@ -830,14 +857,22 @@ class SelectTool(_Tool):
         # without dropping the multi.  The multi sets and highlight
         # stack stay untouched.
         #
+        # Phase 3: group_basis bypasses the no-op path — a
+        # ``Hit("group", gid)`` SET must always rebuild from scratch
+        # so the group ends up in ``_selected_group_ids``.  Without
+        # this guard the empty comp/wire basis trivially satisfies
+        # ``_basis_already_in_selection`` and the SET is dropped.
+        #
         # NOTE: legacy convention is `primary ∈ _selected_ids` when a
         # multi-selection is active (rubber-band sets `_selected_ids`
         # to the full set then calls `_select_primary` on one of them,
         # leaving the new primary inside the multi).  Drag-arm reads
         # `_selected_ids` as the canonical drag set, so we must not
         # discard the new primary from it here.
-        if new_primary is not None and self._basis_already_in_selection(
-            comp_basis, wire_basis,
+        if (
+            new_primary is not None
+            and not group_basis
+            and self._basis_already_in_selection(comp_basis, wire_basis)
         ):
             saved_multi_comps = set(self._selected_ids)
             saved_multi_wires = set(self._selected_wire_ids)
@@ -860,6 +895,8 @@ class SelectTool(_Tool):
         self._deselect_wire()
         self._clear_multi_selection()
         self._clear_multi_wire_selection()
+        # Phase 3: SET clears the group set then populates from basis.
+        self._selected_group_ids.clear()
 
         # Promote first (decision: _select_wire/_deselect_wire wipes
         # the multi wire set; promoting before population keeps the
@@ -897,15 +934,60 @@ class SelectTool(_Tool):
                 self._selected_wire_ids.add(wid)
                 self._draw_multi_wire_highlight(wid)
 
+        # Phase 3: group_basis (from Hit("group", gid)) — add the group
+        # to `_selected_group_ids` AND expand its members into the
+        # multi component set so the drag/highlight pipeline sees the
+        # full set without further special-casing.
+        if group_basis:
+            self._populate_groups_into_selection(group_basis)
+
         # Highlight (decision 4, A.1): reset to relation(new_primary).
         self._refresh_highlight_from_hit(new_primary)
         self._notify_selection()
+
+    def _populate_groups_into_selection(
+        self,
+        group_ids: set[uuid.UUID],
+    ) -> None:
+        """Add ``group_ids`` to ``_selected_group_ids`` and expand each
+        group's component members into the multi selection set.
+
+        Phase 3 helper consumed by all three op helpers when a
+        ``Hit("group", gid)`` basis is involved.  Keeps the storage
+        invariants in one place:
+        * ``_selected_group_ids`` lists the selected group monoliths.
+        * ``_selected_ids`` lists every drag-eligible component —
+          including the primary — so drag-arm / highlight / properties
+          panel read it as the canonical "what's selected" set.  This
+          matches the rubber-band convention (rubber-band places every
+          captured component in ``_selected_ids`` even when one of
+          them is also the primary anchor).
+
+        ``_draw_multi_highlight`` is called for every member except the
+        current primary so the SELECTION rect on the primary isn't
+        duplicated by a multi-rect underneath.
+        """
+        from protoboard.domain.layout.group import all_component_ids
+        groups_map = self._session.layout.groups
+        for gid in group_ids:
+            if gid not in groups_map:
+                continue  # stale gid (e.g. disbanded mid-session)
+            self._selected_group_ids.add(gid)
+            for cid in all_component_ids(groups_map, gid):
+                if cid not in self._selected_ids:
+                    self._selected_ids.add(cid)
+                    # Skip drawing a multi rect on the primary — its
+                    # SELECTION-tier highlight rendered by _select_primary
+                    # already covers the same area.
+                    if cid != self._selected_id and self._filter_components():
+                        self._draw_multi_highlight(cid)
 
     def _add_to_selection(
         self,
         comp_basis: set[uuid.UUID],
         wire_basis: set[uuid.UUID],
         new_primary: "Hit | None",
+        group_basis: "set[uuid.UUID] | None" = None,
     ) -> None:
         """ADD op — selection := selection ∪ basis.
 
@@ -913,15 +995,24 @@ class SelectTool(_Tool):
         equivalent to SET — push to SELECTION with new_primary as
         anchor.  Otherwise extend the multi sets, switch primary to
         the new hit, and grow the highlight union.
+
+        Phase 3: ``group_basis`` joins ``_selected_group_ids`` and
+        the group members expand into ``_selected_ids`` via
+        :meth:`_populate_groups_into_selection`.
         """
+        group_basis = group_basis or set()
+
         if (
             not self._selected_ids
             and not self._selected_wire_ids
+            and not self._selected_group_ids
             and self._selected_id is None
             and self._selected_wire_id is None
         ):
             # ADD into empty → behave like SET.
-            self._set_selection(comp_basis, wire_basis, new_primary)
+            self._set_selection(
+                comp_basis, wire_basis, new_primary, group_basis=group_basis,
+            )
             return
 
         # Capture the old primary before promotion — once it's no
@@ -979,6 +1070,11 @@ class SelectTool(_Tool):
                     self._selected_wire_ids.add(wid)
                     self._draw_multi_wire_highlight(wid)
 
+        # Phase 3: group_basis adds to `_selected_group_ids` and
+        # expands members into `_selected_ids`.
+        if group_basis:
+            self._populate_groups_into_selection(group_basis)
+
         # Highlight UNION — relation of the new hit joins the existing
         # highlight without clearing it (decision 2, spec rev 2).
         self._extend_highlight_with_hit(new_primary)
@@ -988,6 +1084,7 @@ class SelectTool(_Tool):
         self,
         comp_basis: set[uuid.UUID],
         wire_basis: set[uuid.UUID],
+        group_basis: "set[uuid.UUID] | None" = None,
     ) -> None:
         """REMOVE op — selection := selection \\ basis.
 
@@ -995,12 +1092,31 @@ class SelectTool(_Tool):
         removed basis.  Highlight is *not* touched (decision 4, A.1).
         If the selection collapses to empty, depth becomes HIGHLIGHT
         (highlight union stays so user retains visual context).
+
+        Phase 3: ``group_basis`` removes group IDs from
+        ``_selected_group_ids`` and also subtracts each group's
+        members from ``_selected_ids`` (so the bright multi-rect for
+        a removed group disappears together with the group anchor).
         """
+        group_basis = group_basis or set()
+
         # Drop primary if it falls inside the basis.
         if self._selected_id is not None and self._selected_id in comp_basis:
             self._deselect()
         if self._selected_wire_id is not None and self._selected_wire_id in wire_basis:
             self._deselect_wire()
+
+        # Phase 3: subtract groups + their members from selection.
+        if group_basis:
+            from protoboard.domain.layout.group import all_component_ids
+            groups_map = self._session.layout.groups
+            for gid in group_basis:
+                self._selected_group_ids.discard(gid)
+                if gid in groups_map:
+                    for cid in all_component_ids(groups_map, gid):
+                        self._selected_ids.discard(cid)
+                        if self._selected_id == cid:
+                            self._deselect()
 
         # Subtract from multi sets.
         removed_comps = self._selected_ids & comp_basis
@@ -1010,7 +1126,7 @@ class SelectTool(_Tool):
 
         # Redraw multi highlights from scratch — cheaper than
         # individually removing the right scene items.
-        if removed_comps:
+        if removed_comps or group_basis:
             self._redraw_multi_highlights()
         if removed_wires:
             self._redraw_multi_wire_highlights()
@@ -1079,6 +1195,11 @@ class SelectTool(_Tool):
 
         Mirrors the legacy `_select_primary` / `_select_wire` split
         based on hit kind.  Safe to call with None (no-op).
+
+        Phase 3: ``Hit("group", gid)`` promotes the *first* member of
+        the group as primary so the Properties panel + drag anchor
+        have a concrete component.  Hit("group", ...) on a stale or
+        empty group is a silent no-op.
         """
         if hit is None:
             return
@@ -1086,6 +1207,11 @@ class SelectTool(_Tool):
             self._select_primary(hit.id)
         elif hit.kind == "wire" and isinstance(hit.id, uuid.UUID):
             self._select_wire(hit.id)
+        elif hit.kind == "group" and isinstance(hit.id, uuid.UUID):
+            from protoboard.domain.layout.group import all_component_ids
+            members = all_component_ids(self._session.layout.groups, hit.id)
+            if members:
+                self._select_primary(next(iter(members)))
 
     def _refresh_highlight_from_hit(self, hit: "Hit | None") -> None:
         """Reset highlight to relation(hit), or clear if hit is None.
@@ -2689,15 +2815,37 @@ class SelectTool(_Tool):
             current_group=str(self._current_group_id)[:8],
         )
         if group_outline_hit is not None:
-            # Long-press timer takes over — start it and let the user
-            # decide via hold duration what they want.  Click is
-            # consumed so the normal selection flow doesn't fire.
-            view_pt = self._view.mapFromScene(scene_pt) if self._view is not None else QPoint(0, 0)
-            self._start_longpress(group_outline_hit, view_pt)
+            # Phase 3: plain LMB on a group bbox now resolves through
+            # the dispatcher as ``Hit("group", gid)`` instead of going
+            # through the legacy 500 ms long-press select-phase.  The
+            # user gets an immediate SET on the group (or ADD / REMOVE
+            # under Ctrl / Ctrl+Shift) without waiting.
+            #
+            # The 1 s long-press still arms — only the "enter group"
+            # phase remains; `_on_longpress_fire` starts directly with
+            # phase="edit" now.  Mouse motion above the cancel pixel
+            # threshold in `_longpress_check_jitter` aborts the enter
+            # flow so a drag of the freshly-selected group monolith is
+            # not mistaken for an enter-group gesture.
+            from protoboard.gui.selection_fsm import Hit
+            basis_scope_g, op_g = self._decode_modifier_matrix(
+                ctrl=ctrl, shift=shift, alt=alt,
+            )
             _log.info(
-                "on_press.longpress_started",
+                "on_press.dispatch.group",
+                op=op_g.name, basis_scope=basis_scope_g.name,
                 group_id=str(group_outline_hit)[:8],
             )
+            self._apply_selection_op(
+                Hit("group", group_outline_hit), basis_scope_g, op_g,
+            )
+            # Arm long-press for the 1 s enter-group affordance — only
+            # when the user issued a plain LMB without modifiers.
+            # Modifier clicks (ADD/REMOVE) are explicit set-ops and
+            # never produce an enter-group cycle.
+            if not ctrl and not shift and not alt:
+                view_pt = self._view.mapFromScene(scene_pt) if self._view is not None else QPoint(0, 0)
+                self._start_longpress(group_outline_hit, view_pt)
             return True
 
         # The legacy outline-drag path is fully replaced by long-press;
@@ -3312,22 +3460,12 @@ class SelectTool(_Tool):
 
     def on_release(self, event: QMouseEvent, scene_pt: QPointF) -> None:
         # Long-press release.  If we never fired the timer (release
-        # before 500ms), the user wants a regular click — pass through
-        # to the normal selection flow without selecting the group.
-        # If the select-phase fired but edit-phase did not, the group
-        # is selected and we just clean up the timer.
+        # Phase 3: only the 1 s "edit" phase remains.  If the timer
+        # never fired (release before 1 s), the dispatcher's group SET
+        # from on_press is already in place — the user has the group
+        # selected and we just cancel the pending enter-group timer.
         if self._longpress_phase != "idle":
-            phase = self._longpress_phase
             self._cancel_longpress()
-            if phase == "select":
-                # Already selected the group at the 500ms mark — leave
-                # the selection in place, just exit.
-                return
-            # phase was still "edit" pending; nothing was selected yet
-            # (release before 500ms).  Fall through so the user gets
-            # a normal click outcome (deselect / hit-test under cursor).
-            # We can't replay on_press cleanly, so for now just treat
-            # as a no-op release (the user can re-click).
             return
 
         # Rubber-band release: apply selection.
@@ -5327,18 +5465,21 @@ class SelectTool(_Tool):
     def _start_longpress(
         self, group_id: uuid.UUID, view_pt: QPoint,
     ) -> None:
-        """Begin the 500ms hold cycle for group *group_id*.
+        """Begin the 1 s hold cycle for entering group *group_id*.
 
-        Sets phase=select, captures the press point for jitter
-        detection, and starts the timer.  Caller has already verified
-        the click was on the empty bbox area of the group.
+        Phase 3 migration (spec rev 3 decision 2): the 500 ms
+        select-phase is gone — the dispatcher already issued the SET
+        single-group via ``Hit("group", gid)`` on press.  All that
+        remains is the 1 s enter-group affordance, so the timer fires
+        once at ``_GROUP_LONGPRESS_EDIT_MS`` and phase goes straight
+        to ``"edit"`` waiting for that single tick.
         """
         self._ensure_longpress_timer()
-        self._longpress_phase = "select"
+        self._longpress_phase = "edit"
         self._longpress_group_id = group_id
         self._longpress_press_view_pt = QPoint(view_pt)
         if self._longpress_timer is not None:
-            self._longpress_timer.start(_GROUP_LONGPRESS_SELECT_MS)
+            self._longpress_timer.start(_GROUP_LONGPRESS_EDIT_MS)
 
     def _cancel_longpress(self) -> None:
         """Abort any pending long-press cycle and clear state."""
@@ -5349,40 +5490,18 @@ class SelectTool(_Tool):
         self._longpress_press_view_pt = None
 
     def _on_longpress_fire(self) -> None:
-        """Timer callback — advance phase select→edit, or commit edit."""
+        """Timer callback — commit enter-group at the 1 s mark.
+
+        Phase 3 (spec rev 3 dec 2): only the "edit" phase remains;
+        the select-phase migration moved that responsibility to the
+        dispatcher on press.
+        """
         gid = self._longpress_group_id
         if gid is None or gid not in self._session.layout.groups:
             self._cancel_longpress()
             return
 
-        if self._longpress_phase == "select":
-            # 500ms reached — select the group as a monolith.  This
-            # mirrors the existing outline-hit drag-start path but
-            # without arming a drag (user explicitly indicated
-            # selection intent via hold, not motion).
-            from protoboard.domain.layout.group import all_component_ids
-            grp_members = frozenset(all_component_ids(self._session.layout.groups, gid))
-            if grp_members:
-                self._clear_multi_selection()
-                self._deselect_wire()
-                self._selected_group_id = gid
-                self._selected_ids = set(grp_members)
-                first = next(iter(grp_members))
-                self._select_primary(first)
-                for cid in grp_members - {first}:
-                    self._draw_multi_highlight(cid)
-                self._notify_selection()
-            # Phase advances to edit; second 500ms fires the edit-mode entry.
-            self._longpress_phase = "edit"
-            if self._longpress_timer is not None:
-                self._longpress_timer.start(
-                    _GROUP_LONGPRESS_EDIT_MS - _GROUP_LONGPRESS_SELECT_MS
-                )
-            _log.info("longpress.select", group_id=str(gid)[:8])
-            return
-
         if self._longpress_phase == "edit":
-            # Full 1000ms held — advance into group edit mode.
             self._group_stack.append(gid)
             self._notify_active_group()
             _log.info("longpress.edit_entered", group_id=str(gid)[:8])

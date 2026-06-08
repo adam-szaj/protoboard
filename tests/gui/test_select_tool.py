@@ -1732,3 +1732,115 @@ class TestActiveDragSet:
         # i1 + i2 are both top-level (no group) → free_components.
         assert i1.id in ds.free_components
         assert i2.id in ds.free_components
+
+
+class TestHitGroupDispatcher:
+    """Phase 3 Etap 5: `Hit("group", gid)` flows through `_apply_selection_op`.
+    SET/ADD/REMOVE on a group hit mutates `_selected_group_ids` and expands
+    members into `_selected_ids`.
+    """
+
+    def _make_group(
+        self,
+        session: EditorSession,
+        component_ids: list[uuid.UUID],
+        name: str = "G1",
+    ) -> uuid.UUID:
+        from protoboard.domain.layout.group import ComponentGroup
+        gid = uuid.uuid4()
+        g = ComponentGroup(
+            id=gid,
+            name=name,
+            component_ids=frozenset(component_ids),
+        )
+        session.layout.groups[gid] = g
+        return gid
+
+    def test_set_on_group_populates_selected_group_ids(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 2.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        gid = self._make_group(session, [i1.id, i2.id])
+        tool._apply_selection_op(
+            Hit("group", gid), BasisScope.SINGLE, SetOp.SET,
+        )
+        assert gid in tool._selected_group_ids
+        # Members expanded into _selected_ids so drag-arm sees them.
+        assert i1.id in tool._selected_ids
+        assert i2.id in tool._selected_ids
+
+    def test_add_two_groups_yields_both_in_set(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 2.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        g1 = self._make_group(session, [i1.id], name="G1")
+        g2 = self._make_group(session, [i2.id], name="G2")
+        # SET first group, ADD second.
+        tool._apply_selection_op(
+            Hit("group", g1), BasisScope.SINGLE, SetOp.SET,
+        )
+        tool._apply_selection_op(
+            Hit("group", g2), BasisScope.SINGLE, SetOp.ADD,
+        )
+        assert g1 in tool._selected_group_ids
+        assert g2 in tool._selected_group_ids
+        # Both groups' members in _selected_ids.
+        assert i1.id in tool._selected_ids
+        assert i2.id in tool._selected_ids
+
+    def test_remove_group_drops_it_and_its_members(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 2.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        g1 = self._make_group(session, [i1.id], name="G1")
+        g2 = self._make_group(session, [i2.id], name="G2")
+        tool._apply_selection_op(
+            Hit("group", g1), BasisScope.SINGLE, SetOp.SET,
+        )
+        tool._apply_selection_op(
+            Hit("group", g2), BasisScope.SINGLE, SetOp.ADD,
+        )
+        # Now remove G1.
+        tool._apply_selection_op(
+            Hit("group", g1), BasisScope.SINGLE, SetOp.REMOVE,
+        )
+        assert g1 not in tool._selected_group_ids
+        assert g2 in tool._selected_group_ids
+        # G1's members dropped from _selected_ids; G2's members remain.
+        assert i1.id not in tool._selected_ids
+        assert i2.id in tool._selected_ids
+
+    def test_summary_g_count_reflects_groups_selected(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 2.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        g1 = self._make_group(session, [i1.id], name="G1")
+        g2 = self._make_group(session, [i2.id], name="G2")
+        tool._apply_selection_op(
+            Hit("group", g1), BasisScope.SINGLE, SetOp.SET,
+        )
+        tool._apply_selection_op(
+            Hit("group", g2), BasisScope.SINGLE, SetOp.ADD,
+        )
+        s = tool.selection_summary()
+        assert "g:2]" in s
