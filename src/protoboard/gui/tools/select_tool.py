@@ -188,6 +188,12 @@ class SelectTool(_Tool):
         self._drag_orig_positions: dict[uuid.UUID, Point] = {}
         self._drag_orig_wire_paths: dict[uuid.UUID, list[Point]] = {}
         self._drag_anchor_offset: tuple[float, float] = (0.0, 0.0)
+        # Phase 3: frozen DragSet snapshot for the active drag.  Built
+        # at press-time from `_selected_*` + `_selected_group_ids`,
+        # consumed by drag-overlay/conflict-check/commit pipelines.
+        # None when no drag is armed.
+        from protoboard.gui.drag_set import DragSet as _DragSet
+        self._active_drag_set: "_DragSet | None" = None
         # Scene-space point captured on LPM press.  on_move ignores
         # cursor motion until the user has dragged ~half a raster from
         # this point, so a plain click on a pin (small jitter) doesn't
@@ -454,6 +460,49 @@ class SelectTool(_Tool):
     def _filter_groups(self) -> bool:
         from protoboard.gui.selection_axes import SelectionFilter
         return bool(self._filter & SelectionFilter.GROUPS)
+
+    # ------------------------------------------------------------------
+    # Phase 3 — DragSet construction
+    # ------------------------------------------------------------------
+
+    def _build_drag_set(
+        self,
+        fallback_component: "uuid.UUID | None" = None,
+    ) -> "object":
+        """Return a frozen :class:`DragSet` capturing the current
+        selection state.
+
+        Args:
+            fallback_component: When no components are selected (e.g. a
+                fresh click that hasn't yet entered the selection
+                state), include this component as the single free
+                member so the press-time snapshot covers it.  Used by
+                the pin/bbox drag-arm paths.
+
+        The returned ``DragSet`` is purely a snapshot — mutating
+        selection state afterwards does not affect the frozen
+        DragSet.  Locked-in-group components are filtered per the
+        ``from_selection`` factory rules.
+        """
+        from protoboard.gui.drag_set import DragSet
+
+        comp_ids: set[uuid.UUID] = set(self._selected_ids)
+        if self._selected_id is not None:
+            comp_ids.add(self._selected_id)
+        if fallback_component is not None and not comp_ids:
+            comp_ids.add(fallback_component)
+
+        wire_ids: set[uuid.UUID] = set(self._selected_wire_ids)
+        if self._selected_wire_id is not None:
+            wire_ids.add(self._selected_wire_id)
+
+        return DragSet.from_selection(
+            selected_ids=comp_ids,
+            selected_wire_ids=wire_ids,
+            selected_group_ids=self._selected_group_ids,
+            groups_map=self._session.layout.groups,
+            is_locked_in_group=self._is_locked_in_group,
+        )
 
     def _filter_mutable_ids(self, ids: "set[uuid.UUID] | frozenset[uuid.UUID] | list[uuid.UUID]") -> "set[uuid.UUID]":
         """Drop components that are locked inside a group from a mutation set.
@@ -2479,6 +2528,7 @@ class SelectTool(_Tool):
         self._drag_threshold_crossed = False
         self._drag_orig_positions = {}
         self._drag_orig_wire_paths = {}
+        self._active_drag_set = None
         self._clear_drag_pad_index()
         if self._view is not None:
             self._drag_overlay.reset(self._view.scene())
@@ -2823,6 +2873,16 @@ class SelectTool(_Tool):
                 self._drag_threshold_crossed = False
                 self._drag_orig_positions = {}
                 self._drag_orig_wire_paths = {}
+                # Phase 3: DragSet representing this single-group drag.
+                # Built directly because `_build_drag_set` filters on
+                # `_is_locked_in_group`, which would drop every member
+                # of `target_gid` (the user is operating from the
+                # parent context).
+                from protoboard.gui.drag_set import DragSet as _DragSetGrp
+                self._active_drag_set = _DragSetGrp(
+                    groups=frozenset({target_gid}),
+                    wires=frozenset(self._selected_wire_ids),
+                )
                 snapped = self._view.snap(scene_pt, exclude_ids=frozenset(grp_members))
                 for cid in grp_members:
                     pl = self._session.layout.placements.get(cid)
@@ -2861,6 +2921,12 @@ class SelectTool(_Tool):
             self._drag_threshold_crossed = False
             self._drag_orig_positions = {}
             self._drag_orig_wire_paths = {}
+            # Phase 3: snapshot DragSet alongside the legacy `drag_ids`
+            # set.  `_active_drag_set` is the structured form (free vs
+            # groups) Etap 4 conflict-check consumes; `drag_ids` is the
+            # flat working set the legacy on_move / on_release pipeline
+            # already uses.
+            self._active_drag_set = self._build_drag_set(fallback_component=hit)
             drag_ids = self._selected_ids if self._selected_ids else {hit}
             n_drag_ids_before_filter = len(drag_ids)
             # Drop grouped-but-not-active components from the drag set so
@@ -2875,6 +2941,9 @@ class SelectTool(_Tool):
                 n_selected_ids=len(self._selected_ids),
                 n_selected_wire_ids=len(self._selected_wire_ids),
                 hit_in_drag_ids=hit in drag_ids,
+                drag_set_free=len(self._active_drag_set.free_components),  # type: ignore[union-attr]
+                drag_set_groups=len(self._active_drag_set.groups),  # type: ignore[union-attr]
+                drag_set_wires=len(self._active_drag_set.wires),  # type: ignore[union-attr]
             )
             snapped = self._view.snap(scene_pt, exclude_ids=frozenset(drag_ids))
             for cid in drag_ids:
@@ -2944,6 +3013,8 @@ class SelectTool(_Tool):
             self._drag_threshold_crossed = False
             self._drag_orig_positions = {}
             self._drag_orig_wire_paths = {}
+            # Phase 3: capture DragSet for the wire drag path too.
+            self._active_drag_set = self._build_drag_set()
             wire_obj = self._session.wire_by_id(wire_hit)
             if wire_obj and wire_obj.path:
                 self._drag_anchor_offset = (
@@ -3025,6 +3096,8 @@ class SelectTool(_Tool):
             self._drag_threshold_crossed = False
             self._drag_orig_positions = {}
             self._drag_orig_wire_paths = {}
+            # Phase 3: DragSet snapshot.
+            self._active_drag_set = self._build_drag_set(fallback_component=bbox_hit)
             drag_ids = self._selected_ids if self._selected_ids else {bbox_hit}
             n_drag_ids_before_filter = len(drag_ids)
             drag_ids = {cid for cid in drag_ids if not self._is_locked_in_group(cid)}
@@ -3033,6 +3106,8 @@ class SelectTool(_Tool):
                 bbox_hit=str(bbox_hit)[:8],
                 n_drag_ids_before_filter=n_drag_ids_before_filter,
                 n_drag_ids_after_group_filter=len(drag_ids),
+                drag_set_free=len(self._active_drag_set.free_components),  # type: ignore[union-attr]
+                drag_set_groups=len(self._active_drag_set.groups),  # type: ignore[union-attr]
             )
             snapped = self._view.snap(scene_pt, exclude_ids=frozenset(drag_ids))
             for cid in drag_ids:
@@ -3274,6 +3349,7 @@ class SelectTool(_Tool):
         if not threshold_crossed:
             self._drag_orig_positions = {}
             self._drag_orig_wire_paths = {}
+            self._active_drag_set = None
             # Spec rev 2 (decision 5, A no-op): plain LMB on the
             # current primary is a no-op — the dispatcher already
             # handled selection mutation on press; the release path
@@ -3605,6 +3681,8 @@ class SelectTool(_Tool):
         self._session.layout_changed.emit()
         if not self._is_floating():
             self._refresh_all_highlights()
+        # Phase 3: drag finished — release the frozen snapshot.
+        self._active_drag_set = None
 
     def on_key(self, event: QKeyEvent) -> None:
         key = event.key()

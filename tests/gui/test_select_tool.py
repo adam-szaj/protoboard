@@ -1661,3 +1661,74 @@ class TestSelectedGroupIdsShim:
         tool._select_primary(inst.id)
         s = tool.selection_summary()
         assert "g:3]" in s
+
+
+class TestActiveDragSet:
+    """Phase 3 Etap 3: `_active_drag_set` captures the DragSet at press
+    time and is cleared on release / deactivate.  Etap 4 consumes the
+    snapshot for pre-validation multi-group conflict-check.
+    """
+
+    def test_active_drag_set_none_before_press(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        assert tool._active_drag_set is None
+
+    def test_active_drag_set_set_by_pin_drag_arm(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        _press(tool, 0.5, 0.5)
+        # Drag-arm fires unconditionally for pin LMB even before threshold.
+        assert tool._active_drag_set is not None
+        # The DragSet must include the clicked component in free_components.
+        assert inst.id in tool._active_drag_set.free_components
+
+    def test_active_drag_set_cleared_on_release_without_drag(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        _press(tool, 0.5, 0.5)
+        _release(tool, 0.5, 0.5)
+        assert tool._active_drag_set is None
+
+    def test_active_drag_set_cleared_on_deactivate(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        _press(tool, 0.5, 0.5)
+        assert tool._active_drag_set is not None
+        tool.deactivate()
+        assert tool._active_drag_set is None
+
+    def test_active_drag_set_includes_selected_groups(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        import uuid
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 2.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # Simulate a user-built selection: multi-component + a group.
+        gid = uuid.uuid4()
+        tool._selected_group_ids = {gid}
+        tool._select_primary(i1.id)
+        tool._selected_ids = {i1.id, i2.id}
+        ds = tool._build_drag_set()
+        assert gid in ds.groups
+        # i1 + i2 are both top-level (no group) → free_components.
+        assert i1.id in ds.free_components
+        assert i2.id in ds.free_components
