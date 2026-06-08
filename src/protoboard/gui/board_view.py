@@ -195,6 +195,16 @@ class BoardView(QGraphicsView):
         # back-side items change, viewport resizes, or transform changes.
         self._back_cache: object | None = None
         self._back_cache_dirty: bool = True
+        # Snapshot of (comp_ids, wire_ids, profile_id) baked into the
+        # current ``_back_cache`` pixmap.  ``_apply_highlight_opacity``
+        # compares this to the new highlight set; on a mismatch we
+        # invalidate the back cache so the next paint rasterises the
+        # bottom-side wires with the fresh bright/dim state.  Without
+        # this, opacity changes on items already hidden + cached
+        # produced a stale pixmap — wires across the camera kept their
+        # old highlight until the user pressed Esc (see memory
+        # ``back-cache-highlight-stale-2026-06-08``).
+        self._last_highlight_signature: int = 0
         # Scene items kept hidden while a valid _back_cache shows them
         # as a rasterised blit instead.  Restored on cache invalidation.
         self._back_hidden_items: list[object] = []
@@ -487,6 +497,28 @@ class BoardView(QGraphicsView):
                     grp.setOpacity(1.0)
                 else:
                     grp.setOpacity(dim_w)
+
+        # Invalidate the back-cache pixmap when the *set* of highlighted
+        # items changes — opacity-only shifts (same set, different alpha
+        # from a profile tweak) do not require a rebuild because the
+        # cached pixmap is rasterised with whatever opacity the items
+        # had at render time and a setOpacity on a hidden item is
+        # cheap.  The signature here is sensitive only to membership
+        # changes plus the active profile id (different profile = items
+        # rendered at a different intrinsic alpha during build).
+        new_signature = hash((
+            frozenset(highlighted_comp_ids),
+            frozenset(highlighted_wire_ids),
+            frozenset(net_ids),
+            id(profile_obj),
+        ))
+        if new_signature != self._last_highlight_signature:
+            self._last_highlight_signature = new_signature
+            self._invalidate_back_cache()
+            # Re-trigger a paint so the back cache gets rebuilt now
+            # rather than on the next mouse move; otherwise the user
+            # sees the stale pixmap until they wiggle the cursor.
+            self.viewport().update()
 
     _LABEL_MIN_SCENE_UNITS: float = 0.8
 
