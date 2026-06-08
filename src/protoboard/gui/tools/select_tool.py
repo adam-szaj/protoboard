@@ -261,6 +261,18 @@ class SelectTool(_Tool):
         from protoboard.gui.selection_axes import RelationClass, SelectionFilter
         self._filter: SelectionFilter = SelectionFilter.ALL
         self._relation: RelationClass = RelationClass.SAME_LOGICAL_NET
+        # Explicit click-FSM (docs/highlight-state-machine.txt).  The
+        # FSM mirrors what the legacy selection code does, then drives
+        # the per-layer pop semantics for Esc + deselect-on-same-object.
+        # Full Shift+extends migration is Phase 2b — for now the FSM
+        # shadows legacy state and exposes step_esc / step_lmb hooks
+        # used by the Esc handler and the on_press "click same primary
+        # deselects" branch.
+        from protoboard.gui.selection_fsm import SelectionFSM
+        self._fsm: SelectionFSM = SelectionFSM(
+            same_relation=self._fsm_same_relation,
+            initial_relation=self._relation,
+        )
         # Last click source — used for auto-highlight refresh after relation change.
         self._hl_source_wire: uuid.UUID | None = None
         self._hl_source_comp: uuid.UUID | None = None
@@ -680,6 +692,114 @@ class SelectTool(_Tool):
             correlated_comps=correlated_comps,
             profile=rprof,
         )
+
+    # ----------------------------------------------------------------
+    # FSM glue (Phase 2a)
+    # ----------------------------------------------------------------
+
+    def _fsm_same_relation(
+        self,
+        hit: "object",  # protoboard.gui.selection_fsm.Hit
+        relative_to: "object",
+        relation: "RelationClass",
+    ) -> bool:
+        """Same-relation predicate consumed by the SelectionFSM.
+
+        Maps each ``Hit`` to its logical net id (via the existing
+        helpers) and compares.  When either side has no net (e.g. a
+        bbox click on a no-net component), default to "different
+        relation" so Shift+LMB falls back to a fresh multi-set.
+        """
+        from protoboard.gui.selection_axes import RelationClass
+
+        if relation == RelationClass.NONE:
+            return False
+        net_a = self._fsm_hit_net_id(hit)
+        net_b = self._fsm_hit_net_id(relative_to)
+        if net_a is None or net_b is None:
+            return False
+        return net_a == net_b
+
+    def _fsm_hit_net_id(self, hit: "object") -> "uuid.UUID | None":
+        """Map a ``Hit`` to a logical net id when one exists."""
+        # Local import keeps this module independent of selection_fsm
+        # at construction time; selection_fsm has no Qt deps so this
+        # is purely about ordering.
+        kind = getattr(hit, "kind", None)
+        hit_id = getattr(hit, "id", None)
+        if kind == "wire" and isinstance(hit_id, uuid.UUID):
+            return self._resolve_logical_net(wire_id=hit_id)
+        if kind == "component" and isinstance(hit_id, uuid.UUID):
+            # Component bbox click — no pin context; use first net.
+            session = self._session
+            if session is None:
+                return None
+            for net_obj in session.schematic.nets.values():
+                if any(pr.component_id == hit_id for pr in net_obj.pins):
+                    return net_obj.id
+        return None
+
+    def _esc_pop_one_layer(self) -> None:
+        """Pop one layer of the FSM-style selection stack.
+
+        Layers (top → bottom):
+          ``MULTI_SELECTION`` — multi-selection rectangle set is non-empty
+          ``SELECTION``       — single primary highlighted
+          ``HIGHLIGHT``       — auto-highlight entry still on the stack
+          ``NORMAL``          — nothing to pop
+
+        Esc once removes the topmost layer only.  This mirrors
+        ``SelectionFSM.step_esc`` but operates directly on the legacy
+        fields until Phase 2b lifts the FSM into the authoritative role.
+        """
+        # 1. Pop MULTI_SELECTION — keep primary, drop the extension set.
+        if self._selected_ids or self._selected_wire_ids:
+            self._clear_multi_selection()
+            self._clear_multi_wire_selection()
+            self._notify_selection()
+            return
+        # 2. Pop SELECTION — keep highlight set, drop primary.
+        if self._selected_id is not None or self._selected_wire_id is not None:
+            self._deselect()
+            self._deselect_wire()
+            self._notify_selection()
+            return
+        # 3. Pop HIGHLIGHT — clear connectivity highlight + auto stack entry.
+        if self._has_active_highlight():
+            self._clear_connectivity_highlight()
+            self._notify_selection()
+            return
+        # 4. NORMAL — nothing to pop; still notify so listeners can resync.
+        self._notify_selection()
+
+    def _has_active_highlight(self) -> bool:
+        """True when the auto-highlight stack entry from this tool is
+        still up — i.e. we are at ``HIGHLIGHT`` layer in FSM terms."""
+        session = self._session
+        if session is None:
+            return False
+        entry = session.highlight_stack.active()
+        if entry is None:
+            return False
+        # ``_clear_connectivity_highlight`` clears this tool's auto entry
+        # (source_id="select_tool").  Any active entry whose comp/wire
+        # set is non-empty counts.
+        return bool(entry.comp_ids or entry.wire_ids or entry.net_id)
+
+    def _fsm_current_hit(self) -> "object | None":
+        """Build a ``Hit`` from the legacy ``_selected_*`` fields.
+
+        Used to keep the FSM in step with legacy mutations until Phase
+        2b takes the FSM as authoritative.  Returns the primary
+        selection if any, else ``None``.
+        """
+        from protoboard.gui.selection_fsm import Hit
+
+        if self._selected_id is not None:
+            return Hit("component", self._selected_id)
+        if self._selected_wire_id is not None:
+            return Hit("wire", self._selected_wire_id)
+        return None
 
     def _resolve_relation_net_ids(
         self,
@@ -2381,14 +2501,15 @@ class SelectTool(_Tool):
                 self._drag_orig_wire_paths[wid] = list(w.path)
             return True
 
-        # Nothing hit — clear connectivity highlight and start rubber-band.
+        # Nothing hit — empty-canvas click is equivalent to Esc per
+        # docs/highlight-state-machine.txt.  Pop one selection layer
+        # (multi → selection → highlight → normal) instead of clearing
+        # everything; the user can still wipe the slate with two or
+        # three Esc presses.  Rubber-band still starts so a click+drag
+        # in empty space performs a marquee select.
         _log.info("on_press.nothing_hit_rubber_band")
         self._cancel_wire_edit()
-        self._clear_multi_selection()
-        self._deselect()
-        self._deselect_wire()
-        self._clear_connectivity_highlight()
-        self._notify_selection()
+        self._esc_pop_one_layer()
         self._rubber_band_start = scene_pt
         return True
 
@@ -3001,11 +3122,7 @@ class SelectTool(_Tool):
             if len(self._group_stack) > 1:  # inside a subgroup
                 self.exit_group()
             else:
-                self._clear_multi_selection()
-                self._deselect()
-                self._deselect_wire()
-                self._clear_connectivity_highlight()
-                self._notify_selection()
+                self._esc_pop_one_layer()
         elif key == Qt.Key.Key_QuoteLeft:
             # Backtick: cycle through relation classes.
             from protoboard.gui.selection_axes import RelationClass

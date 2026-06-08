@@ -658,6 +658,73 @@ class TestSelectToolGroupNavigation:
         assert tool._group_stack == [ROOT_GROUP_ID]
 
 
+class TestEscPopsSelectionLayers:
+    """Esc semantics per docs/highlight-state-machine.txt: pop one
+    layer at a time, mirroring SelectionFSM.step_esc.
+
+    Layer order: NORMAL → HIGHLIGHT → SELECTION → MULTI_SELECTION.
+    The first Esc drops multi-set (keeps primary); second drops
+    primary (keeps auto-highlight); third drops highlight.
+    """
+
+    def test_esc_pops_multi_selection_only(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Build a synthetic MULTI_SELECTION state: primary + multi set.
+        inst_a = _place_component(board_view, session, 0.5, 0.5)
+        inst_b = _place_component(board_view, session, 1.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._select_primary(inst_a.id)
+        tool._selected_ids.add(inst_a.id)
+        tool._selected_ids.add(inst_b.id)
+        assert tool._selected_id == inst_a.id
+        assert len(tool._selected_ids) == 2
+
+        _key(tool, Qt.Key.Key_Escape)
+        # Multi cleared; primary survives.
+        assert tool._selected_ids == set()
+        assert tool._selected_id == inst_a.id
+
+    def test_esc_pops_selection_only_after_multi(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._select_primary(inst.id)
+
+        # First Esc — at SELECTION layer (no multi); pops to HIGHLIGHT.
+        _key(tool, Qt.Key.Key_Escape)
+        assert tool._selected_id is None
+        assert tool._selected_ids == set()
+
+    def test_esc_three_times_returns_to_normal(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst_a = _place_component(board_view, session, 0.5, 0.5)
+        inst_b = _place_component(board_view, session, 1.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # MULTI_SELECTION layer
+        tool._select_primary(inst_a.id)
+        tool._selected_ids = {inst_a.id, inst_b.id}
+
+        _key(tool, Qt.Key.Key_Escape)   # multi → selection
+        assert tool._selected_ids == set()
+        assert tool._selected_id == inst_a.id
+
+        _key(tool, Qt.Key.Key_Escape)   # selection → highlight
+        assert tool._selected_id is None
+
+        _key(tool, Qt.Key.Key_Escape)   # highlight → normal (no-op for selection fields)
+        assert tool._selected_id is None
+        assert tool._selected_ids == set()
+
+
 # ---------------------------------------------------------------------------
 # _hit_test_pin / iter_pin_positions integration
 # ---------------------------------------------------------------------------
