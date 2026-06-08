@@ -1586,3 +1586,78 @@ class TestSelectionSummary:
         # Both i1 and i2 share net N1 → n:1.
         assert "n:1" in s
         assert "c:2 w:0" in s
+
+
+class TestSelectedGroupIdsShim:
+    """Phase 3 Etap 2: `_selected_group_ids` is now a set, and the
+    legacy `_selected_group_id` (singular) is a compat property over it.
+
+    Both directions must stay transparent — old code that assigns or
+    reads `tool._selected_group_id` keeps working, while new code can
+    populate the set directly and watch `selection_summary()` reflect it.
+    """
+
+    def test_set_starts_empty(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        assert tool._selected_group_ids == set()
+        assert tool._selected_group_id is None
+
+    def test_assigning_singular_id_populates_set(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        import uuid
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        gid = uuid.uuid4()
+        tool._selected_group_id = gid
+        assert tool._selected_group_ids == {gid}
+        assert tool._selected_group_id == gid
+
+    def test_assigning_none_clears_set(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        import uuid
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._selected_group_id = uuid.uuid4()
+        tool._selected_group_id = None
+        assert tool._selected_group_ids == set()
+        assert tool._selected_group_id is None
+
+    def test_set_with_multiple_groups_picks_first_for_singular_shim(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """When the set has >1 group, the singular shim returns
+        *some* element — order is iteration-defined, but it must not
+        crash and must be a member of the set."""
+        import uuid
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        g1, g2 = uuid.uuid4(), uuid.uuid4()
+        tool._selected_group_ids = {g1, g2}
+        # Shim returns one of them.
+        assert tool._selected_group_id in {g1, g2}
+
+    def test_summary_reflects_multi_group_count(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        import uuid
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._selected_group_ids = {uuid.uuid4(), uuid.uuid4(), uuid.uuid4()}
+        # Need at least one element in comp/wire sets for summary to
+        # show g:N (summary returns "none" when everything is empty).
+        # Status bar should reflect the group count regardless of the
+        # comp/wire bookkeeping; ensure we land in the multi branch.
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        tool._select_primary(inst.id)
+        s = tool.selection_summary()
+        assert "g:3]" in s

@@ -249,8 +249,10 @@ class SelectTool(_Tool):
         # Starts at root group; never empty — use _current_group_id for safe access.
         from protoboard.domain.layout.layout import ROOT_GROUP_ID as _ROOT_GID
         self._group_stack: list[uuid.UUID] = [_ROOT_GID]
-        # Set when the user clicks a group outline — enables group-as-monolith rotation.
-        self._selected_group_id: uuid.UUID | None = None
+        # Phase 3: set of groups selected as monoliths.  Replaces the
+        # legacy singular `_selected_group_id` (now a compat property
+        # over this set).  Enables multi-group / mixed-drag.
+        self._selected_group_ids: set[uuid.UUID] = set()
         # Re-drag state (Ctrl+R on a component with bendable_pins).
         self._redrag_comp_id: uuid.UUID | None = None
         self._redrag_pin_num: int | None = None
@@ -331,6 +333,26 @@ class SelectTool(_Tool):
             from protoboard.domain.layout.layout import ROOT_GROUP_ID
             self._group_stack = [ROOT_GROUP_ID]
 
+    # ------------------------------------------------------------------
+    # Phase 3 compat shim — `_selected_group_id` (singular) is now an
+    # accessor over `_selected_group_ids` (set).  Returns the first
+    # element if any; setter clears the set then adds the new id (or
+    # clears entirely when assigned None).  Pre-existing callers (tests,
+    # main_window, several SelectTool internals) keep working.  New
+    # callers (drag pipeline, dispatcher, selection summary) read the
+    # set directly.
+    # ------------------------------------------------------------------
+
+    @property
+    def _selected_group_id(self) -> "uuid.UUID | None":
+        return next(iter(self._selected_group_ids), None)
+
+    @_selected_group_id.setter
+    def _selected_group_id(self, value: "uuid.UUID | None") -> None:
+        self._selected_group_ids.clear()
+        if value is not None:
+            self._selected_group_ids.add(value)
+
     def _notify_selection(self) -> None:
         """Broadcast current selection state to all panels via session signal."""
         if self._session is None:
@@ -396,11 +418,10 @@ class SelectTool(_Tool):
                 if n is not None:
                     net_ids.add(n)
 
-        # Groups: count groups that are *selected as a whole*.  Today the
-        # tool tracks one active group at a time (`_selected_group_id`)
-        # so this resolves to 0 or 1.  If multi-group selection lands
-        # later the helper just becomes ``len(self._selected_group_ids)``.
-        group_count = 1 if self._selected_group_id is not None else 0
+        # Groups: count groups selected as monoliths.  Phase 3 made
+        # `_selected_group_ids` a set; status bar reflects whatever is
+        # in there.
+        group_count = len(self._selected_group_ids)
 
         multi = f"multi:[c:{len(comp_ids)} w:{len(wire_ids)} n:{len(net_ids)} g:{group_count}]"
         if pri is None:
