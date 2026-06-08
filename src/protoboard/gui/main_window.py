@@ -712,6 +712,15 @@ class MainWindow(QMainWindow):
         self._nets_editor_panel.sync_selection(comp_ids, wire_ids, net_id)
         _t3 = _time.monotonic() if _CLICK_PROFILE else 0.0
         self._net_inspector_panel.sync_selection(comp_ids, wire_ids, net_id)
+
+        # Mode label gets the SelectTool selection summary appended so
+        # the status bar always shows the current primary + multi
+        # counts.  Only applies when SelectTool is the active tool —
+        # other tools (Route / Place / Cut) keep their own label.
+        from protoboard.gui.tools.select_tool import SelectTool
+        active = getattr(self._board_view, "_active_tool", None)
+        if isinstance(active, SelectTool):
+            self._mode_label.setText(f"Select | {active.selection_summary()}")
         if _CLICK_PROFILE:
             _click_log.info(
                 "click_profile.main_window.on_selection_changed",
@@ -758,7 +767,15 @@ class MainWindow(QMainWindow):
 
     def _tool_select(self) -> None:
         self._board_view.set_tool(self._select_tool)
-        self._mode_label.setText("Select")
+        # Mode label gets a selection summary suffix while SelectTool
+        # is active.  `_on_selection_changed` keeps it up-to-date for
+        # every subsequent mutation; this initial paint covers the
+        # case where the user enters Select with a non-empty selection
+        # (e.g. after PlaceTool exits with the placed component still
+        # primary).
+        self._mode_label.setText(
+            f"Select | {self._select_tool.selection_summary()}"
+        )
         self._sync_tool_check(KB.ACTION_TOOL_SELECT)
 
     def _tool_place(self, definition_ref: str, pin_variant: object = None) -> None:

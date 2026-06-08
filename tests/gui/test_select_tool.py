@@ -1525,3 +1525,64 @@ class TestHighlightUnion:
         after = session.highlight_stack.active()
         assert after is not None
         assert frozenset(after.comp_ids) == comps_before
+
+
+class TestSelectionSummary:
+    """`selection_summary()` builds the status-bar string per spec
+    rev 2: ``select: none`` / ``select: pri:c:<id> | multi:[c:N w:N n:N g:N]``.
+    """
+
+    def test_summary_none_when_empty(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        assert tool.selection_summary() == "select: none"
+
+    def test_summary_after_single_component(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._select_primary(inst.id)
+        s = tool.selection_summary()
+        assert s.startswith("select: pri:c:")
+        assert " | multi:[c:1 w:0" in s
+        assert "g:0]" in s
+
+    def test_summary_after_single_wire(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        wid = _add_wire(session, [(0.5, 1.5), (4.5, 1.5)])
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._select_wire(wid)
+        s = tool.selection_summary()
+        assert s.startswith("select: pri:w:")
+        assert " | multi:[c:0 w:1" in s
+
+    def test_summary_counts_unique_nets(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        import uuid as _uuid
+        from protoboard.domain.schematic.net import Net, PinRef
+        i1 = _place_component(board_view, session, 0.5, 0.5)
+        i2 = _place_component(board_view, session, 3.5, 0.5)
+        net = Net(id=_uuid.uuid4(), name="N1", pins={
+            PinRef(i1.id, 1), PinRef(i2.id, 1),
+        })
+        session.schematic.nets[net.id] = net
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._selected_ids = {i1.id, i2.id}
+        tool._select_primary(i1.id)
+        s = tool.selection_summary()
+        # Both i1 and i2 share net N1 → n:1.
+        assert "n:1" in s
+        assert "c:2 w:0" in s

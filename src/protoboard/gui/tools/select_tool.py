@@ -345,6 +345,68 @@ class SelectTool(_Tool):
         )
         self._session.notify_selection(comp_ids, wire_ids, self._highlight_net_id)
 
+    def selection_summary(self) -> str:
+        """One-line summary of the current selection for the status bar.
+
+        Format examples:
+          ``select: none``
+          ``select: pri:c:1a2b3c4d | multi:[c:0 w:0 n:1 g:0]``
+          ``select: pri:w:5e6f7a8b | multi:[c:2 w:3 n:2 g:1]``
+
+        Tokens:
+          * ``pri:<kind>:<short-id>`` — current Properties-panel anchor
+            (``c`` component, ``w`` wire) or omitted when no primary.
+          * ``c:N`` — total selected components (multi + primary).
+          * ``w:N`` — total selected wires (multi + primary).
+          * ``n:N`` — unique logical nets touched by the selection.
+          * ``g:N`` — unique groups whose direct members are in the set.
+        """
+        session = self._session
+        if session is None:
+            return "select: none"
+
+        comp_ids: set[uuid.UUID] = set(self._selected_ids)
+        if self._selected_id is not None:
+            comp_ids.add(self._selected_id)
+        wire_ids: set[uuid.UUID] = set(self._selected_wire_ids)
+        if self._selected_wire_id is not None:
+            wire_ids.add(self._selected_wire_id)
+
+        if not comp_ids and not wire_ids:
+            return "select: none"
+
+        # Primary token.
+        if self._selected_id is not None:
+            pri = f"pri:c:{str(self._selected_id)[:8]}"
+        elif self._selected_wire_id is not None:
+            pri = f"pri:w:{str(self._selected_wire_id)[:8]}"
+        else:
+            pri = None
+
+        # Nets touched: components contribute every net they participate in;
+        # wires contribute their logical net.
+        net_ids: set[uuid.UUID] = set()
+        for net_obj in session.schematic.nets.values():
+            if any(pr.component_id in comp_ids for pr in net_obj.pins):
+                net_ids.add(net_obj.id)
+        if wire_ids:
+            wnm = session.cached_wire_net_map()
+            for wid in wire_ids:
+                n = wnm.get(wid)
+                if n is not None:
+                    net_ids.add(n)
+
+        # Groups: count groups that are *selected as a whole*.  Today the
+        # tool tracks one active group at a time (`_selected_group_id`)
+        # so this resolves to 0 or 1.  If multi-group selection lands
+        # later the helper just becomes ``len(self._selected_group_ids)``.
+        group_count = 1 if self._selected_group_id is not None else 0
+
+        multi = f"multi:[c:{len(comp_ids)} w:{len(wire_ids)} n:{len(net_ids)} g:{group_count}]"
+        if pri is None:
+            return f"select: {multi}"
+        return f"select: {pri} | {multi}"
+
     # ------------------------------------------------------------------
     # Selection filter (which object types may be selected)
     # ------------------------------------------------------------------
