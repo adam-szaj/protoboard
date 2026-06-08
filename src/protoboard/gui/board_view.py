@@ -461,6 +461,19 @@ class BoardView(QGraphicsView):
             for grp in self._wire_groups.values():
                 if isinstance(grp, QGraphicsItemGroup):
                     grp.setOpacity(1.0)
+            # No-highlight branch — also invalidate the back cache when
+            # we just transitioned out of a non-empty highlight state.
+            # Without this, the cached pixmap keeps the old dimmed
+            # back-side items even though every front item is now back
+            # at opacity 1.0 (user-visible: third Esc looks like a
+            # no-op because the back-cache pixmap is stale).
+            cleared_signature = hash((
+                frozenset(), frozenset(), frozenset(), id(None),
+            ))
+            if cleared_signature != self._last_highlight_signature:
+                self._last_highlight_signature = cleared_signature
+                self._invalidate_back_cache()
+                self.viewport().update()
             return
 
         # Determine dim values from whichever profile we ended up with.

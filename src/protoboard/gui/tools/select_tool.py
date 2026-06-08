@@ -752,24 +752,52 @@ class SelectTool(_Tool):
         ``SelectionFSM.step_esc`` but operates directly on the legacy
         fields until Phase 2b lifts the FSM into the authoritative role.
         """
+        n_multi_comps = len(self._selected_ids)
+        n_multi_wires = len(self._selected_wire_ids)
+        has_primary = (
+            self._selected_id is not None or self._selected_wire_id is not None
+        )
+        has_hl = self._has_active_highlight()
+        _log.info(
+            "esc.pop_layer.enter",
+            n_multi_comps=n_multi_comps,
+            n_multi_wires=n_multi_wires,
+            primary_comp=str(self._selected_id)[:8] if self._selected_id else None,
+            primary_wire=str(self._selected_wire_id)[:8] if self._selected_wire_id else None,
+            has_active_highlight=has_hl,
+        )
         # 1. Pop MULTI_SELECTION — keep primary, drop the extension set.
-        if self._selected_ids or self._selected_wire_ids:
+        if n_multi_comps or n_multi_wires:
+            _log.info("esc.pop_layer.drop_multi")
             self._clear_multi_selection()
             self._clear_multi_wire_selection()
             self._notify_selection()
             return
         # 2. Pop SELECTION — keep highlight set, drop primary.
-        if self._selected_id is not None or self._selected_wire_id is not None:
+        if has_primary:
+            _log.info("esc.pop_layer.drop_selection")
             self._deselect()
             self._deselect_wire()
             self._notify_selection()
             return
-        # 3. Pop HIGHLIGHT — clear connectivity highlight + auto stack entry.
-        if self._has_active_highlight():
+        # 3. Pop HIGHLIGHT — clear connectivity highlight + auto stack
+        #    entry.  ``_clear_connectivity_highlight`` only removes the
+        #    scene overlay items; the auto entry on
+        #    ``session.highlight_stack`` MUST be cleared explicitly so
+        #    BoardView's ``_apply_highlight_opacity`` stops dimming
+        #    everything else on the next paint.  Before this fix the
+        #    third Esc looked like a no-op visually because the auto
+        #    entry kept the bright/dim split alive.
+        if has_hl:
+            _log.info("esc.pop_layer.drop_highlight")
             self._clear_connectivity_highlight()
+            session = self._session
+            if session is not None:
+                session.highlight_stack.clear_auto("select_tool")
             self._notify_selection()
             return
         # 4. NORMAL — nothing to pop; still notify so listeners can resync.
+        _log.info("esc.pop_layer.normal_noop")
         self._notify_selection()
 
     def _has_active_highlight(self) -> bool:
