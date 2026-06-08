@@ -658,7 +658,8 @@ class SelectTool(_Tool):
         elif comp_id is not None:
             hit = Hit("component", comp_id)
         else:
-            _log.info("shift_interaction.no_hit_bail")
+            if _dbg_enabled():
+                _log.debug("shift_interaction.no_hit_bail")
             return
 
         primary_hit = self._fsm_current_hit()
@@ -680,11 +681,13 @@ class SelectTool(_Tool):
         if primary_hit is not None and hit == primary_hit:
             # Collapse — Shift on the primary pops back to HIGHLIGHT
             # without losing the auto-entry.
-            _log.info("shift_interaction.collapse.primary", hit=str(hit.id)[:8])
+            if _dbg_enabled():
+                _log.debug("shift_interaction.collapse.primary", hit=str(hit.id)[:8])
             self._collapse_to_highlight_layer()
             return
         if in_multi:
-            _log.info("shift_interaction.collapse.in_multi", hit=str(hit.id)[:8])
+            if _dbg_enabled():
+                _log.debug("shift_interaction.collapse.in_multi", hit=str(hit.id)[:8])
             self._collapse_to_highlight_layer()
             return
 
@@ -694,7 +697,8 @@ class SelectTool(_Tool):
             and self._fsm_same_relation(hit, primary_hit, self._relation)
         )
         if primary_hit is not None and same_rel:
-            _log.info("shift_interaction.extend.same_relation", hit=str(hit.id)[:8])
+            if _dbg_enabled():
+                _log.debug("shift_interaction.extend.same_relation", hit=str(hit.id)[:8])
             self._extend_multi_with_hit(
                 wire_id=wire_id, comp_id=comp_id, pin_number=pin_number,
             )
@@ -702,11 +706,12 @@ class SelectTool(_Tool):
 
         # Cross-relation or no prior primary → reset to a fresh MULTI
         # layer around the new hit's relation.
-        _log.info(
-            "shift_interaction.reset.cross_or_fresh",
-            hit=str(hit.id)[:8],
-            had_primary=primary_hit is not None,
-        )
+        if _dbg_enabled():
+            _log.debug(
+                "shift_interaction.reset.cross_or_fresh",
+                hit=str(hit.id)[:8],
+                had_primary=primary_hit is not None,
+            )
         self._reset_to_fresh_multi(
             wire_id=wire_id, comp_id=comp_id, pin_number=pin_number,
         )
@@ -947,24 +952,27 @@ class SelectTool(_Tool):
             self._selected_id is not None or self._selected_wire_id is not None
         )
         has_hl = self._has_active_highlight()
-        _log.info(
-            "esc.pop_layer.enter",
-            n_multi_comps=n_multi_comps,
-            n_multi_wires=n_multi_wires,
-            primary_comp=str(self._selected_id)[:8] if self._selected_id else None,
-            primary_wire=str(self._selected_wire_id)[:8] if self._selected_wire_id else None,
-            has_active_highlight=has_hl,
-        )
+        if _dbg_enabled():
+            _log.debug(
+                "esc.pop_layer.enter",
+                n_multi_comps=n_multi_comps,
+                n_multi_wires=n_multi_wires,
+                primary_comp=str(self._selected_id)[:8] if self._selected_id else None,
+                primary_wire=str(self._selected_wire_id)[:8] if self._selected_wire_id else None,
+                has_active_highlight=has_hl,
+            )
         # 1. Pop MULTI_SELECTION — keep primary, drop the extension set.
         if n_multi_comps or n_multi_wires:
-            _log.info("esc.pop_layer.drop_multi")
+            if _dbg_enabled():
+                _log.debug("esc.pop_layer.drop_multi")
             self._clear_multi_selection()
             self._clear_multi_wire_selection()
             self._notify_selection()
             return
         # 2. Pop SELECTION — keep highlight set, drop primary.
         if has_primary:
-            _log.info("esc.pop_layer.drop_selection")
+            if _dbg_enabled():
+                _log.debug("esc.pop_layer.drop_selection")
             self._deselect()
             self._deselect_wire()
             self._notify_selection()
@@ -978,7 +986,8 @@ class SelectTool(_Tool):
         #    third Esc looked like a no-op visually because the auto
         #    entry kept the bright/dim split alive.
         if has_hl:
-            _log.info("esc.pop_layer.drop_highlight")
+            if _dbg_enabled():
+                _log.debug("esc.pop_layer.drop_highlight")
             self._clear_connectivity_highlight()
             session = self._session
             if session is not None:
@@ -986,7 +995,8 @@ class SelectTool(_Tool):
             self._notify_selection()
             return
         # 4. NORMAL — nothing to pop; still notify so listeners can resync.
-        _log.info("esc.pop_layer.normal_noop")
+        if _dbg_enabled():
+            _log.debug("esc.pop_layer.normal_noop")
         self._notify_selection()
 
     def _has_active_highlight(self) -> bool:
@@ -2472,11 +2482,12 @@ class SelectTool(_Tool):
                 self._select_primary(hit)
             if same_primary:
                 self._pending_deselect_on_release = True
-                _log.info(
-                    "on_press.arm_pop_on_release",
-                    via="pin_lmb",
-                    primary=str(hit)[:8],
-                )
+                if _dbg_enabled():
+                    _log.debug(
+                        "on_press.arm_pop_on_release",
+                        via="pin_lmb",
+                        primary=str(hit)[:8],
+                    )
             # Grouped-component press: click on a component that lives
             # inside a non-active group → arm a group drag.  Selection
             # of the group as a whole was already applied via
@@ -2639,11 +2650,12 @@ class SelectTool(_Tool):
                     and not self._selected_ids
                 ):
                     self._pending_deselect_on_release = True
-                    _log.info(
-                        "on_press.arm_pop_on_release",
-                        via="wire_lmb",
-                        primary=str(wire_hit)[:8],
-                    )
+                    if _dbg_enabled():
+                        _log.debug(
+                            "on_press.arm_pop_on_release",
+                            via="wire_lmb",
+                            primary=str(wire_hit)[:8],
+                        )
                 snapped = self._view.snap(scene_pt)
                 self._drag_last_decision = None
                 self._stop_drag_validation_timer()
@@ -2712,11 +2724,12 @@ class SelectTool(_Tool):
                 and not self._selected_wire_ids
             ):
                 self._pending_deselect_on_release = True
-                _log.info(
-                    "on_press.arm_pop_on_release",
-                    via="bbox_lmb",
-                    primary=str(bbox_hit)[:8],
-                )
+                if _dbg_enabled():
+                    _log.debug(
+                        "on_press.arm_pop_on_release",
+                        via="bbox_lmb",
+                        primary=str(bbox_hit)[:8],
+                    )
             self._select_primary(bbox_hit)
             # Grouped-component protection — see the matching guard above.
             if self._is_locked_in_group(bbox_hit):
@@ -2841,7 +2854,8 @@ class SelectTool(_Tool):
                 # Phase 2b: drag started — this click is no longer a
                 # candidate for pop-on-release.
                 if self._pending_deselect_on_release:
-                    _log.info("on_move.pending_deselect_cleared")
+                    if _dbg_enabled():
+                        _log.debug("on_move.pending_deselect_cleared")
                     self._pending_deselect_on_release = False
                 _log.info(
                     "on_move.threshold_crossed",
@@ -2979,7 +2993,8 @@ class SelectTool(_Tool):
             # the [normal, highlight, selection] -(lmb-click{same-object})
             # -> [normal, highlight] rule from docs/highlight-state-machine.txt.
             if pending_pop:
-                _log.info("on_release.pop_one_layer.same_primary")
+                if _dbg_enabled():
+                    _log.debug("on_release.pop_one_layer.same_primary")
                 self._esc_pop_one_layer()
             return
 
