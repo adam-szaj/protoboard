@@ -1,0 +1,183 @@
+Selection / highlight / Esc state machine — spec rev 2 (2026-06-08)
+====================================================================
+
+This document supersedes the prior FSM spec (rev 1, 2026-06-08 morning).
+The change: replace the Shift+LMB toggle with an orthogonal
+"basis-scope" × "set-op" modifier matrix.  Implementation lives in
+SelectTool; FSM layers stay the same as rev 1 (NORMAL/HIGHLIGHT/
+SELECTION/MULTI_SELECTION).
+
+Notation
+--------
+- State stack: [layer0, layer1, ...]
+- Transition:  -(action)->
+- A click resolves to a (hit, basis_scope, op) triple.
+- "hit" is the object under the cursor (component / wire / group)
+  or None if the click landed on empty canvas.
+
+
+Click semantics — two orthogonal axes
+=====================================
+
+Axis A — basis scope (Alt modifier)
+-----------------------------------
+The basis is the set of objects a click contributes.
+
+| Modifier  | basis_scope | basis(hit)                                  |
+|-----------|-------------|---------------------------------------------|
+| (none)    | SINGLE      | {hit}                                       |
+| Alt       | RELATION    | relation(hit) per current RelationClass     |
+
+`RelationClass` is the existing enum cycled by backtick (`).  When
+RelationClass.NONE is active, Alt is equivalent to no modifier.
+
+Axis B — set op (Ctrl / Ctrl+Shift)
+-----------------------------------
+| Modifier      | op     | effect on selection                          |
+|---------------|--------|----------------------------------------------|
+| (none)        | SET    | selection := basis                           |
+| Ctrl          | ADD    | selection := selection ∪ basis               |
+| Ctrl+Shift    | REMOVE | selection := selection \ basis               |
+
+Modifier matrix (full)
+----------------------
+| Keys                    | basis_scope | op     |
+|-------------------------|-------------|--------|
+| LMB                     | SINGLE      | SET    |
+| Alt+LMB                 | RELATION    | SET    |
+| Ctrl+LMB                | SINGLE      | ADD    |
+| Ctrl+Alt+LMB            | RELATION    | ADD    |
+| Ctrl+Shift+LMB          | SINGLE      | REMOVE |
+| Ctrl+Shift+Alt+LMB      | RELATION    | REMOVE |
+
+
+Primary anchor (Properties panel)
+=================================
+| op     | primary after op                                            |
+|--------|-------------------------------------------------------------|
+| SET    | hit                                                         |
+| ADD    | hit (the last hit becomes the new anchor)                   |
+| REMOVE | None — Properties panel clears, selection layer stays alive |
+
+Empty canvas (hit == None)
+--------------------------
+| op     | effect                                                      |
+|--------|-------------------------------------------------------------|
+| SET    | A := ∅  → pop one FSM layer (MULTI→SELECTION→HIGHLIGHT→NORMAL) |
+| ADD    | A ∪ ∅ = A — no-op                                            |
+| REMOVE | A \ ∅ = A — no-op                                            |
+
+Esc has identical effect to plain LMB on empty canvas (SET with no hit).
+
+Same-primary click (decision 5, A: no-op)
+-----------------------------------------
+Plain LMB on the current primary, basis = {primary}, op = SET:
+selection is already {primary}.  Setting to the same set is a no-op.
+The user has explicit tools to deselect:
+  - Esc / LMB in empty canvas → pop layer
+  - Ctrl+Shift+LMB on the hit → remove from selection
+
+
+Highlight (auto-stack entry)
+============================
+Highlight is the dim/bright relation overlay.  It is *not* the
+bright multi-rect selection drawn around selected items — those are
+two separate visual layers.
+
+Rules (decision 4, A.1)
+-----------------------
+- SET:    highlight := relation(hit) (or ∅ if hit == None)
+- ADD:    highlight := highlight ∪ relation(hit)
+          (union grows; may span multiple electric nets)
+- REMOVE: highlight unchanged
+          (selection bright rects disappear for removed basis, but
+           the dim/bright net overlay stays — user clears it via
+           Esc / empty-canvas click)
+
+Asymmetric on purpose: ADD reveals more context, REMOVE does not
+hide it.  Esc remains the single "clear everything" gesture.
+
+
+Drag and rubber-band (decision 1, 5)
+====================================
+- Plain LMB drag on an object in selection → drag the selection
+- Plain LMB drag on an object outside selection → SET + drag
+- Plain LMB drag in empty space → rubber-band, op = SET
+- Ctrl + drag in empty space → rubber-band, op = ADD
+- Ctrl+Shift + drag in empty space → rubber-band, op = REMOVE
+- Alt is blocked in rubber-band: it has no meaning when selecting
+  by literal scene rectangle.  Alt without Ctrl/Ctrl+Shift in empty
+  space still pops one layer on release (treated as plain LMB
+  empty-canvas click).
+- Ctrl / Ctrl+Shift never initiate a drag of selected items.
+  To drag a multi-selection: build it with Ctrl-clicks, then
+  plain-LMB-drag on one of the selected items.
+
+
+Wire-edit mode (decision 2)
+===========================
+Wire-edit is a modal tool entered via [E] keypress on the current
+single-wire SELECTION layer.  The legacy Ctrl+LMB-on-wire-node entry
+is removed (Ctrl+LMB is now ADD).  Inside wire-edit, LMB adds points;
+Esc / Enter exits.  Outside SELECTION-on-wire, [E] is a no-op (status
+bar: "Select a wire first").
+
+
+FSM layer transitions (canonical form)
+======================================
+States: normal, highlight, selection, multi_selection.
+
+Stack:
+  [normal]
+  [normal, highlight]
+  [normal, highlight, selection]
+  [normal, highlight, selection, multi_selection]
+
+Transitions
+-----------
+Notation: each click resolves to (basis_scope, op, hit).  The
+transitions below summarise the post-op stack depth.
+
+SET op
+  hit == None → pop one layer
+  hit ≠ None, |selection| == 0 → push to [..., highlight, selection]
+  hit ≠ None, hit == primary, |selection| == 1 → no-op (decision 5)
+  hit ≠ None, hit ≠ primary → replace primary; depth = SELECTION
+                              (drop MULTI if was at MULTI)
+
+ADD op
+  hit == None → no-op
+  hit ≠ None, |selection| == 0 → equivalent to SET (push to SELECTION)
+  hit ≠ None, basis ⊆ selection → no-op (already in set)
+  hit ≠ None, basis ⊄ selection → grow selection; depth = MULTI
+                                  (or stay SELECTION if |selection|==1)
+
+REMOVE op
+  hit == None → no-op
+  hit ≠ None, basis ∩ selection == ∅ → no-op
+  hit ≠ None, basis ∩ selection ≠ ∅ →
+    selection := selection \ basis
+    primary := None
+    if selection == ∅ → depth = HIGHLIGHT
+    elif |selection| == 1 → depth = SELECTION (but primary is None
+        — the lone surviving member is *not* auto-promoted; user
+        must click it explicitly to make it the anchor)
+    else → depth = MULTI
+
+Esc / empty-canvas LMB (SET with no hit)
+  [..., multi]     → [..., selection]
+  [..., selection] → [..., highlight]
+  [..., highlight] → [normal]
+  [normal]         → no-op
+
+
+Out-of-scope (unchanged by this spec)
+=====================================
+- Double-click on component → enter group
+- Long-press (500ms/1000ms) on group bbox → select / edit group
+- Ctrl+R → re-drag pin
+- Alt+R → flip component
+- Ctrl+G → group selection
+- Backtick → cycle RelationClass (affects Alt-LMB basis)
+- Delete / Backspace → delete current selection
+- Rubber-band Alt — blocked; behaves like plain rubber-band
