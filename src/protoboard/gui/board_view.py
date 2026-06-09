@@ -162,6 +162,12 @@ class BoardView(QGraphicsView):
         # Wire-pin glyph items — rebuilt from scratch on each refresh
         # since the set is typically small.
         self._wire_pin_items: list[object] = []
+        # Pin-pads + modifier overlay items — rebuilt every refresh because
+        # they're cheap to compute from pad_index and the layer reflects
+        # schematic-aware state that fingerprinting wire/comp groups
+        # would not capture cleanly.
+        self._pin_pad_items: list[object] = []
+        self._pin_modifier_items: list[object] = []
         # comp_id → placement.position at last full refresh (drag delta origin).
         self._drag_orig_group_pos: dict[uuid.UUID, object] = {}
         # wire_id → wire.path[0] at last full refresh (drag delta origin for wires).
@@ -1113,6 +1119,7 @@ class BoardView(QGraphicsView):
             theme=_theme,
             layers=layers,
             highlighted_net_id=self._effective_highlighted_net(),
+            routing_target_net_id=self._session.routing_net_id,
         )
 
         # ── Wire-pin glyphs ───────────────────────────────────────────────────
@@ -1139,6 +1146,7 @@ class BoardView(QGraphicsView):
                 net_color_map=net_color_map,
                 theme=_theme,
                 layers=layers,
+                routing_target_net_id=self._session.routing_net_id,
             ))
 
         # ── Components (group reuse) ──────────────────────────────────────────
@@ -1172,6 +1180,40 @@ class BoardView(QGraphicsView):
         self._drag_orig_wire_pose = {
             w.id: w.path[0] for w in self._session.layout.wires if w.path
         }
+
+        # ── Pin-pads layer (schematic-aware overlay above board) ─────────────
+        # Cherry-on-top of the board layer: every pad carrying a net is
+        # repainted in the net colour with the modifier shape (pin1 /
+        # exported / star) carved out.  Routing target gets neon yellow.
+        for it in self._pin_pad_items:
+            try:
+                self._scene.removeItem(it)  # type: ignore[arg-type]
+            except Exception:  # noqa: BLE001
+                pass
+        self._pin_pad_items.clear()
+        try:
+            from protoboard.domain.layout.pin_pad_classification import (
+                classify_pin_pads,
+            )
+            from protoboard.gui.renderers.pin_pad_renderer import (
+                render_pin_pads,
+            )
+            pp_records = classify_pin_pads(
+                self._session.pad_index, self._session.layout,
+            )
+            self._pin_pad_items = list(render_pin_pads(  # type: ignore[arg-type]
+                self._scene,
+                pp_records,
+                theme=_theme,
+                layers=layers,
+                net_color_map=net_color_map,
+                routing_target_net_id=self._session.routing_net_id,
+            ))
+        except Exception:  # noqa: BLE001
+            # Defensive: never let pin-pads classification glitch crash
+            # the whole paint pipeline.  The layer is purely visual.
+            self._pin_pad_items = []
+            pp_records = []
 
         # ── Overlays (always recreated — fast, few items) ────────────────────
         new_overlays: list[object] = []
@@ -1231,6 +1273,32 @@ class BoardView(QGraphicsView):
 
         # ── Label visibility (hide text that would be too small to read) ────────
         self._apply_label_visibility()
+
+        # ── Pin modifiers (top-most overlay) ─────────────────────────────────
+        # Repeats pin1 / exported / star glyphs above wires + components in
+        # the net colour so the marker remains visible when something
+        # covers the underlying pin-pad.
+        for it in self._pin_modifier_items:
+            try:
+                self._scene.removeItem(it)  # type: ignore[arg-type]
+            except Exception:  # noqa: BLE001
+                pass
+        self._pin_modifier_items.clear()
+        if pp_records:
+            try:
+                from protoboard.gui.renderers.pin_pad_renderer import (
+                    render_pin_modifiers,
+                )
+                self._pin_modifier_items = list(render_pin_modifiers(  # type: ignore[arg-type]
+                    self._scene,
+                    pp_records,
+                    theme=_theme,
+                    layers=layers,
+                    net_color_map=net_color_map,
+                    routing_target_net_id=self._session.routing_net_id,
+                ))
+            except Exception:  # noqa: BLE001
+                self._pin_modifier_items = []
 
         # Scene contents changed — drop the back-side raster cache so the
         # next paint re-rasterises with current items.  Restores any items

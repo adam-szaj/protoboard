@@ -113,6 +113,8 @@ ACTION_LAYER_5 = "layer_5"
 ACTION_LAYER_6 = "layer_6"
 ACTION_LAYER_7 = "layer_7"
 ACTION_LAYER_8 = "layer_8"
+ACTION_LAYER_9 = "layer_9"
+ACTION_LAYER_10 = "layer_10"
 ACTION_LAYERS_RESET = "layers_reset"
 
 # File menu — previously anonymous addAction("…", slot) entries promoted
@@ -121,6 +123,7 @@ ACTION_IMPORT_KICAD_NET = "import_kicad_net"
 ACTION_EXPORT_KICAD_NET = "export_kicad_net"
 ACTION_EXPORT_SVG = "export_svg"
 ACTION_EXPORT_PDF = "export_pdf"
+ACTION_EXPORT_PDF_TEMPLATE = "export_pdf_template"
 ACTION_EXPORT_PNG = "export_png"
 ACTION_EXPORT_BOM = "export_bom"
 ACTION_CLOSE_PROJECT = "close_project"
@@ -239,11 +242,14 @@ DEFAULTS: dict[str, str] = {
     ACTION_LAYER_6: "6",
     ACTION_LAYER_7: "7",
     ACTION_LAYER_8: "8",
+    ACTION_LAYER_9: "9",
+    ACTION_LAYER_10: "0",
     ACTION_LAYERS_RESET: "",
     ACTION_IMPORT_KICAD_NET: "",
     ACTION_EXPORT_KICAD_NET: "",
     ACTION_EXPORT_SVG: "",
     ACTION_EXPORT_PDF: "",
+    ACTION_EXPORT_PDF_TEMPLATE: "",
     ACTION_EXPORT_PNG: "",
     ACTION_EXPORT_BOM: "",
     ACTION_CLOSE_PROJECT: "",
@@ -340,6 +346,7 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_EXPORT_KICAD_NET: "Export KiCAD .net…",
     ACTION_EXPORT_SVG: "Export SVG…",
     ACTION_EXPORT_PDF: "Export PDF…",
+    ACTION_EXPORT_PDF_TEMPLATE: "Export Template PDF (A4, 4 panels)…",
     ACTION_EXPORT_PNG: "Export PNG…",
     ACTION_EXPORT_BOM: "Export BOM CSV…",
     ACTION_CLOSE_PROJECT: "Close Project",
@@ -363,6 +370,8 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_LAYER_6: "Layer 6 (Labels)",
     ACTION_LAYER_7: "Layer 7 (Pin Names)",
     ACTION_LAYER_8: "Layer 8 (Connections)",
+    ACTION_LAYER_9: "Layer 9 (Pin Pads)",
+    ACTION_LAYER_10: "Layer 10 (Pin Modifiers)",
     ACTION_CUSTOMIZE_TOOLBARS: "Customize Toolbars…",
 }
 

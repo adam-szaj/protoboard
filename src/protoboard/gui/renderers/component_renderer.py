@@ -437,14 +437,13 @@ def _render_one(
         grp.addToGroup(item)
     skip_pins = shape.drawn_pin_numbers(positions, theme)
 
-    # Per-pin colouring: the board layer now renders each pad in its net
-    # colour (see board_renderer.build_pad_net_map), so the regular
-    # per-pin dot drawn here is redundant.  We only keep two cases:
-    #   * pin 1 — always gets the small square marker so users can
-    #     orient the component visually.
-    #   * bold highlight (pin belongs to highlighted net) — gets a large
-    #     opaque dot on top so the routed net stays prominent regardless
-    #     of how the pad underneath is painted.
+    # Per-pin colouring: the board layer renders each pad in its net
+    # colour and the pin-pads / pin-modifiers layers carry the pin1 /
+    # exported / star markers, so the regular per-pin dot drawn here is
+    # redundant.  We only keep the bold-highlight case: pin belongs to
+    # the highlighted (Net Inspector / routing target) net → large
+    # opaque dot on top so the net stays prominent regardless of how
+    # the pad underneath is painted.
     pin_color_fallback = QColor(theme.pin_color_fallback)
     pin_color_fallback.setAlphaF(pin_color_fallback.alphaF() * alpha)
     for pin_idx, pos in enumerate(positions):
@@ -487,12 +486,7 @@ def _render_one(
             dot_radius = theme.pin_radius
             dot_z = z_comp - 0.05
 
-        if pin_number == 1:
-            _add_pin1_marker(
-                grp, pos.x, pos.y, dot_fill, theme,
-                z=dot_z, radius=dot_radius if is_bold else None,
-            )
-        elif is_bold:
+        if is_bold:
             dot = QGraphicsEllipseItem(
                 QRectF(pos.x - dot_radius, pos.y - dot_radius,
                        2 * dot_radius, 2 * dot_radius)
@@ -501,7 +495,8 @@ def _render_one(
             dot.setPen(QPen(Qt.PenStyle.NoPen))
             dot.setZValue(dot_z)
             grp.addToGroup(dot)
-        # else: no dot — the board layer's net-coloured pad is the visual.
+        # else: no dot — pin1 marker comes from the pin-modifiers layer,
+        # net colour from the pin-pads layer.
 
     fpt = theme.overlay_font_size
     bg_color = QColor(theme.label_bg_color)
@@ -558,26 +553,6 @@ def _render_one(
 
     scene.addItem(grp)
     return grp
-
-
-def _add_pin1_marker(
-    grp: QGraphicsItemGroup, cx: float, cy: float, fill_color: QColor,
-    theme: Theme, z: float = Z_FRONT_WIRES,
-    radius: float | None = None,
-) -> None:
-    # The pin-1 marker is a square so it's distinguishable from the round
-    # pin dots.  Default radius is a touch larger than pin_radius; callers
-    # routing through the bold-highlight path pass an explicit *radius*
-    # so the marker grows along with the dot and remains visible above
-    # the thickened wire.
-    r = radius if radius is not None else theme.pin_radius * 1.1
-    square = QGraphicsRectItem(QRectF(cx - r, cy - r, 2 * r, 2 * r))
-    square.setBrush(QBrush(fill_color))
-    marker_col = QColor(theme.pin1_marker_color)
-    marker_col.setAlphaF(fill_color.alphaF())
-    square.setPen(QPen(marker_col, theme.pin_width_incomplete))
-    square.setZValue(z)
-    grp.addToGroup(square)
 
 
 def make_ghost_item(

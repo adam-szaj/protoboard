@@ -101,6 +101,7 @@ def update_wire_groups(
     theme: Theme = DEFAULT_THEME,
     layers: LayerState = _DEFAULT_LAYERS,
     highlighted_net_id: uuid.UUID | None = None,
+    routing_target_net_id: uuid.UUID | None = None,
 ) -> None:
     """Create/update/remove per-wire QGraphicsItemGroups without full scene clear.
 
@@ -121,6 +122,16 @@ def update_wire_groups(
         color_override: str | None = (
             net_color_map.get(net_id) if net_id is not None and net_color_map else None
         )
+        # Routing target neon — overrides whatever colour we'd otherwise
+        # pick.  Applies to every wire belonging to the active routing
+        # net, regardless of palette / manual net.color.
+        is_routing_target = (
+            routing_target_net_id is not None
+            and net_id is not None
+            and net_id == routing_target_net_id
+        )
+        if is_routing_target:
+            color_override = theme.routing_target_color
         side = wire.side  # type: ignore[assignment]
         base_alpha = layers.alpha_for_wire(side)
         z_base = layers.z_for_wire(side)
@@ -503,6 +514,7 @@ def render_wire_pins(
     net_color_map: "dict[uuid.UUID, str | None] | None" = None,
     theme: Theme = DEFAULT_THEME,
     layers: LayerState = _DEFAULT_LAYERS,
+    routing_target_net_id: "uuid.UUID | None" = None,
 ) -> "list[QGraphicsItem]":
     """Draw wire-pin glyphs on top of their pads.
 
@@ -538,6 +550,11 @@ def render_wire_pins(
             override = net_color_map.get(net_id)
             if override:
                 color_str = override
+        # Routing-target neon overrides the resolved net colour.
+        if (routing_target_net_id is not None
+                and net_id is not None
+                and net_id == routing_target_net_id):
+            color_str = theme.routing_target_color
         net_color = QColor(color_str)
         net_color.setAlphaF(alpha)
         inner_color = QColor(theme.pad_color)

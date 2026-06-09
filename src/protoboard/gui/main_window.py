@@ -379,6 +379,8 @@ class MainWindow(QMainWindow):
         ("labels",            "Labels",             KB.ACTION_LAYER_6),
         ("pin_names",         "Pin Names",          KB.ACTION_LAYER_7),
         ("ratsnest",          "Connections",        KB.ACTION_LAYER_8),
+        ("pin_pads",          "Pin Pads",           KB.ACTION_LAYER_9),
+        ("pin_modifiers",     "Pin Modifiers",      KB.ACTION_LAYER_10),
     ]
 
     def _register_actions(self) -> None:
@@ -665,6 +667,8 @@ class MainWindow(QMainWindow):
             "labels":            "Labels",
             "pin_names":         "Pin Names",
             "ratsnest":          "Connections",
+            "pin_pads":          "Pin Pads",
+            "pin_modifiers":     "Pin Modifiers",
         }
         for field_name, act in self._layer_actions.items():
             vis = getattr(self._layer_overrides, field_name)
@@ -2571,6 +2575,7 @@ class MainWindow(QMainWindow):
                 self._session.layout,
                 components=self._session.components,
                 instances=self._session.instances,
+                schematic=self._session.schematic,
             )
             Path(path_str).write_text(svg_str, encoding="utf-8")
             self._status.showMessage(f"SVG exported to {path_str}", 4000)
@@ -2590,9 +2595,28 @@ class MainWindow(QMainWindow):
                 self._session.layout,
                 components=self._session.components,
                 instances=self._session.instances,
+                schematic=self._session.schematic,
                 raster_pitch_mm=self._session.board.raster_pitch_mm,
             )
             self._status.showMessage(f"PDF exported to {path_str}", 4000)
+        except Exception as exc:
+            QMessageBox.critical(self, "Export error", str(exc))
+
+    def _export_pdf_template(self) -> None:
+        path_str, _ = QFileDialog.getSaveFileName(
+            self, "Export Template PDF (A4, 4 panels)",
+            "board_template.pdf", "PDF files (*.pdf)",
+        )
+        if not path_str:
+            return
+        try:
+            from protoboard.services.export.pdf_template import export_template_pdf
+            from protoboard.services.export.snapshot import BoardSnapshot
+            snapshot = BoardSnapshot.from_session(self._session, canonical=True)
+            export_template_pdf(Path(path_str), snapshot)
+            self._status.showMessage(
+                f"Template PDF exported to {path_str}", 4000,
+            )
         except Exception as exc:
             QMessageBox.critical(self, "Export error", str(exc))
 
@@ -2609,6 +2633,7 @@ class MainWindow(QMainWindow):
                 self._session.layout,
                 components=self._session.components,
                 instances=self._session.instances,
+                schematic=self._session.schematic,
             )
             self._status.showMessage(f"PNG exported to {path_str}", 4000)
         except Exception as exc:

@@ -27,6 +27,8 @@ _LAYER_DEFS = [
     ("labels",            "Labels",             "6"),
     ("pin_names",         "Pin Names",          "7"),
     ("ratsnest",          "Connections",        "8"),
+    ("pin_pads",          "Pin Pads",           "9"),
+    ("pin_modifiers",     "Pin Modifiers",      "0"),
 ]
 
 # Background colours per visibility state.

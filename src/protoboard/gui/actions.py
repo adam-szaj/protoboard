@@ -175,6 +175,7 @@ ALL_ACTIONS: tuple[ActionSpec, ...] = (
     ActionSpec(id=KB.ACTION_EXPORT_KICAD_NET, label="Export KiCAD .net…", slot_name="_export_kicad_net", menu_path=_FILE),
     ActionSpec(id=KB.ACTION_EXPORT_SVG,      label="Export SVG…",   slot_name="_export_svg",  menu_path=_FILE, separator_before=True),
     ActionSpec(id=KB.ACTION_EXPORT_PDF,      label="Export PDF…",   slot_name="_export_pdf",  menu_path=_FILE),
+    ActionSpec(id=KB.ACTION_EXPORT_PDF_TEMPLATE, label="Export Template PDF (A4)…", slot_name="_export_pdf_template", menu_path=_FILE),
     ActionSpec(id=KB.ACTION_EXPORT_PNG,      label="Export PNG…",   slot_name="_export_png",  menu_path=_FILE),
     ActionSpec(id=KB.ACTION_EXPORT_BOM,      label="Export BOM CSV…", slot_name="_export_bom", menu_path=_FILE),
     ActionSpec(id=KB.ACTION_CLOSE_PROJECT,   label="Close Project", slot_name="_close_project", menu_path=_FILE, separator_before=True),
@@ -270,6 +271,8 @@ ALL_ACTIONS: tuple[ActionSpec, ...] = (
     ActionSpec(id=KB.ACTION_LAYER_6, label="Labels",             slot_name="_cycle_layer", menu_path=_VIEW_LAYERS, shortcut_args=("labels",)),
     ActionSpec(id=KB.ACTION_LAYER_7, label="Pin Names",          slot_name="_cycle_layer", menu_path=_VIEW_LAYERS, shortcut_args=("pin_names",)),
     ActionSpec(id=KB.ACTION_LAYER_8, label="Connections",        slot_name="_cycle_layer", menu_path=_VIEW_LAYERS, shortcut_args=("ratsnest",)),
+    ActionSpec(id=KB.ACTION_LAYER_9, label="Pin Pads",           slot_name="_cycle_layer", menu_path=_VIEW_LAYERS, shortcut_args=("pin_pads",)),
+    ActionSpec(id=KB.ACTION_LAYER_10, label="Pin Modifiers",     slot_name="_cycle_layer", menu_path=_VIEW_LAYERS, shortcut_args=("pin_modifiers",)),
     ActionSpec(id=KB.ACTION_LAYERS_RESET, label="Reset All Layers", slot_name="_reset_layers", menu_path=_VIEW_LAYERS, separator_before=True),
 
     ActionSpec(id=KB.ACTION_ZOOM_IN,       label="Zoom &In",       slot_name="_zoom_in",       menu_path=_VIEW, separator_before=True),

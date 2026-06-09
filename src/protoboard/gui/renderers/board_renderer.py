@@ -302,9 +302,18 @@ def build_board_display_list(
         _build_frames(dl, board.layout, is_root=True, theme=theme, alpha=board_alpha)
     for atom, pos in board.atoms():
         if isinstance(atom, PadAtom):
+            # Standalone PadAtom: net colouring moved to the pin-pads
+            # layer (see ``gui/renderers/pin_pad_renderer.py``).  The
+            # board layer paints the bare ring + hole only.  Passing
+            # ``pad_net_map=None`` here makes ``_resolve_pad_color``
+            # fall back to ``theme.pad_color`` regardless of pin presence.
             _build_pad(dl, pos.x, pos.y, theme.pad_radius, pad_color, theme,
-                       pad_net_map=pad_net_map, board_alpha=board_alpha)
+                       pad_net_map=None, board_alpha=board_alpha)
         elif isinstance(atom, StripAtom):
+            # Strip tracks DO keep net colouring (A3 from the design
+            # discussion): the whole strip is electrically the net, so
+            # the track colour visually signals which net it carries.
+            # Pin-pads layer adds the pin-specific overlay on top.
             _build_strip(dl, atom, pos, strip_color, isolated_color, theme,
                          pad_net_map=pad_net_map, board_alpha=board_alpha)
     return dl

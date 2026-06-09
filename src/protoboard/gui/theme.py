@@ -222,6 +222,23 @@ class Theme:
     route_glow_pin_radius: float = 0.28     # radius of glow ring around highlighted pins
     route_glow_pin_alpha: float = 0.55      # alpha of the glow ring
 
+    # ── Pin-pads layer ───────────────────────────────────────────────────────
+    # Schematic-aware overlay above the board layer.  Every pad that
+    # carries an electrical net is repainted in the net colour here,
+    # with a modifier shape (square / diamond / star) cut out of the
+    # centre to mark pin 1 / exported / both.  See
+    # ``domain/layout/pin_pad_classification.py``.
+    #
+    # Filled pin-pad geometry inherits ``pad_radius`` so the colour
+    # disc lines up with the bare-pad ring underneath.  Modifier shape
+    # is drawn smaller so the outer ring stays visible.
+    pin_pad_modifier_radius_factor: float = 0.7  # × pad_radius
+    pin_pad_contact_only_width: float = 0.08     # outline ring stroke for contact-only
+    # Routing-target neon — overrides net colour when session.routing_net_id
+    # matches the pad's / wire's net.  Bright yellow chosen to read against
+    # both dark and light board backgrounds; alpha=FF for full neon.
+    routing_target_color: str = "#FFFFEE00"
+
     # ── Export SVG ───────────────────────────────────────────────────────────
     svg_scale: float = 10.0
     svg_bg: str = "#2B6B3A"

@@ -26,6 +26,7 @@ Z-value stack (back → front):
     1   back components      5   front components
     2   back wires           6   front labels
     3   board (pads/strips)  7   overlay (ratsnest, groups)
+    3.5 pin-pads (cherry)    9.5 pin-modifiers (top overlay)
                              10  selection highlights
 """
 
@@ -45,10 +46,12 @@ Z_BACK_LABELS      = 0.0
 Z_BACK_COMPONENTS  = 1.0
 Z_BACK_WIRES       = 2.0
 Z_BOARD            = 3.0
+Z_PIN_PADS         = 3.5
 Z_FRONT_WIRES      = 4.0
 Z_FRONT_COMPONENTS = 5.0
 Z_FRONT_LABELS     = 6.0
 Z_OVERLAY          = 7.0
+Z_PIN_MODIFIERS    = 9.5
 Z_SELECTION        = 10.0
 
 # Automatic alpha constants (used when override is AUTO).
@@ -102,6 +105,13 @@ class LayerOverrides:
     # "ratsnest" is the legacy field name; UI displays it as "Connections".
     ratsnest:          LayerVisibility = LayerVisibility.FULL
     axis_labels:       LayerVisibility = LayerVisibility.FULL
+    # Schematic-aware overlay above the board layer — colours every pad
+    # that carries a net.  See ``domain/layout/pin_pad_classification.py``.
+    pin_pads:          LayerVisibility = LayerVisibility.FULL
+    # Top-most modifier glyphs (square / diamond / star) repeated above
+    # wires and components so pin 1 / exported markers stay visible even
+    # when something sits on top of the pin pad.
+    pin_modifiers:     LayerVisibility = LayerVisibility.FULL
 
     def reset(self) -> None:
         """Reset all overrides to FULL."""
@@ -224,6 +234,18 @@ class LayerState:
 
     def alpha_for_axis_labels(self) -> float:
         return self._vis_alpha(self.overrides.axis_labels, 1.0)
+
+    def alpha_for_pin_pads(self, side: Literal["top", "bottom"]) -> float:
+        # Pin-pads are a schematic-aware overlay over board pads; they
+        # follow the side-tool alpha (back side dimmed when looking at
+        # top, and vice versa) but respect the manual override.
+        return self._vis_alpha(self.overrides.pin_pads, self._side_tool_alpha(side))
+
+    def alpha_for_pin_modifiers(self, side: Literal["top", "bottom"]) -> float:
+        # Top-overlay glyphs.  Like pin_pads but a separate toggle so the
+        # user can hide modifiers while keeping the coloured pads, or
+        # vice versa.
+        return self._vis_alpha(self.overrides.pin_modifiers, self._side_tool_alpha(side))
 
     # ------------------------------------------------------------------
     # Hit-testing
