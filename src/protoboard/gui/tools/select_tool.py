@@ -149,7 +149,7 @@ _NODE_SELECTED_BRUSH = QColor(255, 80, 0, 230)
 _EDIT_PREVIEW_PEN = QPen(QColor(255, 120, 0, 200), 0.12)
 _EDIT_PREVIEW_PEN.setStyle(Qt.PenStyle.DashLine)
 
-_HIT_RADIUS = 0.6
+_HIT_RADIUS = 0.5
 _BBOX_MARGIN = 0.45
 _WIRE_HIT_DIST = 0.35
 _NODE_HIT_RADIUS = 0.32
@@ -403,11 +403,20 @@ class SelectTool(_Tool):
         if not comp_ids and not wire_ids:
             return "select: none"
 
-        # Primary token.
+        # Primary token.  For a primary wire we append the net name so
+        # the status bar shows which net the user just clicked without
+        # having to open a side panel.
         if self._selected_id is not None:
             pri = f"pri:c:{str(self._selected_id)[:8]}"
         elif self._selected_wire_id is not None:
-            pri = f"pri:w:{str(self._selected_wire_id)[:8]}"
+            wnm = session.cached_wire_net_map()
+            net_uuid = wnm.get(self._selected_wire_id)
+            net_obj = (
+                session.schematic.nets.get(net_uuid)
+                if net_uuid is not None else None
+            )
+            net_label = f" ({net_obj.name})" if net_obj is not None else ""
+            pri = f"pri:w:{str(self._selected_wire_id)[:8]}{net_label}"
         else:
             pri = None
 
@@ -1261,7 +1270,11 @@ class SelectTool(_Tool):
         if hit.kind == "wire" and isinstance(hit.id, uuid.UUID):
             self._refresh_auto_highlight(wire_id=hit.id)
         elif hit.kind == "component" and isinstance(hit.id, uuid.UUID):
-            self._refresh_auto_highlight(comp_id=hit.id)
+            # Pin-aware: if the hit carries a specific pin_number the
+            # relation pipeline narrows to that single net.  Bbox-fallback
+            # hits land here with pin_number=None and get the legacy
+            # "all nets of this component" scope.
+            self._refresh_auto_highlight(comp_id=hit.id, pin_number=hit.pin_number)
 
     def _extend_highlight_with_hit(self, hit: "Hit | None") -> None:
         """Grow the auto-highlight stack entry by relation(hit).
@@ -1280,12 +1293,14 @@ class SelectTool(_Tool):
         # Resolve the relation set for the new hit.
         wire_id: uuid.UUID | None = None
         comp_id: uuid.UUID | None = None
+        pin_number: int | None = None
         if hit.kind == "wire" and isinstance(hit.id, uuid.UUID):
             wire_id = hit.id
         elif hit.kind == "component" and isinstance(hit.id, uuid.UUID):
             comp_id = hit.id
+            pin_number = hit.pin_number
         rel_comps, rel_wires = self._resolve_relation(
-            self._relation, wire_id=wire_id, comp_id=comp_id, pin_number=None,
+            self._relation, wire_id=wire_id, comp_id=comp_id, pin_number=pin_number,
         )
 
         # Read current auto entry; union the new relation into it.
@@ -2973,7 +2988,10 @@ class SelectTool(_Tool):
             # leaves the primary in place, so we keep the dispatcher
             # call inline rather than returning early.
             from protoboard.gui.selection_fsm import Hit
-            hit_obj_pin: "Hit | None" = Hit("component", pin_comp_id) if pin_comp_id is not None else None
+            hit_obj_pin: "Hit | None" = (
+                Hit("component", pin_comp_id, pin_number=pin_number)
+                if pin_comp_id is not None else None
+            )
             basis_scope_pin, op_pin = self._decode_modifier_matrix(
                 ctrl=ctrl, shift=shift, alt=alt,
             )
@@ -7213,31 +7231,63 @@ class SelectTool(_Tool):
         # the heuristic checks missed (shared pads, plated-through cross-
         # layer, alien pins).
         pad_index = session.pad_index()
+
+        # The actual generic_simplify_wire pass is the hot loop —
+        # dense boards spend seconds inside it freezing the GUI.
+        # Compute new paths in a background worker, then apply commands
+        # on the main thread.  All inputs are read-only snapshots so
+        # the worker is safe to run concurrently with paint.
+        from protoboard.gui.workers.operation_worker import run_with_progress
+
+        wid_list = list(wire_ids)
+
+        def _simplify_in_worker(progress_cb):  # type: ignore[no-untyped-def]
+            results: list[tuple[uuid.UUID, list[Point], list[Point]]] = []
+            n = len(wid_list)
+            for i, wid in enumerate(wid_list):
+                wire = next((w for w in all_wires if w.id == wid), None)
+                if wire is None:
+                    continue
+                others = [w for w in all_wires if w.id != wid]
+                new_wire = generic_simplify_wire(
+                    wire,
+                    other_wires=others,
+                    pin_positions=pin_positions,
+                    pad_to_net=pad_to_net,
+                    mode=mode,
+                    board_pads=all_board_pads,
+                    wire_net_id=wire_to_net.get(wid),
+                    other_wire_nets=wire_to_net,
+                    pin_net_map=pad_to_net,
+                    pad_index=pad_index,
+                )
+                if new_wire is wire or new_wire.path == wire.path:
+                    progress_cb(i + 1, n)
+                    continue
+                results.append((wid, list(new_wire.path), list(wire.path)))
+                progress_cb(i + 1, n)
+            return results
+
+        worker_out = run_with_progress(
+            parent=self._view if self._view is not None else None,  # type: ignore[arg-type]
+            title="Simplify",
+            fn=_simplify_in_worker,
+            label=f"Simplifying {len(wid_list)} wire(s)…",
+            with_progress=True,
+        )
+        if worker_out is None:
+            return
+
         cmds: list[Command[ComponentState]] = []
-        for wid in wire_ids:
-            wire = next((w for w in all_wires if w.id == wid), None)
+        for wid, new_path, orig_path in worker_out:
+            wire = next((w for w in session.layout.wires if w.id == wid), None)
             if wire is None:
-                continue
-            others = [w for w in all_wires if w.id != wid]
-            new_wire = generic_simplify_wire(
-                wire,
-                other_wires=others,
-                pin_positions=pin_positions,
-                pad_to_net=pad_to_net,
-                mode=mode,
-                board_pads=all_board_pads,
-                wire_net_id=wire_to_net.get(wid),
-                other_wire_nets=wire_to_net,
-                pin_net_map=pad_to_net,
-                pad_index=pad_index,
-            )
-            if new_wire is wire or new_wire.path == wire.path:
-                continue
+                continue  # vanished mid-flight (concurrent edit)
             cmds.append(
                 cast(
                     Command[ComponentState],
                     _replace_wire_path_cmd(
-                        session.layout, wire, list(new_wire.path), list(wire.path),
+                        session.layout, wire, new_path, orig_path,
                     ),
                 )
             )
@@ -7441,15 +7491,37 @@ class SelectTool(_Tool):
 
         # Pass schematic + connectivity graph so the algorithm can split
         # wires on plated-through pads when that resolves more crossings.
+        # The unweave permutation search is O(N!) in the worst case and
+        # blocks the GUI for seconds on dense bundles — push it to a
+        # background worker.  All inputs are read-only snapshots.
+        from protoboard.gui.workers.operation_worker import run_with_progress
         import time as _time
-        _t0 = _time.monotonic()
-        out = unweave_wires(
-            targets,
-            schematic=session.schematic,
-            graph=session.connectivity_graph(),
-            allow_layer_change=session.routing_settings.allow_layer_change,
+        _schematic = session.schematic
+        _graph = session.connectivity_graph()
+        _allow_layer_change = session.routing_settings.allow_layer_change
+        _allow_side_flip = session.routing_settings.visual_unweave_side_flip
+
+        def _unweave_in_worker() -> object:
+            _t0 = _time.monotonic()
+            result = unweave_wires(
+                targets,
+                schematic=_schematic,
+                graph=_graph,
+                allow_layer_change=_allow_layer_change,
+                allow_side_flip=_allow_side_flip,
+            )
+            dt = (_time.monotonic() - _t0) * 1000.0
+            return result, dt
+
+        worker_out = run_with_progress(
+            parent=self._view if self._view is not None else None,  # type: ignore[arg-type]
+            title="Unweave",
+            fn=_unweave_in_worker,
+            label=f"Unweaving {len(targets)} wire(s)…",
         )
-        dt_ms = (_time.monotonic() - _t0) * 1000.0
+        if worker_out is None:
+            return
+        out, dt_ms = worker_out  # type: ignore[misc]
         after = count_mutual_crossings(out)
         _log.info("unweave.algorithm_done",
                   duration_ms=round(dt_ms, 1),

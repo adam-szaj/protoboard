@@ -64,15 +64,26 @@ class Hit:
     intentionally typed loosely (``object``) — domain code passes a
     ``uuid.UUID``; tests use plain strings.  All we need is hashability
     and equality.
+
+    ``pin_number`` carries the specific pin a "component" hit landed
+    on (when the click resolved through the nearest-pin path) — used
+    by the highlight pipeline to scope relation to a single net.
+    None when the hit came from a bbox-fallback (no specific pin) or
+    when the kind is not "component".
     """
 
     kind: HitKind
     id: object
+    pin_number: int | None = None
 
     def __post_init__(self) -> None:
         # ``frozen=True`` blocks setattr, so we validate here.
         if self.kind not in ("component", "wire", "group"):
             raise ValueError(f"unknown Hit.kind: {self.kind!r}")
+        if self.pin_number is not None and self.kind != "component":
+            raise ValueError(
+                f"pin_number only valid for component hits; got kind={self.kind!r}"
+            )
 
 
 # ---------------------------------------------------------------------------

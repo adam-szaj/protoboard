@@ -69,7 +69,7 @@ from protoboard.paths import BUILTIN_ASSETS_DIR as _BUILTIN_ASSETS_DIR
 
 _ASSETS: Path = _BUILTIN_ASSETS_DIR / "components"
 
-
+_big_body_alpha: float = 0.90
 # ---------------------------------------------------------------------------
 # Base class
 # ---------------------------------------------------------------------------
@@ -301,6 +301,8 @@ class SvgDIPBody(BodyShape):
         if len(positions) < 2 * n:
             return GenericBody().draw(positions, fill, border, alpha, z, theme)
 
+        fill = QColor(0x22, 0x22, 0x44)
+        fill.setAlphaF(alpha*_big_body_alpha)
         fill_hex = fill.name()
         fill_a = f"{fill.alphaF() * alpha:.3f}"
         border_hex = border.name()
@@ -545,6 +547,8 @@ class SvgQuadDIPBody(BodyShape):
         if len(positions) < 4 * n:
             return GenericBody().draw(positions, fill, border, alpha, z, theme)
 
+        fill = QColor(0x22, 0x22, 0x44, 0xe0)
+        fill.setAlphaF(alpha*_big_body_alpha)
         fill_hex = fill.name()
         fill_a = f"{fill.alphaF() * alpha:.3f}"
         border_hex = border.name()
@@ -867,10 +871,11 @@ class DiodeBody(BodyShape):
 
 class TO92Body(BodyShape):
     def draw(self, positions, fill, border, alpha, z, theme=DEFAULT_THEME):
-        fill = QColor(0x40, 0x40, 0x40,a=0xa0)
         if len(positions) < 3:
             return GenericBody().draw(positions, fill, border, alpha, z, theme)
 
+        fill = QColor(0x40, 0x40, 0x40)
+        fill.setAlphaF(alpha*_big_body_alpha)
         # Pin 2 is the middle pin; body centred above it.
         # "Above" = lower Y value (Qt Y grows downward, but scene coords
         #  can go either way — we use pin positions as reference).
@@ -1016,7 +1021,7 @@ class TO220Body(BodyShape):
         body_path.addRoundedRect(QRectF(-w / 2, -h / 2, w, h), r, r)
         body = QGraphicsPathItem(body_path)
         fill = QColor(0x40, 0x40, 0x40)
-        fill.setAlphaF(alpha * theme.body_tab_opacity)
+        fill.setAlphaF(alpha * _big_body_alpha)
         body.setBrush(QBrush(fill))
         body.setPen(bp)
         body.setZValue(z)
@@ -1032,7 +1037,7 @@ class TO220Body(BodyShape):
         tab_path.addRoundedRect(QRectF(-w / 2 - overhang, -tab_h / 2, w + 2 * overhang, tab_h), 0.1 / mm, 0.1 / mm)
         tab = QGraphicsPathItem(tab_path)
         tab_color = QColor(0xdd,0xdd,0xdd)
-        tab_color.setAlphaF(alpha * theme.body_tab_opacity)
+        tab_color.setAlphaF(alpha * _big_body_alpha)
         tab.setBrush(QBrush(tab_color))
         tab.setPen(_body_pen(border, alpha, width=theme.body_tab_pen_width))
         tab.setZValue(z + 0.005)
@@ -1064,6 +1069,8 @@ class DIPBody(BodyShape):
         if len(positions) < 2 * n:
             return GenericBody().draw(positions, fill, border, alpha, z, theme)
 
+        fill = QColor(0x33, 0x33, 0x66)
+        fill.setAlphaF(alpha*_big_body_alpha)
         # Left column: positions[0..n-1], right column: positions[n..2n-1]
         left = positions[:n]
         right = positions[n:]
@@ -1135,7 +1142,7 @@ class SILBody(BodyShape):
 
         # Per-pin slot (small inset square)
         slot_fill = QColor(fill)
-        slot_fill.setAlphaF(slot_fill.alphaF() * theme.body_slot_opacity)
+        slot_fill.setAlphaF(slot_fill.alphaF() * _big_body_alpha)
         slot_border = QColor(border)
         slot_border.setAlphaF(alpha * theme.body_slot_opacity)
         slot_pen = QPen(slot_border, theme.body_slot_pen_width)

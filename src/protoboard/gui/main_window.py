@@ -1344,21 +1344,47 @@ class MainWindow(QMainWindow):
         self._update_title()
 
     def _do_save(self, path: Path) -> None:
-        try:
+        # save_project canonicalises wires (split/merge pad-collision
+        # passes) and writes 4-6 YAML files; on big projects the I/O
+        # alone is enough to freeze the GUI for hundreds of ms.  Run
+        # it in a background worker with a busy-bar dialog so the
+        # window stays responsive.
+        from protoboard.gui.workers.operation_worker import run_with_progress
+
+        board = self._session.board
+        layout = self._session.layout
+        schematic = self._session.schematic
+        instances = self._session.instances
+        routing_settings = self._session.routing_settings
+        layer_overrides = self._session.layer_overrides
+        axis_label_settings = self._session.axis_label_settings
+
+        def _save_in_worker() -> object:
             save_project(
                 directory=path,
-                board=self._session.board,
-                layout=self._session.layout,
-                schematic=self._session.schematic,
-                instances=self._session.instances,
-                routing_settings=self._session.routing_settings,
-                layer_overrides=self._session.layer_overrides,
-                axis_label_settings=self._session.axis_label_settings,
+                board=board,
+                layout=layout,
+                schematic=schematic,
+                instances=instances,
+                routing_settings=routing_settings,
+                layer_overrides=layer_overrides,
+                axis_label_settings=axis_label_settings,
             )
-            recent_projects.add(path)
+            return True
+
+        try:
+            ok = run_with_progress(
+                parent=self,
+                title="Save",
+                fn=_save_in_worker,
+                label=f"Saving to {path.name}…",
+            )
         except Exception as exc:
             QMessageBox.critical(self, "Save error", str(exc))
             return
+        if ok is None:
+            return  # cancelled or worker error already logged
+        recent_projects.add(path)
 
         self._session.mark_clean()
         commit_status = self._commit_save(path)

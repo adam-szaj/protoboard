@@ -192,6 +192,24 @@ class AutorouteDialog(QDialog):
         self._chk_simplify.setChecked(rs.enable_simplify_pass)
         root.addWidget(self._chk_simplify)
 
+        self._chk_simplify_each_wire = QCheckBox(
+            "Simplify after each routed wire (slower, may improve density)"
+        )
+        self._chk_simplify_each_wire.setChecked(rs.simplify_after_each_wire)
+        root.addWidget(self._chk_simplify_each_wire)
+
+        self._chk_simplify_all_after = QCheckBox(
+            "Iterative simplify-all after routing (cleans up trapezoid detours)"
+        )
+        self._chk_simplify_all_after.setChecked(rs.simplify_all_after_autoroute)
+        root.addWidget(self._chk_simplify_all_after)
+
+        self._chk_hierarchical = QCheckBox(
+            "Hierarchical (route group-internal nets first, then top-level)"
+        )
+        self._chk_hierarchical.setChecked(rs.hierarchical)
+        root.addWidget(self._chk_hierarchical)
+
         simplify_mode_row = QHBoxLayout()
         simplify_mode_row.addWidget(QLabel("Simplify mode:"))
         self._combo_simplify_mode = QComboBox()
@@ -310,6 +328,7 @@ class AutorouteDialog(QDialog):
         buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        self._route_btn.setFocus()
         root.addWidget(buttons)
 
     # ------------------------------------------------------------------
@@ -347,6 +366,10 @@ class AutorouteDialog(QDialog):
             allow_jumpers=self._chk_jumpers.isChecked(),
             push_and_shove=self._chk_push_shove.isChecked(),
             enable_simplify_pass=self._chk_simplify.isChecked(),
+            simplify_after_each_wire=self._chk_simplify_each_wire.isChecked(),
+            simplify_all_after_autoroute=self._chk_simplify_all_after.isChecked(),
+            simplify_all_max_iterations=rs_in.simplify_all_max_iterations,
+            hierarchical=self._chk_hierarchical.isChecked(),
             simplify_mode=_simplify_mode_from_combo(self._combo_simplify_mode.currentData()),
             max_detour_factor=self._spin_detour.value(),
             skip_autoroute_dialog=self._chk_skip.isChecked(),

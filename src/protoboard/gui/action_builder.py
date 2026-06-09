@@ -224,7 +224,13 @@ def _ensure_menu(
             continue
         title = prefix[-1]
         if depth == 1:
-            new_menu = bar.addMenu(title)
+            # Top-level menus get an automatic mnemonic on the first
+            # letter so Alt+<letter> opens the menu from the closed
+            # state (e.g. Alt+S → Select).  Without this, the menu bar
+            # is only navigable via mouse or F10-then-arrows.  Keeps
+            # the registry key stable (callers index by the raw path).
+            display_title = title if "&" in title else "&" + title
+            new_menu = bar.addMenu(display_title)
         else:
             assert parent_menu is not None
             new_menu = parent_menu.addMenu(title)

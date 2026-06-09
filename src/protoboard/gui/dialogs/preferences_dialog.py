@@ -718,6 +718,17 @@ class _RoutingPage(QWidget):
         )
         gen_form.addRow("Skip autoroute dialog", self._skip_autoroute_dialog)
 
+        self._visual_unweave_side_flip = QCheckBox()
+        self._visual_unweave_side_flip.setToolTip(
+            "When checked, unweave may flip a wire to the opposite side as a\n"
+            "last-resort move to reduce visual tangling on the 2D projection.\n"
+            "Useful for cross-side wires that weave through one another even\n"
+            "though they don't physically conflict.  Accepts only when\n"
+            "the move strictly improves crossings or shared pads without\n"
+            "worsening either."
+        )
+        gen_form.addRow("Visual unweave (side flips)", self._visual_unweave_side_flip)
+
         gen_grp.setLayout(gen_form)
         vbox.addWidget(gen_grp)
 
@@ -1061,6 +1072,7 @@ class _RoutingPage(QWidget):
                 break
         self._max_detour.setValue(rs.max_detour_factor)
         self._skip_autoroute_dialog.setChecked(rs.skip_autoroute_dialog)
+        self._visual_unweave_side_flip.setChecked(rs.visual_unweave_side_flip)
 
     def _restore_defaults(self) -> None:
         self._load_from_settings(self._defaults)
@@ -1081,6 +1093,7 @@ class _RoutingPage(QWidget):
             max_detour_factor=self._max_detour.value(),
             router_name=rs_old.router_name,
             skip_autoroute_dialog=self._skip_autoroute_dialog.isChecked(),
+            visual_unweave_side_flip=self._visual_unweave_side_flip.isChecked(),
             optimizer_chain=rs_old.optimizer_chain,
             cost_preset=self._cost_preset.currentData() or "default",
             # Per-project overrides come from the dynamic spinbox grid

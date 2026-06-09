@@ -621,7 +621,12 @@ def render_ratsnest(
     islands_pen.setStyle(Qt.PenStyle.DotLine)
     islands_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
 
-    use_closest = (mode == "closest")
+    # Ghost mode always renders the minimum (closest-pair) skeleton —
+    # K_n clutter is unreadable when overlaid on dimmed components,
+    # and applies to both yellow (within-island missing links) and
+    # purple (between-island warning) lines.  Outside ghost we honour
+    # the user-configured ratsnest mode.
+    use_closest = ghost or (mode == "closest")
     added: list[QGraphicsLineItem] = []
     for net in schematic.nets.values():
         net_routed = net.id in routed_nets
