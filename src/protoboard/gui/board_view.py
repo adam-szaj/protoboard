@@ -1199,7 +1199,7 @@ class BoardView(QGraphicsView):
                 render_pin_pads,
             )
             pp_records = classify_pin_pads(
-                self._session.pad_index, self._session.layout,
+                self._session.pad_index(), self._session.layout,
             )
             self._pin_pad_items = list(render_pin_pads(  # type: ignore[arg-type]
                 self._scene,

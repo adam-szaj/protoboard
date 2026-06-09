@@ -757,33 +757,11 @@ def render_groups(
                 scene.addItem(item)
                 added.append(item)
 
-        # Render exported pins as small green diamonds (visible from parent).
-        if group.id in visible_child_ids and group.exported_pins:
-            from PySide6.QtGui import QPainterPath
-            from PySide6.QtWidgets import QGraphicsPathItem
-            ep_fill = QColor(t.exported_pin_color)
-            ep_pen = QPen(QColor(t.exported_pin_pen_color), t.exported_pin_pen_width)
-            r = 0.18
-            for ep in group.exported_pins:
-                pl = placements.get(ep.component_id)
-                inst = instances.get(ep.component_id)
-                if pl is None or inst is None:
-                    continue
-                defn = components.get(inst.definition_ref)
-                if defn is None:
-                    continue
-                wp = pin_world_position(defn.footprint, pl, ep.pin_number)
-                diamond = QPainterPath()
-                diamond.moveTo(wp.x, wp.y - r)
-                diamond.lineTo(wp.x + r, wp.y)
-                diamond.lineTo(wp.x, wp.y + r)
-                diamond.lineTo(wp.x - r, wp.y)
-                diamond.closeSubpath()
-                item = QGraphicsPathItem(diamond)
-                item.setBrush(QBrush(ep_fill))
-                item.setPen(ep_pen)
-                item.setZValue(12.0)
-                scene.addItem(item)
-                added.append(item)
+        # Exported-pin markers used to be drawn here as small green
+        # diamonds; that responsibility moved to the pin-modifiers
+        # rendering layer (see ``gui/renderers/pin_pad_renderer.py``),
+        # which uses the net colour and reserves DIAMOND for exported
+        # pins / STAR for pin1+exported.  Group-level exported-pin
+        # geometry is no longer painted here.
 
     return added
