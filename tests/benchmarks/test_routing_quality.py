@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: MIT
 """Routing quality benchmarks — Wire/MST ratio and Hull ratio per net.
 
-These benchmarks run a full autoroute pass on the m4 project and report
-aggregate quality metrics.  They serve as a baseline for comparing routing
-strategy changes (e.g. metric-guided net ordering).
+These benchmarks run a full autoroute pass on the synthetic medium and
+large projects and report aggregate quality metrics.  They serve as a
+baseline for comparing routing strategy changes (e.g. metric-guided net
+ordering).
 
 Run with:
     uv run pytest tests/benchmarks/test_routing_quality.py --benchmark-only -v -s
@@ -233,12 +234,10 @@ def measure_routing_quality(
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
-def m4_empty_layout(m4_project):
-    board, layout, schematic, instances, routing, lib, components = m4_project
-    empty = copy.deepcopy(layout)
-    empty.wires = []
-    empty.cuts = []
-    return board, empty, schematic, instances, routing, components
+def synthetic_medium_empty_layout(synthetic_medium_project):
+    board, layout, schematic, instances, routing, _lib, components = synthetic_medium_project
+    # synthetic generator already produces a wire-free layout.
+    return board, copy.deepcopy(layout), schematic, instances, routing, components
 
 
 def _run_autoroute(board, layout, schematic, instances, routing, components,
@@ -263,9 +262,9 @@ def _run_autoroute(board, layout, schematic, instances, routing, components,
 # Benchmarks
 # ---------------------------------------------------------------------------
 
-def test_bench_routing_quality_greedy(benchmark, m4_empty_layout):
+def test_bench_routing_quality_greedy(benchmark, synthetic_medium_empty_layout):
     """Greedy pass only (no optimize, rip-up=3). Baseline quality measurement."""
-    board, layout, schematic, instances, routing, components = m4_empty_layout
+    board, layout, schematic, instances, routing, components = synthetic_medium_empty_layout
 
     def _run():
         result = _run_autoroute(board, layout, schematic, instances, routing,
@@ -284,9 +283,9 @@ def test_bench_routing_quality_greedy(benchmark, m4_empty_layout):
     print(f"  worst hull:     {summary.worst_hull_nets}")
 
 
-def test_bench_routing_quality_optimized(benchmark, m4_empty_layout):
+def test_bench_routing_quality_optimized(benchmark, synthetic_medium_empty_layout):
     """Greedy + 10 optimize iterations. Measures quality improvement vs greedy."""
-    board, layout, schematic, instances, routing, components = m4_empty_layout
+    board, layout, schematic, instances, routing, components = synthetic_medium_empty_layout
 
     def _run():
         result = _run_autoroute(board, layout, schematic, instances, routing,
@@ -306,18 +305,18 @@ def test_bench_routing_quality_optimized(benchmark, m4_empty_layout):
 
 
 # ---------------------------------------------------------------------------
-# Gold project benchmarks (143 comps, 100 nets, 0 wires — clean baseline)
+# Large synthetic project benchmarks (150 components, ~130 nets)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
-def gold_empty_layout(gold_project):
-    board, layout, schematic, instances, routing, lib, components = gold_project
+def synthetic_large_empty_layout(synthetic_large_project):
+    board, layout, schematic, instances, routing, _lib, components = synthetic_large_project
     return board, layout, schematic, instances, routing, components
 
 
-def test_bench_gold_greedy(benchmark, gold_empty_layout):
-    """Gold project: greedy pass only (no optimize, rip-up=3)."""
-    board, layout, schematic, instances, routing, components = gold_empty_layout
+def test_bench_large_greedy(benchmark, synthetic_large_empty_layout):
+    """Large synthetic project: greedy pass only (no optimize, rip-up=3)."""
+    board, layout, schematic, instances, routing, components = synthetic_large_empty_layout
 
     def _run():
         result = _run_autoroute(board, layout, schematic, instances, routing,

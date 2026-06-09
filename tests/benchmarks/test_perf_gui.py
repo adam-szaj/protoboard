@@ -7,11 +7,12 @@ Save baseline:
     uv run pytest tests/benchmarks/ --benchmark-only --benchmark-save=baseline
 Compare:
     uv run pytest tests/benchmarks/ --benchmark-only --benchmark-compare=baseline
+
+Fixtures come from ``tests/benchmarks/conftest.py``:
+  synthetic_medium_*         — 50 components, no wires (placement/refresh bench)
+  synthetic_medium_routed_*  — same, but with autoroute applied (wire bench)
 """
 from __future__ import annotations
-
-import math
-import uuid
 
 import pytest
 from PySide6.QtCore import QPointF
@@ -21,28 +22,32 @@ from PySide6.QtCore import QPointF
 # BoardView.refresh() — warm path (nothing changed)
 # ---------------------------------------------------------------------------
 
-def test_bench_refresh_warm_nothing_changed(benchmark, m4_board_view):
+def test_bench_refresh_warm_nothing_changed(benchmark, synthetic_medium_board_view):
     """Warm refresh when layout is unchanged — should reuse all groups."""
-    benchmark(m4_board_view.refresh)
+    benchmark(synthetic_medium_board_view.refresh)
 
 
-def test_bench_refresh_warm_one_comp_moved(benchmark, m4_board_view, m4_session):
+def test_bench_refresh_warm_one_comp_moved(
+    benchmark, synthetic_medium_board_view, synthetic_medium_session,
+):
     """Warm refresh after moving one component — only that group rebuilds."""
-    layout = m4_session.layout
+    layout = synthetic_medium_session.layout
     cid = next(iter(layout.placements))
     pl = layout.placements[cid]
 
-    from protoboard.geometry import Point
     from dataclasses import replace
+    from protoboard.geometry import Point
 
     toggle = [False]
 
     def move_and_refresh():
         toggle[0] = not toggle[0]
         dx = 1 if toggle[0] else -1
-        layout.placements[cid] = replace(pl, position=Point(pl.position.x + dx, pl.position.y))
-        m4_session.invalidate_graph()
-        m4_board_view.refresh()
+        layout.placements[cid] = replace(
+            pl, position=Point(pl.position.x + dx, pl.position.y),
+        )
+        synthetic_medium_session.invalidate_graph()
+        synthetic_medium_board_view.refresh()
 
     benchmark(move_and_refresh)
 
@@ -51,18 +56,20 @@ def test_bench_refresh_warm_one_comp_moved(benchmark, m4_board_view, m4_session)
 # set_highlighted_net — opacity-only path, no rebuild
 # ---------------------------------------------------------------------------
 
-def test_bench_set_highlighted_net(benchmark, m4_board_view, m4_session):
+def test_bench_set_highlighted_net(
+    benchmark, synthetic_medium_routed_board_view, synthetic_medium_routed_session,
+):
     """Switching highlighted net must be O(N) setOpacity calls, not rebuilds."""
-    nets = list(m4_session.schematic.nets.keys())
-    # Use the net with the most wires (GND-equivalent) as the worst case.
-    from protoboard.gui.board_view import _build_wire_net_map
     from collections import Counter
-    wire_net_map = _build_wire_net_map(m4_session)
+    from protoboard.gui.board_view import _build_wire_net_map
+    wire_net_map = _build_wire_net_map(synthetic_medium_routed_session)
+    if not wire_net_map:
+        pytest.skip("routed fixture produced no wires")
     busiest_net_id = Counter(wire_net_map.values()).most_common(1)[0][0]
 
     def cycle_highlight():
-        m4_board_view.set_highlighted_net(busiest_net_id)
-        m4_board_view.set_highlighted_net(None)
+        synthetic_medium_routed_board_view.set_highlighted_net(busiest_net_id)
+        synthetic_medium_routed_board_view.set_highlighted_net(None)
 
     benchmark(cycle_highlight)
 
@@ -71,16 +78,17 @@ def test_bench_set_highlighted_net(benchmark, m4_board_view, m4_session):
 # Spatial index — hit-test on click
 # ---------------------------------------------------------------------------
 
-def test_bench_hit_test_component(benchmark, m4_board_view, m4_session):
+def test_bench_hit_test_component(
+    benchmark, synthetic_medium_board_view, synthetic_medium_session,
+):
     """_hit_test should be fast via spatial index (not O(C×P) brute force)."""
     from protoboard.gui.tools.select_tool import SelectTool
     tool = SelectTool()
-    tool.activate(m4_session, m4_board_view)
+    tool.activate(synthetic_medium_session, synthetic_medium_board_view)
 
-    # Pick a point near a component pin.
-    layout = m4_session.layout
-    instances = m4_session.instances
-    components = m4_session.components
+    layout = synthetic_medium_session.layout
+    instances = synthetic_medium_session.instances
+    components = synthetic_medium_session.components
     cid = next(iter(layout.placements))
     pl = layout.placements[cid]
     inst = instances.get(cid)
@@ -94,15 +102,17 @@ def test_bench_hit_test_component(benchmark, m4_board_view, m4_session):
     benchmark(tool._hit_test, scene_pt)
 
 
-def test_bench_hit_test_pin_for_comp(benchmark, m4_board_view, m4_session):
+def test_bench_hit_test_pin_for_comp(
+    benchmark, synthetic_medium_board_view, synthetic_medium_session,
+):
     """_hit_test_pin_for_comp: O(P) scan of one component's pins."""
     from protoboard.gui.tools.select_tool import SelectTool
     tool = SelectTool()
-    tool.activate(m4_session, m4_board_view)
+    tool.activate(synthetic_medium_session, synthetic_medium_board_view)
 
-    layout = m4_session.layout
-    instances = m4_session.instances
-    components = m4_session.components
+    layout = synthetic_medium_session.layout
+    instances = synthetic_medium_session.instances
+    components = synthetic_medium_session.components
     cid = next(iter(layout.placements))
     pl = layout.placements[cid]
     inst = instances.get(cid)
@@ -116,14 +126,17 @@ def test_bench_hit_test_pin_for_comp(benchmark, m4_board_view, m4_session):
     benchmark(tool._hit_test_pin_for_comp, scene_pt, cid)
 
 
-def test_bench_hit_test_wire(benchmark, m4_board_view, m4_session):
+def test_bench_hit_test_wire(
+    benchmark, synthetic_medium_routed_board_view, synthetic_medium_routed_session,
+):
     """_hit_test_wire via spatial index."""
     from protoboard.gui.tools.select_tool import SelectTool
     tool = SelectTool()
-    tool.activate(m4_session, m4_board_view)
+    tool.activate(synthetic_medium_routed_session, synthetic_medium_routed_board_view)
 
-    # Pick a point on the first wire.
-    wire = m4_session.layout.wires[0]
+    if not synthetic_medium_routed_session.layout.wires:
+        pytest.skip("routed fixture produced no wires")
+    wire = synthetic_medium_routed_session.layout.wires[0]
     pt = wire.path[0]
     scene_pt = QPointF(pt.x, pt.y)
 
@@ -134,24 +147,27 @@ def test_bench_hit_test_wire(benchmark, m4_board_view, m4_session):
 # ConnectivityGraph build
 # ---------------------------------------------------------------------------
 
-def test_bench_connectivity_graph_build(benchmark, m4_project):
+def test_bench_connectivity_graph_build(benchmark, synthetic_medium_project):
     """Full connectivity graph build from scratch."""
-    board, layout, schematic, instances, _, _, components = m4_project
+    board, layout, _schematic, instances, _routing, _lib, components = synthetic_medium_project
     from protoboard.domain.connectivity.graph import ConnectivityGraph
 
     def build():
-        ConnectivityGraph(board=board, layout=layout, components=components, instances=instances)
+        ConnectivityGraph(
+            board=board, layout=layout,
+            components=components, instances=instances,
+        )
 
     benchmark(build)
 
 
-def test_bench_session_connectivity_graph_cached(benchmark, m4_session):
+def test_bench_session_connectivity_graph_cached(benchmark, synthetic_medium_session):
     """Session cached graph — rebuild only on invalidate, reuse otherwise."""
-    m4_session.invalidate_graph()
+    synthetic_medium_session.invalidate_graph()
 
     def access():
-        m4_session.invalidate_graph()
-        return m4_session.connectivity_graph()
+        synthetic_medium_session.invalidate_graph()
+        return synthetic_medium_session.connectivity_graph()
 
     benchmark(access)
 
@@ -160,14 +176,12 @@ def test_bench_session_connectivity_graph_cached(benchmark, m4_session):
 # Spatial index build
 # ---------------------------------------------------------------------------
 
-def test_bench_spatial_index_build(benchmark, m4_session):
+def test_bench_spatial_index_build(benchmark, synthetic_medium_session):
     """Building comp+wire spatial indexes from scratch (happens after layout_changed)."""
-    from protoboard.gui.session import _build_comp_spatial_index, _build_wire_spatial_index
-
     def build():
-        m4_session._comp_spatial_index = None
-        m4_session._wire_spatial_index = None
-        m4_session.comp_spatial_index()
-        m4_session.wire_spatial_index()
+        synthetic_medium_session._comp_spatial_index = None
+        synthetic_medium_session._wire_spatial_index = None
+        synthetic_medium_session.comp_spatial_index()
+        synthetic_medium_session.wire_spatial_index()
 
     benchmark(build)

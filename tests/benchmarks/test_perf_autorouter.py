@@ -4,7 +4,7 @@
 Run with:
     uv run pytest tests/benchmarks/test_perf_autorouter.py --benchmark-only -v
 
-Expected order-of-magnitude targets (project m4, 139 comps, 97 nets):
+Order-of-magnitude targets (synthetic_medium: 50 comps, ~40 nets):
   find_paths single call   < 50 ms
   _run_one_pass (1 pass)   < 30 s   (covers all nets, rip-up disabled)
 """
@@ -20,9 +20,9 @@ import pytest
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
-def astar_context(m4_project):
+def astar_context(synthetic_medium_project):
     """Pre-built graph + a source/target pair for find_paths benchmarks."""
-    board, layout, schematic, instances, routing, lib, components = m4_project
+    board, layout, schematic, instances, routing, _lib, components = synthetic_medium_project
     from protoboard.domain.connectivity.incremental import ConnectivityGraph
 
     graph = ConnectivityGraph(
@@ -53,7 +53,7 @@ def astar_context(m4_project):
         tgt_pt = pin_world_position(comp1.footprint, layout.placements[p1.component_id], p1.pin_number)
         break
 
-    assert src_pt is not None, "No suitable net found in m4 project"
+    assert src_pt is not None, "No suitable net found in synthetic_medium project"
     cm = routing.cost_model()
     return graph, src_pt, tgt_pt, cm
 
@@ -71,23 +71,20 @@ def test_bench_find_paths_single(benchmark, astar_context):
 
 
 # ---------------------------------------------------------------------------
-# Full autoroute pass on m4 (no optimize iterations, no rip-up)
+# Full autoroute pass on synthetic medium (no optimize iterations, no rip-up)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
-def m4_empty_layout(m4_project):
-    """m4 layout with all wires removed (only placements kept)."""
-    board, layout, schematic, instances, routing, lib, components = m4_project
+def synthetic_medium_empty_layout(synthetic_medium_project):
+    """Synthetic medium layout — generator yields placements-only, no wires."""
+    board, layout, schematic, instances, routing, _lib, components = synthetic_medium_project
     import copy as _copy
-    empty = _copy.deepcopy(layout)
-    empty.wires = []
-    empty.cuts = []
-    return board, empty, schematic, instances, routing, components
+    return board, _copy.deepcopy(layout), schematic, instances, routing, components
 
 
-def test_bench_autoroute_one_pass(benchmark, m4_empty_layout):
-    """One greedy autoroute pass over all m4 nets (no rip-up, no optimize)."""
-    board, layout, schematic, instances, routing, components = m4_empty_layout
+def test_bench_autoroute_one_pass(benchmark, synthetic_medium_empty_layout):
+    """One greedy autoroute pass over every net (no rip-up, no optimize)."""
+    board, layout, schematic, instances, routing, components = synthetic_medium_empty_layout
     from protoboard.services.routing.autorouter import autoroute
 
     def _run():
