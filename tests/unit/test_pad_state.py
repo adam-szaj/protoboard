@@ -488,6 +488,50 @@ class TestPadIndexCanRouteThrough:
             Point(1.5, 0.5), "top", our_net=net_b, wire_type="bare",
         )
 
+    def test_component_body_non_blocking_allows_routing_under(self) -> None:
+        """Default ComponentBody (blocks_routing=False) does NOT block
+        wires routing under the component body.  Through-hole parts sit
+        on standoffs / leads so the gap under the body is usable; some
+        users deliberately route under them with the component acting as
+        a jumper.  Autoroute still soft-penalises via under_component_top.
+        """
+        board = _perfboard(3, 3)
+        # Directly construct a Pad and inject a non-blocking ComponentBody
+        # so the test is independent of full PadIndex add_component flow.
+        idx = PadIndex(board, _empty_layout(), Schematic(nets={}), {}, {})
+        target = idx.pad_at(Point(1.5, 1.5))
+        assert target is not None
+        target._add_item(ComponentBody(id=uuid.uuid4(), blocks_routing=False), "top")
+        # Both insulated and bare wires of any net may pass through.
+        assert idx.can_route_through(
+            Point(1.5, 1.5), "top", our_net=None, wire_type="insulated",
+        )
+        assert idx.can_route_through(
+            Point(1.5, 1.5), "top", our_net=None, wire_type="bare",
+        )
+
+    def test_component_body_blocking_blocks_routing(self) -> None:
+        """ComponentBody with blocks_routing=True is a hard block on its
+        own side — for SMD and tight-fit packages that physically touch
+        the PCB and leave no gap for wires.
+        """
+        board = _perfboard(3, 3)
+        idx = PadIndex(board, _empty_layout(), Schematic(nets={}), {}, {})
+        target = idx.pad_at(Point(1.5, 1.5))
+        assert target is not None
+        target._add_item(ComponentBody(id=uuid.uuid4(), blocks_routing=True), "top")
+        # Same side — blocked for both wire types.
+        assert not idx.can_route_through(
+            Point(1.5, 1.5), "top", our_net=None, wire_type="insulated",
+        )
+        assert not idx.can_route_through(
+            Point(1.5, 1.5), "top", our_net=None, wire_type="bare",
+        )
+        # Opposite side — body on top doesn't constrain bottom-side wires.
+        assert idx.can_route_through(
+            Point(1.5, 1.5), "bottom", our_net=None, wire_type="insulated",
+        )
+
 
 class TestPadIndexClone:
     def test_clone_is_independent(self) -> None:

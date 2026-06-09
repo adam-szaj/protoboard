@@ -132,6 +132,14 @@ class ComponentDefinition:
     bendable_pins: dict[int, PinBendSpec] = field(default_factory=dict)
     # Alternative pin-name mappings (same footprint, different signal labelling).
     variants: tuple[PinVariant, ...] = ()
+    # Whether the component body physically blocks wires from routing
+    # under it.  Default False — most through-hole parts sit on standoffs
+    # / leads and leave a gap to the PCB, so wires can route under them
+    # (sometimes deliberately, with the component acting as a jumper).
+    # Set True for SMD packages and any tight-fit body that physically
+    # touches the board.  Autoroute additionally soft-penalises via
+    # the ``under_component_top`` cost knob regardless of this flag.
+    body_blocks_routing: bool = False
 
     def __post_init__(self) -> None:
         if not self.name:

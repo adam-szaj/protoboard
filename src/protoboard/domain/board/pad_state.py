@@ -145,9 +145,24 @@ class InsulatedWireCrossing:
 
 @dataclass(frozen=True, slots=True)
 class ComponentBody:
-    """The bbox of a component covers this pad on this side."""
+    """The bbox of a component covers this pad on this side.
+
+    ``blocks_routing`` controls whether a wire may pass through this pad.
+    Most through-hole components sit on standoffs / leads and leave a gap
+    between body and PCB, so wires (insulated *and* bare on the free pad)
+    can route under them — sometimes deliberately, with the component
+    acting as a jumper.  SMD and tight-fit packages override this via
+    the per-component definition flag.
+
+    Values:
+      * ``False`` (default) — body presence is informational; routing is
+        allowed.  Autoroute may still soft-penalise via ``under_component_top``.
+      * ``True`` — body is a hard block on the side it sits on; wires on
+        that side cannot use this pad.
+    """
 
     id: uuid.UUID            # component instance id
+    blocks_routing: bool = False
     kind: ClassVar[str] = "component_body"
 
 
@@ -668,9 +683,13 @@ class PadIndex:
             # Off-board — nothing to short, nothing to block.  Algorithms
             # typically only call this for on-board candidates anyway.
             return True
-        # ComponentBody is always a hard block.
+        # ComponentBody blocks only when the definition opted in.  Most
+        # through-hole packages leave a gap to the PCB and wires can route
+        # under them (sometimes deliberately, using the component as a
+        # jumper).  Autoroute soft-penalises via ``under_component_top``
+        # regardless; this gate only prevents *hard* rejection.
         for it in pad.physically_blocked_on(side):
-            if isinstance(it, ComponentBody):
+            if isinstance(it, ComponentBody) and it.blocks_routing:
                 return False
         net = pad.electrical_net_on(side)
         if net is SHORT_CIRCUIT:
@@ -855,8 +874,13 @@ class PadIndex:
             footprint.append((key, side, pin_item))
         # Component body — every pad inside the bbox (excluding pin pads
         # which already have PinItem) gets a ComponentBody on this side.
+        # ``blocks_routing`` propagates from the definition (default False —
+        # see ComponentDefinition.body_blocks_routing docstring).
         bbox = component_bbox(defn.footprint, placement, defn.component_class)
-        body = ComponentBody(id=comp_id)
+        body = ComponentBody(
+            id=comp_id,
+            blocks_routing=getattr(defn, "body_blocks_routing", False),
+        )
         pin_keys = {f[0] for f in footprint}
         for pad in self._pads_in_bbox(bbox):
             key = qpair(pad.position)
