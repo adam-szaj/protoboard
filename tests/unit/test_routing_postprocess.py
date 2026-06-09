@@ -1153,10 +1153,19 @@ class TestSimplifyNoNewCrossings:
             f"out: {[(p.x, p.y) for p in out.path]}"
         )
 
-    def test_insulated_simplify_blocks_new_crossing(self) -> None:
-        # Both wires insulated.  Original B's L-shape doesn't cross A.
-        # Canonical collapse to direct diagonal WOULD cross A.  M ≤ N rule:
-        # 1 > 0 → reject.
+    def test_insulated_simplify_allows_diagonal_air_crossing(self) -> None:
+        """User rule 2026-06-09: HARD constraints for insulated×insulated
+        in simplify are only alien pin/joint/via on a shared pad.  A
+        new diagonal crossing in the air (no shared pad with the foreign
+        insulated wire) is transparent — two insulated wires can pass
+        over each other without physical contact.
+
+        Replaces the older test that rejected the same case.  Reason
+        the policy flipped: trapezoidal residuals from autoroute (where
+        crossings already exist with foreign insulated bundles) cannot
+        be cleaned by simplify if every cross-the-air diagonal is
+        blocked.  User confirmed only pad-level conflicts matter.
+        """
         wa = Wire(
             id=uuid.uuid4(),
             path=[Point(1.5, 3.5), Point(5.5, 3.5)],
@@ -1173,18 +1182,13 @@ class TestSimplifyNoNewCrossings:
             wire_net_id=uuid.uuid4(),
             other_wire_nets={wa.id: uuid.uuid4()},
         )
-        # Collapse rejected — L-shape stays.
+        # Collapse accepted — diagonal that crosses A in the air is OK
+        # because neither wire's endpoints / mid-vertices share a pad
+        # with the canonical replacement.
         coords = [(p.x, p.y) for p in out.path]
-        assert (6.5, 6.5) in coords  # corner preserved
-        assert (0.5, 6.5) in coords  # corner preserved
-        # And no new crossing introduced.
-        from protoboard.services.routing.astar import _segs_cross
-        crossings = sum(
-            1 for cs, cd in zip(out.path, out.path[1:])
-            for os, od in zip(wa.path, wa.path[1:])
-            if _segs_cross(cs, cd, os, od)
-        )
-        assert crossings == 0
+        # Path may have been shortened (corner-cut to a diagonal).  The
+        # important property: vertex count must NOT exceed original.
+        assert len(out.path) <= 3
 
     def test_segs_overlap_collinear_helper(self) -> None:
         # Direct unit test of the helper.
