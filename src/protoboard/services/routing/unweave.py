@@ -463,6 +463,7 @@ def unweave_wires(
     graph: "ConnectivityGraph | None" = None,
     board_pads: set[Point] | None = None,
     allow_layer_change: bool = True,
+    allow_side_flip: bool = False,
 ) -> list[Wire]:
     """Reduce mutual crossings within *wires* by topological fragment swaps.
 
@@ -534,6 +535,59 @@ def unweave_wires(
               has_short_check=short_check is not None,
               has_board_pads=board_pads is not None,
               n_board_pads=len(board_pads) if board_pads is not None else 0)
+
+    # Forbidden pads = pin positions of all components.  Used by both the
+    # pre-swap overlap-separation pass and the post-swap shared-pad cleanup
+    # pass so that reroute candidates stay on free pads (no alien pins).
+    forbidden_pads: set[Point] | None = None
+    if graph is not None:
+        from protoboard.domain.layout.placement import pin_world_position
+        forbidden_pads = set()
+        for cid, pl in graph.layout.placements.items():
+            inst = graph.instances.get(cid)
+            if inst is None:
+                continue
+            defn = graph.components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            for pn in range(1, defn.footprint.pin_count() + 1):
+                forbidden_pads.add(pin_world_position(defn.footprint, pl, pn))
+
+    # Foreign-wire vertices = every (pad, side) used by a wire on the board
+    # that is NOT one of our unweave targets.  Used by Phase 0 to reject
+    # shift candidates that would land on (or cross through) another wire's
+    # pad — important when the user unweaves a subset of wires but other
+    # wires physically occupy the free corridor we'd otherwise use.
+    #
+    # Side-aware: a top-side foreign wire does NOT block a shift of a
+    # bottom-side wire (they live on different layers).  Without the side
+    # filter unweave of two cross-side targets was incorrectly blocked
+    # whenever any unrelated wire happened to share a pad position on the
+    # other layer — reproducing reference_big_project case 2026-06-09.
+    foreign_wire_pads: set[tuple[Point, str]] | None = None
+    if graph is not None and graph.layout is not None:
+        target_ids = {w.id for w in wires}
+        foreign_wire_pads = set()
+        for wire in graph.layout.wires:
+            if wire.id in target_ids:
+                continue
+            for p in wire.path:
+                foreign_wire_pads.add((p, wire.side))
+
+    # Phase 0 — separate overlap runs.  When two logical wires share a
+    # contiguous run of K≥2 interior pads (often produced by greedy A*
+    # routing both nets along the same corridor), try to shift one wire off
+    # the overlap onto a parallel free row/column.  Runs BEFORE the main
+    # swap loop because: (a) eliminating overlap runs often turns
+    # complex multi-shared-pad tangles into single-point crossings the
+    # canonical swap can trivially resolve; (b) the swap operates on
+    # crossings, but parallel overlaps produce ZERO crossings (parallel
+    # directions don't interleave) so the swap loop alone never sees them.
+    _separate_overlap_runs_pass(
+        logical, pad_safe=pad_safe, short_check=short_check,
+        board_pads=board_pads, forbidden_pads=forbidden_pads,
+        foreign_wire_pads=foreign_wire_pads,
+    )
 
     def _state_fingerprint(state: list[list[Wire]]) -> tuple:
         """Hashable snapshot of every wire path in *state*.
@@ -613,24 +667,20 @@ def unweave_wires(
     # Cleanup pass: trivial 1-step reroute for shared-pad crossings the swap
     # could not eliminate (typically because both swap pads are shared and
     # the swap leaves them shared on both wires).  No-op when the pair has
-    # nowhere to move S to.
-    forbidden_pads: set[Point] | None = None
-    if graph is not None:
-        from protoboard.domain.layout.placement import pin_world_position
-        forbidden_pads = set()
-        for cid, pl in graph.layout.placements.items():
-            inst = graph.instances.get(cid)
-            if inst is None:
-                continue
-            defn = graph.components.get(inst.definition_ref)
-            if defn is None:
-                continue
-            for pn in range(1, defn.footprint.pin_count() + 1):
-                forbidden_pads.add(pin_world_position(defn.footprint, pl, pn))
+    # nowhere to move S to.  ``forbidden_pads`` already computed above.
     _cleanup_shared_pads_pass(
         logical, pad_safe=pad_safe, short_check=short_check,
         board_pads=board_pads, forbidden_pads=forbidden_pads,
     )
+
+    # Visual-unweave: opt-in side-flip pass.  Tackles cross-side
+    # tangling that the per-side topological machinery cannot reduce —
+    # see _side_flip_pass for the acceptance gate.  Off by default; user
+    # turns it on via RoutingSettings.visual_unweave_side_flip.
+    if allow_side_flip:
+        _side_flip_pass(
+            logical, pad_safe=pad_safe, short_check=short_check,
+        )
 
     # Re-merge consecutive segments with identical (side, insulated).
     merged: list[Wire] = []
@@ -1163,6 +1213,30 @@ def _count_pair_shared_vertices(
     return len(_find_shared_pad_crossings_logical(lp1, lp2))
 
 
+def _count_pair_2d_crossings(w1: Wire, w2: Wire) -> int:
+    """Count all 2D crossings between two wires (geometric + interleaved
+    shared-pad), IGNORING side.  Used by the visual-unweave side-flip pass
+    where the goal is to reduce visual tangling regardless of layer."""
+    return len(find_crossings(w1, w2))
+
+
+def _count_pair_2d_shared_interior(w1: Wire, w2: Wire) -> int:
+    """Count interior pads shared between two wires in the 2D projection,
+    IGNORING side and ignoring direction interleave.  Counts every pad
+    that both wires visit as a non-endpoint vertex — the geometric measure
+    of "wires lie on top of each other" visible to the user looking at
+    the board from above."""
+    interior2: set[tuple[float, float]] = set()
+    for j in range(1, len(w2.path) - 1):
+        interior2.add((round(w2.path[j].x, 6), round(w2.path[j].y, 6)))
+    count = 0
+    for i in range(1, len(w1.path) - 1):
+        key = (round(w1.path[i].x, 6), round(w1.path[i].y, 6))
+        if key in interior2:
+            count += 1
+    return count
+
+
 def _cleanup_shared_pads_pass(
     logical: list[list[Wire]],
     *,
@@ -1279,6 +1353,157 @@ def _cleanup_shared_pads_pass(
               n_reroutes_rejected=n_reroutes_rejected)
 
 
+# ---------------------------------------------------------------------------
+# Visual-unweave: side-flip pass (opt-in via RoutingSettings.visual_unweave_side_flip)
+# ---------------------------------------------------------------------------
+#
+# When the topological swap and overlap-separation passes have done what they
+# can, residual visual tangling may remain — typically two wires whose 2D
+# projections weave through one another even though they sit on different
+# board sides.  The swap/overlap machinery operates per-side (after the
+# 2026-06-09 cross-side fix), so it has nothing to do for these pairs.
+#
+# This pass tries a structural move: flip the entire ``side`` attribute of
+# one wire to its opposite, validate via pad_safe + short_check, accept if
+# the 2D measure improves.  No path mutation — only the layer attribute
+# changes.  Endpoints stay where they are (their plated-through-ness
+# determines whether the flip is electrically legal — pad_safe catches that).
+
+
+def _side_flip_pass(
+    logical: list[list[Wire]],
+    *,
+    pad_safe: "Callable[[Point, str, str, bool], bool] | None",
+    short_check: "Callable[[list[list[Wire]]], bool] | None",
+) -> None:
+    """Greedy per-pair side flip.
+
+    For every pair (i, j) of logical wires sharing 2D tangling (>0
+    crossings or >0 shared interior pads in the 2D projection), try
+    flipping one wire's side to the opposite layer.  Accept when the
+    combined gate passes:
+
+      * 2D shared interior pads do not grow AND
+      * 2D crossings do not grow AND
+      * at least one of the two strictly decreases AND
+      * ``short_check`` (when given) accepts the resulting layout.
+
+    Tries flipping wire i first, then wire j if (i) didn't qualify.
+    Restart the outer loop after every successful flip so cascading
+    benefits are captured (one flip may free another flip).  Bounded by
+    ``2 * n * n`` flips total (defensive).
+    """
+    n = len(logical)
+    if n < 2:
+        return
+
+    def _flip_chain(chain: list[Wire]) -> list[Wire]:
+        """Return a copy of chain with every wire's side flipped."""
+        flipped: list[Wire] = []
+        for w in chain:
+            new_side: Literal["top", "bottom"] = (
+                "bottom" if w.side == "top" else "top"
+            )
+            flipped.append(replace(w, side=new_side))
+        return flipped
+
+    def _validate_pad_safe(flipped_chain: list[Wire]) -> bool:
+        """Per-vertex pad_safe check for every wire in the flipped chain.
+        We call pad_safe(pad, current_side=new_side, new_side=new_side,
+        is_insulated=wire.insulated) — the caller's predicate decides
+        whether the pad accepts a wire of (side, insulated) here.
+        Returns False on the first rejection."""
+        if pad_safe is None:
+            return True
+        for w in flipped_chain:
+            for p in w.path:
+                if not pad_safe(p, w.side, w.side, w.insulated):
+                    return False
+        return True
+
+    def _measure_pair(chain_i: list[Wire], chain_j: list[Wire]) -> tuple[int, int]:
+        """Return (total_2d_crossings, total_2d_shared) between two chains
+        of WireSegments, summed over all (segment_i, segment_j) pairs."""
+        total_x = 0
+        total_s = 0
+        for wi in chain_i:
+            for wj in chain_j:
+                total_x += _count_pair_2d_crossings(wi, wj)
+                total_s += _count_pair_2d_shared_interior(wi, wj)
+        return total_x, total_s
+
+    n_flips_committed = 0
+    n_flips_rejected = 0
+    max_iter = 2 * n * n + 4
+    for _it in range(max_iter):
+        progressed = False
+        for i in range(n):
+            for j in range(i + 1, n):
+                cross_before, shared_before = _measure_pair(logical[i], logical[j])
+                if cross_before == 0 and shared_before == 0:
+                    continue  # nothing to fix for this pair
+
+                def _accepts(cross_after: int, shared_after: int) -> bool:
+                    if cross_after > cross_before or shared_after > shared_before:
+                        return False
+                    return (
+                        cross_after < cross_before or shared_after < shared_before
+                    )
+
+                committed: Literal["i", "j", None] = None
+                # Try flipping wire i first.
+                cand_i = _flip_chain(logical[i])
+                if _validate_pad_safe(cand_i):
+                    cx, cs = _measure_pair(cand_i, logical[j])
+                    if _accepts(cx, cs):
+                        proposed = list(logical)
+                        proposed[i] = cand_i
+                        if short_check is None or short_check(proposed):
+                            logical[i] = cand_i
+                            committed = "i"
+
+                if committed is None:
+                    cand_j = _flip_chain(logical[j])
+                    if _validate_pad_safe(cand_j):
+                        cx, cs = _measure_pair(logical[i], cand_j)
+                        if _accepts(cx, cs):
+                            proposed = list(logical)
+                            proposed[j] = cand_j
+                            if short_check is None or short_check(proposed):
+                                logical[j] = cand_j
+                                committed = "j"
+
+                if committed is None:
+                    n_flips_rejected += 1
+                    _log.info(
+                        "unweave.side_flip.rejected",
+                        pair=(i, j),
+                        cross_before=cross_before,
+                        shared_before=shared_before,
+                        reason="no_improvement_or_short_check_failed",
+                    )
+                else:
+                    n_flips_committed += 1
+                    _log.info(
+                        "unweave.side_flip.committed",
+                        pair=(i, j),
+                        chose=committed,
+                        cross_before=cross_before,
+                        shared_before=shared_before,
+                    )
+                    progressed = True
+                    break
+            if progressed:
+                break
+        if not progressed:
+            break
+    _log.info(
+        "unweave.side_flip.summary",
+        n_flips_committed=n_flips_committed,
+        n_flips_rejected=n_flips_rejected,
+    )
+
+
 def _find_shared_pad_crossings_logical(
     lp1: list[_LogicalPoint], lp2: list[_LogicalPoint],
 ) -> list[tuple[int, int]]:
@@ -1308,6 +1533,331 @@ def _find_shared_pad_crossings_logical(
             continue
         out.append((i, j))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Overlap-run separation pass (runs BEFORE the main swap loop)
+# ---------------------------------------------------------------------------
+#
+# When two logical wires share a contiguous run of K≥2 interior pads — the
+# common output of greedy A* sending two nets along the same corridor — the
+# main swap loop misses them entirely: parallel directions at a shared pad
+# don't interleave, so `_find_shared_pad_crossings` returns nothing.  The
+# post-swap 1-step cleanup also fails because reroute candidates for the
+# first shared pad collide with the *next* shared pad (still on the wire),
+# so the wire stays glued to the overlap.
+#
+# This pass detects every overlap run and tries to shift one wire's interior
+# slice off the overlap onto a parallel free corridor (row or column 1 step
+# away).  Acceptance is conservative: shared count must strictly decrease
+# AND total crossings must not grow AND short_check must still pass.
+
+
+def _find_overlap_runs(
+    lp1: list[_LogicalPoint], lp2: list[_LogicalPoint],
+) -> list[tuple[int, int, int, int, int]]:
+    """Maximal contiguous runs of shared interior pads between two logical
+    paths, restricted to the **same side**.
+
+    Returns a list of ``(i_start, i_end, j_start, j_end, direction)`` where:
+      * ``lp1[i_start..i_end]`` equals ``lp2[j_start..j_end]`` pointwise
+        when ``direction == +1`` (same traversal direction), or equals it
+        reversed when ``direction == -1``.
+      * All indices are STRICT interior: ``1 <= i_start <= i_end <= len-2``
+        and likewise for j.
+      * Minimum run length 2 (single shared pads are handled by the
+        post-swap ``_cleanup_shared_pads_pass``).
+      * Both vertices on a matched pair must agree on ``side`` — cross-side
+        "overlap" is purely visual (the two wires live on different layers
+        and do not physically share copper), so the shift pass has nothing
+        to fix.  Filtering here avoids a futile shift attempt that always
+        rejects later anyway.
+
+    Runs are returned sorted by ``i_start`` and are non-overlapping (a
+    vertex is part of at most one run).
+    """
+    if len(lp1) < 4 or len(lp2) < 4:
+        return []
+
+    def _key(p: Point) -> tuple[float, float]:
+        return (round(p.x, 6), round(p.y, 6))
+
+    # Map every interior pad on lp2 to its index(es).  A vertex appearing
+    # multiple times yields multiple candidates — try each.
+    interior_p2: dict[tuple[float, float], list[int]] = {}
+    for j in range(1, len(lp2) - 1):
+        interior_p2.setdefault(_key(lp2[j].point), []).append(j)
+
+    runs: list[tuple[int, int, int, int, int]] = []
+    i = 1
+    last_i_end = 0  # ensure runs don't overlap on lp1
+    while i < len(lp1) - 1:
+        if i <= last_i_end:
+            i += 1
+            continue
+        candidates = interior_p2.get(_key(lp1[i].point), [])
+        # Side filter: only pads where both wires are on the same side.
+        candidates = [j for j in candidates if lp2[j].side == lp1[i].side]
+        best: tuple[int, int, int, int, int] | None = None
+        best_len = 0
+        for j0 in candidates:
+            for direction in (+1, -1):
+                # Extend forward on lp1 as long as the matching lp2 index
+                # stays interior, the pads coincide, AND both wires remain
+                # on the same side at the matched pair.
+                length = 1
+                while True:
+                    ni = i + length
+                    nj = j0 + direction * length
+                    if ni >= len(lp1) - 1 or nj < 1 or nj > len(lp2) - 2:
+                        break
+                    if _key(lp1[ni].point) != _key(lp2[nj].point):
+                        break
+                    if lp1[ni].side != lp2[nj].side:
+                        break
+                    length += 1
+                if length >= 2 and length > best_len:
+                    j_start = j0 if direction == +1 else j0 - (length - 1)
+                    j_end = j0 + (length - 1) if direction == +1 else j0
+                    best = (i, i + length - 1, j_start, j_end, direction)
+                    best_len = length
+        if best is not None:
+            runs.append(best)
+            last_i_end = best[1]
+            i = best[1] + 1
+        else:
+            i += 1
+    return runs
+
+
+def _try_shift_overlap_run(
+    lp_self: list[_LogicalPoint],
+    lp_other: list[_LogicalPoint],
+    i_start: int, i_end: int,
+    *,
+    board_pads: set[Point] | None,
+    forbidden_pads: set[Point] | None,
+    foreign_wire_pads: set[tuple[Point, str]] | None,
+    pad_safe: "Callable[[Point, str, str, bool], bool] | None",
+) -> list[_LogicalPoint] | None:
+    """Try to replace ``lp_self[i_start..i_end]`` with a parallel-shifted
+    sequence of pads that frees the overlap.
+
+    Strategy: for every shift offset ``(dx, dy)`` in ``_NEIGHBOUR_OFFSETS``
+    build the candidate sequence ``[shift(p) for p in lp_self[i_start..i_end]]``
+    and accept the first one that passes every constraint:
+
+      * ``prev → cand[0]`` is a unit Chebyshev step.
+      * Every consecutive ``(cand[k-1], cand[k])`` is a unit step.
+      * ``cand[-1] → next`` is a unit step.
+      * Every cand pad lies on ``board_pads`` (when given).
+      * No cand pad sits on ``forbidden_pads`` (alien pin positions).
+      * No cand pad coincides with any vertex of ``lp_other``.
+      * The (side, insulated) of every shifted vertex matches the segment
+        the wire was running on through the overlap — we never change
+        layer.  Layer changes inside the run abort the shift.
+      * ``pad_safe`` (when given) accepts each cand pad.
+
+    Returns the new logical path with shifted slice; ``None`` if no offset
+    qualifies.
+    """
+    if i_start <= 0 or i_end >= len(lp_self) - 1 or i_end < i_start:
+        return None
+
+    # Layer must be uniform across the run (same side+insulated on every
+    # segment leaving the run's interior).  A layer change inside the run
+    # would shift the via too, which is out of scope for this local pass.
+    side = lp_self[i_start - 1].side
+    ins = lp_self[i_start - 1].insulated
+    for k in range(i_start - 1, i_end + 1):
+        if lp_self[k].side != side or lp_self[k].insulated != ins:
+            return None
+
+    prev_pt = lp_self[i_start - 1].point
+    next_pt = lp_self[i_end + 1].point
+    orig_pts = [lp_self[k].point for k in range(i_start, i_end + 1)]
+
+    other_pts: set[tuple[float, float]] = {
+        (round(lp.point.x, 6), round(lp.point.y, 6)) for lp in lp_other
+    }
+
+    for dx, dy in _NEIGHBOUR_OFFSETS:
+        cand_pts = [Point(p.x + dx, p.y + dy) for p in orig_pts]
+
+        # Geometric validity of the chained steps.
+        if not _is_unit_step(prev_pt, cand_pts[0]):
+            continue
+        if not _is_unit_step(cand_pts[-1], next_pt):
+            continue
+        chain_ok = True
+        for k in range(1, len(cand_pts)):
+            if not _is_unit_step(cand_pts[k - 1], cand_pts[k]):
+                chain_ok = False
+                break
+        if not chain_ok:
+            continue
+
+        # Pad-set membership and reservations.
+        pad_ok = True
+        for cand in cand_pts:
+            if board_pads is not None and cand not in board_pads:
+                pad_ok = False
+                break
+            if forbidden_pads is not None and cand in forbidden_pads:
+                pad_ok = False
+                break
+            if foreign_wire_pads is not None and (cand, side) in foreign_wire_pads:
+                # Another wire on this side (not part of this unweave
+                # operation) already sits on this pad — shift would
+                # create a collision invisible to the lp_other check.
+                # Cross-side foreign wires do NOT block (different layer).
+                pad_ok = False
+                break
+            if (round(cand.x, 6), round(cand.y, 6)) in other_pts:
+                pad_ok = False
+                break
+            if _pt_equal(cand, prev_pt) or _pt_equal(cand, next_pt):
+                pad_ok = False
+                break
+            if pad_safe is not None and not pad_safe(cand, side, side, ins):
+                pad_ok = False
+                break
+        if not pad_ok:
+            continue
+
+        # Build the rerouted logical path.
+        new_lp = list(lp_self)
+        for k, cand in enumerate(cand_pts):
+            new_lp[i_start + k] = _LogicalPoint(cand, side, ins)
+        return new_lp
+    return None
+
+
+def _separate_overlap_runs_pass(
+    logical: list[list[Wire]],
+    *,
+    pad_safe: "Callable[[Point, str, str, bool], bool] | None",
+    short_check: "Callable[[list[list[Wire]]], bool] | None",
+    board_pads: set[Point] | None,
+    forbidden_pads: set[Point] | None,
+    foreign_wire_pads: set[tuple[Point, str]] | None = None,
+) -> None:
+    """First-phase pass: detect and separate overlap runs between every
+    logical-wire pair.
+
+    For each pair ``(i, j)`` find every overlap run and try to shift it on
+    ``lp_i``; if that fails, try on ``lp_j``.  Accept when:
+
+      * shared vertex count strictly decreases AND
+      * total crossing count does not grow AND
+      * ``short_check`` (when given) accepts the proposed full layout.
+
+    Successful shifts are committed in-place to ``logical``.  Re-derives
+    lpaths after every commit because the next run on the same pair may
+    have shifted.  No livelock guard needed — every commit strictly
+    reduces shared vertex count, so the total work is bounded by the
+    initial sum of overlap-run lengths.
+    """
+    n = len(logical)
+    n_pairs_with_overlap = 0
+    n_shifts_committed = 0
+    n_shifts_rejected = 0
+    for i in range(n):
+        for j in range(i + 1, n):
+            progressed_pair = True
+            while progressed_pair:
+                progressed_pair = False
+                lp_i = _to_logical_path(logical[i])
+                lp_j = _to_logical_path(logical[j])
+                runs = _find_overlap_runs(lp_i, lp_j)
+                if not runs:
+                    break
+                n_pairs_with_overlap += 1
+                # Pick the longest run first — biggest crossing-count win
+                # if any.
+                runs.sort(key=lambda r: -(r[1] - r[0] + 1))
+                for (i_start, i_end, j_start, j_end, _direction) in runs:
+                    shared_before = _count_pair_shared_vertices(lp_i, lp_j)
+                    crossings_before = _count_pair_crossings(lp_i, lp_j)
+
+                    def _accepts(
+                        cand_i: list[_LogicalPoint],
+                        cand_j: list[_LogicalPoint],
+                    ) -> bool:
+                        return (
+                            _count_pair_shared_vertices(cand_i, cand_j) < shared_before
+                            and _count_pair_crossings(cand_i, cand_j) <= crossings_before
+                        )
+
+                    # Try shifting wire i's slice first.
+                    new_lp_i = _try_shift_overlap_run(
+                        lp_i, lp_j, i_start, i_end,
+                        board_pads=board_pads,
+                        forbidden_pads=forbidden_pads,
+                        foreign_wire_pads=foreign_wire_pads,
+                        pad_safe=pad_safe,
+                    )
+                    cand_lp_i, cand_lp_j = lp_i, lp_j
+                    chose: Literal["i", "j", None] = None
+                    if new_lp_i is not None and _accepts(new_lp_i, lp_j):
+                        cand_lp_i = new_lp_i
+                        chose = "i"
+                    else:
+                        new_lp_j = _try_shift_overlap_run(
+                            lp_j, lp_i, j_start, j_end,
+                            board_pads=board_pads,
+                            forbidden_pads=forbidden_pads,
+                            foreign_wire_pads=foreign_wire_pads,
+                            pad_safe=pad_safe,
+                        )
+                        if new_lp_j is not None and _accepts(lp_i, new_lp_j):
+                            cand_lp_j = new_lp_j
+                            chose = "j"
+                    if chose is None:
+                        n_shifts_rejected += 1
+                        _log.info(
+                            "unweave.overlap.shift_rejected",
+                            pair=(i, j),
+                            run_len=i_end - i_start + 1,
+                            reason="no_free_corridor_or_acceptance_failed",
+                        )
+                        continue
+
+                    new_segs_i = _from_logical_path(
+                        cand_lp_i, seed_ids=[s.id for s in logical[i]],
+                    )
+                    new_segs_j = _from_logical_path(
+                        cand_lp_j, seed_ids=[s.id for s in logical[j]],
+                    )
+                    if short_check is not None:
+                        proposed = list(logical)
+                        proposed[i] = new_segs_i
+                        proposed[j] = new_segs_j
+                        if not short_check(proposed):
+                            n_shifts_rejected += 1
+                            _log.info(
+                                "unweave.overlap.shift_rejected",
+                                pair=(i, j),
+                                run_len=i_end - i_start + 1,
+                                reason="short_check",
+                            )
+                            continue
+                    logical[i] = new_segs_i
+                    logical[j] = new_segs_j
+                    n_shifts_committed += 1
+                    _log.info(
+                        "unweave.overlap.shift_done",
+                        pair=(i, j), chose=chose,
+                        run_len=i_end - i_start + 1,
+                    )
+                    progressed_pair = True
+                    break  # re-derive lpaths and look for next overlap
+    _log.info(
+        "unweave.overlap.summary",
+        n_pairs_with_overlap=n_pairs_with_overlap,
+        n_shifts_committed=n_shifts_committed,
+        n_shifts_rejected=n_shifts_rejected,
+    )
 
 
 def _attempt_pair_swap(

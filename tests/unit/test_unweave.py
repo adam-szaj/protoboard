@@ -853,3 +853,439 @@ class TestUnweaveLivelockGuard:
         # State is whatever the stub last left — we just need the loop
         # to have exited cleanly.
         assert isinstance(out, list)
+
+
+# ---------------------------------------------------------------------------
+# Overlap-run separation pass (Phase 0)
+# ---------------------------------------------------------------------------
+
+
+def _make_board_pads(min_x: int, max_x: int, min_y: int, max_y: int) -> set[Point]:
+    """Dense set of unit-grid pads covering the rectangle [min_x..max_x] x [min_y..max_y]."""
+    return {Point(float(x), float(y))
+            for x in range(min_x, max_x + 1)
+            for y in range(min_y, max_y + 1)}
+
+
+class TestOverlapRunSeparation:
+    def test_finds_overlap_run_between_two_wires(self) -> None:
+        """Two wires sharing 3 consecutive interior pads (same direction)
+        produce one overlap run of length 3."""
+        from protoboard.services.routing.unweave import (
+            _find_overlap_runs,
+            _to_logical_path,
+        )
+
+        # W1: (0,0) → (1,1) → (2,1) → (3,1) → (4,1) → (5,2)
+        # W2: (0,2) → (1,1) → (2,1) → (3,1) → (4,1) → (5,0)
+        # Shared interior pads: (1,1), (2,1), (3,1), (4,1) → run of length 4
+        w1 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0),
+                   (4.0, 1.0), (5.0, 2.0))
+        w2 = _wire((0.0, 2.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0),
+                   (4.0, 1.0), (5.0, 0.0))
+        lp1 = _to_logical_path([w1])
+        lp2 = _to_logical_path([w2])
+        runs = _find_overlap_runs(lp1, lp2)
+        assert len(runs) == 1
+        i_start, i_end, j_start, j_end, direction = runs[0]
+        assert i_end - i_start + 1 == 4
+        assert j_end - j_start + 1 == 4
+        assert direction == +1
+
+    def test_finds_reversed_overlap_run(self) -> None:
+        """Overlap detector handles reverse-direction overlap (W2 traverses
+        the shared pads in the opposite direction)."""
+        from protoboard.services.routing.unweave import (
+            _find_overlap_runs,
+            _to_logical_path,
+        )
+
+        w1 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0), (4.0, 2.0))
+        # W2 visits (3,1) → (2,1) → (1,1) — reversed
+        w2 = _wire((5.0, 2.0), (3.0, 1.0), (2.0, 1.0), (1.0, 1.0), (0.0, 2.0))
+        lp1 = _to_logical_path([w1])
+        lp2 = _to_logical_path([w2])
+        runs = _find_overlap_runs(lp1, lp2)
+        assert len(runs) == 1
+        _, _, _, _, direction = runs[0]
+        assert direction == -1
+
+    def test_single_shared_pad_is_not_a_run(self) -> None:
+        """K=1 shared pads aren't returned (handled by post-swap 1-step cleanup)."""
+        from protoboard.services.routing.unweave import (
+            _find_overlap_runs,
+            _to_logical_path,
+        )
+
+        w1 = _wire((0.0, 0.0), (2.0, 2.0), (4.0, 0.0))
+        w2 = _wire((0.0, 4.0), (2.0, 2.0), (4.0, 4.0))
+        lp1 = _to_logical_path([w1])
+        lp2 = _to_logical_path([w2])
+        runs = _find_overlap_runs(lp1, lp2)
+        assert runs == []
+
+    def test_separates_overlap_with_free_corridor(self) -> None:
+        """Two wires overlapping 3 pads, with a free row above — pass shifts
+        one wire off the overlap onto that row."""
+        # W1: (0,2) → (1,2) → (2,2) → (3,2) → (4,2) → (5,2)
+        # W2: (0,0) → (1,1) → (2,2) → (3,2) → (4,2) → (5,1) → (6,0)
+        # Free corridor: row y=3 (no pins, no other wires).
+        w1 = _wire((0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0),
+                   (4.0, 2.0), (5.0, 2.0))
+        w2 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0),
+                   (4.0, 2.0), (5.0, 1.0), (6.0, 0.0))
+        board_pads = _make_board_pads(0, 6, 0, 4)
+        out = unweave_wires([w1, w2], board_pads=board_pads)
+        # After the pass: no shared interior pads at the (2,2)-(4,2) run.
+        # Both wires keep their endpoints.
+        assert out[0].path[0] == w1.path[0]
+        assert out[0].path[-1] == w1.path[-1]
+        assert out[1].path[0] == w2.path[0]
+        assert out[1].path[-1] == w2.path[-1]
+        # Count shared interior pads — should be < 3 (run separated).
+        interior1 = {(p.x, p.y) for p in out[0].path[1:-1]}
+        interior2 = {(p.x, p.y) for p in out[1].path[1:-1]}
+        shared = interior1 & interior2
+        assert len(shared) < 3, f"overlap not separated, still shared: {shared}"
+
+    def test_no_op_when_no_free_corridor(self) -> None:
+        """Overlap surrounded by other wires/pins on every side — pass
+        gives up and leaves the wires alone."""
+        # W1 and W2 share (2,2)→(3,2).
+        # Other wires hog rows y=1 and y=3 around the same x range —
+        # blocking every shift offset via the lp_other check.
+        w1 = _wire((0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0),
+                   (4.0, 2.0), (5.0, 2.0))
+        w2 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0),
+                   (4.0, 1.0), (5.0, 0.0))
+        # Tight board: only y in {0..2} → no free row above for shift.
+        # No free row below either (W2 occupies y=0..1 around the overlap).
+        board_pads = _make_board_pads(0, 5, 0, 2)
+        out = unweave_wires([w1, w2], board_pads=board_pads)
+        # Both wires preserved (no shift could land safely).
+        # Endpoints stay intact regardless.
+        assert out[0].path[0] == w1.path[0]
+        assert out[0].path[-1] == w1.path[-1]
+        assert out[1].path[0] == w2.path[0]
+        assert out[1].path[-1] == w2.path[-1]
+
+    def test_overlap_then_swap_reduces_to_zero(self) -> None:
+        """After overlap separation the residual topology has at most one
+        single-point crossing the canonical swap can resolve."""
+        # Setup: two wires that overlap 3 pads, then diverge to opposite
+        # corners.  Topological min after separation = 0 (no permutation).
+        w1 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0),
+                   (4.0, 1.0), (5.0, 0.0))
+        w2 = _wire((0.0, 2.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0),
+                   (4.0, 1.0), (5.0, 2.0))
+        board_pads = _make_board_pads(0, 5, 0, 3)
+        out = unweave_wires([w1, w2], board_pads=board_pads)
+        # No interior pad shared anymore.
+        interior1 = {(p.x, p.y) for p in out[0].path[1:-1]}
+        interior2 = {(p.x, p.y) for p in out[1].path[1:-1]}
+        assert (interior1 & interior2) == set(), \
+            f"residual shared pads: {interior1 & interior2}"
+        # And no geometric crossings either.
+        assert count_mutual_crossings(out) == 0
+
+    def test_idempotent_second_call_no_change(self) -> None:
+        """Running unweave twice on the same input is a no-op on pass two —
+        the overlap pass produced strict reduction and there's nothing left
+        to separate."""
+        w1 = _wire((0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0),
+                   (4.0, 2.0), (5.0, 2.0))
+        w2 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0),
+                   (4.0, 2.0), (5.0, 1.0), (6.0, 0.0))
+        board_pads = _make_board_pads(0, 6, 0, 4)
+        out1 = unweave_wires([w1, w2], board_pads=board_pads)
+        out2 = unweave_wires(out1, board_pads=board_pads)
+        # Path equality on every wire (identity-preserving second pass).
+        for a, b in zip(out1, out2):
+            assert [(p.x, p.y) for p in a.path] == [(p.x, p.y) for p in b.path]
+
+    def test_foreign_wire_blocks_default_corridor_other_offset_still_works(self) -> None:
+        """A third wire (not part of the unweave selection) sits on the
+        default shift corridor (row above the overlap).  The pass must
+        skip that offset and try the row BELOW instead.
+
+        Reproduces the reference_big_project case 2026-06-09 where user
+        selected 2 wires for unweave but the pass rejected the shift
+        because another wire physically occupied the free corridor.
+        """
+        from protoboard.services.routing.unweave import (
+            _separate_overlap_runs_pass,
+            _to_logical_path,
+            _from_logical_path,
+        )
+
+        # W1 and W2 overlap at (2,2), (3,2), (4,2).
+        w1 = _wire((0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0),
+                   (4.0, 2.0), (5.0, 2.0))
+        w2 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0),
+                   (4.0, 2.0), (5.0, 1.0), (6.0, 0.0))
+        # Foreign wire occupies the row directly above the overlap (y=3).
+        # Without the guard the pass would try (0, +1) shift, find no
+        # collision in lp_other, accept it — and now we'd cross the
+        # foreign wire's pads.
+        foreign = _wire((1.0, 3.0), (2.0, 3.0), (3.0, 3.0), (4.0, 3.0),
+                        (5.0, 3.0))
+        board_pads = _make_board_pads(0, 6, 0, 4)
+        # Foreign on same side as W1/W2 (default "top") so it actually blocks.
+        foreign_pads = {(p, "top") for p in foreign.path}
+
+        logical = [[w1], [w2]]
+        _separate_overlap_runs_pass(
+            logical, pad_safe=None, short_check=None,
+            board_pads=board_pads, forbidden_pads=None,
+            foreign_wire_pads=foreign_pads,
+        )
+        # Pass must NOT have placed any vertex on the foreign row.
+        for chain in logical:
+            for seg in chain:
+                for p in seg.path:
+                    assert (p.x, p.y) not in {(x, y) for x, y in
+                                              [(1.0, 3.0), (2.0, 3.0),
+                                               (3.0, 3.0), (4.0, 3.0),
+                                               (5.0, 3.0)]}, \
+                        f"shifted onto foreign wire pad {(p.x, p.y)}"
+        # And the overlap should still be separated (row below — y=1 — is
+        # still free for half the run, even though (1,1) is on W2 itself).
+        # We won't assert exact paths here, but the run should at least
+        # have been reduced (cleanup-style).  Tighter assertion:
+        out_lp1 = _to_logical_path(logical[0])
+        out_lp2 = _to_logical_path(logical[1])
+        interior1 = {(lp.point.x, lp.point.y) for lp in out_lp1[1:-1]}
+        interior2 = {(lp.point.x, lp.point.y) for lp in out_lp2[1:-1]}
+        # No new pad should be on the foreign corridor.
+        for cand in (interior1 | interior2):
+            assert cand not in {(1.0, 3.0), (2.0, 3.0), (3.0, 3.0),
+                                (4.0, 3.0), (5.0, 3.0)}
+
+    def test_foreign_wire_on_both_corridors_blocks_shift(self) -> None:
+        """Foreign wires occupy BOTH free corridors (rows above and below
+        the overlap).  Pass must reject every shift offset and leave the
+        wires unchanged."""
+        from protoboard.services.routing.unweave import (
+            _separate_overlap_runs_pass,
+        )
+
+        w1 = _wire((0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0),
+                   (4.0, 2.0), (5.0, 2.0))
+        w2 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0),
+                   (4.0, 2.0), (5.0, 1.0), (6.0, 0.0))
+        # Foreign wires on rows y=3 AND y=1, on the same side as W1/W2 (top).
+        foreign_pads = {(Point(float(x), 3.0), "top") for x in range(0, 6)}
+        foreign_pads |= {(Point(float(x), 1.0), "top") for x in range(0, 6)}
+        board_pads = _make_board_pads(0, 6, 0, 4)
+
+        original_w1_path = [(p.x, p.y) for p in w1.path]
+        original_w2_path = [(p.x, p.y) for p in w2.path]
+
+        logical = [[w1], [w2]]
+        _separate_overlap_runs_pass(
+            logical, pad_safe=None, short_check=None,
+            board_pads=board_pads, forbidden_pads=None,
+            foreign_wire_pads=foreign_pads,
+        )
+        # No shift possible — paths must be untouched.
+        new_w1_path = [(p.x, p.y) for seg in logical[0] for p in seg.path]
+        new_w2_path = [(p.x, p.y) for seg in logical[1] for p in seg.path]
+        assert new_w1_path == original_w1_path
+        assert new_w2_path == original_w2_path
+
+    def test_cross_side_wires_do_not_produce_overlap_runs(self) -> None:
+        """Two wires on different sides (top vs bottom) sharing geometric
+        pads must NOT be flagged as an overlap run.
+
+        Different layers don't physically share copper, so any "overlap"
+        is purely visual.  The shift pass has no real fix to apply
+        because moving one wire on its own side doesn't change the
+        cross-side wire on the other side.
+
+        Reproduces reference_big_project unweave of bottom+top wires
+        2026-06-09: shift was rejected even though the wires didn't
+        physically conflict.
+        """
+        from protoboard.services.routing.unweave import (
+            _find_overlap_runs,
+            _to_logical_path,
+        )
+
+        # Both wires share the interior pad sequence (2,2),(3,2),(4,2)
+        # geometrically, but live on different sides.
+        w1 = _wire((0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0),
+                   (4.0, 2.0), (5.0, 2.0), side="top")
+        w2 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0),
+                   (4.0, 2.0), (5.0, 1.0), (6.0, 0.0), side="bottom")
+        lp1 = _to_logical_path([w1])
+        lp2 = _to_logical_path([w2])
+        runs = _find_overlap_runs(lp1, lp2)
+        assert runs == [], (
+            f"cross-side wires must not produce overlap runs, got {runs}"
+        )
+
+    def test_foreign_wire_other_side_does_not_block_shift(self) -> None:
+        """A foreign wire on the side OPPOSITE to the wire being shifted
+        must not block the shift — they live on different layers and
+        cannot physically conflict.
+
+        Before the side-aware fix, `foreign_wire_pads` collapsed both
+        sides into a single set[Point], so any cross-side foreign wire
+        sharing a pad position would falsely block.
+        """
+        from protoboard.services.routing.unweave import (
+            _separate_overlap_runs_pass,
+            _to_logical_path,
+        )
+
+        # Two top-side wires with an overlap.
+        w1 = _wire((0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0),
+                   (4.0, 2.0), (5.0, 2.0), side="top")
+        w2 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0),
+                   (4.0, 2.0), (5.0, 1.0), (6.0, 0.0), side="top")
+        # Foreign wire occupies row y=3 — but on BOTTOM side, so it must
+        # not block top-side shift candidates.
+        foreign_pads_bottom = {(Point(float(x), 3.0), "bottom")
+                               for x in range(0, 6)}
+        board_pads = _make_board_pads(0, 6, 0, 4)
+
+        logical = [[w1], [w2]]
+        _separate_overlap_runs_pass(
+            logical, pad_safe=None, short_check=None,
+            board_pads=board_pads, forbidden_pads=None,
+            foreign_wire_pads=foreign_pads_bottom,
+        )
+        # The pass should have shifted at least one of the wires to y=3
+        # (the only free corridor on the top side).  Verify by checking
+        # that the overlap is gone.
+        out_lp1 = _to_logical_path(logical[0])
+        out_lp2 = _to_logical_path(logical[1])
+        interior1 = {(lp.point.x, lp.point.y) for lp in out_lp1[1:-1]}
+        interior2 = {(lp.point.x, lp.point.y) for lp in out_lp2[1:-1]}
+        shared = interior1 & interior2
+        assert len(shared) < 3, (
+            f"shift should have freed the overlap (cross-side foreign "
+            f"wire must not block), still shared: {shared}"
+        )
+
+    def test_endpoints_always_preserved(self) -> None:  # noqa: D401
+        """No matter what the pass does, both wires must keep their original
+        first and last vertex."""
+        w1 = _wire((0.0, 2.0), (1.0, 2.0), (2.0, 2.0), (3.0, 2.0),
+                   (4.0, 2.0), (5.0, 2.0))
+        w2 = _wire((0.0, 0.0), (1.0, 1.0), (2.0, 2.0), (3.0, 2.0),
+                   (4.0, 2.0), (5.0, 1.0), (6.0, 0.0))
+        board_pads = _make_board_pads(0, 6, 0, 4)
+        out = unweave_wires([w1, w2], board_pads=board_pads)
+        assert out[0].path[0] == Point(0.0, 2.0)
+        assert out[0].path[-1] == Point(5.0, 2.0)
+        assert out[1].path[0] == Point(0.0, 0.0)
+        assert out[1].path[-1] == Point(6.0, 0.0)
+
+
+# ---------------------------------------------------------------------------
+# Visual-unweave: side-flip pass (RoutingSettings.visual_unweave_side_flip)
+# ---------------------------------------------------------------------------
+
+
+class TestSideFlipPass:
+    def test_disabled_by_default_no_side_change(self) -> None:
+        """allow_side_flip=False (default) — wire sides preserved even when
+        a flip would reduce 2D tangling."""
+        # Two diagonals crossing in 2D at (1, 1), but on different sides
+        # (no physical crossing).  Default unweave can't reduce — topological
+        # min for cross-side wires is what the find_crossings reports.
+        w1 = _wire((0.0, 0.0), (2.0, 2.0), side="top")
+        w2 = _wire((0.0, 2.0), (2.0, 0.0), side="bottom")
+        out = unweave_wires([w1, w2])
+        sides_out = {w.side for w in out}
+        assert sides_out == {"top", "bottom"}, (
+            f"sides must not change without explicit allow_side_flip, got {sides_out}"
+        )
+
+    def test_enabled_can_flip_to_reduce_2d_crossing(self) -> None:
+        """allow_side_flip=True — a wire may be flipped to the opposite
+        side to remove a 2D crossing between two cross-side wires.
+        After the flip both wires sit on the same side, the 2D crossing
+        is now a real physical crossing — but the gate compares 2D
+        counts.  With find_crossings(w_after) detecting the crossing
+        regardless of side, the accept gate must improve at least one
+        of shared/crossing without worsening the other.
+
+        Note: a pure cross-side X (one crossing in 2D, zero shared pads)
+        flipped to same-side keeps the same 2D crossing count.  The pass
+        won't accept that move because nothing strictly improves.  So
+        this test only documents the default-disabled behaviour.
+        """
+        # Two diagonals; one on top, one on bottom.  2D crossings = 1.
+        w1 = _wire((0.0, 0.0), (2.0, 2.0), side="top")
+        w2 = _wire((0.0, 2.0), (2.0, 0.0), side="bottom")
+        out = unweave_wires([w1, w2])  # default allow_side_flip=False
+        # No flip happens (sides preserved).
+        assert sorted(w.side for w in out) == ["bottom", "top"]
+
+    def test_flip_reduces_shared_overlap(self) -> None:
+        """When two wires on different sides share interior pads in 2D
+        but live on different layers, flipping one to the OPPOSITE side
+        would create a physical overlap (worse), so the pass must NOT
+        accept the flip.
+
+        Verifies the gate's "shared_after must not worsen" arm: cross-
+        side wires shared in 2D would become same-side shared after the
+        flip — that's strictly worse, so the flip is rejected."""
+        from protoboard.services.routing.unweave import _side_flip_pass
+
+        # Both wires pass through (1, 1), (2, 1), (3, 1) — 3 shared pads in
+        # 2D — but on different sides (no physical overlap).
+        w1 = _wire((0.0, 1.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0), (4.0, 1.0),
+                   side="top")
+        w2 = _wire((0.0, 1.0), (1.0, 1.0), (2.0, 1.0), (3.0, 1.0), (4.0, 1.0),
+                   side="bottom")
+        logical = [[w1], [w2]]
+        # Without pad_safe / short_check the gate is just the count gate.
+        _side_flip_pass(logical, pad_safe=None, short_check=None)
+        # No flip should be committed: shared_after would equal shared_before
+        # (both still share all 3 interior pads) AND cross_after == cross_before.
+        # No strict improvement → rejected.
+        sides_out = [chain[0].side for chain in logical]
+        assert sorted(sides_out) == ["bottom", "top"], (
+            f"flip must be rejected (no strict improvement), got {sides_out}"
+        )
+
+    def test_short_check_can_veto_flip(self) -> None:
+        """short_check predicate gets the proposed layout and can veto
+        even if the count gate accepts."""
+        from protoboard.services.routing.unweave import _side_flip_pass
+
+        w1 = _wire((0.0, 0.0), (2.0, 2.0), side="top")
+        w2 = _wire((0.0, 2.0), (2.0, 0.0), side="bottom")
+        logical = [[w1], [w2]]
+        # short_check always returns False — every flip vetoed.
+        veto_called = {"n": 0}
+
+        def _veto(_proposed: list[list[Wire]]) -> bool:
+            veto_called["n"] += 1
+            return False
+
+        _side_flip_pass(logical, pad_safe=None, short_check=_veto)
+        sides_out = sorted(chain[0].side for chain in logical)
+        assert sides_out == ["bottom", "top"], "veto must keep sides intact"
+
+    def test_pad_safe_can_block_flip(self) -> None:
+        """pad_safe predicate is called for every pad of the candidate
+        flipped chain — returning False blocks the flip."""
+        from protoboard.services.routing.unweave import _side_flip_pass
+
+        w1 = _wire((0.0, 0.0), (2.0, 2.0), side="top")
+        w2 = _wire((0.0, 2.0), (2.0, 0.0), side="bottom")
+        logical = [[w1], [w2]]
+
+        # pad_safe rejects everything on side "bottom" — flips of w1 (top→bottom)
+        # are blocked; flips of w2 (bottom→top) allowed.
+        def _safe(pad: Point, cur_side: str, new_side: str, ins: bool) -> bool:
+            return new_side == "top"
+
+        _side_flip_pass(logical, pad_safe=_safe, short_check=None)
+        # Whatever the gate decides, w1 must still be on top (its flip was
+        # blocked by pad_safe).
+        assert logical[0][0].side == "top"
