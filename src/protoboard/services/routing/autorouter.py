@@ -409,6 +409,9 @@ def autoroute(
     report_path: "Path | None" = None,
     push_and_shove: bool = True,
     enable_simplify_pass: bool = True,
+    simplify_after_each_wire: bool = False,
+    simplify_all_after_autoroute: bool = True,
+    simplify_all_max_iterations: int = 50,
     simplify_mode: "SimplifyMode | None" = None,
     pad_index: "PadIndex | None" = None,
 ) -> AutorouteResult:
@@ -694,6 +697,8 @@ def autoroute(
         pass_num=0,
         n_nets=n_nets,
         push_and_shove=push_and_shove,
+        simplify_after_each_wire=simplify_after_each_wire,
+        simplify_mode=simplify_mode,
     )
     result.pass_stats.append(_greedy_ps)
 
@@ -714,6 +719,7 @@ def autoroute(
             wire_mode, max_detour_factor,
             plated_through_pads, under_component_penalty, failed_net_ids,
             components, instances, preferred_side,
+            simplify_after_each_wire, simplify_mode,
         )
         n_parallel = min(max_optimize_iterations, _CPU_COUNT)
         _log.info("autoroute.optimize.parallel", passes=max_optimize_iterations, workers=n_parallel)
@@ -799,6 +805,8 @@ def autoroute(
                     cancel_flag=cancel_flag,
                     pass_num=opt_iter + 1,
                     n_nets=n_nets,
+                    simplify_after_each_wire=simplify_after_each_wire,
+                    simplify_mode=simplify_mode,
                 )
                 result.pass_stats.append(_opt_ps)
                 new_fp = _wire_fingerprint(next_wires)
@@ -815,16 +823,28 @@ def autoroute(
 
         current_wires = best_wires
 
-    # Post-process: shorten wires via the SimplifyOptimizer.  Kept here
-    # for backward-compat with callers passing the legacy
-    # `enable_simplify_pass` kwarg; the optimizer is the same one the
-    # plugin-aware worker invokes via the registry.
-    if wire_mode == "bare_diagonal" and enable_simplify_pass and current_wires:
+    # Post-process: shorten wires via the SimplifyOptimizer.  Two modes:
+    # 1. Legacy bare-diagonal single pass (kept for backward compat).
+    # 2. Iterative simplify-all (default ON) — runs after EVERY autoroute
+    #    regardless of wire_mode.  Loops until one full pass produces no
+    #    change, bounded by ``simplify_all_max_iterations``.  Cleans up
+    #    "trapez bez podstawy" and other detours that survive the per-net
+    #    routing decisions because the router optimises greedily.
+    #
+    # Both branches use the same SimplifyOptimizer underneath; the
+    # iterative variant just calls it in a fixed-point loop.
+    _need_legacy_simplify = (
+        wire_mode == "bare_diagonal" and enable_simplify_pass and current_wires
+    )
+    _need_iterative_simplify = (
+        simplify_all_after_autoroute and current_wires
+    )
+    if _need_legacy_simplify or _need_iterative_simplify:
         from protoboard.services.routing.builtin_optimizers import SimplifyOptimizer
         from protoboard.services.routing.protocol import ProgressSink
         from protoboard.services.routing.snapshot import RouteRequest
 
-        # Build a snapshot of the current (post-routing) state.  The
+        # Build a snapshot of the current (post-routing) state once.  The
         # routing_settings field is unused by SimplifyOptimizer but the
         # snapshot constructor requires it, so reach for a minimal one.
         from protoboard.domain.routing_settings import RoutingSettings
@@ -836,14 +856,55 @@ def autoroute(
             instances=instances,
             routing_settings=RoutingSettings(),
         )
-        _intermediate = AutorouteResult(
-            wires=current_wires,
-            unrouted_nets=list(unrouted_names),
-            pass_stats=list(result.pass_stats),
-        )
         _opt = SimplifyOptimizer(mode=simplify_mode)
-        _optimized = _opt.optimize(_req, _intermediate, ProgressSink(cancel_flag=cancel_flag))
-        current_wires = _optimized.wires
+        _sink = ProgressSink(cancel_flag=cancel_flag)
+
+        def _path_fingerprint(ws: list[Wire]) -> tuple:
+            """Hashable snapshot of every wire's path + side + insulated."""
+            return tuple(
+                (w.id, w.side, w.insulated,
+                 tuple((round(p.x, 6), round(p.y, 6)) for p in w.path))
+                for w in ws
+            )
+
+        if _need_iterative_simplify:
+            # Fixed-point loop: keep simplifying until one full pass
+            # produces no change, or we hit the iteration cap.
+            n_iters = 0
+            for n_iters in range(1, simplify_all_max_iterations + 1):
+                if _sink.cancelled():
+                    break
+                before_fp = _path_fingerprint(current_wires)
+                _intermediate = AutorouteResult(
+                    wires=current_wires,
+                    unrouted_nets=list(unrouted_names),
+                    pass_stats=list(result.pass_stats),
+                )
+                _optimized = _opt.optimize(_req, _intermediate, _sink)
+                current_wires = _optimized.wires
+                after_fp = _path_fingerprint(current_wires)
+                if before_fp == after_fp:
+                    _log.info(
+                        "autoroute.simplify_all.converged",
+                        iterations=n_iters,
+                        n_wires=len(current_wires),
+                    )
+                    break
+            else:
+                _log.warning(
+                    "autoroute.simplify_all.iteration_cap_hit",
+                    iterations=simplify_all_max_iterations,
+                    n_wires=len(current_wires),
+                )
+        else:
+            # Legacy single pass (bare-diagonal only).
+            _intermediate = AutorouteResult(
+                wires=current_wires,
+                unrouted_nets=list(unrouted_names),
+                pass_stats=list(result.pass_stats),
+            )
+            _optimized = _opt.optimize(_req, _intermediate, _sink)
+            current_wires = _optimized.wires
 
     result.wires = current_wires
     result.unrouted_nets = unrouted_names
@@ -965,7 +1026,7 @@ def _shutdown_pool_fast(
     _log.info("autoroute.optimize.workers_terminated", count=len(workers))
 
 
-def _run_opt_pass_in_process(args: tuple) -> tuple[list[Wire], list[str]]:  # type: ignore[type-arg]
+def _run_opt_pass_in_process(args: tuple) -> tuple[list[Wire], list[str], PassStats]:  # type: ignore[type-arg]
     """Top-level wrapper for ProcessPoolExecutor — one optimization pass."""
     import os as _os2, threading as _th
     _log.info("autoroute.subprocess.start",
@@ -977,7 +1038,8 @@ def _run_opt_pass_in_process(args: tuple) -> tuple[list[Wire], list[str]]:  # ty
      user_wires, cost_model, max_rip_up_passes, side, insulated,
      wire_mode, max_detour_factor,
      plated_through_pads, under_component_penalty, failed_net_ids,
-     components, instances, preferred_side, seed_offset) = args
+     components, instances, preferred_side,
+     simplify_after_each_wire, simplify_mode, seed_offset) = args
 
     # Shuffle net order by seed_offset to explore different routing strategies.
     import random as _rnd
@@ -1005,6 +1067,8 @@ def _run_opt_pass_in_process(args: tuple) -> tuple[list[Wire], list[str]]:  # ty
         components=components,
         instances=instances,
         preferred_side=preferred_side,
+        simplify_after_each_wire=simplify_after_each_wire,
+        simplify_mode=simplify_mode,
     )
 
 
@@ -1052,6 +1116,8 @@ def _run_one_pass(
     pass_num: int = 0,
     n_nets: int = 0,
     push_and_shove: bool = True,
+    simplify_after_each_wire: bool = False,
+    simplify_mode: "SimplifyMode | None" = None,
 ) -> tuple[list[Wire], list[str], PassStats]:
     """Run one full greedy routing pass over *sorted_nets*.
 
@@ -1134,6 +1200,31 @@ def _run_one_pass(
             ))
         else:
             routed_wires, net_st = routed
+            # Optional per-wire simplify: shorten each freshly routed
+            # wire immediately so later nets in this pass see the
+            # tightened geometry.  Trades autoroute time for routability
+            # on dense boards where a stray L-shape would otherwise
+            # block a parallel neighbour's diagonal shortcut.
+            if simplify_after_each_wire and routed_wires:
+                from protoboard.services.routing.postprocess import (
+                    SimplifyMode,
+                    simplify_wires_generic,
+                )
+                eff_mode = simplify_mode or SimplifyMode.BARE_PARITY
+                pin_pt_set = {pos for (pos, _side) in pin_positions.values()}
+                simplified = simplify_wires_generic(
+                    list(routed_wires),
+                    pin_positions=pin_pt_set,
+                    mode=eff_mode,
+                )
+                if simplified != routed_wires:
+                    # Reflect the simplified geometry in working_wires so
+                    # subsequent net A* runs see the trimmed obstacles.
+                    by_id = {w.id: w for w in simplified}
+                    for i, w in enumerate(working_wires):
+                        if w.id in by_id:
+                            working_wires[i] = by_id[w.id]
+                    routed_wires = simplified
             new_wires.extend(routed_wires)
             # working_wires was already extended in-place by _route_net
             # (per successful segment, line ~1549).  Don't double-extend —

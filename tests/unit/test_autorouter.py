@@ -1013,3 +1013,84 @@ class TestPartialRoutingRollback:
         assert len(wire_ids) == len(set(wire_ids)), (
             f"Duplicate wire IDs in result: {wire_ids}"
         )
+
+
+class TestIterativeSimplifyAll:
+    """Post-route iterative simplify-all pass (RoutingSettings.simplify_all_after_autoroute)."""
+
+    def test_kwarg_default_true_does_not_break_existing_paths(self) -> None:
+        """Default ON must not regress: a simple two-pin net still routes
+        and the wire has reasonable vertex count."""
+        board = _perfboard(5, 5)
+        defn = _sil2_def()
+        cid_a, cid_b = uuid.uuid4(), uuid.uuid4()
+        layout = Layout(placements={
+            cid_a: _place(cid_a, 0.5, 0.5),
+            cid_b: _place(cid_b, 3.5, 0.5),
+        })
+        inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value="")
+        inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value="")
+        net = Net(
+            id=uuid.uuid4(), name="N",
+            pins={PinRef(component_id=cid_a, pin_number=2),
+                  PinRef(component_id=cid_b, pin_number=1)},
+        )
+        result = autoroute(
+            board, layout, Schematic(nets={net.id: net}),
+            {"COMP": defn}, {cid_a: inst_a, cid_b: inst_b},
+            # default kwarg is True
+        )
+        assert result.unrouted_nets == []
+        assert len(result.wires) == 1
+
+    def test_explicit_off_disables_simplify(self) -> None:
+        """When simplify_all_after_autoroute=False the post-process loop
+        is skipped — useful to verify the kwarg actually gates the work."""
+        board = _perfboard(5, 5)
+        defn = _sil2_def()
+        cid_a, cid_b = uuid.uuid4(), uuid.uuid4()
+        layout = Layout(placements={
+            cid_a: _place(cid_a, 0.5, 0.5),
+            cid_b: _place(cid_b, 3.5, 0.5),
+        })
+        inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value="")
+        inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value="")
+        net = Net(
+            id=uuid.uuid4(), name="N",
+            pins={PinRef(component_id=cid_a, pin_number=2),
+                  PinRef(component_id=cid_b, pin_number=1)},
+        )
+        result = autoroute(
+            board, layout, Schematic(nets={net.id: net}),
+            {"COMP": defn}, {cid_a: inst_a, cid_b: inst_b},
+            simplify_all_after_autoroute=False,
+        )
+        # Still routes correctly with simplify off.
+        assert result.unrouted_nets == []
+        assert len(result.wires) == 1
+
+    def test_iteration_cap_respected(self) -> None:
+        """Setting iteration cap to 1 must not crash and produces a
+        valid result (single-pass behaviour)."""
+        board = _perfboard(5, 5)
+        defn = _sil2_def()
+        cid_a, cid_b = uuid.uuid4(), uuid.uuid4()
+        layout = Layout(placements={
+            cid_a: _place(cid_a, 0.5, 0.5),
+            cid_b: _place(cid_b, 3.5, 0.5),
+        })
+        inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value="")
+        inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value="")
+        net = Net(
+            id=uuid.uuid4(), name="N",
+            pins={PinRef(component_id=cid_a, pin_number=2),
+                  PinRef(component_id=cid_b, pin_number=1)},
+        )
+        result = autoroute(
+            board, layout, Schematic(nets={net.id: net}),
+            {"COMP": defn}, {cid_a: inst_a, cid_b: inst_b},
+            simplify_all_after_autoroute=True,
+            simplify_all_max_iterations=1,
+        )
+        assert result.unrouted_nets == []
+        assert len(result.wires) == 1

@@ -150,6 +150,43 @@ class Layout:
         """
         self._interior_vertex_index = None
 
+    def _index_wire(self, wire: Wire) -> None:
+        """Append ``wire``'s interior vertices to the cache, if it exists.
+
+        Lets ``add_wire`` avoid throwing away an O(W) index just to
+        rebuild it on the next ``find_wire_with_interior_vertex_at`` call.
+        Critical for autoroute's MacroCommand-of-N-AddWire: without
+        incremental update the cost was O(N²) (every add invalidated,
+        every split-check rebuilt at the new size).
+        """
+        cache = self._interior_vertex_index
+        if cache is None:
+            return
+        for i in range(1, len(wire.path) - 1):
+            v = wire.path[i]
+            key = (round(v.x), round(v.y))
+            cache.setdefault(key, []).append((wire.id, i))
+
+    def _unindex_wire(self, wire_id: uuid.UUID) -> None:
+        """Strip ``wire_id``'s entries from the cache, if it exists.
+
+        Counterpart to :meth:`_index_wire` for ``remove_wire``.  Iterates
+        only over the cache buckets so it's O(unique cells touched), not
+        O(total cache size).
+        """
+        cache = self._interior_vertex_index
+        if cache is None:
+            return
+        empty_keys: list[tuple[int, int]] = []
+        for key, bucket in cache.items():
+            kept = [(wid, i) for (wid, i) in bucket if wid != wire_id]
+            if not kept:
+                empty_keys.append(key)
+            elif len(kept) != len(bucket):
+                cache[key] = kept
+        for key in empty_keys:
+            del cache[key]
+
     def interior_vertex_index(
         self,
     ) -> "dict[tuple[int, int], list[tuple[uuid.UUID, int]]]":
@@ -190,7 +227,7 @@ class Layout:
                 raise ValueError(f"Wire endpoint knot {ref.id} not in layout.knots")
             self.knots[ref.id] = _knot_with_wire(knot, wire.id, add=True)
         self.wires[wire.id] = wire
-        self.invalidate_interior_vertex_index()
+        self._index_wire(wire)
 
     def remove_wire(self, wire_id: uuid.UUID) -> list[uuid.UUID]:
         """Remove a wire and clean up orphan JointKnots.
@@ -221,7 +258,7 @@ class Layout:
                 removed.append(ref.id)
             else:
                 self.knots[ref.id] = updated
-        self.invalidate_interior_vertex_index()
+        self._unindex_wire(wire_id)
         return removed
 
     def ensure_wire_knots(self, wire: Wire) -> None:

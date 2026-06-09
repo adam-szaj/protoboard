@@ -147,7 +147,7 @@ def plated_through_pads(board: Board) -> set[Point]:
     return pts
 
 
-_PAD_BUCKET_CACHE: "dict[int, tuple[int, tuple[dict[int, list[Point]], dict[int, list[Point]]]]]" = {}
+_PAD_BUCKET_CACHE: "dict[int, tuple[int, object | None, tuple[dict[int, list[Point]], dict[int, list[Point]]]]]" = {}
 
 
 @counted("_get_pad_bucket_index")
@@ -167,22 +167,37 @@ def _get_pad_bucket_index(
 
     Length is part of the cache key as a cheap mutation guard — if a
     test (or production code) reuses the same set object after editing
-    it, the size will have changed and we rebuild. This is best-effort:
-    same-size in-place mutations would still see stale buckets, so
-    test fixtures that need a guaranteed-fresh bucket should call
-    :func:`clear_pad_bucket_cache` between calls.
+    it, the size will have changed and we rebuild.
+
+    A weakref guard catches address recycling: when the cached
+    pad_positions set is garbage-collected, ``id()`` of a freshly
+    allocated set can land on the same slot.  Without the weakref,
+    an unrelated board's pad set inherits the recycled id and silently
+    reads stale buckets (test_connectivity flake 2026-06-09).
     """
+    import weakref as _wr
     key = id(pad_positions)
     n = len(pad_positions)
     cached = _PAD_BUCKET_CACHE.get(key)
     if cached is not None and cached[0] == n:
-        return cached[1]
-    return _build_pad_bucket_index(pad_positions, key, n)
+        ref = cached[1]
+        # ref is either a weakref.ref or None (set wasn't weak-referenceable).
+        # Stale cache when the weakref no longer resolves to the same object.
+        if ref is None:
+            return cached[2]
+        if isinstance(ref, _wr.ReferenceType) and ref() is pad_positions:
+            return cached[2]
+    try:
+        wr_obj: "object | None" = _wr.ref(pad_positions)
+    except TypeError:
+        wr_obj = None
+    return _build_pad_bucket_index(pad_positions, key, n, wr_obj)
 
 
 @counted("_build_pad_bucket_index")
 def _build_pad_bucket_index(
     pad_positions: set[Point], key: int, n: int,
+    wr_obj: "object | None" = None,
 ) -> tuple[dict[int, list[Point]], dict[int, list[Point]]]:
     """The cache-miss path of :func:`_get_pad_bucket_index`.
 
@@ -198,7 +213,7 @@ def _build_pad_bucket_index(
     for pad in pad_positions:
         pads_by_x.setdefault(round(pad.x), []).append(pad)
         pads_by_y.setdefault(round(pad.y), []).append(pad)
-    _PAD_BUCKET_CACHE[key] = (n, (pads_by_x, pads_by_y))
+    _PAD_BUCKET_CACHE[key] = (n, wr_obj, (pads_by_x, pads_by_y))
     return (pads_by_x, pads_by_y)
 
 

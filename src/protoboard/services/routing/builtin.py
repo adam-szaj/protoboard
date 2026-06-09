@@ -40,12 +40,14 @@ class AStarRouter:
         sink: ProgressSink,
     ) -> "AutorouteResult":
         from protoboard.services.routing.autorouter import autoroute
+        from protoboard.services.routing.hierarchical import hierarchical_autoroute
 
         rs = request.routing_settings
         worker_layout = request.layout.to_layout()
         worker_schematic = request.schematic.to_schematic()
+        entry = hierarchical_autoroute if rs.hierarchical else autoroute
 
-        return autoroute(
+        return entry(
             board=request.board,
             layout=worker_layout,
             schematic=worker_schematic,
@@ -66,6 +68,9 @@ class AStarRouter:
             report_path=request.report_path,  # type: ignore[arg-type]
             push_and_shove=rs.push_and_shove,
             enable_simplify_pass=rs.enable_simplify_pass,
+            simplify_after_each_wire=rs.simplify_after_each_wire,
+            simplify_all_after_autoroute=rs.simplify_all_after_autoroute,
+            simplify_all_max_iterations=rs.simplify_all_max_iterations,
             simplify_mode=rs.simplify_mode,
         )
 

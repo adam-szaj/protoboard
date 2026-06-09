@@ -64,8 +64,46 @@ class RoutingSettings:
     skip_autoroute_dialog: bool = False
     # When True, nudge blocking wires sideways before ripping them up.
     push_and_shove: bool = True
+    # When True, route group-internal nets first (bottom-up over the
+    # group tree) before tackling cross-group / global connections.
+    # Lets the group hierarchy drive routing strategy — exported pins
+    # become the natural waypoints for top-level routes.  Requires that
+    # the project use groups; on a flat schematic this just runs a
+    # single top-level pass (same as ``hierarchical=False``).
+    hierarchical: bool = False
     # When True, run a post-route simplify pass.
     enable_simplify_pass: bool = True
+    # When True, run simplify on each wire immediately after it is routed
+    # (in addition to / instead of the final pass).  Lets later wires in
+    # the same autoroute pass see the shortened geometry — useful for
+    # dense boards where a long bare path would otherwise block a parallel
+    # neighbour from finding its diagonal shortcut.  Trades autoroute time
+    # for routability + per-pass quality.
+    simplify_after_each_wire: bool = False
+    # When True, run a full iterative simplify-all pass at the very end
+    # of autoroute (after every net routed and any embedded simplify).
+    # Iterates over all wires until one full pass produces no change,
+    # bounded by ``simplify_all_max_iterations``.  Cleans up "trapez
+    # without baseline" shapes that the per-net simplify and the
+    # bare-diagonal-only legacy pass miss.  Default ON because
+    # ``simplify_wires_generic`` is conservative (only shortens, never
+    # extends) so the worst case is a no-op cost.
+    simplify_all_after_autoroute: bool = True
+    # Hard upper bound on the number of full simplify-all iterations.
+    # Each iteration re-scans every wire; the loop stops earlier as soon
+    # as one full pass changes nothing.  50 is a defensive cap — in
+    # practice convergence is reached in 2-5 iterations on dense boards.
+    simplify_all_max_iterations: int = 50
+    # When True, the unweave operation may flip a wire to the opposite
+    # board side as a last-resort move when topological swap + overlap
+    # separation cannot reduce visual tangling.  Useful for cross-side
+    # wires whose 2D projection weaves through one another even though
+    # they don't physically conflict.  Off by default — opt-in feature
+    # because a flip changes a structural attribute of the wire
+    # (compared to swap which is path-only).  Validation: combined
+    # gate — shared_pads and crossings on the 2D projection must
+    # both not worsen, and at least one must strictly improve.
+    visual_unweave_side_flip: bool = False
     # Simplify pass strategy.  BARE_PARITY preserves anti-short invariant.
     simplify_mode: "SimplifyMode" = field(  # type: ignore[name-defined]
         default_factory=lambda: _default_simplify_mode()
