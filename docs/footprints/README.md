@@ -1,0 +1,201 @@
+# Footprint gallery
+
+Every entry below is rendered headless via `tools/render_footprints.py`. Re-generate with:
+
+```bash
+uv run python tools/render_footprints.py
+```
+
+## How footprints map to body shapes
+
+`body_shape_for(defn, placement, instance, body_types)` in `gui/renderers/body_shapes.py` is the dispatcher. The choice of renderer depends on **footprint type** *and* **component class**:
+
+| Footprint | Component class | Body shape |
+|---|---|---|
+| `TO220Footprint` | any | `TO220Body` (metal-tab body) |
+| `SingleRow(n=2)` | resistor / inductor / fuse / transformer | `CylinderBody` (axial, non-polar) — falls back to `AxialBody` when no body-type YAML is loaded |
+| `SingleRow(n=2)` | diode / diode_zener / diode_led | `CylinderBody` (axial, polar, dark cathode stripe) — fallback `DiodeBody` |
+| `SingleRow(n=2)` | capacitor_polar / capacitor_nonpolar | `CylinderBody` (radial-family variant) — fallback `RadialBody` |
+| `SingleRow(n=3)` | any transistor class | `TO92Body` (half-circle) |
+| `SingleRow(n>2)` (other classes) | — | `SvgSILBody` (filled strip) |
+| `DualRow(n_per_row, rows_spacing)` | any | `SvgDIPBody` (DIP with notch + pin-1 marker) |
+| `QuadRow(n_per_col, col_spacings)` | any | `SvgQuadDIPBody` |
+| `GridFootprint` / anything else | — | `GenericBody` (plain rectangle) |
+
+**CylinderBody** picks horizontal vs vertical based on the actual pin-to-pin distance: when `dist < (body_length_mm + 1.0) / pitch_mm`, it switches to vertical-mount (a filled circle on the anchor pad with a thin lead to the second pad). Otherwise it draws the cylinder lying flat between the leads.
+
+## Conventions in these images
+
+- Green dot = pin centre.
+- Yellow square on the pin-1 pad = pin-1 marker (same as in the GUI).
+- Tiny red cross-hair = component origin (`placement.position`, i.e. local (0, 0) — always pin 1 in this gallery).
+- For axial 2-pin parts (resistor / diode / cap / inductor / fuse) the left panel is the typical *horizontal* mount and the right panel is the *vertical* (close-mount) variant. Vertical mode is triggered by setting `pin_offsets[2]` so pin 2 sits next to pin 1.
+
+## Index
+
+| Slug | Title | Footprint | Class |
+|---|---|---|---|
+| [`resistor_axial`](#resistor_axial) | Resistor — axial 2-pin | `SingleRow` | `resistor` |
+| [`capacitor_nonpolar`](#capacitor_nonpolar) | Capacitor — non-polar (axial) | `SingleRow` | `capacitor_nonpolar` |
+| [`capacitor_polar`](#capacitor_polar) | Capacitor — polar (electrolytic) | `SingleRow` | `capacitor_polar` |
+| [`diode_axial`](#diode_axial) | Diode — axial (1N4148 / 1N4007 …) | `SingleRow` | `diode` |
+| [`diode_led`](#diode_led) | LED | `SingleRow` | `diode_led` |
+| [`inductor_axial`](#inductor_axial) | Inductor — axial | `SingleRow` | `inductor` |
+| [`fuse_axial`](#fuse_axial) | Fuse — axial | `SingleRow` | `fuse` |
+| [`transistor_to92`](#transistor_to92) | Transistor — TO-92 (BC547 …) | `SingleRow` | `transistor_npn` |
+| [`transistor_to220`](#transistor_to220) | Transistor / regulator — TO-220 | `TO220Footprint` | `transistor_nmos` |
+| [`sil_pin_header_4`](#sil_pin_header_4) | Pin header — SIL × 4 | `SingleRow` | `connector` |
+| [`sil_pin_header_8`](#sil_pin_header_8) | Pin header — SIL × 8 | `SingleRow` | `connector` |
+| [`resistor_network_sil5`](#resistor_network_sil5) | Resistor network — SIL × 5 | `SingleRow` | `resistor` |
+| [`dip8`](#dip8) | DIP-8 (LM358, NE555 …) | `DualRow` | `ic` |
+| [`dip14`](#dip14) | DIP-14 (74HC04 …) | `DualRow` | `ic` |
+| [`dip16`](#dip16) | DIP-16 | `DualRow` | `ic` |
+| [`dip28_wide`](#dip28_wide) | DIP-28 wide (ATmega328 …) | `DualRow` | `ic` |
+| [`quad_row_module`](#quad_row_module) | Quad in-line module (CoreBoard-style) | `QuadRow` | `ic` |
+| [`grid_3x4`](#grid_3x4) | Grid footprint 3 × 4 | `GridFootprint` | `mechanical` |
+
+## Entries
+
+### resistor_axial
+
+**Resistor — axial 2-pin**
+
+`SingleRow(n=2)`, `component_class=resistor`. Renders via `CylinderBody` (variant from `resistor_axial.yaml`). Pin 2 is bendable (reach 1..23 raster units).
+
+![resistor_axial](resistor_axial.png)
+
+### capacitor_nonpolar
+
+**Capacitor — non-polar (axial)**
+
+`SingleRow(n=2)`, `component_class=capacitor_nonpolar`. Cylinder body without polarity marker.
+
+![capacitor_nonpolar](capacitor_nonpolar.png)
+
+### capacitor_polar
+
+**Capacitor — polar (electrolytic)**
+
+`SingleRow(n=2)`, `component_class=capacitor_polar`. Cylinder body with `−` stripe on the cathode side; pin 1 = +, pin 2 = −.
+
+![capacitor_polar](capacitor_polar.png)
+
+### diode_axial
+
+**Diode — axial (1N4148 / 1N4007 …)**
+
+`SingleRow(n=2)`, `component_class=diode`. Cylinder body with cathode stripe; pin 1 = anode, pin 2 = cathode.
+
+![diode_axial](diode_axial.png)
+
+### diode_led
+
+**LED**
+
+`SingleRow(n=2)`, `component_class=diode_led`. Same cylinder body family; renderer treats it as polar.
+
+![diode_led](diode_led.png)
+
+### inductor_axial
+
+**Inductor — axial**
+
+`SingleRow(n=2)`, `component_class=inductor`. Cylinder body, no polarity.
+
+![inductor_axial](inductor_axial.png)
+
+### fuse_axial
+
+**Fuse — axial**
+
+`SingleRow(n=2)`, `component_class=fuse`. Resistor cylinder family.
+
+![fuse_axial](fuse_axial.png)
+
+### transistor_to92
+
+**Transistor — TO-92 (BC547 …)**
+
+`SingleRow(n=3)`, `component_class=transistor_npn`. Rendered with `TO92Body`. Half-circle, three legs.
+
+![transistor_to92](transistor_to92.png)
+
+### transistor_to220
+
+**Transistor / regulator — TO-220**
+
+`TO220Footprint(n=3)`. Wider tab body.
+
+![transistor_to220](transistor_to220.png)
+
+### sil_pin_header_4
+
+**Pin header — SIL × 4**
+
+`SingleRow(n=4)`, `component_class=connector`. Generic SIL body (no axial / TO-92 dispatch).
+
+![sil_pin_header_4](sil_pin_header_4.png)
+
+### sil_pin_header_8
+
+**Pin header — SIL × 8**
+
+`SingleRow(n=8)`, longer SIL strip.
+
+![sil_pin_header_8](sil_pin_header_8.png)
+
+### resistor_network_sil5
+
+**Resistor network — SIL × 5**
+
+`SingleRow(n=5)`, `component_class=resistor`. Bus pin 1 (common) + four resistors. Renders as a generic SIL.
+
+![resistor_network_sil5](resistor_network_sil5.png)
+
+### dip8
+
+**DIP-8 (LM358, NE555 …)**
+
+`DualRow(n_per_row=4, rows_spacing=3.0)`. Pin 1 marker is drawn by `SvgDIPBody`.
+
+![dip8](dip8.png)
+
+### dip14
+
+**DIP-14 (74HC04 …)**
+
+`DualRow(n_per_row=7, rows_spacing=3.0)`.
+
+![dip14](dip14.png)
+
+### dip16
+
+**DIP-16**
+
+`DualRow(n_per_row=8, rows_spacing=3.0)`.
+
+![dip16](dip16.png)
+
+### dip28_wide
+
+**DIP-28 wide (ATmega328 …)**
+
+`DualRow(n_per_row=14, rows_spacing=6.0)`. Wide-body DIP draws a wider rectangle.
+
+![dip28_wide](dip28_wide.png)
+
+### quad_row_module
+
+**Quad in-line module (CoreBoard-style)**
+
+`QuadRow(n_per_col=10, col_spacings=(1, 8, 1))`. Four parallel pin columns; outer pads connect via flying leads, inner pads expose module signals. Inner-column pin numbers are omitted in this gallery render — they would overlap the body or the outer-column labels. Inner pins follow the spec: left-inner is `n+1..2n`, right-inner is `2n+1..3n` (numbered bottom-to-top).
+
+![quad_row_module](quad_row_module.png)
+
+### grid_3x4
+
+**Grid footprint 3 × 4**
+
+`GridFootprint(rows=3, cols=4)`. Generic body; used for tactile switches, headers, and one-off mechanical parts.
+
+![grid_3x4](grid_3x4.png)
