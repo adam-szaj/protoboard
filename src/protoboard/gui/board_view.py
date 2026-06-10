@@ -1809,10 +1809,14 @@ class BoardView(QGraphicsView):
                     painter.setOpacity(1.0)
                     painter.drawPixmap(0, 0, self._back_cache)  # type: ignore[arg-type]
                     self._paint_counters["anchor_blit_back"] += 1
+                painter.restore()
                 # Back-side filter — kept in the burst branch too so the
                 # picture brightness stays consistent during pan / zoom
                 # (otherwise the filter "blinks off" while the burst
                 # timer is active and back on as soon as it expires).
+                # Drawn AFTER the bridge transform is restored so we can
+                # use the live viewport transform to clip the filter to
+                # the board rectangle (same as the non-burst branch).
                 burst_layers = layer_state_for_tool(
                     self._active_tool,
                     self._camera_side,  # type: ignore[arg-type]
@@ -1822,14 +1826,19 @@ class BoardView(QGraphicsView):
                 )
                 burst_filter_alpha = burst_layers.alpha_for_back_filter()
                 if burst_filter_alpha > 0.0:
+                    from PySide6.QtCore import QRectF as _QRectF
                     from PySide6.QtGui import QColor as _QColor
                     theme_for_filter = self._theme_override or DEFAULT_THEME
                     filter_color = _QColor(theme_for_filter.back_filter_color)
                     filter_color.setAlphaF(burst_filter_alpha)
                     painter.setOpacity(1.0)
-                    painter.fillRect(self._bg_cache_anchor.rect(), filter_color)
+                    b = self._session.board.bounds
+                    board_scene_rect = _QRectF(b.x, b.y, b.width, b.height)
+                    board_device_rect = self.mapFromScene(
+                        board_scene_rect
+                    ).boundingRect()
+                    painter.fillRect(board_device_rect, filter_color)
                     self._paint_counters["blit_back_filter"] += 1
-                painter.restore()
             self._session.perf.record_paint(
                 bg_build_ms=0.0,
                 back_build_ms=0.0,
@@ -1893,14 +1902,24 @@ class BoardView(QGraphicsView):
         # back-side items and the mid board blit.  Sits over back wires /
         # back components but under the mid pad blit, so pads in FULL
         # mode stay readable while back-side items get visually pushed
-        # away.
+        # away.  Restricted to the board rectangle so the surrounding
+        # canvas (axis labels, panning margin) keeps the base brightness.
         if alpha_back_filter > 0.0 and self._bg_cache is not None:
+            from PySide6.QtCore import QRectF as _QRectF
             from PySide6.QtGui import QColor as _QColor
             theme_for_filter = self._theme_override or DEFAULT_THEME
             filter_color = _QColor(theme_for_filter.back_filter_color)
             filter_color.setAlphaF(alpha_back_filter)
             painter.setOpacity(1.0)
-            painter.fillRect(self._bg_cache.rect(), filter_color)
+            b = self._session.board.bounds
+            board_scene_rect = _QRectF(b.x, b.y, b.width, b.height)
+            # Painter is in device (viewport) coords after resetTransform;
+            # project the world-space board rect through the current
+            # viewport transform to land in the same pixel space.
+            board_device_rect = self.mapFromScene(
+                board_scene_rect
+            ).boundingRect()
+            painter.fillRect(board_device_rect, filter_color)
             self._paint_counters["blit_back_filter"] += 1
         if self._bg_cache is not None and alpha_mid > 0.0:
             _bt = time.monotonic()
