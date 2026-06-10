@@ -62,7 +62,7 @@ class AppSettings:
     cost_presets: dict[str, dict[str, float]] = field(default_factory=dict)
     # Drag-time soft conflict resolution.  Each field is one of
     # "auto-remove" / "ask-remove" / "auto-reroute" / "ask-reroute" /
-    # "block" — see docs/bug-drag-skewed-wire-shorts.md.  Defaults
+    # "block" — see docs/archive/bug-drag-skewed-wire-shorts.md.  Defaults
     # picked to be conservative (preserve existing wires unless the
     # user opts in).
     drag_free_wire_conflict: str = "auto-remove"

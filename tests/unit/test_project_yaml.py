@@ -308,7 +308,7 @@ class TestPinVariantRoundtrip:
 
 class TestEncapsulatedExportMigration:
     """Loader strips group exports that violate the re-export chain
-    (docs/group-export-encapsulation.md §3.3).  Legacy projects with
+    (docs/archive/group-export-encapsulation.md §3.3).  Legacy projects with
     flat grandchild exports load silently with the invalid entries
     removed."""
 
@@ -441,7 +441,7 @@ class TestEncapsulatedExportMigration:
 
 class TestWirePinPersistence:
     """Wire-pin knots survive save/load with their position + net snapshot
-    (docs/wire-pin-implementation.md §3.9).
+    (docs/archive/wire-pin-implementation.md §3.9).
     """
 
     def _save_wire_with_wire_pins(

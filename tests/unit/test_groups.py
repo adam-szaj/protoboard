@@ -676,7 +676,7 @@ class TestSchematicProjectionForGroup:
 
 # ---------------------------------------------------------------------------
 # exposable_surface / validate_exported_pins
-# (encapsulated re-export chain — docs/group-export-encapsulation.md)
+# (encapsulated re-export chain — docs/archive/group-export-encapsulation.md)
 # ---------------------------------------------------------------------------
 
 

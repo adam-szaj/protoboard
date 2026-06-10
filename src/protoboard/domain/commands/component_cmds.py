@@ -1546,7 +1546,7 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
 
 
 # ---------------------------------------------------------------------------
-# Wire-pin conversion (docs/wire-pin-implementation.md §3.6)
+# Wire-pin conversion (docs/archive/wire-pin-implementation.md §3.6)
 # ---------------------------------------------------------------------------
 
 

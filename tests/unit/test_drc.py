@@ -845,7 +845,7 @@ class TestDRCGroupExports:
 
 class TestDRCGroupInvalidExport:
     """`G.exported_pins` must satisfy the encapsulated re-export chain
-    (see docs/group-export-encapsulation.md):
+    (see docs/archive/group-export-encapsulation.md):
 
       ep.component_id ∈ G.component_ids
       OR ep ∈ ⋃ child.exported_pins  (for direct children)
@@ -1152,7 +1152,7 @@ class TestDRCOffBoardPin:
 
 # ---------------------------------------------------------------------------
 # HALF_ORPHAN_WIRE + WIRE_PIN_OFF_PLATED_THROUGH
-# (docs/wire-pin-implementation.md §3.5; rule 9 in pad-pin-wire-junction-semantics)
+# (docs/archive/wire-pin-implementation.md §3.5; rule 9 in pad-pin-wire-junction-semantics)
 # ---------------------------------------------------------------------------
 
 

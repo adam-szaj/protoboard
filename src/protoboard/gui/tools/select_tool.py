@@ -4691,7 +4691,7 @@ class SelectTool(_Tool):
 
         # Wire-pin conversion — only for the clicked endpoint when it is
         # eligible (single wire under cursor, endpoint within click
-        # tolerance).  See docs/wire-pin-implementation.md §3.7.
+        # tolerance).  See docs/archive/wire-pin-implementation.md §3.7.
         if wire.id in target_ids and len(target_ids) == 1:
             endpoint_side = self._closest_wire_endpoint(wire, scene_pt)
             if endpoint_side is not None:

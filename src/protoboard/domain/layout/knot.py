@@ -104,7 +104,7 @@ class WirePinKnot:
       tracks it: when ``SetWireNetCommand`` (or any net-changing edit)
       mutates the wire's net, the wire-pin's net follows.
 
-    See ``docs/wire-pin-implementation.md`` and rule 9 in
+    See ``docs/archive/wire-pin-implementation.md`` and rule 9 in
     ``docs/pad-pin-wire-junction-semantics.md``.
     """
 

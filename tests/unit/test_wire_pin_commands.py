@@ -2,7 +2,7 @@
 """Tests for ConvertEndpointToWirePinCommand / ConvertWirePinToEndpointCommand.
 
 The half-orphan endpoint of a wire can be promoted to a deliberate
-terminal (wire-pin) and back.  See docs/wire-pin-implementation.md §3.6.
+terminal (wire-pin) and back.  See docs/archive/wire-pin-implementation.md §3.6.
 """
 
 from __future__ import annotations

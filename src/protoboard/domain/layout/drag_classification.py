@@ -2,7 +2,7 @@
 """Drag-time wire classification — what happens to each wire under a drag.
 
 This is the pure-logic backbone of the unified drag model
-(``docs/bug-drag-skewed-wire-shorts.md``).  Given a drag set (frozenset of
+(``docs/archive/bug-drag-skewed-wire-shorts.md``).  Given a drag set (frozenset of
 component IDs that will move together by one delta), partition every wire
 in the layout into five disjoint buckets:
 

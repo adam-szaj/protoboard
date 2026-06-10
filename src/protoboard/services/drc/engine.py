@@ -961,7 +961,7 @@ def _check_wire_pin_on_plated_through(
     *,
     pad_index: "PadIndex | None" = None,
 ) -> list[DRCIssue]:
-    """Wire-pin invariant (docs/wire-pin-implementation.md §2.1): every
+    """Wire-pin invariant (docs/archive/wire-pin-implementation.md §2.1): every
     :class:`WirePinKnot` must sit on a board pad whose ``plated_through``
     flag is set.
 

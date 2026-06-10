@@ -249,7 +249,7 @@ class Layout:
             # Free-position knots (JointKnot, WirePinKnot) with no remaining
             # incident wire are deleted.  Rule for WirePinKnot: lifetime is
             # strictly tied to the owning wire — when the wire goes, the
-            # wire-pin goes (docs/wire-pin-implementation.md §2.1).
+            # wire-pin goes (docs/archive/wire-pin-implementation.md §2.1).
             if (
                 isinstance(updated, (JointKnot, WirePinKnot))
                 and not updated.wire_ids

@@ -86,7 +86,7 @@ class WirePinItem:
 
     Distinguished from ``PinItem`` only so callers that care about
     component identity (e.g. labels, refdes, group exports) can
-    skip it.  See ``docs/wire-pin-implementation.md``.
+    skip it.  See ``docs/archive/wire-pin-implementation.md``.
     """
 
     id: uuid.UUID            # WirePinKnot id

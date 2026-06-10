@@ -909,7 +909,7 @@ def _migrate_encapsulated_exports(
     Walks *groups* leaves → root, dropping every entry in each group's
     ``exported_pins`` whose component is neither a direct member of the
     group nor re-exported by a direct child.  Required because legacy
-    projects (saved before docs/group-export-encapsulation.md was
+    projects (saved before docs/archive/group-export-encapsulation.md was
     enforced) freely listed grandchild pins in any ancestor's flat
     ``exported_pins`` set; with encapsulation in force those entries
     become invisible to the snap layer and renderer, so removing them

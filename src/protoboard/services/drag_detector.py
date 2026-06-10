@@ -11,7 +11,7 @@ the release-time commit pipeline (called once on mouse-up). Previously
 these were two independent implementations that drifted: the live
 overlay missed bottom-side wires and mid-segment crossings while the
 commit path did not, leading to bugs `1328a8e`, `ee489a7`, `e28346a`
-(see ``docs/drag-pipeline-refactor-plan.md`` Context).
+(see ``docs/archive/drag-pipeline-refactor-plan.md`` Context).
 
 Pure logic — no Qt, no side effects on the layout. The snapshot's
 ``pad_index`` is assumed to already reflect the dragged positions

@@ -79,7 +79,7 @@ def exposable_surface(
 ) -> frozenset[ExportedPin]:
     """Return the set of pins that *may* legally appear in ``G.exported_pins``.
 
-    Encapsulated re-export model (see ``docs/group-export-encapsulation.md``):
+    Encapsulated re-export model (see ``docs/archive/group-export-encapsulation.md``):
 
         exposable(G) = {ExportedPin(c, p) for c in G.component_ids
                                           for p in pins_of(c)}
@@ -187,7 +187,7 @@ def external_pins_for_group(
     schematic: "Schematic",
 ) -> frozenset[ExportedPin]:
     """Return the minimal re-export set for *group_id* that satisfies
-    encapsulation (see ``docs/group-export-encapsulation.md``).
+    encapsulation (see ``docs/archive/group-export-encapsulation.md``).
 
     For every net that reaches outside G's recursive component set (or is
     global), pick *at least one* pin from G's exposable surface — i.e.

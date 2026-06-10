@@ -15,7 +15,7 @@ the second is still in its old position — leaving the wire
 **skewed**.  ``_update_wires_for_move``'s ``wire_has_skewed_segment``
 guard then drops the wire as garbage, silently severing
 cross-component connections.  See
-``docs/bug-drag-skewed-wire-shorts.md`` for the full bug report.
+``docs/archive/bug-drag-skewed-wire-shorts.md`` for the full bug report.
 
 ``MoveDragSetCommand`` translates every internal wire by **one delta**
 in a single pass — no intermediate skewed state, no per-component

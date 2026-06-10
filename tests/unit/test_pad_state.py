@@ -563,7 +563,7 @@ class TestPadIndexClone:
 class TestWirePinItem:
     """A wire-pin is electrically and physically equivalent to a real
     PinItem: through-hole propagation to all physical layers, blocks
-    foreign wire interiors.  See docs/wire-pin-implementation.md §2.2.
+    foreign wire interiors.  See docs/archive/wire-pin-implementation.md §2.2.
     """
 
     def _make_plated_through(self) -> ConnectedDoubleSidedBoardPad:
