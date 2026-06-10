@@ -16,8 +16,8 @@ from __future__ import annotations
 from dataclasses import replace as _dc_replace
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QPainter
-from PySide6.QtWidgets import QGraphicsScene
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen
+from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene
 
 from protoboard.domain.layout.knot import WirePinKnot
 from protoboard.domain.layout.pin_pad_classification import (
@@ -83,6 +83,25 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
         scene, snapshot.board,
         theme=theme, layers=layers, pad_net_map=pad_net_map,
     )
+
+    # ── Back-side filter ────────────────────────────────────────────────────
+    # Half-transparent black wash painted between back-side items (back
+    # wires Z=2, back components Z=1) and the board (Z=3).  Mirrors the
+    # live BoardView sandwich so PNG / SVG / PDF exports match what the
+    # user sees in the editor.  Sits at Z=2.5 so the board pads paint
+    # over it; back-side items underneath get visually pushed away.
+    alpha_back_filter = layers.alpha_for_back_filter()
+    if alpha_back_filter > 0.0:
+        b = snapshot.board.bounds
+        filter_rect = QGraphicsRectItem(
+            QRectF(b.x - 1, b.y - 1, b.width + 2, b.height + 2),
+        )
+        filter_color = QColor(theme.back_filter_color)
+        filter_color.setAlphaF(alpha_back_filter)
+        filter_rect.setBrush(QBrush(filter_color))
+        filter_rect.setPen(QPen(Qt.PenStyle.NoPen))
+        filter_rect.setZValue(2.5)
+        scene.addItem(filter_rect)
 
     # ── Pin-pads layer (schematic-aware overlay above board) ────────────────
     classifications = classify_pin_pads(snapshot.pad_index, snapshot.layout)

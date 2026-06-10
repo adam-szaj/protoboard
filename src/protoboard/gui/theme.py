@@ -102,6 +102,13 @@ class Theme:
     # 0 disables the mid slot entirely.
     board_mid_alpha: float = 0.30
 
+    # Half-transparent black wash drawn between back-side items and the
+    # mid board blit.  Visually separates back-side wires/components from
+    # front-side ones independently of camera-side dimming.  Active when
+    # the board layer is FULL or GHOST; suppressed when HIDDEN.
+    back_filter_color: str = "#000000"
+    back_filter_alpha: float = 0.30
+
     # Axis labels (column/row indices rendered around the board).  They sit
     # over the surrounding canvas, not over the board itself, so they reuse
     # ``board_bg`` for their background pill rather than ``label_bg_color``.

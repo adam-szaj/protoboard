@@ -144,6 +144,9 @@ class LayerState:
     # 0.30 → pads peek through under front-side items so they visually
     # rest on the board, but back-side items underneath stay readable.
     board_mid_alpha: float = 0.30
+    # Alpha of the half-transparent black wash drawn between back-side
+    # items and the mid board blit.  See ``alpha_for_back_filter``.
+    back_filter_alpha: float = 0.30
 
     # ------------------------------------------------------------------
     # Z-value helpers
@@ -227,6 +230,20 @@ class LayerState:
             return 0.0
         return self.board_mid_alpha
 
+    def alpha_for_back_filter(self) -> float:
+        """Alpha for the half-transparent back-side filter.
+
+        The filter sits between back-side items (back wires, back
+        components) and the mid board blit.  It darkens the back side
+        independently of camera-side ghosting so the user can still
+        tell front from back even when both sides are at high opacity.
+
+        Active in FULL and GHOST modes; off in HIDDEN.
+        """
+        if self.overrides.board == LayerVisibility.HIDDEN:
+            return 0.0
+        return self.back_filter_alpha
+
     def alpha_for_pin_names(self, side: Literal["top", "bottom"]) -> float:
         # Pin names are independent of labels and components — toggling
         # either of those does not hide pin names.
@@ -306,5 +323,6 @@ def layer_state_for_tool(
                 board_ghost_alpha=theme.board_ghost_alpha,
                 ghost_comp_alpha=theme.ghost_comp_alpha,
                 board_mid_alpha=theme.board_mid_alpha,
+                back_filter_alpha=theme.back_filter_alpha,
             )
     return state

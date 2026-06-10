@@ -155,6 +155,7 @@ class BoardSnapshot:
             board_ghost_alpha=self.theme.board_ghost_alpha,
             ghost_comp_alpha=self.theme.ghost_comp_alpha,
             board_mid_alpha=self.theme.board_mid_alpha,
+            back_filter_alpha=self.theme.back_filter_alpha,
         )
 
 

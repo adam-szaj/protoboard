@@ -1848,6 +1848,7 @@ class BoardView(QGraphicsView):
         )
         alpha_base = layers.alpha_for_board()
         alpha_mid = layers.alpha_for_board_mid()
+        alpha_back_filter = layers.alpha_for_back_filter()
 
         # Pixmaps are sized to and aligned with the viewport (device coords).
         painter.save()
@@ -1867,6 +1868,19 @@ class BoardView(QGraphicsView):
             painter.drawPixmap(0, 0, self._back_cache)  # type: ignore[arg-type]
             self._paint_counters["blit_back"] += 1
             _blit_back_ms = (time.monotonic() - _bt) * 1000.0
+        # Back-side filter — half-transparent black wash painted between
+        # back-side items and the mid board blit.  Sits over back wires /
+        # back components but under the mid pad blit, so pads in FULL
+        # mode stay readable while back-side items get visually pushed
+        # away.
+        if alpha_back_filter > 0.0 and self._bg_cache is not None:
+            from PySide6.QtGui import QColor as _QColor
+            theme_for_filter = self._theme_override or DEFAULT_THEME
+            filter_color = _QColor(theme_for_filter.back_filter_color)
+            filter_color.setAlphaF(alpha_back_filter)
+            painter.setOpacity(1.0)
+            painter.fillRect(self._bg_cache.rect(), filter_color)
+            self._paint_counters["blit_back_filter"] += 1
         if self._bg_cache is not None and alpha_mid > 0.0:
             _bt = time.monotonic()
             painter.setOpacity(alpha_mid)
