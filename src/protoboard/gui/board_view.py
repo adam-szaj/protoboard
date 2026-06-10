@@ -1825,19 +1825,13 @@ class BoardView(QGraphicsView):
                 )
                 burst_filter_alpha = burst_layers.alpha_for_back_filter()
                 burst_alpha_mid = burst_layers.alpha_for_board_mid()
-                if burst_filter_alpha > 0.0:
-                    from PySide6.QtCore import QRectF as _QRectF
+                if burst_filter_alpha > 0.0 and self._bg_cache_anchor is not None:
                     from PySide6.QtGui import QColor as _QColor
                     theme_for_filter = self._theme_override or DEFAULT_THEME
                     filter_color = _QColor(theme_for_filter.back_filter_color)
                     filter_color.setAlphaF(burst_filter_alpha)
                     painter.setOpacity(1.0)
-                    b = self._session.board.bounds
-                    board_scene_rect = _QRectF(b.x, b.y, b.width, b.height)
-                    board_device_rect = self.mapFromScene(
-                        board_scene_rect
-                    ).boundingRect()
-                    painter.fillRect(board_device_rect, filter_color)
+                    painter.fillRect(self._bg_cache_anchor.rect(), filter_color)
                     self._paint_counters["blit_back_filter"] += 1
                 # Mid blit — re-paint the anchor pixmap through the same
                 # bridge so pads sit on top of the filter, matching the
@@ -1913,24 +1907,17 @@ class BoardView(QGraphicsView):
         # back-side items and the mid board blit.  Sits over back wires /
         # back components but under the mid pad blit, so pads in FULL
         # mode stay readable while back-side items get visually pushed
-        # away.  Restricted to the board rectangle so the surrounding
-        # canvas (axis labels, panning margin) keeps the base brightness.
+        # away.  Painted on the entire viewport so back items that
+        # overhang the board outline (e.g. a wire stub) still get the
+        # filter; axis labels live at Z_OVERLAY and are repainted by Qt
+        # on top of this sandwich so they keep their colour.
         if alpha_back_filter > 0.0 and self._bg_cache is not None:
-            from PySide6.QtCore import QRectF as _QRectF
             from PySide6.QtGui import QColor as _QColor
             theme_for_filter = self._theme_override or DEFAULT_THEME
             filter_color = _QColor(theme_for_filter.back_filter_color)
             filter_color.setAlphaF(alpha_back_filter)
             painter.setOpacity(1.0)
-            b = self._session.board.bounds
-            board_scene_rect = _QRectF(b.x, b.y, b.width, b.height)
-            # Painter is in device (viewport) coords after resetTransform;
-            # project the world-space board rect through the current
-            # viewport transform to land in the same pixel space.
-            board_device_rect = self.mapFromScene(
-                board_scene_rect
-            ).boundingRect()
-            painter.fillRect(board_device_rect, filter_color)
+            painter.fillRect(self._bg_cache.rect(), filter_color)
             self._paint_counters["blit_back_filter"] += 1
         if self._bg_cache is not None and alpha_mid > 0.0:
             _bt = time.monotonic()
