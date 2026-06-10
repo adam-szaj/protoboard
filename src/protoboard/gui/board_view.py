@@ -1809,6 +1809,26 @@ class BoardView(QGraphicsView):
                     painter.setOpacity(1.0)
                     painter.drawPixmap(0, 0, self._back_cache)  # type: ignore[arg-type]
                     self._paint_counters["anchor_blit_back"] += 1
+                # Back-side filter — kept in the burst branch too so the
+                # picture brightness stays consistent during pan / zoom
+                # (otherwise the filter "blinks off" while the burst
+                # timer is active and back on as soon as it expires).
+                burst_layers = layer_state_for_tool(
+                    self._active_tool,
+                    self._camera_side,  # type: ignore[arg-type]
+                    self._view_transform,  # type: ignore[arg-type]
+                    overrides=self._layer_overrides,
+                    theme=self._theme_override or DEFAULT_THEME,
+                )
+                burst_filter_alpha = burst_layers.alpha_for_back_filter()
+                if burst_filter_alpha > 0.0:
+                    from PySide6.QtGui import QColor as _QColor
+                    theme_for_filter = self._theme_override or DEFAULT_THEME
+                    filter_color = _QColor(theme_for_filter.back_filter_color)
+                    filter_color.setAlphaF(burst_filter_alpha)
+                    painter.setOpacity(1.0)
+                    painter.fillRect(self._bg_cache_anchor.rect(), filter_color)
+                    self._paint_counters["blit_back_filter"] += 1
                 painter.restore()
             self._session.perf.record_paint(
                 bg_build_ms=0.0,
