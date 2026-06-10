@@ -1810,13 +1810,12 @@ class BoardView(QGraphicsView):
                     painter.drawPixmap(0, 0, self._back_cache)  # type: ignore[arg-type]
                     self._paint_counters["anchor_blit_back"] += 1
                 painter.restore()
-                # Back-side filter — kept in the burst branch too so the
-                # picture brightness stays consistent during pan / zoom
-                # (otherwise the filter "blinks off" while the burst
-                # timer is active and back on as soon as it expires).
-                # Drawn AFTER the bridge transform is restored so we can
-                # use the live viewport transform to clip the filter to
-                # the board rectangle (same as the non-burst branch).
+                # Back-side filter + mid pad blit — kept in the burst
+                # branch too so the picture stays consistent during pan
+                # / zoom.  Without this the filter would "blink off" and
+                # the mid pad blit would skip every burst frame, making
+                # the board look noticeably brighter / lower-contrast
+                # whenever the burst timer is active.
                 burst_layers = layer_state_for_tool(
                     self._active_tool,
                     self._camera_side,  # type: ignore[arg-type]
@@ -1825,6 +1824,7 @@ class BoardView(QGraphicsView):
                     theme=self._theme_override or DEFAULT_THEME,
                 )
                 burst_filter_alpha = burst_layers.alpha_for_back_filter()
+                burst_alpha_mid = burst_layers.alpha_for_board_mid()
                 if burst_filter_alpha > 0.0:
                     from PySide6.QtCore import QRectF as _QRectF
                     from PySide6.QtGui import QColor as _QColor
@@ -1839,6 +1839,17 @@ class BoardView(QGraphicsView):
                     ).boundingRect()
                     painter.fillRect(board_device_rect, filter_color)
                     self._paint_counters["blit_back_filter"] += 1
+                # Mid blit — re-paint the anchor pixmap through the same
+                # bridge so pads sit on top of the filter, matching the
+                # non-burst stack ordering.
+                if burst_alpha_mid > 0.0:
+                    painter.save()
+                    painter.setTransform(bridge)
+                    painter.setOpacity(burst_alpha_mid)
+                    painter.drawPixmap(0, 0, self._bg_cache_anchor)  # type: ignore[arg-type]
+                    self._paint_counters["blit_mid"] += 1
+                    painter.restore()
+                painter.setOpacity(1.0)
             self._session.perf.record_paint(
                 bg_build_ms=0.0,
                 back_build_ms=0.0,
