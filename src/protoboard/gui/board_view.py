@@ -237,6 +237,7 @@ class BoardView(QGraphicsView):
             "back_cache_empty": 0,   # back items list empty, no pixmap built
             "blit_base": 0,
             "blit_back": 0,
+            "blit_back_filter": 0,
             "blit_mid": 0,
             "anchor_blit": 0,
             "anchor_blit_back": 0,
