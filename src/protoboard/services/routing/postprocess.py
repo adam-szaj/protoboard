@@ -817,13 +817,14 @@ def _candidate_safe_against_others(
             continue
         cross_side = wire_side is not None and ow.side != wire_side
         if cross_side:
+            # Cross-side collinear overlap (two wires sharing a track on
+            # different sides — visible as a stacked run).  Strict per-
+            # wire M ≤ N.
             cand_overlap = 0
             for c_src, c_dst in candidate_segs:
                 for o_src, o_dst in zip(ow.path, ow.path[1:]):
                     if _segs_overlap_collinear(c_src, c_dst, o_src, o_dst):
                         cand_overlap += 1
-            if cand_overlap == 0:
-                continue
             orig_overlap = 0
             for o_src_inner, o_dst_inner in orig_segs:
                 for o_src, o_dst in zip(ow.path, ow.path[1:]):
@@ -832,7 +833,67 @@ def _candidate_safe_against_others(
                     ):
                         orig_overlap += 1
             if cand_overlap > orig_overlap:
+                if _SIMPLIFY_TRACE:
+                    _log.info(
+                        "simplify.crosses_other.cross_side_overlap_grew",
+                        wire_id=str(wire_id),
+                        ow_id=str(ow.id),
+                        ow_side=ow.side,
+                        baseline=orig_overlap, candidate=cand_overlap,
+                    )
                 return False
+            # Cross-side shared-pad check.  Even on different copper
+            # layers two wires that touch the same pad sit on the same
+            # plated-through hole / pad-hole metallisation — physically
+            # one electrical node.  Bare cross-side shared pad shorts
+            # the two nets; insulated cross-side shared pad obstructs
+            # solder access and is treated like same-side pad coincidence.
+            # Bare on the same pad as ANY other-wire is a hard-reject
+            # (M ≤ N per wire); insulated×insulated goes into the
+            # sum-based pool so total cross-side contacts may shift but
+            # not grow.
+            if not ow.insulated:
+                baseline = (
+                    _count_crossings_with_other(
+                        orig_segs, orig_vertices, ow, skip_pts=skip_pts,
+                    )
+                    if original_subpath_segs is not None
+                    else 0
+                )
+                candidate = _count_crossings_with_other(
+                    candidate_segs, cand_vertices, ow, skip_pts=skip_pts,
+                )
+                if candidate > baseline:
+                    if _SIMPLIFY_TRACE:
+                        _log.info(
+                            "simplify.crosses_other.cross_side_bare_grew",
+                            wire_id=str(wire_id),
+                            ow_id=str(ow.id),
+                            ow_side=ow.side,
+                            baseline=baseline, candidate=candidate,
+                        )
+                    return False
+                continue
+            baseline_ins = (
+                _count_insulated_pad_contacts(
+                    orig_segs, orig_vertices, ow, skip_pts=skip_pts,
+                )
+                if original_subpath_segs is not None
+                else 0
+            )
+            candidate_ins = _count_insulated_pad_contacts(
+                candidate_segs, cand_vertices, ow, skip_pts=skip_pts,
+            )
+            if _SIMPLIFY_TRACE and (baseline_ins > 0 or candidate_ins > 0):
+                _log.info(
+                    "simplify.crosses_other.cross_side_insulated_contact",
+                    wire_id=str(wire_id),
+                    ow_id=str(ow.id),
+                    ow_side=ow.side,
+                    baseline=baseline_ins, candidate=candidate_ins,
+                )
+            baseline_ins_total += baseline_ins
+            candidate_ins_total += candidate_ins
             continue
         # Fast bbox-vs-bbox reject.
         ow_lo_x = ow_lo_y = math.inf
