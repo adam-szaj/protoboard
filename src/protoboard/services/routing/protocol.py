@@ -51,6 +51,11 @@ class RouterCapabilities:
 # the worker can wire signals directly without adapter glue.
 ProgressFn = Callable[[int, str, int], None]            # pass_num, net_name, pct
 OptimizeProgressFn = Callable[[int, int], None]         # done, total
+# Per-iteration progress for the iterative simplify-all post-pass.
+# Signature: (iter_num, max_iter, n_wires_simplified_this_iter).
+# When n_wires_simplified_this_iter == 0 the loop has converged and will
+# break on the next check.
+SimplifyProgressFn = Callable[[int, int, int], None]
 
 
 @dataclass
@@ -64,6 +69,7 @@ class ProgressSink:
 
     progress: ProgressFn | None = None
     optimize_progress: OptimizeProgressFn | None = None
+    simplify_progress: SimplifyProgressFn | None = None
     cancel_flag: threading.Event | None = None
 
     def cancelled(self) -> bool:
@@ -194,5 +200,6 @@ __all__ = [
     "ProgressSink",
     "ProgressFn",
     "OptimizeProgressFn",
+    "SimplifyProgressFn",
     "registry",
 ]

@@ -2236,6 +2236,24 @@ class MainWindow(QMainWindow):
             dlg.setLabelText(f"Optimising… ({done}/{total})")
             dlg.setValue(int(done * 100 / total) if total else 0)
 
+        def _on_simplify_progress(
+            iter_num: int, max_iter: int, n_simplified: int,
+        ) -> None:
+            if dlg.wasCanceled():
+                return
+            # Show iteration countdown + how many wires the current pass
+            # rewrote.  ``n_simplified == 0`` means the loop converged and
+            # is about to break on the next check.
+            tail = (
+                f" — {n_simplified} wires simplified"
+                if n_simplified > 0
+                else " — converged"
+            )
+            dlg.setLabelText(
+                f"Simplifying… iter {iter_num}/{max_iter}{tail}"
+            )
+            dlg.setValue(int(iter_num * 100 / max_iter) if max_iter else 0)
+
         # IMPORTANT: connect the gate-release BEFORE ``_on_autoroute_done``
         # so it runs first.  Qt invokes ``finished`` slots in connection
         # order, and ``_on_autoroute_done`` issues a MacroCommand of
@@ -2250,6 +2268,7 @@ class MainWindow(QMainWindow):
 
         worker.progress.connect(_on_progress)
         worker.optimize_progress.connect(_on_optimize_progress)
+        worker.simplify_progress.connect(_on_simplify_progress)
         import time as _time
         _route_t0 = _time.monotonic()
         worker.finished.connect(

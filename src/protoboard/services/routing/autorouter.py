@@ -875,6 +875,14 @@ def autoroute(
                 if _sink.cancelled():
                     break
                 before_fp = _path_fingerprint(current_wires)
+                # Per-wire snapshot so we can count exactly how many wires
+                # the optimizer rewrote this pass (rather than just
+                # "anything changed").  Keyed by wire.id to survive any
+                # reordering the optimizer might apply.
+                _before_paths = {
+                    w.id: tuple((round(p.x, 6), round(p.y, 6)) for p in w.path)
+                    for w in current_wires
+                }
                 _intermediate = AutorouteResult(
                     wires=current_wires,
                     unrouted_nets=list(unrouted_names),
@@ -883,6 +891,26 @@ def autoroute(
                 _optimized = _opt.optimize(_req, _intermediate, _sink)
                 current_wires = _optimized.wires
                 after_fp = _path_fingerprint(current_wires)
+                n_simplified = sum(
+                    1 for w in current_wires
+                    if _before_paths.get(w.id)
+                    != tuple((round(p.x, 6), round(p.y, 6)) for p in w.path)
+                )
+                if _sink.simplify_progress is not None:
+                    try:
+                        _sink.simplify_progress(
+                            n_iters, simplify_all_max_iterations, n_simplified,
+                        )
+                    except Exception:  # noqa: BLE001
+                        # Progress callbacks must never break the loop.
+                        pass
+                _log.info(
+                    "autoroute.simplify_all.iter",
+                    iteration=n_iters,
+                    max_iterations=simplify_all_max_iterations,
+                    n_simplified=n_simplified,
+                    n_wires=len(current_wires),
+                )
                 if before_fp == after_fp:
                     _log.info(
                         "autoroute.simplify_all.converged",

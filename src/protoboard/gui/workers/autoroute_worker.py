@@ -79,6 +79,10 @@ class AutorouteWorker(QThread):
 
     progress: Signal = Signal(int, str, int)   # pass_num, net_name, pct
     optimize_progress: Signal = Signal(int, int)  # done, total
+    # iter_num, max_iter, n_simplified_this_iter — per iteration of the
+    # post-autoroute simplify-all fixed-point loop.  Lets MainWindow show
+    # a meaningful countdown instead of a frozen-looking progress dialog.
+    simplify_progress: Signal = Signal(int, int, int)
     finished: Signal = Signal(object)          # AutorouteResult
     error: Signal = Signal(str)
 
@@ -165,6 +169,7 @@ class AutorouteWorker(QThread):
         sink = ProgressSink(
             progress=self._report,
             optimize_progress=self._report_optimize,
+            simplify_progress=self._report_simplify,
             cancel_flag=self._cancel_flag,
         )
 
@@ -268,3 +273,14 @@ class AutorouteWorker(QThread):
     def _report_optimize(self, done: int, total: int) -> None:
         """Called from the worker thread after each optimization pass completes."""
         self.optimize_progress.emit(done, total)
+
+    def _report_simplify(
+        self, iter_num: int, max_iter: int, n_simplified: int,
+    ) -> None:
+        """Called from the worker thread after each simplify-all iteration.
+
+        Cross-thread signal emission is safe — Qt queues into the slot's
+        thread context.  MainWindow updates the QProgressDialog label so
+        the user sees ``Simplifying… 3/50 — 12 wires simplified``.
+        """
+        self.simplify_progress.emit(iter_num, max_iter, n_simplified)
