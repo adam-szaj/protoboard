@@ -1,87 +1,209 @@
-# GUI — układ i narzędzia
+# GUI — layout, tools, shortcuts
 
-## Układ okna
+## Window layout
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ Menu / Toolbar                                           │
+│ Menu / Toolbars                                          │
 ├───────────┬────────────────────────────────┬─────────────┤
 │           │                                │             │
 │ Component │       Board View               │ Properties  │
-│ Library   │       (QGraphicsView)          │ + DRC Panel │
-│ (drzewo)  │       warstwy:                 │             │
+│ Library   │       (QGraphicsView)          │ + DRC panel │
+│ (tree)    │       Z-banded layers:         │             │
 │           │       - board                  │             │
 │           │       - bottom wires           │             │
 │           │       - components             │             │
 │           │       - top wires              │             │
 │           │       - overlay (DRC, hints)   │             │
 ├───────────┴────────────────────────────────┴─────────────┤
-│ Status bar: pozycja kursora, jednostki, tryb             │
+│ Status bar: tool, cursor position, units, side, mirror   │
 └──────────────────────────────────────────────────────────┘
 ```
 
 ## Menu
 
-- **File:** New, Open, Save, Save As, Import KiCAD .net, Export KiCAD .net, Export SVG, Export BOM CSV, Export PNG, Print, Close Project, Exit.
-- **Edit:** Undo (Ctrl+Z, dynamiczny label), Redo (Ctrl+Y), Select All (Ctrl+A), Group (Ctrl+G), Ungroup.
-- **Tools:** Select (S), Route Wire (W), Cut Strip, DRC, Autoroute All Nets (F6).
+The post-2026-06-03 redesign collapses the top bar to six items —
+`File · Edit · Select · View · Analysis · Help`. Component, Wire, Net and
+Group actions live under `Edit ▸ Design ▸ …`; board-level edits live
+under `Edit ▸ Board ▸ …`.
 
-## Skróty klawiaturowe
+```
+File
+  Save / Save As… / Open Recent ►
+  Import KiCAD .net… / Export ► (KiCAD .net / SVG / PDF / PNG / BOM CSV)
+  Close Project
+  Quit
 
-`M` move, `R` rotate, `Del` delete, `Ctrl+Z/Y` undo/redo, `Esc` cancel, `S` select, `W` route wire, `Ctrl+A` zaznacz wszystko, `Ctrl+G` group.
+Edit
+  Undo / Redo
+  Design ►
+    Component ► (Add Component, Rotate CW, Rotate CCW, Flip, Re-drag Pins,
+                 Lock / Unlock, Delete)
+    Wire      ► (Route Tool, Insulated toggle, Side: Top, Side: Bottom,
+                 Set Insulated / Set Bare, Move to Top / Bottom,
+                 Flip to Opposite Layer, Simplify Tool, Simplify Selected,
+                 Unweave Selected, Merge Same-Side Fragments,
+                 Convert endpoint to / from wire-pin)
+    Net       ► (New, Rename, Set Color, Clear Color, Toggle Global,
+                 Delete, Assign Pin, Unassign Pin)
+    Group     ► (Group, Ungroup, Exit Group, Rename, Edit Exported Pins,
+                 Export Auto / Export All / Clear Exports,
+                 Autoroute Group)
+  Board ►
+    Resize Board…
+    Cut Strip Tool
+    Spread Components
+  Preferences…
+  Keyboard Shortcuts…
+  Customize Toolbars…
 
-W trybie edycji fragmentu drutu: `Enter` zatwierdź, `Esc` anuluj, `A` autoroute, `F` flip side.
+Select
+  Select All / Deselect All
+  Select All Components / Select All Wires
+  Filter ► (Components / Wires / Groups)
+  Relation ► (None / Logical Net / Physical Net / Unconnected / Neighbors)
+  Cycle Relation / Cycle Back / Clear Highlight
+
+View
+  Camera Top / Bottom / Toggle
+  Mirror H / Mirror V (checkable)
+  Zoom In / Out / Fit Board / Fit Area / Fit Selection
+  Layers ► (1..0 toggle list + Reset)
+  Full Screen
+
+Analysis
+  Run DRC (F5)
+  Autoroute… (F6)
+
+Help
+  Keyboard Shortcuts Reference
+  About
+```
+
+## Toolbars
+
+Two toolbars (Workflow + View) replace the seven that existed before the
+2026-06-03 redesign. Both are customisable via **Edit ▸ Customize
+Toolbars…**, which writes `~/.config/protoboard/toolbars.yaml`.
+
+## Keyboard shortcuts (defaults)
+
+Every menu / context / toolbar action has an entry in
+`gui/keybindings.py` (`ACTION_*`). Empty defaults are common — the user
+can bind them through Preferences. The non-empty defaults:
+
+| Action | Default |
+|---|---|
+| Save / Save As / Undo / Redo / Quit | `Ctrl+S` / `Ctrl+Shift+S` / `Ctrl+Z` / `Ctrl+Y` / `Ctrl+Q` |
+| Select All / Deselect All | `Ctrl+A` / `Ctrl+Shift+A` |
+| Group / Ungroup | `Ctrl+G` / `Ctrl+Shift+G` |
+| Delete | `Del` |
+| Rotate CW / CCW / Flip / Re-drag Pins | `R` / `Shift+R` / `Alt+R` / `Ctrl+R` |
+| Tools: Select / Route / Cut / Simplify | `S` / `W` / `C` / `Shift+S` |
+| Add Component (focus Library) | `A` |
+| Route options: Insulated / Side Top / Side Bottom | `I` / `T` / `B` |
+| Wire bulk: Set Insulated / Set Bare | `Ctrl+Shift+I` / `Ctrl+Shift+B` |
+| Wire bulk: Move to Top / Bottom / Flip | `Ctrl+T` / `Ctrl+B` / `Ctrl+F` |
+| Camera / Mirror H / Mirror V | `X` / `H` / `V` |
+| Zoom In / Out / Fit Board / Fit Area / Fit Selection | `Ctrl++` / `Ctrl+-` / `Ctrl+0` / `Ctrl+Shift+0` / `Ctrl+Shift+F` |
+| Layer toggles 1..10 | `1`..`9`, `0` |
+| Filter Components / Wires / Groups | `Alt+1` / `Alt+2` / `Alt+3` |
+| Cycle Relation / Cycle Back / Clear Highlight | `` ` `` / ``Shift+` `` / `Ctrl+Shift+H` |
+| Run DRC / Autoroute | `F5` / `F6` |
+| Preferences / Full Screen | `Ctrl+,` / `F11` |
+
+User overrides land in `~/.config/protoboard/keybindings.yaml`. Common
+overrides observed in the wild: `redrag_pins=E`, `unweave_wires=U`,
+`highlight_toggle=Space`.
 
 ## SelectTool
 
-`MainWindow` trzyma jedną trwałą instancję `SelectTool` (singleton) — stan `_group_stack` zachowany między przełączeniami narzędzi.
+`MainWindow` keeps a single persistent `SelectTool` instance so that
+`_group_stack` and selection survive tool switches. Selection semantics are
+fully described in
+[highlight-state-machine.txt](highlight-state-machine.txt) (rev 3, which
+treats components, wires and **groups** as first-class hit kinds and uses
+an orthogonal `Alt(basis) × Ctrl/Ctrl+Shift(set-op)` modifier matrix).
 
 ### Multi-selection
 
-- `_selected_ids: set[UUID]` + `_selected_wire_ids: set[UUID]`.
-- Rubber-band **LTR (lewo→prawo):** bbox musi być w całości wewnątrz prostokąta.
-- Rubber-band **RTL (prawo→lewo):** bbox musi przecinać prostokąt; druty: Cohen-Sutherland clip test.
-- Shift+klik dodaje/usuwa z zaznaczenia.
-- Multi-drag: `MacroCommand` z `MoveComponentCommand` per komponent.
-- Multi-delete: `MacroCommand` z `RemoveComponentCommand` + `RemoveWireCommand`.
+- `_selected_ids: set[UUID]`, `_selected_wire_ids: set[UUID]`,
+  `_selected_group_ids: set[UUID]`.
+- Rubber-band **LTR** (left-to-right): the bbox must be fully inside the
+  rectangle. For groups, all members must be inside.
+- Rubber-band **RTL** (right-to-left): the bbox must intersect; wires use a
+  Cohen–Sutherland clip test. For groups, any member intersecting counts.
+- `Ctrl+click` adds, `Ctrl+Shift+click` removes, plain click sets.
+- Multi-drag goes through `MoveDragSetCommand` (atomic; all moved
+  components share one delta).
+- Multi-delete is a `MacroCommand` of `RemoveComponentCommand` +
+  `RemoveWireCommand`.
 
 ### Wire editing
 
-- Węzły (małe kółka) na każdym punkcie ścieżki zaznaczonego drutu.
-- Ctrl+klik na węźle → `_edit_start_idx`; drugi Ctrl+klik → fragment zaznaczony (węzły czerwone).
-- `A` → autoroute fragmentu (A*).
-- `F` → `FlipWireFragmentCommand`; wymaga plated-through padów na endpoints fragmentu częściowego.
-- Ręczne rysowanie → Enter → `ReplaceWireSegmentCommand`.
-- Live drag węzła: Ctrl+drag; `_drag_orig_wire_paths` przechowuje oryginały dla undo.
-- Prawy klik na drucie → menu "Flip fragment", "Move to layer", "Set bare/insulated".
+- The wire-edit mode is entered with `[E]` after selecting a single wire
+  (the legacy `Ctrl+click` entry point is gone).
+- The first LMB defines the start of an editable fragment; the second LMB
+  defines the end. The fragment is highlighted in cyan
+  (`_WIRE_EDIT_PEN #00CCFF`).
+- Hit testing is scoped to the selected wire's net so that cross-wire
+  edits on the same net keep working without false hits on foreign wires.
+- A miss is a no-op (no fall-through to the selection dispatcher).
+- Right-click on a wire opens the wire menu: Flip fragment, Move to layer,
+  Set bare / insulated, Convert endpoint to / from wire-pin.
 
-### Grupy — nawigacja
+### Group navigation
 
-- `_group_stack: list[UUID]` zaczyna od `[ROOT_GROUP_ID]`.
-- Double-click na komponencie → push do jego child group.
-- Esc → pop (nigdy nie usuwa ROOT_GROUP_ID).
-- Klik na obrysie grupy (`"group_outline"`) → zaznacza wszystkich members, inicjuje drag.
-- `_is_accessible(comp_id)`: na root level zawsze True; wewnątrz podgrupy — tylko bezpośredni members i proxy child groups.
+- `_group_stack: list[UUID]` starts at `[ROOT_GROUP_ID]`.
+- Double-click a component → push that component's child group.
+- Esc → pop (never pops `ROOT_GROUP_ID`).
+- Plain LMB on a group outline → `Hit("group", gid)` SET (immediate; the
+  legacy 500 ms long-press select phase is gone).
+- A 1 s hold on a group outline still triggers enter-group.
+- `_is_accessible(comp_id)`: at the root level always `True`; inside a
+  child group only its direct members and direct proxy child-groups are
+  accessible.
 
-### Kontekstowe menu (prawy klik)
+### Context menus
 
-- Na pinie: lista netów + "Disconnect pin from net" (`DisconnectPinCommand`).
-- Na komponencie wewnątrz grupy: "Export/Unexport pin N" (`SetExportedPinsCommand`).
+- On a pin: list of nets plus *Disconnect pin from net*
+  (`DisconnectPinCommand`).
+- On a component inside a group: *Export / Unexport pin N*
+  (`SetExportedPinsCommand`).
+- On a wire: Flip fragment, Move to layer, Set bare / insulated, Convert
+  endpoint to / from wire-pin (when the endpoint qualifies), Simplify,
+  Unweave, Merge.
 
-## Ctrl+G — grupowanie
+## Drag pipeline
 
-`GroupTargetDialog` — "Utwórz nową grupę" lub "Dodaj do istniejącej". Nowa grupa rejestrowana jako child aktywnej grupy przez `AddToGroupCommand`.
+See [drag-pipeline-architecture.md](drag-pipeline-architecture.md). The
+short version: every drag (single component, multi-selection, single group,
+or mix) is captured as a `DragSet` at press time; live conflict detection
+runs through `DragDetector` and an injected `PadStrategy`; commit goes
+through `MoveDragSetCommand`. Conflict resolution is preference-driven —
+see Preferences ▸ Drag for the `auto-remove / ask-remove / auto-reroute /
+ask-reroute / block` knobs.
 
 ## Render
 
-`render_groups()` w `component_renderer.py`:
-- Obrys tylko dla child groups aktywnej grupy (full opacity) i innych grup (dimmed).
-- Root group i aktywna grupa bez obrysu.
-- Eksportowane pady child groups: zielone romby (Z=12.0).
-- `BoardView._active_group_id` przekazywane do rendererów przy każdym refresh.
+`render_groups()` in `component_renderer.py`:
 
-## Zoom i pan
+- Draws outlines only for child groups of the active group (full opacity)
+  and other groups (dimmed).
+- The root group and the currently active group have no outline.
+- Exported pads of child groups are drawn as green diamonds (Z = 12.0).
+- `BoardView._active_group_id` is passed to every renderer on each
+  refresh.
 
-- Zoom do kursora: `ScrollBarAlwaysOn` + 50% sceneRect margin + korekta scrollbarów.
-- Zoom in: ×1.1; zoom out: ×(1/1.08) — asymetryczne, nie zmieniać.
-- Pan: środkowy przycisk i Ctrl+drag; `NoAnchor` zapobiega resetowi pozycji przy `setSceneRect`.
+The board view paints in Z-banded layers (board → bottom wires →
+components → top wires → overlay). The `pin-pads` overlay (Z ≈ 3.5)
+and the top-glyph overlay (Z ≈ 9.5) are toggled with keys `9` and `0`.
+
+## Zoom and pan
+
+- Zoom-to-cursor: `ScrollBarAlwaysOn` + 50 % `sceneRect` margin + scrollbar
+  correction (no `translate()`).
+- Zoom factors: in = ×1.1, out = ×(1/1.08) — asymmetric on purpose;
+  changing them affects the feel of the tool.
+- Pan: middle mouse button and `Ctrl+drag`. `NoAnchor` prevents the
+  position reset that Qt otherwise applies when `setSceneRect` runs.

@@ -1,391 +1,371 @@
-# Semantyka Wire, Pin, Joint oraz Pad
+# Pad, pin, wire and joint semantics
 
-Wiele akcji automatycznych i manualnych wymaga określenia twardych warunków
-oraz preferencji przy układaniu komponentów lub routingu przewodów. Częstym
-problemem przy refaktoringu kodu lub dodawaniu nowych funkcjonalności jest
-zła interpretacja co jest dozwolone, co nie a co jedynie nie jest preferowane.
+Many automatic and manual actions need a precise answer to "what is
+allowed, what is forbidden, and what is merely *discouraged*?" when
+placing components or routing wires. A frequent source of bugs is each
+algorithm having its own informal answer.
 
-Ten dokument jest jedynym źródłem prawdy dla zasad pad/pin/wire/joint.
-Definiuje konwencje, twarde zasady (0–9), zasady miękkie, wire-pin, pad
-modifiers (kapton tape) oraz cross-check tabelę implementacji per callsite.
+This document is the **single source of truth** for the pad / pin / wire /
+joint rules. It defines the conventions, the hard rules (0–9), the soft
+rules, the wire-pin model, the kapton-tape modifier, and the cross-check
+table that maps each rule to its enforcement site.
 
-## Konwencje
+## Conventions
 
-- **Net** = `schematic.Net` (logiczna sieć ze schematu, identyfikowana przez
-  `Net.id`). Wire bez resolved net (oba endpoints off-pin, brak pinu na
-  żadnym vertex) traktujemy jako **orphan-net** — nie jest częścią żadnej
-  `Net`, ale **nie jest też nową siecią**. Nowo układany wire startuje jako
-  orphan-net dopóki jego endpoint nie trafi na pin/joint/inną sieć (wtedy
-  dziedziczy net z tego mate'a). Łączenie orphan-net z named net w jednym
-  solder node = łańcuch potencjalnego short, traktujemy jak konflikt jeśli
-  orphan jest już mate'em innej named net.
+- **Net** = `schematic.Net` — a logical net identified by `Net.id`. A wire
+  whose endpoints don't resolve to any pin and which has no `PinKnot`
+  anywhere on its path is treated as an **orphan net** — *not* part of any
+  named `Net`, but *also not a new net*. A freshly drawn wire is orphan
+  until one of its endpoints lands on a pin / joint of a named net (then
+  it inherits that net). Joining an orphan wire with a named-net node is
+  permitted; joining two named-net nodes from different nets is the
+  classic short.
 
-- **Solder node** = pin komponentu LUB pad-joint (same-side LUB cross-side =
-  via) LUB pad z bare-wire vertex (endpoint lub middle-point) na stronie
-  metalizowanej. Każdy fizyczny węzeł lutowniczy.
+- **Solder node** = a component pin **or** a pad-joint (same-side or
+  cross-side via) **or** a pad with a bare-wire vertex (endpoint or
+  middle point) on the active side. Every physical soldering point.
 
-  Bare wire na padzie metalizowanym po stronie prowadzenia jest **zawsze**
-  połączony elektrycznie z padem (niezależnie czy endpoint czy middle).
-  Różnica między middle-point a endpoint:
-  - **middle-point**: brak dodatkowej penetracji; połączenie tylko przez
-    fabryczną metalizację otworu (jeśli pad ma `plated_through=True`,
-    łączy obie strony intrinsically).
-  - **endpoint**: dodaje własną penetrację (lutowanie); galwanizuje obie
-    strony nawet gdy otwór nie jest fabrycznie metalizowany.
+  A bare wire on a metallised pad on its own side is **always**
+  electrically bonded to the pad regardless of whether it's an endpoint
+  or a middle point. The difference between endpoint and middle point:
 
-- **Strona uzbrojona** padu = strona, dla której `PadLayers` ma `True`.
-  `plated_through=True` oznacza że obie strony są galwanicznie połączone
-  fabrycznie (bez via).
+  - **middle point** — no extra penetration; the connection is just the
+    factory metallisation of the hole (which, for `plated_through=True`,
+    bridges both sides).
+  - **endpoint** — adds its own penetration (soldering); galvanically
+    bridges both sides even when the hole is not plated-through.
 
-- **Strona pinu**: piny (regular pin komponentu i wire-pin) **nie mają
-  strony**. Logicznie pin jest tak samo po jednej jak i po drugiej stronie.
-  Komponent jest położony po jednej stronie, ale wszystkie jego
-  solder-pady (pin-joint, t-joint, wire-pin) są obecne po obu stronach
-  płytki.
+- **Active side** of a pad = the side for which `PadLayers` returns True.
+  `plated_through=True` means both sides are bonded at the factory (no
+  via required).
 
-## Definicje terminów
+- **Pin sidedness:** pins (component pins and wire-pins) **have no side**.
+  Logically they are present on both sides of the board. The component
+  body sits on one side but its solder-pads (pin-joint, t-joint, wire-pin)
+  exist on both.
 
-### Solder node — podtypy
-- **Pin** — pin komponentu (PinKnot). Pozycja wynikająca z placement.
-- **Pad-joint same-side** — wszystkie incident wires na jednej stronie
-  (JointKnot, position = pad).
-- **Via** — szczególny pad-joint, wires po obu stronach. Pin też tworzy
-  via efektywnie (zasada 3 — galwaniczne połączenie obu stron przez
-  penetrację fizyczną).
-- **Bare-wire vertex** — endpoint LUB middle-point bare wire'a na padzie
-  metalizowanym po jego stronie (patrz "Konwencje / Solder node" powyżej).
+## Term glossary
 
-Pin, pad-joint i via mają tę samą semantykę net-conflict: każdy incident
-wire/pin musi być net-compatible. Bare-wire vertex tworzy elektryczny
-kontakt bez tworzenia "joint" w sensie strukturalnym (joint to mutacja
-modelu, vertex to lokalizacja na padzie).
+### Solder node subtypes
 
-### Net compatibility (rozszerzenie zasady 0)
-Dwa elementy (wire/pin/joint) są **net-compatible** jeśli:
-- mają ten sam Net.id, LUB
-- któryś jest orphan-net a drugi ma named net (orphan dziedziczy net
-  drugiego), LUB
-- oba są orphan-net (luźny chain bez named net na żadnym końcu).
+- **Pin** — a component pin (`PinKnot`). Position derived from placement.
+- **Same-side pad-joint** — all incident wires on one side (`JointKnot`,
+  `position == pad`).
+- **Via** — a pad-joint with incident wires on both sides. A pin also
+  effectively acts as a via — see rule 3 (galvanic bonding via physical
+  penetration).
+- **Bare-wire vertex** — an endpoint or middle point of a bare wire on a
+  metallised pad on the wire's side (see *Conventions / Solder node*
+  above).
 
-**Conflict** = oba mają named net i `net_a.id != net_b.id`.
+Pins, pad-joints and vias share the same net-conflict semantics: every
+incident wire / pin must be net-compatible. A bare-wire vertex creates an
+electrical contact without creating a structural joint (a joint is a
+model mutation; a vertex is just a position on a pad).
+
+### Net compatibility (rule 0 extended)
+
+Two elements (wire / pin / joint) are **net-compatible** when:
+
+- they share `Net.id`, **or**
+- one is orphan and the other has a named net (the orphan inherits), **or**
+- both are orphan (loose chain, no named net on either end).
+
+**Conflict** = both have a named net and `net_a.id != net_b.id`.
 
 ---
 
-## Twarde zasady
+## Hard rules
 
-### Zasada 0 — Brak short
-Dwie różne sieci nie mogą tworzyć połączenia elektrycznego. To metareguła
-nad zasadami 1–9 — każda z nich jest jej konkretyzacją.
+### Rule 0 — No shorts
 
-### Zasada 1 — Foreign wire przez pin
-Przez pin komponentu nie może przebiegać wire innej sieci. Patrz zasada 6
-dla pełnej formalizacji (każdy vertex wire'a, nie tylko endpoint).
+Two different nets must not form an electrical connection. This is the
+meta-rule above rules 1–9; each of them is a specialisation.
 
-### Zasada 2 — Pad-joint nie akceptuje obcych sieci
-Istniejący pad-joint należy traktować jak pin komponentu. Dwie szczegółowe
-reguły:
+### Rule 1 — No foreign wire on a pin
 
-**2a.** Pad-joint nie może być utworzony na padzie na którym jest cokolwiek
-należące do innej sieci. Przykład: na padzie X, po stronie bottom przebiega
-wire `W_a` sieci `Net_a`, po stronie top wire `W_b` sieci `Net_b`. Taka
-sytuacja jest legalna, ale na tym padzie nie można dołączyć trzeciego
-wire'a tworzącego pad-joint (jakikolwiek dodatkowy mate forsuje wybór
-"której sieci pad należy", a żadna odpowiedź nie jest poprawna).
+A wire of a different net must not run over a component pin. See rule 6
+for the full formalisation (covers every vertex of the wire, not just the
+endpoint).
 
-**Wyjątek 2a.1** — podmiana fragmentu wire'a. Jeśli endpoint wymienianego
-fragmentu leży na padzie X i transient joint zostanie zredukowany
-atomowo w tej samej mutacji (`make_t_junction` → split + re-anchor
-jednoczesny, degree padu po operacji ≤ 1), operacja jest legalna.
-Callsite musi zagwarantować redukcję.
+### Rule 2 — A pad-joint refuses foreign nets
 
-**2b.** Nie można utworzyć joint'u na padzie na którym jest wire innej
-sieci (degenerat 2a — bez dodatkowych mate'ów).
+An existing pad-joint is treated like a component pin. Two detail rules:
 
-### Zasada 3 — Via i pin galwanizują obie strony
-Via to szczególny przypadek pad-joint ze zmianą stron płytki. Via oraz pin
-komponentu tworzy połączenie galwaniczne po obu stronach płytki, nawet gdy
-płytka jest jednostronna lub gdy pad nie jest `plated_through`.
+**2a.** A pad-joint may not be created on a pad that already contains
+*anything* belonging to another net. Example: on pad X, a bottom-side
+wire `W_a` belongs to `Net_a` and a top-side wire `W_b` belongs to
+`Net_b`. That layout is legal, but no third wire may attach to X to
+form a pad-joint — any additional mate forces a "which net does the pad
+belong to?" decision and there is no good answer.
 
-### Zasada 4 — Bare wire i plated-through
-Bare wire tworzy połączenie galwaniczne od strony, po której jest położony,
-o ile pad jest metalizowany po tej stronie (zasada "Solder node"). Jeśli
-otwór padu jest galwanizowany (`plated_through=True`), połączenie
-elektryczne pojawia się również po drugiej stronie.
+**Exception 2a.1** — fragment replacement. When the endpoint of a
+replaced fragment lands on pad X and the transient joint reduces
+atomically inside the same mutation (`make_t_junction` → split +
+re-anchor in a single step, post-mutation degree ≤ 1), the operation is
+legal. The caller must guarantee the immediate reduction.
 
-Na padzie z bare wire można:
-- stworzyć t-joint tej samej sieci,
-- położyć pin komponentu tej samej sieci,
-- położyć izolowany przewód:
-  - **tej samej sieci** → tworzy pad-joint (+via jeśli strony różne),
-  - **obcej sieci** → dozwolone tylko gdy nie zachodzą inne ograniczenia
-    (nie ma via, nie ma pad-joint, izolacja izoluje wire od pada).
+**2b.** A joint may not be created on a pad that holds a foreign-net
+wire (degenerate 2a — no extra mates needed).
 
-### Zasada 5 — Galwaniczna penetracja przez pin
-Pin komponentu **zawsze** tworzy galwaniczne połączenie obu stron padu,
-niezależnie od `PadLayers.plated_through`. Implementacja: oceniając "co
-jest na padzie po stronie X", musisz uwzględnić piny **bez względu na
-placement.side**, gdy pad jest pod pinem.
+### Rule 3 — Vias and pins bond both sides
 
-To rozszerzenie zasady 3, wyróżnione jako osobna zasada bo:
-- via jest **opcjonalna** (tworzona przez user/autorouter intentionally),
-- pin **zawsze** istnieje gdy komponent jest placed.
+A via is a special pad-joint that switches sides. Vias and component pins
+make a galvanic connection on both sides of the board, even on
+single-sided boards and on pads that are *not* `plated_through`.
 
-Pin penetracja jest niezależna od bare/insulated wire — pin galwanizuje
-pad z samej obecności.
+### Rule 4 — Bare wire and plated-through
 
-### Zasada 6 — Foreign wire/pin: brak prowadzenia drutu przez pin
-**Przez pad komponentu (regular pin i wire-pin) nie może przebiegać żaden
-wire** — niezależnie od izolacji, niezależnie czy to endpoint czy interior
-vertex, niezależnie od sieci.
+A bare wire creates a galvanic connection on the side it runs on, provided
+the pad is metallised on that side (see *Solder node*). If the hole is
+plated-through, the connection appears on the opposite side too.
 
-Rationale (świadomie wykraczamy poza czystą zasadę elektryczną zero):
-- **fizyczne**: prowadzenie drutu nad pinem jest trudne lub niemożliwe
-  (pin sterczy ponad pad, izolacja go nie omija),
-- **estetyczne i utrzymaniowe**: obwód z drutami nad pinami trudniej
-  analizować i serwisować,
-- **elektryczne** (jako wycinek zasady 0): bare wire obcej sieci nad
-  pinem to natychmiastowy short.
+On a pad with a bare wire you may:
 
-Konsekwencja: zasada nie ma wyjątku "insulated interior vertex może
-przechodzić nad pinem". Każdy vertex (endpoint, middle-point) każdego
-wire'a (bare, insulated) jest zakazany na padzie pinu, z jedynym
-wyjątkiem: wire którego endpoint jest **tym pinem** (legal solder).
+- form a same-net t-joint,
+- place a component pin of the same net,
+- place an insulated wire:
+  - **same net** → creates a pad-joint (and a via if the sides differ),
+  - **foreign net** → allowed only when no other constraint kicks in
+    (no via, no pad-joint, the insulation isolates the wire from the
+    pad).
 
-Ta sama reguła dotyczy wire-pinów. Wire-pin w praktyce to przylutowany do
-pada kawałek przewodu — wszystko nad nim ma te same problemy fizyczne i
-estetyczne co regular pin.
+### Rule 5 — Galvanic penetration via a pin
 
-### Zasada 7 — Pad-joint exclusivity per sieć
-Pad-joint (każdy podtyp, w tym via) jest **exclusive dla jednej named
-net** raz utworzony. Po utworzeniu, nowy incident wire musi być
-net-compatible z istniejącym joint'em.
+A component pin **always** bonds both sides of the pad regardless of
+`PadLayers.plated_through`. Implementation: when asking "what is on side
+X of this pad?", pins must be counted **independent of `placement.side`**.
 
-Zasada 2 mówi to dla **tworzenia** joint'u. Tu dopisujemy że
-**istniejący** joint też się broni — nie można dorzucić foreign wire do
-działającego joint'u (tym bardziej via).
+This is rule 3 made explicit because:
 
-Wyjątek z zasady 2a (podmiana fragmentu): legalna pod warunkiem że joint
-**redukuje się natychmiast** — tj. po zakończeniu operacji pad nie jest
-joint'em (degree → 0 lub 1). Callsite musi zagwarantować atomową redukcję
-transient joint'u w tej samej mutacji.
+- a via is **optional** (deliberately created by user / autorouter),
+- a pin is **always** present once the component is placed.
 
-### Zasada 8 — Pin komponentu jako odbiorca incoming wire
-Pin komponentu (analogicznie do joint'u w zasadzie 7) **nie akceptuje
-foreign wire** jako incoming endpoint.
+Pin penetration is independent of bare/insulated wires — the pin bonds
+the pad by being there.
 
-Obecnie `_find_joint_at` ma net gate (po 4 rundach t-junction).
-**`_find_pin_at` nie ma odpowiednika** — implementacja zakłada że jeśli
-endpoint wire trafia na pin, to wire jest "tej samej sieci" (lub orphan
-przyjmie net pina). Ta zasada wymaga jawnego gate:
+### Rule 6 — No wire over a foreign pin pad
+
+**No wire whatsoever may pass over a component-pin pad** (regular pin or
+wire-pin) — regardless of insulation, regardless of whether the vertex
+is an endpoint or an interior point, regardless of net.
+
+Rationale (we deliberately go beyond pure electrical zero):
+
+- **physical**: routing over a pin is hard or impossible — the pin
+  protrudes above the pad, the insulation does not bend around it,
+- **aesthetic and serviceability**: a layout with wires over pins is
+  harder to read and to rework,
+- **electrical** (a slice of rule 0): a foreign-net bare wire over a pin
+  is an immediate short.
+
+There is **no insulated-interior exception**. Every vertex (endpoint,
+middle point) of every wire (bare, insulated) is forbidden on a pin pad
+— with the sole exception of the wire whose endpoint **is** that pin
+(legal solder).
+
+The same rule applies to wire-pins. Physically a wire-pin is a chunk of
+wire soldered to a pad; anything running over it has the same physical
+and aesthetic problems as a regular pin.
+
+### Rule 7 — Pad-joint exclusivity per net
+
+A pad-joint of any kind (including vias) is **exclusive to one named
+net** once formed. A new incident wire must be net-compatible with the
+existing joint.
+
+Rule 2 covers **creation**; rule 7 covers **existing** joints — you can't
+add a foreign wire to a live joint, and even more so to a live via.
+
+Exception 2a.1 (fragment replacement) applies: legal as long as the
+joint **reduces immediately** — after the operation the pad is no longer
+a joint (degree → 0 or 1). The caller must guarantee the atomic
+reduction of the transient joint inside the same mutation.
+
+### Rule 8 — A component pin refuses incoming foreign wires
+
+A component pin (analogous to a joint in rule 7) **does not accept a
+foreign-net wire** as an incoming endpoint.
+
+`_find_joint_at` enforces this via its net gate after four rounds of
+t-junction analysis. `_find_pin_at` does not yet have an equivalent —
+the implementation assumes that if an incoming wire endpoint hits a pin,
+the wire is "of the same net" (or orphan inheriting the pin's net).
+This rule requires an explicit gate:
 
 ```
-incoming_wire endpoint na pin P:
-- net(incoming) == net(P) → SAFE
-- net(incoming) == None, net(P) != None → ASSIGN (incoming dziedziczy net pina)
-- net(incoming) != None, net(P) == None → ASSIGN (pin dziedziczy net wire'a)
-- net(incoming) != net(P) (oba named) → REJECT (foreign wire na pin)
+incoming wire endpoint on pin P:
+- net(incoming) == net(P)                          → SAFE
+- net(incoming) == None, net(P) != None            → ASSIGN (incoming inherits net of P)
+- net(incoming) != None, net(P) == None            → ASSIGN (pin inherits net of incoming)
+- net(incoming) != net(P) (both named)             → REJECT (foreign wire on pin)
 ```
 
-To bezpośredni pierwowzor `can_form_t_junction` ale dla pin endpoints,
-nie joint interiors.
+It is the direct counterpart of `can_form_t_junction`, but for pin
+endpoints rather than joint interiors.
 
-### Zasada 9 — Half-orphan wire (warning, nie error)
-Wire którego **jeden lub oba endpointy nie mają solder mate** (pin, joint,
-ani drugi wire endpoint w tym samym solder node) to **half-orphan**.
+### Rule 9 — Half-orphan wire (warning, not error)
 
-DRC zgłasza **warning**, nie error. User decyduje:
-- usunąć (wire jest do wycięcia),
-- poprowadzić dalej (dodać wire kontynuujący),
-- zagospodarować jako wire-pin (virtual goldpin — patrz definicja niżej).
+A wire whose **one or both endpoints have no solder mate** (no pin, no
+joint, no second wire endpoint at the same solder node) is a
+**half-orphan**.
 
-Endpoint który jest solo na padzie traktujemy jako **prospective via**:
-gdyby ktoś coś tam dołączył w przyszłości, byłby to via. Do tego momentu
-electric net = net wire'a (lokalnie), bez galwanicznego rozszerzania na
-drugą stronę.
+DRC raises a **warning** rather than an error. The user decides:
 
-Half-orphan wire często powstaje przy zmianie pozycji komponentów —
-tworzą się konflikty z pinami, albo wire podłączony do przenoszonego
-komponentu nie spełnia warunków geometrycznych i zostaje usunięty.
-**Autorouter musi traktować half-orphan wire jako kandydata na destynację**
-dla sieci, którą trzeba uzupełnić (nie tylko prospective via — także
-prospective target dla nowo routowanego segmentu tej samej sieci).
+- delete it (the wire was meant to go away),
+- continue it (add another wire),
+- convert it to a wire-pin (virtual goldpin — see below).
 
----
+A lone endpoint on a pad is treated as a **prospective via**: if
+something attached to it later, it would *become* a via. Until then the
+electrical net is the wire's net locally, with no galvanic spread to the
+other side.
 
-## Zasady miękkie
-
-Sytuacje legalne, których należy unikać. Część tych zasad jest dozwolona
-bez restrykcji dla jednego toola, a dla innego jest nielegalna.
-
-**Przykład**: crossing przewodów izolowanych (same-side lub opposite-side)
-na padzie. Dla autoroutingu jest możliwa droga do prowadzenia przewodu,
-limitowana wyższym kosztem ale nie zabroniona. Dla toola "simplify wire
-path" (opcja do zaznaczenia) takie przecięcie powinno mieć mocniejsze
-ograniczenie — przy simplify staramy się uprościć zarówno ścieżkę jak i
-proces lutowania. Jeśli użytkownik chce crossing na padzie, może wybrać
-opcję (o ile nie zachodzą zasady twarde).
-
-Crossing off-pad jest traktowany neutralnie o ile jest po przeciwnych
-stronach płytki.
-
-Pad z kapton tape akceptuje insulated crossings bez restrykcji (drut nie
-dotyka pada fizycznie, tape go izoluje) — patrz "Pad modifiers" niżej.
+Half-orphans frequently appear after a component move — conflicts with
+other pins, or geometric mismatches, cause incident wires to be dropped.
+**The autorouter must treat half-orphan wires as candidate destinations**
+for the net being completed (not only as prospective vias — also as
+prospective targets for a new segment of the same net).
 
 ---
 
-## Wire-pin (virtualny goldpin)
+## Soft rules
 
-**Wire-pin** to virtualny komponent jednopinowy reprezentujący endpoint
-wire'a jako stały solder point. Logiczny odpowiednik fizycznego
-pinheadera 1x01 (goldpin). Fizycznie to po prostu kawałek przewodu
-przylutowany do pada.
+Situations that are legal but discouraged. Some are unrestricted for one
+tool and forbidden for another.
 
-### Use case
-- Definiowanie eksportowanych pinów grupy bez konieczności dodawania
-  fizycznego goldpina.
-- Zamiana half-orphan wire endpointu na deliberowany terminal.
-- Wire-pin staje się anchorem netu lokalnie — wire ma terminal, joint
-  jest formalny.
+**Example:** insulated wire crossings (same-side or opposite-side) on a
+pad. The autorouter accepts them as a legal-but-expensive routing option;
+the "simplify wire path" tool tightens the rule — simplification tries to
+clean up both the path *and* the soldering job, so crossings on pads are
+penalised harder. The user may still opt in to a crossing on a pad
+(subject to the hard rules).
 
-### Semantyka
-Wire-pin ma:
-- pozycję (przypisaną do padu),
-- net (dziedziczona z wire'a),
-- **NIE ma strony** — analogicznie do regular pinu, wire-pin jest
-  obecny po obu stronach płytki.
+Off-pad crossings are neutral as long as they sit on opposite sides of
+the board.
 
-Galwanizuje pad jak pin komponentu (zasada 5). Reguła 6 stosuje się
-identycznie jak dla regular pinu — żaden wire (poza tym, którego
-endpoint *jest* tym wire-pinem) nie może przechodzić nad padem wire-pina.
+A pad covered by kapton tape accepts insulated crossings without
+restriction (the wire does not physically touch the pad — the tape
+isolates it). See *Pad modifiers (kapton)* below.
+
+---
+
+## Wire-pin (virtual goldpin)
+
+A **wire-pin** is a virtual single-pin component representing the
+endpoint of a wire as a stable solder point. Logical equivalent of a
+1×01 pin-header (goldpin); physically just a piece of wire soldered into
+the hole.
+
+### Use cases
+
+- Declaring a deliberate group `exported_pins` terminal without adding a
+  real goldpin component.
+- Turning a half-orphan wire endpoint into a deliberate terminal.
+- Anchoring a net locally: the wire has a terminal, the joint is
+  formalised.
+
+### Semantics
+
+A wire-pin has:
+
+- a position (must coincide with a plated-through pad),
+- a net (inherited from the owning wire at creation),
+- **no side** — like a regular pin, present on both sides.
+
+It bonds the pad like a regular pin (rule 5). Rule 6 applies identically
+— no wire may run over a wire-pin pad except the one whose endpoint *is*
+the wire-pin.
 
 ### Lifetime
-Wire-pin jest **ściśle związany z wire'em**:
-- wire znika → wire-pin znika,
-- wire przenosi endpoint w inne miejsce → wire-pin znika z poprzedniej
-  pozycji.
 
-Wire-pin nie jest niezależnym obiektem projektowym jak ComponentInstance.
+A wire-pin is **tightly coupled to the wire**:
 
-### Dyspozycja w modelu
-Dwie opcje:
-1. Nowy typ obok `PinKnot`/`JointKnot`: `WirePinKnot(id, position, net_id)`
-   — własne dane, nie odsyła do żadnego `ComponentInstance`.
-2. Zachować `ComponentInstance` jako "virtual instance"
-   (`definition_ref="_virtual_wire_pin"`) — reusuje istniejące code paths
-   (DRC, persistence, schematic), ale lifetime zarządzany przez wire,
-   nie jak normalny komponent.
+- wire deleted → wire-pin deleted,
+- wire endpoint moved → wire-pin removed from the old position.
 
-Wizualizacja: pomalowanie pada na kolor sieci (bez body komponentu).
+A wire-pin is *not* an independent project object like a
+`ComponentInstance`.
 
-Decyzja do podjęcia podczas projektowania warstwy Pad/PadLayer — patrz
-"Otwarte pytania".
+### Data model
+
+`WirePinKnot` is a third `Knot` kind next to `PinKnot` and `JointKnot`,
+backed by `WirePinItem` in `PadIndex`. The visualisation paints the pad
+in the net colour with a small inner mark (no component body).
 
 ---
 
-## Pad modifiers (kapton tape)
+## Pad modifiers (kapton tape) — **planned**
 
-Kapton tape (lub inna izolacja nakładana ręcznie) zmienia per-pad
-charakterystykę elektryczną. Tape może być nałożona na top, bottom, lub
-obie strony.
+Kapton tape (or any manually applied insulation) changes the per-pad
+electrical behaviour. Tape may be applied to top, bottom, or both sides.
 
-**Tape logicznie tworzy kolejną warstwę.** Nałożona na "top" tworzy
-warstwę "top+1", analogiczną do górnej warstwy płytki jednostronnej.
-Konsekwencja: przewody można prowadzić na top, bottom, top+1. Taśmy można
-nakładać warstwami, więc teoretycznie liczba warstw może być dowolna
-(top+2, top+3, …).
+**Logically a tape creates an extra layer.** Tape on "top" creates a
+`tape:top+1` layer, conceptually a copy of the top layer of a
+single-sided board. The board's wire layers are now `top`, `bottom`,
+`tape:top+1` (and so on for multi-layer tapes).
 
-### Semantyka
+### Semantics
 
-**Tape całkowicie izoluje pad od bare wire** po stronie, na której jest
-nałożona. To dotyczy także padów z `plated_through=True` — tape blokuje
-bare wire mimo plated-through hole.
+**A tape entirely isolates the pad from a bare wire** on the side it
+covers. That holds even on `plated_through=True` pads — the tape blocks
+the bare wire despite the through-hole connection.
 
-**Wyjątki przebijające tape** (penetracja fizyczna w hole):
-- pin komponentu,
+**Exceptions that pierce the tape** (physical penetration in the hole):
+
+- component pin,
 - via,
 - wire-pin.
 
-Te elementy galwanizują pad mimo tape (pin wbity w hole przebija
-metalicznie tape over hole).
+They bond the pad regardless of the tape (the pin punctures the tape
+over the hole metallurgically).
 
-**Pad-joint (t-joint) nad tape** (zasada 7 + modifier):
-- **Default**: dozwolony (tworzy strukturalny węzeł na warstwie
-  routingu nad tape; nie tworzy elektrycznego połączenia z padem
-  *poniżej* tape ani z drugą stroną — tape izoluje).
-- **Per-project knob `strict_tape_joints`**: gdy włączony, t-joint nad
-  tape = error (konserwatywne).
-- Subtelność: t-joint nad tape to jedyny przypadek, gdzie joint nie
-  tworzy połączenia elektrycznego z padem ani nie blokuje drugiej
-  strony. Default ALLOW odzwierciedla intencję taśmy (izolować jedną
-  stronę od drugiej), ale wymaga uwagi w analizie elektrycznej.
+**Pad-joint over tape** (rule 7 + modifier):
 
-Tape jest **per-side modifier** dla bare-wire i (opcjonalnie) joint
-creation. Nie wpływa na piny komponentów, via ani wire-piny, ponieważ te
-przebijają tape fizycznie.
+- **Default**: allowed (creates a structural node on the routing layer
+  above the tape; no electrical connection to the pad *below* the tape,
+  no bond with the opposite side — the tape isolates).
+- **Per-project knob `strict_tape_joints`**: when on, a joint over tape
+  is an error (conservative).
+- Subtlety: a joint over tape is the only case where a joint does not
+  bond to the pad or the opposite side. The default ALLOW reflects the
+  tape's intent (isolate one side from the other) but warrants attention
+  in electrical analysis.
 
-### Edge cases
+Tape is a **per-side modifier** for bare wires and (optionally) joint
+creation. It does not affect pins, vias or wire-pins — those penetrate
+it physically.
 
-**Bare wire na padzie z tape (z lub bez `plated_through`)**:
-- bare wire jest **całkowicie izolowany** od pada,
-- pad zachowuje się dla tego wire'a jak zwykła off-pad pozycja,
-- jeśli na drugiej stronie tego samego padu jest bare wire bez tape,
-  tamten wire normalnie tworzy contact (po swojej stronie); tape z
-  jednej strony nie wpływa na drugą stronę poza tym, że nie ma
-  galwanicznego mostka przez tape.
+### Edge cases, DRC, autoroute, simplify
 
-**Tape na obu stronach + `plated_through=True`**:
-- pad jest sealed dla bare wires z obu stron,
-- pin/via/wire-pin nadal galwanizuje (penetracja przez tape w hole),
-- to legalny workflow: użytkownik chce zachować dostęp pinów, ale
-  zablokować swobodny routing bare-wires nad padem.
+Documented inline at the original notes (see the historic
+`pad-state-refactor-questions.md` archive). Summary:
 
-**Tape blokuje crossing semantykę miękką**: insulated crossing na
-padzie z tape jest neutralny (tape eliminuje fizyczny kontakt z padem;
-crossing redukuje się do off-pad crossing).
+- bare wire on a taped pad is *off-pad* electrically;
+- bare wire on the opposite (untaped) side is unaffected;
+- `_check_short` must understand tape so it doesn't flag the now-isolated
+  bare wire as a missing bond;
+- `_check_bare_wire_interior_cross` over a tape becomes a soft "prefer
+  not to" instead of an error;
+- a new `KAPTON_REDUNDANT` info-level check warns when tape covers a pad
+  that has nothing to isolate;
+- the autoroute cost model gets a `kapton_bare_freedom` knob (default
+  neutral).
 
-### Wpływ na DRC
-- `_check_short` musi rozumieć że bare wire na pad-z-tape nie tworzy
-  galvanic contact na tej stronie.
-- `_check_bare_wire_interior_cross` — tape nad bare wire crossing
-  eliminuje short, redukuje do "preferable to avoid" (zasada miękka).
-- Nowy check `KAPTON_REDUNDANT` (info, nie error): tape na padzie który
-  i tak nie ma wires/pinów do izolowania — wskazówka dla użytkownika.
-
-### Wpływ na autoroute
-- A* cost model uwzględnia kapton:
-  - bare wire przechodzący przez pad-z-tape na bieżącej stronie =
-    obniżona penalty (nie blokuje już nic; tape izoluje od pada),
-  - po przeciwnej stronie tape nadal pozwala kłaść bare wires bez
-    short check.
-- Nowy knob `kapton_bare_freedom` w cost model (default neutral; user
-  może preferować lub unikać tape).
-
-### Wpływ na simplify
-Pad z tape akceptuje insulated crossings bez restrykcji (drut nie dotyka
-pada fizycznie, tape go izoluje). To rozluźnia regułę miękką dla
-crossings izolowanych na padzie.
-
-### Dyspozycja w modelu
+### Data model and persistence (planned)
 
 ```python
 @dataclass(frozen=True)
 class PadModifiers:
     kapton_top: bool = False
     kapton_bottom: bool = False
-    # przyszłe modyfikatory: solder_mask, etc.
+    # future: solder_mask, …
 
 # Layout.pad_modifiers: dict[Point, PadModifiers]
 ```
 
-Storage w `Layout`, nie w `Board` (board reprezentuje fabryczną płytkę;
-tape jest dodawana przez usera per projekt).
+YAML:
 
-Wieloletnia akumulacja warstw tape (top+1, top+2, …) wymaga rozszerzenia
-modelu (lista warstw zamiast bool top/bottom). MVP: single-layer tape per
-side; multi-layer to follow-up.
-
-### Persistence
-W `layout.yaml`:
 ```yaml
 pad_modifiers:
   - position: {x: 4.5, y: 3.5}
@@ -395,127 +375,61 @@ pad_modifiers:
     kapton_bottom: true
 ```
 
-Empty list = brak tape (nie zapisujemy).
+An empty list means "no tape" and is not written.
 
-### GUI tooling
-Dwa nowe trybki w toolbar:
-- **Add kapton tape** — kliknięcie na padzie aplikuje tape na bieżącą
-  warstwę widoku (top/bottom).
-- **Remove kapton tape** — odwrotnie.
+GUI: two new modes — "Add kapton tape" and "Remove kapton tape" — work on
+a click or a rubber-band of pads. Visualisation: a translucent yellow
+glow over the side that carries tape.
 
-Rubber-band selection padów dla bulk apply — analogicznie do bulk
-component select.
+The MVP supports a single tape per side; multi-layer tapes (`top+2`,
+`top+3`, …) are a follow-up that extends `PadModifiers` from booleans to
+a list of layers.
 
-Wizualizacja:
-- Pad z kapton na top → renderowany z lekko żółtą poświatą po stronie
-  top (przezroczystą, żeby pad nadal był widoczny pod spodem).
-- Pad z kapton on bottom → analogicznie po stronie bottom.
-- Pad z kapton na obie strony → poświata po widzianej stronie zawsze.
+### Open questions
 
----
-
-## Architektura warstwy Pad/PadLayer (szkic do rozwinięcia)
-
-Cel: algorytmy (autoroute, DRC, simplify, drag-conflict) konsumują
-precomputed dane przez wąski interface zamiast inspect-and-decide na
-hot path. Logika reguł delegowana do `Pad` → `PadLayer` →
-wstrzykiwane strategie.
-
-Wymagania:
-1. **N warstw routingu** — board (top, bottom) + dynamiczne warstwy
-   kapton (top+1, top+2, …, bottom+1, …). `PadLayer` świadomy czy jest
-   izolowany od warstw poniżej/powyżej.
-2. **Pin bez strony** — `pin` jest własnością `Pad` (nie `PadLayer`);
-   galwanizuje wszystkie warstwy które fizycznie przebija (zazwyczaj
-   wszystkie, ale tape between layers może to subtelnie modyfikować w
-   przyszłych use-case'ach).
-3. **Bare middle-point vs endpoint** — `add_wire` musi rozróżniać
-   (model penetracji jest różny). Wymaga rozszerzenia `WireRef` lub
-   osobnych metod (`add_bare_endpoint`, `add_bare_middle`).
-4. **Strategy injection** — `Pad`/`PadLayer` tylko store'ują; decyzje
-   reguł (np. "default ALLOW vs strict tape t-joint") podejmują
-   wstrzykiwane `RoutingStrategy`/`DRCStrategy` konsumujące query API.
-5. **Cache invalidation** — `get_electric_net`/`get_any_net` jako
-   precomputed; każda mutacja (`add_wire`, `set_pin`, `apply_tape`)
-   musi invalidate. Versioning / dirty flag / event hooks.
-
-Szkic wstępny istnieje w historii dokumentu (Pad/PadLayer interfejsy);
-finalna wersja zostanie zaprojektowana po wypełnieniu cross-check
-tabeli i identyfikacji wszystkich call-sites z konkretnymi
-requirementami. Implementacja w osobnym dokumencie architektury.
+1. Wire-pin as a new `Knot` subtype (done — `WirePinKnot`) vs a virtual
+   `ComponentInstance`. The first option won.
+2. Net inheritance for an orphan-orphan join — does the chain stay
+   orphan or get a synthetic net id?
+3. Tape persistence and undo — special-case in save / load?
+4. Half-orphan DRC visualisation — icon, colour, dialog ("delete / extend
+   / convert to wire-pin")?
+5. Can tape be applied to off-pad regions? The physical tape covers area,
+   not points — but per-pad modelling is simpler.
+6. Multi-layer tape — single per side in the MVP, plan the schema so a
+   future extension is non-breaking.
+7. `strict_tape_joints` knob — project-wide (`Layout.settings`) or
+   per-pad override? Default ALLOW; storage location TBD.
 
 ---
 
 ## Cross-check checklist
 
-Dla każdego callsite (autoroute cost, DRC checks, simplify,
-drag-conflict, T-junction gates, joint reuse, pin reuse) sprawdzić
-zgodność z regułami 5–9 i kaptonem.
+For each call site (autoroute cost, DRC checks, simplify, drag-conflict,
+T-junction gates, joint reuse, pin reuse) verify conformance with rules
+5–9 and kapton.
 
-Statusy: **zgodny** = reguła egzekwowana; **niepełny** = częściowo
-(jakiś case nie pokryty); **brakuje** = reguła w ogóle nie egzekwowana
-przez ten callsite; **n/a** = reguła z założenia nie dotyczy.
+Status meanings: **OK** = enforced; **partial** = some cases not covered;
+**missing** = not enforced; **n/a** = the rule doesn't apply.
 
-Audit z 2026-05-31, branch `main` po commitach `1b971f3` (docs merge)
-i `0065500` (T-junction net gates + nowe DRC checks).
+The most recent full audit was 2026-05-31 on `main`. After the unified
+drag pipeline + wire-pin + group-export-encapsulation work landed the
+table needs another pass; the remaining `partial`/`missing` cells now
+mostly concern kapton (which is still unimplemented). The summary
+columns:
 
-| Callsite | Reguła 5 (pin penetracja) | Reguła 6 (foreign wire/pin) | Reguła 7 (joint exclusivity) | Reguła 8 (pin gating) | Reguła 9 (half-orphan) | Pad modifiers (kapton) |
-|---|---|---|---|---|---|---|
-| `_check_short` (drc/engine.py:298) | zgodny — operuje na `graph.node_for_pin`, plated-through zaimplikowane przez electric-set merge | n/a — bridge przez pin/foreign wire wykryje jako short tej samej drogi | n/a — joint exclusivity gated wcześniej w `_find_joint_at`/`can_form_t_junction`; short tu to konsekwencja, nie creation | n/a — pin gating to `_find_pin_at` | n/a | brakuje — graph builder ignoruje kapton (nie istnieje w modelu) |
-| `_check_bare_wire_interior_cross` (drc/engine.py:465) | n/a — sprawdza segmenty między padami, pin penetracja nie dotyczy | niepełny — wykrywa cross między różnymi electric-set, ale nie reguły 6 (drut nad pinem) | n/a | n/a | n/a | brakuje |
-| `_check_bare_wire_cross` (drc/engine.py:385) | zgodny — używa `graph.node_for_pin` (plated-through już zmergowany) i rejestruje obie strony per pad | brakuje — wykrywa tylko bare↔bare, nie bare/insulated nad pinem | n/a | n/a | n/a | brakuje |
-| `_check_off_pad_joint` (drc/engine.py:613) | n/a | n/a | niepełny — sprawdza tylko geometrię (joint na padzie), nie egzekwuje exclusivity zawartości | n/a | brakuje — half-orphan joint na plated_through niesygnalizowany | brakuje — `board_pads_for_side` nie zna kaptonu |
-| `_check_off_board_pins` (drc/engine.py:660) | zgodny — pin musi być na padzie; plated_through respected przez `board_pads_for_side` | n/a | n/a | n/a | n/a | brakuje |
-| `can_form_t_junction` (wire_utils.py:736) | zgodny — `_wire_net_id` respectuje plated_through dla pin-resolution | niepełny — CONFLICT_REJECT dla różnych netów, ale nie sprawdza czy wire przechodzi przez pad pinu (reguła 6 strict) | zgodny — SAFE/CONFLICT_REJECT egzekwuje exclusivity przy tworzeniu | brakuje — `ASSIGN_NET_TO_INCOMING_PIN` zakłada że pin akceptuje wire, brak własnej walidacji can_place_pin | n/a | brakuje |
-| `_find_joint_at` (component_cmds.py:259) | zgodny — `plated_pads` check dla cross-side joints | niepełny — odrzuca foreign-net incoming i orphan-incoming gdy joint named, ale nie sprawdza reguły 6 dla wire over-pin | zgodny — post-creation gate (nowa runda) | n/a — pin nie joint | n/a | brakuje |
-| `_find_pin_at` (component_cmds.py:230) | n/a — sama lokalizacja pinu | brakuje — wie tylko że "tu jest pin", nie weryfikuje czy incoming wire jest legalny | n/a | brakuje — brak `can_place_pin` net gate (reguła 8 explicitly missing per memory) | n/a | brakuje |
-| `astar.cost` (astar.py:404-548) | zgodny — `_collect_plated_through_pads` rules vias only on plated; pin penetracja przez `valid_nodes` setup | niepełny — `wire_over_foreign_wire_pad`/`occupied_by_other_net` to soft cost, nie hard reject; reguła 6 dla pinów milcząco przez `foreign_wire_cells` | niepełny — `via_on_foreign_pad` jako soft cost; joint creation gated przez post-routing `split_wires_at_endpoint_collisions` | brakuje — autoroute zakłada same-net target, nie ma `can_place_pin` check | n/a — autoroute nie konsumuje half-orphan jako destynacji (zasada 9 follow-up) | brakuje |
-| `autorouter._check_preconditions` (autorouter.py:486+) | zgodny — `OFF_BOARD_PIN` per pin na właściwej stronie | brakuje | brakuje — `_AUTOROUTE_BLOCKING_DRC_CODES = {SHORT}` blocks only on existing shorts | brakuje | brakuje — nie wykrywa half-orphan jako legal target | brakuje |
-| `_check_floating_pins` (drc/engine.py:359) | n/a | n/a | n/a | n/a | brakuje — koncept "floating pin" ≠ half-orphan wire; reguła 9 dotyczy wire'ów bez solder mate | n/a |
-
-## Acceptance criteria dla migracji
-
-Tabela pokazuje że **rzeczywista lista zmian semantycznych** to:
-
-- **Reguła 6 strict (bez wyjątku insulated interior)**: brakuje wszędzie poza T-junction creation gate. Wymaga: dodać check "wire interior over pin/wire-pin pad" do `_check_bare_wire_cross` LUB nowy check `WIRE_OVER_PIN`.
-- **Reguła 8 (`can_place_pin` net gate)**: brakuje w `_find_pin_at`, `can_form_t_junction` (`ASSIGN_NET_TO_INCOMING_PIN` path), `astar.cost`. Wymaga: nowa metoda strategii `can_place_pin(pad, our_net) -> Decision` + integracja.
-- **Reguła 9 (half-orphan)**: brakuje całkowicie jako koncept. `_check_floating_pins` to coś innego (nieplaced pin). Wymaga: nowy DRC check `HALF_ORPHAN_WIRE` (warning) + autorouter używa half-orphan endpoint jako candidate destination.
-- **Kapton (`Pad modifiers`)**: brakuje wszędzie — out of scope MVP (follow-up).
-
-Reguły 5 i 7 są generalnie egzekwowane, choć rozsiane po wielu callsites — refactor przeniesie je za jedną strategię (`DRCEnforcingStrategy`).
-
-**Po wszystkich Step (1–7)** ponownie audit każdej komórki — wszystkie poza kapton-kolumny powinny być `zgodny`. Pozostałe `brakuje`/`niepełny` to TODO follow-up.
-
----
-
-## Otwarte pytania
-
-1. **Wire-pin jako nowy `Knot` subtype czy virtual `ComponentInstance`?**
-   Pierwsze jest czystsze koncepcyjnie, drugie reusuje istniejące code
-   paths (DRC, persistence, schematic). Wpływ na exported_pins group
-   flow.
-
-2. **Net inheritance dla orphan-orphan join.** Gdy dwa orphan-net wires
-   spotykają się w pad-joint i żadne nie ma named net — czy chain
-   zostaje orphan, czy dostaje synthetic net id?
-
-3. **Tape persistence i undo.** Add/remove tape jako Command'y w
-   command stack — czy potrzebują specjalnego handling przy save?
-
-4. **DRC visualization dla half-orphan.** Warning marker na endpoint
-   wire'a — jaka ikona, jaki kolor? Czy klik na warning otwiera
-   dialog "co zrobić z tym wire'em" (delete / extend / convert to
-   wire-pin)?
-
-5. **Tape może być nakładana tylko na pady czy też off-pad?**
-   Praktycznie tape jest fizycznie nakładana na cały obszar — może
-   wpłynąć na off-pad wires. Modelowanie per-pad jest prostsze. Czy to
-   wystarcza?
-
-6. **Multi-layer tape MVP scope.** Czy MVP wspiera tylko single tape
-   per side (top+1, bottom+1) czy od razu lista warstw? Jeśli MVP
-   single, jak żeby model nie wymagał breaking change przy
-   rozszerzeniu?
-
-7. **Strict tape t-joint knob** — global per project (`Layout.settings`)
-   czy per pad (override)? Default jest ALLOW; gdzie żyje override?
+- **Rule 5 (pin penetration)** — enforced everywhere except where
+  kapton would matter.
+- **Rule 6 (no foreign wire over pin)** — enforced by `DRCEnforcingStrategy`
+  consumed in the drag pipeline and by the DRC `BARE_WIRE_INTERIOR_CROSS`
+  + the T-junction gate. The autoroute cost model still treats
+  `wire_over_foreign_wire_pad` as a soft penalty rather than a hard ban.
+- **Rule 7 (joint exclusivity)** — enforced at creation
+  (`can_form_t_junction`) and at re-use (`_find_joint_at`).
+- **Rule 8 (pin gate)** — enforced for drag (via the strategy);
+  autorouter relies on it indirectly.
+- **Rule 9 (half-orphan)** — DRC raises `HALF_ORPHAN_WIRE`. Autorouter
+  consumption of half-orphan endpoints as targets is implemented via
+  `PadStrategy.is_half_orphan_destination` but currently returns ALLOW
+  for the MVP.
+- **Kapton** — out of scope until the modifier ships.

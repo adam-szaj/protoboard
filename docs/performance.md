@@ -1,126 +1,140 @@
-# Optymalizacje wydajności
+# Performance optimisations (history)
 
-## Tło
+This file is the historical narrative of how the routing and GUI hot paths
+were tuned. The current architecture overview is in
+[benchmarks.md](benchmarks.md) and the connectivity data structure is in
+[connectivity.md](connectivity.md).
 
-Projekt "micek" (143 komponenty, 100 netów) był punktem odniesienia dla wszystkich
-pomiarów. Na początku:
+## Background
 
-- Autoroute All Nets: **~2.5 minuty**, UI zablokowany przez cały czas
-- Przesuwanie komponentów: przycięcia co ~600 ms (DRC blokował wątek UI)
-- GUI po puszczeniu myszy: ~150 ms blokady (synchroniczny rebuild 4 paneli)
+The "micek" project (143 components, 100 nets) was the original benchmark
+target. Starting point:
 
-Po czterech etapach optymalizacji:
+- Autoroute All Nets: **~2.5 minutes**, the UI was frozen the whole time.
+- Component drag: stutters every ~600 ms (DRC blocked the UI thread).
+- After mouse-up: ~150 ms freeze (synchronous rebuild of four side panels).
 
-- Autoroute All Nets: **~15 sekund**, UI responsywny (worker w QThread)
-- Przesuwanie komponentów: brak odczuwalnych blokad
-- DRC: 7.8 ms → 1.5 ms
+After four stages of optimisation:
+
+- Autoroute All Nets: **~15 seconds**, UI responsive (worker on a `QThread`).
+- Component drag: no perceptible stutter.
+- DRC: 7.8 ms → 1.5 ms.
 
 ---
 
-## Etap 1 — Inkrementalny ConnectivityGraph
+## Stage 1 — Incremental ConnectivityGraph
 
-**Problem:** Autorouter wywoływał `ConnectivityGraph(board, layout, ...)` przy każdym
-segmencie A* (każdej próbie poprowadzenia kabla). Przy 600 segmentach na projekt
-dawało to 600 pełnych przebudów grafu networkx — O(V+E) każda, łącznie ~2.5 minuty.
+**Problem:** the autorouter called `ConnectivityGraph(board, layout, ...)` for
+every A* segment. With ~600 segments per project that meant ~600 full
+`networkx` rebuilds — O(V+E) each — adding up to roughly 2.5 minutes.
 
-**Rozwiązanie:** Nowa implementacja w `domain/connectivity/incremental.py` zastąpiła
-networkx strukturą union-find z obsługą cofania.
+**Solution:** `domain/connectivity/incremental.py` replaces `networkx` with a
+union-find structure that supports rollback.
 
-Kluczowe właściwości:
-
-| Operacja | Złożoność | Poprzednio |
+| Operation | After | Before |
 |---|---|---|
-| `add_wire(wire)` | O(\|path\|) | O(V+E) — pełny rebuild |
-| `remove_wire(wire)` | O(K) — rozmiar evicted set | O(V+E) |
-| `are_connected(a, b)` | O(1) — porównanie canonical_key | O(V+E) — `nx.has_path` |
+| `add_wire(wire)` | O(\|path\|) | O(V+E) — full rebuild |
+| `remove_wire(wire)` | O(K) — size of the evicted set | O(V+E) |
+| `are_connected(a, b)` | O(1) — `canonical_key` comparison | O(V+E) — `nx.has_path` |
 
-Szczegóły implementacji: [connectivity.md](connectivity.md).
+See [connectivity.md](connectivity.md) for the implementation details.
 
-**Efekt:** Greedy pass autorouter: 2.5 minuty → **5 sekund** (30×).
-
----
-
-## Etap 2 — Natywny A* w Rust (PyO3 + rayon)
-
-**Problem:** CPython GIL blokował prawdziwy paralelizm wątków. `ThreadPoolExecutor`
-ze 16 wątkami dawał dokładnie 1 aktywny wątek w danej chwili.
-
-**Rozwiązanie:** Natywna implementacja A* w Rust (`services/routing/astar_rs/`):
-
-- `pyo3` — bindings Python ↔ Rust; `py.allow_threads()` zwalnia GIL na czas obliczeń
-- `rayon` — work-stealing thread pool; każdy "wszechświat" A* to osobny task rayon
-- Skalowanie `f64 → i32` (mnożnik 1000) — unika haszowania float w `HashMap`
-- `Arc<Vec<PathStep>>` dla ścieżek — clone przy rozgałęzieniu = tylko atomowy refcount
-
-Python odpada do implementacji czystego Pythona gdy Rust nie jest dostępny
-(`try: import protoboard_astar_rs`).
-
-Optymalizacja wieloprzebiegowa uruchamia 10 równoległych instancji autorouter
-w osobnych procesach (`ProcessPoolExecutor`) — każda z inną kolejnością netów
-(omija GIL przez izolację procesów).
-
-**Efekt:** Całkowity czas autoroutingu micek: 2.5 min → **~15 sekund**.
+**Effect:** autorouter greedy pass: 2.5 minutes → **5 seconds** (30×).
 
 ---
 
-## Etap 3 — Debounce paneli bocznych
+## Stage 2 — Native A* in Rust (PyO3 + rayon)
 
-**Problem:** Sygnał `layout_changed` był bezpośrednio podłączony do `refresh()`
-czterech paneli bocznych (netlist, groups, nets editor, components). Każdy panel
-robi `clear()` + przebudowę `QTreeWidget` — łącznie ~150 ms blokady synchronicznie
-w wątku UI przy każdym mouse-release.
+**Problem:** the CPython GIL prevented real parallelism. A
+`ThreadPoolExecutor` with 16 threads gave exactly one active thread at a time.
 
-**Rozwiązanie:** `_panels_timer` (`QTimer`, singleShot, 100 ms) w `MainWindow`.
+**Solution:** native A* in Rust (`services/routing/astar_rs/`):
+
+- `pyo3` for Python ↔ Rust bindings; `py.allow_threads()` releases the GIL.
+- `rayon` work-stealing thread pool; each A* "universe" becomes one rayon task.
+- `f64 → i32` rescale (×1000) — avoids hashing floats in `HashMap`.
+- `Arc<Vec<PathStep>>` for paths — branching is just an atomic refcount bump.
+
+The pure Python implementation stays as a fallback when the Rust extension
+isn't available (`try: import protoboard_astar_rs`).
+
+The multi-pass optimiser launches 10 parallel autorouter instances in
+separate processes (`ProcessPoolExecutor`), each with a different net
+ordering (process isolation sidesteps the GIL completely).
+
+**Effect:** total autoroute time on micek: 2.5 min → **~15 seconds**.
+
+---
+
+## Stage 3 — Side-panel debounce
+
+**Problem:** `layout_changed` was connected directly to `refresh()` on four
+side panels (netlist, groups, nets editor, components). Each panel did
+`clear()` + a `QTreeWidget` rebuild — about 150 ms of synchronous blocking
+on every mouse-release.
+
+**Solution:** `_panels_timer` (`QTimer`, singleShot, 100 ms) in `MainWindow`.
 
 ```
-layout_changed → _panels_timer.start()   # natychmiastowe, ~0 ms
-100 ms później → _refresh_panels()       # jeden rebuild, amortyzowany
+layout_changed → _panels_timer.start()   # instant, ~0 ms
+100 ms later   → _refresh_panels()       # one rebuild, amortised
 ```
 
-Jeśli kolejny `layout_changed` przyjdzie przed upływem 100 ms (szybka seria
-ruchów), timer jest restartowany — panele odświeżają się dopiero gdy seria się
-skończy.
+If another `layout_changed` arrives inside the 100 ms window (rapid drags,
+keyboard arrow runs) the timer restarts — panels only refresh after the
+burst settles.
 
-**Efekt:** Brak odczuwalnych blokad po puszczeniu myszy. Dla serii ruchów
-(np. strzałki klawiaturowe): N rebuilds → 1 rebuild.
+**Effect:** no perceptible mouse-up freeze. Bursts of moves collapse from N
+rebuilds to one.
 
 ---
 
-## Etap 4 — Cached ConnectivityGraph w sesji
+## Stage 4 — Cached ConnectivityGraph in the session
 
-**Problem:** `DRCEngine.check()` budował nowy `ConnectivityGraph` od zera przy każdym
-uruchomieniu DRC (auto-DRC timer co 600 ms). Przy micek: 6.3 ms samo budowanie
-grafu z 7.8 ms całkowitego kosztu DRC. Przy szybkiej serii ruchów (drag & drop
-kilku komponentów) DRC odpalał się między ruchami i blokował UI.
+**Problem:** `DRCEngine.check()` built a fresh `ConnectivityGraph` on every
+run. On micek the graph build alone was 6.3 ms of the 7.8 ms total.
 
-**Rozwiązanie:** Graf trzymany jako `_graph: ConnectivityGraph | None` w `EditorSession`:
+**Solution:** keep the graph as `_graph: ConnectivityGraph | None` on
+`EditorSession`:
 
 ```python
-# Przy layout_changed — synchronicznie, ~0 ms:
+# On layout_changed — synchronous, ~0 ms:
 session.invalidate_graph()   # _graph = None
 
-# Przy DRC (600 ms później) — raz per okno DRC:
-session.connectivity_graph() # buduje jeśli _graph is None, zwraca cached
+# On DRC run — at most one build per DRC dialog open:
+session.connectivity_graph() # builds if None, otherwise returns the cache
 ```
 
-`DRCEngine.check_with_graph()` przyjmuje gotowy graf zamiast budować własny.
-Stary `check()` pozostał dla kompatybilności (buduje graf sam i deleguje).
+`DRCEngine.check_with_graph()` accepts a prebuilt graph and skips the
+internal build. The old `check()` stays for back-compat (builds internally
+and delegates).
 
-**Efekt:**
+**Effect:**
 
-| | Poprzednio | Po |
+| | Before | After |
 |---|---|---|
-| DRC (zimny start) | 7.8 ms | 7.8 ms (pierwszy raz po ruchu) |
-| DRC (ponowny, bez zmian) | 7.8 ms | **1.5 ms** |
-| Seria ruchów | blokada co 600 ms | brak blokad — jeden build na końcu serii |
+| DRC (cold) | 7.8 ms | 7.8 ms (first call after a change) |
+| DRC (warm, no change) | 7.8 ms | **1.5 ms** |
+| Move burst | freeze every 600 ms | one build at the end of the burst |
 
 ---
 
-## Podsumowanie
+## Stage 5 — Paint perf refactor
 
-| Metryka | Przed | Po | Zmiana |
+A multi-phase paint refactor (2026-05-24, archived under
+[selection-fsm-refactor-2026-06-08]] in the memory index) brought the paint
+budget from 700–900 ms down to ~85 ms by switching to back-cache + Z-banding
+and reusing `QGraphicsItemGroup`s. The current architecture is summarised in
+[benchmarks.md](benchmarks.md).
+
+---
+
+## Summary
+
+| Metric | Before | After | Change |
 |---|---|---|---|
 | Autoroute micek | ~2.5 min | ~15 s | **10×** |
-| DRC (z przebudową grafu) | 7.8 ms | 1.5 ms | **5×** |
-| Blokada GUI po mouse-release | ~150 ms | ~0 ms | — |
-| Blokada GUI — seria ruchów | co 600 ms | brak | — |
+| DRC (cold build) | 7.8 ms | 1.5 ms | **5×** |
+| Mouse-up freeze | ~150 ms | ~0 ms | — |
+| Move-burst stutter | every 600 ms | none | — |
+| Full repaint | 700–900 ms | ~85 ms | **~10×** |

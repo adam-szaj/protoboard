@@ -1,90 +1,101 @@
-# Model danych — szczegółowa specyfikacja
+# Data model
 
-## 1. Jednostki
+## 1. Units
 
 ```python
 # protoboard/units.py
-class RasterUnit(NewType('RasterUnit', float)):
-    """Jednostka rastra. 1.0 = standardowy pitch (typowo 2.54 mm)."""
+class RasterUnit(NewType("RasterUnit", float)):
+    """Raster unit. 1.0 = one hole pitch (typically 2.54 mm)."""
 
-class Millimeter(NewType('Millimeter', float)):
-    """Bezwzględny wymiar fizyczny."""
+class Millimeter(NewType("Millimeter", float)):
+    """Absolute physical dimension."""
 ```
 
-- Wewnętrznie wszystkie pozycje w `RasterUnit` jako `float` (NIE int — gapy ułamkowe i ujemne są legalne).
-- Konwersja `RasterUnit ↔ mm` via `Board.raster_pitch_mm` (domyślnie 2.54).
-- UI ma przełącznik wyświetlania: HP (raster units), mm, cale.
+- Internally all positions are `RasterUnit` (float — *not* int; fractional and
+  negative gaps are legal).
+- Conversion `RasterUnit ↔ mm` goes through `Board.raster_pitch_mm` (default 2.54).
+- The UI offers a display unit toggle: HP (raster units), mm, inches.
 
-## 2. Box model dla płytek
+## 2. Board box model
 
-Płytka opisana jako drzewo boxów w stylu TeX-owym. Layout liczony w `RasterUnit`.
+A board is a tree of TeX-style boxes; layout is computed in `RasterUnit`.
 
 ```python
-# protoboard/board/boxes.py
+# protoboard/domain/board/boxes.py
 class SizePolicy(Enum):
-    FIXED = "fixed"      # rozmiar zadany jawnie
-    HUG   = "hug"        # dopasuj do zawartości
-    FILL  = "fill"       # rozciągnij do dostępnej przestrzeni
+    FIXED = "fixed"      # explicit width / height
+    HUG   = "hug"        # fit to contents
+    FILL  = "fill"       # stretch to fill the parent
 
-@dataclass
-class Box(ABC):
+@dataclass(frozen=True, slots=True)
+class Box:
     width_policy: SizePolicy
     height_policy: SizePolicy
-    width: float | None  = None  # wymagane gdy policy=FIXED
+    width: float | None  = None  # required when policy=FIXED
     height: float | None = None
-    margin: Insets = Insets.zero()  # może być ujemny
+    margin: Insets = Insets.zero()  # may be negative
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class HBox(Box):
     children: list[Box]
-    gap: float = 1.0  # może być ułamkowy, ujemny, zero
+    gap: float = 1.0  # fractional, negative and zero values are legal
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class VBox(Box):
     children: list[Box]
     gap: float = 1.0
 
-@dataclass
-class Grid(Box):
-    cell: Box           # template komórki
+@dataclass(frozen=True, slots=True)
+class BoardGrid(Box):
+    cell: Box            # cell template
     rows: int
     cols: int
     row_gap: float = 1.0
     col_gap: float = 1.0
 
-# Atomy (liście drzewa):
-@dataclass
+# Atoms (tree leaves):
+@dataclass(frozen=True, slots=True)
 class PadAtom(Box):
-    """Pojedynczy otwór."""
-    layers: PadLayers   # zob. sekcja 3
+    """A single hole."""
+    layers: PadLayers   # see §3
     label: str | None = None
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class StripAtom(Box):
-    """Ciągły pasek N otworów połączonych galwanicznie."""
+    """A continuous strip of N galvanically connected holes."""
     length: int | Literal["fill"]
     orientation: Literal["horizontal", "vertical"]
     layers: PadLayers
-    cuttable: bool = True   # czy ścieżka da się przeciąć
+    cuttable: bool = True   # whether the strip may be cut
+    isolated: bool = False  # True = the copper between this atom and its
+                            # siblings has been cut/scraped out
+    label: str | None = None
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GapAtom(Box):
-    """Pusta przestrzeń, brak padów."""
-    pass
+    """Empty space — no pads."""
 ```
 
-**Layout engine (czysta funkcja):**
+A **stripboard cut** is modelled by splitting the original `StripAtom` into
+two atoms (the post-cut and the pre-cut segment) and rendering a small gap
+between them. There is no separate `cuts: list[StripCut]` field on `Layout`
+— cuts are part of the board tree.
+
+**Layout engine (pure function):**
+
 ```python
 def layout(box: Box, available: Size) -> LayoutResult:
-    """Zwraca pozycje wszystkich atomów w RasterUnit."""
+    """Return the position of every atom in RasterUnit."""
 ```
 
-Algorytm dwuprzebiegowy: 1) intrinsic size pass (oblicz HUG od dołu drzewa), 2) layout pass (rozdziel FILL przestrzeń).
+Two-pass algorithm: (1) intrinsic-size pass — compute HUG sizes bottom-up;
+(2) layout pass — distribute FILL space.
 
-**Przykłady:**
+**Examples:**
+
 ```yaml
-# perfboard 30x20:
-type: Grid
+# 30 × 20 perfboard:
+type: BoardGrid
 rows: 20
 cols: 30
 row_gap: 1.0
@@ -93,64 +104,77 @@ cell:
   type: PadAtom
   layers: {top: true, bottom: true, plated_through: true}
 
-# stripboard 30x20:
+# 30 × 20 stripboard:
 type: VBox
 gap: 1.0
 children:
   - {type: StripAtom, length: 30, orientation: horizontal, layers: ...}
-  # ... powtórzone 20 razy (lub przez Grid z StripAtom)
+  # ... repeated 20 times (or via BoardGrid with StripAtom as the cell)
 
-# breadboard z power rails (gap < 1 między rails, gap > 1 między blokami):
+# breadboard with power rails (gap < 1 between rails, gap > 1 between blocks):
 type: VBox
 gap: 0.0
 children:
   - {type: StripAtom, length: fill, orientation: horizontal, label: "+"}
   - {type: StripAtom, length: fill, orientation: horizontal, label: "−", margin: {top: -0.5}}
   - {type: GapAtom, height: 1.5}
-  - {type: Grid, rows: 5, cols: 30, cell: {type: StripAtom, length: 5, orientation: vertical}}
+  - {type: BoardGrid, rows: 5, cols: 30, cell: {type: StripAtom, length: 5, orientation: vertical}}
   # ...
 ```
 
-## 3. Pady i warstwy
+## 3. Pads and layers
 
 ```python
 @dataclass
 class PadLayers:
-    top: bool = True              # czy pad istnieje na warstwie górnej
-    bottom: bool = False          # czy pad istnieje na warstwie dolnej
-    plated_through: bool = False  # galwanicznie połączone (top↔bottom)
-    # plated_through ma sens tylko gdy top=True i bottom=True
+    top: bool = True              # pad exists on the top layer
+    bottom: bool = False          # pad exists on the bottom layer
+    plated_through: bool = False  # galvanically connects top ↔ bottom
+    # plated_through only makes sense when top=True and bottom=True
 ```
 
-**Implikacje dla connectivity:**
-- `top=True, bottom=False`: jeden węzeł na warstwie górnej.
-- `top=True, bottom=True, plated=True`: jeden węzeł (top i bottom są elektrycznie tym samym).
-- `top=True, bottom=True, plated=False`: **dwa niezależne węzły**, użytkownik musi je połączyć ręcznie.
+**Connectivity implications:**
 
-## 4. Komponenty i footprinty
+- `top=True, bottom=False`: one node on the top layer.
+- `top=True, bottom=True, plated=True`: one node (top and bottom are electrically
+  the same).
+- `top=True, bottom=True, plated=False`: **two independent nodes**; the user
+  must connect them manually.
 
-Szczegółowa specyfikacja geometrii, obrotu, flip i bbox: [geometry.md](geometry.md).
+Layers are addressed by `LayerId` strings: `"top"`, `"bottom"`, and (future)
+`"tape:top+1"`, `"tape:bottom+1"` for kapton-tape layers. The MVP only uses
+`"top"` and `"bottom"`.
+
+## 4. Components and footprints
+
+Full geometry — including rotation, flip and bbox — is documented in
+[geometry.md](geometry.md).
 
 ```python
 @dataclass
 class ComponentDefinition:
     name: str                          # "LM358"
     footprint: FootprintTemplate       # DIP(8)
-    pin_names: dict[int, str]          # {1:"OUT_A", 2:"IN-_A", ...}
+    pin_names: dict[int, str]          # {1: "OUT_A", 2: "IN-_A", ...}
     description: str = ""
+    body_blocks_routing: bool = False  # SMD / tight-fit packages set this
+                                       # True; default False lets autoroute
+                                       # pass under THT bodies
     metadata: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class ComponentInstance:
     id: UUID
-    definition_ref: str                # nazwa z biblioteki
+    definition_ref: str                # name from the library
     refdes: str                        # "U1", "R5"
     value: str                         # "LM358", "10k"
 ```
 
-Biblioteka: katalog `library/` z plikami YAML (`opamps.yaml`, `transistors.yaml`, `connectors.yaml`). Custom: `~/.config/protoboard-designer/library/`.
+Library: a `library/` directory of YAML files (`opamps.yaml`,
+`transistors.yaml`, `connectors.yaml`). Custom user library:
+`~/.config/protoboard-designer/library/`.
 
-## 5. Schematic = graf logiczny (netlist)
+## 5. Schematic — the logical graph (netlist)
 
 ```python
 @dataclass
@@ -163,52 +187,50 @@ class Net:
     id: UUID
     name: str                # "VCC", "N$12"
     pins: set[PinRef]
+    color: str | None = None
+    is_global: bool = False  # rails like VCC/GND — treated as automatically
+                             # exported by every group
 
 @dataclass
 class Schematic:
     components: dict[UUID, ComponentInstance]
     nets: dict[UUID, Net]
-    # Brak geometrii — to czysty graf wymagań.
+    # No geometry — this is the pure requirements graph.
 ```
 
-## 6. Layout = fizyczna realizacja
+## 6. Layout — the physical realisation
 
 ```python
 @dataclass
 class ComponentPlacement:
     component_id: UUID
-    position: RasterPosition       # gdzie pin 1 leży
+    position: Point          # world position of pin 1 (more precisely: of
+                             # the component origin — see geometry.md)
     rotation: Literal[0, 90, 180, 270]
     side: Literal["top", "bottom"]
-
-@dataclass
-class WireSegment:
-    id: UUID
-    path: list[RasterPosition]
-    insulated: bool
-    side: Literal["top", "bottom"]
-    color: str | None = None
-
-@dataclass
-class StripCut:
-    id: UUID
-    strip_atom_ref: str
-    position: int
+    pin_offsets: dict[int, Point] = field(default_factory=dict)
+    shared_pins: frozenset[int] = field(default_factory=frozenset)
+    label_offset: Point = field(default_factory=Point.origin)
+    vertical_flipped: bool = False
+    locked: bool = False     # ignored by drag / autoroute when True
 
 @dataclass
 class Layout:
     placements: dict[UUID, ComponentPlacement]
-    wires: list[WireSegment]
-    cuts: list[StripCut]
+    wires: WireCollection          # dict-keyed wires (see §6.1)
+    groups: dict[UUID, ComponentGroup]
+    knots: dict[UUID, Knot]        # endpoint hubs — see §6.1
+    pin_knots: dict[PinRef, UUID]  # fast PinRef → PinKnot lookup
 ```
 
-### 6.1 Wire v2 — model Knot + Fragment (od 2026-05-27)
+`Layout` has no `cuts` field — strip cuts are encoded in the board tree via
+`StripAtom.isolated=True` (see §2).
 
-Nowy model wprowadzony w refactorze `refactor/wire-model-knots` zastępuje
-rolę `WireSegment` jako *fundamentalnego* nośnika sieci elektrycznej.
-Stara klasa wciąż istnieje (kompat-shim dla pliku v1), ale runtime stopniowo
-migruje na typy zdefiniowane w `domain/layout/wire.py` i
-`domain/layout/knot.py`:
+### 6.1 Wire model — `Wire`, `Fragment` and `Knot`
+
+A wire is the atomic *artefact to be soldered*. One physical piece of
+insulated or bare wire — even when it traverses two board sides through a
+plated-through pad — is **one** `Wire` instance with multiple `Fragment`s.
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -220,108 +242,139 @@ class Fragment:
 class KnotRef:
     id: UUID
 
-@dataclass(frozen=True, slots=True)
+@dataclass
 class Wire:
-    id: UUID                          # stabilne id (przeżywa edycje path)
+    id: UUID                          # stable id (survives path edits)
     a: KnotRef                        # endpoint 0
     b: KnotRef                        # endpoint 1
-    fragments: tuple[Fragment, ...]   # ≥ 1; granice = via plated-through
-    insulated: bool                   # per-wire — jeden artefakt do lutowania
+    fragments: list[Fragment]         # ≥ 1; fragment boundary = plated-through via
+    insulated: bool                   # per-wire — one artefact = one value
     color: str | None = None
+```
 
-# Knot = endpoint hub
+A **knot** is the shared end-point hub through which multiple wires terminate.
+There are three concrete kinds:
+
+```python
 @dataclass
 class PinKnot:
     id: UUID
-    pin: PinRef                       # tożsamość; pozycja przez resolver
+    pin: PinRef                       # identity; position resolved lazily
     wire_ids: frozenset[UUID]
 
 @dataclass
 class JointKnot:
     id: UUID
-    position: Point                   # MUSI leżeć na padzie (DRC: OFF_PAD_JOINT)
+    position: Point                   # must coincide with a pad (DRC: OFF_PAD_JOINT)
     wire_ids: frozenset[UUID]
+
+@dataclass
+class WirePinKnot:
+    id: UUID
+    position: Point                   # must coincide with a plated-through pad
+    net_id: NetId | None              # snapshotted from the owning wire
+    wire_ids: frozenset[UUID]         # exactly one
 ```
 
-**Niezmienniki:**
-- Wire ma dokładnie dwa endpointy (knoty); rozgałęzienia idą przez `JointKnot`.
-- Granica między dwoma fragmentami pojawia się **wyłącznie** gdy zmienia
-  się `side` i pozycja jest plated-through (real via).
-- `insulated` jest per-wire — izolowany jumper przechodzący na drugą stronę
-  przez plated-through pozostaje jednym artefaktem (jedna wartość).
-- `JointKnot.position` musi być pozycją pada — off-pad joints są
-  niedozwolone (`_check_off_pad_joint` w DRC).
-- `Layout.add_wire_v2 / remove_wire_v2` własnią inwariant back-refs:
-  `Knot.wire_ids` = `{w.id for w in wires if knot in (w.a, w.b)}`.
-- `Layout.replace_wire_fragments(wire_id, frags)` **zachowuje** `wire.id`
-  — to jest fix dla bugu segment-proliferation (d33ea56).
+A `WirePinKnot` is a *virtual goldpin* — a deliberate solder terminal at a
+wire endpoint, equivalent to soldering a 1×01 pin-header into the hole.
+See [pad-pin-wire-junction-semantics.md](pad-pin-wire-junction-semantics.md)
+for the full semantics.
 
-**Auto-merge JointKnot (degree=2):**
-`Layout.try_collapse_joint(knot_id, plated_through_pads=…)` próbuje zwinąć
-joint w jeden wire jeśli oba kończące tam wires mają tę samą `insulated`
-ORAZ (ten sam `side` na granicy LUB pozycja joint to plated-through). Jeśli
-warunki niespełnione — joint zostaje, user może go ręcznie usunąć przez
-"Simplify joints".
+**Invariants:**
 
-**Migracja legacy → v2** (`services/persistence/wire_migration.py`): caller
-ładuje projekt v1, potem wywołuje `migrate_layout_to_v2(layout, board,
-pin_index, pin_position_resolver)` które rezolwuje endpointy do PinKnot/
-JointKnot i iteratywnie scala 2-incydentne joints przez `try_collapse_joint`.
+- A `Wire` has exactly two endpoints. Branching is realised by `JointKnot`s.
+- A fragment boundary appears **only** where the wire physically crosses from
+  one side of the board to the other through a plated-through pad (a real via).
+- `insulated` is per-wire: an insulated jumper that crosses through a via stays
+  one artefact (one value).
+- A `JointKnot.position` must coincide with a pad — off-pad joints are not
+  allowed (`_check_off_pad_joint` in DRC).
+- `WirePinKnot.position` must coincide with a plated-through pad (DRC:
+  `WIRE_PIN_OFF_PLATED_THROUGH`).
+- `Layout.add_wire` / `remove_wire` own the back-reference invariant:
+  `Knot.wire_ids == {w.id for w in wires if knot in (w.a, w.b)}`.
+- `Layout.replace_wire_fragments(wire_id, frags)` **preserves** `wire.id` — this
+  is the fix that closed the segment-proliferation bug in commit `d33ea56`.
+
+**Auto-collapse `JointKnot` (degree 2):** `Layout.try_collapse_joint(knot_id, …)`
+collapses a joint into a single wire when both incident wires share the same
+`insulated` value **and** either (a) the same `side` at the boundary, or
+(b) the joint position is plated-through (the via is preserved as a fragment
+boundary). If neither holds, the joint stays and the user can remove it
+manually via "Simplify joints".
 
 ## 7. ConnectivityGraph
 
 ```python
 class ConnectivityGraph:
-    """Graf elektryczny z Board + Layout. Każdy węzeł = elektrycznie odrębny punkt."""
+    """The electrical graph derived from Board + Layout.
+    Every node represents one electrically distinct point."""
 
-    def __init__(self, board: Board, layout: Layout, components: dict[UUID, ComponentDefinition]):
-        self._g = networkx.Graph()
-        self._build()
+    def __init__(self, board: Board, layout: Layout,
+                 components: dict[UUID, ComponentDefinition]): ...
 
     def electrical_nets(self) -> list[set[PinRef]]: ...
     def shorts(self) -> list[Short]: ...
 ```
 
-**DRC = porównanie `Schematic.nets` z `ConnectivityGraph.electrical_nets()`.**
+**DRC = compare `Schematic.nets` against `ConnectivityGraph.electrical_nets()`**.
 
-Szczegóły inkrementalnej implementacji (union-find): [connectivity.md](connectivity.md).
+The implementation is a union-find structure with rollback; see
+[connectivity.md](connectivity.md) for details.
 
-## 8. Pad-conflict i auto-tworzenie netów
+## 8. Pad conflicts and automatic net creation
 
-### Konflikt przy placement/drag
+### Placement / drag conflicts
 
-**`domain/layout/pad_conflict.py`** — czyste funkcje domenowe:
-- `find_conflicts()` — wykrywa gdy pin nowego komponentu trafia na pad istniejącego.
-- `find_wire_conflicts()` — wykrywa gdy pin nowego komponentu trafia na punkt `WireSegment.path`.
+`domain/layout/pad_conflict.py` — pure domain helpers:
 
-`ConflictKind` enum:
+- `find_conflicts()` — detects when a new component's pin lands on an
+  existing component's pad.
+- `find_wire_conflicts()` — detects when a new component's pin lands on a
+  point of a `Wire.path`.
+- `find_wires_crossing_pads()` — detects bare wires running through the new
+  pad in a forbidden direction.
+- `find_skewed_wires()` — detects wires that would lose their ortho/diagonal
+  shape after the move (deprecated path; the unified drag model classifies
+  them upstream).
 
-| Wartość | Znaczenie | Akcja |
+`ConflictKind`:
+
+| Value | Meaning | Action |
 |---|---|---|
-| `SAME_NET` | Oba piny w tej samej sieci | Auto-OK |
-| `DIFFERENT_NETS` | Różne sieci | Blokada |
-| `ONE_UNCONNECTED` | Jeden pin bez sieci | Dialog z pytaniem |
-| `BOTH_UNCONNECTED` | Oba bez sieci | Dialog — tworzy nowy net |
-| `PIN_ON_WIRE_SAME_NET` | Pin i drut w tej samej sieci | Auto-OK |
-| `PIN_ON_WIRE_DIFFERENT_NET` | Pin i drut w różnych sieciach | Blokada |
-| `PIN_ON_WIRE_WITH_NET` | Drut ma net, pin nie (lub odwrotnie) | Auto-join bez dialogu |
-| `PIN_ON_WIRE_UNCONNECTED` | Ani pin ani drut nie mają netu | Auto-tworzy nowy net |
+| `SAME_NET` | both pins on the same net | auto-OK |
+| `DIFFERENT_NETS` | different nets | block |
+| `ONE_UNCONNECTED` | one pin has no net | dialog |
+| `BOTH_UNCONNECTED` | neither pin has a net | dialog — creates a new net |
+| `PIN_ON_WIRE_SAME_NET` | pin and wire on the same net | auto-OK |
+| `PIN_ON_WIRE_DIFFERENT_NET` | different nets | block |
+| `PIN_ON_WIRE_WITH_NET` | wire has a net, pin doesn't (or vice versa) | auto-join, no dialog |
+| `PIN_ON_WIRE_UNCONNECTED` | neither has a net | auto-create a new net |
 
-`PadConflict.shared_pins: frozenset[int]` na `ComponentPlacement` oznacza które piny zostały świadomie współdzielone.
+`ComponentPlacement.shared_pins: frozenset[int]` records which pins were
+deliberately shared with another component.
 
-**`gui/placement_conflict.py`** — `check_and_resolve()`: wywołuje obie funkcje domenowe, pokazuje `PadConflictDialog`, mutuje `session.schematic.nets`, zwraca zaktualizowany `ComponentPlacement` lub `None` przy blokadzie.
+`gui/placement_conflict.py::check_and_resolve()` runs the domain helpers,
+opens a `PadConflictDialog` if needed, mutates `session.schematic.nets`, and
+returns the resolved `ComponentPlacement` (or `None` if blocked).
 
-### Auto-tworzenie netów przy rysowaniu drutu
+### Automatic net creation while drawing wires
 
-**`domain/schematic/wire_net_ops.py`**:
-- `find_pin_at(pt, session)` — zwraca `(comp_id, pin_num)` jeśli punkt trafia w pin (tolerancja 1e-4).
+`domain/schematic/wire_net_ops.py`:
+
+- `find_pin_at(pt, session)` — returns `(comp_id, pin_num)` if the point
+  lands on a pin (tolerance 1e-4).
 - `classify_wire_nets(wire, session)` → `WireNetKind`.
 
-**`gui/wire_net_resolver.py`** — `resolve_wire_nets(session, wire, cmd)`: mutuje nety, rejestruje diff w `cmd.record_net_change()`.
+`gui/wire_net_resolver.py::resolve_wire_nets(session, wire, cmd)` mutates the
+schematic and records the diff via `cmd.record_net_change()` so that undo
+restores both layout and schematic atomically.
 
-**Przepływ**: `RouteTool._commit()` → `AddWireWithNetsCommand` → `resolve_wire_nets()` → `stack.execute(cmd)`.
+**Flow:** `RouteTool._commit()` → `AddWireWithNetsCommand` →
+`resolve_wire_nets()` → `stack.execute(cmd)`.
 
-## 9. Grupy komponentów (ComponentGroup)
+## 9. Component groups (`ComponentGroup`)
 
 ```python
 @dataclass(frozen=True)
@@ -336,13 +389,34 @@ class ComponentGroup:
     component_ids: frozenset[uuid.UUID]
     child_group_ids: frozenset[uuid.UUID]
     exported_pins: frozenset[ExportedPin]
+    lock_internal_wires: bool = False
 ```
 
-**Root group:** `ROOT_GROUP_ID = UUID("00000000-0000-0000-0000-000000000001")`. Tworzony przez `Layout.ensure_root_group()`. Nie wyświetlany w GroupsPanel.
+**Root group:** `ROOT_GROUP_ID = UUID("00000000-0000-0000-0000-000000000001")`.
+Created by `Layout.ensure_root_group()`; not shown in `GroupsPanel`.
 
 **GUI — `SelectTool._group_stack`:**
-- `[ROOT_GROUP_ID]` — root level; wszystko dostępne.
-- `[ROOT_GROUP_ID, g1]` — wewnątrz g1; reszta wyszarzona (alpha 0.2/0.45).
+
+- `[ROOT_GROUP_ID]` — root level; everything accessible.
+- `[ROOT_GROUP_ID, g1]` — inside g1; the rest is dimmed (alpha 0.2/0.45).
 - Double-click → push; Esc → pop.
 
-**Persistence:** layout.yaml serializuje grupy z `id`, `name`, `component_ids`, `child_group_ids`, `exported_pins`.
+**Encapsulated `exported_pins`:** every `ExportedPin ep ∈ G.exported_pins`
+must satisfy either
+(a) `ep.component_id ∈ G.component_ids` (direct ownership), **or**
+(b) `∃ child ∈ G.child_group_ids: ep ∈ child.exported_pins` (re-exported
+through a direct child's interface).
+
+`domain/layout/group.py::exposable_surface(groups, gid)` returns the legal
+exportable set; `validate_exported_pins(groups, gid)` returns the invalid
+entries. Both are consumed by the DRC check (`GROUP_INVALID_EXPORT`) and by
+the persistence loader, which silently strips violations on load.
+
+**`lock_internal_wires`:** when `True`, owned wires of the group are added
+to the *hard* collision mask. A foreign drag that would touch them is HARD-blocked
+instead of being resolved as SOFT (auto-remove). See
+[drag-pipeline-architecture.md](drag-pipeline-architecture.md).
+
+**Persistence:** `layout.yaml` serialises every group with `id`, `name`,
+`component_ids`, `child_group_ids`, `exported_pins`, and
+`lock_internal_wires`.

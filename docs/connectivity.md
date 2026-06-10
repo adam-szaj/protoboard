@@ -1,187 +1,229 @@
-# Incremental Connectivity Graph
+# Incremental ConnectivityGraph
 
-## 1. Problem i motywacja
+## 1. Problem and motivation
 
-Router potrzebuje odpowiedzi na jedno pytanie w kółko: **czy pad A i pad B są już elektrycznie połączone?** W naiwnej implementacji opartej na networkx każdy nowy drut wymaga przebudowania całego grafu od zera — O(V + E) gdzie V to wszystkie pady planszy (600+ dla micek), a E to wszystkie krawędzie (druty, paski, połączenia plated-through). Na projekcie micek (143 komponenty, 100 netów) greedy pass wywoływał tę przebudowę ~600 razy, co dawało łącznie ~2.5 minuty.
+The router asks one question over and over: **are pads A and B already
+electrically connected?** In the naïve `networkx`-backed implementation every
+new wire required rebuilding the whole graph from scratch — O(V + E) where
+V is every board pad (600+ on micek) and E covers every wire, strip and
+plated-through edge. On the micek project (143 components, 100 nets) the
+greedy autorouter triggered that rebuild ~600 times, for a total of about
+2.5 minutes.
 
-Inkrementalna struktura zastępuje pełną przebudowę operacjami O(path_len) na drut:
-- `add_wire(wire)` — scala zbiory, O(|path|)
-- `remove_wire(wire)` — rozdziela zbiory, O(|evicted_set|)
-- `are_connected(a, b)` — sprawdzenie połączenia, O(1)
+The incremental structure replaces the full rebuild with O(path) operations:
 
-Efekt: greedy pass z ~2.5 minuty do ~5 sekund (30× przyspieszenie).
+- `add_wire(wire)` — union the affected sets, O(|path|).
+- `remove_wire(wire)` — split the sets, O(|evicted_set|).
+- `are_connected(a, b)` — connectivity check, O(1).
+
+Effect: the autorouter greedy pass goes from ~2.5 minutes to ~5 seconds (30×).
 
 ---
 
-## 2. Model danych
+## 2. Data model
 
-### ElectricSet — zbiór połączonych punktów
+### `ElectricSet` — a set of electrically connected points
 
-Każda grupa elektrycznie połączonych padów tworzy jeden `ElectricSet`. Zawiera:
+Each group of electrically connected pads is one `ElectricSet` containing:
 
 ```
 ElectricSet:
-  id: int                      # unikalny identyfikator
-  _items: list[NodeEntry]      # wszystkie pady w zbiorze, w kolejności dołączania
-  canonical_key: (x, y, side)  # min(x, y, side) ze wszystkich padów — stały reprezentant
+  id:            int                  # unique identifier
+  _items:        list[NodeEntry]      # every pad in the set, in join order
+  canonical_key: (x, y, side)         # lex-min of every pad's key — the stable representative
 ```
 
-`canonical_key` to leksykograficzne minimum spośród wszystkich kluczy `(x, y, side)` w zbiorze. Dwie funkcje zwracają `canonical_key` tego samego obiektu wtedy i tylko wtedy, gdy dwa pady są połączone — stąd O(1) porównanie:
+`canonical_key` is the lexicographic minimum across every `(x, y, side)` key
+in the set. Two pads return the *same* canonical key if and only if they are
+connected — so equality is O(1):
 
 ```python
-node_for_pin(ref_a) == node_for_pin(ref_b)   # True iff elektrycznie połączone
+node_for_pin(ref_a) == node_for_pin(ref_b)   # True iff connected
 ```
 
-### NodeEntry — jeden punkt elektryczny
+### `NodeEntry` — one electrical point
 
 ```
 NodeEntry:
-  key: (x, y, side)      # pozycja na siatce i strona płytki
-  electric_set: ElectricSet  # referencja do zbioru (mutowalna przy merge/split)
+  key:           (x, y, side)        # grid position and board side
+  electric_set:  ElectricSet         # the owning set (mutable on merge / split)
 ```
 
-Każdy pad planszy (każda dziura na każdej stronie) ma dokładnie jeden `NodeEntry`. Pin komponentu bez drutu ma własny jednoelementowy `ElectricSet` — "wire-stub" o zerowej długości.
+Every board pad (every hole on every side) maps to one `NodeEntry`. A
+component pin with no incident wire owns its own singleton `ElectricSet` — a
+zero-length "wire stub".
 
-### Indeksy
+### Indices
 
 ```
-PadIndex:  (x, y, side) → NodeEntry          # O(1) lookup po pozycji
-PinIndex:  PinRef → NodeEntry                 # O(1) lookup po pinie komponentu
-WireIndex: wire.id → WireRecord               # historia merge dla rollback
+PadIndex:  (x, y, side) → NodeEntry      # O(1) lookup by position
+PinIndex:  PinRef → NodeEntry             # O(1) lookup by component pin
+WireIndex: wire.id → WireRecord           # rollback history for remove_wire
 ```
 
-### WireRecord — historia scalenia
+### `WireRecord` — merge history
 
-Każde `add_wire()` produkuje `WireRecord` zawierający listę wykonanych scaleń:
+Every `add_wire()` produces a `WireRecord` listing every merge that took
+place:
 
 ```
 WireRecord:
-  wire_id: UUID
-  merges: list[MergeRecord]     # w kolejności wykonania (LIFO przy remove)
-  is_loop: bool                 # True gdy drut nie scalał (oba końce już połączone)
-  intermediate_keys: list[...]  # węzły stworzone tylko dla tego drutu
+  wire_id:           UUID
+  merges:            list[MergeRecord]   # in execution order (LIFO on remove)
+  is_loop:           bool                # True when neither endpoint joined any set
+  intermediate_keys: list[...]           # nodes created exclusively for this wire
 
 MergeRecord:
-  merged: ElectricSet   # zbiór który przeżył (większy)
-  evicted: ElectricSet  # zbiór który został wchłonięty
-  split_idx: int        # merged._items[split_idx:] pochodzi z evicted
+  merged:    ElectricSet   # the survivor (the larger set)
+  evicted:   ElectricSet   # the swallowed set
+  split_idx: int           # merged._items[split_idx:] originated in evicted
 ```
 
 ---
 
-## 3. Operacja merge (add_wire)
+## 3. Merge (`add_wire`)
 
-Gdy drut łączy dwa punkty z różnych zbiorów, wykonywane jest **union by size** — mniejszy zbiór jest wchłaniany przez większy:
+When a wire connects two points from different sets, **union by size** is
+performed — the smaller set is absorbed into the larger:
 
 ```
-Przed merge:
+Before merge:
   SetA._items = [P1, P2, P3]   canonical = (1.5, 0.5, "top")
   SetB._items = [P4, P5]       canonical = (3.5, 0.5, "top")
 
-Drut łączy P3 (należy do SetA) z P4 (należy do SetB).
-SetA jest większy → SetB jest wchłaniany.
+The wire connects P3 (in SetA) to P4 (in SetB).
+SetA is larger → SetB is absorbed.
 
-Po merge:
-  SetA._items = [P1, P2, P3, P4, P5]   split_idx = 3
-                 ←── stare SetA ──→←─SetB─→
-  SetA.canonical = min((1.5,...), (3.5,...)) = (1.5, 0.5, "top")
+After merge:
+  SetA._items = [P1, P2, P3, P4, P5]    split_idx = 3
+                  ←─── old SetA ───→ ←─SetB─→
+  SetA.canonical = min((1.5,…), (3.5,…)) = (1.5, 0.5, "top")
 
-  Każdy NodeEntry z dawnego SetB: entry.electric_set = SetA
-  SetB jest "martwy" — wyjęty z _all_sets, ale żyje w MergeRecord dla rollback
+  Every NodeEntry that pointed at SetB now points at SetA.
+  SetB is removed from _all_sets but kept alive inside MergeRecord
+  for the rollback path.
 ```
 
-Dla drutu z N punktami pośrednich operacja merge jest wykonywana sekwencyjnie dla par (path[0], path[1]), (path[1], path[2]) itd. — każda para może scalić inne zbiory. Wszystkie scalenia są zapisywane w `WireRecord.merges`.
+For a wire with N intermediate points the merge is sequential: pairs
+`(path[0], path[1])`, `(path[1], path[2])`, etc. Each pair may merge a
+different set. Every merge is appended to `WireRecord.merges`.
 
-**Wykrywanie pętli:** przed każdym merge sprawdzamy `is a.electric_set is b.electric_set` (porównanie tożsamości obiektu, O(1)). Jeśli tak — drut tworzy pętlę redundantną, żaden merge nie jest wykonywany.
+**Loop detection:** before each merge the implementation tests
+`a.electric_set is b.electric_set` (identity, O(1)). If they are already the
+same the wire is a redundant loop and no merge is performed:
 
 ```
-Drut łączy P1 i P3 — oba już w SetA.
+Wire connects P1 and P3 — both already in SetA.
 WireRecord.is_loop = True, merges = []
 ```
 
 ---
 
-## 4. Operacja split (remove_wire)
+## 4. Split (`remove_wire`)
 
-Cofnięcie merge polega na odtworzeniu oryginalnego podziału listy `_items`:
+Undoing a merge restores the original split of `_items`:
 
 ```
-Przed splitem (po add_wire):
-  SetA._items = [P1, P2, P3, P4, P5]   split_idx = 3
+Before split (after add_wire):
+  SetA._items = [P1, P2, P3, P4, P5]    split_idx = 3
 
 Split:
-  items_merged = SetA._items[:3]  = [P1, P2, P3]
+  items_merged  = SetA._items[:3] = [P1, P2, P3]
   items_evicted = SetA._items[3:] = [P4, P5]
 
   SetA._items = [P1, P2, P3]
-  SetB._items = [P4, P5]          (SetB "wskrzeszony" z MergeRecord)
+  SetB._items = [P4, P5]                    (SetB resurrected from MergeRecord)
 
-  Dla P4, P5: entry.electric_set = SetB
-  SetB wraca do _all_sets
-  canonical dla obu zbiorów przeliczony przez min()
+  For each of P4, P5: entry.electric_set = SetB
+  SetB returns to _all_sets
+  canonical for both sets is recomputed via min()
 ```
 
-`WireRecord.merges` jest odtwarzany w odwrotnej kolejności (LIFO) — ostatni merge jest cofany pierwszy. To gwarantuje poprawność gdy jeden drut wykonał wiele scaleń.
+`WireRecord.merges` is undone in reverse (LIFO): the last merge is reverted
+first. That keeps it correct when one wire produced several merges.
 
-**Przypadek out-of-order:** jeśli scalony zbiór (`MergeRecord.merged`) nie jest już "żywy" — tzn. został późnej wchłonięty przez kolejny drut — LIFO nie zadziała. W tym przypadku wykonywany jest **local rebuild**: węzły dotknięte przez usuwany drut są resetowane do singletonów, a następnie przebudowywane przez przejście po wszystkich pozostałych `WireRecord`. Koszt: O(K) gdzie K = rozmiar dotkniętego zbioru, a nie O(pełny graf).
+**Out-of-order case:** if the merged set referenced by `MergeRecord.merged`
+is no longer alive — because a later wire absorbed it — the LIFO trick
+breaks. In that case the structure falls back to a **local rebuild**: the
+nodes touched by the removed wire are reset to singletons and then walked
+through every other `WireRecord` to rebuild the affected component. Cost:
+O(K) where K is the size of the affected set, not O(full graph).
 
 ---
 
-## 5. Canonical key i kompatybilność wsteczna
+## 5. Canonical key and backward compatibility
 
-Stary `ConnectivityGraph` zwracał z `node_for_pin()` krotkę `(x, y, side)` reprezentującą węzeł networkx. Nowa implementacja zwraca `ElectricSet.canonical_key` — leksykograficzne minimum `(x, y, side)` ze wszystkich padów w zbiorze.
+The old `ConnectivityGraph` returned an `(x, y, side)` tuple — a
+`networkx` node — from `node_for_pin()`. The new implementation returns
+`ElectricSet.canonical_key`, which is the lexicographic minimum across the
+set's pads.
 
-Semantyka jest identyczna: dwa wywołania zwracają tę samą wartość wtedy i tylko wtedy, gdy oba pady są elektrycznie połączone. Kod używający wyłącznie porównania `==` działa bez zmian.
+Semantics are identical: two calls return the same value if and only if the
+two pads are connected. Callers that only compare with `==` keep working
+without modification.
 
-`net_status.py` używał wcześniej `nx.has_path(graph._g, a, b)` — zastąpione przez `a == b` (porównanie canonical_key), co jest O(1) zamiast O(V+E).
+`net_status.py` previously used `nx.has_path(graph._g, a, b)` — that became
+`a == b` (canonical-key equality), O(1) instead of O(V+E).
 
-`astar.py` używał `graph._g.nodes` — zastąpione przez `graph.all_node_keys()` (iterator po `PadIndex`).
+`astar.py` previously used `graph._g.nodes`; it now uses
+`graph.all_node_keys()` (an iterator over `PadIndex`).
 
 ---
 
-## 6. Struktura w kontekście autoroutera
+## 6. Use in the autorouter
 
 ```
-Przed greedy pass:
-  graph = ConnectivityGraph(board, layout_bez_drutów, components, instances)
+Before the greedy pass:
+  graph = ConnectivityGraph(board, layout_without_wires, components, instances)
   for wire in user_wires:
-      graph.add_wire(wire)         ← O(|path|) każdy
+      graph.add_wire(wire)         ← O(|path|) each
 
-Dla każdego segmentu każdego netu:
-  ┌─ sprawdź połączenie: graph.node_for_pin(ref_a) == graph.node_for_pin(ref_b)
+For each segment of each net:
+  ┌─ check connectivity: graph.node_for_pin(ref_a) == graph.node_for_pin(ref_b)
   │
-  ├─ jeśli niepołączone → uruchom A* → routed_wire
-  │   graph.add_wire(routed_wire)  ← O(|path|), NIE O(pełny graf)
+  ├─ if not connected → run A* → routed_wire
+  │   graph.add_wire(routed_wire)  ← O(|path|), NOT O(full graph)
   │
-  └─ rip-up gdy brak ścieżki:
+  └─ rip-up when no path exists:
       graph.remove_wire(ripped)    ← O(|evicted_set|)
       working_wires.remove(ripped)
 
-Poprzednio: ConnectivityGraph(board, layout_with_all_wires, ...)  ← O(V+E) × 600
-Teraz: add_wire() × 600  ← O(path_len) × 600
+Old loop: ConnectivityGraph(board, layout_with_all_wires, …)   ← O(V+E) × 600
+New loop: add_wire() × 600                                      ← O(path_len) × 600
 ```
 
 ---
 
-## 7. Złożoność operacji
+## 7. Operation complexity
 
-| Operacja | Złożoność | Uwagi |
+| Operation | Complexity | Notes |
 |---|---|---|
-| `ConnectivityGraph.__init__()` | O(V + E) | Jednorazowe budowanie z Board+Layout |
-| `add_wire(wire)` | O(\|path\|) | Sekwencyjne merge par punktów |
-| `remove_wire(wire)` — LIFO | O(K) | K = rozmiar evicted set |
+| `ConnectivityGraph.__init__()` | O(V + E) | One-off build from Board + Layout |
+| `add_wire(wire)` | O(\|path\|) | Sequential pairwise merges |
+| `remove_wire(wire)` — LIFO | O(K) | K = size of the evicted set |
 | `remove_wire(wire)` — out-of-order | O(K + E_local) | Local rebuild |
-| `are_connected(a, b)` | O(1) | Porównanie `is` na ElectricSet |
-| `node_for_pin(ref)` | O(1) | Lookup w PinIndex + canonical_key |
-| `node_for_pad(pos, side)` | O(1) | Lookup w PadIndex + canonical_key |
-| `electrical_nets()` | O(P) | P = liczba pinów w PinIndex |
+| `are_connected(a, b)` | O(1) | `is` comparison on `ElectricSet` |
+| `node_for_pin(ref)` | O(1) | `PinIndex` lookup + canonical_key |
+| `node_for_pad(pos, side)` | O(1) | `PadIndex` lookup + canonical_key |
+| `electrical_nets()` | O(P) | P = number of pins in `PinIndex` |
 
 ---
 
-## 8. Ograniczenia
+## 8. Caveats
 
-**Out-of-order rip-up** — autorouter może usunąć dowolny drut, niekoniecznie ostatnio dodany. Gdy usuwany drut nie jest "na szczycie" historii merge (tzn. scalony zbiór był potem wchłonięty przez inny drut), wykonywany jest local rebuild. Jest to poprawne ale kosztowniejsze — O(K) zamiast O(K przez LIFO).
+**Out-of-order rip-up** — the autorouter may remove any wire, not just the
+most recent one. When the removed wire isn't on top of the merge history
+(its merged set was later absorbed by another wire), the structure falls
+back to the local rebuild. Correct but costlier than LIFO.
 
-**Multi-hop wire** — drut przez N punktów wykonuje N-1 merge. Każdy jest zapisany oddzielnie w `WireRecord.merges`. Rollback odwraca je LIFO — poprawne o ile żaden z N-1 scalonych zbiorów nie był potem wchłonięty przez inny drut.
+**Multi-hop wires** — a wire crossing N points performs N−1 merges. Each is
+recorded separately in `WireRecord.merges`. Rollback reverses them LIFO —
+correct as long as none of the N−1 merged sets has been absorbed by another
+wire in the meantime.
 
-**Wątkowość** — struktura nie jest thread-safe. `add_wire`/`remove_wire` muszą być wywoływane sekwencyjnie. Odczyt (`node_for_pin`, `are_connected`) jest bezpieczny współbieżnie o ile żaden wątek jednocześnie nie modyfikuje struktury. W autorouter spełnione — A* (równoległy w Rust) tylko czyta `all_node_keys()`, a mutacje grafu są sekwencyjne w głównej pętli greedy.
+**Threading** — the structure is *not* thread-safe. `add_wire` / `remove_wire`
+must run sequentially. Read access (`node_for_pin`, `are_connected`) is
+safe as long as no thread is concurrently mutating. The autorouter respects
+this: A* (which can run in parallel under the Rust backend) only reads
+`all_node_keys()`, and graph mutations happen sequentially in the greedy
+main loop.

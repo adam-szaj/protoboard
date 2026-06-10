@@ -1,34 +1,40 @@
-# CLAUDE.md — Perfboard/Stripboard Layout Designer
+# CLAUDE.md — Perfboard / Stripboard Layout Designer
 
-## 0. Cel projektu
+## 0. Project goal
 
-Aplikacja desktop (Linux, PySide6) do projektowania fizycznego rozmieszczenia komponentów na płytkach prototypowych (perfboard, stripboard).
+A Linux desktop application (PySide6) for designing the physical placement of
+components on prototyping boards — perfboards, stripboards and similar matrix
+boards.
 
-**Kluczowa różnica:** projekt jest *connectivity-aware* — model danych to graf logicznych sieci (netlist), widok fizyczny to projekcja grafu na siatkę otworów. Umożliwia DRC, import/eksport KiCAD, inteligentny routing.
+**What makes it different:** the project is *connectivity-aware*. The data
+model is a graph of logical nets (the netlist); the physical view is the
+projection of that graph onto a grid of holes. This makes DRC,
+KiCAD import/export and intelligent routing tractable.
 
-**Nazwa robocza:** `protoboard-designer`.
+**Working name:** `protoboard-designer`.
 
-## 1. Stack technologiczny
+## 1. Technology stack
 
-| Warstwa | Wybór |
+| Layer | Choice |
 |---|---|
-| Język | Python 3.11+ |
-| GUI | PySide6 (Qt 6), `QGraphicsScene`/`QGraphicsView` |
-| Grafy | `networkx` + własny union-find (`domain/connectivity/incremental.py`) |
-| Routing | własny A* (Python + opcjonalny Rust PyO3) |
+| Language | Python 3.11+ |
+| GUI | PySide6 (Qt 6), `QGraphicsScene` / `QGraphicsView` |
+| Graphs | `networkx` + a custom union-find (`domain/connectivity/incremental.py`) |
+| Routing | Custom A* (Python + optional Rust PyO3 implementation) |
 | Persistence | YAML (`ruamel.yaml`) |
-| KiCAD I/O | własny parser S-expression (MIT) + opcjonalny `kiutils` (GPL) |
-| Testy | `pytest` + `pytest-qt` |
-| Linter | `ruff` + `black` + `mypy --strict` |
-| Pakowanie | `uv` + `pyproject.toml` (PEP 621) |
+| KiCAD I/O | Custom S-expression parser (MIT) + optional `kiutils` (GPL) |
+| Tests | `pytest` + `pytest-qt` |
+| Linters | `ruff` + `black` + `mypy --strict` |
+| Packaging | `uv` + `pyproject.toml` (PEP 621) |
 
-## 2. Licencja
+## 2. License
 
-- Rdzeń, parser KiCAD, GUI, modele danych: **MIT**.
-- Opcjonalny moduł `kicad_integration_gpl`: **GPLv3** (`pip install protoboard-designer[kicad-gpl]`).
-- SPDX header w każdym pliku: `# SPDX-License-Identifier: MIT`.
+- Core code, KiCAD parser, GUI, data models: **MIT**.
+- Optional `kicad_integration_gpl` module: **GPLv3**
+  (`pip install protoboard-designer[kicad-gpl]`).
+- SPDX header on every file: `# SPDX-License-Identifier: MIT`.
 
-## 3. Architektura — warstwy
+## 3. Architecture — layers
 
 ```
 GUI Layer (PySide6)
@@ -37,80 +43,122 @@ Application Layer (CommandStack, Tools, Selection)
   ↑ Commands
 Domain Model (pure Python, no Qt)
   ↑
-Services (DRC, Router, KiCAD I/O, Persistence)
+Services (DRC, Router, KiCAD I/O, Persistence, Export)
 ```
 
-**Reguła:** Domain Model nie importuje Qt. Testowalny bez display servera.
+**Rule:** the Domain Model must not import Qt. It must be testable without a
+display server.
 
-## 4. Dokumentacja szczegółowa
+## 4. Detailed documentation
 
-| Temat | Plik |
+| Topic | File |
 |---|---|
-| Model danych (box model, pady, schematic, layout, grupy) | [docs/data-model.md](docs/data-model.md) |
-| Geometria (placement, rotacja, flip, bbox) | [docs/geometry.md](docs/geometry.md) |
+| Data model (box model, pads, schematic, layout, groups, wire/knot) | [docs/data-model.md](docs/data-model.md) |
+| Geometry (placement, rotation, flip, bounding box) | [docs/geometry.md](docs/geometry.md) |
 | Routing (A*, cost model, autorouter) | [docs/routing.md](docs/routing.md) |
-| Undo/Redo, lista komend | [docs/commands.md](docs/commands.md) |
+| Undo / redo, command inventory | [docs/commands.md](docs/commands.md) |
 | Persistence, KiCAD I/O | [docs/persistence.md](docs/persistence.md) |
 | DRC | [docs/drc.md](docs/drc.md) |
 | GUI, tools, multi-selection, wire editing | [docs/gui.md](docs/gui.md) |
-| Testy — strategia | [docs/testing.md](docs/testing.md) |
-| Benchmarki, profilowanie, architektura optymalizacji | [docs/benchmarks.md](docs/benchmarks.md) |
-| Historia optymalizacji wydajności | [docs/performance.md](docs/performance.md) |
-| Connectivity (union-find, inkrementalny graf) | [docs/connectivity.md](docs/connectivity.md) |
-| Fazy implementacji | [docs/phases.md](docs/phases.md) |
+| Selection / highlight FSM (canonical) | [docs/highlight-state-machine.txt](docs/highlight-state-machine.txt) |
+| Pad / pin / wire / joint semantics (hard and soft rules) | [docs/pad-pin-wire-junction-semantics.md](docs/pad-pin-wire-junction-semantics.md) |
+| Drag pipeline architecture | [docs/drag-pipeline-architecture.md](docs/drag-pipeline-architecture.md) |
+| Testing strategy | [docs/testing.md](docs/testing.md) |
+| Benchmarks, profiling, GUI performance architecture | [docs/benchmarks.md](docs/benchmarks.md) |
+| Historical performance optimisations | [docs/performance.md](docs/performance.md) |
+| Incremental connectivity (union-find) | [docs/connectivity.md](docs/connectivity.md) |
+| Command recording for headless replay | [docs/command-recorder.md](docs/command-recorder.md) |
+| Implementation phases (historical) | [docs/phases.md](docs/phases.md) |
 
-## 5. Struktura katalogów
+Archived design plans whose work has shipped live in [docs/archive/](docs/archive/).
+
+## 5. Source layout
 
 ```
 src/protoboard/
 ├── units.py, geometry.py
 ├── domain/
-│   ├── board/          # boxes.py, layout_engine.py, pads.py, board.py
+│   ├── board/          # boxes.py, layout_engine.py, pads.py, board.py, pad_state.py, pad_geometry.py, layer.py, templates.py
 │   ├── components/     # footprints.py, definition.py, instance.py
 │   ├── schematic/      # net.py, schematic.py
-│   ├── layout/         # placement.py, wire.py, wire_utils.py, cut.py, group.py, layout.py
-│   ├── connectivity/   # graph.py, incremental.py
+│   ├── layout/         # placement.py, wire.py, wire_utils.py, knot.py, cut.py,
+│   │                   # group.py, layout.py, normalize.py, pad_conflict.py,
+│   │                   # drag_classification.py, group_ownership.py, pin_pad_classification.py
+│   ├── connectivity/   # incremental.py (graph.py is a re-export shim)
 │   ├── routing_settings.py
-│   └── commands/       # base.py, component_cmds.py, group_cmds.py
+│   └── commands/       # base.py, board_cmds.py, component_cmds.py,
+│                       # drag_cmds.py, group_cmds.py, net_cmds.py
 ├── services/
 │   ├── drc/            # engine.py, checks.py
-│   ├── routing/        # cost_model.py, astar.py, autorouter.py, astar_rs/
-│   ├── persistence/    # board_yaml.py, project_yaml.py
+│   ├── routing/        # cost_model.py, astar.py, autorouter.py, hierarchical.py,
+│   │                   # cost_analyzer.py, astar_rs/ (Rust PyO3 backend)
+│   ├── persistence/    # board_yaml.py, project_yaml.py, wire_migration.py, git_repo.py
+│   ├── export/         # snapshot.py, paint.py, svg.py, pdf.py, pdf_template.py, png.py, bom.py
 │   ├── library/        # loader.py
-│   └── kicad/          # parser.py, importer.py, exporter.py
+│   ├── recording/      # recorder.py, replay.py, serialization.py, headless.py
+│   ├── kicad/          # parser.py, importer.py, exporter.py
+│   ├── placement/      # spreader, etc.
+│   ├── drag_detector.py
+│   └── pad_strategy.py
 ├── gui/
-│   ├── main_window.py, session.py, board_view.py
+│   ├── main_window.py, session.py, board_view.py, selection_fsm.py,
+│   │                   # drag_set.py, keybindings.py, …
 │   ├── renderers/      # board_renderer.py, component_renderer.py, wire_renderer.py
-│   ├── dialogs/        # preferences_dialog.py, group_target_dialog.py, pad_conflict_dialog.py
-│   ├── panels/         # library_panel.py, properties_panel.py, groups_panel.py, drc_panel.py
-│   └── tools/          # select_tool.py, place_tool.py, route_tool.py, cut_tool.py
+│   ├── dialogs/        # preferences_dialog.py, group_target_dialog.py,
+│   │                   # pad_conflict_dialog.py, drag_disconnect_dialog.py,
+│   │                   # drag_ask_remove_dialog.py, wire_conflict_dialog.py,
+│   │                   # net_merge_dialog.py, autoroute_dialog.py,
+│   │                   # cost_presets_dialog.py, resize_board_dialog.py,
+│   │                   # toolbar_customize_dialog.py, welcome_dialog.py,
+│   │                   # new_project_dialog.py
+│   ├── panels/         # library_panel.py, properties_panel.py, groups_panel.py,
+│   │                   # netlist_panel.py, nets_editor_panel.py,
+│   │                   # net_inspector_panel.py, components_panel.py,
+│   │                   # layers_panel.py, performance_panel.py,
+│   │                   # selection_filter_widget.py, highlight_mode_widget.py,
+│   │                   # tree_panel_mixin.py
+│   ├── tools/          # select_tool.py, place_tool.py, route_tool.py,
+│   │                   # cut_tool.py, simplify_tool.py,
+│   │                   # drag_conflict_overlay.py, drag_corner_text.py,
+│   │                   # drag_commit_decision.py
+│   └── workers/        # background QThread workers for autoroute, DRC, simplify
 └── app.py
 ```
 
-## 6. Konwencje kodu
+## 6. Coding conventions
 
-- `mypy --strict` musi przechodzić. Brak `Any` poza udokumentowanymi miejscami.
-- `frozen=True` dataclasses gdziekolwiek możliwe. `@property` dla obliczanych wartości.
-- Pure functions w `domain/`; side-effecty tylko w `services/persistence` i `gui/`.
-- Naming: `snake_case` funkcje, `PascalCase` klasy, `SCREAMING_SNAKE` stałe.
-- Docstringi Google style dla publicznych modułów i klas.
-- Custom exceptions dziedziczą z `ProtoboardError` (`protoboard.errors`).
-- Logging: `structlog`, domyślnie INFO, `--verbose` → DEBUG.
+- `mypy --strict` must pass. No `Any` outside documented escape hatches.
+- `frozen=True` dataclasses wherever practical. `@property` for derived values.
+- Pure functions in `domain/`; side effects live in `services/persistence`,
+  `services/recording`, `services/export`, and `gui/`.
+- Naming: `snake_case` functions, `PascalCase` classes, `SCREAMING_SNAKE` constants.
+- Google-style docstrings on public modules and classes.
+- Custom exceptions inherit from `ProtoboardError` (`protoboard.errors`).
+- Logging: `structlog`; default level INFO, `--verbose` enables DEBUG.
 - Commits: Conventional Commits (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`).
 
-## 7. Decyzje otwarte
+## 7. Open design questions
 
-1. **Numeracja pinów w obróconym komponencie**: `pin_position()` zwraca pozycję względną w `Footprint`, absolutną liczy `Layout.pin_world_position(component_id, pin_number)`.
-2. **Komponenty wystające poza płytkę**: dozwolone z warningiem czy zabronione twardo?
-3. **Render izolacji przewodu**: izolowany = ciągła linia; goły = szara z czarnymi end-capami.
-4. **Stripboard cuts**: wizualnie jako przerwa między padami (czytelniejsze) czy "X" na padzie?
-5. **Format `.net` KiCAD**: legacy XML, new XML, S-expression — zależnie od wersji KiCAD.
+1. **Pin numbering in rotated components**: `FootprintTemplate.pin_position()`
+   returns the local-frame position; the absolute world position is computed
+   by `pin_world_position()` in `domain/layout/placement.py`.
+2. **Components overhanging the board**: warn or hard-block? (Currently
+   tolerated — see DRC `OFF_BOARD_PIN`.)
+3. **Wire insulation rendering**: insulated = solid line; bare = grey line with
+   black end caps.
+4. **Stripboard cuts**: rendered as a gap between pads (kept; clearer than an
+   "X" overlay).
+5. **KiCAD `.net` format**: the importer currently targets the new XML
+   `<export version="D">` format; S-expression variants depend on the KiCAD
+   release.
 
-## 8. Rekomendacje dla Claude Code
+## 8. Recommendations for Claude Code
 
-- Pracuj fazami. Nie zaczynaj Fazy N+1 dopóki Faza N nie ma zielonego CI i smoke-testu.
-- Każda faza: zaktualizuj `CHANGELOG.md` na początku, commit `chore: complete phase N` na końcu.
-- TDD dla layout engine i routing: najpierw failing test.
-- Gdy napotkasz decyzję projektową spoza tego dokumentu — **zatrzymaj się i zapytaj**.
-- Aktualizuj ten plik i pliki w `docs/` gdy decyzje są podejmowane.
-- Każda nowa publiczna API musi mieć test i docstring przed commitem.
+- Work in phases. Don't start phase N+1 until phase N has a green CI and a
+  smoke test.
+- Each phase: update `CHANGELOG.md` at the start, commit `chore: complete phase N`
+  at the end.
+- TDD for the layout engine and routing: write the failing test first.
+- If you hit a design decision not covered by this document — **stop and ask**.
+- Update this file and the files under `docs/` whenever a decision is taken.
+- Every new public API gets a test and a docstring before the commit.

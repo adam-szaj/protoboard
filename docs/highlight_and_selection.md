@@ -1,44 +1,56 @@
-# Select and Highlight
+# Selection and highlight — user-facing description
 
-## Select
-### Component
-- select components (components that are in the same nets - excluding global nets like GND, VCC...)
-- select components from only one of networks (that components is a member)
-- select wires and pins from all networks (that components is a member)
-- select wires and pins from one of networks (that components is a member)
+This page sketches the *user-facing* behaviour: what kinds of selection
+gestures are possible, and what visual treatment items receive while
+selected or highlighted. The canonical FSM that implements all of this
+is [highlight-state-machine.txt](highlight-state-machine.txt) (currently
+revision 3).
 
-### Wire
-- select one fragment
-- select to the closest pin/joint
-- select all continuously connected (electrical) wires
-- select wires from the same network
-- select connected components
-- select components from the same network as wire (not only connected one)
+## Selection
 
-## Highlight
+### From a component
+
+- Select components that share a net with this one (excluding global
+  nets such as GND, VCC…).
+- Select components that share *one specific* net with this one.
+- Select wires and pins from every net the component is a member of.
+- Select wires and pins from one specific net.
+
+### From a wire
+
+- Select one fragment.
+- Select up to the nearest pin or joint.
+- Select every electrically connected wire (the whole physical net).
+- Select every wire of the same logical net.
+- Select connected components.
+- Select all components of the same net (not only the directly
+  connected ones).
+
+## Highlight modes
 
 ### Normal
-In normal mode item of interest are emphasized, Highlighted and/or bold frame/outline.
-Items on the bottom side (from camera perspective) may need to be emphasized differently,
-compared to items on the top
+
+Items of interest are emphasised — highlighted and / or given a bold
+frame / outline. Items on the bottom side (from the camera's
+perspective) may need a different visual treatment from those on the top.
 
 ### Dimmed #1
-In dimmed #1 other items are dimmed (darker) but still well visible (maybe slightly lower opacity).
+
+The other items stay clearly visible but are dimmed a little (slightly
+lower opacity). Use this while dragging, rotating or routing — you want
+to see where other same-net components are *and* where free spots are.
 
 ### Dimmed #2
-In dimmed #1 other items are dimmed (darker) but with way lower opacity.
 
+Other items are dimmed much further (substantially lower opacity). Use
+this when selecting many items via the "select all wires of this net"
+style commands — focus is on the selected set.
 
-## Appendix
+## Conventions
 
-Idea behind these different modes is that depending on current task/tool different context is needed to be visible.
-Like, when moving component or routing you want to see where are other components from the same nets,
-but you also have to see where others are to see which spots are occupied (and by what: components or wires)
+Connected items are highlighted **green**, unconnected items **orange**
+(applies to pins and wires when the current item drives the highlight).
 
-For drag, rotate and routing "Dimmed #1" profile has to be selected.
-
-In all cases when pins and wires are highlighted connected to current item (clicked/selected) are highlighted in green,
-unconnected in orange.
-
-Highlight profile "Dimmed #2" should be applied when selecting multiple items using commands listed in "Select" section. 
-Highlight can be changed anytime by user.
+The highlight profile can be changed by the user at any time. Drag,
+rotate and routing default to *Dimmed #1*; multi-net selection commands
+default to *Dimmed #2*.

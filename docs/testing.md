@@ -1,22 +1,22 @@
-# Testy — strategia
+# Testing strategy
 
-## Rodzaje testów
+## Test kinds
 
-- **Unit:** `domain/`, `services/` — bez Qt, szybkie.
-- **Integration:** end-to-end (utwórz projekt programatycznie → zapisz → wczytaj → DRC).
-- **GUI:** `pytest-qt`, smoke testy (otwórz okno, kliknij toolbar, nie crashnij).
-- **Property-based:** `hypothesis` dla layout engine (random box trees → pozycje atomów monotoniczne, brak nakładek poza intencjonalnymi gapami).
-- **Snapshot:** rendery YAML projektów porównywane z baseline.
-- **Performance:** `pytest-benchmark` w `tests/benchmarks/` — zob. [benchmarks.md](benchmarks.md).
+- **Unit** — `domain/`, `services/`. Pure Python, no Qt, fast.
+- **Integration** — end-to-end: build a project programmatically → save → load → DRC.
+- **GUI** — `pytest-qt` smoke tests: open the window, click a toolbar, don't crash.
+- **Property-based** — `hypothesis` for the layout engine (random box trees produce monotonic atom positions and no unexpected overlaps).
+- **Snapshot** — YAML renders of test projects compared against a baseline.
+- **Performance** — `pytest-benchmark` in `tests/benchmarks/` — see [benchmarks.md](benchmarks.md).
 
-## Pokrycie
+## Coverage targets
 
-Target 80% dla `domain/` i `services/`. GUI nie liczone.
+80 % for `domain/` and `services/`. GUI is not counted.
 
-## Uruchomienie
+## How to run
 
 ```bash
-uv run pytest                                   # wszystkie testy
-uv run pytest tests/unit/                       # tylko unit
-uv run pytest tests/benchmarks/ --benchmark-only -v
+uv run pytest                                         # full suite
+uv run pytest tests/unit/                             # unit only
+uv run pytest tests/benchmarks/ --benchmark-only -v   # benchmarks
 ```
