@@ -1830,13 +1830,17 @@ class BoardView(QGraphicsView):
                     theme_for_filter = self._theme_override or DEFAULT_THEME
                     filter_color = _QColor(theme_for_filter.back_filter_color)
                     filter_color.setAlphaF(burst_filter_alpha)
+                    # QGraphicsView calls drawBackground with the live
+                    # viewport transform already applied.  resetTransform
+                    # so the viewport rect maps to device pixels 1:1 —
+                    # otherwise fillRect is mapped through the zoom and
+                    # only fills a tiny scaled rectangle instead of the
+                    # whole viewport.
+                    painter.save()
+                    painter.resetTransform()
                     painter.setOpacity(1.0)
-                    # After painter.restore() above the transform is
-                    # back to identity (device coords).  Use the live
-                    # viewport rect so the filter always covers the
-                    # whole visible area, regardless of how much the
-                    # anchor snapshot has drifted from the current view.
                     painter.fillRect(self.viewport().rect(), filter_color)
+                    painter.restore()
                     self._paint_counters["blit_back_filter"] += 1
                 # Mid blit — re-paint the anchor pixmap through the same
                 # bridge so pads sit on top of the filter, matching the
@@ -1922,11 +1926,12 @@ class BoardView(QGraphicsView):
             filter_color = _QColor(theme_for_filter.back_filter_color)
             filter_color.setAlphaF(alpha_back_filter)
             painter.setOpacity(1.0)
-            # Painter is in identity / device coords here (resetTransform
-            # was called above before the base blit).  Use the live
-            # viewport rect rather than the cache pixmap rect so the
-            # filter always covers the visible area, even if the cache
-            # is briefly out of sync with a recent resize.
+            # Painter is in identity / device coords here (the enclosing
+            # save / resetTransform pair above the base blit took care
+            # of that).  Use the live viewport rect rather than the
+            # cache pixmap rect so the filter always covers the visible
+            # area, even if the cache is briefly out of sync with a
+            # recent resize.
             painter.fillRect(self.viewport().rect(), filter_color)
             self._paint_counters["blit_back_filter"] += 1
         if self._bg_cache is not None and alpha_mid > 0.0:
