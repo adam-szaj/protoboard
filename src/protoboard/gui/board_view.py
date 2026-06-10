@@ -1825,13 +1825,18 @@ class BoardView(QGraphicsView):
                 )
                 burst_filter_alpha = burst_layers.alpha_for_back_filter()
                 burst_alpha_mid = burst_layers.alpha_for_board_mid()
-                if burst_filter_alpha > 0.0 and self._bg_cache_anchor is not None:
+                if burst_filter_alpha > 0.0:
                     from PySide6.QtGui import QColor as _QColor
                     theme_for_filter = self._theme_override or DEFAULT_THEME
                     filter_color = _QColor(theme_for_filter.back_filter_color)
                     filter_color.setAlphaF(burst_filter_alpha)
                     painter.setOpacity(1.0)
-                    painter.fillRect(self._bg_cache_anchor.rect(), filter_color)
+                    # After painter.restore() above the transform is
+                    # back to identity (device coords).  Use the live
+                    # viewport rect so the filter always covers the
+                    # whole visible area, regardless of how much the
+                    # anchor snapshot has drifted from the current view.
+                    painter.fillRect(self.viewport().rect(), filter_color)
                     self._paint_counters["blit_back_filter"] += 1
                 # Mid blit — re-paint the anchor pixmap through the same
                 # bridge so pads sit on top of the filter, matching the
@@ -1911,13 +1916,18 @@ class BoardView(QGraphicsView):
         # overhang the board outline (e.g. a wire stub) still get the
         # filter; axis labels live at Z_OVERLAY and are repainted by Qt
         # on top of this sandwich so they keep their colour.
-        if alpha_back_filter > 0.0 and self._bg_cache is not None:
+        if alpha_back_filter > 0.0:
             from PySide6.QtGui import QColor as _QColor
             theme_for_filter = self._theme_override or DEFAULT_THEME
             filter_color = _QColor(theme_for_filter.back_filter_color)
             filter_color.setAlphaF(alpha_back_filter)
             painter.setOpacity(1.0)
-            painter.fillRect(self._bg_cache.rect(), filter_color)
+            # Painter is in identity / device coords here (resetTransform
+            # was called above before the base blit).  Use the live
+            # viewport rect rather than the cache pixmap rect so the
+            # filter always covers the visible area, even if the cache
+            # is briefly out of sync with a recent resize.
+            painter.fillRect(self.viewport().rect(), filter_color)
             self._paint_counters["blit_back_filter"] += 1
         if self._bg_cache is not None and alpha_mid > 0.0:
             _bt = time.monotonic()
