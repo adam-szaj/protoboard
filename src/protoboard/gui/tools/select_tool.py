@@ -142,8 +142,18 @@ _RUBBER_BAND_FILL_RL = QColor(0, 200, 255, 10)
 _WIRE_SELECT_PEN = QPen(QColor(255, 220, 0, 200), 0.38)
 _WIRE_SELECT_PEN.setCapStyle(Qt.PenCapStyle.RoundCap)
 _WIRE_SELECT_PEN.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+# Distinct cyan pen used when wire-edit mode is armed via [E] — the
+# colour shift is the primary signal to the user that LMB clicks will
+# now target wire vertices (and not normal selection / drag).
+_WIRE_EDIT_PEN = QPen(QColor(0, 204, 255, 220), 0.42)
+_WIRE_EDIT_PEN.setCapStyle(Qt.PenCapStyle.RoundCap)
+_WIRE_EDIT_PEN.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
 _NODE_PEN = QPen(Qt.GlobalColor.yellow, 0.04)
 _NODE_BRUSH = QColor(255, 220, 0, 200)
+# Node pen + brush used during wire-edit so the dots match the cyan
+# segment colour and read as "edit-mode" at a glance.
+_NODE_EDIT_PEN = QPen(QColor(0, 204, 255, 255), 0.05)
+_NODE_EDIT_BRUSH = QColor(0, 204, 255, 220)
 _NODE_SELECTED_PEN = QPen(Qt.GlobalColor.red, 0.06)
 _NODE_SELECTED_BRUSH = QColor(255, 80, 0, 230)
 _EDIT_PREVIEW_PEN = QPen(QColor(255, 120, 0, 200), 0.12)
@@ -2825,7 +2835,41 @@ class SelectTool(_Tool):
                 self._set_edit_end(hit_idx, hit_wire)
             return True
 
-        # --- First node selected, waiting for second (Ctrl+click sets end) ---
+        # --- Wire-edit armed via [E] but range not yet defined ---
+        # After [E] both start and end are None.  The user picks them
+        # with two plain LMB clicks on wire nodes; intermediate clicks
+        # (after both are set) add points via the branch above.
+        #
+        # In wire-edit mode every LMB stays inside the wire-edit
+        # context — a miss is a no-op (caller may retry), never a
+        # fall-through to component / group selection.  Use Esc to
+        # leave wire-edit explicitly.
+        if (self._edit_start_wire_id is not None
+                and self._edit_end_idx is None
+                and not ctrl):
+            hit_wire, hit_idx = self._hit_test_wire_node_any(scene_pt)
+            if hit_wire is None or hit_idx is None:
+                # Missed every candidate wire node — swallow the click
+                # so we don't fall through and select a component pad
+                # or unrelated wire underneath the cursor.
+                return True
+            if self._edit_start_idx is None:
+                # First click of the armed pair: pin the start node.
+                # Cross-wire edits can pivot the start to a sibling wire
+                # of the same net, so re-pin the wire id too.  Repaint
+                # the highlight so the start vertex shows as selected
+                # (red ring + orange fill) — without this the user has
+                # no confirmation that the first click was registered.
+                self._edit_start_wire_id = hit_wire.id
+                self._edit_start_idx = hit_idx
+                self._draw_wire_highlight(hit_wire.id)
+                return True
+            # Second click: commits the fragment range.
+            self._set_edit_end(hit_idx, hit_wire)
+            return True
+
+        # --- Legacy: explicit Ctrl+click to set end (callers from
+        # historical entry points that pre-set the start index).
         if self._edit_start_idx is not None and ctrl:
             hit_wire, hit_idx = self._hit_test_wire_node_any(scene_pt)
             if hit_wire is not None and hit_idx is not None:
@@ -3971,9 +4015,13 @@ class SelectTool(_Tool):
             # SELECTION-on-wire.  Replaces the legacy Ctrl+LMB-on-
             # wire-node entry (Ctrl is now ADD-to-selection).
             if self._selected_wire_id is not None:
-                self._start_wire_edit(0)
+                # node_idx=None: user picks both start and end via clicks
+                # so any fragment (including mid-wire) is editable.  The
+                # mousePressEvent branch in this file handles the two
+                # required clicks before transitioning into _is_editing_wire().
+                self._start_wire_edit(node_idx=None)
                 _log.info(
-                    "key.wire_edit.started",
+                    "key.wire_edit.armed",
                     wire_id=str(self._selected_wire_id)[:8],
                 )
                 event.accept()
@@ -7048,13 +7096,20 @@ class SelectTool(_Tool):
         if wire is None or len(wire.path) < 2:
             return
         from protoboard.gui.layer_state import Z_SELECTION
+        # Wire-edit mode (armed via [E]) repaints the selected wire and
+        # its nodes in cyan so the user has an unmistakable signal that
+        # clicks now manipulate vertices rather than selecting things.
+        editing = self._edit_start_wire_id is not None
+        seg_pen = _WIRE_EDIT_PEN if editing else _WIRE_SELECT_PEN
+        node_pen = _NODE_EDIT_PEN if editing else _NODE_PEN
+        node_brush = _NODE_EDIT_BRUSH if editing else _NODE_BRUSH
         group = QGraphicsItemGroup()
         pts = wire.path
         for i in range(len(pts) - 1):
             seg = QGraphicsLineItem(
                 pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y
             )
-            seg.setPen(_WIRE_SELECT_PEN)
+            seg.setPen(seg_pen)
             group.addToGroup(seg)
         for i, pt in enumerate(pts):
             r = _NODE_RADIUS
@@ -7062,8 +7117,8 @@ class SelectTool(_Tool):
             is_end = (wire_id == self._edit_end_wire_id and i == self._edit_end_idx)
             is_sel = is_start or is_end
             dot = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
-            dot.setPen(_NODE_SELECTED_PEN if is_sel else _NODE_PEN)
-            dot.setBrush(_NODE_SELECTED_BRUSH if is_sel else _NODE_BRUSH)
+            dot.setPen(_NODE_SELECTED_PEN if is_sel else node_pen)
+            dot.setBrush(_NODE_SELECTED_BRUSH if is_sel else node_brush)
             group.addToGroup(dot)
         group.setZValue(Z_SELECTION)
         self._view.scene().addItem(group)
@@ -7821,8 +7876,20 @@ class SelectTool(_Tool):
         best_idx: int | None = None
         best_d = _NODE_HIT_RADIUS
 
+        # Restrict to the start net when one is set.  When the wire
+        # carries no resolvable net (rare — e.g. drafts without
+        # schematic), limit the search to the start wire itself rather
+        # than every wire on the board: hitting an unrelated wire in
+        # edit mode is surprising and easy to do by accident on busy
+        # boards.
+        restrict_to_start_wire = (
+            start_net_id is None and self._edit_start_wire_id is not None
+        )
+
         for wire in self._session.layout.wires:
             if start_net_id is not None and wire_net_map.get(wire.id) != start_net_id:
+                continue
+            if restrict_to_start_wire and wire.id != self._edit_start_wire_id:
                 continue
             for i, pt in enumerate(wire.path):
                 d = math.sqrt((px - pt.x) ** 2 + (py - pt.y) ** 2)
@@ -7830,17 +7897,6 @@ class SelectTool(_Tool):
                     best_d = d
                     best_wire = wire
                     best_idx = i
-
-        if best_wire is None:
-            # Fallback: allow any wire when no net context yet.
-            if start_net_id is None:
-                for wire in self._session.layout.wires:
-                    for i, pt in enumerate(wire.path):
-                        d = math.sqrt((px - pt.x) ** 2 + (py - pt.y) ** 2)
-                        if d < best_d:
-                            best_d = d
-                            best_wire = wire
-                            best_idx = i
 
         return best_wire, best_idx
 
@@ -8117,7 +8173,15 @@ class SelectTool(_Tool):
             self._view.scene().addItem(group_end)
             self._wire_multi_highlights.append(group_end)
 
-    def _start_wire_edit(self, node_idx: int) -> None:
+    def _start_wire_edit(self, node_idx: int | None = None) -> None:
+        """Arm wire-edit mode.
+
+        When *node_idx* is ``None`` (the [E] keypress path), the user
+        must click two wire nodes to define the fragment range: first
+        click sets the start, second click sets the end.  Passing an
+        explicit *node_idx* preselects the start (used by tests and
+        legacy entry points).
+        """
         self._cancel_wire_edit()
         self._edit_start_wire_id = self._selected_wire_id
         self._edit_start_idx = node_idx

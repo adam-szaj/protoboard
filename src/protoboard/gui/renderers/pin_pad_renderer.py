@@ -63,6 +63,8 @@ def _square_path(cx: float, cy: float, r: float) -> QPainterPath:
 def _diamond_path(cx: float, cy: float, r: float) -> QPainterPath:
     """Square rotated 45° — vertices at (cx±r, cy) and (cx, cy±r)."""
     path = QPainterPath()
+    # make diamond have the same area as a square (2r)^2: r = r * sqrt(2)
+    r = r*1.4142 
     path.moveTo(cx, cy - r)
     path.lineTo(cx + r, cy)
     path.lineTo(cx, cy + r)
@@ -78,6 +80,13 @@ def _star_path(cx: float, cy: float, r: float) -> QPainterPath:
     return sq.united(di)
 
 
+def _circle_path(cx: float, cy: float, r: float) -> QPainterPath:
+    path = QPainterPath()
+    # make circle have the same area as a square (2r)^2: r = r * 2*sqrt(1/pi)
+    r = r*1.13
+    path.addEllipse(QRectF(cx - r, cy - r, 2 * r, 2 * r))
+    return path
+
 def _modifier_path(
     shape: ModifierShape, cx: float, cy: float, r: float,
 ) -> QPainterPath | None:
@@ -88,7 +97,7 @@ def _modifier_path(
         return _diamond_path(cx, cy, r)
     if shape == ModifierShape.STAR:
         return _star_path(cx, cy, r)
-    return None
+    return _circle_path(cx, cy, r)
 
 
 def _resolve_color(
@@ -140,7 +149,7 @@ def render_pin_pads(
     Returns a list of every scene item created.
     """
     pad_r = theme.pad_radius
-    mod_r = pad_r * theme.pin_pad_modifier_radius_factor
+    mod_r = pad_r * theme.pin_pad_modifier_radius_factor*0.5
     bg = QColor(theme.board_bg)
     out: list[QGraphicsItem] = []
 
@@ -154,7 +163,8 @@ def render_pin_pads(
             info.net_id, net_color_map, theme,
             routing_target_net_id=routing_target_net_id,
         )
-        color.setAlphaF(color.alphaF() * alpha)
+        _alpha = color.alphaF() * alpha
+        color.setAlphaF(_alpha)
 
         if info.klass == PinPadClass.PIN_PAD:
             # Filled disc in net colour.  Modifier shape carved as a
@@ -170,12 +180,16 @@ def render_pin_pads(
             if carve is not None:
                 # Modifier carved as the board background — visually a
                 # hole shaped like the modifier.  Slightly above the
-                # disc.
+                # disc.  A thin outline in the standard pad outline
+                # colour keeps the modifier visually consistent with the
+                # plain pad hole around it.
                 carve_color = QColor(bg)
-                carve_color.setAlphaF(alpha)
+                carve_color.setAlphaF(_alpha)
+                outline_color = QColor(theme.pad_outline_color)
+                outline_color.setAlphaF(_alpha)
                 carved = QGraphicsPathItem(carve)
                 carved.setBrush(QBrush(carve_color))
-                carved.setPen(QPen(Qt.PenStyle.NoPen))
+                carved.setPen(QPen(outline_color, theme.pad_outline_width))
                 carved.setZValue(z + 0.0005)
                 carved.setData(0, "pin_pad_modifier_carve")
                 scene.addItem(carved)
@@ -209,7 +223,7 @@ def render_pin_modifiers(
     identification beyond the pin pad itself.
     """
     pad_r = theme.pad_radius
-    mod_r = pad_r * theme.pin_pad_modifier_radius_factor
+    mod_r = pad_r * theme.pin_pad_modifier_radius_factor*0.5
     out: list[QGraphicsItem] = []
 
     for info in classifications:
@@ -228,9 +242,11 @@ def render_pin_modifiers(
             routing_target_net_id=routing_target_net_id,
         )
         color.setAlphaF(color.alphaF() * alpha)
+        outline_color = QColor(theme.pad_outline_color)
+        outline_color.setAlphaF(color.alphaF() * alpha)
         item = QGraphicsPathItem(path)
         item.setBrush(QBrush(color))
-        item.setPen(QPen(Qt.PenStyle.NoPen))
+        item.setPen(QPen(outline_color, theme.pad_outline_width))
         item.setZValue(Z_PIN_MODIFIERS)
         item.setData(0, "pin_modifier")
         scene.addItem(item)

@@ -103,17 +103,15 @@ class TestRenderPinPads:
         items = render_pin_pads(
             scene, records, theme=DEFAULT_THEME, layers=LayerState(),
         )
-        # Pin 1 (square modifier) → 2 items per side per pad (disc + carve)
-        # plus pin 2 (circle, no carve) → 1 item per side per pad.
-        # Plated-through means both sides classified.
-        # Expect: 2*2 (pin1, two sides, disc+carve) + 1*2 (pin2, two sides, disc only)
-        # = 4 + 2 = 6 items.
-        assert len(items) == 6
-        # Disc items are ellipses; carve items are paths.
+        # Each PIN_PAD record produces 2 items: filled disc + carved
+        # modifier (CIRCLE for the default, square/diamond/star for
+        # explicit modifiers).  Plated-through pads classify on both
+        # sides, so 2 pins × 2 sides = 4 records × 2 items each = 8.
+        assert len(items) == 8
         disc_count = sum(isinstance(it, QGraphicsEllipseItem) for it in items)
         carve_count = sum(isinstance(it, QGraphicsPathItem) for it in items)
         assert disc_count == 4  # 2 sides × 2 pins
-        assert carve_count == 2  # pin1 only, two sides
+        assert carve_count == 4  # carve per pin-pad (CIRCLE counts too)
 
     def test_layer_hidden_suppresses_output(self, scene: QGraphicsScene) -> None:
         idx, lay, _ = _resistor_setup()
