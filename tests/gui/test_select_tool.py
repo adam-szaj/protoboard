@@ -1119,8 +1119,13 @@ class TestMergeFragmentsCommand:
         new_wire = next(w for w in session.layout.wires if w.id == wire_id)
         assert len(new_wire.fragments) == 1
         assert new_wire.fragments[0].side == "top"
+        # ReplaceWireFragmentsCommand enriches insulated paths with
+        # intermediate pad-nodes (matches AddWireCommand + load_project),
+        # so the merged single-fragment path runs through every pad on
+        # the (0.5, 0.5) → (4.5, 0.5) line, not just the two original
+        # boundaries.  See test_replace_wire_fragments_enrichment.py.
         assert [(p.x, p.y) for p in new_wire.fragments[0].path] == [
-            (0.5, 0.5), (2.5, 0.5), (4.5, 0.5),
+            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5),
         ]
 
     def test_via_boundary_preserved(

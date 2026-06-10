@@ -920,7 +920,7 @@ class TO92Body(BodyShape):
         path = QPainterPath()
         # In local frame: flat bottom at y=+h/2, rounded top at y=-h/2
         # bottom flat edge
-        print(f"w/2: {w/2} h: {h/2}")
+        # print(f"w/2: {w/2} h: {h/2}")
         path.moveTo(-w / 2, h / 2)
         path.lineTo(w / 2, h / 2)
         # right side up

@@ -313,6 +313,49 @@ def _enrich_insulated_with_pad_nodes(
     )
 
 
+def _enrich_insulated_fragments_with_pad_nodes(
+    fragments: "tuple[_Fragment, ...]",
+    is_insulated: bool,
+    board: Board,
+) -> "tuple[_Fragment, ...]":
+    """Pad-node enrichment for fragment tuples (ReplaceWireFragmentsCommand).
+
+    Mirrors :func:`_enrich_insulated_with_pad_nodes` but operates on the
+    ``fragments`` tuple consumed by :class:`ReplaceWireFragmentsCommand`.
+    Without this, hand-edited insulated wires (committed via [E] → Enter
+    or merge-wires) reach the layout with raw user-clicked vertices only,
+    so ``PadIndex._build_wires`` never records ``InsulatedWireCrossing``
+    items for intermediate pad crossings.  Simplify then reads zero pad
+    contacts on the baseline and is free to swap an off-pad diagonal for
+    an on-pad ortho L-bend that adds new crossings.  Bug surfaced as
+    "simplify increased on-pad-crossings after manual wire edit" and only
+    disappeared after save/load, because ``load_project`` runs the same
+    enrichment.
+
+    Bare wires are returned unchanged — they get their pad-vertices from
+    their callers (autoroute / RouteTool / pad-bucketing in PadIndex's
+    mid-segment crossing detection).
+    """
+    if not is_insulated or not fragments:
+        return fragments
+    from protoboard.domain.layout.wire import Fragment as _Fragment
+    from protoboard.domain.layout.wire_utils import (
+        board_pads_union,
+        insert_pad_nodes,
+    )
+    pads = board_pads_union(board)
+    changed = False
+    new_fragments: list[_Fragment] = []
+    for frag in fragments:
+        new_path = insert_pad_nodes(list(frag.path), pads)
+        if len(new_path) == len(frag.path):
+            new_fragments.append(frag)
+            continue
+        changed = True
+        new_fragments.append(_Fragment(path=new_path, side=frag.side))
+    return tuple(new_fragments) if changed else fragments
+
+
 _EPS_KNOT = 1e-6
 
 
@@ -1865,7 +1908,17 @@ class ReplaceWireFragmentsCommand(Command[ComponentState]):
             kb = state.layout.knots.get(wire.b.id)
             if isinstance(kb, JointKnot):
                 self._saved_b_pos = kb.position
-        state.layout.replace_wire_fragments(self.wire_id, self.new_fragments)
+        # Pad-node enrichment for insulated wires — matches AddWireCommand
+        # and load_project so PadIndex sees the same InsulatedWireCrossing
+        # set whether the path arrived from autoroute, the YAML loader,
+        # or a hand edit committed via [E].  Idempotent — already-enriched
+        # fragments are returned unchanged.  Cache _saved_fragments BEFORE
+        # the rewrite so revert restores the user's exact pre-apply state,
+        # not the enriched form.
+        new_fragments = _enrich_insulated_fragments_with_pad_nodes(
+            self.new_fragments, wire.insulated, state.board,
+        )
+        state.layout.replace_wire_fragments(self.wire_id, new_fragments)
 
     def revert(self, state: ComponentState) -> None:
         if not self._saved_fragments:
