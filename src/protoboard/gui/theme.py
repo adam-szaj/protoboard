@@ -198,6 +198,32 @@ class Theme:
     body_slot_pen_width: float = 0.04
     body_tab_pen_width: float = 0.04
 
+    # ── Material palette ─────────────────────────────────────────────────────
+    # Keyed by ``Material`` enum (as a string).  Each entry is a
+    # ``(fill_hex, border_hex, fill_alpha)`` triplet.  The renderer uses
+    # the spec's ``material`` to pick the default body fill / border;
+    # specific class-flavour decorations (cathode stripe, polarity
+    # marker) overlay on top of this base.
+    material_palette: dict[str, tuple[str, str, float]] = field(
+        default_factory=lambda: {
+            # Glass body (DO-35 signal diodes, glass fuses): translucent
+            # off-white shell with a dark rim.
+            "glass":    ("#f4ece0", "#403428", 0.55),
+            # Plastic body (DO-41/DO-15 rectifier diodes, plastic
+            # resistors): matte mid-grey-blue.
+            "plastic":  ("#404858", "#1c2030", 0.90),
+            # Ceramic body (axial resistors, ceramic disc caps,
+            # ceramic bricks): warm beige.
+            "ceramic":  ("#d6c08c", "#5c4a30", 0.92),
+            # Metal body (axial / radial electrolytic cans, HC-49):
+            # cool silver-grey with darker rim.
+            "metal":    ("#b8b8c0", "#48484c", 0.92),
+            # LED lens (5 mm / 3 mm clear or coloured): bright base
+            # that the class-flavour layer tints by colour.
+            "led_lens": ("#e8e8e8", "#3c3c3c", 0.80),
+        }
+    )
+
     # ── Routing overlay ──────────────────────────────────────────────────────
     hint_colors: list[tuple[int, int, int, int]] = field(default_factory=lambda: [
         (0, 200, 80, 200),    # green — cheapest path

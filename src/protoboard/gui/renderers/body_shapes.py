@@ -1037,11 +1037,46 @@ class TwoPinParametricBody(BodyShape):
     in horizontal layouts (mirrors the cathode stripe).
     """
 
+    # ComponentClasses that show a polarity marker — diodes get a
+    # cathode stripe (AXIAL) or solid-vs-hollow disc (RADIAL); polar
+    # electrolytic caps share the same treatment.  Everything else
+    # draws plain.
+    _POLAR_CLASSES = frozenset({
+        ComponentClass.DIODE,
+        ComponentClass.DIODE_ZENER,
+        ComponentClass.DIODE_LED,
+        ComponentClass.CAPACITOR_POLAR,
+    })
+
     def __init__(
-        self, spec: TwoPinBodySpec, vertical_flipped: bool = False,
+        self,
+        spec: TwoPinBodySpec,
+        component_class: ComponentClass = ComponentClass.OTHER,
+        vertical_flipped: bool = False,
     ) -> None:
         self._spec = spec
+        self._component_class = component_class
         self._vertical_flipped = vertical_flipped
+
+    @property
+    def _is_polar(self) -> bool:
+        """Class-flavour polarity flag — drives cathode stripe / hollow-ring."""
+        return self._component_class in self._POLAR_CLASSES
+
+    def _material_palette(
+        self, theme: Theme, fallback_fill: QColor, fallback_border: QColor,
+    ) -> tuple[QColor, QColor, float]:
+        """Return ``(fill, border, fill_alpha_mult)`` from theme.material_palette.
+
+        Falls back to the caller-supplied colours when the spec's
+        material is missing from the theme palette (custom themes that
+        only override a subset).
+        """
+        entry = theme.material_palette.get(self._spec.material.value)
+        if entry is None:
+            return fallback_fill, fallback_border, 1.0
+        fill_hex, border_hex, alpha_mult = entry
+        return QColor(fill_hex), QColor(border_hex), alpha_mult
 
     # ------------------------------------------------------------------
     # BodyShape interface
@@ -1140,9 +1175,15 @@ class TwoPinParametricBody(BodyShape):
         mid_y = (p1.y + p2.y) / 2.0
         angle_deg = math.degrees(math.atan2(dy, dx))
 
+        # Material palette decides the default body fill / border;
+        # caller-supplied colours are used when no palette entry matches.
+        mat_fill, mat_border, mat_alpha = self._material_palette(
+            theme, fill, border,
+        )
+
         items: list[QGraphicsItem] = []
         lead_pen = _lead_pen(theme, alpha)
-        bp = _body_pen(border, alpha)
+        bp = _body_pen(mat_border, alpha)
 
         # Leads — only when pad spacing exceeds the body length.
         if dist > body_len + 1e-6:
@@ -1170,8 +1211,8 @@ class TwoPinParametricBody(BodyShape):
         )
 
         body = QGraphicsPathItem(body_path)
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        fill_c = QColor(mat_fill)
+        fill_c.setAlphaF(fill_c.alphaF() * alpha * mat_alpha)
         body.setBrush(QBrush(fill_c))
         body.setPen(bp)
         body.setZValue(z)
@@ -1182,11 +1223,27 @@ class TwoPinParametricBody(BodyShape):
         body.setTransform(t)
         items.append(body)
 
-        # Polarity decoration (cathode stripe) is driven by
-        # ``component_class`` flavour; the spec no longer carries a
-        # ``polar`` flag.  Class-driven flavour wiring is the next
-        # refactor step — for now the body draws without polarity
-        # markers.  See _draw_radial for the equivalent comment.
+        # Polar cathode stripe — class flavour decision.  The stripe
+        # always sits at the p2 end of the body in local coordinates;
+        # ``_vertical_flipped`` was absorbed into the p1/p2 swap upstream.
+        if self._is_polar:
+            stripe_w = min(body_len * 0.12, body_w * 0.4)
+            stripe_x = body_len / 2.0 - stripe_w
+            stripe_path = QPainterPath()
+            stripe_path.addRect(
+                QRectF(stripe_x, -body_w / 2.0, stripe_w, body_w),
+            )
+            stripe = QGraphicsPathItem(stripe_path)
+            dark = QColor(theme.body_led_stripe_color)
+            dark.setAlphaF(alpha)
+            stripe.setBrush(QBrush(dark))
+            stripe.setPen(_body_pen(mat_border, alpha, width=0.0))
+            stripe.setZValue(z + 0.01)
+            t_stripe = QTransform()
+            t_stripe.translate(mid_x, mid_y)
+            t_stripe.rotate(angle_deg)
+            stripe.setTransform(t_stripe)
+            items.append(stripe)
         return items
 
     # ------------------------------------------------------------------
@@ -1212,16 +1269,23 @@ class TwoPinParametricBody(BodyShape):
 
         spec = self._spec
         mm = theme.raster_pitch_mm
-        # Pin the body on the anchor pad and (when polar) tag which pad
-        # number we see from above.  For ``vertical_flipped=False`` the
-        # anchor is p1=pin1; flipped → anchor is pin2.
+        # ``upper_pin`` is the pin sticking up out of the body in the
+        # top-down view — used by the polar disc to choose solid vs
+        # hollow.  For ``vertical_flipped=False`` anchor is pin 1 and
+        # pin 2 stands proud.
         upper_pin = 1 if self._vertical_flipped else 2
+
+        # Material palette decides the base body colour.
+        mat_fill, mat_border, mat_alpha = self._material_palette(
+            theme, fill, border,
+        )
 
         if spec.shape is _TPShape.CYLINDER or spec.shape is _TPShape.DISC:
             assert spec.diameter_mm is not None
             diam = spec.diameter_mm / mm
             items.append(self._radial_disc_or_cylinder(
-                p1, diam, fill, border, alpha, z, theme, upper_pin,
+                p1, diam, mat_fill, mat_border, alpha, z, theme,
+                upper_pin, mat_alpha,
             ))
             return items
 
@@ -1230,7 +1294,6 @@ class TwoPinParametricBody(BodyShape):
         assert spec.length_mm is not None and spec.width_mm is not None
         length_r = spec.length_mm / mm
         width_r = spec.width_mm / mm
-        # Orient the long side along the p1→p2 axis.
         dx, dy = p2.x - p1.x, p2.y - p1.y
         angle_deg = math.degrees(math.atan2(dy, dx))
         rect_path = QPainterPath()
@@ -1240,10 +1303,10 @@ class TwoPinParametricBody(BodyShape):
             r_corner, r_corner,
         )
         body = QGraphicsPathItem(rect_path)
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        fill_c = QColor(mat_fill)
+        fill_c.setAlphaF(fill_c.alphaF() * alpha * mat_alpha)
         body.setBrush(QBrush(fill_c))
-        body.setPen(_body_pen(border, alpha))
+        body.setPen(_body_pen(mat_border, alpha))
         body.setZValue(z)
         t = QTransform()
         t.translate(p1.x, p1.y)
@@ -1259,12 +1322,15 @@ class TwoPinParametricBody(BodyShape):
         fill: QColor, border: QColor, alpha: float, z: float,
         theme: Theme,
         upper_pin: int,
+        mat_alpha: float,
     ) -> QGraphicsItem:
         """Build the filled disc / cylinder cap for radial-mounted parts.
 
-        Polar parts use the legacy CylinderBody discriminator: cathode
-        (pin2) on top → solid dark fill; anode (pin1) on top → light fill
-        with a thick rim (hollow ring look).
+        Non-polar parts → plain filled circle in the material palette.
+        Polar parts (``_is_polar``) use the legacy CylinderBody
+        discriminator: cathode (pin 2) on top → solid dark circle;
+        anode (pin 1) on top → light fill with a thick rim (hollow ring
+        look).
         """
         r = diam / 2.0
         circle = QGraphicsEllipseItem(QRectF(
@@ -1272,14 +1338,26 @@ class TwoPinParametricBody(BodyShape):
         ))
         circle.setZValue(z)
 
-        # Polarity decoration (solid vs hollow disc discriminator) is
-        # driven by ``component_class`` flavour, not the spec.  Plain
-        # filled disc for now; class-driven flavour wiring is the next
-        # refactor step.
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
-        circle.setBrush(QBrush(fill_c))
-        circle.setPen(_body_pen(border, alpha))
+        if not self._is_polar:
+            fill_c = QColor(fill)
+            fill_c.setAlphaF(fill_c.alphaF() * alpha * mat_alpha)
+            circle.setBrush(QBrush(fill_c))
+            circle.setPen(_body_pen(border, alpha))
+            return circle
+
+        if upper_pin == 2:
+            # Cathode visible from above → solid dark disc.
+            dark = QColor(theme.body_diode_cathode_color)
+            dark.setAlphaF(alpha)
+            circle.setBrush(QBrush(dark))
+            circle.setPen(_body_pen(border, alpha))
+        else:
+            # Anode visible from above → light fill with thick rim.
+            light = QColor(theme.body_diode_anode_color)
+            circle.setBrush(QBrush(light))
+            rim = QColor(border)
+            rim.setAlphaF(alpha)
+            circle.setPen(QPen(rim, diam * 0.15))
         return circle
 
 
@@ -1370,7 +1448,9 @@ def body_shape_for(
     if isinstance(fp, TwoPin):
         spec = _resolve_two_pin_spec(defn, instance, fams)
         if spec is not None:
-            return TwoPinParametricBody(spec, vertical_flipped=vf)
+            return TwoPinParametricBody(
+                spec, component_class=cls, vertical_flipped=vf,
+            )
         return GenericBody()
 
     if isinstance(fp, SingleRow):
@@ -1386,7 +1466,9 @@ def body_shape_for(
         if fp.n == 2:
             spec = _resolve_two_pin_spec(defn, instance, fams)
             if spec is not None:
-                return TwoPinParametricBody(spec, vertical_flipped=vf)
+                return TwoPinParametricBody(
+                    spec, component_class=cls, vertical_flipped=vf,
+                )
             return GenericBody()
         return SvgSILBody()
 

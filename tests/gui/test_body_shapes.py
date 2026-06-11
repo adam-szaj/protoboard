@@ -211,12 +211,19 @@ class TestTwoPinParametricBodyAxial:
         assert any(isinstance(it, QGraphicsLineItem) for it in items)
         assert any(isinstance(it, QGraphicsPathItem) for it in items)
 
-    @pytest.mark.skip(
-        reason="Polar flavour decoration now driven by component_class, "
-        "not the spec.polar field — needs revisit after class-flavour wiring."
-    )
-    def test_axial_polar_adds_cathode_stripe(self, qtbot: QtBot) -> None:
-        ...
+    def test_axial_diode_class_adds_cathode_stripe(self, qtbot: QtBot) -> None:
+        # Non-polar class: plain body.  Diode class: extra stripe path.
+        plain = TwoPinParametricBody(
+            _axial_cyl_spec(), component_class=ComponentClass.RESISTOR,
+        )
+        diode = TwoPinParametricBody(
+            _axial_cyl_spec(), component_class=ComponentClass.DIODE,
+        )
+        items_plain = plain.draw(_pts((0, 0), (5, 0)), _RED, _DARK, 1.0, _Z)
+        items_diode = diode.draw(_pts((0, 0), (5, 0)), _RED, _DARK, 1.0, _Z)
+        paths_plain = sum(isinstance(it, QGraphicsPathItem) for it in items_plain)
+        paths_diode = sum(isinstance(it, QGraphicsPathItem) for it in items_diode)
+        assert paths_diode > paths_plain
 
     def test_axial_short_distance_omits_leads(self, qtbot: QtBot) -> None:
         body = TwoPinParametricBody(_axial_cyl_spec())
