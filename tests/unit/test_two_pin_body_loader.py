@@ -236,30 +236,5 @@ class TestBundledAssets:
         assert brick.edge is EdgeStyle.SHARP
 
 
-class TestLegacyLoaderTolerance:
-    """The old BodyTypeSpec loader must still read the migrated YAMLs
-    so the renderer keeps working until step 4 swaps it out."""
 
-    def test_legacy_loader_reads_migrated_resistor(self) -> None:
-        from protoboard.services.library.body_type_loader import (
-            load_body_types,
-        )
-        legacy = load_body_types()
-        assert "resistor_axial" in legacy
-        spec = legacy["resistor_axial"]
-        assert spec.shape == "cylinder"
-        # 1/4 W variant survives.
-        v = spec.get_variant("1_4w")
-        assert v is not None
-        assert v.diameter_mm == 2.0
 
-    def test_legacy_loader_skips_non_cylinder_families(self) -> None:
-        from protoboard.services.library.body_type_loader import (
-            load_body_types,
-        )
-        legacy = load_body_types()
-        # ceramic_disc has shape=disc per variant — legacy spec only
-        # models cylinder, so this family drops out.  Other families
-        # still load.
-        assert "ceramic_disc" not in legacy
-        assert "resistor_radial_brick" not in legacy

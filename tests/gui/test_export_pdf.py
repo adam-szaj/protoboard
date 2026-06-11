@@ -36,7 +36,7 @@ def _snapshot() -> BoardSnapshot:
     return BoardSnapshot(
         board=board, layout=lay,
         components={}, instances={},
-        schematic=sch, pad_index=idx, body_types={},
+        schematic=sch, pad_index=idx, two_pin_body_families={},
     )
 
 

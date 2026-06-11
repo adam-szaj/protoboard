@@ -48,12 +48,12 @@ def export_pdf(
         board=board, layout=layout, schematic=sch,
         components=components, instances=instances,
     )
-    body_types = getattr(theme, "body_types", None) or {}
+    families = getattr(theme, "two_pin_body_families", None) or {}
     snapshot = BoardSnapshot(
         board=board, layout=layout,
         components=components, instances=instances,
         schematic=sch, pad_index=pad_index,
-        body_types=body_types, theme=theme,
+        two_pin_body_families=families, theme=theme,
     )
     export_pdf_from_snapshot(path, snapshot, raster_pitch_mm=raster_pitch_mm)
 

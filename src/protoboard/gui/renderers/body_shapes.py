@@ -45,7 +45,6 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem,
 )
 
-from protoboard.domain.components.body_type import BodyTypeSpec, BodyVariant
 from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
@@ -715,160 +714,6 @@ class GenericBody(BodyShape):
 
 
 # ---------------------------------------------------------------------------
-# AxialBody — resistor / inductor / fuse (axial through-hole)
-#
-#   pin1 ──────╔═══body═══╗────── pin2
-# ---------------------------------------------------------------------------
-
-class AxialBody(BodyShape):
-    def draw(self, positions, fill, border, alpha, z, theme=DEFAULT_THEME):
-        if len(positions) < 2:
-            return GenericBody().draw(positions, fill, border, alpha, z, theme)
-
-        p1, p2 = positions[0], positions[1]
-        dx = p2.x - p1.x
-        dy = p2.y - p1.y
-        dist = math.hypot(dx, dy)
-        if dist < 1e-6:
-            return GenericBody().draw(positions, fill, border, alpha, z, theme)
-
-        mid_x = (p1.x + p2.x) / 2.0
-        mid_y = (p1.y + p2.y) / 2.0
-        angle_deg = math.degrees(math.atan2(dy, dx))
-
-        items: list[QGraphicsItem] = []
-        lead = _lead_pen(theme, alpha)
-        bp = _body_pen(border, alpha)
-
-        # Lead line (full pin-to-pin)
-        line = QGraphicsLineItem(p1.x, p1.y, p2.x, p2.y)
-        line.setPen(lead)
-        line.setZValue(z - 0.01)
-        items.append(line)
-
-        # Body rectangle in local frame, then transformed
-        body_len = dist * 0.50   # fallback: 50% of pin distance
-        body_w   = 0.40
-        path = QPainterPath()
-        r = theme.body_corner_radius
-        path.addRoundedRect(
-            QRectF(-body_len / 2, -body_w / 2, body_len, body_w), r, r
-        )
-        body = QGraphicsPathItem(path)
-        body.setBrush(QBrush(fill))
-        body.setPen(bp)
-        body.setZValue(z)
-
-        t = QTransform()
-        t.translate(mid_x, mid_y)
-        t.rotate(angle_deg)
-        body.setTransform(t)
-        items.append(body)
-
-        return items
-
-
-# ---------------------------------------------------------------------------
-# RadialBody — capacitor / generic 2-pin radial
-#
-#       ○  (circular body above pin midpoint)
-#      / \
-#  [p1]   [p2]
-# ---------------------------------------------------------------------------
-
-class RadialBody(BodyShape):
-    def draw(self, positions, fill, border, alpha, z, theme=DEFAULT_THEME):
-        if len(positions) < 2:
-            return GenericBody().draw(positions, fill, border, alpha, z, theme)
-
-        p1, p2 = positions[0], positions[1]
-        mid_x = (p1.x + p2.x) / 2.0
-        # Place body above midpoint (toward lower Y, which is "up" on screen)
-        dy_sep = abs(p2.y - p1.y) if abs(p2.y - p1.y) > 0.1 else abs(p2.x - p1.x)
-        body_y = (p1.y + p2.y) / 2.0 - max(0.5, dy_sep * 0.3)
-
-        items: list[QGraphicsItem] = []
-        lead = _lead_pen(theme, alpha)
-        bp = _body_pen(border, alpha)
-
-        # Lead lines from pins to body center
-        for p in (p1, p2):
-            line = QGraphicsLineItem(p.x, p.y, mid_x, body_y)
-            line.setPen(lead)
-            line.setZValue(z - 0.01)
-            items.append(line)
-
-        # Circular body
-        r = theme.radial_body_radius
-        circle = QGraphicsEllipseItem(QRectF(mid_x - r, body_y - r, 2 * r, 2 * r))
-        circle.setBrush(QBrush(fill))
-        circle.setPen(bp)
-        circle.setZValue(z)
-        items.append(circle)
-
-        return items
-
-
-# ---------------------------------------------------------------------------
-# DiodeBody — axial diode with directional marker
-#
-#   A ──────╔▷|╗────── K
-# ---------------------------------------------------------------------------
-
-class DiodeBody(BodyShape):
-    def draw(self, positions, fill, border, alpha, z, theme=DEFAULT_THEME):
-        if len(positions) < 2:
-            return GenericBody().draw(positions, fill, border, alpha, z, theme)
-
-        p1, p2 = positions[0], positions[1]
-        dx = p2.x - p1.x
-        dy = p2.y - p1.y
-        dist = math.hypot(dx, dy)
-        if dist < 1e-6:
-            return GenericBody().draw(positions, fill, border, alpha, z, theme)
-
-        mid_x = (p1.x + p2.x) / 2.0
-        mid_y = (p1.y + p2.y) / 2.0
-        angle_deg = math.degrees(math.atan2(dy, dx))
-
-        items: list[QGraphicsItem] = []
-        lead = _lead_pen(theme, alpha)
-        bp = _body_pen(border, alpha)
-
-        # Lead line
-        line = QGraphicsLineItem(p1.x, p1.y, p2.x, p2.y)
-        line.setPen(lead)
-        line.setZValue(z - 0.01)
-        items.append(line)
-
-        # Diode body: small cylinder (rounded rect) with cathode bar
-        body_len = dist * 0.50
-        body_w   = 0.40 * 0.85
-        r = theme.body_corner_radius
-
-        path = QPainterPath()
-        path.addRoundedRect(
-            QRectF(-body_len / 2, -body_w / 2, body_len, body_w), r, r
-        )
-        # Cathode bar — thin rect at the right end
-        bar_w = 0.08
-        path.addRect(QRectF(body_len / 2 - bar_w, -body_w / 2, bar_w, body_w))
-
-        body = QGraphicsPathItem(path)
-        body.setBrush(QBrush(fill))
-        body.setPen(bp)
-        body.setZValue(z)
-
-        t = QTransform()
-        t.translate(mid_x, mid_y)
-        t.rotate(angle_deg)
-        body.setTransform(t)
-        items.append(body)
-
-        return items
-
-
-# ---------------------------------------------------------------------------
 # TO92Body — transistor / small 3-pin package
 #
 #  [1] [2] [3]
@@ -1161,236 +1006,6 @@ class SILBody(BodyShape):
             sq.setZValue(z + 0.01)
             items.append(sq)
 
-        return items
-
-
-# ---------------------------------------------------------------------------
-# CylinderBody — axial cylindrical component (resistor, diode, inductor, cap)
-#
-# Renders either horizontally (body between leads) or vertically (cylinder
-# seen from above, one lead from centre to second pad).
-# ---------------------------------------------------------------------------
-
-class CylinderBody(BodyShape):
-    """Render a cylindrical axial component with fixed physical dimensions.
-
-    Horizontal mode (dist >= threshold):
-      anchor_pin ─── lead ─── [body] ─── lead ─── other_pin
-
-    Vertical mode (dist < threshold):
-      Cylinder viewed from above: filled circle on the anchor_pin pad,
-      thin lead from circle centre to the other pad.
-    """
-
-    def __init__(self, variant: BodyVariant, polar: bool, vertical_flipped: bool = False) -> None:
-        self._variant = variant
-        self._polar = polar
-        self._vertical_flipped = vertical_flipped
-
-    def drawn_pin_numbers(
-        self,
-        positions: list[Point],
-        theme: Theme = DEFAULT_THEME,
-    ) -> frozenset[int]:
-        # In vertical mode only the cylinder-pad pin is drawn by this shape;
-        # the lead-end pin is left for component_renderer so it gets net colour.
-        if len(positions) >= 2:
-            mm = theme.raster_pitch_mm
-            dist = math.hypot(positions[1].x - positions[0].x,
-                              positions[1].y - positions[0].y)
-            threshold = (self._variant.length_mm + 1.0) / mm
-            if dist < threshold:
-                cylinder_pin = 2 if self._vertical_flipped else 1
-                return frozenset({cylinder_pin})
-        return frozenset()
-
-    def draw(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme = DEFAULT_THEME,
-    ) -> list[QGraphicsItem]:
-        if len(positions) < 2:
-            return GenericBody().draw(positions, fill, border, alpha, z, theme)
-
-        if self._vertical_flipped:
-            p1, p2 = positions[1], positions[0]  # cylinder over pin2
-        else:
-            p1, p2 = positions[0], positions[1]  # cylinder over pin1 (default)
-        dx = p2.x - p1.x
-        dy = p2.y - p1.y
-        dist = math.hypot(dx, dy)
-        if dist < 1e-9:
-            return GenericBody().draw(positions, fill, border, alpha, z, theme)
-
-        mm      = theme.raster_pitch_mm
-        v       = self._variant
-        len_r   = v.length_mm   / mm   # body length in raster units
-        diam_r  = v.diameter_mm / mm   # body diameter in raster units
-
-        threshold = (v.length_mm + 1.0) / mm   # 0.5 mm margin each side
-        if dist < threshold:
-            return self._draw_vertical(p1, p2, diam_r, fill, border, alpha, z, theme)
-        else:
-            return self._draw_horizontal(
-                p1, p2, dx, dy, dist, len_r, diam_r, fill, border, alpha, z, theme
-            )
-
-    # ------------------------------------------------------------------
-    # Horizontal rendering
-    # ------------------------------------------------------------------
-
-    def _draw_horizontal(
-        self,
-        p1: Point, p2: Point,
-        dx: float, dy: float, dist: float,
-        len_r: float, diam_r: float,
-        fill: QColor, border: QColor, alpha: float, z: float,
-        theme: Theme,
-    ) -> list[QGraphicsItem]:
-        half = len_r / 2.0
-        mid_x = (p1.x + p2.x) / 2.0
-        mid_y = (p1.y + p2.y) / 2.0
-        angle_deg = math.degrees(math.atan2(dy, dx))
-
-        items: list[QGraphicsItem] = []
-        lead_pen = _lead_pen(theme, alpha)
-        bp = _body_pen(border, alpha)
-
-        # Leads — only when pins are farther apart than the body length
-        if dist > len_r + 1e-6:
-            unit_x = dx / dist
-            unit_y = dy / dist
-            attach = dist / 2.0 - half
-            l1 = QGraphicsLineItem(
-                p1.x, p1.y,
-                p1.x + unit_x * attach, p1.y + unit_y * attach,
-            )
-            l2 = QGraphicsLineItem(
-                p2.x - unit_x * attach, p2.y - unit_y * attach,
-                p2.x, p2.y,
-            )
-            for ln in (l1, l2):
-                ln.setPen(lead_pen)
-                ln.setZValue(z - 0.01)
-            items.extend([l1, l2])
-
-        # Body — rounded rectangle (cylinder cross-section)
-        r = min(diam_r / 2.0, theme.body_corner_radius)
-        body_path = QPainterPath()
-        body_path.addRoundedRect(
-            QRectF(-len_r / 2.0, -diam_r / 2.0, len_r, diam_r), r, r
-        )
-
-        # Polar marker: dark stripe at cathode end.
-        # p1→p2 direction: p2 side is at +len_r/2 in local frame.
-        # When vertical_flipped, p1↔p2 were swapped, so cathode (pin2) is now p1 → left side.
-        stripe_x = -len_r / 2.0 if self._vertical_flipped else len_r / 2.0 - min(len_r * 0.12, diam_r * 0.4)
-        if self._polar:
-            stripe_w = min(len_r * 0.12, diam_r * 0.4)
-            body_path.addRect(
-                QRectF(stripe_x, -diam_r / 2.0, stripe_w, diam_r)
-            )
-
-        body = QGraphicsPathItem(body_path)
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
-        body.setBrush(QBrush(fill_c))
-        body.setPen(bp)
-        body.setZValue(z)
-
-        if self._polar:
-            # Paint cathode stripe dark
-            stripe_w = min(len_r * 0.12, diam_r * 0.4)
-            stripe_path = QPainterPath()
-            stripe_path.addRect(
-                QRectF(stripe_x, -diam_r / 2.0, stripe_w, diam_r)
-            )
-            stripe = QGraphicsPathItem(stripe_path)
-            dark = QColor(theme.body_led_stripe_color)
-            dark.setAlphaF(alpha)
-            stripe.setBrush(QBrush(dark))
-            stripe.setPen(_body_pen(border, alpha, width=0.0))
-            stripe.setZValue(z + 0.01)
-            t_stripe = QTransform()
-            t_stripe.translate(mid_x, mid_y)
-            t_stripe.rotate(angle_deg)
-            stripe.setTransform(t_stripe)
-            items.append(stripe)
-
-        t = QTransform()
-        t.translate(mid_x, mid_y)
-        t.rotate(angle_deg)
-        body.setTransform(t)
-        items.append(body)
-        return items
-
-    # ------------------------------------------------------------------
-    # Vertical rendering — cylinder seen from above
-    # ------------------------------------------------------------------
-
-    def _draw_vertical(
-        self,
-        p1: Point, p2: Point,
-        diam_r: float,
-        fill: QColor, border: QColor, alpha: float, z: float,
-        theme: Theme,
-    ) -> list[QGraphicsItem]:
-        # p1/p2 are already swapped by draw() when vertical_flipped=True, so
-        # p1 is always the pad where the cylinder sits, p2 is the lead end.
-        # upper_pin_number tells which real pin number is at the lead end (top).
-        bottom_pin_pos = p1
-        top_pin_pos    = p2
-        # When not flipped: cylinder over pin1 (anoda), lead to pin2 (katoda) → katoda on top
-        # When flipped:     cylinder over pin2 (katoda), lead to pin1 (anoda) → anoda on top
-        upper_pin_number = 1 if self._vertical_flipped else 2
-
-        items: list[QGraphicsItem] = []
-        lead_pen = _lead_pen(theme, alpha)
-
-        # Thin lead from circle centre to top-pin pad
-        lead = QGraphicsLineItem(
-            bottom_pin_pos.x, bottom_pin_pos.y,
-            top_pin_pos.x, top_pin_pos.y,
-        )
-        lead.setPen(lead_pen)
-        lead.setZValue(z - 0.01)
-        items.append(lead)
-
-        # Circle on bottom-pin pad
-        r = diam_r / 2.0
-        circle = QGraphicsEllipseItem(QRectF(
-            bottom_pin_pos.x - r, bottom_pin_pos.y - r, diam_r, diam_r
-        ))
-        circle.setZValue(z)
-
-        if not self._polar:
-            # Non-polar: plain filled circle with thin border
-            fill_c = QColor(fill)
-            fill_c.setAlphaF(fill_c.alphaF() * alpha)
-            circle.setBrush(QBrush(fill_c))
-            circle.setPen(_body_pen(border, alpha))
-        elif upper_pin_number == 2:
-            # Cathode/(-) visible from above → solid dark circle
-            dark = QColor(theme.body_diode_cathode_color)
-            dark.setAlphaF(alpha)
-            circle.setBrush(QBrush(dark))
-            circle.setPen(_body_pen(border, alpha))
-        else:
-            # Anode/(+) visible from above → hollow ring (polarity indicator)
-            dark = QColor(theme.body_diode_anode_color)
-            circle.setBrush(QBrush(dark))
-            thick_pen = QPen(border, diam_r * 0.15)
-            thick_pen.setColor(border)
-            c = QColor(border)
-            c.setAlphaF(alpha)
-            thick_pen.setColor(c)
-            circle.setPen(thick_pen)
-
-        items.append(circle)
         return items
 
 
@@ -1699,21 +1314,6 @@ class TwoPinParametricBody(BodyShape):
 # Dispatcher
 # ---------------------------------------------------------------------------
 
-_AXIAL_CLASSES = frozenset({
-    ComponentClass.RESISTOR,
-    ComponentClass.INDUCTOR,
-    ComponentClass.FUSE,
-    ComponentClass.TRANSFORMER,
-})
-_RADIAL_CLASSES = frozenset({
-    ComponentClass.CAPACITOR_POLAR,
-    ComponentClass.CAPACITOR_NONPOLAR,
-})
-_DIODE_CLASSES = frozenset({
-    ComponentClass.DIODE,
-    ComponentClass.DIODE_ZENER,
-    ComponentClass.DIODE_LED,
-})
 _TRANSISTOR_CLASSES = frozenset({
     ComponentClass.TRANSISTOR_NPN,
     ComponentClass.TRANSISTOR_PNP,
@@ -1724,37 +1324,14 @@ _TRANSISTOR_CLASSES = frozenset({
 })
 
 
-def _resolve_cylinder(
-    defn: ComponentDefinition,
-    instance: ComponentInstance | None,
-    body_types: dict[str, BodyTypeSpec],
-    polar: bool,
-    vertical_flipped: bool = False,
-) -> CylinderBody | None:
-    """Look up a BodyVariant and return CylinderBody, or None if not found."""
-    family_key = _CLASS_TO_FAMILY.get(defn.component_class)
-    if family_key is None:
-        return None
-    spec = body_types.get(family_key)
-    if spec is None:
-        return None
-
-    variant: BodyVariant | None = None
-    if instance and instance.body_variant:
-        parts = instance.body_variant.split("/", 1)
-        if len(parts) == 2 and parts[0] == family_key:
-            variant = spec.get_variant(parts[1])
-    if variant is None:
-        variant = spec.default_variant()
-
-    return CylinderBody(variant, polar, vertical_flipped=vertical_flipped)
-
-
-# Map component class → body-type family name
+# Map ComponentClass → TwoPinBodyFamily name used as the default when
+# the user has not selected a specific ``body_variant`` on an instance.
+# Two-pin components whose class is not in this map fall through to
+# GenericBody; the user can still pick any family via body_variant.
 _CLASS_TO_FAMILY: dict[ComponentClass, str] = {
     ComponentClass.RESISTOR:           "resistor_axial",
     ComponentClass.INDUCTOR:           "inductor_axial",
-    ComponentClass.FUSE:               "resistor_axial",   # same shape as resistor
+    ComponentClass.FUSE:               "resistor_axial",
     ComponentClass.CAPACITOR_POLAR:    "capacitor_axial",
     ComponentClass.CAPACITOR_NONPOLAR: "capacitor_axial",
     ComponentClass.DIODE:              "diode_axial",
@@ -1762,29 +1339,21 @@ _CLASS_TO_FAMILY: dict[ComponentClass, str] = {
     ComponentClass.DIODE_LED:          "diode_axial",
 }
 
-_POLAR_CLASSES = frozenset({
-    ComponentClass.CAPACITOR_POLAR,
-    ComponentClass.DIODE,
-    ComponentClass.DIODE_ZENER,
-    ComponentClass.DIODE_LED,
-})
-
 
 def _resolve_two_pin_spec(
     defn: ComponentDefinition,
     instance: ComponentInstance | None,
     families: dict[str, TwoPinBodyFamily],
 ) -> TwoPinBodySpec | None:
-    """Look up a TwoPinBodySpec for *defn*.
+    """Resolve the :class:`TwoPinBodySpec` to render *defn* with.
 
     Resolution order:
 
     1. Explicit ``instance.body_variant`` of form ``"{family}/{variant_id}"``.
     2. Default family for the ``ComponentClass`` from ``_CLASS_TO_FAMILY``,
        first variant.
-    3. None — caller falls back to legacy renderer.
+    3. ``None`` — caller falls back to :class:`GenericBody`.
     """
-    # 1. Explicit per-instance variant.
     if instance is not None and instance.body_variant:
         parts = instance.body_variant.split("/", 1)
         if len(parts) == 2:
@@ -1794,13 +1363,11 @@ def _resolve_two_pin_spec(
                 if v is not None:
                     return v
 
-    # 2. Class default.
     family_key = _CLASS_TO_FAMILY.get(defn.component_class)
     if family_key is not None:
         fam = families.get(family_key)
         if fam is not None:
             return fam.default_variant()
-
     return None
 
 
@@ -1808,69 +1375,49 @@ def body_shape_for(
     defn: ComponentDefinition,
     placement: ComponentPlacement | None = None,
     instance: ComponentInstance | None = None,
-    body_types: dict[str, BodyTypeSpec] | None = None,
     two_pin_families: dict[str, TwoPinBodyFamily] | None = None,
 ) -> BodyShape:
-    """Return the appropriate BodyShape for *defn*.
+    """Return the appropriate :class:`BodyShape` for *defn*.
 
-    Two-pin components (``TwoPin`` footprint or legacy ``SingleRow(n=2)``)
-    dispatch through ``TwoPinParametricBody`` when a matching
-    ``TwoPinBodySpec`` is resolvable from *two_pin_families*; otherwise
-    fall back to the legacy ``CylinderBody`` / ``AxialBody`` /
-    ``DiodeBody`` / ``RadialBody`` ladder.
+    Two-pin components (``TwoPin`` footprint) dispatch through
+    :class:`TwoPinParametricBody` when a matching :class:`TwoPinBodySpec`
+    is resolvable from *two_pin_families*; without a spec they fall back
+    to :class:`GenericBody`.
+
+    Larger packages keep their dedicated renderers: TO-92 for 3-pin
+    transistor, TO-220 for power packages, SVG-based DIP for two-row
+    dual in-line packages, SIL header for three-or-more in-line headers.
     """
     fp  = defn.footprint
     cls = defn.component_class
-    bt  = body_types or {}
     fams = two_pin_families or {}
+    vf = placement.vertical_flipped if placement is not None else False
 
     if isinstance(fp, TO220Footprint):
         return TO220Body()
 
-    # New: TwoPin footprint always goes through the parametric body.
     if isinstance(fp, TwoPin):
-        vf = placement.vertical_flipped if placement is not None else False
         spec = _resolve_two_pin_spec(defn, instance, fams)
         if spec is not None:
             return TwoPinParametricBody(spec, vertical_flipped=vf)
-        # No spec resolved — fall through to the legacy ladder below.
+        return GenericBody()
 
-    # Legacy: SingleRow(n=2) for 2-pin classes (test fixtures still
-    # build footprints in Python via SIL(2)).
     if isinstance(fp, SingleRow):
-        if fp.n == 2 and cls in (_AXIAL_CLASSES | _DIODE_CLASSES | _RADIAL_CLASSES):
-            polar = cls in _POLAR_CLASSES
-            vf = placement.vertical_flipped if placement is not None else False
-            # Try the new parametric body first when a two-pin family
-            # catalog is available.
+        # Single-row footprints are 3-or-more by convention (TwoPin
+        # owns the n=2 case).  Transistors get TO-92, other SILs use
+        # the headed renderer.
+        if fp.n == 3 and cls in _TRANSISTOR_CLASSES:
+            return TO92Body()
+        # Legacy escape hatch: if a caller still constructs SingleRow(n=2)
+        # in Python (older tests / migration tooling), dispatch through
+        # the parametric body when a spec resolves so the visual stays
+        # consistent.
+        if fp.n == 2:
             spec = _resolve_two_pin_spec(defn, instance, fams)
             if spec is not None:
                 return TwoPinParametricBody(spec, vertical_flipped=vf)
-            # Legacy fallback (BodyTypeSpec catalog).
-            cyl = _resolve_cylinder(defn, instance, bt, polar, vertical_flipped=vf)
-            if cyl is not None:
-                return cyl
-            # Fallback when no body_types loaded
-            if cls in _AXIAL_CLASSES:
-                return AxialBody()
-            if cls in _DIODE_CLASSES:
-                return DiodeBody()
-            return RadialBody()
-
-        if fp.n == 3 and cls in _TRANSISTOR_CLASSES:
-            return TO92Body()
+            return GenericBody()
         return SvgSILBody()
-
-    # TwoPin footprint without a resolvable spec — pick a reasonable
-    # default by class.
-    if isinstance(fp, TwoPin):
-        if cls in _AXIAL_CLASSES:
-            return AxialBody()
-        if cls in _DIODE_CLASSES:
-            return DiodeBody()
-        if cls in _RADIAL_CLASSES:
-            return RadialBody()
-        return GenericBody()
 
     if isinstance(fp, DualRow):
         return SvgDIPBody(fp.n_per_row, fp.rows_spacing)

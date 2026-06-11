@@ -20,25 +20,32 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem,
 )
 
-from protoboard.domain.components.body_type import BodyTypeSpec
 from protoboard.domain.components.definition import ComponentClass, ComponentDefinition
 from protoboard.domain.components.footprints import (
     DualRow,
     SingleRow,
     TO220Footprint,
+    TwoPin,
 )
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.two_pin_body import (
+    BodyShape as _TPShape,
+    DiscProfile,
+    EdgeStyle,
+    LeadArrangement,
+    TwoPinBodyFamily,
+    TwoPinBodySpec,
+)
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
 from protoboard.gui.renderers.body_shapes import (
-    AxialBody,
     BodyShape,
     DIPBody,
     GenericBody,
-    RadialBody,
     SvgDIPBody,
     TO92Body,
     TO220Body,
+    TwoPinParametricBody,
     _find_id,
     body_shape_for,
 )
@@ -63,15 +70,18 @@ def _make_defn(
     n_pins: int,
     fp_type: str = "SIL",
 ) -> ComponentDefinition:
-    from protoboard.domain.components.footprints import SingleRow, DualRow
     if fp_type == "DIP":
-        fp = DualRow(n_per_row=n_pins // 2)
+        fp: object = DualRow(n_per_row=n_pins // 2)
+    elif fp_type == "TwoPin":
+        fp = TwoPin()
     else:
-        fp = SingleRow(n=n_pins)
+        # ``SIL`` test marker — use TwoPin for n=2 (matches loader redirect),
+        # SingleRow for n>=3.
+        fp = TwoPin() if n_pins == 2 else SingleRow(n=n_pins)
     return ComponentDefinition(
         name="TEST",
         component_class=cls,
-        footprint=fp,
+        footprint=fp,  # type: ignore[arg-type]
         pin_names={},
     )
 
@@ -83,6 +93,50 @@ def _make_placement() -> ComponentPlacement:
         rotation=0,
         side="top",
     )
+
+
+def _axial_cyl_spec(polar: bool = False) -> TwoPinBodySpec:
+    return TwoPinBodySpec(
+        family="resistor_axial", variant_id="default", label="default",
+        lead_arrangement=LeadArrangement.AXIAL,
+        shape=_TPShape.CYLINDER,
+        length_mm=6.5, diameter_mm=2.5, polar=polar,
+    )
+
+
+def _radial_cyl_spec(polar: bool = True) -> TwoPinBodySpec:
+    return TwoPinBodySpec(
+        family="led_radial", variant_id="default", label="default",
+        lead_arrangement=LeadArrangement.RADIAL,
+        shape=_TPShape.CYLINDER,
+        length_mm=8.0, diameter_mm=5.0, polar=polar,
+    )
+
+
+def _radial_disc_spec(profile: DiscProfile = DiscProfile.FLAT) -> TwoPinBodySpec:
+    return TwoPinBodySpec(
+        family="ceramic_disc", variant_id="default", label="default",
+        lead_arrangement=LeadArrangement.RADIAL,
+        shape=_TPShape.DISC, disc_profile=profile,
+        diameter_mm=5.0, thickness_mm=2.0,
+    )
+
+
+def _radial_prism_spec() -> TwoPinBodySpec:
+    return TwoPinBodySpec(
+        family="brick", variant_id="default", label="default",
+        lead_arrangement=LeadArrangement.RADIAL,
+        shape=_TPShape.PRISM, edge=EdgeStyle.SHARP,
+        length_mm=22.0, width_mm=9.5, height_mm=9.0,
+    )
+
+
+def _families_with(*specs: TwoPinBodySpec) -> dict[str, TwoPinBodyFamily]:
+    """Build a per-family map from individual specs (one family per spec)."""
+    out: dict[str, TwoPinBodyFamily] = {}
+    for s in specs:
+        out[s.family] = TwoPinBodyFamily(family=s.family, variants=(s,))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -135,71 +189,86 @@ class TestGenericBody:
         rect = items[0]
         assert isinstance(rect, QGraphicsRectItem)
         bbox = rect.rect()
-        # bbox should span at least the pin distance with some margin
         assert bbox.width() >= 2.0
 
     def test_z_value_is_set(self, qtbot: QtBot) -> None:
         items = GenericBody().draw(_pts((0, 0)), _RED, _DARK, 1.0, _Z)
         assert items[0].zValue() == pytest.approx(_Z)
 
-    def test_alpha_affects_fill(self, qtbot: QtBot) -> None:
-        items_full = GenericBody().draw(_pts((0, 0)), _RED, _DARK, 1.0, _Z)
-        items_half = GenericBody().draw(_pts((0, 0)), _RED, _DARK, 0.5, _Z)
-        # Both should produce a rect — alpha is encoded in pen/brush, not shape.
-        assert isinstance(items_full[0], QGraphicsRectItem)
-        assert isinstance(items_half[0], QGraphicsRectItem)
+
+# ---------------------------------------------------------------------------
+# TwoPinParametricBody — six combinations × polarity × vertical flip
+# ---------------------------------------------------------------------------
+
+class TestTwoPinParametricBodyAxial:
+    def test_axial_cylinder_produces_leads_and_body(self, qtbot: QtBot) -> None:
+        body = TwoPinParametricBody(_axial_cyl_spec())
+        items = body.draw(_pts((0, 0), (5, 0)), _RED, _DARK, 1.0, _Z)
+        # Two leads + body path = at least 3 items when pads are farther
+        # apart than the body length.
+        assert any(isinstance(it, QGraphicsLineItem) for it in items)
+        assert any(isinstance(it, QGraphicsPathItem) for it in items)
+
+    def test_axial_polar_adds_cathode_stripe(self, qtbot: QtBot) -> None:
+        plain = TwoPinParametricBody(_axial_cyl_spec(polar=False))
+        polar = TwoPinParametricBody(_axial_cyl_spec(polar=True))
+        items_plain = plain.draw(_pts((0, 0), (5, 0)), _RED, _DARK, 1.0, _Z)
+        items_polar = polar.draw(_pts((0, 0), (5, 0)), _RED, _DARK, 1.0, _Z)
+        # Polar version emits an extra QGraphicsPathItem for the stripe.
+        paths_plain = sum(isinstance(it, QGraphicsPathItem) for it in items_plain)
+        paths_polar = sum(isinstance(it, QGraphicsPathItem) for it in items_polar)
+        assert paths_polar > paths_plain
+
+    def test_axial_short_distance_omits_leads(self, qtbot: QtBot) -> None:
+        body = TwoPinParametricBody(_axial_cyl_spec())
+        # Pads at 1 raster apart, body length 6.5 mm ≈ 2.6 raster — no leads.
+        items = body.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        assert not any(isinstance(it, QGraphicsLineItem) for it in items)
+
+    def test_axial_coincident_pins_falls_back_to_generic(
+        self, qtbot: QtBot,
+    ) -> None:
+        body = TwoPinParametricBody(_axial_cyl_spec())
+        items = body.draw(_pts((1, 1), (1, 1)), _RED, _DARK, 1.0, _Z)
+        assert any(isinstance(it, QGraphicsRectItem) for it in items)
+
+
+class TestTwoPinParametricBodyRadial:
+    def test_radial_cylinder_emits_circle_and_lead(self, qtbot: QtBot) -> None:
+        body = TwoPinParametricBody(_radial_cyl_spec())
+        items = body.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        assert any(isinstance(it, QGraphicsEllipseItem) for it in items)
+        assert any(isinstance(it, QGraphicsLineItem) for it in items)
+
+    def test_radial_disc_emits_circle(self, qtbot: QtBot) -> None:
+        body = TwoPinParametricBody(_radial_disc_spec())
+        items = body.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        assert any(isinstance(it, QGraphicsEllipseItem) for it in items)
+
+    def test_radial_prism_emits_rectangle_path(self, qtbot: QtBot) -> None:
+        body = TwoPinParametricBody(_radial_prism_spec())
+        items = body.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        assert any(isinstance(it, QGraphicsPathItem) for it in items)
+        # Lead remains too.
+        assert any(isinstance(it, QGraphicsLineItem) for it in items)
+
+    def test_radial_polar_anchor_pin_is_drawn_by_body(
+        self, qtbot: QtBot,
+    ) -> None:
+        body = TwoPinParametricBody(_radial_cyl_spec(polar=True))
+        # The anchor pin (pin 1 by default) is occluded by the body, so
+        # component_renderer skips its marker.
+        drawn = body.drawn_pin_numbers(_pts((0, 0), (1, 0)))
+        assert 1 in drawn
+
+    def test_radial_vertical_flipped_swaps_anchor(self, qtbot: QtBot) -> None:
+        body = TwoPinParametricBody(_radial_cyl_spec(), vertical_flipped=True)
+        drawn = body.drawn_pin_numbers(_pts((0, 0), (1, 0)))
+        assert 2 in drawn
 
 
 # ---------------------------------------------------------------------------
-# AxialBody
-# ---------------------------------------------------------------------------
-
-class TestAxialBody:
-    def test_single_pin_falls_back_to_generic(self, qtbot: QtBot) -> None:
-        items = AxialBody().draw(_pts((1, 1)), _RED, _DARK, 1.0, _Z)
-        assert len(items) == 1
-        assert isinstance(items[0], QGraphicsRectItem)
-
-    def test_two_horizontal_pins_returns_line_and_body(self, qtbot: QtBot) -> None:
-        items = AxialBody().draw(_pts((0, 0), (3, 0)), _RED, _DARK, 1.0, _Z)
-        # Should have lead line + body path.
-        assert len(items) >= 2
-        has_line = any(isinstance(it, QGraphicsLineItem) for it in items)
-        has_path = any(isinstance(it, QGraphicsPathItem) for it in items)
-        assert has_line
-        assert has_path
-
-    def test_two_vertical_pins(self, qtbot: QtBot) -> None:
-        items = AxialBody().draw(_pts((0, 0), (0, 3)), _RED, _DARK, 1.0, _Z)
-        assert len(items) >= 2
-
-    def test_coincident_pins_falls_back_to_generic(self, qtbot: QtBot) -> None:
-        items = AxialBody().draw(_pts((1, 1), (1, 1)), _RED, _DARK, 1.0, _Z)
-        assert isinstance(items[0], QGraphicsRectItem)
-
-    def test_z_ordering_lead_below_body(self, qtbot: QtBot) -> None:
-        items = AxialBody().draw(_pts((0, 0), (3, 0)), _RED, _DARK, 1.0, _Z)
-        line_z = min(it.zValue() for it in items if isinstance(it, QGraphicsLineItem))
-        path_z = max(it.zValue() for it in items if isinstance(it, QGraphicsPathItem))
-        assert line_z < path_z
-
-
-# ---------------------------------------------------------------------------
-# RadialBody
-# ---------------------------------------------------------------------------
-
-class TestRadialBody:
-    def test_single_pin_falls_back_to_generic(self, qtbot: QtBot) -> None:
-        items = RadialBody().draw(_pts((0, 0)), _RED, _DARK, 1.0, _Z)
-        assert isinstance(items[0], QGraphicsRectItem)
-
-    def test_two_pins_produces_items(self, qtbot: QtBot) -> None:
-        items = RadialBody().draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
-        assert len(items) >= 1
-
-
-# ---------------------------------------------------------------------------
-# TO92Body
+# TO92Body / TO220Body / DIPBody / SvgDIPBody
 # ---------------------------------------------------------------------------
 
 class TestTO92Body:
@@ -212,19 +281,11 @@ class TestTO92Body:
         assert isinstance(items[0], QGraphicsRectItem)
 
 
-# ---------------------------------------------------------------------------
-# TO220Body
-# ---------------------------------------------------------------------------
-
 class TestTO220Body:
     def test_three_pins_produces_items(self, qtbot: QtBot) -> None:
         items = TO220Body().draw(_pts((0, 0), (1, 0), (2, 0)), _RED, _DARK, 1.0, _Z)
         assert len(items) >= 1
 
-
-# ---------------------------------------------------------------------------
-# SvgDIPBody
-# ---------------------------------------------------------------------------
 
 class TestSvgDIPBody:
     def test_produces_items_for_dip8(self, qtbot: QtBot) -> None:
@@ -236,10 +297,6 @@ class TestSvgDIPBody:
         items = SvgDIPBody(n_per_row=4).draw(_pts((0, 0)), _RED, _DARK, 1.0, _Z)
         assert isinstance(items[0], QGraphicsRectItem)
 
-
-# ---------------------------------------------------------------------------
-# DIPBody (fallback)
-# ---------------------------------------------------------------------------
 
 class TestDIPBody:
     def test_produces_rect_for_8_pins(self, qtbot: QtBot) -> None:
@@ -262,15 +319,38 @@ class TestBodyShapeFor:
         shape = body_shape_for(defn)
         assert isinstance(shape, TO220Body)
 
-    def test_sil_2_resistor_returns_axial_or_cylinder(self) -> None:
-        defn = _make_defn(ComponentClass.RESISTOR, n_pins=2, fp_type="SIL")
-        shape = body_shape_for(defn)
-        assert isinstance(shape, BodyShape)  # AxialBody or CylinderBody
+    def test_two_pin_resistor_uses_parametric_body(self) -> None:
+        defn = _make_defn(ComponentClass.RESISTOR, n_pins=2, fp_type="TwoPin")
+        families = _families_with(_axial_cyl_spec())
+        shape = body_shape_for(defn, two_pin_families=families)
+        # Loader feeds resistor_axial; default variant is axial cylinder.
+        assert isinstance(shape, TwoPinParametricBody)
 
-    def test_sil_2_capacitor_nonpolar_returns_radial_or_cylinder(self) -> None:
-        defn = _make_defn(ComponentClass.CAPACITOR_NONPOLAR, n_pins=2, fp_type="SIL")
-        shape = body_shape_for(defn)
-        assert isinstance(shape, BodyShape)
+    def test_two_pin_with_explicit_variant(self) -> None:
+        from protoboard.domain.components.instance import ComponentInstance
+        defn = ComponentDefinition(
+            name="R", component_class=ComponentClass.RESISTOR,
+            footprint=TwoPin(), pin_names={},
+        )
+        inst = ComponentInstance(
+            id=uuid.uuid4(), definition_ref="R", refdes="R1", value="",
+            body_variant="led_radial/default",
+        )
+        families = _families_with(_radial_cyl_spec())
+        shape = body_shape_for(defn, instance=inst, two_pin_families=families)
+        assert isinstance(shape, TwoPinParametricBody)
+        # Resolved spec is the radial one we injected.
+        assert shape._spec.lead_arrangement is LeadArrangement.RADIAL  # type: ignore[attr-defined]
+
+    def test_two_pin_no_matching_family_falls_back_to_generic(self) -> None:
+        # ComponentClass with no entry in _CLASS_TO_FAMILY.
+        defn = ComponentDefinition(
+            name="X", component_class=ComponentClass.SWITCH,
+            footprint=TwoPin(), pin_names={},
+        )
+        shape = body_shape_for(defn, two_pin_families={})
+        # No legacy ladder — generic bbox.
+        assert isinstance(shape, GenericBody)
 
     def test_sil_3_transistor_returns_to92(self) -> None:
         defn = _make_defn(ComponentClass.TRANSISTOR_NPN, n_pins=3, fp_type="SIL")
@@ -286,20 +366,23 @@ class TestBodyShapeFor:
         shape = body_shape_for(defn)
         assert isinstance(shape, SvgDIPBody)
 
-    def test_generic_fallback(self) -> None:
-        # Large SIL connector has no special shape.
+    def test_generic_fallback_for_large_connector(self) -> None:
+        # 10-pin SIL connector — no special shape.
         defn = _make_defn(ComponentClass.CONNECTOR, n_pins=10, fp_type="SIL")
         shape = body_shape_for(defn)
         assert isinstance(shape, BodyShape)
 
     def test_placement_vflipped_passed_through(self) -> None:
-        defn = _make_defn(ComponentClass.DIODE, n_pins=2, fp_type="SIL")
+        defn = _make_defn(ComponentClass.DIODE, n_pins=2, fp_type="TwoPin")
         pl_normal = _make_placement()
         pl_flipped = _make_placement()
         pl_flipped.vertical_flipped = True
+        families = _families_with(_axial_cyl_spec(polar=True))
         # Both should return a valid BodyShape without error.
-        s1 = body_shape_for(defn, placement=pl_normal)
-        s2 = body_shape_for(defn, placement=pl_flipped)
+        s1 = body_shape_for(defn, placement=pl_normal,
+                            two_pin_families=families)
+        s2 = body_shape_for(defn, placement=pl_flipped,
+                            two_pin_families=families)
         assert isinstance(s1, BodyShape)
         assert isinstance(s2, BodyShape)
 
@@ -309,41 +392,45 @@ class TestBodyShapeFor:
 # ---------------------------------------------------------------------------
 
 class TestBodyShapeContract:
-    """Verify all concrete shapes honour the BodyShape interface contract."""
+    """Every concrete shape must honour BodyShape.draw → list[QGraphicsItem]."""
 
-    @pytest.mark.parametrize("shape,positions", [
-        (GenericBody(), _pts((0, 0), (2, 0))),
-        (AxialBody(), _pts((0, 0), (2, 0))),
-        (RadialBody(), _pts((0, 0), (1, 0))),
-        (TO92Body(), _pts((0, 0), (1, 0), (2, 0))),
-        (DIPBody(4), _pts(*([(0, i) for i in range(4)] + [(3, 3-i) for i in range(4)]))),
-        (SvgDIPBody(4), _pts(*([(0, i) for i in range(4)] + [(3, 3-i) for i in range(4)]))),
+    @pytest.mark.parametrize("shape_factory,positions", [
+        (lambda: GenericBody(), _pts((0, 0), (2, 0))),
+        (lambda: TwoPinParametricBody(_axial_cyl_spec()), _pts((0, 0), (2, 0))),
+        (lambda: TwoPinParametricBody(_radial_cyl_spec()), _pts((0, 0), (1, 0))),
+        (lambda: TwoPinParametricBody(_radial_disc_spec()), _pts((0, 0), (1, 0))),
+        (lambda: TwoPinParametricBody(_radial_prism_spec()), _pts((0, 0), (1, 0))),
+        (lambda: TO92Body(), _pts((0, 0), (1, 0), (2, 0))),
+        (lambda: DIPBody(4),
+         _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))),
+        (lambda: SvgDIPBody(4),
+         _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))),
     ])
     def test_draw_returns_list_of_qgraphicsitem(
-        self, qtbot: QtBot, shape: BodyShape, positions: list[Point]
+        self, qtbot: QtBot, shape_factory, positions: list[Point],
     ) -> None:
-        items = shape.draw(positions, _RED, _DARK, 1.0, _Z)
+        items = shape_factory().draw(positions, _RED, _DARK, 1.0, _Z)
         assert isinstance(items, list)
         for item in items:
             assert isinstance(item, QGraphicsItem)
 
-    @pytest.mark.parametrize("shape,positions", [
-        (GenericBody(), _pts((0, 0), (2, 0))),
-        (AxialBody(), _pts((0, 0), (2, 0))),
+    @pytest.mark.parametrize("shape_factory,positions", [
+        (lambda: GenericBody(), _pts((0, 0), (2, 0))),
+        (lambda: TwoPinParametricBody(_axial_cyl_spec()), _pts((0, 0), (2, 0))),
     ])
     def test_draw_alpha_zero_still_returns_items(
-        self, qtbot: QtBot, shape: BodyShape, positions: list[Point]
+        self, qtbot: QtBot, shape_factory, positions: list[Point],
     ) -> None:
-        items = shape.draw(positions, _RED, _DARK, 0.0, _Z)
+        items = shape_factory().draw(positions, _RED, _DARK, 0.0, _Z)
         assert isinstance(items, list)
 
-    @pytest.mark.parametrize("shape,positions", [
-        (GenericBody(), _pts((0, 0), (2, 0))),
-        (AxialBody(), _pts((0, 0), (2, 0))),
-        (RadialBody(), _pts((0, 0), (1, 0))),
+    @pytest.mark.parametrize("shape_factory,positions", [
+        (lambda: GenericBody(), _pts((0, 0), (2, 0))),
+        (lambda: TwoPinParametricBody(_axial_cyl_spec()), _pts((0, 0), (2, 0))),
+        (lambda: TwoPinParametricBody(_radial_cyl_spec()), _pts((0, 0), (1, 0))),
     ])
     def test_drawn_pin_numbers_returns_frozenset(
-        self, qtbot: QtBot, shape: BodyShape, positions: list[Point]
+        self, qtbot: QtBot, shape_factory, positions: list[Point],
     ) -> None:
-        result = shape.drawn_pin_numbers(positions)
+        result = shape_factory().drawn_pin_numbers(positions)
         assert isinstance(result, frozenset)

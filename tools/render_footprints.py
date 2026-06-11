@@ -52,8 +52,8 @@ from protoboard.domain.layout.placement import ComponentPlacement  # noqa: E402
 from protoboard.geometry import Point  # noqa: E402
 from protoboard.gui.renderers.body_shapes import body_shape_for  # noqa: E402
 from protoboard.gui.theme import DEFAULT_THEME, Theme  # noqa: E402
-from protoboard.services.library.body_type_loader import (  # noqa: E402
-    load_body_types,
+from protoboard.services.library.two_pin_body_loader import (  # noqa: E402
+    load_two_pin_body_families,
 )
 
 OUT_DIR = REPO_ROOT / "docs" / "footprints"
@@ -101,8 +101,9 @@ INVENTORY: list[Spec] = [
     Spec(
         slug="resistor_axial",
         title="Resistor — axial 2-pin",
-        description="`SingleRow(n=2)`, `component_class=resistor`. "
-        "Renders via `CylinderBody` (variant from `resistor_axial.yaml`). "
+        description="`TwoPin` footprint, `component_class=resistor`. "
+        "Renders via `TwoPinParametricBody` from the "
+        "`resistor_axial` family. "
         "Pin 2 is bendable (reach 1..23 raster units).",
         footprint=SIL(2),
         component_class=ComponentClass.RESISTOR,
@@ -112,8 +113,8 @@ INVENTORY: list[Spec] = [
     Spec(
         slug="capacitor_nonpolar",
         title="Capacitor — non-polar (axial)",
-        description="`SingleRow(n=2)`, `component_class=capacitor_nonpolar`. "
-        "Cylinder body without polarity marker.",
+        description="`TwoPin` footprint, `component_class=capacitor_nonpolar`. "
+        "Axial cylinder body without polarity marker.",
         footprint=SIL(2),
         component_class=ComponentClass.CAPACITOR_NONPOLAR,
         pin_names={},
@@ -527,7 +528,10 @@ def _render_panel(
     )
 
     # Body shape (must take the shifted absolute positions).
-    shape = body_shape_for(defn, shifted_placement, inst, theme.body_types)
+    shape = body_shape_for(
+        defn, shifted_placement, inst,
+        two_pin_families=theme.two_pin_body_families,
+    )
     fill = QColor(theme.comp_fill_color)
     border = QColor(theme.comp_border)
     for item in shape.draw(shifted, fill, border, 1.0, 5.0, theme):
@@ -624,9 +628,9 @@ def main() -> int:
     if QApplication.instance() is None:
         QApplication(sys.argv)
 
-    body_types = load_body_types()
+    families = load_two_pin_body_families()
     from dataclasses import replace as _replace
-    theme = _replace(DEFAULT_THEME, body_types=body_types)
+    theme = _replace(DEFAULT_THEME, two_pin_body_families=families)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -642,27 +646,28 @@ def main() -> int:
         "",
         "## How footprints map to body shapes",
         "",
-        "`body_shape_for(defn, placement, instance, body_types)` "
-        "in `gui/renderers/body_shapes.py` is the dispatcher. The choice of "
-        "renderer depends on **footprint type** *and* **component class**:",
+        "`body_shape_for(defn, placement, instance, two_pin_families)` "
+        "in `gui/renderers/body_shapes.py` is the dispatcher. The choice "
+        "of renderer depends on the **footprint type**, with the body "
+        "shape determined by the component's `TwoPinBodySpec` for the "
+        "two-pin case:",
         "",
         "| Footprint | Component class | Body shape |",
         "|---|---|---|",
         "| `TO220Footprint` | any | `TO220Body` (metal-tab body) |",
-        "| `SingleRow(n=2)` | resistor / inductor / fuse / transformer | `CylinderBody` (axial, non-polar) — falls back to `AxialBody` when no body-type YAML is loaded |",
-        "| `SingleRow(n=2)` | diode / diode_zener / diode_led | `CylinderBody` (axial, polar, dark cathode stripe) — fallback `DiodeBody` |",
-        "| `SingleRow(n=2)` | capacitor_polar / capacitor_nonpolar | `CylinderBody` (radial-family variant) — fallback `RadialBody` |",
+        "| `TwoPin` | resistor / inductor / fuse / cap / diode / LED / … | `TwoPinParametricBody` reads the `TwoPinBodySpec` resolved from the family default or the explicit `instance.body_variant` |",
         "| `SingleRow(n=3)` | any transistor class | `TO92Body` (half-circle) |",
-        "| `SingleRow(n>2)` (other classes) | — | `SvgSILBody` (filled strip) |",
+        "| `SingleRow(n>=3)` (other classes) | — | `SvgSILBody` (filled strip) |",
         "| `DualRow(n_per_row, rows_spacing)` | any | `SvgDIPBody` (DIP with notch + pin-1 marker) |",
         "| `QuadRow(n_per_col, col_spacings)` | any | `SvgQuadDIPBody` |",
         "| `GridFootprint` / anything else | — | `GenericBody` (plain rectangle) |",
         "",
-        "**CylinderBody** picks horizontal vs vertical based on the actual "
-        "pin-to-pin distance: when `dist < (body_length_mm + 1.0) / pitch_mm`, "
-        "it switches to vertical-mount (a filled circle on the anchor pad with "
-        "a thin lead to the second pad). Otherwise it draws the cylinder lying "
-        "flat between the leads.",
+        "`TwoPinParametricBody` dispatches internally on the spec's "
+        "`lead_arrangement` × `shape`: AXIAL draws a side-view body "
+        "between the two pads, RADIAL draws a top-down silhouette on "
+        "the anchor pad with a single lead reaching the other pad. "
+        "Disc bodies honour `disc_profile` (FLAT vs CANDY); prisms "
+        "honour `edge` (SHARP vs ROUNDED).",
         "",
         "## Conventions in these images",
         "",

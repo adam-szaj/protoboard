@@ -8,21 +8,19 @@ uv run python tools/render_footprints.py
 
 ## How footprints map to body shapes
 
-`body_shape_for(defn, placement, instance, body_types)` in `gui/renderers/body_shapes.py` is the dispatcher. The choice of renderer depends on **footprint type** *and* **component class**:
+`body_shape_for(defn, placement, instance, two_pin_families)` in `gui/renderers/body_shapes.py` is the dispatcher. The choice of renderer depends on the **footprint type**, with the body shape determined by the component's `TwoPinBodySpec` for the two-pin case:
 
 | Footprint | Component class | Body shape |
 |---|---|---|
 | `TO220Footprint` | any | `TO220Body` (metal-tab body) |
-| `SingleRow(n=2)` | resistor / inductor / fuse / transformer | `CylinderBody` (axial, non-polar) — falls back to `AxialBody` when no body-type YAML is loaded |
-| `SingleRow(n=2)` | diode / diode_zener / diode_led | `CylinderBody` (axial, polar, dark cathode stripe) — fallback `DiodeBody` |
-| `SingleRow(n=2)` | capacitor_polar / capacitor_nonpolar | `CylinderBody` (radial-family variant) — fallback `RadialBody` |
+| `TwoPin` | resistor / inductor / fuse / cap / diode / LED / … | `TwoPinParametricBody` reads the `TwoPinBodySpec` resolved from the family default or the explicit `instance.body_variant` |
 | `SingleRow(n=3)` | any transistor class | `TO92Body` (half-circle) |
-| `SingleRow(n>2)` (other classes) | — | `SvgSILBody` (filled strip) |
+| `SingleRow(n>=3)` (other classes) | — | `SvgSILBody` (filled strip) |
 | `DualRow(n_per_row, rows_spacing)` | any | `SvgDIPBody` (DIP with notch + pin-1 marker) |
 | `QuadRow(n_per_col, col_spacings)` | any | `SvgQuadDIPBody` |
 | `GridFootprint` / anything else | — | `GenericBody` (plain rectangle) |
 
-**CylinderBody** picks horizontal vs vertical based on the actual pin-to-pin distance: when `dist < (body_length_mm + 1.0) / pitch_mm`, it switches to vertical-mount (a filled circle on the anchor pad with a thin lead to the second pad). Otherwise it draws the cylinder lying flat between the leads.
+`TwoPinParametricBody` dispatches internally on the spec's `lead_arrangement` × `shape`: AXIAL draws a side-view body between the two pads, RADIAL draws a top-down silhouette on the anchor pad with a single lead reaching the other pad. Disc bodies honour `disc_profile` (FLAT vs CANDY); prisms honour `edge` (SHARP vs ROUNDED).
 
 ## Conventions in these images
 
@@ -60,7 +58,7 @@ uv run python tools/render_footprints.py
 
 **Resistor — axial 2-pin**
 
-`SingleRow(n=2)`, `component_class=resistor`. Renders via `CylinderBody` (variant from `resistor_axial.yaml`). Pin 2 is bendable (reach 1..23 raster units).
+`TwoPin` footprint, `component_class=resistor`. Renders via `TwoPinParametricBody` from the `resistor_axial` family. Pin 2 is bendable (reach 1..23 raster units).
 
 ![resistor_axial](resistor_axial.png)
 
@@ -68,7 +66,7 @@ uv run python tools/render_footprints.py
 
 **Capacitor — non-polar (axial)**
 
-`SingleRow(n=2)`, `component_class=capacitor_nonpolar`. Cylinder body without polarity marker.
+`TwoPin` footprint, `component_class=capacitor_nonpolar`. Axial cylinder body without polarity marker.
 
 ![capacitor_nonpolar](capacitor_nonpolar.png)
 

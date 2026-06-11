@@ -63,12 +63,12 @@ def export_svg(
         board=board, layout=layout, schematic=sch,
         components=components, instances=instances,
     )
-    body_types = getattr(theme, "body_types", None) or {}
+    families = getattr(theme, "two_pin_body_families", None) or {}
     snapshot = BoardSnapshot(
         board=board, layout=layout,
         components=components, instances=instances,
         schematic=sch, pad_index=pad_index,
-        body_types=body_types, theme=theme,
+        two_pin_body_families=families, theme=theme,
     )
     return export_svg_from_snapshot(snapshot, scale=scale)
 

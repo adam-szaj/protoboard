@@ -59,7 +59,7 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
     theme = _dc_replace(
         snapshot.theme,
         raster_pitch_mm=snapshot.board.raster_pitch_mm,
-        body_types=snapshot.body_types,
+        two_pin_body_families=snapshot.two_pin_body_families,
     )
 
     # Canvas background.  ``board_bg`` is QGraphicsView's brush in the

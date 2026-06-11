@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from protoboard.domain.components.body_type import BodyTypeSpec
     from protoboard.domain.components.two_pin_body import TwoPinBodyFamily
 
 
@@ -133,11 +132,7 @@ class Theme:
     dip_notch_radius: float = 0.25
     sil_slot_size: float = 0.40             # per-pin slot square size
 
-    # Body-type definitions loaded at startup; keyed by family name.
-    # ``body_types`` is the legacy cylinder-only catalogue;
-    # ``two_pin_body_families`` is the new parametric one and is
-    # preferred when both can resolve the same component.
-    body_types: dict[str, BodyTypeSpec] = field(default_factory=dict)
+    # Parametric body-spec catalogue loaded at startup; keyed by family name.
     two_pin_body_families: "dict[str, TwoPinBodyFamily]" = field(
         default_factory=dict,
     )
@@ -273,7 +268,8 @@ def save_theme(theme: Theme, path: Path | None = None) -> None:
         defaults = Theme()
         data: dict[str, object] = {}
         for f in theme.__dataclass_fields__:
-            if f == "body_types":
+            if f == "two_pin_body_families":
+                # Loaded from assets at startup; not user-configurable.
                 continue
             val = getattr(theme, f)
             if val != getattr(defaults, f):

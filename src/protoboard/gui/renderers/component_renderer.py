@@ -432,7 +432,10 @@ def _render_one(
     comp_border = QColor(theme.comp_border)
     comp_border.setAlphaF(comp_border.alphaF() * alpha)
 
-    shape = body_shape_for(defn, placement, inst, theme.body_types)
+    shape = body_shape_for(
+        defn, placement, inst,
+        two_pin_families=theme.two_pin_body_families,
+    )
     for item in shape.draw(positions, comp_fill, comp_border, alpha, z_comp, theme):
         grp.addToGroup(item)
     skip_pins = shape.drawn_pin_numbers(positions, theme)
@@ -592,7 +595,9 @@ def make_ghost_item(
 
     # Use the same body shape as the real component, semi-transparent.
     ghost_alpha = ghost_fill.alphaF()
-    shape = body_shape_for(defn)
+    shape = body_shape_for(
+        defn, two_pin_families=theme.two_pin_body_families,
+    )
     for item in shape.draw(positions, ghost_fill, ghost_border, ghost_alpha, 0.0, theme):
         # Ghost body: dashed border
         if hasattr(item, 'pen'):
