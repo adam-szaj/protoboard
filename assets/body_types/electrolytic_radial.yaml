@@ -1,0 +1,38 @@
+family: electrolytic_radial
+variants:
+  - id: 5mm
+    label: "5 mm radial electrolytic"
+    lead_arrangement: radial
+    shape: cylinder
+    edge: rounded
+    polar: true
+    diameter_mm: 5.0
+    length_mm: 11.0
+    lead_diameter_mm: 0.5
+  - id: 6_3mm
+    label: "6.3 mm radial electrolytic"
+    lead_arrangement: radial
+    shape: cylinder
+    edge: rounded
+    polar: true
+    diameter_mm: 6.3
+    length_mm: 11.0
+    lead_diameter_mm: 0.5
+  - id: 8mm
+    label: "8 mm radial electrolytic"
+    lead_arrangement: radial
+    shape: cylinder
+    edge: rounded
+    polar: true
+    diameter_mm: 8.0
+    length_mm: 12.0
+    lead_diameter_mm: 0.6
+  - id: 10mm
+    label: "10 mm radial electrolytic"
+    lead_arrangement: radial
+    shape: cylinder
+    edge: rounded
+    polar: true
+    diameter_mm: 10.0
+    length_mm: 16.0
+    lead_diameter_mm: 0.6

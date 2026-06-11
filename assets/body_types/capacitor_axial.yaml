@@ -1,19 +1,29 @@
 family: capacitor_axial
-shape: cylinder
-polar: true
 variants:
   - id: small
     label: "Small (≤10µF)"
+    lead_arrangement: axial
+    shape: cylinder
+    edge: rounded
+    polar: true
     diameter_mm: 4.0
     length_mm: 7.0
     lead_diameter_mm: 0.5
   - id: medium
     label: "Medium (10–100µF)"
+    lead_arrangement: axial
+    shape: cylinder
+    edge: rounded
+    polar: true
     diameter_mm: 6.3
     length_mm: 11.0
     lead_diameter_mm: 0.6
   - id: large
     label: "Large (>100µF)"
+    lead_arrangement: axial
+    shape: cylinder
+    edge: rounded
+    polar: true
     diameter_mm: 10.0
     length_mm: 16.0
     lead_diameter_mm: 0.8

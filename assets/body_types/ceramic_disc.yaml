@@ -1,0 +1,29 @@
+family: ceramic_disc
+variants:
+  - id: 5mm
+    label: "5 mm ceramic disc"
+    lead_arrangement: radial
+    shape: disc
+    disc_profile: flat
+    edge: rounded
+    diameter_mm: 5.0
+    thickness_mm: 2.0
+    lead_diameter_mm: 0.5
+  - id: 7mm
+    label: "7 mm ceramic disc"
+    lead_arrangement: radial
+    shape: disc
+    disc_profile: flat
+    edge: rounded
+    diameter_mm: 7.0
+    thickness_mm: 2.5
+    lead_diameter_mm: 0.5
+  - id: 10mm
+    label: "10 mm ceramic disc"
+    lead_arrangement: radial
+    shape: disc
+    disc_profile: flat
+    edge: rounded
+    diameter_mm: 10.0
+    thickness_mm: 3.0
+    lead_diameter_mm: 0.6
