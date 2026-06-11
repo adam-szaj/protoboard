@@ -905,6 +905,29 @@ class _CollapseRecord:
     merged_wire_id: "uuid.UUID | None" = None
 
 
+@dataclass
+class _CoLocatedFuseRecord:
+    """Snapshot of one Phase-0 co-located JointKnot merge for revert.
+
+    Phase 0 of FuseTouchingWiresCommand fuses pairs of degree-1
+    JointKnots sitting on the same pad — a common artifact of legacy
+    projects produced by the pre-fix ``FlipWireFragmentCommand`` (see
+    ``memory/project_wire_id_substitution_followup.md``).  Two wires
+    whose endpoints land on the same pad but reference distinct knots
+    are physically one solder joint; Phase 0 unifies them so the main
+    collapse loop sees a proper degree-2 knot.
+
+    Revert restores ``loser_knot`` and retargets ``moved_wire``'s
+    endpoint back to it.
+    """
+
+    winner_knot_id: uuid.UUID
+    loser_knot_id: uuid.UUID
+    loser_position: Point
+    moved_wire_id: uuid.UUID
+    moved_endpoint: str  # "a" or "b"
+
+
 def _restore_collapse(state: ComponentState, rec: _CollapseRecord) -> None:
     """Inverse of ``try_collapse_joint`` — split the merged wire back into two.
 
@@ -1493,16 +1516,137 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
     _records: list["_CollapseRecord"] = field(
         default_factory=list, init=False, repr=False,
     )
+    _colocated_records: list["_CoLocatedFuseRecord"] = field(
+        default_factory=list, init=False, repr=False,
+    )
 
     @property
     def description(self) -> str:  # type: ignore[override]
         scope = "all" if self.wire_ids is None else f"{len(self.wire_ids)} wire(s)"
         return f"Fuse touching wires ({scope})"
 
+    def _phase0_merge_colocated_joints(
+        self, state: ComponentState,
+    ) -> None:
+        """Pre-pass: merge degree-1 JointKnot pairs sitting on the same pad.
+
+        Legacy projects (and pre-fix flip-fragment edits) can leave two
+        wires whose endpoints sit on the same pad but reference distinct
+        degree-1 JointKnots.  Physically they are one solder joint, but
+        the main collapse loop only fuses knots that already share a
+        degree-2 joint — so it would emit nothing.  This pre-pass walks
+        co-located knot pairs, retargets one wire's endpoint to the
+        winner knot, and drops the loser.  Each merge is recorded for
+        revert.
+
+        Scope semantics: when ``self.wire_ids`` is set, only pairs whose
+        BOTH wires are in scope are merged — matches the contract of
+        the main pass.  Pairs that cross net or side boundaries are
+        physically distinct and stay separate (we only fuse when both
+        wires agree on ``side`` and ``insulated``).
+        """
+        from collections import defaultdict
+        from protoboard.domain.layout.wire import KnotRef as _KnotRef
+        # Bucket degree-1 JointKnots by snap position.
+        by_pos: "dict[tuple[float, float], list[uuid.UUID]]" = defaultdict(list)
+        for knot in list(state.layout.knots.values()):
+            if not isinstance(knot, JointKnot):
+                continue
+            if len(knot.wire_ids) != 1:
+                continue
+            key = (round(knot.position.x, 6), round(knot.position.y, 6))
+            by_pos[key].append(knot.id)
+
+        for pos_key, knot_ids in by_pos.items():
+            if len(knot_ids) < 2:
+                continue
+            # Sort for determinism — winner is the lex-smallest id.
+            knot_ids_sorted = sorted(knot_ids, key=lambda k: str(k))
+            winner_id = knot_ids_sorted[0]
+            winner_knot = state.layout.knots.get(winner_id)
+            if not isinstance(winner_knot, JointKnot):
+                continue
+            winner_wire_id = next(iter(winner_knot.wire_ids))
+            winner_wire = state.layout.wires.get(winner_wire_id)
+            if winner_wire is None:
+                continue
+            # Try to absorb each loser into the winner.
+            for loser_id in knot_ids_sorted[1:]:
+                loser_knot = state.layout.knots.get(loser_id)
+                if not isinstance(loser_knot, JointKnot):
+                    continue
+                if len(loser_knot.wire_ids) != 1:
+                    continue
+                loser_wire_id = next(iter(loser_knot.wire_ids))
+                loser_wire = state.layout.wires.get(loser_wire_id)
+                if loser_wire is None:
+                    continue
+                # Scope filter — both wires must be in the caller-supplied
+                # set (when one was given).  Same contract as Phase 2.
+                if self.wire_ids is not None and not (
+                    winner_wire_id in self.wire_ids
+                    and loser_wire_id in self.wire_ids
+                ):
+                    continue
+                # Side / insulated agreement.  Different side means the
+                # joints are on different layers (not the same solder
+                # joint), and mismatched insulated means physically
+                # incompatible conductors that should not coalesce.
+                if winner_wire.side != loser_wire.side:
+                    continue
+                if winner_wire.insulated != loser_wire.insulated:
+                    continue
+                # Find which endpoint of loser_wire references loser_id.
+                moved_endpoint: str | None = None
+                if loser_wire.a is not None and loser_wire.a.id == loser_id:
+                    moved_endpoint = "a"
+                elif loser_wire.b is not None and loser_wire.b.id == loser_id:
+                    moved_endpoint = "b"
+                if moved_endpoint is None:
+                    continue
+                # Retarget loser_wire's endpoint to the winner knot.
+                if moved_endpoint == "a":
+                    loser_wire.a = _KnotRef(id=winner_id)
+                else:
+                    loser_wire.b = _KnotRef(id=winner_id)
+                # Update winner's wire_ids to include the moved wire.
+                state.layout.knots[winner_id] = JointKnot(
+                    id=winner_knot.id,
+                    position=winner_knot.position,
+                    wire_ids=winner_knot.wire_ids | {loser_wire_id},
+                )
+                # Drop the loser knot.
+                del state.layout.knots[loser_id]
+                # Record for revert.
+                self._colocated_records.append(_CoLocatedFuseRecord(
+                    winner_knot_id=winner_id,
+                    loser_knot_id=loser_id,
+                    loser_position=loser_knot.position,
+                    moved_wire_id=loser_wire_id,
+                    moved_endpoint=moved_endpoint,
+                ))
+                # Refresh local winner_knot reference for the next loser
+                # in this cluster.
+                winner_knot = state.layout.knots[winner_id]
+                _log.info(
+                    "wire.fuse.colocated_merged",
+                    pos=pos_key,
+                    winner=str(winner_id)[:8],
+                    loser=str(loser_id)[:8],
+                    moved_wire=str(loser_wire_id)[:8],
+                    moved_endpoint=moved_endpoint,
+                )
+
     def apply(self, state: ComponentState) -> None:
         from protoboard.domain.layout.wire_utils import plated_through_pads
         pt_pads = frozenset(plated_through_pads(state.board))
         records: list[_CollapseRecord] = []
+        # Phase 0 — pre-merge co-located degree-1 JointKnots so the main
+        # collapse loop can see them as a single degree-2 hub.  Without
+        # this, legacy artefacts from pre-fix flip-fragment edits leave
+        # the user unable to wire-merge their own wires.
+        self._colocated_records = []
+        self._phase0_merge_colocated_joints(state)
         # Stats — surfaced via wire.fuse.summary at the end so we can
         # see why nothing fused without firing a log line per joint.
         stat = {
@@ -1516,6 +1660,7 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
             "try_collapse_failed": 0,
             "try_collapse_ok": 0,
             "passes": 0,
+            "phase0_colocated_merged": len(self._colocated_records),
         }
         # Iterate until no more collapses fire; one pass is not enough
         # for a chain of three or more touching wires.
@@ -1619,6 +1764,34 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
         # re-inserts the two pre-fuse wires.
         for rec in reversed(self._records):
             _restore_collapse(state, rec)
+        # Phase-0 co-located fuses run BEFORE the main collapse loop in
+        # apply, so their inverses must run AFTER the collapse-restore
+        # walk to land in the right model state.  Each undo revives the
+        # loser JointKnot and re-points the moved wire back at it.
+        from protoboard.domain.layout.wire import KnotRef as _KnotRef
+        for crec in reversed(self._colocated_records):
+            # Resurrect the loser knot at its original position with the
+            # moved wire as its sole incident.
+            state.layout.knots[crec.loser_knot_id] = JointKnot(
+                id=crec.loser_knot_id,
+                position=crec.loser_position,
+                wire_ids=frozenset({crec.moved_wire_id}),
+            )
+            # Remove the moved wire from the winner's wire_ids and
+            # re-point the wire's endpoint back to the loser knot.
+            winner = state.layout.knots.get(crec.winner_knot_id)
+            if isinstance(winner, JointKnot):
+                state.layout.knots[crec.winner_knot_id] = JointKnot(
+                    id=winner.id,
+                    position=winner.position,
+                    wire_ids=winner.wire_ids - {crec.moved_wire_id},
+                )
+            moved_wire = state.layout.wires.get(crec.moved_wire_id)
+            if moved_wire is not None:
+                if crec.moved_endpoint == "a":
+                    moved_wire.a = _KnotRef(id=crec.loser_knot_id)
+                else:
+                    moved_wire.b = _KnotRef(id=crec.loser_knot_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1767,91 +1940,127 @@ class SetPinVariantCommand(Command[ComponentState]):
 class FlipWireFragmentCommand(Command[ComponentState]):
     """Flip a contiguous fragment of a wire to the opposite layer.
 
-    The fragment is identified by *start_idx* and *end_idx* (inclusive) in
-    the wire's current path.  If the fragment spans the whole wire, the wire's
-    ``side`` attribute is toggled and no splitting occurs.  Otherwise the
-    original wire is replaced by up to three new wires:
+    The fragment is identified by *start_idx* and *end_idx* (inclusive)
+    in the wire's current path.  Side flips inside a wire are represented
+    natively as a multi-fragment Wire — each ``Fragment`` records its
+    own ``side``, and consecutive fragments share their boundary vertex
+    (which must be a plated-through pad, i.e. a via).  This matches the
+    "one artifact = one Wire" contract: the conductor stays a single
+    Wire, retains its id and endpoint knots, and only its per-fragment
+    side composition changes.
 
-    - prefix  : path[:start_idx+1]  on the original side  (omitted if start==0)
-    - middle  : path[start_idx:end_idx+1]  on the target side
-    - suffix  : path[end_idx:]  on the original side  (omitted if end==last)
+    The earlier implementation split the original wire into 2-3 separate
+    Wire instances via ``layout.wires.append`` without going through
+    ``add_wire`` / ``ensure_wire_knots``.  Two flips in sequence on
+    adjacent fragments produced four wires with co-located stale joint
+    knots — see ``memory/project_wire_id_substitution_followup.md``.
 
-    Undo restores the original single wire.
+    Whole-wire flips (``start == 0`` and ``end == len(path) - 1``) re-side
+    every fragment in place; sub-fragment flips rebuild the fragment list
+    around the via boundaries.
     """
 
     wire_id: uuid.UUID
     start_idx: int
     end_idx: int
     target_side: str  # "top" or "bottom"
-    # Filled on first apply for undo:
-    _original_wire: object = field(default=None, init=False, repr=False)
-    _added_ids: list[uuid.UUID] = field(default_factory=list, init=False, repr=False)
+    # Undo state — snapshot of the wire's pre-apply fragment composition.
+    # Kept as parallel lists so revert can reconstruct each Fragment.
+    _old_fragment_paths: list[list[Point]] = field(
+        default_factory=list, init=False, repr=False,
+    )
+    _old_fragment_sides: list[str] = field(
+        default_factory=list, init=False, repr=False,
+    )
 
     @property
     def description(self) -> str:  # type: ignore[override]
         return f"Flip wire fragment to {self.target_side}"
 
-    def apply(self, state: ComponentState) -> None:
-        from protoboard.domain.layout.wire import Wire
+    def _build_fragments_for_flip(
+        self,
+        wire: "Wire",
+    ) -> "list":
+        """Build the new fragment list for ``wire`` with the requested
+        sub-range flipped to ``self.target_side``.
 
-        wire: Wire | None = next(
-            (w for w in state.layout.wires if w.id == self.wire_id), None
-        )
+        The result preserves the wire's path verbatim; only the
+        per-fragment ``side`` composition changes.  Re-coalesces adjacent
+        same-side runs so a flip that lands next to an already-flipped
+        fragment yields a clean (≤3-fragment) shape.
+
+        Algorithm: assign a side to each *segment* (a vertex pair
+        ``path[k] → path[k+1]``) based on the original fragment the
+        segment belongs to, then overwrite the flipped sub-range, then
+        group consecutive same-side segments into Fragments.  Each
+        Fragment's path is the concatenated vertices of its runs (so
+        consecutive Fragments share their boundary vertex — the via).
+        """
+        from protoboard.domain.layout.wire import Fragment as _Fragment
+
+        path = list(wire.path)
+        n_seg = len(path) - 1
+        start, end = self.start_idx, self.end_idx
+        # 1) Build the per-segment side list from existing fragments.
+        seg_side: list[str] = [""] * n_seg
+        cursor = 0
+        for frag in wire.fragments:
+            # Fragment frag contributes len(frag.path) - 1 segments.
+            for k in range(len(frag.path) - 1):
+                if cursor + k < n_seg:
+                    seg_side[cursor + k] = frag.side
+            cursor += len(frag.path) - 1
+
+        # 2) Overwrite the flipped sub-range.  ``start..end`` is given in
+        # vertex coordinates; segment ``k`` connects vertex k to k+1.
+        # Flipping vertices [start..end] means flipping segments
+        # [start..end-1].
+        for k in range(start, end):
+            if 0 <= k < n_seg:
+                seg_side[k] = self.target_side
+
+        # 3) Group consecutive same-side segments into runs.  Each run
+        # spans segments [run_start..run_end]; its vertices are
+        # path[run_start..run_end+1].
+        new_fragments: list[_Fragment] = []
+        i = 0
+        while i < n_seg:
+            run_side = seg_side[i]
+            j = i
+            while j + 1 < n_seg and seg_side[j + 1] == run_side:
+                j += 1
+            frag_path = path[i:j + 2]
+            new_fragments.append(_Fragment(path=list(frag_path), side=run_side))  # type: ignore[arg-type]
+            i = j + 1
+
+        return new_fragments
+
+    def apply(self, state: ComponentState) -> None:
+        wire = state.layout.wires.get(self.wire_id)
         if wire is None:
             raise KeyError(f"Wire {self.wire_id} not found")
+        # Snapshot pre-apply fragments for revert.  ``Wire.fragments`` is
+        # always populated (``Wire.__post_init__`` derives it from path
+        # if absent), so this captures the full per-fragment state.
+        self._old_fragment_paths = [list(f.path) for f in wire.fragments]
+        self._old_fragment_sides = [f.side for f in wire.fragments]
 
-        self._original_wire = wire
-        path = wire.path
-        start, end = self.start_idx, self.end_idx
-        original_side = wire.side
-
-        # Remove the original wire
-        state.layout.wires.pop(self.wire_id, None)
-        self._added_ids.clear()
-
-        if start == 0 and end == len(path) - 1:
-            # Whole wire — just change side, no split
-            new_wire = Wire(
-                id=self.wire_id,
-                path=list(path),
-                insulated=wire.insulated,
-                side=self.target_side,  # type: ignore[arg-type]
-                color=wire.color,
-            )
-            state.layout.wires.append(new_wire)
-            self._added_ids.append(new_wire.id)
-            return
-
-        # Split into up to 3 segments
-        segments: list[tuple[list, str]] = []
-        if start > 0:
-            segments.append((path[:start + 1], original_side))
-        segments.append((path[start:end + 1], self.target_side))
-        if end < len(path) - 1:
-            segments.append((path[end:], original_side))
-
-        for seg_path, seg_side in segments:
-            if len(seg_path) < 2:
-                continue
-            new_wire = Wire(
-                id=uuid.uuid4(),
-                path=list(seg_path),
-                insulated=wire.insulated,
-                side=seg_side,  # type: ignore[arg-type]
-                color=wire.color,
-            )
-            state.layout.wires.append(new_wire)
-            self._added_ids.append(new_wire.id)
+        new_fragments = self._build_fragments_for_flip(wire)
+        # Single source of truth: replace_wire_fragments preserves wire
+        # id + a/b knot refs, and rebuilds wire.path from the new
+        # fragments.  No new JointKnots are minted — the wire stays a
+        # single artifact with its original endpoint hubs.
+        state.layout.replace_wire_fragments(self.wire_id, new_fragments)
 
     def revert(self, state: ComponentState) -> None:
-        from protoboard.domain.layout.wire import Wire
-
-        # Remove added wires
-        for added_id in self._added_ids:
-            state.layout.wires.pop(added_id, None)
-        # Restore original
-        if self._original_wire is not None:
-            state.layout.wires.append(self._original_wire)  # type: ignore[arg-type]
+        from protoboard.domain.layout.wire import Fragment as _Fragment
+        if not self._old_fragment_paths:
+            return
+        old_fragments = [
+            _Fragment(path=list(p), side=s)  # type: ignore[arg-type]
+            for p, s in zip(self._old_fragment_paths, self._old_fragment_sides)
+        ]
+        state.layout.replace_wire_fragments(self.wire_id, old_fragments)
 
 
 @dataclass
