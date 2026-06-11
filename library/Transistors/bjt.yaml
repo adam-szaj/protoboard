@@ -1,0 +1,90 @@
+components:
+  # -----------------------------------------------------------------------
+  # Templates (prefix _ → not placeable)
+  # -----------------------------------------------------------------------
+
+  # TO-92: each lead can be bent ±1 raster left/right.
+  # Offsets are in the component local frame (before rotation).
+  - name: _NPN_TO92
+    component_class: transistor_npn
+    footprint: {type: TO92}
+    pin_names: {}
+    bendable_pins:
+      1: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
+      2: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
+      3: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
+
+  - name: _PNP_TO92
+    component_class: transistor_pnp
+    footprint: {type: TO92}
+    pin_names: {}
+    bendable_pins:
+      1: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
+      2: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
+      3: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
+
+  # Pinouts per part family.  Layout-critical: same TO-92 shell, three
+  # different pin orders.
+  - name: _NPN_TO92_CBE
+    extends: _NPN_TO92
+    pin_names: {1: C, 2: B, 3: E}
+
+  - name: _NPN_TO92_BCE
+    extends: _NPN_TO92
+    pin_names: {1: B, 2: C, 3: E}
+
+  - name: _NPN_TO92_EBC
+    extends: _NPN_TO92
+    pin_names: {1: E, 2: B, 3: C}
+
+  - name: _PNP_TO92_CBE
+    extends: _PNP_TO92
+    pin_names: {1: C, 2: B, 3: E}
+
+  - name: _PNP_TO92_EBC
+    extends: _PNP_TO92
+    pin_names: {1: E, 2: B, 3: C}
+
+  # -----------------------------------------------------------------------
+  # NPN BJT
+  # -----------------------------------------------------------------------
+
+  - name: BC547
+    extends: _NPN_TO92_CBE
+    description: "NPN 45V 0.1A general purpose"
+
+  - name: BC548
+    extends: _NPN_TO92_CBE
+    description: "NPN 30V 0.1A general purpose"
+
+  - name: BC549
+    extends: _NPN_TO92_CBE
+    description: "NPN 30V 0.1A low noise"
+
+  - name: 2N2222
+    extends: _NPN_TO92_CBE
+    description: "NPN 40V 0.6A switching"
+
+  - name: 2N3904
+    extends: _NPN_TO92_EBC
+    description: "NPN 40V 0.2A general purpose"
+
+  - name: BC337
+    extends: _NPN_TO92_BCE
+    description: "NPN 45V 0.8A medium power"
+
+  # -----------------------------------------------------------------------
+  # PNP BJT
+  # -----------------------------------------------------------------------
+
+  - name: BC557
+    extends: _PNP_TO92_CBE
+    description: "PNP 45V 0.1A general purpose"
+
+  - name: BC558
+    extends: _PNP_TO92_CBE
+    description: "PNP 30V 0.1A general purpose"
+
+  - name: 2N3906
+    extends: _PNP_TO92_EBC
+    description: "PNP 40V 0.2A general purpose"

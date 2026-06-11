@@ -5,13 +5,9 @@ components:
 
   - name: _XTAL_HC49
     component_class: crystal
-    footprint: {type: SIL, pins: 2}
+    footprint: {type: TwoPin}
     pin_names: {1: "1", 2: "2"}
-
-  - name: _OSC_DIP14
-    component_class: crystal
-    footprint: {type: DIP, pins: 14}
-    pin_names: {1: NC, 7: GND, 8: OUT, 14: VCC}
+    body_variant: "HC-49/typ"
 
   # -----------------------------------------------------------------------
   # Crystals (HC-49/U through-hole)
@@ -36,15 +32,3 @@ components:
   - name: XTAL_20MHz
     extends: _XTAL_HC49
     description: "Crystal 20 MHz HC-49/U"
-
-  # -----------------------------------------------------------------------
-  # Oscillator modules (DIP-14 footprint, full-can)
-  # -----------------------------------------------------------------------
-
-  - name: OSC_1MHz
-    extends: _OSC_DIP14
-    description: "Oscillator module 1 MHz DIP-14"
-
-  - name: OSC_4MHz
-    extends: _OSC_DIP14
-    description: "Oscillator module 4 MHz DIP-14"

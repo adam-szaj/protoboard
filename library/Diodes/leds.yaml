@@ -1,0 +1,73 @@
+components:
+  # -----------------------------------------------------------------------
+  # Templates per LED package size
+  # -----------------------------------------------------------------------
+
+  - name: _LED_3mm
+    component_class: diode_led
+    footprint: {type: TwoPin}
+    pin_names: {1: A, 2: K}
+    body_variant: "LED-3mm/typ"
+    bendable_pins:
+      2:
+        min_reach: 1
+        max_reach: 7
+        default: {x: 0, y: 1}
+
+  - name: _LED_5mm
+    component_class: diode_led
+    footprint: {type: TwoPin}
+    pin_names: {1: A, 2: K}
+    body_variant: "LED-5mm/typ"
+    bendable_pins:
+      2:
+        min_reach: 1
+        max_reach: 9
+        default: {x: 0, y: 1}
+
+  - name: _LED_10mm
+    component_class: diode_led
+    footprint: {type: TwoPin}
+    pin_names: {1: A, 2: K}
+    body_variant: "LED-10mm/typ"
+    bendable_pins:
+      2:
+        min_reach: 1
+        max_reach: 9
+        default: {x: 0, y: 2}
+
+  # -----------------------------------------------------------------------
+  # 5 mm LEDs by colour (the most common form)
+  # -----------------------------------------------------------------------
+
+  - name: LED_Red
+    extends: _LED_5mm
+    description: "LED 5mm red"
+
+  - name: LED_Green
+    extends: _LED_5mm
+    description: "LED 5mm green"
+
+  - name: LED_Yellow
+    extends: _LED_5mm
+    description: "LED 5mm yellow"
+
+  - name: LED_Blue
+    extends: _LED_5mm
+    description: "LED 5mm blue"
+
+  - name: LED_White
+    extends: _LED_5mm
+    description: "LED 5mm white"
+
+  # -----------------------------------------------------------------------
+  # 3 mm LEDs (compact indicators)
+  # -----------------------------------------------------------------------
+
+  - name: LED_Red_3mm
+    extends: _LED_3mm
+    description: "LED 3mm red"
+
+  - name: LED_Green_3mm
+    extends: _LED_3mm
+    description: "LED 3mm green"

@@ -1,0 +1,48 @@
+components:
+  - name: AT24C02
+    component_class: ic
+    footprint: {type: DIP, pins: 8}
+    description: "2kbit I2C EEPROM"
+    pin_names:
+      1: A0
+      2: A1
+      3: A2
+      4: GND
+      5: SDA
+      6: SCL
+      7: WP
+      8: VCC
+
+  - name: 28C256
+    component_class: ic
+    footprint: {type: DIP, pins: 28}
+    description: "256kbit parallel EEPROM"
+    pin_names:
+      1: A14
+      2: A12
+      3: A7
+      4: A6
+      5: A5
+      6: A4
+      7: A3
+      8: A2
+      9: A1
+      10: A0
+      11: IO0
+      12: IO1
+      13: IO2
+      14: GND
+      15: IO3
+      16: IO4
+      17: IO5
+      18: IO6
+      19: IO7
+      20: NCE
+      21: A10
+      22: NOE
+      23: A11
+      24: A9
+      25: A8
+      26: A13
+      27: NWE
+      28: VCC

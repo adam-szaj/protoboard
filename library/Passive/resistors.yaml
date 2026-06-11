@@ -1,0 +1,46 @@
+components:
+  # Generic axial through-hole resistor — value is per-instance.  Default
+  # body is the 1/4 W DIN-0207 (R-6); switch via the body-variant picker
+  # to a smaller (DIN-0204) or bigger (DIN-0411 / DIN-0617 / DIN-0922)
+  # axial package, or to a ceramic-brick variant for power resistors.
+  - name: R
+    description: "Resistor (axial through-hole, generic)"
+    component_class: resistor
+    footprint: {type: TwoPin}
+    pin_names: {}
+    body_variant: "DIN-0207/typ"
+    bendable_pins:
+      2:
+        min_reach: 1
+        max_reach: 23
+        default: {x: 0, y: 4}
+    aliases:
+      # KiCAD SMD footprint strings → same 2-pin resistor body for perfboard
+      - R_0603_1608Metric
+      - R_0805_2012Metric
+      - R_1206_3216Metric
+      - R_2010_5025Metric
+      - R_2512_6332Metric
+      - R_2816_7142Metric_Pad3_20x4_45mm_HandSolder
+      - R_Axial_DIN0207
+      - R_Axial_DIN0204
+      - R_Axial_DIN0411
+      - R_Axial_DIN0617
+
+  - name: R_Net_4
+    description: "4-resistor SIL network (common bus pin 1)"
+    component_class: resistor
+    footprint: {type: SIL, pins: 5}
+    pin_names: {1: COM, 2: R1, 3: R2, 4: R3, 5: R4}
+
+  - name: R_Net_8
+    description: "8-resistor SIL network (common bus pin 1)"
+    component_class: resistor
+    footprint: {type: SIL, pins: 9}
+    pin_names: {1: COM, 2: R1, 3: R2, 4: R3, 5: R4, 6: R5, 7: R6, 8: R7, 9: R8}
+
+  - name: Pot
+    description: "Potentiometer / trimmer (3-pin)"
+    component_class: resistor
+    footprint: {type: SIL, pins: 3}
+    pin_names: {1: "1", 2: W, 3: "3"}

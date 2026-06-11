@@ -1,0 +1,16 @@
+components:
+  # Glass tube fuse on a PCB holder.  Default is a 1 W-equivalent
+  # axial ceramic body (DIN-0617) — visually closest to a typical
+  # 5×20 mm glass fuse + clip pair.  Picker offers smaller / larger
+  # axial packages.
+  - name: F
+    description: "Fuse (axial, glass tube, PCB holder)"
+    component_class: fuse
+    footprint: {type: TwoPin}
+    pin_names: {1: A, 2: B}
+    body_variant: "DIN-0617/typ"
+    bendable_pins:
+      2:
+        min_reach: 3
+        max_reach: 9
+        default: {x: 0, y: 3}

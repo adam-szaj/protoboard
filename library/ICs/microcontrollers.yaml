@@ -1,0 +1,86 @@
+components:
+  - name: ATmega328P
+    component_class: ic
+    footprint: {type: DIP, pins: 28}
+    description: "AVR 8-bit MCU, 32kB flash (Arduino Uno core)"
+    pin_names:
+      1: PC6
+      2: PD0
+      3: PD1
+      4: PD2
+      5: PD3
+      6: PD4
+      7: VCC
+      8: GND
+      9: PB6
+      10: PB7
+      11: PD5
+      12: PD6
+      13: PD7
+      14: PB0
+      15: PB1
+      16: PB2
+      17: PB3
+      18: PB4
+      19: PB5
+      20: AVCC
+      21: AREF
+      22: GND
+      23: PC0
+      24: PC1
+      25: PC2
+      26: PC3
+      27: PC4
+      28: PC5
+
+  - name: ATtiny85
+    component_class: ic
+    footprint: {type: DIP, pins: 8}
+    description: "AVR 8-bit MCU, 8kB flash (DIP-8)"
+    pin_names:
+      1: PB5
+      2: PB3
+      3: PB4
+      4: GND
+      5: PB0
+      6: PB1
+      7: PB2
+      8: VCC
+
+  - name: PIC16F628A
+    component_class: ic
+    footprint: {type: DIP, pins: 18}
+    description: "PIC 8-bit MCU, 2kB flash"
+    pin_names:
+      1: RA2
+      2: RA3
+      3: RA4
+      4: NRST
+      5: GND
+      6: RB0
+      7: RB1
+      8: RB2
+      9: RB3
+      10: RB4
+      11: RB5
+      12: RB6
+      13: RB7
+      14: VCC
+      15: RA6
+      16: RA7
+      17: RA0
+      18: RA1
+
+  # -----------------------------------------------------------------------
+  # Generic IC packages — placeholders for imported SMD ICs
+  # -----------------------------------------------------------------------
+
+  - name: IC_SOT23_6
+    description: "Generic 6-pin SOT-23 / TSOP-6 IC (SMD, treated as SIL)"
+    component_class: ic
+    footprint: {type: SIL, pins: 6}
+    pin_names: {1: "1", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6"}
+    aliases:
+      - TSOP_6_1_65x3_05mm
+      - SOT_23_6
+      - SOT-23-6

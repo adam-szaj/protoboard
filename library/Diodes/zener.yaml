@@ -1,0 +1,50 @@
+components:
+  # -----------------------------------------------------------------------
+  # Templates
+  # -----------------------------------------------------------------------
+
+  - name: _D_DO35_Z
+    component_class: diode_zener
+    footprint: {type: TwoPin}
+    pin_names: {1: A, 2: K}
+    body_variant: "DO-35/typ"
+    bendable_pins:
+      2:
+        min_reach: 1
+        max_reach: 11
+        default: {x: 0, y: 2}
+
+  - name: _D_DO41_Z
+    component_class: diode_zener
+    footprint: {type: TwoPin}
+    pin_names: {1: A, 2: K}
+    body_variant: "DO-41/typ"
+    bendable_pins:
+      2:
+        min_reach: 1
+        max_reach: 17
+        default: {x: 0, y: 3}
+
+  # -----------------------------------------------------------------------
+  # 500 mW Zener diodes (DO-35 / BZX55C family)
+  # -----------------------------------------------------------------------
+
+  - name: BZX55C3V3
+    extends: _D_DO35_Z
+    description: "Zener 3.3V 500mW"
+
+  - name: BZX55C5V1
+    extends: _D_DO35_Z
+    description: "Zener 5.1V 500mW"
+
+  - name: BZX55C12
+    extends: _D_DO35_Z
+    description: "Zener 12V 500mW"
+
+  # -----------------------------------------------------------------------
+  # 1 W Zener diodes (DO-41 / 1N47xx family)
+  # -----------------------------------------------------------------------
+
+  - name: 1N4733A
+    extends: _D_DO41_Z
+    description: "Zener 5.1V 1W"

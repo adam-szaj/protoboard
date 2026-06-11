@@ -1,0 +1,6 @@
+components:
+  - name: T
+    description: "Transformer (4-pin: primary + secondary)"
+    component_class: transformer
+    footprint: {type: DIP, pins: 4}
+    pin_names: {1: P1, 2: P2, 3: S1, 4: S2}

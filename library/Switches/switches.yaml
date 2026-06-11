@@ -1,0 +1,38 @@
+components:
+  - name: SW_Push
+    description: "Tactile push button (4-pin, standard)"
+    component_class: switch
+    footprint: {type: DIP, pins: 4}
+    pin_names: {1: A1, 2: A2, 3: B1, 4: B2}
+
+  - name: SW_SPDT
+    description: "SPDT slide/toggle switch"
+    component_class: switch
+    footprint: {type: SIL, pins: 3}
+    pin_names: {1: COM, 2: NC, 3: NO}
+    aliases:
+      - SW_SPDT_2
+
+  - name: SW_SPST
+    description: "SPST switch (2-pin)"
+    component_class: switch
+    footprint: {type: TwoPin}
+    pin_names: {1: A, 2: B}
+
+  - name: SW_DPST
+    description: "DPST switch (4-pin: two independent SPST)"
+    component_class: switch
+    footprint: {type: DIP, pins: 4}
+    pin_names: {1: A1, 2: B1, 3: A2, 4: B2}
+
+  - name: SW_DPDT
+    description: "DPDT switch (6-pin: two independent SPDT)"
+    component_class: switch
+    footprint: {type: SIL, pins: 6}
+    pin_names: {1: COM1, 2: NC1, 3: NO1, 4: COM2, 5: NC2, 6: NO2}
+
+  - name: SW_DIP_4
+    description: "4-position DIP switch"
+    component_class: switch
+    footprint: {type: DIP, pins: 8}
+    pin_names: {1: S1A, 2: S2A, 3: S3A, 4: S4A, 5: S4B, 6: S3B, 7: S2B, 8: S1B}

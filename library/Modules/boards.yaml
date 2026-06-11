@@ -1,0 +1,245 @@
+components:
+  # Modules / development boards
+  # -----------------------------------------------------------------------
+
+  - name: Arduino_Nano
+    description: "Arduino Nano v3 (30-pin: 15 per side, 18mm wide)"
+    component_class: ic
+    footprint: {type: DIP, pins: 30, rows_spacing: 7}
+    pin_names:
+      1: D1/TX
+      2: D0/RX
+      3: NRST
+      4: GND
+      5: D2
+      6: D3/PWM
+      7: D4
+      8: D5/PWM
+      9: D6/PWM
+      10: D7
+      11: D8
+      12: D9/PWM
+      13: D10/PWM/SS
+      14: D11/PWM/MOSI
+      15: D12/MISO
+      16: D13/SCK
+      17: 3V3
+      18: AREF
+      19: A0
+      20: A1
+      21: A2
+      22: A3
+      23: A4/SDA
+      24: A5/SCL
+      25: A6
+      26: A7
+      27: 5V
+      28: RST
+      29: GND
+      30: VIN
+    aliases:
+      - Arduino_Nano_WithMountingHoles
+
+  # STM32 BluePill (STM32F103C8T6)
+  # PCB: 53mm × 22.86mm, 2×20 pins, pitch 2.54mm, rows_spacing 8 (20.32mm)
+  # Pinout: left col top→bottom = pins 1-20, right col bottom→top = pins 21-40.
+  # Pin 1 = VBAT (top-left), matches standard WeAct/RobotDyn silkscreen.
+  - name: STM32_BluePill
+    description: "STM32F103C8T6 Blue Pill module (2×20, 20.32mm wide)"
+    component_class: ic
+    footprint: {type: DIP, pins: 40, rows_spacing: 7}
+    pin_names:
+      1: VBAT
+      2: PC13
+      3: PC14
+      4: PC15
+      5: PA0
+      6: PA1
+      7: PA2
+      8: PA3
+      9: PA4
+      10: PA5
+      11: PA6
+      12: PA7
+      13: PB0
+      14: PB1
+      15: PB10
+      16: PB11
+      17: NRST
+      18: 3V3
+      19: GND
+      20: GND
+      21: 3V3
+      22: GND
+      23: 5V
+      24: PB9
+      25: PB8
+      26: PB7
+      27: PB6
+      28: PB5
+      29: PB4
+      30: PB3
+      31: PA15
+      32: PA12
+      33: PA11
+      34: PA10
+      35: PA9
+      36: PA8
+      37: PB15
+      38: PB14
+      39: PB13
+      40: PB12
+    aliases:
+      - STM32F103C8T6_BluePill
+      - BluePill
+
+  # STM32 BlackPill (STM32F401CEU6 / STM32F411CEU6)
+  # PCB: 52.8mm × 20.8mm, 2×20 pins, pitch 2.54mm, rows_spacing 7 (17.78mm)
+  # WeAct Studio v3.0+ pinout. STM32F401 and STM32F411 share identical pinout.
+  # Pin 1 = 3V3 (top-left), pin 20 = B9, pin 21 = GND, pin 40 = B12.
+  - name: STM32_BlackPill
+    description: "STM32F401/F411 Black Pill module (2×20, 17.78mm wide)"
+    component_class: ic
+    footprint: {type: DIP, pins: 40, rows_spacing: 7}
+    pin_names:
+      1: 3V3
+      2: PC13
+      3: PC14
+      4: PC15
+      5: PA0
+      6: PA1
+      7: PA2
+      8: PA3
+      9: PA4
+      10: PA5
+      11: PA6
+      12: PA7
+      13: PB0
+      14: PB1
+      15: PB2/BOOT1
+      16: PB10
+      17: PB11
+      18: NRST
+      19: GND
+      20: 5V
+      21: 3V3
+      22: GND
+      23: PB9
+      24: PB8
+      25: PB7
+      26: PB6
+      27: PB5
+      28: PB4
+      29: PB3
+      30: PA15
+      31: PA12
+      32: PA11
+      33: PA10
+      34: PA9
+      35: PA8
+      36: PB15
+      37: PB14
+      38: PB13
+      39: PB12
+      40: VBAT
+    aliases:
+      - STM32F401_BlackPill
+      - STM32F411_BlackPill
+      - BlackPill
+
+  # WeAct STM32G431/G474 CoreBoard
+  # PCB: ~53mm × 28mm, 4×20 pins, col_spacings [1, 8, 1] (2.54, 20.32, 2.54 mm)
+  # Pinout: L_outer(1-20)↓, L_inner(21-40)↓, R_inner(41-60)↑, R_outer(61-80)↑
+  # WeAct Studio v1.0 schematic. G431CB/RB and G474CE/RE use the same board layout.
+  - name: STM32G4_WeAct
+    description: "WeAct STM32G431/G474 CoreBoard (4×20, col_spacings [1,8,1])"
+    component_class: ic
+    footprint: {type: QuadRow, n_per_col: 20, col_spacings: [1, 8, 1]}
+    pin_names:
+      # L_outer (col 0), pins 1-20, top→bottom
+      1: VBAT
+      2: PC13
+      3: PC14
+      4: PC15
+      5: PF0
+      6: PF1
+      7: NRST
+      8: PC0
+      9: PC1
+      10: PC2
+      11: PC3
+      12: PA0
+      13: PA1
+      14: PA2
+      15: PA3
+      16: PF2
+      17: PA4
+      18: PA5
+      19: PA6
+      20: PA7
+      # L_inner (col 1), pins 21-40, top→bottom
+      21: 3V3
+      22: 3V3
+      23: BOOT0
+      24: SWDIO
+      25: SWDCLK
+      26: PB3/SWO
+      27: GND
+      28: GND
+      29: PB4
+      30: PB5
+      31: PB6
+      32: PB7
+      33: PB8
+      34: PB9
+      35: GND
+      36: GND
+      37: 5V
+      38: 5V
+      39: VBUS
+      40: GND
+      # R_inner (col 2, x=9), pins 41-60, bottom→top
+      41: PB14
+      42: PB15
+      43: PA8
+      44: PA9
+      45: PA10
+      46: PA11
+      47: PA12
+      48: PA13
+      49: PA14
+      50: PA15
+      51: PB3
+      52: PB4
+      53: PB5
+      54: PB6
+      55: PB7
+      56: PB8
+      57: PB9
+      58: PB10
+      59: PB11
+      60: PB12
+      # R_outer (col 3, x=10), pins 61-80, bottom→top
+      61: PC6
+      62: PC7
+      63: PC8
+      64: PC9
+      65: PC10
+      66: PC11
+      67: PC12
+      68: PD2
+      69: PE0
+      70: PE1
+      71: PE2
+      72: PE3
+      73: PE4
+      74: PE5
+      75: PE6
+      76: PE7
+      77: PE8
+      78: PE9
+      79: PE10
+      80: PE11
+    aliases:
+      - STM32G431_WeAct
+      - STM32G474_WeAct

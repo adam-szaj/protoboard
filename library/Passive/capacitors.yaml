@@ -1,0 +1,54 @@
+components:
+  # Generic non-polar capacitor.  Default body is a 5 mm ceramic disc;
+  # switch via the body-variant picker to a 7 / 10 mm disc or to an
+  # axial-cylinder package for axial film caps.
+  - name: C
+    description: "Capacitor (non-polar, ceramic, generic)"
+    component_class: capacitor_nonpolar
+    footprint: {type: TwoPin}
+    pin_names: {}
+    body_variant: "Ceramic-Disc-D5/typ"
+    bendable_pins:
+      2:
+        min_reach: 1
+        max_reach: 5
+        default: {x: 0, y: 1}
+    aliases:
+      - C_0603_1608Metric
+      - C_0805_2012Metric
+      - C_1206_3216Metric
+      - C_Disc_D3.0mm
+
+  # Generic polar capacitor — default 5 mm radial electrolytic.  Picker
+  # offers larger radial cans (6.3 / 8 / 10 mm) or the axial elko
+  # families for through-hole projects.
+  - name: C_POL
+    description: "Capacitor (polar, electrolytic, generic)"
+    component_class: capacitor_polar
+    footprint: {type: TwoPin}
+    pin_names: {1: "+", 2: "-"}
+    body_variant: "Radial-Elko-D5/typ"
+    bendable_pins:
+      2:
+        min_reach: 1
+        max_reach: 5
+        default: {x: 0, y: 1}
+    aliases:
+      - CP_Elec_5x11
+      - CP_Elec_6.3x11
+      - CP_Elec_8x11
+      - CP_Elec_10x16
+
+  # Larger ceramic disc as a separate entry — useful for high-voltage
+  # safety caps that physically dominate the board.  Default is 7 mm.
+  - name: C_Disc
+    description: "Disc ceramic capacitor (radial)"
+    component_class: capacitor_nonpolar
+    footprint: {type: TwoPin}
+    pin_names: {}
+    body_variant: "Ceramic-Disc-D7/typ"
+    bendable_pins:
+      2:
+        min_reach: 1
+        max_reach: 3
+        default: {x: 0, y: 1}

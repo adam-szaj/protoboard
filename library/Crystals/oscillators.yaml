@@ -1,0 +1,21 @@
+components:
+  # -----------------------------------------------------------------------
+  # Templates
+  # -----------------------------------------------------------------------
+
+  - name: _OSC_DIP14
+    component_class: crystal
+    footprint: {type: DIP, pins: 14}
+    pin_names: {1: NC, 7: GND, 8: OUT, 14: VCC}
+
+  # -----------------------------------------------------------------------
+  # Oscillator modules (DIP-14 footprint, full-can)
+  # -----------------------------------------------------------------------
+
+  - name: OSC_1MHz
+    extends: _OSC_DIP14
+    description: "Oscillator module 1 MHz DIP-14"
+
+  - name: OSC_4MHz
+    extends: _OSC_DIP14
+    description: "Oscillator module 4 MHz DIP-14"

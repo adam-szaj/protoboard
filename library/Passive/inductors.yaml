@@ -1,0 +1,16 @@
+components:
+  # Generic axial inductor.  Default body matches a 1/4 W resistor
+  # shell (DIN-0207) which is the most common small inductor case;
+  # picker offers larger DIN-0411 / DIN-0617 packages for higher
+  # current and ceramic-disc / brick for ferrite cores.
+  - name: L
+    description: "Inductor (axial, generic)"
+    component_class: inductor
+    footprint: {type: TwoPin}
+    pin_names: {}
+    body_variant: "DIN-0207/typ"
+    bendable_pins:
+      2:
+        min_reach: 1
+        max_reach: 7
+        default: {x: 0, y: 1}
