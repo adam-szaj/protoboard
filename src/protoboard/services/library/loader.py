@@ -32,6 +32,7 @@ from protoboard.domain.components.footprints import (
     GridFootprint,
     QuadRow,
     SingleRow,
+    TwoPin,
 )
 from protoboard.errors import SerializationError
 
@@ -341,7 +342,19 @@ def _build_dip(data: dict[str, Any]) -> FootprintTemplate:
 def _build_sil(data: dict[str, Any]) -> FootprintTemplate:
     if "pins" not in data:
         raise SerializationError("SIL footprint requires 'pins'")
-    return SIL(n=int(data["pins"]), pitch=float(data.get("pitch", 1.0)))
+    n = int(data["pins"])
+    pitch = float(data.get("pitch", 1.0))
+    # Two-pin SIL is a TwoPin: SingleRow with n=2 carried no axial-vs-
+    # radial semantics and lumped resistors, caps, LEDs into the same
+    # "two pads in a line" footprint.  Redirect old library entries so
+    # the migration is transparent.
+    if n == 2:
+        return TwoPin(pitch=pitch)
+    return SIL(n=n, pitch=pitch)
+
+
+def _build_two_pin(data: dict[str, Any]) -> FootprintTemplate:
+    return TwoPin(pitch=float(data.get("pitch", 1.0)))
 
 
 def _build_dual_row(data: dict[str, Any]) -> FootprintTemplate:
@@ -394,6 +407,7 @@ def _build_quad_row(data: dict[str, Any]) -> FootprintTemplate:
 _FOOTPRINT_BUILDERS: dict[str, Callable[[dict[str, Any]], FootprintTemplate]] = {
     "DIP": _build_dip,
     "SIL": _build_sil,
+    "TwoPin": _build_two_pin,
     "DualRow": _build_dual_row,
     "SingleRow": _build_single_row,
     "Grid": _build_grid,

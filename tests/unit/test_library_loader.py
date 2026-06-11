@@ -40,9 +40,11 @@ class TestLoadLibrary:
         assert defn.pin_name(8) == "VCC"
 
     def test_get_resistor(self) -> None:
+        from protoboard.domain.components.footprints import TwoPin
         lib = load_library([FIXTURES])
         defn = lib.get("R")
-        assert isinstance(defn.footprint, SingleRow)
+        # Two-pin components now use TwoPin (loader redirects SIL pins=2).
+        assert isinstance(defn.footprint, TwoPin)
         assert defn.pin_count == 2
         # Pin names not declared → defaults.
         assert defn.pin_name(1) == "P1"

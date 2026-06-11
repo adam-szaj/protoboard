@@ -39,7 +39,13 @@ class FootprintTemplate(ABC):
 
 @dataclass(frozen=True, slots=True)
 class SingleRow(FootprintTemplate):
-    """N pins along a single column (e.g. SIL-N, TO-92)."""
+    """N pins along a single column (e.g. SIL-N, TO-92).
+
+    Use only for ``n >= 3`` (true single-in-line headers, TO-92).  Two-pin
+    components — resistors, diodes, caps, inductors and the like — use
+    :class:`TwoPin` instead, which carries axial-vs-radial mounting
+    semantics that ``SingleRow(n=2)`` cannot express.
+    """
 
     n: int
     pitch: float = 1.0
@@ -53,6 +59,34 @@ class SingleRow(FootprintTemplate):
 
     def pin_positions(self) -> list[Point]:
         return [Point(0.0, i * self.pitch) for i in range(self.n)]
+
+
+@dataclass(frozen=True, slots=True)
+class TwoPin(FootprintTemplate):
+    """Footprint for two-pin components: resistors, diodes, caps, inductors.
+
+    Geometrically identical to ``SingleRow(n=2)`` — two pads on a vertical
+    axis ``pitch`` raster cells apart — but a distinct type so:
+
+    * the renderer can dispatch on the body's ``TwoPinBodySpec`` instead
+      of guessing from ``ComponentClass``;
+    * libraries can express *intent*: a 2-pin component is never a
+      degenerate SIL header.
+
+    Pin 1 sits at ``(0, 0)``; pin 2 at ``(0, pitch)``.  ``pitch`` is in
+    raster units (board cells).
+    """
+
+    pitch: float = 1.0
+
+    def __post_init__(self) -> None:
+        _validate_positive(self.pitch, "pitch")
+
+    def pin_count(self) -> int:
+        return 2
+
+    def pin_positions(self) -> list[Point]:
+        return [Point(0.0, 0.0), Point(0.0, self.pitch)]
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,4 +238,5 @@ __all__ = [
     "GridFootprint",
     "QuadRow",
     "SingleRow",
+    "TwoPin",
 ]
