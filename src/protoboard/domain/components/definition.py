@@ -132,6 +132,12 @@ class ComponentDefinition:
     bendable_pins: dict[int, PinBendSpec] = field(default_factory=dict)
     # Alternative pin-name mappings (same footprint, different signal labelling).
     variants: tuple[PinVariant, ...] = ()
+    # Default body variant for two-pin components, as ``"{family}/{variant_id}"``.
+    # ``ComponentInstance.body_variant`` overrides this per instance.  Library
+    # YAML may specify this to pin a sensible package size (e.g.
+    # ``resistor_axial/1_4w``); when ``None`` the renderer falls back to the
+    # family default registered in ``_CLASS_TO_FAMILY``.
+    default_body_variant: str | None = None
     # Whether the component body physically blocks wires from routing
     # under it.  Default False — most through-hole parts sit on standoffs
     # / leads and leave a gap to the PCB, so wires can route under them
@@ -149,6 +155,13 @@ class ComponentDefinition:
                 raise ValueError(
                     f"pin_names references pin {pin_number} which is outside "
                     f"the footprint's pin range (1..{self.footprint.pin_count()})"
+                )
+        if self.default_body_variant is not None:
+            parts = self.default_body_variant.split("/", 1)
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                raise ValueError(
+                    f"default_body_variant must be 'family/variant_id'; got "
+                    f"{self.default_body_variant!r}"
                 )
 
     @property

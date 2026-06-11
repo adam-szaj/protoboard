@@ -1354,6 +1354,7 @@ def _resolve_two_pin_spec(
        first variant.
     3. ``None`` — caller falls back to :class:`GenericBody`.
     """
+    # 1. Explicit per-instance variant.
     if instance is not None and instance.body_variant:
         parts = instance.body_variant.split("/", 1)
         if len(parts) == 2:
@@ -1363,6 +1364,17 @@ def _resolve_two_pin_spec(
                 if v is not None:
                     return v
 
+    # 2. Library default declared on the component definition.
+    if defn.default_body_variant:
+        parts = defn.default_body_variant.split("/", 1)
+        if len(parts) == 2:
+            fam = families.get(parts[0])
+            if fam is not None:
+                v = fam.get_variant(parts[1])
+                if v is not None:
+                    return v
+
+    # 3. Class default (legacy fallback).
     family_key = _CLASS_TO_FAMILY.get(defn.component_class)
     if family_key is not None:
         fam = families.get(family_key)
