@@ -261,6 +261,13 @@ class SelectTool(_Tool):
         self._edit_points: list[Point] = []
         self._edit_preview_items: list[QGraphicsLineItem] = []
         self._edit_live_line: QGraphicsLineItem | None = None
+        # Wire-edit hit-test cycle state.  When a click lands on a knot
+        # shared by N wires of the same net, the selected wire wins the
+        # first hit; subsequent clicks at the same cluster rotate through
+        # the remaining candidates.  Cleared whenever the cluster (snap
+        # point + start net) changes.
+        self._wire_edit_cycle_key: tuple[float, float, uuid.UUID | None] | None = None
+        self._wire_edit_cycle_last_wire_id: uuid.UUID | None = None
         # Group navigation stack: list of group IDs currently entered (innermost last).
         # Starts at root group; never empty — use _current_group_id for safe access.
         from protoboard.domain.layout.layout import ROOT_GROUP_ID as _ROOT_GID
@@ -7866,9 +7873,17 @@ class SelectTool(_Tool):
     ) -> tuple[Wire | None, int | None]:
         """Hit-test wire nodes across all wires of the same net as the start node.
 
-        Returns (wire, node_idx) of the closest node within _NODE_HIT_RADIUS,
-        or (None, None) if nothing is close enough.  When a start node is already
-        set, the search is limited to wires belonging to the same net.
+        Returns (wire, node_idx) of the best node within _NODE_HIT_RADIUS,
+        or (None, None) if nothing is close enough.
+
+        At shared knots (a pin/pad/joint where N wires of the same net meet
+        at the same world coordinate), the priority order is:
+
+        1. The currently-selected wire (`_edit_start_wire_id`) — wins ties so
+           the user reliably edits the wire they explicitly chose.
+        2. On repeated clicks at the same cluster, rotate through the other
+           wires in the knot (round-robin starting after the last returned
+           wire).  Cycle state resets when the cluster changes.
         """
         from protoboard.gui.board_view import _build_wire_net_map
 
@@ -7891,10 +7906,6 @@ class SelectTool(_Tool):
         for wid in candidate_ids:
             self._ensure_wire_ready_for_edit(wid)
 
-        best_wire: Wire | None = None
-        best_idx: int | None = None
-        best_d = _NODE_HIT_RADIUS
-
         # Restrict to the start net when one is set.  When the wire
         # carries no resolvable net (rare — e.g. drafts without
         # schematic), limit the search to the start wire itself rather
@@ -7905,6 +7916,8 @@ class SelectTool(_Tool):
             start_net_id is None and self._edit_start_wire_id is not None
         )
 
+        # Collect every candidate (wire, idx, dist) within the radius.
+        candidates: list[tuple[Wire, int, float]] = []
         for wire in self._session.layout.wires:
             if start_net_id is not None and wire_net_map.get(wire.id) != start_net_id:
                 continue
@@ -7912,12 +7925,85 @@ class SelectTool(_Tool):
                 continue
             for i, pt in enumerate(wire.path):
                 d = math.sqrt((px - pt.x) ** 2 + (py - pt.y) ** 2)
-                if d < best_d:
-                    best_d = d
-                    best_wire = wire
-                    best_idx = i
+                if d < _NODE_HIT_RADIUS:
+                    candidates.append((wire, i, d))
 
-        return best_wire, best_idx
+        if not candidates:
+            # No hit — drop cycle state so a future hit starts fresh.
+            self._wire_edit_cycle_key = None
+            self._wire_edit_cycle_last_wire_id = None
+            return None, None
+
+        # Identify the nearest cluster: the closest hit defines its
+        # snap-point, then any other hit within a small epsilon of that
+        # snap-point is treated as the same shared knot (independent of
+        # which wire it came from).
+        candidates.sort(key=lambda c: c[2])
+        anchor_wire, anchor_idx, _ = candidates[0]
+        ax = anchor_wire.path[anchor_idx].x
+        ay = anchor_wire.path[anchor_idx].y
+        _CLUSTER_EPS = 1e-3
+
+        cluster = [
+            (w, i) for (w, i, _d) in candidates
+            if abs(w.path[i].x - ax) < _CLUSTER_EPS
+            and abs(w.path[i].y - ay) < _CLUSTER_EPS
+        ]
+
+        # De-dup per-wire (a wire's path may visit the same point twice
+        # at a self-touch — pick the first index).
+        seen_wires: set[uuid.UUID] = set()
+        cluster_unique: list[tuple[Wire, int]] = []
+        for w, i in cluster:
+            if w.id in seen_wires:
+                continue
+            seen_wires.add(w.id)
+            cluster_unique.append((w, i))
+
+        # Cluster key: snap-point + start-net so cycle state survives
+        # only while the user keeps clicking the same knot.
+        cluster_key = (round(ax, 4), round(ay, 4), start_net_id)
+        same_cluster = (cluster_key == self._wire_edit_cycle_key)
+        if not same_cluster:
+            self._wire_edit_cycle_key = cluster_key
+            self._wire_edit_cycle_last_wire_id = None
+
+        # Single candidate — no rotation needed.
+        if len(cluster_unique) == 1:
+            w, i = cluster_unique[0]
+            self._wire_edit_cycle_last_wire_id = w.id
+            return w, i
+
+        # Build the rotation order:
+        #   - selected wire first (priority 1)
+        #   - then the other wires in their natural layout order
+        selected = self._edit_start_wire_id
+        ordered: list[tuple[Wire, int]] = []
+        rest: list[tuple[Wire, int]] = []
+        for w, i in cluster_unique:
+            if selected is not None and w.id == selected:
+                ordered.append((w, i))
+            else:
+                rest.append((w, i))
+        ordered.extend(rest)
+
+        # Decide which entry to return.  On the very first click at this
+        # cluster (or when the cycle was reset) hand out the head of the
+        # ordering — the selected wire if present, otherwise the closest.
+        # On repeat clicks at the same cluster, advance to the next entry.
+        if same_cluster and self._wire_edit_cycle_last_wire_id is not None:
+            ids = [w.id for w, _ in ordered]
+            try:
+                prev_pos = ids.index(self._wire_edit_cycle_last_wire_id)
+                pick_pos = (prev_pos + 1) % len(ordered)
+            except ValueError:
+                pick_pos = 0
+        else:
+            pick_pos = 0
+
+        w, i = ordered[pick_pos]
+        self._wire_edit_cycle_last_wire_id = w.id
+        return w, i
 
     def _net_wires_ordered(
         self,
@@ -8282,6 +8368,8 @@ class SelectTool(_Tool):
         self._edit_start_idx = None
         self._edit_end_idx = None
         self._edit_points = []
+        self._wire_edit_cycle_key = None
+        self._wire_edit_cycle_last_wire_id = None
 
     def _commit_wire_edit(self) -> None:
         start = self._edit_start_idx
