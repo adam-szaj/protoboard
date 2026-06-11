@@ -698,6 +698,20 @@ def _split_existing_wires_at_endpoints(
             hub_id=hub.id,  # type: ignore[union-attr]
             incoming_endpoint=endpoint_name,
         ))
+        # Link the AddWireCommand context to the split: external holders
+        # (SelectTool, recordings, net cache) tracking ``w_through.id``
+        # now follow only ``w_a`` — the ``w_b`` half is a brand-new wire
+        # nobody references yet.  If a wire-edit selection survives a
+        # T-junction split as orphan, this is the log to look for.
+        _log.info(
+            "wire.add.t_junction_split",
+            incoming_wire_id=str(wire.id)[:8],
+            split_wire_id=str(snapshot.wire_id)[:8],
+            split_w_a_id=str(w_a.id)[:8],
+            split_w_b_id=str(w_b.id)[:8],
+            hub_id=str(hub.id)[:8],  # type: ignore[union-attr]
+            split_point=(round(point.x, 3), round(point.y, 3)),
+        )
     return records
 
 

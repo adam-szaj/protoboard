@@ -10,9 +10,13 @@ from typing import TYPE_CHECKING
 
 from enum import Enum
 
+import structlog
+
 from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.geometry import Point
 from protoboard.services.call_counters import counted
+
+_log = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     import uuid
@@ -574,6 +578,24 @@ def split_wire_at_vertex(
     )
     layout.add_wire(wire_a)
     layout.add_wire(wire_b)
+    # Tracing for the wire-identity / orphan-selection investigation: when
+    # a wire is split, the second half gets a fresh UUID and any external
+    # holder of the original id (SelectTool's _selected_wire_id, net
+    # caches, recordings) now points only at the first half.  Without
+    # these logs the bug shows up as "I edited a wire and a new wire
+    # appeared while my old one vanished from selection" with no trail.
+    _log.info(
+        "wire.split_at_vertex",
+        old_id=str(wire.id)[:8],
+        new_a_id=str(wire_a.id)[:8],
+        new_b_id=str(wire_b.id)[:8],
+        hub_id=str(shared_hub.id)[:8],  # type: ignore[union-attr]
+        hub_kind=type(shared_hub).__name__,
+        vertex_idx=vertex_idx,
+        split_point=(round(split_point.x, 3), round(split_point.y, 3)),
+        a_len=len(flat_a),
+        b_len=len(flat_b),
+    )
     return wire_a, wire_b, shared_hub  # type: ignore[return-value]
 
 
@@ -739,6 +761,20 @@ def make_t_junction(
         raise ValueError("w_incoming has no endpoint to re-anchor")
     old_endpoint_id = old_ref.id
 
+    # Trace entry so a future investigator can correlate split logs with
+    # the T-junction that triggered them.  The incoming wire's id is the
+    # key piece of context — the user was holding it selected when the
+    # T-junction collapsed the geometry.
+    _log.info(
+        "wire.t_junction.begin",
+        w_through_id=str(w_through.id)[:8],
+        w_incoming_id=str(w_incoming.id)[:8],
+        incoming_endpoint=incoming_endpoint,
+        vertex_idx=vertex_idx,
+        split_point=(round(w_through.path[vertex_idx].x, 3),
+                     round(w_through.path[vertex_idx].y, 3)),
+        old_endpoint_knot_id=str(old_endpoint_id)[:8],
+    )
     # Step 1 — split w_through.  This produces the hub already at the
     # right position (PinKnot reuse / fresh JointKnot).
     w_a, w_b, hub = split_wire_at_vertex(layout, w_through, vertex_idx)
@@ -798,6 +834,15 @@ def make_t_junction(
                 pin=old_knot.pin,  # type: ignore[attr-defined]
                 wire_ids=updated_old_ids,
             )
+    _log.info(
+        "wire.t_junction.done",
+        w_through_id=str(w_through.id)[:8],
+        w_a_id=str(w_a.id)[:8],
+        w_b_id=str(w_b.id)[:8],
+        w_incoming_id=str(w_incoming.id)[:8],
+        hub_id=str(hub_id)[:8],
+        hub_degree=len(layout.knots[hub_id].wire_ids) if hub_id in layout.knots else 0,
+    )
     return w_a, w_b, w_incoming, hub
 
 
