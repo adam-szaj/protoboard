@@ -1,0 +1,55 @@
+packages:
+  # Radial-leaded aluminium electrolytic capacitors — the most common
+  # through-hole cap form.  Variants step the case diameter; the can
+  # height is typically datasheet-dependent within each diameter class.
+  - id: Radial-Elko-D5
+    label: "Radial electrolytic, D=5 mm"
+    material: metal
+    lead_arrangement: radial
+    shape: cylinder
+    edge: rounded
+    lead_diameter_mm: 0.5
+    variants:
+      - id: typ
+        label: "Typical (5 × 11 mm)"
+        diameter_mm: 5.0
+        length_mm: 11.0
+
+  - id: Radial-Elko-D6.3
+    label: "Radial electrolytic, D=6.3 mm"
+    material: metal
+    lead_arrangement: radial
+    shape: cylinder
+    edge: rounded
+    lead_diameter_mm: 0.5
+    variants:
+      - id: typ
+        label: "Typical (6.3 × 11 mm)"
+        diameter_mm: 6.3
+        length_mm: 11.0
+
+  - id: Radial-Elko-D8
+    label: "Radial electrolytic, D=8 mm"
+    material: metal
+    lead_arrangement: radial
+    shape: cylinder
+    edge: rounded
+    lead_diameter_mm: 0.6
+    variants:
+      - id: typ
+        label: "Typical (8 × 12 mm)"
+        diameter_mm: 8.0
+        length_mm: 12.0
+
+  - id: Radial-Elko-D10
+    label: "Radial electrolytic, D=10 mm"
+    material: metal
+    lead_arrangement: radial
+    shape: cylinder
+    edge: rounded
+    lead_diameter_mm: 0.6
+    variants:
+      - id: typ
+        label: "Typical (10 × 16 mm)"
+        diameter_mm: 10.0
+        length_mm: 16.0

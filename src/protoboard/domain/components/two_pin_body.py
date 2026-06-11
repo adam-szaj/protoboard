@@ -1,24 +1,35 @@
 # SPDX-License-Identifier: MIT
 """Parametric body description for 2-pin through-hole components.
 
-Replaces the cylinder-only ``BodyTypeSpec`` with a structured spec that
-captures three orthogonal axes:
+A 2-pin component body is described by a **package** — an industry
+standard like DO-35, DO-41, R-6, HC-49 — that knows nothing about the
+electrical function of the part it houses.  The same DO-41 package
+may host a rectifier diode, a small fuse or a Zener; the same R-6
+shell hosts both a metal-film resistor and a small inductor.
 
-- **lead arrangement** — axial (leads exit opposite faces along the body
-  axis) vs radial (leads exit the same face, side by side);
+A :class:`TwoPinBodyPackage` collects related dimensional **variants**
+(small/typical/large) of one package standard.  Each variant is a
+:class:`TwoPinBodySpec` carrying the physical parameters the renderer
+needs (shape, dimensions, material, edge style).
+
+The orthogonal axes captured by the spec are:
+
+- **lead arrangement** — axial (leads exit opposite faces along the
+  body axis) vs radial (leads exit the same face, side by side);
 - **body shape** — cylinder, prism (box), or disc;
-- **edge style** — sharp or rounded edges.
+- **edge style** — sharp or rounded edges;
+- **material** — glass / plastic / ceramic / metal / led_lens; chosen
+  by the package, drives the renderer's default fill / border palette.
 
-These three knobs cover the vast majority of physical 2-pin packages
-(resistors, diodes, axial inductors, capacitors of every kind, MLCC,
-LEDs, small fuses).  The renderer reads them directly; library YAMLs
-describe variants in terms of physical dimensions only.
+``ComponentClass`` (electrical function) and ``Footprint`` (pad grid)
+stay separate concerns: the body spec is independent of both.  A
+single :class:`~protoboard.domain.components.definition.ComponentDefinition`
+may reference variants from any package — pinning a sensible default
+via ``ComponentDefinition.default_body_variant``.
 
-The ``component_class`` (electrical function) and ``footprint`` (pad
-grid) stay separate concerns: the body spec is independent of both.
-A single ``ComponentDefinition`` may reference variants from different
-families if the same electrical part is sold in different physical
-shapes.
+Variant addressing: ``"{package_id}/{variant_id}"`` on both
+``ComponentInstance.body_variant`` and
+``ComponentDefinition.default_body_variant``.
 """
 
 from __future__ import annotations
@@ -76,6 +87,25 @@ class DiscProfile(Enum):
     CANDY = "candy"
 
 
+class Material(Enum):
+    """Body construction material.
+
+    Drives the renderer's default fill / border palette and visual
+    treatment (glass = translucent fill, plastic = matte solid, ceramic
+    = solid with soft border, metal = silver-grey fill, led_lens =
+    bright base + colour tint).
+
+    The mapping ``Material → (fill, border, alpha)`` lives in
+    :mod:`protoboard.gui.theme` so it can be themed and overridden.
+    """
+
+    GLASS = "glass"
+    PLASTIC = "plastic"
+    CERAMIC = "ceramic"
+    METAL = "metal"
+    LED_LENS = "led_lens"
+
+
 # Default millimetre values used when a variant omits an optional
 # dimension.  Centralised so renderer fallbacks and validation share one
 # source of truth.
@@ -84,25 +114,28 @@ _DEFAULT_LEAD_DIAMETER_MM = 0.5
 
 @dataclass(frozen=True)
 class TwoPinBodySpec:
-    """Parametric description of one 2-pin component body.
+    """Parametric description of one 2-pin component body variant.
 
     Lives independently of ``ComponentClass`` and ``Footprint``.  Library
-    YAMLs reference variants of a family by ``"{family}/{variant_id}"``
-    on ``ComponentInstance.body_variant``; the renderer reads the spec to
-    draw the body in either horizontal or vertical projection.
+    YAMLs reference variants of a package by ``"{package_id}/{variant_id}"``
+    on ``ComponentInstance.body_variant`` or
+    ``ComponentDefinition.default_body_variant``; the renderer reads the
+    spec to draw the body in either horizontal or vertical projection.
 
     All linear dimensions are in millimetres.  Which dimensions are
     required depends on ``shape``; ``__post_init__`` validates this.
 
     Args:
-        family: Library family identifier (matches the YAML file stem).
-        variant_id: Stable identifier within the family.
+        package_id: Standard package designation (e.g. ``"DO-35"``,
+            ``"R-6"``, ``"HC-49"``, ``"LED-5mm"``).
+        variant_id: Dimensional variant within the package, typically
+            ``"S"``, ``"typ"``, ``"L"`` for small / typical / large
+            within datasheet tolerance.
         label: Human-readable label for the picker UI.
         lead_arrangement: AXIAL or RADIAL.
         shape: CYLINDER, PRISM, or DISC.
         edge: SHARP or ROUNDED edge style.  Defaults to ROUNDED.
-        polar: True for components with polarity (electrolytic cap,
-            diode).  Drives polarity-marker rendering.
+        material: Body construction material.  Defaults to PLASTIC.
         length_mm: Dimension along the lead axis.  Required for CYLINDER
             and PRISM; not used for DISC (use ``thickness_mm``).
         diameter_mm: Outer diameter.  Required for CYLINDER and DISC.
@@ -122,13 +155,13 @@ class TwoPinBodySpec:
             DISC without ``disc_profile``).
     """
 
-    family: str
+    package_id: str
     variant_id: str
     label: str
     lead_arrangement: LeadArrangement
     shape: BodyShape
     edge: EdgeStyle = EdgeStyle.ROUNDED
-    polar: bool = False
+    material: Material = Material.PLASTIC
     length_mm: float | None = None
     diameter_mm: float | None = None
     width_mm: float | None = None
@@ -182,7 +215,12 @@ class TwoPinBodySpec:
     @property
     def _loc(self) -> str:
         """Diagnostic prefix for error messages."""
-        return f"TwoPinBodySpec({self.family}/{self.variant_id})"
+        return f"TwoPinBodySpec({self.package_id}/{self.variant_id})"
+
+    @property
+    def address(self) -> str:
+        """Canonical ``"package_id/variant_id"`` address."""
+        return f"{self.package_id}/{self.variant_id}"
 
     def min_radial_pitch_mm(self) -> float:
         """Minimum pin spacing when the component is mounted radially.
@@ -222,46 +260,55 @@ class TwoPinBodySpec:
 
 
 @dataclass(frozen=True)
-class TwoPinBodyFamily:
-    """A named collection of ``TwoPinBodySpec`` variants.
+class TwoPinBodyPackage:
+    """A named industry-standard 2-pin body package with dimensional variants.
 
-    Loaded from one YAML file; the family name matches the file stem.
-    All variants in a family share polarity (the ``polar`` flag is
-    encoded on every variant for self-containment), but may differ in
-    shape, lead arrangement, edge style and dimensions.
+    A package is the physical shell (DO-35, DO-41, R-6, HC-49, …) and
+    knows nothing about the electrical role of the components that use
+    it.  The same DO-41 hosts rectifier diodes, Zeners and subminiature
+    fuses; ``component_class`` on the library entry decides how the
+    renderer decorates that shared body.
 
     Args:
-        family: Family identifier (e.g. ``"electrolytic_capacitors"``).
-        variants: Ordered tuple of variants.  The first entry is the
-            default returned by ``default_variant()``.
+        package_id: Industry-standard package designation
+            (e.g. ``"DO-35"``, ``"R-6"``, ``"HC-49"``).
+        label: Human-readable label for picker UI ("DO-35 — subminiature
+            axial glass diode body").
+        variants: Ordered tuple of dimensional variants.  The first
+            entry is returned by :meth:`default_variant`.
 
     Raises:
-        ValueError: if the family is empty or any variant's ``family``
-            does not match this family's id.
+        ValueError: when the package has no variants, when any variant's
+            ``package_id`` mismatches, or when variant ids collide.
     """
 
-    family: str
+    package_id: str
     variants: tuple[TwoPinBodySpec, ...] = field(default_factory=tuple)
+    label: str = ""
+
+    @property
+    def display_label(self) -> str:
+        """Picker label — falls back to ``package_id`` when label is empty."""
+        return self.label or self.package_id
 
     def __post_init__(self) -> None:
         if not self.variants:
-            raise ValueError(f"family {self.family!r} has no variants")
+            raise ValueError(f"package {self.package_id!r} has no variants")
         for v in self.variants:
-            if v.family != self.family:
+            if v.package_id != self.package_id:
                 raise ValueError(
-                    f"family {self.family!r} contains variant from "
-                    f"{v.family!r}/{v.variant_id!r}"
+                    f"package {self.package_id!r} contains variant from "
+                    f"{v.package_id!r}/{v.variant_id!r}"
                 )
-        # Ensure variant_id uniqueness within the family.
         ids = [v.variant_id for v in self.variants]
         if len(set(ids)) != len(ids):
             dups = sorted({i for i in ids if ids.count(i) > 1})
             raise ValueError(
-                f"family {self.family!r} has duplicate variant ids: {dups}"
+                f"package {self.package_id!r} has duplicate variant ids: {dups}"
             )
 
     def default_variant(self) -> TwoPinBodySpec:
-        """Return the family's first variant (declaration order)."""
+        """Return the package's first variant (declaration order)."""
         return self.variants[0]
 
     def get_variant(self, variant_id: str) -> TwoPinBodySpec | None:

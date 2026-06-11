@@ -36,7 +36,7 @@ from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect
 from protoboard.services.drc.engine import DRCEngine, DRCIssue
-from protoboard.domain.components.two_pin_body import TwoPinBodyFamily
+from protoboard.domain.components.two_pin_body import TwoPinBodyPackage
 from protoboard.services.library.two_pin_body_loader import (
     load_two_pin_body_families,
 )
@@ -183,7 +183,7 @@ class EditorSession(QObject):
         }
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         # Parametric two-pin body catalogue, keyed by family name.
-        self.two_pin_body_families: dict[str, TwoPinBodyFamily] = (
+        self.two_pin_body_families: dict[str, TwoPinBodyPackage] = (
             load_two_pin_body_families()
         )
         self.stack: CommandStack[ComponentState] = CommandStack()

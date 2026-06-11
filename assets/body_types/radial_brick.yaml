@@ -1,0 +1,56 @@
+packages:
+  - id: HC-49
+    label: "HC-49/U metal-can crystal"
+    material: metal
+    lead_arrangement: radial
+    shape: prism
+    edge: rounded
+    lead_diameter_mm: 0.5
+    variants:
+      - id: typ
+        label: "Typical (11 × 4.5 × 3.5 mm)"
+        length_mm: 11.0
+        width_mm: 4.5
+        height_mm: 3.5
+
+  - id: Ceramic-Brick-Small
+    label: "Ceramic brick (≈22 × 10 × 9 mm)"
+    material: ceramic
+    lead_arrangement: radial
+    shape: prism
+    edge: sharp
+    lead_diameter_mm: 0.8
+    variants:
+      - id: typ
+        label: "Typical"
+        length_mm: 22.0
+        width_mm: 9.5
+        height_mm: 9.0
+
+  - id: Ceramic-Brick-Medium
+    label: "Ceramic brick (≈25 × 10 × 10 mm)"
+    material: ceramic
+    lead_arrangement: radial
+    shape: prism
+    edge: sharp
+    lead_diameter_mm: 0.8
+    variants:
+      - id: typ
+        label: "Typical"
+        length_mm: 25.0
+        width_mm: 10.0
+        height_mm: 10.0
+
+  - id: Ceramic-Brick-Large
+    label: "Ceramic brick (≈48 × 13 × 13 mm)"
+    material: ceramic
+    lead_arrangement: radial
+    shape: prism
+    edge: sharp
+    lead_diameter_mm: 1.0
+    variants:
+      - id: typ
+        label: "Typical"
+        length_mm: 48.0
+        width_mm: 13.0
+        height_mm: 13.0

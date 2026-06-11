@@ -59,7 +59,7 @@ from protoboard.domain.components.footprints import (
 from protoboard.domain.components.two_pin_body import (
     BodyShape as _TPShape,
     LeadArrangement as _TPArrangement,
-    TwoPinBodyFamily,
+    TwoPinBodyPackage,
     TwoPinBodySpec,
 )
 from protoboard.domain.components.instance import ComponentInstance
@@ -1182,27 +1182,11 @@ class TwoPinParametricBody(BodyShape):
         body.setTransform(t)
         items.append(body)
 
-        # Polar cathode stripe at the p2 end.  ``_vertical_flipped`` was
-        # already absorbed into the p1/p2 swap upstream, so the stripe
-        # always sits at the local +len/2 side here.
-        if self._spec.polar:
-            stripe_w = min(body_len * 0.12, body_w * 0.4)
-            stripe_x = body_len / 2.0 - stripe_w
-            stripe_path = QPainterPath()
-            stripe_path.addRect(
-                QRectF(stripe_x, -body_w / 2.0, stripe_w, body_w),
-            )
-            stripe = QGraphicsPathItem(stripe_path)
-            dark = QColor(theme.body_led_stripe_color)
-            dark.setAlphaF(alpha)
-            stripe.setBrush(QBrush(dark))
-            stripe.setPen(_body_pen(border, alpha, width=0.0))
-            stripe.setZValue(z + 0.01)
-            t_stripe = QTransform()
-            t_stripe.translate(mid_x, mid_y)
-            t_stripe.rotate(angle_deg)
-            stripe.setTransform(t_stripe)
-            items.append(stripe)
+        # Polarity decoration (cathode stripe) is driven by
+        # ``component_class`` flavour; the spec no longer carries a
+        # ``polar`` flag.  Class-driven flavour wiring is the next
+        # refactor step — for now the body draws without polarity
+        # markers.  See _draw_radial for the equivalent comment.
         return items
 
     # ------------------------------------------------------------------
@@ -1288,25 +1272,14 @@ class TwoPinParametricBody(BodyShape):
         ))
         circle.setZValue(z)
 
-        if not self._spec.polar:
-            fill_c = QColor(fill)
-            fill_c.setAlphaF(fill_c.alphaF() * alpha)
-            circle.setBrush(QBrush(fill_c))
-            circle.setPen(_body_pen(border, alpha))
-            return circle
-
-        if upper_pin == 2:
-            dark = QColor(theme.body_diode_cathode_color)
-            dark.setAlphaF(alpha)
-            circle.setBrush(QBrush(dark))
-            circle.setPen(_body_pen(border, alpha))
-        else:
-            light = QColor(theme.body_diode_anode_color)
-            circle.setBrush(QBrush(light))
-            rim_color = QColor(border)
-            rim_color.setAlphaF(alpha)
-            rim_pen = QPen(rim_color, diam * 0.15)
-            circle.setPen(rim_pen)
+        # Polarity decoration (solid vs hollow disc discriminator) is
+        # driven by ``component_class`` flavour, not the spec.  Plain
+        # filled disc for now; class-driven flavour wiring is the next
+        # refactor step.
+        fill_c = QColor(fill)
+        fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        circle.setBrush(QBrush(fill_c))
+        circle.setPen(_body_pen(border, alpha))
         return circle
 
 
@@ -1324,43 +1297,36 @@ _TRANSISTOR_CLASSES = frozenset({
 })
 
 
-# Map ComponentClass → TwoPinBodyFamily name used as the default when
-# the user has not selected a specific ``body_variant`` on an instance.
-# Two-pin components whose class is not in this map fall through to
-# GenericBody; the user can still pick any family via body_variant.
-_CLASS_TO_FAMILY: dict[ComponentClass, str] = {
-    ComponentClass.RESISTOR:           "resistor_axial",
-    ComponentClass.INDUCTOR:           "inductor_axial",
-    ComponentClass.FUSE:               "resistor_axial",
-    ComponentClass.CAPACITOR_POLAR:    "capacitor_axial",
-    ComponentClass.CAPACITOR_NONPOLAR: "capacitor_axial",
-    ComponentClass.DIODE:              "diode_axial",
-    ComponentClass.DIODE_ZENER:        "diode_axial",
-    ComponentClass.DIODE_LED:          "diode_axial",
-}
-
-
 def _resolve_two_pin_spec(
     defn: ComponentDefinition,
     instance: ComponentInstance | None,
-    families: dict[str, TwoPinBodyFamily],
+    packages: dict[str, TwoPinBodyPackage],
 ) -> TwoPinBodySpec | None:
     """Resolve the :class:`TwoPinBodySpec` to render *defn* with.
 
+    Packages (``DO-35``, ``DIN-0207``, ``HC-49`` …) describe physical
+    bodies and know nothing about the electrical class of the part that
+    uses them.  A library entry pins the package + variant via
+    ``ComponentDefinition.default_body_variant``; an instance may
+    override per part via ``ComponentInstance.body_variant``.
+
     Resolution order:
 
-    1. Explicit ``instance.body_variant`` of form ``"{family}/{variant_id}"``.
-    2. Default family for the ``ComponentClass`` from ``_CLASS_TO_FAMILY``,
-       first variant.
+    1. Explicit ``instance.body_variant`` of form ``"package_id/variant_id"``.
+    2. Library default ``ComponentDefinition.default_body_variant``.
     3. ``None`` — caller falls back to :class:`GenericBody`.
+
+    There is no implicit class-to-package mapping: classes select
+    flavour (cathode stripe, polarity marker, …), packages select the
+    physical body.
     """
     # 1. Explicit per-instance variant.
     if instance is not None and instance.body_variant:
         parts = instance.body_variant.split("/", 1)
         if len(parts) == 2:
-            fam = families.get(parts[0])
-            if fam is not None:
-                v = fam.get_variant(parts[1])
+            pkg = packages.get(parts[0])
+            if pkg is not None:
+                v = pkg.get_variant(parts[1])
                 if v is not None:
                     return v
 
@@ -1368,18 +1334,11 @@ def _resolve_two_pin_spec(
     if defn.default_body_variant:
         parts = defn.default_body_variant.split("/", 1)
         if len(parts) == 2:
-            fam = families.get(parts[0])
-            if fam is not None:
-                v = fam.get_variant(parts[1])
+            pkg = packages.get(parts[0])
+            if pkg is not None:
+                v = pkg.get_variant(parts[1])
                 if v is not None:
                     return v
-
-    # 3. Class default (legacy fallback).
-    family_key = _CLASS_TO_FAMILY.get(defn.component_class)
-    if family_key is not None:
-        fam = families.get(family_key)
-        if fam is not None:
-            return fam.default_variant()
     return None
 
 
@@ -1387,7 +1346,7 @@ def body_shape_for(
     defn: ComponentDefinition,
     placement: ComponentPlacement | None = None,
     instance: ComponentInstance | None = None,
-    two_pin_families: dict[str, TwoPinBodyFamily] | None = None,
+    two_pin_families: dict[str, TwoPinBodyPackage] | None = None,
 ) -> BodyShape:
     """Return the appropriate :class:`BodyShape` for *defn*.
 

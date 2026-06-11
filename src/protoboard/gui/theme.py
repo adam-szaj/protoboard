@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from protoboard.domain.components.two_pin_body import TwoPinBodyFamily
+    from protoboard.domain.components.two_pin_body import TwoPinBodyPackage
 
 
 @dataclass
@@ -133,7 +133,7 @@ class Theme:
     sil_slot_size: float = 0.40             # per-pin slot square size
 
     # Parametric body-spec catalogue loaded at startup; keyed by family name.
-    two_pin_body_families: "dict[str, TwoPinBodyFamily]" = field(
+    two_pin_body_families: "dict[str, TwoPinBodyPackage]" = field(
         default_factory=dict,
     )
 

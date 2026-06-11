@@ -1,13 +1,17 @@
 # SPDX-License-Identifier: MIT
 """Library-side default body variant: per-component ``default_body_variant``.
 
-A library YAML may pin a sensible package size to a component (e.g.
-``body_variant: resistor_axial/1_2w`` on a half-watt resistor entry).
-The renderer's resolution order becomes:
+A library YAML pins the package + variant on the component
+definition (``body_variant: DO-35/typ``).  The renderer's resolution
+order is:
 
   1. ``ComponentInstance.body_variant`` (user override on this instance).
   2. ``ComponentDefinition.default_body_variant`` (library default).
-  3. Class-default family (``_CLASS_TO_FAMILY`` fallback).
+  3. ``None`` → renderer falls back to :class:`GenericBody`.
+
+There is no implicit ``component_class → family`` mapping: packages
+are physical bodies, classes are flavours.  A two-pin component
+without a body_variant draws as a plain rectangle.
 
 Tests cover the dataclass validation, YAML parsing and the renderer's
 new precedence.
@@ -29,15 +33,15 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.two_pin_body import (
     BodyShape as _TPShape,
     LeadArrangement,
-    TwoPinBodyFamily,
+    TwoPinBodyPackage,
     TwoPinBodySpec,
 )
 
 
-def _spec(family: str, variant_id: str, length_mm: float = 5.0,
+def _spec(package_id: str, variant_id: str, length_mm: float = 5.0,
           diameter_mm: float = 2.0) -> TwoPinBodySpec:
     return TwoPinBodySpec(
-        family=family, variant_id=variant_id, label=variant_id,
+        package_id=package_id, variant_id=variant_id, label=variant_id,
         lead_arrangement=LeadArrangement.AXIAL,
         shape=_TPShape.CYLINDER,
         length_mm=length_mm, diameter_mm=diameter_mm,
@@ -56,16 +60,16 @@ class TestDefaultBodyVariantField:
         defn = ComponentDefinition(
             name="R_1W", footprint=TwoPin(),
             pin_names={}, component_class=ComponentClass.RESISTOR,
-            default_body_variant="resistor_axial/1w",
+            default_body_variant="DIN-0617/typ",
         )
-        assert defn.default_body_variant == "resistor_axial/1w"
+        assert defn.default_body_variant == "DIN-0617/typ"
 
     def test_rejects_missing_slash(self) -> None:
         with pytest.raises(ValueError, match="family/variant_id"):
             ComponentDefinition(
                 name="R_bad", footprint=TwoPin(),
                 pin_names={}, component_class=ComponentClass.RESISTOR,
-                default_body_variant="resistor_axial_only",
+                default_body_variant="DIN-0617",
             )
 
     def test_rejects_empty_family(self) -> None:
@@ -73,7 +77,7 @@ class TestDefaultBodyVariantField:
             ComponentDefinition(
                 name="R_bad", footprint=TwoPin(),
                 pin_names={}, component_class=ComponentClass.RESISTOR,
-                default_body_variant="/1_4w",
+                default_body_variant="/typ",
             )
 
     def test_rejects_empty_variant(self) -> None:
@@ -81,7 +85,7 @@ class TestDefaultBodyVariantField:
             ComponentDefinition(
                 name="R_bad", footprint=TwoPin(),
                 pin_names={}, component_class=ComponentClass.RESISTOR,
-                default_body_variant="resistor_axial/",
+                default_body_variant="DIN-0617/",
             )
 
 
@@ -100,11 +104,11 @@ components:
     component_class: resistor
     footprint: {type: TwoPin}
     pin_names: {}
-    body_variant: "resistor_axial/1_2w"
+    body_variant: "DIN-0411/typ"
 """)
         lib = load_library([tmp_path])
         defn = lib.get("R_half_watt")
-        assert defn.default_body_variant == "resistor_axial/1_2w"
+        assert defn.default_body_variant == "DIN-0411/typ"
 
     def test_yaml_default_body_variant_synonym(self, tmp_path: Path) -> None:
         """The longer ``default_body_variant`` key is accepted as a synonym."""
@@ -116,11 +120,11 @@ components:
     component_class: resistor
     footprint: {type: TwoPin}
     pin_names: {}
-    default_body_variant: "resistor_axial/1w"
+    default_body_variant: "DIN-0617/typ"
 """)
         lib = load_library([tmp_path])
         defn = lib.get("R_one_watt")
-        assert defn.default_body_variant == "resistor_axial/1w"
+        assert defn.default_body_variant == "DIN-0617/typ"
 
     def test_yaml_omitted_field_defaults_to_none(self, tmp_path: Path) -> None:
         from protoboard.services.library.loader import load_library
@@ -152,23 +156,21 @@ components:
 
 class TestResolutionOrder:
     """``_resolve_two_pin_spec`` precedence: instance > definition default
-    > class default."""
+    > None (no class-based fallback)."""
 
-    def _families(self) -> dict[str, TwoPinBodyFamily]:
-        # Two families so we can pick between them.
+    def _pkgs(self) -> dict[str, TwoPinBodyPackage]:
         return {
-            "resistor_axial": TwoPinBodyFamily(
-                family="resistor_axial",
+            "DO-35": TwoPinBodyPackage(
+                package_id="DO-35", label="DO-35",
                 variants=(
-                    _spec("resistor_axial", "1_4w", length_mm=3.5, diameter_mm=2.0),
-                    _spec("resistor_axial", "1w", length_mm=10.5, diameter_mm=4.0),
+                    _spec("DO-35", "S", length_mm=3.0, diameter_mm=1.5),
+                    _spec("DO-35", "typ", length_mm=3.7, diameter_mm=1.8),
                 ),
             ),
-            "electrolytic_radial": TwoPinBodyFamily(
-                family="electrolytic_radial",
+            "DO-41": TwoPinBodyPackage(
+                package_id="DO-41", label="DO-41",
                 variants=(
-                    _spec("electrolytic_radial", "5mm", length_mm=11.0,
-                          diameter_mm=5.0),
+                    _spec("DO-41", "typ", length_mm=5.2, diameter_mm=2.7),
                 ),
             ),
         }
@@ -176,53 +178,47 @@ class TestResolutionOrder:
     def test_instance_wins_over_definition_default(self) -> None:
         from protoboard.gui.renderers.body_shapes import _resolve_two_pin_spec
         defn = ComponentDefinition(
-            name="R", footprint=TwoPin(),
-            pin_names={}, component_class=ComponentClass.RESISTOR,
-            default_body_variant="resistor_axial/1_4w",
+            name="D", footprint=TwoPin(),
+            pin_names={}, component_class=ComponentClass.DIODE,
+            default_body_variant="DO-35/S",
         )
         inst = ComponentInstance(
-            id=uuid.uuid4(), definition_ref="R", refdes="R1", value="",
-            body_variant="resistor_axial/1w",
+            id=uuid.uuid4(), definition_ref="D", refdes="D1", value="",
+            body_variant="DO-41/typ",
         )
-        spec = _resolve_two_pin_spec(defn, inst, self._families())
+        spec = _resolve_two_pin_spec(defn, inst, self._pkgs())
         assert spec is not None
-        assert spec.variant_id == "1w"
+        assert spec.package_id == "DO-41"
 
-    def test_definition_default_wins_over_class_fallback(self) -> None:
-        from protoboard.gui.renderers.body_shapes import _resolve_two_pin_spec
-        # Definition pins a non-default family entirely.
-        defn = ComponentDefinition(
-            name="R_radial", footprint=TwoPin(),
-            pin_names={}, component_class=ComponentClass.RESISTOR,
-            default_body_variant="electrolytic_radial/5mm",
-        )
-        spec = _resolve_two_pin_spec(defn, None, self._families())
-        assert spec is not None
-        assert spec.family == "electrolytic_radial"
-        assert spec.variant_id == "5mm"
-
-    def test_class_fallback_when_no_definition_default(self) -> None:
+    def test_definition_default_used_when_instance_absent(self) -> None:
         from protoboard.gui.renderers.body_shapes import _resolve_two_pin_spec
         defn = ComponentDefinition(
-            name="R", footprint=TwoPin(),
-            pin_names={}, component_class=ComponentClass.RESISTOR,
+            name="D", footprint=TwoPin(),
+            pin_names={}, component_class=ComponentClass.DIODE,
+            default_body_variant="DO-35/typ",
         )
-        spec = _resolve_two_pin_spec(defn, None, self._families())
+        spec = _resolve_two_pin_spec(defn, None, self._pkgs())
         assert spec is not None
-        assert spec.family == "resistor_axial"
-        # First variant in the family.
-        assert spec.variant_id == "1_4w"
+        assert spec.package_id == "DO-35"
+        assert spec.variant_id == "typ"
 
-    def test_invalid_definition_default_falls_through(self) -> None:
-        """When the definition pins a variant that doesn't exist in the
-        catalogue, fall through to the class default rather than failing."""
+    def test_no_default_no_instance_yields_none(self) -> None:
+        """No class-based fallback — without a body_variant the
+        renderer dispatches to GenericBody, not to a guessed family."""
         from protoboard.gui.renderers.body_shapes import _resolve_two_pin_spec
         defn = ComponentDefinition(
-            name="R", footprint=TwoPin(),
-            pin_names={}, component_class=ComponentClass.RESISTOR,
-            default_body_variant="resistor_axial/nonexistent",
+            name="D", footprint=TwoPin(),
+            pin_names={}, component_class=ComponentClass.DIODE,
         )
-        spec = _resolve_two_pin_spec(defn, None, self._families())
-        # Falls through to class default (first variant).
-        assert spec is not None
-        assert spec.variant_id == "1_4w"
+        assert _resolve_two_pin_spec(defn, None, self._pkgs()) is None
+
+    def test_invalid_definition_default_yields_none(self) -> None:
+        """Misnamed variant in the library default is silently None;
+        renderer falls back to GenericBody rather than guessing."""
+        from protoboard.gui.renderers.body_shapes import _resolve_two_pin_spec
+        defn = ComponentDefinition(
+            name="D", footprint=TwoPin(),
+            pin_names={}, component_class=ComponentClass.DIODE,
+            default_body_variant="DO-35/nonexistent",
+        )
+        assert _resolve_two_pin_spec(defn, None, self._pkgs()) is None

@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
-    from protoboard.domain.components.two_pin_body import TwoPinBodyFamily
+    from protoboard.domain.components.two_pin_body import TwoPinBodyPackage
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.schematic.schematic import Schematic
     from protoboard.gui.session import EditorSession
@@ -56,7 +56,7 @@ class BoardSnapshot:
     instances: dict[uuid.UUID, "ComponentInstance"]
     schematic: "Schematic"
     pad_index: "PadIndex"
-    two_pin_body_families: dict[str, "TwoPinBodyFamily"]
+    two_pin_body_families: dict[str, "TwoPinBodyPackage"]
     theme: Theme = field(default_factory=lambda: DEFAULT_THEME)
     camera_side: CameraSide = "top"
     view_transform: ViewTransform = "normal"

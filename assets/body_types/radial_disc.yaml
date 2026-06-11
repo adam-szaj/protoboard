@@ -1,0 +1,57 @@
+packages:
+  # Ceramic disc capacitors — flat round wafer with two radial leads.
+  - id: Ceramic-Disc-D5
+    label: "Ceramic disc, D=5 mm"
+    material: ceramic
+    lead_arrangement: radial
+    shape: disc
+    disc_profile: flat
+    edge: rounded
+    lead_diameter_mm: 0.5
+    variants:
+      - id: typ
+        label: "Typical (5 mm × 2.0 mm thick)"
+        diameter_mm: 5.0
+        thickness_mm: 2.0
+
+  - id: Ceramic-Disc-D7
+    label: "Ceramic disc, D=7 mm"
+    material: ceramic
+    lead_arrangement: radial
+    shape: disc
+    disc_profile: flat
+    edge: rounded
+    lead_diameter_mm: 0.5
+    variants:
+      - id: typ
+        label: "Typical (7 mm × 2.5 mm thick)"
+        diameter_mm: 7.0
+        thickness_mm: 2.5
+
+  - id: Ceramic-Disc-D10
+    label: "Ceramic disc, D=10 mm"
+    material: ceramic
+    lead_arrangement: radial
+    shape: disc
+    disc_profile: flat
+    edge: rounded
+    lead_diameter_mm: 0.6
+    variants:
+      - id: typ
+        label: "Typical (10 mm × 3.0 mm thick)"
+        diameter_mm: 10.0
+        thickness_mm: 3.0
+
+  - id: Tantalum-Drop-D3.5
+    label: "Tantalum drop, D=3.5 mm"
+    material: plastic
+    lead_arrangement: radial
+    shape: disc
+    disc_profile: candy
+    edge: rounded
+    lead_diameter_mm: 0.4
+    variants:
+      - id: typ
+        label: "Typical (3.5 mm × 2.5 mm)"
+        diameter_mm: 3.5
+        thickness_mm: 2.5
