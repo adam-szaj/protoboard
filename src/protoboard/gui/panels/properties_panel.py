@@ -47,6 +47,8 @@ class PropertiesPanel(QWidget):
     pin_offsets_changed = Signal(uuid.UUID, object)
     # id, pin_variant (str or None)
     pin_variant_changed = Signal(uuid.UUID, object)
+    # id, body_variant (str "package_id/variant_id" or None for default)
+    body_variant_changed = Signal(uuid.UUID, object)
     # DRCIssue or None (None = the user clicked away or no issue selected).
     # MainWindow translates this into HighlightStack pushes + viewport centring.
     drc_issue_clicked = Signal(object)
@@ -95,6 +97,12 @@ class PropertiesPanel(QWidget):
         self._pin_variant_label = QLabel("Pinout:")
         self._pin_variant_row_visible = False
 
+        self._body_variant_combo = QComboBox()
+        self._body_variant_combo.setToolTip(
+            "Physical body package (e.g. DO-35, DIN-0207).  Picking a "
+            "variant overrides the library default for this instance only.",
+        )
+
         form.addRow("RefDes:", self._refdes_edit)
         form.addRow("Value:", self._value_edit)
         form.addRow("Rotation:", self._rotation_combo)
@@ -103,16 +111,25 @@ class PropertiesPanel(QWidget):
         form.addRow("Footprint:", self._footprint_label)
         self._pin_variant_form_row_label = QLabel("Pinout:")
         form.addRow(self._pin_variant_form_row_label, self._pin_variant_combo)
+        self._body_variant_form_row_label = QLabel("Body:")
+        form.addRow(self._body_variant_form_row_label, self._body_variant_combo)
         form.addRow(self._apply_btn)
         layout.addWidget(grp)
 
         self._pin_variant_form_row_label.setVisible(False)
         self._pin_variant_combo.setVisible(False)
+        self._body_variant_form_row_label.setVisible(False)
+        self._body_variant_combo.setVisible(False)
 
         self._apply_btn.clicked.connect(self._on_apply)
         self._pin_variant_combo.currentIndexChanged.connect(self._on_pin_variant_changed)
+        self._body_variant_combo.currentIndexChanged.connect(
+            self._on_body_variant_changed,
+        )
         self._current_id: uuid.UUID | None = None
         self._pin_variant_ids: list[str | None] = []
+        # Parallel to _pin_variant_ids: address strings or None for default.
+        self._body_variant_addresses: list[str | None] = []
 
         # Pin offsets group — dynamically populated, hidden when empty.
         self._pin_offsets_grp = QGroupBox("Pin Offsets (bent leads)")
@@ -162,6 +179,7 @@ class PropertiesPanel(QWidget):
         inst: ComponentInstance,
         placement: ComponentPlacement | None = None,
         defn: ComponentDefinition | None = None,
+        two_pin_packages: "dict | None" = None,
     ) -> None:
         self._current_id = inst.id
         self._refdes_edit.setText(inst.refdes)
@@ -178,6 +196,9 @@ class PropertiesPanel(QWidget):
         )
         self._update_geometry_table(placement, defn)
         self._rebuild_pin_variant_combo(defn, inst.pin_variant)
+        self._rebuild_body_variant_combo(
+            defn, inst.body_variant, two_pin_packages or {},
+        )
 
     def clear_component(self) -> None:
         self._current_id = None
@@ -186,6 +207,7 @@ class PropertiesPanel(QWidget):
         self._footprint_label.clear()
         self._rebuild_pin_offsets(None, {})
         self._rebuild_pin_variant_combo(None, None)
+        self._rebuild_body_variant_combo(None, None, {})
         self._geo_table.setRowCount(0)
         self._geo_grp.setVisible(False)
 
@@ -365,6 +387,92 @@ class PropertiesPanel(QWidget):
         if self._current_id is None or index < 0 or index >= len(self._pin_variant_ids):
             return
         self.pin_variant_changed.emit(self._current_id, self._pin_variant_ids[index])
+
+    def _rebuild_body_variant_combo(
+        self,
+        defn: ComponentDefinition | None,
+        current_variant: str | None,
+        packages: "dict",
+    ) -> None:
+        """Repopulate the body-variant dropdown for the current instance.
+
+        Only shown for two-pin components (``TwoPin`` footprint) when a
+        package catalogue is available.  The list is built as:
+
+        * ``Default`` — fall back to ``defn.default_body_variant`` (or
+          GenericBody when neither default nor instance variant resolves).
+        * The variants of the **definition's default package** first,
+          most-relevant on top.
+        * A separator + every other package's variants (alphabetic),
+          so the user can swap a resistor's body to a brick or move a
+          ceramic-disc cap to a tantalum drop without leaving the panel.
+        """
+        from protoboard.domain.components.footprints import TwoPin
+
+        self._body_variant_combo.blockSignals(True)
+        self._body_variant_combo.clear()
+        self._body_variant_addresses = []
+
+        show = (
+            defn is not None
+            and isinstance(defn.footprint, TwoPin)
+            and bool(packages)
+        )
+        self._body_variant_form_row_label.setVisible(show)
+        self._body_variant_combo.setVisible(show)
+        if not show or defn is None:
+            self._body_variant_combo.blockSignals(False)
+            return
+
+        # Default entry first.
+        self._body_variant_combo.addItem("Default (library)")
+        self._body_variant_addresses.append(None)
+
+        # Definition's default package (if resolvable) sits at the top.
+        primary_pkg_id: str | None = None
+        if defn.default_body_variant:
+            parts = defn.default_body_variant.split("/", 1)
+            if len(parts) == 2:
+                primary_pkg_id = parts[0]
+
+        # Build sorted list of (package_id, package_obj) with primary first.
+        sorted_pkg_ids = sorted(packages.keys())
+        ordered = []
+        if primary_pkg_id and primary_pkg_id in packages:
+            ordered.append(primary_pkg_id)
+        ordered.extend(p for p in sorted_pkg_ids if p != primary_pkg_id)
+
+        for pkg_id in ordered:
+            pkg = packages[pkg_id]
+            for variant in pkg.variants:
+                addr = f"{pkg_id}/{variant.variant_id}"
+                # Display: "DIN-0207 / typ — 1/4 W (resistor)" etc.
+                label = f"{pkg_id} / {variant.variant_id}"
+                if variant.label and variant.label != variant.variant_id:
+                    label = f"{label} — {variant.label}"
+                self._body_variant_combo.addItem(label)
+                self._body_variant_addresses.append(addr)
+
+        # Select the current value.
+        if current_variant is None:
+            self._body_variant_combo.setCurrentIndex(0)
+        else:
+            for i, addr in enumerate(self._body_variant_addresses):
+                if addr == current_variant:
+                    self._body_variant_combo.setCurrentIndex(i)
+                    break
+        self._body_variant_combo.blockSignals(False)
+
+    def _on_body_variant_changed(self, index: int) -> None:
+        if (
+            self._current_id is None
+            or index < 0
+            or index >= len(self._body_variant_addresses)
+        ):
+            return
+        self.body_variant_changed.emit(
+            self._current_id, self._body_variant_addresses[index],
+        )
 
     def _on_reset_label(self) -> None:
         self._label_x_spin.setValue(0.05)

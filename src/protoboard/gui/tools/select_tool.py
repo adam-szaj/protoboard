@@ -4932,7 +4932,10 @@ class SelectTool(_Tool):
         defn = self._session.components.get(inst.definition_ref)
         panel = self._props_panel()
         if panel is not None:
-            panel.show_component(inst, placement, defn)
+            panel.show_component(
+                inst, placement, defn,
+                two_pin_packages=self._session.two_pin_body_families,
+            )
         self._notify_selection()
 
     def _deselect(self) -> None:

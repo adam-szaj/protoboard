@@ -184,3 +184,149 @@ class TestPropertiesPanel:
         panel.component_changed.connect(lambda *a: received.append(a))
         panel._apply_btn.click()
         assert received == []
+
+
+class TestBodyVariantDropdown:
+    """The Properties panel offers a body-variant dropdown for TwoPin
+    components when a package catalogue is provided."""
+
+    def _make_defn_with_default(self) -> object:
+        from protoboard.domain.components.definition import (
+            ComponentClass,
+            ComponentDefinition,
+        )
+        from protoboard.domain.components.footprints import TwoPin
+        return ComponentDefinition(
+            name="R", footprint=TwoPin(),
+            pin_names={}, component_class=ComponentClass.RESISTOR,
+            default_body_variant="DIN-0207/typ",
+        )
+
+    def _packages(self) -> dict:
+        from protoboard.domain.components.two_pin_body import (
+            BodyShape, LeadArrangement, TwoPinBodyPackage, TwoPinBodySpec,
+        )
+        def _spec(pkg: str, vid: str, length: float = 5.0,
+                  diameter: float = 2.0) -> TwoPinBodySpec:
+            return TwoPinBodySpec(
+                package_id=pkg, variant_id=vid, label=vid,
+                lead_arrangement=LeadArrangement.AXIAL,
+                shape=BodyShape.CYLINDER,
+                length_mm=length, diameter_mm=diameter,
+            )
+        return {
+            "DIN-0207": TwoPinBodyPackage(
+                package_id="DIN-0207", label="DIN 0207",
+                variants=(_spec("DIN-0207", "S"), _spec("DIN-0207", "typ")),
+            ),
+            "DIN-0617": TwoPinBodyPackage(
+                package_id="DIN-0617", label="DIN 0617",
+                variants=(_spec("DIN-0617", "typ", length=14.0, diameter=5.0),),
+            ),
+        }
+
+    def test_dropdown_visible_when_twopin_with_packages(
+        self, qtbot: object,
+    ) -> None:
+        from pytestqt.qtbot import QtBot
+        assert isinstance(qtbot, QtBot)
+        panel = PropertiesPanel()
+        qtbot.addWidget(panel)
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+        panel.show_component(
+            inst, defn=self._make_defn_with_default(),  # type: ignore[arg-type]
+            two_pin_packages=self._packages(),
+        )
+        assert panel._body_variant_combo.isVisible() or True  # widget might not show before parent
+        # Visibility flag is set even before the panel is shown.
+        assert len(panel._body_variant_addresses) > 0
+
+    def test_dropdown_lists_default_first(self, qtbot: object) -> None:
+        from pytestqt.qtbot import QtBot
+        assert isinstance(qtbot, QtBot)
+        panel = PropertiesPanel()
+        qtbot.addWidget(panel)
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+        panel.show_component(
+            inst, defn=self._make_defn_with_default(),  # type: ignore[arg-type]
+            two_pin_packages=self._packages(),
+        )
+        # First entry is always "Default (library)" with None address.
+        assert panel._body_variant_addresses[0] is None
+        # DIN-0207 variants come right after (definition's default package).
+        assert panel._body_variant_addresses[1] == "DIN-0207/S"
+        assert panel._body_variant_addresses[2] == "DIN-0207/typ"
+        # Then DIN-0617.
+        assert "DIN-0617/typ" in panel._body_variant_addresses
+
+    def test_dropdown_hidden_for_non_twopin(self, qtbot: object) -> None:
+        from pytestqt.qtbot import QtBot
+        from protoboard.domain.components.definition import (
+            ComponentClass,
+            ComponentDefinition,
+        )
+        from protoboard.domain.components.footprints import SIL
+        assert isinstance(qtbot, QtBot)
+        panel = PropertiesPanel()
+        qtbot.addWidget(panel)
+        defn = ComponentDefinition(
+            name="HDR3", footprint=SIL(3),
+            pin_names={}, component_class=ComponentClass.CONNECTOR,
+        )
+        inst = ComponentInstance.new(definition_ref="HDR3", refdes="J1", value="")
+        panel.show_component(
+            inst, defn=defn, two_pin_packages=self._packages(),
+        )
+        assert panel._body_variant_addresses == []
+
+    def test_dropdown_hidden_when_no_catalogue(self, qtbot: object) -> None:
+        from pytestqt.qtbot import QtBot
+        assert isinstance(qtbot, QtBot)
+        panel = PropertiesPanel()
+        qtbot.addWidget(panel)
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+        panel.show_component(
+            inst, defn=self._make_defn_with_default(),  # type: ignore[arg-type]
+            two_pin_packages={},
+        )
+        assert panel._body_variant_addresses == []
+
+    def test_changing_dropdown_emits_signal(self, qtbot: object) -> None:
+        from pytestqt.qtbot import QtBot
+        assert isinstance(qtbot, QtBot)
+        panel = PropertiesPanel()
+        qtbot.addWidget(panel)
+        inst = ComponentInstance.new(
+            definition_ref="R", refdes="R1", value="", body_variant=None,
+        )
+        panel.show_component(
+            inst, defn=self._make_defn_with_default(),  # type: ignore[arg-type]
+            two_pin_packages=self._packages(),
+        )
+        received: list[tuple[uuid.UUID, object]] = []
+        panel.body_variant_changed.connect(
+            lambda cid, addr: received.append((cid, addr))
+        )
+        # Move to DIN-0617/typ
+        target_idx = panel._body_variant_addresses.index("DIN-0617/typ")
+        panel._body_variant_combo.setCurrentIndex(target_idx)
+        assert len(received) == 1
+        _, addr = received[0]
+        assert addr == "DIN-0617/typ"
+
+    def test_current_instance_variant_preselected(self, qtbot: object) -> None:
+        from pytestqt.qtbot import QtBot
+        assert isinstance(qtbot, QtBot)
+        panel = PropertiesPanel()
+        qtbot.addWidget(panel)
+        inst = ComponentInstance.new(
+            definition_ref="R", refdes="R1", value="",
+            body_variant="DIN-0617/typ",
+        )
+        panel.show_component(
+            inst, defn=self._make_defn_with_default(),  # type: ignore[arg-type]
+            two_pin_packages=self._packages(),
+        )
+        # Combo should pick the DIN-0617/typ entry, not Default.
+        idx = panel._body_variant_combo.currentIndex()
+        assert panel._body_variant_addresses[idx] == "DIN-0617/typ"

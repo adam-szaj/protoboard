@@ -326,6 +326,9 @@ class MainWindow(QMainWindow):
         self._props_panel.component_changed.connect(self._on_component_changed)
         self._props_panel.pin_offsets_changed.connect(self._on_pin_offsets_changed)
         self._props_panel.pin_variant_changed.connect(self._on_pin_variant_changed)
+        self._props_panel.body_variant_changed.connect(
+            self._on_body_variant_changed,
+        )
         self._props_panel.drc_issue_clicked.connect(self._on_drc_issue_clicked)
 
         self._groups_panel.group_disbanded.connect(lambda _: self._board_view.refresh())
@@ -2578,6 +2581,22 @@ class MainWindow(QMainWindow):
         )
         variant_str = str(pin_variant) if pin_variant is not None else None
         cmd = SetPinVariantCommand(component_id=comp_id, new_variant=variant_str)
+        self._session.stack.execute(cmd, cast(ComponentState, self._session))
+        self._session.mark_dirty()
+        self._board_view.refresh()
+
+    def _on_body_variant_changed(
+        self, comp_id: uuid.UUID, body_variant: object,
+    ) -> None:
+        from typing import cast
+        from protoboard.domain.commands.component_cmds import (
+            ComponentState,
+            SetComponentBodyVariantCommand,
+        )
+        variant_str = str(body_variant) if body_variant is not None else None
+        cmd = SetComponentBodyVariantCommand(
+            component_id=comp_id, new_variant=variant_str,
+        )
         self._session.stack.execute(cmd, cast(ComponentState, self._session))
         self._session.mark_dirty()
         self._board_view.refresh()
