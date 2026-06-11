@@ -141,6 +141,13 @@ def _find_id(root: ET.Element, elem_id: str) -> ET.Element | None:
 
 # ---------------------------------------------------------------------------
 # SvgBodyShape — SVG-template based renderer
+#
+# TODO: Replace the four ``Svg*`` renderers (SvgBodyShape, SvgDIPBody,
+# SvgSILBody, SvgQuadDIPBody) with a parametric ``MultiPinParametricBody``
+# mirroring the TwoPinParametricBody refactor.  Tracked in docs/todo.md
+# ("Parametric renderer for DIP / QIL / SIL packages").  ``SvgBodyShape``
+# is already dead code (no body_shape_for branch returns it) and could
+# be removed today as the quick-win mentioned in that TODO entry.
 # ---------------------------------------------------------------------------
 
 class SvgBodyShape(BodyShape):

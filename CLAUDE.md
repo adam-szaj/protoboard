@@ -69,6 +69,7 @@ display server.
 | Incremental connectivity (union-find) | [docs/connectivity.md](docs/connectivity.md) |
 | Command recording for headless replay | [docs/command-recorder.md](docs/command-recorder.md) |
 | Implementation phases (historical) | [docs/phases.md](docs/phases.md) |
+| Open follow-ups not yet scheduled | [docs/todo.md](docs/todo.md) |
 
 Archived design plans whose work has shipped live in [docs/archive/](docs/archive/).
 
