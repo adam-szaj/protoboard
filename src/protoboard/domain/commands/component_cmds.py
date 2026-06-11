@@ -1489,23 +1489,55 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
         from protoboard.domain.layout.wire_utils import plated_through_pads
         pt_pads = frozenset(plated_through_pads(state.board))
         records: list[_CollapseRecord] = []
+        # Stats — surfaced via wire.fuse.summary at the end so we can
+        # see why nothing fused without firing a log line per joint.
+        stat = {
+            "n_joint_knots_total": 0,
+            "skip_not_jointknot": 0,
+            "skip_wire_count_neq_2": 0,
+            "skip_wire_missing": 0,
+            "skip_insulated_mismatch": 0,
+            "skip_scope_filter": 0,
+            "try_collapse_called": 0,
+            "try_collapse_failed": 0,
+            "try_collapse_ok": 0,
+            "passes": 0,
+        }
         # Iterate until no more collapses fire; one pass is not enough
         # for a chain of three or more touching wires.
         progress = True
         while progress:
+            stat["passes"] += 1
             progress = False
             for knot_id in list(state.layout.knots.keys()):
                 knot = state.layout.knots.get(knot_id)
                 if not isinstance(knot, JointKnot):
+                    stat["skip_not_jointknot"] += 1
                     continue
+                stat["n_joint_knots_total"] += 1
                 if len(knot.wire_ids) != 2:
+                    stat["skip_wire_count_neq_2"] += 1
+                    _log.debug(
+                        "wire.fuse.skip_degree",
+                        knot_id=str(knot_id)[:8],
+                        pos=(knot.position.x, knot.position.y),
+                        degree=len(knot.wire_ids),
+                    )
                     continue
                 w_ids = tuple(knot.wire_ids)
                 w1 = state.layout.wires.get(w_ids[0])
                 w2 = state.layout.wires.get(w_ids[1])
                 if w1 is None or w2 is None:
+                    stat["skip_wire_missing"] += 1
                     continue
                 if w1.insulated != w2.insulated:
+                    stat["skip_insulated_mismatch"] += 1
+                    _log.debug(
+                        "wire.fuse.skip_insulation",
+                        knot_id=str(knot_id)[:8],
+                        w1=str(w1.id)[:8], w1_ins=w1.insulated,
+                        w2=str(w2.id)[:8], w2_ins=w2.insulated,
+                    )
                     continue
                 # Scope filter: when the caller restricted us to a
                 # wire-id set, only collapse joints whose BOTH incident
@@ -1514,6 +1546,13 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
                 if self.wire_ids is not None and not (
                     w1.id in self.wire_ids and w2.id in self.wire_ids
                 ):
+                    stat["skip_scope_filter"] += 1
+                    _log.debug(
+                        "wire.fuse.skip_scope",
+                        knot_id=str(knot_id)[:8],
+                        w1_in=(w1.id in self.wire_ids),
+                        w2_in=(w2.id in self.wire_ids),
+                    )
                     continue
                 snapshot = _CollapseRecord(
                     joint_id=knot_id,
@@ -1521,14 +1560,37 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
                     w1_snapshot=_snapshot_wire(w1, state.layout),
                     w2_snapshot=_snapshot_wire(w2, state.layout),
                 )
+                stat["try_collapse_called"] += 1
                 merged = state.layout.try_collapse_joint(
                     knot_id, plated_through_pads=pt_pads,
                 )
                 if merged is None:
+                    stat["try_collapse_failed"] += 1
+                    _log.info(
+                        "wire.fuse.try_collapse_failed",
+                        knot_id=str(knot_id)[:8],
+                        pos=(knot.position.x, knot.position.y),
+                        w1=str(w1.id)[:8], w2=str(w2.id)[:8],
+                        w1_side=w1.fragments[0].side if w1.fragments else None,
+                        w2_side=w2.fragments[0].side if w2.fragments else None,
+                        joint_is_plated_through=(knot.position in pt_pads),
+                    )
                     continue
+                stat["try_collapse_ok"] += 1
+                _log.info(
+                    "wire.fuse.merged",
+                    knot_id=str(knot_id)[:8],
+                    merged_id=str(merged.id)[:8],
+                    n_fragments=len(merged.fragments),
+                )
                 snapshot.merged_wire_id = merged.id
                 records.append(snapshot)
                 progress = True
+        _log.info(
+            "wire.fuse.summary",
+            scope_size=(None if self.wire_ids is None else len(self.wire_ids)),
+            **stat,
+        )
         # Record only on first apply — redo reuses the recorded
         # snapshots' joint ids (recompute would give a different
         # result if the layout state already differs from the

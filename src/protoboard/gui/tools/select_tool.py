@@ -7672,6 +7672,14 @@ class SelectTool(_Tool):
         if session is None:
             return
 
+        _log.info(
+            "wire.merge.scope",
+            wire_ids=(None if wire_ids is None else sorted(str(w)[:8] for w in wire_ids)),
+            n_scope=(None if wire_ids is None else len(wire_ids)),
+            n_layout_wires=len(session.layout.wires),
+            n_layout_knots=len(session.layout.knots),
+        )
+
         # Phase 1 — fuse touching wires.  We execute the command in a
         # standalone fashion (not bundled into the final macro) so the
         # phase-2 pass can read the post-fuse layout state and snapshot
@@ -7737,7 +7745,18 @@ class SelectTool(_Tool):
         fuse_cmd.revert(session)
 
         if n_fused == 0 and not frag_cmds:
+            from protoboard.domain.layout.knot import JointKnot as _JointKnot
             scope_label = "selection" if wire_ids is not None else "layout"
+            _log.info(
+                "wire.merge.noop",
+                scope=scope_label,
+                n_post_fuse_scope=len(post_fuse_wire_ids),
+                n_layout_wires=len(session.layout.wires),
+                n_joint_knots=sum(
+                    1 for k in session.layout.knots.values()
+                    if isinstance(k, _JointKnot)
+                ),
+            )
             self._status_msg(f"Merge wires: nothing to merge in {scope_label}.")
             return
 

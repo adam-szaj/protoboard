@@ -481,18 +481,40 @@ class Layout:
         """
         joint = self.knots.get(knot_id)
         if not isinstance(joint, JointKnot):
+            _log.debug("collapse_joint.skip",
+                       reason="not_jointknot", knot_id=str(knot_id)[:8])
             return None
         if len(joint.wire_ids) != 2:
+            _log.debug("collapse_joint.skip",
+                       reason="degree_neq_2",
+                       knot_id=str(knot_id)[:8],
+                       degree=len(joint.wire_ids))
             return None
         w1_id, w2_id = tuple(joint.wire_ids)
         w1 = self.wires[w1_id]
         w2 = self.wires[w2_id]
         if w1.insulated != w2.insulated:
+            _log.debug("collapse_joint.skip",
+                       reason="insulation_mismatch",
+                       knot_id=str(knot_id)[:8],
+                       w1_ins=w1.insulated, w2_ins=w2.insulated)
             return None
         # Orient w1 so its `b` is the joint; orient w2 so its `a` is the joint.
         w1o = _orient_wire_toward(w1, knot_id, end_at_b=True)
         w2o = _orient_wire_toward(w2, knot_id, end_at_b=False)
         if w1o is None or w2o is None:
+            _log.info(
+                "collapse_joint.skip",
+                reason="orientation_failed",
+                knot_id=str(knot_id)[:8],
+                w1_ok=(w1o is not None), w2_ok=(w2o is not None),
+                w1=str(w1.id)[:8], w2=str(w2.id)[:8],
+                joint_pos=(joint.position.x, joint.position.y),
+                w1_a=(None if w1.a is None else str(w1.a.id)[:8]),
+                w1_b=(None if w1.b is None else str(w1.b.id)[:8]),
+                w2_a=(None if w2.a is None else str(w2.a.id)[:8]),
+                w2_b=(None if w2.b is None else str(w2.b.id)[:8]),
+            )
             return None
         last = w1o.fragments[-1]
         first = w2o.fragments[0]
@@ -502,6 +524,14 @@ class Layout:
             and joint.position in plated_through_pads
         )
         if not sides_match and not is_plated:
+            _log.info(
+                "collapse_joint.skip",
+                reason="cross_side_not_plated",
+                knot_id=str(knot_id)[:8],
+                w1_last_side=last.side, w2_first_side=first.side,
+                joint_pos=(joint.position.x, joint.position.y),
+                plated_through_pads_given=(plated_through_pads is not None),
+            )
             return None
         merged_fragments: list[Fragment] = list(w1o.fragments[:-1])
         if sides_match:
