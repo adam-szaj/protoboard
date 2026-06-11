@@ -1937,6 +1937,41 @@ class SetPinVariantCommand(Command[ComponentState]):
 
 
 @dataclass
+class SetComponentBodyVariantCommand(Command[ComponentState]):
+    """Change the body-package variant of a component instance.
+
+    ``new_variant`` is either a ``"package_id/variant_id"`` string or
+    ``None`` to clear the per-instance override (falling back to the
+    definition's default).  Validation is intentionally minimal — an
+    unknown package or variant simply means the renderer falls back to
+    :class:`GenericBody` for that instance, which is recoverable.
+    """
+
+    component_id: uuid.UUID
+    new_variant: str | None
+    _old_variant: str | None = field(default=None, init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return f"Set body variant to {self.new_variant or 'default'}"
+
+    def apply(self, state: ComponentState) -> None:
+        inst = state.instances[self.component_id]
+        self._old_variant = inst.body_variant
+        import dataclasses as _dc
+        state.instances[self.component_id] = _dc.replace(
+            inst, body_variant=self.new_variant,
+        )
+
+    def revert(self, state: ComponentState) -> None:
+        inst = state.instances[self.component_id]
+        import dataclasses as _dc
+        state.instances[self.component_id] = _dc.replace(
+            inst, body_variant=self._old_variant,
+        )
+
+
+@dataclass
 class FlipWireFragmentCommand(Command[ComponentState]):
     """Flip a contiguous fragment of a wire to the opposite layer.
 
