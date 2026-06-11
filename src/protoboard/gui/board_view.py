@@ -1046,7 +1046,8 @@ class BoardView(QGraphicsView):
         )
         _theme = _dc_replace(_base,
                              raster_pitch_mm=self._session.board.raster_pitch_mm,
-                             body_types=self._session.body_types)
+                             body_types=self._session.body_types,
+                             two_pin_body_families=self._session.two_pin_body_families)
 
         # ── Board layer ──────────────────────────────────────────────────────
         # Board pads/strips/frames no longer live in the scene — they are

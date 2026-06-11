@@ -55,6 +55,13 @@ from protoboard.domain.components.footprints import (
     QuadRow,
     SingleRow,
     TO220Footprint,
+    TwoPin,
+)
+from protoboard.domain.components.two_pin_body import (
+    BodyShape as _TPShape,
+    LeadArrangement as _TPArrangement,
+    TwoPinBodyFamily,
+    TwoPinBodySpec,
 )
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement
@@ -1388,6 +1395,307 @@ class CylinderBody(BodyShape):
 
 
 # ---------------------------------------------------------------------------
+# TwoPinParametricBody — renders any TwoPinBodySpec
+# ---------------------------------------------------------------------------
+
+
+class TwoPinParametricBody(BodyShape):
+    """Render a two-pin component from its :class:`TwoPinBodySpec`.
+
+    Dispatches on ``spec.lead_arrangement`` × ``spec.shape``:
+
+    * AXIAL × CYLINDER → side view: lead, capsule, lead.
+    * AXIAL × PRISM    → side view: lead, rounded box, lead.
+    * AXIAL × DISC     → side view: lead, thin puck rectangle, lead.
+    * RADIAL × CYLINDER → top view: solid circle on the anchor pad with
+                          a single lead reaching the other pad.
+    * RADIAL × PRISM    → top view: solid rectangle.
+    * RADIAL × DISC     → top view: solid circle (CANDY variant gets a
+                          darker rim ring to suggest the dome).
+
+    Polar components get a cathode stripe in AXIAL mode and a hollow
+    ring vs solid fill discriminator in RADIAL mode (matches the legacy
+    CylinderBody convention so existing screenshots stay recognisable).
+
+    ``vertical_flipped`` swaps which pad is the anchor — used by
+    ComponentPlacement to mount a polar AXIAL part the other way round
+    in horizontal layouts (mirrors the cathode stripe).
+    """
+
+    def __init__(
+        self, spec: TwoPinBodySpec, vertical_flipped: bool = False,
+    ) -> None:
+        self._spec = spec
+        self._vertical_flipped = vertical_flipped
+
+    # ------------------------------------------------------------------
+    # BodyShape interface
+    # ------------------------------------------------------------------
+
+    def drawn_pin_numbers(
+        self,
+        positions: list[Point],
+        theme: Theme = DEFAULT_THEME,
+    ) -> frozenset[int]:
+        # Only the radial-mount top-view occludes the anchor pad with a
+        # solid body silhouette; component_renderer skips its own marker
+        # there so the body is the dot.  Axial / side-view modes leave
+        # the pads clear.
+        if self._spec.lead_arrangement is _TPArrangement.RADIAL:
+            anchor_pin = 2 if self._vertical_flipped else 1
+            return frozenset({anchor_pin})
+        return frozenset()
+
+    def draw(
+        self,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme = DEFAULT_THEME,
+    ) -> list[QGraphicsItem]:
+        if len(positions) < 2:
+            return GenericBody().draw(positions, fill, border, alpha, z, theme)
+
+        # ``vertical_flipped`` swaps the anchor end so the polarity
+        # marker mirrors when the part is rotated 180° on the board.
+        if self._vertical_flipped:
+            p1, p2 = positions[1], positions[0]
+        else:
+            p1, p2 = positions[0], positions[1]
+
+        dx = p2.x - p1.x
+        dy = p2.y - p1.y
+        dist = math.hypot(dx, dy)
+        if dist < 1e-9:
+            return GenericBody().draw(positions, fill, border, alpha, z, theme)
+
+        if self._spec.lead_arrangement is _TPArrangement.AXIAL:
+            return self._draw_axial(
+                p1, p2, dx, dy, dist, fill, border, alpha, z, theme,
+            )
+        return self._draw_radial(
+            p1, p2, dist, fill, border, alpha, z, theme,
+        )
+
+    # ------------------------------------------------------------------
+    # AXIAL rendering — side-view body between the two pads
+    # ------------------------------------------------------------------
+
+    def _axial_dims(self, theme: Theme) -> tuple[float, float]:
+        """Return (body_length, body_width) in raster units for the AXIAL
+        side-view bounding box.  ``length`` is along the lead axis,
+        ``width`` is the visible thickness.
+        """
+        mm = theme.raster_pitch_mm
+        spec = self._spec
+        if spec.shape is _TPShape.CYLINDER:
+            assert spec.length_mm is not None and spec.diameter_mm is not None
+            return spec.length_mm / mm, spec.diameter_mm / mm
+        if spec.shape is _TPShape.PRISM:
+            assert spec.length_mm is not None and spec.width_mm is not None
+            return spec.length_mm / mm, spec.width_mm / mm
+        # DISC — side view shows thickness along axis, diameter across.
+        assert spec.thickness_mm is not None and spec.diameter_mm is not None
+        return spec.thickness_mm / mm, spec.diameter_mm / mm
+
+    def _axial_corner_radius(
+        self, body_len: float, body_w: float, theme: Theme,
+    ) -> float:
+        spec = self._spec
+        if spec.shape is _TPShape.CYLINDER:
+            # Cylinders look like capsules — fully rounded ends.
+            return min(body_w / 2.0, theme.body_corner_radius)
+        if spec.shape is _TPShape.PRISM:
+            # Prisms follow the theme's edge-style hint.
+            return theme.body_corner_radius if spec.edge.value == "rounded" else 0.0
+        # DISC side view → flat rectangle, slight rounding looks natural.
+        return min(body_w * 0.1, theme.body_corner_radius)
+
+    def _draw_axial(
+        self,
+        p1: Point, p2: Point,
+        dx: float, dy: float, dist: float,
+        fill: QColor, border: QColor, alpha: float, z: float,
+        theme: Theme,
+    ) -> list[QGraphicsItem]:
+        body_len, body_w = self._axial_dims(theme)
+        mid_x = (p1.x + p2.x) / 2.0
+        mid_y = (p1.y + p2.y) / 2.0
+        angle_deg = math.degrees(math.atan2(dy, dx))
+
+        items: list[QGraphicsItem] = []
+        lead_pen = _lead_pen(theme, alpha)
+        bp = _body_pen(border, alpha)
+
+        # Leads — only when pad spacing exceeds the body length.
+        if dist > body_len + 1e-6:
+            unit_x = dx / dist
+            unit_y = dy / dist
+            attach = dist / 2.0 - body_len / 2.0
+            l1 = QGraphicsLineItem(
+                p1.x, p1.y,
+                p1.x + unit_x * attach, p1.y + unit_y * attach,
+            )
+            l2 = QGraphicsLineItem(
+                p2.x - unit_x * attach, p2.y - unit_y * attach,
+                p2.x, p2.y,
+            )
+            for ln in (l1, l2):
+                ln.setPen(lead_pen)
+                ln.setZValue(z - 0.01)
+            items.extend([l1, l2])
+
+        # Body silhouette.
+        body_path = QPainterPath()
+        r = self._axial_corner_radius(body_len, body_w, theme)
+        body_path.addRoundedRect(
+            QRectF(-body_len / 2.0, -body_w / 2.0, body_len, body_w), r, r,
+        )
+
+        body = QGraphicsPathItem(body_path)
+        fill_c = QColor(fill)
+        fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        body.setBrush(QBrush(fill_c))
+        body.setPen(bp)
+        body.setZValue(z)
+
+        t = QTransform()
+        t.translate(mid_x, mid_y)
+        t.rotate(angle_deg)
+        body.setTransform(t)
+        items.append(body)
+
+        # Polar cathode stripe at the p2 end.  ``_vertical_flipped`` was
+        # already absorbed into the p1/p2 swap upstream, so the stripe
+        # always sits at the local +len/2 side here.
+        if self._spec.polar:
+            stripe_w = min(body_len * 0.12, body_w * 0.4)
+            stripe_x = body_len / 2.0 - stripe_w
+            stripe_path = QPainterPath()
+            stripe_path.addRect(
+                QRectF(stripe_x, -body_w / 2.0, stripe_w, body_w),
+            )
+            stripe = QGraphicsPathItem(stripe_path)
+            dark = QColor(theme.body_led_stripe_color)
+            dark.setAlphaF(alpha)
+            stripe.setBrush(QBrush(dark))
+            stripe.setPen(_body_pen(border, alpha, width=0.0))
+            stripe.setZValue(z + 0.01)
+            t_stripe = QTransform()
+            t_stripe.translate(mid_x, mid_y)
+            t_stripe.rotate(angle_deg)
+            stripe.setTransform(t_stripe)
+            items.append(stripe)
+        return items
+
+    # ------------------------------------------------------------------
+    # RADIAL rendering — top-view body on the anchor pad
+    # ------------------------------------------------------------------
+
+    def _draw_radial(
+        self,
+        p1: Point, p2: Point,
+        dist: float,
+        fill: QColor, border: QColor, alpha: float, z: float,
+        theme: Theme,
+    ) -> list[QGraphicsItem]:
+        """Top-down silhouette on the anchor pad with a single lead
+        reaching the other pad."""
+        items: list[QGraphicsItem] = []
+        lead_pen = _lead_pen(theme, alpha)
+
+        lead = QGraphicsLineItem(p1.x, p1.y, p2.x, p2.y)
+        lead.setPen(lead_pen)
+        lead.setZValue(z - 0.01)
+        items.append(lead)
+
+        spec = self._spec
+        mm = theme.raster_pitch_mm
+        # Pin the body on the anchor pad and (when polar) tag which pad
+        # number we see from above.  For ``vertical_flipped=False`` the
+        # anchor is p1=pin1; flipped → anchor is pin2.
+        upper_pin = 1 if self._vertical_flipped else 2
+
+        if spec.shape is _TPShape.CYLINDER or spec.shape is _TPShape.DISC:
+            assert spec.diameter_mm is not None
+            diam = spec.diameter_mm / mm
+            items.append(self._radial_disc_or_cylinder(
+                p1, diam, fill, border, alpha, z, theme, upper_pin,
+            ))
+            return items
+
+        # PRISM — top view is a rectangle whose long side aligns with
+        # the lead direction; centred on the anchor pad.
+        assert spec.length_mm is not None and spec.width_mm is not None
+        length_r = spec.length_mm / mm
+        width_r = spec.width_mm / mm
+        # Orient the long side along the p1→p2 axis.
+        dx, dy = p2.x - p1.x, p2.y - p1.y
+        angle_deg = math.degrees(math.atan2(dy, dx))
+        rect_path = QPainterPath()
+        r_corner = theme.body_corner_radius if spec.edge.value == "rounded" else 0.0
+        rect_path.addRoundedRect(
+            QRectF(-length_r / 2.0, -width_r / 2.0, length_r, width_r),
+            r_corner, r_corner,
+        )
+        body = QGraphicsPathItem(rect_path)
+        fill_c = QColor(fill)
+        fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        body.setBrush(QBrush(fill_c))
+        body.setPen(_body_pen(border, alpha))
+        body.setZValue(z)
+        t = QTransform()
+        t.translate(p1.x, p1.y)
+        t.rotate(angle_deg)
+        body.setTransform(t)
+        items.append(body)
+        return items
+
+    def _radial_disc_or_cylinder(
+        self,
+        anchor: Point,
+        diam: float,
+        fill: QColor, border: QColor, alpha: float, z: float,
+        theme: Theme,
+        upper_pin: int,
+    ) -> QGraphicsItem:
+        """Build the filled disc / cylinder cap for radial-mounted parts.
+
+        Polar parts use the legacy CylinderBody discriminator: cathode
+        (pin2) on top → solid dark fill; anode (pin1) on top → light fill
+        with a thick rim (hollow ring look).
+        """
+        r = diam / 2.0
+        circle = QGraphicsEllipseItem(QRectF(
+            anchor.x - r, anchor.y - r, diam, diam,
+        ))
+        circle.setZValue(z)
+
+        if not self._spec.polar:
+            fill_c = QColor(fill)
+            fill_c.setAlphaF(fill_c.alphaF() * alpha)
+            circle.setBrush(QBrush(fill_c))
+            circle.setPen(_body_pen(border, alpha))
+            return circle
+
+        if upper_pin == 2:
+            dark = QColor(theme.body_diode_cathode_color)
+            dark.setAlphaF(alpha)
+            circle.setBrush(QBrush(dark))
+            circle.setPen(_body_pen(border, alpha))
+        else:
+            light = QColor(theme.body_diode_anode_color)
+            circle.setBrush(QBrush(light))
+            rim_color = QColor(border)
+            rim_color.setAlphaF(alpha)
+            rim_pen = QPen(rim_color, diam * 0.15)
+            circle.setPen(rim_pen)
+        return circle
+
+
+# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -1462,29 +1770,83 @@ _POLAR_CLASSES = frozenset({
 })
 
 
+def _resolve_two_pin_spec(
+    defn: ComponentDefinition,
+    instance: ComponentInstance | None,
+    families: dict[str, TwoPinBodyFamily],
+) -> TwoPinBodySpec | None:
+    """Look up a TwoPinBodySpec for *defn*.
+
+    Resolution order:
+
+    1. Explicit ``instance.body_variant`` of form ``"{family}/{variant_id}"``.
+    2. Default family for the ``ComponentClass`` from ``_CLASS_TO_FAMILY``,
+       first variant.
+    3. None — caller falls back to legacy renderer.
+    """
+    # 1. Explicit per-instance variant.
+    if instance is not None and instance.body_variant:
+        parts = instance.body_variant.split("/", 1)
+        if len(parts) == 2:
+            fam = families.get(parts[0])
+            if fam is not None:
+                v = fam.get_variant(parts[1])
+                if v is not None:
+                    return v
+
+    # 2. Class default.
+    family_key = _CLASS_TO_FAMILY.get(defn.component_class)
+    if family_key is not None:
+        fam = families.get(family_key)
+        if fam is not None:
+            return fam.default_variant()
+
+    return None
+
+
 def body_shape_for(
     defn: ComponentDefinition,
     placement: ComponentPlacement | None = None,
     instance: ComponentInstance | None = None,
     body_types: dict[str, BodyTypeSpec] | None = None,
+    two_pin_families: dict[str, TwoPinBodyFamily] | None = None,
 ) -> BodyShape:
     """Return the appropriate BodyShape for *defn*.
 
-    When *body_types* is provided, cylindrical 2-pin components use
-    ``CylinderBody`` with the correct physical variant.  Otherwise falls
-    back to QPainterPath renderers.
+    Two-pin components (``TwoPin`` footprint or legacy ``SingleRow(n=2)``)
+    dispatch through ``TwoPinParametricBody`` when a matching
+    ``TwoPinBodySpec`` is resolvable from *two_pin_families*; otherwise
+    fall back to the legacy ``CylinderBody`` / ``AxialBody`` /
+    ``DiodeBody`` / ``RadialBody`` ladder.
     """
     fp  = defn.footprint
     cls = defn.component_class
     bt  = body_types or {}
+    fams = two_pin_families or {}
 
     if isinstance(fp, TO220Footprint):
         return TO220Body()
 
+    # New: TwoPin footprint always goes through the parametric body.
+    if isinstance(fp, TwoPin):
+        vf = placement.vertical_flipped if placement is not None else False
+        spec = _resolve_two_pin_spec(defn, instance, fams)
+        if spec is not None:
+            return TwoPinParametricBody(spec, vertical_flipped=vf)
+        # No spec resolved — fall through to the legacy ladder below.
+
+    # Legacy: SingleRow(n=2) for 2-pin classes (test fixtures still
+    # build footprints in Python via SIL(2)).
     if isinstance(fp, SingleRow):
         if fp.n == 2 and cls in (_AXIAL_CLASSES | _DIODE_CLASSES | _RADIAL_CLASSES):
             polar = cls in _POLAR_CLASSES
             vf = placement.vertical_flipped if placement is not None else False
+            # Try the new parametric body first when a two-pin family
+            # catalog is available.
+            spec = _resolve_two_pin_spec(defn, instance, fams)
+            if spec is not None:
+                return TwoPinParametricBody(spec, vertical_flipped=vf)
+            # Legacy fallback (BodyTypeSpec catalog).
             cyl = _resolve_cylinder(defn, instance, bt, polar, vertical_flipped=vf)
             if cyl is not None:
                 return cyl
@@ -1498,6 +1860,17 @@ def body_shape_for(
         if fp.n == 3 and cls in _TRANSISTOR_CLASSES:
             return TO92Body()
         return SvgSILBody()
+
+    # TwoPin footprint without a resolvable spec — pick a reasonable
+    # default by class.
+    if isinstance(fp, TwoPin):
+        if cls in _AXIAL_CLASSES:
+            return AxialBody()
+        if cls in _DIODE_CLASSES:
+            return DiodeBody()
+        if cls in _RADIAL_CLASSES:
+            return RadialBody()
+        return GenericBody()
 
     if isinstance(fp, DualRow):
         return SvgDIPBody(fp.n_per_row, fp.rows_spacing)

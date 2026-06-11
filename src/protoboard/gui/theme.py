@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from protoboard.domain.components.body_type import BodyTypeSpec
+    from protoboard.domain.components.two_pin_body import TwoPinBodyFamily
 
 
 @dataclass
@@ -132,8 +133,14 @@ class Theme:
     dip_notch_radius: float = 0.25
     sil_slot_size: float = 0.40             # per-pin slot square size
 
-    # Body-type definitions loaded at startup; keyed by family name
+    # Body-type definitions loaded at startup; keyed by family name.
+    # ``body_types`` is the legacy cylinder-only catalogue;
+    # ``two_pin_body_families`` is the new parametric one and is
+    # preferred when both can resolve the same component.
     body_types: dict[str, BodyTypeSpec] = field(default_factory=dict)
+    two_pin_body_families: "dict[str, TwoPinBodyFamily]" = field(
+        default_factory=dict,
+    )
 
     ghost_fill_r: int = 255
     ghost_fill_g: int = 255

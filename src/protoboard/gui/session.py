@@ -37,7 +37,11 @@ from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect
 from protoboard.services.drc.engine import DRCEngine, DRCIssue
 from protoboard.domain.components.body_type import BodyTypeSpec
+from protoboard.domain.components.two_pin_body import TwoPinBodyFamily
 from protoboard.services.library.body_type_loader import load_body_types
+from protoboard.services.library.two_pin_body_loader import (
+    load_two_pin_body_families,
+)
 from protoboard.services.library.loader import ComponentLibrary
 from protoboard.domain.axis_labels_settings import AxisLabelSettings
 from protoboard.domain.routing_settings import RoutingSettings
@@ -181,6 +185,12 @@ class EditorSession(QObject):
         }
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         self.body_types: dict[str, BodyTypeSpec] = load_body_types()
+        # New parametric body catalogue.  Coexists with body_types during
+        # the migration; the renderer prefers two_pin_body_families when
+        # a spec resolves, else falls back to the legacy ladder.
+        self.two_pin_body_families: dict[str, TwoPinBodyFamily] = (
+            load_two_pin_body_families()
+        )
         self.stack: CommandStack[ComponentState] = CommandStack()
         self.routing_settings: RoutingSettings = RoutingSettings()
         self.axis_label_settings: AxisLabelSettings = AxisLabelSettings()
