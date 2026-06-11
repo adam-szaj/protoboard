@@ -159,6 +159,9 @@ class MainWindow(QMainWindow):
 
         # Left dock — tabbed: Library | Netlist/BOM | Groups | Nets | Components
         self._library_panel = LibraryPanel(session.library, self)
+        # Wire the parametric body catalogue so the placement picker
+        # can offer per-package variant overrides.
+        self._library_panel.set_two_pin_packages(session.two_pin_body_families)
         self._netlist_panel = NetlistPanel(self)
         self._groups_panel = GroupsPanel(self)
         self._nets_editor_panel = NetsEditorPanel(self)
@@ -785,12 +788,29 @@ class MainWindow(QMainWindow):
         )
         self._sync_tool_check(KB.ACTION_TOOL_SELECT)
 
-    def _tool_place(self, definition_ref: str, pin_variant: object = None) -> None:
+    def _tool_place(
+        self,
+        definition_ref: str,
+        pin_variant: object = None,
+        body_variant: object = None,
+    ) -> None:
         variant_str = str(pin_variant) if pin_variant is not None else None
-        self._board_view.set_tool(PlaceTool(definition_ref, pin_variant=variant_str))
+        body_variant_str = (
+            str(body_variant) if body_variant is not None else None
+        )
+        self._board_view.set_tool(PlaceTool(
+            definition_ref,
+            pin_variant=variant_str,
+            body_variant=body_variant_str,
+        ))
         label = definition_ref
+        tags = []
         if variant_str:
-            label = f"{definition_ref} [{variant_str}]"
+            tags.append(variant_str)
+        if body_variant_str:
+            tags.append(body_variant_str)
+        if tags:
+            label = f"{definition_ref} [{', '.join(tags)}]"
         self._mode_label.setText(f"Place {label}  [R] rotate")
         # PlaceTool has no ACTION_TOOL_* — clear the radio.
         self._sync_tool_check(None)

@@ -186,6 +186,125 @@ class TestPropertiesPanel:
         assert received == []
 
 
+class TestLibraryPanelBodyPicker:
+    """LibraryPanel exposes a body-variant picker under the tree when a
+    two-pin component is selected and a package catalogue is wired."""
+
+    def _packages(self) -> dict:
+        from protoboard.domain.components.two_pin_body import (
+            BodyShape, LeadArrangement, TwoPinBodyPackage, TwoPinBodySpec,
+        )
+        def _spec(pkg: str, vid: str) -> TwoPinBodySpec:
+            return TwoPinBodySpec(
+                package_id=pkg, variant_id=vid, label=vid,
+                lead_arrangement=LeadArrangement.AXIAL,
+                shape=BodyShape.CYLINDER,
+                length_mm=5.0, diameter_mm=2.0,
+            )
+        return {
+            "DIN-0207": TwoPinBodyPackage(
+                package_id="DIN-0207", label="DIN 0207",
+                variants=(_spec("DIN-0207", "typ"),),
+            ),
+            "DIN-0617": TwoPinBodyPackage(
+                package_id="DIN-0617", label="DIN 0617",
+                variants=(_spec("DIN-0617", "typ"),),
+            ),
+        }
+
+    def _select_R(self, panel: LibraryPanel) -> object:
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QTreeWidgetItem
+
+        def _find_item(item: QTreeWidgetItem, target: str) -> object:
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if data is not None:
+                name = data[0] if isinstance(data, tuple) else data
+                if name == target:
+                    return item
+            for i in range(item.childCount()):
+                found = _find_item(item.child(i), target)
+                if found is not None:
+                    return found
+            return None
+
+        root = panel._tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            r = _find_item(root.child(i), "R")
+            if r is not None:
+                panel._tree.setCurrentItem(r)  # type: ignore[arg-type]
+                return r
+        return None
+
+    def test_body_picker_visible_for_twopin_selection(
+        self, qtbot: object, session: EditorSession,
+    ) -> None:
+        from pytestqt.qtbot import QtBot
+        assert isinstance(qtbot, QtBot)
+        panel = LibraryPanel(session.library)
+        qtbot.addWidget(panel)
+        panel.set_two_pin_packages(self._packages())
+        r_item = self._select_R(panel)
+        assert r_item is not None
+        # "Default" entry plus DIN-0207/typ + DIN-0617/typ = 3 entries.
+        assert len(panel._body_variant_addresses) == 3
+        assert panel._body_variant_addresses[0] is None
+
+    def test_body_picker_hidden_without_catalogue(
+        self, qtbot: object, session: EditorSession,
+    ) -> None:
+        from pytestqt.qtbot import QtBot
+        assert isinstance(qtbot, QtBot)
+        panel = LibraryPanel(session.library)
+        qtbot.addWidget(panel)
+        # No set_two_pin_packages call.
+        self._select_R(panel)
+        assert panel._body_variant_addresses == []
+
+    def test_double_click_includes_body_variant(
+        self, qtbot: object, session: EditorSession,
+    ) -> None:
+        from pytestqt.qtbot import QtBot
+        assert isinstance(qtbot, QtBot)
+        panel = LibraryPanel(session.library)
+        qtbot.addWidget(panel)
+        panel.set_two_pin_packages(self._packages())
+        r_item = self._select_R(panel)
+        assert r_item is not None
+        # Pick DIN-0617/typ from the dropdown.
+        target_idx = panel._body_variant_addresses.index("DIN-0617/typ")
+        panel._body_variant_combo.setCurrentIndex(target_idx)
+        received: list[tuple] = []
+        panel.component_selected.connect(
+            lambda name, pinv, bodyv: received.append((name, pinv, bodyv))
+        )
+        panel._tree.itemDoubleClicked.emit(r_item, 0)  # type: ignore[arg-type]
+        assert len(received) == 1
+        name, _pinv, bodyv = received[0]
+        assert name == "R"
+        assert bodyv == "DIN-0617/typ"
+
+    def test_default_emits_none_body_variant(
+        self, qtbot: object, session: EditorSession,
+    ) -> None:
+        from pytestqt.qtbot import QtBot
+        assert isinstance(qtbot, QtBot)
+        panel = LibraryPanel(session.library)
+        qtbot.addWidget(panel)
+        panel.set_two_pin_packages(self._packages())
+        r_item = self._select_R(panel)
+        assert r_item is not None
+        # Default is the first item (already selected after rebuild).
+        received: list[tuple] = []
+        panel.component_selected.connect(
+            lambda name, pinv, bodyv: received.append((name, pinv, bodyv))
+        )
+        panel._tree.itemDoubleClicked.emit(r_item, 0)  # type: ignore[arg-type]
+        assert len(received) == 1
+        _, _, bodyv = received[0]
+        assert bodyv is None
+
+
 class TestBodyVariantDropdown:
     """The Properties panel offers a body-variant dropdown for TwoPin
     components when a package catalogue is provided."""

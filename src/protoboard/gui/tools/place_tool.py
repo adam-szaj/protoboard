@@ -63,12 +63,14 @@ class PlaceTool(_Tool):
         definition_ref: str,
         existing_instance: object | None = None,
         pin_variant: str | None = None,
+        body_variant: str | None = None,
     ) -> None:
         super().__init__()
         self._definition_ref = definition_ref
         # When placing a netlist-imported instance, keep its identity.
         self._existing_instance = existing_instance  # ComponentInstance | None
         self._pin_variant = pin_variant
+        self._body_variant = body_variant
         self._rotation = 0
         self._ghost: QGraphicsItemGroup | None = None
         # Last snapped cursor position in the anchor phase — kept so the
@@ -446,6 +448,7 @@ class PlaceTool(_Tool):
                 refdes=self._next_refdes(),
                 value=self._definition_ref,
                 pin_variant=self._pin_variant,
+                body_variant=self._body_variant,
             )
 
         placement = ComponentPlacement(

@@ -8,6 +8,9 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
     QLineEdit,
     QTreeWidget,
     QTreeWidgetItem,
@@ -19,12 +22,18 @@ from protoboard.services.library.loader import ComponentLibrary
 
 
 class LibraryPanel(QWidget):
-    # emits (definition_ref, pin_variant_id_or_None)
-    component_selected = Signal(str, object)
+    # emits (definition_ref, pin_variant_id_or_None, body_variant_id_or_None)
+    # The third element is the address "package_id/variant_id" or None
+    # to inherit the definition's default.  Older slots that accept
+    # only two args still work — Qt unpacks positional signal args.
+    component_selected = Signal(str, object, object)
 
     def __init__(self, library: ComponentLibrary, parent: object = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
         self._library = library
+        # Package catalogue is wired by main_window once the session
+        # exists; until then the picker stays empty.
+        self._two_pin_packages: dict = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -40,8 +49,28 @@ class LibraryPanel(QWidget):
         self._tree.setIndentation(14)
         layout.addWidget(self._tree)
 
+        # Body variant picker — visible only when the selection is a
+        # two-pin component and the catalogue is wired.
+        self._body_row = QWidget()
+        body_layout = QHBoxLayout(self._body_row)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(4)
+        body_layout.addWidget(QLabel("Body:"))
+        self._body_variant_combo = QComboBox()
+        self._body_variant_combo.setToolTip(
+            "Body package used when this component is placed.  The picker "
+            "lists the variants of the library default first, then every "
+            "other shipped package.",
+        )
+        body_layout.addWidget(self._body_variant_combo, 1)
+        layout.addWidget(self._body_row)
+        self._body_row.setVisible(False)
+        # Parallel to combo indices.
+        self._body_variant_addresses: list[str | None] = []
+
         self._search.textChanged.connect(self._on_search)
         self._tree.itemDoubleClicked.connect(self._on_double_click)
+        self._tree.currentItemChanged.connect(self._on_selection_changed)
 
         self._populate()
 
@@ -180,4 +209,92 @@ class LibraryPanel(QWidget):
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if data:
             name, pin_variant = data
-            self.component_selected.emit(name, pin_variant)
+            self.component_selected.emit(
+                name, pin_variant, self._current_body_variant_address(),
+            )
+
+    def _current_body_variant_address(self) -> "str | None":
+        idx = self._body_variant_combo.currentIndex()
+        if idx < 0 or idx >= len(self._body_variant_addresses):
+            return None
+        return self._body_variant_addresses[idx]
+
+    def set_two_pin_packages(self, packages: dict) -> None:
+        """Wire the package catalogue from the active session.
+
+        Called by MainWindow whenever the session changes (open / close
+        project, switch between projects).  The picker is rebuilt to
+        reflect the current selection.
+        """
+        self._two_pin_packages = packages or {}
+        self._refresh_body_picker_for_current()
+
+    def _on_selection_changed(
+        self,
+        current: "QTreeWidgetItem | None",
+        _previous: "QTreeWidgetItem | None",
+    ) -> None:
+        self._refresh_body_picker_for_current()
+
+    def _refresh_body_picker_for_current(self) -> None:
+        current = self._tree.currentItem()
+        self._rebuild_body_picker(current)
+
+    def _rebuild_body_picker(
+        self, current: "QTreeWidgetItem | None",
+    ) -> None:
+        from protoboard.domain.components.footprints import TwoPin
+
+        self._body_variant_combo.blockSignals(True)
+        self._body_variant_combo.clear()
+        self._body_variant_addresses = []
+
+        data = current.data(0, Qt.ItemDataRole.UserRole) if current else None
+        defn = None
+        if data:
+            name, _pin_variant = data
+            try:
+                defn = self._library.get(name)
+            except KeyError:
+                defn = None
+        show = (
+            defn is not None
+            and isinstance(defn.footprint, TwoPin)
+            and bool(self._two_pin_packages)
+        )
+        self._body_row.setVisible(show)
+        if not show or defn is None:
+            self._body_variant_combo.blockSignals(False)
+            return
+
+        # Default entry first (uses defn.default_body_variant at place time).
+        default_label = "Default"
+        if defn.default_body_variant:
+            default_label = f"Default ({defn.default_body_variant})"
+        self._body_variant_combo.addItem(default_label)
+        self._body_variant_addresses.append(None)
+
+        primary_pkg_id: "str | None" = None
+        if defn.default_body_variant:
+            parts = defn.default_body_variant.split("/", 1)
+            if len(parts) == 2:
+                primary_pkg_id = parts[0]
+
+        sorted_pkg_ids = sorted(self._two_pin_packages.keys())
+        ordered = []
+        if primary_pkg_id and primary_pkg_id in self._two_pin_packages:
+            ordered.append(primary_pkg_id)
+        ordered.extend(p for p in sorted_pkg_ids if p != primary_pkg_id)
+
+        for pkg_id in ordered:
+            pkg = self._two_pin_packages[pkg_id]
+            for v in pkg.variants:
+                addr = f"{pkg_id}/{v.variant_id}"
+                label = f"{pkg_id} / {v.variant_id}"
+                if v.label and v.label != v.variant_id:
+                    label = f"{label} — {v.label}"
+                self._body_variant_combo.addItem(label)
+                self._body_variant_addresses.append(addr)
+
+        self._body_variant_combo.setCurrentIndex(0)
+        self._body_variant_combo.blockSignals(False)
