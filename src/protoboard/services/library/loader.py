@@ -313,6 +313,16 @@ def _component_from_dict(data: Any, source: Path) -> ComponentDefinition:
             )
         default_body_variant = default_body_variant_raw
 
+    default_value_raw = data.get("default_value")
+    default_value: str = ""
+    if default_value_raw is not None:
+        if not isinstance(default_value_raw, str):
+            raise SerializationError(
+                f"{source}: default_value for {data['name']!r} must be a "
+                f"string; got {default_value_raw!r}"
+            )
+        default_value = default_value_raw
+
     try:
         return ComponentDefinition(
             name=data["name"],
@@ -324,6 +334,7 @@ def _component_from_dict(data: Any, source: Path) -> ComponentDefinition:
             bendable_pins=bendable_pins,
             variants=tuple(variants),
             default_body_variant=default_body_variant,
+            default_value=default_value,
         )
     except ValueError as exc:
         raise SerializationError(

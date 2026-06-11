@@ -189,6 +189,59 @@ class TestCompFingerprint:
         fp_ba = comp_fingerprint(pl, "R", {2: n2, 1: n1}, None, lk)
         assert fp_ab == fp_ba  # sorted(items()) normalises order
 
+    def test_different_refdes_gives_different_fingerprint(self) -> None:
+        # The overlay label embeds inst.refdes; editing it must rebuild
+        # the group so the new text paints.
+        pl = _make_placement()
+        lk = _layers_key(LayerState())
+        fp_r1 = comp_fingerprint(pl, "R", {}, None, lk, refdes="R1")
+        fp_r2 = comp_fingerprint(pl, "R", {}, None, lk, refdes="R2")
+        assert fp_r1 != fp_r2
+
+    def test_different_value_gives_different_fingerprint(self) -> None:
+        # The overlay label embeds inst.value; editing it must rebuild.
+        pl = _make_placement()
+        lk = _layers_key(LayerState())
+        fp_a = comp_fingerprint(pl, "R", {}, None, lk, value="?")
+        fp_b = comp_fingerprint(pl, "R", {}, None, lk, value="4.7k")
+        assert fp_a != fp_b
+
+
+class TestComposeOverlayLabel:
+    """Overlay label composition contract:
+
+    * concrete parts → ``"<refdes> <part-number>"``  (Q1 2N2222)
+    * generic parts with a value → ``"<refdes> <value>"``  (R23 4.7k)
+    * generic parts awaiting a value → ``"<refdes> ?"``  (R23 ?)
+    * value empty → just refdes  (R23)
+    """
+
+    def test_value_present_concatenated_with_space(self) -> None:
+        from protoboard.gui.renderers.component_renderer import (
+            _compose_overlay_label,
+        )
+        assert _compose_overlay_label("R23", "4.7k") == "R23 4.7k"
+
+    def test_value_question_mark_prompts_user(self) -> None:
+        from protoboard.gui.renderers.component_renderer import (
+            _compose_overlay_label,
+        )
+        assert _compose_overlay_label("R23", "?") == "R23 ?"
+
+    def test_value_part_number_for_concrete_parts(self) -> None:
+        from protoboard.gui.renderers.component_renderer import (
+            _compose_overlay_label,
+        )
+        assert _compose_overlay_label("Q1", "2N2222") == "Q1 2N2222"
+        assert _compose_overlay_label("D5", "1N4148") == "D5 1N4148"
+        assert _compose_overlay_label("U2", "NE555") == "U2 NE555"
+
+    def test_empty_value_yields_refdes_only(self) -> None:
+        from protoboard.gui.renderers.component_renderer import (
+            _compose_overlay_label,
+        )
+        assert _compose_overlay_label("R23", "") == "R23"
+
 
 # ---------------------------------------------------------------------------
 # update_component_groups — incremental update logic

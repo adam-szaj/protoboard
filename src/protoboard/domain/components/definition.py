@@ -138,6 +138,18 @@ class ComponentDefinition:
     # ``resistor_axial/1_4w``); when ``None`` the renderer falls back to the
     # family default registered in ``_CLASS_TO_FAMILY``.
     default_body_variant: str | None = None
+    # Default ``ComponentInstance.value`` for parts placed from this
+    # definition.  Two conventions:
+    #
+    # * Concrete parts (BC547, 1N4148, NE555, …) leave this empty so the
+    #   loader falls back to ``defn.name`` — the part number itself is the
+    #   value, and the overlay label renders as e.g. ``"Q1 2N2222"``.
+    # * Generic templates (``R``, ``C``, ``L``, ``F``, ``Pot`` …) set
+    #   ``default_value: "?"`` in their YAML so a freshly placed instance
+    #   visibly asks the user to fill in the actual value (``"R23 ?"``).
+    #
+    # Either way the user can edit ``instance.value`` after placement.
+    default_value: str = ""
     # Whether the component body physically blocks wires from routing
     # under it.  Default False — most through-hole parts sit on standoffs
     # / leads and leave a gap to the PCB, so wires can route under them

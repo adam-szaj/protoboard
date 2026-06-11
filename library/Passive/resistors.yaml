@@ -9,6 +9,7 @@ components:
     footprint: {type: TwoPin}
     pin_names: {}
     body_variant: "DIN-0207/typ"
+    default_value: "?"
     bendable_pins:
       2:
         min_reach: 1
@@ -32,15 +33,18 @@ components:
     component_class: resistor
     footprint: {type: SIL, pins: 5}
     pin_names: {1: COM, 2: R1, 3: R2, 4: R3, 5: R4}
+    default_value: "?"
 
   - name: R_Net_8
     description: "8-resistor SIL network (common bus pin 1)"
     component_class: resistor
     footprint: {type: SIL, pins: 9}
     pin_names: {1: COM, 2: R1, 3: R2, 4: R3, 5: R4, 6: R5, 7: R6, 8: R7, 9: R8}
+    default_value: "?"
 
   - name: Pot
     description: "Potentiometer / trimmer (3-pin)"
     component_class: resistor
     footprint: {type: SIL, pins: 3}
     pin_names: {1: "1", 2: W, 3: "3"}
+    default_value: "?"

@@ -169,3 +169,35 @@ class TestPlaceToolRefdes:
         _left_click(tool, 2.5, 0.5)
         refdeses = {i.refdes for i in session.instances.values()}
         assert refdeses == {"R1", "R2"}
+
+
+class TestPlaceToolInitialValue:
+    """``ComponentDefinition.default_value`` controls what gets written
+    into ``ComponentInstance.value`` on a fresh placement."""
+
+    def test_concrete_part_value_equals_name(
+        self, board_view: BoardView, session: EditorSession,
+    ) -> None:
+        # The default fixture's R has no default_value field → falls
+        # back to defn.name="R".
+        board_view.set_tool(PlaceTool("R"))
+        tool = board_view._active_tool
+        assert isinstance(tool, PlaceTool)
+        _left_click(tool, 0.5, 0.5)
+        inst = list(session.instances.values())[0]
+        assert inst.value == "R"
+
+    def test_generic_template_value_is_question_mark(
+        self, board_view: BoardView, session: EditorSession,
+    ) -> None:
+        # Override the in-memory definition with default_value="?" to
+        # simulate a "generic" template entry.
+        import dataclasses as _dc
+        defn = session.components["R"]
+        session.components["R"] = _dc.replace(defn, default_value="?")
+        board_view.set_tool(PlaceTool("R"))
+        tool = board_view._active_tool
+        assert isinstance(tool, PlaceTool)
+        _left_click(tool, 0.5, 0.5)
+        inst = list(session.instances.values())[0]
+        assert inst.value == "?"

@@ -9,6 +9,7 @@ components:
     footprint: {type: TwoPin}
     pin_names: {}
     body_variant: "DIN-0207/typ"
+    default_value: "?"
     bendable_pins:
       2:
         min_reach: 1

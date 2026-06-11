@@ -8,6 +8,7 @@ components:
     footprint: {type: TwoPin}
     pin_names: {}
     body_variant: "Ceramic-Disc-D5/typ"
+    default_value: "?"
     bendable_pins:
       2:
         min_reach: 1
@@ -28,6 +29,7 @@ components:
     footprint: {type: TwoPin}
     pin_names: {1: "+", 2: "-"}
     body_variant: "Radial-Elko-D5/typ"
+    default_value: "?"
     bendable_pins:
       2:
         min_reach: 1
@@ -47,6 +49,7 @@ components:
     footprint: {type: TwoPin}
     pin_names: {}
     body_variant: "Ceramic-Disc-D7/typ"
+    default_value: "?"
     bendable_pins:
       2:
         min_reach: 1

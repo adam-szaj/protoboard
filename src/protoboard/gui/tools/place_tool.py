@@ -443,10 +443,21 @@ class PlaceTool(_Tool):
             from protoboard.domain.components.instance import ComponentInstance as _CI
             inst: _CI = self._existing_instance  # type: ignore[assignment]
         else:
+            # Pick the initial instance value per the library convention:
+            # concrete parts (BC547, NE555, …) carry the part number as
+            # their name, so ``defn.default_value`` is empty and we fall
+            # back to ``defn.name`` — the rendered label naturally shows
+            # the part number ("Q1 BC547").  Generic templates (R, C, L
+            # …) set ``default_value: "?"`` to prompt the user
+            # ("R23 ?").
+            if defn is not None and defn.default_value:
+                init_value = defn.default_value
+            else:
+                init_value = self._definition_ref
             inst = ComponentInstance.new(
                 definition_ref=self._definition_ref,
                 refdes=self._next_refdes(),
-                value=self._definition_ref,
+                value=init_value,
                 pin_variant=self._pin_variant,
                 body_variant=self._body_variant,
             )

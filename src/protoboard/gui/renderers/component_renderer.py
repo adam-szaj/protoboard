@@ -86,6 +86,18 @@ def _get_refdes_font(pt: float) -> QFont:
     return _REFDES_FONT
 
 
+def _compose_overlay_label(refdes: str, value: str) -> str:
+    """Build the text rendered above a component's pin 1.
+
+    Convention: ``refdes`` alone when ``value`` is empty, otherwise
+    ``"refdes value"``.  For concrete parts (BC547, 1N4148, NE555 …)
+    ``value`` carries the part-number by default; for generic templates
+    (R, C, L, F …) it carries the user-supplied value (e.g. "4.7k") —
+    or ``"?"`` when the user hasn't filled it in yet.
+    """
+    return f"{refdes} {value}" if value else refdes
+
+
 def _get_pin_name_font(pt: float) -> QFont:
     global _PIN_NAME_FONT, _PIN_NAME_FONT_SIZE
     if _PIN_NAME_FONT is None or _PIN_NAME_FONT_SIZE != pt:
@@ -163,6 +175,8 @@ def comp_fingerprint(
     routed_nets: frozenset[uuid.UUID] | None,
     layers_key: tuple[object, ...],
     bold_pin_nets: frozenset[uuid.UUID] = frozenset(),
+    refdes: str = "",
+    value: str = "",
 ) -> tuple[object, ...]:
     """Stable key capturing structural/connectivity inputs for one component group.
 
@@ -172,6 +186,10 @@ def comp_fingerprint(
     rebuild is the only way to apply or remove it.  Group-level alpha
     (``alpha_map``/``highlight_dim``) still bypasses the cache and is
     applied via setOpacity at the end of update_component_groups.
+
+    *refdes* and *value* enter the fingerprint because the overlay
+    label composes ``"refdes value"``; editing either in the Properties
+    panel must trigger a group rebuild so the new label paints.
     """
     return (
         placement.position,
@@ -186,6 +204,8 @@ def comp_fingerprint(
         routed_nets,
         layers_key,
         bold_pin_nets,
+        refdes,
+        value,
     )
 
 
@@ -276,6 +296,8 @@ def update_component_groups(
             placement, inst.definition_ref,
             pin_net_for_comp, frozen_routed, layers_key,
             bold_pin_nets=bold_pin_nets,
+            refdes=inst.refdes,
+            value=inst.value,
         )
 
         if comp_id in existing_groups:
@@ -519,8 +541,9 @@ def _render_one(
             pin1 = positions[0]
             lx = pin1.x - 0.5
             ly = pin1.y - 0.5
+        label_text = _compose_overlay_label(inst.refdes, inst.value)
         for item in _make_overlay_label(
-            inst.refdes, _get_refdes_font(fpt), label_color, bg, lx, ly, z_label,
+            label_text, _get_refdes_font(fpt), label_color, bg, lx, ly, z_label,
         ):
             grp.addToGroup(item)
 
