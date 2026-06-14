@@ -167,3 +167,54 @@ class TestLoadWorkedExamples:
                 {"name": "Bad", "extends": "cylinder_axial",
                  "leads": {"lead_r": 0.2, "lead_length": 5.0}},
             ])
+
+
+class TestLoadPresentation:
+    def test_color_edge_arrangement_parsed(self) -> None:
+        from protoboard.domain.components.package.body import (
+            EdgeStyle,
+            LeadArrangement,
+        )
+        pkgs = load_packages(GENERICS + [
+            {"name": "R", "extends": "cylinder_radial",
+             "dims": {"diameter": 2.5, "length": 6.3},
+             "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}},
+             "color": "#d6c08c", "edge": "sharp", "arrangement": "radial"},
+        ])
+        r = pkgs["R"]
+        assert r.color == "#d6c08c"
+        assert r.edge is EdgeStyle.SHARP
+        assert r.arrangement is LeadArrangement.RADIAL
+
+    def test_color_defaults_none(self) -> None:
+        pkgs = load_packages(GENERICS + [
+            {"name": "R", "extends": "cylinder_radial",
+             "dims": {"diameter": 2.5, "length": 6.3},
+             "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}},
+        ])
+        assert pkgs["R"].color is None
+
+    def test_disc_shape_built(self) -> None:
+        from protoboard.domain.components.package.body import DiscProfile
+        from protoboard.domain.components.package.shapes import Disc
+        pkgs = load_packages([
+            {"name": "disc", "abstract": True, "shape": "disc"},
+            {"name": "C_Disc_D5", "extends": "disc",
+             "dims": {"diameter": 5.0, "thickness": 2.0},
+             "disc_profile": "candy",
+             "leads": {"direction": [[0, 0, -1], [0, 0, -1]],
+                       "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                       "board_offset": "default"}},
+        ])
+        d = pkgs["C_Disc_D5"]
+        assert isinstance(d, Disc)
+        assert d.profile is DiscProfile.CANDY
+
+    def test_bad_edge_raises(self) -> None:
+        with pytest.raises(PackageDefError):
+            load_packages(GENERICS + [
+                {"name": "R", "extends": "cylinder_radial",
+                 "dims": {"diameter": 2.5, "length": 6.3},
+                 "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}},
+                 "edge": "bogus"},
+            ])

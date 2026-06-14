@@ -17,6 +17,11 @@ Public API::
 """
 
 from protoboard.domain.components.package.adapter import PackageFootprint
+from protoboard.domain.components.package.body import (
+    DiscProfile,
+    EdgeStyle,
+    LeadArrangement,
+)
 from protoboard.domain.components.package.loader import (
     PackageDefError,
     build_package,
@@ -40,6 +45,7 @@ from protoboard.domain.components.package.shapes import (
     BOARD_SOLVE,
     SHAPE_REGISTRY,
     Cylinder,
+    Disc,
     Leads,
     Package,
     Prism,
@@ -57,6 +63,10 @@ __all__ = [
     "RASTER_MM",
     "SHAPE_REGISTRY",
     "Cylinder",
+    "Disc",
+    "DiscProfile",
+    "EdgeStyle",
+    "LeadArrangement",
     "Leads",
     "MountOrientation",
     "OffsetRange",

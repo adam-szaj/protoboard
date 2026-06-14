@@ -17,11 +17,17 @@ from protoboard.domain.components.package.offsets import (
     expand_offsets,
     scale_offsets,
 )
+from protoboard.domain.components.package.body import (
+    DiscProfile,
+    EdgeStyle,
+    LeadArrangement,
+)
 from protoboard.domain.components.package.shapes import (
     BOARD_DEFAULT,
     BOARD_SOLVE,
     SHAPE_REGISTRY,
     Cylinder,
+    Disc,
     Leads,
     Package,
     Prism,
@@ -177,6 +183,37 @@ def _margin_insets(raw: object) -> Insets | None:
     raise PackageDefError(f"margin needs 1-4 values, got {len(vals)}")
 
 
+def _arrangement(raw: object, default: LeadArrangement, pkg: str) -> LeadArrangement:
+    if raw is None:
+        return default
+    try:
+        return LeadArrangement(str(raw))
+    except ValueError:
+        raise PackageDefError(f"{pkg}: unknown lead arrangement {raw!r}")
+
+
+def _edge(raw: object, default: EdgeStyle, pkg: str) -> EdgeStyle:
+    if raw is None:
+        return default
+    try:
+        return EdgeStyle(str(raw))
+    except ValueError:
+        raise PackageDefError(f"{pkg}: unknown edge style {raw!r}")
+
+
+def _disc_profile(raw: object, pkg: str) -> DiscProfile:
+    if raw is None:
+        return DiscProfile.FLAT
+    try:
+        return DiscProfile(str(raw))
+    except ValueError:
+        raise PackageDefError(f"{pkg}: unknown disc profile {raw!r}")
+
+
+def _color(raw: object) -> str | None:
+    return None if raw is None else str(raw)
+
+
 @traced("build_package")
 def build_package(merged: PackageDict, pkg: str) -> Package:
     shape = merged.get("shape")
@@ -185,6 +222,8 @@ def build_package(merged: PackageDict, pkg: str) -> Package:
     leads = build_leads(merged, pkg)
     dims = merged.get("dims") or {}
     bend = float(merged.get("bend", 0.0))
+    color = _color(merged.get("color"))
+    edge_raw = merged.get("edge")
 
     if shape == "cylinder":
         return Cylinder(
@@ -193,6 +232,24 @@ def build_package(merged: PackageDict, pkg: str) -> Package:
             leads=leads,
             bend_holes=bend,
             edge_radius_mm=float(dims.get("edge_radius", 0.0)),
+            arrangement=_arrangement(
+                merged.get("arrangement"), LeadArrangement.AXIAL, pkg,
+            ),
+            edge=_edge(edge_raw, EdgeStyle.ROUNDED, pkg),
+            color=color,
+        )
+    if shape == "disc":
+        return Disc(
+            diameter_mm=_require_float(dims.get("diameter"), "dims.diameter", pkg),
+            thickness_mm=_require_float(dims.get("thickness"), "dims.thickness", pkg),
+            leads=leads,
+            bend_holes=bend,
+            profile=_disc_profile(merged.get("disc_profile"), pkg),
+            arrangement=_arrangement(
+                merged.get("arrangement"), LeadArrangement.RADIAL, pkg,
+            ),
+            edge=_edge(edge_raw, EdgeStyle.ROUNDED, pkg),
+            color=color,
         )
     # prism
     margin = _margin_insets(merged.get("margin"))
@@ -204,6 +261,11 @@ def build_package(merged: PackageDict, pkg: str) -> Package:
         bend_holes=bend,
         corner_radius_mm=float(dims.get("corner_radius", 0.0)),
         margin_mm=margin,
+        arrangement=_arrangement(
+            merged.get("arrangement"), LeadArrangement.AXIAL, pkg,
+        ),
+        edge=_edge(edge_raw, EdgeStyle.SHARP, pkg),
+        color=color,
     )
 
 

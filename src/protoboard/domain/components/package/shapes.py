@@ -15,6 +15,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from protoboard.domain.components.package.body import (
+    DiscProfile,
+    EdgeStyle,
+    LeadArrangement,
+)
 from protoboard.domain.components.package.offsets import cumulative_positions
 from protoboard.domain.components.package.solver import (
     RASTER_MM,
@@ -71,6 +76,10 @@ class Package(Protocol):
 
     def bbox(self) -> Rect: ...
 
+    def min_radial_pitch_mm(self) -> float: ...
+
+    def min_axial_pitch_mm(self) -> float: ...
+
 
 def _body_offset_in_holes(leads: Leads) -> list[Point]:
     """The body_offset vectors expressed in the grid domain (holes).
@@ -119,6 +128,14 @@ def _pins_bbox(positions: list[Point]) -> Rect:
     return Rect(x0, y0, max(xs) - x0, max(ys) - y0)
 
 
+def _lead_diameter_mm(leads: Leads) -> float:
+    """Lead wire diameter (mm). ``2·lead_r``; falls back to a 0.5 mm default
+    (the legacy ``TwoPinBodySpec`` default) when the radius is unspecified."""
+    if leads.lead_r_mm is None:
+        return 0.5
+    return 2.0 * leads.lead_r_mm
+
+
 @dataclass(frozen=True, slots=True)
 class Cylinder:
     """shape: cylinder — resistor, diode, electrolytic. Implements Package."""
@@ -128,6 +145,9 @@ class Cylinder:
     leads: Leads
     bend_holes: float = 0.0
     edge_radius_mm: float = 0.0
+    arrangement: LeadArrangement = LeadArrangement.AXIAL
+    edge: EdgeStyle = EdgeStyle.ROUNDED
+    color: str | None = None  # #rrggbb fill; None → renderer default
 
     @property
     def r_body_mm(self) -> float:
@@ -135,6 +155,14 @@ class Cylinder:
 
     def pin_count(self) -> int:
         return self.leads.pin_count
+
+    def min_radial_pitch_mm(self) -> float:
+        # Two leads exiting the same face must clear the widest cross-section.
+        return (self.diameter_mm + _lead_diameter_mm(self.leads)) / 2.0
+
+    def min_axial_pitch_mm(self) -> float:
+        # Pads sit at the body ends; spacing is at least one body length.
+        return self.length_mm + _lead_diameter_mm(self.leads)
 
     @traced("Cylinder.pin_positions")
     def pin_positions(
@@ -182,9 +210,22 @@ class Prism:
     bend_holes: float = 0.0
     corner_radius_mm: float = 0.0
     margin_mm: Insets | None = None
+    arrangement: LeadArrangement = LeadArrangement.AXIAL
+    edge: EdgeStyle = EdgeStyle.SHARP
+    color: str | None = None  # #rrggbb fill; None → renderer default
 
     def pin_count(self) -> int:
         return self.leads.pin_count
+
+    def min_radial_pitch_mm(self) -> float:
+        # Width perpendicular to the lead axis bounds two same-face leads;
+        # fall back to the body bbox width when width is margin-derived.
+        w = self.width_mm if self.width_mm is not None else self.bbox().width * RASTER_MM
+        return (w + _lead_diameter_mm(self.leads)) / 2.0
+
+    def min_axial_pitch_mm(self) -> float:
+        ln = self.length_mm if self.length_mm is not None else self.bbox().height * RASTER_MM
+        return ln + _lead_diameter_mm(self.leads)
 
     @traced("Prism.pin_positions")
     def pin_positions(
@@ -229,8 +270,59 @@ class Prism:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class Disc:
+    """shape: disc — ceramic disc cap, button cell, disc varistor.
+
+    A flat puck whose face is normal to the lead axis; radial-mounted (both
+    leads exit the same face). ``diameter_mm`` is the face, ``thickness_mm`` the
+    depth along the lead axis. ``profile`` picks the rim silhouette.
+    """
+
+    diameter_mm: float
+    thickness_mm: float
+    leads: Leads
+    bend_holes: float = 0.0
+    profile: DiscProfile = DiscProfile.FLAT
+    arrangement: LeadArrangement = LeadArrangement.RADIAL
+    edge: EdgeStyle = EdgeStyle.ROUNDED
+    color: str | None = None  # #rrggbb fill; None → renderer default
+
+    def pin_count(self) -> int:
+        return self.leads.pin_count
+
+    @traced("Disc.pin_positions")
+    def pin_positions(
+        self, *, orientation: MountOrientation = MountOrientation.HORIZONTAL
+    ) -> list[Point]:
+        if self.leads.board_offset == BOARD_SOLVE:
+            raise ValueError("disc does not support the axial solver (body=0)")
+        steps = _resolve_board_steps(self.leads, solved_range=None)
+        return cumulative_positions(steps)
+
+    @traced("Disc.board_offset_range")
+    def board_offset_range(
+        self, *, orientation: MountOrientation = MountOrientation.HORIZONTAL
+    ) -> OffsetRange:
+        if self.leads.board_offset == BOARD_SOLVE:
+            raise ValueError("disc does not support the axial solver (body=0)")
+        base_mm = abs(self.leads.body_offset_mm[0].x) if self.leads.body_offset_mm else 0.0
+        return OffsetRange(base_mm, base_mm + self.bend_holes * RASTER_MM)
+
+    def bbox(self) -> Rect:
+        side = self.diameter_mm / RASTER_MM
+        return Rect(0.0, 0.0, side, side)
+
+    def min_radial_pitch_mm(self) -> float:
+        return (self.diameter_mm + _lead_diameter_mm(self.leads)) / 2.0
+
+    def min_axial_pitch_mm(self) -> float:
+        return self.thickness_mm + _lead_diameter_mm(self.leads)
+
+
 # Dispatch by `shape` (registry), NOT subclassing the `extends` chain (spec).
 SHAPE_REGISTRY: dict[str, type] = {
     "cylinder": Cylinder,
     "prism": Prism,
+    "disc": Disc,
 }

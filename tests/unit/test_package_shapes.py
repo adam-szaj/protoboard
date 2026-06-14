@@ -12,10 +12,16 @@ from protoboard.domain.components.package.offsets import (
     expand_offsets,
     scale_offsets,
 )
+from protoboard.domain.components.package.body import (
+    DiscProfile,
+    EdgeStyle,
+    LeadArrangement,
+)
 from protoboard.domain.components.package.shapes import (
     BOARD_DEFAULT,
     BOARD_SOLVE,
     Cylinder,
+    Disc,
     Leads,
     Package,
     Prism,
@@ -157,7 +163,93 @@ class TestDevboardMargin:
         assert bb.y == pytest.approx(0.0)             # 0 margin on pin side
 
 
+def _radial_leads(*, lead_r: float | None = 0.25) -> Leads:
+    return Leads(
+        direction=((0.0, 0.0, -1.0), (0.0, 0.0, -1.0)),
+        body_offset_mm=(Point(2.5, 0.0),),
+        board_offset=BOARD_DEFAULT,
+        lead_r_mm=lead_r,
+    )
+
+
+class TestDisc:
+    def test_disc_implements_package(self) -> None:
+        d = Disc(diameter_mm=5.0, thickness_mm=2.0, leads=_radial_leads())
+        assert isinstance(d, Package)
+        assert d.pin_count() == 2
+
+    def test_disc_defaults(self) -> None:
+        d = Disc(diameter_mm=5.0, thickness_mm=2.0, leads=_radial_leads())
+        assert d.profile is DiscProfile.FLAT
+        assert d.arrangement is LeadArrangement.RADIAL  # discs mount radially
+
+    def test_disc_pin_positions_and_bbox(self) -> None:
+        d = Disc(diameter_mm=5.0, thickness_mm=2.0, leads=_radial_leads())
+        assert d.pin_positions() == [_pt(0, 0), _pt(1, 0)]
+        bb = d.bbox()
+        assert (bb.width, bb.height) == (5.0 / 2.5, 5.0 / 2.5)
+
+    def test_disc_rejects_solver(self) -> None:
+        leads = Leads(
+            direction=((0.0, 0.0, -1.0), (0.0, 0.0, -1.0)),
+            body_offset_mm=(),
+            board_offset=BOARD_SOLVE,
+        )
+        with pytest.raises(ValueError):
+            Disc(diameter_mm=5.0, thickness_mm=2.0, leads=leads).pin_positions()
+
+
+class TestMinPitch:
+    def test_cylinder_pitches(self) -> None:
+        # lead_d = 2·0.25 = 0.5 → radial (D+0.5)/2, axial L+0.5
+        leads = Leads(
+            direction=((0.0, 0.0, -1.0), (0.0, 0.0, 1.0)),
+            body_offset_mm=(Point(10.0, 0.0),),
+            board_offset=BOARD_DEFAULT,
+            lead_r_mm=0.25,
+        )
+        c = Cylinder(diameter_mm=2.5, length_mm=6.3, leads=leads)
+        assert c.min_radial_pitch_mm() == (2.5 + 0.5) / 2.0
+        assert c.min_axial_pitch_mm() == 6.3 + 0.5
+
+    def test_disc_pitches(self) -> None:
+        d = Disc(diameter_mm=5.0, thickness_mm=2.0, leads=_radial_leads())
+        assert d.min_radial_pitch_mm() == (5.0 + 0.5) / 2.0
+        assert d.min_axial_pitch_mm() == 2.0 + 0.5
+
+    def test_lead_diameter_defaults_when_radius_missing(self) -> None:
+        # No lead_r → 0.5 mm default lead diameter (legacy TwoPinBodySpec).
+        d = Disc(diameter_mm=5.0, thickness_mm=2.0, leads=_radial_leads(lead_r=None))
+        assert d.min_radial_pitch_mm() == (5.0 + 0.5) / 2.0
+
+    def test_prism_pitch_from_explicit_dims(self) -> None:
+        leads = Leads(
+            direction=((0.0, 0.0, -1.0), (0.0, 0.0, -1.0)),
+            body_offset_mm=(Point(2.5, 0.0),),
+            board_offset=BOARD_DEFAULT,
+            lead_r_mm=0.25,
+        )
+        p = Prism(leads=leads, width_mm=7.62, length_mm=10.0)
+        assert p.min_radial_pitch_mm() == (7.62 + 0.5) / 2.0
+        assert p.min_axial_pitch_mm() == 10.0 + 0.5
+
+
+class TestPresentation:
+    def test_color_and_edge_carried(self) -> None:
+        c = Cylinder(
+            diameter_mm=2.5, length_mm=6.3, leads=_radial_leads(),
+            color="#d6c08c", edge=EdgeStyle.SHARP,
+        )
+        assert c.color == "#d6c08c"
+        assert c.edge is EdgeStyle.SHARP
+
+    def test_color_default_none(self) -> None:
+        c = Cylinder(diameter_mm=2.5, length_mm=6.3, leads=_radial_leads())
+        assert c.color is None
+
+
 class TestRegistry:
     def test_shape_registry(self) -> None:
         assert SHAPE_REGISTRY["cylinder"] is Cylinder
         assert SHAPE_REGISTRY["prism"] is Prism
+        assert SHAPE_REGISTRY["disc"] is Disc
