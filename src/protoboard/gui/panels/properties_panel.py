@@ -47,8 +47,8 @@ class PropertiesPanel(QWidget):
     pin_offsets_changed = Signal(uuid.UUID, object)
     # id, pin_variant (str or None)
     pin_variant_changed = Signal(uuid.UUID, object)
-    # id, body_variant (str "package_id/variant_id" or None for default)
-    body_variant_changed = Signal(uuid.UUID, object)
+    # id, package_variant (str "family/variant_id" or None for default)
+    package_variant_changed = Signal(uuid.UUID, object)
     # DRCIssue or None (None = the user clicked away or no issue selected).
     # MainWindow translates this into HighlightStack pushes + viewport centring.
     drc_issue_clicked = Signal(object)
@@ -124,7 +124,7 @@ class PropertiesPanel(QWidget):
         self._apply_btn.clicked.connect(self._on_apply)
         self._pin_variant_combo.currentIndexChanged.connect(self._on_pin_variant_changed)
         self._body_variant_combo.currentIndexChanged.connect(
-            self._on_body_variant_changed,
+            self._on_package_variant_changed,
         )
         self._current_id: uuid.UUID | None = None
         self._pin_variant_ids: list[str | None] = []
@@ -179,7 +179,7 @@ class PropertiesPanel(QWidget):
         inst: ComponentInstance,
         placement: ComponentPlacement | None = None,
         defn: ComponentDefinition | None = None,
-        two_pin_packages: "dict | None" = None,
+        package_families: "dict | None" = None,
     ) -> None:
         self._current_id = inst.id
         self._refdes_edit.setText(inst.refdes)
@@ -197,7 +197,7 @@ class PropertiesPanel(QWidget):
         self._update_geometry_table(placement, defn)
         self._rebuild_pin_variant_combo(defn, inst.pin_variant)
         self._rebuild_body_variant_combo(
-            defn, inst.body_variant, two_pin_packages or {},
+            defn, inst.package_variant, package_families or {},
         )
 
     def clear_component(self) -> None:
@@ -396,16 +396,16 @@ class PropertiesPanel(QWidget):
     ) -> None:
         """Repopulate the body-variant dropdown for the current instance.
 
-        Only shown for two-pin components (``TwoPin`` footprint) when a
-        package catalogue is available.  The list is built as:
+        ``packages`` is the package-family catalogue (family_id →
+        :class:`PackageFamily`).  Only shown for two-pin components
+        (``TwoPin`` footprint) when a catalogue is available.  The list is:
 
-        * ``Default`` — fall back to ``defn.default_body_variant`` (or
-          GenericBody when neither default nor instance variant resolves).
-        * The variants of the **definition's default package** first,
-          most-relevant on top.
-        * A separator + every other package's variants (alphabetic),
-          so the user can swap a resistor's body to a brick or move a
-          ceramic-disc cap to a tantalum drop without leaving the panel.
+        * ``Default`` — fall back to ``defn.package_family_ref`` (or the inline
+          package when neither default nor instance override resolves).
+        * The variants of the **definition's default family** first.
+        * Every other family's variants (alphabetic), so the user can swap a
+          resistor's body to a brick or a ceramic-disc cap to a tantalum drop
+          without leaving the panel.
         """
         from protoboard.domain.components.footprints import TwoPin
 
@@ -428,10 +428,10 @@ class PropertiesPanel(QWidget):
         self._body_variant_combo.addItem("Default (library)")
         self._body_variant_addresses.append(None)
 
-        # Definition's default package (if resolvable) sits at the top.
+        # Definition's default family (if resolvable) sits at the top.
         primary_pkg_id: str | None = None
-        if defn.default_body_variant:
-            parts = defn.default_body_variant.split("/", 1)
+        if defn.package_family_ref:
+            parts = defn.package_family_ref.split("/", 1)
             if len(parts) == 2:
                 primary_pkg_id = parts[0]
 
@@ -463,14 +463,14 @@ class PropertiesPanel(QWidget):
                     break
         self._body_variant_combo.blockSignals(False)
 
-    def _on_body_variant_changed(self, index: int) -> None:
+    def _on_package_variant_changed(self, index: int) -> None:
         if (
             self._current_id is None
             or index < 0
             or index >= len(self._body_variant_addresses)
         ):
             return
-        self.body_variant_changed.emit(
+        self.package_variant_changed.emit(
             self._current_id, self._body_variant_addresses[index],
         )
 

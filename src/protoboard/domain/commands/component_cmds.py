@@ -1972,6 +1972,43 @@ class SetComponentBodyVariantCommand(Command[ComponentState]):
 
 
 @dataclass
+class SetComponentPackageVariantCommand(Command[ComponentState]):
+    """Change the package-family variant of a component instance.
+
+    ``new_variant`` is a ``"family/variant_id"`` string referencing the
+    package-family catalogue, or ``None`` to clear the per-instance override
+    (falling back to the definition's ``package_family_ref`` / inline package).
+    Validation is intentionally minimal — an unresolvable address simply falls
+    through to the next package source for that instance, which is recoverable.
+    This is the package-model successor to
+    :class:`SetComponentBodyVariantCommand`.
+    """
+
+    component_id: uuid.UUID
+    new_variant: str | None
+    _old_variant: str | None = field(default=None, init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return f"Set package variant to {self.new_variant or 'default'}"
+
+    def apply(self, state: ComponentState) -> None:
+        inst = state.instances[self.component_id]
+        self._old_variant = inst.package_variant
+        import dataclasses as _dc
+        state.instances[self.component_id] = _dc.replace(
+            inst, package_variant=self.new_variant,
+        )
+
+    def revert(self, state: ComponentState) -> None:
+        inst = state.instances[self.component_id]
+        import dataclasses as _dc
+        state.instances[self.component_id] = _dc.replace(
+            inst, package_variant=self._old_variant,
+        )
+
+
+@dataclass
 class FlipWireFragmentCommand(Command[ComponentState]):
     """Flip a contiguous fragment of a wire to the opposite layer.
 

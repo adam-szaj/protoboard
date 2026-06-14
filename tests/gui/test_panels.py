@@ -306,8 +306,8 @@ class TestLibraryPanelBodyPicker:
 
 
 class TestBodyVariantDropdown:
-    """The Properties panel offers a body-variant dropdown for TwoPin
-    components when a package catalogue is provided."""
+    """The Properties panel offers a package-variant dropdown for TwoPin
+    components when a package-family catalogue is provided."""
 
     def _make_defn_with_default(self) -> object:
         from protoboard.domain.components.definition import (
@@ -318,29 +318,41 @@ class TestBodyVariantDropdown:
         return ComponentDefinition(
             name="R", footprint=TwoPin(),
             pin_names={}, component_class=ComponentClass.RESISTOR,
-            default_body_variant="DIN-0207/typ",
+            package_family_ref="DIN-0207/typ",
         )
 
-    def _packages(self) -> dict:
-        from protoboard.domain.components.two_pin_body import (
-            BodyShape, LeadArrangement, TwoPinBodyPackage, TwoPinBodySpec,
+    def _families(self) -> dict:
+        from protoboard.domain.components.package import (
+            PackageFamily, PackageVariant,
         )
-        def _spec(pkg: str, vid: str, length: float = 5.0,
-                  diameter: float = 2.0) -> TwoPinBodySpec:
-            return TwoPinBodySpec(
-                package_id=pkg, variant_id=vid, label=vid,
-                lead_arrangement=LeadArrangement.AXIAL,
-                shape=BodyShape.CYLINDER,
-                length_mm=length, diameter_mm=diameter,
+        from protoboard.domain.components.package.loader import build_package
+
+        def _cyl(d: float, length: float) -> object:
+            return build_package(
+                {
+                    "shape": "cylinder",
+                    "dims": {"diameter": d, "length": length},
+                    "bend": 0,
+                    "leads": {
+                        "direction": [[0, 0, -1], [0, 0, 1]],
+                        "body_offset": 0, "board_offset": "solve",
+                        "lead_r": 0.25, "lead_length": 8.0,
+                    },
+                },
+                "C",
             )
+
         return {
-            "DIN-0207": TwoPinBodyPackage(
-                package_id="DIN-0207", label="DIN 0207",
-                variants=(_spec("DIN-0207", "S"), _spec("DIN-0207", "typ")),
+            "DIN-0207": PackageFamily(
+                family_id="DIN-0207", label="DIN 0207",
+                variants=(
+                    PackageVariant("S", "S", _cyl(2.0, 5.0)),  # type: ignore[arg-type]
+                    PackageVariant("typ", "typ", _cyl(2.5, 6.5)),  # type: ignore[arg-type]
+                ),
             ),
-            "DIN-0617": TwoPinBodyPackage(
-                package_id="DIN-0617", label="DIN 0617",
-                variants=(_spec("DIN-0617", "typ", length=14.0, diameter=5.0),),
+            "DIN-0617": PackageFamily(
+                family_id="DIN-0617", label="DIN 0617",
+                variants=(PackageVariant("typ", "typ", _cyl(5.0, 14.0)),),  # type: ignore[arg-type]
             ),
         }
 
@@ -354,10 +366,8 @@ class TestBodyVariantDropdown:
         inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
         panel.show_component(
             inst, defn=self._make_defn_with_default(),  # type: ignore[arg-type]
-            two_pin_packages=self._packages(),
+            package_families=self._families(),
         )
-        assert panel._body_variant_combo.isVisible() or True  # widget might not show before parent
-        # Visibility flag is set even before the panel is shown.
         assert len(panel._body_variant_addresses) > 0
 
     def test_dropdown_lists_default_first(self, qtbot: object) -> None:
@@ -368,11 +378,11 @@ class TestBodyVariantDropdown:
         inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
         panel.show_component(
             inst, defn=self._make_defn_with_default(),  # type: ignore[arg-type]
-            two_pin_packages=self._packages(),
+            package_families=self._families(),
         )
         # First entry is always "Default (library)" with None address.
         assert panel._body_variant_addresses[0] is None
-        # DIN-0207 variants come right after (definition's default package).
+        # DIN-0207 variants come right after (definition's default family).
         assert panel._body_variant_addresses[1] == "DIN-0207/S"
         assert panel._body_variant_addresses[2] == "DIN-0207/typ"
         # Then DIN-0617.
@@ -394,7 +404,7 @@ class TestBodyVariantDropdown:
         )
         inst = ComponentInstance.new(definition_ref="HDR3", refdes="J1", value="")
         panel.show_component(
-            inst, defn=defn, two_pin_packages=self._packages(),
+            inst, defn=defn, package_families=self._families(),
         )
         assert panel._body_variant_addresses == []
 
@@ -406,7 +416,7 @@ class TestBodyVariantDropdown:
         inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
         panel.show_component(
             inst, defn=self._make_defn_with_default(),  # type: ignore[arg-type]
-            two_pin_packages={},
+            package_families={},
         )
         assert panel._body_variant_addresses == []
 
@@ -416,14 +426,14 @@ class TestBodyVariantDropdown:
         panel = PropertiesPanel()
         qtbot.addWidget(panel)
         inst = ComponentInstance.new(
-            definition_ref="R", refdes="R1", value="", body_variant=None,
+            definition_ref="R", refdes="R1", value="", package_variant=None,
         )
         panel.show_component(
             inst, defn=self._make_defn_with_default(),  # type: ignore[arg-type]
-            two_pin_packages=self._packages(),
+            package_families=self._families(),
         )
         received: list[tuple[uuid.UUID, object]] = []
-        panel.body_variant_changed.connect(
+        panel.package_variant_changed.connect(
             lambda cid, addr: received.append((cid, addr))
         )
         # Move to DIN-0617/typ
@@ -440,11 +450,11 @@ class TestBodyVariantDropdown:
         qtbot.addWidget(panel)
         inst = ComponentInstance.new(
             definition_ref="R", refdes="R1", value="",
-            body_variant="DIN-0617/typ",
+            package_variant="DIN-0617/typ",
         )
         panel.show_component(
             inst, defn=self._make_defn_with_default(),  # type: ignore[arg-type]
-            two_pin_packages=self._packages(),
+            package_families=self._families(),
         )
         # Combo should pick the DIN-0617/typ entry, not Default.
         idx = panel._body_variant_combo.currentIndex()

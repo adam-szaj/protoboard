@@ -4934,7 +4934,7 @@ class SelectTool(_Tool):
         if panel is not None:
             panel.show_component(
                 inst, placement, defn,
-                two_pin_packages=self._session.two_pin_body_families,
+                package_families=self._session.package_families,
             )
         self._notify_selection()
 

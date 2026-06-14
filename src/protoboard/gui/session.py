@@ -37,8 +37,12 @@ from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect
 from protoboard.services.drc.engine import DRCEngine, DRCIssue
 from protoboard.domain.components.two_pin_body import TwoPinBodyPackage
+from protoboard.domain.components.package import PackageFamily
 from protoboard.services.library.two_pin_body_loader import (
     load_two_pin_body_families,
+)
+from protoboard.services.library.package_family_loader import (
+    load_package_families,
 )
 from protoboard.services.library.loader import ComponentLibrary
 from protoboard.domain.axis_labels_settings import AxisLabelSettings
@@ -186,6 +190,8 @@ class EditorSession(QObject):
         self.two_pin_body_families: dict[str, TwoPinBodyPackage] = (
             load_two_pin_body_families()
         )
+        # Package-family catalogue (package-model successor), keyed by family id.
+        self.package_families: dict[str, PackageFamily] = load_package_families()
         self.stack: CommandStack[ComponentState] = CommandStack()
         self.routing_settings: RoutingSettings = RoutingSettings()
         self.axis_label_settings: AxisLabelSettings = AxisLabelSettings()
