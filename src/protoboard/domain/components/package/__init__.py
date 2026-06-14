@@ -29,6 +29,11 @@ from protoboard.domain.components.package.mask import (
     has_collision,
     masks_collide,
 )
+from protoboard.domain.components.package.reach import (
+    PinReach,
+    is_pin_bendable,
+    pin_reaches,
+)
 from protoboard.domain.components.package.shapes import (
     BOARD_DEFAULT,
     BOARD_SOLVE,
@@ -58,12 +63,15 @@ __all__ = [
     "PackageDefError",
     "PackageFootprint",
     "PadCell",
+    "PinReach",
     "Prism",
     "axial_board_offset_range",
     "build_package",
     "build_pad_mask",
     "has_collision",
+    "is_pin_bendable",
     "load_packages",
     "masks_collide",
+    "pin_reaches",
     "resolve_extends",
 ]
