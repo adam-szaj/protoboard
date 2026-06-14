@@ -163,6 +163,24 @@ board_offset = [[0,1],[0,1],[0,1],[3,0],[0,-1],[0,-1],[0,-1]]
 
 (pin1→4 w dół lewej kolumny, przeskok na prawą, pin5→8 w górę).
 
+**Forma run-length.** Powtarzające się offsety grupujemy przez **liczbę kolejnych
+powtórzeń** (to inna mechanika niż grupowanie `direction`, które enumeruje
+indeksy pinów — tu liczymy kroki w łańcuchu pin→pin). Element to:
+
+ - **`[count, [x,y]]`** — `count` razy wektor `[x,y]` (drugi element to lista),
+ - **`[x,y]`** — pojedynczy wektor (drugi element to liczba; `count` = 1).
+
+Rozróżnienie po typie drugiego elementu: lista → run-length, liczba → goły
+wektor. DIP-8 zwięźle:
+
+```
+body_offset = [[3,[0,1]], [3,0], [3,[0,-1]]]
+            =  3×[0,1]      [3,0]   3×[0,-1]
+```
+
+Pojedynczego przeskoku nie owijamy w `[1,[3,0]]` — wystarczy `[3,0]`. Suma
+powtórzeń = N−1 (DIP-8: 3+1+3 = 7).
+
 **Domyślnie `board_offset` ≡ `body_offset`** tam, gdzie ma to sens:
 
  - **Sztywne wyprowadzenia (DIP):** odgięcie niemożliwe, więc board = body
@@ -469,7 +487,7 @@ packages:
     leads:
       body_offset:
         unit: 2.5
-        value: [[0,1],[0,1],[0,1],[3,0],[0,-1],[0,-1],[0,-1]]
+        value: [[3,[0,1]], [3,0], [3,[0,-1]]]   # run-length: 3×↓, przeskok, 3×↑
 
 components:
   - name: NE555
@@ -564,7 +582,7 @@ Blok `leads`:
 | pole | dziedzina / jednostka | znaczenie |
 |---|---|---|
 | `direction` | — | lista wektorów 3D per pin (axial `[[0,0,-1],[0,0,1]]`, radial `[[0,0,-1],[0,0,-1]]`) |
-| `body_offset` | obudowa, własny `unit` | lista N−1 wektorów (sugar: skalar/wektor dla 1 pary). Forma: `{unit: U, value: [...]}` lub goła lista (wtedy `unit` z domyślnego pola) |
+| `body_offset` | obudowa, własny `unit` | lista N−1 wektorów; **run-length** `[count,[x,y]]` lub goły `[x,y]` (sugar: skalar/wektor dla 1 pary). Forma: `{unit: U, value: [...]}` lub goła lista |
 | `board_offset` | siatka, **otwory** (stały raster 2.5) | lista wektorów (inny **kształt** niż body) **lub** `default` (ten sam wektor co body, czytany w dziedzinie siatki) **lub** `solve` (solver axial) |
 | `lead_length` | mm | `null` = wypełnia GUI; wejście solvera dla axial |
 | `lead_r` | mm | promień drutu (solver) |
