@@ -107,11 +107,20 @@ za każdym razem podawać wszystkich parametrów.
 
 Axial i radial to nie dwa niezależne typy, tylko **nazwane szczególne
 przypadki** jednej, ogólniejszej geometrii wyprowadzeń. Geometria jest opisana
-**per pin**, a nie jedną etykietą. `kierunek` jest listą wektorów per pin:
+**per pin**, a nie jedną etykietą. `direction` ma **trzy formy** zapisu:
 
- - axial:  `kierunek = [[0,0,-1], [0,0,1]]` — piny współosiowe, wychodzą w
-   przeciwne strony.
- - radial: `kierunek = [[0,0,-1], [0,0,-1]]` — oba wychodzą w tę samą stronę.
+ - **jeden wektor** → dotyczy wszystkich pinów (DIP: `[0,0,-1]` → N× w dół);
+ - **lista wektorów** (tyle co pinów) → per pin (axial: `[[0,0,-1],[0,0,1]]`;
+   radial: `[[0,0,-1],[0,0,-1]]`);
+ - **pogrupowana** `[[indeksy], wektor]` → dla nieregularnych N-pinowych układów,
+   np. `[[[1,2,3,4],[0,0,-1]], [[5,6,7,8],[0,0,1]]]` (piny 1-4 w dół, 5-8 w górę).
+
+Rozstaw wyprowadzeń występuje w **dwóch wariantach**, które trzeba rozróżniać:
+
+ - **body_offset** — gdzie wyprowadzenia wychodzą *z bryły obudowy*. Cecha
+   fizyczna producenta (np. TO-92: 1.25 mm; rezystor axial: 0). Sztywna.
+ - **board_offset** — gdzie piny *lądują w otworach płytki*. To wynik montażu
+   (ewentualnego odgięcia wyprowadzeń).
 
 Rozstaw wyprowadzeń występuje w **dwóch wariantach**, które trzeba rozróżniać:
 
@@ -438,6 +447,92 @@ To TO-92 wymusił rozdział jednostek (sekcja „Jednostki”): `body_offset` ma
 własny `unit` (1.25, dziedzina obudowy), a `board_offset` zawsze liczy w
 otworach (raster 2.5). Dwie dziedziny, dwie jednostki — bez konfliktu.
 
+### Przykład przepracowany: DIP-8 (wielorzędowy, sztywny)
+
+DIP to przeciwieństwo poprzednich: **sztywne nóżki (zero odginania)** i
+**topologia wielorzędowa** (przeskok między kolumnami). Żadnego solvera, żadnej
+wartości required — wszystko jawne i stałe.
+
+```yaml
+packages:
+  - name: prism_dil                  # generyk DIP — rigid
+    extends: prism
+    leads:
+      direction:    [0, 0, -1]       # jeden wektor → wszystkie piny w dół
+      board_offset: default          # ≡ body, zatrzaśnięty
+    bend: 0.0                          # rigid = zero luzu
+
+  - name: DIP-8
+    extends: prism_dil
+    description: "DIP-8 / DIL-8, 0.3\" rows"
+    dims: {width: 9.8, length: 10.2, height: 4.0}
+    leads:
+      body_offset:
+        unit: 2.5
+        value: [[0,1],[0,1],[0,1],[3,0],[0,-1],[0,-1],[0,-1]]
+
+components:
+  - name: NE555
+    component_class: ic
+    package: {extends: DIP-8}
+    pin_names: {1: GND, 2: TRIG, 3: OUT, 4: RST, 5: CTRL, 6: THR, 7: DIS, 8: VCC}
+```
+
+Analiza:
+
+ - **topologia** — wektor `[3,0]` to przeskok na drugą kolumnę (rozstaw rzędów
+   3 otwory = 7.5 mm ≈ 0.3"). Pin 1→4 w dół lewej kolumny, przeskok, pin 5→8 w
+   górę prawej. To dokładnie odpowiada istniejącemu `DualRow` (`rows_spacing=3`)
+   — model wektorowy odtwarza dotychczasowy renderer DIP.
+ - **rigid** — `bend: 0.0`: nóżki DIP się nie odginają, więc `board_offset` jest
+   zatrzaśnięty na `default`. „Sztywny” to po prostu zerowy promień luzu, bez
+   osobnej koncepcji.
+ - **`direction: [0,0,-1]`** (jeden wektor) rozwija się na wszystkie 8 pinów.
+
+DIP testuje: topologię wielorzędową (przeskok kolumn), `bend = 0` jako rigid,
+oraz brak jakiegokolwiek odginania/solvera. Czwarty komponent — najprostszy,
+model przechodzi trywialnie.
+
+### Przykład przepracowany: devboard (moduł, dims z pinów + margin)
+
+Moduł dev-kit (ESP32, WeAct STM32) brzmi jak „nowa klasa z 4 rzędami pinów", a
+w nowym modelu jest **trywialny**: `shape: prism`, `direction: [0,0,-1]`, a
+cała praca to wypełnienie `body_offset` wektorami „gdzie kolejny pin". Wektorowa
+lista N−1 obsługuje dowolną liczbę rzędów bez nowej maszynerii.
+
+Jedyna realna nowość to **wymiar PCB liczony z pinów**, nie podawany ręcznie
+(przy 30+ pinach nikt nie mierzy korpusu). Devboard = `prism` + opcjonalny
+`margin`:
+
+```yaml
+packages:
+  - name: WeAct_STM32G474
+    extends: prism_dil                # rigid, direction w dół
+    description: "WeAct STM32G474 dev board"
+    margin: [0, 2.5]                  # góra/dół 0 (odcięte wzdłuż osi pinów),
+                                       # lewo/prawo 2.5 mm — CSS 2-wartości (V H)
+    leads:
+      board_offset:                    # 2 rzędy SIL, rozstaw rzędów = szer. modułu
+        value: [[0,1],[0,1], ... ,[W,0], ... ,[0,-1],[0,-1], ...]
+    # dims liczone: bbox(piny)→mm + margin
+```
+
+Analiza:
+
+ - **`dims` wyprowadzany** — `width/length` PCB = bbox środków pinów
+   (przeliczony otwory→mm, ×2.5) **+ margin** (mm). `height` z datasheetu lub
+   jawny override. Jawne `dims` wciąż wolno podać (moduł wystający asymetrycznie).
+ - **margin w mm, od środków pinów** — `margin: [0, 2.5]` (CSS, 2 wartości:
+   pion | poziom). **`0` po stronie pinów** = PCB odcięte dokładnie wzdłuż linii
+   środków zewnętrznych pinów (typowe dla breakoutów breadboard-friendly).
+ - **4 rzędy** (gdyby moduł je miał) = po prostu dłuższa lista `board_offset` z
+   wieloma przeskokami `[W,0]` — żadnej różnicy strukturalnej względem DIP.
+
+Devboard testuje: skalowanie listy offsetów na wiele rzędów, `dims` liczony z
+geometrii (uzasadnienie `generic_package` → geometrię liczy kod), oraz `margin`
+CSS z przypadkiem 0 (odcięcie wzdłuż osi pinów). Piąty „komponent" — potwierdza,
+że to, co brzmiało jak nowa klasa, mieści się w `prism` + jedno opcjonalne pole.
+
 
 ## Składnia YAML
 
@@ -459,7 +554,8 @@ za każdym razem.
 | `abstract: true` | baza, nie do bezpośredniego użycia (np. `cylinder`) |
 | `extends:` | nazwa package, po którym dziedziczymy i domykamy parametry |
 | `shape:` | `cylinder` \| `prism` |
-| `dims:` | wymiary bryły w **mm** (`diameter`/`length`/`edge_radius` lub `width`/`length`/`height`/`corner_radius`) |
+| `dims:` | wymiary bryły w **mm** (`diameter`/`length`/`edge_radius` lub `width`/`length`/`height`/`corner_radius`). Dla `prism` **opcjonalne** — gdy podany `margin`, liczone z bbox pinów (niżej) |
+| `margin:` | (prism, opcjonalne) margines PCB w **mm** od środków skrajnych pinów; gdy obecny → `dims` wyprowadzany z bbox(piny)+margin. Konwencja CSS: 1·\| 2 (V·H) \| 3 (T·H·B) \| 4 (T·R·B·L) wartości |
 | `leads:` | geometria wyprowadzeń (niżej) |
 | `bend:` | odginalność — jeden promień luzu **w otworach** (raster boardu), per package |
 
