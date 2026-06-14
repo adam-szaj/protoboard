@@ -22,6 +22,11 @@ from protoboard.domain.components.package.body import (
     EdgeStyle,
     LeadArrangement,
 )
+from protoboard.domain.components.package.family import (
+    PackageFamily,
+    PackageVariant,
+    resolve_variant,
+)
 from protoboard.domain.components.package.loader import (
     PackageDefError,
     build_package,
@@ -72,12 +77,15 @@ __all__ = [
     "OffsetRange",
     "Package",
     "PackageDefError",
+    "PackageFamily",
     "PackageFootprint",
+    "PackageVariant",
     "PadCell",
     "PinReach",
     "Prism",
     "axial_board_offset_range",
     "body_holes",
+    "resolve_variant",
     "build_package",
     "build_pad_mask",
     "has_collision",
