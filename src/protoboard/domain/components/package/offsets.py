@@ -73,6 +73,68 @@ def expand_offsets(raw: RawOffsetList) -> list[Point]:
     return out
 
 
+Vec3 = tuple[float, float, float]
+
+
+def _as_vec3(value: object) -> Vec3:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise ValueError(f"expected [x, y, z] direction, got {value!r}")
+    parts = list(value)
+    if len(parts) != 3 or not all(_is_number(p) for p in parts):
+        raise ValueError(f"direction must be [x, y, z] of numbers, got {value!r}")
+    return (float(parts[0]), float(parts[1]), float(parts[2]))
+
+
+def expand_direction(raw: object, pin_count: int) -> list[Vec3]:
+    """Expand ``direction`` (3 YAML forms) to one Vec3 per pin.
+
+    1. single vector ``[x,y,z]``          → applied to all pins;
+    2. list of N vectors                  → per pin;
+    3. grouped ``[[indices], [x,y,z]]``…  → indices are 1-based pin numbers.
+    """
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
+        raise ValueError(f"direction must be a list, got {raw!r}")
+    items = list(raw)
+
+    # Form 1: single [x,y,z] (three numbers).
+    if len(items) == 3 and all(_is_number(i) for i in items):
+        return [_as_vec3(items)] * pin_count
+
+    # Form 3: grouped — every element is [indices_list, vector_list].
+    def _is_grouped_element(el: object) -> bool:
+        return (
+            isinstance(el, Sequence)
+            and not isinstance(el, (str, bytes))
+            and len(list(el)) == 2
+            and isinstance(list(el)[0], Sequence)
+            and isinstance(list(el)[1], Sequence)
+        )
+
+    if items and all(_is_grouped_element(el) for el in items):
+        result: list[Vec3 | None] = [None] * pin_count
+        for el in items:
+            indices, vec = list(el)
+            v = _as_vec3(vec)
+            for idx in indices:
+                if not isinstance(idx, int) or isinstance(idx, bool):
+                    raise ValueError(f"pin index must be int, got {idx!r}")
+                if not 1 <= idx <= pin_count:
+                    raise ValueError(f"pin index {idx} out of range 1..{pin_count}")
+                result[idx - 1] = v
+        missing = [i + 1 for i, r in enumerate(result) if r is None]
+        if missing:
+            raise ValueError(f"direction missing for pins {missing}")
+        return [r for r in result if r is not None]
+
+    # Form 2: list of N per-pin vectors.
+    vectors = [_as_vec3(el) for el in items]
+    if len(vectors) != pin_count:
+        raise ValueError(
+            f"direction has {len(vectors)} vectors but {pin_count} pins"
+        )
+    return vectors
+
+
 def scale_offsets(vectors: Sequence[Point], unit: float) -> list[Point]:
     """Multiply each offset vector by ``unit`` (raster step → mm)."""
     return [Point(v.x * unit, v.y * unit) for v in vectors]
