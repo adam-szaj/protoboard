@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: MIT
+# Package-family catalogue — axial electrolytic cans (metal shell).
+# Ported from assets/body_types/axial_electrolytic.yaml.  Polar by convention,
+# but polarity drawing is the renderer's class-flavour decision, not a package
+# property.
+families:
+  - family: Axial-Elko-D4
+    extends: cylinder_axial
+    label: "Axial electrolytic, D=4 mm"
+    color: "#b8b8c0"
+    variants:
+      - id: typ
+        label: "Typical (4 x 7 mm)"
+        dims: {diameter: 4.0, length: 7.0}
+        leads: {lead_r: 0.25, lead_length: 10.0}
+
+  - family: Axial-Elko-D6.3
+    extends: cylinder_axial
+    label: "Axial electrolytic, D=6.3 mm"
+    color: "#b8b8c0"
+    variants:
+      - id: typ
+        label: "Typical (6.3 x 11 mm)"
+        dims: {diameter: 6.3, length: 11.0}
+        leads: {lead_r: 0.3, lead_length: 16.0}
+
+  - family: Axial-Elko-D10
+    extends: cylinder_axial
+    label: "Axial electrolytic, D=10 mm"
+    color: "#b8b8c0"
+    variants:
+      - id: typ
+        label: "Typical (10 x 16 mm)"
+        dims: {diameter: 10.0, length: 16.0}
+        leads: {lead_r: 0.4, lead_length: 24.0}

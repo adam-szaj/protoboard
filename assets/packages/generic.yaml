@@ -24,11 +24,13 @@ packages:
       lead_r:      null
       body_eccentricity: 0.0
 
-  - name: cylinder_radial           # elektrolit
+  - name: cylinder_radial           # elektrolit, LED (top-view)
     abstract: true
     extends: cylinder
+    arrangement: radial
     leads:
       direction:    [[0, 0, -1], [0, 0, -1]]
+      body_offset:  {unit: 2.5, value: [[1, 0]]}
       board_offset: default
     bend: 0.0
 
@@ -37,6 +39,31 @@ packages:
     extends: prism
     leads:
       direction:    [0, 0, -1]
+      board_offset: default
+    bend: 0.0
+
+  - name: disc                      # ceramiczny dysk, button cell
+    abstract: true
+    shape: disc
+    dims: {diameter: null, thickness: null}
+
+  - name: disc_radial               # ceramiczny kondensator dyskowy
+    abstract: true
+    extends: disc
+    arrangement: radial
+    leads:
+      direction:    [[0, 0, -1], [0, 0, -1]]
+      body_offset:  {unit: 2.5, value: [[1, 0]]}
+      board_offset: default
+    bend: 0.0
+
+  - name: prism_radial              # kryształ HC-49, ceramiczna cegła
+    abstract: true
+    extends: prism
+    arrangement: radial
+    leads:
+      direction:    [[0, 0, -1], [0, 0, -1]]
+      body_offset:  {unit: 2.5, value: [[1, 0]]}
       board_offset: default
     bend: 0.0
 

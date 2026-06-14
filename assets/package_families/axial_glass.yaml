@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: MIT
+# Package-family catalogue — axial glass diode bodies (DO-35 family).
+# Ported from the legacy assets/body_types/axial_glass.yaml: material "glass"
+# becomes an explicit colour, lead_diameter_mm becomes lead_r (= d/2), and each
+# variant now carries real lead geometry (extends cylinder_axial → board_offset
+# solve; lead_length is the datasheet body-to-pad reach, ~1.5x length to start).
+families:
+  - family: DO-35
+    extends: cylinder_axial
+    label: "DO-35 (subminiature axial glass)"
+    color: "#f4ece0"
+    default: typ
+    variants:
+      - id: S
+        label: "Small (1.5 x 3.0 mm)"
+        dims: {diameter: 1.5, length: 3.0}
+        leads: {lead_r: 0.2, lead_length: 4.5}
+      - id: typ
+        label: "Typical (1.8 x 3.7 mm)"
+        dims: {diameter: 1.8, length: 3.7}
+        leads: {lead_r: 0.2, lead_length: 5.6}
+      - id: L
+        label: "Large (2.0 x 4.5 mm)"
+        dims: {diameter: 2.0, length: 4.5}
+        leads: {lead_r: 0.25, lead_length: 6.8}

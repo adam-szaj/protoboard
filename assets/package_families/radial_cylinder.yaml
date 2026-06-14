@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: MIT
+# Package-family catalogue — radial aluminium electrolytic cans.
+# Ported from assets/body_types/radial_cylinder.yaml.  Variants step the case
+# diameter; can height is datasheet-dependent within each class.
+families:
+  - family: Radial-Elko-D5
+    extends: cylinder_radial
+    label: "Radial electrolytic, D=5 mm"
+    color: "#b8b8c0"
+    variants:
+      - id: typ
+        label: "Typical (5 x 11 mm)"
+        dims: {diameter: 5.0, length: 11.0}
+        leads: {lead_r: 0.25}
+
+  - family: Radial-Elko-D6.3
+    extends: cylinder_radial
+    label: "Radial electrolytic, D=6.3 mm"
+    color: "#b8b8c0"
+    variants:
+      - id: typ
+        label: "Typical (6.3 x 11 mm)"
+        dims: {diameter: 6.3, length: 11.0}
+        leads: {lead_r: 0.25}
+
+  - family: Radial-Elko-D8
+    extends: cylinder_radial
+    label: "Radial electrolytic, D=8 mm"
+    color: "#b8b8c0"
+    variants:
+      - id: typ
+        label: "Typical (8 x 12 mm)"
+        dims: {diameter: 8.0, length: 12.0}
+        leads: {lead_r: 0.3}
+
+  - family: Radial-Elko-D10
+    extends: cylinder_radial
+    label: "Radial electrolytic, D=10 mm"
+    color: "#b8b8c0"
+    variants:
+      - id: typ
+        label: "Typical (10 x 16 mm)"
+        dims: {diameter: 10.0, length: 16.0}
+        leads: {lead_r: 0.3}

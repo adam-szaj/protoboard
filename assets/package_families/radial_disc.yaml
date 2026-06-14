@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: MIT
+# Package-family catalogue — ceramic disc / tantalum drop caps (radial).
+# Ported from assets/body_types/radial_disc.yaml.  Radial parts use
+# board_offset: default (no axial solver), so no lead_length is needed.
+families:
+  - family: Ceramic-Disc-D5
+    extends: disc_radial
+    label: "Ceramic disc, D=5 mm"
+    color: "#d6c08c"
+    variants:
+      - id: typ
+        label: "Typical (5 mm x 2.0 mm thick)"
+        dims: {diameter: 5.0, thickness: 2.0}
+        leads: {lead_r: 0.25}
+
+  - family: Ceramic-Disc-D7
+    extends: disc_radial
+    label: "Ceramic disc, D=7 mm"
+    color: "#d6c08c"
+    variants:
+      - id: typ
+        label: "Typical (7 mm x 2.5 mm thick)"
+        dims: {diameter: 7.0, thickness: 2.5}
+        leads: {lead_r: 0.25}
+
+  - family: Ceramic-Disc-D10
+    extends: disc_radial
+    label: "Ceramic disc, D=10 mm"
+    color: "#d6c08c"
+    variants:
+      - id: typ
+        label: "Typical (10 mm x 3.0 mm thick)"
+        dims: {diameter: 10.0, thickness: 3.0}
+        leads: {lead_r: 0.3}
+
+  - family: Tantalum-Drop-D3.5
+    extends: disc_radial
+    label: "Tantalum drop, D=3.5 mm"
+    color: "#404858"
+    variants:
+      - id: typ
+        label: "Typical (3.5 mm x 2.5 mm)"
+        dims: {diameter: 3.5, thickness: 2.5}
+        disc_profile: candy
+        leads: {lead_r: 0.2}
