@@ -63,6 +63,7 @@ from protoboard.domain.components.two_pin_body import (
     TwoPinBodySpec,
 )
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.body import EdgeStyle
 from protoboard.domain.components.package.shapes import (
     Cylinder as _PkgCylinder,
     Package,
@@ -1450,6 +1451,24 @@ class PackageBody(BodyShape):
     def __init__(self, package: Package) -> None:
         self._pkg = package
 
+    def _resolve_colors(
+        self, fill: QColor, border: QColor,
+    ) -> tuple[QColor, QColor]:
+        """Body fill/border for this package.
+
+        When the package declares a ``color`` it is the fill, and the border is
+        derived by darkening it — the package fully describes its own appearance
+        (no Material → theme-palette indirection).  Otherwise the caller-supplied
+        colours are used unchanged.
+        """
+        pkg_color = getattr(self._pkg, "color", None)
+        if pkg_color is None:
+            return fill, border
+        body_fill = QColor(pkg_color)
+        if not body_fill.isValid():
+            return fill, border
+        return body_fill, _darken(body_fill)
+
     def draw(
         self,
         positions: list[Point],
@@ -1461,6 +1480,7 @@ class PackageBody(BodyShape):
     ) -> list[QGraphicsItem]:
         if not positions:
             return []
+        fill, border = self._resolve_colors(fill, border)
         if isinstance(self._pkg, _PkgCylinder) and len(positions) >= 2:
             return self._draw_cylinder(
                 self._pkg, positions, fill, border, alpha, z, theme,
@@ -1578,8 +1598,19 @@ class PackageBody(BodyShape):
         return [rect_item]
 
 
+def _darken(c: QColor) -> QColor:
+    """Border colour derived from a body fill — a darker shade of it."""
+    return c.darker(150)
+
+
 def _package_corner_radius(pkg: Package) -> float:
-    """Corner radius (mm) declared by the package shape, or 0."""
+    """Corner radius (mm) declared by the package shape, or 0.
+
+    A ``SHARP`` edge style forces square corners regardless of any declared
+    radius; ``ROUNDED`` uses the shape's radius field.
+    """
+    if getattr(pkg, "edge", None) is EdgeStyle.SHARP:
+        return 0.0
     if isinstance(pkg, _PkgCylinder):
         return pkg.edge_radius_mm
     if isinstance(pkg, _PkgPrism):

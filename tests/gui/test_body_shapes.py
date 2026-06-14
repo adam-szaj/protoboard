@@ -170,6 +170,46 @@ def _prism_package() -> object:
     )
 
 
+def _colored_cylinder_package(color: str = "#d6c08c", edge: str = "rounded") -> object:
+    """An axial cylinder declaring an explicit body colour and edge style."""
+    return build_package(
+        {
+            "shape": "cylinder",
+            "dims": {"diameter": 2.5, "length": 6.3},
+            "bend": 0,
+            "color": color,
+            "edge": edge,
+            "leads": {
+                "direction": [0, 0, -1],
+                "body_offset": {"unit": 2.5, "value": [[4, 0]]},
+                "board_offset": "default",
+            },
+        },
+        "TEST_CYL_COL",
+    )
+
+
+def _colored_prism_package(color: str = "#d6c08c", edge: str = "sharp") -> object:
+    return build_package(
+        {
+            "shape": "prism",
+            "dims": {"width": 7.62, "length": 10.0, "corner_radius": 1.0},
+            "bend": 0,
+            "color": color,
+            "edge": edge,
+            "leads": {
+                "direction": [0, 0, -1],
+                "body_offset": {
+                    "unit": 2.5,
+                    "value": [[3, [0, 1]], [3, 0], [3, [0, -1]]],
+                },
+                "board_offset": "default",
+            },
+        },
+        "TEST_DIP_COL",
+    )
+
+
 def _families_with(*specs: TwoPinBodySpec) -> dict[str, TwoPinBodyPackage]:
     """Build a per-package map from individual specs (one package per spec)."""
     out: dict[str, TwoPinBodyPackage] = {}
@@ -496,6 +536,59 @@ class TestPackageBodyDraw:
         pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
         items = shape.draw(pts, _RED, _DARK, 1.0, _Z)
         assert items[0].zValue() == _Z
+
+
+class TestPackageBodyColor:
+    """Body presentation (colour / edge) is read from the package."""
+
+    def _body_item(self, items: list) -> object:
+        # The capsule / rect carrying the body fill is the last path/rect item.
+        bodies = [
+            it for it in items
+            if isinstance(it, (QGraphicsPathItem, QGraphicsRectItem))
+        ]
+        return bodies[-1]
+
+    def test_cylinder_uses_package_color(self, qtbot: QtBot) -> None:
+        shape = PackageBody(_colored_cylinder_package("#d6c08c"))  # type: ignore[arg-type]
+        items = shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z)
+        body = self._body_item(items)
+        assert body.brush().color().name() == "#d6c08c"  # type: ignore[attr-defined]
+
+    def test_prism_uses_package_color(self, qtbot: QtBot) -> None:
+        shape = PackageBody(_colored_prism_package("#abcdef"))  # type: ignore[arg-type]
+        pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
+        items = shape.draw(pts, _RED, _DARK, 1.0, _Z)
+        body = self._body_item(items)
+        assert body.brush().color().name() == "#abcdef"  # type: ignore[attr-defined]
+
+    def test_no_color_falls_back_to_caller_fill(self, qtbot: QtBot) -> None:
+        shape = PackageBody(_cylinder_package())  # type: ignore[arg-type]
+        items = shape.draw(_pts((0, 0), (4, 0)), QColor("#404858"), _DARK, 1.0, _Z)
+        body = self._body_item(items)
+        assert body.brush().color().name() == "#404858"  # type: ignore[attr-defined]
+
+    def test_border_is_darker_than_fill(self, qtbot: QtBot) -> None:
+        shape = PackageBody(_colored_cylinder_package("#d6c08c"))  # type: ignore[arg-type]
+        items = shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z)
+        body = self._body_item(items)
+        fill = body.brush().color()  # type: ignore[attr-defined]
+        pen = body.pen().color()  # type: ignore[attr-defined]
+        assert pen.lightnessF() < fill.lightnessF()
+
+    def test_sharp_edge_squares_prism_corners(self, qtbot: QtBot) -> None:
+        # corner_radius=1.0 is declared, but edge=sharp forces 0 → a plain
+        # QGraphicsRectItem (rounded would be a QGraphicsPathItem).
+        shape = PackageBody(_colored_prism_package(edge="sharp"))  # type: ignore[arg-type]
+        pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
+        items = shape.draw(pts, _RED, _DARK, 1.0, _Z)
+        assert isinstance(self._body_item(items), QGraphicsRectItem)
+
+    def test_rounded_edge_rounds_prism_corners(self, qtbot: QtBot) -> None:
+        shape = PackageBody(_colored_prism_package(edge="rounded"))  # type: ignore[arg-type]
+        pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
+        items = shape.draw(pts, _RED, _DARK, 1.0, _Z)
+        assert isinstance(self._body_item(items), QGraphicsPathItem)
 
 
 # ---------------------------------------------------------------------------
