@@ -191,24 +191,34 @@ class TestLibraryPanelBodyPicker:
     two-pin component is selected and a package catalogue is wired."""
 
     def _packages(self) -> dict:
-        from protoboard.domain.components.two_pin_body import (
-            BodyShape, LeadArrangement, TwoPinBodyPackage, TwoPinBodySpec,
+        from protoboard.domain.components.package import (
+            PackageFamily, PackageVariant,
         )
-        def _spec(pkg: str, vid: str) -> TwoPinBodySpec:
-            return TwoPinBodySpec(
-                package_id=pkg, variant_id=vid, label=vid,
-                lead_arrangement=LeadArrangement.AXIAL,
-                shape=BodyShape.CYLINDER,
-                length_mm=5.0, diameter_mm=2.0,
+        from protoboard.domain.components.package.loader import build_package
+
+        def _cyl() -> object:
+            return build_package(
+                {
+                    "shape": "cylinder",
+                    "dims": {"diameter": 2.0, "length": 5.0},
+                    "bend": 0,
+                    "leads": {
+                        "direction": [[0, 0, -1], [0, 0, 1]],
+                        "body_offset": 0, "board_offset": "solve",
+                        "lead_r": 0.25, "lead_length": 8.0,
+                    },
+                },
+                "C",
             )
+
         return {
-            "DIN-0207": TwoPinBodyPackage(
-                package_id="DIN-0207", label="DIN 0207",
-                variants=(_spec("DIN-0207", "typ"),),
+            "DIN-0207": PackageFamily(
+                family_id="DIN-0207", label="DIN 0207",
+                variants=(PackageVariant("typ", "typ", _cyl()),),  # type: ignore[arg-type]
             ),
-            "DIN-0617": TwoPinBodyPackage(
-                package_id="DIN-0617", label="DIN 0617",
-                variants=(_spec("DIN-0617", "typ"),),
+            "DIN-0617": PackageFamily(
+                family_id="DIN-0617", label="DIN 0617",
+                variants=(PackageVariant("typ", "typ", _cyl()),),  # type: ignore[arg-type]
             ),
         }
 
@@ -243,7 +253,7 @@ class TestLibraryPanelBodyPicker:
         assert isinstance(qtbot, QtBot)
         panel = LibraryPanel(session.library)
         qtbot.addWidget(panel)
-        panel.set_two_pin_packages(self._packages())
+        panel.set_package_families(self._packages())
         r_item = self._select_R(panel)
         assert r_item is not None
         # "Default" entry plus DIN-0207/typ + DIN-0617/typ = 3 entries.
@@ -257,7 +267,7 @@ class TestLibraryPanelBodyPicker:
         assert isinstance(qtbot, QtBot)
         panel = LibraryPanel(session.library)
         qtbot.addWidget(panel)
-        # No set_two_pin_packages call.
+        # No set_package_families call.
         self._select_R(panel)
         assert panel._body_variant_addresses == []
 
@@ -268,7 +278,7 @@ class TestLibraryPanelBodyPicker:
         assert isinstance(qtbot, QtBot)
         panel = LibraryPanel(session.library)
         qtbot.addWidget(panel)
-        panel.set_two_pin_packages(self._packages())
+        panel.set_package_families(self._packages())
         r_item = self._select_R(panel)
         assert r_item is not None
         # Pick DIN-0617/typ from the dropdown.
@@ -291,7 +301,7 @@ class TestLibraryPanelBodyPicker:
         assert isinstance(qtbot, QtBot)
         panel = LibraryPanel(session.library)
         qtbot.addWidget(panel)
-        panel.set_two_pin_packages(self._packages())
+        panel.set_package_families(self._packages())
         r_item = self._select_R(panel)
         assert r_item is not None
         # Default is the first item (already selected after rebuild).

@@ -31,9 +31,9 @@ class LibraryPanel(QWidget):
     def __init__(self, library: ComponentLibrary, parent: object = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
         self._library = library
-        # Package catalogue is wired by main_window once the session
+        # Package-family catalogue is wired by main_window once the session
         # exists; until then the picker stays empty.
-        self._two_pin_packages: dict = {}
+        self._package_families: dict = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -219,14 +219,14 @@ class LibraryPanel(QWidget):
             return None
         return self._body_variant_addresses[idx]
 
-    def set_two_pin_packages(self, packages: dict) -> None:
-        """Wire the package catalogue from the active session.
+    def set_package_families(self, families: dict) -> None:
+        """Wire the package-family catalogue from the active session.
 
         Called by MainWindow whenever the session changes (open / close
         project, switch between projects).  The picker is rebuilt to
         reflect the current selection.
         """
-        self._two_pin_packages = packages or {}
+        self._package_families = families or {}
         self._refresh_body_picker_for_current()
 
     def _on_selection_changed(
@@ -260,34 +260,34 @@ class LibraryPanel(QWidget):
         show = (
             defn is not None
             and isinstance(defn.footprint, TwoPin)
-            and bool(self._two_pin_packages)
+            and bool(self._package_families)
         )
         self._body_row.setVisible(show)
         if not show or defn is None:
             self._body_variant_combo.blockSignals(False)
             return
 
-        # Default entry first (uses defn.default_body_variant at place time).
+        # Default entry first (uses defn.package_family_ref at place time).
         default_label = "Default"
-        if defn.default_body_variant:
-            default_label = f"Default ({defn.default_body_variant})"
+        if defn.package_family_ref:
+            default_label = f"Default ({defn.package_family_ref})"
         self._body_variant_combo.addItem(default_label)
         self._body_variant_addresses.append(None)
 
         primary_pkg_id: "str | None" = None
-        if defn.default_body_variant:
-            parts = defn.default_body_variant.split("/", 1)
+        if defn.package_family_ref:
+            parts = defn.package_family_ref.split("/", 1)
             if len(parts) == 2:
                 primary_pkg_id = parts[0]
 
-        sorted_pkg_ids = sorted(self._two_pin_packages.keys())
+        sorted_pkg_ids = sorted(self._package_families.keys())
         ordered = []
-        if primary_pkg_id and primary_pkg_id in self._two_pin_packages:
+        if primary_pkg_id and primary_pkg_id in self._package_families:
             ordered.append(primary_pkg_id)
         ordered.extend(p for p in sorted_pkg_ids if p != primary_pkg_id)
 
         for pkg_id in ordered:
-            pkg = self._two_pin_packages[pkg_id]
+            pkg = self._package_families[pkg_id]
             for v in pkg.variants:
                 addr = f"{pkg_id}/{v.variant_id}"
                 label = f"{pkg_id} / {v.variant_id}"
