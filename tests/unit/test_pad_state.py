@@ -318,6 +318,8 @@ from protoboard.domain.board.pad_state import PadIndex
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package import PackageFootprint, body_holes
+from protoboard.domain.components.package.loader import build_package
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
@@ -531,6 +533,109 @@ class TestPadIndexCanRouteThrough:
         assert idx.can_route_through(
             Point(1.5, 1.5), "bottom", our_net=None, wire_type="insulated",
         )
+
+
+def _prism_package():  # noqa: ANN202  (Package protocol)
+    """A 4-pin prism (2×1 box) whose body covers interior holes.
+
+    Pins at local (0,0),(0,1),(2,1),(2,0); body_holes include the interior
+    column x=1 — exactly the pads a body should mark with ComponentBody.
+    """
+    return build_package(
+        {
+            "shape": "prism",
+            "dims": {"width": 5.0, "length": 5.0},
+            "bend": 0,
+            "leads": {
+                "direction": [0, 0, -1],
+                "body_offset": {"unit": 2.5, "value": [[0, 1], [2, 0], [0, -1]]},
+                "board_offset": "default",
+            },
+        },
+        "TEST_DIP4",
+    )
+
+
+def _packaged_defn(*, blocks_routing: bool = False) -> ComponentDefinition:
+    pkg = _prism_package()
+    return ComponentDefinition(
+        name="U",
+        footprint=PackageFootprint(pkg),  # type: ignore[arg-type]
+        pin_names={},
+        package=pkg,  # type: ignore[arg-type]
+        body_blocks_routing=blocks_routing,
+    )
+
+
+def _placed_packaged_index(
+    *, blocks_routing: bool = False,
+) -> "PadIndex":
+    board = _perfboard(4, 4)
+    defn = _packaged_defn(blocks_routing=blocks_routing)
+    inst = ComponentInstance.new(definition_ref="U", refdes="U1", value="")
+    pl = ComponentPlacement(
+        component_id=inst.id, position=Point(0.5, 0.5),
+        rotation=0, side="top",
+    )
+    lay = _empty_layout()
+    lay.placements[inst.id] = pl
+    return PadIndex(
+        board, lay, Schematic(nets={}), {"U": defn}, {inst.id: inst},
+    )
+
+
+class TestPadIndexPackageBody:
+    """add_component derives the body footprint from the package mask."""
+
+    def test_interior_hole_gets_component_body(self) -> None:
+        idx = _placed_packaged_index()
+        # Local body hole (1, 0) → world (1.5, 0.5) (pin1 anchored at 0.5).
+        pad = idx.pad_at(Point(1.5, 0.5))
+        assert pad is not None
+        items = pad.physically_blocked_on("top")
+        assert any(isinstance(it, ComponentBody) for it in items)
+
+    def test_pin_hole_keeps_pin_item_not_body(self) -> None:
+        idx = _placed_packaged_index()
+        # Pin 1 local (0,0) → world (0.5, 0.5).
+        pad = idx.pad_at(Point(0.5, 0.5))
+        assert pad is not None
+        items = pad.physically_blocked_on("top")
+        assert any(isinstance(it, PinItem) for it in items)
+        assert not any(isinstance(it, ComponentBody) for it in items)
+
+    def test_non_blocking_body_allows_routing_under(self) -> None:
+        idx = _placed_packaged_index(blocks_routing=False)
+        assert idx.can_route_through(
+            Point(1.5, 0.5), "top", our_net=None, wire_type="insulated",
+        )
+
+    def test_blocking_body_blocks_routing_under(self) -> None:
+        idx = _placed_packaged_index(blocks_routing=True)
+        assert not idx.can_route_through(
+            Point(1.5, 0.5), "top", our_net=None, wire_type="insulated",
+        )
+        # Opposite side stays free — body sits on top only.
+        assert idx.can_route_through(
+            Point(1.5, 0.5), "bottom", our_net=None, wire_type="insulated",
+        )
+
+    def test_body_footprint_matches_mask_not_flooded_bbox(self) -> None:
+        # Only the package's body_holes (minus pins) carry a ComponentBody;
+        # holes outside the mask stay free even if a rectangular bbox would
+        # have covered them.
+        idx = _placed_packaged_index()
+        pkg = _prism_package()
+        body_world = {
+            Point(0.5 + h.x, 0.5 + h.y) for h in body_holes(pkg)
+        }
+        for pad in idx.iter_pads():
+            has_body = any(
+                isinstance(it, ComponentBody)
+                for it in pad.physically_blocked_on("top")
+            )
+            if has_body:
+                assert pad.position in body_world
 
 
 class TestPadIndexClone:

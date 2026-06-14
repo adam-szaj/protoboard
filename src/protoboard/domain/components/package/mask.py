@@ -84,6 +84,29 @@ def _hole_key(p: Point) -> Point:
     return Point(round(p.x), round(p.y))
 
 
+def body_holes(package: Package) -> list[Point]:
+    """Local-frame holes (grid domain) covered by the package body, minus pins.
+
+    The integer holes under the body bbox that are *not* a pin hole — i.e. the
+    pads a placed component would mark with a ``ComponentBody`` blocker. Returned
+    in the package's own frame (pin 1 at the origin, no rotation); the caller
+    applies the placement transform. Pure geometry, side-independent: which board
+    side the body sits on and whether it blocks routing are the caller's concern.
+    """
+    pin_holes = {_hole_key(p) for p in package.pin_positions()}
+    bb = package.bbox()
+    x0, y0 = round(bb.x), round(bb.y)
+    x1, y1 = round(bb.x + bb.width), round(bb.y + bb.height)
+    out: list[Point] = []
+    for hx in range(x0, x1 + 1):
+        for hy in range(y0, y1 + 1):
+            hole = Point(float(hx), float(hy))
+            if hole in pin_holes:
+                continue
+            out.append(hole)
+    return out
+
+
 def build_pad_mask(
     package: Package,
     *,

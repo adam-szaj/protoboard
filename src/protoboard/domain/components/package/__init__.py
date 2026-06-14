@@ -25,6 +25,7 @@ from protoboard.domain.components.package.loader import (
 )
 from protoboard.domain.components.package.mask import (
     PadCell,
+    body_holes,
     build_pad_mask,
     has_collision,
     masks_collide,
@@ -66,6 +67,7 @@ __all__ = [
     "PinReach",
     "Prism",
     "axial_board_offset_range",
+    "body_holes",
     "build_package",
     "build_pad_mask",
     "has_collision",

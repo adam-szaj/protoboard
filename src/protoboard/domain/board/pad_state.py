@@ -450,6 +450,7 @@ if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.components.package import Package
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.domain.layout.wire import Wire
@@ -872,17 +873,27 @@ class PadIndex:
             )
             pad._add_item(pin_item, side)
             footprint.append((key, side, pin_item))
-        # Component body — every pad inside the bbox (excluding pin pads
-        # which already have PinItem) gets a ComponentBody on this side.
+        # Component body — every pad under the body (excluding pin pads which
+        # already have PinItem) gets a ComponentBody on this side.
         # ``blocks_routing`` propagates from the definition (default False —
         # see ComponentDefinition.body_blocks_routing docstring).
-        bbox = component_bbox(defn.footprint, placement, defn.component_class)
         body = ComponentBody(
             id=comp_id,
             blocks_routing=getattr(defn, "body_blocks_routing", False),
         )
         pin_keys = {f[0] for f in footprint}
-        for pad in self._pads_in_bbox(bbox):
+        # When a parametric package is present it is the source of truth for the
+        # body footprint: its mask knows exactly which holes the body covers
+        # (side-aware), so we mark those holes directly instead of flooding a
+        # rectangular bbox.  Without a package, fall back to the legacy bbox.
+        if defn.package is not None:
+            body_pads = self._package_body_pads(defn.package, placement)
+        else:
+            bbox = component_bbox(
+                defn.footprint, placement, defn.component_class,
+            )
+            body_pads = self._pads_in_bbox(bbox)
+        for pad in body_pads:
             key = qpair(pad.position)
             if key in pin_keys:
                 continue
@@ -934,6 +945,35 @@ class PadIndex:
                     continue
             new_items.append((key, side, item))
         self._component_records[comp_id] = _ComponentFootprint(items=new_items)
+
+    def _package_body_pads(
+        self,
+        package: "Package",
+        placement: "ComponentPlacement",
+    ) -> list[Pad]:
+        """Pads covered by a parametric package body, in world coordinates.
+
+        The package mask (:func:`body_holes`) is computed in the package's own
+        local frame (pin 1 at the origin, no rotation); we apply the same
+        transform as ``pin_world_position`` — X-mirror on the bottom side, then
+        clockwise rotation, then ``+ placement.position`` — so the marked holes
+        line up with the placed pins.
+        """
+        from protoboard.domain.components.package import body_holes
+        from protoboard.domain.layout.placement import _rotate
+
+        out: list[Pad] = []
+        for hole in body_holes(package):
+            rel = Point(-hole.x, hole.y) if placement.side == "bottom" else hole
+            rot = _rotate(rel, placement.rotation)
+            world = Point(
+                placement.position.x + rot.x,
+                placement.position.y + rot.y,
+            )
+            pad = self._pads.get(qpair(world))
+            if pad is not None:
+                out.append(pad)
+        return out
 
     def _pads_in_bbox(self, bbox) -> list[Pad]:  # noqa: ANN001  (Rect is geometry)
         """Pads whose center lies inside *bbox* (inclusive on both bounds)."""
