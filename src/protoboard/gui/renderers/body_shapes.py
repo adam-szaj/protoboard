@@ -63,9 +63,10 @@ from protoboard.domain.components.two_pin_body import (
     TwoPinBodySpec,
 )
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package.body import EdgeStyle
+from protoboard.domain.components.package.body import EdgeStyle, LeadArrangement
 from protoboard.domain.components.package.shapes import (
     Cylinder as _PkgCylinder,
+    Disc as _PkgDisc,
     Package,
     Prism as _PkgPrism,
 )
@@ -1446,10 +1447,42 @@ def _resolve_two_pin_spec(
 # ---------------------------------------------------------------------------
 
 class PackageBody(BodyShape):
-    """Render a component body from its :class:`Package` geometry."""
+    """Render a component body from its :class:`Package` geometry.
 
-    def __init__(self, package: Package) -> None:
+    Presentation (colour, edge) comes from the package; polarity and which
+    pad is the anchor are *not* package properties — a package is class
+    agnostic (the same DO-41 hosts a diode, a Zener or a fuse), so the
+    polarity marker is driven by ``component_class`` and ``vertical_flipped``
+    exactly as the legacy ``TwoPinParametricBody`` did.
+    """
+
+    # ComponentClasses that show a polarity marker — diodes get a cathode
+    # stripe (axial) or a solid-vs-hollow disc (radial); polar electrolytics
+    # share the treatment.  Mirrors TwoPinParametricBody._POLAR_CLASSES.
+    _POLAR_CLASSES = frozenset({
+        ComponentClass.DIODE,
+        ComponentClass.DIODE_ZENER,
+        ComponentClass.DIODE_LED,
+        ComponentClass.CAPACITOR_POLAR,
+    })
+
+    def __init__(
+        self,
+        package: Package,
+        component_class: ComponentClass = ComponentClass.OTHER,
+        vertical_flipped: bool = False,
+    ) -> None:
         self._pkg = package
+        self._component_class = component_class
+        self._vertical_flipped = vertical_flipped
+
+    @property
+    def _is_polar(self) -> bool:
+        return self._component_class in self._POLAR_CLASSES
+
+    @property
+    def _arrangement(self) -> LeadArrangement:
+        return getattr(self._pkg, "arrangement", LeadArrangement.AXIAL)
 
     def _resolve_colors(
         self, fill: QColor, border: QColor,
@@ -1469,6 +1502,17 @@ class PackageBody(BodyShape):
             return fill, border
         return body_fill, _darken(body_fill)
 
+    def drawn_pin_numbers(
+        self,
+        positions: list[Point],
+        theme: Theme = DEFAULT_THEME,
+    ) -> frozenset[int]:
+        # The radial top-view occludes the anchor pad with a solid body; the
+        # component renderer skips its own marker there so the body is the dot.
+        if self._arrangement is LeadArrangement.RADIAL:
+            return frozenset({2 if self._vertical_flipped else 1})
+        return frozenset()
+
     def draw(
         self,
         positions: list[Point],
@@ -1481,6 +1525,15 @@ class PackageBody(BodyShape):
         if not positions:
             return []
         fill, border = self._resolve_colors(fill, border)
+        # Radial 2-pin: top-view silhouette on the anchor pad (vertical_flipped
+        # swaps which pad anchors).  Everything else is a side view.
+        if self._arrangement is LeadArrangement.RADIAL and len(positions) >= 2:
+            if self._vertical_flipped:
+                p1, p2 = positions[1], positions[0]
+            else:
+                p1, p2 = positions[0], positions[1]
+            if math.hypot(p2.x - p1.x, p2.y - p1.y) >= 1e-9:
+                return self._draw_radial(p1, p2, fill, border, alpha, z, theme)
         if isinstance(self._pkg, _PkgCylinder) and len(positions) >= 2:
             return self._draw_cylinder(
                 self._pkg, positions, fill, border, alpha, z, theme,
@@ -1505,7 +1558,12 @@ class PackageBody(BodyShape):
         body_len = pkg.length_mm / mm
         body_w = pkg.diameter_mm / mm
 
-        p1, p2 = positions[0], positions[1]
+        # vertical_flipped swaps the anchor end so the polarity stripe mirrors
+        # when the part is mounted the other way round (legacy convention).
+        if self._vertical_flipped:
+            p1, p2 = positions[1], positions[0]
+        else:
+            p1, p2 = positions[0], positions[1]
         dx, dy = p2.x - p1.x, p2.y - p1.y
         dist = math.hypot(dx, dy)
         if dist < 1e-9:
@@ -1550,7 +1608,111 @@ class PackageBody(BodyShape):
         t.rotate(angle_deg)
         body.setTransform(t)
         items.append(body)
+
+        # Polar cathode stripe at the p2 end (class flavour, not a package
+        # property); vertical_flipped already swapped p1/p2 above.
+        if self._is_polar:
+            stripe_w = min(body_len * 0.12, body_w * 0.4)
+            stripe_x = body_len / 2.0 - stripe_w
+            stripe_path = QPainterPath()
+            stripe_path.addRect(QRectF(stripe_x, -body_w / 2.0, stripe_w, body_w))
+            stripe = QGraphicsPathItem(stripe_path)
+            dark = QColor(theme.body_led_stripe_color)
+            dark.setAlphaF(alpha)
+            stripe.setBrush(QBrush(dark))
+            stripe.setPen(_body_pen(border, alpha, width=0.0))
+            stripe.setZValue(z + 0.01)
+            t_stripe = QTransform()
+            t_stripe.translate(mid_x, mid_y)
+            t_stripe.rotate(angle_deg)
+            stripe.setTransform(t_stripe)
+            items.append(stripe)
         return items
+
+    # ------------------------------------------------------------------
+    # Radial — top-view silhouette on the anchor pad
+    # ------------------------------------------------------------------
+
+    def _draw_radial(
+        self,
+        p1: Point, p2: Point,
+        fill: QColor, border: QColor, alpha: float, z: float,
+        theme: Theme,
+    ) -> list[QGraphicsItem]:
+        items: list[QGraphicsItem] = []
+        lead = QGraphicsLineItem(p1.x, p1.y, p2.x, p2.y)
+        lead.setPen(_lead_pen(theme, alpha))
+        lead.setZValue(z - 0.01)
+        items.append(lead)
+
+        mm = theme.raster_pitch_mm
+        # ``upper_pin`` is the pin standing proud of the top-down body; the
+        # polar disc uses it to pick solid (cathode up) vs hollow (anode up).
+        upper_pin = 1 if self._vertical_flipped else 2
+
+        pkg = self._pkg
+        if isinstance(pkg, (_PkgCylinder, _PkgDisc)):
+            diam = pkg.diameter_mm / mm
+            items.append(self._radial_disc(
+                p1, diam, fill, border, alpha, z, theme, upper_pin,
+            ))
+            return items
+
+        # Prism radial → rectangle aligned with the lead direction.
+        bb = pkg.bbox()
+        length_r, width_r = bb.height, bb.width
+        angle_deg = math.degrees(math.atan2(p2.y - p1.y, p2.x - p1.x))
+        rect_path = QPainterPath()
+        r = _package_corner_radius(pkg) / mm
+        rect_path.addRoundedRect(
+            QRectF(-length_r / 2.0, -width_r / 2.0, length_r, width_r), r, r,
+        )
+        body = QGraphicsPathItem(rect_path)
+        fill_c = QColor(fill)
+        fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        body.setBrush(QBrush(fill_c))
+        body.setPen(_body_pen(border, alpha))
+        body.setZValue(z)
+        t = QTransform()
+        t.translate(p1.x, p1.y)
+        t.rotate(angle_deg)
+        body.setTransform(t)
+        items.append(body)
+        return items
+
+    def _radial_disc(
+        self,
+        anchor: Point,
+        diam: float,
+        fill: QColor, border: QColor, alpha: float, z: float,
+        theme: Theme,
+        upper_pin: int,
+    ) -> QGraphicsItem:
+        """Filled disc on the anchor pad; polar parts get the cathode/anode
+        discriminator (solid dark = cathode up, light + thick rim = anode up)."""
+        r = diam / 2.0
+        circle = QGraphicsEllipseItem(
+            QRectF(anchor.x - r, anchor.y - r, diam, diam),
+        )
+        circle.setZValue(z)
+        if not self._is_polar:
+            fill_c = QColor(fill)
+            fill_c.setAlphaF(fill_c.alphaF() * alpha)
+            circle.setBrush(QBrush(fill_c))
+            circle.setPen(_body_pen(border, alpha))
+            return circle
+        if upper_pin == 2:
+            dark = QColor(theme.body_diode_cathode_color)
+            dark.setAlphaF(alpha)
+            circle.setBrush(QBrush(dark))
+            circle.setPen(_body_pen(border, alpha))
+        else:
+            light = QColor(theme.body_diode_anode_color)
+            circle.setBrush(QBrush(light))
+            rim = QColor(border)
+            rim.setAlphaF(alpha)
+            circle.setPen(QPen(rim, diam * 0.15))
+        return circle
 
     # ------------------------------------------------------------------
     # Generic — bbox() rectangle in holes (prism, devboard, fallback)
@@ -1635,16 +1797,18 @@ def body_shape_for(
     transistor, TO-220 for power packages, SVG-based DIP for two-row
     dual in-line packages, SIL header for three-or-more in-line headers.
     """
+    cls = defn.component_class
+    vf = placement.vertical_flipped if placement is not None else False
+
     # A parametric package (new spec model) is the source of truth for the
     # body geometry when present; legacy per-footprint renderers are the
-    # fallback for definitions that predate it.
+    # fallback for definitions that predate it.  Polarity / anchor come from
+    # the class and placement, not the (class-agnostic) package.
     if defn.package is not None:
-        return PackageBody(defn.package)
+        return PackageBody(defn.package, component_class=cls, vertical_flipped=vf)
 
     fp  = defn.footprint
-    cls = defn.component_class
     fams = two_pin_families or {}
-    vf = placement.vertical_flipped if placement is not None else False
 
     if isinstance(fp, TO220Footprint):
         return TO220Body()

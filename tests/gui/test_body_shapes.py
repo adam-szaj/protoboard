@@ -591,6 +591,79 @@ class TestPackageBodyColor:
         assert isinstance(self._body_item(items), QGraphicsPathItem)
 
 
+def _axial_cyl_package() -> object:
+    return build_package(
+        {
+            "shape": "cylinder",
+            "dims": {"diameter": 2.5, "length": 6.3},
+            "arrangement": "axial", "bend": 0,
+            "leads": {
+                "direction": [[0, 0, -1], [0, 0, 1]],
+                "body_offset": {"unit": 2.5, "value": [[4, 0]]},
+                "board_offset": "default", "lead_r": 0.27,
+            },
+        },
+        "AX",
+    )
+
+
+def _radial_cyl_package() -> object:
+    return build_package(
+        {
+            "shape": "cylinder",
+            "dims": {"diameter": 6.3, "length": 11.0},
+            "arrangement": "radial", "bend": 4,
+            "leads": {
+                "direction": [[0, 0, -1], [0, 0, -1]],
+                "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                "board_offset": "default", "lead_r": 0.25,
+            },
+        },
+        "RAD",
+    )
+
+
+class TestPackageBodyParity:
+    """2-pin visual parity with the legacy TwoPinParametricBody."""
+
+    def test_axial_polar_draws_cathode_stripe(self, qtbot: QtBot) -> None:
+        # Diode → capsule + stripe = two path items; plain part = one.
+        diode = PackageBody(
+            _axial_cyl_package(),  # type: ignore[arg-type]
+            component_class=ComponentClass.DIODE,
+        )
+        plain = PackageBody(_axial_cyl_package())  # type: ignore[arg-type]
+        d_paths = sum(
+            isinstance(it, QGraphicsPathItem)
+            for it in diode.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z)
+        )
+        p_paths = sum(
+            isinstance(it, QGraphicsPathItem)
+            for it in plain.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z)
+        )
+        assert d_paths == p_paths + 1
+
+    def test_radial_emits_disc_and_lead(self, qtbot: QtBot) -> None:
+        shape = PackageBody(_radial_cyl_package())  # type: ignore[arg-type]
+        items = shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        assert any(isinstance(it, QGraphicsEllipseItem) for it in items)
+        assert any(isinstance(it, QGraphicsLineItem) for it in items)
+
+    def test_radial_anchor_pin_drawn_by_body(self, qtbot: QtBot) -> None:
+        shape = PackageBody(_radial_cyl_package())  # type: ignore[arg-type]
+        assert shape.drawn_pin_numbers(_pts((0, 0), (1, 0))) == frozenset({1})
+
+    def test_radial_vertical_flipped_swaps_anchor(self, qtbot: QtBot) -> None:
+        shape = PackageBody(
+            _radial_cyl_package(), vertical_flipped=True,  # type: ignore[arg-type]
+        )
+        assert shape.drawn_pin_numbers(_pts((0, 0), (1, 0))) == frozenset({2})
+
+    def test_axial_arrangement_no_drawn_pins(self, qtbot: QtBot) -> None:
+        shape = PackageBody(_axial_cyl_package())  # type: ignore[arg-type]
+        assert shape.drawn_pin_numbers(_pts((0, 0), (4, 0))) == frozenset()
+
+
 # ---------------------------------------------------------------------------
 # BodyShape interface contract
 # ---------------------------------------------------------------------------
