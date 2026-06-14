@@ -555,3 +555,59 @@ class TestWirePinPersistence:
         import pytest
         with pytest.raises(SerializationError, match="unknown knot kind"):
             _layout_from_yaml(bad_yaml)
+
+
+class TestDropDanglingInstances:
+    """Components whose definition is missing (e.g. bad package skipped by the
+    library) are dropped from the board on load; the project still loads."""
+
+    class _FakeLibrary:
+        def __init__(self, known: set[str]) -> None:
+            self._known = known
+
+        def get(self, name: str):  # type: ignore[no-untyped-def]
+            return object() if name in self._known else None
+
+    def test_dangling_instance_dropped(self, tmp_path: Path) -> None:
+        from protoboard.services.persistence.project_yaml import (
+            set_migration_library,
+        )
+
+        board = _perfboard()
+        good = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        bad = ComponentInstance.new(definition_ref="GHOST", refdes="X1", value="?")
+        instances = {good.id: good, bad.id: bad}
+        pl_good = ComponentPlacement(
+            component_id=good.id, position=Point(0.0, 0.0), rotation=0, side="top",
+        )
+        pl_bad = ComponentPlacement(
+            component_id=bad.id, position=Point(1.0, 0.0), rotation=0, side="top",
+        )
+        lay = Layout(placements={good.id: pl_good, bad.id: pl_bad}, wires=[])
+        save_project(tmp_path, board, lay, Schematic(nets={}), instances=instances)
+
+        set_migration_library(self._FakeLibrary({"R"}))  # GHOST unknown
+        try:
+            _, loaded_layout, _, loaded_instances, _, _, _ = load_project(tmp_path)
+        finally:
+            set_migration_library(None)
+
+        # bad dropped from instances AND placements; good survives.
+        assert good.id in loaded_instances
+        assert bad.id not in loaded_instances
+        assert good.id in loaded_layout.placements
+        assert bad.id not in loaded_layout.placements
+
+    def test_no_library_keeps_everything(self, tmp_path: Path) -> None:
+        from protoboard.services.persistence.project_yaml import (
+            set_migration_library,
+        )
+
+        board = _perfboard()
+        bad = ComponentInstance.new(definition_ref="GHOST", refdes="X1", value="?")
+        instances = {bad.id: bad}
+        save_project(tmp_path, board, Layout(), Schematic(nets={}), instances=instances)
+
+        set_migration_library(None)  # no library → no dropping
+        _, _, _, loaded_instances, _, _, _ = load_project(tmp_path)
+        assert bad.id in loaded_instances

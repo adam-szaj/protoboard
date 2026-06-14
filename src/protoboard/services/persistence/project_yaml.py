@@ -337,6 +337,55 @@ def _schematic_to_yaml(schematic: Schematic) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _drop_dangling_instances(
+    instances: dict[uuid.UUID, ComponentInstance],
+    layout: Layout,
+    library: object | None,
+) -> None:
+    """Remove component instances whose definition is missing from *library*.
+
+    A definition can be absent because its parametric package failed to build
+    and the library skipped it (see library loader graceful degradation). Such
+    instances are dropped from ``instances``, ``layout.placements``, every
+    group's ``component_ids`` and any ``pin_knots`` anchored to them — the
+    project loads and the user re-places the part with a fresh definition.
+
+    No-op when there is no library (the migration global is unset).
+    """
+    if library is None or not hasattr(library, "get"):
+        return
+    dangling = {
+        cid
+        for cid, inst in instances.items()
+        if library.get(inst.definition_ref) is None
+    }
+    if not dangling:
+        return
+
+    for cid in dangling:
+        inst = instances.pop(cid, None)
+        layout.placements.pop(cid, None)
+        _log.warning(
+            "project.component_dropped",
+            component_id=str(cid),
+            refdes=inst.refdes if inst is not None else "?",
+            definition_ref=inst.definition_ref if inst is not None else "?",
+        )
+
+    # Prune dropped components from every group's membership (replace preserves
+    # all other group fields).
+    import dataclasses
+
+    for gid, group in list(layout.groups.items()):
+        kept = group.component_ids - dangling
+        if kept != group.component_ids:
+            layout.groups[gid] = dataclasses.replace(group, component_ids=kept)
+
+    # Prune pin knots anchored to dropped components.
+    for pin in [p for p in layout.pin_knots if p.component_id in dangling]:
+        layout.pin_knots.pop(pin, None)
+
+
 def load_project(
     directory: Path,
 ) -> tuple[
@@ -371,6 +420,13 @@ def load_project(
     except FileNotFoundError as exc:
         _log.warning("project.load_failed", path=str(directory), error=str(exc))
         raise SerializationError(f"Missing project file: {exc}") from exc
+
+    # Drop components whose definition is unavailable (e.g. its parametric
+    # package failed to build and the library skipped it). The project still
+    # loads; the user re-places the part with a fresh definition. Done BEFORE
+    # the migration passes so they never operate on dangling instances.
+    _drop_dangling_instances(instances, layout, _library_for_migration)
+
     # Enrich every insulated wire with pad-position vertices wherever its
     # path geometrically crosses a board pad.  Legacy projects saved before
     # this invariant got pad-node enrichment had wires without "handles" at
