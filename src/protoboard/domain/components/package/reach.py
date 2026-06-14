@@ -24,16 +24,18 @@ from protoboard.geometry import Point
 
 @dataclass(frozen=True, slots=True)
 class PinReach:
-    """Where a pin may land: a euclidean ring measured from the ANCHOR (pin 1).
+    """Where a pin's lead may land: a euclidean ring measured from the ORIGIN.
 
-    ``anchor`` is pin 1's hole (the rotation/reference point). ``default`` is the
-    pin's home hole. ``ring`` is the allowed pin-to-anchor spacing (mm), i.e.
-    ``board_offset_range`` — for bend it is ``[body_offset, body_offset+bend]``,
-    for axial it is the solver's ``[r_min, r_max]``. ``is_movable`` is False when
-    the ring is a single point (rigid — DIP, bend=0).
+    The component ORIGIN is the fixed reference point ``[0, 0]`` (= the default
+    position of pin 1 = the rotation point). The origin does NOT move; what
+    moves is the pin's bent lead relative to its default. ``default`` is the
+    pin's home hole. ``ring`` is the allowed spacing from the origin (mm) — for
+    bend ``[body_offset, body_offset+bend]``, for axial the solver's
+    ``[r_min, r_max]``. ``is_movable`` is False when the ring is a single point
+    (rigid — DIP, bend=0).
     """
 
-    anchor: Point
+    origin: Point
     default: Point
     ring: OffsetRange
 
@@ -42,13 +44,13 @@ class PinReach:
         return self.ring.r_max_mm > self.ring.r_min_mm
 
     def is_reachable(self, target: Point, *, raster_mm: float) -> bool:
-        """Whether ``target`` (in holes) is a legal landing for this pin.
+        """Whether ``target`` (in holes) is a legal landing for this pin's lead.
 
-        The ring is anchor-to-pin spacing, so distance is measured from the
-        ANCHOR (pin 1), in mm (holes × raster) to match the ring units.
+        The ring is spacing from the fixed component origin, so distance is
+        measured from the ORIGIN, in mm (holes × raster) to match ring units.
         """
-        dx = (target.x - self.anchor.x) * raster_mm
-        dy = (target.y - self.anchor.y) * raster_mm
+        dx = (target.x - self.origin.x) * raster_mm
+        dy = (target.y - self.origin.y) * raster_mm
         dist = (dx * dx + dy * dy) ** 0.5
         return self.ring.contains_mm(dist)
 
@@ -60,19 +62,17 @@ def pin_reaches(
 ) -> dict[int, PinReach]:
     """Reach info per pin number (1-based) for a placed package.
 
-    Pin 1 is the anchor (origin) — it does not move, so it is omitted unless the
-    package's range makes pin 1 movable too. For the worked cases the ring is the
-    same for every movable pin (``bend``/solver are per package); each pin's ring
-    is centred on its own default position.
+    The component ORIGIN is the fixed point ``[0, 0]`` (default position of pin
+    1, the rotation point). The origin never moves; every pin — including pin 1
+    — may have its lead bent within ``ring`` of the origin. ``bend``/solver are
+    per package, so the ring is shared; each pin carries its own default hole.
     """
     positions = package.pin_positions(orientation=orientation)
     ring = package.board_offset_range(orientation=orientation)
-    anchor = positions[0]  # pin 1
+    origin = Point(0.0, 0.0)
     out: dict[int, PinReach] = {}
     for idx, pos in enumerate(positions, start=1):
-        if idx == 1:
-            continue  # pin 1 is the anchor
-        out[idx] = PinReach(anchor=anchor, default=pos, ring=ring)
+        out[idx] = PinReach(origin=origin, default=pos, ring=ring)
     return out
 
 

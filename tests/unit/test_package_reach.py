@@ -21,24 +21,26 @@ def _builtin() -> dict:
 
 
 class TestPinReaches:
-    def test_pin1_is_anchor(self) -> None:
+    def test_all_pins_present_including_pin1(self) -> None:
+        # The ORIGIN is fixed; every pin (incl. pin 1) may bend its lead.
         reaches = pin_reaches(_builtin()["CP_Elec_6.3x11"])
-        assert 1 not in reaches      # anchor omitted
+        assert 1 in reaches
         assert 2 in reaches
 
-    def test_ring_centred_on_pin_default(self) -> None:
+    def test_default_is_pin_home_origin_is_zero(self) -> None:
         c = _builtin()["CP_Elec_6.3x11"]
         reaches = pin_reaches(c)
-        # pin 2 default = pin_positions()[1]
         assert reaches[2].default == c.pin_positions()[1]
+        assert reaches[2].origin == Point(0.0, 0.0)   # fixed origin
+        assert reaches[1].origin == Point(0.0, 0.0)
 
     def test_electrolytic_reachable_within_bend(self) -> None:
-        c = _builtin()["CP_Elec_6.3x11"]  # ring 1..5 holes from anchor (pin1)
+        c = _builtin()["CP_Elec_6.3x11"]  # ring 1..5 holes from ORIGIN [0,0]
         reach = pin_reaches(c)[2]
-        # measured from pin1 (anchor at 0,0):
+        # measured from the fixed origin at (0,0):
         assert reach.is_reachable(Point(5.0, 0.0), raster_mm=RASTER_MM) is True   # 5 holes = r_max
         assert reach.is_reachable(Point(1.0, 0.0), raster_mm=RASTER_MM) is True   # 1 hole = r_min
-        assert reach.is_reachable(Point(0.0, 0.0), raster_mm=RASTER_MM) is False  # on anchor
+        assert reach.is_reachable(Point(0.0, 0.0), raster_mm=RASTER_MM) is False  # on origin
         assert reach.is_reachable(Point(6.0, 0.0), raster_mm=RASTER_MM) is False  # beyond r_max
 
 
