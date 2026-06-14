@@ -63,6 +63,11 @@ from protoboard.domain.components.two_pin_body import (
     TwoPinBodySpec,
 )
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.shapes import (
+    Cylinder as _PkgCylinder,
+    Package,
+    Prism as _PkgPrism,
+)
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
 from protoboard.gui.theme import DEFAULT_THEME, Theme
@@ -1427,6 +1432,161 @@ def _resolve_two_pin_spec(
     return None
 
 
+# ---------------------------------------------------------------------------
+# PackageBody — draw the body from a parametric Package (spec model)
+#
+# When a ComponentDefinition carries a ``package`` (the new parametric model,
+# see docs/footprints/spec.md) the body is drawn directly from that geometry
+# instead of the legacy per-footprint renderers.  Cylinders render as a
+# side-view capsule between the leads (the axial-resistor / diode look);
+# every other shape renders its ``bbox()`` rectangle (in holes) centred on
+# the pin cloud.  This is the rendering counterpart to the package wiring in
+# DRC / place_tool / library, on the same optional-field + fallback footing.
+# ---------------------------------------------------------------------------
+
+class PackageBody(BodyShape):
+    """Render a component body from its :class:`Package` geometry."""
+
+    def __init__(self, package: Package) -> None:
+        self._pkg = package
+
+    def draw(
+        self,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme = DEFAULT_THEME,
+    ) -> list[QGraphicsItem]:
+        if not positions:
+            return []
+        if isinstance(self._pkg, _PkgCylinder) and len(positions) >= 2:
+            return self._draw_cylinder(
+                self._pkg, positions, fill, border, alpha, z, theme,
+            )
+        return self._draw_bbox(positions, fill, border, alpha, z, theme)
+
+    # ------------------------------------------------------------------
+    # Cylinder — side-view capsule along the lead axis (axial parts)
+    # ------------------------------------------------------------------
+
+    def _draw_cylinder(
+        self,
+        pkg: _PkgCylinder,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme,
+    ) -> list[QGraphicsItem]:
+        mm = theme.raster_pitch_mm
+        body_len = pkg.length_mm / mm
+        body_w = pkg.diameter_mm / mm
+
+        p1, p2 = positions[0], positions[1]
+        dx, dy = p2.x - p1.x, p2.y - p1.y
+        dist = math.hypot(dx, dy)
+        if dist < 1e-9:
+            return self._draw_bbox(positions, fill, border, alpha, z, theme)
+
+        mid_x = (p1.x + p2.x) / 2.0
+        mid_y = (p1.y + p2.y) / 2.0
+        angle_deg = math.degrees(math.atan2(dy, dx))
+
+        items: list[QGraphicsItem] = []
+
+        # Leads — only when the pad spacing exceeds the body length.
+        if dist > body_len + 1e-6:
+            unit_x, unit_y = dx / dist, dy / dist
+            attach = dist / 2.0 - body_len / 2.0
+            lead_pen = _lead_pen(theme, alpha)
+            l1 = QGraphicsLineItem(
+                p1.x, p1.y, p1.x + unit_x * attach, p1.y + unit_y * attach,
+            )
+            l2 = QGraphicsLineItem(
+                p2.x - unit_x * attach, p2.y - unit_y * attach, p2.x, p2.y,
+            )
+            for ln in (l1, l2):
+                ln.setPen(lead_pen)
+                ln.setZValue(z - 0.01)
+            items.extend([l1, l2])
+
+        # Capsule: a rounded rectangle, fully rounded ends.
+        r = min(body_w / 2.0, body_len / 2.0)
+        path = QPainterPath()
+        path.addRoundedRect(
+            QRectF(-body_len / 2.0, -body_w / 2.0, body_len, body_w), r, r,
+        )
+        body = QGraphicsPathItem(path)
+        fill_c = QColor(fill)
+        fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        body.setBrush(QBrush(fill_c))
+        body.setPen(_body_pen(border, alpha))
+        body.setZValue(z)
+        t = QTransform()
+        t.translate(mid_x, mid_y)
+        t.rotate(angle_deg)
+        body.setTransform(t)
+        items.append(body)
+        return items
+
+    # ------------------------------------------------------------------
+    # Generic — bbox() rectangle in holes (prism, devboard, fallback)
+    # ------------------------------------------------------------------
+
+    def _draw_bbox(
+        self,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme,
+    ) -> list[QGraphicsItem]:
+        try:
+            box = self._pkg.bbox()
+        except ValueError:
+            # bbox needs dims/margin the package doesn't carry — fall back to
+            # a rectangle hugging the pin cloud (same as GenericBody).
+            generic: list[QGraphicsItem] = GenericBody().draw(
+                positions, fill, border, alpha, z, theme,
+            )
+            return generic
+
+        # bbox() is anchored at pin 1 ([0, 0]); shift it onto the placed pins.
+        anchor = positions[0]
+        x0 = anchor.x + box.x
+        y0 = anchor.y + box.y
+        r = _package_corner_radius(self._pkg) / theme.raster_pitch_mm
+        rect = QRectF(x0, y0, box.width, box.height)
+        fill_c = QColor(fill)
+        fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        if r > 0:
+            path = QPainterPath()
+            path.addRoundedRect(rect, r, r)
+            path_item = QGraphicsPathItem(path)
+            path_item.setBrush(QBrush(fill_c))
+            path_item.setPen(_body_pen(border, alpha))
+            path_item.setZValue(z)
+            return [path_item]
+        rect_item = QGraphicsRectItem(rect)
+        rect_item.setBrush(QBrush(fill_c))
+        rect_item.setPen(_body_pen(border, alpha))
+        rect_item.setZValue(z)
+        return [rect_item]
+
+
+def _package_corner_radius(pkg: Package) -> float:
+    """Corner radius (mm) declared by the package shape, or 0."""
+    if isinstance(pkg, _PkgCylinder):
+        return pkg.edge_radius_mm
+    if isinstance(pkg, _PkgPrism):
+        return pkg.corner_radius_mm
+    return 0.0
+
+
 def body_shape_for(
     defn: ComponentDefinition,
     placement: ComponentPlacement | None = None,
@@ -1444,6 +1604,12 @@ def body_shape_for(
     transistor, TO-220 for power packages, SVG-based DIP for two-row
     dual in-line packages, SIL header for three-or-more in-line headers.
     """
+    # A parametric package (new spec model) is the source of truth for the
+    # body geometry when present; legacy per-footprint renderers are the
+    # fallback for definitions that predate it.
+    if defn.package is not None:
+        return PackageBody(defn.package)
+
     fp  = defn.footprint
     cls = defn.component_class
     fams = two_pin_families or {}

@@ -42,6 +42,7 @@ from protoboard.gui.renderers.body_shapes import (
     BodyShape,
     DIPBody,
     GenericBody,
+    PackageBody,
     SvgDIPBody,
     TO92Body,
     TO220Body,
@@ -49,6 +50,7 @@ from protoboard.gui.renderers.body_shapes import (
     _find_id,
     body_shape_for,
 )
+from protoboard.domain.components.package.loader import build_package
 from protoboard.gui.theme import DEFAULT_THEME
 
 
@@ -128,6 +130,43 @@ def _radial_prism_spec() -> TwoPinBodySpec:
         lead_arrangement=LeadArrangement.RADIAL,
         shape=_TPShape.PRISM, edge=EdgeStyle.SHARP,
         length_mm=22.0, width_mm=9.5, height_mm=9.0,
+    )
+
+
+def _cylinder_package() -> object:
+    """An axial cylinder (resistor-like) built through the package loader."""
+    return build_package(
+        {
+            "shape": "cylinder",
+            "dims": {"diameter": 2.5, "length": 6.3},
+            "bend": 0,
+            "leads": {
+                "direction": [0, 0, -1],
+                "body_offset": {"unit": 2.5, "value": [[4, 0]]},
+                "board_offset": "default",
+            },
+        },
+        "TEST_CYL",
+    )
+
+
+def _prism_package() -> object:
+    """A DIP-8 style prism built through the package loader."""
+    return build_package(
+        {
+            "shape": "prism",
+            "dims": {"width": 7.62, "length": 10.0},
+            "bend": 0,
+            "leads": {
+                "direction": [0, 0, -1],
+                "body_offset": {
+                    "unit": 2.5,
+                    "value": [[3, [0, 1]], [3, 0], [3, [0, -1]]],
+                },
+                "board_offset": "default",
+            },
+        },
+        "TEST_DIP",
     )
 
 
@@ -394,6 +433,69 @@ class TestBodyShapeFor:
                             two_pin_families=families)
         assert isinstance(s1, BodyShape)
         assert isinstance(s2, BodyShape)
+
+
+# ---------------------------------------------------------------------------
+# PackageBody — parametric package geometry
+# ---------------------------------------------------------------------------
+
+class TestPackageBodyDispatch:
+    def test_package_wins_over_legacy_footprint(self) -> None:
+        # A definition that would otherwise dispatch to SvgDIPBody, but
+        # carries a package → PackageBody takes precedence.
+        defn = ComponentDefinition(
+            name="U1", component_class=ComponentClass.IC,
+            footprint=DualRow(n_per_row=4), pin_names={},
+            package=_prism_package(),  # type: ignore[arg-type]
+        )
+        shape = body_shape_for(defn)
+        assert isinstance(shape, PackageBody)
+
+    def test_no_package_uses_legacy_path(self) -> None:
+        defn = ComponentDefinition(
+            name="U1", component_class=ComponentClass.IC,
+            footprint=DualRow(n_per_row=4), pin_names={},
+        )
+        shape = body_shape_for(defn)
+        assert not isinstance(shape, PackageBody)
+
+
+class TestPackageBodyDraw:
+    def test_cylinder_draws_capsule_and_leads(self, qtbot: QtBot) -> None:
+        shape = PackageBody(_cylinder_package())  # type: ignore[arg-type]
+        # Pads spaced wider than the body → leads appear.
+        items = shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z)
+        assert any(isinstance(it, QGraphicsPathItem) for it in items)
+        assert any(isinstance(it, QGraphicsLineItem) for it in items)
+
+    def test_cylinder_short_spacing_omits_leads(self, qtbot: QtBot) -> None:
+        shape = PackageBody(_cylinder_package())  # type: ignore[arg-type]
+        # Pads closer than the body length → no separate lead lines.
+        items = shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        assert any(isinstance(it, QGraphicsPathItem) for it in items)
+        assert not any(isinstance(it, QGraphicsLineItem) for it in items)
+
+    def test_cylinder_coincident_pins_falls_back(self, qtbot: QtBot) -> None:
+        shape = PackageBody(_cylinder_package())  # type: ignore[arg-type]
+        items = shape.draw(_pts((0, 0), (0, 0)), _RED, _DARK, 1.0, _Z)
+        assert items  # degenerate spacing → bbox rectangle, not a crash
+
+    def test_prism_draws_rectangle(self, qtbot: QtBot) -> None:
+        shape = PackageBody(_prism_package())  # type: ignore[arg-type]
+        pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
+        items = shape.draw(pts, _RED, _DARK, 1.0, _Z)
+        assert len(items) == 1
+        assert isinstance(items[0], (QGraphicsRectItem, QGraphicsPathItem))
+
+    def test_empty_positions_returns_no_items(self, qtbot: QtBot) -> None:
+        shape = PackageBody(_cylinder_package())  # type: ignore[arg-type]
+        assert shape.draw([], _RED, _DARK, 1.0, _Z) == []
+
+    def test_z_value_is_set(self, qtbot: QtBot) -> None:
+        shape = PackageBody(_prism_package())  # type: ignore[arg-type]
+        pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
+        items = shape.draw(pts, _RED, _DARK, 1.0, _Z)
+        assert items[0].zValue() == _Z
 
 
 # ---------------------------------------------------------------------------
