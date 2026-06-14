@@ -153,9 +153,9 @@ class TestBoardSandwichCache:
     def test_alpha_for_board_mid_default(self) -> None:
         from protoboard.gui.layer_state import LayerState
         ls = LayerState()
-        # FULL → board_mid_alpha (default 0.30 from Theme propagation;
-        # here we just use the LayerState default 0.30).
-        assert ls.alpha_for_board_mid() == 0.30
+        # FULL → board_mid_alpha (default 0.10 from Theme propagation;
+        # here we just use the LayerState default 0.10).
+        assert ls.alpha_for_board_mid() == 0.10
         # HIDDEN → 0
         from protoboard.gui.layer_state import LayerVisibility
         ls.overrides.board = LayerVisibility.HIDDEN

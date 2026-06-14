@@ -143,10 +143,10 @@ class LayerState:
     # Alpha for the mid (second) blit of the board pixmap in the sandwich.
     # 0.30 → pads peek through under front-side items so they visually
     # rest on the board, but back-side items underneath stay readable.
-    board_mid_alpha: float = 0.30
+    board_mid_alpha: float = 0.10
     # Alpha of the half-transparent black wash drawn between back-side
     # items and the mid board blit.  See ``alpha_for_back_filter``.
-    back_filter_alpha: float = 0.30
+    back_filter_alpha: float = 0.10
 
     # ------------------------------------------------------------------
     # Z-value helpers
