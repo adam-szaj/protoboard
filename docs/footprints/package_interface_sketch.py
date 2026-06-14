@@ -85,8 +85,12 @@ class PadCell(IntFlag):
     # lub obie strony) — to jest cały mechanizm. „Solderable” = BRAK zapalenia,
     # nie osobny bit. Decyzja dzieje się przy BUDOWIE maski, nie przy AND.
 
-    # Rozszerzenie (kierunek): kolizja z WIRE — analogicznie, drut zajmuje
-    # otwory/segmenty po swojej stronie i wpada do tej samej algebry bitowej.
+    # Kolizja body↔WIRE = „czy da się przeprowadzić drut pod/przy body”. Po
+    # PRZECIWNEJ stronie niż body — prawie zawsze tak; po TEJ SAMEJ — zależy od
+    # standoff. NIE budujemy tu nowego modelu: wire-wire już działa na PadIndex
+    # (side-aware, can_route_through). Bity BODY_* (+ decyzja standoff) zasilają
+    # BLOKADY w PadIndex dla prowadzenia wire — router pyta PadIndex jak dotąd.
+    # collision_map/pad_mask jest ŹRÓDŁEM tych blokad, nie równoległym modelem.
 
 
 def has_collision(a: PadCell, b: PadCell) -> bool:
