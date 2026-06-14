@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from protoboard.services.debug_trace import traced
+
 # Canonical raster: 2.54 mm / 0.1" is represented internally as 2.5 mm.
 RASTER_MM = 2.5
 
@@ -50,6 +52,7 @@ class OffsetRange:
         return self.r_min_mm <= distance_mm <= self.r_max_mm
 
 
+@traced("axial_board_offset_range")
 def axial_board_offset_range(
     *,
     length_mm: float,

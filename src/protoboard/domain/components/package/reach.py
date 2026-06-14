@@ -27,6 +27,7 @@ from protoboard.domain.components.package.solver import (
     OffsetRange,
 )
 from protoboard.geometry import Point
+from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import PinBendSpec
@@ -86,6 +87,7 @@ def pin_reaches(
     return out
 
 
+@traced("is_pin_bendable")
 def is_pin_bendable(
     package: Package,
     pin_number: int,
@@ -102,6 +104,7 @@ def is_pin_bendable(
     return reach is not None and reach.is_movable
 
 
+@traced("package_to_bend_specs")
 def package_to_bend_specs(
     package: Package,
     *,

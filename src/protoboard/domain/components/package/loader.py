@@ -27,6 +27,7 @@ from protoboard.domain.components.package.shapes import (
     Prism,
 )
 from protoboard.geometry import Insets, Point
+from protoboard.services.debug_trace import traced
 
 PackageDict = dict[str, Any]
 
@@ -176,6 +177,7 @@ def _margin_insets(raw: object) -> Insets | None:
     raise PackageDefError(f"margin needs 1-4 values, got {len(vals)}")
 
 
+@traced("build_package")
 def build_package(merged: PackageDict, pkg: str) -> Package:
     shape = merged.get("shape")
     if shape not in SHAPE_REGISTRY:
@@ -205,6 +207,7 @@ def build_package(merged: PackageDict, pkg: str) -> Package:
     )
 
 
+@traced("load_packages")
 def load_packages(raw_list: list[PackageDict]) -> dict[str, Package]:
     """Build all non-abstract packages from a list of raw definitions."""
     registry = {str(d["name"]): d for d in raw_list if "name" in d}

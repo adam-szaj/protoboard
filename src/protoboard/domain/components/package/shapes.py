@@ -23,6 +23,7 @@ from protoboard.domain.components.package.solver import (
     axial_board_offset_range,
 )
 from protoboard.geometry import Insets, Point, Rect
+from protoboard.services.debug_trace import traced
 
 # Sentinels for board_offset source (see spec): a literal list of step vectors,
 # or one of these strings.
@@ -135,6 +136,7 @@ class Cylinder:
     def pin_count(self) -> int:
         return self.leads.pin_count
 
+    @traced("Cylinder.pin_positions")
     def pin_positions(
         self, *, orientation: MountOrientation = MountOrientation.HORIZONTAL
     ) -> list[Point]:
@@ -146,6 +148,7 @@ class Cylinder:
         steps = _resolve_board_steps(self.leads, solved_range=solved)
         return cumulative_positions(steps)
 
+    @traced("Cylinder.board_offset_range")
     def board_offset_range(
         self, *, orientation: MountOrientation = MountOrientation.HORIZONTAL
     ) -> OffsetRange:
@@ -183,6 +186,7 @@ class Prism:
     def pin_count(self) -> int:
         return self.leads.pin_count
 
+    @traced("Prism.pin_positions")
     def pin_positions(
         self, *, orientation: MountOrientation = MountOrientation.HORIZONTAL
     ) -> list[Point]:
@@ -191,6 +195,7 @@ class Prism:
         steps = _resolve_board_steps(self.leads, solved_range=None)
         return cumulative_positions(steps)
 
+    @traced("Prism.board_offset_range")
     def board_offset_range(
         self, *, orientation: MountOrientation = MountOrientation.HORIZONTAL
     ) -> OffsetRange:

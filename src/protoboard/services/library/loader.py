@@ -43,6 +43,7 @@ from protoboard.domain.components.package import (
 )
 from protoboard.errors import SerializationError
 from protoboard.paths import BUILTIN_ASSETS_DIR
+from protoboard.services.debug_trace import traced
 
 import structlog
 
@@ -71,6 +72,7 @@ def _load_builtin_package_defs() -> dict[str, dict[str, Any]]:
     return defs
 
 
+@traced("_build_component_package")
 def _build_component_package(name: str, raw: dict[str, Any]) -> Package:
     """Build a Package from a component's inline ``package:`` block.
 
