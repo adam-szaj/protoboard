@@ -34,9 +34,55 @@ from protoboard.domain.components.footprints import (
     SingleRow,
     TwoPin,
 )
+from protoboard.domain.components.package import (
+    Package,
+    PackageDefError,
+    PackageFootprint,
+    build_package,
+    resolve_extends,
+)
 from protoboard.errors import SerializationError
+from protoboard.paths import BUILTIN_ASSETS_DIR
 
+import structlog
+
+_log = structlog.get_logger(__name__)
 _yaml = YAML(typ="safe")
+
+
+def _load_builtin_package_defs() -> dict[str, dict[str, Any]]:
+    """Raw builtin package definitions (name → dict) from assets/packages/*.yaml.
+
+    These are the generics/named bases a component's inline ``package:`` may
+    ``extends``. Cached after first load.
+    """
+    cached = getattr(_load_builtin_package_defs, "_cache", None)
+    if cached is not None:
+        return cached  # type: ignore[no-any-return]
+    defs: dict[str, dict[str, Any]] = {}
+    pkg_dir = BUILTIN_ASSETS_DIR / "packages"
+    if pkg_dir.is_dir():
+        for yaml_path in sorted(pkg_dir.glob("*.yaml")):
+            data = _yaml.load(yaml_path.read_text())
+            for d in (data or {}).get("packages", []):
+                if isinstance(d, dict) and isinstance(d.get("name"), str):
+                    defs[d["name"]] = d
+    _load_builtin_package_defs._cache = defs  # type: ignore[attr-defined]
+    return defs
+
+
+def _build_component_package(name: str, raw: dict[str, Any]) -> Package:
+    """Build a Package from a component's inline ``package:`` block.
+
+    The block may ``extends`` a builtin generic; we register it as a temporary
+    named package alongside the builtins, resolve the extends chain, and build.
+    Raises ``PackageDefError`` on a malformed / incompletely-closed definition.
+    """
+    registry = dict(_load_builtin_package_defs())
+    node = {**raw, "name": name}
+    registry[name] = node
+    merged = resolve_extends(name, registry)
+    return build_package(merged, name)
 
 
 @dataclass
@@ -101,7 +147,15 @@ def _load_file(path: Path) -> list[ComponentDefinition]:
         if name.startswith("_"):
             continue  # template — not placeable, skip
         resolved = _resolve_extends(raw, raw_by_name, source=path, chain=[])
-        defn = _component_from_dict(resolved, source=path)
+        try:
+            defn = _component_from_dict(resolved, source=path)
+        except PackageDefError as exc:
+            # A malformed parametric package must not sink the whole library.
+            # Skip this component; the user re-places it with a fresh definition.
+            _log.warning(
+                "library.package_skipped", component=name, path=str(path), error=str(exc)
+            )
+            continue
         result.append(defn)
 
         # aliases: list of extra names that resolve to the same definition.
@@ -161,16 +215,31 @@ def _component_from_dict(data: Any, source: Path) -> ComponentDefinition:
         raise SerializationError(f"{source}: each component must be a mapping")
     if "name" not in data or not isinstance(data["name"], str):
         raise SerializationError(f"{source}: component requires string 'name'")
-    if "footprint" not in data:
-        raise SerializationError(
-            f"{source}: component {data.get('name')!r} requires 'footprint'"
-        )
-    try:
-        footprint = _footprint_from_dict(data["footprint"])
-    except (TypeError, ValueError) as exc:
-        raise SerializationError(
-            f"{source}: invalid footprint for {data['name']!r}: {exc}"
-        ) from exc
+
+    # Parametric package (docs/footprints/spec.md). When present, it is the
+    # source of geometry: the footprint is derived via PackageFootprint, and an
+    # explicit ``footprint:`` is optional. A malformed package raises
+    # PackageDefError, which the caller turns into a skipped component (the user
+    # re-places it with a fresh definition) rather than failing the whole load.
+    package_obj: Package | None = None
+    package_raw = data.get("package")
+    if isinstance(package_raw, dict):
+        package_obj = _build_component_package(data["name"], package_raw)
+
+    if package_obj is not None:
+        footprint: FootprintTemplate = PackageFootprint(package_obj)
+    else:
+        if "footprint" not in data:
+            raise SerializationError(
+                f"{source}: component {data.get('name')!r} requires 'footprint' "
+                f"or 'package'"
+            )
+        try:
+            footprint = _footprint_from_dict(data["footprint"])
+        except (TypeError, ValueError) as exc:
+            raise SerializationError(
+                f"{source}: invalid footprint for {data['name']!r}: {exc}"
+            ) from exc
 
     pin_names_raw = data.get("pin_names") or {}
     if not isinstance(pin_names_raw, dict):
@@ -335,6 +404,7 @@ def _component_from_dict(data: Any, source: Path) -> ComponentDefinition:
             variants=tuple(variants),
             default_body_variant=default_body_variant,
             default_value=default_value,
+            package=package_obj,
         )
     except ValueError as exc:
         raise SerializationError(

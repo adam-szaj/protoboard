@@ -387,3 +387,66 @@ components:
         ids = [v.id for v in defn.variants]
         assert "i2c_vcc_gnd_sda_scl" in ids
         assert "uart_vcc_gnd_tx_rx" in ids
+
+
+class TestPackageInLibrary:
+    """Components may declare a parametric ``package:`` instead of footprint."""
+
+    def _write(self, tmp_path: Path, text: str) -> Path:
+        d = tmp_path / "lib"
+        d.mkdir()
+        (d / "parts.yaml").write_text(text)
+        return d
+
+    def test_component_with_package_loads(self, tmp_path: Path) -> None:
+        d = self._write(tmp_path, """
+components:
+  - name: C_POL
+    component_class: capacitor_polar
+    pin_names: {1: "+", 2: "-"}
+    package:
+      extends: cylinder_radial
+      dims: {diameter: 6.3, length: 11.0}
+      leads:
+        body_offset: {unit: 2.5, value: [[1, 0]]}
+      bend: 4.0
+""")
+        lib = load_library([d])
+        defn = lib.get("C_POL")
+        assert defn.package is not None          # package attached
+        assert defn.pin_count == 2               # footprint derived from package
+        # footprint pin positions come from the package
+        assert defn.footprint.pin_positions()[0].x == 0.0
+
+    def test_package_component_needs_no_footprint(self, tmp_path: Path) -> None:
+        d = self._write(tmp_path, """
+components:
+  - name: R
+    component_class: resistor
+    pin_names: {}
+    package:
+      extends: cylinder_axial
+      dims: {diameter: 2.5, length: 6.3}
+      leads: {lead_r: 0.27, lead_length: 32.0}
+""")
+        lib = load_library([d])
+        assert lib.get("R").pin_count == 2       # no footprint: key needed
+
+    def test_malformed_package_skips_component_not_crash(self, tmp_path: Path) -> None:
+        # Missing required dims (null) → package won't build → component skipped,
+        # but the rest of the library still loads.
+        d = self._write(tmp_path, """
+components:
+  - name: BadPart
+    component_class: resistor
+    pin_names: {}
+    package:
+      extends: cylinder_axial
+      leads: {lead_r: 0.27, lead_length: 32.0}
+  - name: GoodPart
+    footprint: {type: SIL, pins: 2}
+    pin_names: {}
+""")
+        lib = load_library([d])
+        assert "BadPart" not in lib              # malformed package → skipped
+        assert "GoodPart" in lib                 # rest loads fine
