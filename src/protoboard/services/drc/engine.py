@@ -15,12 +15,18 @@ from protoboard.domain.axis_labels_settings import (
     format_index,
 )
 from protoboard.domain.board.board import Board
+from protoboard.domain.board.layer import LayerId
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.mask import (
+    PadCell,
+    build_pad_mask,
+    masks_collide,
+)
 from protoboard.domain.components.package.reach import is_pin_bendable
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.placement import pin_world_position
+from protoboard.domain.layout.placement import _rotate, pin_world_position
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
@@ -28,6 +34,7 @@ from protoboard.services.routing.astar import _segs_cross
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
+    from protoboard.domain.layout.placement import ComponentPlacement
 
 _log = structlog.get_logger(__name__)
 _Severity = Literal["error", "warning", "info"]
@@ -185,6 +192,9 @@ class DRCEngine:
         issues += _check_overlap(layout, components, instances, axis_labels)
         if _cancelled():
             return issues
+        issues += _check_body_overlap(layout, components, instances, axis_labels)
+        if _cancelled():
+            return issues
         issues += _check_short(
             schematic, layout, graph, instances,
             components=components, axis_labels=axis_labels,
@@ -317,6 +327,143 @@ def _check_overlap(
                 affected_components=affected_components,
             )
         )
+    return issues
+
+
+def _placed_pad_mask(
+    defn: ComponentDefinition,
+    placement: "ComponentPlacement",
+) -> dict[Point, PadCell]:
+    """World-space side-aware pad mask for a placed packaged component.
+
+    ``build_pad_mask`` works in the package's local frame (pin 1 at the origin,
+    no rotation); we transform each hole into world coordinates with the same
+    pipeline as ``pin_world_position`` — X-mirror on the bottom side, clockwise
+    rotation, ``+ placement.position``. ``mount_side`` is the placement side so
+    the mask lights the correct PIN_/BODY_ side bits; ``body_blocks`` follows the
+    definition flag so a flush/metal body lights the pin-side bits too.
+    """
+    assert defn.package is not None
+    side: LayerId = "bottom" if placement.side == "bottom" else "top"
+    local = build_pad_mask(
+        defn.package,
+        mount_side=side,
+        body_blocks=getattr(defn, "body_blocks_routing", False),
+    )
+    out: dict[Point, PadCell] = {}
+    for hole, bits in local.items():
+        rel = Point(-hole.x, hole.y) if placement.side == "bottom" else hole
+        rot = _rotate(rel, placement.rotation)
+        world = Point(
+            placement.position.x + rot.x,
+            placement.position.y + rot.y,
+        )
+        out[world] = out.get(world, PadCell(0)) | bits
+    return out
+
+
+def _check_body_overlap(
+    layout: Layout,
+    components: dict[str, ComponentDefinition],
+    instances: dict[uuid.UUID, ComponentInstance],
+    axis_labels: AxisLabelSettings | None = None,
+) -> list[DRCIssue]:
+    """Detect two component bodies physically colliding (package-mask AND).
+
+    Each packaged component contributes a side-aware pad mask; two masks
+    collide where their bitwise AND is non-zero on any shared hole (see
+    ``mask.masks_collide``). This catches body-on-body overlap and a part
+    mounted under a blocking body — cases the pin-on-pad ``OVERLAP`` check
+    does not cover.
+
+    Pin-on-pad conflicts that ``_check_overlap`` already owns *with* the
+    bendable/shared-pin exemption are suppressed here: a contested hole whose
+    only shared bits are pin bits, and whose pins are all bendable or shared,
+    is intentional and is not re-reported. Bodies (BODY_/blocking) always flag.
+    """
+    placed = [
+        (cid, pl, components[instances[cid].definition_ref])
+        for cid, pl in layout.placements.items()
+        if cid in instances
+        and instances[cid].definition_ref in components
+        and components[instances[cid].definition_ref].package is not None
+    ]
+    if len(placed) < 2:
+        return []
+
+    masks: dict[uuid.UUID, dict[Point, PadCell]] = {
+        cid: _placed_pad_mask(defn, pl) for cid, pl, defn in placed
+    }
+    _PIN_BITS = PadCell.PIN | PadCell.PIN_TOP | PadCell.PIN_BOTTOM
+    _BODY_BITS = PadCell.BODY_TOP | PadCell.BODY_BOTTOM
+
+    def _pin_at(cid: uuid.UUID, hole: Point) -> int | None:
+        defn = components[instances[cid].definition_ref]
+        pl = layout.placements[cid]
+        for pin_num in range(1, defn.pin_count + 1):
+            wp = pin_world_position(defn.footprint, pl, pin_num)
+            if wp.x == hole.x and wp.y == hole.y:
+                return pin_num
+        return None
+
+    def _pin_exempt(cid: uuid.UUID, hole: Point) -> bool:
+        """Whether the pin (if any) of *cid* at *hole* is intentionally shared."""
+        pin_num = _pin_at(cid, hole)
+        if pin_num is None:
+            return False
+        pl = layout.placements[cid]
+        if pin_num in pl.shared_pins:
+            return True
+        defn = components[instances[cid].definition_ref]
+        if defn.package is not None:
+            return is_pin_bendable(defn.package, pin_num)
+        return pin_num in defn.bendable_pins
+
+    issues: list[DRCIssue] = []
+    ids = [cid for cid, _, _ in placed]
+    for i in range(len(ids)):
+        for j in range(i + 1, len(ids)):
+            a, b = ids[i], ids[j]
+            contested = masks_collide(masks[a], masks[b])
+            real: dict[Point, PadCell] = {}
+            for hole, shared in contested.items():
+                # Suppress holes whose only contest is intentional pin sharing.
+                if not (shared & ~_PIN_BITS):
+                    if _pin_exempt(a, hole) and _pin_exempt(b, hole):
+                        continue
+                real[hole] = shared
+            if not real:
+                continue
+            locs = sorted(real.keys(), key=lambda p: (p.y, p.x))
+            loc_str = _format_location(locs[0], axis_labels)
+            ra = instances[a].refdes
+            rb = instances[b].refdes
+            # The PIN bit pulls pure pin-in-hole conflicts into this check
+            # (e.g. two through-hole leads in one hole from opposite sides).
+            # Keep the message truthful: only call it a body overlap when a
+            # body bit is actually involved on at least one contested hole.
+            body_involved = any(bits & _BODY_BITS for bits in real.values())
+            if body_involved:
+                msg = (
+                    f"Component bodies overlap: {ra} and {rb} "
+                    f"({len(real)} hole(s), e.g. {loc_str})"
+                )
+            else:
+                msg = (
+                    f"Component pins collide in a hole: {ra} and {rb} "
+                    f"({len(real)} hole(s), e.g. {loc_str})"
+                )
+            issues.append(
+                DRCIssue(
+                    severity="error",
+                    code="BODY_OVERLAP",
+                    message=msg,
+                    locations=locs,
+                    affected_nets=[],
+                    affected_pins=[],
+                    affected_components=sorted({a, b}, key=str),
+                )
+            )
     return issues
 
 

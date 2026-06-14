@@ -367,6 +367,129 @@ class TestDRCOverlap:
         assert "R2" in overlap.message
 
 
+def _prism_defn() -> ComponentDefinition:
+    """A 4-pin prism (2×1 box) whose body covers interior holes."""
+    from protoboard.domain.components.package import PackageFootprint
+    from protoboard.domain.components.package.loader import build_package
+
+    pkg = build_package(
+        {
+            "shape": "prism",
+            "dims": {"width": 5.0, "length": 5.0},
+            "bend": 0,
+            "leads": {
+                "direction": [0, 0, -1],
+                "body_offset": {"unit": 2.5, "value": [[0, 1], [2, 0], [0, -1]]},
+                "board_offset": "default",
+            },
+        },
+        "DIP4",
+    )
+    return ComponentDefinition(
+        name="U",
+        footprint=PackageFootprint(pkg),  # type: ignore[arg-type]
+        pin_names={},
+        package=pkg,  # type: ignore[arg-type]
+    )
+
+
+class TestDRCBodyOverlap:
+    def _placed(
+        self,
+        defn: ComponentDefinition,
+        *placements: tuple[str, Point, str],
+    ) -> tuple[Layout, dict, dict]:
+        insts: dict = {}
+        pls: dict = {}
+        for refdes, pos, side in placements:
+            inst = ComponentInstance.new(
+                definition_ref=defn.name, refdes=refdes, value="",
+            )
+            insts[inst.id] = inst
+            pls[inst.id] = ComponentPlacement(
+                component_id=inst.id, position=pos, rotation=0,
+                side=side,  # type: ignore[arg-type]
+            )
+        return Layout(placements=pls, wires=[]), {defn.name: defn}, insts
+
+    def test_overlapping_bodies_flag_body_overlap(self) -> None:
+        board = _perfboard(4, 4)
+        defn = _prism_defn()
+        lay, comps, insts = self._placed(
+            defn,
+            ("U1", Point(0.5, 0.5), "top"),
+            ("U2", Point(0.5, 0.5), "top"),
+        )
+        issues = DRCEngine().check(
+            board=board, schematic=Schematic(nets={}),
+            layout=lay, components=comps, instances=insts,
+        )
+        body = [i for i in issues if i.code == "BODY_OVERLAP"]
+        assert len(body) == 1
+        assert body[0].severity == "error"
+        assert "bodies overlap" in body[0].message
+        assert "U1" in body[0].message and "U2" in body[0].message
+
+    def test_far_apart_bodies_clean(self) -> None:
+        board = _perfboard(8, 8)
+        defn = _prism_defn()
+        lay, comps, insts = self._placed(
+            defn,
+            ("U1", Point(0.5, 0.5), "top"),
+            ("U2", Point(5.5, 5.5), "top"),
+        )
+        issues = DRCEngine().check(
+            board=board, schematic=Schematic(nets={}),
+            layout=lay, components=comps, instances=insts,
+        )
+        assert [i for i in issues if i.code == "BODY_OVERLAP"] == []
+
+    def test_opposite_side_bodies_do_not_collide(self) -> None:
+        # Bodies on opposite sides don't share BODY bits; only a pin in the
+        # same through-hole would (reported as a pin-collision message, not a
+        # body overlap).  This layout has the bodies clear of each other's
+        # pin holes, so it should be clean.
+        board = _perfboard(4, 4)
+        defn = _prism_defn()
+        lay, comps, insts = self._placed(
+            defn,
+            ("U1", Point(0.5, 0.5), "top"),
+            ("U2", Point(0.5, 2.5), "bottom"),
+        )
+        issues = DRCEngine().check(
+            board=board, schematic=Schematic(nets={}),
+            layout=lay, components=comps, instances=insts,
+        )
+        assert [i for i in issues if i.code == "BODY_OVERLAP"] == []
+
+    def test_legacy_components_without_package_ignored(self) -> None:
+        # Two non-package SIL resistors fully overlapping: the pin-on-pad
+        # OVERLAP fires, but BODY_OVERLAP only considers packaged components.
+        board = _perfboard(1, 3)
+        defn = _r_defn()
+        lay, comps, insts = self._placed(
+            defn,
+            ("R1", Point(0.0, 0.0), "top"),
+            ("R2", Point(0.0, 0.0), "top"),
+        )
+        issues = DRCEngine().check(
+            board=board, schematic=Schematic(nets={}),
+            layout=lay, components=comps, instances=insts,
+        )
+        assert [i for i in issues if i.code == "BODY_OVERLAP"] == []
+        assert [i for i in issues if i.code == "OVERLAP"] != []
+
+    def test_single_component_no_overlap(self) -> None:
+        board = _perfboard(4, 4)
+        defn = _prism_defn()
+        lay, comps, insts = self._placed(defn, ("U1", Point(0.5, 0.5), "top"))
+        issues = DRCEngine().check(
+            board=board, schematic=Schematic(nets={}),
+            layout=lay, components=comps, instances=insts,
+        )
+        assert [i for i in issues if i.code == "BODY_OVERLAP"] == []
+
+
 class TestDRCMessages:
     """Human-readable formatting of issue messages."""
 
