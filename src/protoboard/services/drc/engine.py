@@ -17,6 +17,7 @@ from protoboard.domain.axis_labels_settings import (
 from protoboard.domain.board.board import Board
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.reach import is_pin_bendable
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import pin_world_position
@@ -293,6 +294,8 @@ def _check_overlap(
             defn = components.get(inst.definition_ref)
             if defn is None:
                 return False
+            if defn.package is not None:
+                return is_pin_bendable(defn.package, pin_num)
             return pin_num in defn.bendable_pins
         if all(_is_bendable(cid, p) for cid, p in unshared):
             continue

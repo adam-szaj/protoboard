@@ -266,6 +266,51 @@ class TestDRCOverlap:
         )
         assert [i for i in issues if i.code == "OVERLAP"] == []
 
+    def test_package_path_is_consulted_for_bendability(self) -> None:
+        # Proves DRC queries defn.package via is_pin_bendable: with a bendable
+        # package, the OVERLAP-skip classification consults is_pin_bendable
+        # (pin 2 bendable). Pin 1 is the package ANCHOR — in this model the
+        # anchor is never "bendable" (differs from legacy bendable_pins, which
+        # could mark pin 1). A fully-coincident pair therefore still flags
+        # OVERLAP on the anchor, which is the correct new-model behaviour.
+        from protoboard.domain.components.package import (
+            BOARD_DEFAULT,
+            Cylinder,
+            Leads,
+            is_pin_bendable,
+        )
+
+        leads = Leads(
+            direction=((0, 0, -1), (0, 0, -1)),
+            body_offset_mm=(Point(2.5, 0.0),),
+            board_offset=BOARD_DEFAULT,
+        )
+        pkg = Cylinder(diameter_mm=6.3, length_mm=11.0, leads=leads, bend_holes=4.0)
+        # Sanity: the package classifies pin 2 bendable, pin 1 (anchor) not.
+        assert is_pin_bendable(pkg, 2) is True
+        assert is_pin_bendable(pkg, 1) is False
+
+        board = _perfboard(1, 3)
+        defn = ComponentDefinition(
+            name="C_pkg", footprint=SIL(2), pin_names={1: "+", 2: "-"}, package=pkg,
+        )
+        c1 = ComponentInstance.new(definition_ref="C_pkg", refdes="C1", value="10u")
+        c2 = ComponentInstance.new(definition_ref="C_pkg", refdes="C2", value="10u")
+        pl = lambda cid: ComponentPlacement(  # noqa: E731
+            component_id=cid, position=Point(0.0, 0.0), rotation=0, side="top",
+        )
+        engine = DRCEngine()
+        issues = engine.check(
+            board=board,
+            schematic=Schematic(nets={}),
+            layout=Layout(placements={c1.id: pl(c1.id), c2.id: pl(c2.id)}, wires=[]),
+            components={defn.name: defn},
+            instances={c1.id: c1, c2.id: c2},
+        )
+        # Anchor (pin 1) coincides and is not bendable → OVERLAP flags there.
+        overlaps = [i for i in issues if i.code == "OVERLAP"]
+        assert overlaps != []
+
     def test_overlap_still_flags_when_partial_bendable(self) -> None:
         from protoboard.domain.components.definition import PinBendSpec
 
