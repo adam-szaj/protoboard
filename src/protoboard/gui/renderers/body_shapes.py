@@ -64,6 +64,7 @@ from protoboard.domain.components.two_pin_body import (
 )
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.body import EdgeStyle, LeadArrangement
+from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.components.package.shapes import (
     Cylinder as _PkgCylinder,
     Disc as _PkgDisc,
@@ -1785,6 +1786,7 @@ def body_shape_for(
     placement: ComponentPlacement | None = None,
     instance: ComponentInstance | None = None,
     two_pin_families: dict[str, TwoPinBodyPackage] | None = None,
+    package_families: dict[str, PackageFamily] | None = None,
 ) -> BodyShape:
     """Return the appropriate :class:`BodyShape` for *defn*.
 
@@ -1801,11 +1803,15 @@ def body_shape_for(
     vf = placement.vertical_flipped if placement is not None else False
 
     # A parametric package (new spec model) is the source of truth for the
-    # body geometry when present; legacy per-footprint renderers are the
-    # fallback for definitions that predate it.  Polarity / anchor come from
-    # the class and placement, not the (class-agnostic) package.
-    if defn.package is not None:
-        return PackageBody(defn.package, component_class=cls, vertical_flipped=vf)
+    # body geometry when one resolves: the instance's package_variant, the
+    # definition's package_family_ref (both against the package-family
+    # catalogue), or an inline defn.package — see resolve_component_package.
+    # Polarity / anchor come from the class and placement, not the
+    # (class-agnostic) package.
+    from protoboard.domain.components.package import resolve_component_package
+    pkg = resolve_component_package(defn, instance, package_families or {})
+    if pkg is not None:
+        return PackageBody(pkg, component_class=cls, vertical_flipped=vf)
 
     fp  = defn.footprint
     fams = two_pin_families or {}

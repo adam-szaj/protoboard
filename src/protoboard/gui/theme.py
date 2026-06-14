@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from protoboard.domain.components.package import PackageFamily
     from protoboard.domain.components.two_pin_body import TwoPinBodyPackage
 
 
@@ -136,6 +137,8 @@ class Theme:
     two_pin_body_families: "dict[str, TwoPinBodyPackage]" = field(
         default_factory=dict,
     )
+    # Package-family catalogue (package-model successor); keyed by family id.
+    package_families: "dict[str, PackageFamily]" = field(default_factory=dict)
 
     ghost_fill_r: int = 255
     ghost_fill_g: int = 255
@@ -294,7 +297,7 @@ def save_theme(theme: Theme, path: Path | None = None) -> None:
         defaults = Theme()
         data: dict[str, object] = {}
         for f in theme.__dataclass_fields__:
-            if f == "two_pin_body_families":
+            if f in ("two_pin_body_families", "package_families"):
                 # Loaded from assets at startup; not user-configurable.
                 continue
             val = getattr(theme, f)

@@ -1046,7 +1046,8 @@ class BoardView(QGraphicsView):
         )
         _theme = _dc_replace(_base,
                              raster_pitch_mm=self._session.board.raster_pitch_mm,
-                             two_pin_body_families=self._session.two_pin_body_families)
+                             two_pin_body_families=self._session.two_pin_body_families,
+                             package_families=self._session.package_families)
 
         # ── Board layer ──────────────────────────────────────────────────────
         # Board pads/strips/frames no longer live in the scene — they are
@@ -2044,7 +2045,8 @@ class BoardView(QGraphicsView):
             )
             _theme = _dc_replace(_base,
                                  raster_pitch_mm=self._session.board.raster_pitch_mm,
-                                 two_pin_body_families=self._session.two_pin_body_families)
+                                 two_pin_body_families=self._session.two_pin_body_families,
+                                 package_families=self._session.package_families)
             # Reuse the same resolved colour map the wire renderer uses,
             # so a wire and the pad it lands on share an identical colour.
             from protoboard.gui.renderers.net_color import build_net_color_map

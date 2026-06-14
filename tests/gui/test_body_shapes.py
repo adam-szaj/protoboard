@@ -499,6 +499,54 @@ class TestPackageBodyDispatch:
         shape = body_shape_for(defn)
         assert not isinstance(shape, PackageBody)
 
+    def _families(self) -> dict:
+        from protoboard.domain.components.package import (
+            PackageFamily, PackageVariant,
+        )
+        return {
+            "DO-35": PackageFamily(
+                family_id="DO-35",
+                variants=(
+                    PackageVariant("typ", "typ", _cylinder_package()),  # type: ignore[arg-type]
+                ),
+            ),
+        }
+
+    def test_family_ref_resolves_to_package_body(self) -> None:
+        from protoboard.domain.components.footprints import TwoPin
+        defn = ComponentDefinition(
+            name="D1", component_class=ComponentClass.DIODE,
+            footprint=TwoPin(), pin_names={},
+            package_family_ref="DO-35/typ",
+        )
+        shape = body_shape_for(defn, package_families=self._families())
+        assert isinstance(shape, PackageBody)
+
+    def test_instance_variant_resolves_to_package_body(self) -> None:
+        from protoboard.domain.components.footprints import TwoPin
+        defn = ComponentDefinition(
+            name="D1", component_class=ComponentClass.DIODE,
+            footprint=TwoPin(), pin_names={},
+        )
+        inst = ComponentInstance.new(
+            definition_ref="D1", refdes="D1", value="",
+            package_variant="DO-35/typ",
+        )
+        shape = body_shape_for(
+            defn, instance=inst, package_families=self._families(),
+        )
+        assert isinstance(shape, PackageBody)
+
+    def test_stale_ref_without_inline_falls_to_legacy(self) -> None:
+        from protoboard.domain.components.footprints import TwoPin
+        defn = ComponentDefinition(
+            name="D1", component_class=ComponentClass.DIODE,
+            footprint=TwoPin(), pin_names={},
+            package_family_ref="NOPE/x",
+        )
+        shape = body_shape_for(defn, package_families=self._families())
+        assert not isinstance(shape, PackageBody)
+
 
 class TestPackageBodyDraw:
     def test_cylinder_draws_capsule_and_leads(self, qtbot: QtBot) -> None:
