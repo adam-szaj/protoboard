@@ -2,24 +2,34 @@
 """Reach info derived from a Package — the budulec that replaces bendable_pins.
 
 Consumers (place_tool ring overlay, DRC overlap-skip) historically read
-``PinBendSpec``; this computes the same information from a ``Package`` instead,
-with one deliberate simplification (no backward compat): the reach ring is
-centred on the PIN's default position (our model), not on the component origin.
+``PinBendSpec``; this computes the same information from a ``Package`` instead.
+The reach ring is measured from the fixed component ORIGIN ``[0, 0]`` (the
+default position of pin 1, the rotation point) — matching the legacy
+``is_reachable_from_origin`` semantics. The origin never moves; every pin
+(including pin 1) may bend its lead within the ring.
 
-Pure domain. ``bend`` is per package; the resulting reach applies to every
-movable pin around its own default position.
+``package_to_bend_specs`` adapts a Package into the legacy ``dict[int,
+PinBendSpec]`` so existing consumers work unchanged; our model is always the
+free-2D mode (no discrete), so ``discrete`` is always empty.
+
+Pure domain. ``bend`` is per package; the resulting reach is shared by all pins.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from protoboard.domain.components.package.shapes import Package
 from protoboard.domain.components.package.solver import (
+    RASTER_MM,
     MountOrientation,
     OffsetRange,
 )
 from protoboard.geometry import Point
+
+if TYPE_CHECKING:
+    from protoboard.domain.components.definition import PinBendSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,3 +100,32 @@ def is_pin_bendable(
     """
     reach = pin_reaches(package, orientation=orientation).get(pin_number)
     return reach is not None and reach.is_movable
+
+
+def package_to_bend_specs(
+    package: Package,
+    *,
+    orientation: MountOrientation = MountOrientation.HORIZONTAL,
+) -> dict[int, "PinBendSpec"]:
+    """Adapt a Package into the legacy ``dict[int, PinBendSpec]``.
+
+    Lets existing consumers (place_tool) keep their ``PinBendSpec`` logic while
+    geometry is driven by the package. Only movable pins are included (a pin with
+    a single-point ring is rigid → not bendable). ``min_reach``/``max_reach`` are
+    the ring in HOLE units (legacy convention; ring is mm → ÷ RASTER_MM).
+    ``default_offset`` is zero (the pin sits at its default; bending is a user
+    action). ``discrete`` is always empty — our model is always free-2D.
+    """
+    from protoboard.domain.components.definition import PinBendSpec
+
+    out: dict[int, PinBendSpec] = {}
+    for pin, reach in pin_reaches(package, orientation=orientation).items():
+        if not reach.is_movable:
+            continue
+        out[pin] = PinBendSpec(
+            discrete=(),
+            min_reach=reach.ring.r_min_mm / RASTER_MM,
+            max_reach=reach.ring.r_max_mm / RASTER_MM,
+            default_offset=Point(0.0, 0.0),
+        )
+    return out

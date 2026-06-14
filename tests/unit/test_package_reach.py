@@ -6,6 +6,7 @@ from ruamel.yaml import YAML
 from protoboard.domain.components.package import load_packages
 from protoboard.domain.components.package.reach import (
     is_pin_bendable,
+    package_to_bend_specs,
     pin_reaches,
 )
 from protoboard.domain.components.package.solver import RASTER_MM
@@ -65,3 +66,36 @@ class TestIsPinBendable:
 
     def test_unknown_pin_not_bendable(self) -> None:
         assert not is_pin_bendable(_builtin()["DIP-8"], 99)
+
+
+class TestPackageToBendSpecs:
+    """Adapter feeding place_tool: Package → legacy dict[int, PinBendSpec]."""
+
+    def test_rigid_dip_yields_no_specs(self) -> None:
+        # bend=0 → no movable pins → empty dict (place_tool: not bendable).
+        assert package_to_bend_specs(_builtin()["DIP-8"]) == {}
+
+    def test_electrolytic_specs_are_free_2d(self) -> None:
+        specs = package_to_bend_specs(_builtin()["CP_Elec_6.3x11"])
+        assert set(specs) == {1, 2}              # both pins bendable
+        spec = specs[2]
+        assert spec.is_free()                    # always free-2D, never discrete
+        assert spec.discrete == ()
+        # ring 1..5 holes from origin; reach in HOLE units (mm ÷ 2.5).
+        assert spec.min_reach == 1.0
+        assert spec.max_reach == 5.0
+        assert spec.default_offset == Point(0.0, 0.0)
+
+    def test_axial_specs_match_solver_in_holes(self) -> None:
+        specs = package_to_bend_specs(_builtin()["R_Axial_DIN0207"])
+        spec = specs[2]
+        assert spec.is_free()
+        # horizontal min 7.92mm / 2.5 = 3.168 holes
+        assert round(spec.min_reach, 2) == 3.17
+
+    def test_no_discrete_for_to92(self) -> None:
+        # TO-92 was discrete in legacy; package model makes it free-2D.
+        specs = package_to_bend_specs(_builtin()["TO-92"])
+        for spec in specs.values():
+            assert spec.discrete == ()
+            assert spec.is_free()

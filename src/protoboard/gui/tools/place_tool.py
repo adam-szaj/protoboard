@@ -34,7 +34,8 @@ from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem
 
 from protoboard.domain.commands.component_cmds import PlaceComponentCommand
-from protoboard.domain.components.definition import PinBendSpec
+from protoboard.domain.components.definition import ComponentDefinition, PinBendSpec
+from protoboard.domain.components.package.reach import package_to_bend_specs
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement, flip_component, pin_world_position, unrotate
 from protoboard.geometry import Point
@@ -102,6 +103,19 @@ class PlaceTool(_Tool):
         self._reset_phase()
 
     # ------------------------------------------------------------------
+    # Bend-spec resolution
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _bend_specs(defn: ComponentDefinition) -> dict[int, PinBendSpec]:
+        """Effective per-pin bend specs: from the parametric package when set,
+        otherwise the legacy ``bendable_pins``. Single point of migration —
+        the rest of the tool keeps its PinBendSpec logic unchanged."""
+        if defn.package is not None:
+            return package_to_bend_specs(defn.package)
+        return defn.bendable_pins
+
+    # ------------------------------------------------------------------
     # Mouse events
     # ------------------------------------------------------------------
 
@@ -115,7 +129,8 @@ class PlaceTool(_Tool):
             return True
 
         defn = self._session.components.get(self._definition_ref)
-        bendable = sorted(defn.bendable_pins.keys()) if defn else []
+        specs = self._bend_specs(defn) if defn else {}
+        bendable = sorted(specs.keys())
 
         if self._phase == "anchor":
             if not bendable:
@@ -123,8 +138,7 @@ class PlaceTool(_Tool):
             else:
                 self._anchor_pos = snapped
                 self._pin_offsets = {
-                    p: defn.bendable_pins[p].default_offset  # type: ignore[union-attr]
-                    for p in bendable
+                    p: specs[p].default_offset for p in bendable
                 }
                 self._drag_pin_queue = bendable[1:]
                 self._current_drag_pin = bendable[0]
@@ -222,15 +236,16 @@ class PlaceTool(_Tool):
         elif key == Qt.Key.Key_R and ctrl:
             # Ctrl+R — restart drag for the current bendable pin from default.
             defn = self._session.components.get(self._definition_ref)
-            if not defn or not defn.bendable_pins:
+            specs = self._bend_specs(defn) if defn else {}
+            if not specs:
                 return
-            bendable = sorted(defn.bendable_pins.keys())
+            bendable = sorted(specs.keys())
             if self._phase == "anchor" and self._anchor_pos is None:
                 return  # nothng to re-drag yet
             if self._phase == "anchor":
                 # anchor already fixed (e.g. after phase reset), start drag
                 self._pin_offsets = {
-                    p: defn.bendable_pins[p].default_offset for p in bendable
+                    p: specs[p].default_offset for p in bendable
                 }
                 self._drag_pin_queue = bendable[1:]
                 self._current_drag_pin = bendable[0]
@@ -238,7 +253,7 @@ class PlaceTool(_Tool):
             else:
                 # Reset current drag pin to default
                 assert self._current_drag_pin is not None
-                spec = defn.bendable_pins.get(self._current_drag_pin)
+                spec = specs.get(self._current_drag_pin)
                 if spec:
                     self._pin_offsets[self._current_drag_pin] = spec.default_offset
             self._rebuild_ghost_at_anchor()
@@ -268,8 +283,10 @@ class PlaceTool(_Tool):
         offsets: dict[int, Point] = {}
         if self._phase == "drag_pin":
             offsets = dict(self._pin_offsets)
-        elif defn.bendable_pins:
-            offsets = {p: spec.default_offset for p, spec in defn.bendable_pins.items()}
+        else:
+            specs = self._bend_specs(defn)
+            if specs:
+                offsets = {p: spec.default_offset for p, spec in specs.items()}
         ghost = make_ghost_item(defn, rotation=self._rotation, pin_offsets=offsets)
         # Z=20 puts the ghost above all back-side scene items (Z<Z_BOARD=3.0)
         # so BoardView._ensure_back_cache doesn't bake it into the back-side
@@ -309,7 +326,7 @@ class PlaceTool(_Tool):
         defn = self._session.components.get(self._definition_ref)
         if defn is None or self._current_drag_pin is None:
             return
-        spec = defn.bendable_pins.get(self._current_drag_pin)
+        spec = self._bend_specs(defn).get(self._current_drag_pin)
         if spec is None or not spec.is_free():
             return
 
@@ -337,7 +354,7 @@ class PlaceTool(_Tool):
         defn = self._session.components.get(self._definition_ref)
         if defn is None or self._current_drag_pin is None:
             return
-        spec = defn.bendable_pins.get(self._current_drag_pin)
+        spec = self._bend_specs(defn).get(self._current_drag_pin)
         if spec is None or not spec.is_free():
             return
 
@@ -383,7 +400,7 @@ class PlaceTool(_Tool):
         defn = self._session.components.get(self._definition_ref)
         if defn is None:
             return None
-        spec: PinBendSpec | None = defn.bendable_pins.get(self._current_drag_pin)
+        spec: PinBendSpec | None = self._bend_specs(defn).get(self._current_drag_pin)
         if spec is None:
             return None
 
