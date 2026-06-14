@@ -165,6 +165,13 @@ class ComponentDefinition:
     # by the package's bend/solver. Consumers migrate to query ``package``
     # incrementally; when ``None`` the legacy footprint/bendable_pins apply.
     package: Package | None = None
+    # Default package-family variant as ``"{family}/{variant_id}"`` (e.g.
+    # ``"DO-35/typ"``) referencing the package-family catalogue. This is the
+    # package-model successor to ``default_body_variant``; it resolves to a real
+    # Package via the catalogue. ``ComponentInstance.package_variant`` overrides
+    # it per instance. Precedence at resolution: instance override → this ref →
+    # the inline ``package`` above → None (see ``component_package``).
+    package_family_ref: str | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -181,6 +188,13 @@ class ComponentDefinition:
                 raise ValueError(
                     f"default_body_variant must be 'family/variant_id'; got "
                     f"{self.default_body_variant!r}"
+                )
+        if self.package_family_ref is not None:
+            parts = self.package_family_ref.split("/", 1)
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                raise ValueError(
+                    f"package_family_ref must be 'family/variant_id'; got "
+                    f"{self.package_family_ref!r}"
                 )
 
     @property

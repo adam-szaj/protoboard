@@ -22,6 +22,9 @@ from protoboard.domain.components.package.body import (
     EdgeStyle,
     LeadArrangement,
 )
+from protoboard.domain.components.package.component_package import (
+    resolve_component_package,
+)
 from protoboard.domain.components.package.family import (
     PackageFamily,
     PackageVariant,
@@ -85,6 +88,7 @@ __all__ = [
     "Prism",
     "axial_board_offset_range",
     "body_holes",
+    "resolve_component_package",
     "resolve_variant",
     "build_package",
     "build_pad_mask",

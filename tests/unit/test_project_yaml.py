@@ -305,6 +305,29 @@ class TestPinVariantRoundtrip:
         loaded = loaded_instances[inst.id]
         assert loaded.pin_variant is None
 
+    def test_package_variant_preserved(self, tmp_path: Path) -> None:
+        board = _perfboard()
+        inst = ComponentInstance.new(
+            definition_ref="D1",
+            refdes="D1",
+            value="",
+            package_variant="DO-41/L",
+        )
+        instances = {inst.id: inst}
+        save_project(tmp_path, board, Layout(placements={}, wires=[]), Schematic(nets={}), instances)
+        _, _, _, loaded_instances, _, _, _ = load_project(tmp_path)
+        assert loaded_instances[inst.id].package_variant == "DO-41/L"
+
+    def test_package_variant_none_preserved(self, tmp_path: Path) -> None:
+        board = _perfboard()
+        inst = ComponentInstance.new(
+            definition_ref="D1", refdes="D1", value="", package_variant=None,
+        )
+        instances = {inst.id: inst}
+        save_project(tmp_path, board, Layout(placements={}, wires=[]), Schematic(nets={}), instances)
+        _, _, _, loaded_instances, _, _, _ = load_project(tmp_path)
+        assert loaded_instances[inst.id].package_variant is None
+
 
 class TestEncapsulatedExportMigration:
     """Loader strips group exports that violate the re-export chain

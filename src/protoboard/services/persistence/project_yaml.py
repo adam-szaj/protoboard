@@ -159,6 +159,10 @@ def _instances_to_yaml(instances: dict[uuid.UUID, ComponentInstance]) -> str:
                 "value": inst.value,
                 **({"type": inst.type} if inst.type else {}),
                 **({"body_variant": inst.body_variant} if inst.body_variant else {}),
+                **(
+                    {"package_variant": inst.package_variant}
+                    if inst.package_variant else {}
+                ),
                 **({"pin_variant": inst.pin_variant} if inst.pin_variant else {}),
             }
             for inst in instances.values()
@@ -834,6 +838,9 @@ def _instances_from_yaml(text: str) -> dict[uuid.UUID, ComponentInstance]:
             value=str(raw["value"]),
             type=str(raw.get("type", "")),
             body_variant=str(raw["body_variant"]) if raw.get("body_variant") else None,
+            package_variant=(
+                str(raw["package_variant"]) if raw.get("package_variant") else None
+            ),
             pin_variant=str(raw["pin_variant"]) if raw.get("pin_variant") else None,
         )
     return result

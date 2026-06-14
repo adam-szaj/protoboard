@@ -19,6 +19,10 @@ class ComponentInstance:
     value: str
     type: str = ""          # optional per-instance category override
     body_variant: str | None = None  # "{family}/{variant_id}" or None → default
+    # Package-model successor to ``body_variant``: a per-instance override of the
+    # package-family variant as ``"{family}/{variant_id}"``; None → use the
+    # definition's ``package_family_ref`` (or inline ``package``).
+    package_variant: str | None = None
     pin_variant: str | None = None   # variant id from ComponentDefinition.variants or None
 
     def __post_init__(self) -> None:
@@ -32,6 +36,7 @@ class ComponentInstance:
         definition_ref: str, refdes: str, value: str, type: str = "",
         body_variant: str | None = None,
         pin_variant: str | None = None,
+        package_variant: str | None = None,
     ) -> ComponentInstance:
         """Create an instance with a freshly generated UUID."""
         return ComponentInstance(
@@ -42,4 +47,5 @@ class ComponentInstance:
             type=type,
             body_variant=body_variant,
             pin_variant=pin_variant,
+            package_variant=package_variant,
         )
