@@ -14,14 +14,16 @@ Stan decyzji (2026-06-14):
          loader do prostych list mm/otwory).
   [OK]   Dwie dziedziny zostają: pin_positions w OTWORACH (siatka),
          board_offset_range w MM (fizyka). Konwersję robi konsument.
-  [OPEN] CollisionShape: Rect+rounded (obecnie) czy poligon / maska otworów?
-         Do przemyślenia.
+  [OK]   CollisionShape = body_polygon (mm, body-body collision) + pad_mask
+         (otwory → PadCell bity side-aware piny/body). Kolizja = AND masek ≠ 0.
+         Body blokujące „zapala” bity stron pinów → solderable-under = brak
+         zapalenia (nie osobny bit). Wire-collision analogicznie (kierunek).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import IntFlag, StrEnum
 from typing import Protocol, runtime_checkable
 
 from protoboard.geometry import Insets, Point, Rect
@@ -59,17 +61,62 @@ class OffsetRange:
     r_max_mm: float
 
 
-@dataclass(frozen=True, slots=True)
-class CollisionShape:
-    """Bryła obudowy zrzutowana na płaszczyznę płytki (model kolizji).
+class PadCell(IntFlag):
+    """Side-aware bity stanu pojedynczego otworu (dziedzina siatki).
 
-    [OPEN] Na razie prostokąt + zaokrąglenie. Czy wystarczy (cylinder ≈ obrys
-    prostokątny), czy potrzebny poligon / maska otworów dla dokładnego routingu
-    — DO PRZEMYŚLENIA. To, czego routing/DRC używa do „czy tu jest obudowa”.
+    Kolizja = bitowy AND masek dwóch komponentów per otwór; wynik ≠ 0 →
+    konflikt. Bity są dobrane tak, by ten AND wystarczał — kluczowy trik:
+    body, które BLOKUJE montaż pod sobą, „zapala” bity STRON PINÓW w swoich
+    otworach, więc kolizja „niski komponent pod blokującym body” wychodzi z
+    tego samego AND, bez osobnego bitu/logiki zezwalającej.
+
+    Piny THT istnieją po OBU stronach (plated-through), stąd bity stron.
     """
 
-    footprint: Rect          # bounding na siatce (otwory)
-    rounded_mm: float = 0.0  # promień zaokrąglenia (cylinder edge / corner)
+    PIN        = 1 << 0   # jest pad/pin (kolizja pin-pin: potem sprawdź sieć)
+    PIN_TOP    = 1 << 1   # pin jest / chce być montowany od strony top
+    PIN_BOTTOM = 1 << 2   # pin jest / chce być montowany od strony bottom
+    BODY_TOP   = 1 << 3   # korpus montowany od strony top
+    BODY_BOTTOM = 1 << 4  # korpus od strony bottom
+
+    # UWAGA: nie ma bitu „solderable under”. Body z wysokim standoffem (da się
+    # pod nim lutować) ustawia TYLKO BODY_*. Body blokujące (metal, ściśle
+    # przylegające) DODATKOWO zapala PIN_TOP/PIN_BOTTOM w swoich otworach (jedną
+    # lub obie strony) — to jest cały mechanizm. „Solderable” = BRAK zapalenia,
+    # nie osobny bit. Decyzja dzieje się przy BUDOWIE maski, nie przy AND.
+
+    # Rozszerzenie (kierunek): kolizja z WIRE — analogicznie, drut zajmuje
+    # otwory/segmenty po swojej stronie i wpada do tej samej algebry bitowej.
+
+
+def has_collision(a: PadCell, b: PadCell) -> bool:
+    """Kolizja dwóch otworów = niezerowy bitowy AND. Pin-pin (bit PIN) jest
+    sygnałem 'sprawdź sieć', nie zawsze twardym błędem."""
+    return bool(a & b)
+
+
+@dataclass(frozen=True, slots=True)
+class CollisionShape:
+    """Model kolizji komponentu — DWIE odrębne rzeczy, dwie dziedziny.
+
+    1. `body_polygon` (mm, ciągła geometria) — obrys korpusu do kolizji
+       BODY↔BODY (czy dwie obudowy fizycznie nachodzą). Jeden polygon (kształt);
+       z której strony jest body kodują bity BODY_* w masce. Lista Point od razu
+       (nawet gdy teraz prostokąt — TO-220 z radiatorem, moduł L-kształtny nie
+       wymuszą zmiany typu).
+
+    2. `pad_mask` (otwory, dziedzina siatki) — per-otwór `PadCell` bity:
+       side-aware piny + body. Kolizja = AND masek (zob. PadCell). To, czego
+       routing/DRC używa do „co jest w tym otworze i z której strony”.
+
+    Lutowalność pod body wynika z CECHY body (standoff): body blokujące zapala
+    bity stron pinów, body z wysokim standoffem nie — różnica przy budowie maski,
+    nie osobny bit (generic_package → maskę liczy kod).
+    """
+
+    body_polygon: list[Point]            # obrys korpusu (mm)
+    pad_mask: dict[Point, PadCell]       # otwór → bity (rzadka mapa)
+    rounded_mm: float = 0.0              # zaokrąglenie obrysu (cylinder/corner)
 
 
 # --------------------------------------------------------------------------- #
