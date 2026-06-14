@@ -16,6 +16,7 @@ Public API::
     )
 """
 
+from protoboard.domain.components.package.adapter import PackageFootprint
 from protoboard.domain.components.package.loader import (
     PackageDefError,
     build_package,
@@ -55,6 +56,7 @@ __all__ = [
     "OffsetRange",
     "Package",
     "PackageDefError",
+    "PackageFootprint",
     "PadCell",
     "Prism",
     "axial_board_offset_range",
