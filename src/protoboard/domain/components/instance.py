@@ -18,10 +18,9 @@ class ComponentInstance:
     refdes: str
     value: str
     type: str = ""          # optional per-instance category override
-    body_variant: str | None = None  # "{family}/{variant_id}" or None → default
-    # Package-model successor to ``body_variant``: a per-instance override of the
-    # package-family variant as ``"{family}/{variant_id}"``; None → use the
-    # definition's ``package_family_ref`` (or inline ``package``).
+    # Per-instance override of the package-family variant as
+    # ``"{family}/{variant_id}"``; None → use the definition's
+    # ``package_family_ref`` (or inline ``package``).
     package_variant: str | None = None
     pin_variant: str | None = None   # variant id from ComponentDefinition.variants or None
 
@@ -34,7 +33,6 @@ class ComponentInstance:
     @staticmethod
     def new(
         definition_ref: str, refdes: str, value: str, type: str = "",
-        body_variant: str | None = None,
         pin_variant: str | None = None,
         package_variant: str | None = None,
     ) -> ComponentInstance:
@@ -45,7 +43,6 @@ class ComponentInstance:
             refdes=refdes,
             value=value,
             type=type,
-            body_variant=body_variant,
             pin_variant=pin_variant,
             package_variant=package_variant,
         )

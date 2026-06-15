@@ -158,7 +158,6 @@ def _instances_to_yaml(instances: dict[uuid.UUID, ComponentInstance]) -> str:
                 "refdes": inst.refdes,
                 "value": inst.value,
                 **({"type": inst.type} if inst.type else {}),
-                **({"body_variant": inst.body_variant} if inst.body_variant else {}),
                 **(
                     {"package_variant": inst.package_variant}
                     if inst.package_variant else {}
@@ -837,7 +836,8 @@ def _instances_from_yaml(text: str) -> dict[uuid.UUID, ComponentInstance]:
             refdes=str(raw["refdes"]),
             value=str(raw["value"]),
             type=str(raw.get("type", "")),
-            body_variant=str(raw["body_variant"]) if raw.get("body_variant") else None,
+            # A legacy ``body_variant`` key (pre-package-model projects) is
+            # ignored — the user re-picks the body from the package catalogue.
             package_variant=(
                 str(raw["package_variant"]) if raw.get("package_variant") else None
             ),

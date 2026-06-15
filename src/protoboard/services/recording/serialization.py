@@ -139,8 +139,8 @@ def _instance_to(inst: ComponentInstance) -> dict[str, Any]:
     }
     if inst.type:
         out["type"] = inst.type
-    if inst.body_variant:
-        out["body_variant"] = inst.body_variant
+    if inst.package_variant:
+        out["package_variant"] = inst.package_variant
     if inst.pin_variant:
         out["pin_variant"] = inst.pin_variant
     return out
@@ -153,7 +153,9 @@ def _instance_from(d: dict[str, Any]) -> ComponentInstance:
         refdes=str(d["refdes"]),
         value=str(d["value"]),
         type=str(d.get("type", "")),
-        body_variant=str(d["body_variant"]) if d.get("body_variant") else None,
+        package_variant=(
+            str(d["package_variant"]) if d.get("package_variant") else None
+        ),
         pin_variant=str(d["pin_variant"]) if d.get("pin_variant") else None,
     )
 

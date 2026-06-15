@@ -456,7 +456,6 @@ def _render_one(
 
     shape = body_shape_for(
         defn, placement, inst,
-        two_pin_families=theme.two_pin_body_families,
         package_families=theme.package_families,
     )
     for item in shape.draw(positions, comp_fill, comp_border, alpha, z_comp, theme):
@@ -620,8 +619,7 @@ def make_ghost_item(
     # Use the same body shape as the real component, semi-transparent.
     ghost_alpha = ghost_fill.alphaF()
     shape = body_shape_for(
-        defn, two_pin_families=theme.two_pin_body_families,
-        package_families=theme.package_families,
+        defn, package_families=theme.package_families,
     )
     for item in shape.draw(positions, ghost_fill, ghost_border, ghost_alpha, 0.0, theme):
         # Ghost body: dashed border

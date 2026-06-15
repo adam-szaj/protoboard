@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from protoboard.domain.components.package import PackageFamily
-    from protoboard.domain.components.two_pin_body import TwoPinBodyPackage
 
 
 @dataclass
@@ -133,11 +132,7 @@ class Theme:
     dip_notch_radius: float = 0.25
     sil_slot_size: float = 0.40             # per-pin slot square size
 
-    # Parametric body-spec catalogue loaded at startup; keyed by family name.
-    two_pin_body_families: "dict[str, TwoPinBodyPackage]" = field(
-        default_factory=dict,
-    )
-    # Package-family catalogue (package-model successor); keyed by family id.
+    # Package-family catalogue loaded at startup; keyed by family id.
     package_families: "dict[str, PackageFamily]" = field(default_factory=dict)
 
     ghost_fill_r: int = 255
@@ -297,7 +292,7 @@ def save_theme(theme: Theme, path: Path | None = None) -> None:
         defaults = Theme()
         data: dict[str, object] = {}
         for f in theme.__dataclass_fields__:
-            if f in ("two_pin_body_families", "package_families"):
+            if f == "package_families":
                 # Loaded from assets at startup; not user-configurable.
                 continue
             val = getattr(theme, f)

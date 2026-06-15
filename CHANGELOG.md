@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Parametryczny model package — migracja TwoPinBodySpec → package (2026-06-15)
+
+Pełne zastąpienie render-only modelu body 2-pin (`TwoPinBodySpec` /
+`TwoPinBodyPackage`) parametrycznym, geometrycznie-prawdziwym modelem
+`Package` (`docs/footprints/spec.md`). Powód architektoniczny: stary typ
+przeciekał do ~24 plików (renderery, exportery, picker, persistence) — objaw
+geometrii żyjącej *poza* komponentem; nowy model to `Protocol` (geometrię
+liczy kod), a komponent niesie własny package.
+
+* **Domknięcie modelu package**: presentation na shape'ach
+  (`color`/`edge`/`arrangement`), shape `Disc`, `min_radial_pitch_mm` /
+  `min_axial_pitch_mm`. **Bez abstrakcji `Material`** — body niesie kolor
+  (`#rrggbb`) wprost, renderer wyprowadza obramowanie przez przyciemnienie.
+* **Renderer**: nowy `PackageBody` rysuje body z geometrii pakietu
+  (cylinder→kapsuła side-view, prism/disc→bbox), z pełnym parytetem 2-pin
+  starego renderera (cathode stripe diod, radial top-view disc,
+  polarność z `component_class`/`vertical_flipped` — nie z pakietu).
+* **Katalog wariantów**: `PackageFamily` (rodzina + warianty + default,
+  adresowanie `"family/variant"`); 8 plików `assets/body_types/*.yaml`
+  przeniesione do `assets/package_families/*.yaml` budujących realne pakiety
+  (`material`→kolor, `lead_diameter_mm`→`lead_r`, leady przez `extends`
+  generyków). Loader `load_package_families`.
+* **Referencje na komponencie/instancji**: `ComponentDefinition.
+  package_family_ref` + `ComponentInstance.package_variant`; resolver
+  `resolve_component_package` (precedencja: instance → definition ref →
+  inline `package` → None; stale-ref fall-through, bez crasha).
+* **Picker**: dropdown body w Properties i picker place-time w bibliotece
+  czytają `PackageFamily`; `SetComponentPackageVariantCommand` (undo/redo);
+  `package_variant` round-trip w persistence + recording.
+
+**Usunięte (legacy):** `domain/components/two_pin_body.py`,
+`services/library/two_pin_body_loader.py`, `assets/body_types/`,
+`TwoPinParametricBody` + `_resolve_two_pin_spec`,
+`SetComponentBodyVariantCommand`, pola `default_body_variant` /
+`body_variant`, threading `two_pin_body_families` (theme/session/exportery).
+Stare projekty z kluczem `body_variant` ładują się (klucz ignorowany —
+użytkownik wybiera body z katalogu pakietów).
+
 ### Unified drag model — atomic delta + preference-driven soft resolution (2026-06-02)
 
 Pełen refactor drag-pipeline naprawiający silent cross-group wire data

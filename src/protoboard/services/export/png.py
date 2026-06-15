@@ -50,12 +50,12 @@ def export_png(
         board=board, layout=layout, schematic=sch,
         components=components, instances=instances,
     )
-    families = getattr(theme, "two_pin_body_families", None) or {}
+    families = getattr(theme, "package_families", None) or {}
     snapshot = BoardSnapshot(
         board=board, layout=layout,
         components=components, instances=instances,
         schematic=sch, pad_index=pad_index,
-        two_pin_body_families=families, theme=theme,
+        package_families=families, theme=theme,
     )
     export_png_from_snapshot(
         path, snapshot, pixels_per_raster=pixels_per_raster,

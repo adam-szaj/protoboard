@@ -371,20 +371,7 @@ def _component_from_dict(data: Any, source: Path) -> ComponentDefinition:
                 pin_names=v_pins,
             ))
 
-    # ``body_variant`` is the YAML-facing key; we accept the longer
-    # ``default_body_variant`` as a synonym since that is the field name
-    # on ComponentDefinition.
-    default_body_variant_raw = data.get("body_variant") or data.get("default_body_variant")
-    default_body_variant: str | None = None
-    if default_body_variant_raw is not None:
-        if not isinstance(default_body_variant_raw, str):
-            raise SerializationError(
-                f"{source}: body_variant for {data['name']!r} must be a string "
-                f"'family/variant_id'; got {default_body_variant_raw!r}"
-            )
-        default_body_variant = default_body_variant_raw
-
-    # ``package_family_ref`` — package-model successor to ``body_variant``,
+    # ``package_family_ref`` — references the package-family catalogue,
     # references the package-family catalogue as ``"family/variant_id"``.
     package_family_ref_raw = data.get("package_family_ref")
     package_family_ref: str | None = None
@@ -416,7 +403,6 @@ def _component_from_dict(data: Any, source: Path) -> ComponentDefinition:
             metadata=dict(metadata_raw),
             bendable_pins=bendable_pins,
             variants=tuple(variants),
-            default_body_variant=default_body_variant,
             default_value=default_value,
             package=package_obj,
             package_family_ref=package_family_ref,

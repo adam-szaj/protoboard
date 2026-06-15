@@ -40,7 +40,7 @@ def _empty_snapshot() -> BoardSnapshot:
     idx = PadIndex(board, lay, sch, {}, {})
     return BoardSnapshot(
         board=board, layout=lay, components={}, instances={},
-        schematic=sch, pad_index=idx, two_pin_body_families={},
+        schematic=sch, pad_index=idx, package_families={},
     )
 
 
@@ -69,7 +69,7 @@ def _snapshot_with_resistor() -> BoardSnapshot:
         board=board, layout=lay,
         components={"R": defn},
         instances={inst.id: inst},
-        schematic=sch, pad_index=idx, two_pin_body_families={},
+        schematic=sch, pad_index=idx, package_families={},
     )
 
 

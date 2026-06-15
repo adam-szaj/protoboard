@@ -28,14 +28,6 @@ from protoboard.domain.components.footprints import (
     TwoPin,
 )
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.two_pin_body import (
-    BodyShape as _TPShape,
-    DiscProfile,
-    EdgeStyle,
-    LeadArrangement,
-    TwoPinBodyPackage,
-    TwoPinBodySpec,
-)
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
 from protoboard.gui.renderers.body_shapes import (
@@ -46,7 +38,6 @@ from protoboard.gui.renderers.body_shapes import (
     SvgDIPBody,
     TO92Body,
     TO220Body,
-    TwoPinParametricBody,
     _find_id,
     body_shape_for,
 )
@@ -94,42 +85,6 @@ def _make_placement() -> ComponentPlacement:
         position=Point(0, 0),
         rotation=0,
         side="top",
-    )
-
-
-def _axial_cyl_spec() -> TwoPinBodySpec:
-    return TwoPinBodySpec(
-        package_id="DIN-0207", variant_id="typ", label="typ",
-        lead_arrangement=LeadArrangement.AXIAL,
-        shape=_TPShape.CYLINDER,
-        length_mm=6.5, diameter_mm=2.5,
-    )
-
-
-def _radial_cyl_spec() -> TwoPinBodySpec:
-    return TwoPinBodySpec(
-        package_id="LED-5mm", variant_id="typ", label="typ",
-        lead_arrangement=LeadArrangement.RADIAL,
-        shape=_TPShape.CYLINDER,
-        length_mm=8.0, diameter_mm=5.0,
-    )
-
-
-def _radial_disc_spec(profile: DiscProfile = DiscProfile.FLAT) -> TwoPinBodySpec:
-    return TwoPinBodySpec(
-        package_id="Ceramic-Disc-D5", variant_id="typ", label="typ",
-        lead_arrangement=LeadArrangement.RADIAL,
-        shape=_TPShape.DISC, disc_profile=profile,
-        diameter_mm=5.0, thickness_mm=2.0,
-    )
-
-
-def _radial_prism_spec() -> TwoPinBodySpec:
-    return TwoPinBodySpec(
-        package_id="HC-49", variant_id="typ", label="typ",
-        lead_arrangement=LeadArrangement.RADIAL,
-        shape=_TPShape.PRISM, edge=EdgeStyle.SHARP,
-        length_mm=22.0, width_mm=9.5, height_mm=9.0,
     )
 
 
@@ -210,20 +165,6 @@ def _colored_prism_package(color: str = "#d6c08c", edge: str = "sharp") -> objec
     )
 
 
-def _families_with(*specs: TwoPinBodySpec) -> dict[str, TwoPinBodyPackage]:
-    """Build a per-package map from individual specs (one package per spec)."""
-    out: dict[str, TwoPinBodyPackage] = {}
-    for s in specs:
-        out[s.package_id] = TwoPinBodyPackage(
-            package_id=s.package_id, label=s.package_id, variants=(s,),
-        )
-    return out
-
-
-# ---------------------------------------------------------------------------
-# _find_id helper
-# ---------------------------------------------------------------------------
-
 class TestFindId:
     def test_finds_direct_child(self) -> None:
         root = ET.fromstring('<svg><rect id="body" /></svg>')
@@ -278,82 +219,7 @@ class TestGenericBody:
 
 
 # ---------------------------------------------------------------------------
-# TwoPinParametricBody — six combinations × polarity × vertical flip
-# ---------------------------------------------------------------------------
-
-class TestTwoPinParametricBodyAxial:
-    def test_axial_cylinder_produces_leads_and_body(self, qtbot: QtBot) -> None:
-        body = TwoPinParametricBody(_axial_cyl_spec())
-        items = body.draw(_pts((0, 0), (5, 0)), _RED, _DARK, 1.0, _Z)
-        # Two leads + body path = at least 3 items when pads are farther
-        # apart than the body length.
-        assert any(isinstance(it, QGraphicsLineItem) for it in items)
-        assert any(isinstance(it, QGraphicsPathItem) for it in items)
-
-    def test_axial_diode_class_adds_cathode_stripe(self, qtbot: QtBot) -> None:
-        # Non-polar class: plain body.  Diode class: extra stripe path.
-        plain = TwoPinParametricBody(
-            _axial_cyl_spec(), component_class=ComponentClass.RESISTOR,
-        )
-        diode = TwoPinParametricBody(
-            _axial_cyl_spec(), component_class=ComponentClass.DIODE,
-        )
-        items_plain = plain.draw(_pts((0, 0), (5, 0)), _RED, _DARK, 1.0, _Z)
-        items_diode = diode.draw(_pts((0, 0), (5, 0)), _RED, _DARK, 1.0, _Z)
-        paths_plain = sum(isinstance(it, QGraphicsPathItem) for it in items_plain)
-        paths_diode = sum(isinstance(it, QGraphicsPathItem) for it in items_diode)
-        assert paths_diode > paths_plain
-
-    def test_axial_short_distance_omits_leads(self, qtbot: QtBot) -> None:
-        body = TwoPinParametricBody(_axial_cyl_spec())
-        # Pads at 1 raster apart, body length 6.5 mm ≈ 2.6 raster — no leads.
-        items = body.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
-        assert not any(isinstance(it, QGraphicsLineItem) for it in items)
-
-    def test_axial_coincident_pins_falls_back_to_generic(
-        self, qtbot: QtBot,
-    ) -> None:
-        body = TwoPinParametricBody(_axial_cyl_spec())
-        items = body.draw(_pts((1, 1), (1, 1)), _RED, _DARK, 1.0, _Z)
-        assert any(isinstance(it, QGraphicsRectItem) for it in items)
-
-
-class TestTwoPinParametricBodyRadial:
-    def test_radial_cylinder_emits_circle_and_lead(self, qtbot: QtBot) -> None:
-        body = TwoPinParametricBody(_radial_cyl_spec())
-        items = body.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
-        assert any(isinstance(it, QGraphicsEllipseItem) for it in items)
-        assert any(isinstance(it, QGraphicsLineItem) for it in items)
-
-    def test_radial_disc_emits_circle(self, qtbot: QtBot) -> None:
-        body = TwoPinParametricBody(_radial_disc_spec())
-        items = body.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
-        assert any(isinstance(it, QGraphicsEllipseItem) for it in items)
-
-    def test_radial_prism_emits_rectangle_path(self, qtbot: QtBot) -> None:
-        body = TwoPinParametricBody(_radial_prism_spec())
-        items = body.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
-        assert any(isinstance(it, QGraphicsPathItem) for it in items)
-        # Lead remains too.
-        assert any(isinstance(it, QGraphicsLineItem) for it in items)
-
-    def test_radial_anchor_pin_is_drawn_by_body(
-        self, qtbot: QtBot,
-    ) -> None:
-        body = TwoPinParametricBody(_radial_cyl_spec())
-        # The anchor pin (pin 1 by default) is occluded by the body, so
-        # component_renderer skips its marker.
-        drawn = body.drawn_pin_numbers(_pts((0, 0), (1, 0)))
-        assert 1 in drawn
-
-    def test_radial_vertical_flipped_swaps_anchor(self, qtbot: QtBot) -> None:
-        body = TwoPinParametricBody(_radial_cyl_spec(), vertical_flipped=True)
-        drawn = body.drawn_pin_numbers(_pts((0, 0), (1, 0)))
-        assert 2 in drawn
-
-
-# ---------------------------------------------------------------------------
-# TO92Body / TO220Body / DIPBody / SvgDIPBody
+# TO92Body
 # ---------------------------------------------------------------------------
 
 class TestTO92Body:
@@ -404,40 +270,13 @@ class TestBodyShapeFor:
         shape = body_shape_for(defn)
         assert isinstance(shape, TO220Body)
 
-    def test_two_pin_with_definition_default_uses_parametric_body(self) -> None:
-        # Library default pins the package.
-        defn = ComponentDefinition(
-            name="R", component_class=ComponentClass.RESISTOR,
-            footprint=TwoPin(), pin_names={},
-            default_body_variant="DIN-0207/typ",
-        )
-        families = _families_with(_axial_cyl_spec())
-        shape = body_shape_for(defn, two_pin_families=families)
-        assert isinstance(shape, TwoPinParametricBody)
-
-    def test_two_pin_with_explicit_variant(self) -> None:
-        defn = ComponentDefinition(
-            name="R", component_class=ComponentClass.RESISTOR,
-            footprint=TwoPin(), pin_names={},
-        )
-        inst = ComponentInstance(
-            id=uuid.uuid4(), definition_ref="R", refdes="R1", value="",
-            body_variant="LED-5mm/typ",
-        )
-        families = _families_with(_radial_cyl_spec())
-        shape = body_shape_for(defn, instance=inst, two_pin_families=families)
-        assert isinstance(shape, TwoPinParametricBody)
-        # Resolved spec is the radial one we injected.
-        assert shape._spec.lead_arrangement is LeadArrangement.RADIAL  # type: ignore[attr-defined]
-
-    def test_two_pin_without_body_variant_falls_back_to_generic(self) -> None:
-        # No definition default, no instance variant — class is irrelevant.
+    def test_two_pin_without_package_falls_back_to_generic(self) -> None:
+        # No package_family_ref, no instance variant, no inline package.
         defn = ComponentDefinition(
             name="X", component_class=ComponentClass.RESISTOR,
             footprint=TwoPin(), pin_names={},
         )
-        shape = body_shape_for(defn, two_pin_families={})
-        # No class-based fallback — generic bbox.
+        shape = body_shape_for(defn)
         assert isinstance(shape, GenericBody)
 
     def test_sil_3_transistor_returns_to92(self) -> None:
@@ -465,12 +304,9 @@ class TestBodyShapeFor:
         pl_normal = _make_placement()
         pl_flipped = _make_placement()
         pl_flipped.vertical_flipped = True
-        families = _families_with(_axial_cyl_spec())
         # Both should return a valid BodyShape without error.
-        s1 = body_shape_for(defn, placement=pl_normal,
-                            two_pin_families=families)
-        s2 = body_shape_for(defn, placement=pl_flipped,
-                            two_pin_families=families)
+        s1 = body_shape_for(defn, placement=pl_normal)
+        s2 = body_shape_for(defn, placement=pl_flipped)
         assert isinstance(s1, BodyShape)
         assert isinstance(s2, BodyShape)
 
@@ -721,10 +557,8 @@ class TestBodyShapeContract:
 
     @pytest.mark.parametrize("shape_factory,positions", [
         (lambda: GenericBody(), _pts((0, 0), (2, 0))),
-        (lambda: TwoPinParametricBody(_axial_cyl_spec()), _pts((0, 0), (2, 0))),
-        (lambda: TwoPinParametricBody(_radial_cyl_spec()), _pts((0, 0), (1, 0))),
-        (lambda: TwoPinParametricBody(_radial_disc_spec()), _pts((0, 0), (1, 0))),
-        (lambda: TwoPinParametricBody(_radial_prism_spec()), _pts((0, 0), (1, 0))),
+        (lambda: PackageBody(_cylinder_package()), _pts((0, 0), (4, 0))),
+        (lambda: PackageBody(_radial_cyl_package()), _pts((0, 0), (1, 0))),
         (lambda: TO92Body(), _pts((0, 0), (1, 0), (2, 0))),
         (lambda: DIPBody(4),
          _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))),
@@ -741,7 +575,7 @@ class TestBodyShapeContract:
 
     @pytest.mark.parametrize("shape_factory,positions", [
         (lambda: GenericBody(), _pts((0, 0), (2, 0))),
-        (lambda: TwoPinParametricBody(_axial_cyl_spec()), _pts((0, 0), (2, 0))),
+        (lambda: PackageBody(_cylinder_package()), _pts((0, 0), (4, 0))),
     ])
     def test_draw_alpha_zero_still_returns_items(
         self, qtbot: QtBot, shape_factory, positions: list[Point],
@@ -751,8 +585,8 @@ class TestBodyShapeContract:
 
     @pytest.mark.parametrize("shape_factory,positions", [
         (lambda: GenericBody(), _pts((0, 0), (2, 0))),
-        (lambda: TwoPinParametricBody(_axial_cyl_spec()), _pts((0, 0), (2, 0))),
-        (lambda: TwoPinParametricBody(_radial_cyl_spec()), _pts((0, 0), (1, 0))),
+        (lambda: PackageBody(_cylinder_package()), _pts((0, 0), (4, 0))),
+        (lambda: PackageBody(_radial_cyl_package()), _pts((0, 0), (1, 0))),
     ])
     def test_drawn_pin_numbers_returns_frozenset(
         self, qtbot: QtBot, shape_factory, positions: list[Point],
