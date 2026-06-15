@@ -576,6 +576,41 @@ class TestPackageBodyParity:
         c = disc.rect().center()
         assert (round(c.x(), 3), round(c.y(), 3)) == (0.5, 0.0)
 
+    def test_radial_polar_marks_minus_with_segment(self, qtbot: QtBot) -> None:
+        # Polar radial part: a dark circular-segment marker on the negative
+        # lead (pin 2) side, plus the body disc.  Pads (0,0)-(2,0): pin 2 at
+        # (2,0), midpoint (1,0) → the segment sits on the x>1 side.
+        shape = PackageBody(
+            _radial_cyl_package(),  # type: ignore[arg-type]
+            component_class=ComponentClass.CAPACITOR_POLAR,
+        )
+        items = shape.draw(_pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z)
+        seg = next(it for it in items if isinstance(it, QGraphicsPathItem))
+        assert seg.sceneBoundingRect().center().x() > 1.0
+
+    def test_radial_polar_segment_follows_physical_cathode(
+        self, qtbot: QtBot,
+    ) -> None:
+        # vertical_flipped does not move the physical cathode (pin 2), so the
+        # segment stays on the pin-2 side regardless.
+        shape = PackageBody(
+            _radial_cyl_package(),  # type: ignore[arg-type]
+            component_class=ComponentClass.CAPACITOR_POLAR,
+            vertical_flipped=True,
+        )
+        items = shape.draw(_pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z)
+        seg = next(it for it in items if isinstance(it, QGraphicsPathItem))
+        assert seg.sceneBoundingRect().center().x() > 1.0
+
+    def test_radial_nonpolar_has_no_segment(self, qtbot: QtBot) -> None:
+        shape = PackageBody(
+            _radial_cyl_package(),  # type: ignore[arg-type]
+            component_class=ComponentClass.OTHER,
+        )
+        items = shape.draw(_pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z)
+        assert not any(isinstance(it, QGraphicsPathItem) for it in items)
+        assert sum(isinstance(it, QGraphicsEllipseItem) for it in items) == 1
+
     def test_radial_prism_centred_between_pads(self, qtbot: QtBot) -> None:
         shape = PackageBody(_radial_prism_package())  # type: ignore[arg-type]
         items = shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)

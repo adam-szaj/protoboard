@@ -965,7 +965,12 @@ class PackageBody(BodyShape):
             else:
                 p1, p2 = positions[0], positions[1]
             if math.hypot(p2.x - p1.x, p2.y - p1.y) >= 1e-9:
-                return self._draw_radial(p1, p2, fill, border, alpha, z, theme)
+                # The ``-`` marker sits towards the physical cathode (pin 2),
+                # independent of the p1/p2 swap above.
+                neg_pin = positions[1]
+                return self._draw_radial(
+                    p1, p2, neg_pin, fill, border, alpha, z, theme,
+                )
         if isinstance(self._pkg, _PkgCylinder) and len(positions) >= 2:
             return self._draw_cylinder(
                 self._pkg, positions, fill, border, alpha, z, theme,
@@ -1075,7 +1080,7 @@ class PackageBody(BodyShape):
 
     def _draw_radial(
         self,
-        p1: Point, p2: Point,
+        p1: Point, p2: Point, neg_pin: Point,
         fill: QColor, border: QColor, alpha: float, z: float,
         theme: Theme,
     ) -> list[QGraphicsItem]:
@@ -1089,15 +1094,15 @@ class PackageBody(BodyShape):
         # The radial body sits over both pads, so it is centred on their
         # geometric midpoint (not on the anchor pad).
         mid = Point((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0)
-        # ``upper_pin`` is the pin standing proud of the top-down body; the
-        # polar disc uses it to pick solid (cathode up) vs hollow (anode up).
-        upper_pin = 1 if self._vertical_flipped else 2
+        # Direction from the body centre towards the negative lead — the side
+        # the ``-`` segment marker goes on.
+        neg_angle = math.degrees(math.atan2(neg_pin.y - mid.y, neg_pin.x - mid.x))
 
         pkg = self._pkg
         if isinstance(pkg, (_PkgCylinder, _PkgDisc)):
             diam = pkg.diameter_mm / mm
-            items.append(self._radial_disc(
-                mid, diam, fill, border, alpha, z, theme, upper_pin,
+            items.extend(self._radial_disc(
+                mid, diam, neg_angle, fill, border, alpha, z, theme,
             ))
             return items
 
@@ -1126,37 +1131,65 @@ class PackageBody(BodyShape):
 
     def _radial_disc(
         self,
-        anchor: Point,
+        centre: Point,
         diam: float,
+        neg_angle_deg: float,
         fill: QColor, border: QColor, alpha: float, z: float,
         theme: Theme,
-        upper_pin: int,
-    ) -> QGraphicsItem:
-        """Filled disc on the anchor pad; polar parts get the cathode/anode
-        discriminator (solid dark = cathode up, light + thick rim = anode up)."""
+    ) -> list[QGraphicsItem]:
+        """Top-view (looking at the body face) disc centred between the pads.
+
+        Non-polar parts draw a plain filled circle. For polar parts the body
+        face shows no end-cap marker (both leads exit the same face), so the
+        negative terminal is marked the way a real radial electrolytic is: a
+        dark circular segment (a chord-cut slice of the disc) on the side of the
+        ``-`` lead, leaving the rest of the disc in the body colour.
+        """
         r = diam / 2.0
         circle = QGraphicsEllipseItem(
-            QRectF(anchor.x - r, anchor.y - r, diam, diam),
+            QRectF(centre.x - r, centre.y - r, diam, diam),
         )
         circle.setZValue(z)
+        fill_c = QColor(fill)
+        fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        circle.setBrush(QBrush(fill_c))
+        circle.setPen(_body_pen(border, alpha))
         if not self._is_polar:
-            fill_c = QColor(fill)
-            fill_c.setAlphaF(fill_c.alphaF() * alpha)
-            circle.setBrush(QBrush(fill_c))
-            circle.setPen(_body_pen(border, alpha))
-            return circle
-        if upper_pin == 2:
-            dark = QColor(theme.body_diode_cathode_color)
-            dark.setAlphaF(alpha)
-            circle.setBrush(QBrush(dark))
-            circle.setPen(_body_pen(border, alpha))
-        else:
-            light = QColor(theme.body_diode_anode_color)
-            circle.setBrush(QBrush(light))
-            rim = QColor(border)
-            rim.setAlphaF(alpha)
-            circle.setPen(QPen(rim, diam * 0.15))
-        return circle
+            return [circle]
+        return [circle, self._disc_segment(centre, r, neg_angle_deg, theme, alpha, z)]
+
+    def _disc_segment(
+        self,
+        centre: Point,
+        radius: float,
+        neg_angle_deg: float,
+        theme: Theme,
+        alpha: float,
+        z: float,
+    ) -> QGraphicsItem:
+        """A dark circular segment cut by a chord perpendicular to the lead
+        axis, on the negative-lead side — the radial ``-`` polarity marker."""
+        # Chord at 0.45·radius from the centre → the slice is ~the outer third
+        # of the disc, on the side ``neg_angle_deg`` points to (local +x after
+        # the rotation below).
+        d = 0.45 * radius
+        half = math.degrees(math.acos(max(-1.0, min(1.0, d / radius))))
+        rect = QRectF(-radius, -radius, 2 * radius, 2 * radius)
+        path = QPainterPath()
+        path.arcMoveTo(rect, -half)
+        path.arcTo(rect, -half, 2 * half)
+        path.closeSubpath()
+        seg = QGraphicsPathItem(path)
+        dark = QColor(theme.body_diode_cathode_color)
+        dark.setAlphaF(alpha)
+        seg.setBrush(QBrush(dark))
+        seg.setPen(_body_pen(dark, alpha, width=0.0))
+        seg.setZValue(z + 0.01)
+        t = QTransform()
+        t.translate(centre.x, centre.y)
+        t.rotate(neg_angle_deg)
+        seg.setTransform(t)
+        return seg
 
     # ------------------------------------------------------------------
     # Generic — bbox() rectangle in holes (prism, devboard, fallback)
