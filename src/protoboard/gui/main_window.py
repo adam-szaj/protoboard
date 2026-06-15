@@ -3074,12 +3074,29 @@ class MainWindow(QMainWindow):
                 timer.start()
         super().resizeEvent(event)
 
+    def _shutdown_cleanup(self) -> None:
+        """Run shutdown side-effects, isolating each so one failure can't
+        abort the close.
+
+        An exception escaping ``closeEvent`` makes Qt keep the window (and
+        the process) alive — e.g. a recording flush hitting a deleted
+        project directory used to leave the app un-quittable.  Each step is
+        therefore best-effort.
+        """
+        for label, step in (
+            ("save_window_state", lambda: save_window_state(self)),
+            ("stop_recording", self._session.stop_recording),
+            ("wait_for_drc_workers", self._wait_for_drc_workers),
+        ):
+            try:
+                step()
+            except Exception as exc:
+                _log.warning("main_window.shutdown_step_failed", step=label, error=str(exc))
+
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._closing_to_welcome:
             self._closing_to_welcome = False
-            save_window_state(self)
-            self._session.stop_recording()
-            self._wait_for_drc_workers()
+            self._shutdown_cleanup()
             super().closeEvent(event)
             self.return_to_welcome.emit()
             return
@@ -3087,9 +3104,7 @@ class MainWindow(QMainWindow):
         if not self._check_unsaved_changes("quitting"):
             event.ignore()
             return
-        save_window_state(self)
-        self._session.stop_recording()
-        self._wait_for_drc_workers()
+        self._shutdown_cleanup()
         super().closeEvent(event)
         from PySide6.QtWidgets import QApplication
 

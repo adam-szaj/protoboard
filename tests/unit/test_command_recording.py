@@ -189,6 +189,37 @@ class TestCommandRecorder:
         rec.record_undo()
         assert rec.events == []
 
+    def test_flush_recreates_deleted_project_dir(self, tmp_path: Path) -> None:
+        # Regression: the project directory can vanish while the app is open
+        # (deleted / moved).  stop() -> _flush() must recreate the parent and
+        # not raise FileNotFoundError — that exception used to escape the Qt
+        # closeEvent and leave the app un-quittable.
+        import shutil
+
+        proj = tmp_path / "reference_big_project"
+        proj.mkdir()
+        target = proj / "session_commands.yaml"
+
+        rec = CommandRecorder()
+        rec.start(target)
+        shutil.rmtree(proj)
+        assert not proj.exists()
+
+        rec.stop()  # must not raise
+
+        assert target.exists()
+
+    def test_stop_swallows_unwritable_path(self, tmp_path: Path) -> None:
+        # If the target genuinely cannot be written (e.g. parent is a file,
+        # so mkdir also fails), stop() still must not raise.
+        blocker = tmp_path / "blocker"
+        blocker.write_text("not a directory", encoding="utf-8")
+        target = blocker / "session_commands.yaml"
+
+        rec = CommandRecorder()
+        rec._path = target  # bypass start()'s own flush
+        rec.stop()  # must not raise even though the write is impossible
+
     def test_unknown_command_is_skipped(self, tmp_path: Path) -> None:
         from protoboard.domain.commands.base import Command
 

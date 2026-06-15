@@ -136,7 +136,16 @@ class CommandRecorder:
             data["project"] = self._project_label
         buf = io.StringIO()
         self._yaml.dump(data, buf)
-        self._path.write_text(buf.getvalue(), encoding="utf-8")
+        try:
+            # The project directory can disappear underneath us (deleted /
+            # moved while the app is open), so recreate the parent before
+            # writing.  Recording is a best-effort diagnostic aid — never let
+            # a failed flush propagate and abort an unrelated caller such as
+            # the Qt closeEvent shutdown path.
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(buf.getvalue(), encoding="utf-8")
+        except OSError as exc:
+            _log.warning("recorder.flush_failed", path=str(self._path), error=str(exc))
 
 
 __all__ = ["CommandRecorder"]
