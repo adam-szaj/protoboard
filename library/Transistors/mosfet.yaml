@@ -5,7 +5,7 @@ components:
 
   - name: _MOSFET_TO220_GDS
     footprint: {type: TO220}
-    pin_names: {1: Gate, 2: Drain, 3: Source}
+    pin_names: {1: G, 2: D, 3: S}
 
   - name: _MOSFET_TO220_GDS_N
     component_class: transistor_nmos
@@ -34,3 +34,21 @@ components:
   - name: IRF9540_P
     extends: _MOSFET_TO220_GDS_P
     description: "IRFP9540 P-MOSFET Power transistor [GDS]"
+
+  - name: _MOSFET_TO92_DGS
+    component_class: transistor_npn
+    footprint: {type: TO92}
+    pin_names: {1: D, 2: G, 3: S}
+
+  - name: _MOSFET_TO92_SGD
+    component_class: transistor_npn
+    footprint: {type: TO92}
+    pin_names: {1: S, 2: G, 3: D}
+
+  - name: 2N7000
+    extends: _MOSFET_TO92_SGD
+    description: "2N7000 N-Channel low power N-Channel Mosfet"
+
+  - name: BS170
+    extends: _MOSFET_TO92_DGS
+    description: "BS170 N-Channel low power N-Channel Mosfet"

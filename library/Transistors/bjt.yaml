@@ -3,25 +3,19 @@ components:
   # Templates (prefix _ → not placeable)
   # -----------------------------------------------------------------------
 
-  # TO-92: each lead can be bent ±1 raster left/right.
-  # Offsets are in the component local frame (before rotation).
+  # TO-92: placed in one click at the package's default inline lead spread.
+  # Lead bending at placement time was removed (it required confirming each
+  # of the three pin positions separately); the default spread comes from the
+  # footprint/package. A different spread can be arranged afterwards.
   - name: _NPN_TO92
     component_class: transistor_npn
     footprint: {type: TO92}
     pin_names: {}
-    bendable_pins:
-      1: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
-      2: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
-      3: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
 
   - name: _PNP_TO92
     component_class: transistor_pnp
     footprint: {type: TO92}
     pin_names: {}
-    bendable_pins:
-      1: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
-      2: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
-      3: [{x: 0, y: 0}, {x: -1, y: 0}, {x: 1, y: 0}]
 
   # Pinouts per part family.  Layout-critical: same TO-92 shell, three
   # different pin orders.
