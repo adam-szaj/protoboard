@@ -239,6 +239,10 @@ class SelectTool(_Tool):
         # Wire selection (single — for editing).
         self._selected_wire_id: uuid.UUID | None = None
         self._wire_highlight: QGraphicsItemGroup | None = None
+        # Node handles for the selected wire — a separate scene item kept at
+        # Z_SELECTION (above pin modifiers) while the line overlay sits below
+        # them.  Removed in lock-step with ``_wire_highlight``.
+        self._wire_highlight_nodes: QGraphicsItemGroup | None = None
         # Multi-wire selection.
         self._selected_wire_ids: set[uuid.UUID] = set()
         self._wire_multi_highlights: list[QGraphicsItemGroup] = []
@@ -1760,7 +1764,7 @@ class SelectTool(_Tool):
         Always preceded by _clear_connectivity_highlight() in callers.
         """
         from protoboard.domain.schematic.net import PinRef
-        from protoboard.gui.layer_state import Z_OVERLAY
+        from protoboard.gui.layer_state import Z_NET_PAD_HIGHLIGHT, Z_OVERLAY
         from protoboard.gui.selection_axes import RelationClass
 
         scene = self._view.scene() if self._view is not None else None
@@ -1789,7 +1793,10 @@ class SelectTool(_Tool):
                     )
                     circle.setBrush(brush)
                     circle.setPen(pen)
-                    circle.setZValue(Z_OVERLAY + 1.0)
+                    # Just below the pin-modifier glyph so the highlight is
+                    # never occluded by the coloured pad / back-filter, but
+                    # the modifier (shape + colour info) still paints on top.
+                    circle.setZValue(Z_NET_PAD_HIGHLIGHT)
                     scene.addItem(circle)
                     self._highlight_items.append(circle)
 
@@ -2787,6 +2794,7 @@ class SelectTool(_Tool):
         self._origin_cross.clear()
         self._multi_highlights.clear()
         self._wire_highlight = None
+        self._wire_highlight_nodes = None
         self._wire_multi_highlights.clear()
         self._edit_preview_items.clear()
         self._edit_live_line = None
@@ -6392,7 +6400,7 @@ class SelectTool(_Tool):
         self._selected_ids &= existing_comps
         if self._selected_wire_id is not None and self._selected_wire_id not in existing_wires:
             self._selected_wire_id = None
-            self._wire_highlight = None
+            self._remove_wire_highlight()
         self._selected_wire_ids &= existing_wires
 
         if self._selected_id is not None:
@@ -7098,18 +7106,30 @@ class SelectTool(_Tool):
         self._notify_selection()
 
     def _draw_net_pad_highlights(self, positions: "list[Point]") -> None:
-        """Draw red circles on pin positions connected to the selected net (cycle 1)."""
-        from protoboard.gui.layer_state import Z_SELECTION
+        """Draw bright-yellow discs on pin positions connected to the selected
+        net (cycle 1).
+
+        The highlight uses the same neon yellow as the wire highlight
+        (``Theme.routing_target_color``) and sits at ``Z_NET_PAD_HIGHLIGHT`` —
+        above the coloured pads, wires and the back-side filter wash so it
+        reads cleanly, but below the pin-modifier glyph so the modifier's
+        shape/colour information stays visible on top.
+        """
+        from protoboard.gui.layer_state import Z_NET_PAD_HIGHLIGHT
         self._clear_net_pad_highlights()
         self._net_pad_highlight_positions = list(positions)
         r = 0.38
-        pen = QPen(QColor(220, 40, 40), 0.12)
-        brush = QBrush(QColor(220, 40, 40, 160))
+        yellow = QColor(self._theme().routing_target_color)
+        # Fully opaque fill — the whole point is an unmistakable, clean
+        # highlight that nothing on the pad layer washes out.
+        yellow.setAlpha(255)
+        pen = QPen(yellow, 0.12)
+        brush = QBrush(yellow)
         for pt in positions:
             item = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
             item.setPen(pen)
             item.setBrush(brush)
-            item.setZValue(Z_SELECTION + 1.0)
+            item.setZValue(Z_NET_PAD_HIGHLIGHT)
             self._view.scene().addItem(item)
             self._net_pad_highlight_items.append(item)
 
@@ -7124,23 +7144,43 @@ class SelectTool(_Tool):
 
     def _deselect_wire(self) -> None:
         self._cancel_wire_edit()
-        if self._wire_highlight is not None:
-            self._view.scene().removeItem(self._wire_highlight)
-            self._wire_highlight = None
+        self._remove_wire_highlight()
         self._selected_wire_id = None
         self._clear_multi_wire_selection()
         self._clear_net_pad_highlights()
         self._wire_click_id = None
         self._wire_click_cycle = 0
 
+    def is_wire_editing(self) -> bool:
+        """True while wire-edit mode ([E]) is armed on a wire.
+
+        BoardView reads this to suppress the pin-modifier glyphs during edit,
+        so the editable vertex handles (lifted above the modifiers) are not
+        cluttered by markers.
+        """
+        return self._edit_start_wire_id is not None
+
+    def _remove_wire_highlight(self) -> None:
+        """Remove the selected-wire line overlay and its node handles.
+
+        Both are separate scene items (different Z) created together by
+        :meth:`_draw_wire_highlight`; they must be torn down together.
+        """
+        for attr in ("_wire_highlight", "_wire_highlight_nodes"):
+            item = getattr(self, attr, None)
+            if item is not None:
+                try:
+                    self._view.scene().removeItem(item)
+                except RuntimeError:
+                    pass  # C++ object already gone (scene cleared)
+                setattr(self, attr, None)
+
     def _draw_wire_highlight(self, wire_id: uuid.UUID) -> None:
-        if self._wire_highlight is not None:
-            self._view.scene().removeItem(self._wire_highlight)
-            self._wire_highlight = None
+        self._remove_wire_highlight()
         wire = self._session.wire_by_id(wire_id)
         if wire is None or len(wire.path) < 2:
             return
-        from protoboard.gui.layer_state import Z_SELECTION
+        from protoboard.gui.layer_state import Z_SELECTION, Z_WIRE_HIGHLIGHT
         # Wire-edit mode (armed via [E]) repaints the selected wire and
         # its nodes in cyan so the user has an unmistakable signal that
         # clicks now manipulate vertices rather than selecting things.
@@ -7148,14 +7188,24 @@ class SelectTool(_Tool):
         seg_pen = _WIRE_EDIT_PEN if editing else _WIRE_SELECT_PEN
         node_pen = _NODE_EDIT_PEN if editing else _NODE_PEN
         node_brush = _NODE_EDIT_BRUSH if editing else _NODE_BRUSH
-        group = QGraphicsItemGroup()
         pts = wire.path
+        # Two separate scene items with distinct absolute Z (nesting groups
+        # would make child Z relative to the parent and defeat the layering):
+        #  - the thick line overlay below the pin-modifier glyphs so pin
+        #    markers on the wire's route stay visible on top;
+        #  - the node handles.  In plain selection they also sit below the
+        #    modifiers (the modifier must stay fully visible); in wire-edit
+        #    mode ([E]) they are lifted above the modifiers (Z_SELECTION) so
+        #    the editable vertex handles are never occluded while dragging.
+        group = QGraphicsItemGroup()
         for i in range(len(pts) - 1):
             seg = QGraphicsLineItem(
                 pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y
             )
             seg.setPen(seg_pen)
             group.addToGroup(seg)
+        group.setZValue(Z_WIRE_HIGHLIGHT)
+        node_group = QGraphicsItemGroup()
         for i, pt in enumerate(pts):
             r = _NODE_RADIUS
             is_start = (wire_id == self._edit_start_wire_id and i == self._edit_start_idx)
@@ -7164,10 +7214,12 @@ class SelectTool(_Tool):
             dot = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
             dot.setPen(_NODE_SELECTED_PEN if is_sel else node_pen)
             dot.setBrush(_NODE_SELECTED_BRUSH if is_sel else node_brush)
-            group.addToGroup(dot)
-        group.setZValue(Z_SELECTION)
+            node_group.addToGroup(dot)
+        node_group.setZValue(Z_SELECTION if editing else Z_WIRE_HIGHLIGHT)
         self._view.scene().addItem(group)
+        self._view.scene().addItem(node_group)
         self._wire_highlight = group
+        self._wire_highlight_nodes = node_group
 
     def _delete_wire(self, *, force: bool = False) -> None:
         wire_id = self._selected_wire_id
@@ -7191,7 +7243,7 @@ class SelectTool(_Tool):
         wire = self._session.wire_by_id(wire_id)
         if wire is None or len(wire.path) < 2:
             return
-        from protoboard.gui.layer_state import Z_SELECTION
+        from protoboard.gui.layer_state import Z_WIRE_HIGHLIGHT
         group = QGraphicsItemGroup()
         pts = wire.path
         for i in range(len(pts) - 1):
@@ -7200,7 +7252,9 @@ class SelectTool(_Tool):
             )
             seg.setPen(_WIRE_SELECT_PEN)
             group.addToGroup(seg)
-        group.setZValue(Z_SELECTION)
+        # Below the pin-modifier glyphs so pin markers on the wire's path
+        # stay visible on top of the highlight.
+        group.setZValue(Z_WIRE_HIGHLIGHT)
         self._view.scene().addItem(group)
         self._wire_multi_highlights.append(group)
 
@@ -8267,10 +8321,8 @@ class SelectTool(_Tool):
         Shows nodes on start wire and end wire; marks start/end nodes red.
         If wires are connected, also dims intermediate wires.
         """
-        # Remove existing primary highlight.
-        if self._wire_highlight is not None:
-            self._view.scene().removeItem(self._wire_highlight)
-            self._wire_highlight = None
+        # Remove existing primary highlight (line overlay + node handles).
+        self._remove_wire_highlight()
 
         start_wire_id = self._edit_start_wire_id
         end_wire_id = self._edit_end_wire_id
@@ -8331,6 +8383,10 @@ class SelectTool(_Tool):
         self._edit_end_idx = None
         self._edit_points = []
         if self._selected_wire_id is not None:
+            # Refresh so BoardView re-evaluates the modifier gate and hides
+            # the pin-modifier glyphs while editing (handles take priority).
+            if self._view is not None:
+                self._view.refresh()
             self._draw_wire_highlight(self._selected_wire_id)
 
     def _set_edit_end(self, node_idx: int, wire: Wire) -> None:
@@ -8400,6 +8456,7 @@ class SelectTool(_Tool):
         self._remove_edit_live()
 
     def _cancel_wire_edit(self) -> None:
+        was_editing = self._edit_start_wire_id is not None
         self._clear_edit_preview()
         self._edit_start_wire_id = None
         self._edit_end_wire_id = None
@@ -8408,6 +8465,9 @@ class SelectTool(_Tool):
         self._edit_points = []
         self._wire_edit_cycle_key = None
         self._wire_edit_cycle_last_wire_id = None
+        # Leaving edit mode: refresh so the pin-modifier glyphs come back.
+        if was_editing and self._view is not None:
+            self._view.refresh()
 
     def _commit_wire_edit(self) -> None:
         start = self._edit_start_idx

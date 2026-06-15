@@ -53,7 +53,24 @@ Z_FRONT_WIRES      = 4.0
 Z_FRONT_COMPONENTS = 5.0
 Z_FRONT_LABELS     = 6.0
 Z_OVERLAY          = 7.0
+# Net-pad highlight (the bright-yellow discs drawn on a net's pads when the
+# user selects a wire / net).  Sits ABOVE the coloured pads, wires, components
+# and the back-side filter wash so the highlight reads cleanly, but BELOW the
+# pin-modifier glyph (Z_PIN_MODIFIERS) — the modifier carries shape + colour
+# information and is allowed to paint on top of the highlight.
+Z_NET_PAD_HIGHLIGHT = 9.4
+# Selected-wire highlight (the thick yellow overlay drawn along a selected
+# wire's path).  Sits below the pin-modifier glyph so pin markers on the
+# wire's route stay visible on top, but above pads/components/back-filter so
+# the highlight reads cleanly.  Wire-edit *node* handles stay at Z_SELECTION
+# (they must remain on top and clickable).
+Z_WIRE_HIGHLIGHT   = 9.4
 Z_PIN_MODIFIERS    = 9.5
+# Front-side labels (component refdes/value, pin names, group names) sit above
+# the pin-modifier glyphs so an on-demand label is never occluded by a pin
+# decorator.  Back-side labels stay low (Z_BACK_LABELS) — they belong under the
+# board when viewed from the other side.  See ``LayerState.z_for_label``.
+Z_LABELS_TOP       = 9.7
 Z_SELECTION        = 10.0
 
 # Automatic alpha constants (used when override is AUTO).
@@ -166,8 +183,11 @@ class LayerState:
     def z_for_component(self, side: Side) -> float:
         return Z_FRONT_COMPONENTS if side == self.camera_side else Z_BACK_COMPONENTS
 
-    def z_for_label(self, side: Side) -> float:
-        return Z_FRONT_LABELS if side == self.camera_side else Z_BACK_LABELS
+    def z_for_label(self, side: Literal["top", "bottom"]) -> float:
+        # Front-side labels render on top of everything (above pin modifiers)
+        # so an on-demand label is always fully visible; back-side labels stay
+        # low, under the board, as before.
+        return Z_LABELS_TOP if side == self.camera_side else Z_BACK_LABELS
 
     # ------------------------------------------------------------------
     # Alpha helpers — manual override takes priority over automatic logic

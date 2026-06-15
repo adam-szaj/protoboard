@@ -155,6 +155,10 @@ class BoardView(QGraphicsView):
         self._last_drag_refresh: float = 0.0
         # comp_id → QGraphicsItemGroup; persists across refreshes for reuse.
         self._comp_groups: dict[uuid.UUID, object] = {}
+        # comp_id → label QGraphicsItemGroup (refdes / pin names / lock) drawn
+        # at Z_LABELS_TOP, above the pin-modifier glyphs.  Kept parallel to
+        # _comp_groups so it follows live drag and group dimming.
+        self._comp_label_groups: dict[uuid.UUID, object] = {}
         self._comp_fingerprints: dict[uuid.UUID, tuple[object, ...]] = {}
         # wire_id → QGraphicsItemGroup; persists across refreshes for reuse.
         self._wire_groups: dict[uuid.UUID, object] = {}
@@ -465,6 +469,9 @@ class BoardView(QGraphicsView):
             for grp in self._comp_groups.values():
                 if isinstance(grp, QGraphicsItemGroup):
                     grp.setOpacity(1.0)
+            for grp in self._comp_label_groups.values():
+                if isinstance(grp, QGraphicsItemGroup):
+                    grp.setOpacity(1.0)
             for grp in self._wire_groups.values():
                 if isinstance(grp, QGraphicsItemGroup):
                     grp.setOpacity(1.0)
@@ -504,10 +511,13 @@ class BoardView(QGraphicsView):
 
         for comp_id, grp in self._comp_groups.items():
             if isinstance(grp, QGraphicsItemGroup):
-                if comp_id in highlighted_comp_ids:
-                    grp.setOpacity(hi_alpha)
-                else:
-                    grp.setOpacity(max(0.04, dim_c))
+                _alpha = hi_alpha if comp_id in highlighted_comp_ids else max(0.04, dim_c)
+                grp.setOpacity(_alpha)
+                # Mirror the opacity onto the component's label group so
+                # labels dim / boost together with their component.
+                lbl = self._comp_label_groups.get(comp_id)
+                if isinstance(lbl, QGraphicsItemGroup):
+                    lbl.setOpacity(_alpha)
 
         for wire_id, grp in self._wire_groups.items():
             if isinstance(grp, QGraphicsItemGroup):
@@ -598,6 +608,11 @@ class BoardView(QGraphicsView):
             dx = pl.position.x - orig.x
             dy = pl.position.y - orig.y
             grp.setPos(dx, dy)
+            # Move the matching label group by the same delta so labels track
+            # the drag (they live in a separate group at Z_LABELS_TOP).
+            lbl = self._comp_label_groups.get(comp_id)
+            if isinstance(lbl, QGraphicsItemGroup):
+                lbl.setPos(dx, dy)
 
         # Recompute outline rect for each group from the live pin positions
         # of its members.  Outline overlay items live outside _comp_groups
@@ -1021,6 +1036,7 @@ class BoardView(QGraphicsView):
     def _invalidate_all_groups(self) -> None:
         """Drop all persistent group caches (called when scene is fully cleared)."""
         self._comp_groups.clear()
+        self._comp_label_groups.clear()
         self._comp_fingerprints.clear()
         self._wire_groups.clear()
         self._wire_fingerprints.clear()
@@ -1167,6 +1183,7 @@ class BoardView(QGraphicsView):
             active_group_id=self._active_group_id,
             layout=self._session.layout,
             highlighted_net_id=self._effective_highlighted_net(),
+            existing_label_groups=self._comp_label_groups,  # type: ignore[arg-type]
         )
 
         # Snapshot positions so _on_drag_moved can compute deltas.
@@ -1287,7 +1304,14 @@ class BoardView(QGraphicsView):
             except Exception:  # noqa: BLE001
                 pass
         self._pin_modifier_items.clear()
-        if pp_records:
+        # Suppress the modifier glyphs while a wire is being edited: the
+        # editable vertex handles sit above the modifiers, so the markers
+        # would clutter / occlude the handles the user is dragging.
+        _wire_editing = (
+            hasattr(self._active_tool, "is_wire_editing")
+            and self._active_tool.is_wire_editing()  # type: ignore[attr-defined]
+        )
+        if pp_records and not _wire_editing:
             try:
                 from protoboard.gui.renderers.pin_pad_renderer import (
                     render_pin_modifiers,

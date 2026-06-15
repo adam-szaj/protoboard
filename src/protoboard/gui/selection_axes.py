@@ -85,7 +85,10 @@ RELATION_PROFILES: dict[RelationClass, RelationProfile] = {
         pad_marker_radius=0.28,
     ),
     RelationClass.SAME_PHYSICAL_NET: RelationProfile(
-        pad_marker_rgba=(220, 40, 40, 160),
+        # Bright yellow, same as SAME_LOGICAL_NET — the user can't reliably
+        # tell red from yellow, so distinguishing logical vs physical net by
+        # hue is useless to them; both read as one clear yellow highlight.
+        pad_marker_rgba=(255, 220, 0, 160),
         pad_marker_radius=0.30,
     ),
     RelationClass.UNCONNECTED_PINS: RelationProfile(

@@ -24,7 +24,7 @@ from protoboard.domain.layout.placement import ComponentPlacement, pin_world_pos
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
-from protoboard.gui.layer_state import Z_FRONT_WIRES, LayerState, Z_FRONT_COMPONENTS, Z_FRONT_LABELS
+from protoboard.gui.layer_state import Z_FRONT_WIRES, LayerState, Z_FRONT_COMPONENTS, Z_FRONT_LABELS, Z_LABELS_TOP
 from protoboard.gui.renderers.body_shapes import body_shape_for
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 
@@ -224,8 +224,14 @@ def update_component_groups(
     active_group_id: uuid.UUID | None,
     layout: Layout | None,
     highlighted_net_id: uuid.UUID | None,
+    existing_label_groups: dict[uuid.UUID, QGraphicsItemGroup] | None = None,
 ) -> None:
     """Create/update/remove per-component QGraphicsItemGroups without scene clear.
+
+    *existing_label_groups* (when provided) is the parallel map of the
+    separate label groups (refdes / pin names / lock) rendered at
+    ``Z_LABELS_TOP``; it is created/updated/removed in lock-step with the body
+    groups so labels follow drags and live above the pin-modifier glyphs.
 
     Groups whose fingerprint is unchanged are left untouched in the scene.
 
@@ -264,6 +270,15 @@ def update_component_groups(
         ov.pin_names.value,
     )
 
+    label_groups: dict[uuid.UUID, QGraphicsItemGroup] = (
+        existing_label_groups if existing_label_groups is not None else {}
+    )
+
+    def _drop_label_group(cid: uuid.UUID) -> None:
+        old = label_groups.pop(cid, None)
+        if old is not None:
+            scene.removeItem(old)
+
     new_ids = set(placements.keys())
 
     # Remove groups for components that no longer exist.
@@ -271,6 +286,7 @@ def update_component_groups(
         if cid not in new_ids:
             scene.removeItem(existing_groups.pop(cid))
             existing_fingerprints.pop(cid, None)
+            _drop_label_group(cid)
 
     for comp_id, placement in placements.items():
         inst = instances.get(comp_id)
@@ -306,27 +322,37 @@ def update_component_groups(
             if existing_fingerprints.get(comp_id) == fp:
                 # Structure unchanged — just reset drag offset and apply opacity.
                 grp.setPos(0.0, 0.0)
+                lbl = label_groups.get(comp_id)
+                if lbl is not None:
+                    lbl.setPos(0.0, 0.0)
             else:
-                # Structure changed — rebuild the group.
+                # Structure changed — rebuild the group (and its labels).
                 scene.removeItem(existing_groups.pop(comp_id))
                 existing_fingerprints.pop(comp_id, None)
-                grp = _render_one(scene, placement, inst, defn, comp_id, pin_net,
-                                  routed_nets, theme, layers, group_alpha=1.0,
-                                  highlighted_net_id=highlighted_net_id,
-                                  is_highlighted_comp=comp_id in highlighted_comp_ids)
-                if grp is None:
+                _drop_label_group(comp_id)
+                result = _render_one(scene, placement, inst, defn, comp_id, pin_net,
+                                     routed_nets, theme, layers, group_alpha=1.0,
+                                     highlighted_net_id=highlighted_net_id,
+                                     is_highlighted_comp=comp_id in highlighted_comp_ids)
+                if result is None:
                     continue
+                grp, label_grp = result
                 existing_groups[comp_id] = grp
                 existing_fingerprints[comp_id] = fp
+                if label_grp is not None:
+                    label_groups[comp_id] = label_grp
         else:
-            grp = _render_one(scene, placement, inst, defn, comp_id, pin_net,
-                              routed_nets, theme, layers, group_alpha=1.0,
-                              highlighted_net_id=highlighted_net_id,
-                              is_highlighted_comp=comp_id in highlighted_comp_ids)
-            if grp is None:
+            result = _render_one(scene, placement, inst, defn, comp_id, pin_net,
+                                 routed_nets, theme, layers, group_alpha=1.0,
+                                 highlighted_net_id=highlighted_net_id,
+                                 is_highlighted_comp=comp_id in highlighted_comp_ids)
+            if result is None:
                 continue
+            grp, label_grp = result
             existing_groups[comp_id] = grp
             existing_fingerprints[comp_id] = fp
+            if label_grp is not None:
+                label_groups[comp_id] = label_grp
 
         # Apply group-context dimming — O(1) per group.  Net-highlight
         # opacity (highlighted vs dimmed comps) is layered on top by
@@ -334,7 +360,11 @@ def update_component_groups(
         # we deliberately don't touch it here.  Doing so previously
         # clobbered the route-active dim profile every time a refresh
         # fired during a wire drag.
-        grp.setOpacity(alpha_map.get(comp_id, 1.0))
+        _op = alpha_map.get(comp_id, 1.0)
+        grp.setOpacity(_op)
+        lbl = label_groups.get(comp_id)
+        if lbl is not None:
+            lbl.setOpacity(_op)
 
 
 def render_components(
@@ -349,11 +379,17 @@ def render_components(
     active_group_id: uuid.UUID | None = None,
     layout: Layout | None = None,
     highlighted_net_id: uuid.UUID | None = None,
-) -> dict[uuid.UUID, QGraphicsItemGroup]:
-    """Render all placed components and return a map of comp_id → scene group.
+) -> tuple[
+    dict[uuid.UUID, QGraphicsItemGroup], dict[uuid.UUID, QGraphicsItemGroup]
+]:
+    """Render all placed components.
 
-    Each component's items are wrapped in a ``QGraphicsItemGroup`` so that
-    live drag can call ``group.setPos()`` without rebuilding the scene.
+    Returns ``(comp_groups, label_groups)`` — two maps keyed by comp_id.  The
+    body/pins are in *comp_groups* at the component Z; the text labels are in
+    *label_groups* at ``Z_LABELS_TOP`` (above pin modifiers).  Both groups are
+    wrapped so live drag can call ``group.setPos()`` without rebuilding the
+    scene; BoardView translates both.  A component with no labels has no entry
+    in *label_groups*.
     """
     pin_net: dict[PinRef, uuid.UUID] = {}
     if schematic is not None:
@@ -375,6 +411,7 @@ def render_components(
             highlighted_comp_ids = {ref.component_id for ref in net.pins}
 
     comp_groups: dict[uuid.UUID, QGraphicsItemGroup] = {}
+    label_groups: dict[uuid.UUID, QGraphicsItemGroup] = {}
     for comp_id, placement in placements.items():
         inst = instances.get(comp_id)
         if inst is None:
@@ -386,12 +423,15 @@ def render_components(
         if highlighted_net_id is not None:
             net_dim = 1.0 if comp_id in highlighted_comp_ids else theme.highlight_dim_components
             group_alpha = max(0.04, group_alpha * net_dim)
-        grp = _render_one(scene, placement, inst, defn, comp_id, pin_net,
-                          routed_nets, theme, layers, group_alpha=group_alpha,
-                          highlighted_net_id=highlighted_net_id)
-        if grp is not None:
+        result = _render_one(scene, placement, inst, defn, comp_id, pin_net,
+                             routed_nets, theme, layers, group_alpha=group_alpha,
+                             highlighted_net_id=highlighted_net_id)
+        if result is not None:
+            grp, label_grp = result
             comp_groups[comp_id] = grp
-    return comp_groups
+            if label_grp is not None:
+                label_groups[comp_id] = label_grp
+    return comp_groups, label_groups
 
 
 def _render_one(
@@ -407,8 +447,16 @@ def _render_one(
     group_alpha: float = 1.0,
     highlighted_net_id: uuid.UUID | None = None,
     is_highlighted_comp: bool = False,
-) -> QGraphicsItemGroup | None:
-    """Render one component; return a scene group (for live drag) or None.
+) -> tuple[QGraphicsItemGroup, QGraphicsItemGroup | None] | None:
+    """Render one component; return ``(body_group, label_group)`` or None.
+
+    The component body, pins and bold-net dots go into *body_group* at the
+    component Z.  The text labels (refdes / value, pin names, lock) go into a
+    separate *label_group* at ``Z_LABELS_TOP`` so they paint above the
+    pin-modifier glyphs (a child item's Z is relative to its parent group, so
+    labels nested in the body group could never rise above a standalone
+    modifier item — hence the split).  *label_group* is None when no labels
+    are drawn.  Both groups share the live-drag translation in BoardView.
 
     When *is_highlighted_comp* is True, the per-layer ghost factor
     (alpha_for_component) is bypassed so a component belonging to the
@@ -426,7 +474,6 @@ def _render_one(
         return None
     alpha_label = layers.alpha_for_label(side) * group_alpha
     z_comp = layers.z_for_component(side)
-    z_label = layers.z_for_label(side)
 
     fp = defn.footprint
     positions = [
@@ -438,6 +485,12 @@ def _render_one(
     # Wrap all items in a group so live drag can move them with setPos().
     grp = QGraphicsItemGroup()
     grp.setZValue(z_comp)
+    # Separate group for text labels — lifted to Z_LABELS_TOP so they paint
+    # above the pin-modifier glyphs.  Items are added lazily; the group is
+    # only returned (and added to the scene) if it ends up non-empty.
+    label_grp = QGraphicsItemGroup()
+    label_grp.setZValue(layers.z_for_label(side))
+    _label_count = 0
 
     # Bbox used for label positioning.
     margin = 0.35
@@ -543,10 +596,13 @@ def _render_one(
             lx = pin1.x - 0.5
             ly = pin1.y - 0.5
         label_text = _compose_overlay_label(inst.refdes, inst.value)
+        # Child Z is relative to label_grp (whose own Z is z_label); use small
+        # offsets only to order labels among themselves.
         for item in _make_overlay_label(
-            label_text, _get_refdes_font(fpt), label_color, bg, lx, ly, z_label,
+            label_text, _get_refdes_font(fpt), label_color, bg, lx, ly, 0.0,
         ):
-            grp.addToGroup(item)
+            label_grp.addToGroup(item)
+            _label_count += 1
 
         # Pin-name labels (controlled by the pin_names layer).
         alpha_pin_names = layers.alpha_for_pin_names(side) * group_alpha
@@ -563,9 +619,10 @@ def _render_one(
                     continue
                 for item in _make_overlay_label(
                     name, _get_pin_name_font(fpt), pin_name_color, pin_bg,
-                    pos.x, pos.y, z_label + 0.1,
+                    pos.x, pos.y, 0.1,
                 ):
-                    grp.addToGroup(item)
+                    label_grp.addToGroup(item)
+                    _label_count += 1
 
     if placement.locked and alpha > 0.05:
         # Lock emoji stays at full alpha; only the bg pill fades with layer.
@@ -574,12 +631,16 @@ def _render_one(
         lock_bg.setAlphaF(lock_bg.alphaF() * min(alpha, 1.0))
         for item in _make_overlay_label(
             "\U0001f512", _get_refdes_font(fpt), lock_col, lock_bg,
-            x1, y0, z_label + 0.5,
+            x1, y0, 0.5,
         ):
-            grp.addToGroup(item)
+            label_grp.addToGroup(item)
+            _label_count += 1
 
     scene.addItem(grp)
-    return grp
+    if _label_count > 0:
+        scene.addItem(label_grp)
+        return grp, label_grp
+    return grp, None
 
 
 def make_ghost_item(
@@ -667,6 +728,7 @@ def render_groups(
     view_scale: float = 1.0,
     wire_net_map: "dict[uuid.UUID, uuid.UUID] | None" = None,
     schematic: object | None = None,
+    label_z: float = Z_LABELS_TOP,
 ) -> list[QGraphicsItem]:
     """Render a dotted outline around each group's bounding box.
 
@@ -781,7 +843,7 @@ def render_groups(
             label_h_scene = QFontMetricsF(label_font).height() / max(view_scale, 1e-6)
             for item in _make_overlay_label(
                 group.name, label_font,
-                name_col, grp_bg, x0, y0 - label_h_scene, 1.1,
+                name_col, grp_bg, x0, y0 - label_h_scene, label_z,
             ):
                 scene.addItem(item)
                 added.append(item)
