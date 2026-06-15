@@ -1,22 +1,11 @@
 # SPDX-License-Identifier: MIT
 """Per-package body shape renderers.
 
-Two rendering backends are available and selected automatically:
-
-SvgBodyShape (preferred)
-    Loads a parametric SVG template from ``assets/components/``, patches
-    lead lengths, body colour, and per-pin net colours in-place via
-    ElementTree, then hands the modified XML to QSvgRenderer →
-    QGraphicsSvgItem.  A single QTransform (translate pin-1 world pos +
-    rotate to pin-2 direction) positions the item on the scene.
-
-    Templates live in  <project_root>/assets/components/<name>.svg
-    and follow the id/data-* conventions documented in that directory's
-    README.md.
-
-QPainterPath fallback (GenericBody and friends)
-    Used when no SVG template is found or when the package type is not
-    mapped.  These are the original hand-coded shapes.
+A component's body is drawn by a :class:`BodyShape`; ``body_shape_for`` picks
+the right one.  The parametric package model (:class:`PackageBody`) is the
+source of truth when a package resolves; the remaining concrete shapes are
+hand-coded ``QPainterPath`` renderers (``GenericBody``, ``TO92Body``,
+``TO220Body``, the ``Svg*`` DIP/SIL generators, …).
 
 Usage::
 
@@ -29,7 +18,6 @@ Usage::
 from __future__ import annotations
 
 import math
-import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -68,14 +56,6 @@ from protoboard.domain.components.package.shapes import (
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
 from protoboard.gui.theme import DEFAULT_THEME, Theme
-
-# ---------------------------------------------------------------------------
-# Assets directory
-# ---------------------------------------------------------------------------
-
-from protoboard.paths import BUILTIN_ASSETS_DIR as _BUILTIN_ASSETS_DIR
-
-_ASSETS: Path = _BUILTIN_ASSETS_DIR / "components"
 
 _big_body_alpha: float = 0.90
 # ---------------------------------------------------------------------------
@@ -123,172 +103,6 @@ def _body_pen(border: QColor, alpha: float, width: float = 0.06) -> QPen:
     c = QColor(border)
     c.setAlphaF(alpha)
     return QPen(c, width)
-
-
-# ---------------------------------------------------------------------------
-# SVG namespace helper
-# ---------------------------------------------------------------------------
-
-_SVG_NS = "http://www.w3.org/2000/svg"
-ET.register_namespace("", _SVG_NS)
-
-
-def _find_id(root: ET.Element, elem_id: str) -> ET.Element | None:
-    """Find first element with matching id anywhere in the tree."""
-    for el in root.iter():
-        if el.get("id") == elem_id:
-            return el
-    return None
-
-
-# ---------------------------------------------------------------------------
-# SvgBodyShape — SVG-template based renderer
-#
-# TODO: Replace the four ``Svg*`` renderers (SvgBodyShape, SvgDIPBody,
-# SvgSILBody, SvgQuadDIPBody) with a parametric ``MultiPinParametricBody``
-# mirroring the TwoPinParametricBody refactor.  Tracked in docs/todo.md
-# ("Parametric renderer for DIP / QIL / SIL packages").  ``SvgBodyShape``
-# is already dead code (no body_shape_for branch returns it) and could
-# be removed today as the quick-win mentioned in that TODO entry.
-# ---------------------------------------------------------------------------
-
-class SvgBodyShape(BodyShape):
-    """Render a component using a parametric SVG template.
-
-    SVG units are millimetres.  The template encodes only the physical body
-    (no leads, no pin markers).  ``data-body-width-mm`` and
-    ``data-body-height-mm`` attributes on the root ``<svg>`` element carry the
-    canvas dimensions so the renderer can convert mm → raster units.
-
-    Leads are drawn as ``QGraphicsLineItem`` objects in code; their length
-    adjusts to the actual pin spacing so the body size stays physically constant
-    regardless of how far apart the pins are placed.
-    """
-
-    def __init__(self, template_path: Path) -> None:
-        self._path = template_path
-        self._template: ET.ElementTree = ET.parse(template_path)
-        root = self._template.getroot()
-        self._body_w_mm = float(root.get("data-body-width-mm", "4"))
-        self._body_h_mm = float(root.get("data-body-height-mm", "10"))
-
-    # ------------------------------------------------------------------
-    # BodyShape interface
-    # ------------------------------------------------------------------
-
-    def draw(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme = DEFAULT_THEME,
-    ) -> list[QGraphicsItem]:
-        import copy
-
-        if len(positions) < 2:
-            return GenericBody().draw(positions, fill, border, alpha, z, theme)
-
-        p1 = positions[0]
-        p2 = positions[1]
-        dx = p2.x - p1.x
-        dy = p2.y - p1.y
-        dist = math.hypot(dx, dy)
-        if dist < 1e-9:
-            return GenericBody().draw(positions, fill, border, alpha, z, theme)
-
-        mm = theme.raster_pitch_mm
-        body_len_r = self._body_h_mm / mm   # body height in raster units
-        half       = body_len_r / 2.0
-
-        mid_x = (p1.x + p2.x) / 2.0
-        mid_y = (p1.y + p2.y) / 2.0
-        # SVG long axis is Y (height).  To align it with pin1→pin2 we need the
-        # Y axis to point in the (dx, dy) direction, which requires rotating
-        # the X axis there first (+90° extra vs the standard atan2 formula).
-        angle_deg = math.degrees(math.atan2(dy, dx)) + 90.0
-
-        items: list[QGraphicsItem] = []
-
-        # ------------------------------------------------------------------
-        # Leads — only when pins are farther apart than the body length
-        # ------------------------------------------------------------------
-        if dist > body_len_r + 1e-6:
-            unit_x = dx / dist
-            unit_y = dy / dist
-            attach = dist / 2.0 - half   # lead length on each side
-
-            lead_pen = _lead_pen(theme, alpha)
-            l1 = QGraphicsLineItem(
-                p1.x, p1.y,
-                p1.x + unit_x * attach, p1.y + unit_y * attach,
-            )
-            l2 = QGraphicsLineItem(
-                p2.x - unit_x * attach, p2.y - unit_y * attach,
-                p2.x, p2.y,
-            )
-            for ln in (l1, l2):
-                ln.setPen(lead_pen)
-                ln.setZValue(z - 0.01)
-            items.extend([l1, l2])
-
-        # ------------------------------------------------------------------
-        # SVG body — fixed physical size, placed at midpoint
-        # ------------------------------------------------------------------
-        tree = copy.deepcopy(self._template)
-        root = tree.getroot()
-        self._patch_body_colour(root, fill, border, alpha)
-
-        xml_bytes = ET.tostring(root, encoding="unicode",
-                                xml_declaration=False).encode("utf-8")
-
-        item = QGraphicsSvgItem()
-        renderer = QSvgRenderer(QByteArray(xml_bytes), item)
-        item.setSharedRenderer(renderer)
-        item._svg_renderer = renderer
-        item.setZValue(z)
-
-        # SVG is in mm; scene is in raster units.
-        # scale = raster / mm so 1 mm → 1/mm raster.
-        # SVG canvas centre is at (body_w_mm/2, body_h_mm/2).
-        # We want that point at world (mid_x, mid_y) after rotation.
-        #
-        # Transform chain (Qt applies right-to-left):
-        #   translate(mid)                   — place centre at midpoint
-        #   rotate(angle_deg)                — align body with pin axis
-        #   scale(1/mm, 1/mm)                — mm → raster units
-        #   translate(-w_mm/2, -h_mm/2)      — SVG origin to canvas centre
-        s = 1.0 / mm
-        t = QTransform()
-        t.translate(mid_x, mid_y)
-        t.rotate(angle_deg)
-        t.scale(s, s)
-        t.translate(-self._body_w_mm / 2.0, -self._body_h_mm / 2.0)
-        item.setTransform(t)
-
-        items.append(item)
-        return items
-
-    # ------------------------------------------------------------------
-    # Patching helpers
-    # ------------------------------------------------------------------
-
-    def _patch_body_colour(
-        self, root: ET.Element, fill: QColor, border: QColor, alpha: float
-    ) -> None:
-        fill_hex  = fill.name()
-        fill_a    = fill.alphaF() * alpha
-        border_hex = border.name()
-        border_a  = border.alphaF() * alpha
-
-        for elem_id in ("body",):
-            el = _find_id(root, elem_id)
-            if el is not None:
-                el.set("fill",         fill_hex)
-                el.set("fill-opacity", f"{fill_a:.3f}")
-                el.set("stroke",       border_hex)
-                el.set("stroke-opacity", f"{border_a:.3f}")
 
 
 # ---------------------------------------------------------------------------

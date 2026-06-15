@@ -3,10 +3,7 @@
 
 from __future__ import annotations
 
-import math
 import uuid
-import xml.etree.ElementTree as ET
-from pathlib import Path
 
 import pytest
 from pytestqt.qtbot import QtBot
@@ -38,7 +35,6 @@ from protoboard.gui.renderers.body_shapes import (
     SvgDIPBody,
     TO92Body,
     TO220Body,
-    _find_id,
     body_shape_for,
 )
 from protoboard.domain.components.package.loader import build_package
@@ -163,32 +159,6 @@ def _colored_prism_package(color: str = "#d6c08c", edge: str = "sharp") -> objec
         },
         "TEST_DIP_COL",
     )
-
-
-class TestFindId:
-    def test_finds_direct_child(self) -> None:
-        root = ET.fromstring('<svg><rect id="body" /></svg>')
-        el = _find_id(root, "body")
-        assert el is not None
-        assert el.tag == "rect"
-
-    def test_finds_nested_element(self) -> None:
-        root = ET.fromstring('<svg><g><circle id="target" /></g></svg>')
-        el = _find_id(root, "target")
-        assert el is not None
-        assert el.tag == "circle"
-
-    def test_returns_none_when_not_found(self) -> None:
-        root = ET.fromstring('<svg><rect id="other" /></svg>')
-        assert _find_id(root, "missing") is None
-
-    def test_returns_first_match_among_multiple(self) -> None:
-        root = ET.fromstring(
-            '<svg><rect id="x" data-n="1"/><rect id="x" data-n="2"/></svg>'
-        )
-        el = _find_id(root, "x")
-        assert el is not None
-        assert el.get("data-n") == "1"
 
 
 # ---------------------------------------------------------------------------
