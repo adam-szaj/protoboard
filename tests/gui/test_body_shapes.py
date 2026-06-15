@@ -84,12 +84,15 @@ def _make_placement() -> ComponentPlacement:
     )
 
 
-def _cylinder_package() -> object:
-    """An axial cylinder (resistor-like) built through the package loader."""
+def _cylinder_package(edge_radius: float = 0.0) -> object:
+    """An axial cylinder (resistor-like) built through the package loader.
+
+    ``edge_radius`` defaults to 0 → a rectangular body; pass diameter/2 for a
+    fully-rounded capsule (the glass-diode look)."""
     return build_package(
         {
             "shape": "cylinder",
-            "dims": {"diameter": 2.5, "length": 6.3},
+            "dims": {"diameter": 2.5, "length": 6.3, "edge_radius": edge_radius},
             "bend": 0,
             "leads": {
                 "direction": [0, 0, -1],
@@ -355,12 +358,34 @@ class TestPackageBodyDispatch:
 
 
 class TestPackageBodyDraw:
-    def test_cylinder_draws_capsule_and_leads(self, qtbot: QtBot) -> None:
+    def test_cylinder_draws_body_and_leads(self, qtbot: QtBot) -> None:
         shape = PackageBody(_cylinder_package())  # type: ignore[arg-type]
         # Pads spaced wider than the body → leads appear.
         items = shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z)
         assert any(isinstance(it, QGraphicsPathItem) for it in items)
         assert any(isinstance(it, QGraphicsLineItem) for it in items)
+
+    def test_cylinder_edge_radius_zero_is_sharp_rectangle(
+        self, qtbot: QtBot,
+    ) -> None:
+        # Default edge_radius=0 → the body rectangle's corner is inside the
+        # path (sharp corner), not carved away.
+        shape = PackageBody(_cylinder_package(edge_radius=0.0))  # type: ignore[arg-type]
+        items = shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z)
+        body = [it for it in items if isinstance(it, QGraphicsPathItem)][-1]
+        # Local body rect is (-len/2,-w/2, len, w) = (-1.26,-0.5, 2.52, 1.0).
+        # Its corner (-1.26, -0.5) belongs to a sharp rectangle.
+        from PySide6.QtCore import QPointF
+        assert body.path().contains(QPointF(-1.26 + 0.02, -0.5 + 0.02))
+
+    def test_cylinder_full_edge_radius_carves_corner(self, qtbot: QtBot) -> None:
+        # edge_radius = diameter/2 → capsule: the rectangle corner is carved
+        # away (outside the rounded path).
+        shape = PackageBody(_cylinder_package(edge_radius=1.25))  # type: ignore[arg-type]
+        items = shape.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z)
+        body = [it for it in items if isinstance(it, QGraphicsPathItem)][-1]
+        from PySide6.QtCore import QPointF
+        assert not body.path().contains(QPointF(-1.26 + 0.02, -0.5 + 0.02))
 
     def test_cylinder_short_spacing_omits_leads(self, qtbot: QtBot) -> None:
         shape = PackageBody(_cylinder_package())  # type: ignore[arg-type]
@@ -477,6 +502,22 @@ def _radial_cyl_package() -> object:
     )
 
 
+def _radial_prism_package() -> object:
+    return build_package(
+        {
+            "shape": "prism",
+            "dims": {"width": 4.5, "length": 11.0, "height": 3.5},
+            "arrangement": "radial", "bend": 0,
+            "leads": {
+                "direction": [[0, 0, -1], [0, 0, -1]],
+                "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                "board_offset": "default", "lead_r": 0.25,
+            },
+        },
+        "RADP",
+    )
+
+
 class TestPackageBodyParity:
     """2-pin visual parity with the legacy TwoPinParametricBody."""
 
@@ -503,15 +544,33 @@ class TestPackageBodyParity:
         assert any(isinstance(it, QGraphicsEllipseItem) for it in items)
         assert any(isinstance(it, QGraphicsLineItem) for it in items)
 
-    def test_radial_anchor_pin_drawn_by_body(self, qtbot: QtBot) -> None:
+    def test_radial_cylinder_centred_between_pads(self, qtbot: QtBot) -> None:
+        # The radial disc sits at the geometric midpoint of the pads, not on
+        # the anchor pad.
         shape = PackageBody(_radial_cyl_package())  # type: ignore[arg-type]
-        assert shape.drawn_pin_numbers(_pts((0, 0), (1, 0))) == frozenset({1})
+        items = shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        disc = next(it for it in items if isinstance(it, QGraphicsEllipseItem))
+        c = disc.rect().center()
+        assert (round(c.x(), 3), round(c.y(), 3)) == (0.5, 0.0)
 
-    def test_radial_vertical_flipped_swaps_anchor(self, qtbot: QtBot) -> None:
-        shape = PackageBody(
-            _radial_cyl_package(), vertical_flipped=True,  # type: ignore[arg-type]
-        )
-        assert shape.drawn_pin_numbers(_pts((0, 0), (1, 0))) == frozenset({2})
+    def test_radial_prism_centred_between_pads(self, qtbot: QtBot) -> None:
+        shape = PackageBody(_radial_prism_package())  # type: ignore[arg-type]
+        items = shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        body = next(it for it in items if isinstance(it, QGraphicsPathItem))
+        c = body.sceneBoundingRect().center()
+        assert (round(c.x(), 3), round(c.y(), 3)) == (0.5, 0.0)
+
+    def test_radial_body_covers_close_pins(self, qtbot: QtBot) -> None:
+        # D=6.3 mm (~2.52 holes, r~1.26).  At 1-hole spacing the body is
+        # centred at (0.5, 0) and covers both pads.
+        shape = PackageBody(_radial_cyl_package())  # type: ignore[arg-type]
+        assert shape.drawn_pin_numbers(_pts((0, 0), (1, 0))) == frozenset({1, 2})
+
+    def test_radial_body_clears_wide_pins(self, qtbot: QtBot) -> None:
+        # At 4-hole spacing the midpoint (2, 0) is farther than the radius from
+        # either pad → the body covers neither.
+        shape = PackageBody(_radial_cyl_package())  # type: ignore[arg-type]
+        assert shape.drawn_pin_numbers(_pts((0, 0), (4, 0))) == frozenset()
 
     def test_axial_arrangement_no_drawn_pins(self, qtbot: QtBot) -> None:
         shape = PackageBody(_axial_cyl_package())  # type: ignore[arg-type]

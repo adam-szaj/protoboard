@@ -65,7 +65,8 @@ families:
     label: "SOD-27 (DO-35 alternate marking)"
     color: "#f4ece0"
     variants:
+      # Glass body — fully rounded ends (edge_radius = diameter / 2).
       - id: typ
         label: "Typical (1.8 x 3.7 mm)"
-        dims: {diameter: 1.8, length: 3.7}
+        dims: {diameter: 1.8, length: 3.7, edge_radius: 0.9}
         leads: {lead_r: 0.2, lead_length: 5.6}

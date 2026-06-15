@@ -918,11 +918,32 @@ class PackageBody(BodyShape):
         positions: list[Point],
         theme: Theme = DEFAULT_THEME,
     ) -> frozenset[int]:
-        # The radial top-view occludes the anchor pad with a solid body; the
-        # component renderer skips its own marker there so the body is the dot.
-        if self._arrangement is LeadArrangement.RADIAL:
-            return frozenset({2 if self._vertical_flipped else 1})
-        return frozenset()
+        # The radial top-view body sits centred between the pads and may cover
+        # one or both of them depending on the spacing. Report every pin that
+        # falls under the body silhouette so the renderer does not draw its own
+        # marker on top of it.
+        if self._arrangement is not LeadArrangement.RADIAL or len(positions) < 2:
+            return frozenset()
+        mm = theme.raster_pitch_mm
+        mid = Point(
+            (positions[0].x + positions[1].x) / 2.0,
+            (positions[0].y + positions[1].y) / 2.0,
+        )
+        radius = self._radial_body_radius(mm)
+        covered = {
+            i + 1
+            for i, p in enumerate(positions)
+            if math.hypot(p.x - mid.x, p.y - mid.y) <= radius + 1e-9
+        }
+        return frozenset(covered)
+
+    def _radial_body_radius(self, mm: float) -> float:
+        """Half-extent (in holes) of the radial body across the lead axis."""
+        pkg = self._pkg
+        if isinstance(pkg, (_PkgCylinder, _PkgDisc)):
+            return pkg.diameter_mm / mm / 2.0
+        # Prism: half its length (the bbox dimension along the lead axis).
+        return pkg.bbox().height / 2.0
 
     def draw(
         self,
@@ -1002,8 +1023,11 @@ class PackageBody(BodyShape):
                 ln.setZValue(z - 0.01)
             items.extend([l1, l2])
 
-        # Capsule: a rounded rectangle, fully rounded ends.
-        r = min(body_w / 2.0, body_len / 2.0)
+        # Edge rounding is a package property (edge_radius_mm, default 0 → a
+        # plain rectangular body); only packages that declare it (e.g. a glass
+        # DO-35) get a capsule. Clamp to half the shorter side so the rounded
+        # rect never degenerates.
+        r = min(pkg.edge_radius_mm / mm, body_w / 2.0, body_len / 2.0)
         path = QPainterPath()
         path.addRoundedRect(
             QRectF(-body_len / 2.0, -body_w / 2.0, body_len, body_w), r, r,
@@ -1041,7 +1065,7 @@ class PackageBody(BodyShape):
         return items
 
     # ------------------------------------------------------------------
-    # Radial — top-view silhouette on the anchor pad
+    # Radial — top-view silhouette centred between the two pads
     # ------------------------------------------------------------------
 
     def _draw_radial(
@@ -1057,6 +1081,9 @@ class PackageBody(BodyShape):
         items.append(lead)
 
         mm = theme.raster_pitch_mm
+        # The radial body sits over both pads, so it is centred on their
+        # geometric midpoint (not on the anchor pad).
+        mid = Point((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0)
         # ``upper_pin`` is the pin standing proud of the top-down body; the
         # polar disc uses it to pick solid (cathode up) vs hollow (anode up).
         upper_pin = 1 if self._vertical_flipped else 2
@@ -1065,11 +1092,12 @@ class PackageBody(BodyShape):
         if isinstance(pkg, (_PkgCylinder, _PkgDisc)):
             diam = pkg.diameter_mm / mm
             items.append(self._radial_disc(
-                p1, diam, fill, border, alpha, z, theme, upper_pin,
+                mid, diam, fill, border, alpha, z, theme, upper_pin,
             ))
             return items
 
-        # Prism radial → rectangle aligned with the lead direction.
+        # Prism radial → rectangle aligned with the lead direction, centred on
+        # the midpoint between the pads.
         bb = pkg.bbox()
         length_r, width_r = bb.height, bb.width
         angle_deg = math.degrees(math.atan2(p2.y - p1.y, p2.x - p1.x))
@@ -1085,7 +1113,7 @@ class PackageBody(BodyShape):
         body.setPen(_body_pen(border, alpha))
         body.setZValue(z)
         t = QTransform()
-        t.translate(p1.x, p1.y)
+        t.translate(mid.x, mid.y)
         t.rotate(angle_deg)
         body.setTransform(t)
         items.append(body)
