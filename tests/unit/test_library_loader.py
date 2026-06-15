@@ -106,6 +106,37 @@ components:
         assert "LM358" in lib  # still present from FIXTURES
 
 
+class TestAliasInheritance:
+    """An alias is the parent definition under a different name — it inherits
+    every field, including package_family_ref / default_value."""
+
+    def test_alias_inherits_package_family_ref_and_value(
+        self, tmp_path: Path,
+    ) -> None:
+        d = tmp_path / "lib"
+        d.mkdir()
+        (d / "parts.yaml").write_text("""
+components:
+  - name: R
+    description: "Resistor"
+    component_class: resistor
+    footprint: {type: TwoPin}
+    pin_names: {}
+    package_family_ref: "DIN-0207/typ"
+    default_value: "?"
+    aliases:
+      - R_Axial_DIN0207
+      - R_0603_1608Metric
+""")
+        lib = load_library([d])
+        parent = lib.get("R")
+        for alias_name in ("R_Axial_DIN0207", "R_0603_1608Metric"):
+            a = lib.get(alias_name)
+            assert a.package_family_ref == parent.package_family_ref == "DIN-0207/typ"
+            assert a.default_value == parent.default_value == "?"
+            assert a.component_class == parent.component_class
+
+
 class TestLibraryErrors:
     def test_invalid_yaml_raises(self, tmp_path: Path) -> None:
         bad_dir = tmp_path / "bad"

@@ -9,6 +9,7 @@ directories, the *first* directory wins (so users can override built-ins).
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -161,18 +162,12 @@ def _load_file(path: Path) -> list[ComponentDefinition]:
         result.append(defn)
 
         # aliases: list of extra names that resolve to the same definition.
+        # An alias is the parent definition under a different name, so it must
+        # inherit every field (package_family_ref, package, variants,
+        # default_value, …) — replace only the name.
         for alias in resolved.get("aliases") or []:
             if isinstance(alias, str) and alias:
-                alias_defn = ComponentDefinition(
-                    name=alias,
-                    footprint=defn.footprint,
-                    pin_names=defn.pin_names,
-                    description=defn.description,
-                    component_class=defn.component_class,
-                    metadata=defn.metadata,
-                    bendable_pins=defn.bendable_pins,
-                )
-                result.append(alias_defn)
+                result.append(dataclasses.replace(defn, name=alias))
 
     return result
 
