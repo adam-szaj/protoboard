@@ -93,6 +93,28 @@ class TestRouterDropdown:
         assert rs.router_name == "astar_enhanced"
 
 
+class TestRouteButtonFocus:
+    """Regression: pressing Space in a freshly-opened dialog must launch
+    the route, not drop open the Router combobox.  That requires the
+    Route button to be the default button AND the focused widget after
+    the dialog is shown (Qt otherwise parks focus on the first focusable
+    child — the Router combo)."""
+
+    def test_route_button_is_default(self, qtbot) -> None:
+        dlg = AutorouteDialog(RoutingSettings())
+        qtbot.addWidget(dlg)
+        assert dlg._route_btn.isDefault()
+
+    def test_route_button_focused_after_show(self, qtbot) -> None:
+        dlg = AutorouteDialog(RoutingSettings())
+        qtbot.addWidget(dlg)
+        dlg.show()
+        qtbot.waitExposed(dlg)
+        # Focus must be on Route, NOT on the Router combobox.
+        assert dlg.focusWidget() is dlg._route_btn
+        assert dlg.focusWidget() is not dlg._combo_router
+
+
 class _FakePluginOptimizer:
     name = "fake-side-balancer"
     display_name = "Side balancer (fake)"

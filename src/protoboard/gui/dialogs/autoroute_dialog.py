@@ -328,8 +328,24 @@ class AutorouteDialog(QDialog):
         buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        self._route_btn.setFocus()
         root.addWidget(buttons)
+        # Make "Route" the default *and* the focused widget.  Without this
+        # Qt parks initial focus on the first focusable child (the Router
+        # combobox), so pressing Space dropped the combo open instead of
+        # launching the route.  setDefault makes Enter accept; the
+        # showEvent-deferred setFocus makes Space activate Route too —
+        # it must run after show() or Qt's own focus-first-widget pass
+        # (which fires on show) overrides an __init__-time setFocus.
+        self._route_btn.setAutoDefault(True)
+        self._route_btn.setDefault(True)
+        self._route_btn.setFocus()
+
+    def showEvent(self, event: object) -> None:  # type: ignore[override]
+        super().showEvent(event)  # type: ignore[arg-type]
+        # Re-assert focus on the Route button after Qt's show-time focus
+        # initialisation, so Space activates Route rather than opening the
+        # Router combobox.
+        self._route_btn.setFocus()
 
     # ------------------------------------------------------------------
     # Public API
