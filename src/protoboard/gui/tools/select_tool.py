@@ -946,6 +946,16 @@ class SelectTool(_Tool):
                     self._selected_wire_ids = saved_multi_wires
                     self._selected_ids = saved_multi_comps
                     self._redraw_multi_wire_highlights()
+            # Pin-aware highlight refresh on the no-op path.  The full
+            # rebuild below ends with `_refresh_highlight_from_hit`, but
+            # this early-return branch (basis already selected) skipped it
+            # entirely — so re-clicking a *different pin* of an already-
+            # selected component left the connectivity highlight stuck on
+            # the first pin's net (user-reported regression).  `new_primary`
+            # carries the concrete `pin_number`, so this re-narrows the
+            # highlight to whichever pin the cursor actually hit, even when
+            # the primary component id is unchanged.
+            self._refresh_highlight_from_hit(new_primary)
             self._notify_selection()
             return
 
@@ -3166,6 +3176,18 @@ class SelectTool(_Tool):
                     target_gid, grp_members,
                     include_both_pin_in_set=True,
                 )
+                # Pin-aware highlight even when the selection is the group
+                # monolith: the user clicked a *specific pin* of a member,
+                # so narrow the connectivity highlight to that pin's net
+                # (the `_select_primary(hit)` above reset it to the proxy
+                # component's whole-component relation).  `pin_comp_id` /
+                # `pin_number` reference the originally-clicked member pin,
+                # not the proxy — so re-clicking another pin of a grouped
+                # component switches nets just like a free component does.
+                if pin_number is not None and pin_comp_id is not None:
+                    self._refresh_auto_highlight(
+                        comp_id=pin_comp_id, pin_number=pin_number,
+                    )
                 _log.info(
                     "on_press.group_drag_armed",
                     group_id=str(target_gid)[:8],

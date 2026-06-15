@@ -1531,6 +1531,69 @@ class TestHighlightUnion:
         assert after is not None
         assert frozenset(after.comp_ids) == comps_before
 
+    def test_second_pin_of_free_component_switches_highlight(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """Regression: clicking a *second* pin of an already-selected free
+        component re-narrows the connectivity highlight to that pin's net.
+        The decision-5 no-op path in `_set_selection` previously returned
+        before refreshing the highlight, leaving it stuck on the first
+        pin's net (user-reported 2026-06-15)."""
+        import uuid as _uuid
+        from protoboard.domain.schematic.net import Net, PinRef
+        inst = _place_component(board_view, session, 1.5, 1.5)
+        a = _place_component(board_view, session, 6.5, 1.5)
+        b = _place_component(board_view, session, 6.5, 6.5)
+        net1 = Net(id=_uuid.uuid4(), name="N1",
+                   pins={PinRef(inst.id, 1), PinRef(a.id, 1)})
+        net2 = Net(id=_uuid.uuid4(), name="N2",
+                   pins={PinRef(inst.id, 2), PinRef(b.id, 1)})
+        session.schematic.nets[net1.id] = net1
+        session.schematic.nets[net2.id] = net2
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        pins = dict(session.iter_pin_positions(inst.id))
+        p1, p2 = pins[1], pins[2]
+        _press(tool, p1.x, p1.y)
+        assert tool._highlight_net_id == net1.id
+        _press(tool, p2.x, p2.y)
+        assert tool._highlight_net_id == net2.id
+
+    def test_pin_of_grouped_component_highlights_pin_net(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """Regression: clicking a specific pin of a component that lives
+        inside a group narrows the connectivity highlight to that pin's
+        net, even though the whole group monolith becomes selected.  The
+        group-drag-arm path reset the highlight to the group anchor's
+        whole-component relation, swallowing the per-pin net."""
+        import uuid as _uuid
+        from protoboard.domain.schematic.net import Net, PinRef
+        inst = _place_component(board_view, session, 1.5, 1.5)
+        other = _place_component(board_view, session, 1.5, 6.5)
+        out_a = _place_component(board_view, session, 9.5, 1.5)
+        out_b = _place_component(board_view, session, 9.5, 6.5)
+        # Group inst + other (inst is grouped → click resolves to proxy).
+        _make_group_local(session, [inst.id, other.id])
+        net1 = Net(id=_uuid.uuid4(), name="N1",
+                   pins={PinRef(inst.id, 1), PinRef(out_a.id, 1)})
+        net2 = Net(id=_uuid.uuid4(), name="N2",
+                   pins={PinRef(inst.id, 2), PinRef(out_b.id, 1)})
+        session.schematic.nets[net1.id] = net1
+        session.schematic.nets[net2.id] = net2
+        board_view.refresh()
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        pins = dict(session.iter_pin_positions(inst.id))
+        p1, p2 = pins[1], pins[2]
+        _press(tool, p1.x, p1.y)
+        assert tool._highlight_net_id == net1.id
+        _press(tool, p2.x, p2.y)
+        assert tool._highlight_net_id == net2.id
+
 
 class TestSelectionSummary:
     """`selection_summary()` builds the status-bar string per spec
