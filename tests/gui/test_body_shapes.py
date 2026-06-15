@@ -470,11 +470,11 @@ class TestPackageBodyColor:
         assert isinstance(self._body_item(items), QGraphicsPathItem)
 
 
-def _axial_cyl_package() -> object:
+def _axial_cyl_package(edge_radius: float = 0.0) -> object:
     return build_package(
         {
             "shape": "cylinder",
-            "dims": {"diameter": 2.5, "length": 6.3},
+            "dims": {"diameter": 2.5, "length": 6.3, "edge_radius": edge_radius},
             "arrangement": "axial", "bend": 0,
             "leads": {
                 "direction": [[0, 0, -1], [0, 0, 1]],
@@ -537,6 +537,29 @@ class TestPackageBodyParity:
             for it in plain.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z)
         )
         assert d_paths == p_paths + 1
+
+    def test_cathode_stripe_stays_on_flat_part_of_capsule(
+        self, qtbot: QtBot,
+    ) -> None:
+        # On a fully-rounded capsule (edge_radius = D/2) the stripe must sit on
+        # the straight segment, never on the curved end cap: its outer edge is
+        # at most body_len/2 - r from the centre.
+        pkg = _axial_cyl_package(edge_radius=1.25)  # D=2.5 → r = D/2
+        shape = PackageBody(pkg, component_class=ComponentClass.DIODE)
+        items = shape.draw(_pts((0, 0), (8, 0)), _RED, _DARK, 1.0, _Z)
+        body, stripe = [
+            it for it in items if isinstance(it, QGraphicsPathItem)
+        ][0], [it for it in items if isinstance(it, QGraphicsPathItem)][-1]
+        mm = DEFAULT_THEME.raster_pitch_mm
+        body_len = pkg.length_mm / mm  # type: ignore[attr-defined]
+        r = min(pkg.edge_radius_mm / mm, body_len / 2.0)  # type: ignore[attr-defined]
+        mid_x = 4.0  # midpoint of (0,0)-(8,0)
+        stripe_right = stripe.sceneBoundingRect().right() - mid_x
+        assert stripe_right <= body_len / 2.0 - r + 1e-6
+        # And the stripe's near corner lies inside the body silhouette.
+        from PySide6.QtCore import QPointF
+        sbb = stripe.sceneBoundingRect()
+        assert body.path().contains(QPointF(sbb.right() - mid_x, 0.0))
 
     def test_radial_emits_disc_and_lead(self, qtbot: QtBot) -> None:
         shape = PackageBody(_radial_cyl_package())  # type: ignore[arg-type]

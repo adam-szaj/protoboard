@@ -1044,11 +1044,16 @@ class PackageBody(BodyShape):
         body.setTransform(t)
         items.append(body)
 
-        # Polar cathode stripe at the p2 end (class flavour, not a package
+        # Polar cathode stripe near the p2 end (class flavour, not a package
         # property); vertical_flipped already swapped p1/p2 above.
         if self._is_polar:
             stripe_w = min(body_len * 0.12, body_w * 0.4)
-            stripe_x = body_len / 2.0 - stripe_w
+            # Keep the whole stripe on the straight ("cylindrical") part of the
+            # body: its outer edge sits where the end rounding begins
+            # (body_len/2 - r), so even a fully-rounded capsule shows the stripe
+            # on the flat segment, never on the curved end cap.
+            stripe_right = max(body_len / 2.0 - r, stripe_w)
+            stripe_x = stripe_right - stripe_w
             stripe_path = QPainterPath()
             stripe_path.addRect(QRectF(stripe_x, -body_w / 2.0, stripe_w, body_w))
             stripe = QGraphicsPathItem(stripe_path)
