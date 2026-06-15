@@ -2136,8 +2136,16 @@ class MainWindow(QMainWindow):
         self._board_view.refresh()
         self._update_undo_redo()
 
-    def _autoroute(self) -> None:
-        """Open the autoroute dialog, then start the router in a background thread."""
+    def _autoroute(self, dialog_mode: str = "") -> None:
+        """Open the autoroute dialog, then start the router in a background thread.
+
+        ``dialog_mode`` overrides the persisted ``skip_autoroute_dialog``
+        setting for this single run (bound to the F6 modifier variants):
+
+        * ``""`` — honour the setting (plain F6).
+        * ``"force"`` — always show the pre-flight dialog (Alt+F6).
+        * ``"skip"`` — never show it (Shift+F6).
+        """
         if not self._session.schematic.nets:
             QMessageBox.information(self, "Autoroute", "No nets to route.")
             return
@@ -2170,7 +2178,15 @@ class MainWindow(QMainWindow):
             # Fall back to Net Inspector selection, then all nets.
             inspector_ids = self._net_inspector_panel.selected_net_ids()
             net_ids = inspector_ids if inspector_ids else None
-        self._autoroute_with_net_ids(net_ids)
+        self._autoroute_with_net_ids(net_ids, dialog_mode=dialog_mode)
+
+    def _autoroute_force_dialog(self) -> None:
+        """Autoroute, always showing the pre-flight dialog (Alt+F6)."""
+        self._autoroute("force")
+
+    def _autoroute_skip_dialog(self) -> None:
+        """Autoroute, never showing the pre-flight dialog (Shift+F6)."""
+        self._autoroute("skip")
 
     def _autoroute_with_net_ids(
         self,
@@ -2178,6 +2194,7 @@ class MainWindow(QMainWindow):
         *,
         schematic_override: object | None = None,
         title_prefix: str = "Autoroute",
+        dialog_mode: str = "",
     ) -> None:
         """Launch the autoroute worker over an explicit net set.
 
@@ -2193,8 +2210,16 @@ class MainWindow(QMainWindow):
 
         title_suffix = f" ({len(net_ids)} nets)" if net_ids else " (all nets)"
 
-        # Show pre-flight dialog unless user opted to skip it.
-        if self._session.routing_settings.skip_autoroute_dialog:
+        # Show pre-flight dialog unless user opted to skip it.  A
+        # per-run ``dialog_mode`` (F6 modifier variants) overrides the
+        # persisted setting in either direction.
+        if dialog_mode == "force":
+            show_dialog = True
+        elif dialog_mode == "skip":
+            show_dialog = False
+        else:
+            show_dialog = not self._session.routing_settings.skip_autoroute_dialog
+        if not show_dialog:
             run_settings = self._session.routing_settings
         else:
             cfg_dlg = AutorouteDialog(self._session.routing_settings, parent=self)

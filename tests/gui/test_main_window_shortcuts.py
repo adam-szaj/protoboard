@@ -278,3 +278,76 @@ class TestShortcutsPageApply:
         kb_reloaded = KB.KeyBindings.load()
         assert kb_reloaded.get(KB.ACTION_SAVE) == "Ctrl+S"
         assert "save:" not in KB._KEYBINDINGS_PATH.read_text()
+
+
+class TestAutorouteDialogMode:
+    """F6 modifier variants override the persisted skip_autoroute_dialog.
+
+    Plain F6 honours the setting; Alt+F6 (``_autoroute_force_dialog``)
+    always shows the pre-flight dialog; Shift+F6
+    (``_autoroute_skip_dialog``) always skips it.
+    """
+
+    class _Marker(Exception):
+        """Raised by the stub worker so we know the method reached the
+        post-dialog launch (i.e. the dialog was skipped or accepted)."""
+
+    @pytest.fixture()
+    def _routable(self, main_window: MainWindow, monkeypatch):
+        import uuid as _uuid
+        from protoboard.domain.schematic.net import Net
+        import protoboard.gui.dialogs.autoroute_dialog as _dlg_mod
+        import protoboard.gui.workers.autoroute_worker as _wrk_mod
+
+        # A net so _autoroute doesn't early-return on "No nets to route".
+        nid = _uuid.uuid4()
+        main_window._session.schematic.nets[nid] = Net(id=nid, name="N1")
+
+        constructed: list[bool] = []
+
+        class _StubDialog:
+            def __init__(self, *_a, **_k) -> None:
+                constructed.append(True)
+
+            def exec(self) -> int:
+                from PySide6.QtWidgets import QDialog
+                return QDialog.DialogCode.Rejected  # user cancels → method returns
+
+        def _stub_worker(*_a, **_k):
+            raise TestAutorouteDialogMode._Marker
+
+        monkeypatch.setattr(_dlg_mod, "AutorouteDialog", _StubDialog)
+        monkeypatch.setattr(_wrk_mod, "AutorouteWorker", _stub_worker)
+        return main_window, constructed
+
+    def _set_skip(self, mw: MainWindow, skip: bool) -> None:
+        from dataclasses import replace
+        mw._session.routing_settings = replace(
+            mw._session.routing_settings, skip_autoroute_dialog=skip,
+        )
+
+    def test_force_dialog_shows_even_when_setting_skips(self, _routable) -> None:
+        mw, constructed = _routable
+        self._set_skip(mw, True)  # setting says skip…
+        mw._autoroute_force_dialog()  # …but Alt+F6 forces the dialog
+        assert constructed == [True]
+
+    def test_skip_dialog_skips_even_when_setting_shows(self, _routable) -> None:
+        mw, constructed = _routable
+        self._set_skip(mw, False)  # setting says show…
+        with pytest.raises(TestAutorouteDialogMode._Marker):
+            mw._autoroute_skip_dialog()  # …but Shift+F6 skips it → reaches worker
+        assert constructed == []
+
+    def test_plain_autoroute_honours_skip_setting(self, _routable) -> None:
+        mw, constructed = _routable
+        self._set_skip(mw, True)
+        with pytest.raises(TestAutorouteDialogMode._Marker):
+            mw._autoroute()  # honours setting → skip → reaches worker
+        assert constructed == []
+
+    def test_plain_autoroute_honours_show_setting(self, _routable) -> None:
+        mw, constructed = _routable
+        self._set_skip(mw, False)
+        mw._autoroute()  # honours setting → show dialog (Rejected → returns)
+        assert constructed == [True]

@@ -288,6 +288,13 @@ ALL_ACTIONS: tuple[ActionSpec, ...] = (
     # ------------------------------------------------------------------
     ActionSpec(id=KB.ACTION_RUN_DRC,   label="Run &DRC",                                       slot_name="_run_drc",   menu_path=_ANALYSIS),
     ActionSpec(id=KB.ACTION_AUTOROUTE, label="&Autoroute Nets… [Inspector selection or all]", slot_name="_autoroute", menu_path=_ANALYSIS),
+    # orphan: modifier variants of Autoroute (F6).  Alt+F6 forces the
+    # pre-flight dialog and Shift+F6 forces skipping it, both regardless
+    # of the persisted skip_autoroute_dialog setting.  Not in the menu —
+    # they'd just duplicate the Autoroute entry; discoverable via the
+    # keybindings list / tooltip.
+    ActionSpec(id=KB.ACTION_AUTOROUTE_DIALOG,    label="Autoroute (force dialog)", slot_name="_autoroute_force_dialog", menu_path=None),
+    ActionSpec(id=KB.ACTION_AUTOROUTE_NO_DIALOG, label="Autoroute (skip dialog)",  slot_name="_autoroute_skip_dialog",  menu_path=None),
 
     # ------------------------------------------------------------------
     # Orphans — accessible only via shortcut (or panel widget).  Each

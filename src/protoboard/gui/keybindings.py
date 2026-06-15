@@ -80,6 +80,12 @@ ACTION_WIRE_SIDE_BOTTOM = "wire_side_bottom"
 
 ACTION_RUN_DRC = "run_drc"
 ACTION_AUTOROUTE = "autoroute"
+# Modifier variants of Autoroute: force the pre-flight dialog on / off
+# regardless of the persisted ``skip_autoroute_dialog`` setting.  Re-
+# enabling the dialog used to require digging into Preferences; these
+# give a one-key escape hatch in both directions.
+ACTION_AUTOROUTE_DIALOG = "autoroute_dialog"
+ACTION_AUTOROUTE_NO_DIALOG = "autoroute_no_dialog"
 ACTION_SIMPLIFY_WIRE = "simplify_wire"
 ACTION_UNWEAVE_WIRES = "unweave_wires"
 ACTION_MERGE_WIRES = "merge_wires"
@@ -219,6 +225,8 @@ DEFAULTS: dict[str, str] = {
     ACTION_WIRE_SIDE_BOTTOM: "B",
     ACTION_RUN_DRC: "F5",
     ACTION_AUTOROUTE: "F6",
+    ACTION_AUTOROUTE_DIALOG: "Alt+F6",
+    ACTION_AUTOROUTE_NO_DIALOG: "Shift+F6",
     ACTION_SIMPLIFY_WIRE: "",
     ACTION_UNWEAVE_WIRES: "",
     ACTION_MERGE_WIRES: "",
@@ -321,6 +329,8 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_WIRE_SIDE_BOTTOM: "Wire Side: Bottom",
     ACTION_RUN_DRC: "Run DRC",
     ACTION_AUTOROUTE: "Autoroute All Nets",
+    ACTION_AUTOROUTE_DIALOG: "Autoroute (force dialog)",
+    ACTION_AUTOROUTE_NO_DIALOG: "Autoroute (skip dialog)",
     ACTION_SIMPLIFY_WIRE: "Simplify Selected Wires",
     ACTION_UNWEAVE_WIRES: "Unweave Selected Wires",
     ACTION_MERGE_WIRES: "Merge Wires",
