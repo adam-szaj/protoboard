@@ -167,34 +167,16 @@ class TestRenderPinModifiers:
         items = render_pin_modifiers(
             scene, records, theme=DEFAULT_THEME, layers=LayerState(),
         )
-        # Only PIN_PAD records with non-CIRCLE modifiers emit a top overlay.
-        # Pin 1 has SQUARE modifier on BOTH sides (plated-through).
-        # Pin 2 has CIRCLE modifier → no overlay.
-        assert len(items) == 2
+        # Every PIN_PAD emits a top overlay — including the default CIRCLE
+        # (pin markers stay visible even when the body covers the pads).
+        # Pin 1 (SQUARE) and pin 2 (CIRCLE), each on BOTH sides
+        # (plated-through) → 4 glyphs.
+        assert len(items) == 4
         assert all(isinstance(it, QGraphicsPathItem) for it in items)
 
-    def test_circle_modifier_no_glyph(self, scene: QGraphicsScene) -> None:
-        # Single pin component, no group → only CIRCLE modifier → no glyph.
-        board = Board(root=BoardGrid(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-            cell=PadAtom(
-                width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
-                layers=PadLayers(top=True, bottom=True, plated_through=True),
-            ),
-            rows=1, cols=1, row_gap=0, col_gap=0,
-        ))
-        defn = ComponentDefinition(name="R", footprint=SIL(1), pin_names={1: "A"})
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
-        pl = ComponentPlacement(
-            component_id=inst.id, position=Point(0.5, 0.5),
-            rotation=0, side="top",
-        )
-        lay = Layout()
-        lay.ensure_root_group()
-        lay.placements[inst.id] = pl
-        # Pin 1 always gets square — to test CIRCLE we make a wire-pin
-        # which yields PIN_PAD with CIRCLE.  We don't have that wired
-        # into PadIndex without effort, so simulate with a synthetic record.
+    def test_circle_modifier_emits_glyph(self, scene: QGraphicsScene) -> None:
+        # The default CIRCLE modifier now also gets a top glyph so plain
+        # pins are marked consistently with the special ones.
         synthetic = PinPadInfo(
             position=Point(0.5, 0.5), side="top",
             net_id=uuid.uuid4(),
@@ -205,7 +187,8 @@ class TestRenderPinModifiers:
             scene, [synthetic],
             theme=DEFAULT_THEME, layers=LayerState(),
         )
-        assert items == []
+        assert len(items) == 1
+        assert isinstance(items[0], QGraphicsPathItem)
 
     def test_diamond_and_star_shapes(self, scene: QGraphicsScene) -> None:
         # Two synthetic records — one diamond, one star — verify items emit.

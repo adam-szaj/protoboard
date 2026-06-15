@@ -10,11 +10,11 @@ Two scene-level entry points:
   centre so the board pad below stays visible.
 
 * :func:`render_pin_modifiers` — top-most overlay (Z_PIN_MODIFIERS,
-  9.5).  Repeats the modifier glyph (square / diamond / star) above
-  every wire / component / label in the net colour so the pin1 /
-  exported marker remains visible even when something covers the pin
-  pad.  No glyph is drawn for the default CIRCLE modifier or for
-  CONTACT_ONLY classifications.
+  9.5).  Repeats the modifier glyph (circle / square / diamond / star)
+  above every wire / component / label in the net colour so every pin
+  marker remains visible even when something covers the pin pad.  The
+  default CIRCLE is included so plain pins are marked consistently with
+  the special ones; only CONTACT_ONLY classifications get no glyph.
 
 Routing target (:attr:`session.routing_net_id`) overrides the net
 colour with :attr:`Theme.routing_target_color` — a neon-yellow signal
@@ -219,8 +219,10 @@ def render_pin_modifiers(
 ) -> list[QGraphicsItem]:
     """Add top-most modifier glyphs (filled).
 
-    No glyph for CIRCLE or CONTACT_ONLY — those carry no positive
-    identification beyond the pin pad itself.
+    A glyph is drawn for every PIN_PAD — including the default CIRCLE —
+    so all pin markers share one look above the component and the pin
+    positions stay visible even when the body fully covers them.  Only
+    CONTACT_ONLY is skipped: it has no pin of its own, just net presence.
     """
     pad_r = theme.pad_radius
     mod_r = pad_r * theme.pin_pad_modifier_radius_factor*0.5
@@ -228,8 +230,6 @@ def render_pin_modifiers(
 
     for info in classifications:
         if info.klass != PinPadClass.PIN_PAD:
-            continue
-        if info.modifier == ModifierShape.CIRCLE:
             continue
         alpha = layers.alpha_for_pin_modifiers(info.side)  # type: ignore[arg-type]
         if alpha <= 0.0:
