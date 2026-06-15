@@ -45,7 +45,11 @@ from protoboard.domain.components.footprints import (
     TwoPin,
 )
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package.body import EdgeStyle, LeadArrangement
+from protoboard.domain.components.package.body import (
+    DiscProfile,
+    EdgeStyle,
+    LeadArrangement,
+)
 from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.components.package.shapes import (
     Cylinder as _PkgCylinder,
@@ -1099,7 +1103,17 @@ class PackageBody(BodyShape):
         neg_angle = math.degrees(math.atan2(neg_pin.y - mid.y, neg_pin.x - mid.x))
 
         pkg = self._pkg
-        if isinstance(pkg, (_PkgCylinder, _PkgDisc)):
+        if isinstance(pkg, _PkgDisc):
+            # A disc cap mounts on its edge: from above it is a thin side
+            # profile, not the round face — a lens (its diameter along the lead
+            # axis, its thickness across).
+            axis_angle = math.degrees(math.atan2(p2.y - p1.y, p2.x - p1.x))
+            items.append(self._radial_disc_side(
+                mid, pkg.diameter_mm / mm, pkg.thickness_mm / mm, axis_angle,
+                pkg.profile, fill, border, alpha, z, theme,
+            ))
+            return items
+        if isinstance(pkg, _PkgCylinder):
             diam = pkg.diameter_mm / mm
             items.extend(self._radial_disc(
                 mid, diam, neg_angle, fill, border, alpha, z, theme,
@@ -1157,6 +1171,50 @@ class PackageBody(BodyShape):
         if not self._is_polar:
             return [circle]
         return [circle, self._disc_segment(centre, r, neg_angle_deg, theme, alpha, z)]
+
+    def _radial_disc_side(
+        self,
+        centre: Point,
+        length: float,   # the disc diameter, along the lead axis
+        width: float,    # the disc thickness, across the lead axis
+        axis_angle_deg: float,
+        profile: DiscProfile,
+        fill: QColor, border: QColor, alpha: float, z: float,
+        theme: Theme,
+    ) -> QGraphicsItem:
+        """Side-view silhouette of a disc cap mounted on its edge: a lens
+        ``length`` long bulging to ``width`` across.  ``CANDY`` meets in sharp
+        tips on the lead axis; ``FLAT`` has the tips ground down to rounded
+        ends.  Quadratic Béziers reach half their control offset at the apex,
+        so a control point at ``width`` yields a mid bulge of ``width / 2``."""
+        half_l = length / 2.0
+        half_w = width / 2.0
+        path = QPainterPath()
+        if profile is DiscProfile.CANDY:
+            # Strongly bulged lens meeting in sharp tips on the lead axis: the
+            # arc reaches full half-thickness at the centre. Quadratic Béziers
+            # reach half their control offset, so control y = ±width gives the
+            # ±width/2 bulge.
+            path.moveTo(-half_l, 0.0)
+            path.quadTo(0.0, -width, half_l, 0.0)
+            path.quadTo(0.0, width, -half_l, 0.0)
+            path.closeSubpath()
+        else:
+            # FLAT: a flat disc (usually thicker, less bulged) is well
+            # approximated by a smooth ellipse of diameter × thickness — a
+            # gentle, large-radius lens with rounded ends rather than tips.
+            path.addEllipse(QRectF(-half_l, -half_w, length, width))
+        lens = QGraphicsPathItem(path)
+        fill_c = QColor(fill)
+        fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        lens.setBrush(QBrush(fill_c))
+        lens.setPen(_body_pen(border, alpha))
+        lens.setZValue(z)
+        t = QTransform()
+        t.translate(centre.x, centre.y)
+        t.rotate(axis_angle_deg)
+        lens.setTransform(t)
+        return lens
 
     def _disc_segment(
         self,

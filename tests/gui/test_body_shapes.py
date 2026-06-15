@@ -611,6 +611,50 @@ class TestPackageBodyParity:
         assert not any(isinstance(it, QGraphicsPathItem) for it in items)
         assert sum(isinstance(it, QGraphicsEllipseItem) for it in items) == 1
 
+    def _disc(self, profile: str) -> object:
+        return build_package(
+            {
+                "shape": "disc",
+                "dims": {"diameter": 5.0, "thickness": 2.0},
+                "arrangement": "radial", "disc_profile": profile, "bend": 0,
+                "leads": {
+                    "direction": [[0, 0, -1], [0, 0, -1]],
+                    "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                    "board_offset": "default", "lead_r": 0.25,
+                },
+            },
+            "D",
+        )
+
+    def test_disc_drawn_as_side_lens_not_face_circle(self, qtbot: QtBot) -> None:
+        # A disc mounts on its edge → a thin side lens (path), not the round
+        # face (ellipse); thickness across, diameter along the lead axis.
+        shape = PackageBody(self._disc("candy"))  # type: ignore[arg-type]
+        items = shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        lens = next(it for it in items if isinstance(it, QGraphicsPathItem))
+        assert not any(isinstance(it, QGraphicsEllipseItem) for it in items)
+        br = lens.path().boundingRect()
+        # diameter 5 mm = 2 holes long, thickness 2 mm = 0.8 holes across.
+        assert round(br.width(), 1) == 2.0
+        assert round(br.height(), 1) == 0.8
+
+    def test_disc_candy_has_sharp_tips_flat_is_rounded(self, qtbot: QtBot) -> None:
+        from PySide6.QtCore import QPointF
+        candy = PackageBody(self._disc("candy")).draw(  # type: ignore[arg-type]
+            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        flat = PackageBody(self._disc("flat")).draw(  # type: ignore[arg-type]
+            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        candy_path = next(
+            it for it in candy if isinstance(it, QGraphicsPathItem)).path()
+        flat_path = next(
+            it for it in flat if isinstance(it, QGraphicsPathItem)).path()
+        # Near a tip but off-axis: the candy lens has tapered there, the flat
+        # ellipse still carries material.  (path is in the local body frame,
+        # length -1..+1 along x, so 0.7 is near the +x tip.)
+        probe = QPointF(0.70, 0.25)
+        assert not candy_path.contains(probe)
+        assert flat_path.contains(probe)
+
     def test_radial_prism_centred_between_pads(self, qtbot: QtBot) -> None:
         shape = PackageBody(_radial_prism_package())  # type: ignore[arg-type]
         items = shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)

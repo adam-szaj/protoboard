@@ -7,6 +7,7 @@ families:
     extends: disc_radial
     label: "Ceramic disc, D=5 mm"
     color: "#d6c08c"
+    disc_profile: candy
     variants:
       - id: typ
         label: "Typical (5 mm x 2.0 mm thick)"
@@ -17,6 +18,7 @@ families:
     extends: disc_radial
     label: "Ceramic disc, D=7 mm"
     color: "#d6c08c"
+    disc_profile: candy
     variants:
       - id: typ
         label: "Typical (7 mm x 2.5 mm thick)"
@@ -27,6 +29,7 @@ families:
     extends: disc_radial
     label: "Ceramic disc, D=10 mm"
     color: "#d6c08c"
+    disc_profile: candy
     variants:
       - id: typ
         label: "Typical (10 mm x 3.0 mm thick)"
