@@ -8,19 +8,20 @@ uv run python tools/render_footprints.py
 
 ## How footprints map to body shapes
 
-`body_shape_for(defn, placement, instance, two_pin_families)` in `gui/renderers/body_shapes.py` is the dispatcher. The choice of renderer depends on the **footprint type**, with the body shape determined by the component's `TwoPinBodySpec` for the two-pin case:
+`body_shape_for(defn, placement, instance, package_families)` in `gui/renderers/body_shapes.py` is the dispatcher. A component's body comes first from its **parametric package** (`docs/footprints/spec.md`): `resolve_component_package` picks the package from the instance's `package_variant`, the definition's `package_family_ref` (both against the `package_families` catalogue), or an inline `defn.package`. When a package resolves it renders through `PackageBody`; otherwise the dispatch falls back to the **footprint type**:
 
-| Footprint | Component class | Body shape |
-|---|---|---|
-| `TO220Footprint` | any | `TO220Body` (metal-tab body) |
-| `TwoPin` | resistor / inductor / fuse / cap / diode / LED / … | `TwoPinParametricBody` reads the `TwoPinBodySpec` resolved from the family default or the explicit `instance.body_variant` |
-| `SingleRow(n=3)` | any transistor class | `TO92Body` (half-circle) |
-| `SingleRow(n>=3)` (other classes) | — | `SvgSILBody` (filled strip) |
-| `DualRow(n_per_row, rows_spacing)` | any | `SvgDIPBody` (DIP with notch + pin-1 marker) |
-| `QuadRow(n_per_col, col_spacings)` | any | `SvgQuadDIPBody` |
-| `GridFootprint` / anything else | — | `GenericBody` (plain rectangle) |
+| Source | Body shape |
+|---|---|
+| any resolved `Package` (cylinder / prism / disc) | `PackageBody` — geometry + colour from the package |
+| `TO220Footprint` | `TO220Body` (metal-tab body) |
+| `TwoPin` (no package) | `GenericBody` (plain bbox) |
+| `SingleRow(n=3)`, transistor class | `TO92Body` (half-circle) |
+| `SingleRow(n>=3)` (other classes) | `SvgSILBody` (filled strip) |
+| `DualRow(n_per_row, rows_spacing)` | `SvgDIPBody` (DIP with notch + pin-1 marker) |
+| `QuadRow(n_per_col, col_spacings)` | `SvgQuadDIPBody` |
+| `GridFootprint` / anything else | `GenericBody` (plain rectangle) |
 
-`TwoPinParametricBody` dispatches internally on the spec's `lead_arrangement` × `shape`: AXIAL draws a side-view body between the two pads, RADIAL draws a top-down silhouette on the anchor pad with a single lead reaching the other pad. Disc bodies honour `disc_profile` (FLAT vs CANDY); prisms honour `edge` (SHARP vs ROUNDED).
+`PackageBody` dispatches on the package's `arrangement` × shape: AXIAL cylinders draw a side-view capsule between the two pads, RADIAL parts draw a top-down silhouette (disc / circle / rect) on the anchor pad with a single lead reaching the other pad. The body colour comes from the package (`color`); polarity (diode cathode stripe, polar-cap disc) is driven by `component_class` and `vertical_flipped`, not the package. Prisms / discs honour `edge` (SHARP vs ROUNDED) and `disc_profile` (FLAT vs CANDY).
 
 ## Conventions in these images
 
