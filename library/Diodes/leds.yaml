@@ -7,7 +7,7 @@ components:
     component_class: diode_led
     footprint: {type: TwoPin}
     pin_names: {1: A, 2: K}
-    body_variant: "LED-3mm/typ"
+    package_family_ref: "LED-3mm/typ"
     bendable_pins:
       2:
         min_reach: 1
@@ -18,7 +18,7 @@ components:
     component_class: diode_led
     footprint: {type: TwoPin}
     pin_names: {1: A, 2: K}
-    body_variant: "LED-5mm/typ"
+    package_family_ref: "LED-5mm/typ"
     bendable_pins:
       2:
         min_reach: 1
@@ -29,7 +29,7 @@ components:
     component_class: diode_led
     footprint: {type: TwoPin}
     pin_names: {1: A, 2: K}
-    body_variant: "LED-10mm/typ"
+    package_family_ref: "LED-10mm/typ"
     bendable_pins:
       2:
         min_reach: 1

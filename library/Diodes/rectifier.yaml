@@ -7,7 +7,7 @@ components:
     component_class: diode
     footprint: {type: TwoPin}
     pin_names: {1: A, 2: K}
-    body_variant: "DO-35/typ"
+    package_family_ref: "DO-35/typ"
     bendable_pins:
       2:
         min_reach: 1
@@ -21,7 +21,7 @@ components:
     component_class: diode
     footprint: {type: TwoPin}
     pin_names: {1: A, 2: K}
-    body_variant: "DO-41/typ"
+    package_family_ref: "DO-41/typ"
     bendable_pins:
       2:
         min_reach: 1
@@ -35,7 +35,7 @@ components:
     component_class: diode
     footprint: {type: TwoPin}
     pin_names: {1: A, 2: K}
-    body_variant: "DO-201/typ"
+    package_family_ref: "DO-201/typ"
     bendable_pins:
       2:
         min_reach: 2

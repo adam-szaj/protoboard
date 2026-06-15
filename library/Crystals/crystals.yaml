@@ -7,7 +7,7 @@ components:
     component_class: crystal
     footprint: {type: TwoPin}
     pin_names: {1: "1", 2: "2"}
-    body_variant: "HC-49/typ"
+    package_family_ref: "HC-49/typ"
 
   # -----------------------------------------------------------------------
   # Crystals (HC-49/U through-hole)

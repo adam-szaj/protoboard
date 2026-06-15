@@ -8,7 +8,7 @@ components:
     component_class: fuse
     footprint: {type: TwoPin}
     pin_names: {1: A, 2: B}
-    body_variant: "DIN-0617/typ"
+    package_family_ref: "DIN-0617/typ"
     default_value: "?"
     bendable_pins:
       2:
