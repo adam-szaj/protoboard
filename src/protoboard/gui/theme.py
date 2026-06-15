@@ -266,7 +266,7 @@ class Theme:
     # disc lines up with the bare-pad ring underneath.  Modifier shape
     # is drawn smaller so the outer ring stays visible.
     pin_pad_modifier_radius_factor: float = 0.7  # × pad_radius
-    pin_pad_contact_only_width: float = 0.08     # outline ring stroke for contact-only
+    pin_pad_contact_only_width: float = 0.04     # outline ring stroke for contact-only
     # FREE pin (terminal present, no net): neutral high-contrast outline so
     # an unconnected pin is distinct from an empty hole without implying a
     # net colour.  Deliberately not red (accessibility) and heavier stroke

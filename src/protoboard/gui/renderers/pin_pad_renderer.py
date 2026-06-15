@@ -225,7 +225,10 @@ def render_pin_pads(
         else:  # CONTACT_ONLY
             # Thin outline ring in net colour, transparent centre.
             ring = QGraphicsEllipseItem(cx - pad_r, cy - pad_r, 2 * pad_r, 2 * pad_r)
-            pen = QPen(color, theme.pin_pad_contact_only_width)
+            col = QColor(color)
+            col.setAlphaF(0.3)
+            pen = QPen(col, theme.pin_pad_contact_only_width)
+
             pen.setCosmetic(False)
             ring.setPen(pen)
             ring.setBrush(QBrush(Qt.BrushStyle.NoBrush))
