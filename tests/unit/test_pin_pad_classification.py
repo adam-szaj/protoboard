@@ -336,3 +336,51 @@ class TestWirePin:
         r = by_pos[(Point(0.5, 0.5), "top")]
         assert r.klass == PinPadClass.PIN_PAD
         assert r.modifier == ModifierShape.CIRCLE
+
+
+class TestSameNamePinColouring:
+    """An unwired pin that shares a name (and thus a net via propagation) with
+    a wired sibling gets its pad coloured — driven purely by Net.pins/PadIndex,
+    no renderer change."""
+
+    def _ic_two_gnd(self) -> ComponentDefinition:
+        # SIL(4) vertical: pins at (0.5, 0.5/1.5/2.5/3.5). Pins 1 and 4 = GND.
+        return ComponentDefinition(
+            name="IC", footprint=SIL(4),
+            pin_names={1: "GND", 2: "B", 3: "C", 4: "GND"},
+        )
+
+    def _setup(self, gnd_pins: tuple[int, ...]) -> tuple[PadIndex, Layout, uuid.UUID]:
+        board = _perfboard(4, 1)
+        defn = self._ic_two_gnd()
+        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="")
+        pl = ComponentPlacement(
+            component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top",
+        )
+        lay = _empty_layout()
+        lay.placements[inst.id] = pl
+        nid, net = _net(
+            "GND",
+            *(PinRef(component_id=inst.id, pin_number=p) for p in gnd_pins),
+        )
+        sch = Schematic(nets={nid: net})
+        idx = PadIndex(board, lay, sch, {"IC": defn}, {inst.id: inst})
+        return idx, lay, nid
+
+    def test_unwired_sibling_uncoloured_without_propagation(self) -> None:
+        # Only GND pin 1 in Net.pins (pre-propagation): pin 4 has no net.
+        idx, lay, nid = self._setup(gnd_pins=(1,))
+        by_pos = _by_position(classify_pin_pads(idx, lay))
+        assert by_pos[(Point(0.5, 0.5), "top")].net_id == nid  # pin1 coloured
+        # pin4 has no net → no PinPadInfo emitted for it.
+        assert (Point(0.5, 3.5), "top") not in by_pos
+
+    def test_unwired_sibling_coloured_with_propagation(self) -> None:
+        # Both GND pins in Net.pins (post-propagation from AssignPinToNetCommand):
+        # the unwired pin 4 is now coloured with the GND net.
+        idx, lay, nid = self._setup(gnd_pins=(1, 4))
+        by_pos = _by_position(classify_pin_pads(idx, lay))
+        assert by_pos[(Point(0.5, 0.5), "top")].net_id == nid  # pin1
+        r4 = by_pos[(Point(0.5, 3.5), "top")]                  # pin4, unwired
+        assert r4.klass == PinPadClass.PIN_PAD
+        assert r4.net_id == nid

@@ -557,6 +557,7 @@ class MainWindow(QMainWindow):
         session.layout = layout
         session.schematic = schematic
         session.instances = instances
+        session.rebuild_all_pin_identities()
         session.routing_settings = routing_settings
         session.axis_label_settings = axis_label_settings
         session.project_path = path
@@ -2773,6 +2774,9 @@ class MainWindow(QMainWindow):
             for refdes, inst in result.instances.items():
                 if inst.id not in placed_ids:
                     self._session.instances[inst.id] = inst
+            # Imported instances carry no pin identities yet — build them so
+            # same-name pins share a net.
+            self._session.rebuild_all_pin_identities()
 
             # Save footprint_map.yaml next to the project.
             if self._session.project_path:

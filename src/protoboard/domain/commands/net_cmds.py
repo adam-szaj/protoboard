@@ -5,16 +5,28 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from protoboard.domain.commands.base import Command
 from protoboard.domain.schematic.schematic import Schematic
 
+if TYPE_CHECKING:
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.schematic.net import PinRef
+
 
 class NetState(Protocol):
-    """Minimal state needed by net-management commands."""
+    """State needed by net-management commands.
+
+    ``instances`` / ``components`` let assignment commands resolve a pin's
+    same-name siblings (shared :class:`PinIdentity`) so a net assigned to one
+    pin propagates to all of them. The runtime ``EditorSession`` satisfies this.
+    """
 
     schematic: Schematic
+    instances: dict[uuid.UUID, "ComponentInstance"]
+    components: dict[str, "ComponentDefinition"]
 
 
 # ---------------------------------------------------------------------------
@@ -182,38 +194,76 @@ class AssignPinToNetCommand(Command[NetState]):
     target_net_id: uuid.UUID
     _source_net_id: uuid.UUID | None = field(default=None, init=False, repr=False)
     _source_net_name: str = field(default="", init=False, repr=False)
+    # Exact PinRefs this command moved to the target net (the clicked pin plus
+    # its same-name siblings), so revert removes precisely those.
+    _assigned: "frozenset[PinRef]" = field(default=frozenset(), init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
         return f"Assign pin {self.pin_number} to net"
 
-    def apply(self, state: NetState) -> None:
+    def _sibling_refs(self, state: NetState) -> "list[PinRef]":
+        """The clicked pin plus every same-name sibling (shared PinIdentity).
+
+        Same-name pins of a component are one electrical node, so a net on one
+        is a net on all. Falls back to just the clicked pin when it has no
+        same-name sibling.
+
+        Builds the instance's identities on demand if they are empty: an
+        instance may have entered the project before identities were wired
+        (legacy placement, paste, replace, …), so we never rely on a prior
+        ``build_pin_identities`` call having run.
+        """
         from protoboard.domain.schematic.net import PinRef
 
-        ref = PinRef(component_id=self.component_id, pin_number=self.pin_number)
-        source = state.schematic.assign_pin(ref, self.target_net_id)
+        inst = state.instances.get(self.component_id)
+        if inst is None:
+            return [PinRef(self.component_id, self.pin_number)]
+        if not inst.pin_identities:
+            defn = state.components.get(inst.definition_ref)
+            if defn is not None:
+                inst.build_pin_identities(defn)
+        identity = inst.pin_identities.get(self.pin_number)
+        if identity is None:
+            return [inst.pin_ref(self.pin_number)]
+        return [
+            inst.pin_ref(pin)
+            for pin, ident in inst.pin_identities.items()
+            if ident is identity
+        ]
+
+    def apply(self, state: NetState) -> None:
+        refs = self._sibling_refs(state)
+        source: tuple[uuid.UUID, str] | None = None
+        for ref in refs:
+            prev = state.schematic.assign_pin(ref, self.target_net_id)
+            # Siblings share one net, so a single source describes them all;
+            # keep the first non-None.
+            if prev is not None and source is None:
+                source = prev
+        self._assigned = frozenset(refs)
         if source is not None:
             self._source_net_id, self._source_net_name = source
 
     def revert(self, state: NetState) -> None:
-        from protoboard.domain.schematic.net import Net, PinRef
+        from protoboard.domain.schematic.net import Net
 
-        ref = PinRef(component_id=self.component_id, pin_number=self.pin_number)
+        # Remove exactly the pins this command added to the target net.
+        for ref in self._assigned:
+            state.schematic.remove_pin_from_net(ref, self.target_net_id)
 
-        # Remove from target net.
-        state.schematic.remove_pin_from_net(ref, self.target_net_id)
-
-        # Restore to source net (if any).
+        # Restore them to the shared source net (if there was one).
         if self._source_net_id is not None:
             src = state.schematic.nets.get(self._source_net_id)
             if src is not None:
-                state.schematic.add_pin_to_net(ref, self._source_net_id)
+                for ref in self._assigned:
+                    state.schematic.add_pin_to_net(ref, self._source_net_id)
             else:
-                # Net was deleted when the pin was removed — recreate it.
+                # Net was deleted when its pins were removed — recreate it.
                 state.schematic.nets[self._source_net_id] = Net(
                     id=self._source_net_id,
                     name=self._source_net_name,
-                    pins={ref},
+                    pins=set(self._assigned),
                 )
 
 

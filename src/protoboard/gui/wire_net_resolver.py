@@ -70,6 +70,33 @@ def _snapshot(net: Net) -> Net:
     return Net(id=net.id, name=net.name, pins=net.pins.copy())
 
 
+def _same_name_refs(
+    session: EditorSession, comp_id: uuid.UUID, pin_num: int
+) -> list[PinRef]:
+    """The pin plus every same-name sibling of its component (one node).
+
+    Wiring one pin of a same-name group (several GND) connects the whole group.
+    Builds the instance's pin identities on demand if they are empty, so this
+    works for components placed before identities were wired. Falls back to the
+    single pin when it has no sibling.
+    """
+    inst = session.instances.get(comp_id)
+    if inst is None:
+        return [PinRef(component_id=comp_id, pin_number=pin_num)]
+    if not inst.pin_identities:
+        defn = session.components.get(inst.definition_ref)
+        if defn is not None:
+            inst.build_pin_identities(defn)
+    identity = inst.pin_identities.get(pin_num)
+    if identity is None:
+        return [inst.pin_ref(pin_num)]
+    return [
+        inst.pin_ref(p)
+        for p, ident in inst.pin_identities.items()
+        if ident is identity
+    ]
+
+
 def _create_new_net(
     session: EditorSession,
     cmd: AddWireWithNetsCommand,
@@ -80,14 +107,10 @@ def _create_new_net(
     refdes = inst.refdes if inst else "?"
     name = f"Net-({refdes}-{cl.pin_a[1]})"
     new_id = uuid.uuid4()
-    new_net = Net(
-        id=new_id,
-        name=name,
-        pins={
-            PinRef(component_id=cl.pin_a[0], pin_number=cl.pin_a[1]),
-            PinRef(component_id=cl.pin_b[0], pin_number=cl.pin_b[1]),
-        },
-    )
+    # Both endpoints plus the same-name siblings of each (one node per group).
+    pins = set(_same_name_refs(session, cl.pin_a[0], cl.pin_a[1]))
+    pins |= set(_same_name_refs(session, cl.pin_b[0], cl.pin_b[1]))
+    new_net = Net(id=new_id, name=name, pins=pins)
     cmd.record_net_change(new_id, before=None, after=_snapshot(new_net))
     session.schematic.nets[new_id] = new_net
     _log.info("wire_net.created", net_name=name)
@@ -109,9 +132,10 @@ def _extend_net(
         # Pure wire-to-wire join: no pin to register.
         _log.info("wire_net.joined_via_wire_touch", net=net.name)
         return
-    new_ref = PinRef(component_id=unconnected_pin[0], pin_number=unconnected_pin[1])
     cmd.record_net_change(net.id, before=_snapshot(net), after=None)
-    session.schematic.add_pin_to_net(new_ref, net.id)
+    # Add the wired pin plus its same-name siblings (one electrical node).
+    for ref in _same_name_refs(session, unconnected_pin[0], unconnected_pin[1]):
+        session.schematic.add_pin_to_net(ref, net.id)
     cmd._nets_after[net.id] = _snapshot(net)
     _log.info("wire_net.extended", net=net.name)
 

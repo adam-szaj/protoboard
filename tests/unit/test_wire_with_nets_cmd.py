@@ -221,6 +221,75 @@ class TestAddWireWithNetsMerge:
 # ---------------------------------------------------------------------------
 
 
+class TestWireDrawPropagatesSameName:
+    """Wiring one pin of a same-name group (via route tool → resolve_wire_nets)
+    pulls in the siblings — the path the user actually uses, not just the
+    explicit AssignPinToNetCommand."""
+
+    def _ic_two_gnd_state(self) -> tuple[_FakeSchematicState, uuid.UUID]:
+        from protoboard.domain.components.footprints import DualRow
+
+        defn = ComponentDefinition(
+            name="IC", footprint=DualRow(n_per_row=4),
+            pin_names={1: "A", 2: "B", 3: "C", 4: "GND",
+                       5: "E", 6: "F", 7: "G", 8: "GND"},
+        )
+        inst = ComponentInstance.new("IC", "U1", "")  # empty identities — built on demand
+        state = _FakeSchematicState()
+        state.instances = {inst.id: inst}
+        state.components = {"IC": defn}
+        return state, inst.id
+
+    def test_extend_net_adds_sibling(self) -> None:
+        from protoboard.domain.schematic.wire_net_ops import (
+            WireNetClassification,
+            WireNetKind,
+        )
+        from protoboard.gui.wire_net_resolver import _extend_net
+
+        state, comp_id = self._ic_two_gnd_state()
+        # Pre-existing GND net (some other pin already on it).
+        other = uuid.uuid4()
+        gnd = Net(id=uuid.uuid4(), name="GND",
+                  pins={PinRef(component_id=other, pin_number=1)})
+        state.schematic.nets[gnd.id] = gnd
+        cmd = AddWireWithNetsCommand(wire=_wire())
+        # Wire connects net GND (pin_a side) to unconnected IC pin 4 (GND).
+        cl = WireNetClassification(
+            kind=WireNetKind.ONE_UNCONNECTED,
+            pin_a=None, pin_b=(comp_id, 4),
+            net_a=gnd, net_b=None,
+        )
+        _extend_net(state, cmd, cl)  # type: ignore[arg-type]
+        pins = {(r.component_id, r.pin_number) for r in state.schematic.nets[gnd.id].pins}
+        # Both IC GND pins (4 and 8) joined, plus the pre-existing other pin.
+        assert (comp_id, 4) in pins
+        assert (comp_id, 8) in pins, "same-name sibling must come along"
+        assert (other, 1) in pins
+
+    def test_create_new_net_adds_siblings_of_both_ends(self) -> None:
+        from protoboard.domain.schematic.wire_net_ops import (
+            WireNetClassification,
+            WireNetKind,
+        )
+        from protoboard.gui.wire_net_resolver import _create_new_net
+
+        state, comp_id = self._ic_two_gnd_state()
+        # Wire between IC pin 4 (GND) and IC pin 2 (B, ungrouped).
+        cmd = AddWireWithNetsCommand(wire=_wire())
+        cl = WireNetClassification(
+            kind=WireNetKind.BOTH_UNCONNECTED,
+            pin_a=(comp_id, 4), pin_b=(comp_id, 2),
+            net_a=None, net_b=None,
+        )
+        _create_new_net(state, cmd, cl)  # type: ignore[arg-type]
+        new_net = next(iter(state.schematic.nets.values()))
+        pins = {(r.component_id, r.pin_number) for r in new_net.pins}
+        assert (comp_id, 4) in pins
+        assert (comp_id, 8) in pins, "GND sibling of pin 4 must join"
+        assert (comp_id, 2) in pins  # the other end (ungrouped, only itself)
+
+
 class TestAddWireWithNetsViaStack:
     def test_stack_undo_redo_cycle(self) -> None:
         state = _FakeSchematicState()

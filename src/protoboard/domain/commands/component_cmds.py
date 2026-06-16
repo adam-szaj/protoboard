@@ -95,6 +95,24 @@ class SchematicState(ComponentState, Protocol):
     schematic: Schematic
 
 
+def build_pin_identities_for(state: ComponentState, comp_id: uuid.UUID) -> None:
+    """Populate a placed instance's same-name PinIdentity groups from its
+    definition.
+
+    Call this whenever an instance enters the project or its pin-variant
+    changes — the identities (and the ``net_id`` they carry) must persist
+    across layout-change rebuilds, so they are built here, not lazily. No-op
+    if the instance or its definition is missing.
+    """
+    inst = state.instances.get(comp_id)
+    if inst is None:
+        return
+    defn = state.components.get(inst.definition_ref)
+    if defn is None:
+        return
+    inst.build_pin_identities(defn)
+
+
 @dataclass
 class PlaceComponentCommand(Command[ComponentState]):
     component_id: uuid.UUID
@@ -108,6 +126,7 @@ class PlaceComponentCommand(Command[ComponentState]):
     def apply(self, state: ComponentState) -> None:
         state.layout.placements[self.component_id] = self.placement
         state.instances[self.component_id] = self.instance
+        build_pin_identities_for(state, self.component_id)
         _warn_pins_off_pads(state, self.component_id, self.placement)
 
     def revert(self, state: ComponentState) -> None:
@@ -1909,11 +1928,15 @@ class SetPinVariantCommand(Command[ComponentState]):
         self._old_variant = inst.pin_variant
         import dataclasses as _dc
         state.instances[self.component_id] = _dc.replace(inst, pin_variant=self.new_variant)
+        # New instance has empty pin_identities; the new variant may regroup
+        # pin names, so rebuild from the definition.
+        build_pin_identities_for(state, self.component_id)
 
     def revert(self, state: ComponentState) -> None:
         inst = state.instances[self.component_id]
         import dataclasses as _dc
         state.instances[self.component_id] = _dc.replace(inst, pin_variant=self._old_variant)
+        build_pin_identities_for(state, self.component_id)
 
 
 @dataclass
