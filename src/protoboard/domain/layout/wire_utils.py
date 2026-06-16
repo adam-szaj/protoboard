@@ -13,6 +13,7 @@ from enum import Enum
 import structlog
 
 from protoboard.domain.board.boxes import PadAtom, StripAtom
+from protoboard.domain.layout.wire import flatten_fragments as _flatten_fragments
 from protoboard.geometry import Point
 from protoboard.services.call_counters import counted
 
@@ -597,16 +598,6 @@ def split_wire_at_vertex(
         b_len=len(flat_b),
     )
     return wire_a, wire_b, shared_hub  # type: ignore[return-value]
-
-
-def _flatten_fragments(fragments: "list[Fragment]") -> list[Point]:
-    """Concatenate fragments into a single path; duplicate via vertex dropped."""
-    if not fragments:
-        return []
-    out: list[Point] = list(fragments[0].path)
-    for frag in fragments[1:]:
-        out.extend(frag.path[1:])
-    return out
 
 
 def merge_colocated_joints(

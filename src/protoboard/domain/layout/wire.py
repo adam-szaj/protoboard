@@ -59,8 +59,15 @@ class KnotRef:
     id: uuid.UUID
 
 
-def _flatten_fragments_list(fragments: list[Fragment]) -> list[Point]:
-    """Concatenate fragments into a single path; duplicate via vertex dropped."""
+def flatten_fragments(fragments: list[Fragment]) -> list[Point]:
+    """Concatenate fragments into a single path; shared via vertex dropped once.
+
+    The first point of fragment N+1 equals the last point of fragment N (the
+    via point on a plated-through pad), so each fragment after the first
+    contributes its path minus that shared leading vertex. The single home for
+    this operation — ``wire_utils`` and ``layout`` import it as
+    ``_flatten_fragments``.
+    """
     if not fragments:
         return []
     out: list[Point] = list(fragments[0].path)
@@ -111,7 +118,7 @@ class Wire:
         # v2-style construction: derive path/side from fragments if path
         # wasn't supplied.
         if self.fragments and not self.path:
-            self.path = _flatten_fragments_list(self.fragments)
+            self.path = flatten_fragments(self.fragments)
             self.side = self.fragments[0].side
         # Legacy-style construction: build a single fragment from path.
         if self.path and not self.fragments:

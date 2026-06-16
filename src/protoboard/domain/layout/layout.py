@@ -13,6 +13,7 @@ from protoboard.domain.layout.knot import JointKnot, Knot, PinKnot, WirePinKnot
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import (
     Fragment, Wire, WireCollection,
+    flatten_fragments as _flatten_fragments,
 )
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
@@ -650,16 +651,6 @@ def _orient_wire_toward(
     if wire.b.id == knot_id and not end_at_b:
         return _reverse_wire(wire)
     return None
-
-
-def _flatten_fragments(fragments: list[Fragment]) -> list[Point]:
-    """Concatenate fragments into a single path, dropping shared vias."""
-    if not fragments:
-        return []
-    out: list[Point] = list(fragments[0].path)
-    for frag in fragments[1:]:
-        out.extend(frag.path[1:])
-    return out
 
 
 def _reverse_wire(wire: Wire) -> Wire:
