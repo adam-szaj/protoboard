@@ -1708,6 +1708,16 @@ class MainWindow(QMainWindow):
         self._focus_nets_panel()
         self._nets_editor_panel._on_assign_pin()
 
+    def _pin_assign_net_for(self, comp_id: uuid.UUID, pin_num: int) -> None:
+        """Assign a specific pin (clicked on the board) to a net.
+
+        Routes the board-click pin into the Nets panel's parameterised assign
+        dialog — the same path as the panel's own "Assign to net…", so there
+        is one assign flow, not two.
+        """
+        self._focus_nets_panel()
+        self._nets_editor_panel._show_assign_dialog(comp_id, pin_num)
+
     # ------------------------------------------------------------------
     # Group operations on the active (entered) group
     # ------------------------------------------------------------------

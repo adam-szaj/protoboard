@@ -2171,3 +2171,54 @@ class TestMultiGroupConflictRoutedThroughGui:
         assert g1 in ds.groups
         assert g2 in ds.groups
         assert len(ds.groups) == 2
+
+
+class TestFreePinClickFeedback:
+    """Clicking a pin with no net must not silently no-op: _hint_free_pin
+    fires only for an unassigned pin and never raises."""
+
+    def test_hint_noop_for_pin_without_number(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # pin_number=None (bbox-fallback hit) → no hint, no crash.
+        tool._hint_free_pin(inst.id, None)
+
+    def test_hint_for_free_pin_does_not_raise(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # Pin 1 has no net → the free-pin branch runs (status hint) cleanly.
+        tool._hint_free_pin(inst.id, 1)
+
+    def test_hint_skips_netted_pin(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.domain.commands.net_cmds import (
+            AssignPinToNetCommand,
+            CreateNetCommand,
+        )
+        from protoboard.domain.schematic.net import PinRef
+
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        create = CreateNetCommand(name="N1")
+        session.stack.execute(create, session)
+        session.stack.execute(
+            AssignPinToNetCommand(
+                component_id=inst.id, pin_number=1, target_net_id=create.net_id
+            ),
+            session,
+        )
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        # Netted pin: branch returns early (net_for_pin is not None) — sanity
+        # check the precondition the hint relies on.
+        assert session.schematic.net_for_pin(PinRef(inst.id, 1)) is not None
+        tool._hint_free_pin(inst.id, 1)

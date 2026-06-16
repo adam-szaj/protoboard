@@ -20,6 +20,11 @@ classified into one of three classes:
   (``WirePinItem``) terminating into it.  Rendered as a filled circle
   in the net colour with the modifier shape cut out of the centre.
 
+* ``FREE`` — pad has a component pin / wire-pin terminating into it but
+  the pin is not assigned to any net on this side.  Rendered as a
+  neutral outline marker so the pin is distinguishable from an empty
+  hole and invites assignment.  ``net_id`` is ``None``.
+
 Modifier shapes (only for ``PIN_PAD``):
 
 * ``CIRCLE`` — default; pin1=False, exported=False.
@@ -62,6 +67,7 @@ class PinPadClass(Enum):
 
     PIN_PAD = "pin_pad"
     CONTACT_ONLY = "contact_only"
+    FREE = "free"  # component pin terminal not assigned to any net
 
 
 class ModifierShape(Enum):
@@ -77,15 +83,15 @@ class ModifierShape(Enum):
 class PinPadInfo:
     """One classified (pad, side) record for the pin-pads layer.
 
-    ``net_id`` is the resolved electrical net on this side.  For the
-    PIN_PAD class ``modifier`` reflects pin1/exported flags; for
-    CONTACT_ONLY it is always ``CIRCLE`` (modifiers are reserved for
-    component pin terminals).
+    ``net_id`` is the resolved electrical net on this side, or ``None``
+    for the FREE class (an unassigned pin terminal).  For PIN_PAD and
+    FREE ``modifier`` reflects pin1/exported flags; for CONTACT_ONLY it
+    is always ``CIRCLE`` (modifiers are reserved for pin terminals).
     """
 
     position: Point
     side: LayerId
-    net_id: NetId
+    net_id: NetId | None
     klass: PinPadClass
     modifier: ModifierShape = ModifierShape.CIRCLE
 
@@ -139,17 +145,22 @@ def _classify_pad_side(
     """Return classification for one (pad, side) pair, or None for NONE.
 
     Returns None when:
-    * pad has no copper on this side (single-sided pad's empty side), or
-    * the side carries no net (free pad or short-circuit error case).
+    * pad has no copper on this side (single-sided pad's empty side),
+    * the side is a short-circuit error case, or
+    * the side carries no net AND no pin terminal (a truly empty hole).
+
+    A pin terminal with no net is *not* None — it is FREE (an unassigned
+    pin), so an unconnected component pin is visually distinguishable
+    from an empty board hole.
     """
     if not pad.layers.has_layer(side):
         return None
 
     net = pad.electrical_net_on(side)
-    if net is None or net is SHORT_CIRCUIT:
+    if net is SHORT_CIRCUIT:
         return None
 
-    # PinItem / WirePinItem on this side → PIN_PAD (pin terminal).
+    # Inventory of items on this side.
     pin_items: list[PinItem] = []
     has_wire_pin = False
     has_bare_contact = False
@@ -160,6 +171,26 @@ def _classify_pad_side(
             has_wire_pin = True
         elif isinstance(item, (BareWireItem, BareWireCrossing)):
             has_bare_contact = True
+
+    has_pin_terminal = bool(pin_items) or has_wire_pin
+
+    if net is None:
+        # No net on this side.  A pin terminal here is a FREE pin
+        # (unassigned but present); anything else is an empty hole.
+        if not has_pin_terminal:
+            return None
+        modifier = (
+            _resolve_modifier(pin_items, exported_pin_set)
+            if pin_items
+            else ModifierShape.CIRCLE
+        )
+        return PinPadInfo(
+            position=pad.position,
+            side=side,
+            net_id=None,
+            klass=PinPadClass.FREE,
+            modifier=modifier,
+        )
 
     if pin_items:
         modifier = _resolve_modifier(pin_items, exported_pin_set)
@@ -202,7 +233,8 @@ def classify_pin_pads(
 ) -> list[PinPadInfo]:
     """Walk every pad and produce a flat list of pin-pads classifications.
 
-    One entry per (pad, side) that carries a net.  Side iteration uses
+    One entry per (pad, side) that carries a net or hosts a pin terminal
+    (FREE).  Side iteration uses
     :data:`PHYSICAL_LAYERS` (top, bottom) — kapton layers added later
     will need to extend this if they participate in the rendered view.
 

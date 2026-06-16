@@ -267,6 +267,12 @@ class Theme:
     # is drawn smaller so the outer ring stays visible.
     pin_pad_modifier_radius_factor: float = 0.7  # × pad_radius
     pin_pad_contact_only_width: float = 0.08     # outline ring stroke for contact-only
+    # FREE pin (terminal present, no net): neutral high-contrast outline so
+    # an unconnected pin is distinct from an empty hole without implying a
+    # net colour.  Deliberately not red (accessibility) and heavier stroke
+    # than contact-only so it reads as "a pin is here, unassigned".
+    pin_free_color: str = "#9098A0"
+    pin_free_width: float = 0.11
     # Routing-target neon — overrides net colour when session.routing_net_id
     # matches the pad's / wire's net.  Bright yellow chosen to read against
     # both dark and light board backgrounds; alpha=FF for full neon.

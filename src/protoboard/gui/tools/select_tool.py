@@ -1302,6 +1302,41 @@ class SelectTool(_Tool):
             # hits land here with pin_number=None and get the legacy
             # "all nets of this component" scope.
             self._refresh_auto_highlight(comp_id=hit.id, pin_number=hit.pin_number)
+            self._hint_free_pin(hit.id, hit.pin_number)
+
+    def _hint_free_pin(
+        self, comp_id: uuid.UUID, pin_number: int | None
+    ) -> None:
+        """Status-bar hint when the clicked pin has no net.
+
+        A free pin's highlight pipeline resolves to nothing, so without this
+        the click looks like a no-op.  The neutral pad marker shows the pin is
+        there; this confirms the click landed and points to the assign action.
+        """
+        if pin_number is None:
+            return
+        session = self._session
+        if session is None:
+            return
+        from protoboard.domain.schematic.net import PinRef
+        ref = PinRef(component_id=comp_id, pin_number=pin_number)
+        if session.schematic.net_for_pin(ref) is not None:
+            return
+        inst = session.instances.get(comp_id)
+        defn = session.components.get(inst.definition_ref) if inst else None
+        pin_name = (
+            defn.pin_names.get(pin_number, str(pin_number))
+            if defn is not None
+            else str(pin_number)
+        )
+        sb = getattr(self._view.window(), "statusBar", lambda: None)() \
+            if self._view is not None else None
+        if sb is not None:
+            sb.showMessage(
+                f"Pin {pin_number} ({pin_name}) — no net "
+                f"(right-click → Assign to net)",
+                4000,
+            )
 
     def _extend_highlight_with_hit(self, hit: "Hit | None") -> None:
         """Grow the auto-highlight stack entry by relation(hit).
@@ -4150,6 +4185,35 @@ class SelectTool(_Tool):
             if inst is not None and defn is not None:
                 has_items = True
 
+                # ── Clicked-pin actions (top of the component section) ────────
+                # Direct, pin-aware entries for the pin under the cursor —
+                # works for an unassigned (free) pin too, which otherwise had
+                # no entry at all.  Assign is always offered (also lets a
+                # netted pin be moved); Disconnect only when the pin has a net.
+                if clicked_pin is not None:
+                    from protoboard.domain.schematic.net import PinRef as _PinRef
+                    _cp_name = defn.pin_names.get(clicked_pin, str(clicked_pin))
+                    _cp_net = self._session.schematic.net_for_pin(
+                        _PinRef(component_id=comp_id, pin_number=clicked_pin)
+                    )
+                    act_assign = menu.addAction(
+                        f"Assign pin {clicked_pin} ({_cp_name}) to net…"
+                    )
+                    act_assign.setData(("assign_pin", comp_id, clicked_pin))
+                    act_assign.hovered.connect(
+                        lambda _cid=comp_id, _pn=clicked_pin: _hover_pin(_cid, _pn)
+                    )
+                    if _cp_net is not None:
+                        act_disc_one = menu.addAction(
+                            f"Disconnect pin {clicked_pin} ({_cp_name})  ←  "
+                            f"{_cp_net.name}"
+                        )
+                        act_disc_one.setData(("disconnect", comp_id, clicked_pin))
+                        act_disc_one.hovered.connect(
+                            lambda _cid=comp_id, _pn=clicked_pin: _hover_pin(_cid, _pn)
+                        )
+                    menu.addSeparator()
+
                 # Lock / Unlock
                 lock_targets: set[uuid.UUID] = {comp_id}
                 lock_targets.update(self._selected_ids)
@@ -4563,6 +4627,16 @@ class SelectTool(_Tool):
             slot = getattr(mw, "_group_autoroute", None)
             if callable(slot):
                 slot()
+
+        elif action == "assign_pin":
+            # Delegate to MainWindow → Nets panel's parameterised assign
+            # dialog (single-sourced with the panel UX; it commits, rebuilds
+            # and emits nets_changed → invalidate_graph so the pad recolours).
+            _, cid, pin_num = data
+            mw = self._view.window() if self._view is not None else None
+            slot = getattr(mw, "_pin_assign_net_for", None)
+            if callable(slot):
+                slot(cid, pin_num)
 
         elif action == "disconnect":
             _, cid, pin_num = data

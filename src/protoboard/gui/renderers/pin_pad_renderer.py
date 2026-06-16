@@ -159,6 +159,34 @@ def render_pin_pads(
             continue
         z = Z_PIN_PADS - (0.001 if info.side != layers.camera_side else 0.0)
         cx, cy = info.position.x, info.position.y
+
+        if info.klass == PinPadClass.FREE:
+            # Unassigned pin terminal — neutral outline ring (no net colour)
+            # plus the modifier glyph as an outline so pin1 / exported pins
+            # stay recognisable.  Distinct from CONTACT_ONLY (net colour)
+            # and from an empty hole (nothing rendered).
+            free_color = QColor(theme.pin_free_color)
+            free_color.setAlphaF(free_color.alphaF() * alpha)
+            ring = QGraphicsEllipseItem(cx - pad_r, cy - pad_r, 2 * pad_r, 2 * pad_r)
+            ring.setPen(QPen(free_color, theme.pin_free_width))
+            ring.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            ring.setZValue(z)
+            ring.setData(0, "pin_pad_free")
+            scene.addItem(ring)
+            out.append(ring)
+            glyph = _modifier_path(info.modifier, cx, cy, mod_r)
+            if glyph is not None:
+                marker = QGraphicsPathItem(glyph)
+                marker.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+                marker.setPen(QPen(free_color, theme.pin_free_width))
+                marker.setZValue(z + 0.0005)
+                marker.setData(0, "pin_pad_free_modifier")
+                scene.addItem(marker)
+                out.append(marker)
+            continue
+
+        # Non-FREE classes always carry a net id (FREE handled + continued above).
+        assert info.net_id is not None
         color = _resolve_color(
             info.net_id, net_color_map, theme,
             routing_target_net_id=routing_target_net_id,
@@ -231,6 +259,7 @@ def render_pin_modifiers(
     for info in classifications:
         if info.klass != PinPadClass.PIN_PAD:
             continue
+        assert info.net_id is not None  # PIN_PAD always carries a net
         alpha = layers.alpha_for_pin_modifiers(info.side)  # type: ignore[arg-type]
         if alpha <= 0.0:
             continue

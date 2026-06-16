@@ -221,3 +221,51 @@ class TestNetsEditorPanelSignals:
         panel.nets_changed.connect(lambda: received.append(None))
         panel.nets_changed.emit()
         assert len(received) == 1
+
+
+class TestAssignFromBoardClick:
+    """_show_assign_dialog must not dead-end when no net exists: it offers to
+    create one, then assigns the (board-clicked) pin to it."""
+
+    def test_no_nets_creates_then_assigns(
+        self, qtbot: QtBot, session: EditorSession, monkeypatch: object
+    ) -> None:
+        from PySide6.QtWidgets import QInputDialog, QMessageBox
+
+        from protoboard.domain.schematic.net import PinRef
+
+        panel = _panel(qtbot)
+        inst = _add_instance(session)
+        panel.refresh(session)
+        assert session.schematic.nets == {}  # precondition: no nets
+
+        monkeypatch.setattr(
+            QMessageBox, "question",
+            staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
+        )
+        monkeypatch.setattr(
+            QInputDialog, "getText",
+            staticmethod(lambda *a, **k: ("MyNet", True)),
+        )
+        # Board-click path: assign a specific pin with no panel selection.
+        panel._show_assign_dialog(inst.id, 1)
+
+        nets = list(session.schematic.nets.values())
+        assert len(nets) == 1
+        assert nets[0].name == "MyNet"
+        assert PinRef(component_id=inst.id, pin_number=1) in nets[0].pins
+
+    def test_no_nets_cancel_does_nothing(
+        self, qtbot: QtBot, session: EditorSession, monkeypatch: object
+    ) -> None:
+        from PySide6.QtWidgets import QMessageBox
+
+        panel = _panel(qtbot)
+        inst = _add_instance(session)
+        panel.refresh(session)
+        monkeypatch.setattr(
+            QMessageBox, "question",
+            staticmethod(lambda *a, **k: QMessageBox.StandardButton.No),
+        )
+        panel._show_assign_dialog(inst.id, 1)
+        assert session.schematic.nets == {}  # declined → no net created

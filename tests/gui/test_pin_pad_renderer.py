@@ -8,6 +8,7 @@ import uuid
 import pytest
 from pytestqt.qtbot import QtBot
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsPathItem, QGraphicsScene
 
@@ -123,6 +124,32 @@ class TestRenderPinPads:
         )
         assert items == []
 
+    def test_free_pin_emits_neutral_ring_and_glyph(self, scene: QGraphicsScene) -> None:
+        # FREE (pin present, no net) → neutral outline ring + modifier glyph
+        # in pin_free_color, NOT a net-coloured filled disc.
+        synthetic = PinPadInfo(
+            position=Point(0.5, 0.5), side="top",
+            net_id=None,
+            klass=PinPadClass.FREE,
+            modifier=ModifierShape.SQUARE,  # pin1 marker still drawn
+        )
+        items = render_pin_pads(
+            scene, [synthetic], theme=DEFAULT_THEME, layers=LayerState(),
+        )
+        # Ring (ellipse) + glyph (path), both outline-only, neutral colour.
+        rings = [it for it in items if isinstance(it, QGraphicsEllipseItem)]
+        glyphs = [it for it in items if isinstance(it, QGraphicsPathItem)]
+        assert len(rings) == 1
+        assert len(glyphs) == 1
+        ring = rings[0]
+        free = QColor(DEFAULT_THEME.pin_free_color)
+        pen_c = ring.pen().color()
+        assert (pen_c.red(), pen_c.green(), pen_c.blue()) == (
+            free.red(), free.green(), free.blue()
+        )
+        # No fill — transparent centre so the board pad stays visible.
+        assert ring.brush().style() == Qt.BrushStyle.NoBrush
+
     def test_routing_target_overrides_color(self, scene: QGraphicsScene) -> None:
         idx, lay, n1 = _resistor_setup()
         records = classify_pin_pads(idx, lay)
@@ -210,6 +237,22 @@ class TestRenderPinModifiers:
             scene, records, theme=DEFAULT_THEME, layers=LayerState(),
         )
         assert len(items) == 2
+
+    def test_free_no_top_modifier(self, scene: QGraphicsScene) -> None:
+        # FREE pins draw their glyph in the pin-pads layer, not the top
+        # modifier overlay (which is net-coloured) — so no top glyph here.
+        records = [
+            PinPadInfo(
+                position=Point(0.5, 0.5), side="top",
+                net_id=None,
+                klass=PinPadClass.FREE,
+                modifier=ModifierShape.SQUARE,
+            ),
+        ]
+        items = render_pin_modifiers(
+            scene, records, theme=DEFAULT_THEME, layers=LayerState(),
+        )
+        assert items == []
 
     def test_contact_only_no_modifier(self, scene: QGraphicsScene) -> None:
         # CONTACT_ONLY classifications never emit a top modifier glyph.

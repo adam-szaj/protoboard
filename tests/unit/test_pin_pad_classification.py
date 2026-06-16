@@ -111,7 +111,7 @@ class TestEmpty:
         idx = PadIndex(board, lay, Schematic(nets={}), {}, {})
         assert classify_pin_pads(idx, lay) == []
 
-    def test_no_records_for_unconnected_pin(self) -> None:
+    def test_unconnected_pin_is_free_not_empty(self) -> None:
         board = _perfboard(2, 2)
         defn = _r_defn(1)
         inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
@@ -121,9 +121,13 @@ class TestEmpty:
         )
         lay = _empty_layout()
         lay.placements[inst.id] = pl
-        # Pin has physical presence but no schematic net assigned.
+        # Pin has physical presence but no schematic net assigned → FREE,
+        # so it is visually distinct from an empty hole.
         idx = PadIndex(board, lay, Schematic(nets={}), {"R": defn}, {inst.id: inst})
-        assert classify_pin_pads(idx, lay) == []
+        by_pos = _by_position(classify_pin_pads(idx, lay))
+        r = by_pos[(Point(0.5, 0.5), "top")]
+        assert r.klass == PinPadClass.FREE
+        assert r.net_id is None
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +342,61 @@ class TestWirePin:
         assert r.modifier == ModifierShape.CIRCLE
 
 
+class TestFreePin:
+    """A component pin with no net is FREE (present, neutral) — distinct from
+    an empty hole (NONE) and from a netted pin (PIN_PAD)."""
+
+    def _place_resistor(
+        self, *, net_pins: tuple[int, ...] = (),
+    ) -> tuple[PadIndex, Layout, uuid.UUID]:
+        board = _perfboard(2, 3)
+        defn = _r_defn(2)
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+        pl = ComponentPlacement(
+            component_id=inst.id, position=Point(0.5, 0.5),
+            rotation=90, side="top",  # pin1@(0.5,0.5), pin2@(1.5,0.5)
+        )
+        lay = _empty_layout()
+        lay.placements[inst.id] = pl
+        nets: dict[uuid.UUID, Net] = {}
+        if net_pins:
+            nid, net = _net(
+                "N", *(PinRef(component_id=inst.id, pin_number=p) for p in net_pins)
+            )
+            nets[nid] = net
+        sch = Schematic(nets=nets)
+        idx = PadIndex(board, lay, sch, {"R": defn}, {inst.id: inst})
+        return idx, lay, inst.id
+
+    def test_free_pin1_keeps_square_modifier(self) -> None:
+        # Pin 1 with no net is FREE but still carries its pin1 SQUARE marker.
+        idx, lay, _cid = self._place_resistor(net_pins=())
+        by_pos = _by_position(classify_pin_pads(idx, lay))
+        r1 = by_pos[(Point(0.5, 0.5), "top")]
+        assert r1.klass == PinPadClass.FREE
+        assert r1.modifier == ModifierShape.SQUARE
+        assert r1.net_id is None
+
+    def test_netted_pin_is_pin_pad_not_free(self) -> None:
+        # Pin 1 on a net → PIN_PAD; pin 2 with no net → FREE. Mixed component.
+        idx, lay, _cid = self._place_resistor(net_pins=(1,))
+        by_pos = _by_position(classify_pin_pads(idx, lay))
+        r1 = by_pos[(Point(0.5, 0.5), "top")]
+        r2 = by_pos[(Point(1.5, 0.5), "top")]
+        assert r1.klass == PinPadClass.PIN_PAD
+        assert r1.net_id is not None
+        assert r2.klass == PinPadClass.FREE
+        assert r2.net_id is None
+
+    def test_empty_hole_still_none(self) -> None:
+        # A board cell with no pin and no net stays NONE (nothing emitted) —
+        # FREE must not leak onto bare holes.
+        idx, lay, _cid = self._place_resistor(net_pins=())
+        by_pos = _by_position(classify_pin_pads(idx, lay))
+        # The (2,3) board has free cells with no component pin, e.g. (2.5,1.5).
+        assert (Point(2.5, 1.5), "top") not in by_pos
+
+
 class TestSameNamePinColouring:
     """An unwired pin that shares a name (and thus a net via propagation) with
     a wired sibling gets its pad coloured — driven purely by Net.pins/PadIndex,
@@ -372,8 +431,10 @@ class TestSameNamePinColouring:
         idx, lay, nid = self._setup(gnd_pins=(1,))
         by_pos = _by_position(classify_pin_pads(idx, lay))
         assert by_pos[(Point(0.5, 0.5), "top")].net_id == nid  # pin1 coloured
-        # pin4 has no net → no PinPadInfo emitted for it.
-        assert (Point(0.5, 3.5), "top") not in by_pos
+        # pin4 has no net → FREE (present, neutral), not net-coloured.
+        r4 = by_pos[(Point(0.5, 3.5), "top")]
+        assert r4.klass == PinPadClass.FREE
+        assert r4.net_id is None
 
     def test_unwired_sibling_coloured_with_propagation(self) -> None:
         # Both GND pins in Net.pins (post-propagation from AssignPinToNetCommand):

@@ -524,11 +524,9 @@ class NetsEditorPanel(QWidget):
             key=lambda n: n.name,
         )
         if not nets:
-            QMessageBox.information(
-                self,  # type: ignore[arg-type]
-                "No nets",
-                "Create a net first before assigning pins.",
-            )
+            # No net to assign to — offer to create one inline instead of a
+            # dead end.  Common for a free pin in a project with no nets yet.
+            self._create_net_then_assign(comp_id, pin_num)
             return
         dlg = _AssignNetDialog(
             nets=[(n.id, n.name) for n in nets],
@@ -547,6 +545,53 @@ class NetsEditorPanel(QWidget):
             target_net_id=target_net_id,
         )
         self._session.stack.execute(cmd, self._session)
+        self._rebuild()
+        self.nets_changed.emit()
+
+    def _create_net_then_assign(self, comp_id: uuid.UUID, pin_num: int) -> None:
+        """Prompt for a new net name, create it, then assign the pin to it.
+
+        Used when there is no net to assign to — turns the previous dead end
+        ("create a net first") into a one-step flow.
+        """
+        if self._session is None:
+            return
+        ans = QMessageBox.question(
+            self,  # type: ignore[arg-type]
+            "No nets",
+            "There are no nets yet. Create one now and assign this pin to it?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+        name, ok = QInputDialog.getText(
+            self,  # type: ignore[arg-type]
+            "New net",
+            "Net name:",
+        )
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        if self._name_exists(name):
+            QMessageBox.warning(
+                self,  # type: ignore[arg-type]
+                "Duplicate name",
+                f"A net named '{name}' already exists.",
+            )
+            return
+        from protoboard.domain.commands.net_cmds import (
+            AssignPinToNetCommand,
+            CreateNetCommand,
+        )
+
+        create = CreateNetCommand(name=name)
+        self._session.stack.execute(create, self._session)
+        assign = AssignPinToNetCommand(
+            component_id=comp_id,
+            pin_number=pin_num,
+            target_net_id=create.net_id,
+        )
+        self._session.stack.execute(assign, self._session)
         self._rebuild()
         self.nets_changed.emit()
 
