@@ -207,3 +207,26 @@ class ComponentDefinition:
             if v.id == pin_variant:
                 return {**self.pin_names, **v.pin_names}
         return self.pin_names
+
+    def pins_grouped_by_name(
+        self, pin_variant: str | None = None
+    ) -> dict[str, frozenset[int]]:
+        """Group pins sharing an *explicit* name into one electrical node.
+
+        Returns ``{name: frozenset(pin_numbers)}`` for every name carried by
+        two or more pins — these are the internally-connected pins of the
+        package (e.g. several ``GND``). Only explicitly named pins count:
+        unnamed pins (which fall back to a unique ``P{n}`` label) never group.
+
+        No name is special-cased — ``NC`` and friends group like any other.
+        That is intentional: unconnected pins shorted "in a vacuum" carry no
+        net, so DRC never sees them (see spec, variant B).
+        """
+        by_name: dict[str, list[int]] = {}
+        for pin_num, name in self.effective_pin_names(pin_variant).items():
+            by_name.setdefault(name, []).append(pin_num)
+        return {
+            name: frozenset(pins)
+            for name, pins in by_name.items()
+            if len(pins) > 1
+        }

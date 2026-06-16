@@ -42,11 +42,25 @@ class Schematic:
     # empty nets are dropped, missing nets are no-ops.
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _set_identity_net(ref: PinRef, net_id: uuid.UUID | None) -> None:
+        """Mirror net membership onto the pin's shared PinIdentity, if any.
+
+        The ref's identity is shared across same-name pins of the component
+        (the instance is its factory), so setting it from one pin makes every
+        sibling see the net immediately — the propagation. A bare lookup ref
+        (``identity is None``) or an ungrouped pin is a no-op; its net lives
+        in ``Net.pins`` only.
+        """
+        if ref.identity is not None:
+            ref.identity.net_id = net_id
+
     def add_pin_to_net(self, ref: PinRef, net_id: uuid.UUID) -> None:
         """Add *ref* to an existing net. No-op if the net is unknown."""
         net = self.nets.get(net_id)
         if net is not None:
             net.pins.add(ref)
+            self._set_identity_net(ref, net_id)
 
     def remove_pin_from_net(self, ref: PinRef, net_id: uuid.UUID) -> None:
         """Remove *ref* from a specific net without deleting the net.
@@ -57,6 +71,7 @@ class Schematic:
         net = self.nets.get(net_id)
         if net is not None:
             net.pins.discard(ref)
+            self._set_identity_net(ref, None)
 
     def unassign_pin(self, ref: PinRef) -> tuple[uuid.UUID, str, set[PinRef]] | None:
         """Remove *ref* from whichever net holds it; drop the net if empty.
@@ -71,6 +86,7 @@ class Schematic:
         pins_before = net.pins.copy()
         result = (net.id, net.name, pins_before)
         net.pins.discard(ref)
+        self._set_identity_net(ref, None)
         if not net.pins:
             del self.nets[net.id]
         return result
@@ -89,6 +105,8 @@ class Schematic:
                 continue
             removed_by_net[net_id] = (net.name, removed)
             net.pins -= removed
+            for p in removed:
+                self._set_identity_net(p, None)
             if not net.pins:
                 del self.nets[net_id]
         return removed_by_net
@@ -100,6 +118,8 @@ class Schematic:
             net.pins |= pins
         else:
             self.nets[net_id] = Net(id=net_id, name=name, pins=set(pins))
+        for p in pins:
+            self._set_identity_net(p, net_id)
 
     def merge_nets(
         self, survivor_id: uuid.UUID, merged_id: uuid.UUID, new_name: str | None = None
@@ -114,7 +134,10 @@ class Schematic:
             return
         if new_name is not None:
             survivor.name = new_name
-        survivor.pins |= merged.pins
+        merged_pins = merged.pins
+        survivor.pins |= merged_pins
+        for p in merged_pins:
+            self._set_identity_net(p, survivor_id)
         del self.nets[merged_id]
 
     def assign_pin(

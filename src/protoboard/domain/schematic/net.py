@@ -7,12 +7,44 @@ import uuid
 from dataclasses import dataclass, field
 
 
+@dataclass(eq=False)
+class PinIdentity:
+    """Internal electrical identity of a pin — the node it belongs to *inside*
+    a component.
+
+    Pins of one component that share a name (several ``GND``) point at one
+    shared ``PinIdentity`` instance, so they are electrically one node even
+    before any wire is drawn. This is distinct from :class:`Net` membership
+    (a project-level decision, between components): identity is innate, net
+    is acquired.
+
+    ``net_id`` is a *live* field — assigning a net to one pin mutates the
+    shared identity, so all pins of the same name immediately see it. The
+    sole place that writes it is ``Schematic``'s assignment methods.
+
+    Identity is compared by object id (``eq=False``): two distinct identities
+    are never equal even if their fields match, because they represent
+    different physical nodes. ``key`` is a stable label for debugging/lookups.
+    """
+
+    key: tuple[uuid.UUID, int]  # (component_id, canonical_pin_number)
+    net_id: uuid.UUID | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class PinRef:
-    """Reference to a specific pin of a specific component instance."""
+    """Reference to a specific pin of a specific component instance.
+
+    Identity (hash/eq) is ``(component_id, pin_number)`` only — ``identity``
+    is excluded (``compare=False``) so a bare ``PinRef(comp, pin)`` built for
+    a lookup compares equal to the fully-resolved ref that carries a shared
+    :class:`PinIdentity`. Net membership is read/written through the resolved
+    ref's ``identity``, never a bare lookup ref.
+    """
 
     component_id: uuid.UUID
     pin_number: int
+    identity: PinIdentity | None = field(default=None, compare=False, hash=False)
 
     def __post_init__(self) -> None:
         if self.pin_number < 1:

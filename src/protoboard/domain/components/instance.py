@@ -8,11 +8,30 @@ may be renamed without affecting connectivity (which references the UUID).
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+from protoboard.domain.schematic.net import PinIdentity, PinRef
+
+if TYPE_CHECKING:
+    from protoboard.domain.components.definition import ComponentDefinition
 
 
 @dataclass(frozen=True, slots=True)
 class ComponentInstance:
+    """A placed-or-placeable copy of a definition.
+
+    The instance is the factory for this component's pin electrical identity:
+    pins that share a name (several ``GND``) get one shared :class:`PinIdentity`
+    via :meth:`build_pin_identities`, and :meth:`pin_ref` hands out
+    :class:`PinRef`\\ s carrying it. ``PinIdentity`` is internal to the
+    component and never escapes except via the refs the instance produces.
+
+    The instance itself stays immutable (``frozen``): ``pin_identities`` is a
+    mutable container, but only the ``net_id`` *inside* each identity is ever
+    mutated — the field binding never changes, so the frozen contract holds.
+    """
+
     id: uuid.UUID
     definition_ref: str
     refdes: str
@@ -23,6 +42,12 @@ class ComponentInstance:
     # ``package_family_ref`` (or inline ``package``).
     package_variant: str | None = None
     pin_variant: str | None = None   # variant id from ComponentDefinition.variants or None
+    # pin_number → shared PinIdentity for same-name pin groups. Excluded from
+    # eq/hash (compare=False): two instances are equal by their value fields,
+    # not by transient electrical state. Populated by build_pin_identities.
+    pin_identities: dict[int, PinIdentity] = field(
+        default_factory=dict, compare=False, hash=False
+    )
 
     def __post_init__(self) -> None:
         if not self.definition_ref:
@@ -46,3 +71,27 @@ class ComponentInstance:
             pin_variant=pin_variant,
             package_variant=package_variant,
         )
+
+    def build_pin_identities(self, defn: "ComponentDefinition") -> None:
+        """(Re)build the shared PinIdentity for each same-name pin group.
+
+        Reads ``defn.pins_grouped_by_name(self.pin_variant)`` and creates one
+        identity per group, mapping every pin of the group to it. Mutates the
+        ``pin_identities`` dict in place (frozen-safe — the binding is
+        unchanged). Idempotent; call again after a pin-variant change, which
+        may regroup names. Pins not in any group get no entry.
+        """
+        self.pin_identities.clear()
+        for pins in defn.pins_grouped_by_name(self.pin_variant).values():
+            canonical = min(pins)
+            identity = PinIdentity(key=(self.id, canonical))
+            for pin_num in pins:
+                self.pin_identities[pin_num] = identity
+
+    def pin_ref(self, pin_number: int) -> PinRef:
+        """Return a PinRef for *pin_number*, carrying its shared PinIdentity.
+
+        Ungrouped pins (no same-name sibling) get a ref with ``identity=None``;
+        they are equal to and interchangeable with a bare lookup ref.
+        """
+        return PinRef(self.id, pin_number, identity=self.pin_identities.get(pin_number))
