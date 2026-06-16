@@ -111,7 +111,7 @@ def _extend_net(
         return
     new_ref = PinRef(component_id=unconnected_pin[0], pin_number=unconnected_pin[1])
     cmd.record_net_change(net.id, before=_snapshot(net), after=None)
-    net.pins.add(new_ref)
+    session.schematic.add_pin_to_net(new_ref, net.id)
     cmd._nets_after[net.id] = _snapshot(net)
     _log.info("wire_net.extended", net=net.name)
 
@@ -137,9 +137,7 @@ def _merge_nets(
     cmd.record_net_change(net_a.id, before=_snapshot(net_a), after=None)
     cmd.record_net_change(net_b.id, before=_snapshot(net_b), after=None)
     # Merge net_b into net_a in-place, then delete net_b.
-    net_a.name = chosen_name
-    net_a.pins |= net_b.pins
-    del session.schematic.nets[net_b.id]
+    session.schematic.merge_nets(net_a.id, net_b.id, new_name=chosen_name)
     cmd._nets_after[net_a.id] = _snapshot(net_a)
     cmd._nets_after[net_b.id] = None
     _log.info("wire_net.merged", survivor=net_a.name, merged=net_b.name)

@@ -250,9 +250,9 @@ def _update_schematic(
                 component_id=c.existing_comp_id, pin_number=c.existing_pin
             )
             if c.existing_net_id is not None:
-                session.schematic.nets[c.existing_net_id].pins.add(incoming_ref)
+                session.schematic.add_pin_to_net(incoming_ref, c.existing_net_id)
             elif c.incoming_net_id is not None:
-                session.schematic.nets[c.incoming_net_id].pins.add(existing_ref)
+                session.schematic.add_pin_to_net(existing_ref, c.incoming_net_id)
             else:
                 inst = session.instances.get(instance_id)
                 new_net_id = _uuid.uuid4()
@@ -266,7 +266,7 @@ def _update_schematic(
 
         elif c.kind in _WIRE_KINDS:
             if c.existing_net_id is not None:
-                session.schematic.nets[c.existing_net_id].pins.add(incoming_ref)
+                session.schematic.add_pin_to_net(incoming_ref, c.existing_net_id)
             else:
                 inst = session.instances.get(instance_id)
                 new_net_id = _uuid.uuid4()
@@ -335,7 +335,7 @@ def _resolve_wire_conflicts(
         for c in wire_conflicts:
             ref = PinRef(component_id=instance_id, pin_number=c.incoming_pin)
             if c.existing_net_id is not None:
-                session.schematic.nets[c.existing_net_id].pins.add(ref)
+                session.schematic.add_pin_to_net(ref, c.existing_net_id)
         return placement, []
 
     if action == WireConflictAction.CREATE_NET:

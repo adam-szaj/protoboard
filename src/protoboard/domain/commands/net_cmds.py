@@ -188,22 +188,12 @@ class AssignPinToNetCommand(Command[NetState]):
         return f"Assign pin {self.pin_number} to net"
 
     def apply(self, state: NetState) -> None:
-        from protoboard.domain.schematic.net import Net, PinRef
+        from protoboard.domain.schematic.net import PinRef
 
         ref = PinRef(component_id=self.component_id, pin_number=self.pin_number)
-
-        # Remove from current net (if any).
-        for net in list(state.schematic.nets.values()):
-            if ref in net.pins:
-                self._source_net_id = net.id
-                self._source_net_name = net.name
-                net.pins.discard(ref)
-                if not net.pins:
-                    del state.schematic.nets[net.id]
-                break
-
-        # Add to target net.
-        state.schematic.nets[self.target_net_id].pins.add(ref)
+        source = state.schematic.assign_pin(ref, self.target_net_id)
+        if source is not None:
+            self._source_net_id, self._source_net_name = source
 
     def revert(self, state: NetState) -> None:
         from protoboard.domain.schematic.net import Net, PinRef
@@ -211,15 +201,13 @@ class AssignPinToNetCommand(Command[NetState]):
         ref = PinRef(component_id=self.component_id, pin_number=self.pin_number)
 
         # Remove from target net.
-        target = state.schematic.nets.get(self.target_net_id)
-        if target is not None:
-            target.pins.discard(ref)
+        state.schematic.remove_pin_from_net(ref, self.target_net_id)
 
         # Restore to source net (if any).
         if self._source_net_id is not None:
             src = state.schematic.nets.get(self._source_net_id)
             if src is not None:
-                src.pins.add(ref)
+                state.schematic.add_pin_to_net(ref, self._source_net_id)
             else:
                 # Net was deleted when the pin was removed — recreate it.
                 state.schematic.nets[self._source_net_id] = Net(
@@ -252,15 +240,10 @@ class UnassignPinCommand(Command[NetState]):
         from protoboard.domain.schematic.net import PinRef
 
         ref = PinRef(component_id=self.component_id, pin_number=self.pin_number)
-        net = state.schematic.net_for_pin(ref)
-        if net is None:
+        removed = state.schematic.unassign_pin(ref)
+        if removed is None:
             return
-        self._saved_net_id = net.id
-        self._saved_net_name = net.name
-        self._saved_pins = net.pins.copy()
-        net.pins.discard(ref)
-        if not net.pins:
-            del state.schematic.nets[net.id]
+        self._saved_net_id, self._saved_net_name, self._saved_pins = removed
 
     def revert(self, state: NetState) -> None:
         from protoboard.domain.schematic.net import Net, PinRef
@@ -270,7 +253,7 @@ class UnassignPinCommand(Command[NetState]):
         ref = PinRef(component_id=self.component_id, pin_number=self.pin_number)
         net = state.schematic.nets.get(self._saved_net_id)
         if net is not None:
-            net.pins.add(ref)
+            state.schematic.add_pin_to_net(ref, self._saved_net_id)
         else:
             state.schematic.nets[self._saved_net_id] = Net(
                 id=self._saved_net_id,

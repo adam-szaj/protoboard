@@ -227,7 +227,7 @@ class RemoveComponentCommand(Command[SchematicState]):
         default=None, init=False, repr=False
     )
     # net_id → (net_name, removed_pins) for every net touched by this remove
-    _nets_before: dict[uuid.UUID, "tuple[str, set[object]]"] = field(
+    _nets_before: dict[uuid.UUID, "tuple[str, set[PinRef]]"] = field(
         default_factory=dict, init=False, repr=False
     )
 
@@ -238,33 +238,15 @@ class RemoveComponentCommand(Command[SchematicState]):
     def apply(self, state: SchematicState) -> None:
         self._saved_placement = state.layout.placements.pop(self.component_id)
         self._saved_instance = state.instances.pop(self.component_id, None)
-
-        nets_before: dict[uuid.UUID, tuple[str, set[object]]] = {}
-        for net_id, net in list(state.schematic.nets.items()):
-            removed = {p for p in net.pins if p.component_id == self.component_id}
-            if not removed:
-                continue
-            nets_before[net_id] = (net.name, removed)
-            net.pins -= removed
-            if not net.pins:
-                del state.schematic.nets[net_id]
-        self._nets_before = nets_before
+        self._nets_before = state.schematic.remove_component_pins(self.component_id)
 
     def revert(self, state: SchematicState) -> None:
-        from protoboard.domain.schematic.net import Net
-
         if self._saved_placement is not None:
             state.layout.placements[self.component_id] = self._saved_placement
         if self._saved_instance is not None:
             state.instances[self.component_id] = self._saved_instance
         for net_id, (net_name, removed_pins) in self._nets_before.items():
-            net = state.schematic.nets.get(net_id)
-            if net is not None:
-                net.pins |= removed_pins  # type: ignore[arg-type]
-            else:
-                state.schematic.nets[net_id] = Net(
-                    id=net_id, name=net_name, pins=set(removed_pins)  # type: ignore[arg-type]
-                )
+            state.schematic.restore_pins(net_id, net_name, removed_pins)
 
 
 def _enrich_insulated_with_pad_nodes(
@@ -673,7 +655,7 @@ def _split_existing_wires_at_endpoints(
             net = schematic.nets.get(net_to_assign)
             if net is None:
                 continue
-            net.pins.add(orphan_pin)
+            schematic.add_pin_to_net(orphan_pin, net_to_assign)
         # Snapshot the pre-split state of the wire we're about to cut,
         # so revert can rebuild it from one piece.
         snapshot = _snapshot_wire(w_through, state.layout)
@@ -687,9 +669,7 @@ def _split_existing_wires_at_endpoints(
             # the corresponding geometry.
             if verdict is TJunctionVerdict.ASSIGN_NET_TO_INCOMING_PIN:
                 if schematic is not None and orphan_pin is not None and net_to_assign is not None:
-                    _net = schematic.nets.get(net_to_assign)
-                    if _net is not None:
-                        _net.pins.discard(orphan_pin)
+                    schematic.remove_pin_from_net(orphan_pin, net_to_assign)
             continue
         records.append(_SplitRecord(
             original=snapshot,
@@ -2116,15 +2096,10 @@ class DisconnectPinCommand(Command[SchematicState]):
         from protoboard.domain.schematic.net import PinRef
 
         ref = PinRef(component_id=self.component_id, pin_number=self.pin_number)
-        net = state.schematic.net_for_pin(ref)
-        if net is None:
+        removed = state.schematic.unassign_pin(ref)
+        if removed is None:
             return
-        self._saved_net_id = net.id
-        self._saved_net_name = net.name
-        self._saved_pins = net.pins.copy()
-        net.pins.discard(ref)
-        if not net.pins:
-            del state.schematic.nets[net.id]
+        self._saved_net_id, self._saved_net_name, self._saved_pins = removed
 
     def revert(self, state: SchematicState) -> None:
         from protoboard.domain.schematic.net import Net, PinRef
@@ -2134,7 +2109,7 @@ class DisconnectPinCommand(Command[SchematicState]):
         ref = PinRef(component_id=self.component_id, pin_number=self.pin_number)
         net = state.schematic.nets.get(self._saved_net_id)
         if net is not None:
-            net.pins.add(ref)
+            state.schematic.add_pin_to_net(ref, self._saved_net_id)
         else:
             # Net was deleted (became empty) — restore it.
             saved = self._saved_pins
