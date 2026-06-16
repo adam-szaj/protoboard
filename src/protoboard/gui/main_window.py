@@ -751,6 +751,12 @@ class MainWindow(QMainWindow):
 
     def _on_nets_editor_changed(self) -> None:
         self._session.mark_dirty()
+        # Net membership changed without a layout change, so layout_changed
+        # (which normally invalidates the graph/PadIndex) did not fire. PadIndex
+        # is the source of per-pad net colour + highlight, so invalidate it
+        # explicitly — otherwise newly-assigned pads (and same-name siblings)
+        # keep the stale, uncoloured state until the next layout edit.
+        self._session.invalidate_graph()
         self._refresh_netlist()
         self._update_undo_redo()
         self._update_stats()
