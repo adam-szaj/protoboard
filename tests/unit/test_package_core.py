@@ -110,13 +110,24 @@ class TestAxialSolver:
         assert 28 <= round(r.r_max_mm / RASTER_MM) <= 29
 
     def test_eccentricity_reduces_vertical_min(self) -> None:
+        # Eccentricity is a 2D vector; its x (lead-axis) projection reduces r_min.
         base = self._range(MountOrientation.VERTICAL)
         ecc = axial_board_offset_range(
             length_mm=self.L, r_body_mm=self.R_BODY, lead_r_mm=self.LEAD_R,
-            lead_length_mm=self.LEAD_LEN, body_eccentricity_mm=0.5,
+            lead_length_mm=self.LEAD_LEN, body_eccentricity_mm=Point(0.5, 0.0),
             orientation=MountOrientation.VERTICAL,
         )
         assert ecc.r_min_mm == pytest.approx(base.r_min_mm - 0.5)
+
+    def test_eccentricity_perpendicular_component_ignored(self) -> None:
+        # The y component (perpendicular to the lead axis) does not change r_min.
+        base = self._range(MountOrientation.VERTICAL)
+        ecc = axial_board_offset_range(
+            length_mm=self.L, r_body_mm=self.R_BODY, lead_r_mm=self.LEAD_R,
+            lead_length_mm=self.LEAD_LEN, body_eccentricity_mm=Point(0.0, 0.9),
+            orientation=MountOrientation.VERTICAL,
+        )
+        assert ecc.r_min_mm == pytest.approx(base.r_min_mm)
 
 
 class TestOffsetRange:

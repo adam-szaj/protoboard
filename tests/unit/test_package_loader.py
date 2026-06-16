@@ -218,3 +218,90 @@ class TestLoadPresentation:
                  "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}},
                  "edge": "bogus"},
             ])
+
+
+class TestBodyAxisPos:
+    """body_axis_pos (absolute) → body_eccentricity (relative vector, mm)."""
+
+    def _load(self, extra: list[dict]) -> dict:
+        return load_packages(GENERICS + extra)
+
+    def test_scalar_eccentricity_is_sugar_for_x(self) -> None:
+        # Legacy scalar body_eccentricity → Point(s, 0).
+        pkgs = self._load([
+            {"name": "Ecc", "extends": "cylinder_radial",
+             "dims": {"diameter": 6.3, "length": 11.0},
+             "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                       "body_eccentricity": 0.5}},
+        ])
+        assert pkgs["Ecc"].leads.body_eccentricity_mm == _pt(0.5, 0.0)
+
+    def test_vector_eccentricity_preserved(self) -> None:
+        pkgs = self._load([
+            {"name": "Ecc", "extends": "cylinder_radial",
+             "dims": {"diameter": 6.3, "length": 11.0},
+             "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                       "body_eccentricity": [0.5, -0.25]}},
+        ])
+        assert pkgs["Ecc"].leads.body_eccentricity_mm == _pt(0.5, -0.25)
+
+    def test_default_eccentricity_zero(self) -> None:
+        pkgs = self._load([
+            {"name": "Ecc", "extends": "cylinder_radial",
+             "dims": {"diameter": 6.3, "length": 11.0},
+             "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}},
+        ])
+        assert pkgs["Ecc"].leads.body_eccentricity_mm == _pt(0.0, 0.0)
+
+    def test_axis_pos_converts_via_geo_mid(self) -> None:
+        # Spec example: body_offset [[1,1],[-1,1]] (3 pins, unit 2.5 → grid
+        # steps [[1,1],[-1,1]]); board_offset default. Pin positions in holes:
+        # [0,0],[1,1],[0,2] → geo_mid [1/3, 1]. body_axis_pos [0,1] → axis
+        # midway between pin1 and pin3. ecc = ([0,1]-[1/3,1])*2.5 = [-5/6, 0].
+        pkgs = self._load([
+            {"name": "Tri", "extends": "prism",
+             "dims": {"width": 4.5, "length": 4.5, "height": 5.2},
+             "leads": {"direction": [[0, 0, -1], [0, 0, -1], [0, 0, -1]],
+                       "body_offset": {"unit": 2.5, "value": [[1, 1], [-1, 1]]},
+                       "board_offset": "default",
+                       "body_axis_pos": [0, 1]}},
+        ])
+        ecc = pkgs["Tri"].leads.body_eccentricity_mm
+        assert ecc.x == pytest.approx(-5.0 / 6.0)
+        assert ecc.y == pytest.approx(0.0)
+
+    def test_axis_pos_uses_board_unit_not_body(self) -> None:
+        # TO-92-like: body unit 1.25, board default. geo_mid must be computed in
+        # the *board* (grid) domain, where steps are 1.25/2.5 = 0.5 holes.
+        # pins: [0,0],[0.5,0],[1,0] → geo_mid [0.5, 0]. axis_pos [0.5,0] (centre)
+        # → ecc 0. Confirms board unit (2.5), not body unit (1.25), drives it.
+        pkgs = self._load([
+            {"name": "T", "extends": "prism",
+             "dims": {"width": 4.5, "length": 4.5, "height": 5.2},
+             "leads": {"direction": [[0, 0, -1], [0, 0, -1], [0, 0, -1]],
+                       "body_offset": {"unit": 1.25, "value": [[1, 0], [1, 0]]},
+                       "board_offset": "default",
+                       "body_axis_pos": [0.5, 0]}},
+        ])
+        ecc = pkgs["T"].leads.body_eccentricity_mm
+        assert ecc.x == pytest.approx(0.0)
+        assert ecc.y == pytest.approx(0.0)
+
+    def test_both_forms_raises(self) -> None:
+        with pytest.raises(PackageDefError):
+            self._load([
+                {"name": "Bad", "extends": "cylinder_radial",
+                 "dims": {"diameter": 6.3, "length": 11.0},
+                 "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                           "body_eccentricity": 0.5, "body_axis_pos": [0, 0]}},
+            ])
+
+    def test_axis_pos_with_solve_raises(self) -> None:
+        # Axial (board_offset: solve) has no default layout for geo_mid.
+        with pytest.raises(PackageDefError):
+            self._load([
+                {"name": "Bad", "extends": "cylinder_axial",
+                 "dims": {"diameter": 2.5, "length": 6.3},
+                 "leads": {"lead_r": 0.27, "lead_length": 32.0,
+                           "body_axis_pos": [0, 0]}},
+            ])

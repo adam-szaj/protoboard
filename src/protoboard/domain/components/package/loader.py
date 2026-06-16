@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from protoboard.domain.components.package.offsets import (
+    cumulative_positions,
     expand_direction,
     expand_offsets,
     scale_offsets,
@@ -32,6 +33,7 @@ from protoboard.domain.components.package.shapes import (
     Package,
     Prism,
 )
+from protoboard.domain.components.package.solver import RASTER_MM
 from protoboard.geometry import Insets, Point
 from protoboard.services.debug_trace import traced
 
@@ -129,6 +131,83 @@ def _board_offset(raw: object) -> tuple[Point, ...] | str:
     return tuple(expand_offsets(raw))  # type: ignore[arg-type]
 
 
+def _board_steps_in_holes(
+    board_offset: tuple[Point, ...] | str, body_mm: list[Point]
+) -> list[Point]:
+    """Default board layout pin→pin step vectors, in holes (grid domain).
+
+    ``default`` reads body_offset in the grid domain (mm / raster); an explicit
+    list is already in holes. ``solve`` has no a-priori layout — the caller
+    rejects ``body_axis_pos`` for that case before reaching here.
+    """
+    if board_offset == BOARD_DEFAULT:
+        return [Point(v.x / RASTER_MM, v.y / RASTER_MM) for v in body_mm]
+    if isinstance(board_offset, str):  # BOARD_SOLVE
+        raise PackageDefError("board_offset 'solve' has no default layout")
+    return list(board_offset)
+
+
+def _geo_mid_holes(board_offset: tuple[Point, ...] | str, body_mm: list[Point]) -> Point:
+    """Geometric centre of the default on-board lead axis, in holes (pin1=[0,0])."""
+    positions = cumulative_positions(_board_steps_in_holes(board_offset, body_mm))
+    n = len(positions)
+    return Point(
+        sum(p.x for p in positions) / n,
+        sum(p.y for p in positions) / n,
+    )
+
+
+def _as_point(raw: object, field_name: str, pkg: str) -> Point:
+    """Coerce a scalar (sugar → ``(s, 0)``) or a 2-vector into a Point."""
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return Point(float(raw), 0.0)
+    if (
+        isinstance(raw, (list, tuple))
+        and len(raw) == 2
+        and all(isinstance(c, (int, float)) and not isinstance(c, bool) for c in raw)
+    ):
+        return Point(float(raw[0]), float(raw[1]))
+    raise PackageDefError(f"{pkg}: {field_name!r} must be a number or [x, y], got {raw!r}")
+
+
+def _resolve_eccentricity(
+    leads_raw: PackageDict,
+    board_offset: tuple[Point, ...] | str,
+    body_mm: list[Point],
+    pkg: str,
+) -> Point:
+    """Lead-exit eccentricity vs body axis as a 2D vector (mm).
+
+    Accepts either the relative ``body_eccentricity`` (scalar sugar or vector,
+    already in mm) or the absolute ``body_axis_pos`` (position of the body axis
+    vs origin/pin-1, in the grid domain). The two are mutually exclusive. From
+    the absolute form: ``ecc = (body_axis_pos − geo_mid) · raster``, where
+    ``geo_mid`` is the centre of the default on-board lead axis (holes).
+    """
+    ecc_raw = leads_raw.get("body_eccentricity")
+    axis_raw = leads_raw.get("body_axis_pos")
+
+    if ecc_raw is not None and axis_raw is not None:
+        raise PackageDefError(
+            f"{pkg}: give either 'body_eccentricity' or 'body_axis_pos', not both"
+        )
+    if axis_raw is not None:
+        if board_offset == BOARD_SOLVE:
+            raise PackageDefError(
+                f"{pkg}: 'body_axis_pos' needs a default board layout; "
+                f"board_offset 'solve' has none — use 'body_eccentricity'"
+            )
+        axis_pos = _as_point(axis_raw, "body_axis_pos", pkg)
+        geo_mid = _geo_mid_holes(board_offset, body_mm)
+        return Point(
+            (axis_pos.x - geo_mid.x) * RASTER_MM,
+            (axis_pos.y - geo_mid.y) * RASTER_MM,
+        )
+    if ecc_raw is not None:
+        return _as_point(ecc_raw, "body_eccentricity", pkg)
+    return Point(0.0, 0.0)
+
+
 def build_leads(merged: PackageDict, pkg: str) -> Leads:
     leads_raw = merged.get("leads")
     if not isinstance(leads_raw, dict):
@@ -142,15 +221,15 @@ def build_leads(merged: PackageDict, pkg: str) -> Leads:
         _require(leads_raw.get("direction"), "leads.direction", pkg), pin_count
     )
 
-    board_raw = leads_raw.get("board_offset", BOARD_DEFAULT)
+    board_offset = _board_offset(leads_raw.get("board_offset", BOARD_DEFAULT))
 
     return Leads(
         direction=tuple(direction),
         body_offset_mm=tuple(body_mm),
-        board_offset=_board_offset(board_raw),
+        board_offset=board_offset,
         lead_length_mm=_opt_float(leads_raw.get("lead_length")),
         lead_r_mm=_opt_float(leads_raw.get("lead_r")),
-        body_eccentricity_mm=float(leads_raw.get("body_eccentricity", 0.0)),
+        body_eccentricity_mm=_resolve_eccentricity(leads_raw, board_offset, body_mm, pkg),
     )
 
 

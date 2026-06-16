@@ -45,7 +45,10 @@ class Leads:
     - ``board_offset``: either explicit N-1 step vectors in *holes*, or a
       sentinel (``BOARD_DEFAULT`` / ``BOARD_SOLVE``).
     - ``lead_length_mm`` / ``lead_r_mm``: solver inputs (mm); None until filled.
-    - ``body_eccentricity_mm``: lead-exit eccentricity vs body axis (mm).
+    - ``body_eccentricity_mm``: lead-exit eccentricity vs body axis — a 2D
+      vector (mm) from the geometric centre of the lead axis to the body axis.
+      A scalar in YAML is sugar for ``(s, 0)``. The loader also accepts the
+      absolute ``body_axis_pos`` form and converts it to this vector at load.
     """
 
     direction: tuple[tuple[float, float, float], ...]
@@ -53,7 +56,7 @@ class Leads:
     board_offset: tuple[Point, ...] | str
     lead_length_mm: float | None = None
     lead_r_mm: float | None = None
-    body_eccentricity_mm: float = 0.0
+    body_eccentricity_mm: Point = Point(0.0, 0.0)
 
     @property
     def pin_count(self) -> int:

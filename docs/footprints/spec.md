@@ -586,11 +586,40 @@ Blok `leads`:
 | `board_offset` | siatka, **otwory** (stały raster 2.5) | lista wektorów (inny **kształt** niż body) **lub** `default` (ten sam wektor co body, czytany w dziedzinie siatki) **lub** `solve` (solver axial) |
 | `lead_length` | mm | `null` = wypełnia GUI; wejście solvera dla axial |
 | `lead_r` | mm | promień drutu (solver) |
-| `body_eccentricity` | mm | mimośród wyjścia leada (= „offset względem obudowy”), default 0 |
+| `body_eccentricity` | mm | mimośród wyjścia leada (= „offset względem obudowy”) — **wektor 2D** od geometrycznego środka osi wyprowadzeń do osi symetrii body; skalar `s` = sugar dla `[s,0]`; default `[0,0]` |
+| `body_axis_pos` | siatka, **otwory** | **alternatywny zapis** mimośrodu: **absolutna** pozycja osi symetrii body względem origin (pin-1). Wektor (skalar = sugar `[s,0]`). Wyklucza się z `body_eccentricity`; niedozwolony przy `board_offset: solve` |
 
 Dwie dziedziny: **body** (obudowa, `unit` deklarowany przy `body_offset`) vs
 **board** (siatka, jednostka stała = raster/otwór, bez `unit`). `bend` żyje w
 dziedzinie board → liczony w otworach.
+
+**Mimośród: dwa zapisy, jedno pole.** `body_eccentricity` (relatywny) i
+`body_axis_pos` (absolutny) opisują **ten sam parametr** — przesunięcie osi
+symetrii body względem osi wyprowadzeń. W definicji podajemy **tylko jeden**;
+podanie obu to błąd ładowania. Relatywny jest wygodny, gdy leady są symetryczne
+(default `[0,0]`); absolutny — gdy leady są fixed, a oś body **nie** leży w
+geometrycznym środku osi wyprowadzeń (np. asymetryczny układ pinów). Loader
+przelicza `body_axis_pos` na `body_eccentricity` **raz przy wczytaniu**; model
+trzyma dalej tylko `body_eccentricity` (mm, wektor 2D):
+
+```
+body_eccentricity = (body_axis_pos − geo_mid) · raster
+```
+
+gdzie `geo_mid` to **geometryczny środek defaultowego układu pinów na board**
+(pozycje kumulatywne z `board_offset` — `default`/jawna lista — w dziedzinie
+siatki, w **jednostce board** = otwór 2.5, nie unit body), a origin = pin-1 =
+`[0,0]`. Dla `board_offset: solve` (axial body=0) `geo_mid` nie istnieje z góry,
+więc `body_axis_pos` jest tam niedozwolony — mimośród idzie wtedy do solvera
+jako relatywny.
+
+Przykład: `body_offset: [[1,1],[-1,1]]` (3 piny, pin2 odsunięty w bok),
+`board_offset: default`, `body_axis_pos: [0,1]` (oś body w połowie między pin-1
+a pin-3, **nie** w środku trójkąta pinów). Pozycje na board (otwory): pin1
+`[0,0]`, pin2 `[1,1]`, pin3 `[0,2]` → `geo_mid = [1/3, 1]`; stąd
+`body_eccentricity = ([0,1] − [1/3,1]) · 2.5 = [−5/6, 0]` mm. Solver axial bierze
+z wektora składową wzdłuż osi wyprowadzeń (rzut na `x`); składowa prostopadła nie
+wpływa na `r_min`.
 
 `null` = wartość wymagana (domyka potomek lub GUI); domykanie monotoniczne (bez
 nadpisywania domkniętych wartości).

@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from protoboard.geometry import Point
 from protoboard.services.debug_trace import traced
 
 # Canonical raster: 2.54 mm / 0.1" is represented internally as 2.5 mm.
@@ -59,7 +60,7 @@ def axial_board_offset_range(
     r_body_mm: float,
     lead_r_mm: float,
     lead_length_mm: float,
-    body_eccentricity_mm: float = 0.0,
+    body_eccentricity_mm: Point = Point(0.0, 0.0),
     orientation: MountOrientation = MountOrientation.HORIZONTAL,
 ) -> OffsetRange:
     """Compute the allowed board-offset ring for an axial (body=0) component.
@@ -68,12 +69,16 @@ def axial_board_offset_range(
     Vertical:             ``r_min = r_body − eccentricity + 3·lead_r``.
     Both:                 ``r_max = r_min + 2·lead_length``.
 
-    Eccentricity reduces the vertical minimum (lead exits nearer the edge);
-    horizontally it is negligible and ignored.
+    ``body_eccentricity_mm`` is a 2D vector (mm). The axial lead axis is +x in
+    the package frame (the solver lays board_offset along +x), so the component
+    that reduces the vertical minimum is its ``x`` projection — a scalar sugar
+    ``(s, 0)`` reduces ``r_min`` by ``s``, as before. Eccentricity reduces the
+    vertical minimum (lead exits nearer the edge); horizontally it is negligible
+    and ignored.
     """
     if orientation is MountOrientation.HORIZONTAL:
         r_min = length_mm + 6.0 * lead_r_mm
     else:
-        r_min = r_body_mm - body_eccentricity_mm + 3.0 * lead_r_mm
+        r_min = r_body_mm - body_eccentricity_mm.x + 3.0 * lead_r_mm
     r_min = max(r_min, 0.0)
     return OffsetRange(r_min, r_min + 2.0 * lead_length_mm)
