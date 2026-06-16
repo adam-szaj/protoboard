@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
+    from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.wire import Wire
 
 from PySide6.QtCore import QObject, Signal
@@ -232,6 +233,18 @@ class EditorSession(QObject):
     @property
     def layout(self) -> Layout:
         return self._layout
+
+    def group_tree(self) -> "GroupTree":
+        """A :class:`GroupTree` view over the live ``layout.groups`` dict.
+
+        The convenient entry point for group-hierarchy queries
+        (``session.group_tree().all_component_ids(gid)`` etc.) instead of the
+        legacy free functions in ``domain/layout/group.py``. Cheap — wraps the
+        live dict by reference, no caching.
+        """
+        from protoboard.domain.layout.group_tree import GroupTree
+
+        return GroupTree(self._layout.groups)
 
     @layout.setter
     def layout(self, value: Layout) -> None:
