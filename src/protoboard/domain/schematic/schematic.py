@@ -8,9 +8,28 @@ from this module for convenience.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from protoboard.domain.schematic.net import Net, PinRef
+
+
+@dataclass(frozen=True)
+class PinGroupUndo:
+    """Everything needed to revert one group-membership change (assign/unassign).
+
+    ``moved`` are the exact pins the operation added to ``target_net_id`` (None
+    for an unassign — nothing was added). ``source_net_id`` / ``source_net_name``
+    describe the single net the pins came from (siblings share one net, so one
+    source covers them all); None when they came from no net. ``source_existed``
+    records whether that net survived the operation, so ``restore`` knows to
+    recreate it.
+    """
+
+    moved: frozenset[PinRef]
+    target_net_id: uuid.UUID | None
+    source_net_id: uuid.UUID | None
+    source_net_name: str
+    source_pins_before: frozenset[PinRef] = field(default_factory=frozenset)
 
 
 @dataclass
@@ -156,5 +175,80 @@ class Schematic:
         self.add_pin_to_net(ref, target_net_id)
         return source
 
+    # ------------------------------------------------------------------
+    # Group operations — act on a whole same-name sibling group at once.
+    #
+    # Every net-membership operation funnels its (already-expanded) sibling
+    # refs through these, so the propagation *and* its revert live in exactly
+    # one place. Callers pass the refs produced by
+    # ``pin_siblings.same_name_refs`` and keep the returned :class:`PinGroupUndo`
+    # to hand back to :meth:`restore`.
+    # ------------------------------------------------------------------
 
-__all__ = ["Net", "PinRef", "Schematic"]
+    def assign_pins(
+        self, refs: list[PinRef], target_net_id: uuid.UUID
+    ) -> PinGroupUndo:
+        """Move every ref in *refs* to *target_net_id*.
+
+        Siblings share one net, so they all leave the same source net; the undo
+        records that single source. The target net is assumed to exist.
+        """
+        source_id: uuid.UUID | None = None
+        source_name = ""
+        source_before: frozenset[PinRef] = frozenset()
+        for ref in refs:
+            prev = self.unassign_pin(ref)
+            if prev is not None and source_id is None:
+                source_id, source_name, before = prev
+                source_before = frozenset(before)
+            self.add_pin_to_net(ref, target_net_id)
+        return PinGroupUndo(
+            moved=frozenset(refs),
+            target_net_id=target_net_id,
+            source_net_id=source_id,
+            source_net_name=source_name,
+            source_pins_before=source_before,
+        )
+
+    def unassign_pins(self, refs: list[PinRef]) -> PinGroupUndo:
+        """Remove every ref in *refs* from whichever net holds them.
+
+        Drops the net if it becomes empty. Returns a :class:`PinGroupUndo` with
+        ``target_net_id=None`` (nothing was added) describing the source net for
+        :meth:`restore`.
+        """
+        source_id: uuid.UUID | None = None
+        source_name = ""
+        source_before: frozenset[PinRef] = frozenset()
+        for ref in refs:
+            prev = self.unassign_pin(ref)
+            if prev is not None and source_id is None:
+                source_id, source_name, before = prev
+                source_before = frozenset(before)
+        return PinGroupUndo(
+            moved=frozenset(),
+            target_net_id=None,
+            source_net_id=source_id,
+            source_net_name=source_name,
+            source_pins_before=source_before,
+        )
+
+    def restore(self, undo: PinGroupUndo) -> None:
+        """Revert an :meth:`assign_pins` / :meth:`unassign_pins` operation.
+
+        Removes the pins that were moved to the target (without deleting the
+        target — it pre-existed the operation), then restores the source net to
+        exactly its pre-operation pin set (recreating it if it had been dropped).
+        """
+        if undo.target_net_id is not None:
+            for ref in undo.moved:
+                self.remove_pin_from_net(ref, undo.target_net_id)
+        if undo.source_net_id is not None:
+            self.restore_pins(
+                undo.source_net_id,
+                undo.source_net_name,
+                set(undo.source_pins_before),
+            )
+
+
+__all__ = ["Net", "PinGroupUndo", "PinRef", "Schematic"]

@@ -41,7 +41,7 @@ def _dbg_enabled() -> bool:
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.schematic.net import Net
-    from protoboard.domain.schematic.schematic import Schematic
+    from protoboard.domain.schematic.schematic import PinGroupUndo, Schematic
     from protoboard.services.pad_strategy import PadStrategy
 
 
@@ -2103,45 +2103,33 @@ class FlipWireFragmentCommand(Command[ComponentState]):
 
 @dataclass
 class DisconnectPinCommand(Command[SchematicState]):
-    """Remove a pin from its net. Deletes the net if it becomes empty."""
+    """Remove a pin from its net. Deletes the net if it becomes empty.
+
+    Acts on the whole same-name sibling group — disconnecting one ``GND``
+    disconnects every ``GND`` of the component (they are one electrical node),
+    so no sibling is left coloured on a net the pin no longer belongs to.
+    Sibling expansion and revert both live in the shared schematic layer.
+    """
 
     component_id: uuid.UUID
     pin_number: int
-    _saved_net_id: uuid.UUID | None = field(default=None, init=False, repr=False)
-    _saved_net_name: str = field(default="", init=False, repr=False)
-    _saved_pins: object = field(default=None, init=False, repr=False)  # set[PinRef]|None
+    _undo: PinGroupUndo | None = field(default=None, init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
         return f"Disconnect pin {self.pin_number}"
 
     def apply(self, state: SchematicState) -> None:
-        from protoboard.domain.schematic.net import PinRef
+        from protoboard.domain.schematic.pin_siblings import same_name_refs
 
-        ref = PinRef(component_id=self.component_id, pin_number=self.pin_number)
-        removed = state.schematic.unassign_pin(ref)
-        if removed is None:
-            return
-        self._saved_net_id, self._saved_net_name, self._saved_pins = removed
+        refs = same_name_refs(
+            self.component_id, self.pin_number, state.instances, state.components
+        )
+        self._undo = state.schematic.unassign_pins(refs)
 
     def revert(self, state: SchematicState) -> None:
-        from protoboard.domain.schematic.net import Net, PinRef
-
-        if self._saved_net_id is None or self._saved_pins is None:
-            return
-        ref = PinRef(component_id=self.component_id, pin_number=self.pin_number)
-        net = state.schematic.nets.get(self._saved_net_id)
-        if net is not None:
-            state.schematic.add_pin_to_net(ref, self._saved_net_id)
-        else:
-            # Net was deleted (became empty) — restore it.
-            saved = self._saved_pins
-            assert isinstance(saved, set)
-            state.schematic.nets[self._saved_net_id] = Net(
-                id=self._saved_net_id,
-                name=self._saved_net_name,
-                pins=saved,
-            )
+        if self._undo is not None:
+            state.schematic.restore(self._undo)
 
 
 @dataclass

@@ -18,6 +18,11 @@ class _State:
     schematic: Schematic = field(
         default_factory=lambda: Schematic(nets={})
     )
+    # DisconnectPinCommand expands the pin to its same-name siblings (shared
+    # PinIdentity); these tests use bare PinRefs with no instance, so the
+    # expansion falls back to the single clicked pin.
+    instances: dict = field(default_factory=dict)
+    components: dict = field(default_factory=dict)
 
 
 def _net(pins: set[PinRef], name: str = "N") -> Net:

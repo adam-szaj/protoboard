@@ -13,6 +13,7 @@ from protoboard.domain.components.definition import (
 from protoboard.domain.components.footprints import DualRow
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.schematic.net import Net, PinIdentity
+from protoboard.domain.schematic.pin_siblings import same_name_refs
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 
 
@@ -267,3 +268,66 @@ class TestSchematicMutators:
         sch, inst, net_id = self._setup()
         sch.add_pin_to_net(PinRef(inst.id, 4), net_id)
         assert PinRef(inst.id, 4) in sch.nets[net_id].pins
+
+
+class TestSchematicGroupOps:
+    """The single group-level abstraction every net-membership operation funnels
+    through: ``assign_pins`` / ``unassign_pins`` / ``restore``. Expansion to
+    same-name siblings is :func:`same_name_refs`; these methods move the whole
+    expanded group and produce a self-describing :class:`PinGroupUndo`."""
+
+    def _setup(self) -> tuple[Schematic, ComponentInstance, dict, dict, uuid.UUID]:
+        defn = _ic_with_two_gnd()
+        inst = ComponentInstance.new("T", "U1", "")
+        inst.build_pin_identities(defn)
+        net_id = uuid.uuid4()
+        sch = Schematic(nets={net_id: Net(id=net_id, name="GND", pins=set())})
+        instances = {inst.id: inst}
+        components = {inst.definition_ref: defn}
+        return sch, inst, instances, components, net_id
+
+    def _gnd_refs(self, inst, instances, components) -> list[PinRef]:
+        return same_name_refs(inst.id, 4, instances, components)
+
+    def test_assign_pins_moves_whole_group(self) -> None:
+        sch, inst, instances, components, net_id = self._setup()
+        refs = self._gnd_refs(inst, instances, components)
+        sch.assign_pins(refs, net_id)
+        nums = {r.pin_number for r in sch.nets[net_id].pins}
+        assert nums == {4, 8}
+
+    def test_assign_then_restore_round_trips(self) -> None:
+        sch, inst, instances, components, net_id = self._setup()
+        refs = self._gnd_refs(inst, instances, components)
+        undo = sch.assign_pins(refs, net_id)
+        sch.restore(undo)
+        # Net pre-existed empty → restore removes both siblings, net survives.
+        assert sch.nets[net_id].pins == set()
+        assert _net_id_of(inst.pin_ref(8)) is None
+
+    def test_restore_recreates_dropped_source_net(self) -> None:
+        # Source net has only the GND group; assigning elsewhere empties and
+        # drops it; restore must bring it back with exactly its pins.
+        sch, inst, instances, components, target_id = self._setup()
+        refs = self._gnd_refs(inst, instances, components)
+        src_id = uuid.uuid4()
+        sch.nets[src_id] = Net(id=src_id, name="OLD", pins=set(refs))
+        for r in refs:
+            sch._set_identity_net(r, src_id)
+        undo = sch.assign_pins(refs, target_id)
+        assert src_id not in sch.nets  # emptied → dropped on apply
+        sch.restore(undo)
+        assert src_id in sch.nets
+        assert {r.pin_number for r in sch.nets[src_id].pins} == {4, 8}
+        assert sch.nets[target_id].pins == set()
+
+    def test_unassign_pins_drops_group_and_restores(self) -> None:
+        sch, inst, instances, components, net_id = self._setup()
+        refs = self._gnd_refs(inst, instances, components)
+        sch.assign_pins(refs, net_id)  # populate first
+        undo = sch.unassign_pins(refs)
+        assert net_id not in sch.nets  # last pins removed → net dropped
+        assert _net_id_of(inst.pin_ref(8)) is None
+        sch.restore(undo)
+        assert net_id in sch.nets
+        assert {r.pin_number for r in sch.nets[net_id].pins} == {4, 8}

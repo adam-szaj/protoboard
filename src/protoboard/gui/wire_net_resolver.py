@@ -8,7 +8,8 @@ import uuid
 from typing import TYPE_CHECKING
 
 import structlog
-from protoboard.domain.schematic.net import Net, PinRef
+from protoboard.domain.schematic.net import Net
+from protoboard.domain.schematic.pin_siblings import same_name_refs
 from protoboard.domain.schematic.wire_net_ops import (
     WireNetKind,
     classify_wire_nets,
@@ -38,7 +39,6 @@ def resolve_wire_nets(
     (only possible for DIFFERENT_NETS when the merge dialog is rejected).
     """
     cl = classify_wire_nets(wire, session)
-    _log.debug("wire_net.classified", kind=cl.kind.name)
 
     if cl.kind == WireNetKind.NO_PINS:
         return True
@@ -70,33 +70,6 @@ def _snapshot(net: Net) -> Net:
     return Net(id=net.id, name=net.name, pins=net.pins.copy())
 
 
-def _same_name_refs(
-    session: EditorSession, comp_id: uuid.UUID, pin_num: int
-) -> list[PinRef]:
-    """The pin plus every same-name sibling of its component (one node).
-
-    Wiring one pin of a same-name group (several GND) connects the whole group.
-    Builds the instance's pin identities on demand if they are empty, so this
-    works for components placed before identities were wired. Falls back to the
-    single pin when it has no sibling.
-    """
-    inst = session.instances.get(comp_id)
-    if inst is None:
-        return [PinRef(component_id=comp_id, pin_number=pin_num)]
-    if not inst.pin_identities:
-        defn = session.components.get(inst.definition_ref)
-        if defn is not None:
-            inst.build_pin_identities(defn)
-    identity = inst.pin_identities.get(pin_num)
-    if identity is None:
-        return [inst.pin_ref(pin_num)]
-    return [
-        inst.pin_ref(p)
-        for p, ident in inst.pin_identities.items()
-        if ident is identity
-    ]
-
-
 def _create_new_net(
     session: EditorSession,
     cmd: AddWireWithNetsCommand,
@@ -108,8 +81,9 @@ def _create_new_net(
     name = f"Net-({refdes}-{cl.pin_a[1]})"
     new_id = uuid.uuid4()
     # Both endpoints plus the same-name siblings of each (one node per group).
-    pins = set(_same_name_refs(session, cl.pin_a[0], cl.pin_a[1]))
-    pins |= set(_same_name_refs(session, cl.pin_b[0], cl.pin_b[1]))
+    insts, comps = session.instances, session.components
+    pins = set(same_name_refs(cl.pin_a[0], cl.pin_a[1], insts, comps))
+    pins |= set(same_name_refs(cl.pin_b[0], cl.pin_b[1], insts, comps))
     new_net = Net(id=new_id, name=name, pins=pins)
     cmd.record_net_change(new_id, before=None, after=_snapshot(new_net))
     session.schematic.nets[new_id] = new_net
@@ -134,7 +108,9 @@ def _extend_net(
         return
     cmd.record_net_change(net.id, before=_snapshot(net), after=None)
     # Add the wired pin plus its same-name siblings (one electrical node).
-    for ref in _same_name_refs(session, unconnected_pin[0], unconnected_pin[1]):
+    for ref in same_name_refs(
+        unconnected_pin[0], unconnected_pin[1], session.instances, session.components
+    ):
         session.schematic.add_pin_to_net(ref, net.id)
     cmd._nets_after[net.id] = _snapshot(net)
     _log.info("wire_net.extended", net=net.name)
