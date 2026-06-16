@@ -649,7 +649,45 @@ class ConnectivityGraph:
     def _build(self, board: Board, layout: Layout) -> None:
         self._build_board_nodes(board)
         self._build_wire_edges(layout)
+        self._build_component_internal_nets(layout)
         self._build_component_pin_map(layout)
+
+    def _build_component_internal_nets(self, layout: Layout) -> None:
+        """Merge electric sets of a component's same-name pins.
+
+        Pins of one component that share a name (several ``GND``) are one node
+        inside the part — a pre-routed internal net. We union their electric
+        sets here so connecting one of them connects all, with no drawn wire.
+
+        This is a *structural* merge (no WireRecord), exactly like the
+        plated-through / strip merges in ``_build_board_nodes``: it is re-applied
+        on every full rebuild (the GUI discards and rebuilds the graph on every
+        layout change) and is never torn down by ``remove_wire`` (which only
+        reverses wire merges).
+        """
+        for comp_id, placement in layout.placements.items():
+            inst = self._instances.get(comp_id)
+            if inst is None:
+                continue
+            defn = self._components.get(inst.definition_ref)
+            if defn is None:
+                continue
+            fp = defn.footprint
+            for pins in defn.pins_grouped_by_name(inst.pin_variant).values():
+                anchor: NodeEntry | None = None
+                for pin_num in pins:
+                    if pin_num < 1 or pin_num > fp.pin_count():
+                        continue
+                    world_pos = pin_world_position(fp, placement, pin_num)
+                    key: _NodeKey = _qkey(world_pos, placement.side)
+                    entry = self._pad_index.get(key)
+                    if entry is None:
+                        entry = self._make_node(key)
+                        self._board_pad_keys.add(key)
+                    if anchor is None:
+                        anchor = entry
+                    elif anchor.electric_set is not entry.electric_set:
+                        self._merge(anchor.electric_set, entry.electric_set)
 
     def _build_board_nodes(self, board: Board) -> None:
         for atom, pos in board.atoms():

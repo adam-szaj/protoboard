@@ -160,6 +160,100 @@ class TestConnectivityGraphWithComponents:
         assert node_pin2 == node_pad3
 
 
+class TestInternalNetsSameNamePins:
+    """Pins of one component sharing a name are one electrical node — a
+    pre-routed internal net island — with no wire drawn between them."""
+
+    def _ic_4pin(self, pin_names: dict[int, str]) -> ComponentDefinition:
+        return ComponentDefinition(
+            name="IC", footprint=SIL(4), pin_names=pin_names
+        )
+
+    def test_same_name_pins_share_node_without_wire(self) -> None:
+        # SIL(4) vertical on a 4×1 board: pins at y=0.5,1.5,2.5,3.5 (x=0.5).
+        # pin1 and pin3 are both "GND" → one electrical node, no wire.
+        board = _perfboard(4, 1)
+        defn = self._ic_4pin({1: "GND", 2: "A", 3: "GND", 4: "B"})
+        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="")
+        pl = ComponentPlacement(
+            component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top"
+        )
+        lay = Layout(placements={inst.id: pl}, wires=[])
+        graph = ConnectivityGraph(
+            board=board, layout=lay,
+            components={defn.name: defn}, instances={inst.id: inst},
+        )
+        node_pin1 = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=1))
+        node_pin3 = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=3))
+        assert node_pin1 is not None
+        assert node_pin1 == node_pin3, "same-name pins must be one node"
+
+    def test_differently_named_pins_stay_separate(self) -> None:
+        board = _perfboard(4, 1)
+        defn = self._ic_4pin({1: "GND", 2: "A", 3: "GND", 4: "B"})
+        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="")
+        pl = ComponentPlacement(
+            component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top"
+        )
+        lay = Layout(placements={inst.id: pl}, wires=[])
+        graph = ConnectivityGraph(
+            board=board, layout=lay,
+            components={defn.name: defn}, instances={inst.id: inst},
+        )
+        node_gnd = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=1))
+        node_a = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=2))
+        node_b = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=4))
+        assert node_a != node_gnd
+        assert node_b != node_gnd
+        assert node_a != node_b
+
+    def test_connecting_one_gnd_connects_all(self) -> None:
+        # Wire from an external pad to pin1 (GND); pin3 (GND) must end up in the
+        # same electrical set without its own wire — the pre-routed island.
+        board = _perfboard(4, 2)  # 2 cols: col x=0.5 holds the IC, col x=1.5 free
+        defn = self._ic_4pin({1: "GND", 2: "A", 3: "GND", 4: "B"})
+        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="")
+        pl = ComponentPlacement(
+            component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top"
+        )
+        # Wire connects free pad (1.5,0.5) to pin1 pad (0.5,0.5).
+        wire = Wire(
+            id=uuid.uuid4(),
+            path=[Point(1.5, 0.5), Point(0.5, 0.5)],
+            insulated=False, side="top",
+        )
+        lay = Layout(placements={inst.id: pl}, wires=[wire])
+        graph = ConnectivityGraph(
+            board=board, layout=lay,
+            components={defn.name: defn}, instances={inst.id: inst},
+        )
+        node_free = graph.node_for_pad(Point(1.5, 0.5), "top")
+        node_pin3 = graph.node_for_pin(PinRef(component_id=inst.id, pin_number=3))
+        assert node_free is not None
+        # pin3 (GND, no wire) is on the same net as the wired free pad.
+        assert node_pin3 == node_free
+
+    def test_single_named_pin_not_merged(self) -> None:
+        # Only one "GND" pin → nothing to merge; it stays its own node.
+        board = _perfboard(4, 1)
+        defn = self._ic_4pin({1: "GND", 2: "A", 3: "B", 4: "C"})
+        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="")
+        pl = ComponentPlacement(
+            component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top"
+        )
+        lay = Layout(placements={inst.id: pl}, wires=[])
+        graph = ConnectivityGraph(
+            board=board, layout=lay,
+            components={defn.name: defn}, instances={inst.id: inst},
+        )
+        # Each pin on its own node — 4 distinct.
+        nodes = {
+            graph.node_for_pin(PinRef(component_id=inst.id, pin_number=p))
+            for p in (1, 2, 3, 4)
+        }
+        assert len(nodes) == 4
+
+
 class TestElectricalNets:
     def test_electrical_nets_empty_board(self) -> None:
         board = _perfboard(2, 2)
