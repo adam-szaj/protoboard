@@ -198,16 +198,11 @@ class MoveComponentCommand(Command[ComponentState]):
         # drags get the same treatment, so origin always tracks the
         # group's current bbox top-left, satisfying the user-facing
         # invariant: "(0,0) of a group lives at the top-left pin".
-        from protoboard.domain.commands.group_cmds import (
-            _groups_containing_component,
-            _recompute_group_origin,
-        )
+        from protoboard.domain.layout.group_tree import GroupTree
+        tree = GroupTree(state.layout.groups)
         saved: dict[uuid.UUID, object] = {}
-        for gid in _groups_containing_component(
-            state.layout.groups, self.component_id,
-        ):
-            old = _recompute_group_origin(state, gid)
-            saved[gid] = old
+        for gid in tree.groups_containing_component(self.component_id):
+            saved[gid] = _sync_group_origin(state, gid)
         object.__setattr__(self, "_saved_group_origins", saved)
 
     def revert(self, state: ComponentState) -> None:
@@ -217,17 +212,13 @@ class MoveComponentCommand(Command[ComponentState]):
         if not self.placement_only:
             state.layout.wires[:] = self._saved_wires
         # Restore the pre-move origin of every group we touched in apply.
-        # Re-using _replace_group keeps the rest of the ComponentGroup
-        # immutable-style intact.
+        # ComponentGroup.replace keeps the rest of the group intact.
         if self._saved_group_origins:
-            from protoboard.domain.commands.group_cmds import _replace_group
             for gid, old_origin in self._saved_group_origins.items():
                 grp = state.layout.groups.get(gid)
                 if grp is None:
                     continue
-                state.layout.groups[gid] = _replace_group(
-                    grp, origin=old_origin,
-                )
+                state.layout.groups[gid] = grp.replace(origin=old_origin)
 
 
 @dataclass
@@ -2267,6 +2258,49 @@ _EPS = 1e-6  # tolerance for point equality (raster units)
 
 def _pts_equal(a: Point, b: Point) -> bool:
     return abs(a.x - b.x) < _EPS and abs(a.y - b.y) < _EPS
+
+
+def _sync_group_origin(
+    state: "ComponentState", group_id: uuid.UUID,
+) -> "Point | None":
+    """Recompute *group_id*'s origin from the bbox top-left and write it back.
+
+    Returns the *old* origin so the caller can stash it for revert. No-op
+    (returns the current origin) when the group is missing, has no resolvable
+    pins, or the origin is unchanged. Keeps ``group.origin`` aligned with the
+    bbox-top-left invariant after a member moves — see MoveComponentCommand.
+
+    Lives here, not in group_cmds, so a component-move command never imports
+    the group-command module (that import was the component_cmds<->group_cmds
+    cycle). Pure group geometry delegates to GroupTree.group_origin.
+    """
+    from protoboard.domain.layout.group_tree import GroupTree
+
+    tree = GroupTree(state.layout.groups)
+    group = state.layout.groups.get(group_id)
+    if group is None:
+        return None
+    comp_ids = tree.all_component_ids(group_id)
+    if not comp_ids:
+        return group.origin
+    # Minimal-state test stubs may lack instances/components — then we can't
+    # resolve pins, so leave the origin untouched (no-op).
+    instances = getattr(state, "instances", None)
+    components = getattr(state, "components", None)
+    if instances is None or components is None:
+        return group.origin
+    new_origin = GroupTree.group_origin(
+        comp_ids, state.layout.placements, instances, components,
+    )
+    if new_origin is None:
+        return group.origin
+    old_origin = group.origin
+    if old_origin is not None and (
+        old_origin.x == new_origin.x and old_origin.y == new_origin.y
+    ):
+        return old_origin
+    state.layout.groups[group_id] = group.replace(origin=new_origin)
+    return old_origin
 
 
 def _warn_pins_off_pads(

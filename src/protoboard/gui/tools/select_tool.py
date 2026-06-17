@@ -9264,12 +9264,12 @@ class SelectTool(_Tool):
 
     def _reset_group_metadata(self, group_id: uuid.UUID) -> None:
         """Recompute origin and zero rotation after editing a group. Physical positions unchanged."""
-        from protoboard.domain.commands.group_cmds import _group_origin
+        from protoboard.domain.layout.group_tree import GroupTree
         group = self._session.layout.groups.get(group_id)
         if group is None:
             return
         comp_ids = self._session.group_tree().all_component_ids(group_id)
-        new_origin = _group_origin(
+        new_origin = GroupTree.group_origin(
             comp_ids,
             self._session.layout.placements,
             self._session.instances,

@@ -25,7 +25,9 @@ from protoboard.domain.schematic.net import PinRef
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.domain.schematic.schematic import Schematic
+    from protoboard.geometry import Point
 
 
 @dataclass(frozen=True)
@@ -101,6 +103,33 @@ class GroupTree:
             if child_id in g.child_group_ids:
                 return gid
         return None
+
+    def groups_containing_component(
+        self, component_id: uuid.UUID
+    ) -> set[uuid.UUID]:
+        """Every group id whose *recursive* component set contains *component_id*.
+
+        Direct-member match plus the parent chain up to the root. Used to
+        recompute the origin of every affected group when a member moves.
+        """
+        direct: set[uuid.UUID] = {
+            gid for gid, g in self._groups.items()
+            if component_id in g.component_ids
+        }
+        parent_map: dict[uuid.UUID, uuid.UUID] = {}
+        for gid, g in self._groups.items():
+            for cid in g.child_group_ids:
+                parent_map[cid] = gid
+        result: set[uuid.UUID] = set(direct)
+        pending = list(direct)
+        while pending:
+            gid = pending.pop()
+            parent = parent_map.get(gid)
+            if parent is None or parent in result:
+                continue
+            result.add(parent)
+            pending.append(parent)
+        return result
 
     def would_create_cycle(
         self, parent_id: uuid.UUID, child_id: uuid.UUID
@@ -295,6 +324,44 @@ class GroupTree:
                 global_net=net.global_net,
             )
         return Schematic(nets=projected_nets)
+
+    @staticmethod
+    def group_origin(
+        component_ids: frozenset[uuid.UUID],
+        placements: dict[uuid.UUID, "ComponentPlacement"],
+        instances: dict[uuid.UUID, "ComponentInstance"],
+        definitions: dict[str, "ComponentDefinition"],
+    ) -> "Point | None":
+        """The pad closest to the top-left of the group bbox (min x+y).
+
+        Pure geometry over the supplied dicts — does not read the tree, hence
+        ``@staticmethod``. The group's origin invariant is "(0,0) lives at the
+        top-left pin".
+        """
+        from protoboard.domain.components.definition import ComponentDefinition
+        from protoboard.domain.layout.placement import (
+            ComponentPlacement,
+            pin_world_position,
+        )
+
+        best: "Point | None" = None
+        best_key = float("inf")
+        for cid in component_ids:
+            pl = placements.get(cid)
+            inst = instances.get(cid) if pl is not None else None
+            defn = (
+                definitions.get(inst.definition_ref) if inst is not None else None
+            )
+            if not isinstance(pl, ComponentPlacement) or not isinstance(
+                defn, ComponentDefinition
+            ):
+                continue
+            for n in range(defn.footprint.pin_count()):
+                p = pin_world_position(defn.footprint, pl, n + 1)
+                key = p.x + p.y
+                if key < best_key:
+                    best_key, best = key, p
+        return best
 
 
 __all__ = ["GroupTree"]

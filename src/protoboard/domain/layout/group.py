@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -43,6 +44,15 @@ class ComponentGroup:
     # behaviour.  Toggled via PreferencesDialog default + per-group
     # Properties checkbox.
     lock_internal_wires: bool = False
+
+    def replace(self, **changes: object) -> "ComponentGroup":
+        """Return a copy of this group with the given fields replaced.
+
+        Thin wrapper over :func:`dataclasses.replace` so callers (commands,
+        GroupTree) don't field-list the dataclass by hand — which previously
+        dropped ``lock_internal_wires`` on every copy.
+        """
+        return dataclasses.replace(self, **changes)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------

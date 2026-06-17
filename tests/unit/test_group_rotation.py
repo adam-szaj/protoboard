@@ -10,7 +10,6 @@ import pytest
 
 from protoboard.domain.commands.group_cmds import (
     RotateGroupCommand,
-    _group_origin,
     _rotate_point_around,
     _wire_is_internal,
 )

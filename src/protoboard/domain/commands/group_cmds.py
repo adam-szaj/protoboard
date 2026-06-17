@@ -11,25 +11,12 @@ import structlog
 from protoboard.domain.commands.base import Command
 from protoboard.domain.commands.component_cmds import ComponentState
 from protoboard.domain.layout.group import ComponentGroup, all_component_ids, would_create_cycle
+from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.schematic.net import PinRef
-from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 
 _log = structlog.get_logger(__name__)
-
-
-def _replace_group(g: ComponentGroup, **kwargs: object) -> ComponentGroup:
-    """Return a copy of *g* with the given fields replaced."""
-    return ComponentGroup(
-        id=kwargs.get("id", g.id),  # type: ignore[arg-type]
-        name=kwargs.get("name", g.name),  # type: ignore[arg-type]
-        component_ids=kwargs.get("component_ids", g.component_ids),  # type: ignore[arg-type]
-        child_group_ids=kwargs.get("child_group_ids", g.child_group_ids),  # type: ignore[arg-type]
-        exported_pins=kwargs.get("exported_pins", g.exported_pins),  # type: ignore[arg-type]
-        rotation=kwargs.get("rotation", g.rotation),  # type: ignore[arg-type]
-        origin=kwargs.get("origin", g.origin),  # type: ignore[arg-type]
-    )
 
 
 def _rotate_point_around(p: Point, origin: Point, delta: int) -> Point:
@@ -45,58 +32,6 @@ def _rotate_point_around(p: Point, origin: Point, delta: int) -> Point:
     else:
         rx, ry = dx, dy
     return Point(origin.x + rx, origin.y + ry)
-
-
-def _group_origin(
-    comp_ids: frozenset[uuid.UUID],
-    placements: dict[uuid.UUID, object],
-    instances: dict[uuid.UUID, object],
-    components: dict[str, object],
-) -> Point | None:
-    """Return the pad closest to the top-left corner of the group bbox (min x+y)."""
-    from protoboard.domain.layout.placement import ComponentPlacement
-    from protoboard.domain.components.definition import ComponentDefinition
-    from protoboard.domain.components.instance import ComponentInstance
-    best: Point | None = None
-    best_key = float("inf")
-    for cid in comp_ids:
-        pl = placements.get(cid)
-        inst = instances.get(cid) if pl is not None else None
-        defn = components.get(inst.definition_ref) if inst is not None else None  # type: ignore[union-attr]
-        if not isinstance(pl, ComponentPlacement) or not isinstance(defn, ComponentDefinition):
-            continue
-        for n in range(defn.footprint.pin_count()):
-            p = pin_world_position(defn.footprint, pl, n + 1)
-            key = p.x + p.y
-            if key < best_key:
-                best_key, best = key, p
-    return best
-
-
-def _group_bbox(
-    comp_ids: frozenset[uuid.UUID],
-    placements: dict[uuid.UUID, object],
-    instances: dict[uuid.UUID, object],
-    components: dict[str, object],
-) -> tuple[float, float, float, float] | None:
-    """Return (x_min, y_min, x_max, y_max) bounding box of all group pads, or None."""
-    from protoboard.domain.layout.placement import ComponentPlacement
-    from protoboard.domain.components.definition import ComponentDefinition
-    xs: list[float] = []
-    ys: list[float] = []
-    for cid in comp_ids:
-        pl = placements.get(cid)
-        inst = instances.get(cid) if pl is not None else None
-        defn = components.get(inst.definition_ref) if inst is not None else None  # type: ignore[union-attr]
-        if not isinstance(pl, ComponentPlacement) or not isinstance(defn, ComponentDefinition):
-            continue
-        for n in range(defn.footprint.pin_count()):
-            p = pin_world_position(defn.footprint, pl, n + 1)
-            xs.append(p.x)
-            ys.append(p.y)
-    if not xs:
-        return None
-    return min(xs), min(ys), max(xs), max(ys)
 
 
 def _recompute_group_origin(
@@ -130,11 +65,11 @@ def _recompute_group_origin(
     components = getattr(state, "components", None)
     if instances is None or components is None:
         return group.origin
-    new_origin = _group_origin(
+    new_origin = GroupTree.group_origin(
         comp_ids,
-        state.layout.placements,  # type: ignore[arg-type]
-        instances,  # type: ignore[arg-type]
-        components,  # type: ignore[arg-type]
+        state.layout.placements,
+        instances,
+        components,
     )
     if new_origin is None:
         # No resolvable pin (placements without instances, broken refs).
@@ -148,39 +83,8 @@ def _recompute_group_origin(
         # Unchanged — skip the dict mutation entirely to keep
         # CommandStack and downstream caches quiet.
         return old_origin
-    state.layout.groups[group_id] = _replace_group(group, origin=new_origin)
+    state.layout.groups[group_id] = group.replace(origin=new_origin)
     return old_origin
-
-
-def _groups_containing_component(
-    groups: dict[uuid.UUID, ComponentGroup], component_id: uuid.UUID,
-) -> set[uuid.UUID]:
-    """Return every group id whose recursive component set contains
-    *component_id*.
-
-    Used by MoveComponentCommand to recompute origin of every affected
-    group when one of its members moves.  Direct-member match + parent
-    chain via child_group_ids until the root.
-    """
-    direct: set[uuid.UUID] = set()
-    for gid, g in groups.items():
-        if component_id in g.component_ids:
-            direct.add(gid)
-    # Walk parents.
-    parent_map: dict[uuid.UUID, uuid.UUID] = {}
-    for gid, g in groups.items():
-        for cid in g.child_group_ids:
-            parent_map[cid] = gid
-    result: set[uuid.UUID] = set(direct)
-    pending = list(direct)
-    while pending:
-        gid = pending.pop()
-        parent = parent_map.get(gid)
-        if parent is None or parent in result:
-            continue
-        result.add(parent)
-        pending.append(parent)
-    return result
 
 
 def _pin_positions_for(
@@ -396,8 +300,8 @@ class DisbandGroupCommand(Command[ComponentState]):
         for gid, g in state.layout.groups.items():
             if self.group_id in g.child_group_ids:
                 object.__setattr__(self, "_saved_parent_id", gid)
-                state.layout.groups[gid] = _replace_group(
-                    g, child_group_ids=g.child_group_ids - {self.group_id}
+                state.layout.groups[gid] = g.replace(
+                    child_group_ids=g.child_group_ids - {self.group_id}
                 )
                 break
 
@@ -407,8 +311,8 @@ class DisbandGroupCommand(Command[ComponentState]):
         if self._saved_parent_id is not None:
             parent = state.layout.groups.get(self._saved_parent_id)
             if parent is not None:
-                state.layout.groups[self._saved_parent_id] = _replace_group(
-                    parent, child_group_ids=parent.child_group_ids | {self.group_id}
+                state.layout.groups[self._saved_parent_id] = parent.replace(
+                    child_group_ids=parent.child_group_ids | {self.group_id}
                 )
 
 
@@ -438,8 +342,7 @@ class AddToGroupCommand(Command[ComponentState]):
                     f"Adding group {child_id} to {self.group_id} would create a cycle"
                 )
         object.__setattr__(self, "_old_group", group)
-        state.layout.groups[self.group_id] = _replace_group(
-            group,
+        state.layout.groups[self.group_id] = group.replace(
             component_ids=group.component_ids | self.component_ids,
             child_group_ids=group.child_group_ids | self.child_group_ids,
         )
@@ -472,8 +375,7 @@ class RemoveFromGroupCommand(Command[ComponentState]):
         if group is None:
             raise KeyError(f"Group {self.group_id} not found")
         object.__setattr__(self, "_old_group", group)
-        state.layout.groups[self.group_id] = _replace_group(
-            group,
+        state.layout.groups[self.group_id] = group.replace(
             component_ids=group.component_ids - self.component_ids,
             child_group_ids=group.child_group_ids - self.child_group_ids,
         )
@@ -501,12 +403,12 @@ class RenameGroupCommand(Command[ComponentState]):
         if group is None:
             raise KeyError(f"Group {self.group_id} not found")
         object.__setattr__(self, "_old_name", group.name)
-        state.layout.groups[self.group_id] = _replace_group(group, name=self.new_name)
+        state.layout.groups[self.group_id] = group.replace(name=self.new_name)
 
     def revert(self, state: ComponentState) -> None:
         group = state.layout.groups.get(self.group_id)
         if group is not None:
-            state.layout.groups[self.group_id] = _replace_group(group, name=self._old_name)
+            state.layout.groups[self.group_id] = group.replace(name=self._old_name)
 
 
 @dataclass
@@ -528,15 +430,15 @@ class SetExportedPinsCommand(Command[ComponentState]):
         if group is None:
             raise KeyError(f"Group {self.group_id} not found")
         object.__setattr__(self, "_old_exported", group.exported_pins)
-        state.layout.groups[self.group_id] = _replace_group(
-            group, exported_pins=self.new_exported
+        state.layout.groups[self.group_id] = group.replace(
+            exported_pins=self.new_exported
         )
 
     def revert(self, state: ComponentState) -> None:
         group = state.layout.groups.get(self.group_id)
         if group is not None:
-            state.layout.groups[self.group_id] = _replace_group(
-                group, exported_pins=self._old_exported
+            state.layout.groups[self.group_id] = group.replace(
+                exported_pins=self._old_exported
             )
 
 
@@ -562,8 +464,6 @@ class RotateGroupCommand(Command[ComponentState]):
 
     def apply(self, state: ComponentState) -> None:
         from protoboard.domain.layout.placement import ComponentPlacement
-        from protoboard.domain.components.definition import ComponentDefinition
-        from protoboard.domain.components.instance import ComponentInstance
 
         group = state.layout.groups.get(self.group_id)
         if group is None:
@@ -571,7 +471,7 @@ class RotateGroupCommand(Command[ComponentState]):
         object.__setattr__(self, "_old_group", group)
 
         comp_ids = all_component_ids(state.layout.groups, self.group_id)
-        origin = group.origin or _group_origin(
+        origin = group.origin or GroupTree.group_origin(
             comp_ids, state.layout.placements, state.instances, state.components
         )
         if origin is None:
@@ -678,8 +578,8 @@ class RotateGroupCommand(Command[ComponentState]):
 
         # Update group metadata.
         new_rot = (group.rotation + self.delta) % 360
-        state.layout.groups[self.group_id] = _replace_group(
-            group, rotation=new_rot, origin=origin
+        state.layout.groups[self.group_id] = group.replace(
+            rotation=new_rot, origin=origin
         )
 
     def revert(self, state: ComponentState) -> None:
@@ -697,7 +597,7 @@ class RotateGroupCommand(Command[ComponentState]):
         comp_ids = all_component_ids(state.layout.groups, self.group_id)
         origin = (
             self._old_group.origin if self._old_group is not None else None
-        ) or _group_origin(
+        ) or GroupTree.group_origin(
             comp_ids, state.layout.placements, state.instances, state.components,
         )
         for wire in state.layout.wires:
