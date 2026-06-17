@@ -20,7 +20,6 @@ from protoboard.domain.commands.base import (
     SchematicState,
 )
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     component_bbox,
@@ -29,12 +28,14 @@ from protoboard.domain.layout.placement import (
 )
 from protoboard.domain.layout.knot import JointKnot, PinKnot, WirePinKnot
 from protoboard.domain.layout.wire import KnotRef, Wire
-# Pad-node enrichment for insulated wires/fragments lives in wire_utils
-# (next to its collaborators board_pads_union / insert_pad_nodes); imported
-# under the historic private names so the command call-sites read the same.
+# Wire-path helpers that operate on Wire/Layout (not command state) live in
+# wire_utils next to their collaborators; imported under the historic private
+# names so the command call-sites read the same.
 from protoboard.domain.layout.wire_utils import (
+    WireSnapshot as _WireSnapshot,
     enrich_insulated_fragments_with_pad_nodes as _enrich_insulated_fragments_with_pad_nodes,  # noqa: E501
     enrich_insulated_wire_with_pad_nodes as _enrich_insulated_with_pad_nodes,
+    snapshot_wire as _snapshot_wire,
 )
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
@@ -744,49 +745,6 @@ def _collapse_endpoint_joints(
         # Re-pin the wire so the second-endpoint pass sees the merged wire.
         wire = merged
     return records
-
-
-@dataclass
-class _WireSnapshot:
-    """Frozen copy of a Wire's fields, sufficient to recreate it on revert."""
-
-    wire_id: uuid.UUID
-    path: list[Point]
-    insulated: bool
-    side: str
-    color: "str | None"
-    a_id: uuid.UUID
-    b_id: uuid.UUID
-    # Per-fragment side breakdown — preserves multi-fragment wires
-    # (via boundaries).
-    fragment_sides: list[str]
-    fragment_paths: list[list[Point]]
-    # Snapshots of the endpoint knots themselves so revert can revive any
-    # that ``remove_wire`` later pruned as orphans (outer joints of the
-    # source wires that had no other incident wire than this one).  Keyed
-    # by knot id; ``None`` for ``PinKnot`` entries — pins live in
-    # ``layout.pin_knots`` and survive ``remove_wire`` independently.
-    a_knot: "JointKnot | None"
-    b_knot: "JointKnot | None"
-
-
-def _snapshot_wire(w: Wire, layout: Layout) -> _WireSnapshot:
-    assert w.a is not None and w.b is not None
-    a_knot = layout.knots.get(w.a.id)
-    b_knot = layout.knots.get(w.b.id)
-    return _WireSnapshot(
-        wire_id=w.id,
-        path=list(w.path),
-        insulated=w.insulated,
-        side=w.side,
-        color=w.color,
-        a_id=w.a.id,
-        b_id=w.b.id,
-        fragment_sides=[f.side for f in w.fragments],
-        fragment_paths=[list(f.path) for f in w.fragments],
-        a_knot=a_knot if isinstance(a_knot, JointKnot) else None,
-        b_knot=b_knot if isinstance(b_knot, JointKnot) else None,
-    )
 
 
 @dataclass

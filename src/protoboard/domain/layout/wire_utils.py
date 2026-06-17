@@ -1511,3 +1511,56 @@ def restore_wire_with_orphans(
         layout.add_wire(wire)
     else:
         layout.wires.append(wire)
+
+
+@dataclass
+class WireSnapshot:
+    """Frozen copy of a Wire's fields, sufficient to recreate it on revert."""
+
+    wire_id: uuid.UUID
+    path: list[Point]
+    insulated: bool
+    side: str
+    color: "str | None"
+    a_id: uuid.UUID
+    b_id: uuid.UUID
+    # Per-fragment side breakdown — preserves multi-fragment wires
+    # (via boundaries).
+    fragment_sides: list[str]
+    fragment_paths: list[list[Point]]
+    # Snapshots of the endpoint knots themselves so revert can revive any
+    # that ``remove_wire`` later pruned as orphans (outer joints of the
+    # source wires that had no other incident wire than this one).  Keyed
+    # by knot id; ``None`` for ``PinKnot`` entries — pins live in
+    # ``layout.pin_knots`` and survive ``remove_wire`` independently.
+    a_knot: "JointKnot | None"
+    b_knot: "JointKnot | None"
+
+
+def snapshot_wire(w: "Wire", layout: "Layout") -> WireSnapshot:
+    """Capture *w*'s fields (and any JointKnot endpoints) for later revert.
+
+    Companion to :func:`remove_wire_capturing_orphans` /
+    :func:`restore_wire_with_orphans`: where those capture orphan knots
+    around an actual removal, this records the full wire so a command can
+    rebuild it from scratch.  ``PinKnot`` endpoints are stored as ``None``
+    — pins live in ``layout.pin_knots`` and survive ``remove_wire``.
+    """
+    from protoboard.domain.layout.knot import JointKnot
+
+    assert w.a is not None and w.b is not None
+    a_knot = layout.knots.get(w.a.id)
+    b_knot = layout.knots.get(w.b.id)
+    return WireSnapshot(
+        wire_id=w.id,
+        path=list(w.path),
+        insulated=w.insulated,
+        side=w.side,
+        color=w.color,
+        a_id=w.a.id,
+        b_id=w.b.id,
+        fragment_sides=[f.side for f in w.fragments],
+        fragment_paths=[list(f.path) for f in w.fragments],
+        a_knot=a_knot if isinstance(a_knot, JointKnot) else None,
+        b_knot=b_knot if isinstance(b_knot, JointKnot) else None,
+    )
