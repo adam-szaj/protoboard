@@ -32,13 +32,16 @@ from protoboard.domain.layout.wire import KnotRef, Wire
 # names so the command call-sites read the same.
 from protoboard.domain.layout.wire_utils import (
     CollapseRecord as _CollapseRecord,
+    ColocatedFuseRecord as _CoLocatedFuseRecord,
     SplitRecord as _SplitRecord,
     WireSnapshot as _WireSnapshot,
     collapse_endpoint_joints as _collapse_endpoint_joints,
     enrich_insulated_fragments_with_pad_nodes as _enrich_insulated_fragments_with_pad_nodes,  # noqa: E501
     enrich_insulated_wire_with_pad_nodes as _enrich_insulated_with_pad_nodes,
+    merge_colocated_joints_capturing as _merge_colocated_joints_capturing,
     resolve_endpoint_knot as _resolve_endpoint_knot,
     restore_collapse as _restore_collapse,
+    restore_colocated_fuse as _restore_colocated_fuse,
     restore_split as _restore_split,
     snapshot_wire as _snapshot_wire,
     split_existing_wires_at_endpoints as _split_existing_wires_at_endpoints,
@@ -310,29 +313,6 @@ def _wire_intended_net(
         wire, schematic, state.layout, state.instances, state.components,
         board=state.board,
     )
-
-
-@dataclass
-class _CoLocatedFuseRecord:
-    """Snapshot of one Phase-0 co-located JointKnot merge for revert.
-
-    Phase 0 of FuseTouchingWiresCommand fuses pairs of degree-1
-    JointKnots sitting on the same pad — a common artifact of legacy
-    projects produced by the pre-fix ``FlipWireFragmentCommand`` (see
-    ``memory/project_wire_id_substitution_followup.md``).  Two wires
-    whose endpoints land on the same pad but reference distinct knots
-    are physically one solder joint; Phase 0 unifies them so the main
-    collapse loop sees a proper degree-2 knot.
-
-    Revert restores ``loser_knot`` and retargets ``moved_wire``'s
-    endpoint back to it.
-    """
-
-    winner_knot_id: uuid.UUID
-    loser_knot_id: uuid.UUID
-    loser_position: Point
-    moved_wire_id: uuid.UUID
-    moved_endpoint: str  # "a" or "b"
 
 
 @dataclass
@@ -945,108 +925,17 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
         wires whose endpoints sit on the same pad but reference distinct
         degree-1 JointKnots.  Physically they are one solder joint, but
         the main collapse loop only fuses knots that already share a
-        degree-2 joint — so it would emit nothing.  This pre-pass walks
-        co-located knot pairs, retargets one wire's endpoint to the
-        winner knot, and drops the loser.  Each merge is recorded for
-        revert.
+        degree-2 joint — so it would emit nothing.  This pre-pass fuses
+        the co-located pairs (scoped by ``self.wire_ids``) so the main
+        loop sees a degree-2 hub, recording each merge for revert.
 
-        Scope semantics: when ``self.wire_ids`` is set, only pairs whose
-        BOTH wires are in scope are merged — matches the contract of
-        the main pass.  Pairs that cross net or side boundaries are
-        physically distinct and stay separate (we only fuse when both
-        wires agree on ``side`` and ``insulated``).
+        Delegates to ``wire_utils.merge_colocated_joints_capturing``.
         """
-        from collections import defaultdict
-        from protoboard.domain.layout.wire import KnotRef as _KnotRef
-        # Bucket degree-1 JointKnots by snap position.
-        by_pos: "dict[tuple[float, float], list[uuid.UUID]]" = defaultdict(list)
-        for knot in list(state.layout.knots.values()):
-            if not isinstance(knot, JointKnot):
-                continue
-            if len(knot.wire_ids) != 1:
-                continue
-            key = (round(knot.position.x, 6), round(knot.position.y, 6))
-            by_pos[key].append(knot.id)
-
-        for pos_key, knot_ids in by_pos.items():
-            if len(knot_ids) < 2:
-                continue
-            # Sort for determinism — winner is the lex-smallest id.
-            knot_ids_sorted = sorted(knot_ids, key=lambda k: str(k))
-            winner_id = knot_ids_sorted[0]
-            winner_knot = state.layout.knots.get(winner_id)
-            if not isinstance(winner_knot, JointKnot):
-                continue
-            winner_wire_id = next(iter(winner_knot.wire_ids))
-            winner_wire = state.layout.wires.get(winner_wire_id)
-            if winner_wire is None:
-                continue
-            # Try to absorb each loser into the winner.
-            for loser_id in knot_ids_sorted[1:]:
-                loser_knot = state.layout.knots.get(loser_id)
-                if not isinstance(loser_knot, JointKnot):
-                    continue
-                if len(loser_knot.wire_ids) != 1:
-                    continue
-                loser_wire_id = next(iter(loser_knot.wire_ids))
-                loser_wire = state.layout.wires.get(loser_wire_id)
-                if loser_wire is None:
-                    continue
-                # Scope filter — both wires must be in the caller-supplied
-                # set (when one was given).  Same contract as Phase 2.
-                if self.wire_ids is not None and not (
-                    winner_wire_id in self.wire_ids
-                    and loser_wire_id in self.wire_ids
-                ):
-                    continue
-                # Side / insulated agreement.  Different side means the
-                # joints are on different layers (not the same solder
-                # joint), and mismatched insulated means physically
-                # incompatible conductors that should not coalesce.
-                if winner_wire.side != loser_wire.side:
-                    continue
-                if winner_wire.insulated != loser_wire.insulated:
-                    continue
-                # Find which endpoint of loser_wire references loser_id.
-                moved_endpoint: str | None = None
-                if loser_wire.a is not None and loser_wire.a.id == loser_id:
-                    moved_endpoint = "a"
-                elif loser_wire.b is not None and loser_wire.b.id == loser_id:
-                    moved_endpoint = "b"
-                if moved_endpoint is None:
-                    continue
-                # Retarget loser_wire's endpoint to the winner knot.
-                if moved_endpoint == "a":
-                    loser_wire.a = _KnotRef(id=winner_id)
-                else:
-                    loser_wire.b = _KnotRef(id=winner_id)
-                # Update winner's wire_ids to include the moved wire.
-                state.layout.knots[winner_id] = JointKnot(
-                    id=winner_knot.id,
-                    position=winner_knot.position,
-                    wire_ids=winner_knot.wire_ids | {loser_wire_id},
-                )
-                # Drop the loser knot.
-                del state.layout.knots[loser_id]
-                # Record for revert.
-                self._colocated_records.append(_CoLocatedFuseRecord(
-                    winner_knot_id=winner_id,
-                    loser_knot_id=loser_id,
-                    loser_position=loser_knot.position,
-                    moved_wire_id=loser_wire_id,
-                    moved_endpoint=moved_endpoint,
-                ))
-                # Refresh local winner_knot reference for the next loser
-                # in this cluster.
-                winner_knot = state.layout.knots[winner_id]
-                _log.info(
-                    "wire.fuse.colocated_merged",
-                    pos=pos_key,
-                    winner=str(winner_id)[:8],
-                    loser=str(loser_id)[:8],
-                    moved_wire=str(loser_wire_id)[:8],
-                    moved_endpoint=moved_endpoint,
-                )
+        self._colocated_records.extend(
+            _merge_colocated_joints_capturing(
+                state.layout, scope_wire_ids=self.wire_ids,
+            )
+        )
 
     def apply(self, state: ComponentState) -> None:
         from protoboard.domain.layout.wire_utils import plated_through_pads
@@ -1177,32 +1066,9 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
             _restore_collapse(state.layout, rec)
         # Phase-0 co-located fuses run BEFORE the main collapse loop in
         # apply, so their inverses must run AFTER the collapse-restore
-        # walk to land in the right model state.  Each undo revives the
-        # loser JointKnot and re-points the moved wire back at it.
-        from protoboard.domain.layout.wire import KnotRef as _KnotRef
+        # walk to land in the right model state.
         for crec in reversed(self._colocated_records):
-            # Resurrect the loser knot at its original position with the
-            # moved wire as its sole incident.
-            state.layout.knots[crec.loser_knot_id] = JointKnot(
-                id=crec.loser_knot_id,
-                position=crec.loser_position,
-                wire_ids=frozenset({crec.moved_wire_id}),
-            )
-            # Remove the moved wire from the winner's wire_ids and
-            # re-point the wire's endpoint back to the loser knot.
-            winner = state.layout.knots.get(crec.winner_knot_id)
-            if isinstance(winner, JointKnot):
-                state.layout.knots[crec.winner_knot_id] = JointKnot(
-                    id=winner.id,
-                    position=winner.position,
-                    wire_ids=winner.wire_ids - {crec.moved_wire_id},
-                )
-            moved_wire = state.layout.wires.get(crec.moved_wire_id)
-            if moved_wire is not None:
-                if crec.moved_endpoint == "a":
-                    moved_wire.a = _KnotRef(id=crec.loser_knot_id)
-                else:
-                    moved_wire.b = _KnotRef(id=crec.loser_knot_id)
+            _restore_colocated_fuse(state.layout, crec)
 
 
 # ---------------------------------------------------------------------------

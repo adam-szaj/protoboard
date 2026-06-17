@@ -2360,3 +2360,167 @@ def update_wires_for_move(
             wires_out=[str(w.id) for w in new_wires],
         )
     wire_list[:] = new_wires
+
+
+@dataclass
+class ColocatedFuseRecord:
+    """Snapshot of one co-located degree-1 JointKnot merge for revert.
+
+    Two wires whose endpoints land on the same pad but reference distinct
+    degree-1 ``JointKnot``s are physically one solder joint — a common
+    artifact of legacy projects from the pre-fix ``FlipWireFragmentCommand``
+    (see ``memory/project_wire_id_substitution_followup.md``).
+    :func:`merge_colocated_joints_capturing` unifies each such pair so the
+    main collapse loop sees a proper degree-2 knot; this record lets the
+    caller restore ``loser_knot`` and retarget ``moved_wire``'s endpoint
+    back to it on undo.
+    """
+
+    winner_knot_id: uuid.UUID
+    loser_knot_id: uuid.UUID
+    loser_position: Point
+    moved_wire_id: uuid.UUID
+    moved_endpoint: str  # "a" or "b"
+
+
+def merge_colocated_joints_capturing(
+    layout: Layout,
+    *,
+    scope_wire_ids: frozenset[uuid.UUID] | None = None,
+) -> list[ColocatedFuseRecord]:
+    """Merge degree-1 ``JointKnot`` pairs sitting on the same pad, undo-aware.
+
+    Unlike :func:`merge_colocated_joints` (which fuses per-bucket and returns
+    only a count), this captures a :class:`ColocatedFuseRecord` per merge so
+    the caller can roll each one back. For every cluster of co-located
+    degree-1 joints the lex-smallest knot id wins; each other knot's wire is
+    retargeted to the winner and the loser knot is dropped.
+
+    ``scope_wire_ids``: when given, only pairs whose BOTH wires are in the set
+    are merged. Pairs that disagree on ``side`` or ``insulated`` are physically
+    distinct conductors and stay separate.
+    """
+    from collections import defaultdict
+
+    from protoboard.domain.layout.knot import JointKnot
+    from protoboard.domain.layout.wire import KnotRef as _KnotRef
+
+    records: list[ColocatedFuseRecord] = []
+    # Bucket degree-1 JointKnots by snap position.
+    by_pos: dict[tuple[float, float], list[uuid.UUID]] = defaultdict(list)
+    for knot in list(layout.knots.values()):
+        if not isinstance(knot, JointKnot):
+            continue
+        if len(knot.wire_ids) != 1:
+            continue
+        key = (round(knot.position.x, 6), round(knot.position.y, 6))
+        by_pos[key].append(knot.id)
+
+    for pos_key, knot_ids in by_pos.items():
+        if len(knot_ids) < 2:
+            continue
+        # Sort for determinism — winner is the lex-smallest id.
+        knot_ids_sorted = sorted(knot_ids, key=lambda k: str(k))
+        winner_id = knot_ids_sorted[0]
+        winner_knot = layout.knots.get(winner_id)
+        if not isinstance(winner_knot, JointKnot):
+            continue
+        winner_wire_id = next(iter(winner_knot.wire_ids))
+        winner_wire = layout.wires.get(winner_wire_id)
+        if winner_wire is None:
+            continue
+        # Try to absorb each loser into the winner.
+        for loser_id in knot_ids_sorted[1:]:
+            loser_knot = layout.knots.get(loser_id)
+            if not isinstance(loser_knot, JointKnot):
+                continue
+            if len(loser_knot.wire_ids) != 1:
+                continue
+            loser_wire_id = next(iter(loser_knot.wire_ids))
+            loser_wire = layout.wires.get(loser_wire_id)
+            if loser_wire is None:
+                continue
+            # Scope filter — both wires must be in the caller-supplied set
+            # (when one was given). Same contract as the main collapse pass.
+            if scope_wire_ids is not None and not (
+                winner_wire_id in scope_wire_ids
+                and loser_wire_id in scope_wire_ids
+            ):
+                continue
+            # Side / insulated agreement. Different side means the joints are
+            # on different layers (not the same solder joint), and mismatched
+            # insulated means physically incompatible conductors.
+            if winner_wire.side != loser_wire.side:
+                continue
+            if winner_wire.insulated != loser_wire.insulated:
+                continue
+            # Find which endpoint of loser_wire references loser_id.
+            moved_endpoint: str | None = None
+            if loser_wire.a is not None and loser_wire.a.id == loser_id:
+                moved_endpoint = "a"
+            elif loser_wire.b is not None and loser_wire.b.id == loser_id:
+                moved_endpoint = "b"
+            if moved_endpoint is None:
+                continue
+            # Retarget loser_wire's endpoint to the winner knot.
+            if moved_endpoint == "a":
+                loser_wire.a = _KnotRef(id=winner_id)
+            else:
+                loser_wire.b = _KnotRef(id=winner_id)
+            # Update winner's wire_ids to include the moved wire. Keep the
+            # rebuilt JointKnot in a local so the next loop iteration sees a
+            # narrowed type (re-fetching from layout.knots widens to Knot).
+            winner_knot = JointKnot(
+                id=winner_knot.id,
+                position=winner_knot.position,
+                wire_ids=winner_knot.wire_ids | {loser_wire_id},
+            )
+            layout.knots[winner_id] = winner_knot
+            # Drop the loser knot.
+            del layout.knots[loser_id]
+            records.append(ColocatedFuseRecord(
+                winner_knot_id=winner_id,
+                loser_knot_id=loser_id,
+                loser_position=loser_knot.position,
+                moved_wire_id=loser_wire_id,
+                moved_endpoint=moved_endpoint,
+            ))
+            _log.info(
+                "wire.fuse.colocated_merged",
+                pos=pos_key,
+                winner=str(winner_id)[:8],
+                loser=str(loser_id)[:8],
+                moved_wire=str(loser_wire_id)[:8],
+                moved_endpoint=moved_endpoint,
+            )
+    return records
+
+
+def restore_colocated_fuse(layout: Layout, rec: ColocatedFuseRecord) -> None:
+    """Inverse of one :func:`merge_colocated_joints_capturing` merge.
+
+    Revives the loser ``JointKnot`` at its original position with the moved
+    wire as its sole incident, removes the moved wire from the winner's
+    ``wire_ids``, and re-points the wire's endpoint back to the loser knot.
+    """
+    from protoboard.domain.layout.knot import JointKnot
+    from protoboard.domain.layout.wire import KnotRef as _KnotRef
+
+    layout.knots[rec.loser_knot_id] = JointKnot(
+        id=rec.loser_knot_id,
+        position=rec.loser_position,
+        wire_ids=frozenset({rec.moved_wire_id}),
+    )
+    winner = layout.knots.get(rec.winner_knot_id)
+    if isinstance(winner, JointKnot):
+        layout.knots[rec.winner_knot_id] = JointKnot(
+            id=winner.id,
+            position=winner.position,
+            wire_ids=winner.wire_ids - {rec.moved_wire_id},
+        )
+    moved_wire = layout.wires.get(rec.moved_wire_id)
+    if moved_wire is not None:
+        if rec.moved_endpoint == "a":
+            moved_wire.a = _KnotRef(id=rec.loser_knot_id)
+        else:
+            moved_wire.b = _KnotRef(id=rec.loser_knot_id)
