@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.group import all_component_ids
+from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.layout import Layout, ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.domain.schematic.net import PinRef
@@ -48,8 +48,9 @@ def _group_alpha_map(
 
     # Members of child groups: subgroup alpha.
     subgroup: set[uuid.UUID] = set()
+    _tree = GroupTree(groups)
     for child_gid in active.child_group_ids:
-        subgroup |= all_component_ids(groups, child_gid)
+        subgroup |= _tree.all_component_ids(child_gid)
 
     # Everyone else (in parent or sibling groups): inactive alpha.
     result: dict[uuid.UUID, float] = {}
@@ -690,12 +691,13 @@ def render_groups(
     group_fill_full = QColor(t.group_fill_color)
     group_name_color = QColor(t.group_name_color)
 
+    _tree = GroupTree(layout.groups)
     for group in layout.groups.values():
         if group.id == ROOT_GROUP_ID:
             continue
         is_active = group.id == effective_active
 
-        comp_ids = frozenset(all_component_ids(layout.groups, group.id))
+        comp_ids = frozenset(_tree.all_component_ids(group.id))
         positions: list[Point] = []
         for cid in comp_ids:
             pl = placements.get(cid)
@@ -713,22 +715,21 @@ def render_groups(
         # classification — half-orphan tails of *internal* nets count
         # as owned, tails of *exported* nets do not).
         if wires:
-            from protoboard.domain.layout.group_ownership import find_owned_wires
+            from protoboard.domain.layout.group_ownership import OwnershipResolver
             from protoboard.domain.layout.wire import Wire
             from protoboard.domain.schematic.schematic import Schematic as _Schematic
             typed_wires = [w for w in wires if isinstance(w, Wire)]
             sch_obj = schematic if isinstance(schematic, _Schematic) else None
-            owned_ids = find_owned_wires(
-                typed_wires,
-                group,
-                wire_net_map=wire_net_map or {},
+            # Bind the LOCAL render context directly (this is a renderer
+            # given explicit dicts, not session state).
+            owned_ids = OwnershipResolver(
                 knots=layout.knots,  # type: ignore[arg-type]
-                group_comp_ids=comp_ids,
+                wire_net_map=wire_net_map or {},
                 schematic=sch_obj,
                 placements=placements,
                 instances=instances,
                 definitions=components,
-            )
+            ).owned_wire_ids(typed_wires, group, comp_ids)
             for w in typed_wires:
                 if w.id in owned_ids:
                     positions.extend(w.path)

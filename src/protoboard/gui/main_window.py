@@ -1788,28 +1788,23 @@ class MainWindow(QMainWindow):
         self._update_undo_redo()
 
     def _group_export_auto(self) -> None:
-        from protoboard.domain.layout.group import external_pins_for_group
-
         gid = self._active_group_or_warn()
         if gid is None:
             return
-        new_exported = external_pins_for_group(
-            self._session.layout.groups, gid, self._session.schematic
+        new_exported = self._session.group_tree().external_pins_for_group(
+            gid, self._session.schematic
         )
         self._group_set_exported(new_exported)
 
     def _group_export_all(self) -> None:
-        from protoboard.domain.layout.group import exposable_surface
-
         gid = self._active_group_or_warn()
         if gid is None:
             return
         # Encapsulation: "all" = pins of direct members + each direct
         # child's re-exportable interface.  Grandchild pins surface only
         # via explicit re-exports at each intermediate level.
-        new_exported = exposable_surface(
-            self._session.layout.groups, gid,
-            self._session.instances, self._session.components,
+        new_exported = self._session.group_tree().exposable_surface(
+            gid, self._session.instances, self._session.components,
         )
         self._group_set_exported(new_exported)
 
@@ -1826,21 +1821,15 @@ class MainWindow(QMainWindow):
         remain in the real schematic and can be routed later from a
         parent context.
         """
-        from protoboard.domain.layout.group import (
-            all_component_ids,
-            schematic_projection_for_group,
-        )
-
         if not self._session.schematic.nets:
             QMessageBox.information(self, "Autoroute", "No nets to route.")
             return
         gid = self._active_group_or_warn()
         if gid is None:
             return
-        merged_ids = frozenset(
-            all_component_ids(self._session.layout.groups, gid)
-        )
-        projection = schematic_projection_for_group(
+        tree = self._session.group_tree()
+        merged_ids = frozenset(tree.all_component_ids(gid))
+        projection = tree.schematic_projection_for_group(
             merged_ids, self._session.schematic
         )
         if not projection.nets:

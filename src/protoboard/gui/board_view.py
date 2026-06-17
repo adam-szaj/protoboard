@@ -621,10 +621,11 @@ class BoardView(QGraphicsView):
             dy = wire.path[0].y - orig.y
             grp.setPos(dx, dy)
 
-        from protoboard.domain.layout.group import all_component_ids
+        from protoboard.domain.layout.group_ownership import OwnershipResolver
+        from protoboard.domain.layout.group_tree import GroupTree
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         layout = self._session.layout
-        # Used by find_owned_wires below (group-outline ownership classifier).
+        # Used by the OwnershipResolver below (group-outline ownership classifier).
         placements = layout.placements
         instances = self._session.instances
         components = self._session.components
@@ -652,18 +653,28 @@ class BoardView(QGraphicsView):
         # T-junction half-orphans correctly: tails of internal nets are
         # owned, tails of exported nets are not — so the outline neither
         # shrinks at drag-start nor stretches over interface wires.
-        from protoboard.domain.layout.group_ownership import find_owned_wires
         # Resolve wire→net once for this paint; cached on session.
         try:
             wire_net_map = self._session.cached_wire_net_map() if self._session is not None else {}
         except Exception:  # noqa: BLE001
             wire_net_map = {}
         schematic = getattr(self._session, "schematic", None) if self._session is not None else None
+        _tree = GroupTree(layout.groups)
+        # Bind the LOCAL outline context (may be a drag-time snapshot, not
+        # session state) — build the resolver directly, not from_session.
+        _ownership = OwnershipResolver(
+            knots=layout.knots,  # type: ignore[arg-type]
+            wire_net_map=wire_net_map,
+            schematic=schematic,
+            placements=placements,
+            instances=instances,
+            definitions=components,
+        )
         for gid, rect_item in outline_by_gid.items():
             grp_obj = layout.groups.get(gid)
             if grp_obj is None or gid == ROOT_GROUP_ID:
                 continue
-            comp_ids = all_component_ids(layout.groups, gid)
+            comp_ids = _tree.all_component_ids(gid)
             xs: list[float] = []
             ys: list[float] = []
             for cid in comp_ids:
@@ -676,16 +687,8 @@ class BoardView(QGraphicsView):
             # the statically-rendered one (otherwise outline shrinks
             # at drag-start and re-grows at release).
             try:
-                owned_wire_ids = find_owned_wires(
-                    list(layout.wires),
-                    grp_obj,
-                    wire_net_map=wire_net_map,
-                    knots=layout.knots,  # type: ignore[arg-type]
-                    group_comp_ids=comp_ids,
-                    schematic=schematic,
-                    placements=placements,
-                    instances=instances,
-                    definitions=components,
+                owned_wire_ids = _ownership.owned_wire_ids(
+                    list(layout.wires), grp_obj, comp_ids,
                 )
                 for w in layout.wires:
                     if w.id not in owned_wire_ids:
@@ -857,7 +860,6 @@ class BoardView(QGraphicsView):
 
     def fit_area(self) -> None:
         """Fit view to the active group's components; falls back to fit_board() for ROOT."""
-        from protoboard.domain.layout.group import all_component_ids
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
         session = self._session
@@ -867,7 +869,7 @@ class BoardView(QGraphicsView):
         if active == ROOT_GROUP_ID:
             comp_ids: frozenset[_uuid.UUID] = frozenset(session.layout.placements.keys())
         else:
-            comp_ids = all_component_ids(session.layout.groups, active)
+            comp_ids = session.group_tree().all_component_ids(active)
 
         xs: list[float] = []
         ys: list[float] = []
@@ -1335,13 +1337,13 @@ class BoardView(QGraphicsView):
         Pins belonging to child groups are only accessible if they are exported.
         ``exclude_ids`` — component IDs whose pins are skipped (e.g. currently dragged).
         """
-        from protoboard.domain.layout.group import all_component_ids
         from protoboard.domain.layout.group import ExportedPin
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
         # Build set of component IDs that are locked inside child groups,
         # and their exported pins.
         groups = self._session.layout.groups
+        tree = self._session.group_tree()
         active_group = groups.get(self._active_group_id)
         locked_comp_ids: set[uuid.UUID] = set()
         exported_pins: set[tuple[uuid.UUID, int]] = set()
@@ -1350,7 +1352,7 @@ class BoardView(QGraphicsView):
                 child_group = groups.get(child_gid)
                 if child_group is None:
                     continue
-                for cid in all_component_ids(groups, child_gid):
+                for cid in tree.all_component_ids(child_gid):
                     locked_comp_ids.add(cid)
                 for ep in child_group.exported_pins:
                     exported_pins.add((ep.component_id, ep.pin_number))
@@ -1413,8 +1415,8 @@ class BoardView(QGraphicsView):
     def is_locked_pin(self, scene_pt: QPointF, tol: float = 0.6) -> bool:
         """Return True if *scene_pt* is near a pin locked inside a child group
         (i.e. not exported). Used by RouteTool to show a status message."""
-        from protoboard.domain.layout.group import all_component_ids
         groups = self._session.layout.groups
+        tree = self._session.group_tree()
         active_group = groups.get(self._active_group_id)
         if active_group is None:
             return False
@@ -1424,7 +1426,7 @@ class BoardView(QGraphicsView):
             child_group = groups.get(child_gid)
             if child_group is None:
                 continue
-            for cid in all_component_ids(groups, child_gid):
+            for cid in tree.all_component_ids(child_gid):
                 locked_comp_ids.add(cid)
             for ep in child_group.exported_pins:
                 exported_pins.add((ep.component_id, ep.pin_number))

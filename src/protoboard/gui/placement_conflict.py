@@ -463,7 +463,7 @@ def classify_drag_commit(
 
     Pure logic — never constructs a Qt dialog.
     """
-    from protoboard.domain.layout.group import all_component_ids
+    from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.services.drag_detector import DragDetector, DragSnapshot
     from protoboard.services.pad_strategy import DRCEnforcingStrategy
 
@@ -476,8 +476,9 @@ def classify_drag_commit(
     member_groups: list[object] = []
     locked_groups: list[object] = []
     layout_groups = getattr(session.layout, "groups", {})
+    _tree = GroupTree(layout_groups)
     for gid, group in layout_groups.items():
-        gcids = all_component_ids(layout_groups, gid)
+        gcids = _tree.all_component_ids(gid)
         if gcids & drag_set:
             member_groups.append(group)
         elif getattr(group, "lock_internal_wires", False):

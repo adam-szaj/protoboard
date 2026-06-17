@@ -421,8 +421,11 @@ class DragDetector:
         Used to bucket auto-remove candidates as "needs ask-remove"
         when they belong to a group the drag set is not part of.
         """
-        from protoboard.domain.layout.group_ownership import (
-            wire_is_owned_by_group,
+        from protoboard.domain.layout.group_ownership import OwnershipResolver
+        # No placements/instances/definitions here → the resolver skips the
+        # geometric sanity check, matching the original call's argument set.
+        resolver = OwnershipResolver(
+            knots=knots, wire_net_map=wire_net_map, schematic=schematic,
         )
         result: set[uuid.UUID] = set()
         for group in stationary_groups:
@@ -431,13 +434,7 @@ class DragDetector:
             for wire in wires:
                 if wire.id in result:
                     continue
-                if wire_is_owned_by_group(
-                    wire, group,
-                    wire_net_map=wire_net_map,
-                    knots=knots,
-                    group_comp_ids=group.component_ids,
-                    schematic=schematic,
-                ):
+                if resolver.is_owned(wire, group, group.component_ids):
                     result.add(wire.id)
         return result
 
@@ -457,11 +454,12 @@ class DragDetector:
         flat list of pad positions (vertices of the offending wires)
         so the overlay can mark them red.
         """
-        from protoboard.domain.layout.group_ownership import (
-            wire_is_owned_by_group,
-        )
+        from protoboard.domain.layout.group_ownership import OwnershipResolver
         if not stationary_locked_groups or not conflict_wire_ids:
             return []
+        resolver = OwnershipResolver(
+            knots=knots, wire_net_map=wire_net_map, schematic=schematic,
+        )
         pads: list[Point] = []
         wire_by_id = {w.id: w for w in wires}
         for group in stationary_locked_groups:
@@ -469,13 +467,7 @@ class DragDetector:
                 wire = wire_by_id.get(wid)
                 if wire is None:
                     continue
-                if wire_is_owned_by_group(
-                    wire, group,
-                    wire_net_map=wire_net_map,
-                    knots=knots,
-                    group_comp_ids=group.component_ids,
-                    schematic=schematic,
-                ):
+                if resolver.is_owned(wire, group, group.component_ids):
                     pads.extend(list(wire.path))
         return pads
 

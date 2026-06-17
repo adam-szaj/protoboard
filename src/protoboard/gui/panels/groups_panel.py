@@ -104,9 +104,7 @@ class GroupsPanel(QWidget):
     def _make_item(
         self, grp: ComponentGroup, session: EditorSession
     ) -> QTreeWidgetItem:
-        from protoboard.domain.layout.group import all_component_ids
-
-        total = len(all_component_ids(session.layout.groups, grp.id))
+        total = len(session.group_tree().all_component_ids(grp.id))
         exported = len(grp.exported_pins)
         col1 = f"{total} ({exported} exp.)" if exported else str(total)
         item = QTreeWidgetItem([grp.name or "(unnamed)", col1])
