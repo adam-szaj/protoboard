@@ -662,6 +662,7 @@ class TestZeroOverheadInPrinciple:
     when disabled would indicate the fast path is broken.
     """
 
+    @pytest.mark.serial
     def test_disabled_wrapper_not_dramatically_slower(self) -> None:
         import time
 

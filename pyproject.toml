@@ -48,6 +48,7 @@ testpaths = ["tests"]
 addopts = "-v -m 'not property'"
 markers = [
     "property: hypothesis-driven property tests (skipped by default; run with -m property)",
+    "serial: wall-time-sensitive tests that must run in a single, unloaded process (excluded from the parallel '-n auto' run; see docs/testing.md)",
 ]
 
 

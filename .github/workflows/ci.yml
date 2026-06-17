@@ -36,8 +36,10 @@ jobs:
         run: >
           uv run pytest tests/
           --ignore=tests/benchmarks
-          -p no:benchmark -n auto
+          -p no:benchmark -m "not serial" -n auto
           --cov=protoboard --cov-report=term-missing
 
-      - name: Benchmarks (sequential)
-        run: uv run pytest tests/benchmarks --benchmark-only
+      - name: Benchmarks + serial timing tests (sequential)
+        run: |
+          uv run pytest tests/benchmarks --benchmark-only
+          uv run pytest -m serial
