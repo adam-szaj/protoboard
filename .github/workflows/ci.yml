@@ -32,5 +32,12 @@ jobs:
       - name: Type check (mypy)
         run: uv run mypy src/
 
-      - name: Test (pytest)
-        run: uv run pytest --cov=protoboard --cov-report=term-missing
+      - name: Test (pytest, parallel)
+        run: >
+          uv run pytest tests/
+          --ignore=tests/benchmarks
+          -p no:benchmark -n auto
+          --cov=protoboard --cov-report=term-missing
+
+      - name: Benchmarks (sequential)
+        run: uv run pytest tests/benchmarks --benchmark-only
