@@ -181,6 +181,32 @@ class SelectionService:
         self._remember(sel)
         self._fsm.step_shift_lmb(sel.to_hit())
 
+    def set_many(self, selectables: list[Selectable]) -> None:
+        """Replace the selection with an explicit *set* of entities.
+
+        Unlike :meth:`add` (Shift-click, which only extends within the same
+        relation), this is a relation-agnostic batch — the rubber-band's "these
+        exact items" semantics.  Empty list clears.  The first becomes primary,
+        the rest extend regardless of relation.
+        """
+        if not selectables:
+            self.clear()
+            return
+        first, *rest = selectables
+        self.set(first)
+        if not rest:
+            return
+        # Force the extend regardless of the relation predicate: the band is an
+        # explicit set, not a relation expansion.
+        prev = self._fsm._same_relation  # noqa: SLF001 — same-package seam
+        self._fsm._same_relation = lambda *_a: True  # noqa: SLF001
+        try:
+            for sel in rest:
+                self._remember(sel)
+                self._fsm.step_shift_lmb(sel.to_hit())
+        finally:
+            self._fsm._same_relation = prev  # noqa: SLF001
+
     def clear(self) -> None:
         """Pop one selection layer (Esc semantics)."""
         self._fsm.step_esc()

@@ -40,6 +40,7 @@ if TYPE_CHECKING:
         HighlightCtx,
         SelectableKey,
     )
+    from protoboard.types import NetId
 
 _PHASE1 = "Selectable.draw_highlight lands with HighlightController (Phase 1)"
 _PHASE2 = "Selectable.bbox lands with rubber-band hit-test (Phase 2)"
@@ -65,7 +66,7 @@ class ComponentSelectable:
     def bbox(self) -> Rect:
         raise NotImplementedError(_PHASE2)
 
-    def net_ids(self, conn: ConnQuery) -> frozenset[object]:
+    def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
         raise NotImplementedError(_PHASE2_NET)
 
     def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
@@ -90,7 +91,7 @@ class WireSelectable:
     def bbox(self) -> Rect:
         raise NotImplementedError(_PHASE2)
 
-    def net_ids(self, conn: ConnQuery) -> frozenset[object]:
+    def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
         raise NotImplementedError(_PHASE2_NET)
 
     def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
@@ -115,7 +116,7 @@ class GroupSelectable:
     def bbox(self) -> Rect:
         raise NotImplementedError(_PHASE2)
 
-    def net_ids(self, conn: ConnQuery) -> frozenset[object]:
+    def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
         raise NotImplementedError(_PHASE2_NET)
 
     def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
@@ -144,7 +145,7 @@ class PinSelectable:
     def bbox(self) -> Rect:
         raise NotImplementedError(_PHASE2)
 
-    def net_ids(self, conn: ConnQuery) -> frozenset[object]:
+    def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
         raise NotImplementedError(_PHASE2_NET)
 
     def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
@@ -175,7 +176,7 @@ class WireVertexSelectable:
     def bbox(self) -> Rect:
         raise NotImplementedError(_PHASE2)
 
-    def net_ids(self, conn: ConnQuery) -> frozenset[object]:
+    def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
         raise NotImplementedError(_PHASE2_NET)
 
     def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:

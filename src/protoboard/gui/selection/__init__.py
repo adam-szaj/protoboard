@@ -16,6 +16,10 @@ from protoboard.gui.selection.adapters import (
     WireSelectable,
     WireVertexSelectable,
 )
+from protoboard.gui.selection.hit_test import (
+    HitTester,
+    SelectionFilters,
+)
 from protoboard.gui.selection.selectable import (
     PickKind,
     Selectable,
@@ -27,11 +31,13 @@ from protoboard.gui.selection.service import PickSession, SelectionService
 __all__ = [
     "ComponentSelectable",
     "GroupSelectable",
+    "HitTester",
     "PickKind",
     "PickSession",
     "PinSelectable",
     "Selectable",
     "SelectableKey",
+    "SelectionFilters",
     "SelectionService",
     "Stop",
     "WireSelectable",
