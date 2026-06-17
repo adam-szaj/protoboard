@@ -11,7 +11,6 @@ import pytest
 from protoboard.domain.commands.group_cmds import (
     RotateGroupCommand,
     _rotate_point_around,
-    _wire_is_internal,
 )
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
@@ -86,7 +85,7 @@ def test_rotate_around_360_is_identity() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Unit tests for _wire_is_internal
+# Wire fixture helper (used by the internal-wire rotation test below)
 # ---------------------------------------------------------------------------
 
 def _wire(path: list[tuple[float, float]]) -> Wire:
@@ -96,30 +95,6 @@ def _wire(path: list[tuple[float, float]]) -> Wire:
         insulated=False,
         side="top",
     )
-
-
-def test_wire_is_internal_all_points_in_bbox() -> None:
-    bbox = (0.0, 0.0, 3.0, 0.0)  # x0,y0,x1,y1
-    w = _wire([(0.0, 0.0), (1.5, 0.0), (3.0, 0.0)])
-    assert _wire_is_internal(w, bbox) is True
-
-
-def test_wire_is_not_internal_midpoint_outside_bbox() -> None:
-    bbox = (0.0, 0.0, 3.0, 0.0)
-    w = _wire([(0.0, 0.0), (5.0, 0.0), (3.0, 0.0)])  # (5,0) outside
-    assert _wire_is_internal(w, bbox) is False
-
-
-def test_wire_is_not_internal_end_outside_bbox() -> None:
-    bbox = (0.0, 0.0, 3.0, 3.0)
-    w = _wire([(0.0, 0.0), (10.0, 0.0)])
-    assert _wire_is_internal(w, bbox) is False
-
-
-def test_wire_is_not_internal_neither_end_in_bbox() -> None:
-    bbox = (2.0, 2.0, 4.0, 4.0)
-    w = _wire([(0.0, 0.0), (1.0, 0.0)])
-    assert _wire_is_internal(w, bbox) is False
 
 
 # ---------------------------------------------------------------------------

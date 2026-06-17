@@ -363,5 +363,48 @@ class GroupTree:
                     best_key, best = key, p
         return best
 
+    @staticmethod
+    def pin_world_positions(
+        component_ids: frozenset[uuid.UUID],
+        placements: dict[uuid.UUID, "ComponentPlacement"],
+        instances: dict[uuid.UUID, "ComponentInstance"],
+        definitions: dict[str, "ComponentDefinition"],
+    ) -> set[tuple[float, float]]:
+        """World ``(x, y)`` positions of every pin of *component_ids*.
+
+        Pure geometry over the supplied dicts (hence ``@staticmethod``), the
+        plural sibling of :meth:`group_origin`. Each pin resolves through
+        :func:`resolve_pin_world_position` so the whole codebase shares one
+        safety chain.
+        """
+        from protoboard.domain.components.definition import ComponentDefinition
+        from protoboard.domain.layout.placement import (
+            ComponentPlacement,
+            resolve_pin_world_position,
+        )
+
+        positions: set[tuple[float, float]] = set()
+        for cid in component_ids:
+            pl = placements.get(cid)
+            inst = instances.get(cid) if pl is not None else None
+            defn = (
+                definitions.get(inst.definition_ref) if inst is not None else None
+            )
+            if not isinstance(pl, ComponentPlacement) or not isinstance(
+                defn, ComponentDefinition
+            ):
+                continue
+            for n in range(defn.footprint.pin_count()):
+                p = resolve_pin_world_position(
+                    cid,
+                    n + 1,
+                    placements=placements,
+                    instances=instances,
+                    components=definitions,
+                )
+                if p is not None:
+                    positions.add((p.x, p.y))
+        return positions
+
 
 __all__ = ["GroupTree"]

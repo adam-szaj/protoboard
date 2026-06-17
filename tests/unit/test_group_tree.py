@@ -9,11 +9,18 @@ from __future__ import annotations
 
 import uuid
 
+from typing import TYPE_CHECKING
+
 from protoboard.domain.layout import group as group_mod
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
+
+if TYPE_CHECKING:
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.layout.placement import ComponentPlacement
 
 
 def _ids(n: int) -> list[uuid.UUID]:
@@ -144,3 +151,78 @@ class TestShimEquivalence:
             t.would_create_cycle(i["C"], i["A"])
         assert group_mod.promote_selection_to_top_level(groups, i["A"], frozenset({i["c3"]})) == \
             t.promote_selection_to_top_level(i["A"], frozenset({i["c3"]}))
+
+
+# ---------------------------------------------------------------------------
+# Pin-world geometry — pin_world_positions (plural sibling of group_origin)
+# ---------------------------------------------------------------------------
+
+
+def _two_resistors() -> tuple[
+    frozenset[uuid.UUID],
+    dict[uuid.UUID, ComponentPlacement],
+    dict[uuid.UUID, ComponentInstance],
+    dict[str, ComponentDefinition],
+]:
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.footprints import SIL
+    from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.layout.placement import ComponentPlacement
+    from protoboard.geometry import Point
+
+    defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    inst_a = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+    inst_b = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+    placements = {
+        inst_a.id: ComponentPlacement(
+            component_id=inst_a.id, position=Point(0, 0), rotation=0, side="top"
+        ),
+        inst_b.id: ComponentPlacement(
+            component_id=inst_b.id, position=Point(5, 2), rotation=0, side="top"
+        ),
+    }
+    instances = {inst_a.id: inst_a, inst_b.id: inst_b}
+    components = {"R": defn}
+    return frozenset({inst_a.id, inst_b.id}), placements, instances, components
+
+
+class TestPinWorldPositions:
+    def test_matches_per_pin_resolution(self) -> None:
+        from protoboard.domain.layout.placement import pin_world_position
+
+        comp_ids, placements, instances, components = _two_resistors()
+        got = GroupTree.pin_world_positions(
+            comp_ids, placements, instances, components
+        )
+        expected: set[tuple[float, float]] = set()
+        for cid in comp_ids:
+            pl = placements[cid]
+            defn = components[instances[cid].definition_ref]
+            for n in range(defn.footprint.pin_count()):
+                p = pin_world_position(defn.footprint, pl, n + 1)
+                expected.add((p.x, p.y))
+        assert got == expected
+        assert len(got) == 4  # two 2-pin resistors, no coincident pins
+
+    def test_origin_is_top_left_of_positions(self) -> None:
+        # group_origin must be the (min x+y) member of pin_world_positions —
+        # the two geometry helpers agree on the same point set.
+        comp_ids, placements, instances, components = _two_resistors()
+        positions = GroupTree.pin_world_positions(
+            comp_ids, placements, instances, components
+        )
+        origin = GroupTree.group_origin(
+            comp_ids, placements, instances, components
+        )
+        assert origin is not None
+        assert (origin.x, origin.y) in positions
+        assert (origin.x + origin.y) == min(px + py for px, py in positions)
+
+    def test_unresolvable_component_skipped(self) -> None:
+        # A comp_id with no placement contributes nothing (no crash).
+        comp_ids, placements, instances, components = _two_resistors()
+        ghost = uuid.uuid4()
+        got = GroupTree.pin_world_positions(
+            comp_ids | {ghost}, placements, instances, components
+        )
+        assert len(got) == 4

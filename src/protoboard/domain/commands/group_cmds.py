@@ -13,7 +13,7 @@ from protoboard.domain.commands.component_cmds import ComponentState
 from protoboard.domain.layout.group import ComponentGroup, all_component_ids, would_create_cycle
 from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.schematic.net import PinRef
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 
 _log = structlog.get_logger(__name__)
@@ -85,159 +85,6 @@ def _recompute_group_origin(
         return old_origin
     state.layout.groups[group_id] = group.replace(origin=new_origin)
     return old_origin
-
-
-def _pin_positions_for(
-    comp_ids: frozenset[uuid.UUID],
-    placements: dict[uuid.UUID, object],
-    instances: dict[uuid.UUID, object],
-    components: dict[str, object],
-) -> set[tuple[float, float]]:
-    """Return world positions of all pins of the given component IDs.
-
-    Each pin resolution delegates to
-    :func:`protoboard.domain.layout.placement.resolve_pin_world_position`
-    so the same safety chain is used everywhere.
-    """
-    from protoboard.domain.components.definition import ComponentDefinition
-    from protoboard.domain.layout.placement import (
-        ComponentPlacement,
-        resolve_pin_world_position,
-    )
-    positions: set[tuple[float, float]] = set()
-    for cid in comp_ids:
-        pl = placements.get(cid)
-        inst = instances.get(cid) if pl is not None else None
-        defn = components.get(inst.definition_ref) if inst is not None else None  # type: ignore[union-attr]
-        if not isinstance(pl, ComponentPlacement) or not isinstance(defn, ComponentDefinition):
-            continue
-        for n in range(defn.footprint.pin_count()):
-            p = resolve_pin_world_position(
-                cid, n + 1,
-                placements=placements,  # type: ignore[arg-type]
-                instances=instances,  # type: ignore[arg-type]
-                components=components,  # type: ignore[arg-type]
-            )
-            if p is not None:
-                positions.add((p.x, p.y))
-    return positions
-
-
-def _find_internal_wires(
-    wires: list[Wire],
-    group_pins: set[tuple[float, float]],
-    external_pins: set[tuple[float, float]],
-    *,
-    group_comp_ids: "frozenset[uuid.UUID] | None" = None,
-    knots: "dict[uuid.UUID, object] | None" = None,
-    group: "ComponentGroup | None" = None,
-    wire_net_map: "dict[uuid.UUID, uuid.UUID] | None" = None,
-    schematic: "object | None" = None,
-    placements: "dict[uuid.UUID, object] | None" = None,
-    instances: "dict[uuid.UUID, object] | None" = None,
-    components: "dict[str, object] | None" = None,
-) -> set[uuid.UUID]:
-    """Return IDs of wires that belong logically to the group.
-
-    **Deprecated** thin shim over :func:`find_owned_wires` from
-    :mod:`protoboard.domain.layout.group_ownership`.  New callers
-    should use that function directly.
-
-    Compatibility path (when *group* + *group_comp_ids* + *knots* are
-    given): delegate to the net-aware classifier.  Without
-    ``schematic`` / ``wire_net_map`` the classifier still recognises
-    "both PinKnots in group" → owned and conservatively treats
-    half-orphans as not owned (no way to tell internal-vs-exported
-    net).
-
-    Geometric fallback (legacy nearest-pin) retained for unit tests
-    constructing wires without KnotRefs.  Not used in production.
-    """
-    if group_comp_ids is not None and knots is not None and group is not None:
-        from protoboard.domain.layout.group_ownership import find_owned_wires
-        from protoboard.domain.schematic.schematic import Schematic as _Schematic
-        sch: _Schematic | None = schematic if isinstance(schematic, _Schematic) else None
-        return find_owned_wires(
-            list(wires),
-            group,
-            wire_net_map=wire_net_map or {},
-            knots=knots,  # type: ignore[arg-type]
-            group_comp_ids=group_comp_ids,
-            schematic=sch,
-            placements=placements,  # type: ignore[arg-type]
-            instances=instances,  # type: ignore[arg-type]
-            definitions=components,  # type: ignore[arg-type]
-        )
-
-    # Fallback path: no group object provided.  Use structural-only
-    # classification (both endpoints PinKnot of group components).
-    if group_comp_ids is not None and knots is not None:
-        from protoboard.domain.layout.knot import JointKnot, PinKnot, WirePinKnot
-        result: set[uuid.UUID] = set()
-        for wire in wires:
-            if len(wire.path) < 2 or wire.a is None or wire.b is None:
-                continue
-            ka = knots.get(wire.a.id)
-            kb = knots.get(wire.b.id)
-            if ka is None or kb is None:
-                continue
-
-            def _endpoint_in_group(knot: object) -> bool:
-                if isinstance(knot, PinKnot):
-                    return knot.pin.component_id in group_comp_ids
-                # Free-position endpoints (joint or wire-pin) count as
-                # "in-group" structurally — the actual group affiliation
-                # comes from the *other* endpoint and the net check.
-                return isinstance(knot, (JointKnot, WirePinKnot))
-
-            if (
-                _endpoint_in_group(ka)
-                and _endpoint_in_group(kb)
-                and (
-                    (isinstance(ka, PinKnot) and ka.pin.component_id in group_comp_ids)
-                    or (isinstance(kb, PinKnot) and kb.pin.component_id in group_comp_ids)
-                )
-            ):
-                result.add(wire.id)
-        return result
-
-    # Geometric fallback (test-only).
-    all_pins = group_pins | external_pins
-    if not all_pins:
-        return set()
-
-    def _nearest_is_group(p: Point) -> bool:
-        best_d = float("inf")
-        best_in_group = False
-        for px, py in all_pins:
-            d = (p.x - px) ** 2 + (p.y - py) ** 2
-            if d < best_d:
-                best_d = d
-                best_in_group = (px, py) in group_pins
-        return best_in_group
-
-    result = set()
-    for wire in wires:
-        if len(wire.path) < 2:
-            continue
-        if _nearest_is_group(wire.path[0]) and _nearest_is_group(wire.path[-1]):
-            result.add(wire.id)
-    return result
-
-
-def _wire_is_internal(
-    wire: Wire,
-    bbox: tuple[float, float, float, float],
-    tol: float = 0.5,
-    pin_positions: set[tuple[float, float]] | None = None,
-) -> bool:
-    """Legacy single-wire check used as fallback (bbox-based)."""
-    if len(wire.path) < 2:
-        return False
-    x0, y0, x1, y1 = bbox
-    def inside(p: Point) -> bool:
-        return x0 - tol <= p.x <= x1 + tol and y0 - tol <= p.y <= y1 + tol
-    return all(inside(p) for p in wire.path)
 
 
 @dataclass
@@ -482,28 +329,30 @@ class RotateGroupCommand(Command[ComponentState]):
         for cid in comp_ids:
             pl = state.layout.placements.get(cid)
             if pl is not None:
-                old_pls[cid] = pl.copy()  # type: ignore[union-attr]
+                old_pls[cid] = pl.copy()
         object.__setattr__(self, "_old_placements", old_pls)
 
-        # Identify internal wires via net-aware classifier (preferred).
-        # Geometric fallback is preserved by the helper for callers that
-        # cannot supply schematic + wire_net_map.
-        group_pins = _pin_positions_for(comp_ids, state.layout.placements, state.instances, state.components)
-        all_comp_ids = frozenset(state.layout.placements.keys())
-        external_pins = _pin_positions_for(all_comp_ids - comp_ids, state.layout.placements, state.instances, state.components)
-        schematic = getattr(state, "schematic", None)
-        internal_wire_ids = _find_internal_wires(
+        # Identify internal wires via the net-aware ownership classifier.
+        # Rotate doesn't need T-junction net inheritance (empty
+        # wire_net_map); both-PinKnots-in-group covers the practical cases,
+        # and the geometric sanity check (placements/instances/definitions)
+        # filters stale paths.
+        from protoboard.domain.layout.group_ownership import find_owned_wires
+
+        schematic_obj = getattr(state, "schematic", None)
+        sch: "Schematic | None" = (
+            schematic_obj if isinstance(schematic_obj, Schematic) else None
+        )
+        internal_wire_ids = find_owned_wires(
             list(state.layout.wires),
-            group_pins,
-            external_pins,
+            group,
+            wire_net_map={},
+            knots=state.layout.knots,
             group_comp_ids=comp_ids,
-            knots=state.layout.knots,  # type: ignore[arg-type]
-            group=group,
-            wire_net_map=None,  # rotate doesn't need T-junction inheritance; both-PinKnots covers practical cases
-            schematic=schematic,
-            placements=state.layout.placements,  # type: ignore[arg-type]
-            instances=state.instances,  # type: ignore[arg-type]
-            components=state.components,  # type: ignore[arg-type]
+            schematic=sch,
+            placements=state.layout.placements,
+            instances=state.instances,
+            definitions=state.components,
         )
 
         # Rotate each placement.
