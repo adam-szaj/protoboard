@@ -499,9 +499,9 @@ class PlaceTool(_Tool):
             if resolved is None:
                 _log.info("place.blocked", definition=self._definition_ref, pos=(position.x, position.y))
                 return
-            wire_cmds = getattr(resolved, "_wire_cmds", [])
+            wire_cmds = list(resolved.wire_cmds)
             has_wire_conflict = bool(wire_cmds)
-            placement = resolved
+            placement = resolved.placement
 
         from protoboard.gui.app_settings import load_app_settings
         auto_accept = load_app_settings().auto_accept_placement

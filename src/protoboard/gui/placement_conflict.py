@@ -31,6 +31,22 @@ _log = structlog.get_logger(__name__)
 # this file working — single implementation now lives in geometry.py.
 from protoboard.geometry import round_coord as _round  # noqa: E402
 
+from dataclasses import dataclass  # noqa: E402
+
+
+@dataclass(frozen=True)
+class PlacementResolution:
+    """Result of :func:`check_and_resolve`: the resolved placement plus any
+    follow-up wire commands the resolution produced.
+
+    Replaces the previous pattern of monkey-attaching ``_wire_cmds`` onto the
+    (otherwise immutable) :class:`ComponentPlacement` — an explicit result type
+    keeps the placement clean and the wire commands typed.
+    """
+
+    placement: ComponentPlacement
+    wire_cmds: tuple[object, ...] = ()
+
 
 def check_and_resolve(
     session: EditorSession,
@@ -38,7 +54,7 @@ def check_and_resolve(
     defn: ComponentDefinition,
     instance_id: uuid.UUID,
     parent_widget: object = None,
-) -> ComponentPlacement | None:
+) -> PlacementResolution | None:
     """Check pad conflicts for *placement* and resolve interactively.
 
     Returns:
@@ -184,9 +200,9 @@ def check_and_resolve(
 
     result = placement.copy()
     result.shared_pins = frozenset(new_shared)
-    # Attach extra wire commands as an attribute so callers can retrieve them.
-    result._wire_cmds = wire_action_cmds  # type: ignore[attr-defined]
-    return result
+    return PlacementResolution(
+        placement=result, wire_cmds=tuple(wire_action_cmds)
+    )
 
 
 def _show_dialog(
