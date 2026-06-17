@@ -280,6 +280,12 @@ class SelectTool(_Tool):
         self._redrag_comp_id: uuid.UUID | None = None
         self._redrag_pin_num: int | None = None
         self._redrag_items: list[QGraphicsItem] = []
+        # "Rotate around point" mode: when _pivot_capture_pending, the next
+        # board click captures a hole-snapped pivot into _rotate_pivot;
+        # while _rotate_pivot is set, Rotate CW/CCW rotate the selection
+        # around it instead of the group/component origin.
+        self._pivot_capture_pending: bool = False
+        self._rotate_pivot: Point | None = None
         # Live drag conflict overlay.
         from protoboard.gui.tools.drag_conflict_overlay import DragConflictOverlay
         self._drag_overlay = DragConflictOverlay()
@@ -895,6 +901,12 @@ class SelectTool(_Tool):
         downstream code (drag, highlight, summary) sees the full set.
         """
         group_basis = group_basis or set()
+
+        # A deliberate selection change drops any captured rotate pivot —
+        # it belonged to the previous selection (a stale pivot must not
+        # silently apply to the new one).
+        if self._rotate_pivot is not None or self._pivot_capture_pending:
+            self._clear_rotate_pivot()
 
         # Decision 5 (extended): no-op-on-set when basis is already
         # contained in the current selection — but still re-anchor the
@@ -2823,6 +2835,15 @@ class SelectTool(_Tool):
         _click_t0 = time.monotonic() if _CLICK_PROFILE else 0.0
         if event.button() != Qt.MouseButton.LeftButton:
             return False
+        # --- Rotate-around-point: capture the pivot from this click ---
+        if self._pivot_capture_pending:
+            self._rotate_pivot = self._view.snap(scene_pt)
+            self._pivot_capture_pending = False
+            self._show_status_bar(
+                "Pivot set — Rotate CW/CCW to rotate around it  ·  [Esc] Clear",
+                0,
+            )
+            return True
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         alt = bool(event.modifiers() & Qt.KeyboardModifier.AltModifier)
@@ -3987,6 +4008,14 @@ class SelectTool(_Tool):
     def on_key(self, event: QKeyEvent) -> None:
         key = event.key()
 
+        # Rotate-around-point: Esc cancels pending capture / clears the pivot.
+        if (self._pivot_capture_pending or self._rotate_pivot is not None):
+            if key == Qt.Key.Key_Escape:
+                self._clear_rotate_pivot()
+                self._show_status_bar("Pivot cleared")
+                event.accept()
+                return
+
         if self._is_editing_wire():
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 self._commit_wire_edit()
@@ -5105,41 +5134,81 @@ class SelectTool(_Tool):
         self._session.layout_changed.emit()
         self._draw_highlight(comp_id)
 
+    def _begin_rotate_around_point(self) -> None:
+        """Enter pivot-capture mode: the next board click sets the rotation
+        pivot, after which Rotate CW/CCW rotate the selection around it.
+
+        Needs a non-empty selection (group or loose components); otherwise a
+        status-bar hint and no-op.
+        """
+        has_selection = (
+            self._selected_group_id is not None or bool(self._selected_ids)
+        )
+        if not has_selection:
+            self._show_status_bar(
+                "Rotate around point: select component(s) or a group first"
+            )
+            return
+        self._pivot_capture_pending = True
+        self._rotate_pivot = None
+        self._show_status_bar(
+            "Click a pivot point  ·  [Esc] Cancel", 0,
+        )
+
+    def _clear_rotate_pivot(self) -> None:
+        """Leave pivot-rotate mode (cancel pending capture and drop pivot)."""
+        self._pivot_capture_pending = False
+        self._rotate_pivot = None
+
     def _rotate_multi(self, delta: int = 90) -> None:
         from typing import cast
         from protoboard.domain.commands.base import Command
         from protoboard.domain.commands.group_cmds import (
+            RotateAroundPointCommand,
             RotateComponentsCommand,
             RotateGroupCommand,
         )
-        # Pick the rotate command + the set of affected component ids.
-        # Group: rotate around the group origin (members pivot).  Loose:
-        # each component rotates around its own position (spin in place).
-        # Both go through the same rotate-around-origin core; only the
-        # pivot differs.
+        # Resolve the affected component-id set from the selection.
         if self._selected_group_id is not None:
             from protoboard.domain.layout.group import all_component_ids
             affected_ids = all_component_ids(
                 self._session.layout.groups, self._selected_group_id
             )
+        else:
+            affected_ids = frozenset(
+                cid for cid in self._selected_ids
+                if not self._is_locked_in_group(cid)
+                and self._session.layout.placements.get(cid) is not None
+            )
+        if not affected_ids:
+            return
+
+        # Pick the rotate command.  A captured pivot overrides the default
+        # origin: rotate the whole selection around that user-picked point.
+        # Otherwise group -> around group origin, loose -> each in place;
+        # all three go through the same rotate-around-origin core.
+        if self._rotate_pivot is not None:
             rotate_cmd: Command[ComponentState] = cast(
+                Command[ComponentState],
+                RotateAroundPointCommand(
+                    comp_ids=frozenset(affected_ids),
+                    origin=self._rotate_pivot,
+                    delta=delta % 360,
+                ),
+            )
+        elif self._selected_group_id is not None:
+            rotate_cmd = cast(
                 Command[ComponentState],
                 RotateGroupCommand(
                     group_id=self._selected_group_id, delta=delta % 360
                 ),
             )
         else:
-            ids = frozenset(
-                cid for cid in self._selected_ids
-                if not self._is_locked_in_group(cid)
-                and self._session.layout.placements.get(cid) is not None
-            )
-            if not ids:
-                return
-            affected_ids = ids
             rotate_cmd = cast(
                 Command[ComponentState],
-                RotateComponentsCommand(comp_ids=ids, delta=delta % 360),
+                RotateComponentsCommand(
+                    comp_ids=frozenset(affected_ids), delta=delta % 360
+                ),
             )
         self._apply_rotate(rotate_cmd, set(affected_ids))
 

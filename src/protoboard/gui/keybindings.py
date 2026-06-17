@@ -38,6 +38,7 @@ ACTION_DESELECT_ALL_WIRES = "deselect_all_wires"
 ACTION_DELETE = "delete"
 ACTION_ROTATE_CW = "rotate_cw"
 ACTION_ROTATE_CCW = "rotate_ccw"
+ACTION_ROTATE_AROUND_POINT = "rotate_around_point"
 ACTION_FLIP = "flip"
 
 ACTION_GROUP = "group"
@@ -193,6 +194,7 @@ DEFAULTS: dict[str, str] = {
     ACTION_DELETE: "Del",
     ACTION_ROTATE_CW: "R",
     ACTION_ROTATE_CCW: "Shift+R",
+    ACTION_ROTATE_AROUND_POINT: "",
     ACTION_FLIP: "Alt+R",
     ACTION_GROUP: "Ctrl+G",
     ACTION_UNGROUP: "Ctrl+Shift+G",
@@ -297,6 +299,7 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_DELETE: "Delete",
     ACTION_ROTATE_CW: "Rotate CW 90°",
     ACTION_ROTATE_CCW: "Rotate CCW 90°",
+    ACTION_ROTATE_AROUND_POINT: "Rotate selection around a clicked pivot",
     ACTION_FLIP: "Flip (2-pin)",
     ACTION_GROUP: "Group Selection",
     ACTION_UNGROUP: "Ungroup",

@@ -2222,3 +2222,73 @@ class TestFreePinClickFeedback:
         # check the precondition the hint relies on.
         assert session.schematic.net_for_pin(PinRef(inst.id, 1)) is not None
         tool._hint_free_pin(inst.id, 1)
+
+
+class TestRotateAroundPoint:
+    def _select(self, tool: SelectTool, inst: ComponentInstance) -> None:
+        # Synthetic single-component selection (matches the manual-select
+        # pattern other multi-tests use — a bare _press arms a drag, not an
+        # immediate _selected_ids commit).
+        tool._select_primary(inst.id)
+        tool._selected_ids.add(inst.id)
+
+    def test_begin_then_click_captures_pivot(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        self._select(tool, inst)
+
+        tool._begin_rotate_around_point()
+        assert tool._pivot_capture_pending is True
+        # Next click captures the pivot (snapped) and consumes the click.
+        _press(tool, 2.5, 2.5)
+        assert tool._pivot_capture_pending is False
+        assert tool._rotate_pivot is not None
+        assert inst.id in tool._selected_ids
+
+    def test_rotate_around_captured_pivot_moves_position(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        self._select(tool, inst)
+        before = session.layout.placements[inst.id].position
+
+        tool._begin_rotate_around_point()
+        _press(tool, 2.5, 2.5)            # pivot away from the component
+        tool._rotate_multi(delta=90)
+
+        after = session.layout.placements[inst.id].position
+        # Pivot != component position → rotating around it moves the part.
+        assert (after.x, after.y) != (before.x, before.y)
+        assert session.layout.placements[inst.id].rotation == 90
+
+    def test_esc_clears_pivot(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place_component(board_view, session, 0.5, 0.5)
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        self._select(tool, inst)
+        tool._begin_rotate_around_point()
+        _press(tool, 2.5, 2.5)
+        assert tool._rotate_pivot is not None
+
+        _key(tool, Qt.Key.Key_Escape)
+        assert tool._rotate_pivot is None
+        assert tool._pivot_capture_pending is False
+
+    def test_begin_with_no_selection_is_noop(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        board_view.set_tool(SelectTool())
+        tool = board_view._active_tool
+        assert isinstance(tool, SelectTool)
+        tool._begin_rotate_around_point()
+        assert tool._pivot_capture_pending is False

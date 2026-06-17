@@ -1907,6 +1907,12 @@ class MainWindow(QMainWindow):
         elif tool._selected_id is not None:
             tool._rotate_selected(delta=-90)
 
+    def _rotate_around_point(self) -> None:
+        tool = self._get_select_tool()
+        if tool is None:
+            return
+        tool._begin_rotate_around_point()
+
     def _flip_selection(self) -> None:
         tool = self._get_select_tool()
         if tool is None:

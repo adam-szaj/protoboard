@@ -191,6 +191,7 @@ ALL_ACTIONS: tuple[ActionSpec, ...] = (
     ActionSpec(id=KB.ACTION_FOCUS_LIBRARY, label="&Add Component…", slot_name="_focus_library_for_add", menu_path=_EDIT_DESIGN_COMPONENT),
     ActionSpec(id=KB.ACTION_ROTATE_CW,     label="Rotate &CW",      slot_name="_rotate_cw",            menu_path=_EDIT_DESIGN_COMPONENT, separator_before=True),
     ActionSpec(id=KB.ACTION_ROTATE_CCW,    label="Rotate CC&W",     slot_name="_rotate_ccw",           menu_path=_EDIT_DESIGN_COMPONENT),
+    ActionSpec(id=KB.ACTION_ROTATE_AROUND_POINT, label="Rotate Around &Point", slot_name="_rotate_around_point", menu_path=_EDIT_DESIGN_COMPONENT),
     ActionSpec(id=KB.ACTION_FLIP,          label="&Flip",           slot_name="_flip_selection",       menu_path=_EDIT_DESIGN_COMPONENT),
     ActionSpec(id=KB.ACTION_REDRAG_PINS,   label="Re-drag &Pins",   slot_name="_redrag_pins",          menu_path=_EDIT_DESIGN_COMPONENT, separator_before=True),
     ActionSpec(id=KB.ACTION_LOCK_TOGGLE,   label="&Lock / Unlock",  slot_name="_lock_toggle",          menu_path=_EDIT_DESIGN_COMPONENT, separator_before=True),
