@@ -45,10 +45,11 @@ packages = ["src/protoboard"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v -m 'not property'"
+addopts = "-v -m 'not property and not slow'"
 markers = [
     "property: hypothesis-driven property tests (skipped by default; run with -m property)",
     "serial: wall-time-sensitive tests that must run in a single, unloaded process (excluded from the parallel '-n auto' run; see docs/testing.md)",
+    "slow: very slow benchmarks (>30 s) skipped by default; run with -m slow (see docs/testing.md)",
 ]
 
 

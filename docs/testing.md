@@ -16,10 +16,16 @@
 ## How to run
 
 ```bash
-uv run pytest                                         # full suite (sequential)
-uv run pytest tests/unit/                             # unit only
-uv run pytest tests/benchmarks/ --benchmark-only -v   # benchmarks
+uv run pytest                                            # default suite (sequential, no slow/property)
+uv run pytest tests/unit/                                # unit only
+uv run pytest tests/benchmarks/ --benchmark-only -m "not property"  # all benchmarks incl. slow
+uv run pytest -m slow                                    # the slow benchmark(s) on their own
 ```
+
+The default run **excludes** `slow` (and `property`) tests — see `addopts` in
+`pyproject.toml`. `slow` is currently one benchmark, `test_bench_large_greedy`
+(~100 s, large-board greedy autoroute — by far the slowest test in the repo).
+Pass `-m slow` to run it; CI runs it as part of the sequential benchmark step.
 
 ### Parallel run (fast feedback)
 
@@ -29,9 +35,9 @@ for a ~6× wall-clock win (≈30 s vs ≈3 min):
 
 ```bash
 uv run pytest tests/ --ignore=tests/benchmarks -p no:benchmark \
-    -m "not serial" -n auto                         # ~30 s, parallel
-uv run pytest tests/benchmarks --benchmark-only     # ~2 min, sequential (timing)
-uv run pytest -m serial                             # the few wall-time unit tests
+    -m "not serial and not property and not slow" -n auto   # ~30 s, parallel
+uv run pytest tests/benchmarks --benchmark-only -m "not property"  # ~2 min, sequential
+uv run pytest -m serial                                     # the few wall-time unit tests
 ```
 
 `-n auto` spreads tests across all cores. **Two things stay out of the parallel

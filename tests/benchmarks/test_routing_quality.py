@@ -314,8 +314,14 @@ def synthetic_large_empty_layout(synthetic_large_project):
     return board, layout, schematic, instances, routing, components
 
 
+@pytest.mark.slow
 def test_bench_large_greedy(benchmark, synthetic_large_empty_layout):
-    """Large synthetic project: greedy pass only (no optimize, rip-up=3)."""
+    """Large synthetic project: greedy pass only (no optimize, rip-up=3).
+
+    ~100 s — the slowest test in the suite by far (large-board greedy
+    autoroute). Marked ``slow`` so it is skipped by default; run it with
+    ``-m slow`` when validating routing performance.
+    """
     board, layout, schematic, instances, routing, components = synthetic_large_empty_layout
 
     def _run():
