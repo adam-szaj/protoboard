@@ -1518,11 +1518,11 @@ class ReplaceWireFragmentsCommand(Command[ComponentState]):
             if wire.a is not None and self._saved_a_pos is not None:
                 ka = state.layout.knots.get(wire.a.id)
                 if isinstance(ka, JointKnot):
-                    ka.position = self._saved_a_pos
+                    state.layout.knots[ka.id] = ka.moved_to(self._saved_a_pos)
             if wire.b is not None and self._saved_b_pos is not None:
                 kb = state.layout.knots.get(wire.b.id)
                 if isinstance(kb, JointKnot):
-                    kb.position = self._saved_b_pos
+                    state.layout.knots[kb.id] = kb.moved_to(self._saved_b_pos)
         # PinKnot positions resolve through ``layout._pin_resolver`` from
         # the current placement, which a sibling ``MoveComponentCommand``
         # in the same macro may not have reverted yet.  Skip PinKnot

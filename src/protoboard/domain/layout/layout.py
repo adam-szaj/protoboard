@@ -375,7 +375,7 @@ class Layout:
                 # invariant is rechecked at the next DRC pass — the
                 # fragment edit itself trusts that the caller put it on
                 # a valid pad.
-                knot.position = new_pos
+                self.knots[knot.id] = knot.moved_to(new_pos)
                 return
             if skip_pin_knot_validation and isinstance(knot, PinKnot):
                 # Caller (group-drag undo) knows the placement will be

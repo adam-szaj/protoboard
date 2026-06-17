@@ -33,10 +33,18 @@ from protoboard.geometry import Point
 
 @runtime_checkable
 class Knot(Protocol):
-    """Common interface for endpoint hubs."""
+    """Common interface for endpoint hubs.
 
-    id: uuid.UUID
-    wire_ids: frozenset[uuid.UUID]
+    ``id`` / ``wire_ids`` are declared as read-only properties (not plain
+    attributes) so the ``frozen=True`` dataclass implementers satisfy the
+    Protocol — a settable-attribute member would reject a frozen field.
+    """
+
+    @property
+    def id(self) -> uuid.UUID: ...
+
+    @property
+    def wire_ids(self) -> frozenset[uuid.UUID]: ...
 
     def with_wire_ids(self, wire_ids: frozenset[uuid.UUID]) -> Knot:
         """Return a copy of this knot with its ``wire_ids`` replaced.
@@ -72,7 +80,7 @@ class Knot(Protocol):
         ...
 
 
-@dataclass
+@dataclass(frozen=True, eq=False)
 class PinKnot:
     """Knot anchored to a component pin.
 
@@ -106,7 +114,7 @@ class PinKnot:
         return self
 
 
-@dataclass
+@dataclass(frozen=True, eq=False)
 class JointKnot:
     """T-joint where multiple wires of one net meet.
 
@@ -138,7 +146,7 @@ class JointKnot:
         return replace(self, position=position)
 
 
-@dataclass
+@dataclass(frozen=True, eq=False)
 class WirePinKnot:
     """Deliberate terminal at a wire endpoint — the wire's own "goldpin".
 
