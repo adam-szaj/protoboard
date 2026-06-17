@@ -22,14 +22,14 @@ import uuid
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.commands.component_cmds import (
-    ReplaceWireFragmentsCommand,
-    _enrich_insulated_fragments_with_pad_nodes,
-)
+from protoboard.domain.commands.component_cmds import ReplaceWireFragmentsCommand
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.wire import Fragment, Wire
+from protoboard.domain.layout.wire_utils import (
+    enrich_insulated_fragments_with_pad_nodes as _enrich_insulated_fragments_with_pad_nodes,  # noqa: E501
+)
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 

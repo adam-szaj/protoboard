@@ -314,6 +314,88 @@ def insert_pad_nodes(
     return result
 
 
+def enrich_insulated_wire_with_pad_nodes(wire: "Wire", board: "Board") -> "Wire":
+    """Insert board-pad positions into the path of an *insulated* wire.
+
+    An insulated wire that crosses a pad geometrically between two of its
+    recorded vertices has no "handle" at that pad — simplify, unweave and
+    interactive edits cannot manipulate the path there.  Inserting an
+    explicit pad-vertex at each crossed pad gives downstream tools the
+    nodes they need.  Idempotent — pads already on the path are not
+    duplicated.
+
+    Bare wires are returned unchanged — they're produced with pad-vertices
+    by their callers (RouteTool's ``insert_pad_nodes`` enrichment, A*
+    step-by-step paths) and the bare-diagonal parity model relies on the
+    caller-controlled vertex set.
+
+    A new ``Wire`` is returned only when the path actually grows;
+    otherwise the input is returned as-is.  The wire's id is preserved
+    so callers comparing by identity stay consistent.
+    """
+    from protoboard.domain.layout.wire import Wire as _Wire
+
+    if not wire.insulated:
+        return wire
+    # Insulated wires sit on one side; their endpoints solder to that side's
+    # pads.  Pads from BOTH sides are relevant for vertex insertion because
+    # the wire's geometric path may pass over a pad that physically exists
+    # on either side (plated-through pads in particular).
+    pads = board_pads_union(board)
+    new_path = insert_pad_nodes(list(wire.path), pads)
+    if len(new_path) == len(wire.path):
+        return wire
+    return _Wire(
+        id=wire.id,
+        path=new_path,
+        insulated=wire.insulated,
+        side=wire.side,
+        color=wire.color,
+        a=wire.a,
+        b=wire.b,
+    )
+
+
+def enrich_insulated_fragments_with_pad_nodes(
+    fragments: "tuple[Fragment, ...]",
+    is_insulated: bool,
+    board: "Board",
+) -> "tuple[Fragment, ...]":
+    """Pad-node enrichment for fragment tuples (ReplaceWireFragmentsCommand).
+
+    Mirrors :func:`enrich_insulated_wire_with_pad_nodes` but operates on the
+    ``fragments`` tuple consumed by :class:`ReplaceWireFragmentsCommand`.
+    Without this, hand-edited insulated wires (committed via [E] → Enter
+    or merge-wires) reach the layout with raw user-clicked vertices only,
+    so ``PadIndex._build_wires`` never records ``InsulatedWireCrossing``
+    items for intermediate pad crossings.  Simplify then reads zero pad
+    contacts on the baseline and is free to swap an off-pad diagonal for
+    an on-pad ortho L-bend that adds new crossings.  Bug surfaced as
+    "simplify increased on-pad-crossings after manual wire edit" and only
+    disappeared after save/load, because ``load_project`` runs the same
+    enrichment.
+
+    Bare wires are returned unchanged — they get their pad-vertices from
+    their callers (autoroute / RouteTool / pad-bucketing in PadIndex's
+    mid-segment crossing detection).
+    """
+    from protoboard.domain.layout.wire import Fragment as _Fragment
+
+    if not is_insulated or not fragments:
+        return fragments
+    pads = board_pads_union(board)
+    changed = False
+    new_fragments: list[_Fragment] = []
+    for frag in fragments:
+        new_path = insert_pad_nodes(list(frag.path), pads)
+        if len(new_path) == len(frag.path):
+            new_fragments.append(frag)
+            continue
+        changed = True
+        new_fragments.append(_Fragment(path=new_path, side=frag.side))
+    return tuple(new_fragments) if changed else fragments
+
+
 def rebuild_fragments_from_path(
     wire: "Wire", new_path: list[Point],
 ) -> "list[Fragment]":
