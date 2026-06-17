@@ -925,3 +925,171 @@ def _wire_is_internal_bbox(
         x0 - tol <= p.x <= x1 + tol and y0 - tol <= p.y <= y1 + tol
         for p in wire.path
     )
+
+
+# ---------------------------------------------------------------------------
+# Cohesive scanner — context-object view over one layout
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ConflictScanner:
+    """Cohesive view for pad/wire-conflict detection over one layout context.
+
+    Collapses the 7–11-parameter sprawl of :func:`find_conflicts`,
+    :func:`find_wire_conflicts`, :func:`find_wires_crossing_pads`,
+    :func:`check_group_move_conflicts` and
+    :func:`check_multi_group_move_conflicts` — every one of which re-passes the
+    same ``placements / instances / components / schematic / pad_index``
+    bundle — into fields gathered once. The per-call variables
+    (``incoming_placement``, ``moved_ids``, ``active_group_id`` …) stay as
+    method arguments because they genuinely vary per invocation.
+
+    The methods are thin organisers that delegate to the module's free
+    functions — those stay the canonical implementation (the 240-line
+    spec-rev-3 drag logic is *not* rewritten here, only wrapped). Build via
+    :meth:`from_session` or directly with the context dicts. The wrapped
+    functions accept an optional ``pad_index``; when this scanner's
+    ``pad_index`` is ``None`` they take their legacy from-layout path, so a
+    scanner built without one still works for test stubs.
+
+    Mirrors the :class:`~protoboard.domain.layout.group_ownership.OwnershipResolver`
+    pattern — frozen here because, unlike that resolver, no per-batch cache is
+    kept (each free function builds and discards its own maps).
+    """
+
+    placements: dict[uuid.UUID, ComponentPlacement]
+    instances: dict[uuid.UUID, ComponentInstance]
+    components: dict[str, ComponentDefinition]
+    schematic: Schematic
+    pad_index: "PadIndex | None" = None
+
+    @classmethod
+    def from_session(cls, session: object, *,
+                     pad_index: "PadIndex | None" = None) -> "ConflictScanner":
+        """Build a scanner from an ``EditorSession``-like object.
+
+        Reads ``layout.placements``, ``instances``, ``components``,
+        ``schematic``. Kept duck-typed (``object``) so the domain module
+        stays Qt-free.
+
+        ``pad_index`` is passed explicitly because conflict callers often need
+        a *post-move* index (e.g. ``PadIndex.clone()`` + simulated moves) that
+        differs from ``session.pad_index()``; when omitted the legacy
+        from-layout paths are used.
+        """
+        layout = session.layout  # type: ignore[attr-defined]
+        return cls(
+            placements=layout.placements,
+            instances=session.instances,  # type: ignore[attr-defined]
+            components=session.components,  # type: ignore[attr-defined]
+            schematic=session.schematic,  # type: ignore[attr-defined]
+            pad_index=pad_index,
+        )
+
+    def find_pad_conflicts(
+        self,
+        incoming_placement: ComponentPlacement,
+        incoming_defn: ComponentDefinition,
+        incoming_instance_id: uuid.UUID,
+    ) -> list[PadConflict]:
+        """All pad-on-pad conflicts for *incoming_placement* (see
+        :func:`find_conflicts`)."""
+        return find_conflicts(
+            incoming_placement=incoming_placement,
+            incoming_defn=incoming_defn,
+            incoming_instance_id=incoming_instance_id,
+            layout_placements=self.placements,
+            instances=self.instances,
+            components=self.components,
+            schematic=self.schematic,
+            pad_index=self.pad_index,
+        )
+
+    def find_wire_conflicts(
+        self,
+        incoming_placement: ComponentPlacement,
+        incoming_defn: ComponentDefinition,
+        incoming_instance_id: uuid.UUID,
+        wires: list[Wire],
+        point_to_net: dict[tuple[float, float], tuple[uuid.UUID, str]],
+        already_conflicted: set[tuple[float, float]],
+    ) -> list[PadConflict]:
+        """Pin-on-wire conflicts for *incoming_placement* (see
+        :func:`find_wire_conflicts`)."""
+        return find_wire_conflicts(
+            incoming_placement=incoming_placement,
+            incoming_defn=incoming_defn,
+            incoming_instance_id=incoming_instance_id,
+            wires=wires,
+            schematic=self.schematic,
+            point_to_net=point_to_net,
+            already_conflicted=already_conflicted,
+            pad_index=self.pad_index,
+        )
+
+    def find_wires_crossing_pads(
+        self,
+        wires: list[Wire],
+        moved_comp_ids: set[uuid.UUID],
+        moved_wire_ids: set[uuid.UUID] | None = None,
+    ) -> list[uuid.UUID]:
+        """IDs of wires whose path crosses an alien pad after the move (see
+        :func:`find_wires_crossing_pads`)."""
+        return find_wires_crossing_pads(
+            wires=wires,
+            moved_comp_ids=moved_comp_ids,
+            layout_placements=self.placements,
+            instances=self.instances,
+            components=self.components,
+            schematic=self.schematic,
+            moved_wire_ids=moved_wire_ids,
+            pad_index=self.pad_index,
+        )
+
+    def check_group_move(
+        self,
+        moved_ids: set[uuid.UUID],
+        active_group_id: uuid.UUID,
+        layout_wires: list[Wire],
+        layout_groups: dict[uuid.UUID, object],
+        moved_wire_ids: set[uuid.UUID] | None = None,
+        extra_protected_group_ids: "set[uuid.UUID] | None" = None,
+    ) -> MoveConflictResult:
+        """Classify an atomic single-group move (see
+        :func:`check_group_move_conflicts`)."""
+        return check_group_move_conflicts(
+            moved_ids=moved_ids,
+            active_group_id=active_group_id,
+            layout_placements=self.placements,
+            layout_wires=layout_wires,
+            layout_groups=layout_groups,
+            instances=self.instances,
+            components=self.components,
+            schematic=self.schematic,
+            moved_wire_ids=moved_wire_ids,
+            pad_index=self.pad_index,
+            extra_protected_group_ids=extra_protected_group_ids,
+        )
+
+    def check_multi_group_move(
+        self,
+        drag_set: object,
+        active_group_id: uuid.UUID,
+        layout_wires: list[Wire],
+        layout_groups: dict[uuid.UUID, object],
+        moved_wire_ids: set[uuid.UUID] | None = None,
+    ) -> MoveConflictResult:
+        """Classify an atomic multi-group / mixed drag-set move (see
+        :func:`check_multi_group_move_conflicts`)."""
+        return check_multi_group_move_conflicts(
+            drag_set=drag_set,
+            active_group_id=active_group_id,
+            layout_placements=self.placements,
+            layout_wires=layout_wires,
+            layout_groups=layout_groups,
+            instances=self.instances,
+            components=self.components,
+            schematic=self.schematic,
+            moved_wire_ids=moved_wire_ids,
+            pad_index=self.pad_index,
+        )

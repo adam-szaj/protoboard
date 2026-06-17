@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.layout.group_tree import GroupTree
+    from protoboard.domain.layout.pad_conflict import ConflictScanner
     from protoboard.domain.layout.wire import Wire
 
 from PySide6.QtCore import QObject, Signal
@@ -245,6 +246,26 @@ class EditorSession(QObject):
         from protoboard.domain.layout.group_tree import GroupTree
 
         return GroupTree(self._layout.groups)
+
+    def conflict_scanner(
+        self, *, pad_index: "PadIndex | None" = None
+    ) -> "ConflictScanner":
+        """A :class:`ConflictScanner` over this session's live layout context.
+
+        The convenient entry point for pad/wire-conflict queries
+        (``session.conflict_scanner(pad_index=idx).check_group_move(...)`` etc.)
+        instead of re-passing ``placements / instances / components /
+        schematic`` to every free function in ``domain/layout/pad_conflict.py``.
+
+        ``pad_index`` is taken explicitly because conflict callers usually want
+        a *post-move* index (a ``PadIndex.clone()`` reflecting the dragged
+        positions), which differs from the stale ``session.pad_index()``; when
+        omitted the legacy from-layout paths run. Cheap — wraps live dicts by
+        reference, no caching.
+        """
+        from protoboard.domain.layout.pad_conflict import ConflictScanner
+
+        return ConflictScanner.from_session(self, pad_index=pad_index)
 
     @layout.setter
     def layout(self, value: Layout) -> None:
