@@ -4546,15 +4546,14 @@ class SelectTool(_Tool):
         elif action == "export_all_pins":
             _, group_id = data
             from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
-            from protoboard.domain.layout.group import exposable_surface
             grp = self._session.layout.groups.get(group_id)
             if grp is not None:
                 # Encapsulation: "all" = pins of direct members + each direct
                 # child's re-exportable interface.  Grandchild pins surface
                 # only after the parent of the relevant intermediate group
                 # explicitly re-exports them at that level.
-                new_exported = exposable_surface(
-                    self._session.layout.groups, group_id,
+                new_exported = self._session.group_tree().exposable_surface(
+                    group_id,
                     self._session.instances,
                     self._session.components,
                 )
@@ -4570,11 +4569,10 @@ class SelectTool(_Tool):
         elif action == "export_auto_pins":
             _, group_id = data
             from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
-            from protoboard.domain.layout.group import external_pins_for_group
             grp = self._session.layout.groups.get(group_id)
             if grp is not None:
-                new_exported = external_pins_for_group(
-                    self._session.layout.groups, group_id,
+                new_exported = self._session.group_tree().external_pins_for_group(
+                    group_id,
                     self._session.schematic,
                 )
                 if new_exported != grp.exported_pins:
@@ -9103,12 +9101,8 @@ class SelectTool(_Tool):
             RemoveFromGroupCommand,
             SetExportedPinsCommand,
         )
-        from protoboard.domain.layout.group import (
-            ComponentGroup,
-            external_pins_for_group,
-            parent_group_of,
-            promote_selection_to_top_level,
-        )
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.layout.group_tree import GroupTree
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.gui.dialogs.group_target_dialog import GroupTargetDialog
 
@@ -9140,8 +9134,10 @@ class SelectTool(_Tool):
             # directs), preserving hierarchy.  Free / direct-of-active
             # components stay as directs.  Rule confirmed 2026-06-04:
             # one selected member ⇒ whole group treated as a unit.
-            promoted_free, promoted_groups = promote_selection_to_top_level(
-                self._session.layout.groups, active_gid, ids
+            promoted_free, promoted_groups = (
+                self._session.group_tree().promote_selection_to_top_level(
+                    active_gid, ids
+                )
             )
             _log.info(
                 "group_for_selection.promotion",
@@ -9166,8 +9162,10 @@ class SelectTool(_Tool):
                 )
                 groups_with_new = dict(self._session.layout.groups)
                 groups_with_new[new_group_id] = transient
-                exported = external_pins_for_group(
-                    groups_with_new, new_group_id, self._session.schematic
+                # New group isn't in the live layout yet — wrap the transient
+                # dict directly (NOT session.group_tree()).
+                exported = GroupTree(groups_with_new).external_pins_for_group(
+                    new_group_id, self._session.schematic
                 )
             new_group = ComponentGroup(
                 id=new_group_id,
@@ -9184,8 +9182,8 @@ class SelectTool(_Tool):
             # parent_group_of() defensively so future hierarchical
             # selections still work.
             for promoted_gid in promoted_groups:
-                old_parent = parent_group_of(
-                    self._session.layout.groups, promoted_gid
+                old_parent = self._session.group_tree().parent_group_of(
+                    promoted_gid
                 )
                 if old_parent is not None:
                     self._session.stack.execute(
@@ -9239,8 +9237,8 @@ class SelectTool(_Tool):
                 # Recompute external pins for the *whole* group after merge —
                 # adding components can both add and remove external pins
                 # (a previously-external net may now be fully internal).
-                new_exported = external_pins_for_group(
-                    self._session.layout.groups, target_id,
+                new_exported = self._session.group_tree().external_pins_for_group(
+                    target_id,
                     self._session.schematic,
                 )
                 if new_exported != self._session.layout.groups[target_id].exported_pins:
