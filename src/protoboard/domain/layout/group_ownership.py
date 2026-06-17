@@ -38,6 +38,7 @@ Net is **internal to the group** iff:
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from protoboard.services.call_counters import counted
@@ -59,6 +60,7 @@ __all__ = [
     "wire_in_group_bbox",
     "group_bbox_with_owned_wires",
     "find_owned_wires",
+    "OwnershipResolver",
 ]
 
 
@@ -484,3 +486,114 @@ def group_bbox_with_owned_wires(
         max(xs) + pad,
         max(ys) + pad,
     )
+
+
+@dataclass
+class OwnershipResolver:
+    """Cohesive view for "which wires belong to a group?" over one layout context.
+
+    Collapses the 6-foreign-type parameter sprawl of
+    :func:`wire_is_owned_by_group` / :func:`find_owned_wires` /
+    :func:`group_bbox_with_owned_wires` into fields set once, and owns the
+    per-batch ``pin_world_position`` memo (``_pin_world_cache``) as instance
+    state instead of a dict threaded through every call.
+
+    The methods are thin organisers that delegate to the module's ``@counted``
+    free functions — those stay the hot, profiled, perf-test-patched
+    implementation; this object only gathers the arguments. Build it via
+    :meth:`from_session` or directly with the context dicts.
+    """
+
+    knots: dict[uuid.UUID, "Knot"]
+    wire_net_map: dict[uuid.UUID, uuid.UUID]
+    schematic: "Schematic | None"
+    placements: "dict[uuid.UUID, ComponentPlacement] | None" = None
+    instances: "dict[uuid.UUID, ComponentInstance] | None" = None
+    definitions: "dict[str, ComponentDefinition] | None" = None
+    # Batch-scoped memo shared across this resolver's whole lifetime. Only
+    # populated when the geometric sanity check is active (full layout context
+    # present); a sentinel ``False`` value caches "resolution failed".
+    _pin_world_cache: "dict[tuple[uuid.UUID, int], object]" = field(
+        default_factory=dict, init=False, repr=False
+    )
+
+    @classmethod
+    def from_session(cls, session: object) -> "OwnershipResolver":
+        """Build a resolver from an ``EditorSession``-like object.
+
+        Reads ``layout.knots``, ``cached_wire_net_map()``, ``schematic``,
+        ``layout.placements``, ``instances``, ``components``. Kept duck-typed
+        (``object``) so the domain module stays Qt-free.
+        """
+        layout = session.layout  # type: ignore[attr-defined]
+        return cls(
+            knots=layout.knots,
+            wire_net_map=session.cached_wire_net_map(),  # type: ignore[attr-defined]
+            schematic=session.schematic,  # type: ignore[attr-defined]
+            placements=layout.placements,
+            instances=session.instances,  # type: ignore[attr-defined]
+            definitions=session.components,  # type: ignore[attr-defined]
+        )
+
+    def is_owned(
+        self, wire: "Wire", group: "ComponentGroup",
+        group_comp_ids: frozenset[uuid.UUID],
+    ) -> bool:
+        """Whether *wire* structurally belongs to *group* (single wire)."""
+        return wire_is_owned_by_group(
+            wire, group,
+            wire_net_map=self.wire_net_map,
+            knots=self.knots,
+            group_comp_ids=group_comp_ids,
+            schematic=self.schematic,
+            placements=self.placements,
+            instances=self.instances,
+            definitions=self.definitions,
+            _pin_world_cache=self._pin_world_cache,
+        )
+
+    def owned_wire_ids(
+        self, wires: list["Wire"], group: "ComponentGroup",
+        group_comp_ids: frozenset[uuid.UUID],
+    ) -> set[uuid.UUID]:
+        """IDs of all wires structurally owned by *group*.
+
+        Reuses this resolver's ``_pin_world_cache`` across the batch — one
+        ``pin_world_position`` resolution per ``(component, pin)`` for the whole
+        call, the same optimisation :func:`find_owned_wires` does internally.
+        """
+        result: set[uuid.UUID] = set()
+        for w in wires:
+            if self.is_owned(w, group, group_comp_ids):
+                result.add(w.id)
+        return result
+
+    def net_is_internal(
+        self, net_id: uuid.UUID | None, group: "ComponentGroup",
+        groups: "dict[uuid.UUID, ComponentGroup] | None" = None,
+    ) -> bool:
+        """Whether *net_id* is a net living entirely inside *group*."""
+        return net_is_internal_to_group(net_id, group, self.schematic, groups)
+
+    def group_bbox(
+        self, group: "ComponentGroup",
+        group_comp_ids: frozenset[uuid.UUID],
+        wires: list["Wire"],
+        *,
+        pad: float = 0.5,
+    ) -> tuple[float, float, float, float] | None:
+        """Outline bbox of *group* including owned wires (None if no pins)."""
+        if (
+            self.placements is None
+            or self.instances is None
+            or self.definitions is None
+        ):
+            return None
+        return group_bbox_with_owned_wires(
+            group, group_comp_ids,
+            self.placements, self.instances, self.definitions, wires,
+            wire_net_map=self.wire_net_map,
+            knots=self.knots,
+            schematic=self.schematic,
+            pad=pad,
+        )
