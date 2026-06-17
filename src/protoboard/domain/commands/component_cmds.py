@@ -219,11 +219,19 @@ class MoveComponentCommand(Command[ComponentState]):
         # drags get the same treatment, so origin always tracks the
         # group's current bbox top-left, satisfying the user-facing
         # invariant: "(0,0) of a group lives at the top-left pin".
-        from protoboard.domain.layout.group_tree import GroupTree
+        from protoboard.domain.layout.group_tree import (
+            GroupTree,
+            recompute_group_origin,
+        )
         tree = GroupTree(state.layout.groups)
         saved: dict[uuid.UUID, object] = {}
         for gid in tree.groups_containing_component(self.component_id):
-            saved[gid] = _sync_group_origin(state, gid)
+            saved[gid] = recompute_group_origin(
+                state.layout.groups, gid,
+                placements=state.layout.placements,
+                instances=state.instances,
+                components=state.components,
+            )
         object.__setattr__(self, "_saved_group_origins", saved)
 
     def revert(self, state: ComponentState) -> None:
@@ -1660,51 +1668,3 @@ class ReplaceWireFragmentsCommand(Command[ComponentState]):
             self._saved_fragments,
             skip_pin_knot_validation=True,
         )
-
-
-# ---------------------------------------------------------------------------
-# Move helpers (used by MoveComponentCommand / PlaceComponentCommand)
-# ---------------------------------------------------------------------------
-
-
-def _sync_group_origin(
-    state: "ComponentState", group_id: uuid.UUID,
-) -> "Point | None":
-    """Recompute *group_id*'s origin from the bbox top-left and write it back.
-
-    Returns the *old* origin so the caller can stash it for revert. No-op
-    (returns the current origin) when the group is missing, has no resolvable
-    pins, or the origin is unchanged. Keeps ``group.origin`` aligned with the
-    bbox-top-left invariant after a member moves — see MoveComponentCommand.
-
-    Lives here, not in group_cmds, so a component-move command never imports
-    the group-command module (that import was the component_cmds<->group_cmds
-    cycle). Pure group geometry delegates to GroupTree.group_origin.
-    """
-    from protoboard.domain.layout.group_tree import GroupTree
-
-    tree = GroupTree(state.layout.groups)
-    group = state.layout.groups.get(group_id)
-    if group is None:
-        return None
-    comp_ids = tree.all_component_ids(group_id)
-    if not comp_ids:
-        return group.origin
-    # Minimal-state test stubs may lack instances/components — then we can't
-    # resolve pins, so leave the origin untouched (no-op).
-    instances = getattr(state, "instances", None)
-    components = getattr(state, "components", None)
-    if instances is None or components is None:
-        return group.origin
-    new_origin = GroupTree.group_origin(
-        comp_ids, state.layout.placements, instances, components,
-    )
-    if new_origin is None:
-        return group.origin
-    old_origin = group.origin
-    if old_origin is not None and (
-        old_origin.x == new_origin.x and old_origin.y == new_origin.y
-    ):
-        return old_origin
-    state.layout.groups[group_id] = group.replace(origin=new_origin)
-    return old_origin

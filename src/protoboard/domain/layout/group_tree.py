@@ -407,4 +407,46 @@ class GroupTree:
         return positions
 
 
-__all__ = ["GroupTree"]
+def recompute_group_origin(
+    groups: dict[uuid.UUID, ComponentGroup],
+    group_id: uuid.UUID,
+    *,
+    placements: dict[uuid.UUID, ComponentPlacement],
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+) -> Point | None:
+    """Recompute *group_id*'s origin from the bbox top-left and write it back.
+
+    Returns the *old* origin so the caller can stash it for revert. No-op
+    (returns the current origin) when the group is missing, has no resolvable
+    pins, or the origin is unchanged. Keeps ``group.origin`` aligned with the
+    bbox-top-left invariant after a member moves — see MoveComponentCommand.
+
+    Unlike :class:`GroupTree` (a read-only view), this *mutates* the supplied
+    ``groups`` dict, so it is a free function rather than a tree method. The
+    read side delegates to :meth:`GroupTree.group_origin`. Lives here, not in
+    ``group_cmds``, so a component-move command never imports the group-command
+    module (that import was the component_cmds<->group_cmds cycle).
+    """
+    tree = GroupTree(groups)
+    group = groups.get(group_id)
+    if group is None:
+        return None
+    comp_ids = tree.all_component_ids(group_id)
+    if not comp_ids:
+        return group.origin
+    new_origin = GroupTree.group_origin(
+        comp_ids, placements, instances, components,
+    )
+    if new_origin is None:
+        return group.origin
+    old_origin = group.origin
+    if old_origin is not None and (
+        old_origin.x == new_origin.x and old_origin.y == new_origin.y
+    ):
+        return old_origin
+    groups[group_id] = group.replace(origin=new_origin)
+    return old_origin
+
+
+__all__ = ["GroupTree", "recompute_group_origin"]
