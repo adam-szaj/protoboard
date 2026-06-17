@@ -59,11 +59,7 @@ from protoboard.gui.drag_preferences import (
     DragPreferences,
     DragSessionOverrides,
 )
-from protoboard.domain.layout.group import (
-    ExportedPin,
-    all_component_ids,
-    top_level_group_for,
-)
+from protoboard.domain.layout.group import ExportedPin
 from protoboard.domain.layout.placement import component_bbox, flip_component, pin_world_position, unrotate
 from protoboard.domain.layout.wire import Fragment, Wire
 from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
@@ -614,33 +610,25 @@ class SelectTool(_Tool):
         net-aware classifier from
         :mod:`protoboard.domain.layout.group_ownership`.
         """
-        from protoboard.domain.layout.group_ownership import wire_is_owned_by_group
+        from protoboard.domain.layout.group_ownership import OwnershipResolver
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         wire = self._session.wire_by_id(wire_id)
         if wire is None:
             return False
         groups = self._session.layout.groups
         active_gid = self._current_group_id
-        wire_net_map = self._session.cached_wire_net_map()
+        tree = self._session.group_tree()
+        resolver = OwnershipResolver.from_session(self._session)
         for gid, group in groups.items():
             if gid == ROOT_GROUP_ID:
                 continue
             if gid == active_gid:
                 # We're inside this group → its wires are editable.
                 continue
-            comp_ids = frozenset(all_component_ids(groups, gid))
+            comp_ids = frozenset(tree.all_component_ids(gid))
             if not comp_ids:
                 continue
-            if wire_is_owned_by_group(
-                wire, group,
-                wire_net_map=wire_net_map,
-                knots=self._session.layout.knots,  # type: ignore[arg-type]
-                group_comp_ids=comp_ids,
-                schematic=self._session.schematic,
-                placements=self._session.layout.placements,
-                instances=self._session.instances,
-                definitions=self._session.components,
-            ):
+            if resolver.is_owned(wire, group, comp_ids):
                 return True
         return False
 
@@ -2490,21 +2478,15 @@ class SelectTool(_Tool):
         Idempotent against ``self._drag_orig_wire_paths`` for the same
         wire id; safe to call from multiple on_press code paths.
         """
-        from protoboard.domain.layout.group_ownership import find_owned_wires
+        from protoboard.domain.layout.group_ownership import OwnershipResolver
         from protoboard.domain.layout.knot import JointKnot, PinKnot, WirePinKnot
         grp_obj = self._session.layout.groups.get(group_id)
         if grp_obj is None:
             return
-        owned_ids = find_owned_wires(
+        owned_ids = OwnershipResolver.from_session(self._session).owned_wire_ids(
             list(self._session.layout.wires),
             grp_obj,
-            wire_net_map=self._session.cached_wire_net_map(),
-            knots=self._session.layout.knots,  # type: ignore[arg-type]
-            group_comp_ids=group_comp_ids,
-            schematic=self._session.schematic,
-            placements=self._session.layout.placements,
-            instances=self._session.instances,
-            definitions=self._session.components,
+            group_comp_ids,
         )
         knots = self._session.layout.knots
         # Diagnostic: classify each wire that is rejected, so a misowned
