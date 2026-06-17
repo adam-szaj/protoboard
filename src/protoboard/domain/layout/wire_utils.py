@@ -6,6 +6,7 @@ from __future__ import annotations
 import math
 import uuid
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from enum import Enum
@@ -943,6 +944,66 @@ def _wire_net_id(
         if net is not None:
             return net.id
     return None
+
+
+@dataclass(frozen=True)
+class WireNetResolver:
+    """Cohesive view for "what net does this wire belong to?" over one context.
+
+    Collapses the 5-required-plus-2-keyword parameter sprawl of
+    :func:`_wire_net_id` — ``schematic / layout / instances / components``
+    plus optional ``board`` / ``pad_index`` — into fields gathered once. The
+    callers that resolve two wires in a row against the same context
+    (``_classify_t_junction``, ``merge_endpoint_wires``,
+    ``merge_colocated_joints``) become a single ``resolver.net_id(w)`` per
+    wire instead of re-threading six arguments each time.
+
+    :meth:`net_id` delegates verbatim to the free :func:`_wire_net_id`, which
+    stays the canonical implementation (it is imported cross-module by
+    ``component_cmds.py`` and is the documented pure helper). Frozen because
+    no per-batch cache is kept — each ``_wire_net_id`` call builds and discards
+    its own plated-pad set (or skips it entirely on the ``pad_index`` fast
+    path). Build via :meth:`from_state` or directly with the context.
+
+    Mirrors :class:`~protoboard.domain.layout.group_ownership.OwnershipResolver`
+    and :class:`~protoboard.domain.layout.pad_conflict.ConflictScanner`.
+    """
+
+    schematic: "Schematic"
+    layout: "Layout"
+    instances: "dict[uuid.UUID, ComponentInstance]"
+    components: "dict[str, ComponentDefinition]"
+    board: "Board | None" = None
+    pad_index: "PadIndex | None" = None
+
+    @classmethod
+    def from_state(
+        cls, state: object, schematic: "Schematic", *,
+        pad_index: "PadIndex | None" = None,
+    ) -> "WireNetResolver":
+        """Build a resolver from a ``ComponentState`` / ``EditorSession``-like object.
+
+        Reads ``layout``, ``instances``, ``components``, ``board``. ``schematic``
+        is passed explicitly because :class:`ComponentState` does not guarantee
+        it (only :class:`SchematicState` does) and callers already gate on
+        ``schematic is not None`` before resolving. Duck-typed (``object``) so
+        the domain module stays Qt-free.
+        """
+        return cls(
+            schematic=schematic,
+            layout=state.layout,  # type: ignore[attr-defined]
+            instances=state.instances,  # type: ignore[attr-defined]
+            components=state.components,  # type: ignore[attr-defined]
+            board=getattr(state, "board", None),
+            pad_index=pad_index,
+        )
+
+    def net_id(self, wire: "Wire") -> "uuid.UUID | None":
+        """Resolve *wire* to a schematic net id (see :func:`_wire_net_id`)."""
+        return _wire_net_id(
+            wire, self.schematic, self.layout, self.instances, self.components,
+            board=self.board, pad_index=self.pad_index,
+        )
 
 
 def can_form_t_junction(
