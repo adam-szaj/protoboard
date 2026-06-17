@@ -791,10 +791,8 @@ def merge_colocated_joints(
                 w.a = _KnotRef(id=winner)
             if w.b is not None and w.b.id in losers:
                 w.b = _KnotRef(id=winner)
-        layout.knots[winner] = JointKnot(
-            id=winner,
-            position=winner_knot.position,
-            wire_ids=winner_knot.wire_ids | loser_wire_ids,
+        layout.knots[winner] = winner_knot.with_wire_ids(
+            winner_knot.wire_ids | loser_wire_ids
         )
         for loser_id in losers:
             layout.knots.pop(loser_id, None)
@@ -869,23 +867,11 @@ def make_t_junction(
     # Update hub back-refs.
     current_hub = layout.knots.get(hub_id)
     if current_hub is not None:
-        new_wire_ids = current_hub.wire_ids | {w_incoming.id}
-        # Rebuild knot with updated wire_ids (knots are mutable but
-        # wire_ids is a frozenset — replace the whole knot).
-        if isinstance(current_hub, JointKnot):
-            layout.knots[hub_id] = JointKnot(
-                id=current_hub.id,
-                position=current_hub.position,
-                wire_ids=new_wire_ids,
-            )
-        else:
-            # PinKnot
-            from protoboard.domain.layout.knot import PinKnot
-            layout.knots[hub_id] = PinKnot(
-                id=current_hub.id,
-                pin=current_hub.pin,  # type: ignore[attr-defined]
-                wire_ids=new_wire_ids,
-            )
+        # Rebuild the hub with the incoming wire added to its back-refs;
+        # each knot kind preserves its own identity fields.
+        layout.knots[hub_id] = current_hub.with_wire_ids(
+            current_hub.wire_ids | {w_incoming.id}
+        )
     # Update old knot: remove w_incoming from its back-refs.  Skip
     # when the old knot IS the hub — that's the case where W1 already
     # referenced the same knot the split happened to reuse, so the
@@ -896,23 +882,13 @@ def make_t_junction(
     old_knot = layout.knots.get(old_endpoint_id)
     if old_knot is not None:
         updated_old_ids = old_knot.wire_ids - {w_incoming.id}
-        if isinstance(old_knot, JointKnot):
-            if updated_old_ids:
-                layout.knots[old_endpoint_id] = JointKnot(
-                    id=old_knot.id,
-                    position=old_knot.position,
-                    wire_ids=updated_old_ids,
-                )
-            else:
-                # Orphan joint — drop.
-                del layout.knots[old_endpoint_id]
+        if isinstance(old_knot, JointKnot) and not updated_old_ids:
+            # Orphan joint — drop. (Lifetime rule: a JointKnot with no
+            # incident wires is removed; PinKnots survive regardless.)
+            del layout.knots[old_endpoint_id]
         else:
-            # PinKnot — never drop, just update wire_ids.
-            from protoboard.domain.layout.knot import PinKnot
-            layout.knots[old_endpoint_id] = PinKnot(
-                id=old_knot.id,
-                pin=old_knot.pin,  # type: ignore[attr-defined]
-                wire_ids=updated_old_ids,
+            layout.knots[old_endpoint_id] = old_knot.with_wire_ids(
+                updated_old_ids
             )
     _log.info(
         "wire.t_junction.done",
@@ -2468,12 +2444,10 @@ def merge_colocated_joints_capturing(
             else:
                 loser_wire.b = _KnotRef(id=winner_id)
             # Update winner's wire_ids to include the moved wire. Keep the
-            # rebuilt JointKnot in a local so the next loop iteration sees a
-            # narrowed type (re-fetching from layout.knots widens to Knot).
-            winner_knot = JointKnot(
-                id=winner_knot.id,
-                position=winner_knot.position,
-                wire_ids=winner_knot.wire_ids | {loser_wire_id},
+            # rebuilt knot in a local so the next loop iteration sees the
+            # updated wire_ids (re-fetching from layout.knots widens to Knot).
+            winner_knot = winner_knot.with_wire_ids(
+                winner_knot.wire_ids | {loser_wire_id}
             )
             layout.knots[winner_id] = winner_knot
             # Drop the loser knot.

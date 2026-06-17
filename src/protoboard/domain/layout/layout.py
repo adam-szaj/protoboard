@@ -596,16 +596,7 @@ def _knot_with_wire(knot: Knot, wire_id: uuid.UUID, *, add: bool) -> Knot:
         new_ids = knot.wire_ids | {wire_id}
     else:
         new_ids = knot.wire_ids - {wire_id}
-    if isinstance(knot, PinKnot):
-        return PinKnot(id=knot.id, pin=knot.pin, wire_ids=new_ids)
-    if isinstance(knot, JointKnot):
-        return JointKnot(id=knot.id, position=knot.position, wire_ids=new_ids)
-    if isinstance(knot, WirePinKnot):
-        return WirePinKnot(
-            id=knot.id, position=knot.position,
-            net_id=knot.net_id, wire_ids=new_ids,
-        )
-    raise TypeError(f"unknown Knot subtype: {type(knot).__name__}")
+    return knot.with_wire_ids(new_ids)
 
 
 def _knot_position(knot: Knot, layout: Layout) -> Point:

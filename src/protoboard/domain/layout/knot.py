@@ -23,7 +23,7 @@ reference held inside ``Wire``.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Protocol, runtime_checkable
 
 from protoboard.domain.schematic.net import PinRef
@@ -36,6 +36,15 @@ class Knot(Protocol):
 
     id: uuid.UUID
     wire_ids: frozenset[uuid.UUID]
+
+    def with_wire_ids(self, wire_ids: frozenset[uuid.UUID]) -> Knot:
+        """Return a copy of this knot with its ``wire_ids`` replaced.
+
+        Each kind preserves its own identity fields (``pin`` / ``position`` /
+        ``net_id``); only the wire back-references change. Lets ``Layout`` and
+        wire-edit helpers add/remove a wire without branching on knot kind.
+        """
+        ...
 
 
 @dataclass
@@ -60,6 +69,9 @@ class PinKnot:
             return NotImplemented
         return self.id == other.id
 
+    def with_wire_ids(self, wire_ids: frozenset[uuid.UUID]) -> PinKnot:
+        return replace(self, wire_ids=wire_ids)
+
 
 @dataclass
 class JointKnot:
@@ -82,6 +94,9 @@ class JointKnot:
         if not isinstance(other, JointKnot):
             return NotImplemented
         return self.id == other.id
+
+    def with_wire_ids(self, wire_ids: frozenset[uuid.UUID]) -> JointKnot:
+        return replace(self, wire_ids=wire_ids)
 
 
 @dataclass
@@ -120,3 +135,6 @@ class WirePinKnot:
         if not isinstance(other, WirePinKnot):
             return NotImplemented
         return self.id == other.id
+
+    def with_wire_ids(self, wire_ids: frozenset[uuid.UUID]) -> WirePinKnot:
+        return replace(self, wire_ids=wire_ids)
