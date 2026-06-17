@@ -22,9 +22,8 @@ from protoboard.domain.commands.base import (
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
-    component_bbox,
-    pin_world_position,
-    validate_pins_on_pads,
+    move_blocked as _move_blocked,
+    warn_pins_off_pads as _warn_pins_off_pads,
 )
 from protoboard.domain.layout.knot import JointKnot, WirePinKnot
 from protoboard.domain.layout.wire import KnotRef, Wire
@@ -130,7 +129,12 @@ class PlaceComponentCommand(Command[ComponentState]):
         state.layout.placements[self.component_id] = self.placement
         state.instances[self.component_id] = self.instance
         build_pin_identities_for(state, self.component_id)
-        _warn_pins_off_pads(state, self.component_id, self.placement)
+        _warn_pins_off_pads(
+            self.component_id, self.placement,
+            instances=state.instances,
+            components=state.components,
+            board=state.board,
+        )
 
     def revert(self, state: ComponentState) -> None:
         del state.layout.placements[self.component_id]
@@ -176,7 +180,10 @@ class MoveComponentCommand(Command[ComponentState]):
             return
         if not self.skip_conflict_check:
             blocked = _move_blocked(
-                state, self.component_id, self.old_placement, self.new_placement
+                self.component_id, self.new_placement,
+                instances=state.instances,
+                components=state.components,
+                layout=state.layout,
             )
             if blocked:
                 # Conflict — silently keep old position; mark as no-op for undo.
@@ -198,7 +205,12 @@ class MoveComponentCommand(Command[ComponentState]):
                 new_pl=self.new_placement,
                 exclude_ids=self.exclude_wire_ids,
             )
-        _warn_pins_off_pads(state, self.component_id, self.new_placement)
+        _warn_pins_off_pads(
+            self.component_id, self.new_placement,
+            instances=state.instances,
+            components=state.components,
+            board=state.board,
+        )
         # Sync origin of every group that recursively contains this
         # component.  In a group drag this fires once per moved member,
         # but the final state (after all moves apply) has origin =
@@ -1696,83 +1708,3 @@ def _sync_group_origin(
         return old_origin
     state.layout.groups[group_id] = group.replace(origin=new_origin)
     return old_origin
-
-
-def _warn_pins_off_pads(
-    state: ComponentState,
-    comp_id: uuid.UUID,
-    placement: ComponentPlacement,
-) -> None:
-    """Log a warning if any pin of the component does not land on a board pad."""
-    inst = state.instances.get(comp_id)
-    if inst is None:
-        return
-    defn = state.components.get(inst.definition_ref)
-    if defn is None:
-        return
-    from protoboard.domain.board.boxes import GapAtom, StripAtom
-    pad_set: frozenset[tuple[float, float]] = frozenset(
-        (center.x, center.y)
-        for atom, center in state.board.atoms()
-        if not isinstance(atom, GapAtom)
-    )
-    misses = validate_pins_on_pads(defn.footprint, placement, pad_set)
-    if misses:
-        _log.warning(
-            "placement.pins_off_pads",
-            comp_id=str(comp_id),
-            refdes=inst.refdes,
-            placement_pos=f"({placement.position.x:.4f}, {placement.position.y:.4f})",
-            rotation=placement.rotation,
-            misses=[
-                {"pin": pin_num, "pos": f"({wp.x:.4f}, {wp.y:.4f})"}
-                for pin_num, wp in misses
-            ],
-        )
-
-
-def _move_blocked(
-    state: ComponentState,
-    comp_id: uuid.UUID,
-    old_pl: ComponentPlacement,
-    new_pl: ComponentPlacement,
-) -> bool:
-    """Return True if the move would cause a pin overlap or body overlap."""
-    inst = state.instances.get(comp_id)
-    if inst is None:
-        return False
-    defn = state.components.get(inst.definition_ref)
-    if defn is None:
-        return False
-
-    new_bbox = component_bbox(defn.footprint, new_pl, defn.component_class)
-
-    n_pins = defn.footprint.pin_count()
-    new_pin_positions: set[tuple[float, float]] = set()
-    for pin_num in range(1, n_pins + 1):
-        p = pin_world_position(defn.footprint, new_pl, pin_num)
-        new_pin_positions.add((round(p.x, 4), round(p.y, 4)))
-
-    for other_id, other_pl in state.layout.placements.items():
-        if other_id == comp_id:
-            continue
-        other_inst = state.instances.get(other_id)
-        if other_inst is None:
-            continue
-        other_defn = state.components.get(other_inst.definition_ref)
-        if other_defn is None:
-            continue
-
-        other_bbox = component_bbox(other_defn.footprint, other_pl, other_defn.component_class)
-        if new_bbox.intersects(other_bbox):
-            # Only block when no pin of the moved component coincides with a pin
-            # of the other — that would be a shared-pad scenario which the GUI
-            # conflict resolver handles separately.
-            other_pin_positions: set[tuple[float, float]] = set()
-            for pin_num in range(1, other_defn.footprint.pin_count() + 1):
-                p = pin_world_position(other_defn.footprint, other_pl, pin_num)
-                other_pin_positions.add((round(p.x, 4), round(p.y, 4)))
-            if new_pin_positions.isdisjoint(other_pin_positions):
-                return True
-
-    return False
