@@ -37,6 +37,7 @@ from enum import Enum
 from typing import cast, Literal
 
 from protoboard.domain.layout.wire import Wire
+from protoboard.types import Side
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import (
     _build_bare_seg_index,
@@ -221,7 +222,7 @@ def corner_cut_wire(
         id=wire.id,
         path=cur_path,
         insulated=wire.insulated,
-        side=cast(Literal["top", "bottom"], wire.side),
+        side=cast(Side, wire.side),
         color=wire.color,
     )
 
@@ -1770,7 +1771,7 @@ def generic_simplify_wire(
         id=wire.id,
         path=path,
         insulated=wire.insulated,
-        side=cast(Literal["top", "bottom"], wire.side),
+        side=cast(Side, wire.side),
         color=wire.color,
     )
 

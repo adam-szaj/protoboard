@@ -38,7 +38,6 @@ both the GUI rendering pipeline and headless export.
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -59,7 +58,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.layout import Layout
 
 
-NetId = uuid.UUID
+from protoboard.types import NetId
 
 
 class PinPadClass(Enum):

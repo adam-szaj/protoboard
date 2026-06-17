@@ -42,8 +42,7 @@ from typing import ClassVar, Literal, TypeAlias
 from protoboard.domain.board.layer import PHYSICAL_LAYERS, LayerId
 from protoboard.domain.board.pads import PadLayers
 from protoboard.geometry import Point
-
-NetId = uuid.UUID
+from protoboard.types import NetId
 
 # ``Side`` is the historical alias for "which copper layer". Kept as a
 # type alias for backward compatibility — every signature using ``side``

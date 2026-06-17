@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from protoboard.domain.components.footprints import FootprintTemplate
+from protoboard.types import Side
 from protoboard.geometry import Point, Rect
 from protoboard.services.call_counters import counted
 
@@ -34,7 +35,7 @@ class ComponentPlacement:
     component_id: uuid.UUID
     position: Point
     rotation: int
-    side: Literal["top", "bottom"]
+    side: Side
     label_offset: Point = field(default_factory=lambda: Point(0.05, 0.05))
     pin_offsets: dict[int, Point] = field(default_factory=dict)
     # Pin numbers (1-based) intentionally sharing a pad with another component.

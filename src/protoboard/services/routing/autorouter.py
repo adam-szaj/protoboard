@@ -35,6 +35,7 @@ from typing import Literal, TYPE_CHECKING
 import structlog
 
 from protoboard.domain.board.board import Board
+from protoboard.types import Side
 from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
@@ -393,13 +394,13 @@ def autoroute(
     schematic: Schematic,
     components: dict[str, ComponentDefinition],
     instances: dict[uuid.UUID, ComponentInstance],
-    side: Literal["top", "bottom"] = "top",
+    side: Side = "top",
     cost_model: RoutingCostModel = _DEFAULT_COST,
     max_rip_up_passes: int = 3,
     insulated: bool = True,
     allow_layer_change: bool = True,
     max_optimize_iterations: int = 10,
-    preferred_side: Literal["top", "bottom"] = "bottom",
+    preferred_side: Side = "bottom",
     wire_mode: Literal["bare", "insulated", "auto", "bare_diagonal"] = "insulated",
     max_detour_factor: float = 0.0,
     progress_callback: Callable[[int, str, int], None] | None = None,
@@ -1129,7 +1130,7 @@ def _run_one_pass(
     user_wires: list[Wire],
     cost_model: RoutingCostModel,
     max_rip_up_passes: int,
-    side: Literal["top", "bottom"],
+    side: Side,
     insulated: bool,
     wire_mode: Literal["bare", "insulated", "auto", "bare_diagonal"] = "insulated",
     max_detour_factor: float = 0.0,
@@ -1138,7 +1139,7 @@ def _run_one_pass(
     skip_net_ids: set[uuid.UUID] = set(),
     components: dict[str, ComponentDefinition] = {},
     instances: dict[uuid.UUID, ComponentInstance] = {},
-    preferred_side: Literal["top", "bottom"] = "bottom",
+    preferred_side: Side = "bottom",
     progress_callback: Callable[[int, str, int], None] | None = None,
     cancel_flag: threading.Event | None = None,
     pass_num: int = 0,
@@ -1325,7 +1326,7 @@ def _route_net(
     working_wires: list[Wire],
     components: dict[str, ComponentDefinition],
     instances: dict[uuid.UUID, ComponentInstance],
-    side: Literal["top", "bottom"],
+    side: Side,
     cost_model: RoutingCostModel,
     max_rip_up_passes: int,
     insulated: bool,
@@ -1333,7 +1334,7 @@ def _route_net(
     max_detour_factor: float = 0.0,
     plated_through_pads: set[Point] = set(),
     under_component_penalty: dict[tuple[Point, str], float] = {},
-    preferred_side: Literal["top", "bottom"] = "bottom",
+    preferred_side: Side = "bottom",
     segment_callback: Callable[[str, int, int], None] | None = None,
     cancel_flag: threading.Event | None = None,
     push_and_shove: bool = True,
@@ -1748,7 +1749,7 @@ def _route_segment_with_ripup(
     components: dict[str, ComponentDefinition],
     instances: dict[uuid.UUID, ComponentInstance],
     connectivity_graph: ConnectivityGraph,
-    side: Literal["top", "bottom"],
+    side: Side,
     cost_model: RoutingCostModel,
     max_rip_up_passes: int,
     occupied_pins: dict[tuple[Point, str], uuid.UUID],
@@ -1758,7 +1759,7 @@ def _route_segment_with_ripup(
     plated_through_pads: set[Point],
     cur_net_wire_points: set[tuple[Point, str]],
     under_component_penalty: dict[tuple[Point, str], float],
-    preferred_side: Literal["top", "bottom"] = "bottom",
+    preferred_side: Side = "bottom",
     wire_mode: Literal["bare", "insulated", "auto", "bare_diagonal"] = "insulated",
     max_detour_factor: float = 0.0,
     manhattan_dist: float = 0.0,

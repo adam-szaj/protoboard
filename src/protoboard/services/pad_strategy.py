@@ -32,7 +32,6 @@ The session adapter lives in ``gui/session.py``.
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
@@ -49,7 +48,7 @@ from protoboard.domain.board.pad_state import (
 if TYPE_CHECKING:
     pass
 
-NetId = uuid.UUID
+from protoboard.types import NetId
 WireType = Literal["bare", "insulated"]
 
 

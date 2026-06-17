@@ -17,14 +17,13 @@ same pad.
 from __future__ import annotations
 
 from protoboard.geometry import Point
+from protoboard.types import NodeKey  # (qx, qy, side)
 
 # Pads within ±_SNAP_TOL are considered the same pad.  5e-3 (= ±0.005)
 # raster units is comfortably below any realistic prototyping-board pitch
 # (typical pad spacing ≥ 0.5 raster units = 1.27 mm) while absorbing
 # legacy fractional offsets like "3.503".
 SNAP_TOL: float = 5e-3
-
-NodeKey = tuple[float, float, str]  # (qx, qy, side)
 
 
 def q(v: float, tol: float = SNAP_TOL) -> float:

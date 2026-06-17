@@ -23,11 +23,9 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Literal
 
 from protoboard.geometry import Point
-
-Side = Literal["top", "bottom"]
+from protoboard.types import Side
 
 
 @dataclass

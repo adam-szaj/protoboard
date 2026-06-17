@@ -36,6 +36,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
 
+from protoboard.types import Side
+
 ViewTransform = Literal["normal", "mirror_h", "mirror_v", "mirror_hv"]
 
 # ---------------------------------------------------------------------------
@@ -133,7 +135,7 @@ class LayerOverrides:
 class LayerState:
     """Single source of truth for layer rendering during one refresh()."""
 
-    camera_side: Literal["top", "bottom"] = "top"
+    camera_side: Side = "top"
     view_transform: ViewTransform = "normal"
     ghost_components: bool = False
     overrides: LayerOverrides = field(default_factory=LayerOverrides)
@@ -152,19 +154,19 @@ class LayerState:
     # Z-value helpers
     # ------------------------------------------------------------------
 
-    def front_side(self) -> Literal["top", "bottom"]:
+    def front_side(self) -> Side:
         return self.camera_side
 
-    def back_side(self) -> Literal["top", "bottom"]:
+    def back_side(self) -> Side:
         return "bottom" if self.camera_side == "top" else "top"
 
-    def z_for_wire(self, side: Literal["top", "bottom"]) -> float:
+    def z_for_wire(self, side: Side) -> float:
         return Z_FRONT_WIRES if side == self.camera_side else Z_BACK_WIRES
 
-    def z_for_component(self, side: Literal["top", "bottom"]) -> float:
+    def z_for_component(self, side: Side) -> float:
         return Z_FRONT_COMPONENTS if side == self.camera_side else Z_BACK_COMPONENTS
 
-    def z_for_label(self, side: Literal["top", "bottom"]) -> float:
+    def z_for_label(self, side: Side) -> float:
         return Z_FRONT_LABELS if side == self.camera_side else Z_BACK_LABELS
 
     # ------------------------------------------------------------------
@@ -180,7 +182,7 @@ class LayerState:
         # FULL: still respect tool-driven ghosting (back-side dimming).
         return tool_alpha
 
-    def alpha_for_component(self, side: Literal["top", "bottom"]) -> float:
+    def alpha_for_component(self, side: Side) -> float:
         ov = (self.overrides.components_top
               if side == "top" else self.overrides.components_bottom)
         if side != self.camera_side:
@@ -189,12 +191,12 @@ class LayerState:
             tool_alpha = self.ghost_comp_alpha if self.ghost_components else 1.0
         return self._vis_alpha(ov, tool_alpha)
 
-    def alpha_for_wire(self, side: Literal["top", "bottom"]) -> float:
+    def alpha_for_wire(self, side: Side) -> float:
         ov = self.overrides.wires_top if side == "top" else self.overrides.wires_bottom
         tool_alpha = 1.0 if side == self.camera_side else self.back_alpha
         return self._vis_alpha(ov, tool_alpha)
 
-    def _side_tool_alpha(self, side: Literal["top", "bottom"]) -> float:
+    def _side_tool_alpha(self, side: Side) -> float:
         """Side-only tool alpha: front = 1.0, back = back_alpha.
 
         Used by label / pin-name / wire helpers that must NOT inherit
@@ -204,7 +206,7 @@ class LayerState:
         """
         return 1.0 if side == self.camera_side else self.back_alpha
 
-    def alpha_for_label(self, side: Literal["top", "bottom"]) -> float:
+    def alpha_for_label(self, side: Side) -> float:
         # Single shared toggle for labels on both sides — the per-side
         # split (labels_top / labels_bottom) was merged into one.  Labels
         # are independent of the components layer (toggle components HIDDEN
@@ -244,7 +246,7 @@ class LayerState:
             return 0.0
         return self.back_filter_alpha
 
-    def alpha_for_pin_names(self, side: Literal["top", "bottom"]) -> float:
+    def alpha_for_pin_names(self, side: Side) -> float:
         # Pin names are independent of labels and components — toggling
         # either of those does not hide pin names.
         return self._vis_alpha(self.overrides.pin_names, self._side_tool_alpha(side))
@@ -252,13 +254,13 @@ class LayerState:
     def alpha_for_axis_labels(self) -> float:
         return self._vis_alpha(self.overrides.axis_labels, 1.0)
 
-    def alpha_for_pin_pads(self, side: Literal["top", "bottom"]) -> float:
+    def alpha_for_pin_pads(self, side: Side) -> float:
         # Pin-pads are a schematic-aware overlay over board pads; they
         # follow the side-tool alpha (back side dimmed when looking at
         # top, and vice versa) but respect the manual override.
         return self._vis_alpha(self.overrides.pin_pads, self._side_tool_alpha(side))
 
-    def alpha_for_pin_modifiers(self, side: Literal["top", "bottom"]) -> float:
+    def alpha_for_pin_modifiers(self, side: Side) -> float:
         # Top-overlay glyphs.  Like pin_pads but a separate toggle so the
         # user can hide modifiers while keeping the coloured pads, or
         # vice versa.
@@ -268,7 +270,7 @@ class LayerState:
     # Hit-testing
     # ------------------------------------------------------------------
 
-    def hit_priority_component(self, side: Literal["top", "bottom"]) -> int:
+    def hit_priority_component(self, side: Side) -> int:
         """Higher = checked first.  Hidden components return -1 (skip)."""
         if self.alpha_for_component(side) == 0.0:
             return -1
@@ -297,7 +299,7 @@ class LayerState:
 
 def layer_state_for_tool(
     tool: object,
-    camera_side: Literal["top", "bottom"],
+    camera_side: Side,
     view_transform: ViewTransform = "normal",
     overrides: LayerOverrides | None = None,
     theme: object = None,

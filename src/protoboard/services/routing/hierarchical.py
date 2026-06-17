@@ -35,6 +35,7 @@ from typing import Literal, Mapping, TYPE_CHECKING
 import structlog
 
 from protoboard.domain.board.board import Board
+from protoboard.types import Side
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group import (
@@ -90,13 +91,13 @@ def hierarchical_autoroute(
     components: dict[str, ComponentDefinition],
     instances: dict[uuid.UUID, ComponentInstance],
     *,
-    side: Literal["top", "bottom"] = "top",
+    side: Side = "top",
     cost_model: RoutingCostModel,
     max_rip_up_passes: int = 3,
     insulated: bool = True,
     allow_layer_change: bool = True,
     max_optimize_iterations: int = 10,
-    preferred_side: Literal["top", "bottom"] = "bottom",
+    preferred_side: Side = "bottom",
     wire_mode: Literal["bare", "insulated", "auto", "bare_diagonal"] = "insulated",
     max_detour_factor: float = 0.0,
     progress_callback: Callable[[int, str, int], None] | None = None,

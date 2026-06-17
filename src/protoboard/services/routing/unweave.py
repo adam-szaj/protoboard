@@ -46,6 +46,7 @@ from typing import TYPE_CHECKING, Literal, cast
 import structlog
 
 from protoboard.domain.layout.wire import Wire
+from protoboard.types import Side
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import _segs_cross
 from protoboard.services.routing.postprocess import _canonical_subpath
@@ -723,10 +724,9 @@ def _rebalance_sides(
                 # Propose flipping just this segment.  Preserve seg.id —
                 # this is an attribute edit, not a creation.
                 from typing import cast as _cast
-                from typing import Literal as _Literal
                 new_seg = replace(
                     seg,
-                    side=_cast(_Literal["top", "bottom"], target_side),
+                    side=_cast(Side, target_side),
                 )
                 proposed = [list(c) for c in logical]
                 proposed[i][k] = new_seg
@@ -806,7 +806,7 @@ def _from_logical_path(
                 id=_next_id(),
                 path=cur_path,
                 insulated=cur_ins,
-                side=cast(Literal["top", "bottom"], cur_side),
+                side=cast(Side, cur_side),
             ))
             cur_path = [lpath[k].point]
             cur_side = lpath[k].side
@@ -818,7 +818,7 @@ def _from_logical_path(
             id=_next_id(),
             path=cur_path,
             insulated=cur_ins,
-            side=cast(Literal["top", "bottom"], cur_side),
+            side=cast(Side, cur_side),
         ))
     return segs
 
@@ -1401,7 +1401,7 @@ def _side_flip_pass(
         """Return a copy of chain with every wire's side flipped."""
         flipped: list[Wire] = []
         for w in chain:
-            new_side: Literal["top", "bottom"] = (
+            new_side: Side = (
                 "bottom" if w.side == "top" else "top"
             )
             flipped.append(replace(w, side=new_side))

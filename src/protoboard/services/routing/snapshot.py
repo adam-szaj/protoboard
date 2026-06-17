@@ -29,7 +29,9 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Literal, Mapping
+from typing import TYPE_CHECKING, Mapping
+
+from protoboard.types import Side
 
 if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
@@ -133,7 +135,7 @@ class RouteRequest:
     instances: Mapping[uuid.UUID, "ComponentInstance"]
     routing_settings: "RoutingSettings"
     net_ids: frozenset[uuid.UUID] | None = None
-    side: Literal["top", "bottom"] = "top"
+    side: Side = "top"
     report_path: object | None = None  # pathlib.Path, deferred to avoid import cycle
 
     @classmethod
@@ -147,7 +149,7 @@ class RouteRequest:
         instances: dict[uuid.UUID, "ComponentInstance"],
         routing_settings: "RoutingSettings",
         net_ids: set[uuid.UUID] | None = None,
-        side: Literal["top", "bottom"] = "top",
+        side: Side = "top",
         report_path: object | None = None,
     ) -> "RouteRequest":
         """Snapshot the live session state.  Call on the main thread."""

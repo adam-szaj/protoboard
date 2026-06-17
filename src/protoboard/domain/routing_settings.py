@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Literal, Mapping, TYPE_CHECKING
 
 from protoboard.services.routing.cost_model import RoutingCostModel
+from protoboard.types import Side
 from protoboard.services.routing.cost_presets import resolve_weights
 
 if TYPE_CHECKING:
@@ -35,7 +36,7 @@ class RoutingSettings:
     """
 
     # ---- Layer & topology -------------------------------------------
-    preferred_side: Literal["top", "bottom"] = "bottom"
+    preferred_side: Side = "bottom"
     allow_layer_change: bool = True
     # ---- Iteration budgets ------------------------------------------
     max_rip_up_passes: int = 3

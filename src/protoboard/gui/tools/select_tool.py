@@ -4319,7 +4319,6 @@ class SelectTool(_Tool):
                     act_ar_grp.setData(("autoroute_group", active_gid))
 
                 # Disconnect pin from net
-                from protoboard.domain.schematic.net import PinRef
                 netted_pins: list[tuple[int, str, str]] = []
                 for pin_num in range(1, defn.footprint.pin_count() + 1):
                     ref = PinRef(component_id=comp_id, pin_number=pin_num)
