@@ -37,7 +37,7 @@ from protoboard.domain.layout.knot import JointKnot, WirePinKnot
 from protoboard.geometry import Point
 
 if TYPE_CHECKING:
-    from protoboard.domain.commands.component_cmds import ComponentState
+    from protoboard.domain.commands.base import ComponentState
     from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.domain.layout.wire import Fragment, Wire
 

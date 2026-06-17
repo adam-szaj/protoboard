@@ -1175,8 +1175,7 @@ class MainWindow(QMainWindow):
             )
             return
         wire_net_id = self._session.cached_wire_net_map().get(wire.id)
-        from protoboard.domain.commands.base import Command
-        from protoboard.domain.commands.component_cmds import ComponentState
+        from protoboard.domain.commands.base import Command, ComponentState
         cmd = _cast(
             "Command[ComponentState]",
             ConvertEndpointToWirePinCommand(
@@ -1203,8 +1202,11 @@ class MainWindow(QMainWindow):
         )
         from protoboard.domain.layout.knot import WirePinKnot
         from typing import cast as _cast
-        from protoboard.domain.commands.base import Command, MacroCommand
-        from protoboard.domain.commands.component_cmds import ComponentState
+        from protoboard.domain.commands.base import (
+            Command,
+            ComponentState,
+            MacroCommand,
+        )
         targets: list[uuid.UUID] = []
         for wire_id in sel:
             wire = self._session.layout.wires.get(wire_id)
@@ -2345,7 +2347,8 @@ class MainWindow(QMainWindow):
         """Apply autoroute result to the session (called on the main thread)."""
         from protoboard.services.routing.autorouter import AutorouteResult
         from protoboard.domain.commands.base import Command, MacroCommand
-        from protoboard.domain.commands.component_cmds import AddWireCommand, ComponentState
+        from protoboard.domain.commands.base import ComponentState
+        from protoboard.domain.commands.component_cmds import AddWireCommand
         from typing import cast
 
         if not isinstance(result, AutorouteResult):

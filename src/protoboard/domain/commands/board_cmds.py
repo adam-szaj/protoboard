@@ -7,8 +7,7 @@ from dataclasses import dataclass, field
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import Box, HBox, SizePolicy, StripAtom, VBox
-from protoboard.domain.commands.base import Command
-from protoboard.domain.commands.component_cmds import ComponentState
+from protoboard.domain.commands.base import Command, ComponentState
 
 _HUG = SizePolicy.HUG
 

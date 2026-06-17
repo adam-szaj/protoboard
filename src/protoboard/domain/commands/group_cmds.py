@@ -8,8 +8,7 @@ from dataclasses import dataclass, field
 
 import structlog
 
-from protoboard.domain.commands.base import Command
-from protoboard.domain.commands.component_cmds import ComponentState
+from protoboard.domain.commands.base import Command, ComponentState
 from protoboard.domain.layout.group import ComponentGroup, all_component_ids, would_create_cycle
 from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.schematic.net import PinRef

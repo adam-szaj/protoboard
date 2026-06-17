@@ -28,8 +28,7 @@ if TYPE_CHECKING:
 from PySide6.QtCore import QObject, Signal
 
 from protoboard.domain.board.board import Board
-from protoboard.domain.commands.base import CommandStack
-from protoboard.domain.commands.component_cmds import ComponentState
+from protoboard.domain.commands.base import CommandStack, ComponentState
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.connectivity.graph import ConnectivityGraph

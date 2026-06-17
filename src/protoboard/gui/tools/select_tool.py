@@ -6685,7 +6685,7 @@ class SelectTool(_Tool):
 
         from protoboard.domain.commands.base import Command
 
-        from protoboard.domain.commands.component_cmds import SchematicState
+        from protoboard.domain.commands.base import SchematicState
 
         commands = cast(
             list[Command[SchematicState]],
