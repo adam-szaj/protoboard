@@ -23,6 +23,7 @@ reference held inside ``Wire``.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Protocol, runtime_checkable
 
@@ -43,6 +44,19 @@ class Knot(Protocol):
         Each kind preserves its own identity fields (``pin`` / ``position`` /
         ``net_id``); only the wire back-references change. Lets ``Layout`` and
         wire-edit helpers add/remove a wire without branching on knot kind.
+        """
+        ...
+
+    def world_position(self, resolve_pin: Callable[[PinRef], Point]) -> Point:
+        """Resolve this knot's world position.
+
+        ``JointKnot`` / ``WirePinKnot`` own their ``position`` directly and
+        ignore ``resolve_pin``; ``PinKnot`` has no stored position and resolves
+        through the supplied callback (``resolve_pin(self.pin)``) so it stays
+        correct across component moves. Named ``world_position`` (not
+        ``position``) to avoid colliding with the stored ``position`` field on
+        the joint kinds. Callers pass a resolver (not a whole ``Layout``) to
+        keep this Qt-free and decoupled from the aggregate.
         """
         ...
 
@@ -72,6 +86,9 @@ class PinKnot:
     def with_wire_ids(self, wire_ids: frozenset[uuid.UUID]) -> PinKnot:
         return replace(self, wire_ids=wire_ids)
 
+    def world_position(self, resolve_pin: Callable[[PinRef], Point]) -> Point:
+        return resolve_pin(self.pin)
+
 
 @dataclass
 class JointKnot:
@@ -97,6 +114,9 @@ class JointKnot:
 
     def with_wire_ids(self, wire_ids: frozenset[uuid.UUID]) -> JointKnot:
         return replace(self, wire_ids=wire_ids)
+
+    def world_position(self, resolve_pin: Callable[[PinRef], Point]) -> Point:
+        return self.position
 
 
 @dataclass
@@ -138,3 +158,6 @@ class WirePinKnot:
 
     def with_wire_ids(self, wire_ids: frozenset[uuid.UUID]) -> WirePinKnot:
         return replace(self, wire_ids=wire_ids)
+
+    def world_position(self, resolve_pin: Callable[[PinRef], Point]) -> Point:
+        return self.position

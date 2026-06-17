@@ -602,21 +602,20 @@ def _knot_with_wire(knot: Knot, wire_id: uuid.UUID, *, add: bool) -> Knot:
 def _knot_position(knot: Knot, layout: Layout) -> Point:
     """Resolve a knot's world position (PinKnot is resolved lazily).
 
-    For ``PinKnot``s, the caller must register a resolver via
-    ``Layout.set_pin_resolver``.  A missing resolver is a programmer error
-    and raises ``RuntimeError``.
+    Thin shim over :meth:`Knot.world_position`: supplies a pin-resolver
+    backed by ``layout``. Only ``PinKnot`` invokes the resolver; for it a
+    missing resolver is a programmer error and raises ``RuntimeError``.
     """
-    if isinstance(knot, (JointKnot, WirePinKnot)):
-        return knot.position
-    if isinstance(knot, PinKnot):
+    def _resolve(pin: PinRef) -> Point:
         resolver = layout._pin_resolver
         if resolver is None:
             raise RuntimeError(
                 "PinKnot position requested but no pin resolver registered on "
                 "Layout (call layout.set_pin_resolver(...) after construction)"
             )
-        return resolver(knot.pin)
-    raise TypeError(f"unknown Knot subtype: {type(knot).__name__}")
+        return resolver(pin)
+
+    return knot.world_position(_resolve)
 
 
 def _orient_wire_toward(
