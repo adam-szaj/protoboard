@@ -32,9 +32,13 @@ from protoboard.domain.layout.wire import KnotRef, Wire
 # wire_utils next to their collaborators; imported under the historic private
 # names so the command call-sites read the same.
 from protoboard.domain.layout.wire_utils import (
+    CollapseRecord as _CollapseRecord,
+    SplitRecord as _SplitRecord,
     WireSnapshot as _WireSnapshot,
     enrich_insulated_fragments_with_pad_nodes as _enrich_insulated_fragments_with_pad_nodes,  # noqa: E501
     enrich_insulated_wire_with_pad_nodes as _enrich_insulated_with_pad_nodes,
+    restore_collapse as _restore_collapse,
+    restore_split as _restore_split,
     snapshot_wire as _snapshot_wire,
 )
 from protoboard.domain.schematic.net import PinRef
@@ -611,78 +615,6 @@ def _split_existing_wires_at_endpoints(
     return records
 
 
-@dataclass
-class _SplitRecord:
-    """Snapshot of one ``make_t_junction`` for revert."""
-
-    original: _WireSnapshot
-    new_a_id: uuid.UUID
-    new_b_id: uuid.UUID
-    hub_id: uuid.UUID
-    incoming_endpoint: str  # "a" or "b"
-
-
-def _restore_split(
-    state: ComponentState, wire: Wire, rec: _SplitRecord,
-) -> None:
-    """Inverse of ``make_t_junction`` — replace the two split halves
-    with the original wire and detach ``wire``'s endpoint from the
-    shared hub.
-    """
-    from protoboard.domain.layout.wire import Fragment as _Fragment
-    # Detach wire's endpoint from the hub: revert its knot ref to the
-    # original endpoint knot id, which was preserved on the wire
-    # itself before make_t_junction ran (we stored it in ``rec`` only
-    # implicitly — derive it from the wire's pre-split endpoint).
-    # Concretely: the wire's matching endpoint knot was the same as
-    # what AddWireCommand resolved earlier; ``make_t_junction``
-    # swapped it to the hub.  AddWireCommand.revert removes the wire
-    # entirely, so we don't need to revert the knot ref here —
-    # restore the wires the split consumed.
-    for new_id in (rec.new_a_id, rec.new_b_id):
-        if state.layout.wires.get(new_id) is not None:
-            state.layout.remove_wire(new_id)
-    # Drop the hub if no other wires reference it (it was created by
-    # make_t_junction and is now orphan after removing the two halves).
-    hub = state.layout.knots.get(rec.hub_id)
-    if hub is not None:
-        from protoboard.domain.layout.knot import JointKnot
-        if isinstance(hub, JointKnot):
-            if not (hub.wire_ids - {rec.new_a_id, rec.new_b_id, wire.id}):
-                state.layout.knots.pop(rec.hub_id, None)
-    # Revive the original wire from snapshot.
-    snap = rec.original
-    fragments = [
-        _Fragment(path=list(p), side=s)  # type: ignore[arg-type]
-        for p, s in zip(snap.fragment_paths, snap.fragment_sides)
-    ]
-    revived = Wire(
-        id=snap.wire_id,
-        path=list(snap.path),
-        insulated=snap.insulated,
-        side=snap.side,  # type: ignore[arg-type]
-        color=snap.color,
-        fragments=fragments,
-        a=KnotRef(id=snap.a_id),
-        b=KnotRef(id=snap.b_id),
-    )
-    # Outer knots of the original may have been pruned by remove_wire
-    # earlier (orphan after split); revive them from snapshot like
-    # _restore_collapse does.
-    from protoboard.domain.layout.knot import JointKnot as _JK
-    for knot_id, snap_knot in (
-        (snap.a_id, snap.a_knot), (snap.b_id, snap.b_knot),
-    ):
-        if knot_id in state.layout.knots:
-            continue
-        if snap_knot is None:
-            continue
-        state.layout.knots[knot_id] = _JK(
-            id=knot_id, position=snap_knot.position,
-        )
-    state.layout.add_wire(revived)
-
-
 def _collapse_endpoint_joints(
     state: ComponentState, wire: Wire,
 ) -> "list[_CollapseRecord]":
@@ -748,17 +680,6 @@ def _collapse_endpoint_joints(
 
 
 @dataclass
-class _CollapseRecord:
-    """Snapshot of one ``try_collapse_joint`` operation for revert."""
-
-    joint_id: uuid.UUID
-    joint_pos: Point
-    w1_snapshot: _WireSnapshot
-    w2_snapshot: _WireSnapshot
-    merged_wire_id: "uuid.UUID | None" = None
-
-
-@dataclass
 class _CoLocatedFuseRecord:
     """Snapshot of one Phase-0 co-located JointKnot merge for revert.
 
@@ -779,57 +700,6 @@ class _CoLocatedFuseRecord:
     loser_position: Point
     moved_wire_id: uuid.UUID
     moved_endpoint: str  # "a" or "b"
-
-
-def _restore_collapse(state: ComponentState, rec: _CollapseRecord) -> None:
-    """Inverse of ``try_collapse_joint`` — split the merged wire back into two.
-
-    Removes the merged wire (which prunes any outer JointKnots that have
-    no other incident wire), revives the central joint that was consumed
-    by the collapse, revives any outer joints that ``remove_wire`` pruned
-    as orphans, and re-inserts the two source wires.  PinKnots survive
-    ``remove_wire`` independently — no revival needed for those.
-    """
-    from protoboard.domain.layout.wire import Fragment as _Fragment
-    if rec.merged_wire_id is not None:
-        merged = state.layout.wires.get(rec.merged_wire_id)
-        if merged is not None:
-            state.layout.remove_wire(merged.id)
-    # Re-create the central joint consumed by the merge.
-    if rec.joint_id not in state.layout.knots:
-        revived_joint = JointKnot(id=rec.joint_id, position=rec.joint_pos)
-        state.layout.knots[rec.joint_id] = revived_joint
-    # Re-create any outer JointKnots that ``remove_wire`` pruned as
-    # orphans.  ``add_wire`` below will repopulate their ``wire_ids``.
-    for snap in (rec.w1_snapshot, rec.w2_snapshot):
-        for knot_id, snap_knot in (
-            (snap.a_id, snap.a_knot), (snap.b_id, snap.b_knot),
-        ):
-            if knot_id in state.layout.knots:
-                continue
-            if snap_knot is None:
-                continue
-            # Revive with empty wire_ids; add_wire repopulates.
-            state.layout.knots[knot_id] = JointKnot(
-                id=knot_id, position=snap_knot.position,
-            )
-    # Re-insert both source wires.
-    for snap in (rec.w1_snapshot, rec.w2_snapshot):
-        fragments = [
-            _Fragment(path=list(p), side=s)  # type: ignore[arg-type]
-            for p, s in zip(snap.fragment_paths, snap.fragment_sides)
-        ]
-        revived = Wire(
-            id=snap.wire_id,
-            path=list(snap.path),
-            insulated=snap.insulated,
-            side=snap.side,  # type: ignore[arg-type]
-            color=snap.color,
-            fragments=fragments,
-            a=KnotRef(id=snap.a_id),
-            b=KnotRef(id=snap.b_id),
-        )
-        state.layout.add_wire(revived)
 
 
 @dataclass
@@ -918,7 +788,7 @@ class AddWireCommand(Command[ComponentState]):
             # reinstates BOTH source wires (including ``self.wire`` in its
             # pre-collapse form, so we don't remove it again here).
             for rec in reversed(self._collapses):
-                _restore_collapse(state, rec)
+                _restore_collapse(state.layout, rec)
             # Now drop just ``self.wire`` so the layout reaches the
             # pre-apply state (one wire = the other source = neighbour
             # that existed before this AddWireCommand fired).
@@ -931,7 +801,7 @@ class AddWireCommand(Command[ComponentState]):
         # are restored to their pre-split single-piece form.  Run after
         # we removed ``self.wire`` so the hub becomes orphan-eligible.
         for rec in reversed(self._splits):
-            _restore_split(state, self.wire, rec)
+            _restore_split(state.layout, self.wire, rec)
         # Joints we created may still hold back-refs to other wires (shared
         # joint).  ``remove_wire`` already prunes orphans; anything still
         # in layout.knots is a non-orphan we must leave alone.
@@ -1037,11 +907,11 @@ class AddWireWithNetsCommand(Command[ComponentState]):
 
     def revert(self, state: ComponentState) -> None:
         for rec in reversed(self._collapses):
-            _restore_collapse(state, rec)
+            _restore_collapse(state.layout, rec)
         if self.wire.id in state.layout.wires:
             state.layout.remove_wire(self.wire.id)
         for rec in reversed(self._splits):
-            _restore_split(state, self.wire, rec)
+            _restore_split(state.layout, self.wire, rec)
         schematic = getattr(state, "schematic")
         for net_id, net_before in self._nets_before.items():
             if net_before is None:
@@ -1616,7 +1486,7 @@ class FuseTouchingWiresCommand(Command[ComponentState]):
         # both source wires.  Each iteration drops the merged wire and
         # re-inserts the two pre-fuse wires.
         for rec in reversed(self._records):
-            _restore_collapse(state, rec)
+            _restore_collapse(state.layout, rec)
         # Phase-0 co-located fuses run BEFORE the main collapse loop in
         # apply, so their inverses must run AFTER the collapse-restore
         # walk to land in the right model state.  Each undo revives the

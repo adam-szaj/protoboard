@@ -1564,3 +1564,143 @@ def snapshot_wire(w: "Wire", layout: "Layout") -> WireSnapshot:
         a_knot=a_knot if isinstance(a_knot, JointKnot) else None,
         b_knot=b_knot if isinstance(b_knot, JointKnot) else None,
     )
+
+
+@dataclass
+class SplitRecord:
+    """Snapshot of one ``make_t_junction`` for revert."""
+
+    original: WireSnapshot
+    new_a_id: uuid.UUID
+    new_b_id: uuid.UUID
+    hub_id: uuid.UUID
+    incoming_endpoint: str  # "a" or "b"
+
+
+@dataclass
+class CollapseRecord:
+    """Snapshot of one ``try_collapse_joint`` operation for revert."""
+
+    joint_id: uuid.UUID
+    joint_pos: Point
+    w1_snapshot: WireSnapshot
+    w2_snapshot: WireSnapshot
+    merged_wire_id: uuid.UUID | None = None
+
+
+def restore_split(
+    layout: Layout, wire: Wire, rec: SplitRecord,
+) -> None:
+    """Inverse of ``make_t_junction`` — replace the two split halves
+    with the original wire and detach ``wire``'s endpoint from the
+    shared hub.
+    """
+    from protoboard.domain.layout.knot import JointKnot
+    from protoboard.domain.layout.wire import Fragment as _Fragment
+    from protoboard.domain.layout.wire import KnotRef as _KnotRef
+    from protoboard.domain.layout.wire import Wire as _Wire
+
+    # Detach wire's endpoint from the hub: revert its knot ref to the
+    # original endpoint knot id, which was preserved on the wire
+    # itself before make_t_junction ran (we stored it in ``rec`` only
+    # implicitly — derive it from the wire's pre-split endpoint).
+    # Concretely: the wire's matching endpoint knot was the same as
+    # what AddWireCommand resolved earlier; ``make_t_junction``
+    # swapped it to the hub.  AddWireCommand.revert removes the wire
+    # entirely, so we don't need to revert the knot ref here —
+    # restore the wires the split consumed.
+    for new_id in (rec.new_a_id, rec.new_b_id):
+        if layout.wires.get(new_id) is not None:
+            layout.remove_wire(new_id)
+    # Drop the hub if no other wires reference it (it was created by
+    # make_t_junction and is now orphan after removing the two halves).
+    hub = layout.knots.get(rec.hub_id)
+    if hub is not None:
+        if isinstance(hub, JointKnot):
+            if not (hub.wire_ids - {rec.new_a_id, rec.new_b_id, wire.id}):
+                layout.knots.pop(rec.hub_id, None)
+    # Revive the original wire from snapshot.
+    snap = rec.original
+    fragments = [
+        _Fragment(path=list(p), side=s)  # type: ignore[arg-type]
+        for p, s in zip(snap.fragment_paths, snap.fragment_sides)
+    ]
+    revived = _Wire(
+        id=snap.wire_id,
+        path=list(snap.path),
+        insulated=snap.insulated,
+        side=snap.side,  # type: ignore[arg-type]
+        color=snap.color,
+        fragments=fragments,
+        a=_KnotRef(id=snap.a_id),
+        b=_KnotRef(id=snap.b_id),
+    )
+    # Outer knots of the original may have been pruned by remove_wire
+    # earlier (orphan after split); revive them from snapshot like
+    # restore_collapse does.
+    for knot_id, snap_knot in (
+        (snap.a_id, snap.a_knot), (snap.b_id, snap.b_knot),
+    ):
+        if knot_id in layout.knots:
+            continue
+        if snap_knot is None:
+            continue
+        layout.knots[knot_id] = JointKnot(
+            id=knot_id, position=snap_knot.position,
+        )
+    layout.add_wire(revived)
+
+
+def restore_collapse(layout: Layout, rec: CollapseRecord) -> None:
+    """Inverse of ``try_collapse_joint`` — split the merged wire back into two.
+
+    Removes the merged wire (which prunes any outer JointKnots that have
+    no other incident wire), revives the central joint that was consumed
+    by the collapse, revives any outer joints that ``remove_wire`` pruned
+    as orphans, and re-inserts the two source wires.  PinKnots survive
+    ``remove_wire`` independently — no revival needed for those.
+    """
+    from protoboard.domain.layout.knot import JointKnot
+    from protoboard.domain.layout.wire import Fragment as _Fragment
+    from protoboard.domain.layout.wire import KnotRef as _KnotRef
+    from protoboard.domain.layout.wire import Wire as _Wire
+
+    if rec.merged_wire_id is not None:
+        merged = layout.wires.get(rec.merged_wire_id)
+        if merged is not None:
+            layout.remove_wire(merged.id)
+    # Re-create the central joint consumed by the merge.
+    if rec.joint_id not in layout.knots:
+        revived_joint = JointKnot(id=rec.joint_id, position=rec.joint_pos)
+        layout.knots[rec.joint_id] = revived_joint
+    # Re-create any outer JointKnots that ``remove_wire`` pruned as
+    # orphans.  ``add_wire`` below will repopulate their ``wire_ids``.
+    for snap in (rec.w1_snapshot, rec.w2_snapshot):
+        for knot_id, snap_knot in (
+            (snap.a_id, snap.a_knot), (snap.b_id, snap.b_knot),
+        ):
+            if knot_id in layout.knots:
+                continue
+            if snap_knot is None:
+                continue
+            # Revive with empty wire_ids; add_wire repopulates.
+            layout.knots[knot_id] = JointKnot(
+                id=knot_id, position=snap_knot.position,
+            )
+    # Re-insert both source wires.
+    for snap in (rec.w1_snapshot, rec.w2_snapshot):
+        fragments = [
+            _Fragment(path=list(p), side=s)  # type: ignore[arg-type]
+            for p, s in zip(snap.fragment_paths, snap.fragment_sides)
+        ]
+        revived = _Wire(
+            id=snap.wire_id,
+            path=list(snap.path),
+            insulated=snap.insulated,
+            side=snap.side,  # type: ignore[arg-type]
+            color=snap.color,
+            fragments=fragments,
+            a=_KnotRef(id=snap.a_id),
+            b=_KnotRef(id=snap.b_id),
+        )
+        layout.add_wire(revived)
