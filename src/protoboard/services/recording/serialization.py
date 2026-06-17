@@ -43,6 +43,7 @@ from protoboard.domain.commands.group_cmds import (
     DisbandGroupCommand,
     RemoveFromGroupCommand,
     RenameGroupCommand,
+    RotateAroundPointCommand,
     RotateComponentsCommand,
     RotateGroupCommand,
     SetExportedPinsCommand,
@@ -927,6 +928,28 @@ def _rotate_components_from(d: dict[str, Any]) -> RotateComponentsCommand:
 _register(
     RotateComponentsCommand, "rotate_components",
     _rotate_components_to, _rotate_components_from,
+)
+
+
+def _rotate_around_point_to(cmd: RotateAroundPointCommand) -> dict[str, Any]:
+    return {
+        "comp_ids": sorted(_uuid_to(c) for c in cmd.comp_ids),
+        "origin": _pt_to(cmd.origin),
+        "delta": int(cmd.delta),
+    }
+
+
+def _rotate_around_point_from(d: dict[str, Any]) -> RotateAroundPointCommand:
+    return RotateAroundPointCommand(
+        comp_ids=frozenset(_uuid_from(c) for c in (d.get("comp_ids") or [])),
+        origin=_pt_from(d["origin"]),
+        delta=int(d["delta"]),
+    )
+
+
+_register(
+    RotateAroundPointCommand, "rotate_around_point",
+    _rotate_around_point_to, _rotate_around_point_from,
 )
 
 

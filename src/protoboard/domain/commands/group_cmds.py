@@ -517,3 +517,70 @@ class RotateComponentsCommand(Command[ComponentState]):
     def revert(self, state: ComponentState) -> None:
         for snap in reversed(self._snapshots):
             restore_rotation(state, snap)
+
+
+@dataclass
+class RotateAroundPointCommand(Command[ComponentState]):
+    """Rotate a set of components around an arbitrary user-picked pivot.
+
+    Unlike :class:`RotateComponentsCommand` (each component spins around its
+    own position), every component here pivots around the same external
+    ``origin`` — so their positions move. Owned wires rotate with them
+    (a wire soldered to a moved component must follow), classified the same
+    way :class:`RotateGroupCommand` classifies its internal wires.
+
+    The thin caller the rotate-around-origin core was designed for: it just
+    supplies an arbitrary pivot and the affected component set.
+    """
+
+    comp_ids: frozenset[uuid.UUID]
+    origin: Point
+    delta: int
+    _snapshot: RotateSnapshot | None = field(
+        default=None, init=False, repr=False
+    )
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Rotate around point"
+
+    def apply(self, state: ComponentState) -> None:
+        if not self.comp_ids:
+            return
+        # Classify wires owned by the selected components so they rotate
+        # with their parts.  Same net-aware classifier RotateGroupCommand
+        # uses; a free selection has no real group, so pass a synthetic
+        # ComponentGroup whose member set IS the selection — ownership is
+        # decided purely by ``group_comp_ids`` (the ``group`` argument is
+        # only carried for diagnostics by find_owned_wires).
+        from protoboard.domain.layout.group_ownership import find_owned_wires
+
+        schematic_obj = getattr(state, "schematic", None)
+        sch: "Schematic | None" = (
+            schematic_obj if isinstance(schematic_obj, Schematic) else None
+        )
+        synthetic_group = ComponentGroup(
+            id=uuid.uuid4(),
+            name="<rotate-around-point>",
+            component_ids=self.comp_ids,
+        )
+        owned_wire_ids = find_owned_wires(
+            list(state.layout.wires),
+            synthetic_group,
+            wire_net_map={},
+            knots=state.layout.knots,
+            group_comp_ids=self.comp_ids,
+            schematic=sch,
+            placements=state.layout.placements,
+            instances=state.instances,
+            definitions=state.components,
+        )
+        snapshot = rotate_components_around(
+            state, self.comp_ids, self.origin, self.delta,
+            wire_ids=frozenset(owned_wire_ids),
+        )
+        object.__setattr__(self, "_snapshot", snapshot)
+
+    def revert(self, state: ComponentState) -> None:
+        if self._snapshot is not None:
+            restore_rotation(state, self._snapshot)
