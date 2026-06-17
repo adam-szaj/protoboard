@@ -5543,11 +5543,9 @@ class SelectTool(_Tool):
             InsulatedWireCrossing,
             InsulatedWireItem,
         )
-        from protoboard.domain.layout.pad_conflict import (
-            ConflictKind,
-            find_conflicts,
-        )
+        from protoboard.domain.layout.pad_conflict import ConflictKind
         _drag_idx = self._ensure_drag_pad_index(drag_ids)
+        _scanner = self._session.conflict_scanner(pad_index=_drag_idx)
         hard_pads: list[Point] = []
         soft_pads: list[Point] = []
         soft_wire_ids: set[uuid.UUID] = set()
@@ -5598,16 +5596,7 @@ class SelectTool(_Tool):
                         hard_pads.append(pin1_pos)
                     break  # one bbox conflict per component is enough
             # --- HARD: pad-on-pad DIFFERENT_NETS ---
-            pad_cs = find_conflicts(
-                incoming_placement=pl,
-                incoming_defn=defn,
-                incoming_instance_id=cid,
-                layout_placements=self._session.layout.placements,
-                instances=self._session.instances,
-                components=self._session.components,
-                schematic=self._session.schematic,
-                pad_index=_drag_idx,
-            )
+            pad_cs = _scanner.find_pad_conflicts(pl, defn, cid)
             for c in pad_cs:
                 if c.kind == ConflictKind.DIFFERENT_NETS:
                     hard_pads.append(c.position)
@@ -5940,10 +5929,7 @@ class SelectTool(_Tool):
         all components have been reverted to their original positions.
         """
         from protoboard.domain.commands.base import Command
-        from protoboard.domain.layout.pad_conflict import (
-            MoveConflictSeverity,
-            check_group_move_conflicts,
-        )
+        from protoboard.domain.layout.pad_conflict import MoveConflictSeverity
 
         active_gid = self._selected_group_id
         if active_gid is None:
@@ -5959,42 +5945,31 @@ class SelectTool(_Tool):
         # Shared helper with placement_conflict.classify_drag_commit.
         from protoboard.gui.placement_conflict import _build_drag_pad_index
         _drag_idx = _build_drag_pad_index(self._session)
+        _scanner = self._session.conflict_scanner(pad_index=_drag_idx)
+        _moved_wire_ids = set(self._drag_orig_wire_paths.keys())
         # Phase 3: when `_active_drag_set` carries multiple groups (or
-        # is mixed free+group), prefer `check_multi_group_move_conflicts`
-        # so intra-drag-set collisions are SOFT per spec rev 3 dec 4.
+        # is mixed free+group), prefer the multi-group classifier so
+        # intra-drag-set collisions are SOFT per spec rev 3 dec 4.
         # Falls back to single-group call when only one group / no
         # DragSet captured (keeps legacy long-press path untouched).
         if (
             self._active_drag_set is not None
             and len(self._active_drag_set.groups) > 1
         ):
-            from protoboard.domain.layout.pad_conflict import (
-                check_multi_group_move_conflicts,
-            )
-            result = check_multi_group_move_conflicts(
+            result = _scanner.check_multi_group_move(
                 drag_set=self._active_drag_set,
                 active_group_id=active_gid,
-                layout_placements=self._session.layout.placements,
                 layout_wires=self._session.layout.wires,
                 layout_groups=self._session.layout.groups,
-                instances=self._session.instances,
-                components=self._session.components,
-                schematic=self._session.schematic,
-                moved_wire_ids=set(self._drag_orig_wire_paths.keys()),
-                pad_index=_drag_idx,
+                moved_wire_ids=_moved_wire_ids,
             )
         else:
-            result = check_group_move_conflicts(
+            result = _scanner.check_group_move(
                 moved_ids=drag_ids,
                 active_group_id=active_gid,
-                layout_placements=self._session.layout.placements,
                 layout_wires=self._session.layout.wires,
                 layout_groups=self._session.layout.groups,
-                instances=self._session.instances,
-                components=self._session.components,
-                schematic=self._session.schematic,
-                moved_wire_ids=set(self._drag_orig_wire_paths.keys()),
-                pad_index=_drag_idx,
+                moved_wire_ids=_moved_wire_ids,
             )
         # check_group_move_conflicts only knows about pad-on-pad
         # collisions and wires *crossing* pads after the move.  It does
@@ -6187,15 +6162,9 @@ class SelectTool(_Tool):
         Does not execute the commands — caller folds them into a MacroCommand or
         executes them directly.  Shows a status-bar message when wires are removed.
         """
-        from protoboard.domain.layout.pad_conflict import find_wires_crossing_pads
-
-        bad_ids = find_wires_crossing_pads(
+        bad_ids = self._session.conflict_scanner().find_wires_crossing_pads(
             wires=self._session.layout.wires,
             moved_comp_ids=moved_comp_ids,
-            layout_placements=self._session.layout.placements,
-            instances=self._session.instances,
-            components=self._session.components,
-            schematic=self._session.schematic,
         )
         if not bad_ids:
             return []
