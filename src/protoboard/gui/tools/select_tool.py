@@ -599,10 +599,7 @@ class SelectTool(_Tool):
             if comp_id in g.component_ids:
                 return False
             # Walk child groups recursively so nested groups also unlock.
-            from protoboard.domain.layout.group import (
-                all_component_ids as _all_member_ids,
-            )
-            if comp_id in _all_member_ids(groups, gid):
+            if comp_id in self._session.group_tree().all_component_ids(gid):
                 return False
         return True
 
@@ -1035,13 +1032,13 @@ class SelectTool(_Tool):
         current primary so the SELECTION rect on the primary isn't
         duplicated by a multi-rect underneath.
         """
-        from protoboard.domain.layout.group import all_component_ids
         groups_map = self._session.layout.groups
+        tree = self._session.group_tree()
         for gid in group_ids:
             if gid not in groups_map:
                 continue  # stale gid (e.g. disbanded mid-session)
             self._selected_group_ids.add(gid)
-            for cid in all_component_ids(groups_map, gid):
+            for cid in tree.all_component_ids(gid):
                 if cid not in self._selected_ids:
                     self._selected_ids.add(cid)
                     # Skip drawing a multi rect on the primary — its
@@ -1176,12 +1173,12 @@ class SelectTool(_Tool):
 
         # Phase 3: subtract groups + their members from selection.
         if group_basis:
-            from protoboard.domain.layout.group import all_component_ids
             groups_map = self._session.layout.groups
+            tree = self._session.group_tree()
             for gid in group_basis:
                 self._selected_group_ids.discard(gid)
                 if gid in groups_map:
-                    for cid in all_component_ids(groups_map, gid):
+                    for cid in tree.all_component_ids(gid):
                         self._selected_ids.discard(cid)
                         if self._selected_id == cid:
                             self._deselect()
@@ -1276,8 +1273,7 @@ class SelectTool(_Tool):
         elif hit.kind == "wire" and isinstance(hit.id, uuid.UUID):
             self._select_wire(hit.id)
         elif hit.kind == "group" and isinstance(hit.id, uuid.UUID):
-            from protoboard.domain.layout.group import all_component_ids
-            members = all_component_ids(self._session.layout.groups, hit.id)
+            members = self._session.group_tree().all_component_ids(hit.id)
             if members:
                 self._select_primary(next(iter(members)))
 
@@ -3011,8 +3007,9 @@ class SelectTool(_Tool):
         if False and group_outline_hit is not None:
             self._cancel_wire_edit()
             self._deselect_wire()
-            groups = self._session.layout.groups
-            grp_members = frozenset(all_component_ids(groups, group_outline_hit))
+            grp_members = frozenset(
+                self._session.group_tree().all_component_ids(group_outline_hit)
+            )
             _log.info(
                 "on_press.group_outline.start_drag",
                 group_id=str(group_outline_hit)[:8],
@@ -3136,7 +3133,6 @@ class SelectTool(_Tool):
             # group selected but unmoved.  This replaces the legacy
             # outline-hit drag path with element-driven activation.
             if self._is_locked_in_group(hit):
-                from protoboard.domain.layout.group import all_component_ids as _all_cids
                 # Find the deepest non-active group containing `hit`.
                 target_gid: uuid.UUID | None = None
                 groups_map = self._session.layout.groups
@@ -3150,7 +3146,9 @@ class SelectTool(_Tool):
                 if target_gid is None:
                     # Conservative fall-back: no draggable group resolved.
                     return True
-                grp_members = frozenset(_all_cids(groups_map, target_gid))
+                grp_members = frozenset(
+                    self._session.group_tree().all_component_ids(target_gid)
+                )
                 if not grp_members:
                     return True
                 # Expand selection to all group members so multi-highlight
@@ -3489,8 +3487,9 @@ class SelectTool(_Tool):
         if parent_group is None:
             return False
         # Find which child group of the current group contains this component.
+        tree = self._session.group_tree()
         for child_gid in parent_group.child_group_ids:
-            if hit in all_component_ids(groups, child_gid):
+            if hit in tree.all_component_ids(child_gid):
                 self._group_stack.append(child_gid)
                 _log.info(
                     "group.entered",
@@ -3701,10 +3700,9 @@ class SelectTool(_Tool):
 
         if effective_group_id is not None:
             # --- Atomic group drag: check all conflicts first ---
-            from protoboard.domain.layout.group import all_component_ids
-            full_ids = set(all_component_ids(
-                self._session.layout.groups, effective_group_id
-            ))
+            full_ids = set(
+                self._session.group_tree().all_component_ids(effective_group_id)
+            )
             full_ids &= set(self._drag_orig_positions.keys())
             effective_drag = full_ids if full_ids else drag_ids
             _saved_group_id = self._selected_group_id
@@ -5131,9 +5129,8 @@ class SelectTool(_Tool):
                 RotateGroupCommand(group_id=self._selected_group_id, delta=delta % 360),
             )
             # Collect group member IDs for crossing-wire check after rotation.
-            from protoboard.domain.layout.group import all_component_ids
-            grp_comp_ids = all_component_ids(
-                self._session.layout.groups, self._selected_group_id
+            grp_comp_ids = self._session.group_tree().all_component_ids(
+                self._selected_group_id
             )
             self._session.stack.execute(rotate_cmd, self._session)
             remove_cmds = self._remove_crossing_wires(grp_comp_ids)
@@ -5261,7 +5258,6 @@ class SelectTool(_Tool):
 
     def _common_group_for(self, comp_ids: set[uuid.UUID]) -> uuid.UUID | None:
         """Return the group ID if ALL comp_ids belong to the same non-root group, else None."""
-        from protoboard.domain.layout.group import all_component_ids
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         groups = self._session.layout.groups
         # Find which group directly contains each component.
@@ -5285,7 +5281,7 @@ class SelectTool(_Tool):
             return None  # components from different groups
         gid = next(iter(group_ids))
         # Check that ALL drag_ids are members of this group (recursively).
-        all_members = all_component_ids(groups, gid)
+        all_members = self._session.group_tree().all_component_ids(gid)
         if comp_ids <= set(all_members):
             _log.debug("common_group_for.result", result=str(gid))
             return gid
@@ -6430,9 +6426,9 @@ class SelectTool(_Tool):
 
     def _select_group(self, group_id: uuid.UUID) -> None:
         """Select a group as a unit: clears individual selection, sets group highlight."""
-        from protoboard.domain.layout.group import all_component_ids
-        groups = self._session.layout.groups
-        members = frozenset(all_component_ids(groups, group_id))
+        members = frozenset(
+            self._session.group_tree().all_component_ids(group_id)
+        )
         self._deselect()
         self._clear_multi_selection()
         self._selected_group_id = group_id
@@ -6876,11 +6872,9 @@ class SelectTool(_Tool):
         # plain SET / Ctrl ADD / Ctrl+Shift REMOVE).
         selected_groups: set[uuid.UUID] = set()
         if self._filter_groups():
-            from protoboard.domain.layout.group import (
-                all_component_ids as _all_member_ids,
-            )
+            _tree = session.group_tree()
             for gid, _grp in session.layout.groups.items():
-                members = _all_member_ids(session.layout.groups, gid)
+                members = _tree.all_component_ids(gid)
                 if not members:
                     continue
                 # Materialise member bboxes once per group.
@@ -6948,12 +6942,10 @@ class SelectTool(_Tool):
         # anchor selection so a rubber-band that catches just a single
         # group still has a non-None anchor.
         if selected_groups:
-            from protoboard.domain.layout.group import (
-                all_component_ids as _all_member_ids,
-            )
+            _tree = session.group_tree()
             covered: set[uuid.UUID] = set()
             for gid in selected_groups:
-                covered |= _all_member_ids(session.layout.groups, gid)
+                covered |= _tree.all_component_ids(gid)
             selected -= covered
 
         if rb_op == SetOp.SET:
@@ -8918,8 +8910,8 @@ class SelectTool(_Tool):
         highlight) on exported pins even though they sit inside their
         parent group's outline rect.
         """
-        from protoboard.domain.layout.group import all_component_ids
         groups = self._session.layout.groups
+        tree = self._session.group_tree()
         active_group = groups.get(self._current_group_id)
         if active_group is None:
             return False
@@ -8929,7 +8921,7 @@ class SelectTool(_Tool):
             child_group = groups.get(child_gid)
             if child_group is None:
                 continue
-            for cid in all_component_ids(groups, child_gid):
+            for cid in tree.all_component_ids(child_gid):
                 member_ids.add(cid)
             for ep in child_group.exported_pins:
                 exported.add((ep.component_id, ep.pin_number))
@@ -9061,11 +9053,12 @@ class SelectTool(_Tool):
         Returns comp_id unchanged if it's a direct member at the current depth."""
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         groups = self._session.layout.groups
+        tree = self._session.group_tree()
         current = self._current_group_id
         g = groups.get(current)
         # Check if comp_id is directly in a child group — redirect to proxy.
         for child_id in (g.child_group_ids if g else frozenset()):
-            if comp_id in all_component_ids(groups, child_id):
+            if comp_id in tree.all_component_ids(child_id):
                 child_g = groups.get(child_id)
                 if child_g and child_g.component_ids:
                     return next(iter(child_g.component_ids))
@@ -9078,7 +9071,7 @@ class SelectTool(_Tool):
         g = groups.get(gid)
         if g is None:
             return frozenset()
-        return all_component_ids(groups, gid)
+        return self._session.group_tree().all_component_ids(gid)
 
     def _is_accessible(self, comp_id: uuid.UUID) -> bool:
         """True if comp_id can be interacted with at the current group depth.
@@ -9091,6 +9084,7 @@ class SelectTool(_Tool):
             return True
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         groups = self._session.layout.groups
+        tree = self._session.group_tree()
         active_gid = self._current_group_id
         active = groups.get(active_gid)
         if active is None:
@@ -9099,7 +9093,7 @@ class SelectTool(_Tool):
         if active_gid == ROOT_GROUP_ID:
             # At root level: accessible if NOT inside any child group of root.
             for child_gid in active.child_group_ids:
-                if comp_id in all_component_ids(groups, child_gid):
+                if comp_id in tree.all_component_ids(child_gid):
                     return True  # in a child group — selectable as proxy
             # Not in any child group = free component at root level.
             return True
@@ -9108,7 +9102,7 @@ class SelectTool(_Tool):
         if comp_id in active.component_ids:
             return True
         for child_gid in active.child_group_ids:
-            if comp_id in all_component_ids(groups, child_gid):
+            if comp_id in tree.all_component_ids(child_gid):
                 return True
         _log.debug("selection.blocked", comp_id=str(comp_id), active_group=str(active_gid))
         return False
@@ -9129,7 +9123,6 @@ class SelectTool(_Tool):
         )
         from protoboard.domain.layout.group import (
             ComponentGroup,
-            all_component_ids,
             external_pins_for_group,
             parent_group_of,
             promote_selection_to_top_level,
@@ -9294,11 +9287,10 @@ class SelectTool(_Tool):
     def _reset_group_metadata(self, group_id: uuid.UUID) -> None:
         """Recompute origin and zero rotation after editing a group. Physical positions unchanged."""
         from protoboard.domain.commands.group_cmds import _group_origin
-        from protoboard.domain.layout.group import all_component_ids as _all_ids
         group = self._session.layout.groups.get(group_id)
         if group is None:
             return
-        comp_ids = _all_ids(self._session.layout.groups, group_id)
+        comp_ids = self._session.group_tree().all_component_ids(group_id)
         new_origin = _group_origin(
             comp_ids,
             self._session.layout.placements,
