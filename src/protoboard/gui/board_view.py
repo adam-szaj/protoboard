@@ -1337,7 +1337,6 @@ class BoardView(QGraphicsView):
         Pins belonging to child groups are only accessible if they are exported.
         ``exclude_ids`` — component IDs whose pins are skipped (e.g. currently dragged).
         """
-        from protoboard.domain.layout.group import ExportedPin
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
 
         # Build set of component IDs that are locked inside child groups,

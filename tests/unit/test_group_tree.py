@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 
 from protoboard.domain.layout import group as group_mod
-from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -93,7 +93,7 @@ class TestExportAndNets:
         t, _, i = _tree()
         # B exports a pin of c3 (a grandchild member, not re-exported by C) →
         # invalid from B's perspective.
-        ep = ExportedPin(component_id=i["c3"], pin_number=1)
+        ep = PinRef(component_id=i["c3"], pin_number=1)
         groups = dict(t._groups)
         groups[i["B"]] = ComponentGroup(
             id=i["B"], name="B", component_ids=frozenset({i["c2"]}),

@@ -51,7 +51,7 @@ from protoboard.domain.board.pad_state import (
     PinItem,
     WirePinItem,
 )
-from protoboard.domain.layout.group import ExportedPin
+from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 
 if TYPE_CHECKING:
@@ -98,7 +98,7 @@ class PinPadInfo:
 
 def _collect_exported_pin_set(
     layout: "Layout",
-) -> frozenset[ExportedPin]:
+) -> frozenset[PinRef]:
     """Return the union of ``exported_pins`` across every group.
 
     The pin-pads layer treats *any* pin reachable on a group's interface
@@ -106,7 +106,7 @@ def _collect_exported_pin_set(
     pin's owning group, because the modifier visual is purely a flag
     that says "this pin participates in some group's interface".
     """
-    out: set[ExportedPin] = set()
+    out: set[PinRef] = set()
     for group in layout.groups.values():
         out |= group.exported_pins
     return frozenset(out)
@@ -114,7 +114,7 @@ def _collect_exported_pin_set(
 
 def _resolve_modifier(
     pin_items: list[PinItem],
-    exported_pin_set: frozenset[ExportedPin],
+    exported_pin_set: frozenset[PinRef],
 ) -> ModifierShape:
     """Pick the modifier shape from the pin items on a pad+side.
 
@@ -124,7 +124,7 @@ def _resolve_modifier(
     """
     is_pin1 = any(p.pin_number == 1 for p in pin_items)
     is_exported = any(
-        ExportedPin(component_id=p.id, pin_number=p.pin_number)
+        PinRef(component_id=p.id, pin_number=p.pin_number)
         in exported_pin_set
         for p in pin_items
     )
@@ -140,7 +140,7 @@ def _resolve_modifier(
 def _classify_pad_side(
     pad: "Pad",
     side: LayerId,
-    exported_pin_set: frozenset[ExportedPin],
+    exported_pin_set: frozenset[PinRef],
 ) -> PinPadInfo | None:
     """Return classification for one (pad, side) pair, or None for NONE.
 

@@ -59,7 +59,7 @@ from protoboard.gui.drag_preferences import (
     DragPreferences,
     DragSessionOverrides,
 )
-from protoboard.domain.layout.group import ExportedPin
+from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.layout.placement import component_bbox, flip_component, pin_world_position, unrotate
 from protoboard.domain.layout.wire import Fragment, Wire
 from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
@@ -4226,7 +4226,6 @@ class SelectTool(_Tool):
                     active_grp = self._session.layout.groups.get(active_gid)
                     if active_grp is not None:
                         from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
-                        from protoboard.domain.layout.group import ExportedPin
                         is_direct_member = comp_id in active_grp.component_ids
                         # Direct child groups that have something to re-export.
                         reexportable_children = [
@@ -4260,7 +4259,7 @@ class SelectTool(_Tool):
                             # nested sub-group.
                             if is_direct_member:
                                 for pin_num in range(1, defn.footprint.pin_count() + 1):
-                                    ep = ExportedPin(
+                                    ep = PinRef(
                                         component_id=comp_id, pin_number=pin_num
                                     )
                                     pin_name = defn.pin_names.get(pin_num, str(pin_num))
@@ -9148,7 +9147,7 @@ class SelectTool(_Tool):
                 promoted_group_ids=[str(g)[:8] for g in promoted_groups],
             )
             new_group_id = uuid.uuid4()
-            exported: frozenset[ExportedPin] = frozenset()
+            exported: frozenset[PinRef] = frozenset()
             if dlg.auto_export_external:
                 # The new group doesn't exist in session.layout.groups yet
                 # — splice it into a transient dict so the encapsulated

@@ -892,7 +892,8 @@ class TestDRCGroupExports:
         assert net_names == ["AB", "VCC"]
 
     def test_complete_export_no_issues(self) -> None:
-        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         board, defn, r1, r2, r3, sch, comps, insts, placements = self._three_resistor_setup()
         gid = uuid.uuid4()
@@ -900,8 +901,8 @@ class TestDRCGroupExports:
             id=gid, name="G1",
             component_ids=frozenset({r1.id, r2.id}),
             exported_pins=frozenset({
-                ExportedPin(component_id=r1.id, pin_number=1),  # VCC (global)
-                ExportedPin(component_id=r1.id, pin_number=2),  # AB
+                PinRef(component_id=r1.id, pin_number=1),  # VCC (global)
+                PinRef(component_id=r1.id, pin_number=2),  # AB
             }),
         )
         root_grp = ComponentGroup(
@@ -919,7 +920,8 @@ class TestDRCGroupExports:
         assert [i for i in issues if i.code.startswith("GROUP_")] == []
 
     def test_bogus_export_on_internal_net(self) -> None:
-        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.domain.schematic.net import PinRef as _PinRef
         board = _perfboard(1, 5)
@@ -943,9 +945,9 @@ class TestDRCGroupExports:
             id=gid, name="G1",
             component_ids=frozenset({r1.id, r2.id}),
             exported_pins=frozenset({
-                ExportedPin(component_id=r1.id, pin_number=1),  # VCC, ok
-                ExportedPin(component_id=r2.id, pin_number=2),  # GND, ok
-                ExportedPin(component_id=r1.id, pin_number=2),  # MID, BOGUS
+                PinRef(component_id=r1.id, pin_number=1),  # VCC, ok
+                PinRef(component_id=r2.id, pin_number=2),  # GND, ok
+                PinRef(component_id=r1.id, pin_number=2),  # MID, BOGUS
             }),
         )
         root_grp = ComponentGroup(
@@ -971,7 +973,8 @@ class TestDRCGroupExports:
         """Sub-group's external-net set is computed against its OWN recursive
         members.  A net spanning sub-group and parent's siblings is external
         to the sub-group, internal to the parent."""
-        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         board, defn, r1, r2, r3, sch, comps, insts, placements = self._three_resistor_setup()
         inner_gid = uuid.uuid4()
@@ -986,8 +989,8 @@ class TestDRCGroupExports:
             component_ids=frozenset({r3.id}),
             child_group_ids=frozenset({inner_gid}),
             exported_pins=frozenset({
-                ExportedPin(component_id=r1.id, pin_number=1),  # VCC (global)
-                ExportedPin(component_id=r3.id, pin_number=2),  # OUT
+                PinRef(component_id=r1.id, pin_number=1),  # VCC (global)
+                PinRef(component_id=r3.id, pin_number=2),  # OUT
             }),
         )
         root_grp = ComponentGroup(
@@ -1021,7 +1024,8 @@ class TestDRCGroupInvalidExport:
     """
 
     def test_grandchild_flat_export_flagged_invalid(self) -> None:
-        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.domain.schematic.net import PinRef as _PinRef
         board = _perfboard(1, 5)
@@ -1044,7 +1048,7 @@ class TestDRCGroupInvalidExport:
         # C contains r_inner and exports its pin 1.
         # B contains C but does NOT re-export.
         # A flat-exports r_inner pin 1 → INVALID.
-        ep = ExportedPin(component_id=r_inner.id, pin_number=1)
+        ep = PinRef(component_id=r_inner.id, pin_number=1)
         c_gid = uuid.uuid4()
         b_gid = uuid.uuid4()
         a_gid = uuid.uuid4()
@@ -1094,7 +1098,8 @@ class TestDRCGroupInvalidExport:
     def test_chain_makes_export_valid_no_issue(self) -> None:
         # Same tree but B re-exports ep → A's entry is chain-legal, no
         # INVALID issue.
-        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.domain.schematic.net import PinRef as _PinRef
         board = _perfboard(1, 5)
@@ -1114,7 +1119,7 @@ class TestDRCGroupInvalidExport:
         )
         sch = Schematic(nets={ext_net.id: ext_net})
 
-        ep = ExportedPin(component_id=r_inner.id, pin_number=1)
+        ep = PinRef(component_id=r_inner.id, pin_number=1)
         c_gid = uuid.uuid4()
         b_gid = uuid.uuid4()
         a_gid = uuid.uuid4()
@@ -1154,7 +1159,8 @@ class TestDRCGroupInvalidExport:
     def test_invalid_not_double_flagged_as_bogus(self) -> None:
         """An INVALID export must not also generate a BOGUS warning —
         the user gets one error per offending entry."""
-        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
         from protoboard.domain.schematic.net import PinRef as _PinRef
         board = _perfboard(1, 5)
@@ -1177,7 +1183,7 @@ class TestDRCGroupInvalidExport:
         )
         sch = Schematic(nets={internal_net.id: internal_net})
 
-        ep = ExportedPin(component_id=r_inner.id, pin_number=1)
+        ep = PinRef(component_id=r_inner.id, pin_number=1)
         c_gid = uuid.uuid4()
         a_gid = uuid.uuid4()
         # A contains C (and r_outside as a direct member).  Net is fully

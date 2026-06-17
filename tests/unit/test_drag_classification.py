@@ -18,7 +18,7 @@ from protoboard.domain.layout.drag_classification import (
     DragWireClassification,
     classify_wires_for_drag,
 )
-from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.knot import JointKnot, PinKnot
 from protoboard.domain.layout.wire import KnotRef, Wire
 from protoboard.domain.schematic.net import Net, PinRef
@@ -57,7 +57,7 @@ def _wire(
 
 def _group(
     comp_ids: frozenset[uuid.UUID],
-    exported: frozenset[ExportedPin] = frozenset(),
+    exported: frozenset[PinRef] = frozenset(),
 ) -> ComponentGroup:
     return ComponentGroup(
         id=uuid.uuid4(),
@@ -218,7 +218,7 @@ class TestHalfOrphan:
         c1, c2 = uuid.uuid4(), uuid.uuid4()
         group = _group(
             frozenset({c1, c2}),
-            exported=frozenset({ExportedPin(c1, 1)}),
+            exported=frozenset({PinRef(c1, 1)}),
         )
         net = _net("EXPORTED", {PinRef(c1, 1), PinRef(c2, 1)})
 

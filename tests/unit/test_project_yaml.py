@@ -352,11 +352,12 @@ class TestEncapsulatedExportMigration:
         save_project(tmp_path, board, lay, Schematic(nets={}))
 
     def test_grandchild_flat_export_stripped(self, tmp_path: Path) -> None:
-        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.schematic.net import PinRef
 
         board = _perfboard()
         c_comp = uuid.uuid4()
-        ep = ExportedPin(component_id=c_comp, pin_number=1)
+        ep = PinRef(component_id=c_comp, pin_number=1)
         c = ComponentGroup(
             id=uuid.uuid4(), name="C",
             component_ids=frozenset({c_comp}),
@@ -380,11 +381,12 @@ class TestEncapsulatedExportMigration:
         assert lay_loaded.groups[c.id].exported_pins == frozenset({ep})
 
     def test_chain_legal_exports_preserved(self, tmp_path: Path) -> None:
-        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.schematic.net import PinRef
 
         board = _perfboard()
         c_comp = uuid.uuid4()
-        ep = ExportedPin(component_id=c_comp, pin_number=1)
+        ep = PinRef(component_id=c_comp, pin_number=1)
         c = ComponentGroup(
             id=uuid.uuid4(), name="C",
             component_ids=frozenset({c_comp}),
@@ -410,13 +412,14 @@ class TestEncapsulatedExportMigration:
         assert lay_loaded.groups[c.id].exported_pins == frozenset({ep})
 
     def test_mixed_legal_and_invalid(self, tmp_path: Path) -> None:
-        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.schematic.net import PinRef
 
         board = _perfboard()
         a_direct = uuid.uuid4()
         c_grand = uuid.uuid4()
-        ep_legal = ExportedPin(component_id=a_direct, pin_number=2)
-        ep_invalid = ExportedPin(component_id=c_grand, pin_number=1)
+        ep_legal = PinRef(component_id=a_direct, pin_number=2)
+        ep_invalid = PinRef(component_id=c_grand, pin_number=1)
 
         c = ComponentGroup(
             id=uuid.uuid4(), name="C",
@@ -443,11 +446,12 @@ class TestEncapsulatedExportMigration:
 
     def test_round_trip_legal_unchanged(self, tmp_path: Path) -> None:
         # Save → load → save → load: legal exports survive every cycle.
-        from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.schematic.net import PinRef
 
         board = _perfboard()
         comp = uuid.uuid4()
-        ep = ExportedPin(component_id=comp, pin_number=1)
+        ep = PinRef(component_id=comp, pin_number=1)
         g = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({comp}),

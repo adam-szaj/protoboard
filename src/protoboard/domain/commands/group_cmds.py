@@ -10,7 +10,8 @@ import structlog
 
 from protoboard.domain.commands.base import Command
 from protoboard.domain.commands.component_cmds import ComponentState
-from protoboard.domain.layout.group import ComponentGroup, ExportedPin, all_component_ids, would_create_cycle
+from protoboard.domain.layout.group import ComponentGroup, all_component_ids, would_create_cycle
+from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
@@ -513,8 +514,8 @@ class SetExportedPinsCommand(Command[ComponentState]):
     """Atomically replace the exported_pins of a group (supports undo)."""
 
     group_id: uuid.UUID
-    new_exported: frozenset[ExportedPin]
-    _old_exported: frozenset[ExportedPin] = field(
+    new_exported: frozenset[PinRef]
+    _old_exported: frozenset[PinRef] = field(
         default_factory=frozenset, init=False, repr=False
     )
 

@@ -19,7 +19,8 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+from protoboard.domain.layout.group import ComponentGroup
+from protoboard.domain.schematic.net import PinRef
 
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
@@ -152,13 +153,13 @@ class GroupTree:
         group_id: uuid.UUID,
         instances: dict[uuid.UUID, "ComponentInstance"],
         definitions: dict[str, "ComponentDefinition"],
-    ) -> frozenset[ExportedPin]:
+    ) -> frozenset[PinRef]:
         """Pins that may legally appear in ``G.exported_pins``: every pin of
         every direct member ∪ each direct child's already-exported pins."""
         group = self._groups.get(group_id)
         if group is None:
             return frozenset()
-        surface: set[ExportedPin] = set()
+        surface: set[PinRef] = set()
         for cid in group.component_ids:
             inst = instances.get(cid)
             if inst is None:
@@ -167,7 +168,7 @@ class GroupTree:
             if defn is None:
                 continue
             for pin_num in range(1, defn.footprint.pin_count() + 1):
-                surface.add(ExportedPin(component_id=cid, pin_number=pin_num))
+                surface.add(PinRef(component_id=cid, pin_number=pin_num))
         for child_id in group.child_group_ids:
             child = self._groups.get(child_id)
             if child is None:
@@ -177,20 +178,20 @@ class GroupTree:
 
     def validate_exported_pins(
         self, group_id: uuid.UUID
-    ) -> frozenset[ExportedPin]:
+    ) -> frozenset[PinRef]:
         """Subset of ``G.exported_pins`` that violates encapsulation (component
         neither a direct member of G nor re-exported by a direct child)."""
         group = self._groups.get(group_id)
         if group is None:
             return frozenset()
         direct_members = group.component_ids
-        child_exports: set[ExportedPin] = set()
+        child_exports: set[PinRef] = set()
         for child_id in group.child_group_ids:
             child = self._groups.get(child_id)
             if child is None:
                 continue
             child_exports |= child.exported_pins
-        invalid: set[ExportedPin] = set()
+        invalid: set[PinRef] = set()
         for ep in group.exported_pins:
             if ep.component_id in direct_members:
                 continue
@@ -201,7 +202,7 @@ class GroupTree:
 
     def external_pins_for_group(
         self, group_id: uuid.UUID, schematic: "Schematic"
-    ) -> frozenset[ExportedPin]:
+    ) -> frozenset[PinRef]:
         """Minimal re-export set for *group_id*: for every net reaching outside
         G's recursive members (or global), at least one pin from G's exposable
         surface."""
@@ -212,14 +213,14 @@ class GroupTree:
         direct_members = group.component_ids
         recursive_members = self.all_component_ids(group_id)
 
-        child_reexports: set[ExportedPin] = set()
+        child_reexports: set[PinRef] = set()
         for child_id in group.child_group_ids:
             child = self._groups.get(child_id)
             if child is None:
                 continue
             child_reexports |= child.exported_pins
 
-        result: set[ExportedPin] = set()
+        result: set[PinRef] = set()
         for net in schematic.nets.values():
             if not net.pins:
                 continue
@@ -236,7 +237,7 @@ class GroupTree:
             for p in net.pins:
                 if p.component_id in direct_members:
                     result.add(
-                        ExportedPin(
+                        PinRef(
                             component_id=p.component_id,
                             pin_number=p.pin_number,
                         )

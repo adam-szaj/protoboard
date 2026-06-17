@@ -23,7 +23,7 @@ import uuid
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.group_ownership import (
     group_bbox_with_owned_wires,
     net_is_internal_to_group,
@@ -83,7 +83,7 @@ def _wire(
 
 def _make_group(
     comp_ids: frozenset[uuid.UUID],
-    exported: frozenset[ExportedPin] = frozenset(),
+    exported: frozenset[PinRef] = frozenset(),
 ) -> ComponentGroup:
     return ComponentGroup(
         id=uuid.uuid4(),
@@ -118,7 +118,7 @@ class TestNetIsInternalToGroup:
         c1, c2 = uuid.uuid4(), uuid.uuid4()
         group = _make_group(
             frozenset({c1, c2}),
-            exported=frozenset({ExportedPin(c1, 1)}),
+            exported=frozenset({PinRef(c1, 1)}),
         )
         net = _net("N1", {PinRef(c1, 1), PinRef(c2, 1)})
         sch = Schematic(nets={net.id: net})
@@ -203,7 +203,7 @@ class TestWireOwnedBothPinKnots:
         c1, c2 = uuid.uuid4(), uuid.uuid4()
         group = _make_group(
             frozenset({c1, c2}),
-            exported=frozenset({ExportedPin(c1, 1)}),
+            exported=frozenset({PinRef(c1, 1)}),
         )
         net = _net("INT", {PinRef(c1, 1), PinRef(c2, 1)})
         sch = Schematic(nets={net.id: net})
@@ -246,7 +246,7 @@ class TestWireOwnedHalfOrphan:
         c1, c2 = uuid.uuid4(), uuid.uuid4()
         group = _make_group(
             frozenset({c1, c2}),
-            exported=frozenset({ExportedPin(c1, 1)}),
+            exported=frozenset({PinRef(c1, 1)}),
         )
         net = _net("EXP", {PinRef(c1, 1), PinRef(c2, 1)})
         sch = Schematic(nets={net.id: net})

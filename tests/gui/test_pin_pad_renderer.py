@@ -19,7 +19,7 @@ from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
 from protoboard.domain.layout.pin_pad_classification import (
     ModifierShape,
@@ -71,7 +71,7 @@ def _resistor_setup(
             id=gid, name="G",
             component_ids=frozenset({inst.id}),
             exported_pins=frozenset(
-                ExportedPin(component_id=inst.id, pin_number=n)
+                PinRef(component_id=inst.id, pin_number=n)
                 for n in exported_pin_numbers
             ),
         )

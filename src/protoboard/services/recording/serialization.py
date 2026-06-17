@@ -56,7 +56,8 @@ from protoboard.domain.commands.net_cmds import (
     UnassignPinCommand,
 )
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+from protoboard.domain.layout.group import ComponentGroup
+from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
 from protoboard.errors import SerializationError
@@ -182,16 +183,16 @@ def _wire_from(d: dict[str, Any]) -> Wire:
     )
 
 
-def _exported_pins_to(pins: frozenset[ExportedPin]) -> list[dict[str, Any]]:
+def _exported_pins_to(pins: frozenset[PinRef]) -> list[dict[str, Any]]:
     return [
         {"component_id": _uuid_to(ep.component_id), "pin_number": ep.pin_number}
         for ep in sorted(pins, key=lambda e: (str(e.component_id), e.pin_number))
     ]
 
 
-def _exported_pins_from(raw: Any) -> frozenset[ExportedPin]:
+def _exported_pins_from(raw: Any) -> frozenset[PinRef]:
     return frozenset(
-        ExportedPin(
+        PinRef(
             component_id=_uuid_from(d["component_id"]),
             pin_number=int(d["pin_number"]),
         )

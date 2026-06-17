@@ -7,20 +7,13 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 
 if TYPE_CHECKING:
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.schematic.schematic import Schematic
-
-
-@dataclass(frozen=True)
-class ExportedPin:
-    """A pin exposed by a group as an external connection point."""
-
-    component_id: uuid.UUID
-    pin_number: int
 
 
 @dataclass(frozen=True)
@@ -40,7 +33,7 @@ class ComponentGroup:
     name: str
     component_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
     child_group_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
-    exported_pins: frozenset[ExportedPin] = field(default_factory=frozenset)
+    exported_pins: frozenset[PinRef] = field(default_factory=frozenset)
     rotation: int = 0
     origin: Point | None = None
     # Unified drag model (2026-06-02): when True, this group's internal
@@ -60,7 +53,7 @@ class ComponentGroup:
 # keep importing the familiar names. New code should prefer
 # ``GroupTree(groups).<method>`` (or ``EditorSession.group_tree()``).
 # ``GroupTree`` is imported lazily to avoid a circular import
-# (``group_tree`` imports ``ComponentGroup``/``ExportedPin`` from here).
+# (``group_tree`` imports ``ComponentGroup`` from here).
 # ---------------------------------------------------------------------------
 
 
@@ -80,7 +73,7 @@ def exposable_surface(
     group_id: uuid.UUID,
     instances: dict[uuid.UUID, "ComponentInstance"],
     definitions: dict[str, "ComponentDefinition"],
-) -> frozenset[ExportedPin]:
+) -> frozenset[PinRef]:
     """Pins that may legally appear in ``G.exported_pins``.
 
     Shim for :meth:`GroupTree.exposable_surface`.
@@ -93,7 +86,7 @@ def exposable_surface(
 def validate_exported_pins(
     groups: dict[uuid.UUID, ComponentGroup],
     group_id: uuid.UUID,
-) -> frozenset[ExportedPin]:
+) -> frozenset[PinRef]:
     """Subset of ``G.exported_pins`` that violates encapsulation.
 
     Shim for :meth:`GroupTree.validate_exported_pins`.
@@ -120,7 +113,7 @@ def external_pins_for_group(
     groups: dict[uuid.UUID, ComponentGroup],
     group_id: uuid.UUID,
     schematic: "Schematic",
-) -> frozenset[ExportedPin]:
+) -> frozenset[PinRef]:
     """Minimal re-export set for *group_id* satisfying encapsulation.
 
     Shim for :meth:`GroupTree.external_pins_for_group`.

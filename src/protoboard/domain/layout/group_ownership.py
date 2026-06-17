@@ -22,8 +22,8 @@ A wire is **not owned** when:
   covers the DRC-short case "external pin glued onto an internal net";
   ownership classification stays clean — DRC reports the short).
 * The wire's resolved net is exported (one or more pins of the net are
-  declared as ``ExportedPin``) — half-orphan tails of exported nets are
-  visible interface, not group internals.
+  in the group's ``exported_pins``) — half-orphan tails of exported nets
+  are visible interface, not group internals.
 * Both endpoints are JointKnots without any group-pin anchor — orphan
   fragments are never anyone's structural property.
 

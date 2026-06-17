@@ -15,9 +15,9 @@ from protoboard.domain.commands.group_cmds import (
     RemoveFromGroupCommand,
     RenameGroupCommand,
 )
+from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.layout.group import (
     ComponentGroup,
-    ExportedPin,
     all_component_ids,
     exposable_surface,
     parent_group_of,
@@ -707,14 +707,14 @@ class TestExposableSurface:
             groups, g.id, {inst.id: inst}, {"DUT": defn}
         )
         assert surface == frozenset(
-            ExportedPin(component_id=inst.id, pin_number=p) for p in (1, 2, 3)
+            PinRef(component_id=inst.id, pin_number=p) for p in (1, 2, 3)
         )
 
     def test_includes_child_reexports(self) -> None:
         # A directly contains nothing; B (child of A) contains U1 and exports its pin 2.
         defn = _make_defn(pin_count=3)
         u1 = _make_inst("DUT", "U1")
-        ep = ExportedPin(component_id=u1.id, pin_number=2)
+        ep = PinRef(component_id=u1.id, pin_number=2)
         b = _make_group(
             name="B", comp_ids=frozenset({u1.id})
         )
@@ -735,7 +735,7 @@ class TestExposableSurface:
         # A[B[C]], C exports c1 pin 1, B does NOT re-export.
         defn = _make_defn(pin_count=2)
         c1 = _make_inst("DUT", "C1")
-        ep = ExportedPin(component_id=c1.id, pin_number=1)
+        ep = PinRef(component_id=c1.id, pin_number=1)
         c = _make_group(name="C", comp_ids=frozenset({c1.id}))
         c = ComponentGroup(
             id=c.id, name=c.name, component_ids=c.component_ids,
@@ -754,7 +754,7 @@ class TestExposableSurface:
         # A[B[C]], C exports c1 pin 1, B re-exports it → surface(A) contains it.
         defn = _make_defn(pin_count=2)
         c1 = _make_inst("DUT", "C1")
-        ep = ExportedPin(component_id=c1.id, pin_number=1)
+        ep = PinRef(component_id=c1.id, pin_number=1)
         c = _make_group(name="C", comp_ids=frozenset({c1.id}))
         c = ComponentGroup(
             id=c.id, name=c.name, component_ids=c.component_ids,
@@ -782,14 +782,14 @@ class TestExposableSurface:
         assert exposable_surface(groups, g.id, {}, {}) == frozenset()
 
 
-class TestValidateExportedPins:
+class TestValidatePinRefs:
     def test_no_exports_is_valid(self) -> None:
         g = _make_group()
         assert validate_exported_pins({g.id: g}, g.id) == frozenset()
 
     def test_direct_member_pin_is_valid(self) -> None:
         cid = uuid.uuid4()
-        ep = ExportedPin(component_id=cid, pin_number=1)
+        ep = PinRef(component_id=cid, pin_number=1)
         g = ComponentGroup(
             id=uuid.uuid4(),
             name="G",
@@ -802,7 +802,7 @@ class TestValidateExportedPins:
         # A[B[C]]; A.exported_pins lists a pin of c1 (which lives in C).
         # B doesn't re-export it → A's entry is invalid.
         c_comp = uuid.uuid4()
-        ep = ExportedPin(component_id=c_comp, pin_number=1)
+        ep = PinRef(component_id=c_comp, pin_number=1)
         c = ComponentGroup(
             id=uuid.uuid4(), name="C", component_ids=frozenset({c_comp}),
             exported_pins=frozenset({ep}),
@@ -820,7 +820,7 @@ class TestValidateExportedPins:
     def test_chain_makes_export_valid(self) -> None:
         # Same setup but B also re-exports the pin → A's entry is valid.
         c_comp = uuid.uuid4()
-        ep = ExportedPin(component_id=c_comp, pin_number=1)
+        ep = PinRef(component_id=c_comp, pin_number=1)
         c = ComponentGroup(
             id=uuid.uuid4(), name="C", component_ids=frozenset({c_comp}),
             exported_pins=frozenset({ep}),
@@ -842,8 +842,8 @@ class TestValidateExportedPins:
         # A has a direct member c_self (valid) + a flat grandchild export (invalid).
         c_self = uuid.uuid4()
         c_grand = uuid.uuid4()
-        ep_self = ExportedPin(component_id=c_self, pin_number=1)
-        ep_grand = ExportedPin(component_id=c_grand, pin_number=1)
+        ep_self = PinRef(component_id=c_self, pin_number=1)
+        ep_grand = PinRef(component_id=c_grand, pin_number=1)
         c = ComponentGroup(
             id=uuid.uuid4(), name="C", component_ids=frozenset({c_grand}),
             exported_pins=frozenset({ep_grand}),
@@ -903,7 +903,7 @@ class TestExternalPinsForGroup:
         result = external_pins_for_group(groups, g.id, sch)
         # c1 pin 1 reaches outside via N_EXT → must be re-exported.
         # c1 pin 2 is fully internal — NOT exported.
-        assert result == frozenset({ExportedPin(component_id=c1, pin_number=1)})
+        assert result == frozenset({PinRef(component_id=c1, pin_number=1)})
 
     def test_grandchild_pin_not_promoted_when_chain_broken(self) -> None:
         # A[B[c1, c2]]; B does NOT export c1.  Auto-export on A must NOT
@@ -928,7 +928,7 @@ class TestExternalPinsForGroup:
         names = {"c1": c1, "c2": c2, "c_out": c_out}
         sch = self._build_sch(names)
 
-        ep = ExportedPin(component_id=c1, pin_number=1)
+        ep = PinRef(component_id=c1, pin_number=1)
         b = ComponentGroup(
             id=uuid.uuid4(), name="B",
             component_ids=frozenset({c1, c2}),
@@ -958,8 +958,8 @@ class TestExternalPinsForGroup:
         groups = {g.id: g}
         result = external_pins_for_group(groups, g.id, sch)
         assert result == frozenset({
-            ExportedPin(component_id=c1, pin_number=3),
-            ExportedPin(component_id=c2, pin_number=3),
+            PinRef(component_id=c1, pin_number=3),
+            PinRef(component_id=c2, pin_number=3),
         })
 
     def test_pure_internal_net_not_exported(self) -> None:
@@ -995,7 +995,7 @@ class TestExternalPinsForGroup:
         names = {"c1": c1, "c2": c2, "c_out": c_out}
         sch = self._build_sch(names)
 
-        ep_internal = ExportedPin(component_id=c2, pin_number=1)
+        ep_internal = PinRef(component_id=c2, pin_number=1)
         b = ComponentGroup(
             id=uuid.uuid4(), name="B",
             component_ids=frozenset({c1, c2}),

@@ -914,13 +914,13 @@ def _layout_from_yaml(text: str) -> Layout:
                     color=raw.get("color"),
                 )
             )
-    from protoboard.domain.layout.group import ComponentGroup, ExportedPin
+    from protoboard.domain.layout.group import ComponentGroup
 
     groups: dict[uuid.UUID, ComponentGroup] = {}
     for raw in data.get("groups") or []:
         gid = uuid.UUID(raw["id"])
-        exported_pins: frozenset[ExportedPin] = frozenset(
-            ExportedPin(
+        exported_pins: frozenset[PinRef] = frozenset(
+            PinRef(
                 component_id=uuid.UUID(ep["component_id"]),
                 pin_number=int(ep["pin_number"]),
             )
