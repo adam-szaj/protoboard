@@ -477,3 +477,43 @@ class RotateGroupCommand(Command[ComponentState]):
             restore_rotation(state, self._snapshot)
         if self._old_group is not None:
             state.layout.groups[self.group_id] = self._old_group
+
+
+@dataclass
+class RotateComponentsCommand(Command[ComponentState]):
+    """Rotate one or more loose components, each around its OWN position.
+
+    The component analogue of :class:`RotateGroupCommand`: every component
+    pivots about its own placement position, so positions stay put and only
+    each ``rotation`` field bumps by ``delta`` (the same shared core,
+    ``rotate_components_around``, with ``origin = placement.position``).
+    Owned wires are not rotated — matching the historic loose-rotation
+    behaviour; rotating them is a deliberate future option.
+    """
+
+    comp_ids: frozenset[uuid.UUID]
+    delta: int
+    _snapshots: list[RotateSnapshot] = field(
+        default_factory=list, init=False, repr=False
+    )
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        n = len(self.comp_ids)
+        return f"Rotate {n} component{'s' if n != 1 else ''}"
+
+    def apply(self, state: ComponentState) -> None:
+        snapshots: list[RotateSnapshot] = []
+        for cid in self.comp_ids:
+            pl = state.layout.placements.get(cid)
+            if pl is None:
+                continue
+            snapshots.append(rotate_components_around(
+                state, frozenset({cid}), pl.position, self.delta,
+                wire_ids=frozenset(),
+            ))
+        object.__setattr__(self, "_snapshots", snapshots)
+
+    def revert(self, state: ComponentState) -> None:
+        for snap in reversed(self._snapshots):
+            restore_rotation(state, snap)

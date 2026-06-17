@@ -5106,53 +5106,57 @@ class SelectTool(_Tool):
         self._draw_highlight(comp_id)
 
     def _rotate_multi(self, delta: int = 90) -> None:
-        if self._selected_group_id is not None:
-            from protoboard.domain.commands.base import Command
-            from protoboard.domain.commands.group_cmds import RotateGroupCommand
-            from typing import cast
-            rotate_cmd: Command[ComponentState] = cast(
-                Command[ComponentState],
-                RotateGroupCommand(group_id=self._selected_group_id, delta=delta % 360),
-            )
-            # Collect group member IDs for crossing-wire check after rotation.
-            grp_comp_ids = self._session.group_tree().all_component_ids(
-                self._selected_group_id
-            )
-            self._session.stack.execute(rotate_cmd, self._session)
-            remove_cmds = self._remove_crossing_wires(grp_comp_ids)
-            if remove_cmds:
-                self._session.stack.execute(
-                    MacroCommand(remove_cmds, description="Remove crossing wires"),
-                    self._session,
-                )
-            self._session.layout_changed.emit()
-            self._redraw_multi_highlights()
-            return
-        ids = [cid for cid in self._selected_ids if not self._is_locked_in_group(cid)]
-        if not ids:
-            return
-        cmds: list[MoveComponentCommand] = []
-        for cid in ids:
-            placement = self._session.layout.placements.get(cid)
-            if placement is None:
-                continue
-            new_pl = placement.copy()
-            new_pl.rotation = (placement.rotation + delta) % 360
-            cmds.append(MoveComponentCommand(
-                component_id=cid,
-                new_placement=new_pl,
-                old_placement=placement.copy(),
-            ))
-        if not cmds:
-            return
         from typing import cast
         from protoboard.domain.commands.base import Command
-        macro = MacroCommand(
-            cast(list[Command[ComponentState]], cmds),
-            description=f"Rotate {len(cmds)} components",
+        from protoboard.domain.commands.group_cmds import (
+            RotateComponentsCommand,
+            RotateGroupCommand,
         )
-        self._session.stack.execute(macro, self._session)
-        remove_cmds = self._remove_crossing_wires(set(ids))
+        # Pick the rotate command + the set of affected component ids.
+        # Group: rotate around the group origin (members pivot).  Loose:
+        # each component rotates around its own position (spin in place).
+        # Both go through the same rotate-around-origin core; only the
+        # pivot differs.
+        if self._selected_group_id is not None:
+            from protoboard.domain.layout.group import all_component_ids
+            affected_ids = all_component_ids(
+                self._session.layout.groups, self._selected_group_id
+            )
+            rotate_cmd: Command[ComponentState] = cast(
+                Command[ComponentState],
+                RotateGroupCommand(
+                    group_id=self._selected_group_id, delta=delta % 360
+                ),
+            )
+        else:
+            ids = frozenset(
+                cid for cid in self._selected_ids
+                if not self._is_locked_in_group(cid)
+                and self._session.layout.placements.get(cid) is not None
+            )
+            if not ids:
+                return
+            affected_ids = ids
+            rotate_cmd = cast(
+                Command[ComponentState],
+                RotateComponentsCommand(comp_ids=ids, delta=delta % 360),
+            )
+        self._apply_rotate(rotate_cmd, set(affected_ids))
+
+    def _apply_rotate(
+        self, rotate_cmd: object, affected_ids: set[uuid.UUID],
+    ) -> None:
+        """Execute a rotate command, then drop any wires it pushed across
+        alien pads, and refresh the multi-selection highlights.
+
+        Shared tail of every multi-rotate path (group or loose).
+        """
+        from typing import cast
+        from protoboard.domain.commands.base import Command
+        self._session.stack.execute(
+            cast(Command[ComponentState], rotate_cmd), self._session
+        )
+        remove_cmds = self._remove_crossing_wires(affected_ids)
         if remove_cmds:
             self._session.stack.execute(
                 MacroCommand(remove_cmds, description="Remove crossing wires"),
