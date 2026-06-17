@@ -29,7 +29,13 @@ if TYPE_CHECKING:
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.knot import JointKnot, WirePinKnot
     from protoboard.domain.layout.layout import Layout
-    from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
+    from protoboard.domain.layout.placement import ComponentPlacement
+    from protoboard.domain.layout.wire import (
+        Fragment,
+        KnotRef,
+        Wire,
+        WireCollection,
+    )
     from protoboard.domain.schematic.net import PinRef
     from protoboard.domain.schematic.schematic import Schematic
     from protoboard.services.pad_strategy import PadStrategy
@@ -2137,3 +2143,220 @@ def resolve_endpoint_knot(
     # Joint at this position (off-pad joints are flagged by DRC, not here).
     jk = layout.create_joint_knot(point)
     return KnotRef(id=jk.id), jk
+
+
+def _dbg_enabled() -> bool:
+    """Cheap gate for hot-path debug logs (see ``select_tool._dbg_enabled``)."""
+    import logging
+    return logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
+
+
+def _pts_equal(a: Point, b: Point) -> bool:
+    return abs(a.x - b.x) < _EPS_KNOT and abs(a.y - b.y) < _EPS_KNOT
+
+
+def update_wires_for_move(
+    wire_list: WireCollection,
+    *,
+    layout: Layout,
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+    comp_id: uuid.UUID,
+    old_pl: ComponentPlacement,
+    new_pl: ComponentPlacement,
+    exclude_ids: frozenset[uuid.UUID] = frozenset(),
+) -> None:
+    """Adjust wire endpoints that coincide with pins of the moved component.
+
+    For each pin of the component, if a wire endpoint was at the old pin
+    position, move it to the new pin position.  If the resulting path
+    collapses (start == end) or has fewer than 2 distinct points, the
+    wire is removed.  Mutates ``wire_list`` in place (the caller passes
+    ``state.layout.wires``).
+
+    exclude_ids: wire IDs already translated by live drag — skipped here to
+    avoid double-translation when old_pin_pos of this component coincides with
+    the (already-shifted) position of another component's pin.
+    """
+    from protoboard.domain.layout.knot import PinKnot
+    from protoboard.domain.layout.placement import pin_world_position
+
+    inst = instances.get(comp_id)
+    if inst is None:
+        return
+    defn = components.get(inst.definition_ref)
+    if defn is None:
+        return
+
+    n_pins = defn.footprint.pin_count()
+    # Build map: old_pin_pos → new_pin_pos
+    pin_map: dict[tuple[float, float], Point] = {}
+    for pin_num in range(1, n_pins + 1):
+        old_pos = pin_world_position(defn.footprint, old_pl, pin_num)
+        new_pos = pin_world_position(defn.footprint, new_pl, pin_num)
+        if not _pts_equal(old_pos, new_pos):
+            pin_map[(round(old_pos.x, 6), round(old_pos.y, 6))] = new_pos
+
+    if not pin_map:
+        return
+
+    if _dbg_enabled():
+        _log.debug(
+            "drag.update_wires_for_move.start",
+            comp_id=str(comp_id),
+            refdes=getattr(inst, "refdes", "?"),
+            exclude=[str(wid) for wid in exclude_ids],
+            pin_map=[
+                (k, (v.x, v.y)) for k, v in pin_map.items()
+            ],
+            wires_in=[str(w.id) for w in wire_list],
+        )
+
+    def _wire_anchored_at_comp_pin(
+        w: Wire, pin_num: int, old_pin_pos: Point,
+    ) -> bool:
+        """True if *w* is logically anchored to ``(comp_id, pin_num)``.
+
+        Anchor evidence comes in two flavours:
+
+        1. **Strong** — either endpoint knot ref is a PinKnot whose
+           ``pin`` points at ``(comp_id, pin_num)``. This is the
+           canonical post-2026-05-27 wire model and the only
+           dependable signal.
+        2. **Weak fallback** — the wire carries *no* knot refs at all
+           (legacy persistence, hand-constructed test wires) AND one
+           of its path endpoints sits on ``old_pin_pos``. We can't
+           prove ownership, but treating the endpoint as anchored is
+           the historic behaviour ``update_wires_for_move`` had
+           before the fix — needed by tests like
+           ``test_skewed_wire_dropped_on_drag_commit``.
+
+        Without this gate, ``update_wires_for_move`` would drag every
+        wire whose path happens to pass through the *old* pin position
+        — a foreign wire ending or crossing at (x, y) before the move
+        would silently snap to the new pin position, sticking itself
+        to the moved component (user-observed bug 2026-05-31).
+        """
+        # Strong: explicit PinKnot ref.
+        has_any_knot_ref = False
+        for ref in (w.a, w.b):
+            if ref is None:
+                continue
+            has_any_knot_ref = True
+            knot = layout.knots.get(ref.id)
+            if isinstance(knot, PinKnot):
+                if (knot.pin.component_id == comp_id
+                        and knot.pin.pin_number == pin_num):
+                    return True
+        if has_any_knot_ref:
+            return False
+        # Weak fallback: orphan wire with no knot refs at all. Match
+        # endpoints (not interior vertices) against old pin position.
+        if not w.path:
+            return False
+        for endpoint in (w.path[0], w.path[-1]):
+            if _pts_equal(endpoint, old_pin_pos):
+                return True
+        return False
+
+    new_wires: list[Wire] = []
+    for wire in wire_list:
+        if wire.id in exclude_ids:
+            # Even excluded (already live-translated) wires may have ended up
+            # with a skewed segment if the component's pin offsets stretched
+            # the path unevenly. Drop those.
+            if wire_has_skewed_segment(wire):
+                if _dbg_enabled():
+                    _log.debug(
+                        "drag.update_wires_for_move.drop_excluded_skewed",
+                        wire_id=str(wire.id),
+                        path=[(p.x, p.y) for p in wire.path],
+                    )
+                continue
+            new_wires.append(wire)
+            continue
+        # Build a per-wire pin_map containing only entries for pins the
+        # wire is *actually* anchored to (via PinKnot endpoint refs).
+        # Wires that merely *cross* an old pin position without being
+        # soldered to it are left untouched — translating them would
+        # drag a foreign wire onto the new pin location.
+        wire_pin_map: dict[tuple[float, float], Point] = {}
+        for pin_num in range(1, n_pins + 1):
+            old_pos = pin_world_position(defn.footprint, old_pl, pin_num)
+            new_pos = pin_world_position(defn.footprint, new_pl, pin_num)
+            if _pts_equal(old_pos, new_pos):
+                continue
+            if _wire_anchored_at_comp_pin(wire, pin_num, old_pos):
+                wire_pin_map[(round(old_pos.x, 6), round(old_pos.y, 6))] = new_pos
+        new_path: list[Point] = []
+        pin_map_hits: list[tuple[tuple[float, float], tuple[float, float]]] = []
+        for pt in wire.path:
+            key = (round(pt.x, 6), round(pt.y, 6))
+            mapped = wire_pin_map.get(key)
+            if mapped is not None:
+                pin_map_hits.append((key, (mapped.x, mapped.y)))
+                new_path.append(mapped)
+            else:
+                new_path.append(pt)
+        # Drop wire if it collapsed (all points identical or < 2 distinct).
+        distinct = {(round(p.x, 6), round(p.y, 6)) for p in new_path}
+        if len(distinct) < 2:
+            if _dbg_enabled():
+                _log.debug(
+                    "drag.update_wires_for_move.drop_collapsed",
+                    wire_id=str(wire.id),
+                    old_path=[(p.x, p.y) for p in wire.path],
+                    new_path=[(p.x, p.y) for p in new_path],
+                    pin_map_hits=pin_map_hits,
+                )
+            continue
+        if pin_map_hits and _dbg_enabled():
+            _log.debug(
+                "drag.update_wires_for_move.translated",
+                wire_id=str(wire.id),
+                old_path=[(p.x, p.y) for p in wire.path],
+                new_path=[(p.x, p.y) for p in new_path],
+                pin_map_hits=pin_map_hits,
+            )
+        if any(
+            not _pts_equal(new_path[i], wire.path[i])
+            for i in range(len(new_path))
+        ):
+            wire.path = new_path
+            # Keep fragments in sync — same boundary topology, translated
+            # vertices via the per-wire pin_map.  Single-fragment wires
+            # stay single.
+            if wire.fragments:
+                new_fragments_local = []
+                for frag in wire.fragments:
+                    translated = [
+                        wire_pin_map.get(
+                            (round(p.x, 6), round(p.y, 6)), p,
+                        )
+                        for p in frag.path
+                    ]
+                    new_fragments_local.append(
+                        type(frag)(path=translated, side=frag.side),
+                    )
+                wire.fragments = new_fragments_local
+        # Drop wire if any segment became skewed (neither orthogonal nor
+        # diagonal) after the endpoint translation.  Cannot be represented
+        # by the routing/cost model and is almost always a visual artifact
+        # of repeated drag.
+        if wire_has_skewed_segment(wire):
+            if _dbg_enabled():
+                _log.debug(
+                    "drag.update_wires_for_move.drop_skewed",
+                    wire_id=str(wire.id),
+                    path=[(p.x, p.y) for p in wire.path],
+                )
+            continue
+        new_wires.append(wire)
+
+    if _dbg_enabled():
+        _log.debug(
+            "drag.update_wires_for_move.done",
+            comp_id=str(comp_id),
+            wires_out=[str(w.id) for w in new_wires],
+        )
+    wire_list[:] = new_wires

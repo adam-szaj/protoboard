@@ -21,9 +21,6 @@ import uuid
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.commands.component_cmds import (
-    _update_wires_for_move,
-)
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
@@ -31,9 +28,36 @@ from protoboard.domain.layout.knot import PinKnot
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import KnotRef, Wire
+from protoboard.domain.layout.wire_utils import update_wires_for_move
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
+
+
+def _update_wires_for_move(
+    state: _State,
+    comp_id: uuid.UUID,
+    old_pl: ComponentPlacement,
+    new_pl: ComponentPlacement,
+    exclude_ids: frozenset[uuid.UUID],
+) -> None:
+    """Adapter: spread the test ``_State`` into ``update_wires_for_move``.
+
+    ``update_wires_for_move`` moved to ``wire_utils`` and now takes the
+    wire list plus explicit ``layout``/``instances``/``components`` rather
+    than reaching through a ``ComponentState``.  This wrapper keeps each
+    test's call site unchanged.
+    """
+    update_wires_for_move(
+        state.layout.wires,
+        layout=state.layout,
+        instances=state.instances,
+        components=state.components,
+        comp_id=comp_id,
+        old_pl=old_pl,
+        new_pl=new_pl,
+        exclude_ids=exclude_ids,
+    )
 
 
 def _perfboard(rows: int = 6, cols: int = 6) -> Board:
