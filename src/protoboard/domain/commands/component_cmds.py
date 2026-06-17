@@ -35,11 +35,13 @@ from protoboard.domain.layout.wire_utils import (
     CollapseRecord as _CollapseRecord,
     SplitRecord as _SplitRecord,
     WireSnapshot as _WireSnapshot,
+    collapse_endpoint_joints as _collapse_endpoint_joints,
     enrich_insulated_fragments_with_pad_nodes as _enrich_insulated_fragments_with_pad_nodes,  # noqa: E501
     enrich_insulated_wire_with_pad_nodes as _enrich_insulated_with_pad_nodes,
     restore_collapse as _restore_collapse,
     restore_split as _restore_split,
     snapshot_wire as _snapshot_wire,
+    split_existing_wires_at_endpoints as _split_existing_wires_at_endpoints,
 )
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
@@ -517,168 +519,6 @@ def _resolve_endpoint_knot(
     return KnotRef(id=jk.id), jk
 
 
-def _split_existing_wires_at_endpoints(
-    state: ComponentState, wire: Wire,
-) -> "list[_SplitRecord]":
-    """For each endpoint of ``wire`` that lands on the interior vertex
-    of an existing wire, atomically build a T-junction (split that
-    wire and re-anchor ``wire``'s endpoint to the shared hub).
-
-    Returns one ``_SplitRecord`` per split so revert can stitch the
-    split halves back into a single wire.  Pin endpoints of ``wire``
-    still take precedence over interior hits — pins are physical hubs
-    and never demote an existing wire to T-junction status.
-    """
-    from protoboard.domain.layout.wire_utils import (
-        TJunctionVerdict,
-        can_form_t_junction,
-        find_wire_with_interior_vertex_at,
-        make_t_junction,
-    )
-    records: list[_SplitRecord] = []
-    if wire.a is None or wire.b is None:
-        return records
-    # EditorSession exposes the full SchematicState; bare-bones tests
-    # may pass a ComponentState without ``.schematic``.  Resolve it
-    # defensively so the gate is permissive on those.
-    schematic = getattr(state, "schematic", None)
-    # Snapshot original wire endpoint positions — these don't move,
-    # but the wire's own ``a``/``b`` knot refs may change as the
-    # splits retarget them to the shared hub.
-    for endpoint_name, point in (("a", wire.path[0]), ("b", wire.path[-1])):
-        hit = find_wire_with_interior_vertex_at(state.layout, point)
-        if hit is None:
-            continue
-        w_through, vertex_idx = hit
-        if w_through.id == wire.id:
-            continue
-        # Net-conflict gate.  When a fresh wire endpoint sits inside an
-        # existing wire of a different net, we leave the geometry as a
-        # crossing — collapsing it into a shared hub would short the two
-        # nets.  When the endpoint is a pin with no net yet, the verdict
-        # tells us which net to assign before splicing.
-        verdict, orphan_pin, net_to_assign = can_form_t_junction(
-            w_through, wire, endpoint_name,
-            schematic=schematic,
-            layout=state.layout,
-            instances=state.instances,
-            components=state.components,
-            board=state.board,
-        )
-        if verdict is TJunctionVerdict.CONFLICT_REJECT:
-            continue
-        if verdict is TJunctionVerdict.INCOMPATIBLE_GEOMETRY:
-            continue
-        if verdict is TJunctionVerdict.ASSIGN_NET_TO_INCOMING_PIN:
-            if schematic is None or orphan_pin is None or net_to_assign is None:
-                continue
-            net = schematic.nets.get(net_to_assign)
-            if net is None:
-                continue
-            schematic.add_pin_to_net(orphan_pin, net_to_assign)
-        # Snapshot the pre-split state of the wire we're about to cut,
-        # so revert can rebuild it from one piece.
-        snapshot = _snapshot_wire(w_through, state.layout)
-        try:
-            w_a, w_b, _, hub = make_t_junction(
-                state.layout, w_through, vertex_idx, wire, endpoint_name,
-            )
-        except ValueError:
-            # Revert the speculative pin assignment if the split itself
-            # failed — we don't want a dangling pin-to-net link without
-            # the corresponding geometry.
-            if verdict is TJunctionVerdict.ASSIGN_NET_TO_INCOMING_PIN:
-                if schematic is not None and orphan_pin is not None and net_to_assign is not None:
-                    schematic.remove_pin_from_net(orphan_pin, net_to_assign)
-            continue
-        records.append(_SplitRecord(
-            original=snapshot,
-            new_a_id=w_a.id,
-            new_b_id=w_b.id,
-            hub_id=hub.id,  # type: ignore[union-attr]
-            incoming_endpoint=endpoint_name,
-        ))
-        # Link the AddWireCommand context to the split: external holders
-        # (SelectTool, recordings, net cache) tracking ``w_through.id``
-        # now follow only ``w_a`` — the ``w_b`` half is a brand-new wire
-        # nobody references yet.  If a wire-edit selection survives a
-        # T-junction split as orphan, this is the log to look for.
-        _log.info(
-            "wire.add.t_junction_split",
-            incoming_wire_id=str(wire.id)[:8],
-            split_wire_id=str(snapshot.wire_id)[:8],
-            split_w_a_id=str(w_a.id)[:8],
-            split_w_b_id=str(w_b.id)[:8],
-            hub_id=str(hub.id)[:8],  # type: ignore[union-attr]
-            split_point=(round(point.x, 3), round(point.y, 3)),
-        )
-    return records
-
-
-def _collapse_endpoint_joints(
-    state: ComponentState, wire: Wire,
-) -> "list[_CollapseRecord]":
-    """Run ``Layout.try_collapse_joint`` on both endpoints of ``wire``.
-
-    Walks ``wire.a`` and ``wire.b`` (after they have been resolved and the
-    wire inserted).  When an endpoint joint has exactly two incident wires
-    with matching ``insulated``, fuse them into a single Wire — the joint
-    disappears, the two source wires are replaced by one ``merged`` wire
-    keeping the smaller id (deterministic).
-
-    Returns a list of records describing each collapse so the AddWireCommand
-    can roll the layout back on revert.  The list may contain 0, 1, or 2
-    entries (one per endpoint that collapsed).  Pin endpoints are never
-    collapsed — pins are physical hubs and remain solder targets.
-    """
-    from protoboard.domain.layout.wire_utils import plated_through_pads
-    records: list[_CollapseRecord] = []
-    # Materialise plated-through set once; cheap on small boards, used by
-    # the cross-side collapse branch.  ``try_collapse_joint`` wants
-    # ``frozenset`` so freeze here once.
-    pt_pads = frozenset(plated_through_pads(state.board))
-    # Track endpoint joint ids to visit.  We snapshot the current wire's
-    # endpoints because the collapse can replace ``wire`` mid-loop (the
-    # merged Wire inherits the lower of the two ids).
-    if wire.a is None or wire.b is None:
-        return records
-    endpoint_ids = (wire.a.id, wire.b.id)
-    for ep_id in endpoint_ids:
-        # Look up joint freshly each iteration — the previous collapse may
-        # have shifted the current wire's identity (new ``wire.a``/``b``).
-        knot = state.layout.knots.get(ep_id)
-        if not isinstance(knot, JointKnot):
-            continue
-        if len(knot.wire_ids) != 2:
-            continue
-        w_ids = tuple(knot.wire_ids)
-        # Only collapse when the *other* wire has matching ``insulated`` —
-        # ``try_collapse_joint`` already checks this, but we snapshot the
-        # two source wires for revert before invoking it.
-        w1 = state.layout.wires.get(w_ids[0])
-        w2 = state.layout.wires.get(w_ids[1])
-        if w1 is None or w2 is None:
-            continue
-        if w1.insulated != w2.insulated:
-            continue
-        snapshot = _CollapseRecord(
-            joint_id=ep_id,
-            joint_pos=knot.position,
-            w1_snapshot=_snapshot_wire(w1, state.layout),
-            w2_snapshot=_snapshot_wire(w2, state.layout),
-        )
-        merged = state.layout.try_collapse_joint(
-            ep_id, plated_through_pads=pt_pads,
-        )
-        if merged is None:
-            continue
-        snapshot.merged_wire_id = merged.id
-        records.append(snapshot)
-        # Re-pin the wire so the second-endpoint pass sees the merged wire.
-        wire = merged
-    return records
-
-
 @dataclass
 class _CoLocatedFuseRecord:
     """Snapshot of one Phase-0 co-located JointKnot merge for revert.
@@ -767,7 +607,14 @@ class AddWireCommand(Command[ComponentState]):
         # that wire and re-anchor our endpoint to the shared hub
         # (T-junction with degree-3 at the meeting pad).  ``make_t_junction``
         # mutates ``self.wire``'s ``a``/``b`` knot refs in place.
-        new_splits = _split_existing_wires_at_endpoints(state, self.wire)
+        new_splits = _split_existing_wires_at_endpoints(
+            self.wire,
+            layout=state.layout,
+            board=state.board,
+            schematic=getattr(state, "schematic", None),
+            instances=state.instances,
+            components=state.components,
+        )
         if new_splits and not self._splits:
             self._splits = new_splits
         # Endpoint-merge: when this wire's endpoint sits on an off-pin pad
@@ -778,7 +625,9 @@ class AddWireCommand(Command[ComponentState]):
         # so revert() can undo it on demand.  Recompute on every apply
         # (including redo) so the layout state matches what the first
         # apply produced — the recorded snapshots are only used by revert.
-        new_collapses = _collapse_endpoint_joints(state, self.wire)
+        new_collapses = _collapse_endpoint_joints(
+            self.wire, layout=state.layout, board=state.board,
+        )
         if new_collapses and not self._collapses:
             self._collapses = new_collapses
 
@@ -887,10 +736,19 @@ class AddWireWithNetsCommand(Command[ComponentState]):
         # for the full rationale.  Same ordering matters: split first so
         # the hub exists at degree-3 before merge looks for degree-2
         # endpoint joints to collapse.
-        new_splits = _split_existing_wires_at_endpoints(state, self.wire)
+        new_splits = _split_existing_wires_at_endpoints(
+            self.wire,
+            layout=state.layout,
+            board=state.board,
+            schematic=getattr(state, "schematic", None),
+            instances=state.instances,
+            components=state.components,
+        )
         if new_splits and not self._splits:
             self._splits = new_splits
-        new_collapses = _collapse_endpoint_joints(state, self.wire)
+        new_collapses = _collapse_endpoint_joints(
+            self.wire, layout=state.layout, board=state.board,
+        )
         if new_collapses and not self._collapses:
             self._collapses = new_collapses
         if self._first_apply:
