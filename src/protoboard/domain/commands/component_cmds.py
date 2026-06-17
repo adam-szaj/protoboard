@@ -10,13 +10,16 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 import structlog
 
 from protoboard.domain.board.board import Board
-from protoboard.domain.commands.base import Command
-from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.commands.base import (
+    Command,
+    ComponentState,
+    SchematicState,
+)
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import (
@@ -78,21 +81,6 @@ def _pad_index_from_state(state: "ComponentState") -> "PadIndex | None":
         return fn()  # type: ignore[no-any-return]
     except Exception:
         return None
-
-
-class ComponentState(Protocol):
-    """Minimal state needed by all board/component commands."""
-
-    board: Board
-    layout: Layout
-    instances: dict[uuid.UUID, ComponentInstance]
-    components: dict[str, ComponentDefinition]
-
-
-class SchematicState(ComponentState, Protocol):
-    """Extended state that also exposes the schematic netlist."""
-
-    schematic: Schematic
 
 
 def build_pin_identities_for(state: ComponentState, comp_id: uuid.UUID) -> None:

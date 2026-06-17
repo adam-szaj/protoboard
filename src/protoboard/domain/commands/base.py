@@ -3,17 +3,46 @@
 
 from __future__ import annotations
 
+import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Any, ClassVar, Generic, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeVar
 
 import structlog
 
 from protoboard.errors import ProtoboardError
 
+if TYPE_CHECKING:
+    from protoboard.domain.board.board import Board
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.layout.layout import Layout
+    from protoboard.domain.schematic.schematic import Schematic
+
 _log = structlog.get_logger(__name__)
 
 T = TypeVar("T")
+
+
+class ComponentState(Protocol):
+    """Minimal state needed by all board/component commands.
+
+    A structural protocol so both ``EditorSession`` (GUI) and bare-bones
+    test stubs satisfy it without inheriting. Lives here in ``base`` — next
+    to :class:`Command`, which is generic over this state type — so command
+    modules depend on the foundation, not on ``component_cmds``.
+    """
+
+    board: "Board"
+    layout: "Layout"
+    instances: dict[uuid.UUID, "ComponentInstance"]
+    components: dict[str, "ComponentDefinition"]
+
+
+class SchematicState(ComponentState, Protocol):
+    """Extended state that also exposes the schematic netlist."""
+
+    schematic: "Schematic"
 
 
 class CommandRejectedError(ProtoboardError):
