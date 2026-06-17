@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: MIT
-"""Tests for _find_pin_at PinKnot-reuse fast-path (commit 4d8e634).
+"""Tests for find_pin_at PinKnot-reuse fast-path (commit 4d8e634).
 
 Regression: manual routing to a pin that already has a PinKnot used to
 fall through to JointKnot creation because DRC-enforcing
 ``PadStrategy.can_place_pin`` REJECT-ed the pad (rule 6 — pad carries
-wire items). The fix short-circuits: when ``state.layout.pin_knots``
-already maps a PinRef to a knot id, ``_find_pin_at`` returns that
-PinRef bypassing the strategy gate.  Rule 6 is intended for *new pin
+wire items). The fix short-circuits: when ``layout.pin_knots`` already
+maps a PinRef to a knot id, ``find_pin_at`` returns that PinRef
+bypassing the strategy gate.  Rule 6 is intended for *new pin
 placement on existing wire*, not *additional wire to an existing pin*.
 """
 
@@ -19,15 +19,39 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pad_state import Pad
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.commands.component_cmds import _find_pin_at
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.wire_utils import find_pin_at
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 from protoboard.services.pad_strategy import Decision, Verdict
+
+
+def _find_pin_at(
+    state: _State,
+    point: Point,
+    *,
+    strategy: object | None = None,
+    pad_index: object | None = None,
+) -> PinRef | None:
+    """Adapter: spread the test ``_State`` into ``find_pin_at``'s primitives.
+
+    ``find_pin_at`` now lives in ``wire_utils`` and takes explicit
+    ``layout``/``instances``/``components`` plus an optional ``pad_index``
+    (previously pulled off ``state.pad_index`` inside the function).  This
+    thin wrapper keeps each test calling a single helper.
+    """
+    return find_pin_at(
+        point,
+        layout=state.layout,
+        instances=state.instances,
+        components=state.components,
+        strategy=strategy,  # type: ignore[arg-type]
+        pad_index=pad_index,  # type: ignore[arg-type]
+    )
 
 
 def _board() -> Board:
@@ -110,9 +134,10 @@ class TestPinKnotFastPathBypassesStrategy:
             def pad_at(self, p: Point) -> Pad:  # noqa: ARG002
                 return Pad(position=pos, layers=PadLayers(top=True, bottom=True))
 
-        state.pad_index = lambda: _PadIdxStub()  # type: ignore[attr-defined]
-
-        result = _find_pin_at(state, pos, strategy=_AlwaysRejectStrategy())  # type: ignore[arg-type]
+        result = _find_pin_at(
+            state, pos,
+            strategy=_AlwaysRejectStrategy(), pad_index=_PadIdxStub(),
+        )
         assert result is None
 
     def test_existing_pinknot_bypasses_rejecting_strategy(self) -> None:
@@ -127,11 +152,12 @@ class TestPinKnotFastPathBypassesStrategy:
             def pad_at(self, p: Point) -> Pad:  # noqa: ARG002
                 return Pad(position=pos, layers=PadLayers(top=True, bottom=True))
 
-        state.pad_index = lambda: _PadIdxStub()  # type: ignore[attr-defined]
-
         # Fast-path: even though strategy would REJECT, the PinKnot is
         # already accepting wires → return the PinRef.
-        result = _find_pin_at(state, pos, strategy=_AlwaysRejectStrategy())  # type: ignore[arg-type]
+        result = _find_pin_at(
+            state, pos,
+            strategy=_AlwaysRejectStrategy(), pad_index=_PadIdxStub(),
+        )
         assert result == target
 
     def test_existing_pinknot_no_strategy_returns_pinref(self) -> None:
@@ -170,13 +196,16 @@ class TestPinKnotFastPathBypassesStrategy:
             def pad_at(self, p: Point) -> Pad:  # noqa: ARG002
                 return Pad(position=p, layers=PadLayers(top=True, bottom=True))
 
-        state.pad_index = lambda: _PadIdxStub()  # type: ignore[attr-defined]
-
+        pad_idx = _PadIdxStub()
         # Pin 1 → fast-path returns PinRef.
-        r1 = _find_pin_at(state, pos1, strategy=_AlwaysRejectStrategy())  # type: ignore[arg-type]
+        r1 = _find_pin_at(
+            state, pos1, strategy=_AlwaysRejectStrategy(), pad_index=pad_idx,
+        )
         assert r1 == PinRef(component_id=cid, pin_number=1)
         # Pin 2 → no PinKnot, strategy rejects.
-        r2 = _find_pin_at(state, pos2, strategy=_AlwaysRejectStrategy())  # type: ignore[arg-type]
+        r2 = _find_pin_at(
+            state, pos2, strategy=_AlwaysRejectStrategy(), pad_index=pad_idx,
+        )
         assert r2 is None
 
     def test_fast_path_with_many_owners(self) -> None:
@@ -196,5 +225,5 @@ class TestPinKnotFastPathBypassesStrategy:
             ) if hasattr(state.layout, "_touch_pin_knot_owner") else None
         # The owner count itself is irrelevant to the fast-path; the
         # presence of the PinRef in pin_knots is the gate.
-        result = _find_pin_at(state, pos, strategy=_AlwaysRejectStrategy())  # type: ignore[arg-type]
+        result = _find_pin_at(state, pos, strategy=_AlwaysRejectStrategy())
         assert result == target

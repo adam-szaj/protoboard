@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.knot import JointKnot, WirePinKnot
     from protoboard.domain.layout.layout import Layout
-    from protoboard.domain.layout.wire import Fragment, Wire
+    from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
     from protoboard.domain.schematic.net import PinRef
     from protoboard.domain.schematic.schematic import Schematic
     from protoboard.services.pad_strategy import PadStrategy
@@ -1872,3 +1872,268 @@ def collapse_endpoint_joints(
         # Re-pin the wire so the second-endpoint pass sees the merged wire.
         wire = merged
     return records
+
+
+_EPS_KNOT = 1e-6
+
+
+def find_pin_at(
+    point: Point,
+    *,
+    layout: Layout,
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+    our_net: uuid.UUID | None = None,
+    strategy: PadStrategy | None = None,
+    pad_index: PadIndex | None = None,
+) -> PinRef | None:
+    """Return the PinRef of the pin sitting at ``point``, or None.
+
+    Scans current placements.  Exact match first, then a tolerant
+    fallback (``1e-6``) to absorb the rounding present in legacy paths.
+
+    When ``strategy`` and ``pad_index`` are both supplied, the returned
+    pin is gated by :meth:`PadStrategy.can_place_pin` (rule 8 — a pin
+    cannot accept an incoming wire of a foreign net even though the
+    geometry matches).  Without them the gate is skipped and the
+    historical behaviour applies — important for the many in-memory
+    tests that drive commands without a full session.  The command-layer
+    caller resolves ``strategy`` / ``pad_index`` off the host session.
+    """
+    from protoboard.domain.layout.placement import pin_world_position
+    from protoboard.domain.schematic.net import PinRef
+
+    for comp_id, placement in layout.placements.items():
+        inst = instances.get(comp_id)
+        if inst is None:
+            continue
+        defn = components.get(inst.definition_ref)
+        if defn is None:
+            continue
+        n_pins = defn.footprint.pin_count()
+        for pin_num in range(1, n_pins + 1):
+            try:
+                pos = pin_world_position(defn.footprint, placement, pin_num)
+            except (IndexError, ValueError):
+                continue
+            if not (
+                abs(pos.x - point.x) < _EPS_KNOT
+                and abs(pos.y - point.y) < _EPS_KNOT
+            ):
+                continue
+            pin_ref = PinRef(component_id=comp_id, pin_number=pin_num)
+            # If a PinKnot for this pin already exists, the pin is already
+            # accepting wire connections — adding one more is a legal
+            # multi-degree pin junction.  Strategy.can_place_pin's rule 6
+            # check (reject when pad has any wire item) is intended for
+            # *new pin placement*, not for additional wires soldering to
+            # an existing pin; gate it on the absence of a PinKnot.
+            if pin_ref in layout.pin_knots:
+                return pin_ref
+            if strategy is not None and pad_index is not None:
+                pad = pad_index.pad_at(pos)
+                if pad is not None:
+                    d = strategy.can_place_pin(pad, our_net)
+                    from protoboard.services.pad_strategy import Verdict
+                    if d.verdict is Verdict.REJECT:
+                        # Rule 8: foreign-net wire cannot solder to
+                        # this pin. Skip — caller treats it as "no pin
+                        # here" and falls through to JointKnot creation
+                        # (which will run its own net gate via
+                        # ``find_joint_at``).
+                        continue
+            return pin_ref
+    return None
+
+
+def _wire_net_for_joint(
+    wire: Wire,
+    *,
+    schematic: Schematic | None,
+    layout: Layout,
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+    board: Board,
+) -> uuid.UUID | None:
+    """Resolve *wire*'s schematic net id for joint-compatibility checks."""
+    if schematic is None:
+        return None
+    return _wire_net_id(
+        wire, schematic, layout, instances, components, board=board,
+    )
+
+
+def joint_accepts_wire(
+    knot: JointKnot,
+    *,
+    side: str | None,
+    net_id: uuid.UUID | None,
+    schematic: Schematic | None,
+    layout: Layout,
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+    board: Board,
+    strategy: PadStrategy | None,
+    pad_index: PadIndex | None,
+    plated_pads_cache: frozenset[Point] | None,
+) -> bool:
+    """Return True if *knot* is compatible with the incoming wire.
+
+    Pulled out of :func:`find_joint_at` so the strategy-driven and
+    legacy-inline branches share the per-incident-wire loop.
+    """
+    from protoboard.services.pad_strategy import Verdict
+
+    pad = pad_index.pad_at(knot.position) if pad_index is not None else None
+    for wid in knot.wire_ids:
+        w = layout.wires.get(wid)
+        if w is None:
+            continue
+        cross_layer = side is not None and w.side != side
+        # Strategy path — single source of truth when available.
+        if strategy is not None and pad is not None:
+            w_net = _wire_net_for_joint(
+                w, schematic=schematic, layout=layout,
+                instances=instances, components=components, board=board,
+            )
+            d = strategy.can_form_t_junction(
+                pad,
+                w.side,
+                w_net,
+                net_id,
+                cross_layer,
+            )
+            if d.verdict is Verdict.REJECT:
+                return False
+            # ALLOW / ASSIGN_NET both keep the joint as a candidate;
+            # ASSIGN_NET's actual net mutation is handled later by
+            # ``split_existing_wires_at_endpoints`` when the wire is
+            # spliced into the existing one.
+            continue
+        # Legacy inline path — preserved for tests that drive commands
+        # without a session-backed strategy.
+        if side is not None and w.side != side:
+            if plated_pads_cache is None:
+                plated_pads_cache = frozenset(plated_through_pads(board))
+            if knot.position not in plated_pads_cache:
+                return False
+        if schematic is not None:
+            w_net = _wire_net_for_joint(
+                w, schematic=schematic, layout=layout,
+                instances=instances, components=components, board=board,
+            )
+            if (
+                (w_net is not None and net_id is not None and w_net != net_id)
+                or (w_net is not None and net_id is None)
+            ):
+                return False
+    return True
+
+
+def find_joint_at(
+    point: Point,
+    *,
+    layout: Layout,
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+    board: Board,
+    side: str | None = None,
+    net_id: uuid.UUID | None = None,
+    schematic: Schematic | None = None,
+    strategy: PadStrategy | None = None,
+    pad_index: PadIndex | None = None,
+) -> JointKnot | None:
+    """Return an existing JointKnot at ``point`` *compatible* with the
+    incoming wire's ``side`` and ``net_id``.
+
+    Pre-fix this returned the first JointKnot at the position regardless
+    of who else was hanging off it.  That let an autoroute pass build a
+    single degree-N JointKnot where wires of different schematic nets
+    converged on the same off-pad point — the *reference_big_project*
+    bug.
+
+    Compatibility (delegated to :class:`PadStrategy` when available,
+    otherwise enforced inline for legacy callers):
+      * If the joint already carries any wire on a different ``side``
+        **and the position is not a plated-through pad** → skip; top
+        and bottom can only share one solder joint via a via.
+      * If any incident wire resolves to a net different from ``net_id``
+        (both sides explicit, not None) → skip; merging would short two
+        nets.  Net-less wires already on the joint are tolerated only
+        when the incoming wire is also net-less.
+
+    ``side`` / ``net_id`` of ``None`` mean "caller does not know" (legacy
+    call sites pre-fix) — behave like before and return the first hit.
+    """
+    from protoboard.domain.layout.knot import JointKnot
+
+    plated_pads: frozenset[Point] | None = None
+    for knot in layout.knots.values():
+        if not isinstance(knot, JointKnot):
+            continue
+        if not (
+            abs(knot.position.x - point.x) < _EPS_KNOT
+            and abs(knot.position.y - point.y) < _EPS_KNOT
+        ):
+            continue
+        if side is None and net_id is None:
+            return knot
+        if not joint_accepts_wire(
+            knot, side=side, net_id=net_id,
+            schematic=schematic, layout=layout,
+            instances=instances, components=components, board=board,
+            strategy=strategy, pad_index=pad_index,
+            plated_pads_cache=plated_pads,
+        ):
+            continue
+        return knot
+    return None
+
+
+def resolve_endpoint_knot(
+    point: Point,
+    *,
+    layout: Layout,
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+    board: Board,
+    schematic: Schematic | None = None,
+    side: str | None = None,
+    net_id: uuid.UUID | None = None,
+    strategy: PadStrategy | None = None,
+    pad_index: PadIndex | None = None,
+) -> tuple[KnotRef, JointKnot | None]:
+    """Resolve an endpoint position to (KnotRef, optional created JointKnot).
+
+    Pin hit → reuse/create the singleton PinKnot for that PinRef.
+    Existing JointKnot at this position **and compatible with the
+    incoming wire's ``side`` / ``net_id``** → reuse it (so two wires of
+    the same net meeting at the same off-pin pad share one hub).
+    Otherwise → create a fresh JointKnot at ``point``.  The created knot
+    (if any) is returned so AddWireCommand.revert can drop it.
+
+    ``strategy`` / ``pad_index`` gate pin and joint reuse via the
+    strategy contract — rules 7 + 8 of pad/pin/wire/junction semantics.
+    The command-layer caller resolves them off the host session; legacy
+    callers that pass neither get the same inline behaviour as before
+    this refactor.
+    """
+    from protoboard.domain.layout.wire import KnotRef
+
+    pin = find_pin_at(
+        point, layout=layout, instances=instances, components=components,
+        our_net=net_id, strategy=strategy, pad_index=pad_index,
+    )
+    if pin is not None:
+        pk = layout.get_or_create_pin_knot(pin)
+        return KnotRef(id=pk.id), None
+    existing = find_joint_at(
+        point, layout=layout, instances=instances, components=components,
+        board=board, side=side, net_id=net_id, schematic=schematic,
+        strategy=strategy, pad_index=pad_index,
+    )
+    if existing is not None:
+        return KnotRef(id=existing.id), None
+    # Joint at this position (off-pad joints are flagged by DRC, not here).
+    jk = layout.create_joint_knot(point)
+    return KnotRef(id=jk.id), jk
