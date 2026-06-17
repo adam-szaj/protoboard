@@ -60,6 +60,17 @@ class Knot(Protocol):
         """
         ...
 
+    def moved_to(self, position: Point) -> Knot:
+        """Return a copy of this knot relocated to ``position``.
+
+        ``JointKnot`` / ``WirePinKnot`` own their position, so they return a
+        copy at the new coordinate; ``PinKnot`` returns ``self`` unchanged —
+        its position is derived from the component placement, not stored, so a
+        group rotation that moves the placement already moves the pin. Lets
+        rotation/translation reposition free knots without branching on kind.
+        """
+        ...
+
 
 @dataclass
 class PinKnot:
@@ -89,6 +100,11 @@ class PinKnot:
     def world_position(self, resolve_pin: Callable[[PinRef], Point]) -> Point:
         return resolve_pin(self.pin)
 
+    def moved_to(self, position: Point) -> PinKnot:
+        # Position is derived from the component placement, not stored —
+        # relocating happens via the placement, so this is a no-op.
+        return self
+
 
 @dataclass
 class JointKnot:
@@ -117,6 +133,9 @@ class JointKnot:
 
     def world_position(self, resolve_pin: Callable[[PinRef], Point]) -> Point:
         return self.position
+
+    def moved_to(self, position: Point) -> JointKnot:
+        return replace(self, position=position)
 
 
 @dataclass
@@ -161,3 +180,6 @@ class WirePinKnot:
 
     def world_position(self, resolve_pin: Callable[[PinRef], Point]) -> Point:
         return self.position
+
+    def moved_to(self, position: Point) -> WirePinKnot:
+        return replace(self, position=position)

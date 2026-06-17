@@ -403,15 +403,16 @@ class RotateGroupCommand(Command[ComponentState]):
                     k = state.layout.knots.get(ref.id)
                     if isinstance(k, (JointKnot, WirePinKnot)):
                         old_kp = k.position
-                        k.position = _rotate_point_around(
-                            k.position, origin, self.delta,
+                        moved = k.moved_to(
+                            _rotate_point_around(k.position, origin, self.delta)
                         )
+                        state.layout.knots[ref.id] = moved
                         joint_resync_log.append({
                             "wire_id": str(wire.id)[:8],
                             "knot_kind": type(k).__name__,
                             "knot_id": str(k.id)[:8],
                             "old_pos": (old_kp.x, old_kp.y),
-                            "new_pos": (k.position.x, k.position.y),
+                            "new_pos": (moved.position.x, moved.position.y),
                             "n_owners": len(k.wire_ids),
                         })
         object.__setattr__(self, "_old_wire_paths", old_wire_paths)
@@ -473,8 +474,8 @@ class RotateGroupCommand(Command[ComponentState]):
                             continue
                         k = state.layout.knots.get(ref.id)
                         if isinstance(k, (JointKnot, WirePinKnot)):
-                            k.position = _rotate_point_around(
-                                k.position, origin, inv_delta,
+                            state.layout.knots[ref.id] = k.moved_to(
+                                _rotate_point_around(k.position, origin, inv_delta)
                             )
         if self._old_group is not None:
             state.layout.groups[self.group_id] = self._old_group
