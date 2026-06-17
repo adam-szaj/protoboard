@@ -6,16 +6,12 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
-import structlog
-
 from protoboard.domain.commands.base import Command, ComponentState
 from protoboard.domain.layout.group import ComponentGroup, all_component_ids, would_create_cycle
 from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
-
-_log = structlog.get_logger(__name__)
 
 
 def _rotate_point_around(p: Point, origin: Point, delta: int) -> Point:
@@ -31,6 +27,128 @@ def _rotate_point_around(p: Point, origin: Point, delta: int) -> Point:
     else:
         rx, ry = dx, dy
     return Point(origin.x + rx, origin.y + ry)
+
+
+@dataclass
+class RotateSnapshot:
+    """Undo data for one :func:`rotate_components_around` application.
+
+    Holds the pivot + delta and the pre-rotation placements / wire paths so
+    :func:`restore_rotation` can invert the operation exactly. Group metadata
+    (rotation/origin) is the caller's concern — not stored here.
+    """
+
+    origin: Point
+    delta: int
+    old_placements: dict[uuid.UUID, object]
+    old_wire_paths: dict[uuid.UUID, list[Point]]
+
+
+def rotate_components_around(
+    state: ComponentState,
+    comp_ids: frozenset[uuid.UUID],
+    origin: Point,
+    delta: int,
+    *,
+    wire_ids: frozenset[uuid.UUID],
+) -> RotateSnapshot:
+    """Rotate *comp_ids*' placements (and *wire_ids*' geometry) around *origin*.
+
+    The shared core of every rotate operation: each placement's position is
+    rotated about ``origin`` and its ``rotation`` field bumped by ``delta``;
+    each wire in ``wire_ids`` has its path, fragments and free-knot
+    (``JointKnot`` / ``WirePinKnot``) endpoints rotated too. ``PinKnot``
+    positions resolve lazily from the (already-rotated) placement, so they
+    need no separate update.
+
+    ``origin`` is an arbitrary pivot — a component rotating about its own
+    position (``origin == placement.position``) leaves its position put and
+    only bumps ``rotation``; a group passes its group origin. The returned
+    :class:`RotateSnapshot` is consumed by :func:`restore_rotation` on undo.
+    """
+    from protoboard.domain.layout.knot import JointKnot, WirePinKnot
+    from protoboard.domain.layout.placement import ComponentPlacement
+
+    old_placements: dict[uuid.UUID, object] = {}
+    for cid in comp_ids:
+        pl = state.layout.placements.get(cid)
+        if not isinstance(pl, ComponentPlacement):
+            continue
+        old_placements[cid] = pl.copy()
+        new_pl = pl.copy()
+        new_pl.position = _rotate_point_around(pl.position, origin, delta)
+        new_pl.rotation = (pl.rotation + delta) % 360
+        state.layout.placements[cid] = new_pl
+
+    old_wire_paths: dict[uuid.UUID, list[Point]] = {}
+    for wire in state.layout.wires:
+        if wire.id not in wire_ids:
+            continue
+        old_wire_paths[wire.id] = list(wire.path)
+        wire.path = [_rotate_point_around(p, origin, delta) for p in wire.path]
+        new_fragments_local: list[object] = []
+        for frag in wire.fragments:
+            new_frag_path = [
+                _rotate_point_around(p, origin, delta) for p in frag.path
+            ]
+            new_fragments_local.append(
+                type(frag)(path=new_frag_path, side=frag.side),
+            )
+        wire.fragments = new_fragments_local  # type: ignore[assignment]
+        for ref in (wire.a, wire.b):
+            if ref is None:
+                continue
+            k = state.layout.knots.get(ref.id)
+            if isinstance(k, (JointKnot, WirePinKnot)):
+                state.layout.knots[ref.id] = k.moved_to(
+                    _rotate_point_around(k.position, origin, delta)
+                )
+
+    return RotateSnapshot(
+        origin=origin,
+        delta=delta,
+        old_placements=old_placements,
+        old_wire_paths=old_wire_paths,
+    )
+
+
+def restore_rotation(state: ComponentState, snap: RotateSnapshot) -> None:
+    """Invert a :func:`rotate_components_around` application.
+
+    Restores placements from the snapshot and inverse-rotates the recorded
+    wires' fragments and free-knot endpoints by ``-delta`` around the same
+    pivot (paths are restored verbatim from the snapshot).
+    """
+    from protoboard.domain.layout.knot import JointKnot, WirePinKnot
+    from protoboard.domain.layout.placement import ComponentPlacement
+
+    for cid, pl in snap.old_placements.items():
+        if isinstance(pl, ComponentPlacement):
+            state.layout.placements[cid] = pl
+
+    inv_delta = (360 - snap.delta) % 360
+    for wire in state.layout.wires:
+        if wire.id not in snap.old_wire_paths:
+            continue
+        wire.path = snap.old_wire_paths[wire.id]
+        new_fragments_local: list[object] = []
+        for frag in wire.fragments:
+            reverted = [
+                _rotate_point_around(p, snap.origin, inv_delta)
+                for p in frag.path
+            ]
+            new_fragments_local.append(
+                type(frag)(path=reverted, side=frag.side),
+            )
+        wire.fragments = new_fragments_local  # type: ignore[assignment]
+        for ref in (wire.a, wire.b):
+            if ref is None:
+                continue
+            k = state.layout.knots.get(ref.id)
+            if isinstance(k, (JointKnot, WirePinKnot)):
+                state.layout.knots[ref.id] = k.moved_to(
+                    _rotate_point_around(k.position, snap.origin, inv_delta)
+                )
 
 
 def _recompute_group_origin(
@@ -294,11 +412,8 @@ class RotateGroupCommand(Command[ComponentState]):
 
     group_id: uuid.UUID
     delta: int  # 90 or 270 (= -90)
-    _old_placements: dict[uuid.UUID, object] = field(
-        default_factory=dict, init=False, repr=False
-    )
-    _old_wire_paths: dict[uuid.UUID, list[Point]] = field(
-        default_factory=dict, init=False, repr=False
+    _snapshot: RotateSnapshot | None = field(
+        default=None, init=False, repr=False
     )
     _old_group: ComponentGroup | None = field(
         default=None, init=False, repr=False
@@ -309,8 +424,6 @@ class RotateGroupCommand(Command[ComponentState]):
         return "Rotate group"
 
     def apply(self, state: ComponentState) -> None:
-        from protoboard.domain.layout.placement import ComponentPlacement
-
         group = state.layout.groups.get(self.group_id)
         if group is None:
             return
@@ -322,14 +435,6 @@ class RotateGroupCommand(Command[ComponentState]):
         )
         if origin is None:
             return
-
-        # Snapshot placements for undo.
-        old_pls: dict[uuid.UUID, object] = {}
-        for cid in comp_ids:
-            pl = state.layout.placements.get(cid)
-            if pl is not None:
-                old_pls[cid] = pl.copy()
-        object.__setattr__(self, "_old_placements", old_pls)
 
         # Identify internal wires via the net-aware ownership classifier.
         # Rotate doesn't need T-junction net inheritance (empty
@@ -354,76 +459,12 @@ class RotateGroupCommand(Command[ComponentState]):
             definitions=state.components,
         )
 
-        # Rotate each placement.
-        for cid in comp_ids:
-            pl = state.layout.placements.get(cid)
-            if not isinstance(pl, ComponentPlacement):
-                continue
-            new_pl = pl.copy()
-            new_pl.position = _rotate_point_around(pl.position, origin, self.delta)
-            new_pl.rotation = (pl.rotation + self.delta) % 360
-            state.layout.placements[cid] = new_pl
-
-        # Rotate internal wires.
-        old_wire_paths: dict[uuid.UUID, list[Point]] = {}
-        from protoboard.domain.layout.knot import JointKnot, WirePinKnot
-        joint_resync_log: list[dict[str, object]] = []
-        for wire in state.layout.wires:
-            if wire.id in internal_wire_ids:
-                old_wire_paths[wire.id] = list(wire.path)
-                wire.path = [
-                    _rotate_point_around(p, origin, self.delta)
-                    for p in wire.path
-                ]
-                # Also rotate the wire's fragments so wire.path and
-                # wire.fragments don't drift apart (later
-                # replace_wire_fragments builds new_fragments from path —
-                # mismatch with knot.position is then unavoidable).
-                new_fragments_local: list[object] = []
-                for frag in wire.fragments:
-                    new_frag_path = [
-                        _rotate_point_around(p, origin, self.delta)
-                        for p in frag.path
-                    ]
-                    new_fragments_local.append(
-                        type(frag)(path=new_frag_path, side=frag.side),
-                    )
-                wire.fragments = new_fragments_local  # type: ignore[assignment]
-                # Rotate JointKnot / WirePinKnot endpoints together with
-                # the wire.  Without this, a follow-up drag's
-                # replace_wire_fragments would see path[0/-1] rotated
-                # while the knot.position is still pre-rotation, raising
-                # ValueError(replace_wire_fragments: new path[0]
-                # disagrees with knot position).  PinKnot positions are
-                # resolved lazily from placement (already rotated
-                # above), so they need no separate update here.
-                for ref in (wire.a, wire.b):
-                    if ref is None:
-                        continue
-                    k = state.layout.knots.get(ref.id)
-                    if isinstance(k, (JointKnot, WirePinKnot)):
-                        old_kp = k.position
-                        moved = k.moved_to(
-                            _rotate_point_around(k.position, origin, self.delta)
-                        )
-                        state.layout.knots[ref.id] = moved
-                        joint_resync_log.append({
-                            "wire_id": str(wire.id)[:8],
-                            "knot_kind": type(k).__name__,
-                            "knot_id": str(k.id)[:8],
-                            "old_pos": (old_kp.x, old_kp.y),
-                            "new_pos": (moved.position.x, moved.position.y),
-                            "n_owners": len(k.wire_ids),
-                        })
-        object.__setattr__(self, "_old_wire_paths", old_wire_paths)
-        if joint_resync_log:
-            _log.info(
-                "rotate_group.joint_knots_rotated",
-                group_id=str(self.group_id)[:8],
-                delta=self.delta,
-                n_resynced=len(joint_resync_log),
-                details=joint_resync_log[:20],
-            )
+        # Rotate placements + internal wires around the group origin.
+        snapshot = rotate_components_around(
+            state, comp_ids, origin, self.delta,
+            wire_ids=frozenset(internal_wire_ids),
+        )
+        object.__setattr__(self, "_snapshot", snapshot)
 
         # Update group metadata.
         new_rot = (group.rotation + self.delta) % 360
@@ -432,50 +473,7 @@ class RotateGroupCommand(Command[ComponentState]):
         )
 
     def revert(self, state: ComponentState) -> None:
-        from protoboard.domain.layout.placement import ComponentPlacement
-        from protoboard.domain.layout.knot import JointKnot, WirePinKnot
-        for cid, pl in self._old_placements.items():
-            if isinstance(pl, ComponentPlacement):
-                state.layout.placements[cid] = pl
-        # Rotate wire paths + JointKnot/WirePinKnot positions back by -delta.
-        # Cheaper than snapshotting every knot — same _rotate_point_around
-        # with delta=(360-self.delta) is the inverse.
-        inv_delta = (360 - self.delta) % 360
-        # Reconstruct origin same way apply did so the inverse rotation
-        # uses the right pivot.
-        comp_ids = all_component_ids(state.layout.groups, self.group_id)
-        origin = (
-            self._old_group.origin if self._old_group is not None else None
-        ) or GroupTree.group_origin(
-            comp_ids, state.layout.placements, state.instances, state.components,
-        )
-        for wire in state.layout.wires:
-            if wire.id in self._old_wire_paths:
-                wire.path = self._old_wire_paths[wire.id]
-                # Reverse the fragment rotation too (apply rotated frag.path
-                # so revert needs to undo it; otherwise next replace
-                # mismatches path vs fragments).
-                if origin is not None:
-                    new_fragments_local: list[object] = []
-                    for frag in wire.fragments:
-                        reverted = [
-                            _rotate_point_around(p, origin, inv_delta)
-                            for p in frag.path
-                        ]
-                        new_fragments_local.append(
-                            type(frag)(path=reverted, side=frag.side),
-                        )
-                    wire.fragments = new_fragments_local  # type: ignore[assignment]
-                # Revert JointKnot/WirePinKnot positions for this wire's
-                # endpoints — symmetric to apply().
-                if origin is not None:
-                    for ref in (wire.a, wire.b):
-                        if ref is None:
-                            continue
-                        k = state.layout.knots.get(ref.id)
-                        if isinstance(k, (JointKnot, WirePinKnot)):
-                            state.layout.knots[ref.id] = k.moved_to(
-                                _rotate_point_around(k.position, origin, inv_delta)
-                            )
+        if self._snapshot is not None:
+            restore_rotation(state, self._snapshot)
         if self._old_group is not None:
             state.layout.groups[self.group_id] = self._old_group
