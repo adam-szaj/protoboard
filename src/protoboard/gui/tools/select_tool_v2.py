@@ -48,10 +48,13 @@ if TYPE_CHECKING:
     from PySide6.QtWidgets import QGraphicsItem
 
     from protoboard.domain.layout.group_tree import GroupTree
+    from protoboard.domain.layout.wire import Wire
     from protoboard.gui.board_view import BoardView
     from protoboard.gui.drag_set import DragSet
+    from protoboard.gui.selection.adapters import WireVertexSelectable
     from protoboard.gui.selection.mouse_input import MouseInputController
     from protoboard.gui.selection.selectable import Selectable
+    from protoboard.gui.selection.wire_edit import WireEditState
     from protoboard.gui.session import EditorSession
 
 # Below this travel (raster units) a press+release is a click, not a drag —
@@ -64,6 +67,20 @@ _BAND_PEN_RL = QPen(QColor(0, 200, 255, 180), 0.06)
 _BAND_PEN_RL.setStyle(Qt.PenStyle.DashLine)
 _BAND_FILL_LR = QColor(0, 200, 255, 20)
 _BAND_FILL_RL = QColor(0, 200, 255, 10)
+
+# Wire-edit visuals (copied verbatim from the legacy SelectTool).  The cyan
+# segment colour signals "edit mode"; the start/end vertices are marked red, and
+# hand-drawn reroute waypoints preview as a dashed orange polyline.
+_WIRE_EDIT_PEN = QPen(QColor(0, 204, 255, 220), 0.42)
+_WIRE_EDIT_PEN.setCapStyle(Qt.PenCapStyle.RoundCap)
+_WIRE_EDIT_PEN.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+_NODE_EDIT_PEN = QPen(QColor(0, 204, 255, 255), 0.05)
+_NODE_EDIT_BRUSH = QColor(0, 204, 255, 220)
+_NODE_SELECTED_PEN = QPen(Qt.GlobalColor.red, 0.06)
+_NODE_SELECTED_BRUSH = QColor(255, 80, 0, 230)
+_EDIT_PREVIEW_PEN = QPen(QColor(255, 120, 0, 200), 0.12)
+_EDIT_PREVIEW_PEN.setStyle(Qt.PenStyle.DashLine)
+_NODE_RADIUS = 0.13
 
 
 class SelectToolV2:
@@ -89,6 +106,19 @@ class SelectToolV2:
         self._redrag_comp_id: uuid.UUID | None = None
         self._redrag_pin: int | None = None
         self._redrag_items: list[QGraphicsItem] = []
+        # Wire-edit: the selected fragment (tool-local, like _rotate_pivot) plus
+        # the cluster-cycle state threaded through the wire-vertex pick.  The
+        # operations on the fragment (reroute / autoroute / delete) are actions
+        # dispatched by `_wire_edit_on_key` once the fragment is selected.
+        from protoboard.gui.selection.hit_test import WireEditCycle
+
+        self._wire_edit: WireEditState | None = None
+        self._wire_edit_cycle: WireEditCycle = WireEditCycle()
+        self._wire_edit_wire_id: uuid.UUID | None = None  # wire [E] armed on
+        self._wire_edit_start: WireVertexSelectable | None = None  # first vertex
+        self._wire_edit_items: list[QGraphicsItem] = []  # cyan overlay + dots
+        self._reroute_items: list[QGraphicsItem] = []  # orange waypoint preview
+        self._reroute_live: QGraphicsItem | None = None  # live cursor segment
 
     # -- _Tool lifecycle ----------------------------------------------------
 
@@ -110,9 +140,15 @@ class SelectToolV2:
         self._cancel_gesture()
         self._clear_band()
         self._redrag_clear()
+        self._wire_edit_clear()
 
     def on_scene_cleared(self) -> None:
         self._band_item = None
+        # The scene was rebuilt — our overlay QGraphicsItems are gone; drop the
+        # stale references so a later clear doesn't touch freed items.
+        self._wire_edit_items = []
+        self._reroute_items = []
+        self._reroute_live = None
 
     # -- helpers ------------------------------------------------------------
 
@@ -135,7 +171,10 @@ class SelectToolV2:
         """Resolve a click into the Selectable the active pick wants.
 
         A ``pad`` / ``point`` pick resolves to the snapped board coordinate (a
-        :class:`PointSelectable`); every other kind hit-tests for a board entity.
+        :class:`PointSelectable`); a ``wire-vertex`` pick runs the net-restricted
+        cluster-cycling vertex hit-test (threading ``self._wire_edit_cycle`` so
+        repeated clicks at a shared knot rotate through siblings); every other
+        kind hit-tests for a board entity.
         """
         if what in ("pad", "point"):
             from protoboard.gui.selection.adapters import PointSelectable
@@ -143,7 +182,30 @@ class SelectToolV2:
             return PointSelectable(point=self._snap(
                 Point(scene_pt.x(), scene_pt.y()), frozenset()
             ))
+        if what == "wire-vertex":
+            from protoboard.gui.board_view import _build_wire_net_map
+
+            sel, cycle = self._hit_tester().hit_wire_vertex(
+                scene_pt.x(),
+                scene_pt.y(),
+                start_wire_id=self._wire_edit_active_start_wire(),
+                wire_net_map=_build_wire_net_map(self._session),
+                cycle=self._wire_edit_cycle,
+            )
+            self._wire_edit_cycle = cycle
+            return sel
         return self._hit_tester().hit(scene_pt.x(), scene_pt.y(), self._filters())
+
+    def _wire_edit_active_start_wire(self) -> uuid.UUID | None:
+        """The wire the wire-vertex pick is anchored on for tie-breaking.
+
+        Before the first vertex it is the wire ``[E]`` was armed on; after the
+        first vertex it pivots to that vertex's wire so a cross-wire second pick
+        on a sibling resolves against the chosen start (legacy re-pin behaviour).
+        """
+        if self._wire_edit_start is not None:
+            return self._wire_edit_start.wire_id
+        return self._wire_edit_wire_id
 
     @property
     def _current_group_id(self) -> uuid.UUID:
@@ -194,6 +256,12 @@ class SelectToolV2:
             self._press_pt = scene_pt
             self._mouse.on_press(Point(scene_pt.x(), scene_pt.y()), self._mods(event))
             return True
+
+        # 2b. A fragment is selected but no pick is live (between picking the
+        #     range and choosing an operation) — a plain board press leaves
+        #     wire-edit and falls through to normal selection.
+        if self._wire_edit is not None:
+            self._wire_edit_clear()
 
         # 3. Normal selection. Resolve the hit.
         _basis, op = self._decode_modifiers(event)
@@ -609,6 +677,7 @@ class SelectToolV2:
         on_done: object,
         on_cancel: object = None,
         on_progress: object = None,
+        on_preview: object = None,
     ) -> None:
         """Start a pick and park it as the active mouse interaction.
 
@@ -617,6 +686,8 @@ class SelectToolV2:
         clicks / intents through ``self._mouse`` like any other interaction.
         The point→Selectable resolver is the tool's :meth:`_pick_at`, so a
         ``pad`` pick yields the snapped coordinate and an entity pick hit-tests.
+        ``on_preview`` (``(scene_pt, mods) -> None``) drives a live cursor
+        preview on pointer motion (the reroute rubber-band line).
         """
         from collections.abc import Callable
         from typing import cast
@@ -643,7 +714,13 @@ class SelectToolV2:
         def _resolve(pt: Point, _mods: Mods) -> Selectable | None:
             return self._pick_at(kind, QPointF(pt.x, pt.y))
 
-        self._mouse = PointPickController(session, _resolve)
+        self._mouse = PointPickController(
+            session,
+            _resolve,
+            on_preview=cast(
+                "Callable[[Point, Mods], None] | None", on_preview
+            ),
+        )
 
     def _free_bendable_pin(self, comp_id: uuid.UUID) -> int | None:
         inst = self._session.instances.get(comp_id)
@@ -774,6 +851,391 @@ class SelectToolV2:
                 pass
         self._redrag_items = []
 
+    # -- wire-edit (fragment = selection, operations = actions) -------------
+
+    def arm_wire_edit(self) -> None:
+        """Enter wire-edit on the selected wire — the ``[E]`` entry point.
+
+        Requires a wire in the selection (the whole-wire ``WireSelectable`` from
+        a prior click).  Arms a two-vertex ``wire-vertex`` pick: the two clicks
+        define the fragment range, and ``on_done`` builds the
+        :class:`WireEditState`.  Until both vertices are picked the tool is in
+        the pick (intents route to it); once the fragment is selected the
+        op-keys (``[W]`` / ``[A]`` / ``[Del]`` / ``[Esc]``) take over.
+        """
+        from protoboard.gui.selection.hit_test import WireEditCycle
+        from protoboard.gui.selection.selectable import Stop
+
+        wire_id = self._selected_wire_id()
+        if wire_id is None:
+            self._status("Wire-edit: select a wire first")
+            return
+        self._wire_edit_clear()
+        self._wire_edit_wire_id = wire_id
+        self._wire_edit_cycle = WireEditCycle()
+        self._draw_wire_edit_overlay()
+        self._status(
+            "Pick the fragment: click two wire vertices  ·  [Esc] Cancel", 0
+        )
+        self._arm_pick(
+            "wire-vertex",
+            Stop.count(2),
+            on_done=self._range_picked,
+            on_cancel=self._wire_edit_clear,
+            on_progress=self._range_progress,
+        )
+
+    def _selected_wire_id(self) -> uuid.UUID | None:
+        import uuid as _uuid
+
+        for sel in self._selection.selected():
+            hit = sel.to_hit()
+            if hit.kind == "wire" and isinstance(hit.id, _uuid.UUID):
+                return hit.id
+        return None
+
+    def _range_progress(self, picked: list[Selectable]) -> None:
+        """Repaint the overlay as the two range vertices come in."""
+        from protoboard.gui.selection.adapters import WireVertexSelectable
+
+        if picked and isinstance(picked[-1], WireVertexSelectable):
+            self._wire_edit_start = picked[0] if isinstance(
+                picked[0], WireVertexSelectable
+            ) else None
+        self._draw_wire_edit_overlay()
+
+    def _range_picked(self, picked: list[Selectable]) -> None:
+        """Build the :class:`WireEditState` from the two picked vertices."""
+        from protoboard.gui.selection.adapters import WireVertexSelectable
+        from protoboard.gui.selection.wire_edit import WireEditState
+
+        verts = [p for p in picked if isinstance(p, WireVertexSelectable)]
+        if len(verts) < 2:
+            self._wire_edit_clear()
+            return
+        v0, v1 = verts[0], verts[1]
+        start_wire, start_idx = v0.wire_id, v0.index
+        end_wire, end_idx = v1.wire_id, v1.index
+        # Same-wire: normalise so start_idx <= end_idx (legacy swap); a zero-
+        # length range is not a fragment.
+        if start_wire == end_wire:
+            if start_idx == end_idx:
+                self._wire_edit_clear()
+                return
+            if end_idx < start_idx:
+                start_idx, end_idx = end_idx, start_idx
+        self._wire_edit = WireEditState(
+            start_wire_id=start_wire,
+            start_idx=start_idx,
+            end_wire_id=end_wire,
+            end_idx=end_idx,
+        )
+        self._draw_wire_edit_overlay()
+        self._status(
+            "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
+            "[Del] Delete  ·  [Esc] Cancel",
+            0,
+        )
+
+    def _wire_edit_on_key(self, event: QKeyEvent) -> bool:
+        """Op-table for the selected fragment — one entry per operation.
+
+        Returns True when the key was consumed.  Adding a future operation
+        (flip / simplify / lay-tightly) is one more entry here.
+        """
+        key = event.key()
+        if key == Qt.Key.Key_W:
+            self._begin_reroute()
+        elif key == Qt.Key.Key_A:
+            self._autoroute_fragment()
+        elif key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self._delete_fragment()
+        elif key == Qt.Key.Key_Escape:
+            self._wire_edit_clear()
+        else:
+            return False
+        event.accept()
+        return True
+
+    def _begin_reroute(self) -> None:
+        """Arm the waypoint pick — ``[W]`` reroute (a second chained pick).
+
+        Collects snapped board waypoints (``point`` / ``Stop.confirm()``);
+        ``on_progress`` previews the dashed orange polyline, ``on_preview``
+        draws the live cursor segment, Enter (CONFIRM) commits.
+        """
+        from protoboard.gui.selection.selectable import Stop
+
+        if self._wire_edit is None:
+            return
+        self._status(
+            "Reroute: click waypoints  ·  [Enter] Commit  ·  "
+            "[Backspace] Undo  ·  [Esc] Cancel",
+            0,
+        )
+        self._arm_pick(
+            "point",
+            Stop.confirm(),
+            on_done=self._commit_reroute,
+            on_cancel=self._reroute_cancel,
+            on_progress=self._reroute_progress,
+            on_preview=self._reroute_preview,
+        )
+
+    def _reroute_progress(self, picked: list[Selectable]) -> None:
+        from protoboard.gui.selection.adapters import PointSelectable
+
+        pts = [p.point for p in picked if isinstance(p, PointSelectable)]
+        self._draw_reroute_preview(pts)
+
+    def _reroute_preview(self, scene_pt: Point, _mods: Mods) -> None:
+        """Live rubber-band from the last anchor to the cursor (snapped)."""
+        from PySide6.QtWidgets import QGraphicsLineItem
+
+        self._clear_reroute_live()
+        anchor = self._reroute_anchor()
+        if anchor is None:
+            return
+        snapped = self._snap(scene_pt, frozenset())
+        line = QGraphicsLineItem(anchor.x, anchor.y, snapped.x, snapped.y)
+        line.setPen(_EDIT_PREVIEW_PEN)
+        line.setZValue(20.0)
+        self._view.scene().addItem(line)
+        self._reroute_live = line
+
+    def _reroute_anchor(self) -> Point | None:
+        """The point a new reroute segment starts from (last waypoint or start)."""
+        state = self._wire_edit
+        if state is None:
+            return None
+        if state.waypoints:
+            return state.waypoints[-1]
+        wire = self._wire_by_id(state.start_wire_id)
+        if wire is None:
+            return None
+        return wire.path[state.start_idx]
+
+    def _commit_reroute(self, picked: list[Selectable]) -> None:
+        """Commit the reroute: build the path command and execute it."""
+        from protoboard.gui.selection.adapters import PointSelectable
+        from protoboard.gui.selection.wire_edit import build_reroute_command
+
+        state = self._wire_edit
+        if state is None:
+            self._wire_edit_clear()
+            return
+        pts = [p.point for p in picked if isinstance(p, PointSelectable)]
+        cmd = build_reroute_command(
+            self._session.layout,
+            list(self._session.layout.wires),
+            self._wire_net_map(),
+            state.with_waypoints(pts),
+        )
+        self._wire_edit_clear()
+        if cmd is not None:
+            self._execute_command(cmd)
+        self._refresh_after_wire_op()
+
+    def _reroute_cancel(self) -> None:
+        """Esc during reroute → drop the waypoints, keep the fragment selected."""
+        self._clear_reroute_overlay()
+        if self._wire_edit is not None:
+            self._status(
+                "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
+                "[Del] Delete  ·  [Esc] Cancel",
+                0,
+            )
+
+    def _autoroute_fragment(self) -> None:
+        """A* re-route the fragment — ``[A]``."""
+        from protoboard.gui.selection.wire_edit import (
+            autoroute_fragment_path,
+            build_reroute_command,
+        )
+
+        state = self._wire_edit
+        if state is None:
+            return
+        source, target, side = self._fragment_endpoints(state)
+        if source is None or target is None:
+            self._wire_edit_clear()
+            return
+        graph = self._session.connectivity_graph()
+        routed = autoroute_fragment_path(graph, source, target, side)
+        if routed is None:
+            self._wire_edit_clear()
+            self._status("Autoroute: no path found")
+            self._refresh_after_wire_op()
+            return
+        # Interior waypoints only — endpoints come from the fragment range.
+        waypoints = routed[1:-1]
+        cmd = build_reroute_command(
+            self._session.layout,
+            list(self._session.layout.wires),
+            self._wire_net_map(),
+            state.with_waypoints(waypoints),
+        )
+        self._wire_edit_clear()
+        if cmd is not None:
+            self._execute_command(cmd)
+        self._refresh_after_wire_op()
+
+    def _delete_fragment(self) -> None:
+        """Delete the selected fragment — ``[Del]`` / ``[Backspace]``."""
+        from protoboard.gui.selection.wire_edit import build_delete_command
+
+        state = self._wire_edit
+        if state is None:
+            return
+        cmd = build_delete_command(
+            list(self._session.layout.wires), self._wire_net_map(), state
+        )
+        self._wire_edit_clear()
+        if cmd is not None:
+            self._execute_command(cmd)
+        self._refresh_after_wire_op()
+
+    def _fragment_endpoints(
+        self, state: WireEditState
+    ) -> tuple[Point | None, Point | None, str]:
+        """Resolve the fragment's two boundary points + side for autoroute."""
+        start_wire = self._wire_by_id(state.start_wire_id)
+        end_wire = self._wire_by_id(state.end_wire_id)
+        if start_wire is None or end_wire is None:
+            return None, None, "top"
+        return (
+            start_wire.path[state.start_idx],
+            end_wire.path[state.end_idx],
+            start_wire.side,
+        )
+
+    def _wire_by_id(self, wire_id: uuid.UUID) -> Wire | None:
+        return next(
+            (w for w in self._session.layout.wires if w.id == wire_id), None
+        )
+
+    def _wire_net_map(self) -> dict[uuid.UUID, uuid.UUID]:
+        from protoboard.gui.board_view import _build_wire_net_map
+
+        return _build_wire_net_map(self._session)
+
+    def _refresh_after_wire_op(self) -> None:
+        self._refresh_highlight()
+        if self._view is not None:
+            self._view.refresh()
+
+    def _wire_edit_clear(self) -> None:
+        """Leave wire-edit: drop the fragment, cycle, overlays, status."""
+        from protoboard.gui.selection.hit_test import WireEditCycle
+
+        self._clear_wire_edit_overlay()
+        self._clear_reroute_overlay()
+        self._wire_edit = None
+        self._wire_edit_wire_id = None
+        self._wire_edit_start = None
+        self._wire_edit_cycle = WireEditCycle()
+
+    # -- wire-edit overlays (tool-drawn, like the redrag overlay) -----------
+
+    def _draw_wire_edit_overlay(self) -> None:
+        """Cyan segments for the armed wire + red dots at the range endpoints."""
+        from PySide6.QtGui import QBrush
+        from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem
+
+        self._clear_wire_edit_overlay()
+        # The wire(s) to outline: the armed wire, plus the end wire of a cross-
+        # wire fragment once both endpoints are picked.
+        marked: dict[uuid.UUID, set[int]] = {}
+        if self._wire_edit is not None:
+            marked.setdefault(self._wire_edit.start_wire_id, set()).add(
+                self._wire_edit.start_idx
+            )
+            marked.setdefault(self._wire_edit.end_wire_id, set()).add(
+                self._wire_edit.end_idx
+            )
+        elif self._wire_edit_start is not None:
+            marked.setdefault(self._wire_edit_start.wire_id, set()).add(
+                self._wire_edit_start.index
+            )
+
+        wire_ids = set(marked)
+        if self._wire_edit_wire_id is not None:
+            wire_ids.add(self._wire_edit_wire_id)
+
+        for wid in wire_ids:
+            wire = self._wire_by_id(wid)
+            if wire is None:
+                continue
+            pts = wire.path
+            for i in range(len(pts) - 1):
+                seg = QGraphicsLineItem(
+                    pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y
+                )
+                seg.setPen(_WIRE_EDIT_PEN)
+                seg.setZValue(9.0)
+                self._view.scene().addItem(seg)
+                self._wire_edit_items.append(seg)
+            marked_idx = marked.get(wid, set())
+            for i, pt in enumerate(pts):
+                r = _NODE_RADIUS
+                dot = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
+                if i in marked_idx:
+                    dot.setPen(_NODE_SELECTED_PEN)
+                    dot.setBrush(QBrush(_NODE_SELECTED_BRUSH))
+                else:
+                    dot.setPen(_NODE_EDIT_PEN)
+                    dot.setBrush(QBrush(_NODE_EDIT_BRUSH))
+                dot.setZValue(10.0)
+                self._view.scene().addItem(dot)
+                self._wire_edit_items.append(dot)
+
+    def _draw_reroute_preview(self, waypoints: list[Point]) -> None:
+        """Dashed orange polyline from the fragment start through the waypoints."""
+        from PySide6.QtWidgets import QGraphicsLineItem
+
+        self._clear_reroute_overlay()
+        anchor = None
+        state = self._wire_edit
+        if state is not None:
+            wire = self._wire_by_id(state.start_wire_id)
+            if wire is not None:
+                anchor = wire.path[state.start_idx]
+        if anchor is None:
+            return
+        prev = anchor
+        for wp in waypoints:
+            line = QGraphicsLineItem(prev.x, prev.y, wp.x, wp.y)
+            line.setPen(_EDIT_PREVIEW_PEN)
+            line.setZValue(20.0)
+            self._view.scene().addItem(line)
+            self._reroute_items.append(line)
+            prev = wp
+
+    def _clear_wire_edit_overlay(self) -> None:
+        for item in self._wire_edit_items:
+            try:
+                self._view.scene().removeItem(item)
+            except RuntimeError:
+                pass
+        self._wire_edit_items = []
+
+    def _clear_reroute_overlay(self) -> None:
+        self._clear_reroute_live()
+        for item in self._reroute_items:
+            try:
+                self._view.scene().removeItem(item)
+            except RuntimeError:
+                pass
+        self._reroute_items = []
+
+    def _clear_reroute_live(self) -> None:
+        if self._reroute_live is not None:
+            try:
+                self._view.scene().removeItem(self._reroute_live)
+            except RuntimeError:
+                pass
+            self._reroute_live = None
+
     # -- keys ---------------------------------------------------------------
 
     def on_key(self, event: QKeyEvent) -> None:
@@ -794,9 +1256,23 @@ class SelectToolV2:
         # Translate the key into a semantic intent and offer it to the active
         # mouse interaction (a floating drag, or a pick via PointPickController:
         # CONFIRM ends it, CANCEL aborts, UNDO drops the last pick).  One path —
-        # no controller-type branching; the controller decides.
+        # no controller-type branching; the controller decides.  A wire-vertex
+        # or reroute-waypoint pick is live here, so its Enter/Esc/Backspace
+        # route to the pick before the op-keys get a turn.
         intent = self._key_to_intent(key)
         if intent is not None and self._dispatch_intent(intent):
+            event.accept()
+            return
+
+        # Fragment selected and no pick in flight → the op-keys act on it
+        # ([W] reroute · [A] autoroute · [Del] delete · [Esc] cancel).  This is
+        # the "operations are actions on the selected fragment" branch.
+        if self._wire_edit is not None and self._mouse is None:
+            if self._wire_edit_on_key(event):
+                return
+
+        if key == Qt.Key.Key_E and not ctrl and not alt and not shift:
+            self.arm_wire_edit()  # [E] — enter wire-edit on the selected wire
             event.accept()
             return
 

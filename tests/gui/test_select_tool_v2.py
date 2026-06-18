@@ -428,3 +428,252 @@ class TestPickRouting:
         assert cancelled == [True]
         assert tool._selection.active_pick is None
         assert tool._mouse is None
+
+
+# -- wire-edit ----------------------------------------------------------------
+
+
+def _wire_session(qtbot) -> tuple[EditorSession, BoardView]:
+    """A 16×16 perfboard session with a single net-bound straight wire selected.
+
+    wire: (1.5,1.5) → (2.5,1.5) → (3.5,1.5) → (4.5,1.5), bottom side, bound to
+    one net via a 1-pin component at the first pad, so `_build_wire_net_map`
+    resolves it.
+    """
+    import uuid
+    from pathlib import Path
+
+    from protoboard.domain.board.board import Board
+    from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
+    from protoboard.domain.board.pads import PadLayers
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.footprints import SIL
+    from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.layout.placement import ComponentPlacement
+    from protoboard.domain.layout.wire import Wire
+    from protoboard.domain.schematic.net import Net, PinRef
+    from protoboard.geometry import Point
+    from protoboard.services.library.loader import load_library
+
+    grid = BoardGrid(
+        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+        cell=PadAtom(
+            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            layers=PadLayers(top=True, bottom=True, plated_through=True),
+        ),
+        rows=16, cols=16, row_gap=0.0, col_gap=0.0,
+    )
+    library = load_library([Path(__file__).parent.parent / "fixtures" / "library"])
+    sess = EditorSession(board=Board(root=grid), library=library)
+
+    defn = ComponentDefinition(name="STUB1", footprint=SIL(1), pin_names={1: "P1"})
+    sess.components["STUB1"] = defn
+    inst = ComponentInstance.new(definition_ref="STUB1", refdes="X1", value="")
+    sess.instances[inst.id] = inst
+    sess.layout.placements[inst.id] = ComponentPlacement(
+        component_id=inst.id, position=Point(1.5, 1.5), rotation=0, side="top",
+    )
+    net_id = uuid.uuid4()
+    sess.schematic.nets[net_id] = Net(
+        id=net_id, name="N1",
+        pins={PinRef(component_id=inst.id, pin_number=1)},
+    )
+    wire = Wire(
+        id=uuid.uuid4(),
+        path=[Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5), Point(4.5, 1.5)],
+        insulated=False, side="bottom",
+    )
+    sess.layout.wires.append(wire)
+    sess.invalidate_graph()
+
+    view = BoardView(sess)
+    qtbot.addWidget(view)
+    return sess, view
+
+
+def _select_wire(tool: SelectToolV2, session: EditorSession) -> None:
+    from protoboard.gui.selection.adapters import WireSelectable
+
+    wire = next(iter(session.layout.wires))
+    tool._selection.set(WireSelectable(wire=wire))
+
+
+def _depth(session: EditorSession) -> int:
+    return len(session.stack._undo)  # type: ignore[attr-defined]
+
+
+class TestWireEdit:
+    def test_e_arms_then_two_clicks_select_fragment(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        depth = _depth(session)
+
+        _key(tool, Qt.Key.Key_E)  # arm wire-edit
+        assert tool._selection.active_pick is not None  # vertex pick armed
+        _click(tool, 2.5, 1.5)  # first vertex (index 1)
+        assert tool._wire_edit is None  # not complete yet
+        _click(tool, 3.5, 1.5)  # second vertex (index 2)
+
+        assert tool._wire_edit is not None
+        assert (tool._wire_edit.start_idx, tool._wire_edit.end_idx) == (1, 2)
+        assert tool._mouse is None  # range pick finished
+        assert _depth(session) == depth  # no command yet
+
+    def test_w_reroute_commits_replace_fragments(self, qtbot) -> None:
+        from protoboard.domain.commands.component_cmds import (
+            ReplaceWireFragmentsCommand,
+        )
+
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        depth = _depth(session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)
+        _click(tool, 3.5, 1.5)
+        # [W] arms the waypoint pick; click a detour waypoint, Enter commits.
+        _key(tool, Qt.Key.Key_W)
+        assert tool._selection.active_pick is not None
+        _click(tool, 3.0, 2.5)  # waypoint off the straight line
+        _key(tool, Qt.Key.Key_Return)  # commit
+
+        assert _depth(session) == depth + 1
+        cmd = session.stack._undo[-1]  # type: ignore[attr-defined]
+        assert isinstance(cmd, ReplaceWireFragmentsCommand)
+        assert tool._wire_edit is None
+
+    def test_w_reroute_undo_restores(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        before = [
+            list(w.path) for w in session.layout.wires
+        ]
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)
+        _click(tool, 3.5, 1.5)
+        _key(tool, Qt.Key.Key_W)
+        _click(tool, 3.0, 2.5)
+        _key(tool, Qt.Key.Key_Return)
+        session.stack.undo(session)  # type: ignore[arg-type]
+
+        after = [list(w.path) for w in session.layout.wires]
+        assert after == before
+
+    def test_del_deletes_whole_wire(self, qtbot) -> None:
+        from protoboard.domain.commands.component_cmds import RemoveWireCommand
+
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 1.5, 1.5)  # first vertex (index 0)
+        _click(tool, 4.5, 1.5)  # last vertex (index 3) → whole wire
+        depth = _depth(session)
+        _key(tool, Qt.Key.Key_Delete)
+
+        assert _depth(session) == depth + 1
+        assert isinstance(
+            session.stack._undo[-1], RemoveWireCommand  # type: ignore[attr-defined]
+        )
+        assert tool._wire_edit is None
+
+    def test_del_partial_cuts_into_halves(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)  # index 1
+        _click(tool, 3.5, 1.5)  # index 2 — interior fragment
+        n_before = len(list(session.layout.wires))
+        _key(tool, Qt.Key.Key_Delete)
+        # The single wire is cut into two surviving halves.
+        assert len(list(session.layout.wires)) == n_before + 1
+
+    def test_esc_cancels_fragment_no_command(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)
+        _click(tool, 3.5, 1.5)
+        depth = _depth(session)
+        assert tool._wire_edit is not None
+        _key(tool, Qt.Key.Key_Escape)
+
+        assert tool._wire_edit is None
+        assert _depth(session) == depth
+
+    def test_esc_during_reroute_returns_to_fragment(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)
+        _click(tool, 3.5, 1.5)
+        _key(tool, Qt.Key.Key_W)  # arm reroute
+        _click(tool, 3.0, 2.5)  # one waypoint
+        _key(tool, Qt.Key.Key_Escape)  # cancel the reroute pick
+
+        # Reroute aborted, but the fragment selection survives.
+        assert tool._selection.active_pick is None
+        assert tool._wire_edit is not None
+
+    def test_backspace_during_reroute_drops_last_waypoint(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)
+        _click(tool, 3.5, 1.5)
+        _key(tool, Qt.Key.Key_W)
+        _click(tool, 3.0, 2.5)
+        pick = tool._selection.active_pick
+        assert pick is not None and len(pick.collected) == 1
+        _key(tool, Qt.Key.Key_Backspace)  # UNDO drops the waypoint
+        assert len(pick.collected) == 0
+
+    def test_press_elsewhere_cancels_fragment(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)
+        _click(tool, 3.5, 1.5)
+        assert tool._wire_edit is not None
+        # A plain press on empty board space leaves wire-edit (and falls
+        # through to normal selection — here an empty area arms a band).
+        _press(tool, 10.0, 10.0)
+        assert tool._wire_edit is None
+
+    def test_e_without_selected_wire_is_noop(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        # No wire selected.
+        _key(tool, Qt.Key.Key_E)
+        assert tool._selection.active_pick is None
+        assert tool._wire_edit is None
+
+    def test_a_autoroutes_fragment(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)  # index 1
+        _click(tool, 3.5, 1.5)  # index 2
+        assert tool._wire_edit is not None
+        # [A] runs A* between the two boundary pads; whether it commits a new
+        # path or finds none, it must leave wire-edit cleanly and not crash.
+        _key(tool, Qt.Key.Key_A)
+        assert tool._wire_edit is None
+        assert tool._selection.active_pick is None

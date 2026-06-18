@@ -20,6 +20,7 @@ from protoboard.gui.selection.adapters import (
 from protoboard.gui.selection.hit_test import (
     HitTester,
     SelectionFilters,
+    WireEditCycle,
 )
 from protoboard.gui.selection.mouse_input import (
     Intent,
@@ -52,6 +53,7 @@ __all__ = [
     "SelectionFilters",
     "SelectionService",
     "Stop",
+    "WireEditCycle",
     "WireSelectable",
     "WireVertexSelectable",
 ]

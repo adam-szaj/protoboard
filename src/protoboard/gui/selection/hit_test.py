@@ -29,9 +29,12 @@ from protoboard.gui.selection.adapters import (
     ComponentSelectable,
     GroupSelectable,
     WireSelectable,
+    WireVertexSelectable,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.domain.layout.wire import Wire
@@ -43,6 +46,24 @@ if TYPE_CHECKING:
 HIT_RADIUS = 0.5  # pin reach (Euclidean, raster units)
 BBOX_MARGIN = 0.45  # component bbox padding
 WIRE_HIT_DIST = 0.35  # perpendicular distance to a wire segment
+NODE_HIT_RADIUS = 0.32  # wire-vertex reach (Euclidean, raster units)
+_CLUSTER_EPS = 1e-3  # two vertices within this are the same shared knot
+
+
+@dataclass(frozen=True, slots=True)
+class WireEditCycle:
+    """Round-robin state for repeated clicks at a shared knot (Qt-free).
+
+    ``key`` is ``(round(x, 4), round(y, 4), start_net_id)`` — the cluster
+    identity; ``last_wire_id`` is the wire returned on the previous click at
+    that cluster.  Both ``None`` means "fresh / no active cluster".  Replaces
+    the legacy ``_wire_edit_cycle_key`` / ``_wire_edit_cycle_last_wire_id``
+    pair; the tool stores one and passes it back on the next pick so the cluster
+    cycle survives only while the user keeps clicking the same knot.
+    """
+
+    key: tuple[float, float, uuid.UUID | None] | None = None
+    last_wire_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +104,9 @@ class LayoutLike(Protocol):
 
     @property
     def groups(self) -> dict[uuid.UUID, ComponentGroup]: ...
+
+    @property
+    def wires(self) -> Iterable[Wire]: ...
 
 
 def _dist_point_to_segment(
@@ -157,6 +181,116 @@ class HitTester:
                     return ComponentSelectable(component_id=cid, placement=pl)
 
         return None
+
+    def hit_wire_vertex(
+        self,
+        x: float,
+        y: float,
+        *,
+        start_wire_id: uuid.UUID | None,
+        wire_net_map: dict[uuid.UUID, uuid.UUID],
+        cycle: WireEditCycle,
+    ) -> tuple[WireVertexSelectable | None, WireEditCycle]:
+        """Nearest wire vertex within NODE_HIT_RADIUS, net-restricted, cluster-cycling.
+
+        Verbatim port of the legacy ``_hit_test_wire_node_any`` (minus the
+        ``_ensure_wire_ready_for_edit`` pad-vertex enrichment, deferred): the
+        search is restricted to the net of ``start_wire_id`` (looked up in
+        ``wire_net_map``); when the start wire has no resolvable net the search
+        is restricted to the start wire alone (so hitting an unrelated wire mid-
+        edit is impossible).  At a shared knot the currently-selected start wire
+        wins ties, and repeated clicks at the same cluster rotate through the
+        sibling wires; changing cluster (or a miss) resets the cycle.
+
+        Returns the picked vertex (or ``None``) and the updated
+        :class:`WireEditCycle` the caller stores for the next click.
+        """
+        wires = self._ctx.layout.wires
+
+        start_net_id: uuid.UUID | None = None
+        if start_wire_id is not None:
+            start_net_id = wire_net_map.get(start_wire_id)
+
+        # When the start wire carries no resolvable net, limit to it alone.
+        restrict_to_start_wire = (
+            start_net_id is None and start_wire_id is not None
+        )
+
+        # Collect every candidate (wire, idx, dist) within the radius.
+        candidates: list[tuple[Wire, int, float]] = []
+        for wire in wires:
+            if start_net_id is not None and wire_net_map.get(wire.id) != start_net_id:
+                continue
+            if restrict_to_start_wire and wire.id != start_wire_id:
+                continue
+            for i, pt in enumerate(wire.path):
+                d = math.hypot(x - pt.x, y - pt.y)
+                if d < NODE_HIT_RADIUS:
+                    candidates.append((wire, i, d))
+
+        if not candidates:
+            # No hit — drop cycle state so a future hit starts fresh.
+            return None, WireEditCycle()
+
+        # Nearest cluster: the closest hit defines a snap-point; any other hit
+        # within _CLUSTER_EPS of it is the same shared knot (any wire).
+        candidates.sort(key=lambda c: c[2])
+        anchor_wire, anchor_idx, _ = candidates[0]
+        ax = anchor_wire.path[anchor_idx].x
+        ay = anchor_wire.path[anchor_idx].y
+
+        cluster = [
+            (w, i) for (w, i, _d) in candidates
+            if abs(w.path[i].x - ax) < _CLUSTER_EPS
+            and abs(w.path[i].y - ay) < _CLUSTER_EPS
+        ]
+
+        # De-dup per-wire (a self-touch may visit a point twice — first index).
+        seen_wires: set[uuid.UUID] = set()
+        cluster_unique: list[tuple[Wire, int]] = []
+        for w, i in cluster:
+            if w.id in seen_wires:
+                continue
+            seen_wires.add(w.id)
+            cluster_unique.append((w, i))
+
+        cluster_key = (round(ax, 4), round(ay, 4), start_net_id)
+        same_cluster = cluster_key == cycle.key
+        last_wire_id = cycle.last_wire_id if same_cluster else None
+
+        # Single candidate — no rotation.
+        if len(cluster_unique) == 1:
+            w, i = cluster_unique[0]
+            return (
+                WireVertexSelectable(wire_id=w.id, index=i),
+                WireEditCycle(key=cluster_key, last_wire_id=w.id),
+            )
+
+        # Rotation order: selected wire first, then the rest in layout order.
+        ordered: list[tuple[Wire, int]] = []
+        rest: list[tuple[Wire, int]] = []
+        for w, i in cluster_unique:
+            if start_wire_id is not None and w.id == start_wire_id:
+                ordered.append((w, i))
+            else:
+                rest.append((w, i))
+        ordered.extend(rest)
+
+        # First click at this cluster → head; repeat click → advance.
+        if same_cluster and last_wire_id is not None:
+            ids = [w.id for w, _ in ordered]
+            try:
+                pick_pos = (ids.index(last_wire_id) + 1) % len(ordered)
+            except ValueError:
+                pick_pos = 0
+        else:
+            pick_pos = 0
+
+        w, i = ordered[pick_pos]
+        return (
+            WireVertexSelectable(wire_id=w.id, index=i),
+            WireEditCycle(key=cluster_key, last_wire_id=w.id),
+        )
 
     # -- per-kind resolvers (faithful to the legacy algorithms) ------------
 
