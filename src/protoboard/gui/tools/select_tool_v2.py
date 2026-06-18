@@ -119,6 +119,12 @@ class SelectToolV2:
         self._wire_edit_items: list[QGraphicsItem] = []  # cyan overlay + dots
         self._reroute_items: list[QGraphicsItem] = []  # orange waypoint preview
         self._reroute_live: QGraphicsItem | None = None  # live cursor segment
+        # Net/connectivity relation axis: which set is correlated to a clicked
+        # object — drives Alt (RELATION-basis) selection and the auto-highlight
+        # that follows any plain SET click.  Default = same logical net.
+        from protoboard.gui.selection_axes import RelationClass
+
+        self._relation: RelationClass = RelationClass.SAME_LOGICAL_NET
 
     # -- _Tool lifecycle ----------------------------------------------------
 
@@ -264,7 +270,7 @@ class SelectToolV2:
             self._wire_edit_clear()
 
         # 3. Normal selection. Resolve the hit.
-        _basis, op = self._decode_modifiers(event)
+        basis, op = self._decode_modifiers(event)
         sel = self._hit_tester().hit(scene_pt.x(), scene_pt.y(), self._filters())
 
         #   3a. Empty space → arm a rubber-band interaction.
@@ -276,28 +282,122 @@ class SelectToolV2:
         #   the selection — the controller's own threshold decides drag-vs-click.
         #   With Ctrl/Shift the press only mutates the set (no drag).
         if op is SetOp.SET:
-            self._apply_selection(sel, op)
+            self._apply_selection(sel, op, basis)
             drag = self._arm_drag(sel, scene_pt)
             if drag is not None:
                 self._mouse = drag
             return True
 
-        self._apply_selection(sel, op)
+        self._apply_selection(sel, op, basis)
         return True
 
-    def _apply_selection(self, sel: Selectable, op: SetOp) -> None:
+    def _apply_selection(
+        self, sel: Selectable, op: SetOp, basis: BasisScope = BasisScope.SINGLE
+    ) -> None:
+        # RELATION basis (Alt): expand the selection to the relation-correlated
+        # members (the whole net, neighbours, …) — `set_many` for SET, else add
+        # each.  SINGLE basis: just the clicked object.
+        targets = [sel]
+        if basis is BasisScope.RELATION:
+            targets = self._relation_correlated_selectables(sel) or [sel]
+
         if op == SetOp.ADD:
-            self._selection.add(sel)
+            for t in targets:
+                self._selection.add(t)
         elif op == SetOp.REMOVE:
             # Phase 2 MVP: remove not yet a first-class FSM op here; treat as
             # a fresh SET so the click is never a silent no-op. Refined later.
-            self._selection.set(sel)
+            self._selection.set_many(targets)
+        elif len(targets) > 1:
+            self._selection.set_many(targets)
         else:
             self._selection.set(sel)
-        self._refresh_highlight()
+        self._refresh_highlight(primary=sel)
 
-    def _refresh_highlight(self) -> None:
-        self._highlight.show(self._selection.selected())
+    def _refresh_highlight(self, *, primary: Selectable | None = None) -> None:
+        """Publish the auto-highlight: the selection plus the primary's net context.
+
+        Any plain SET click highlights the clicked object's relation context (its
+        net members) so the user sees "what is connected to this" — the legacy
+        auto-highlight behaviour.  ``RelationClass.NONE`` disables the context.
+        """
+        shown: list[Selectable] = list(self._selection.selected())
+        anchor = primary if primary is not None else self._primary_selectable()
+        if anchor is not None:
+            shown.extend(self._relation_correlated_selectables(anchor))
+        self._highlight.show(shown)
+
+    def _primary_selectable(self) -> Selectable | None:
+        sel = self._selection.selected()
+        return sel[0] if sel else None
+
+    # -- net / connectivity relation axis ----------------------------------
+
+    def relation(self):  # type: ignore[no-untyped-def]
+        """The active :class:`RelationClass` (net/connectivity correlation axis)."""
+        return self._relation
+
+    def set_relation(self, relation) -> None:  # type: ignore[no-untyped-def]
+        """Set the correlation axis used by Alt-select and the auto-highlight."""
+        from protoboard.gui.selection_axes import RelationClass
+
+        if isinstance(relation, RelationClass):
+            self._relation = relation
+            self._refresh_highlight()
+
+    def _relation_source(self, sel: Selectable):  # type: ignore[no-untyped-def]
+        """Map a hit Selectable to a :class:`RelationSource` for the queries."""
+        import uuid as _uuid
+
+        from protoboard.gui.selection.queries import RelationSource
+
+        hit = sel.to_hit()
+        if hit.kind == "wire" and isinstance(hit.id, _uuid.UUID):
+            return RelationSource.wire(hit.id)
+        if hit.kind == "component" and isinstance(hit.id, _uuid.UUID):
+            if hit.pin_number is not None:
+                return RelationSource.pin(hit.id, hit.pin_number)
+            return RelationSource.component(hit.id)
+        return None
+
+    def _relation_correlated_selectables(
+        self, sel: Selectable
+    ) -> list[Selectable]:
+        """The relation-correlated components + wires of *sel* as Selectables.
+
+        Resolves ``(comp_ids, wire_ids)`` via :func:`relation_correlated` over
+        the session-backed connectivity seams, then wraps each id in its adapter
+        so the selection / highlight pipelines consume them uniformly.
+        """
+        from protoboard.gui.selection.adapters import (
+            ComponentSelectable,
+            WireSelectable,
+        )
+        from protoboard.gui.selection.queries import (
+            SessionConnQuery,
+            SessionNetSource,
+            relation_correlated,
+        )
+
+        source = self._relation_source(sel)
+        if source is None:
+            return []
+        comp_ids, wire_ids = relation_correlated(
+            self._relation,
+            source,
+            SessionConnQuery(self._session),
+            SessionNetSource(self._session),
+        )
+        out: list[Selectable] = []
+        for cid in comp_ids:
+            pl = self._session.layout.placements.get(cid)
+            if pl is not None:
+                out.append(ComponentSelectable(component_id=cid, placement=pl))
+        for wid in wire_ids:
+            wire = self._wire_by_id(wid)
+            if wire is not None:
+                out.append(WireSelectable(wire=wire))
+        return out
 
     # -- mouse-interaction routing -----------------------------------------
 

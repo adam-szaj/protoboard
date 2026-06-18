@@ -45,7 +45,6 @@ if TYPE_CHECKING:
 
 _PHASE1 = "Selectable.draw_highlight lands with HighlightController (Phase 1)"
 _PHASE2 = "Selectable.bbox lands with rubber-band hit-test (Phase 2)"
-_PHASE2_NET = "Selectable.net_ids lands with net/connectivity queries (Phase 5)"
 _PHASE3 = "Selectable.to_drag_member lands with the drag mode (Phase 3)"
 _PICK_ONLY = "PointSelectable is a pick-only coordinate — read .point, not this"
 
@@ -69,7 +68,11 @@ class ComponentSelectable:
         raise NotImplementedError(_PHASE2)
 
     def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
-        raise NotImplementedError(_PHASE2_NET)
+        # A pin-scoped hit narrows to that pin's net; a whole-component hit
+        # unions every net the component participates in.
+        if self.pin_number is not None:
+            return conn.nets_for_pin(self.component_id, self.pin_number)
+        return conn.nets_for_component(self.component_id)
 
     def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
         raise NotImplementedError(_PHASE1)
@@ -94,7 +97,8 @@ class WireSelectable:
         raise NotImplementedError(_PHASE2)
 
     def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
-        raise NotImplementedError(_PHASE2_NET)
+        nid = conn.net_for_wire(self.wire.id)
+        return frozenset({nid}) if nid is not None else frozenset()
 
     def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
         raise NotImplementedError(_PHASE1)
@@ -119,7 +123,13 @@ class GroupSelectable:
         raise NotImplementedError(_PHASE2)
 
     def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
-        raise NotImplementedError(_PHASE2_NET)
+        # Union of every net the group's direct members touch.  (Nested-group
+        # members come in as their own ComponentSelectables; the group adapter
+        # carries only the ComponentGroup, which lists direct members.)
+        out: frozenset[NetId] = frozenset()
+        for cid in self.group.component_ids:
+            out |= conn.nets_for_component(cid)
+        return out
 
     def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
         raise NotImplementedError(_PHASE1)
@@ -148,7 +158,7 @@ class PinSelectable:
         raise NotImplementedError(_PHASE2)
 
     def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
-        raise NotImplementedError(_PHASE2_NET)
+        return conn.nets_for_pin(self.pin.component_id, self.pin.pin_number)
 
     def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
         raise NotImplementedError(_PHASE1)
@@ -179,7 +189,8 @@ class WireVertexSelectable:
         raise NotImplementedError(_PHASE2)
 
     def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
-        raise NotImplementedError(_PHASE2_NET)
+        nid = conn.net_for_wire(self.wire_id)
+        return frozenset({nid}) if nid is not None else frozenset()
 
     def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
         raise NotImplementedError(_PHASE1)

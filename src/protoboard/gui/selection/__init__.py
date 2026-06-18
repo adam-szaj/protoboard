@@ -28,6 +28,13 @@ from protoboard.gui.selection.mouse_input import (
     MouseInputController,
 )
 from protoboard.gui.selection.point_pick_controller import PointPickController
+from protoboard.gui.selection.queries import (
+    RelationSource,
+    SessionConnQuery,
+    SessionNetSource,
+    relation_correlated,
+    source_net_ids,
+)
 from protoboard.gui.selection.selectable import (
     PickKind,
     Selectable,
@@ -48,12 +55,17 @@ __all__ = [
     "PinSelectable",
     "PointPickController",
     "PointSelectable",
+    "RelationSource",
     "Selectable",
     "SelectableKey",
     "SelectionFilters",
     "SelectionService",
+    "SessionConnQuery",
+    "SessionNetSource",
     "Stop",
     "WireEditCycle",
     "WireSelectable",
     "WireVertexSelectable",
+    "relation_correlated",
+    "source_net_ids",
 ]

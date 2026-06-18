@@ -663,6 +663,81 @@ class TestWireEdit:
         assert tool._selection.active_pick is None
         assert tool._wire_edit is None
 
+
+# -- net / connectivity relation ----------------------------------------------
+
+
+def _two_comp_net(board_view: BoardView, session: EditorSession):
+    """Place two 1-pin components bound to one net; return (i1, i2)."""
+    import uuid as _uuid
+
+    from protoboard.domain.schematic.net import Net, PinRef
+
+    i1 = _place(board_view, session, 0.5, 0.5)
+    i2 = _place(board_view, session, 3.5, 0.5)
+    net = Net(id=_uuid.uuid4(), name="N1", pins={PinRef(i1.id, 1), PinRef(i2.id, 1)})
+    session.schematic.nets[net.id] = net
+    session.invalidate_graph()
+    return i1, i2
+
+
+class TestNetRelation:
+    def test_alt_click_selects_whole_net(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        i1, i2 = _two_comp_net(board_view, session)
+        tool = _v2(board_view)
+        # Alt = RELATION basis → SET expands to the net members.
+        _press(tool, 0.5, 0.5, Qt.KeyboardModifier.AltModifier)
+        ids = _comp_ids(tool)
+        assert i1.id in ids
+        assert i2.id in ids
+
+    def test_plain_click_selects_only_hit(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        i1, i2 = _two_comp_net(board_view, session)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)  # no Alt → SINGLE basis
+        ids = _comp_ids(tool)
+        assert ids == {i1.id}  # only the clicked component is selected
+
+    def test_plain_click_auto_highlights_net_context(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        i1, i2 = _two_comp_net(board_view, session)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)  # plain SET
+        entry = session.highlight_stack.active()
+        assert entry is not None
+        # Auto-highlight shows the hit's net context — both members dimmed in.
+        assert i1.id in entry.comp_ids
+        assert i2.id in entry.comp_ids
+
+    def test_relation_none_disables_context_highlight(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_axes import RelationClass
+
+        i1, i2 = _two_comp_net(board_view, session)
+        tool = _v2(board_view)
+        tool.set_relation(RelationClass.NONE)
+        _press(tool, 0.5, 0.5)
+        entry = session.highlight_stack.active()
+        assert entry is not None
+        # NONE correlates nothing — only the clicked component is highlighted.
+        assert i2.id not in entry.comp_ids
+
+    def test_set_relation_changes_axis(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_axes import RelationClass
+
+        tool = _v2(board_view)
+        assert tool.relation() == RelationClass.SAME_LOGICAL_NET
+        tool.set_relation(RelationClass.NEIGHBORS)
+        assert tool.relation() == RelationClass.NEIGHBORS
+
     def test_a_autoroutes_fragment(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
         tool = _v2(view)
