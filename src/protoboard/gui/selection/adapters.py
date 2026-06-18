@@ -25,6 +25,7 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from protoboard.geometry import Point
 from protoboard.gui.selection_fsm import Hit
 
 if TYPE_CHECKING:
@@ -46,6 +47,7 @@ _PHASE1 = "Selectable.draw_highlight lands with HighlightController (Phase 1)"
 _PHASE2 = "Selectable.bbox lands with rubber-band hit-test (Phase 2)"
 _PHASE2_NET = "Selectable.net_ids lands with net/connectivity queries (Phase 5)"
 _PHASE3 = "Selectable.to_drag_member lands with the drag mode (Phase 3)"
+_PICK_ONLY = "PointSelectable is a pick-only coordinate — read .point, not this"
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,3 +186,35 @@ class WireVertexSelectable:
 
     def to_drag_member(self) -> object | None:
         raise NotImplementedError(_PHASE3)
+
+
+@dataclass(frozen=True, slots=True)
+class PointSelectable:
+    """A bare board coordinate (pick-only — e.g. redrag's target pad).
+
+    Some picks resolve to a *location*, not an entity: redrag asks the user for
+    the pad a bendable lead should reach, and EditWire's reroute collects pad
+    waypoints.  This adapter carries the snapped :class:`Point`; its consumer
+    reads :attr:`point` from the picked list.  It never enters the FSM selection
+    (a coordinate is not a ``Hit``), so :meth:`to_hit` and the rest raise.
+    """
+
+    point: Point
+
+    def identity(self) -> SelectableKey:
+        return ("point", self.point.x, self.point.y)
+
+    def to_hit(self) -> Hit:
+        raise NotImplementedError(_PICK_ONLY)
+
+    def bbox(self) -> Rect:
+        raise NotImplementedError(_PICK_ONLY)
+
+    def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
+        raise NotImplementedError(_PICK_ONLY)
+
+    def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
+        raise NotImplementedError(_PICK_ONLY)
+
+    def to_drag_member(self) -> object | None:
+        raise NotImplementedError(_PICK_ONLY)

@@ -146,11 +146,14 @@ class Stop:
     signature.  Construct via the factories, never the raw fields:
 
     * :meth:`count` — auto-complete once exactly *n* items are collected.
+    * :meth:`count_confirm` — collect up to *n*, but the user finalizes (Enter)
+      and may revise (:meth:`PickSession.undo`) first; reaching *n* only *arms*
+      completion, it does not auto-fire.
     * :meth:`confirm` — collect 0..∞; the user ends it (Enter); Esc cancels.
     * :meth:`until` — a caller predicate over the collected list decides.
     """
 
-    mode: Literal["count", "confirm", "until"]
+    mode: Literal["count", "count_confirm", "confirm", "until"]
     n: int = 0
     predicate: Callable[[list[Selectable]], bool] | None = None
 
@@ -160,6 +163,20 @@ class Stop:
         if n < 1:
             raise ValueError(f"Stop.count requires n >= 1; got {n}")
         return cls(mode="count", n=n)
+
+    @classmethod
+    def count_confirm(cls, n: int) -> Stop:
+        """Collect up to *n*, then wait for the user to confirm (Enter).
+
+        Unlike :meth:`count`, reaching *n* does not auto-complete — the user can
+        revise the picks (drop the last via :meth:`PickSession.undo`) and only
+        Enter finalizes.  Fixes the "can't correct a pick before it commits"
+        gap; collection never exceeds *n* (further clicks are ignored until one
+        is undone).
+        """
+        if n < 1:
+            raise ValueError(f"Stop.count_confirm requires n >= 1; got {n}")
+        return cls(mode="count_confirm", n=n)
 
     @classmethod
     def confirm(cls) -> Stop:
@@ -172,20 +189,30 @@ class Stop:
         return cls(mode="until", predicate=predicate)
 
     def satisfied(self, collected: list[Selectable]) -> bool:
-        """Whether *collected* meets this stop condition.
+        """Whether *collected* auto-completes this stop condition.
 
-        ``confirm`` is never auto-satisfied — only the user's explicit
-        confirm action ends it (the service checks that separately), so this
-        returns ``False`` regardless of how many items are gathered.
+        ``confirm`` and ``count_confirm`` are never auto-satisfied — only the
+        user's explicit confirm action ends them (the service checks that
+        separately), so this returns ``False`` regardless of how many items are
+        gathered.  ``count_confirm`` also *caps* collection at ``n``.
         """
         if self.mode == "count":
             return len(collected) >= self.n
         if self.mode == "until":
             assert self.predicate is not None  # set by the factory
             return self.predicate(collected)
-        return False  # "confirm" — user-driven only
+        return False  # "confirm" / "count_confirm" — user-driven only
+
+    def at_capacity(self, collected: list[Selectable]) -> bool:
+        """True when no more items should be accepted (``count_confirm`` cap)."""
+        return self.mode == "count_confirm" and len(collected) >= self.n
 
     @property
     def user_confirmable(self) -> bool:
-        """True for ``confirm`` picks, where Enter ends collection."""
-        return self.mode == "confirm"
+        """True for picks the user ends with Enter (``confirm`` / ``count_confirm``)."""
+        return self.mode in ("confirm", "count_confirm")
+
+    @property
+    def revisable(self) -> bool:
+        """True for picks that allow dropping the last item before confirming."""
+        return self.mode in ("confirm", "count_confirm")

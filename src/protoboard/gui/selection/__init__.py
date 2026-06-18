@@ -13,6 +13,7 @@ from protoboard.gui.selection.adapters import (
     ComponentSelectable,
     GroupSelectable,
     PinSelectable,
+    PointSelectable,
     WireSelectable,
     WireVertexSelectable,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "PickKind",
     "PickSession",
     "PinSelectable",
+    "PointSelectable",
     "Selectable",
     "SelectableKey",
     "SelectionFilters",

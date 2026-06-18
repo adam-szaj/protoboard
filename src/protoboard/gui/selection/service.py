@@ -81,11 +81,14 @@ class PickSession:
         """Add one picked *item*; return True iff the pick is now complete.
 
         Fires ``on_progress`` after appending, then ``on_done`` if the stop
-        condition is met.  A ``Stop.confirm`` run never auto-completes here —
-        it waits for :meth:`confirm`.
+        condition is met.  ``Stop.confirm`` / ``Stop.count_confirm`` runs never
+        auto-complete here — they wait for :meth:`confirm`; a ``count_confirm``
+        run at capacity ignores further items (revise with :meth:`undo` first).
         """
         if self._finished:
             return True
+        if self.stop.at_capacity(self._collected):
+            return False  # capped — drop the click until one is undone
         self._collected.append(item)
         if self._on_progress is not None:
             self._on_progress(self.collected)
@@ -94,9 +97,24 @@ class PickSession:
             return True
         return False
 
-    def confirm(self) -> bool:
-        """End an open-ended (``Stop.confirm``) run; return True if it ended.
+    def undo(self) -> bool:
+        """Drop the most recently picked item; return True if one was removed.
 
+        Lets the user correct a pick before finalizing — only meaningful for
+        revisable runs (``confirm`` / ``count_confirm``).  Fires ``on_progress``
+        with the shortened list so the client can redraw its preview.
+        """
+        if self._finished or not self.stop.revisable or not self._collected:
+            return False
+        self._collected.pop()
+        if self._on_progress is not None:
+            self._on_progress(self.collected)
+        return True
+
+    def confirm(self) -> bool:
+        """Finalize a user-confirmed run; return True if it ended.
+
+        Ends ``confirm`` and ``count_confirm`` runs (the user pressed Enter).
         No-op (returns False) for ``count`` / ``until`` runs, which only end
         through :meth:`feed`.
         """
@@ -104,6 +122,11 @@ class PickSession:
             return False
         self._complete()
         return True
+
+    @property
+    def at_capacity(self) -> bool:
+        """True when a ``count_confirm`` run has its full count (awaiting Enter)."""
+        return self.stop.at_capacity(self._collected)
 
     def cancel(self) -> None:
         """Abort the pick — fires ``on_cancel`` (once), discards collected items."""

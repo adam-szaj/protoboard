@@ -70,6 +70,18 @@ class TestStop:
         assert stop.satisfied([_sel(1), _sel(2), _sel(3)]) is True
         assert stop.user_confirmable is False
 
+    def test_count_confirm_caps_but_never_auto_satisfies(self) -> None:
+        stop = Stop.count_confirm(2)
+        assert stop.satisfied([_sel(1), _sel(2)]) is False  # user-driven
+        assert stop.at_capacity([_sel(1), _sel(2)]) is True
+        assert stop.at_capacity([_sel(1)]) is False
+        assert stop.user_confirmable is True
+        assert stop.revisable is True
+
+    def test_count_confirm_rejects_non_positive(self) -> None:
+        with pytest.raises(ValueError, match="count_confirm requires n >= 1"):
+            Stop.count_confirm(0)
+
 
 # ---------------------------------------------------------------------------
 # request_pick (callback primitive)
@@ -168,6 +180,75 @@ class TestRequestPick:
         # Further feeds after completion are no-ops, don't re-fire on_done.
         assert session.feed(_sel(2)) is True
         assert len(done) == 1
+
+
+class TestCorrectionPhase:
+    """Stop.count_confirm + PickSession.undo — revise picks before finalizing."""
+
+    def test_count_confirm_does_not_auto_complete(self) -> None:
+        svc = SelectionService()
+        done: list[list[object]] = []
+        session = svc.request_pick(
+            "pad", Stop.count_confirm(2), on_done=lambda xs: done.append(xs)
+        )
+        assert session.feed(_sel(1)) is False
+        assert session.feed(_sel(2)) is False  # at count, but NOT auto-done
+        assert not done
+        assert session.at_capacity is True
+
+    def test_count_confirm_caps_collection(self) -> None:
+        svc = SelectionService()
+        session = svc.request_pick(
+            "pad", Stop.count_confirm(2), on_done=lambda xs: None
+        )
+        session.feed(_sel(1))
+        session.feed(_sel(2))
+        # A 3rd click while at capacity is ignored (no growth past n).
+        assert session.feed(_sel(3)) is False
+        assert len(session.collected) == 2
+
+    def test_undo_drops_last_then_accepts_again(self) -> None:
+        svc = SelectionService()
+        progress: list[int] = []
+        session = svc.request_pick(
+            "pad",
+            Stop.count_confirm(2),
+            on_done=lambda xs: None,
+            on_progress=lambda xs: progress.append(len(xs)),
+        )
+        session.feed(_sel(1))
+        session.feed(_sel(2))
+        assert session.at_capacity is True
+        assert session.undo() is True  # drop the 2nd
+        assert session.at_capacity is False
+        assert len(session.collected) == 1
+        # Capacity freed → a fresh pick is accepted again.
+        assert session.feed(_sel(9)) is False
+        assert len(session.collected) == 2
+        assert progress == [1, 2, 1, 2]  # fires on each feed AND each undo
+
+    def test_confirm_finalizes_count_confirm(self) -> None:
+        svc = SelectionService()
+        done: list[list[object]] = []
+        session = svc.request_pick(
+            "pad", Stop.count_confirm(2), on_done=lambda xs: done.append(xs)
+        )
+        session.feed(_sel(1))
+        session.feed(_sel(2))
+        assert session.confirm() is True  # Enter finalizes
+        assert len(done) == 1
+        assert len(done[0]) == 2
+        assert svc.active_pick is None
+
+    def test_undo_noop_for_plain_count(self) -> None:
+        svc = SelectionService()
+        session = svc.request_pick(
+            "pad", Stop.count(3), on_done=lambda xs: None
+        )
+        session.feed(_sel(1))
+        # Plain count is not revisable — undo is a no-op.
+        assert session.undo() is False
+        assert len(session.collected) == 1
 
 
 # ---------------------------------------------------------------------------

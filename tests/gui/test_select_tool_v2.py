@@ -314,6 +314,78 @@ class TestGroupDrag:
         assert session.layout.placements[b.id].position == b0
 
 
+def _make_bendable(session: EditorSession, comp_id, pin: int = 1) -> None:
+    """Give *comp_id*'s definition a free bendable lead on *pin* (in-place)."""
+    from protoboard.domain.components.definition import PinBendSpec
+    from protoboard.geometry import Point
+
+    inst = session.instances[comp_id]
+    defn = session.components[inst.definition_ref]
+    # bendable_pins is a mutable dict on the (frozen) definition — inject a free
+    # continuous spec reaching a few raster units in any direction.
+    defn.bendable_pins[pin] = PinBendSpec(
+        min_reach=0.0, max_reach=5.0, default_offset=Point(0.0, 0.0)
+    )
+
+
+class TestRedrag:
+    def test_redrag_moves_pin_offset_and_commits(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        _make_bendable(session, inst.id, pin=1)
+        tool = _v2(board_view)
+        _press(tool, 1.0, 1.0)  # select it
+        depth = len(session.stack._undo)  # type: ignore[attr-defined]
+        before = dict(session.layout.placements[inst.id].pin_offsets)
+        tool.begin_redrag(inst.id)
+        assert tool._selection.active_pick is not None
+        # Click a reachable pad → pick completes → command lands.
+        _press(tool, 2.0, 1.0)
+        after = dict(session.layout.placements[inst.id].pin_offsets)
+        assert after != before  # pin 1 offset changed
+        assert len(session.stack._undo) == depth + 1  # type: ignore[attr-defined]
+        assert tool._selection.active_pick is None
+
+    def test_redrag_undo_restores_offset(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        _make_bendable(session, inst.id, pin=1)
+        tool = _v2(board_view)
+        _press(tool, 1.0, 1.0)
+        before = dict(session.layout.placements[inst.id].pin_offsets)
+        tool.begin_redrag(inst.id)
+        _press(tool, 2.0, 1.0)
+        session.stack.undo(session)  # type: ignore[arg-type]
+        assert dict(session.layout.placements[inst.id].pin_offsets) == before
+
+    def test_redrag_esc_cancels_no_command(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        _make_bendable(session, inst.id, pin=1)
+        tool = _v2(board_view)
+        _press(tool, 1.0, 1.0)
+        depth = len(session.stack._undo)  # type: ignore[attr-defined]
+        tool.begin_redrag(inst.id)
+        assert tool._selection.active_pick is not None
+        _key(tool, Qt.Key.Key_Escape)  # cancel the pick
+        assert tool._selection.active_pick is None
+        assert len(session.stack._undo) == depth  # type: ignore[attr-defined]
+        assert tool._redrag_comp_id is None  # overlay state cleared
+
+    def test_redrag_no_bendable_pin_is_noop(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)  # R has no bendable pins
+        tool = _v2(board_view)
+        _press(tool, 1.0, 1.0)
+        tool.begin_redrag(inst.id)
+        # No free lead → no pick armed.
+        assert tool._selection.active_pick is None
+
+
 class TestPickRouting:
     def test_click_feeds_active_pick(
         self, board_view: BoardView, session: EditorSession

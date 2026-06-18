@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     import uuid
 
     from PySide6.QtGui import QKeyEvent, QMouseEvent
+    from PySide6.QtWidgets import QGraphicsItem
 
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.gui.board_view import BoardView
@@ -76,6 +77,11 @@ class SelectToolV2:
         # Rotate-around-point pivot capture.
         self._pivot_capture_pending: bool = False
         self._rotate_pivot: object | None = None  # geometry.Point | None
+        # Re-drag (bendable lead reposition) — a request_pick client; the
+        # overlay items live here, the pick state lives in the service.
+        self._redrag_comp_id: uuid.UUID | None = None
+        self._redrag_pin: int | None = None
+        self._redrag_items: list[QGraphicsItem] = []
 
     # -- _Tool lifecycle ----------------------------------------------------
 
@@ -96,6 +102,7 @@ class SelectToolV2:
     def deactivate(self) -> None:
         self._cancel_gesture()
         self._clear_band()
+        self._redrag_clear()
 
     def on_scene_cleared(self) -> None:
         self._band_item = None
@@ -114,6 +121,22 @@ class SelectToolV2:
     def _filters(self) -> SelectionFilters:
         # Phase 2: all kinds hittable; the status-bar filter wires in later.
         return SelectionFilters()
+
+    def _pick_at(
+        self, what: object, scene_pt: QPointF
+    ) -> Selectable | None:
+        """Resolve a click into the Selectable the active pick wants.
+
+        A ``pad`` / ``point`` pick resolves to the snapped board coordinate (a
+        :class:`PointSelectable`); every other kind hit-tests for a board entity.
+        """
+        if what in ("pad", "point"):
+            from protoboard.gui.selection.adapters import PointSelectable
+
+            return PointSelectable(point=self._snap(
+                Point(scene_pt.x(), scene_pt.y()), frozenset()
+            ))
+        return self._hit_tester().hit(scene_pt.x(), scene_pt.y(), self._filters())
 
     @property
     def _current_group_id(self) -> uuid.UUID:
@@ -159,11 +182,9 @@ class SelectToolV2:
         # 2. An active pick consumes the click as a pick, not a selection.
         pick = self._selection.active_pick
         if pick is not None and not pick.finished:
-            sel = self._hit_tester().hit(
-                scene_pt.x(), scene_pt.y(), self._filters()
-            )
-            if sel is not None:
-                pick.feed(sel)
+            picked = self._pick_at(pick.what, scene_pt)
+            if picked is not None:
+                pick.feed(picked)
             return True
 
         # 3. Normal selection. Resolve the hit.
@@ -474,6 +495,170 @@ class SelectToolV2:
                 pass
             self._band_item = None
 
+    # -- re-drag (bendable lead reposition, a request_pick client) ----------
+
+    def begin_redrag(self, comp_id: uuid.UUID | None = None) -> None:
+        """Arm re-drag: ask for the pad a free (bendable) lead should reach.
+
+        The first real consumer of the pick service — instead of its own click
+        loop, it does ``request_pick("pad", Stop.count(1))``.  Picks a single
+        board pad; ``on_progress`` draws the reachable-pad overlay + a feedback
+        line, ``on_done`` validates the reach and commits a
+        :class:`MoveComponentCommand` adjusting the pin offset.
+        """
+        from protoboard.gui.selection import Stop
+
+        cid = comp_id if comp_id is not None else next(
+            iter(self._selected_comp_ids()), None
+        )
+        if cid is None:
+            self._status("Re-drag: select a component with a bendable lead first")
+            return
+        pin = self._free_bendable_pin(cid)
+        if pin is None:
+            self._status("Re-drag: this component has no free bendable lead")
+            return
+        self._redrag_comp_id = cid
+        self._redrag_pin = pin
+        self._draw_redrag_overlay(cid)
+        self._status("Click a pad for the lead  ·  [Esc] Cancel", 0)
+        self._selection.request_pick(
+            "pad",
+            Stop.count(1),
+            on_done=self._redrag_commit,
+            on_cancel=self._redrag_clear,
+            on_progress=self._redrag_progress,
+        )
+
+    def _free_bendable_pin(self, comp_id: uuid.UUID) -> int | None:
+        inst = self._session.instances.get(comp_id)
+        pl = self._session.layout.placements.get(comp_id)
+        if inst is None or pl is None:
+            return None
+        defn = self._session.components.get(inst.definition_ref)
+        if defn is None or not defn.bendable_pins:
+            return None
+        # After a vertical flip on a 2-pin part the bend offset lives on pin 1.
+        if pl.vertical_flipped and defn.footprint.pin_count() == 2:
+            spec = defn.bendable_pins.get(1) or defn.bendable_pins.get(2)
+            return 1 if (spec is not None and spec.is_free()) else None
+        for pin, spec in sorted(defn.bendable_pins.items()):
+            if spec.is_free():
+                return pin
+        return None
+
+    def _redrag_progress(self, picked: list[Selectable]) -> None:
+        # The pick is a single pad; nothing to render mid-collection here (the
+        # reachable-pad overlay is drawn once on arm).  Hook kept so a richer
+        # live preview (feedback line) can grow without changing the call site.
+        return
+
+    def _redrag_commit(self, picked: list[Selectable]) -> None:
+        from protoboard.gui.selection.adapters import PointSelectable
+
+        cid, pin = self._redrag_comp_id, self._redrag_pin
+        self._redrag_clear()
+        if cid is None or pin is None or not picked:
+            return
+        target = picked[0]
+        if not isinstance(target, PointSelectable):
+            return
+        cmd = self._build_redrag_command(cid, pin, target.point)
+        if cmd is None:
+            self._status("Re-drag: pad out of the lead's reach")
+            return
+        self._execute_command(cmd)
+        self._refresh_highlight()
+        if self._view is not None:
+            self._view.refresh()
+
+    def _build_redrag_command(
+        self, comp_id: uuid.UUID, pin: int, target: Point
+    ) -> object | None:
+        """Build the MoveComponentCommand setting *pin*'s offset to reach *target*.
+
+        Validates the snapped pad is within the lead's reach, then inverts the
+        placement pipeline (unrotate + bottom-side X-mirror) to express the world
+        delta as a local pin offset — mirrors legacy ``_commit_redrag``.
+        """
+        from protoboard.domain.commands.component_cmds import MoveComponentCommand
+        from protoboard.domain.layout.placement import (
+            pin_world_position,
+            unrotate,
+        )
+
+        pl = self._session.layout.placements.get(comp_id)
+        inst = self._session.instances.get(comp_id)
+        if pl is None or inst is None:
+            return None
+        defn = self._session.components.get(inst.definition_ref)
+        if defn is None:
+            return None
+        spec = defn.bendable_pins.get(pin)
+        snapped = self._snap(target, frozenset())
+        if spec is None or not spec.is_free():
+            return None
+        if not spec.is_reachable_from_origin(pl.position, snapped):
+            return None
+        # World delta vs. the un-offset baseline → local offset (invert pipeline).
+        temp = pl.copy()
+        temp.pin_offsets = {k: v for k, v in pl.pin_offsets.items() if k != pin}
+        baseline = pin_world_position(defn.footprint, temp, pin)
+        world_delta = Point(snapped.x - baseline.x, snapped.y - baseline.y)
+        local_off = unrotate(world_delta, pl.rotation)
+        if pl.side == "bottom":
+            local_off = Point(-local_off.x, local_off.y)
+        new_pl = pl.copy()
+        new_offsets = dict(pl.pin_offsets)
+        if local_off.x == 0.0 and local_off.y == 0.0:
+            new_offsets.pop(pin, None)
+        else:
+            new_offsets[pin] = local_off
+        new_pl.pin_offsets = new_offsets
+        return MoveComponentCommand(
+            component_id=comp_id, new_placement=new_pl, old_placement=pl.copy()
+        )
+
+    def _draw_redrag_overlay(self, comp_id: uuid.UUID) -> None:
+        from PySide6.QtGui import QBrush, QPen
+        from PySide6.QtWidgets import QGraphicsEllipseItem
+
+        self._clear_redrag_overlay()
+        pin = self._redrag_pin
+        inst = self._session.instances.get(comp_id)
+        pl = self._session.layout.placements.get(comp_id)
+        if pin is None or inst is None or pl is None:
+            return
+        defn = self._session.components.get(inst.definition_ref)
+        if defn is None:
+            return
+        spec = defn.bendable_pins.get(pin)
+        if spec is None or not spec.is_free():
+            return
+        r = 0.18
+        green = QColor(0, 200, 80, 120)
+        for pt in self._view.board_pad_positions():
+            if spec.is_reachable_from_origin(pl.position, pt):
+                item = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
+                item.setBrush(QBrush(green))
+                item.setPen(QPen(Qt.GlobalColor.transparent, 0))
+                item.setZValue(20.0)
+                self._view.scene().addItem(item)
+                self._redrag_items.append(item)
+
+    def _redrag_clear(self) -> None:
+        self._clear_redrag_overlay()
+        self._redrag_comp_id = None
+        self._redrag_pin = None
+
+    def _clear_redrag_overlay(self) -> None:
+        for item in self._redrag_items:
+            try:
+                self._view.scene().removeItem(item)
+            except RuntimeError:
+                pass
+        self._redrag_items = []
+
     # -- keys ---------------------------------------------------------------
 
     def on_key(self, event: QKeyEvent) -> None:
@@ -506,6 +691,11 @@ class SelectToolV2:
         pick = self._selection.active_pick
         if pick is not None and not pick.finished and key == Qt.Key.Key_Escape:
             pick.cancel()
+            event.accept()
+            return
+
+        if key == Qt.Key.Key_R and ctrl:
+            self.begin_redrag()  # Ctrl+R — re-drag the selected lead (legacy parity)
             event.accept()
             return
 
