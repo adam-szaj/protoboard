@@ -181,6 +181,73 @@ class TestCyanSelectionOutline:
         assert border_rgb in restored
         assert select_rgb not in restored
 
+
+class TestGroupSelectAndEdit:
+    """A group selects, shows a cyan outline, and [E] enters its edit context."""
+
+    @staticmethod
+    def _make_group(board_view, session):  # type: ignore[no-untyped-def]
+        import uuid as _uuid
+
+        from protoboard.domain.layout.group import ComponentGroup
+
+        a = _place(board_view, session, 1.0, 1.0)
+        b = _place(board_view, session, 5.0, 5.0)
+        gid = _uuid.uuid4()
+        session.layout.groups[gid] = ComponentGroup(
+            id=gid, name="G", component_ids=frozenset({a.id, b.id})
+        )
+        session.invalidate_graph()
+        board_view.refresh()
+        return gid
+
+    @staticmethod
+    def _group_outline_rgb(board_view, gid):  # type: ignore[no-untyped-def]
+        from PySide6.QtWidgets import QGraphicsRectItem
+
+        for it in board_view._scene.items():
+            if (
+                isinstance(it, QGraphicsRectItem)
+                and it.data(1) == "group_outline"
+                and it.data(0) == str(gid)
+            ):
+                return it.pen().color().rgb() & 0x00FFFFFF
+        return None
+
+    def test_group_interior_click_selects_group(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        gid = self._make_group(board_view, session)
+        tool = _v2(board_view)
+        _click(tool, 3.0, 3.0)  # interior, between the two members
+        assert gid in set(tool._selected_group_ids)
+
+    def test_selected_group_outline_turns_cyan(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.theme import DEFAULT_THEME
+
+        gid = self._make_group(board_view, session)
+        select_rgb = QColor(DEFAULT_THEME.select_color).rgb() & 0x00FFFFFF
+        tool = _v2(board_view)
+        _click(tool, 3.0, 3.0)
+        assert self._group_outline_rgb(board_view, gid) == select_rgb
+
+    def test_e_enters_selected_group(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        gid = self._make_group(board_view, session)
+        tool = _v2(board_view)
+        _click(tool, 3.0, 3.0)
+        assert tool._current_group_id != gid  # at root before entering
+        _key(tool, Qt.Key.Key_E)
+        assert tool._current_group_id == gid  # entered the group's context
+        assert board_view._active_group_id == gid  # view re-rendered in-context
+        _key(tool, Qt.Key.Key_Escape)
+        assert tool._current_group_id != gid  # ESC leaves the group
+
+
+class TestSelectionBasicsExtra:
     def test_highlight_published_on_select(
         self, board_view: BoardView, session: EditorSession
     ) -> None:

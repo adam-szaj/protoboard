@@ -224,6 +224,9 @@ class BoardView(QGraphicsView):
         # baked-in outline cannot be recoloured in place.
         self._cyan_outlined: set[uuid.UUID] = set()
         self._svg_select_overlays: dict[uuid.UUID, QGraphicsRectItem] = {}
+        # Group outline rects (tagged "group_outline") recoloured to the select
+        # colour for the currently-selected groups — restored when deselected.
+        self._cyan_group_outlined: set[uuid.UUID] = set()
         # Scene items kept hidden while a valid _back_cache shows them
         # as a rasterised blit instead.  Restored on cache invalidation.
         self._back_hidden_items: list[object] = []
@@ -624,7 +627,65 @@ class BoardView(QGraphicsView):
             elif cid not in self._svg_select_overlays:
                 # No recolourable native outline (SVG body) — cyan bbox overlay.
                 self._add_svg_select_overlay(cid, select_rgb, theme.select_width)
+
+        # 3. Selected *groups* get their outline rect recoloured to cyan too.
+        self._recolour_selected_group_outlines(theme, select_rgb)
         return selected
+
+    def _recolour_selected_group_outlines(
+        self, theme: object, select_rgb: QColor
+    ) -> None:
+        """Recolour the outline rect of every selected group to the select colour.
+
+        Group outlines are standalone scene items tagged ``"group_outline"``
+        (with the group id in ``data(0)``), so they are addressed by tag rather
+        than via ``_comp_groups``.  Restores groups that left the selection.
+        """
+        tool = self._active_tool
+        sel_groups: set[uuid.UUID] = {
+            uuid.UUID(str(g)) for g in getattr(tool, "_selected_group_ids", set())
+        }
+        if not sel_groups and not self._cyan_group_outlined:
+            return
+
+        # Index group_outline rects by their group id (one scene scan).
+        outline_by_gid: dict[str, QGraphicsRectItem] = {}
+        for item in self._scene.items():
+            if (
+                isinstance(item, QGraphicsRectItem)
+                and item.data(1) == "group_outline"
+            ):
+                gid_str = item.data(0)
+                if isinstance(gid_str, str):
+                    outline_by_gid[gid_str] = item
+
+        # Restore groups no longer selected to the normal group pen colour.
+        # (render_groups rebuilds the exact active/dim pen on the next refresh;
+        # this keeps the colour sane until then.)
+        normal_rgb = QColor(getattr(theme, "group_pen_color", "#888888"))
+        for gid in self._cyan_group_outlined - sel_groups:
+            rect = outline_by_gid.get(str(gid))
+            if isinstance(rect, QGraphicsRectItem):
+                self._recolour_pen(rect, normal_rgb)
+        self._cyan_group_outlined &= sel_groups
+
+        # Apply cyan to selected groups.
+        for gid in sel_groups:
+            rect = outline_by_gid.get(str(gid))
+            if not isinstance(rect, QGraphicsRectItem):
+                continue
+            self._recolour_pen(rect, select_rgb)
+            self._cyan_group_outlined.add(gid)
+
+    @staticmethod
+    def _recolour_pen(item: QGraphicsRectItem, to_colour: QColor) -> None:
+        """Recolour *item*'s pen to *to_colour* (alpha and style preserved)."""
+        p = item.pen()
+        new_pen = QPen(p)
+        keep = QColor(to_colour)
+        keep.setAlphaF(p.color().alphaF())
+        new_pen.setColor(keep)
+        item.setPen(new_pen)
 
     @staticmethod
     def _set_outline_colour(

@@ -1195,6 +1195,22 @@ class SelectTool(_Tool):
 
     # -- wire-edit (fragment = selection, operations = actions) -------------
 
+    def _begin_edit_selected(self) -> None:
+        """``[E]`` — edit the selected object, dispatched by its kind.
+
+        Edit means different things per type: a group is *entered* (its members
+        become editable), a wire opens *wire-edit* (fragment pick).  A free
+        component has no edit mode yet (it is moved/rotated directly).  The
+        dispatch is on the selection, so one key serves every editable kind.
+        """
+        if self._selected_group_id is not None:
+            self.enter_group()
+            return
+        if self._selected_wire_id is not None:
+            self.arm_wire_edit()
+            return
+        self._status("Nothing to edit — select a group or wire first")
+
     def arm_wire_edit(self) -> None:
         """Enter wire-edit on the selected wire — the ``[E]`` entry point.
 
@@ -1613,7 +1629,7 @@ class SelectTool(_Tool):
                 return
 
         if key == Qt.Key.Key_E and not ctrl and not alt and not shift:
-            self.arm_wire_edit()  # [E] — enter wire-edit on the selected wire
+            self._begin_edit_selected()  # [E] — edit the selected object
             event.accept()
             return
 
@@ -2393,8 +2409,34 @@ class SelectTool(_Tool):
 
     # -- group navigation ---------------------------------------------------
 
+    def enter_group(self, group_id: uuid.UUID | None = None) -> bool:
+        """Enter a group's edit context — its members become directly editable.
+
+        ``group_id`` defaults to the selected group (``[E]`` on a group).  Pushes
+        the group onto the navigation stack, syncs the view's active-group render
+        context, and clears the selection (the old monolith no longer applies
+        inside its own context).  Returns True when a group was entered.
+        """
+        gid = group_id if group_id is not None else self._selected_group_id
+        if gid is None or gid not in self._session.layout.groups:
+            return False
+        if gid == self._current_group_id:
+            return False
+        self._group_stack.append(gid)
+        self._sync_active_group()
+        self._selection.clear()
+        self._refresh_highlight()
+        self._status("Entered group — [Esc] to leave")
+        return True
+
     def exit_group(self) -> None:
         if len(self._group_stack) > 1:
             self._group_stack.pop()
+            self._sync_active_group()
             self._selection.clear()
             self._refresh_highlight()
+
+    def _sync_active_group(self) -> None:
+        """Push the current group context to the view so it re-renders."""
+        if self._view is not None and hasattr(self._view, "set_active_group"):
+            self._view.set_active_group(self._current_group_id)
