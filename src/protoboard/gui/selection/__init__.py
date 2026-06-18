@@ -21,6 +21,12 @@ from protoboard.gui.selection.hit_test import (
     HitTester,
     SelectionFilters,
 )
+from protoboard.gui.selection.mouse_input import (
+    Intent,
+    Mods,
+    MouseInputController,
+)
+from protoboard.gui.selection.point_pick_controller import PointPickController
 from protoboard.gui.selection.selectable import (
     PickKind,
     Selectable,
@@ -33,9 +39,13 @@ __all__ = [
     "ComponentSelectable",
     "GroupSelectable",
     "HitTester",
+    "Intent",
+    "Mods",
+    "MouseInputController",
     "PickKind",
     "PickSession",
     "PinSelectable",
+    "PointPickController",
     "PointSelectable",
     "Selectable",
     "SelectableKey",

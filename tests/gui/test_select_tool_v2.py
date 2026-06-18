@@ -75,6 +75,15 @@ def _release(tool: SelectToolV2, x: float, y: float) -> None:
     )
 
 
+def _click(
+    tool: SelectToolV2, x: float, y: float,
+    mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> None:
+    """Press + release at the same point — a click (no drag)."""
+    _press(tool, x, y, mods)
+    _release(tool, x, y)
+
+
 def _key(
     tool: SelectToolV2, key: Qt.Key,
     mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
@@ -341,7 +350,7 @@ class TestRedrag:
         tool.begin_redrag(inst.id)
         assert tool._selection.active_pick is not None
         # Click a reachable pad → pick completes → command lands.
-        _press(tool, 2.0, 1.0)
+        _click(tool, 2.0, 1.0)
         after = dict(session.layout.placements[inst.id].pin_offsets)
         assert after != before  # pin 1 offset changed
         assert len(session.stack._undo) == depth + 1  # type: ignore[attr-defined]
@@ -356,7 +365,7 @@ class TestRedrag:
         _press(tool, 1.0, 1.0)
         before = dict(session.layout.placements[inst.id].pin_offsets)
         tool.begin_redrag(inst.id)
-        _press(tool, 2.0, 1.0)
+        _click(tool, 2.0, 1.0)
         session.stack.undo(session)  # type: ignore[arg-type]
         assert dict(session.layout.placements[inst.id].pin_offsets) == before
 
@@ -393,15 +402,17 @@ class TestPickRouting:
         inst = _place(board_view, session, 0.5, 0.5)
         tool = _v2(board_view)
         done: list[list] = []
-        tool._selection.request_pick(
+        # Arm the pick through the tool so it routes via a PointPickController.
+        tool._arm_pick(
             "component", Stop.count(1), on_done=lambda xs: done.append(xs)
         )
         # A click during an active pick feeds it, not the normal selection.
-        _press(tool, 0.5, 0.5)
+        _click(tool, 0.5, 0.5)
         assert len(done) == 1
         assert done[0][0].to_hit().id == inst.id
-        # Pick completed → selection unchanged by the pick click.
+        # Pick completed → no interaction / pick left active.
         assert tool._selection.active_pick is None
+        assert tool._mouse is None
 
     def test_esc_cancels_active_pick(
         self, board_view: BoardView, session: EditorSession
@@ -409,10 +420,11 @@ class TestPickRouting:
         _place(board_view, session, 0.5, 0.5)
         tool = _v2(board_view)
         cancelled: list[bool] = []
-        tool._selection.request_pick(
+        tool._arm_pick(
             "component", Stop.confirm(),
             on_done=lambda xs: None, on_cancel=lambda: cancelled.append(True),
         )
         _key(tool, Qt.Key.Key_Escape)
         assert cancelled == [True]
         assert tool._selection.active_pick is None
+        assert tool._mouse is None

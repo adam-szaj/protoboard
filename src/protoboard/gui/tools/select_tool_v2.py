@@ -54,6 +54,10 @@ if TYPE_CHECKING:
     from protoboard.gui.selection.selectable import Selectable
     from protoboard.gui.session import EditorSession
 
+# Below this travel (raster units) a press+release is a click, not a drag —
+# used to synthesise the on_click event for click-driven controllers (picks).
+_CLICK_THRESHOLD = 0.3
+
 # Rubber-band visuals (match the legacy tool's cyan band).
 _BAND_PEN_LR = QPen(QColor(0, 200, 255, 180), 0.06)
 _BAND_PEN_RL = QPen(QColor(0, 200, 255, 180), 0.06)
@@ -71,10 +75,11 @@ class SelectToolV2:
         self._selection: SelectionService = None  # type: ignore[assignment]
         self._highlight: HighlightController = None  # type: ignore[assignment]
         self._group_stack: list[uuid.UUID] = [ROOT_GROUP_ID]
-        # The in-flight mouse interaction (drag, rubber-band, …) or None.  All
-        # pointer + intent events route here uniformly; the controller owns its
-        # own start threshold and outcome.
+        # The in-flight mouse interaction (drag, rubber-band, pick, …) or None.
+        # All pointer + intent events route here uniformly; the controller owns
+        # its own start threshold and outcome.
         self._mouse: MouseInputController | None = None
+        self._press_pt: QPointF | None = None
         self._band_item: QGraphicsRectItem | None = None
         # Rotate-around-point pivot capture.
         self._pivot_capture_pending: bool = False
@@ -181,12 +186,13 @@ class SelectToolV2:
             )
             return True
 
-        # 2. An active pick consumes the click as a pick, not a selection.
-        pick = self._selection.active_pick
-        if pick is not None and not pick.finished:
-            picked = self._pick_at(pick.what, scene_pt)
-            if picked is not None:
-                pick.feed(picked)
+        # 2. An active mouse interaction (drag / band / pick) owns the press.
+        #    Record the press point so on_release can tell a click from a drag,
+        #    then forward.  Picks act on the synthesised click (on_release);
+        #    drag/band armed their own press at construction.
+        if self._mouse is not None and not self._mouse.finished:
+            self._press_pt = scene_pt
+            self._mouse.on_press(Point(scene_pt.x(), scene_pt.y()), self._mods(event))
             return True
 
         # 3. Normal selection. Resolve the hit.
@@ -244,15 +250,43 @@ class SelectToolV2:
         mouse = self._mouse
         if mouse is None:
             return
-        mouse.on_release(Point(scene_pt.x(), scene_pt.y()), self._mods(event))
-        # A drag that's now floating stays the active interaction (a CONFIRM /
-        # CANCEL intent ends it).  Otherwise it's done — clear and refresh.
+        pt = Point(scene_pt.x(), scene_pt.y())
+        mods = self._mods(event)
+        # Synthesise a click (press + release with no intervening drag) — the
+        # higher-level event click-driven controllers (picks) act on.  Below the
+        # threshold the release IS the click; otherwise it's a real release.
+        if self._is_click(scene_pt):
+            mouse.on_click(pt, mods)
+        else:
+            mouse.on_release(pt, mods)
+        self._press_pt = None
+        # A floating drag stays the active interaction (CONFIRM / CANCEL ends
+        # it); an unfinished pick keeps collecting.  Otherwise it's done.
         if not mouse.finished:
             return
         self._mouse = None
         self._refresh_highlight()
         if self._view is not None:
             self._view.refresh()
+
+    def on_double_press(self, scene_pt: QPointF) -> None:
+        """Board double-click → forward to the active interaction.
+
+        (BoardView calls this hook for ``MouseButtonDblClick``.)
+        """
+        if self._mouse is not None and not self._mouse.finished:
+            self._mouse.on_double_click(
+                Point(scene_pt.x(), scene_pt.y()), Mods()
+            )
+
+    def _is_click(self, scene_pt: QPointF) -> bool:
+        """True when the release is within the click threshold of the press."""
+        start = self._press_pt
+        if start is None:
+            return False
+        dx = scene_pt.x() - start.x()
+        dy = scene_pt.y() - start.y()
+        return dx * dx + dy * dy < _CLICK_THRESHOLD * _CLICK_THRESHOLD
 
     # -- arming gestures ----------------------------------------------------
 
@@ -555,21 +589,61 @@ class SelectToolV2:
         if pin is None:
             self._status("Re-drag: this component has no free bendable lead")
             return
-        # A pick takes over the interaction — abort any in-flight mouse gesture
-        # so its events (and CANCEL) don't compete with the pick.
-        if self._mouse is not None and not self._mouse.finished:
-            self._cancel_gesture()
         self._redrag_comp_id = cid
         self._redrag_pin = pin
         self._draw_redrag_overlay(cid)
         self._status("Click a pad for the lead  ·  [Esc] Cancel", 0)
-        self._selection.request_pick(
+        self._arm_pick(
             "pad",
             Stop.count(1),
             on_done=self._redrag_commit,
             on_cancel=self._redrag_clear,
             on_progress=self._redrag_progress,
         )
+
+    def _arm_pick(
+        self,
+        what: str,
+        stop: object,
+        *,
+        on_done: object,
+        on_cancel: object = None,
+        on_progress: object = None,
+    ) -> None:
+        """Start a pick and park it as the active mouse interaction.
+
+        Builds a :class:`PickSession` via the service, wraps it in a
+        :class:`PointPickController` (a MouseInputController), and routes board
+        clicks / intents through ``self._mouse`` like any other interaction.
+        The point→Selectable resolver is the tool's :meth:`_pick_at`, so a
+        ``pad`` pick yields the snapped coordinate and an entity pick hit-tests.
+        """
+        from collections.abc import Callable
+        from typing import cast
+
+        from protoboard.gui.selection.point_pick_controller import (
+            PointPickController,
+        )
+        from protoboard.gui.selection.selectable import PickKind, Stop
+
+        # A pick takes over the interaction — abort any in-flight gesture first.
+        if self._mouse is not None and not self._mouse.finished:
+            self._cancel_gesture()
+        kind = cast("PickKind", what)
+        session = self._selection.request_pick(
+            kind,
+            cast("Stop", stop),
+            on_done=cast("Callable[[list[Selectable]], None]", on_done),
+            on_cancel=cast("Callable[[], None] | None", on_cancel),
+            on_progress=cast(
+                "Callable[[list[Selectable]], None] | None", on_progress
+            ),
+        )
+
+        def _resolve(pt: Point, _mods: Mods) -> Selectable | None:
+            return self._pick_at(kind, QPointF(pt.x, pt.y))
+
+        self._mouse = PointPickController(session, _resolve)
 
     def _free_bendable_pin(self, comp_id: uuid.UUID) -> int | None:
         inst = self._session.instances.get(comp_id)
@@ -718,27 +792,13 @@ class SelectToolV2:
                 return
 
         # Translate the key into a semantic intent and offer it to the active
-        # mouse interaction first (e.g. a floating drag: CONFIRM commits, CANCEL
-        # aborts).  No controller-type branching — the controller decides.
+        # mouse interaction (a floating drag, or a pick via PointPickController:
+        # CONFIRM ends it, CANCEL aborts, UNDO drops the last pick).  One path —
+        # no controller-type branching; the controller decides.
         intent = self._key_to_intent(key)
         if intent is not None and self._dispatch_intent(intent):
             event.accept()
             return
-
-        # Active pick: route the same intents (CANCEL aborts, CONFIRM ends a
-        # confirm-run, UNDO drops the last pick).
-        pick = self._selection.active_pick
-        if intent is not None and pick is not None and not pick.finished:
-            if intent is Intent.CANCEL:
-                pick.cancel()
-                event.accept()
-                return
-            if intent is Intent.CONFIRM and pick.confirm():
-                event.accept()
-                return
-            if intent is Intent.UNDO and pick.undo():
-                event.accept()
-                return
 
         if key == Qt.Key.Key_R and ctrl:
             self.begin_redrag()  # Ctrl+R — re-drag the selected lead (legacy parity)
