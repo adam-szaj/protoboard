@@ -9,17 +9,18 @@ A thin ``_Tool`` that wires the headless-tested pieces together:
 * :class:`~protoboard.gui.highlight.controller.HighlightController` — dimming,
 * :class:`~protoboard.gui.selection.drag_controller.DragController` and
   :class:`~protoboard.gui.selection.rubber_band_controller.RubberBandController`
-  — the two press-drag-release gestures, behind one
-  :class:`~protoboard.gui.selection.gesture.GestureController` seam.
+  — concrete interactions behind one
+  :class:`~protoboard.gui.selection.mouse_input.MouseInputController` seam.
 
 Covers: hit-test → selection (SET/ADD/REMOVE via the modifier matrix),
 rubber-band area-select, drag / floating of the selection, rotate / flip /
 rotate-around-point, ESC-pop, group enter/exit, and routing clicks into an
 active pick.  Wire-edit and net-relation selection arrive in later phases.
 
-The tool keeps almost no logic of its own — on press it arms a gesture or
-mutates the selection; on move / release it forwards to the active gesture; the
-behaviour lives in tested, Qt-free controllers.
+The tool keeps almost no logic of its own — on press it arms a mouse-interaction
+controller or mutates the selection; pointer events and translated intents
+(CONFIRM / CANCEL / UNDO) forward to the active controller; the behaviour lives
+in tested, Qt-free controllers.
 """
 
 from __future__ import annotations
@@ -33,8 +34,9 @@ from PySide6.QtWidgets import QGraphicsRectItem
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point
 from protoboard.gui.highlight.controller import HighlightController
-from protoboard.gui.selection.drag_controller import DragController, FloatingPhase
+from protoboard.gui.selection.drag_controller import DragController
 from protoboard.gui.selection.hit_test import HitTester, SelectionFilters
+from protoboard.gui.selection.mouse_input import Intent, Mods
 from protoboard.gui.selection.rubber_band_controller import RubberBandController
 from protoboard.gui.selection.service import SelectionService
 from protoboard.gui.selection_fsm import BasisScope, SetOp
@@ -48,7 +50,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.gui.board_view import BoardView
     from protoboard.gui.drag_set import DragSet
-    from protoboard.gui.selection.gesture import GestureController
+    from protoboard.gui.selection.mouse_input import MouseInputController
     from protoboard.gui.selection.selectable import Selectable
     from protoboard.gui.session import EditorSession
 
@@ -69,10 +71,10 @@ class SelectToolV2:
         self._selection: SelectionService = None  # type: ignore[assignment]
         self._highlight: HighlightController = None  # type: ignore[assignment]
         self._group_stack: list[uuid.UUID] = [ROOT_GROUP_ID]
-        # The in-flight press-drag-release gesture (drag or rubber-band), or
-        # None.  on_move / on_release route here uniformly; the controller owns
-        # its own start threshold and outcome.
-        self._gesture: GestureController | None = None
+        # The in-flight mouse interaction (drag, rubber-band, …) or None.  All
+        # pointer + intent events route here uniformly; the controller owns its
+        # own start threshold and outcome.
+        self._mouse: MouseInputController | None = None
         self._band_item: QGraphicsRectItem | None = None
         # Rotate-around-point pivot capture.
         self._pivot_capture_pending: bool = False
@@ -191,19 +193,19 @@ class SelectToolV2:
         _basis, op = self._decode_modifiers(event)
         sel = self._hit_tester().hit(scene_pt.x(), scene_pt.y(), self._filters())
 
-        #   3a. Empty space → arm a rubber-band gesture.
+        #   3a. Empty space → arm a rubber-band interaction.
         if sel is None:
-            self._gesture = self._arm_band(scene_pt)
+            self._mouse = self._arm_band(scene_pt)
             return True
 
         #   3b. A plain (no-modifier) press selects the hit, then arms a drag of
-        #   the selection — the gesture's own threshold decides drag-vs-click.
+        #   the selection — the controller's own threshold decides drag-vs-click.
         #   With Ctrl/Shift the press only mutates the set (no drag).
         if op is SetOp.SET:
             self._apply_selection(sel, op)
             drag = self._arm_drag(sel, scene_pt)
             if drag is not None:
-                self._gesture = drag
+                self._mouse = drag
             return True
 
         self._apply_selection(sel, op)
@@ -223,26 +225,32 @@ class SelectToolV2:
     def _refresh_highlight(self) -> None:
         self._highlight.show(self._selection.selected())
 
-    # -- gesture routing (drag + rubber-band) ------------------------------
+    # -- mouse-interaction routing -----------------------------------------
+
+    @staticmethod
+    def _mods(event: QMouseEvent) -> Mods:
+        mods = event.modifiers()
+        return Mods(
+            ctrl=bool(mods & Qt.KeyboardModifier.ControlModifier),
+            shift=bool(mods & Qt.KeyboardModifier.ShiftModifier),
+            alt=bool(mods & Qt.KeyboardModifier.AltModifier),
+        )
 
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
-        if self._gesture is not None:
-            self._gesture.update(Point(scene_pt.x(), scene_pt.y()))
+        if self._mouse is not None:
+            self._mouse.on_move(Point(scene_pt.x(), scene_pt.y()), self._mods(event))
 
     def on_release(self, event: QMouseEvent, scene_pt: QPointF) -> None:
-        gesture = self._gesture
-        if gesture is None:
+        mouse = self._mouse
+        if mouse is None:
             return
-        gesture.update(Point(scene_pt.x(), scene_pt.y()))
-        moved = gesture.commit()
-        # A drag that's now floating stays the active gesture (keys commit /
-        # cancel it).  Everything else — committed, a sub-threshold click, or a
-        # finished band — clears the gesture and refreshes the selection.
-        if isinstance(gesture, DragController) and gesture.is_floating:
+        mouse.on_release(Point(scene_pt.x(), scene_pt.y()), self._mods(event))
+        # A drag that's now floating stays the active interaction (a CONFIRM /
+        # CANCEL intent ends it).  Otherwise it's done — clear and refresh.
+        if not mouse.finished:
             return
-        self._gesture = None
-        if moved:
-            self._refresh_highlight()
+        self._mouse = None
+        self._refresh_highlight()
         if self._view is not None:
             self._view.refresh()
 
@@ -459,33 +467,62 @@ class SelectToolV2:
         if picked:
             self._selection.set_many(picked)
 
-    # -- floating drag commit / cancel -------------------------------------
+    # -- intent dispatch (CONFIRM / CANCEL / UNDO) -------------------------
 
-    def _confirm_floating(self) -> None:
-        gesture = self._gesture
-        if not isinstance(gesture, DragController):
-            return
-        outcome = gesture.confirm_floating()
-        if outcome.phase is not FloatingPhase.FLOATING:
-            self._gesture = None
+    @staticmethod
+    def _key_to_intent(key: int) -> Intent | None:
+        """Map a Qt key to a semantic interaction intent.
+
+        The one place keys become intents, so controllers never see raw
+        keycodes.  A future revision can resolve this through the app's
+        keybinding registry; the defaults match the conventional bindings.
+        """
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            return Intent.CONFIRM
+        if key == Qt.Key.Key_Escape:
+            return Intent.CANCEL
+        if key == Qt.Key.Key_Backspace:
+            return Intent.UNDO
+        return None
+
+    def _dispatch_intent(self, intent: Intent) -> bool:
+        """Route a semantic intent to the active interaction; return if consumed.
+
+        The single path by which the tool drives confirm / cancel / undo on
+        whatever controller is live, so the key→intent mapping has one home and
+        no controller-type branching leaks into the key handler.
+        """
+        mouse = self._mouse
+        if mouse is None:
+            return False
+        # Read the floating drop-count before CONFIRM clears the decision, so the
+        # post-commit toast can report it.
+        dropped = 0
+        if (
+            intent is Intent.CONFIRM
+            and isinstance(mouse, DragController)
+            and mouse.is_floating
+            and mouse.last_decision is not None
+        ):
+            dropped = len(mouse.last_decision.free_drop_wire_ids) + len(
+                mouse.last_decision.cross_group_disconnect_wire_ids
+            ) + len(mouse.last_decision.stationary_group_drop_wire_ids)
+        if not mouse.on_event(intent):
+            return False
+        if mouse.finished:
+            self._mouse = None
             self._refresh_highlight()
-            if outcome.dropped_wire_count:
+            if dropped:
                 self._status(
-                    f"Removed {outcome.dropped_wire_count} wire(s) (Ctrl+Z to undo)",
-                    4000,
+                    f"Removed {dropped} wire(s) (Ctrl+Z to undo)", 4000
                 )
             if self._view is not None:
                 self._view.refresh()
+        return True
 
     def _cancel_gesture(self) -> None:
-        gesture = self._gesture
-        if gesture is None:
-            return
-        gesture.cancel()
-        self._gesture = None
-        self._refresh_highlight()
-        if self._view is not None:
-            self._view.refresh()
+        """Abort the active interaction (deactivate / external cancel)."""
+        self._dispatch_intent(Intent.CANCEL)
 
     def _clear_band(self) -> None:
         if self._band_item is not None:
@@ -518,6 +555,10 @@ class SelectToolV2:
         if pin is None:
             self._status("Re-drag: this component has no free bendable lead")
             return
+        # A pick takes over the interaction — abort any in-flight mouse gesture
+        # so its events (and CANCEL) don't compete with the pick.
+        if self._mouse is not None and not self._mouse.finished:
+            self._cancel_gesture()
         self._redrag_comp_id = cid
         self._redrag_pin = pin
         self._draw_redrag_overlay(cid)
@@ -676,23 +717,28 @@ class SelectToolV2:
                 event.accept()
                 return
 
-        # A floating drag awaiting confirmation: Enter commits, Esc cancels.
-        if isinstance(self._gesture, DragController) and self._gesture.is_floating:
-            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                self._confirm_floating()
-                event.accept()
-                return
-            if key == Qt.Key.Key_Escape:
-                self._cancel_gesture()
-                event.accept()
-                return
-
-        # Active pick: Esc cancels.
-        pick = self._selection.active_pick
-        if pick is not None and not pick.finished and key == Qt.Key.Key_Escape:
-            pick.cancel()
+        # Translate the key into a semantic intent and offer it to the active
+        # mouse interaction first (e.g. a floating drag: CONFIRM commits, CANCEL
+        # aborts).  No controller-type branching — the controller decides.
+        intent = self._key_to_intent(key)
+        if intent is not None and self._dispatch_intent(intent):
             event.accept()
             return
+
+        # Active pick: route the same intents (CANCEL aborts, CONFIRM ends a
+        # confirm-run, UNDO drops the last pick).
+        pick = self._selection.active_pick
+        if intent is not None and pick is not None and not pick.finished:
+            if intent is Intent.CANCEL:
+                pick.cancel()
+                event.accept()
+                return
+            if intent is Intent.CONFIRM and pick.confirm():
+                event.accept()
+                return
+            if intent is Intent.UNDO and pick.undo():
+                event.accept()
+                return
 
         if key == Qt.Key.Key_R and ctrl:
             self.begin_redrag()  # Ctrl+R — re-drag the selected lead (legacy parity)

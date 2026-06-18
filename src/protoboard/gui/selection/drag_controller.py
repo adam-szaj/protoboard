@@ -40,6 +40,7 @@ import structlog
 
 from protoboard.geometry import Point
 from protoboard.gui.drag_set import DragSet
+from protoboard.gui.selection.mouse_input import Intent, Mods
 from protoboard.gui.tools.drag_commit_decision import DragSeverity
 
 if TYPE_CHECKING:
@@ -137,9 +138,11 @@ if TYPE_CHECKING:
 class DragController:
     """Headless drag / floating gesture over a :class:`DragContext`.
 
-    Implements the :class:`~protoboard.gui.selection.gesture.GestureController`
-    protocol (``update`` / ``commit`` / ``cancel``); armed by constructing it on
-    press with the snapshot of what to drag.
+    Implements the
+    :class:`~protoboard.gui.selection.mouse_input.MouseInputController` protocol
+    (``on_move`` drives the drag, ``on_release`` finalizes, ``on_event`` handles
+    CONFIRM / CANCEL while floating); armed by constructing it on press with the
+    snapshot of what to drag.
     """
 
     def __init__(
@@ -199,6 +202,8 @@ class DragController:
         self._phase = FloatingPhase.NONE
         self._trial_pad_index: object | None = None
         self._floating_orig: dict[uuid.UUID, ComponentPlacement] = {}
+        self._was_click = False
+        self._cancelled = False
 
     # -- introspection (for the tool / tests) ------------------------------
 
@@ -227,9 +232,21 @@ class DragController:
         """
         return self._explicit_wire_ids
 
-    # -- GestureController: update -----------------------------------------
+    # -- MouseInputController -----------------------------------------------
 
-    def update(self, scene_pt: Point) -> None:
+    def on_press(self, scene_pt: Point, mods: Mods) -> bool:
+        """A drag is armed on construction; a further press isn't part of it."""
+        return False
+
+    def on_click(self, scene_pt: Point, mods: Mods) -> bool:
+        """Drag is press-drag-release, not click-driven — ignored."""
+        return False
+
+    def on_double_click(self, scene_pt: Point, mods: Mods) -> bool:
+        """A drag doesn't handle double-clicks."""
+        return False
+
+    def on_move(self, scene_pt: Point, mods: Mods) -> None:
         """Translate members + wires to follow the cursor, then classify.
 
         No-op until the cursor has travelled at least the start threshold from
@@ -318,23 +335,21 @@ class DragController:
             _log.warning("drag.classify_failed", error=str(exc))
             return None
 
-    # -- GestureController: commit -----------------------------------------
+    # -- MouseInputController: release / events / finished -----------------
 
-    def commit(self) -> bool:
+    def on_release(self, scene_pt: Point, mods: Mods) -> None:
         """Finish the drag on release.
 
-        Returns ``False`` (and restores the world) when the gesture never
-        crossed its start threshold — the press/release was a click.  On a real
-        drag, resolves the conflict decision:
-
-        * CLEAR + auto-accept → execute :class:`MoveDragSetCommand` now,
-        * otherwise → enter the *floating* sub-state and return ``True``; the
-          tool then waits for :meth:`confirm_floating` / :meth:`cancel`.
+        Restores the world and marks the interaction a no-op click when the
+        gesture never crossed its start threshold.  On a real drag, resolves the
+        conflict decision: CLEAR + auto-accept commits now; otherwise it enters
+        the *floating* sub-state and waits for a CONFIRM / CANCEL intent.
         """
         if not self._threshold_crossed:
             self._restore_origin()
             self._phase = FloatingPhase.NONE
-            return False
+            self._was_click = True
+            return
 
         decision = self._last_decision or self._classify()
         self._last_decision = decision
@@ -349,9 +364,43 @@ class DragController:
 
         if severity is DragSeverity.CLEAR and self._auto_accept_clear:
             self.confirm_floating()
-            return True
+            return
         self._phase = FloatingPhase.FLOATING
-        return True
+
+    def on_event(self, intent: Intent) -> bool:
+        """React to a semantic intent — the single path for confirm / cancel.
+
+        CANCEL aborts the drag at *any* stage (mid-drag or floating); CONFIRM
+        only means something while floating.  The tool routes both here rather
+        than calling :meth:`cancel` / :meth:`confirm_floating` directly, so the
+        intent → action mapping lives in one place.
+        """
+        if self.finished:
+            return False
+        if intent is Intent.CANCEL:
+            self.cancel()
+            return True
+        if intent is Intent.CONFIRM and self._phase is FloatingPhase.FLOATING:
+            self.confirm_floating()
+            return True
+        return False
+
+    @property
+    def finished(self) -> bool:
+        """True once the drag committed, was cancelled, or was a sub-threshold click.
+
+        A FLOATING drag is NOT finished — it waits for a CONFIRM / CANCEL intent.
+        """
+        return (
+            self._phase is FloatingPhase.COMMITTED
+            or self._cancelled
+            or self._was_click
+        )
+
+    @property
+    def was_click(self) -> bool:
+        """True when release fired below the start threshold (no move happened)."""
+        return self._was_click
 
     def confirm_floating(self) -> DragOutcome:
         """Apply the move — build + execute :class:`MoveDragSetCommand`.
@@ -460,12 +509,13 @@ class DragController:
             delta=delta,
         )
 
-    # -- GestureController: cancel -----------------------------------------
+    # -- cancel -------------------------------------------------------------
 
     def cancel(self) -> None:
         """Abort the drag — restore every member + wire to its press-time state."""
         self._restore_origin()
         self._phase = FloatingPhase.NONE
+        self._cancelled = True
         self._trial_pad_index = None
         if self._preview is not None:
             self._preview(None)

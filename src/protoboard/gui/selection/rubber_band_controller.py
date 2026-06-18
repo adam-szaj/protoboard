@@ -11,7 +11,7 @@ matching the legacy tool and every CAD convention:
 * **right-to-left** — every component the band *touches*.
 
 Like :class:`DragController` it implements the
-:class:`~protoboard.gui.selection.gesture.GestureController` protocol and owns
+:class:`~protoboard.gui.selection.mouse_input.MouseInputController` protocol and owns
 its own start threshold (a minimum rectangle size — below it the press/release
 is a click, not a band).  The geometry is pure; the only Qt seams are the live
 rectangle overlay and the bbox lookup, injected as callables so the controller
@@ -28,6 +28,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from protoboard.geometry import Point
+from protoboard.gui.selection.mouse_input import Intent, Mods
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -87,38 +88,71 @@ class RubberBandController:
         self._select = select
         self._cur = press_pt
         self._last_hit: BandHit | None = None
+        self._finished = False
+        self._was_click = False
 
     @property
     def last_hit(self) -> BandHit | None:
         """The components caught by the most recent :meth:`commit` (or None)."""
         return self._last_hit
 
-    # -- GestureController ---------------------------------------------------
+    # -- MouseInputController ------------------------------------------------
 
-    def update(self, scene_pt: Point) -> None:
+    def on_press(self, scene_pt: Point, mods: Mods) -> bool:
+        """The band is armed on construction; further presses aren't part of it."""
+        return False
+
+    def on_click(self, scene_pt: Point, mods: Mods) -> bool:
+        """The band is press-drag-release, not click-driven."""
+        return False
+
+    def on_double_click(self, scene_pt: Point, mods: Mods) -> bool:
+        return False
+
+    def on_move(self, scene_pt: Point, mods: Mods) -> None:
         self._cur = scene_pt
         if self._draw is not None:
             ltr = scene_pt.x >= self._press.x
             self._draw(self._press, scene_pt, ltr)
 
-    def commit(self) -> bool:
+    def on_release(self, scene_pt: Point, mods: Mods) -> None:
+        self._finished = True
         if self._clear is not None:
             self._clear()
         rx0, ry0 = min(self._press.x, self._cur.x), min(self._press.y, self._cur.y)
         rx1, ry1 = max(self._press.x, self._cur.x), max(self._press.y, self._cur.y)
         if (rx1 - rx0) < _BAND_MIN_SIZE and (ry1 - ry0) < _BAND_MIN_SIZE:
-            return False  # a click, not a band
+            self._was_click = True
+            return  # a click, not a band
         ltr = self._cur.x >= self._press.x
         caught = self._catch(rx0, ry0, rx1, ry1, ltr)
         self._last_hit = BandHit(caught, ltr=ltr)
         if self._select is not None:
             self._select(caught)
-        return True
+
+    def on_event(self, intent: Intent) -> bool:
+        """CANCEL aborts the band; CONFIRM is not used (release finalizes it)."""
+        if self._finished:
+            return False
+        if intent is Intent.CANCEL:
+            self.cancel()
+            return True
+        return False
 
     def cancel(self) -> None:
+        self._finished = True
         if self._clear is not None:
             self._clear()
         self._last_hit = None
+
+    @property
+    def finished(self) -> bool:
+        return self._finished
+
+    @property
+    def was_click(self) -> bool:
+        """True when release fired below the band's minimum size (a plain click)."""
+        return self._was_click
 
     # -- geometry ------------------------------------------------------------
 

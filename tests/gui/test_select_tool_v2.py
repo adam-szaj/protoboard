@@ -218,7 +218,7 @@ class TestDragGesture:
         assert (after.x, after.y) != (before.x, before.y)
         # CLEAR drag auto-commits → exactly one command on the stack.
         assert len(session.stack._undo) == depth + 1  # type: ignore[attr-defined]
-        assert tool._gesture is None
+        assert tool._mouse is None
 
     def test_subthreshold_press_release_is_click(
         self, board_view: BoardView, session: EditorSession
