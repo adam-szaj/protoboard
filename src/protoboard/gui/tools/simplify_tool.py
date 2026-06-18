@@ -29,7 +29,7 @@ from protoboard.domain.commands.component_cmds import ReplaceWireFragmentsComman
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
 from protoboard.geometry import Point
-from protoboard.gui.tools.select_tool import SelectTool
+from protoboard.gui.tools.select_tool_v2 import SelectToolV2 as SelectTool
 from protoboard.services.routing.postprocess import (
     SimplifyMode,
     generic_simplify_wire,
@@ -203,7 +203,7 @@ class SimplifyTool(SelectTool):
             wire_id=wire_id,
             new_fragments=tuple(new_fragments),
         )
-        self._session.stack.execute(cmd, self._session)
+        self._exec_command(cmd)
         self._session.layout_changed.emit()
         self._clear_draft()
         self._status_msg("Simplify: applied.")

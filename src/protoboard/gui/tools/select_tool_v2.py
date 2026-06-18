@@ -35,6 +35,7 @@ from PySide6.QtWidgets import QGraphicsRectItem
 
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point
+from protoboard.gui.board_view import _Tool
 from protoboard.gui.highlight.controller import HighlightController
 from protoboard.gui.selection.drag_controller import DragController
 from protoboard.gui.selection.hit_test import HitTester, SelectionFilters
@@ -85,12 +86,11 @@ _EDIT_PREVIEW_PEN.setStyle(Qt.PenStyle.DashLine)
 _NODE_RADIUS = 0.13
 
 
-class SelectToolV2:
+class SelectToolV2(_Tool):
     """Selection tool built on the SelectionService / HitTester / Highlight stack."""
 
     def __init__(self) -> None:
-        self._session: EditorSession = None  # type: ignore[assignment]
-        self._view: BoardView = None  # type: ignore[assignment]
+        super().__init__()  # sets _session / _view to None up-front
         self._selection: SelectionService = None  # type: ignore[assignment]
         self._highlight: HighlightController = None  # type: ignore[assignment]
         self._group_stack: list[uuid.UUID] = [ROOT_GROUP_ID]
@@ -328,6 +328,10 @@ class SelectToolV2:
         net members) so the user sees "what is connected to this" — the legacy
         auto-highlight behaviour.  ``RelationClass.NONE`` disables the context.
         """
+        # Tolerate pre-activate calls (main_window applies user prefs to a
+        # freshly built tool before activate() binds _selection/_highlight).
+        if self._selection is None or self._highlight is None:
+            return
         shown: list[Selectable] = list(self._selection.selected())
         anchor = primary if primary is not None else self._primary_selectable()
         if anchor is not None:
@@ -335,6 +339,8 @@ class SelectToolV2:
         self._highlight.show(shown)
 
     def _primary_selectable(self) -> Selectable | None:
+        if self._selection is None:
+            return None
         sel = self._selection.selected()
         return sel[0] if sel else None
 
@@ -352,6 +358,8 @@ class SelectToolV2:
     def _selected_by_kind(self, kind: str) -> set[uuid.UUID]:
         """All selected ids of one Hit kind (``component`` / ``wire`` / ``group``)."""
         out: set[uuid.UUID] = set()
+        if self._selection is None:  # pre-activate
+            return out
         for sel in self._selection.selected():
             hit = sel.to_hit()
             if hit.kind == kind and isinstance(hit.id, uuid.UUID):
@@ -390,6 +398,8 @@ class SelectToolV2:
     @property
     def _selected_id(self) -> uuid.UUID | None:
         """The primary component id (first selected component), or None."""
+        if self._selection is None:
+            return None
         for sel in self._selection.selected():
             hit = sel.to_hit()
             if hit.kind == "component" and isinstance(hit.id, uuid.UUID):
@@ -431,6 +441,16 @@ class SelectToolV2:
             self._selected_by_kind("wire"),
             {value} if value is not None else set(),
         )
+
+    def _select_primary(self, comp_id: uuid.UUID) -> None:
+        """Set *comp_id* as the sole (primary) selection and broadcast it.
+
+        ``BoardView.select_component`` calls this to focus a component from
+        elsewhere in the UI.  The properties panel updates by subscribing to
+        ``session.selection_changed`` (emitted by :meth:`_notify_selection`).
+        """
+        self._set_selection_from_ids({comp_id}, set(), set())
+        self._notify_selection()
 
     def _deselect(self) -> None:
         """Drop the component part of the selection (keep wires/groups)."""
@@ -536,8 +556,13 @@ class SelectToolV2:
 
     # -- net / connectivity relation axis ----------------------------------
 
+    @property
     def relation(self):  # type: ignore[no-untyped-def]
-        """The active :class:`RelationClass` (net/connectivity correlation axis)."""
+        """The active :class:`RelationClass` (net/connectivity correlation axis).
+
+        A property (not a method) to match the legacy contract: the status-bar
+        widget and main_window read ``tool.relation`` field-style.
+        """
         return self._relation
 
     def set_relation(self, relation) -> None:  # type: ignore[no-untyped-def]

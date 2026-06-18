@@ -734,9 +734,9 @@ class TestNetRelation:
         from protoboard.gui.selection_axes import RelationClass
 
         tool = _v2(board_view)
-        assert tool.relation() == RelationClass.SAME_LOGICAL_NET
+        assert tool.relation == RelationClass.SAME_LOGICAL_NET
         tool.set_relation(RelationClass.NEIGHBORS)
-        assert tool.relation() == RelationClass.NEIGHBORS
+        assert tool.relation == RelationClass.NEIGHBORS
 
     def test_a_autoroutes_fragment(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
