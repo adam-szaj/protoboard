@@ -4,6 +4,28 @@ Open follow-ups that don't fit into the closed plans archived under
 [docs/archive/](archive/).  Each entry has enough context to pick up
 the work cold.
 
+## SelectTool v2 — deferred parity items (after the Faza 6 swap)
+
+The SelectTool rewrite (`gui/tools/select_tool_v2.py`) reached full
+integration parity in Faza 6a, with two consciously-deferred gaps:
+
+1. **Selection-filter enforcement.** `set_filter`/`filter` hold the
+   `SelectionFilter` state and mirror it to the status-bar widget, but
+   `SelectToolV2._filters()` still returns an empty `SelectionFilters()`
+   — every kind stays hittable.  Wire the held filter into the hit-test
+   (`HitTester.hit(..., filters)`) so components/wires/groups can be
+   excluded from selection as the legacy tool did.
+
+2. **Wire fragment-flip.** `_flip_wire_fragment` is a status-bar stub.
+   The whole-wire layer move (`_move_selected_wires_to_side`) works; the
+   per-fragment flip (legacy 140 LoC of via-endpoint + alien-net + target-
+   layer-overlap validation via `FlipWireFragmentCommand`) was out of the
+   Phase-4 wire-edit op set.  Re-implement it against the `WireEditState`
+   model and add it as a wire-edit op-table entry (alongside reroute /
+   autoroute / delete) — `FlipWireFragmentCommand` takes
+   `(wire_id, start_idx, end_idx, side)`, which `WireEditState` already
+   carries.
+
 ## Parametric renderer for DIP / QIL / SIL packages
 
 **Where:** `src/protoboard/gui/renderers/body_shapes.py` —

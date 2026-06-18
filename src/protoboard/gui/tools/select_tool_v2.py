@@ -124,9 +124,14 @@ class SelectToolV2:
         # Net/connectivity relation axis: which set is correlated to a clicked
         # object — drives Alt (RELATION-basis) selection and the auto-highlight
         # that follows any plain SET click.  Default = same logical net.
-        from protoboard.gui.selection_axes import RelationClass
+        from protoboard.gui.selection_axes import RelationClass, SelectionFilter
 
         self._relation: RelationClass = RelationClass.SAME_LOGICAL_NET
+        # Selection filter (which object kinds may be selected).  Shim for
+        # Phase 6a: state is held + mirrored to the status-bar widget, but
+        # `_filters()` does NOT yet enforce it (all kinds stay hittable).
+        # Enforcement in the hit-test is a deferred follow-up.
+        self._filter: SelectionFilter = SelectionFilter.ALL
 
     # -- _Tool lifecycle ----------------------------------------------------
 
@@ -542,6 +547,22 @@ class SelectToolV2:
         if isinstance(relation, RelationClass):
             self._relation = relation
             self._refresh_highlight()
+
+    @property
+    def filter(self):  # type: ignore[no-untyped-def]
+        """The active :class:`SelectionFilter` (which object kinds are selectable).
+
+        Shim: the value is held and mirrored to the status-bar widget, but the
+        hit-test does not yet enforce it (see ``_filters``).
+        """
+        return self._filter
+
+    def set_filter(self, f) -> None:  # type: ignore[no-untyped-def]
+        """Replace the selection filter wholesale (state only — no enforcement yet)."""
+        from protoboard.gui.selection_axes import SelectionFilter
+
+        if isinstance(f, SelectionFilter):
+            self._filter = f
 
     def _relation_source(self, sel: Selectable):  # type: ignore[no-untyped-def]
         """Map a hit Selectable to a :class:`RelationSource` for the queries."""
@@ -1987,6 +2008,262 @@ class SelectToolV2:
         self._session.layout_changed.emit()
         self._select_group(target_id)
         return target_id
+
+    # -- worker-backed wire operations (simplify / unweave / merge) ---------
+    #
+    # The heavy algorithms (generic_simplify_wire, unweave_wires, the fuse +
+    # fragment-coalesce dance) already live in services; these methods prepare
+    # read-only inputs and launch the worker, then apply the result on the
+    # main thread.  Simplify's input prep is extracted to
+    # :func:`build_simplify_inputs` (it used to be inline bloat predating the
+    # session caches); unweave/merge read session state directly.
+
+    def _simplify_wires(
+        self,
+        wire_ids: set[uuid.UUID] | frozenset[uuid.UUID],
+        *,
+        mode_override: str | None = None,
+    ) -> None:
+        """Run generic_simplify_wire on each wire id (in a worker), apply changes."""
+        from protoboard.gui.selection.wire_ops import build_simplify_inputs
+        from protoboard.gui.workers.operation_worker import run_with_progress
+        from protoboard.services.routing.postprocess import (
+            SimplifyMode,
+            generic_simplify_wire,
+        )
+
+        session = self._session
+        if mode_override == "chebyshev":
+            mode = SimplifyMode.CHEBYSHEV
+        elif mode_override == "bare_parity":
+            mode = SimplifyMode.BARE_PARITY
+        else:
+            mode = getattr(
+                session.routing_settings, "simplify_mode", SimplifyMode.BARE_PARITY
+            )
+
+        inputs = build_simplify_inputs(session)
+        all_wires = list(session.layout.wires)
+        wid_list = list(wire_ids)
+
+        def _simplify_in_worker(progress_cb):  # type: ignore[no-untyped-def]
+            results: list[tuple[uuid.UUID, list[Point], list[Point]]] = []
+            n = len(wid_list)
+            for i, wid in enumerate(wid_list):
+                wire = next((w for w in all_wires if w.id == wid), None)
+                if wire is None:
+                    progress_cb(i + 1, n)
+                    continue
+                new_wire = generic_simplify_wire(
+                    wire,
+                    other_wires=[w for w in all_wires if w.id != wid],
+                    pin_positions=inputs.pin_positions,
+                    pad_to_net=inputs.pad_to_net,
+                    mode=mode,
+                    board_pads=inputs.board_pads,
+                    wire_net_id=inputs.wire_to_net.get(wid),
+                    other_wire_nets=inputs.wire_to_net,
+                    pin_net_map=inputs.pad_to_net,
+                    pad_index=inputs.pad_index,
+                )
+                if new_wire is not wire and new_wire.path != wire.path:
+                    results.append((wid, list(new_wire.path), list(wire.path)))
+                progress_cb(i + 1, n)
+            return results
+
+        worker_out = run_with_progress(
+            parent=self._view,
+            title="Simplify",
+            fn=_simplify_in_worker,
+            label=f"Simplifying {len(wid_list)} wire(s)…",
+            with_progress=True,
+        )
+        if worker_out is None:
+            return
+
+        from protoboard.gui.selection.wire_edit import replace_wire_path_cmd
+
+        cmds: list[object] = []
+        for wid, new_path, orig_path in worker_out:
+            wire = next((w for w in session.layout.wires if w.id == wid), None)
+            if wire is None:
+                continue  # vanished mid-flight (concurrent edit)
+            cmds.append(
+                replace_wire_path_cmd(session.layout, wire, new_path, orig_path)
+            )
+        if not cmds:
+            self._status_msg("Simplify: nothing to shorten.")
+            return
+        self._commit_wire_macro(cmds, f"Simplify {len(cmds)} wire(s)")
+
+    def _unweave_wires(
+        self, wire_ids: set[uuid.UUID] | frozenset[uuid.UUID]
+    ) -> None:
+        """Topologically un-weave mutual crossings of the selected wires."""
+        from protoboard.domain.commands.component_cmds import (
+            AddWireCommand,
+            RemoveWireCommand,
+        )
+        from protoboard.gui.workers.operation_worker import run_with_progress
+        from protoboard.services.routing.unweave import (
+            count_mutual_crossings,
+            unweave_wires,
+        )
+
+        session = self._session
+        targets = [w for w in session.layout.wires if w.id in wire_ids]
+        if len(targets) < 2:
+            self._status_msg("Unweave: at least 2 valid wires required.")
+            return
+        before = count_mutual_crossings(targets)
+        if before == 0:
+            self._status_msg("Unweave: no crossings to resolve.")
+            return
+
+        schematic = session.schematic
+        graph = session.connectivity_graph()
+        allow_layer_change = session.routing_settings.allow_layer_change
+        allow_side_flip = session.routing_settings.visual_unweave_side_flip
+
+        def _unweave_in_worker() -> object:
+            return unweave_wires(
+                targets,
+                schematic=schematic,
+                graph=graph,
+                allow_layer_change=allow_layer_change,
+                allow_side_flip=allow_side_flip,
+            )
+
+        out = run_with_progress(
+            parent=self._view,
+            title="Unweave",
+            fn=_unweave_in_worker,
+            label=f"Unweaving {len(targets)} wire(s)…",
+        )
+        if out is None:
+            return
+        after = count_mutual_crossings(out)
+
+        same = len(out) == len(targets) and all(
+            a.path == b.path and a.side == b.side and a.insulated == b.insulated
+            for a, b in zip(targets, out)
+        )
+        if same:
+            self._status_msg(
+                f"Unweave: {before} crossings already at topological minimum."
+            )
+            return
+
+        cmds: list[object] = [RemoveWireCommand(wire_id=w.id) for w in targets]
+        cmds += [AddWireCommand(wire=w) for w in out]
+        self._commit_wire_macro(
+            cmds, f"Unweave {len(targets)} → {len(out)} wire(s)", invalidate=True
+        )
+        seg = (
+            f" ({len(targets)}→{len(out)} segments)"
+            if len(targets) != len(out)
+            else ""
+        )
+        self._status_msg(f"Unweave: {before} → {after} crossings{seg}")
+
+    def _merge_wires_and_fragments(
+        self, wire_ids: frozenset[uuid.UUID] | None
+    ) -> None:
+        """Two-phase wire merge — fuse touching wires + coalesce same-side fragments."""
+        from typing import cast
+
+        from protoboard.domain.commands.base import ComponentState
+        from protoboard.domain.commands.component_cmds import (
+            FuseTouchingWiresCommand,
+            ReplaceWireFragmentsCommand,
+        )
+        from protoboard.domain.layout.wire import Fragment
+        from protoboard.domain.layout.wire_utils import coalesce_same_side_fragments
+
+        session = self._session
+        state = cast("ComponentState", session)
+
+        # Phase 1: apply the fuse to observe the post-fuse layout, build the
+        # phase-2 fragment commands against it, then revert so the final macro
+        # re-applies both phases atomically.
+        fuse_cmd = FuseTouchingWiresCommand(wire_ids=wire_ids)
+        fuse_cmd.apply(state)
+        n_fused = len(fuse_cmd._records)  # noqa: SLF001 — legacy command contract
+
+        if wire_ids is None:
+            post_fuse_ids: set[uuid.UUID] = {w.id for w in session.layout.wires}
+        else:
+            survived = {wid for wid in wire_ids if wid in session.layout.wires}
+            merged = {
+                rec.merged_wire_id
+                for rec in fuse_cmd._records  # noqa: SLF001
+                if rec.merged_wire_id is not None
+            }
+            post_fuse_ids = survived | merged
+
+        all_wires = session.layout.wires
+        frag_cmds: list[object] = []
+        n_fragment_wires = 0
+        n_fragments_removed = 0
+        for wid in post_fuse_ids:
+            wire = next((w for w in all_wires if w.id == wid), None)
+            if wire is None or len(wire.fragments) < 2:
+                continue
+            coalesced = coalesce_same_side_fragments(wire.fragments)
+            if len(coalesced) == len(wire.fragments):
+                continue
+            n_fragment_wires += 1
+            n_fragments_removed += len(wire.fragments) - len(coalesced)
+            session.layout.ensure_wire_knots(wire)
+            old_fragments = tuple(
+                Fragment(path=list(f.path), side=f.side) for f in wire.fragments
+            )
+            frag_cmds.append(
+                ReplaceWireFragmentsCommand(
+                    wire_id=wire.id,
+                    new_fragments=tuple(coalesced),
+                    old_fragments=old_fragments,
+                )
+            )
+
+        fuse_cmd.revert(state)
+
+        if n_fused == 0 and not frag_cmds:
+            scope_label = "selection" if wire_ids is not None else "layout"
+            self._status_msg(f"Merge wires: nothing to merge in {scope_label}.")
+            return
+
+        parts_cmds: list[object] = []
+        if n_fused > 0:
+            parts_cmds.append(fuse_cmd)
+        parts_cmds += frag_cmds
+        desc = f"Merge wires ({n_fused} fused, {n_fragment_wires} fragment-collapsed)"
+        self._commit_wire_macro(parts_cmds, desc)
+
+        parts = []
+        if n_fused:
+            parts.append(f"fused {n_fused} wire pair(s)")
+        if n_fragment_wires:
+            parts.append(
+                f"collapsed {n_fragments_removed} fragment boundaries in "
+                f"{n_fragment_wires} wire(s)"
+            )
+        self._status_msg("Merge wires: " + "; ".join(parts) + ".")
+
+    def _commit_wire_macro(
+        self, cmds: list[object], description: str, *, invalidate: bool = False
+    ) -> None:
+        """Execute one-or-many wire commands as a macro, then refresh the view."""
+        from protoboard.domain.commands.base import MacroCommand
+
+        if not cmds:
+            return
+        cmd = cmds[0] if len(cmds) == 1 else MacroCommand(cmds, description=description)  # type: ignore[arg-type]
+        self._exec_command(cmd)
+        if invalidate:
+            self._session.invalidate_graph()
+        self._session.layout_changed.emit()
+        self._refresh_after_wire_op()
 
     def _exec_command(self, cmd: object) -> None:
         """Execute one command against the session (no emit/refresh).
