@@ -28,6 +28,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
+import structlog
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QPen
 from PySide6.QtWidgets import QGraphicsRectItem
@@ -41,6 +42,8 @@ from protoboard.gui.selection.mouse_input import Intent, Mods
 from protoboard.gui.selection.rubber_band_controller import RubberBandController
 from protoboard.gui.selection.service import SelectionService
 from protoboard.gui.selection_fsm import BasisScope, SetOp
+
+_log = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QKeyEvent, QMouseEvent
@@ -1780,7 +1783,218 @@ class SelectToolV2:
         """Underscore-named alias for :meth:`begin_redrag` (menu/PPM)."""
         self.begin_redrag(comp_id)
 
-    def _execute(self, cmd: object) -> None:
+    # -- wire-side ops / wire-pin eligibility / wire hit-test ---------------
+
+    def _hit_test_wire(self, scene_pt: QPointF) -> uuid.UUID | None:
+        """Nearest wire id within ``WIRE_HIT_DIST`` (SimplifyTool's hook)."""
+        return self._hit_tester()._hit_wire(scene_pt.x(), scene_pt.y())
+
+    def _is_editing_wire(self) -> bool:
+        """True when a wire fragment is selected (the wire-edit ``WireEditState``)."""
+        return self._wire_edit is not None
+
+    def _endpoint_eligible_for_wire_pin(self, position: Point) -> bool:
+        """True iff *position* sits on a plated-through pad (wire-pin invariant)."""
+        for p in self._session.cached_plated_through_pads():
+            if abs(p.x - position.x) < 1e-6 and abs(p.y - position.y) < 1e-6:
+                return True
+        return False
+
+    def _flip_wire_fragment(self, target_side: str | None = None) -> None:
+        """Flip the selected wire *fragment* to a layer.
+
+        Deferred (Phase 4 decision — fragment-flip is out of the wire-edit op
+        set for now).  The whole-wire layer move (:meth:`_move_selected_wires_to_side`)
+        remains available; the menu falls back to it when no fragment is active.
+        """
+        self._status_msg(
+            "Fragment flip not yet available — use whole-wire layer move."
+        )
+
+    def _move_selected_wires_to_side(self, target_side: str | None) -> None:
+        """Move all selected wires to a layer (``None`` toggles a shared side)."""
+        from protoboard.domain.commands.base import MacroCommand
+        from protoboard.domain.commands.component_cmds import SetWireSideCommand
+
+        wire_ids = self._selected_by_kind("wire")
+        if not wire_ids:
+            return
+        wires = [w for w in self._session.layout.wires if w.id in wire_ids]
+        if not wires:
+            return
+
+        if target_side is None:
+            sides = {w.side for w in wires}
+            if len(sides) > 1:
+                self._status_msg(
+                    "Cannot flip: selected wires are on different layers."
+                )
+                return
+            current_side = next(iter(sides))
+            resolved_side = "bottom" if current_side == "top" else "top"
+        else:
+            resolved_side = target_side
+
+        wires_to_move = [w for w in wires if w.side != resolved_side]
+        if not wires_to_move:
+            self._status_msg(f"Selected wires already on {resolved_side} layer.")
+            return
+
+        raw: list[object] = [
+            SetWireSideCommand(wire_id=w.id, side=resolved_side)
+            for w in wires_to_move
+        ]
+        if len(raw) == 1:
+            cmd: object = raw[0]
+        else:
+            desc = f"Move {len(raw)} wires to {resolved_side}"
+            cmd = MacroCommand(raw, description=desc)  # type: ignore[arg-type]
+        self._exec_command(cmd)
+        self._session.layout_changed.emit()
+        self._status_msg(
+            f"Moved {len(wires_to_move)} wire(s) to {resolved_side} layer."
+        )
+
+    # -- group creation dialog (Ctrl+G) -------------------------------------
+
+    def _select_group(self, group_id: uuid.UUID) -> None:
+        """Select a single group as a monolith (post-create / post-merge)."""
+        self._set_selection_from_ids(set(), set(), {group_id})
+
+    def _group_for_selection(self) -> uuid.UUID | None:
+        """Group the current selection: dialog to create new or add to existing.
+
+        Verbatim port of the legacy method; only the selection-state reads use
+        the v2 accessors.  All collaborators (GroupTree.promote_selection_to_top_level,
+        external_pins_for_group, the group commands, GroupTargetDialog) are reused.
+        """
+        ids = frozenset(self._selected_ids)
+        sel_id = self._selected_id
+        if sel_id and sel_id not in ids:
+            ids = ids | {sel_id}
+        if not ids:
+            return None
+
+        from protoboard.domain.commands.group_cmds import (
+            AddToGroupCommand,
+            CreateGroupCommand,
+            RemoveFromGroupCommand,
+            SetExportedPinsCommand,
+        )
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.layout.group_tree import GroupTree
+        from protoboard.domain.schematic.net import PinRef
+        from protoboard.gui.dialogs.group_target_dialog import GroupTargetDialog
+
+        groups = self._session.layout.groups
+        active_gid = self._current_group_id
+        active = groups.get(active_gid)
+        child_groups = [
+            groups[gid]
+            for gid in (active.child_group_ids if active else frozenset())
+            if gid in groups and gid != ROOT_GROUP_ID
+        ]
+
+        default_name = f"Group{len(groups) + 1}"
+        dlg = GroupTargetDialog(
+            existing_groups=child_groups,
+            default_name=default_name,
+            parent=self._view.window(),
+        )
+        if dlg.exec() != GroupTargetDialog.DialogCode.Accepted:
+            return None
+
+        if dlg.mode == "new":
+            promoted_free, promoted_groups = (
+                self._session.group_tree().promote_selection_to_top_level(
+                    active_gid, ids
+                )
+            )
+            _log.info(
+                "group_for_selection.promotion",
+                active_gid=str(active_gid)[:8],
+                n_selected=len(ids),
+                n_free_after=len(promoted_free),
+                n_promoted_groups=len(promoted_groups),
+            )
+            new_group_id = uuid.uuid4()
+            exported: frozenset[PinRef] = frozenset()
+            if dlg.auto_export_external:
+                transient = ComponentGroup(
+                    id=new_group_id,
+                    name=dlg.new_name or default_name,
+                    component_ids=promoted_free,
+                    child_group_ids=promoted_groups,
+                )
+                groups_with_new = dict(self._session.layout.groups)
+                groups_with_new[new_group_id] = transient
+                exported = GroupTree(groups_with_new).external_pins_for_group(
+                    new_group_id, self._session.schematic
+                )
+            new_group = ComponentGroup(
+                id=new_group_id,
+                name=dlg.new_name or default_name,
+                component_ids=promoted_free,
+                child_group_ids=promoted_groups,
+                exported_pins=exported,
+            )
+            self._exec_command(CreateGroupCommand(group=new_group))
+            for promoted_gid in promoted_groups:
+                old_parent = self._session.group_tree().parent_group_of(promoted_gid)
+                if old_parent is not None:
+                    self._exec_command(
+                        RemoveFromGroupCommand(
+                            group_id=old_parent,
+                            child_group_ids=frozenset({promoted_gid}),
+                        )
+                    )
+            self._exec_command(
+                AddToGroupCommand(
+                    group_id=active_gid, child_group_ids=frozenset({new_group.id})
+                )
+            )
+            if promoted_free:
+                self._exec_command(
+                    RemoveFromGroupCommand(
+                        group_id=active_gid, component_ids=promoted_free
+                    )
+                )
+            self._session.layout_changed.emit()
+            self._select_group(new_group.id)
+            return new_group.id
+
+        # Add to an existing group.
+        target_id = dlg.target_group_id
+        if target_id is None:
+            return None
+        self._exec_command(
+            AddToGroupCommand(group_id=target_id, component_ids=ids)
+        )
+        if target_id != active_gid:
+            self._exec_command(
+                RemoveFromGroupCommand(group_id=active_gid, component_ids=ids)
+            )
+        if dlg.auto_export_external:
+            new_exported = self._session.group_tree().external_pins_for_group(
+                target_id, self._session.schematic
+            )
+            if new_exported != self._session.layout.groups[target_id].exported_pins:
+                self._exec_command(
+                    SetExportedPinsCommand(
+                        group_id=target_id, new_exported=new_exported
+                    )
+                )
+        self._session.layout_changed.emit()
+        self._select_group(target_id)
+        return target_id
+
+    def _exec_command(self, cmd: object) -> None:
+        """Execute one command against the session (no emit/refresh).
+
+        Lets a multi-command path (group dialog, wire-side move) issue several
+        commands and emit ``layout_changed`` once at the end, as the legacy
+        tool did.  Casts the session to the ``ComponentState`` command target.
+        """
         from typing import cast
 
         from protoboard.domain.commands.base import Command, ComponentState
@@ -1789,6 +2003,9 @@ class SelectToolV2:
             cast("Command[ComponentState]", cmd),
             cast("ComponentState", self._session),
         )
+
+    def _execute(self, cmd: object) -> None:
+        self._exec_command(cmd)
         self._session.layout_changed.emit()
         self._refresh_highlight()
 
