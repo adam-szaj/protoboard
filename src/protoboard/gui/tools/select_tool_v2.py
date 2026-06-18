@@ -25,6 +25,7 @@ in tested, Qt-free controllers.
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPointF, Qt
@@ -42,8 +43,6 @@ from protoboard.gui.selection.service import SelectionService
 from protoboard.gui.selection_fsm import BasisScope, SetOp
 
 if TYPE_CHECKING:
-    import uuid
-
     from PySide6.QtGui import QKeyEvent, QMouseEvent
     from PySide6.QtWidgets import QGraphicsItem
 
@@ -331,6 +330,202 @@ class SelectToolV2:
         sel = self._selection.selected()
         return sel[0] if sel else None
 
+    # -- legacy selection-state contract -----------------------------------
+    #
+    # ``main_window``/panels reach into the tool for the *raw id-set* view of
+    # the selection (``_selected_id``/``_selected_ids``/``_selected_wire_ids``/
+    # ``_selected_group_id``) and broadcast/summary helpers.  v2 keeps the
+    # selection as ``Selectable``s inside the ``SelectionService``; these
+    # accessors *project* that state into the id sets the old tool exposed, and
+    # the setters *rebuild* the service from ids (wrapping each id in its
+    # adapter via ``set_many``).  This is the compat surface that lets the GUI
+    # drive v2 unchanged.
+
+    def _selected_by_kind(self, kind: str) -> set[uuid.UUID]:
+        """All selected ids of one Hit kind (``component`` / ``wire`` / ``group``)."""
+        out: set[uuid.UUID] = set()
+        for sel in self._selection.selected():
+            hit = sel.to_hit()
+            if hit.kind == kind and isinstance(hit.id, uuid.UUID):
+                out.add(hit.id)
+        return out
+
+    def _set_selection_from_ids(
+        self,
+        comp_ids: set[uuid.UUID],
+        wire_ids: set[uuid.UUID],
+        group_ids: set[uuid.UUID],
+    ) -> None:
+        """Rebuild the service selection from raw id sets (adapter-wrapped)."""
+        from protoboard.gui.selection.adapters import (
+            ComponentSelectable,
+            GroupSelectable,
+            WireSelectable,
+        )
+
+        targets: list[Selectable] = []
+        for cid in comp_ids:
+            pl = self._session.layout.placements.get(cid)
+            if pl is not None:
+                targets.append(ComponentSelectable(component_id=cid, placement=pl))
+        for wid in wire_ids:
+            wire = self._wire_by_id(wid)
+            if wire is not None:
+                targets.append(WireSelectable(wire=wire))
+        for gid in group_ids:
+            grp = self._session.layout.groups.get(gid)
+            if grp is not None:
+                targets.append(GroupSelectable(group=grp))
+        self._selection.set_many(targets)
+        self._refresh_highlight()
+
+    @property
+    def _selected_id(self) -> uuid.UUID | None:
+        """The primary component id (first selected component), or None."""
+        for sel in self._selection.selected():
+            hit = sel.to_hit()
+            if hit.kind == "component" and isinstance(hit.id, uuid.UUID):
+                return hit.id
+        return None
+
+    @property
+    def _selected_ids(self) -> set[uuid.UUID]:
+        return self._selected_by_kind("component")
+
+    @_selected_ids.setter
+    def _selected_ids(self, value: set[uuid.UUID]) -> None:
+        self._set_selection_from_ids(
+            set(value), self._selected_by_kind("wire"), self._selected_group_ids
+        )
+
+    @property
+    def _selected_wire_ids(self) -> set[uuid.UUID]:
+        return self._selected_by_kind("wire")
+
+    @_selected_wire_ids.setter
+    def _selected_wire_ids(self, value: set[uuid.UUID]) -> None:
+        self._set_selection_from_ids(
+            self._selected_by_kind("component"), set(value), self._selected_group_ids
+        )
+
+    @property
+    def _selected_group_ids(self) -> set[uuid.UUID]:
+        return self._selected_by_kind("group")
+
+    @property
+    def _selected_group_id(self) -> uuid.UUID | None:
+        return next(iter(self._selected_group_ids), None)
+
+    @_selected_group_id.setter
+    def _selected_group_id(self, value: uuid.UUID | None) -> None:
+        self._set_selection_from_ids(
+            self._selected_by_kind("component"),
+            self._selected_by_kind("wire"),
+            {value} if value is not None else set(),
+        )
+
+    def _deselect(self) -> None:
+        """Drop the component part of the selection (keep wires/groups)."""
+        self._set_selection_from_ids(
+            set(), self._selected_by_kind("wire"), self._selected_group_ids
+        )
+
+    def _deselect_wire(self) -> None:
+        """Drop the wire part of the selection (keep components/groups)."""
+        self._set_selection_from_ids(
+            self._selected_by_kind("component"), set(), self._selected_group_ids
+        )
+
+    def _clear_multi_selection(self) -> None:
+        """Clear the whole selection."""
+        self._selection.clear()
+        self._refresh_highlight()
+
+    def _redraw_multi_highlights(self) -> None:
+        self._refresh_highlight()
+
+    def _redraw_multi_wire_highlights(self) -> None:
+        self._refresh_highlight()
+
+    @property
+    def _multi_highlights(self) -> list[QGraphicsItem]:
+        """Legacy: selection-highlight overlay items.
+
+        v2 renders the highlight through the ``HighlightStack`` (BoardView
+        owns the items), not as tool-local overlay items.  Returned empty so
+        the one legacy reader (a debug-log count) stays valid.
+        """
+        return []
+
+    def _notify_selection(self) -> None:
+        """Broadcast the current selection to all panels via the session signal."""
+        if self._session is None:
+            return
+        comp_ids = frozenset(self._selected_by_kind("component"))
+        wire_ids = frozenset(self._selected_by_kind("wire"))
+        net_id = self._primary_net_id()
+        self._session.notify_selection(comp_ids, wire_ids, net_id)
+
+    def _primary_net_id(self) -> uuid.UUID | None:
+        """The logical net of the primary wire/component, for the panel signal."""
+        primary = self._primary_selectable()
+        if primary is None:
+            return None
+        from protoboard.gui.selection.queries import SessionConnQuery
+
+        nets = primary.net_ids(SessionConnQuery(self._session))
+        return next(iter(nets), None)
+
+    def _status_msg(self, msg: str, timeout_ms: int = 4000) -> None:
+        """Status-bar message (legacy name; v2's primitive is ``_status``)."""
+        self._status(msg, timeout_ms)
+
+    def selection_summary(self) -> str:
+        """One-line status-bar summary of the selection (parity with legacy)."""
+        session = self._session
+        if session is None:
+            return "select: none"
+
+        comp_ids = self._selected_by_kind("component")
+        wire_ids = self._selected_by_kind("wire")
+        if not comp_ids and not wire_ids:
+            return "select: none"
+
+        sel_id = self._selected_id
+        sel_wire = self._selected_wire_id
+        if sel_id is not None:
+            pri: str | None = f"pri:c:{str(sel_id)[:8]}"
+        elif sel_wire is not None:
+            wnm = session.cached_wire_net_map()
+            net_uuid = wnm.get(sel_wire)
+            net_obj = (
+                session.schematic.nets.get(net_uuid) if net_uuid is not None else None
+            )
+            net_label = f" ({net_obj.name})" if net_obj is not None else ""
+            pri = f"pri:w:{str(sel_wire)[:8]}{net_label}"
+        else:
+            pri = None
+
+        net_ids: set[uuid.UUID] = set()
+        for net_obj in session.schematic.nets.values():
+            if any(pr.component_id in comp_ids for pr in net_obj.pins):
+                net_ids.add(net_obj.id)
+        if wire_ids:
+            wnm = session.cached_wire_net_map()
+            for wid in wire_ids:
+                n = wnm.get(wid)
+                if n is not None:
+                    net_ids.add(n)
+
+        group_count = len(self._selected_group_ids)
+        multi = (
+            f"multi:[c:{len(comp_ids)} w:{len(wire_ids)} "
+            f"n:{len(net_ids)} g:{group_count}]"
+        )
+        if pri is None:
+            return f"select: {multi}"
+        return f"select: {pri} | {multi}"
+
     # -- net / connectivity relation axis ----------------------------------
 
     def relation(self):  # type: ignore[no-untyped-def]
@@ -347,14 +542,12 @@ class SelectToolV2:
 
     def _relation_source(self, sel: Selectable):  # type: ignore[no-untyped-def]
         """Map a hit Selectable to a :class:`RelationSource` for the queries."""
-        import uuid as _uuid
-
         from protoboard.gui.selection.queries import RelationSource
 
         hit = sel.to_hit()
-        if hit.kind == "wire" and isinstance(hit.id, _uuid.UUID):
+        if hit.kind == "wire" and isinstance(hit.id, uuid.UUID):
             return RelationSource.wire(hit.id)
-        if hit.kind == "component" and isinstance(hit.id, _uuid.UUID):
+        if hit.kind == "component" and isinstance(hit.id, uuid.UUID):
             if hit.pin_number is not None:
                 return RelationSource.pin(hit.id, hit.pin_number)
             return RelationSource.component(hit.id)
@@ -966,7 +1159,7 @@ class SelectToolV2:
         from protoboard.gui.selection.hit_test import WireEditCycle
         from protoboard.gui.selection.selectable import Stop
 
-        wire_id = self._selected_wire_id()
+        wire_id = self._selected_wire_id
         if wire_id is None:
             self._status("Wire-edit: select a wire first")
             return
@@ -985,12 +1178,11 @@ class SelectToolV2:
             on_progress=self._range_progress,
         )
 
+    @property
     def _selected_wire_id(self) -> uuid.UUID | None:
-        import uuid as _uuid
-
         for sel in self._selection.selected():
             hit = sel.to_hit()
-            if hit.kind == "wire" and isinstance(hit.id, _uuid.UUID):
+            if hit.kind == "wire" and isinstance(hit.id, uuid.UUID):
                 return hit.id
         return None
 
