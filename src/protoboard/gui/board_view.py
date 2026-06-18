@@ -61,7 +61,7 @@ from protoboard.gui.renderers.wire_renderer import (
     update_wire_groups,
 )
 from protoboard.gui.session import EditorSession
-from protoboard.gui.theme import DEFAULT_THEME
+from protoboard.gui.theme import DEFAULT_THEME, Theme
 from protoboard.services.routing.net_status import routed_net_ids
 
 # Scene units = raster units. 1 raster unit = 1 "pixel" in scene space.
@@ -153,7 +153,6 @@ class BoardView(QGraphicsView):
         session.routing_net_changed.connect(self._apply_highlight_opacity)
         session.routing_net_changed.connect(self._on_routing_net_changed)
         # Theme — overridden by MainWindow after Preferences apply.
-        from protoboard.gui.theme import Theme
         self._theme_override: Theme | None = None
         self._last_drag_refresh: float = 0.0
         # comp_id → QGraphicsItemGroup; persists across refreshes for reuse.
@@ -633,7 +632,7 @@ class BoardView(QGraphicsView):
         return selected
 
     def _recolour_selected_group_outlines(
-        self, theme: object, select_rgb: QColor
+        self, theme: Theme, select_rgb: QColor
     ) -> None:
         """Recolour the outline rect of every selected group to the select colour.
 
@@ -662,7 +661,7 @@ class BoardView(QGraphicsView):
         # Restore groups no longer selected to the normal group pen colour.
         # (render_groups rebuilds the exact active/dim pen on the next refresh;
         # this keeps the colour sane until then.)
-        normal_rgb = QColor(getattr(theme, "group_pen_color", "#888888"))
+        normal_rgb = QColor(theme.group_pen_color)
         for gid in self._cyan_group_outlined - sel_groups:
             rect = outline_by_gid.get(str(gid))
             if isinstance(rect, QGraphicsRectItem):
