@@ -9,7 +9,7 @@ select, rubber-band, rotate, ESC-pop, and routing a click into an active pick.
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QKeyEvent, QMouseEvent
+from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent
 
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.gui.board_view import BoardView
@@ -124,6 +124,62 @@ class TestSelectionBasics:
         _press(tool, 8.0, 8.0)
         _release(tool, 8.0, 8.0)
         assert inst.id in _comp_ids(tool)
+
+
+class TestCyanSelectionOutline:
+    """A selected component's body outline is recoloured to the select colour."""
+
+    @staticmethod
+    def _outline_colours(board_view: BoardView, comp_id):  # type: ignore[no-untyped-def]
+        from PySide6.QtWidgets import QGraphicsItemGroup
+
+        grp = board_view._comp_groups.get(comp_id)
+        if not isinstance(grp, QGraphicsItemGroup):
+            return []
+        out = []
+        for child in grp.childItems():
+            if hasattr(child, "pen"):
+                out.append(child.pen().color().rgb() & 0x00FFFFFF)
+        return out
+
+    def test_selected_component_outline_turns_cyan(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.theme import DEFAULT_THEME
+
+        inst = _place(board_view, session, 0.5, 0.5)
+        board_view.refresh()
+        border_rgb = QColor(DEFAULT_THEME.comp_border).rgb() & 0x00FFFFFF
+        select_rgb = QColor(DEFAULT_THEME.select_color).rgb() & 0x00FFFFFF
+
+        before = self._outline_colours(board_view, inst.id)
+        assert border_rgb in before  # the dark outline exists pre-selection
+
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)
+        after = self._outline_colours(board_view, inst.id)
+        assert select_rgb in after  # outline recoloured to cyan
+        assert border_rgb not in after  # the dark outline is gone
+
+    def test_deselect_restores_outline(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.theme import DEFAULT_THEME
+
+        inst = _place(board_view, session, 0.5, 0.5)
+        board_view.refresh()
+        border_rgb = QColor(DEFAULT_THEME.comp_border).rgb() & 0x00FFFFFF
+        select_rgb = QColor(DEFAULT_THEME.select_color).rgb() & 0x00FFFFFF
+
+        tool = _v2(board_view)
+        _click(tool, 0.5, 0.5)  # press+release — a completed click (no armed drag)
+        assert select_rgb in self._outline_colours(board_view, inst.id)
+
+        # ESC clears the selection → outline returns to the neutral border.
+        _key(tool, Qt.Key.Key_Escape)
+        restored = self._outline_colours(board_view, inst.id)
+        assert border_rgb in restored
+        assert select_rgb not in restored
 
     def test_highlight_published_on_select(
         self, board_view: BoardView, session: EditorSession

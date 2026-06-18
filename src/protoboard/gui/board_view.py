@@ -9,6 +9,7 @@ import time
 import uuid
 
 import structlog
+
 _click_log = structlog.get_logger("protoboard.gui.board_view.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
 # PROTOBOARD_PAINT_PROFILE — log per-phase paint timings on every paintEvent.
@@ -19,19 +20,22 @@ _PAINT_PROFILE = os.environ.get("PROTOBOARD_PAINT_PROFILE") not in (None, "", "0
 
 _DRAG_REFRESH_INTERVAL = 0.033  # 30 fps max during live drag
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, QTimer, Qt, Signal
+from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
     QKeyEvent,
     QMouseEvent,
     QPainter,
+    QPen,
     QPixmap,
     QResizeEvent,
     QWheelEvent,
 )
+from PySide6.QtWidgets import QGraphicsItem as _QGItem  # noqa: E402 – used in refresh()
 from PySide6.QtWidgets import (
     QGraphicsItemGroup,
+    QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
     QWidget,
@@ -56,7 +60,6 @@ from protoboard.gui.renderers.wire_renderer import (
     render_wires_with_nets,
     update_wire_groups,
 )
-from PySide6.QtWidgets import QGraphicsItem as _QGItem  # noqa: E402 – used in refresh()
 from protoboard.gui.session import EditorSession
 from protoboard.gui.theme import DEFAULT_THEME
 from protoboard.services.routing.net_status import routed_net_ids
@@ -215,6 +218,12 @@ class BoardView(QGraphicsView):
         # old highlight until the user pressed Esc (see memory
         # ``back-cache-highlight-stale-2026-06-08``).
         self._last_highlight_signature: int = 0
+        # Cyan selection outline: comp_ids whose body outline we recoloured
+        # to the select colour (so we can restore them when they leave the
+        # selection), plus the bbox-rect overlays drawn for SVG-bodies whose
+        # baked-in outline cannot be recoloured in place.
+        self._cyan_outlined: set[uuid.UUID] = set()
+        self._svg_select_overlays: dict[uuid.UUID, QGraphicsRectItem] = {}
         # Scene items kept hidden while a valid _back_cache shows them
         # as a rasterised blit instead.  Restored on cache invalidation.
         self._back_hidden_items: list[object] = []
@@ -428,7 +437,8 @@ class BoardView(QGraphicsView):
         opacity; everything else is dimmed by the active profile.
         """
         from PySide6.QtWidgets import QGraphicsItemGroup
-        from protoboard.gui.highlight_state import HighlightEntry, PROFILE_DIMMED_1
+
+        from protoboard.gui.highlight_state import PROFILE_DIMMED_1, HighlightEntry
         from protoboard.gui.interaction_mode import HighlightProfile
 
         session = self._session
@@ -475,6 +485,9 @@ class BoardView(QGraphicsView):
             for grp in self._wire_groups.values():
                 if isinstance(grp, QGraphicsItemGroup):
                     grp.setOpacity(1.0)
+            # A component can be selected with no net context (RelationClass.
+            # NONE) — keep the cyan outline in sync even on this no-dim path.
+            self._recolour_selected_outlines()
             # No-highlight branch — also invalidate the back cache when
             # we just transitioned out of a non-empty highlight state.
             # Without this, the cached pixmap keeps the old dimmed
@@ -528,6 +541,11 @@ class BoardView(QGraphicsView):
                 else:
                     grp.setOpacity(dim_w)
 
+        # Recolour the body outline of *selected* components to the select
+        # colour (cyan).  Distinct from the net-dim above: dimming says "this
+        # net is in context", the cyan outline says "this is what you picked".
+        selected_comp_ids = self._recolour_selected_outlines()
+
         # Invalidate the back-cache pixmap when the *set* of highlighted
         # items changes — opacity-only shifts (same set, different alpha
         # from a profile tweak) do not require a rebuild because the
@@ -535,11 +553,13 @@ class BoardView(QGraphicsView):
         # had at render time and a setOpacity on a hidden item is
         # cheap.  The signature here is sensitive only to membership
         # changes plus the active profile id (different profile = items
-        # rendered at a different intrinsic alpha during build).
+        # rendered at a different intrinsic alpha during build).  The
+        # selected set joins it so a cyan-outline change rebuilds the cache.
         new_signature = hash((
             frozenset(highlighted_comp_ids),
             frozenset(highlighted_wire_ids),
             frozenset(net_ids),
+            frozenset(selected_comp_ids),
             id(profile_obj),
         ))
         if new_signature != self._last_highlight_signature:
@@ -549,6 +569,116 @@ class BoardView(QGraphicsView):
             # rather than on the next mouse move; otherwise the user
             # sees the stale pixmap until they wiggle the cursor.
             self.viewport().update()
+
+    def _recolour_selected_outlines(self) -> set[uuid.UUID]:
+        """Paint the selected components' body outline in the select colour.
+
+        Reads the active tool's ``_selected_ids`` (the SelectTool compat view)
+        and, for each selected component, recolours its body-outline pen from
+        the neutral ``comp_border`` to the theme ``select_color`` (cyan).  The
+        fill and every other item (leads, pins, labels) are left untouched.
+
+        Native body shapes (PackageBody / GenericBody / TO92 / TO220) carry the
+        outline as a real ``QGraphicsItem`` pen, so we recolour it in place.
+        SVG-backed bodies (DIP / SIL / quad-DIP) bake the stroke into a
+        rasterised ``QGraphicsSvgItem`` that cannot be recoloured — for those we
+        draw a cyan bounding-box rectangle overlay instead.
+
+        Idempotent: components that left the selection are restored to
+        ``comp_border`` and their SVG overlay removed.  Returns the selected
+        component-id set so the caller can fold it into the back-cache
+        signature.
+        """
+        from PySide6.QtWidgets import QGraphicsItemGroup
+
+        theme = self._theme_override if self._theme_override is not None else DEFAULT_THEME
+        tool = self._active_tool
+        selected: set[uuid.UUID] = set(getattr(tool, "_selected_ids", set()))
+
+        border_rgb = QColor(theme.comp_border).rgb() & 0x00FFFFFF
+        select_rgb = QColor(theme.select_color)
+        select_match = select_rgb.rgb() & 0x00FFFFFF
+
+        # 1. Restore components that are no longer selected.
+        for cid in self._cyan_outlined - selected:
+            grp = self._comp_groups.get(cid)
+            if isinstance(grp, QGraphicsItemGroup):
+                self._set_outline_colour(
+                    grp, select_rgb, QColor(theme.comp_border),
+                    match_rgb=select_match,
+                )
+        for cid in set(self._svg_select_overlays) - selected:
+            self._remove_svg_select_overlay(cid)
+        self._cyan_outlined &= selected
+
+        # 2. Apply cyan to the freshly-selected components.
+        for cid in selected:
+            grp = self._comp_groups.get(cid)
+            if not isinstance(grp, QGraphicsItemGroup):
+                continue
+            recoloured = self._set_outline_colour(
+                grp, QColor(theme.comp_border), select_rgb, match_rgb=border_rgb
+            )
+            if recoloured:
+                self._cyan_outlined.add(cid)
+            elif cid not in self._svg_select_overlays:
+                # No recolourable native outline (SVG body) — cyan bbox overlay.
+                self._add_svg_select_overlay(cid, select_rgb, theme.select_width)
+        return selected
+
+    @staticmethod
+    def _set_outline_colour(
+        grp: QGraphicsItemGroup, from_colour: QColor, to_colour: QColor,
+        *, match_rgb: int | None = None,
+    ) -> bool:
+        """Recolour every child pen matching the body outline; return True if any.
+
+        Matches on RGB only (the dimming pass scales pen alpha, so an exact
+        ``QColor`` compare would miss dimmed outlines).  ``match_rgb`` overrides
+        which colour to look for (used when restoring, where the current pen is
+        cyan, not ``from_colour``).
+        """
+        from PySide6.QtWidgets import QAbstractGraphicsShapeItem
+
+        want = match_rgb if match_rgb is not None else from_colour.rgb() & 0x00FFFFFF
+        changed = False
+        for child in grp.childItems():
+            if not isinstance(child, QAbstractGraphicsShapeItem):
+                continue  # only shape items (rect / path / ellipse) carry a pen
+            p = child.pen()
+            if (p.color().rgb() & 0x00FFFFFF) != want:
+                continue
+            new_pen = QPen(p)
+            keep = QColor(to_colour)
+            keep.setAlphaF(p.color().alphaF())  # preserve the dim level
+            new_pen.setColor(keep)
+            child.setPen(new_pen)
+            changed = True
+        return changed
+
+    def _add_svg_select_overlay(
+        self, comp_id: uuid.UUID, colour: QColor, width: float
+    ) -> None:
+        """Draw a cyan bbox rect over an SVG-bodied component (outline fallback)."""
+        from protoboard.gui.layer_state import Z_SELECTION
+
+        bbox = self._session.component_bbox(comp_id)
+        if bbox is None:
+            return
+        m = 0.06
+        rect = QGraphicsRectItem(
+            QRectF(bbox.x - m, bbox.y - m, bbox.width + 2 * m, bbox.height + 2 * m)
+        )
+        rect.setPen(QPen(QColor(colour), width))
+        rect.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        rect.setZValue(Z_SELECTION)
+        self._scene.addItem(rect)
+        self._svg_select_overlays[comp_id] = rect
+
+    def _remove_svg_select_overlay(self, comp_id: uuid.UUID) -> None:
+        rect = self._svg_select_overlays.pop(comp_id, None)
+        if rect is not None and rect.scene() is self._scene:
+            self._scene.removeItem(rect)
 
     _LABEL_MIN_SCENE_UNITS: float = 0.8
 
