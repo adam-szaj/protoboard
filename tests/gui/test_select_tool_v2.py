@@ -203,6 +203,50 @@ class TestRotate:
         assert tool._rotate_pivot is None
 
 
+class TestDragGesture:
+    def test_drag_component_moves_and_commits(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)  # select + arm drag (press on the pin)
+        before = session.layout.placements[inst.id].position
+        depth = len(session.stack._undo)  # type: ignore[attr-defined]
+        _move(tool, 2.5, 0.5)  # past the 0.5 threshold
+        _release(tool, 2.5, 0.5)
+        after = session.layout.placements[inst.id].position
+        assert (after.x, after.y) != (before.x, before.y)
+        # CLEAR drag auto-commits → exactly one command on the stack.
+        assert len(session.stack._undo) == depth + 1  # type: ignore[attr-defined]
+        assert tool._gesture is None
+
+    def test_subthreshold_press_release_is_click(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)
+        before = session.layout.placements[inst.id].position
+        depth = len(session.stack._undo)  # type: ignore[attr-defined]
+        _move(tool, 0.6, 0.5)  # below threshold
+        _release(tool, 0.6, 0.5)
+        after = session.layout.placements[inst.id].position
+        assert (after.x, after.y) == (before.x, before.y)
+        assert len(session.stack._undo) == depth  # type: ignore[attr-defined]
+        # Selection survives a click that didn't become a drag.
+        assert inst.id in _comp_ids(tool)
+
+    def test_drag_keeps_component_selected(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)
+        _move(tool, 2.5, 0.5)
+        _release(tool, 2.5, 0.5)
+        assert inst.id in _comp_ids(tool)
+
+
 class TestPickRouting:
     def test_click_feeds_active_pick(
         self, board_view: BoardView, session: EditorSession

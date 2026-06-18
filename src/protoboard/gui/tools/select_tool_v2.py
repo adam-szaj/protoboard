@@ -1,20 +1,25 @@
 # SPDX-License-Identifier: MIT
-"""``SelectToolV2`` — the rewritten selection tool (Phase 2 MVP).
+"""``SelectToolV2`` — the rewritten selection tool (Phases 2–3).
 
 A thin ``_Tool`` that wires the headless-tested pieces together:
 
 * :class:`~protoboard.gui.selection.hit_test.HitTester` — point → Selectable,
 * :class:`~protoboard.gui.selection.service.SelectionService` — selection state
   and the active-pick routing,
-* :class:`~protoboard.gui.highlight.controller.HighlightController` — dimming.
+* :class:`~protoboard.gui.highlight.controller.HighlightController` — dimming,
+* :class:`~protoboard.gui.selection.drag_controller.DragController` and
+  :class:`~protoboard.gui.selection.rubber_band_controller.RubberBandController`
+  — the two press-drag-release gestures, behind one
+  :class:`~protoboard.gui.selection.gesture.GestureController` seam.
 
-Phase 2 covers: hit-test → selection (SET/ADD/REMOVE via the modifier matrix),
-rubber-band, rotate / flip / rotate-around-point (commands already exist),
-ESC-pop, group enter/exit, and routing clicks into an active pick.  Drag,
-floating, wire-edit and net-relation selection arrive in later phases.
+Covers: hit-test → selection (SET/ADD/REMOVE via the modifier matrix),
+rubber-band area-select, drag / floating of the selection, rotate / flip /
+rotate-around-point, ESC-pop, group enter/exit, and routing clicks into an
+active pick.  Wire-edit and net-relation selection arrive in later phases.
 
-The tool keeps almost no logic of its own — it translates Qt events into calls
-on the services, so the behaviour lives in tested, Qt-free code.
+The tool keeps almost no logic of its own — on press it arms a gesture or
+mutates the selection; on move / release it forwards to the active gesture; the
+behaviour lives in tested, Qt-free controllers.
 """
 
 from __future__ import annotations
@@ -26,8 +31,11 @@ from PySide6.QtGui import QColor, QPen
 from PySide6.QtWidgets import QGraphicsRectItem
 
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
+from protoboard.geometry import Point
 from protoboard.gui.highlight.controller import HighlightController
+from protoboard.gui.selection.drag_controller import DragController, FloatingPhase
 from protoboard.gui.selection.hit_test import HitTester, SelectionFilters
+from protoboard.gui.selection.rubber_band_controller import RubberBandController
 from protoboard.gui.selection.service import SelectionService
 from protoboard.gui.selection_fsm import BasisScope, SetOp
 
@@ -37,6 +45,8 @@ if TYPE_CHECKING:
     from PySide6.QtGui import QKeyEvent, QMouseEvent
 
     from protoboard.gui.board_view import BoardView
+    from protoboard.gui.drag_set import DragSet
+    from protoboard.gui.selection.gesture import GestureController
     from protoboard.gui.selection.selectable import Selectable
     from protoboard.gui.session import EditorSession
 
@@ -46,9 +56,6 @@ _BAND_PEN_RL = QPen(QColor(0, 200, 255, 180), 0.06)
 _BAND_PEN_RL.setStyle(Qt.PenStyle.DashLine)
 _BAND_FILL_LR = QColor(0, 200, 255, 20)
 _BAND_FILL_RL = QColor(0, 200, 255, 10)
-
-# Below this drag size a press+release is a click, not a rubber-band.
-_BAND_MIN_SIZE = 0.1
 
 
 class SelectToolV2:
@@ -60,10 +67,11 @@ class SelectToolV2:
         self._selection: SelectionService = None  # type: ignore[assignment]
         self._highlight: HighlightController = None  # type: ignore[assignment]
         self._group_stack: list[uuid.UUID] = [ROOT_GROUP_ID]
-        # Rubber-band state.
-        self._band_start: QPointF | None = None
+        # The in-flight press-drag-release gesture (drag or rubber-band), or
+        # None.  on_move / on_release route here uniformly; the controller owns
+        # its own start threshold and outcome.
+        self._gesture: GestureController | None = None
         self._band_item: QGraphicsRectItem | None = None
-        self._band_op: SetOp = SetOp.SET
         # Rotate-around-point pivot capture.
         self._pivot_capture_pending: bool = False
         self._rotate_pivot: object | None = None  # geometry.Point | None
@@ -85,6 +93,7 @@ class SelectToolV2:
         )
 
     def deactivate(self) -> None:
+        self._cancel_gesture()
         self._clear_band()
 
     def on_scene_cleared(self) -> None:
@@ -156,12 +165,23 @@ class SelectToolV2:
                 pick.feed(sel)
             return True
 
-        # 3. Normal selection. Resolve the hit; arm rubber-band on empty space.
+        # 3. Normal selection. Resolve the hit.
         _basis, op = self._decode_modifiers(event)
         sel = self._hit_tester().hit(scene_pt.x(), scene_pt.y(), self._filters())
+
+        #   3a. Empty space → arm a rubber-band gesture.
         if sel is None:
-            self._band_start = scene_pt
-            self._band_op = op
+            self._gesture = self._arm_band(scene_pt)
+            return True
+
+        #   3b. A plain (no-modifier) press selects the hit, then arms a drag of
+        #   the selection — the gesture's own threshold decides drag-vs-click.
+        #   With Ctrl/Shift the press only mutates the set (no drag).
+        if op is SetOp.SET:
+            self._apply_selection(sel, op)
+            drag = self._arm_drag(sel, scene_pt)
+            if drag is not None:
+                self._gesture = drag
             return True
 
         self._apply_selection(sel, op)
@@ -181,28 +201,128 @@ class SelectToolV2:
     def _refresh_highlight(self) -> None:
         self._highlight.show(self._selection.selected())
 
-    # -- move / release (rubber-band) --------------------------------------
+    # -- gesture routing (drag + rubber-band) ------------------------------
 
     def on_move(self, event: QMouseEvent, scene_pt: QPointF) -> None:
-        if self._band_start is not None:
-            self._draw_band(scene_pt)
+        if self._gesture is not None:
+            self._gesture.update(Point(scene_pt.x(), scene_pt.y()))
 
     def on_release(self, event: QMouseEvent, scene_pt: QPointF) -> None:
-        if self._band_start is not None:
-            self._finish_band(scene_pt)
-
-    def _draw_band(self, scene_pt: QPointF) -> None:
-        start = self._band_start
-        if start is None:
+        gesture = self._gesture
+        if gesture is None:
             return
+        gesture.update(Point(scene_pt.x(), scene_pt.y()))
+        moved = gesture.commit()
+        # A drag that's now floating stays the active gesture (keys commit /
+        # cancel it).  Everything else — committed, a sub-threshold click, or a
+        # finished band — clears the gesture and refreshes the selection.
+        if isinstance(gesture, DragController) and gesture.is_floating:
+            return
+        self._gesture = None
+        if moved:
+            self._refresh_highlight()
+        if self._view is not None:
+            self._view.refresh()
+
+    # -- arming gestures ----------------------------------------------------
+
+    def _arm_band(self, scene_pt: QPointF) -> RubberBandController:
+        press = Point(scene_pt.x(), scene_pt.y())
+        return RubberBandController(
+            press_pt=press,
+            comp_ids=list(self._session.layout.placements),
+            bbox=self._session.component_bbox,
+            draw=self._draw_band,
+            clear=self._clear_band,
+            select=self._band_select,
+        )
+
+    def _arm_drag(
+        self, sel: Selectable, scene_pt: QPointF
+    ) -> DragController | None:
+        """Build a drag for the current selection grabbed at *sel*.
+
+        Returns None when the hit isn't draggable (e.g. a bare wire-vertex in a
+        later phase) — the press then stays a plain selection.
+        """
+        drag_set = self._build_drag_set()
+        if drag_set.is_empty:
+            return None
+        anchor_id = self._anchor_component(sel)
+        if anchor_id is None:
+            return None
+        pl = self._session.layout.placements.get(anchor_id)
+        if pl is None:
+            return None
+        anchor_pos = pl.position
+        press = Point(scene_pt.x(), scene_pt.y())
+        # Grab offset: where the cursor sits relative to the anchor, so the
+        # anchor snaps under the cursor's grab point (legacy anchor-snap).
+        grab = (anchor_pos.x - press.x, anchor_pos.y - press.y)
+
+        from typing import cast
+
+        from protoboard.gui.selection.drag_controller import DragContext
+
+        return DragController(
+            cast("DragContext", self._session),
+            drag_set=drag_set,
+            anchor_id=anchor_id,
+            anchor_pos=anchor_pos,
+            press_pt=press,
+            grab_offset=grab,
+            snap=self._snap,
+            execute=self._execute_command,
+            auto_accept_clear=True,
+        )
+
+    def _build_drag_set(self) -> DragSet:
+        from protoboard.gui.drag_set import DragSet
+
+        comp_ids = self._selected_comp_ids()
+        return DragSet(free_components=comp_ids)
+
+    def _anchor_component(self, sel: Selectable) -> uuid.UUID | None:
+        import uuid as _uuid
+
+        hit = sel.to_hit()
+        if hit.kind == "component" and isinstance(hit.id, _uuid.UUID):
+            return hit.id
+        ids = self._selected_comp_ids()
+        return next(iter(ids), None)
+
+    def _snap(self, raw: Point, exclude: frozenset[uuid.UUID]) -> Point:
+        from PySide6.QtCore import QPointF as _QPointF
+
+        snapped = self._view.snap(_QPointF(raw.x, raw.y), exclude_ids=exclude)
+        return Point(snapped.x, snapped.y)
+
+    def _execute_command(self, cmd: object) -> bool:
+        from typing import cast
+
+        from protoboard.domain.commands.base import (
+            Command,
+            CommandRejectedError,
+            ComponentState,
+        )
+
+        try:
+            self._session.stack.execute(
+                cast("Command[ComponentState]", cmd),
+                cast("ComponentState", self._session),
+            )
+        except CommandRejectedError:
+            return False
+        self._session.layout_changed.emit()
+        return True
+
+    # -- rubber-band Qt seams ----------------------------------------------
+
+    def _draw_band(self, a: Point, b: Point, ltr: bool) -> None:
         from PySide6.QtCore import QRectF
 
-        x0 = min(start.x(), scene_pt.x())
-        y0 = min(start.y(), scene_pt.y())
-        w = abs(scene_pt.x() - start.x())
-        h = abs(scene_pt.y() - start.y())
-        rect = QRectF(x0, y0, w, h)
-        ltr = scene_pt.x() >= start.x()
+        x0, y0 = min(a.x, b.x), min(a.y, b.y)
+        rect = QRectF(x0, y0, abs(b.x - a.x), abs(b.y - a.y))
         if self._band_item is None:
             item = QGraphicsRectItem(rect)
             item.setPen(_BAND_PEN_LR if ltr else _BAND_PEN_RL)
@@ -214,42 +334,44 @@ class SelectToolV2:
             self._band_item.setPen(_BAND_PEN_LR if ltr else _BAND_PEN_RL)
             self._band_item.setBrush(_BAND_FILL_LR if ltr else _BAND_FILL_RL)
 
-    def _finish_band(self, scene_pt: QPointF) -> None:
-        start = self._band_start
-        self._clear_band()
-        if start is None:
-            return
-        rx0, ry0 = min(start.x(), scene_pt.x()), min(start.y(), scene_pt.y())
-        rx1, ry1 = max(start.x(), scene_pt.x()), max(start.y(), scene_pt.y())
-        if (rx1 - rx0) < _BAND_MIN_SIZE and (ry1 - ry0) < _BAND_MIN_SIZE:
-            return  # a click, not a drag
-        ltr = scene_pt.x() >= start.x()
-        picked = self._band_components(rx0, ry0, rx1, ry1, ltr)
-        if not picked:
-            return
-        # Relation-agnostic explicit set (Phase 2: components only).
-        self._selection.set_many(picked)
-        self._refresh_highlight()
-
-    def _band_components(
-        self, rx0: float, ry0: float, rx1: float, ry1: float, ltr: bool
-    ) -> list[Selectable]:
+    def _band_select(self, comp_ids: list[uuid.UUID]) -> None:
         from protoboard.gui.selection.adapters import ComponentSelectable
 
-        out: list[Selectable] = []
-        for cid in self._session.layout.placements:
-            bbox = self._session.component_bbox(cid)
-            if bbox is None:
-                continue
-            bx0, by0 = bbox.x, bbox.y
-            bx1, by1 = bbox.x + bbox.width, bbox.y + bbox.height
-            inside = bx0 >= rx0 and by0 >= ry0 and bx1 <= rx1 and by1 <= ry1
-            intersects = bx0 < rx1 and bx1 > rx0 and by0 < ry1 and by1 > ry0
-            if (inside if ltr else intersects):
-                pl = self._session.layout.placements.get(cid)
-                if pl is not None:
-                    out.append(ComponentSelectable(component_id=cid, placement=pl))
-        return out
+        picked: list[Selectable] = []
+        for cid in comp_ids:
+            pl = self._session.layout.placements.get(cid)
+            if pl is not None:
+                picked.append(ComponentSelectable(component_id=cid, placement=pl))
+        if picked:
+            self._selection.set_many(picked)
+
+    # -- floating drag commit / cancel -------------------------------------
+
+    def _confirm_floating(self) -> None:
+        gesture = self._gesture
+        if not isinstance(gesture, DragController):
+            return
+        outcome = gesture.confirm_floating()
+        if outcome.phase is not FloatingPhase.FLOATING:
+            self._gesture = None
+            self._refresh_highlight()
+            if outcome.dropped_wire_count:
+                self._status(
+                    f"Removed {outcome.dropped_wire_count} wire(s) (Ctrl+Z to undo)",
+                    4000,
+                )
+            if self._view is not None:
+                self._view.refresh()
+
+    def _cancel_gesture(self) -> None:
+        gesture = self._gesture
+        if gesture is None:
+            return
+        gesture.cancel()
+        self._gesture = None
+        self._refresh_highlight()
+        if self._view is not None:
+            self._view.refresh()
 
     def _clear_band(self) -> None:
         if self._band_item is not None:
@@ -258,7 +380,6 @@ class SelectToolV2:
             except RuntimeError:
                 pass
             self._band_item = None
-        self._band_start = None
 
     # -- keys ---------------------------------------------------------------
 
@@ -274,6 +395,17 @@ class SelectToolV2:
             if key == Qt.Key.Key_Escape:
                 self._clear_pivot()
                 self._status("Pivot cleared")
+                event.accept()
+                return
+
+        # A floating drag awaiting confirmation: Enter commits, Esc cancels.
+        if isinstance(self._gesture, DragController) and self._gesture.is_floating:
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._confirm_floating()
+                event.accept()
+                return
+            if key == Qt.Key.Key_Escape:
+                self._cancel_gesture()
                 event.accept()
                 return
 

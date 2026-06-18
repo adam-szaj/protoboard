@@ -1,0 +1,212 @@
+# SPDX-License-Identifier: MIT
+"""Tests for DragController — the headless drag / floating gesture (Phase 3).
+
+Drives the controller directly (``update`` / ``commit`` / ``cancel`` with
+``Point``s, no Qt mouse events) over a real ``EditorSession`` — which
+structurally satisfies the ``DragContext`` seam — so the whole lifecycle is
+exercised without synthesising QMouseEvents:
+
+* sub-threshold press+release stays a click (``commit`` → ``False``, no move),
+* a real drag translates the member by one delta and lands a
+  ``MoveDragSetCommand`` on the undo stack on confirm,
+* cancel restores the press-time position,
+* the floating sub-state gates the commit (CLEAR auto-accepts; otherwise it
+  waits for ``confirm_floating``).
+"""
+
+from __future__ import annotations
+
+import uuid
+
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QMouseEvent
+
+from protoboard.domain.components.instance import ComponentInstance
+from protoboard.geometry import Point
+from protoboard.gui.board_view import BoardView
+from protoboard.gui.drag_set import DragSet
+from protoboard.gui.selection.drag_controller import (
+    DragController,
+    FloatingPhase,
+)
+from protoboard.gui.session import EditorSession
+from protoboard.gui.tools.place_tool import PlaceTool
+
+
+def _place(
+    board_view: BoardView, session: EditorSession, x: float, y: float
+) -> ComponentInstance:
+    board_view.set_tool(PlaceTool("R"))
+    tool = board_view._active_tool
+    assert isinstance(tool, PlaceTool)
+    ev = QMouseEvent(
+        QMouseEvent.Type.MouseButtonPress,
+        QPointF(x, y), QPointF(x, y),
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    tool.on_press(ev, QPointF(x, y))
+    while tool._phase == "drag_pin":
+        tool.on_press(ev, QPointF(x, y))
+    return list(session.instances.values())[-1]
+
+
+def _controller(
+    session: EditorSession,
+    comp_id: uuid.UUID,
+    *,
+    auto_accept_clear: bool = True,
+) -> DragController:
+    """Build a single-free-component DragController anchored at pin 1.
+
+    No ``snap`` seam is wired — ``update`` translates by the raw delta, which
+    keeps the geometry test-predictable.  Anchor-snap behaviour is covered by
+    the SelectToolV2 integration tests that pass the real ``view.snap``.
+    """
+    pl = session.layout.placements[comp_id]
+    drag_set = DragSet(free_components=frozenset({comp_id}))
+
+    def _execute(cmd: object) -> bool:
+        session.stack.execute(cmd, session)  # type: ignore[arg-type]
+        return True
+
+    return DragController(
+        session,
+        drag_set=drag_set,
+        anchor_id=comp_id,
+        anchor_pos=pl.position,
+        press_pt=pl.position,
+        grab_offset=(0.0, 0.0),
+        execute=_execute,
+        auto_accept_clear=auto_accept_clear,
+    )
+
+
+class TestThreshold:
+    def test_subthreshold_commit_is_click(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        orig = session.layout.placements[inst.id].position
+        ctrl = _controller(session, inst.id)
+        # A move smaller than the 0.5 start threshold then release = a click.
+        ctrl.update(Point(orig.x + 0.2, orig.y))
+        moved = ctrl.commit()
+        assert moved is False
+        assert session.layout.placements[inst.id].position == orig
+
+    def test_subthreshold_does_not_move(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        orig = session.layout.placements[inst.id].position
+        ctrl = _controller(session, inst.id)
+        ctrl.update(Point(orig.x + 0.1, orig.y + 0.1))
+        # Below threshold → no mutation at all.
+        assert session.layout.placements[inst.id].position == orig
+
+
+class TestDragMove:
+    def test_drag_translates_by_delta(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        orig = session.layout.placements[inst.id].position
+        ctrl = _controller(session, inst.id)
+        ctrl.update(Point(orig.x + 2.0, orig.y + 1.0))
+        pos = session.layout.placements[inst.id].position
+        assert (pos.x, pos.y) == (orig.x + 2.0, orig.y + 1.0)
+
+    def test_drag_commit_lands_command_on_stack(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        orig = session.layout.placements[inst.id].position
+        depth_before = len(session.stack._undo)  # type: ignore[attr-defined]
+        ctrl = _controller(session, inst.id)
+        ctrl.update(Point(orig.x + 2.0, orig.y))
+        moved = ctrl.commit()
+        assert moved is True
+        # CLEAR + auto-accept committed directly.
+        assert ctrl.phase is FloatingPhase.COMMITTED
+        assert len(session.stack._undo) == depth_before + 1  # type: ignore[attr-defined]
+        # The move is undoable back to the original position.
+        session.stack.undo(session)  # type: ignore[arg-type]
+        assert session.layout.placements[inst.id].position == orig
+
+    def test_idempotent_update_from_origin(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        orig = session.layout.placements[inst.id].position
+        ctrl = _controller(session, inst.id)
+        # Two updates: the second must translate from the ORIGIN, not compound.
+        ctrl.update(Point(orig.x + 3.0, orig.y))
+        ctrl.update(Point(orig.x + 1.0, orig.y))
+        pos = session.layout.placements[inst.id].position
+        assert (pos.x, pos.y) == (orig.x + 1.0, orig.y)
+
+
+class TestCancel:
+    def test_cancel_restores_position(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        orig = session.layout.placements[inst.id].position
+        ctrl = _controller(session, inst.id)
+        ctrl.update(Point(orig.x + 2.0, orig.y + 2.0))
+        ctrl.cancel()
+        assert session.layout.placements[inst.id].position == orig
+        assert ctrl.phase is FloatingPhase.NONE
+
+    def test_cancel_leaves_stack_untouched(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        depth_before = len(session.stack._undo)  # type: ignore[attr-defined]
+        orig = session.layout.placements[inst.id].position
+        ctrl = _controller(session, inst.id)
+        ctrl.update(Point(orig.x + 2.0, orig.y))
+        ctrl.cancel()
+        assert len(session.stack._undo) == depth_before  # type: ignore[attr-defined]
+
+
+class TestFloating:
+    def test_clear_without_auto_accept_floats(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        orig = session.layout.placements[inst.id].position
+        ctrl = _controller(session, inst.id, auto_accept_clear=False)
+        ctrl.update(Point(orig.x + 2.0, orig.y))
+        moved = ctrl.commit()
+        assert moved is True
+        # No auto-accept → wait for the user even on a CLEAR drag.
+        assert ctrl.is_floating
+        outcome = ctrl.confirm_floating()
+        assert outcome.phase is FloatingPhase.COMMITTED
+
+    def test_floating_confirm_commits(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        orig = session.layout.placements[inst.id].position
+        depth_before = len(session.stack._undo)  # type: ignore[attr-defined]
+        ctrl = _controller(session, inst.id, auto_accept_clear=False)
+        ctrl.update(Point(orig.x + 2.0, orig.y))
+        ctrl.commit()
+        ctrl.confirm_floating()
+        assert len(session.stack._undo) == depth_before + 1  # type: ignore[attr-defined]
+
+    def test_floating_cancel_reverts(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        orig = session.layout.placements[inst.id].position
+        ctrl = _controller(session, inst.id, auto_accept_clear=False)
+        ctrl.update(Point(orig.x + 2.0, orig.y))
+        ctrl.commit()
+        assert ctrl.is_floating
+        ctrl.cancel()
+        assert session.layout.placements[inst.id].position == orig
+        assert ctrl.phase is FloatingPhase.NONE
