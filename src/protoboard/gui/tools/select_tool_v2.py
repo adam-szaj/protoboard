@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 
     from PySide6.QtGui import QKeyEvent, QMouseEvent
 
+    from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.gui.board_view import BoardView
     from protoboard.gui.drag_set import DragSet
     from protoboard.gui.selection.gesture import GestureController
@@ -242,10 +243,13 @@ class SelectToolV2:
     ) -> DragController | None:
         """Build a drag for the current selection grabbed at *sel*.
 
-        Returns None when the hit isn't draggable (e.g. a bare wire-vertex in a
-        later phase) — the press then stays a plain selection.
+        When the grabbed entity is a group, or a component locked inside a group
+        below the active context, the whole group moves as a monolith; otherwise
+        the free component(s) move.  Returns None when the hit isn't draggable
+        (e.g. a bare wire-vertex in a later phase) — the press stays a plain
+        selection.
         """
-        drag_set = self._build_drag_set()
+        drag_set = self._build_drag_set(sel)
         if drag_set.is_empty:
             return None
         anchor_id = self._anchor_component(sel)
@@ -276,11 +280,94 @@ class SelectToolV2:
             auto_accept_clear=True,
         )
 
-    def _build_drag_set(self) -> DragSet:
+    def _build_drag_set(self, sel: Selectable) -> DragSet:
+        """Snapshot what the grab moves: free components, or whole groups.
+
+        A press on a group (or on a component locked in a group below the active
+        context) drags that group as a monolith; otherwise the selected free
+        components move.  Built via :meth:`DragSet.from_selection`, which
+        partitions locked-in-group components into their group monolith.
+        """
         from protoboard.gui.drag_set import DragSet
 
-        comp_ids = self._selected_comp_ids()
-        return DragSet(free_components=comp_ids)
+        group_ids = self._grabbed_group_ids(sel)
+        return DragSet.from_selection(
+            selected_ids=self._selected_comp_ids(),
+            selected_wire_ids=frozenset(),
+            selected_group_ids=group_ids,
+            groups_map=self._session.layout.groups,
+            is_locked_in_group=self._is_locked_in_group,
+        )
+
+    def _grabbed_group_ids(self, sel: Selectable) -> frozenset[uuid.UUID]:
+        """Group ids to move as monoliths for this grab.
+
+        * A group hit → that group.
+        * A component hit that is locked in a group below the active context →
+          the outermost such group (so a click inside a nested group drags the
+          group you see, not its innermost leaf).
+        """
+        import uuid as _uuid
+
+        hit = sel.to_hit()
+        if hit.kind == "group" and isinstance(hit.id, _uuid.UUID):
+            return frozenset({hit.id})
+        if hit.kind == "component" and isinstance(hit.id, _uuid.UUID):
+            gid = self._draggable_group_for(hit.id)
+            if gid is not None:
+                return frozenset({gid})
+        return frozenset()
+
+    def _draggable_group_for(self, comp_id: uuid.UUID) -> uuid.UUID | None:
+        """Outermost group containing *comp_id* below the active context, or None.
+
+        None when the component is free, or when the active context *is* the
+        innermost containing group (the user entered it, so members drag freely).
+        The "below the active context" groups are those whose recursive member
+        set does NOT include the active group — the outermost of these is the
+        monolith you see and grab.
+        """
+        if not self._is_locked_in_group(comp_id):
+            return None
+        tree = self._session.group_tree()
+        active = self._current_group_id
+        candidates = [
+            gid
+            for gid in tree.groups_containing_component(comp_id)
+            if gid != active and not self._is_ancestor_group(gid, active, tree)
+        ]
+        if not candidates:
+            return None
+        # Outermost = the candidate enclosing the most components.
+        return max(candidates, key=lambda g: len(tree.all_component_ids(g)))
+
+    @staticmethod
+    def _is_ancestor_group(
+        gid: uuid.UUID, ancestor: uuid.UUID, tree: GroupTree
+    ) -> bool:
+        """True when *ancestor* is *gid* or one of its parent groups.
+
+        Walks the parent chain so a group nested under the active context is not
+        chosen as the drag monolith (the user entered the context, so groups
+        above it move freely / not at all here).
+        """
+        if ancestor == ROOT_GROUP_ID:
+            return False
+        cur: uuid.UUID | None = gid
+        while cur is not None:
+            if cur == ancestor:
+                return True
+            cur = tree.parent_group_of(cur)
+        return False
+
+    def _is_locked_in_group(self, comp_id: uuid.UUID) -> bool:
+        """True when *comp_id* belongs to a group other than the active context."""
+        tree = self._session.group_tree()
+        containing = tree.groups_containing_component(comp_id)
+        if not containing:
+            return False
+        # Free to drag alone only when the active context is one of its groups.
+        return self._current_group_id not in containing
 
     def _anchor_component(self, sel: Selectable) -> uuid.UUID | None:
         import uuid as _uuid
@@ -288,6 +375,12 @@ class SelectToolV2:
         hit = sel.to_hit()
         if hit.kind == "component" and isinstance(hit.id, _uuid.UUID):
             return hit.id
+        # Group grab: anchor on any member component (delta is shared).
+        if hit.kind == "group" and isinstance(hit.id, _uuid.UUID):
+            members = self._session.group_tree().all_component_ids(hit.id)
+            anchored = next(iter(members), None)
+            if anchored is not None:
+                return anchored
         ids = self._selected_comp_ids()
         return next(iter(ids), None)
 

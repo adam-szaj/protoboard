@@ -247,6 +247,73 @@ class TestDragGesture:
         assert inst.id in _comp_ids(tool)
 
 
+def _make_group(
+    session: EditorSession, component_ids: list, name: str = "G1"
+):
+    import uuid
+
+    from protoboard.domain.layout.group import ComponentGroup
+
+    gid = uuid.uuid4()
+    session.layout.groups[gid] = ComponentGroup(
+        id=gid, name=name, component_ids=frozenset(component_ids)
+    )
+    return gid
+
+
+class TestGroupDrag:
+    def test_press_grouped_component_drags_whole_group(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        a = _place(board_view, session, 0.5, 0.5)
+        b = _place(board_view, session, 1.5, 0.5)
+        _make_group(session, [a.id, b.id])
+        tool = _v2(board_view)
+        a0 = session.layout.placements[a.id].position
+        b0 = session.layout.placements[b.id].position
+        # Press on A (a grouped component) and drag — both members move by the
+        # same delta (monolith), not just A.
+        _press(tool, 0.5, 0.5)
+        _move(tool, 2.5, 0.5)
+        _release(tool, 2.5, 0.5)
+        a1 = session.layout.placements[a.id].position
+        b1 = session.layout.placements[b.id].position
+        assert (a1.x - a0.x, a1.y - a0.y) == (b1.x - b0.x, b1.y - b0.y)
+        assert (a1.x, a1.y) != (a0.x, a0.y)
+
+    def test_group_drag_is_one_atomic_command(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        a = _place(board_view, session, 0.5, 0.5)
+        b = _place(board_view, session, 1.5, 0.5)
+        _make_group(session, [a.id, b.id])
+        tool = _v2(board_view)
+        a0 = session.layout.placements[a.id].position
+        b0 = session.layout.placements[b.id].position
+        depth = len(session.stack._undo)  # type: ignore[attr-defined]
+        _press(tool, 0.5, 0.5)
+        _move(tool, 2.5, 0.5)
+        _release(tool, 2.5, 0.5)
+        # One command moves the whole group; undo restores both members.
+        assert len(session.stack._undo) == depth + 1  # type: ignore[attr-defined]
+        session.stack.undo(session)  # type: ignore[arg-type]
+        assert session.layout.placements[a.id].position == a0
+        assert session.layout.placements[b.id].position == b0
+
+    def test_free_component_still_drags_alone(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        _place(board_view, session, 0.5, 0.5)  # A at the press point
+        b = _place(board_view, session, 1.5, 0.5)
+        # No group — A is free; dragging A must not move B.
+        tool = _v2(board_view)
+        b0 = session.layout.placements[b.id].position
+        _press(tool, 0.5, 0.5)
+        _move(tool, 2.5, 0.5)
+        _release(tool, 2.5, 0.5)
+        assert session.layout.placements[b.id].position == b0
+
+
 class TestPickRouting:
     def test_click_feeds_active_pick(
         self, board_view: BoardView, session: EditorSession
