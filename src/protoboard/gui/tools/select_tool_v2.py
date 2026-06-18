@@ -1658,6 +1658,128 @@ class SelectToolV2:
             return
         self._execute(MacroCommand(cmds, description=f"Flip {len(cmds)} components"))  # type: ignore[arg-type]
 
+    # -- legacy multi rotate / flip / redrag entry points -------------------
+    #
+    # ``main_window`` branches on the selection shape: a multi/loose set goes
+    # through ``_rotate_multi`` / ``_flip_multi`` (group-aware + group-locked
+    # filter + crossing-wire cleanup); ``_begin_rotate_around_point`` and
+    # ``_start_redrag`` are the underscore-named aliases the menu/PPM call.
+
+    def _remove_crossing_wires(
+        self, moved_comp_ids: set[uuid.UUID]
+    ) -> list[object]:
+        """RemoveWireCommands for wires crossing alien pads after a move.
+
+        Does not execute — the caller folds them into a macro.  Shows a
+        status-bar note when wires are dropped.  Verbatim port of the legacy
+        tail used by every multi-move/rotate path.
+        """
+        from protoboard.domain.commands.component_cmds import RemoveWireCommand
+
+        bad_ids = self._session.conflict_scanner().find_wires_crossing_pads(
+            wires=list(self._session.layout.wires),
+            moved_comp_ids=moved_comp_ids,
+        )
+        if not bad_ids:
+            return []
+        id_set = set(bad_ids)
+        cmds: list[object] = [
+            RemoveWireCommand(wire_id=w.id)
+            for w in self._session.layout.wires
+            if w.id in id_set
+        ]
+        self._status_msg(f"Removed {len(cmds)} colliding wire(s) after move.")
+        return cmds
+
+    def _apply_rotate(self, rotate_cmd: object, affected_ids: set[uuid.UUID]) -> None:
+        """Execute a rotate command, drop wires it pushed across alien pads, refresh."""
+        from protoboard.domain.commands.base import MacroCommand
+
+        self._execute(rotate_cmd)
+        remove_cmds = self._remove_crossing_wires(affected_ids)
+        if remove_cmds:
+            self._execute(
+                MacroCommand(remove_cmds, description="Remove crossing wires")  # type: ignore[arg-type]
+            )
+        self._refresh_highlight()
+
+    def _rotate_multi(self, delta: int = 90) -> None:
+        from protoboard.domain.commands.group_cmds import (
+            RotateAroundPointCommand,
+            RotateComponentsCommand,
+            RotateGroupCommand,
+        )
+
+        group_id = self._selected_group_id
+        if group_id is not None:
+            from protoboard.domain.layout.group import all_component_ids
+
+            affected_ids = all_component_ids(self._session.layout.groups, group_id)
+        else:
+            affected_ids = frozenset(
+                cid
+                for cid in self._selected_ids
+                if not self._is_locked_in_group(cid)
+                and self._session.layout.placements.get(cid) is not None
+            )
+        if not affected_ids:
+            return
+
+        # A captured pivot overrides the default origin; otherwise group →
+        # around group origin, loose → each in place.
+        rotate_cmd: object
+        if self._rotate_pivot is not None:
+            rotate_cmd = RotateAroundPointCommand(
+                comp_ids=frozenset(affected_ids),
+                origin=self._rotate_pivot,  # type: ignore[arg-type]
+                delta=delta % 360,
+            )
+        elif group_id is not None:
+            rotate_cmd = RotateGroupCommand(group_id=group_id, delta=delta % 360)
+        else:
+            rotate_cmd = RotateComponentsCommand(
+                comp_ids=frozenset(affected_ids), delta=delta % 360
+            )
+        self._apply_rotate(rotate_cmd, set(affected_ids))
+
+    def _flip_multi(self) -> None:
+        from protoboard.domain.commands.base import MacroCommand
+        from protoboard.domain.commands.component_cmds import MoveComponentCommand
+        from protoboard.domain.layout.placement import flip_component
+
+        ids = [
+            cid for cid in self._selected_ids if not self._is_locked_in_group(cid)
+        ]
+        cmds: list[object] = []
+        for cid in ids:
+            pl = self._session.layout.placements.get(cid)
+            inst = self._session.instances.get(cid)
+            if pl is None or inst is None:
+                continue
+            defn = self._session.components.get(inst.definition_ref)
+            if defn is None or defn.footprint.pin_count() != 2:
+                continue
+            cmds.append(
+                MoveComponentCommand(
+                    component_id=cid,
+                    new_placement=flip_component(defn.footprint, pl),
+                    old_placement=pl.copy(),
+                )
+            )
+        if not cmds:
+            return
+        self._execute(
+            MacroCommand(cmds, description=f"Flip {len(cmds)} components")  # type: ignore[arg-type]
+        )
+
+    def _begin_rotate_around_point(self) -> None:
+        """Underscore-named alias for :meth:`begin_rotate_around_point` (menu/PPM)."""
+        self.begin_rotate_around_point()
+
+    def _start_redrag(self, comp_id: uuid.UUID | None = None) -> None:
+        """Underscore-named alias for :meth:`begin_redrag` (menu/PPM)."""
+        self.begin_redrag(comp_id)
+
     def _execute(self, cmd: object) -> None:
         from typing import cast
 
