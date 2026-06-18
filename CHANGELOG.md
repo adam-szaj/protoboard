@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### SelectTool przepisany na serwis (2026-06-18)
+
+Monolit `gui/tools/select_tool.py` (9568 LoC, 195 metod, 60 pól w jednej
+klasie — selekcja + highlight + drag + wire-edit + rotate + group-nav +
+rubber-band + net-select naraz) zastąpiony **serwisowym** SelectTool
+(2400 LoC). Wizja: tool jest serwisem — pasywnie „co zaznaczone/pod
+kursorem", aktywnie **pick** (`request_pick(what, stop)`); klienci proszą,
+nie reimplementują pętli klików.
+
+* **Nowe pakiety** `gui/selection/` (Qt-free, headless-testowalne):
+  `selectable.py` (Protocol + adaptery — wchłania dawny `Hit.kind` switch),
+  `service.py` (`SelectionService` + pick-API: `Stop` count/confirm/until,
+  `on_progress`, async-fasada), `hit_test.py` (`HitTester`), `queries.py`
+  (oś relacji sieci), `wire_edit.py` / `wire_ops.py` (buildery + worker-prep),
+  `mouse_input.py` + kontrolery (drag / rubber-band / point-pick).
+  `gui/highlight/controller.py` — highlight jako osobny serwis.
+* **6 faz** (Selectable+pick → HighlightController → tool MVP → drag/floating
+  → wire-edit → net-select), potem swap + kasacja monolitu jednym cięciem.
+* `mypy --strict` 503 → 385 (monolit niósł ~118 błędów baseline).
+* Odłożone (`docs/todo.md`): egzekwowanie filtra selekcji w hit-teście,
+  flip fragmentu wire jako wpis op-table.
+
 ### Parametryczny model package — migracja TwoPinBodySpec → package (2026-06-15)
 
 Pełne zastąpienie render-only modelu body 2-pin (`TwoPinBodySpec` /
