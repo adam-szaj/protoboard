@@ -1,53 +1,51 @@
 # SPDX-License-Identifier: MIT
-"""Tests for SelectTool — selection, drag-move, rotate, delete, state management."""
+"""Integration tests for SelectTool — the rewritten selection tool (Phase 2).
+
+Drives the new tool through a real BoardView/session, asserting it wires the
+headless SelectionService / HitTester / HighlightController correctly: click to
+select, rubber-band, rotate, ESC-pop, and routing a click into an active pick.
+"""
 
 from __future__ import annotations
-
-import uuid
 
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
+from protoboard.gui.selection import Stop
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.place_tool import PlaceTool
 from protoboard.gui.tools.select_tool import SelectTool
 
 
-def _place_component(
+def _place(
     board_view: BoardView, session: EditorSession, x: float, y: float
 ) -> ComponentInstance:
-    """Place an R component and return the instance."""
     board_view.set_tool(PlaceTool("R"))
     tool = board_view._active_tool
     assert isinstance(tool, PlaceTool)
     ev = QMouseEvent(
         QMouseEvent.Type.MouseButtonPress,
-        QPointF(x, y),
-        QPointF(x, y),
-        Qt.MouseButton.LeftButton,
-        Qt.MouseButton.LeftButton,
+        QPointF(x, y), QPointF(x, y),
+        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
         Qt.KeyboardModifier.NoModifier,
     )
     tool.on_press(ev, QPointF(x, y))
-    # If the component has bendable pins, confirm each drag pin with a click at
-    # the same position (accepts the default offset).
     while tool._phase == "drag_pin":
         tool.on_press(ev, QPointF(x, y))
     return list(session.instances.values())[-1]
 
 
-def _press(tool: SelectTool, x: float, y: float) -> None:
+def _press(
+    tool: SelectTool, x: float, y: float,
+    mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> None:
     tool.on_press(
         QMouseEvent(
             QMouseEvent.Type.MouseButtonPress,
-            QPointF(x, y),
-            QPointF(x, y),
-            Qt.MouseButton.LeftButton,
-            Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier,
+            QPointF(x, y), QPointF(x, y),
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, mods,
         ),
         QPointF(x, y),
     )
@@ -57,10 +55,8 @@ def _move(tool: SelectTool, x: float, y: float) -> None:
     tool.on_move(
         QMouseEvent(
             QMouseEvent.Type.MouseMove,
-            QPointF(x, y),
-            QPointF(x, y),
-            Qt.MouseButton.NoButton,
-            Qt.MouseButton.LeftButton,
+            QPointF(x, y), QPointF(x, y),
+            Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton,
             Qt.KeyboardModifier.NoModifier,
         ),
         QPointF(x, y),
@@ -71,2224 +67,688 @@ def _release(tool: SelectTool, x: float, y: float) -> None:
     tool.on_release(
         QMouseEvent(
             QMouseEvent.Type.MouseButtonRelease,
-            QPointF(x, y),
-            QPointF(x, y),
-            Qt.MouseButton.LeftButton,
-            Qt.MouseButton.NoButton,
+            QPointF(x, y), QPointF(x, y),
+            Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton,
             Qt.KeyboardModifier.NoModifier,
         ),
         QPointF(x, y),
     )
 
 
-def _key(tool: SelectTool, key: Qt.Key) -> None:
-    tool.on_key(QKeyEvent(QKeyEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier))
+def _click(
+    tool: SelectTool, x: float, y: float,
+    mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> None:
+    """Press + release at the same point — a click (no drag)."""
+    _press(tool, x, y, mods)
+    _release(tool, x, y)
 
 
-class TestSelectToolSelection:
-    def test_click_near_component_selects_it(
+def _key(
+    tool: SelectTool, key: Qt.Key,
+    mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier,
+) -> None:
+    tool.on_key(QKeyEvent(QKeyEvent.Type.KeyPress, key, mods))
+
+
+def _v2(board_view: BoardView) -> SelectTool:
+    board_view.set_tool(SelectTool())
+    tool = board_view._active_tool
+    assert isinstance(tool, SelectTool)
+    return tool
+
+
+def _comp_ids(tool: SelectTool) -> set:
+    return {h.id for h in (s.to_hit() for s in tool._selection.selected())
+            if h.kind == "component"}
+
+
+class TestSelectionBasics:
+    def test_click_selects_component(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
         _press(tool, 0.5, 0.5)
-        assert tool._selected_id == inst.id
+        assert inst.id in _comp_ids(tool)
 
-    def test_click_empty_area_deselects(
+    def test_click_empty_clears_via_band_noop(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
         _press(tool, 0.5, 0.5)
-        assert tool._selected_id is not None
-        _press(tool, 10.0, 10.0)  # far from any component
-        assert tool._selected_id is None
+        assert inst.id in _comp_ids(tool)
+        # Press on empty space arms a band; releasing in place (no drag) is a
+        # no-op click — selection persists (no accidental clear).
+        _press(tool, 8.0, 8.0)
+        _release(tool, 8.0, 8.0)
+        assert inst.id in _comp_ids(tool)
 
-    def test_highlight_added_to_scene_on_select(
+    def test_highlight_published_on_select(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
         _press(tool, 0.5, 0.5)
-        assert tool._highlight is not None
-
-
-class TestSelectToolDrag:
-    def test_drag_moves_component(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 0.5, 0.5)
-        _move(tool, 2.5, 0.5)
-        _release(tool, 2.5, 0.5)
-        placement = session.layout.placements[inst.id]
-        assert placement.position == Point(2.5, 0.5)
-
-    def test_drag_creates_undo_entry(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 0.5, 0.5)
-        _move(tool, 2.5, 0.5)
-        _release(tool, 2.5, 0.5)
-        assert session.stack.can_undo()
-
-    def test_drag_undo_restores_position(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 0.5, 0.5)
-        _move(tool, 2.5, 0.5)
-        _release(tool, 2.5, 0.5)
-        session.stack.undo(session)
-        placement = session.layout.placements[inst.id]
-        assert placement.position == Point(0.5, 0.5)
-
-    def test_highlight_restored_after_drag(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """BUG 5 regression: component must remain selected after drag+release."""
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 0.5, 0.5)
-        _move(tool, 2.5, 0.5)
-        _release(tool, 2.5, 0.5)
-        assert tool._selected_id == inst.id
-
-    def test_drag_state_reset_on_deactivate(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """BUG 3 regression: _dragging must be False after deactivate."""
-        _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 0.5, 0.5)
-        tool._dragging = True  # simulate mid-drag
-        tool.deactivate()
-        assert tool._dragging is False
-        assert tool._drag_orig_positions == {}
-
-
-class TestSelectToolRotate:
-    def test_rotate_key_changes_rotation(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 0.5, 0.5)
-        _key(tool, Qt.Key.Key_R)
-        placement = session.layout.placements[inst.id]
-        assert placement.rotation == 90
-
-    def test_rotate_is_undoable(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 0.5, 0.5)
-        _key(tool, Qt.Key.Key_R)
-        session.stack.undo(session)
-        placement = session.layout.placements[inst.id]
-        assert placement.rotation == 0
-
-
-class TestSelectToolDelete:
-    def test_delete_removes_placement(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 0.5, 0.5)
-        _key(tool, Qt.Key.Key_Delete)
-        assert len(session.layout.placements) == 0
-
-    def test_delete_clears_selection(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 0.5, 0.5)
-        _key(tool, Qt.Key.Key_Delete)
-        assert tool._selected_id is None
-
-
-class TestSelectToolSceneCleared:
-    def test_scene_cleared_drops_highlight_ref(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """on_scene_cleared must drop the stale graphics item reference."""
-        _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 0.5, 0.5)
-        assert tool._highlight is not None
-        tool.on_scene_cleared()
-        assert tool._highlight is None
-
-    def test_scene_cleared_preserves_selected_id_for_drag(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """_selected_id must survive on_scene_cleared so drag can commit."""
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 0.5, 0.5)
-        assert tool._selected_id == inst.id
-        tool.on_scene_cleared()
-        assert tool._selected_id == inst.id  # must survive for drag commit
-
-
-# ---------------------------------------------------------------------------
-# Helpers for wire-related tests
-# ---------------------------------------------------------------------------
-
-def _ctrl_press(tool: SelectTool, x: float, y: float) -> None:
-    tool.on_press(
-        QMouseEvent(
-            QMouseEvent.Type.MouseButtonPress,
-            QPointF(x, y),
-            QPointF(x, y),
-            Qt.MouseButton.LeftButton,
-            Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.ControlModifier,
-        ),
-        QPointF(x, y),
-    )
-
-
-def _add_wire(
-    session: EditorSession,
-    path: list[tuple[float, float]],
-    *,
-    insulated: bool = True,
-    side: str = "top",
-) -> uuid.UUID:
-    """Add a Wire directly to the session layout; return its id."""
-    from protoboard.domain.layout.wire import Wire
-    from protoboard.geometry import Point as _Point
-
-    wire = Wire(
-        id=uuid.uuid4(),
-        path=[_Point(x, y) for x, y in path],
-        insulated=insulated,
-        side=side,  # type: ignore[arg-type]
-    )
-    session.layout.wires.append(wire)
-    return wire.id
-
-
-# ---------------------------------------------------------------------------
-# Multi-selection drag (components + wires)
-# ---------------------------------------------------------------------------
-
-
-class TestMultiSelectionDrag:
-    """Tests for rubber-band selection + drag of mixed components/wires."""
-
-    def test_rubber_band_left_to_right_selects_components_inside(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """LTR rubber-band: only fully-contained components are selected."""
-        i1 = _place_component(board_view, session, 1.5, 1.5)
-        i2 = _place_component(board_view, session, 4.5, 4.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # LTR drag from (0,0) to (3,3) — i1 bbox inside, i2 bbox outside.
-        _press(tool, 0.0, 0.0)
-        _move(tool, 3.0, 3.0)
-        _release(tool, 3.0, 3.0)
-        assert i1.id in tool._selected_ids
-        assert i2.id not in tool._selected_ids
-
-    def test_rubber_band_right_to_left_selects_touching_components(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """RTL rubber-band: components that touch the rect are selected."""
-        i1 = _place_component(board_view, session, 1.5, 1.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # RTL drag: start x > end x.
-        _press(tool, 3.0, 3.0)
-        _move(tool, 0.0, 0.0)
-        _release(tool, 0.0, 0.0)
-        assert i1.id in tool._selected_ids
-
-    def test_rubber_band_selects_wires(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """Rubber-band includes wires whose points fall inside the rect."""
-        _add_wire(session, [(1.0, 1.0), (2.0, 1.0)])
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        wire_id = session.layout.wires[0].id
-        # RTL drag to include the wire points.
-        _press(tool, 3.0, 3.0)
-        _move(tool, 0.0, 0.0)
-        _release(tool, 0.0, 0.0)
-        assert wire_id in tool._selected_wire_ids
-
-    def test_rubber_band_reuses_item_across_moves(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """Moves on a live rubber-band must mutate the existing scene
-        item (setRect), not destroy-and-recreate it.  Saves an X11
-        round-trip per move over SSH."""
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 0.0, 0.0)
-        # Force apply once (throttle would otherwise defer).
-        tool._apply_rubber_band(QPointF(1.0, 1.0))
-        item_1 = tool._rubber_band_item
-        assert item_1 is not None
-        tool._apply_rubber_band(QPointF(2.0, 2.0))
-        item_2 = tool._rubber_band_item
-        # Same Python object — proves we didn't recreate it.
-        assert item_1 is item_2
-        # And the rect actually updated.
-        assert item_2.rect().width() == 2.0
-        _release(tool, 2.0, 2.0)
-
-    def test_rubber_band_throttle_coalesces_moves(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """Multiple `_update_rubber_band` calls inside one throttle window
-        produce at most one scene item; the pending pt is the last one."""
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 0.0, 0.0)
-        # Schedule three updates without letting the timer fire.
-        tool._update_rubber_band(QPointF(0.5, 0.5))
-        tool._update_rubber_band(QPointF(1.0, 1.0))
-        tool._update_rubber_band(QPointF(2.0, 2.0))
-        # Latest pt is parked, timer is armed, no apply happened yet.
-        assert tool._pending_rubber_band_pt == QPointF(2.0, 2.0)
-        assert tool._rubber_band_timer is not None
-        assert tool._rubber_band_timer.isActive()
-        assert tool._rubber_band_item is None
-        # Fire the timer manually (avoids the qtbot.wait timing dance).
-        tool._flush_rubber_band_update()
-        # Item now exists with the latest pt's geometry.
-        assert tool._rubber_band_item is not None
-        assert tool._rubber_band_item.rect().bottomRight() == QPointF(2.0, 2.0)
-        assert tool._pending_rubber_band_pt is None
-        _release(tool, 2.0, 2.0)
-
-    def test_clear_rubber_band_stops_timer(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 0.0, 0.0)
-        tool._update_rubber_band(QPointF(1.0, 1.0))
-        assert tool._rubber_band_timer is not None
-        assert tool._rubber_band_timer.isActive()
-        tool._clear_rubber_band()
-        assert not tool._rubber_band_timer.isActive()
-        assert tool._pending_rubber_band_pt is None
-        assert tool._rubber_band_item is None
-
-    def test_drag_component_in_multi_selection_moves_all(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """After rubber-band, dragging one selected component moves all."""
-        i1 = _place_component(board_view, session, 1.5, 1.5)
-        i2 = _place_component(board_view, session, 2.5, 1.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # Select both with RTL rubber-band.
-        _press(tool, 4.0, 3.0)
-        _move(tool, 0.0, 0.0)
-        _release(tool, 0.0, 0.0)
-        assert i1.id in tool._selected_ids
-        assert i2.id in tool._selected_ids
-        # Now click on i1 and drag by (+2, 0).
-        _press(tool, 1.5, 1.5)
-        _move(tool, 3.5, 1.5)
-        _release(tool, 3.5, 1.5)
-        assert session.layout.placements[i1.id].position == Point(3.5, 1.5)
-        assert session.layout.placements[i2.id].position == Point(4.5, 1.5)
-
-    def test_drag_multi_selection_is_undoable(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """Moving multi-selection creates a single undo entry."""
-        i1 = _place_component(board_view, session, 1.5, 1.5)
-        i2 = _place_component(board_view, session, 2.5, 1.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 4.0, 3.0)
-        _move(tool, 0.0, 0.0)
-        _release(tool, 0.0, 0.0)
-        _press(tool, 1.5, 1.5)
-        _move(tool, 3.5, 1.5)
-        _release(tool, 3.5, 1.5)
-        # One undo entry for the whole move.
-        stack_depth = len(session.stack._undo)
-        session.stack.undo(session)
-        assert len(session.stack._undo) == stack_depth - 1
-        assert session.layout.placements[i1.id].position == Point(1.5, 1.5)
-        assert session.layout.placements[i2.id].position == Point(2.5, 1.5)
-
-    def test_drag_selected_wire_moves_wire(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """Clicking a selected wire and dragging moves its path."""
-        # Wire on pad-grid: (1.5,1.5) → (2.5,1.5).
-        _add_wire(session, [(1.5, 1.5), (2.5, 1.5)])
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        wire_id = session.layout.wires[0].id
-        # RTL rubber-band to select wire.
-        _press(tool, 3.5, 3.5)
-        _move(tool, 0.5, 0.5)
-        _release(tool, 0.5, 0.5)
-        assert wire_id in tool._selected_wire_ids
-        # Click on wire start pad and drag by (+1, +1).
-        _press(tool, 1.5, 1.5)
-        _move(tool, 2.5, 2.5)
-        _release(tool, 2.5, 2.5)
-        wire = session.layout.wires[0]
-        assert wire.path[0] == Point(2.5, 2.5)
-        assert wire.path[1] == Point(3.5, 2.5)
-
-    def test_drag_wire_is_undoable(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """Wire drag creates undo entry that restores original path."""
-        _add_wire(session, [(1.5, 1.5), (2.5, 1.5)])
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        wire_id = session.layout.wires[0].id
-        _press(tool, 3.5, 3.5)
-        _move(tool, 0.5, 0.5)
-        _release(tool, 0.5, 0.5)
-        assert wire_id in tool._selected_wire_ids
-        _press(tool, 1.5, 1.5)
-        _move(tool, 2.5, 2.5)
-        _release(tool, 2.5, 2.5)
-        session.stack.undo(session)
-        wire = session.layout.wires[0]
-        assert wire.path[0] == Point(1.5, 1.5)
-        assert wire.path[1] == Point(2.5, 1.5)
-
-    def test_mixed_drag_moves_both_component_and_wire(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """Selecting component + wire and dragging moves both."""
-        inst = _place_component(board_view, session, 1.5, 1.5)
-        _add_wire(session, [(1.5, 3.5), (2.5, 3.5)])
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # RTL rubber-band to select both.
-        _press(tool, 4.5, 4.5)
-        _move(tool, 0.5, 0.5)
-        _release(tool, 0.5, 0.5)
-        assert inst.id in tool._selected_ids
-        assert session.layout.wires[0].id in tool._selected_wire_ids
-        # Drag from component position by (+1, 0).
-        _press(tool, 1.5, 1.5)
-        _move(tool, 2.5, 1.5)
-        _release(tool, 2.5, 1.5)
-        assert session.layout.placements[inst.id].position == Point(2.5, 1.5)
-        wire = session.layout.wires[0]
-        assert wire.path[0] == Point(2.5, 3.5)
-        assert wire.path[1] == Point(3.5, 3.5)
-
-    def test_wires_stay_selected_during_drag_from_bbox(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """Regression: clicking inside component bbox (not near pin) must not
-        deselect wires — wires should remain in selection and move with drag."""
-        inst = _place_component(board_view, session, 1.5, 1.5)
-        _add_wire(session, [(0.5, 3.5), (2.5, 3.5)])
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # RTL rubber-band to select both.
-        _press(tool, 4.5, 4.5)
-        _move(tool, 0.5, 0.5)
-        _release(tool, 0.5, 0.5)
-        wire_id = session.layout.wires[0].id
-        assert inst.id in tool._selected_ids
-        assert wire_id in tool._selected_wire_ids
-        # Click in the middle of the component bbox — close to pin 1 so anchor
-        # offset is well-defined.  SIL(2) rot=90: pin 1 at (1.5, 1.5).
-        _press(tool, 1.5, 1.5)
-        # Wires must still be selected after the press.
-        assert wire_id in tool._selected_wire_ids
-        # Drag by (+1, 0).
-        _move(tool, 2.5, 1.5)
-        _release(tool, 2.5, 1.5)
-        wire = session.layout.wires[0]
-        # Endpoints translated; intermediate pad-vertex (2.5, 3.5) inserted
-        # by ReplaceWireFragmentsCommand's enrichment.
-        assert wire.path[0] == Point(1.5, 3.5)
-        assert wire.path[-1] == Point(3.5, 3.5)
-
-
-# ---------------------------------------------------------------------------
-# Group navigation
-# ---------------------------------------------------------------------------
-
-class TestSelectToolGroupNavigation:
-    """Tests for _group_stack management (enter/exit group)."""
-
-    def test_initial_stack_contains_root_group(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        assert tool._group_stack == [ROOT_GROUP_ID]
-
-    def test_esc_never_pops_root_group(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _key(tool, Qt.Key.Key_Escape)
-        assert tool._group_stack == [ROOT_GROUP_ID]
-
-    def test_enter_group_pushes_to_stack(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        import uuid as _uuid
-        from protoboard.domain.layout.group import ComponentGroup
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-
-        grp_id = _uuid.uuid4()
-        session.layout.groups[grp_id] = ComponentGroup(
-            id=grp_id, name="G1",
-            component_ids=frozenset(),
-            child_group_ids=frozenset(),
-            exported_pins=frozenset(),
-        )
-        # Add group to root.
-        root = session.layout.groups[ROOT_GROUP_ID]
-        session.layout.groups[ROOT_GROUP_ID] = ComponentGroup(
-            id=ROOT_GROUP_ID, name=root.name,
-            component_ids=root.component_ids,
-            child_group_ids=root.child_group_ids | {grp_id},
-            exported_pins=root.exported_pins,
-        )
-        # Manually trigger group entry (simulates double-click on group).
-        tool._group_stack.append(grp_id)
-        assert tool._group_stack[-1] == grp_id
-
-        # Esc should pop back to root.
-        _key(tool, Qt.Key.Key_Escape)
-        assert tool._group_stack == [ROOT_GROUP_ID]
-
-    def test_esc_pops_one_level_at_a_time(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        import uuid as _uuid
-        from protoboard.domain.layout.group import ComponentGroup
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-
-        g1 = _uuid.uuid4()
-        g2 = _uuid.uuid4()
-        for gid, name in [(g1, "G1"), (g2, "G2")]:
-            session.layout.groups[gid] = ComponentGroup(
-                id=gid, name=name,
-                component_ids=frozenset(),
-                child_group_ids=frozenset(),
-                exported_pins=frozenset(),
-            )
-        tool._group_stack.extend([g1, g2])
-        assert len(tool._group_stack) == 3  # root, g1, g2
-
-        _key(tool, Qt.Key.Key_Escape)
-        assert tool._group_stack[-1] == g1
-
-        _key(tool, Qt.Key.Key_Escape)
-        assert tool._group_stack == [ROOT_GROUP_ID]
-
-
-class TestEscPopsSelectionLayers:
-    """Esc semantics per docs/highlight-state-machine.txt: pop one
-    layer at a time, mirroring SelectionFSM.step_esc.
-
-    Layer order: NORMAL → HIGHLIGHT → SELECTION → MULTI_SELECTION.
-    The first Esc drops multi-set (keeps primary); second drops
-    primary (keeps auto-highlight); third drops highlight.
-    """
-
-    def test_esc_pops_multi_selection_only(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        # Build a synthetic MULTI_SELECTION state: primary + multi set.
-        inst_a = _place_component(board_view, session, 0.5, 0.5)
-        inst_b = _place_component(board_view, session, 1.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._select_primary(inst_a.id)
-        tool._selected_ids.add(inst_a.id)
-        tool._selected_ids.add(inst_b.id)
-        assert tool._selected_id == inst_a.id
-        assert len(tool._selected_ids) == 2
-
-        _key(tool, Qt.Key.Key_Escape)
-        # Multi cleared; primary survives.
-        assert tool._selected_ids == set()
-        assert tool._selected_id == inst_a.id
-
-    def test_esc_pops_selection_only_after_multi(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._select_primary(inst.id)
-
-        # First Esc — at SELECTION layer (no multi); pops to HIGHLIGHT.
-        _key(tool, Qt.Key.Key_Escape)
-        assert tool._selected_id is None
-        assert tool._selected_ids == set()
-
-    def test_esc_three_times_returns_to_normal(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst_a = _place_component(board_view, session, 0.5, 0.5)
-        inst_b = _place_component(board_view, session, 1.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # MULTI_SELECTION layer
-        tool._select_primary(inst_a.id)
-        tool._selected_ids = {inst_a.id, inst_b.id}
-
-        _key(tool, Qt.Key.Key_Escape)   # multi → selection
-        assert tool._selected_ids == set()
-        assert tool._selected_id == inst_a.id
-
-        _key(tool, Qt.Key.Key_Escape)   # selection → highlight
-        assert tool._selected_id is None
-
-        _key(tool, Qt.Key.Key_Escape)   # highlight → normal (no-op for selection fields)
-        assert tool._selected_id is None
-        assert tool._selected_ids == set()
-
-
-# ---------------------------------------------------------------------------
-# _hit_test_pin / iter_pin_positions integration
-# ---------------------------------------------------------------------------
-
-class TestHitTestPin:
-    def test_hit_test_pin_finds_pin_near_cursor(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # Pin 1 of SIL(2) at rotation=90 is at (0.5, 0.5).
-        result = tool._hit_test_pin(QPointF(0.5, 0.5))
-        assert result is not None
-        assert result[0] == inst.id
-
-    def test_hit_test_pin_returns_none_far_from_pins(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        _place_component(board_view, session, 0.5, 0.5)
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        result = tool._hit_test_pin(QPointF(10.0, 10.0))
-        assert result is None
-
-    def test_hit_test_pin_for_comp_finds_nearest_pin(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # Should find a pin for this specific component.
-        result = tool._hit_test_pin_for_comp(QPointF(0.5, 0.5), inst.id)
-        assert result is not None
-        assert result[0] == inst.id
-
-    def test_hit_test_pin_for_comp_returns_none_for_unknown_id(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        import uuid as _uuid
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        result = tool._hit_test_pin_for_comp(QPointF(0.5, 0.5), _uuid.uuid4())
-        assert result is None
-
-
-# ---------------------------------------------------------------------------
-# Wire selection cycling
-# ---------------------------------------------------------------------------
-
-class TestWireClickCycle:
-    def test_clicking_wire_selects_it(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        _add_wire(session, [(0.5, 1.0), (2.5, 1.0)])
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        wire_id = session.layout.wires[0].id
-        _press(tool, 1.5, 1.0)
-        assert tool._selected_wire_id == wire_id
-
-    def test_deselect_resets_cycle(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        _add_wire(session, [(0.5, 1.0), (2.5, 1.0)])
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 1.5, 1.0)
-        # Click far away to deselect.
-        _press(tool, 10.0, 10.0)
-        assert tool._selected_wire_id is None
-        assert tool._wire_click_cycle == 0
-
-
-class TestWireEditPadEnrichment:
-    """Wires laid as shortcuts must materialise board-pad vertices on edit-time
-    so hit-test can pick a pad pin in the middle of the shortcut.  Applies to
-    both bare and insulated wires — vertex handles are what allow the user to
-    grab the wire mid-path, regardless of side semantics."""
-
-    def test_bare_shortcut_enriched_on_hit_test(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        # 5×5 perfboard from conftest — pads at (0.5..4.5, 0.5..4.5).
-        wire_id = _add_wire(
-            session, [(0.5, 0.5), (4.5, 0.5)], insulated=False
-        )
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._selected_wire_id = wire_id
-
-        # Trigger the helper directly (mimics what hit-test does on demand).
-        tool._ensure_wire_ready_for_edit(wire_id)
-
-        new_wire = next(w for w in session.layout.wires if w.id == wire_id)
-        coords = [(p.x, p.y) for p in new_wire.path]
-        assert coords == [
-            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5)
-        ]
-
-    def test_enrichment_is_idempotent(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        wire_id = _add_wire(
-            session, [(0.5, 0.5), (4.5, 0.5)], insulated=False
-        )
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-
-        tool._ensure_wire_ready_for_edit(wire_id)
-        stack_depth_after_first = len(session.stack._undo)
-        tool._ensure_wire_ready_for_edit(wire_id)
-        stack_depth_after_second = len(session.stack._undo)
-        # Second call must not push another undo step (path already enriched).
-        assert stack_depth_after_first == stack_depth_after_second
-
-    def test_insulated_wire_enriched_on_edit(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        # Insulated wires also need pad-vertex handles so the user can grab
-        # them mid-path during edit.  AddWireCommand already enriches on
-        # insert; this verifies the on-edit helper agrees.
-        wire_id = _add_wire(
-            session, [(0.5, 0.5), (4.5, 0.5)], insulated=True
-        )
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-
-        tool._ensure_wire_ready_for_edit(wire_id)
-
-        new_wire = next(w for w in session.layout.wires if w.id == wire_id)
-        coords = [(p.x, p.y) for p in new_wire.path]
-        assert coords == [
-            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5)
-        ]
-
-    def test_already_enriched_path_no_op(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        # Wire already lists every pad as a vertex — no command should be issued.
-        wire_id = _add_wire(
-            session,
-            [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5)],
-            insulated=False,
-        )
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-
-        baseline = len(session.stack._undo)
-        tool._ensure_wire_ready_for_edit(wire_id)
-        assert len(session.stack._undo) == baseline
-
-
-class TestDeleteWireFragment:
-    """Delete on a fragment cuts the wire into two disjoint pieces — the
-    fragment vertices (start, end, and all interior) are removed, not just
-    interior nodes."""
-
-    def test_interior_fragment_cuts_wire_in_two(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        # Path: [p0 p1 p2 p3 p4].  Fragment start=1 end=3.  Interior
-        # vertex p2 is dropped; boundary pads p1 and p3 are kept as the
-        # endpoints of the two new pieces.
-        # Expected pieces: [p0,p1] and [p3,p4].
-        wire_id = _add_wire(
-            session,
-            [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5)],
-            insulated=True,
-        )
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._selected_wire_id = wire_id
-        tool._edit_start_wire_id = wire_id
-        tool._edit_end_wire_id = wire_id
-        tool._edit_start_idx = 1
-        tool._edit_end_idx = 3
-
-        tool._delete_wire_fragment()
-
-        ids = [w.id for w in session.layout.wires]
-        assert wire_id not in ids
-        assert len(session.layout.wires) == 2
-        paths = sorted(
-            [[(p.x, p.y) for p in w.path] for w in session.layout.wires]
-        )
-        assert paths == sorted([
-            [(0.5, 0.5), (1.5, 0.5)],
-            [(3.5, 0.5), (4.5, 0.5)],
-        ])
-
-    def test_fragment_at_left_endpoint_keeps_right_piece(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        # Fragment start=0 end=2 — interior is just p1; boundary pads
-        # p0 (idx 0) and p2 (idx 2).  Left piece [p0] has length 1 → dropped.
-        # Right piece [p2,p3,p4] survives.
-        wire_id = _add_wire(
-            session,
-            [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5)],
-            insulated=True,
-        )
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._selected_wire_id = wire_id
-        tool._edit_start_wire_id = wire_id
-        tool._edit_end_wire_id = wire_id
-        tool._edit_start_idx = 0
-        tool._edit_end_idx = 2
-
-        tool._delete_wire_fragment()
-
-        ids = [w.id for w in session.layout.wires]
-        assert wire_id not in ids
-        assert len(session.layout.wires) == 1
-        coords = [(p.x, p.y) for p in session.layout.wires[0].path]
-        assert coords == [(2.5, 0.5), (3.5, 0.5), (4.5, 0.5)]
-
-    def test_adjacent_fragment_only_drops_segment(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        # Fragment start=1 end=2 — no interior vertices, just removes the
-        # segment between two adjacent vertices.  Both halves [p0,p1] and
-        # [p2,p3,p4] survive.
-        wire_id = _add_wire(
-            session,
-            [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5)],
-            insulated=True,
-        )
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._selected_wire_id = wire_id
-        tool._edit_start_wire_id = wire_id
-        tool._edit_end_wire_id = wire_id
-        tool._edit_start_idx = 1
-        tool._edit_end_idx = 2
-
-        tool._delete_wire_fragment()
-
-        assert wire_id not in [w.id for w in session.layout.wires]
-        assert len(session.layout.wires) == 2
-        paths = sorted([
-            [(p.x, p.y) for p in w.path] for w in session.layout.wires
-        ])
-        assert paths == sorted([
-            [(0.5, 0.5), (1.5, 0.5)],
-            [(2.5, 0.5), (3.5, 0.5), (4.5, 0.5)],
-        ])
-
-    def test_whole_wire_fragment_removes_wire(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        wire_id = _add_wire(
-            session,
-            [(0.5, 0.5), (1.5, 0.5), (2.5, 0.5)],
-            insulated=True,
-        )
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._selected_wire_id = wire_id
-        tool._edit_start_wire_id = wire_id
-        tool._edit_end_wire_id = wire_id
-        tool._edit_start_idx = 0
-        tool._edit_end_idx = 2
-
-        tool._delete_wire_fragment()
-
-        assert session.layout.wires == []
-
-
-class TestComponentDragAnchorSnap:
-    """Regression: component pin 1 must always land on a pad after drag,
-    even when the component started off-grid (e.g. previous drag dragged it
-    off the board area)."""
-
-    def test_drag_snaps_pin1_to_pad_when_starting_off_grid(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 1.5, 1.5)
-        # Force the component off-grid (simulating a prior drag that left it
-        # at a fractional position, e.g. cursor outside the board).
-        pl = session.layout.placements[inst.id]
-        from protoboard.geometry import Point as _P
-        pl.position = _P(1.7, 1.3)
-
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # Click on the off-grid pin 1 and drag.
-        _press(tool, 1.7, 1.3)
-        _move(tool, 2.5, 2.5)
-        _release(tool, 2.5, 2.5)
-
-        new_pos = session.layout.placements[inst.id].position
-        # Pin 1 must be on a pad centre (half-integer coords).
-        assert (new_pos.x - 0.5) == int(new_pos.x - 0.5), (
-            f"x={new_pos.x} is not on pad grid"
-        )
-        assert (new_pos.y - 0.5) == int(new_pos.y - 0.5), (
-            f"y={new_pos.y} is not on pad grid"
-        )
-
-    def test_snap_fallback_is_grid_aligned_off_board(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        # Snap called far outside any pad must still return a half-integer
-        # grid position — never a raw cursor value.
-        board_view.refresh()
-        from PySide6.QtCore import QPointF as _QPF
-        snapped = board_view.snap(_QPF(50.0, 50.0))
-        assert (snapped.x - 0.5) == int(snapped.x - 0.5), snapped
-        assert (snapped.y - 0.5) == int(snapped.y - 0.5), snapped
-
-
-class TestMergeFragmentsCommand:
-    """User-triggered Merge Same-Side Fragments action.
-
-    Builds wires with multiple Fragments (boundary at every via) directly in
-    the layout, runs the command on the selection, and checks that adjacent
-    same-side fragments fuse while real via boundaries (top↔bottom) survive.
-    """
-
-    @staticmethod
-    def _add_multi_fragment_wire(
-        session: EditorSession,
-        fragments: list[tuple[list[tuple[float, float]], str]],
-    ) -> uuid.UUID:
-        """Insert a Wire built from an explicit list of (path, side) fragments."""
-        from protoboard.domain.layout.wire import Fragment, Wire
-        from protoboard.geometry import Point as _Point
-        frag_list = [
-            Fragment(
-                path=[_Point(x, y) for x, y in pts],
-                side=side,  # type: ignore[arg-type]
-            )
-            for pts, side in fragments
-        ]
-        wire = Wire(
-            id=uuid.uuid4(),
-            fragments=frag_list,
-            insulated=True,
-        )
-        session.layout.wires.append(wire)
-        return wire.id
-
-    def test_same_side_fragments_fuse(
-        self, board_view: BoardView, session: EditorSession,
-    ) -> None:
-        # Two top-side fragments sharing the boundary (2.5, 0.5).  Merge
-        # should collapse them into a single fragment.
-        wire_id = self._add_multi_fragment_wire(
-            session,
-            [
-                ([(0.5, 0.5), (2.5, 0.5)], "top"),
-                ([(2.5, 0.5), (4.5, 0.5)], "top"),
-            ],
-        )
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._selected_wire_id = wire_id
-        tool._merge_wires_and_fragments(frozenset({wire_id}))
-
-        new_wire = next(w for w in session.layout.wires if w.id == wire_id)
-        assert len(new_wire.fragments) == 1
-        assert new_wire.fragments[0].side == "top"
-        # ReplaceWireFragmentsCommand enriches insulated paths with
-        # intermediate pad-nodes (matches AddWireCommand + load_project),
-        # so the merged single-fragment path runs through every pad on
-        # the (0.5, 0.5) → (4.5, 0.5) line, not just the two original
-        # boundaries.  See test_replace_wire_fragments_enrichment.py.
-        assert [(p.x, p.y) for p in new_wire.fragments[0].path] == [
-            (0.5, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5), (4.5, 0.5),
-        ]
-
-    def test_via_boundary_preserved(
-        self, board_view: BoardView, session: EditorSession,
-    ) -> None:
-        # top → bottom → top: only the cross-side boundaries are real vias;
-        # nothing should fuse here.
-        wire_id = self._add_multi_fragment_wire(
-            session,
-            [
-                ([(0.5, 0.5), (1.5, 0.5)], "top"),
-                ([(1.5, 0.5), (2.5, 0.5)], "bottom"),
-                ([(2.5, 0.5), (3.5, 0.5)], "top"),
-            ],
-        )
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._selected_wire_id = wire_id
-        tool._merge_wires_and_fragments(frozenset({wire_id}))
-
-        new_wire = next(w for w in session.layout.wires if w.id == wire_id)
-        assert len(new_wire.fragments) == 3
-        assert [f.side for f in new_wire.fragments] == ["top", "bottom", "top"]
-
-    def test_single_fragment_wire_is_no_op(
-        self, board_view: BoardView, session: EditorSession,
-    ) -> None:
-        # Wire that already has a single fragment — command must not push
-        # a command onto the undo stack.
-        wire_id = _add_wire(
-            session, [(0.5, 0.5), (4.5, 0.5)], insulated=False
-        )
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        baseline_depth = len(session.stack._undo)
-        tool._merge_wires_and_fragments(frozenset({wire_id}))
-        assert len(session.stack._undo) == baseline_depth
-
-    def test_merge_is_undoable(
-        self, board_view: BoardView, session: EditorSession,
-    ) -> None:
-        wire_id = self._add_multi_fragment_wire(
-            session,
-            [
-                ([(0.5, 0.5), (2.5, 0.5)], "top"),
-                ([(2.5, 0.5), (4.5, 0.5)], "top"),
-            ],
-        )
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._merge_wires_and_fragments(frozenset({wire_id}))
-        assert len(next(
-            w for w in session.layout.wires if w.id == wire_id
-        ).fragments) == 1
-
-        session.stack.undo(session)
-        assert len(next(
-            w for w in session.layout.wires if w.id == wire_id
-        ).fragments) == 2
-
-    def test_empty_selection_no_op(
-        self, board_view: BoardView, session: EditorSession,
-    ) -> None:
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        baseline_depth = len(session.stack._undo)
-        tool._merge_wires_and_fragments(frozenset())
-        assert len(session.stack._undo) == baseline_depth
-
-
-def _ctrl_shift_press(tool: SelectTool, x: float, y: float) -> None:
-    """Ctrl+Shift+LMB — REMOVE op per spec rev 2."""
-    tool.on_press(
-        QMouseEvent(
-            QMouseEvent.Type.MouseButtonPress,
-            QPointF(x, y),
-            QPointF(x, y),
-            Qt.MouseButton.LeftButton,
-            Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
-        ),
-        QPointF(x, y),
-    )
-
-
-class TestCtrlAddCtrlShiftRemove:
-    """Spec rev 2: Ctrl+LMB = ADD to selection, Ctrl+Shift+LMB = REMOVE.
-
-    These replace the legacy `TestCtrlClickDeselect` which asserted
-    the old "Ctrl toggles" semantics.  The new contract:
-      * Ctrl+LMB on un-selected hit → add hit to multi-set.
-      * Ctrl+LMB on already-selected hit → no-op (decision-5 extended).
-      * Ctrl+Shift+LMB on selected hit → remove from selection.  If
-        the removed hit was the primary, primary becomes None
-        (decision 1, REMOVE).
-    """
-
-    def test_ctrl_lmb_adds_to_selection(
-        self, board_view: BoardView, session: EditorSession,
-    ) -> None:
-        inst1 = _place_component(board_view, session, 1.5, 1.5)
-        inst2 = _place_component(board_view, session, 4.5, 4.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # Plain LMB on inst1 → SET primary.
-        _press(tool, 1.5, 1.5)
-        assert tool._selected_id == inst1.id
-        # Ctrl+LMB on inst2 → ADD; primary moves to inst2, inst1 enters multi.
-        _ctrl_press(tool, 4.5, 4.5)
-        assert tool._selected_id == inst2.id
-        full = set(tool._selected_ids) | ({tool._selected_id} if tool._selected_id else set())
-        assert full == {inst1.id, inst2.id}
-
-    def test_ctrl_shift_lmb_removes_from_selection(
-        self, board_view: BoardView, session: EditorSession,
-    ) -> None:
-        inst1 = _place_component(board_view, session, 1.5, 1.5)
-        inst2 = _place_component(board_view, session, 4.5, 4.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 1.5, 1.5)
-        _ctrl_press(tool, 4.5, 4.5)
-        # Both components selected.
-        # Ctrl+Shift on inst1 (not primary) → drops it from multi.
-        _ctrl_shift_press(tool, 1.5, 1.5)
-        full = set(tool._selected_ids) | ({tool._selected_id} if tool._selected_id else set())
-        assert inst1.id not in full
-        assert inst2.id in full
-
-    def test_ctrl_shift_lmb_on_primary_drops_primary_to_none(
-        self, board_view: BoardView, session: EditorSession,
-    ) -> None:
-        inst1 = _place_component(board_view, session, 1.5, 1.5)
-        inst2 = _place_component(board_view, session, 4.5, 4.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 1.5, 1.5)
-        _ctrl_press(tool, 4.5, 4.5)
-        # inst2 is now primary.
-        assert tool._selected_id == inst2.id
-        # Ctrl+Shift on primary → primary becomes None per decision 1.
-        _ctrl_shift_press(tool, 4.5, 4.5)
-        assert tool._selected_id is None
-        # inst1 still in multi (it was not removed).
-        assert inst1.id in tool._selected_ids
-
-
-
-class TestEmptyCanvasIsEsc:
-    """Sanity: empty-canvas LMB pops one layer (same as Esc).  Already
-    asserted by Phase 2a; pinned here so Phase 2b regressions can't
-    silently turn empty-canvas into "clear everything"."""
-
-    def test_empty_canvas_pops_multi_only(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst_a = _place_component(board_view, session, 0.5, 0.5)
-        inst_b = _place_component(board_view, session, 1.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._select_primary(inst_a.id)
-        tool._selected_ids = {inst_a.id, inst_b.id}
-        # Empty-canvas click — patch hit-tests to all return None.
-        tool._hit_test = lambda _pt: None  # type: ignore[method-assign]
-        tool._hit_test_wire = lambda _pt: None  # type: ignore[method-assign]
-        tool._hit_test_bbox = lambda _pt: None  # type: ignore[method-assign]
-        tool._hit_test_group_bbox_empty = lambda _pt: None  # type: ignore[method-assign]
-        _press(tool, 20.0, 20.0)
-        # Multi cleared; primary remains.
-        assert tool._selected_ids == set()
-        assert tool._selected_id == inst_a.id
-
-
-# ---------------------------------------------------------------------------
-# Phase 2c — orthogonal modifier matrix (spec rev 2)
-# ---------------------------------------------------------------------------
-
-
-class TestSelectionOpMatrix:
-    """Cover the 3 set-ops × 2 basis-scopes from spec rev 2.
-
-    Drives `_apply_selection_op` directly (no Qt hit-test geometry
-    needed).  Tests assert post-op state of `_selected_id`,
-    `_selected_ids`, `_selected_wire_id`, `_selected_wire_ids`.
-    """
-
-    def test_set_single_empty_pushes_to_selection(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._apply_selection_op(Hit("component", inst.id), BasisScope.SINGLE, SetOp.SET)
-        assert tool._selected_id == inst.id
-        assert tool._selected_ids == set()
-
-    def test_set_with_none_pops_layer(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, SetOp
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._select_primary(inst.id)
-        # SET ∅ = pop one layer
-        tool._apply_selection_op(None, BasisScope.SINGLE, SetOp.SET)
-        assert tool._selected_id is None
-
-    def test_add_with_none_is_noop(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, SetOp
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._select_primary(inst.id)
-        tool._apply_selection_op(None, BasisScope.SINGLE, SetOp.ADD)
-        assert tool._selected_id == inst.id  # unchanged
-
-    def test_remove_with_none_is_noop(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, SetOp
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._select_primary(inst.id)
-        tool._apply_selection_op(None, BasisScope.SINGLE, SetOp.REMOVE)
-        assert tool._selected_id == inst.id  # unchanged
-
-    def test_add_single_when_empty_acts_as_set(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._apply_selection_op(Hit("component", inst.id), BasisScope.SINGLE, SetOp.ADD)
-        assert tool._selected_id == inst.id
-
-    def test_add_single_grows_multi_selection(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 2.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._apply_selection_op(Hit("component", i1.id), BasisScope.SINGLE, SetOp.SET)
-        tool._apply_selection_op(Hit("component", i2.id), BasisScope.SINGLE, SetOp.ADD)
-        assert tool._selected_id == i2.id  # last hit is primary
-        assert i1.id in tool._selected_ids  # i1 stays as multi member
-
-    def test_remove_single_drops_from_multi(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 2.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._apply_selection_op(Hit("component", i1.id), BasisScope.SINGLE, SetOp.SET)
-        tool._apply_selection_op(Hit("component", i2.id), BasisScope.SINGLE, SetOp.ADD)
-        # Remove i1 (which is the non-primary multi member).
-        tool._apply_selection_op(Hit("component", i1.id), BasisScope.SINGLE, SetOp.REMOVE)
-        assert i1.id not in tool._selected_ids
-        assert i1.id != tool._selected_id
-
-    def test_set_with_same_basis_is_noop(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._select_primary(inst.id)
-        # Decision 5: same primary basis = no-op.
-        tool._apply_selection_op(Hit("component", inst.id), BasisScope.SINGLE, SetOp.SET)
-        assert tool._selected_id == inst.id
-
-    def test_set_relation_basis_includes_net_members(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
-        import uuid as _uuid
-        from protoboard.domain.schematic.net import Net, PinRef
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 3.5, 0.5)
-        net = Net(id=_uuid.uuid4(), name="N1", pins={
-            PinRef(i1.id, 1), PinRef(i2.id, 1),
-        })
-        session.schematic.nets[net.id] = net
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._apply_selection_op(Hit("component", i1.id), BasisScope.RELATION, SetOp.SET)
-        full = set(tool._selected_ids) | ({tool._selected_id} if tool._selected_id else set())
-        assert i1.id in full
-        assert i2.id in full
-
-
-class TestPrimaryAnchorRules:
-    """Decision 1 (spec rev 2): primary after SET = hit; after ADD =
-    hit; after REMOVE = None (Properties panel clears).
-    """
-
-    def test_remove_clears_primary(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._apply_selection_op(Hit("component", inst.id), BasisScope.SINGLE, SetOp.SET)
-        assert tool._selected_id == inst.id
-        tool._apply_selection_op(Hit("component", inst.id), BasisScope.SINGLE, SetOp.REMOVE)
-        assert tool._selected_id is None
-
-    def test_add_promotes_new_hit_to_primary(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 2.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._apply_selection_op(Hit("component", i1.id), BasisScope.SINGLE, SetOp.SET)
-        tool._apply_selection_op(Hit("component", i2.id), BasisScope.SINGLE, SetOp.ADD)
-        # New hit is the anchor.
-        assert tool._selected_id == i2.id
-
-
-class TestHighlightUnion:
-    """Decision 2 (spec rev 2, A.1): ADD grows the highlight union,
-    REMOVE leaves highlight untouched.
-    """
-
-    def test_set_resets_highlight_to_relation_of_hit(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
-        import uuid as _uuid
-        from protoboard.domain.schematic.net import Net, PinRef
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 3.5, 0.5)
-        net = Net(id=_uuid.uuid4(), name="N1", pins={
-            PinRef(i1.id, 1), PinRef(i2.id, 1),
-        })
-        session.schematic.nets[net.id] = net
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._apply_selection_op(Hit("component", i1.id), BasisScope.SINGLE, SetOp.SET)
         entry = session.highlight_stack.active()
         assert entry is not None
-        # Highlight should at least include the hit's net members.
-        assert i2.id in entry.comp_ids or i1.id in entry.comp_ids
+        assert inst.id in entry.comp_ids
 
-    def test_remove_keeps_highlight(
+
+class TestRubberBand:
+    def test_ltr_selects_components_inside(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
-        import uuid as _uuid
-        from protoboard.domain.schematic.net import Net, PinRef
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 3.5, 0.5)
-        net = Net(id=_uuid.uuid4(), name="N1", pins={
-            PinRef(i1.id, 1), PinRef(i2.id, 1),
-        })
-        session.schematic.nets[net.id] = net
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._apply_selection_op(Hit("component", i1.id), BasisScope.SINGLE, SetOp.SET)
-        before = session.highlight_stack.active()
-        assert before is not None
-        comps_before = frozenset(before.comp_ids)
-        # REMOVE i1 — highlight should be unchanged (A.1).
-        tool._apply_selection_op(Hit("component", i1.id), BasisScope.SINGLE, SetOp.REMOVE)
-        after = session.highlight_stack.active()
-        assert after is not None
-        assert frozenset(after.comp_ids) == comps_before
+        a = _place(board_view, session, 1.0, 1.0)
+        b = _place(board_view, session, 4.0, 4.0)
+        tool = _v2(board_view)
+        # Build a left-to-right band that provably encloses both bboxes.
+        bxs = [session.component_bbox(cid) for cid in (a.id, b.id)]
+        assert all(bb is not None for bb in bxs)
+        x0 = min(bb.x for bb in bxs) - 0.5  # type: ignore[union-attr]
+        y0 = min(bb.y for bb in bxs) - 0.5  # type: ignore[union-attr]
+        x1 = max(bb.x + bb.width for bb in bxs) + 0.5  # type: ignore[union-attr]
+        y1 = max(bb.y + bb.height for bb in bxs) + 0.5  # type: ignore[union-attr]
+        _press(tool, x0, y0)
+        _move(tool, x1, y1)
+        _release(tool, x1, y1)
+        ids = _comp_ids(tool)
+        assert a.id in ids
+        assert b.id in ids
 
-    def test_second_pin_of_free_component_switches_highlight(
+    def test_rtl_selects_intersecting(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        """Regression: clicking a *second* pin of an already-selected free
-        component re-narrows the connectivity highlight to that pin's net.
-        The decision-5 no-op path in `_set_selection` previously returned
-        before refreshing the highlight, leaving it stuck on the first
-        pin's net (user-reported 2026-06-15)."""
-        import uuid as _uuid
-        from protoboard.domain.schematic.net import Net, PinRef
-        inst = _place_component(board_view, session, 1.5, 1.5)
-        a = _place_component(board_view, session, 6.5, 1.5)
-        b = _place_component(board_view, session, 6.5, 6.5)
-        net1 = Net(id=_uuid.uuid4(), name="N1",
-                   pins={PinRef(inst.id, 1), PinRef(a.id, 1)})
-        net2 = Net(id=_uuid.uuid4(), name="N2",
-                   pins={PinRef(inst.id, 2), PinRef(b.id, 1)})
-        session.schematic.nets[net1.id] = net1
-        session.schematic.nets[net2.id] = net2
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        pins = dict(session.iter_pin_positions(inst.id))
-        p1, p2 = pins[1], pins[2]
-        _press(tool, p1.x, p1.y)
-        assert tool._highlight_net_id == net1.id
-        _press(tool, p2.x, p2.y)
-        assert tool._highlight_net_id == net2.id
+        a = _place(board_view, session, 1.0, 1.0)
+        tool = _v2(board_view)
+        bb = session.component_bbox(a.id)
+        assert bb is not None
+        # Right-to-left band (end.x < start.x) that merely clips the bbox.
+        cx, cy = bb.x + bb.width / 2, bb.y + bb.height / 2
+        _press(tool, cx + 5.0, cy + 5.0)
+        _move(tool, cx, cy)
+        _release(tool, cx, cy)
+        assert a.id in _comp_ids(tool)
 
-    def test_pin_of_grouped_component_highlights_pin_net(
+
+class TestRotate:
+    def test_r_rotates_selected(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        """Regression: clicking a specific pin of a component that lives
-        inside a group narrows the connectivity highlight to that pin's
-        net, even though the whole group monolith becomes selected.  The
-        group-drag-arm path reset the highlight to the group anchor's
-        whole-component relation, swallowing the per-pin net."""
-        import uuid as _uuid
-        from protoboard.domain.schematic.net import Net, PinRef
-        inst = _place_component(board_view, session, 1.5, 1.5)
-        other = _place_component(board_view, session, 1.5, 6.5)
-        out_a = _place_component(board_view, session, 9.5, 1.5)
-        out_b = _place_component(board_view, session, 9.5, 6.5)
-        # Group inst + other (inst is grouped → click resolves to proxy).
-        _make_group_local(session, [inst.id, other.id])
-        net1 = Net(id=_uuid.uuid4(), name="N1",
-                   pins={PinRef(inst.id, 1), PinRef(out_a.id, 1)})
-        net2 = Net(id=_uuid.uuid4(), name="N2",
-                   pins={PinRef(inst.id, 2), PinRef(out_b.id, 1)})
-        session.schematic.nets[net1.id] = net1
-        session.schematic.nets[net2.id] = net2
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        pins = dict(session.iter_pin_positions(inst.id))
-        p1, p2 = pins[1], pins[2]
-        _press(tool, p1.x, p1.y)
-        assert tool._highlight_net_id == net1.id
-        _press(tool, p2.x, p2.y)
-        assert tool._highlight_net_id == net2.id
-
-
-class TestSelectionSummary:
-    """`selection_summary()` builds the status-bar string per spec
-    rev 2: ``select: none`` / ``select: pri:c:<id> | multi:[c:N w:N n:N g:N]``.
-    """
-
-    def test_summary_none_when_empty(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        assert tool.selection_summary() == "select: none"
-
-    def test_summary_after_single_component(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._select_primary(inst.id)
-        s = tool.selection_summary()
-        assert s.startswith("select: pri:c:")
-        assert " | multi:[c:1 w:0" in s
-        assert "g:0]" in s
-
-    def test_summary_after_single_wire(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        wid = _add_wire(session, [(0.5, 1.5), (4.5, 1.5)])
-        board_view.refresh()
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._select_wire(wid)
-        s = tool.selection_summary()
-        assert s.startswith("select: pri:w:")
-        assert " | multi:[c:0 w:1" in s
-
-    def test_summary_counts_unique_nets(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        import uuid as _uuid
-        from protoboard.domain.schematic.net import Net, PinRef
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 3.5, 0.5)
-        net = Net(id=_uuid.uuid4(), name="N1", pins={
-            PinRef(i1.id, 1), PinRef(i2.id, 1),
-        })
-        session.schematic.nets[net.id] = net
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._selected_ids = {i1.id, i2.id}
-        tool._select_primary(i1.id)
-        s = tool.selection_summary()
-        # Both i1 and i2 share net N1 → n:1.
-        assert "n:1" in s
-        assert "c:2 w:0" in s
-
-
-class TestSelectedGroupIdsShim:
-    """Phase 3 Etap 2: `_selected_group_ids` is now a set, and the
-    legacy `_selected_group_id` (singular) is a compat property over it.
-
-    Both directions must stay transparent — old code that assigns or
-    reads `tool._selected_group_id` keeps working, while new code can
-    populate the set directly and watch `selection_summary()` reflect it.
-    """
-
-    def test_set_starts_empty(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        assert tool._selected_group_ids == set()
-        assert tool._selected_group_id is None
-
-    def test_assigning_singular_id_populates_set(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        import uuid
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        gid = uuid.uuid4()
-        tool._selected_group_id = gid
-        assert tool._selected_group_ids == {gid}
-        assert tool._selected_group_id == gid
-
-    def test_assigning_none_clears_set(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        import uuid
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._selected_group_id = uuid.uuid4()
-        tool._selected_group_id = None
-        assert tool._selected_group_ids == set()
-        assert tool._selected_group_id is None
-
-    def test_set_with_multiple_groups_picks_first_for_singular_shim(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """When the set has >1 group, the singular shim returns
-        *some* element — order is iteration-defined, but it must not
-        crash and must be a member of the set."""
-        import uuid
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        g1, g2 = uuid.uuid4(), uuid.uuid4()
-        tool._selected_group_ids = {g1, g2}
-        # Shim returns one of them.
-        assert tool._selected_group_id in {g1, g2}
-
-    def test_summary_reflects_multi_group_count(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        import uuid
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._selected_group_ids = {uuid.uuid4(), uuid.uuid4(), uuid.uuid4()}
-        # Need at least one element in comp/wire sets for summary to
-        # show g:N (summary returns "none" when everything is empty).
-        # Status bar should reflect the group count regardless of the
-        # comp/wire bookkeeping; ensure we land in the multi branch.
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        tool._select_primary(inst.id)
-        s = tool.selection_summary()
-        assert "g:3]" in s
-
-
-class TestActiveDragSet:
-    """Phase 3 Etap 3: `_active_drag_set` captures the DragSet at press
-    time and is cleared on release / deactivate.  Etap 4 consumes the
-    snapshot for pre-validation multi-group conflict-check.
-    """
-
-    def test_active_drag_set_none_before_press(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        assert tool._active_drag_set is None
-
-    def test_active_drag_set_set_by_pin_drag_arm(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
         _press(tool, 0.5, 0.5)
-        # Drag-arm fires unconditionally for pin LMB even before threshold.
-        assert tool._active_drag_set is not None
-        # The DragSet must include the clicked component in free_components.
-        assert inst.id in tool._active_drag_set.free_components
+        before = session.layout.placements[inst.id].rotation
+        _key(tool, Qt.Key.Key_R)
+        after = session.layout.placements[inst.id].rotation
+        assert after == (before + 90) % 360
 
-    def test_active_drag_set_cleared_on_release_without_drag(
+    def test_rotate_around_point_moves_component(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
         _press(tool, 0.5, 0.5)
-        _release(tool, 0.5, 0.5)
-        assert tool._active_drag_set is None
-
-    def test_active_drag_set_cleared_on_deactivate(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 0.5, 0.5)
-        assert tool._active_drag_set is not None
-        tool.deactivate()
-        assert tool._active_drag_set is None
-
-    def test_active_drag_set_includes_selected_groups(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        import uuid
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 2.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # Simulate a user-built selection: multi-component + a group.
-        gid = uuid.uuid4()
-        tool._selected_group_ids = {gid}
-        tool._select_primary(i1.id)
-        tool._selected_ids = {i1.id, i2.id}
-        ds = tool._build_drag_set()
-        assert gid in ds.groups
-        # i1 + i2 are both top-level (no group) → free_components.
-        assert i1.id in ds.free_components
-        assert i2.id in ds.free_components
-
-
-class TestHitGroupDispatcher:
-    """Phase 3 Etap 5: `Hit("group", gid)` flows through `_apply_selection_op`.
-    SET/ADD/REMOVE on a group hit mutates `_selected_group_ids` and expands
-    members into `_selected_ids`.
-    """
-
-    def _make_group(
-        self,
-        session: EditorSession,
-        component_ids: list[uuid.UUID],
-        name: str = "G1",
-    ) -> uuid.UUID:
-        from protoboard.domain.layout.group import ComponentGroup
-        gid = uuid.uuid4()
-        g = ComponentGroup(
-            id=gid,
-            name=name,
-            component_ids=frozenset(component_ids),
-        )
-        session.layout.groups[gid] = g
-        return gid
-
-    def test_set_on_group_populates_selected_group_ids(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 2.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        gid = self._make_group(session, [i1.id, i2.id])
-        tool._apply_selection_op(
-            Hit("group", gid), BasisScope.SINGLE, SetOp.SET,
-        )
-        assert gid in tool._selected_group_ids
-        # Members expanded into _selected_ids so drag-arm sees them.
-        assert i1.id in tool._selected_ids
-        assert i2.id in tool._selected_ids
-
-    def test_add_two_groups_yields_both_in_set(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 2.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        g1 = self._make_group(session, [i1.id], name="G1")
-        g2 = self._make_group(session, [i2.id], name="G2")
-        # SET first group, ADD second.
-        tool._apply_selection_op(
-            Hit("group", g1), BasisScope.SINGLE, SetOp.SET,
-        )
-        tool._apply_selection_op(
-            Hit("group", g2), BasisScope.SINGLE, SetOp.ADD,
-        )
-        assert g1 in tool._selected_group_ids
-        assert g2 in tool._selected_group_ids
-        # Both groups' members in _selected_ids.
-        assert i1.id in tool._selected_ids
-        assert i2.id in tool._selected_ids
-
-    def test_remove_group_drops_it_and_its_members(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 2.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        g1 = self._make_group(session, [i1.id], name="G1")
-        g2 = self._make_group(session, [i2.id], name="G2")
-        tool._apply_selection_op(
-            Hit("group", g1), BasisScope.SINGLE, SetOp.SET,
-        )
-        tool._apply_selection_op(
-            Hit("group", g2), BasisScope.SINGLE, SetOp.ADD,
-        )
-        # Now remove G1.
-        tool._apply_selection_op(
-            Hit("group", g1), BasisScope.SINGLE, SetOp.REMOVE,
-        )
-        assert g1 not in tool._selected_group_ids
-        assert g2 in tool._selected_group_ids
-        # G1's members dropped from _selected_ids; G2's members remain.
-        assert i1.id not in tool._selected_ids
-        assert i2.id in tool._selected_ids
-
-    def test_summary_g_count_reflects_groups_selected(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 2.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        g1 = self._make_group(session, [i1.id], name="G1")
-        g2 = self._make_group(session, [i2.id], name="G2")
-        tool._apply_selection_op(
-            Hit("group", g1), BasisScope.SINGLE, SetOp.SET,
-        )
-        tool._apply_selection_op(
-            Hit("group", g2), BasisScope.SINGLE, SetOp.ADD,
-        )
-        s = tool.selection_summary()
-        assert "g:2]" in s
-
-
-class TestRubberBandSelectsGroups:
-    """Phase 3 Etap 6: rubber-band picks up groups.
-
-    Spec rev 3 decision 3:
-      * LTR (left-to-right drag) = every group member bbox inside rect.
-      * RTL (right-to-left drag) = any group member bbox intersects rect.
-    """
-
-    def _make_group(
-        self,
-        session: EditorSession,
-        component_ids: list[uuid.UUID],
-        name: str = "G1",
-    ) -> uuid.UUID:
-        from protoboard.domain.layout.group import ComponentGroup
-        gid = uuid.uuid4()
-        g = ComponentGroup(
-            id=gid,
-            name=name,
-            component_ids=frozenset(component_ids),
-        )
-        session.layout.groups[gid] = g
-        return gid
-
-    def test_ltr_rubber_band_catches_fully_enclosed_group(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 1.5, 0.5)
-        gid = self._make_group(session, [i1.id, i2.id])
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # LTR drag covering both i1 and i2.
-        _press(tool, 0.0, 0.0)
-        _move(tool, 5.0, 5.0)
-        _release(tool, 5.0, 5.0)
-        assert gid in tool._selected_group_ids
-        # All members expanded into _selected_ids per rubber-band convention.
-        assert i1.id in tool._selected_ids
-        assert i2.id in tool._selected_ids
-
-    def test_ltr_rubber_band_skips_partially_enclosed_group(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 6.5, 0.5)  # outside drag rect
-        gid = self._make_group(session, [i1.id, i2.id])
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # LTR drag covers only i1, not i2 → group must NOT be selected.
-        _press(tool, 0.0, 0.0)
-        _move(tool, 3.0, 3.0)
-        _release(tool, 3.0, 3.0)
-        assert gid not in tool._selected_group_ids
-
-    def test_rtl_rubber_band_catches_partially_intersected_group(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 6.5, 0.5)  # outside drag rect
-        gid = self._make_group(session, [i1.id, i2.id])
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # RTL drag (end-x < start-x) covering only i1 → group selected
-        # because RTL semantics is "any member intersects".
-        _press(tool, 3.0, 3.0)
-        _move(tool, 0.0, 0.0)
-        _release(tool, 0.0, 0.0)
-        assert gid in tool._selected_group_ids
-
-    def test_rubber_band_summary_reflects_group_count(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 1.5, 0.5)
-        i3 = _place_component(board_view, session, 2.5, 0.5)
-        g1 = self._make_group(session, [i1.id], name="G1")
-        g2 = self._make_group(session, [i2.id], name="G2")
-        # i3 is free (no group).
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        _press(tool, 0.0, 0.0)
-        _move(tool, 5.0, 5.0)
-        _release(tool, 5.0, 5.0)
-        s = tool.selection_summary()
-        # Both groups + one free component should be reflected.
-        assert "g:2]" in s
-        assert g1 in tool._selected_group_ids
-        assert g2 in tool._selected_group_ids
-        assert i3.id in tool._selected_ids
-
-
-# ---------------------------------------------------------------------------
-# Phase 3 Etap 7 — integration tests (end-to-end mixed-drag flow)
-# ---------------------------------------------------------------------------
-
-
-def _make_group_local(
-    session: EditorSession,
-    component_ids: list[uuid.UUID],
-    name: str = "G1",
-) -> uuid.UUID:
-    from protoboard.domain.layout.group import ComponentGroup
-    gid = uuid.uuid4()
-    g = ComponentGroup(
-        id=gid,
-        name=name,
-        component_ids=frozenset(component_ids),
-    )
-    session.layout.groups[gid] = g
-    return gid
-
-
-class TestMixedDragSetIntegration:
-    """End-to-end Phase 3 integration: rubber-band → mixed selection
-    (free + groups) → drag-arm captures a structured DragSet → all
-    elements move atomically.
-    """
-
-    def test_active_drag_set_after_rubber_band_has_both_groups_and_free(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        i2 = _place_component(board_view, session, 1.5, 0.5)
-        i3 = _place_component(board_view, session, 2.5, 0.5)
-        gid = _make_group_local(session, [i1.id, i2.id])
-        # i3 is free.
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # LTR rubber-band covering all three components.
-        _press(tool, 0.0, 0.0)
-        _move(tool, 5.0, 5.0)
-        _release(tool, 5.0, 5.0)
-        # Sanity: group + free both in selection.
-        assert gid in tool._selected_group_ids
-        assert i3.id in tool._selected_ids
-
-        # Press on the free component to arm a drag — DragSet should
-        # carry both the group (as monolith) and the free component.
-        _press(tool, 2.5, 0.5)
-        assert tool._active_drag_set is not None
-        assert gid in tool._active_drag_set.groups
-        assert i3.id in tool._active_drag_set.free_components
-
-    def test_mixed_drag_moves_both_free_component_and_group_members(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        """Plain LMB drag after a mixed rubber-band selection moves
-        every element by the same delta — atomic via macro command."""
-        from protoboard.geometry import Point
-        i1 = _place_component(board_view, session, 1.5, 1.5)
-        i2 = _place_component(board_view, session, 2.5, 1.5)
-        i3 = _place_component(board_view, session, 3.5, 1.5)
-        gid = _make_group_local(session, [i1.id, i2.id])
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # Rubber-band over all three (LTR, all fully inside).
-        _press(tool, 0.0, 0.0)
-        _move(tool, 5.0, 5.0)
-        _release(tool, 5.0, 5.0)
-        # Drag from i3 (the free component) by (+2, 0).
-        _press(tool, 3.5, 1.5)
-        _move(tool, 5.5, 1.5)
-        _release(tool, 5.5, 1.5)
-        # All three components moved by the same delta.
-        assert session.layout.placements[i1.id].position == Point(3.5, 1.5)
-        assert session.layout.placements[i2.id].position == Point(4.5, 1.5)
-        assert session.layout.placements[i3.id].position == Point(5.5, 1.5)
-        # Selection survives the move — group + i3 still selected.
-        assert gid in tool._selected_group_ids
-        assert i3.id in tool._selected_ids
-
-
-class TestCtrlBboxAddsGroup:
-    """Ctrl+LMB on a group bbox routes through the dispatcher as
-    `Hit("group", gid)` ADD — verified end-to-end via the real
-    on_press flow (not just `_apply_selection_op`)."""
-
-    def test_ctrl_bbox_press_adds_group_to_selection(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        i1 = _place_component(board_view, session, 0.5, 0.5)
-        _ = _place_component(board_view, session, 1.5, 0.5)
-        i3 = _place_component(board_view, session, 5.5, 0.5)  # outside
-        gid = _make_group_local(session, [i3.id])
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # Existing selection: build it explicitly to avoid depending
-        # on the rubber-band geometry of the placed components.
-        tool._select_primary(i1.id)
-        tool._selected_ids = {i1.id}
-        assert i1.id in tool._selected_ids
-        assert gid not in tool._selected_group_ids
-        # Ctrl+klik on the group's bbox area.  Patch
-        # `_hit_test_group_bbox_empty` so the test doesn't depend on
-        # the exact geometry of the rendered group outline.
-        tool._hit_test_group_bbox_empty = lambda _pt: gid  # type: ignore[method-assign]
-        tool._hit_test = lambda _pt: None  # type: ignore[method-assign]
-        tool._hit_test_wire = lambda _pt: None  # type: ignore[method-assign]
-        tool._hit_test_bbox = lambda _pt: None  # type: ignore[method-assign]
-        tool._click_is_on_exported_pin = lambda _pt: False  # type: ignore[method-assign]
-        _ctrl_press(tool, 5.5, 0.5)
-        # Group added to selection without losing the prior free comp.
-        assert gid in tool._selected_group_ids
-        assert i1.id in tool._selected_ids
-
-
-class TestMultiGroupConflictRoutedThroughGui:
-    """Confirms the end-to-end GUI path: when the drag-arm captures a
-    DragSet with >1 group, `_build_group_drag_commands` chooses the
-    `check_multi_group_move_conflicts` wrapper.  The legacy single-
-    group call stays selected when only one group is present.
-    """
-
-    def test_single_group_selection_uses_legacy_check(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
-        i1 = _place_component(board_view, session, 1.5, 1.5)
-        gid = _make_group_local(session, [i1.id])
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._apply_selection_op(Hit("group", gid), BasisScope.SINGLE, SetOp.SET)
-        # Build_drag_set should reflect that one group.
-        ds = tool._build_drag_set()
-        assert gid in ds.groups
-        # Only one group → conflict-check path uses single-group call.
-        # (We assert this indirectly: `len(groups) > 1` predicate
-        # determines the routing, so for the single-group case it
-        # must be False here.)
-        assert len(ds.groups) == 1
-
-    def test_two_group_selection_picks_multi_check(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.gui.selection_fsm import BasisScope, Hit, SetOp
-        i1 = _place_component(board_view, session, 1.5, 1.5)
-        i2 = _place_component(board_view, session, 3.5, 1.5)
-        g1 = _make_group_local(session, [i1.id], name="G1")
-        g2 = _make_group_local(session, [i2.id], name="G2")
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._apply_selection_op(Hit("group", g1), BasisScope.SINGLE, SetOp.SET)
-        tool._apply_selection_op(Hit("group", g2), BasisScope.SINGLE, SetOp.ADD)
-        ds = tool._build_drag_set()
-        assert g1 in ds.groups
-        assert g2 in ds.groups
-        assert len(ds.groups) == 2
-
-
-class TestFreePinClickFeedback:
-    """Clicking a pin with no net must not silently no-op: _hint_free_pin
-    fires only for an unassigned pin and never raises."""
-
-    def test_hint_noop_for_pin_without_number(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # pin_number=None (bbox-fallback hit) → no hint, no crash.
-        tool._hint_free_pin(inst.id, None)
-
-    def test_hint_for_free_pin_does_not_raise(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # Pin 1 has no net → the free-pin branch runs (status hint) cleanly.
-        tool._hint_free_pin(inst.id, 1)
-
-    def test_hint_skips_netted_pin(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        from protoboard.domain.commands.net_cmds import (
-            AssignPinToNetCommand,
-            CreateNetCommand,
-        )
-        from protoboard.domain.schematic.net import PinRef
-
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        create = CreateNetCommand(name="N1")
-        session.stack.execute(create, session)
-        session.stack.execute(
-            AssignPinToNetCommand(
-                component_id=inst.id, pin_number=1, target_net_id=create.net_id
-            ),
-            session,
-        )
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        # Netted pin: branch returns early (net_for_pin is not None) — sanity
-        # check the precondition the hint relies on.
-        assert session.schematic.net_for_pin(PinRef(inst.id, 1)) is not None
-        tool._hint_free_pin(inst.id, 1)
-
-
-class TestRotateAroundPoint:
-    def _select(self, tool: SelectTool, inst: ComponentInstance) -> None:
-        # Synthetic single-component selection (matches the manual-select
-        # pattern other multi-tests use — a bare _press arms a drag, not an
-        # immediate _selected_ids commit).
-        tool._select_primary(inst.id)
-        tool._selected_ids.add(inst.id)
-
-    def test_begin_then_click_captures_pivot(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        self._select(tool, inst)
-
-        tool._begin_rotate_around_point()
-        assert tool._pivot_capture_pending is True
-        # Next click captures the pivot (snapped) and consumes the click.
-        _press(tool, 2.5, 2.5)
-        assert tool._pivot_capture_pending is False
-        assert tool._rotate_pivot is not None
-        assert inst.id in tool._selected_ids
-
-    def test_rotate_around_captured_pivot_moves_position(
-        self, board_view: BoardView, session: EditorSession
-    ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        self._select(tool, inst)
         before = session.layout.placements[inst.id].position
-
-        tool._begin_rotate_around_point()
-        _press(tool, 2.5, 2.5)            # pivot away from the component
-        tool._rotate_multi(delta=90)
-
+        tool.begin_rotate_around_point()
+        assert tool._pivot_capture_pending is True
+        _press(tool, 3.0, 3.0)  # capture pivot away from the part
+        assert tool._rotate_pivot is not None
+        _key(tool, Qt.Key.Key_R)
         after = session.layout.placements[inst.id].position
-        # Pivot != component position → rotating around it moves the part.
         assert (after.x, after.y) != (before.x, before.y)
-        assert session.layout.placements[inst.id].rotation == 90
 
     def test_esc_clears_pivot(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        inst = _place_component(board_view, session, 0.5, 0.5)
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        self._select(tool, inst)
-        tool._begin_rotate_around_point()
-        _press(tool, 2.5, 2.5)
+        _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)
+        tool.begin_rotate_around_point()
+        _press(tool, 3.0, 3.0)
         assert tool._rotate_pivot is not None
-
         _key(tool, Qt.Key.Key_Escape)
         assert tool._rotate_pivot is None
-        assert tool._pivot_capture_pending is False
 
-    def test_begin_with_no_selection_is_noop(
+
+class TestDragGesture:
+    def test_drag_component_moves_and_commits(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        board_view.set_tool(SelectTool())
-        tool = board_view._active_tool
-        assert isinstance(tool, SelectTool)
-        tool._begin_rotate_around_point()
-        assert tool._pivot_capture_pending is False
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)  # select + arm drag (press on the pin)
+        before = session.layout.placements[inst.id].position
+        depth = len(session.stack._undo)  # type: ignore[attr-defined]
+        _move(tool, 2.5, 0.5)  # past the 0.5 threshold
+        _release(tool, 2.5, 0.5)
+        after = session.layout.placements[inst.id].position
+        assert (after.x, after.y) != (before.x, before.y)
+        # CLEAR drag auto-commits → exactly one command on the stack.
+        assert len(session.stack._undo) == depth + 1  # type: ignore[attr-defined]
+        assert tool._mouse is None
+
+    def test_subthreshold_press_release_is_click(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)
+        before = session.layout.placements[inst.id].position
+        depth = len(session.stack._undo)  # type: ignore[attr-defined]
+        _move(tool, 0.6, 0.5)  # below threshold
+        _release(tool, 0.6, 0.5)
+        after = session.layout.placements[inst.id].position
+        assert (after.x, after.y) == (before.x, before.y)
+        assert len(session.stack._undo) == depth  # type: ignore[attr-defined]
+        # Selection survives a click that didn't become a drag.
+        assert inst.id in _comp_ids(tool)
+
+    def test_drag_keeps_component_selected(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)
+        _move(tool, 2.5, 0.5)
+        _release(tool, 2.5, 0.5)
+        assert inst.id in _comp_ids(tool)
+
+
+def _make_group(
+    session: EditorSession, component_ids: list, name: str = "G1"
+):
+    import uuid
+
+    from protoboard.domain.layout.group import ComponentGroup
+
+    gid = uuid.uuid4()
+    session.layout.groups[gid] = ComponentGroup(
+        id=gid, name=name, component_ids=frozenset(component_ids)
+    )
+    return gid
+
+
+class TestGroupDrag:
+    def test_press_grouped_component_drags_whole_group(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        a = _place(board_view, session, 0.5, 0.5)
+        b = _place(board_view, session, 1.5, 0.5)
+        _make_group(session, [a.id, b.id])
+        tool = _v2(board_view)
+        a0 = session.layout.placements[a.id].position
+        b0 = session.layout.placements[b.id].position
+        # Press on A (a grouped component) and drag — both members move by the
+        # same delta (monolith), not just A.
+        _press(tool, 0.5, 0.5)
+        _move(tool, 2.5, 0.5)
+        _release(tool, 2.5, 0.5)
+        a1 = session.layout.placements[a.id].position
+        b1 = session.layout.placements[b.id].position
+        assert (a1.x - a0.x, a1.y - a0.y) == (b1.x - b0.x, b1.y - b0.y)
+        assert (a1.x, a1.y) != (a0.x, a0.y)
+
+    def test_group_drag_is_one_atomic_command(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        a = _place(board_view, session, 0.5, 0.5)
+        b = _place(board_view, session, 1.5, 0.5)
+        _make_group(session, [a.id, b.id])
+        tool = _v2(board_view)
+        a0 = session.layout.placements[a.id].position
+        b0 = session.layout.placements[b.id].position
+        depth = len(session.stack._undo)  # type: ignore[attr-defined]
+        _press(tool, 0.5, 0.5)
+        _move(tool, 2.5, 0.5)
+        _release(tool, 2.5, 0.5)
+        # One command moves the whole group; undo restores both members.
+        assert len(session.stack._undo) == depth + 1  # type: ignore[attr-defined]
+        session.stack.undo(session)  # type: ignore[arg-type]
+        assert session.layout.placements[a.id].position == a0
+        assert session.layout.placements[b.id].position == b0
+
+    def test_free_component_still_drags_alone(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        _place(board_view, session, 0.5, 0.5)  # A at the press point
+        b = _place(board_view, session, 1.5, 0.5)
+        # No group — A is free; dragging A must not move B.
+        tool = _v2(board_view)
+        b0 = session.layout.placements[b.id].position
+        _press(tool, 0.5, 0.5)
+        _move(tool, 2.5, 0.5)
+        _release(tool, 2.5, 0.5)
+        assert session.layout.placements[b.id].position == b0
+
+
+def _make_bendable(session: EditorSession, comp_id, pin: int = 1) -> None:
+    """Give *comp_id*'s definition a free bendable lead on *pin* (in-place)."""
+    from protoboard.domain.components.definition import PinBendSpec
+    from protoboard.geometry import Point
+
+    inst = session.instances[comp_id]
+    defn = session.components[inst.definition_ref]
+    # bendable_pins is a mutable dict on the (frozen) definition — inject a free
+    # continuous spec reaching a few raster units in any direction.
+    defn.bendable_pins[pin] = PinBendSpec(
+        min_reach=0.0, max_reach=5.0, default_offset=Point(0.0, 0.0)
+    )
+
+
+class TestRedrag:
+    def test_redrag_moves_pin_offset_and_commits(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        _make_bendable(session, inst.id, pin=1)
+        tool = _v2(board_view)
+        _press(tool, 1.0, 1.0)  # select it
+        depth = len(session.stack._undo)  # type: ignore[attr-defined]
+        before = dict(session.layout.placements[inst.id].pin_offsets)
+        tool.begin_redrag(inst.id)
+        assert tool._selection.active_pick is not None
+        # Click a reachable pad → pick completes → command lands.
+        _click(tool, 2.0, 1.0)
+        after = dict(session.layout.placements[inst.id].pin_offsets)
+        assert after != before  # pin 1 offset changed
+        assert len(session.stack._undo) == depth + 1  # type: ignore[attr-defined]
+        assert tool._selection.active_pick is None
+
+    def test_redrag_undo_restores_offset(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        _make_bendable(session, inst.id, pin=1)
+        tool = _v2(board_view)
+        _press(tool, 1.0, 1.0)
+        before = dict(session.layout.placements[inst.id].pin_offsets)
+        tool.begin_redrag(inst.id)
+        _click(tool, 2.0, 1.0)
+        session.stack.undo(session)  # type: ignore[arg-type]
+        assert dict(session.layout.placements[inst.id].pin_offsets) == before
+
+    def test_redrag_esc_cancels_no_command(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        _make_bendable(session, inst.id, pin=1)
+        tool = _v2(board_view)
+        _press(tool, 1.0, 1.0)
+        depth = len(session.stack._undo)  # type: ignore[attr-defined]
+        tool.begin_redrag(inst.id)
+        assert tool._selection.active_pick is not None
+        _key(tool, Qt.Key.Key_Escape)  # cancel the pick
+        assert tool._selection.active_pick is None
+        assert len(session.stack._undo) == depth  # type: ignore[attr-defined]
+        assert tool._redrag_comp_id is None  # overlay state cleared
+
+    def test_redrag_no_bendable_pin_is_noop(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)  # R has no bendable pins
+        tool = _v2(board_view)
+        _press(tool, 1.0, 1.0)
+        tool.begin_redrag(inst.id)
+        # No free lead → no pick armed.
+        assert tool._selection.active_pick is None
+
+
+class TestPickRouting:
+    def test_click_feeds_active_pick(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        done: list[list] = []
+        # Arm the pick through the tool so it routes via a PointPickController.
+        tool._arm_pick(
+            "component", Stop.count(1), on_done=lambda xs: done.append(xs)
+        )
+        # A click during an active pick feeds it, not the normal selection.
+        _click(tool, 0.5, 0.5)
+        assert len(done) == 1
+        assert done[0][0].to_hit().id == inst.id
+        # Pick completed → no interaction / pick left active.
+        assert tool._selection.active_pick is None
+        assert tool._mouse is None
+
+    def test_esc_cancels_active_pick(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        cancelled: list[bool] = []
+        tool._arm_pick(
+            "component", Stop.confirm(),
+            on_done=lambda xs: None, on_cancel=lambda: cancelled.append(True),
+        )
+        _key(tool, Qt.Key.Key_Escape)
+        assert cancelled == [True]
+        assert tool._selection.active_pick is None
+        assert tool._mouse is None
+
+
+# -- wire-edit ----------------------------------------------------------------
+
+
+def _wire_session(qtbot) -> tuple[EditorSession, BoardView]:
+    """A 16×16 perfboard session with a single net-bound straight wire selected.
+
+    wire: (1.5,1.5) → (2.5,1.5) → (3.5,1.5) → (4.5,1.5), bottom side, bound to
+    one net via a 1-pin component at the first pad, so `_build_wire_net_map`
+    resolves it.
+    """
+    import uuid
+    from pathlib import Path
+
+    from protoboard.domain.board.board import Board
+    from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
+    from protoboard.domain.board.pads import PadLayers
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.footprints import SIL
+    from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.layout.placement import ComponentPlacement
+    from protoboard.domain.layout.wire import Wire
+    from protoboard.domain.schematic.net import Net, PinRef
+    from protoboard.geometry import Point
+    from protoboard.services.library.loader import load_library
+
+    grid = BoardGrid(
+        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+        cell=PadAtom(
+            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            layers=PadLayers(top=True, bottom=True, plated_through=True),
+        ),
+        rows=16, cols=16, row_gap=0.0, col_gap=0.0,
+    )
+    library = load_library([Path(__file__).parent.parent / "fixtures" / "library"])
+    sess = EditorSession(board=Board(root=grid), library=library)
+
+    defn = ComponentDefinition(name="STUB1", footprint=SIL(1), pin_names={1: "P1"})
+    sess.components["STUB1"] = defn
+    inst = ComponentInstance.new(definition_ref="STUB1", refdes="X1", value="")
+    sess.instances[inst.id] = inst
+    sess.layout.placements[inst.id] = ComponentPlacement(
+        component_id=inst.id, position=Point(1.5, 1.5), rotation=0, side="top",
+    )
+    net_id = uuid.uuid4()
+    sess.schematic.nets[net_id] = Net(
+        id=net_id, name="N1",
+        pins={PinRef(component_id=inst.id, pin_number=1)},
+    )
+    wire = Wire(
+        id=uuid.uuid4(),
+        path=[Point(1.5, 1.5), Point(2.5, 1.5), Point(3.5, 1.5), Point(4.5, 1.5)],
+        insulated=False, side="bottom",
+    )
+    sess.layout.wires.append(wire)
+    sess.invalidate_graph()
+
+    view = BoardView(sess)
+    qtbot.addWidget(view)
+    return sess, view
+
+
+def _select_wire(tool: SelectTool, session: EditorSession) -> None:
+    from protoboard.gui.selection.adapters import WireSelectable
+
+    wire = next(iter(session.layout.wires))
+    tool._selection.set(WireSelectable(wire=wire))
+
+
+def _depth(session: EditorSession) -> int:
+    return len(session.stack._undo)  # type: ignore[attr-defined]
+
+
+class TestWireEdit:
+    def test_e_arms_then_two_clicks_select_fragment(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        depth = _depth(session)
+
+        _key(tool, Qt.Key.Key_E)  # arm wire-edit
+        assert tool._selection.active_pick is not None  # vertex pick armed
+        _click(tool, 2.5, 1.5)  # first vertex (index 1)
+        assert tool._wire_edit is None  # not complete yet
+        _click(tool, 3.5, 1.5)  # second vertex (index 2)
+
+        assert tool._wire_edit is not None
+        assert (tool._wire_edit.start_idx, tool._wire_edit.end_idx) == (1, 2)
+        assert tool._mouse is None  # range pick finished
+        assert _depth(session) == depth  # no command yet
+
+    def test_w_reroute_commits_replace_fragments(self, qtbot) -> None:
+        from protoboard.domain.commands.component_cmds import (
+            ReplaceWireFragmentsCommand,
+        )
+
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        depth = _depth(session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)
+        _click(tool, 3.5, 1.5)
+        # [W] arms the waypoint pick; click a detour waypoint, Enter commits.
+        _key(tool, Qt.Key.Key_W)
+        assert tool._selection.active_pick is not None
+        _click(tool, 3.0, 2.5)  # waypoint off the straight line
+        _key(tool, Qt.Key.Key_Return)  # commit
+
+        assert _depth(session) == depth + 1
+        cmd = session.stack._undo[-1]  # type: ignore[attr-defined]
+        assert isinstance(cmd, ReplaceWireFragmentsCommand)
+        assert tool._wire_edit is None
+
+    def test_w_reroute_undo_restores(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        before = [
+            list(w.path) for w in session.layout.wires
+        ]
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)
+        _click(tool, 3.5, 1.5)
+        _key(tool, Qt.Key.Key_W)
+        _click(tool, 3.0, 2.5)
+        _key(tool, Qt.Key.Key_Return)
+        session.stack.undo(session)  # type: ignore[arg-type]
+
+        after = [list(w.path) for w in session.layout.wires]
+        assert after == before
+
+    def test_del_deletes_whole_wire(self, qtbot) -> None:
+        from protoboard.domain.commands.component_cmds import RemoveWireCommand
+
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 1.5, 1.5)  # first vertex (index 0)
+        _click(tool, 4.5, 1.5)  # last vertex (index 3) → whole wire
+        depth = _depth(session)
+        _key(tool, Qt.Key.Key_Delete)
+
+        assert _depth(session) == depth + 1
+        assert isinstance(
+            session.stack._undo[-1], RemoveWireCommand  # type: ignore[attr-defined]
+        )
+        assert tool._wire_edit is None
+
+    def test_del_partial_cuts_into_halves(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)  # index 1
+        _click(tool, 3.5, 1.5)  # index 2 — interior fragment
+        n_before = len(list(session.layout.wires))
+        _key(tool, Qt.Key.Key_Delete)
+        # The single wire is cut into two surviving halves.
+        assert len(list(session.layout.wires)) == n_before + 1
+
+    def test_esc_cancels_fragment_no_command(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)
+        _click(tool, 3.5, 1.5)
+        depth = _depth(session)
+        assert tool._wire_edit is not None
+        _key(tool, Qt.Key.Key_Escape)
+
+        assert tool._wire_edit is None
+        assert _depth(session) == depth
+
+    def test_esc_during_reroute_returns_to_fragment(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)
+        _click(tool, 3.5, 1.5)
+        _key(tool, Qt.Key.Key_W)  # arm reroute
+        _click(tool, 3.0, 2.5)  # one waypoint
+        _key(tool, Qt.Key.Key_Escape)  # cancel the reroute pick
+
+        # Reroute aborted, but the fragment selection survives.
+        assert tool._selection.active_pick is None
+        assert tool._wire_edit is not None
+
+    def test_backspace_during_reroute_drops_last_waypoint(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)
+        _click(tool, 3.5, 1.5)
+        _key(tool, Qt.Key.Key_W)
+        _click(tool, 3.0, 2.5)
+        pick = tool._selection.active_pick
+        assert pick is not None and len(pick.collected) == 1
+        _key(tool, Qt.Key.Key_Backspace)  # UNDO drops the waypoint
+        assert len(pick.collected) == 0
+
+    def test_press_elsewhere_cancels_fragment(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)
+        _click(tool, 3.5, 1.5)
+        assert tool._wire_edit is not None
+        # A plain press on empty board space leaves wire-edit (and falls
+        # through to normal selection — here an empty area arms a band).
+        _press(tool, 10.0, 10.0)
+        assert tool._wire_edit is None
+
+    def test_e_without_selected_wire_is_noop(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        # No wire selected.
+        _key(tool, Qt.Key.Key_E)
+        assert tool._selection.active_pick is None
+        assert tool._wire_edit is None
+
+
+# -- net / connectivity relation ----------------------------------------------
+
+
+def _two_comp_net(board_view: BoardView, session: EditorSession):
+    """Place two 1-pin components bound to one net; return (i1, i2)."""
+    import uuid as _uuid
+
+    from protoboard.domain.schematic.net import Net, PinRef
+
+    i1 = _place(board_view, session, 0.5, 0.5)
+    i2 = _place(board_view, session, 3.5, 0.5)
+    net = Net(id=_uuid.uuid4(), name="N1", pins={PinRef(i1.id, 1), PinRef(i2.id, 1)})
+    session.schematic.nets[net.id] = net
+    session.invalidate_graph()
+    return i1, i2
+
+
+class TestNetRelation:
+    def test_alt_click_selects_whole_net(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        i1, i2 = _two_comp_net(board_view, session)
+        tool = _v2(board_view)
+        # Alt = RELATION basis → SET expands to the net members.
+        _press(tool, 0.5, 0.5, Qt.KeyboardModifier.AltModifier)
+        ids = _comp_ids(tool)
+        assert i1.id in ids
+        assert i2.id in ids
+
+    def test_plain_click_selects_only_hit(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        i1, i2 = _two_comp_net(board_view, session)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)  # no Alt → SINGLE basis
+        ids = _comp_ids(tool)
+        assert ids == {i1.id}  # only the clicked component is selected
+
+    def test_plain_click_auto_highlights_net_context(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        i1, i2 = _two_comp_net(board_view, session)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)  # plain SET
+        entry = session.highlight_stack.active()
+        assert entry is not None
+        # Auto-highlight shows the hit's net context — both members dimmed in.
+        assert i1.id in entry.comp_ids
+        assert i2.id in entry.comp_ids
+
+    def test_relation_none_disables_context_highlight(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_axes import RelationClass
+
+        i1, i2 = _two_comp_net(board_view, session)
+        tool = _v2(board_view)
+        tool.set_relation(RelationClass.NONE)
+        _press(tool, 0.5, 0.5)
+        entry = session.highlight_stack.active()
+        assert entry is not None
+        # NONE correlates nothing — only the clicked component is highlighted.
+        assert i2.id not in entry.comp_ids
+
+    def test_set_relation_changes_axis(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.selection_axes import RelationClass
+
+        tool = _v2(board_view)
+        assert tool.relation == RelationClass.SAME_LOGICAL_NET
+        tool.set_relation(RelationClass.NEIGHBORS)
+        assert tool.relation == RelationClass.NEIGHBORS
+
+    def test_a_autoroutes_fragment(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)  # index 1
+        _click(tool, 3.5, 1.5)  # index 2
+        assert tool._wire_edit is not None
+        # [A] runs A* between the two boundary pads; whether it commits a new
+        # path or finds none, it must leave wire-edit cleanly and not crash.
+        _key(tool, Qt.Key.Key_A)
+        assert tool._wire_edit is None
+        assert tool._selection.active_pick is None

@@ -48,7 +48,7 @@ from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.cut_tool import CutTool
 from protoboard.gui.tools.place_tool import PlaceTool
 from protoboard.gui.tools.route_tool import RouteTool
-from protoboard.gui.tools.select_tool_v2 import SelectToolV2 as SelectTool
+from protoboard.gui.tools.select_tool import SelectTool
 from protoboard.gui.tools.simplify_tool import SimplifyTool
 from protoboard.services.export.bom import export_bom_csv
 from protoboard.services.export.pdf import export_pdf
@@ -728,7 +728,7 @@ class MainWindow(QMainWindow):
         # the status bar always shows the current primary + multi
         # counts.  Only applies when SelectTool is the active tool —
         # other tools (Route / Place / Cut) keep their own label.
-        from protoboard.gui.tools.select_tool_v2 import SelectToolV2 as SelectTool
+        from protoboard.gui.tools.select_tool import SelectTool
         active = getattr(self._board_view, "_active_tool", None)
         if isinstance(active, SelectTool):
             self._mode_label.setText(f"Select | {active.selection_summary()}")
@@ -1728,7 +1728,7 @@ class MainWindow(QMainWindow):
         """Return the active group ID, or show a status message and
         return None when the user is at root."""
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        from protoboard.gui.tools.select_tool_v2 import SelectToolV2 as SelectTool
+        from protoboard.gui.tools.select_tool import SelectTool
 
         tool = self._board_view._active_tool
         if not isinstance(tool, SelectTool):
@@ -2098,7 +2098,7 @@ class MainWindow(QMainWindow):
 
     def _group_selection(self) -> None:
         """Group the current selection via Ctrl+G — delegates to SelectTool dialog."""
-        from protoboard.gui.tools.select_tool_v2 import SelectToolV2 as SelectTool
+        from protoboard.gui.tools.select_tool import SelectTool
         tool = self._board_view._active_tool
         if not isinstance(tool, SelectTool):
             return
@@ -2112,7 +2112,7 @@ class MainWindow(QMainWindow):
     def _ungroup_selection(self) -> None:
         """Disband the group currently entered, or the group matching the selection."""
         from protoboard.domain.commands.group_cmds import DisbandGroupCommand
-        from protoboard.gui.tools.select_tool_v2 import SelectToolV2 as SelectTool
+        from protoboard.gui.tools.select_tool import SelectTool
 
         tool = self._board_view._active_tool
         if not isinstance(tool, SelectTool):
@@ -2165,7 +2165,7 @@ class MainWindow(QMainWindow):
             return
 
         # Collect nets to route: board selection → net inspector → all.
-        from protoboard.gui.tools.select_tool_v2 import SelectToolV2 as SelectTool
+        from protoboard.gui.tools.select_tool import SelectTool
         from protoboard.domain.schematic.net import PinRef
         net_ids: set[uuid.UUID] | None = None
         tool = self._board_view._active_tool

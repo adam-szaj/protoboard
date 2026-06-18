@@ -17,7 +17,7 @@ is a click, not a band).  The geometry is pure; the only Qt seams are the live
 rectangle overlay and the bbox lookup, injected as callables so the controller
 is headless-testable.
 
-Phase 3 lifts this verbatim out of ``SelectToolV2``'s inline band code so the
+Phase 3 lifts this verbatim out of ``SelectTool``'s inline band code so the
 tool routes both gestures through one uniform ``update`` / ``commit`` /
 ``cancel`` path.
 """

@@ -29,12 +29,11 @@ from protoboard.domain.commands.component_cmds import ReplaceWireFragmentsComman
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.layout.wire_utils import rebuild_fragments_from_path
 from protoboard.geometry import Point
-from protoboard.gui.tools.select_tool_v2 import SelectToolV2 as SelectTool
+from protoboard.gui.tools.select_tool import SelectTool
 from protoboard.services.routing.postprocess import (
     SimplifyMode,
     generic_simplify_wire,
 )
-
 
 _PREVIEW_WIDTH = 0.12
 

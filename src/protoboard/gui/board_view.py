@@ -976,7 +976,7 @@ class BoardView(QGraphicsView):
         # are not allowed — fall back to the SelectTool instance (which is
         # purely read-only).  SelectTool itself, or None, is always allowed.
         if tool is not None and self._session.autoroute_active:
-            from protoboard.gui.tools.select_tool_v2 import SelectToolV2 as _ST
+            from protoboard.gui.tools.select_tool import SelectTool as _ST
             if not isinstance(tool, _ST):
                 tool = None
         if self._active_tool is not None:
@@ -1347,7 +1347,7 @@ class BoardView(QGraphicsView):
 
     def select_component(self, comp_id: uuid.UUID) -> None:
         """Switch to SelectTool and select the given component."""
-        from protoboard.gui.tools.select_tool_v2 import SelectToolV2 as SelectTool
+        from protoboard.gui.tools.select_tool import SelectTool
 
         if not isinstance(self._active_tool, SelectTool):
             self.set_tool(SelectTool())

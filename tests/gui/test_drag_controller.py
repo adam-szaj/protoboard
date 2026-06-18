@@ -72,7 +72,7 @@ def _controller(
 
     No ``snap`` seam is wired — ``update`` translates by the raw delta, which
     keeps the geometry test-predictable.  Anchor-snap behaviour is covered by
-    the SelectToolV2 integration tests that pass the real ``view.snap``.
+    the SelectTool integration tests that pass the real ``view.snap``.
     """
     pl = session.layout.placements[comp_id]
     drag_set = DragSet(free_components=frozenset({comp_id}))

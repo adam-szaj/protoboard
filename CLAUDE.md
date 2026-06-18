@@ -104,6 +104,12 @@ src/protoboard/
 ├── gui/
 │   ├── main_window.py, session.py, board_view.py, selection_fsm.py,
 │   │                   # drag_set.py, keybindings.py, …
+│   ├── selection/      # SelectTool-as-a-service: selectable.py (protocol+adapters),
+│   │                   # service.py (SelectionService + pick-API), hit_test.py,
+│   │                   # queries.py (net relation), wire_edit.py, wire_ops.py,
+│   │                   # mouse_input.py, point_pick_controller.py,
+│   │                   # drag_controller.py, rubber_band_controller.py, adapters.py
+│   ├── highlight/      # controller.py (HighlightController service)
 │   ├── renderers/      # board_renderer.py, component_renderer.py, wire_renderer.py
 │   ├── dialogs/        # preferences_dialog.py, group_target_dialog.py,
 │   │                   # pad_conflict_dialog.py, drag_disconnect_dialog.py,

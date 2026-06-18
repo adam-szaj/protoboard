@@ -15,8 +15,6 @@ Fixtures come from ``tests/benchmarks/conftest.py``:
 from __future__ import annotations
 
 import pytest
-from PySide6.QtCore import QPointF
-
 
 # ---------------------------------------------------------------------------
 # BoardView.refresh() — warm path (nothing changed)
@@ -36,6 +34,7 @@ def test_bench_refresh_warm_one_comp_moved(
     pl = layout.placements[cid]
 
     from dataclasses import replace
+
     from protoboard.geometry import Point
 
     toggle = [False]
@@ -61,6 +60,7 @@ def test_bench_set_highlighted_net(
 ):
     """Switching highlighted net must be O(N) setOpacity calls, not rebuilds."""
     from collections import Counter
+
     from protoboard.gui.board_view import _build_wire_net_map
     wire_net_map = _build_wire_net_map(synthetic_medium_routed_session)
     if not wire_net_map:
@@ -78,14 +78,24 @@ def test_bench_set_highlighted_net(
 # Spatial index — hit-test on click
 # ---------------------------------------------------------------------------
 
+def _medium_hit_tester(session, board_view):
+    """A HitTester bound to the medium fixture (v2's hit-test home)."""
+    from typing import cast
+
+    from protoboard.gui.selection.hit_test import HitTester, SelectionFilters
+    from protoboard.types import Side
+
+    tester = HitTester(session, camera_side=cast(Side, board_view.camera_side))
+    return tester, SelectionFilters()
+
+
 def test_bench_hit_test_component(
     benchmark, synthetic_medium_board_view, synthetic_medium_session,
 ):
-    """_hit_test should be fast via spatial index (not O(C×P) brute force)."""
-    from protoboard.gui.tools.select_tool import SelectTool
-    tool = SelectTool()
-    tool.activate(synthetic_medium_session, synthetic_medium_board_view)
-
+    """HitTester.hit should be fast via spatial index (not O(C×P) brute force)."""
+    tester, filters = _medium_hit_tester(
+        synthetic_medium_session, synthetic_medium_board_view
+    )
     layout = synthetic_medium_session.layout
     instances = synthetic_medium_session.instances
     components = synthetic_medium_session.components
@@ -97,50 +107,23 @@ def test_bench_hit_test_component(
         pytest.skip("no component definition")
     from protoboard.domain.layout.placement import pin_world_position
     pos = pin_world_position(defn.footprint, pl, 1)
-    scene_pt = QPointF(pos.x, pos.y)
 
-    benchmark(tool._hit_test, scene_pt)
-
-
-def test_bench_hit_test_pin_for_comp(
-    benchmark, synthetic_medium_board_view, synthetic_medium_session,
-):
-    """_hit_test_pin_for_comp: O(P) scan of one component's pins."""
-    from protoboard.gui.tools.select_tool import SelectTool
-    tool = SelectTool()
-    tool.activate(synthetic_medium_session, synthetic_medium_board_view)
-
-    layout = synthetic_medium_session.layout
-    instances = synthetic_medium_session.instances
-    components = synthetic_medium_session.components
-    cid = next(iter(layout.placements))
-    pl = layout.placements[cid]
-    inst = instances.get(cid)
-    defn = components.get(inst.definition_ref) if inst else None
-    if defn is None:
-        pytest.skip("no component definition")
-    from protoboard.domain.layout.placement import pin_world_position
-    pos = pin_world_position(defn.footprint, pl, 1)
-    scene_pt = QPointF(pos.x, pos.y)
-
-    benchmark(tool._hit_test_pin_for_comp, scene_pt, cid)
+    benchmark(tester.hit, pos.x, pos.y, filters)
 
 
 def test_bench_hit_test_wire(
     benchmark, synthetic_medium_routed_board_view, synthetic_medium_routed_session,
 ):
-    """_hit_test_wire via spatial index."""
-    from protoboard.gui.tools.select_tool import SelectTool
-    tool = SelectTool()
-    tool.activate(synthetic_medium_routed_session, synthetic_medium_routed_board_view)
-
+    """HitTester wire hit-test via spatial index."""
+    tester, filters = _medium_hit_tester(
+        synthetic_medium_routed_session, synthetic_medium_routed_board_view
+    )
     if not synthetic_medium_routed_session.layout.wires:
         pytest.skip("routed fixture produced no wires")
     wire = synthetic_medium_routed_session.layout.wires[0]
     pt = wire.path[0]
-    scene_pt = QPointF(pt.x, pt.y)
 
-    benchmark(tool._hit_test_wire, scene_pt)
+    benchmark(tester.hit, pt.x, pt.y, filters)
 
 
 # ---------------------------------------------------------------------------

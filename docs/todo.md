@@ -4,14 +4,15 @@ Open follow-ups that don't fit into the closed plans archived under
 [docs/archive/](archive/).  Each entry has enough context to pick up
 the work cold.
 
-## SelectTool v2 — deferred parity items (after the Faza 6 swap)
+## SelectTool — deferred parity items (after the rewrite landed)
 
-The SelectTool rewrite (`gui/tools/select_tool_v2.py`) reached full
-integration parity in Faza 6a, with two consciously-deferred gaps:
+The SelectTool rewrite (`gui/tools/select_tool.py` — the service-based tool
+that replaced the 9.5k-line monolith) reached full integration parity, with
+two consciously-deferred gaps:
 
 1. **Selection-filter enforcement.** `set_filter`/`filter` hold the
    `SelectionFilter` state and mirror it to the status-bar widget, but
-   `SelectToolV2._filters()` still returns an empty `SelectionFilters()`
+   `SelectTool._filters()` still returns an empty `SelectionFilters()`
    — every kind stays hittable.  Wire the held filter into the hit-test
    (`HitTester.hit(..., filters)`) so components/wires/groups can be
    excluded from selection as the legacy tool did.
