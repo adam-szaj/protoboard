@@ -40,6 +40,11 @@ if TYPE_CHECKING:
     Matcher = Callable[["QKeyEvent", str], bool]  # (event, action_id) via KeyMap
 
 
+# One mouse-wheel detent in Qt ``angleDelta`` units (15° × 8 = 1/8°-units).
+# A standard notch reports 120; we step one 90° rotation per accumulated notch.
+_WHEEL_NOTCH = 120
+
+
 class ArmedRotate:
     """Float-rotate sub-tool — preview-then-commit with conditional disarm."""
 
@@ -71,6 +76,12 @@ class ArmedRotate:
         self._accum = 0            # net previewed degrees (multiple of 90)
         self._pivot: Point | None = pivot  # seeded shared pivot (or None)
         self._finished = False
+        # Wheel debounce: a mouse can emit several sub-detent angleDelta events
+        # per physical notch, which would over-rotate (one notch → 180°/270°).
+        # We accumulate raw 1/8°-units and step once per full notch (_WHEEL_NOTCH),
+        # carrying the remainder — so one detent = exactly one 90° step, however
+        # many events it arrives in, while a hard spin still steps proportionally.
+        self._wheel_accum = 0
         # The command currently applied to the layout as the live preview (for
         # the net angle), or None when the preview is at zero.
         self._preview_cmd: object | None = None
@@ -125,7 +136,25 @@ class ArmedRotate:
         return True  # float-rotate steps on the wheel
 
     def on_wheel(self, event: QWheelEvent) -> bool:
-        self._step(90 if event.angleDelta().y() >= 0 else -90)
+        """Accumulate wheel delta; step ±90° once per full notch.
+
+        Debounces mice that emit several sub-detent events per physical notch
+        (which would jump 180°/270° from one flick) while keeping a hard spin
+        proportional.  Reversing direction discards the opposite-sign carry so a
+        back-flick takes effect immediately.
+        """
+        dy = event.angleDelta().y()
+        if dy == 0:
+            return True
+        if (dy > 0) != (self._wheel_accum >= 0):
+            self._wheel_accum = 0  # direction reversed — drop stale carry
+        self._wheel_accum += dy
+        while self._wheel_accum >= _WHEEL_NOTCH:
+            self._wheel_accum -= _WHEEL_NOTCH
+            self._step(90)
+        while self._wheel_accum <= -_WHEEL_NOTCH:
+            self._wheel_accum += _WHEEL_NOTCH
+            self._step(-90)
         return True
 
     def on_click(self, scene_pt: Point) -> bool:

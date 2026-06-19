@@ -401,6 +401,35 @@ class TestArmedRotate:
         tool.on_wheel(ev)
         assert session.layout.placements[inst.id].rotation == (base + 90) % 360
 
+    @staticmethod
+    def _wheel(dy: int):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtGui import QWheelEvent
+        return QWheelEvent(
+            QPointF(0, 0), QPointF(0, 0), QPoint(0, 0), QPoint(0, dy),
+            Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase, False,
+        )
+
+    def test_wheel_bounce_one_notch_is_one_step(self, board_view, session) -> None:
+        # Bug: a mouse emitting several sub-detent events per physical notch
+        # over-rotated (one flick → 180°/270°).  Three 40-unit events sum to one
+        # 120 notch → exactly one 90° step.
+        inst, tool = self._armed(board_view, session)
+        base = session.layout.placements[inst.id].rotation
+        for _ in range(3):
+            tool.on_wheel(self._wheel(40))  # 3 × 40 = 120 = one notch
+        assert session.layout.placements[inst.id].rotation == (base + 90) % 360
+
+    def test_wheel_hard_spin_steps_proportionally(
+        self, board_view, session
+    ) -> None:
+        # A deliberate hard spin (two notches in one event) still steps twice.
+        inst, tool = self._armed(board_view, session)
+        base = session.layout.placements[inst.id].rotation
+        tool.on_wheel(self._wheel(240))  # two notches
+        assert session.layout.placements[inst.id].rotation == (base + 180) % 360
+
     def test_esc_cancels_whole_session(self, board_view, session) -> None:
         inst, tool = self._armed(board_view, session)
         base = session.layout.placements[inst.id].rotation

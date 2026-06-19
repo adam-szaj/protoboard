@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fix: kalibracja kółka w armed-rotate (wheel-bounce) (2026-06-19)
+
+Mysz emitująca kilka eventów `angleDelta` na jeden fizyczny step powodowała
+przeskok rotacji o 180°/270° (każdy event = osobny krok 90°).
+`ArmedRotate.on_wheel` **akumuluje** teraz deltę i kroki ±90° robi raz na pełny
+notch (`_WHEEL_NOTCH=120`, standard Qt), przenosząc resztę. Jeden detent =
+jeden krok niezależnie od liczby eventów; mocny obrót (np. 240) dalej kroku
+proporcjonalnie; zmiana kierunku zrzuca stary carry. 2 testy (bounce 3×40→1
+krok, hard-spin 240→2 kroki).
+
 ### Keybindingi: overlay z rejestru, kierunki jako akcje, fix przechwytywania (2026-06-19)
 
 Trzy powiązane naprawy keybindingów:
