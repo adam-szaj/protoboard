@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Atomowe `[arm, action, disarm]` caller-API (2026-06-19)
+
+`SelectTool._invoke_armed_atomic(arm, action)` — programmatyczna forma kształtu
+„uzbrój → akcja → rozbrój" pod przyszłe menu/makra. *arm* wchodzi w sub-tool,
+*action* robi jedną operację na nim (krok/flip przez publiczne wejście
+protokołu), potem `accept()`.
+
+* **Conditional-disarm honorowany**: bo `accept()` commituje tylko gdy
+  `can_commit()`, operacja programowa na konfliktowej selekcji ZOSTAWIA tryb
+  uzbrojony (zwraca False) zamiast forsować nielegalny commit; czysta operacja
+  commituje + rozbraja (zwraca True). No-op gdy *arm* nic nie uzbroił (pusta
+  selekcja). Cudza uzbrojona sesja jest najpierw anulowana.
+* Helper-only — żadnych call-site'ów menu/makr (fundament pod nie). Etap 6
+  z `docs/armed-rotate-and-subtool-delegation.md`.
+* 3 testy (`TestArmedAtomic`: commit+disarm, no-op-empty, park-on-conflict);
+  893 GUI green; czyste pod `mypy --strict`.
+
 ### Wire fragment-flip jako op-table wire-edit (2026-06-19)
 
 `[F]` w wire-edit flipuje zaznaczony fragment druta na przeciwną warstwę —

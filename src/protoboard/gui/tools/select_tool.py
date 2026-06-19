@@ -48,6 +48,8 @@ from protoboard.services.debug_trace import traced
 _log = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
     from PySide6.QtWidgets import QGraphicsItem
 
@@ -2059,6 +2061,40 @@ class SelectTool(_Tool):
         self._refresh_highlight()
         if self._view is not None:
             self._view.refresh()
+
+    @traced("SelectTool.invoke_armed_atomic")
+    def _invoke_armed_atomic(
+        self,
+        arm: "Callable[[], None]",
+        action: "Callable[[ArmedSubTool], None]",
+    ) -> bool:
+        """Run one armed-sub-tool action atomically: arm → action → accept.
+
+        The programmatic form of the ``[arm, action, disarm]`` shape (for menus
+        / macros): *arm* enters a sub-tool, *action* runs one operation on it
+        (e.g. a 90° step, a flip), then we try to ``accept``.  Per the
+        conditional-disarm contract, ``accept`` commits + finishes **only when
+        committable** — so if *action* left a conflict the sub-tool **stays
+        armed**, parked for the user to resolve (exactly like an interactive
+        accept), and this returns ``False``.  Returns ``True`` when it committed
+        and disarmed.
+
+        No-op (returns ``False``) if *arm* failed to arm anything — e.g. an empty
+        selection — so callers needn't pre-check.  When something else is already
+        armed, that mode is cancelled first so the atomic call starts clean.
+        """
+        if self._armed is not None:
+            self._disarm(cancel=True)
+        arm()
+        armed = self._armed
+        if armed is None:
+            return False  # arm declined (e.g. empty / non-transformable selection)
+        action(armed)
+        armed.accept()
+        if armed.finished:
+            self._disarm()
+            return True
+        return False  # parked in a conflict — left armed for the user
 
     @traced("SelectTool.arm_rotate")
     def arm_rotate(self) -> None:

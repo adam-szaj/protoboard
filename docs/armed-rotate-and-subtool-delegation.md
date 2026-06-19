@@ -236,10 +236,14 @@ as one undo entry.  **Constraint preserved:** flip currently applies only to
    entry); a previewed rotate that lands in *any* conflict (SOFT or HARD) parks
    rather than auto-committing + dropping wires — the pre-refactor feel restored.
    Move wraps `DragController`, whose FLOATING-on-HARD already is the contract.
-6. **Atomic `[arm, action, disarm]` caller API** — deferred; now a thin helper
-   over the real protocol (arm → invoke one op → accept()), and because accept()
-   is conditional, a programmatic op on a conflicting selection parks armed
-   rather than forcing an illegal commit.
+6. **Atomic `[arm, action, disarm]` caller API** — ✅ DONE (2026-06-19).
+   `SelectTool._invoke_armed_atomic(arm, action)`: *arm* enters a sub-tool,
+   *action* runs one op on it (a step / flip via the protocol's public input),
+   then `accept()`.  Because `accept()` is conditional, a programmatic op on a
+   conflicting selection **parks armed** (returns False) rather than forcing an
+   illegal commit; a clean op commits + disarms (returns True).  No-op on a
+   failed arm (empty selection).  Helper only — no menu / macro call-sites wired
+   yet (the foundation for them).
 
 Nothing above is committed until each stage has a green suite + a smoke test,
 per CLAUDE.md §8.

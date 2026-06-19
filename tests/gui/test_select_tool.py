@@ -489,6 +489,60 @@ class TestArmedMove:
         assert (after.x, after.y) == (before.x, before.y)
 
 
+class TestArmedAtomic:
+    """_invoke_armed_atomic: arm -> one action -> accept, conditional disarm."""
+
+    def _step_cw(self, armed) -> None:
+        # The Up arrow is one CW step on the armed sub-tool's public input.
+        armed.on_key(QKeyEvent(
+            QKeyEvent.Type.KeyPress, Qt.Key.Key_Up, Qt.KeyboardModifier.NoModifier,
+        ))
+
+    def test_atomic_rotate_commits_and_disarms(self, board_view, session) -> None:
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)
+        base = session.layout.placements[inst.id].rotation
+        depth = len(session.stack._undo)  # type: ignore[attr-defined]
+
+        ok = tool._invoke_armed_atomic(tool.arm_rotate, self._step_cw)
+
+        assert ok is True
+        assert tool._armed is None  # disarmed
+        assert session.layout.placements[inst.id].rotation == (base + 90) % 360
+        # One rotation = one undo entry (preview-then-commit).
+        assert len(session.stack._undo) == depth + 1  # type: ignore[attr-defined]
+
+    def test_atomic_noop_on_empty_selection(self, board_view, session) -> None:
+        tool = _v2(board_view)  # nothing selected
+        ok = tool._invoke_armed_atomic(tool.arm_rotate, self._step_cw)
+        assert ok is False
+        assert tool._armed is None  # never armed
+
+    def test_atomic_parks_armed_on_conflict(self, board_view, session) -> None:
+        from protoboard.gui.tools.drag_commit_decision import (
+            DragCommitDecision,
+            DragSeverity,
+        )
+
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)
+
+        def step_then_force_conflict(armed) -> None:
+            self._step_cw(armed)
+            # Make the post-step state report a HARD (un-committable) conflict.
+            armed._classify = lambda: DragCommitDecision(  # type: ignore[attr-defined]
+                severity=DragSeverity.HARD
+            )
+
+        ok = tool._invoke_armed_atomic(tool.arm_rotate, step_then_force_conflict)
+
+        assert ok is False
+        assert tool._armed is not None  # parked, waiting for the user
+        assert tool._armed.finished is False
+
+
 class TestDragGesture:
     def test_drag_component_moves_and_commits(
         self, board_view: BoardView, session: EditorSession
