@@ -405,6 +405,83 @@ class TestDragGesture:
         assert inst.id in _comp_ids(tool)
 
 
+def _band_select(tool: SelectTool, session: EditorSession, ids: list) -> None:
+    """Rubber-band a set of components into the selection (relation-agnostic)."""
+    bxs = [session.component_bbox(cid) for cid in ids]
+    assert all(bb is not None for bb in bxs)
+    x0 = min(bb.x for bb in bxs) - 0.5  # type: ignore[union-attr]
+    y0 = min(bb.y for bb in bxs) - 0.5  # type: ignore[union-attr]
+    x1 = max(bb.x + bb.width for bb in bxs) + 0.5  # type: ignore[union-attr]
+    y1 = max(bb.y + bb.height for bb in bxs) + 0.5  # type: ignore[union-attr]
+    _press(tool, x0, y0)
+    _move(tool, x1, y1)
+    _release(tool, x1, y1)
+
+
+class TestPressReleaseSelection:
+    """Selecting on press, but deferring collapse / deselect to a click release.
+
+    A press on an already-selected entity must NOT mutate the selection (so a
+    drag moves the whole multi-selection); if the gesture is a click, the
+    release collapses onto / deselects the entity.
+    """
+
+    def test_press_on_selected_keeps_multiselection_for_drag(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        a = _place(board_view, session, 0.5, 0.5)
+        b = _place(board_view, session, 4.5, 0.5)
+        tool = _v2(board_view)
+        _band_select(tool, session, [a.id, b.id])
+        assert {a.id, b.id} <= _comp_ids(tool)
+        # Press on one of them, then drag — the WHOLE selection must move, so
+        # the press must not have collapsed to the grabbed component.
+        _press(tool, 0.5, 0.5)
+        assert {a.id, b.id} <= _comp_ids(tool)  # still both at press time
+        before_b = session.layout.placements[b.id].position
+        _move(tool, 2.5, 0.5)  # past threshold
+        _release(tool, 2.5, 0.5)
+        after_b = session.layout.placements[b.id].position
+        assert (after_b.x, after_b.y) != (before_b.x, before_b.y)
+
+    def test_click_on_selected_in_multiselection_collapses(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        a = _place(board_view, session, 0.5, 0.5)
+        b = _place(board_view, session, 4.5, 0.5)
+        tool = _v2(board_view)
+        _band_select(tool, session, [a.id, b.id])
+        assert {a.id, b.id} <= _comp_ids(tool)
+        # A click (press+release, no drag) on one collapses to just that one.
+        _click(tool, 0.5, 0.5)
+        assert _comp_ids(tool) == {a.id}
+
+    def test_click_on_sole_selection_deselects(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _click(tool, 0.5, 0.5)
+        assert inst.id in _comp_ids(tool)
+        # Clicking the only selected component again deselects it.
+        _click(tool, 0.5, 0.5)
+        assert _comp_ids(tool) == set()
+
+    def test_click_on_unselected_selects_on_press(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        a = _place(board_view, session, 0.5, 0.5)
+        b = _place(board_view, session, 4.5, 0.5)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)
+        assert _comp_ids(tool) == {a.id}  # selected on press, no release yet
+        _release(tool, 0.5, 0.5)
+        # Pressing an unselected component selects it immediately (on press),
+        # replacing the previous selection.
+        _press(tool, 4.5, 0.5)
+        assert _comp_ids(tool) == {b.id}
+
+
 def _make_group(
     session: EditorSession, component_ids: list, name: str = "G1"
 ):

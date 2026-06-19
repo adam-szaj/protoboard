@@ -103,6 +103,12 @@ class SelectTool(_Tool):
         self._mouse: MouseInputController | None = None
         self._press_pt: QPointF | None = None
         self._band_item: QGraphicsRectItem | None = None
+        # A plain press that landed on an *already-selected* entity defers its
+        # selection change to release: if the gesture turns out to be a click
+        # (no drag), the release collapses the selection onto this entity — or
+        # deselects it when it was the only thing selected.  None when the press
+        # was on something not selected (selection already happened on press).
+        self._deferred_click_sel: Selectable | None = None
         # Live-drag conflict label (corner text).  Lazily built on first
         # conflicting drag step; cleared the moment the drag returns to CLEAR
         # so the frame never lingers after the cursor leaves the conflict zone
@@ -163,6 +169,7 @@ class SelectTool(_Tool):
         self._cancel_gesture()
         self._clear_band()
         self._clear_drag_corner()
+        self._deferred_click_sel = None
         self._redrag_clear()
         self._wire_edit_clear()
 
@@ -299,11 +306,21 @@ class SelectTool(_Tool):
             self._mouse = self._arm_band(scene_pt)
             return True
 
-        #   3b. A plain (no-modifier) press selects the hit, then arms a drag of
-        #   the selection — the controller's own threshold decides drag-vs-click.
-        #   With Ctrl/Shift the press only mutates the set (no drag).
+        #   3b. A plain (no-modifier) press arms a drag of the selection — the
+        #   controller's own threshold decides drag-vs-click.  Selecting happens
+        #   on *press* for instant feedback, with one exception: a press that
+        #   lands on something already selected keeps the current selection
+        #   intact (so a press-drag moves the *whole* multi-selection instead of
+        #   collapsing it to the grabbed item first).  With Ctrl/Shift the press
+        #   only mutates the set (no drag).
         if op is SetOp.SET:
-            self._apply_selection(sel, op, basis)
+            self._deferred_click_sel = None
+            if self._is_already_selected(sel):
+                # Keep the selection intact for a possible drag; if this turns
+                # out to be a click, resolve it on release (collapse / deselect).
+                self._deferred_click_sel = sel
+            else:
+                self._apply_selection(sel, op, basis)
             drag = self._arm_drag(sel, scene_pt)
             if drag is not None:
                 self._mouse = drag
@@ -311,6 +328,29 @@ class SelectTool(_Tool):
 
         self._apply_selection(sel, op, basis)
         return True
+
+    def _is_already_selected(self, sel: Selectable) -> bool:
+        """True when *sel* is part of the current selection.
+
+        Compared by FSM ``Hit`` identity (what the selection is keyed on).  A
+        component grabbed inside an already-selected group counts too — the grab
+        moves that group monolith, so the selection is "already on" the target.
+        """
+        if self._selection is None:
+            return False
+        hit = sel.to_hit()
+        selected_hits = {s.to_hit() for s in self._selection.selected()}
+        if hit in selected_hits:
+            return True
+        # A press on a component locked in a selected group: the drag will move
+        # the group, so treat the group's selection as covering this press.
+        import uuid as _uuid
+
+        if hit.kind == "component" and isinstance(hit.id, _uuid.UUID):
+            gid = self._draggable_group_for(hit.id)
+            if gid is not None and gid in self._selected_group_ids:
+                return True
+        return False
 
     @traced("SelectTool._apply_selection")
     def _apply_selection(
@@ -692,11 +732,43 @@ class SelectTool(_Tool):
         if not mouse.finished:
             return
         self._mouse = None
+        self._resolve_deferred_click(mouse)
         self._clear_drag_corner()
         self._report_drag_outcome(mouse)
         self._refresh_highlight()
         if self._view is not None:
             self._view.refresh()
+
+    def _resolve_deferred_click(self, mouse: MouseInputController) -> None:
+        """Apply the selection change a press-on-selected deferred to release.
+
+        Only fires when the gesture was a click (no drag happened): collapse the
+        selection onto the clicked entity, or — when it was already the sole
+        selection — deselect it.  A real drag consumes the press, so the
+        deferred change is dropped.
+        """
+        sel = self._deferred_click_sel
+        self._deferred_click_sel = None
+        if sel is None:
+            return
+        if not isinstance(mouse, DragController) or not mouse.was_click:
+            return
+        selected = self._selection.selected()
+        sole = len(selected) == 1 and selected[0].to_hit() == sel.to_hit()
+        # Pop the selection back to empty first: the FSM's SET op toggles an
+        # already-selected hit OFF, so a plain ``set`` here would clear instead
+        # of collapsing.  From empty, a fresh ``set`` lands exactly *sel*.
+        self._clear_selection_to_empty()
+        if not sole:
+            self._selection.set(sel)
+        self._refresh_highlight()
+
+    def _clear_selection_to_empty(self) -> None:
+        """Pop every selection layer until nothing is selected (NORMAL state)."""
+        for _ in range(8):  # bounded: selection depth is tiny (primary+multi)
+            if self._selection.is_empty():
+                return
+            self._selection.clear()
 
     def _report_drag_outcome(self, mouse: MouseInputController) -> None:
         """Status-bar toast after a drag auto-commits on release.
