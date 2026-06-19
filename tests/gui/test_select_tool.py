@@ -1337,6 +1337,57 @@ class TestContextMenu:
         all_actions = [a for a in menu.actions() if not a.isSeparator()]
         assert len(all_actions) > len(items)
 
+    def test_component_lock_and_pin_entries(self, qtbot) -> None:
+        """Over a component: lock + clicked-pin assign/disconnect appear."""
+        session, view = _wire_session(qtbot)
+        view.refresh()
+        tool = _v2(view)
+        # X1 is a 1-pin component at (1.5, 1.5), pin 1 bound to the wire's net.
+        inst = next(iter(session.instances.values()))
+        tool._select_primary(inst.id)
+        actions = {d[0] for d in self._menu_datas(tool, 1.5, 1.5)}
+        assert "lock" in actions
+        assert "assign_pin" in actions  # pin under cursor → assign offered
+        assert "disconnect_pin" in actions  # pin 1 is netted → disconnect offered
+
+    def test_lock_action_executes(self, qtbot) -> None:
+        from PySide6.QtCore import QPointF
+
+        session, view = _wire_session(qtbot)
+        view.refresh()
+        tool = _v2(view)
+        inst = next(iter(session.instances.values()))
+        tool._select_primary(inst.id)
+        assert not session.layout.placements[inst.id].locked
+        depth = _depth(session)
+
+        data = next(
+            d for d in self._menu_datas(tool, 1.5, 1.5) if d[0] == "lock"
+        )
+        tool._menu_dispatch(data, QPointF(1.5, 1.5))
+
+        assert _depth(session) == depth + 1
+        assert session.layout.placements[inst.id].locked
+
+    def test_disconnect_pin_executes(self, qtbot) -> None:
+        from PySide6.QtCore import QPointF
+
+        from protoboard.domain.schematic.net import PinRef
+
+        session, view = _wire_session(qtbot)
+        view.refresh()
+        tool = _v2(view)
+        inst = next(iter(session.instances.values()))
+        tool._select_primary(inst.id)
+        ref = PinRef(component_id=inst.id, pin_number=1)
+        assert session.schematic.net_for_pin(ref) is not None  # netted first
+
+        data = next(
+            d for d in self._menu_datas(tool, 1.5, 1.5) if d[0] == "disconnect_pin"
+        )
+        tool._menu_dispatch(data, QPointF(1.5, 1.5))
+        assert session.schematic.net_for_pin(ref) is None  # now disconnected
+
 
 class TestDeleteSelectedWire:
     """Delete on a selected (whole) wire removes it — without entering edit."""

@@ -2605,6 +2605,7 @@ class SelectTool(_Tool):
         items: dict[object, tuple[object, ...]] = {}
         self._menu_add_view_section(menu, items, scene_pt)
         self._menu_add_tool_actions(menu)
+        self._menu_add_component_section(menu, items, comp_id, scene_pt)
         self._menu_add_wire_section(menu, items, wire_id)
         return menu, items
 
@@ -2657,6 +2658,153 @@ class SelectTool(_Tool):
             act.triggered.connect(
                 lambda _checked=False, _a=action_id: view._trigger_tool_action(_a)
             )
+
+    def _menu_clicked_pin(
+        self, scene_pt: QPointF, comp_id: uuid.UUID
+    ) -> int | None:
+        """Pin number of *comp_id* nearest the click (within a pad pitch), else
+        None.  Lets the menu offer pin-aware entries (assign/disconnect) for the
+        exact pin under the cursor."""
+        best: int | None = None
+        best_d = 0.6 * 0.6  # half-pitch², generous (the menu is forgiving)
+        for pin_num, pos in self._session.iter_pin_positions(comp_id):
+            dx = pos.x - scene_pt.x()
+            dy = pos.y - scene_pt.y()
+            d = dx * dx + dy * dy
+            if d <= best_d:
+                best_d = d
+                best = pin_num
+        return best
+
+    def _menu_add_component_section(
+        self,
+        menu: object,
+        items: dict[object, tuple[object, ...]],
+        comp_id: uuid.UUID | None,
+        scene_pt: QPointF,
+    ) -> None:
+        """Component entries — clicked-pin assign/disconnect, lock/unlock,
+        export pins (inside a non-root group), autoroute group.  Mirrors the
+        legacy component section on v2's services."""
+        from PySide6.QtWidgets import QMenu
+
+        assert isinstance(menu, QMenu)
+        if comp_id is None:
+            return
+        inst = self._session.instances.get(comp_id)
+        defn = (
+            self._session.components.get(inst.definition_ref)
+            if inst is not None else None
+        )
+        if inst is None or defn is None:
+            return
+
+        from protoboard.domain.schematic.net import PinRef as _PinRef
+
+        clicked_pin = self._menu_clicked_pin(scene_pt, comp_id)
+
+        # ── Clicked-pin actions (assign always; disconnect when netted) ───────
+        if clicked_pin is not None:
+            pin_name = defn.pin_names.get(clicked_pin, str(clicked_pin))
+            cp_net = self._session.schematic.net_for_pin(
+                _PinRef(component_id=comp_id, pin_number=clicked_pin)
+            )
+            act_assign = menu.addAction(
+                f"Assign pin {clicked_pin} ({pin_name}) to net…"
+            )
+            items[act_assign] = ("assign_pin", comp_id, clicked_pin)
+            if cp_net is not None:
+                act_disc = menu.addAction(
+                    f"Disconnect pin {clicked_pin} ({pin_name})  ←  {cp_net.name}"
+                )
+                items[act_disc] = ("disconnect_pin", comp_id, clicked_pin)
+            menu.addSeparator()
+
+        # ── Lock / Unlock (whole current selection, falling back to clicked) ──
+        lock_targets: set[uuid.UUID] = {comp_id} | set(self._selected_ids)
+        placements = self._session.layout.placements
+        present = [t for t in lock_targets if t in placements]
+        if present:
+            any_locked = any(placements[t].locked for t in present)
+            all_locked = all(placements[t].locked for t in present)
+            if len(present) == 1:
+                locked = placements[present[0]].locked
+                act_lock = menu.addAction(
+                    f"\U0001f513 Unlock" if locked else f"\U0001f512 Lock"
+                )
+                items[act_lock] = ("lock", set(present), not locked)
+            else:
+                act_lock_all = menu.addAction(
+                    f"\U0001f512 Lock all ({len(present)})"
+                )
+                items[act_lock_all] = ("lock", set(present), True)
+                act_lock_all.setEnabled(not all_locked)
+                act_unlock_all = menu.addAction(
+                    f"\U0001f513 Unlock all ({len(present)})"
+                )
+                items[act_unlock_all] = ("lock", set(present), False)
+                act_unlock_all.setEnabled(any_locked)
+
+        # ── Export pins + autoroute, inside a non-root active group ───────────
+        self._menu_add_export_section(menu, items, comp_id, defn, clicked_pin)
+
+    def _menu_add_export_section(
+        self,
+        menu: object,
+        items: dict[object, tuple[object, ...]],
+        comp_id: uuid.UUID,
+        defn: object,
+        clicked_pin: int | None,
+    ) -> None:
+        from PySide6.QtWidgets import QMenu
+
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.domain.schematic.net import PinRef as _PinRef
+
+        assert isinstance(menu, QMenu)
+        active_gid = self._current_group_id
+        if active_gid == ROOT_GROUP_ID:
+            return
+        active_grp = self._session.layout.groups.get(active_gid)
+        if active_grp is None:
+            return
+
+        is_direct = comp_id in active_grp.component_ids
+        reexport_children = [
+            (cid, self._session.layout.groups[cid])
+            for cid in active_grp.child_group_ids
+            if cid in self._session.layout.groups
+            and self._session.layout.groups[cid].exported_pins
+        ]
+        if is_direct or reexport_children:
+            inst = self._session.instances.get(comp_id)
+            refdes = inst.refdes if inst is not None else "?"
+            sm = menu.addMenu(f"{refdes} — export/unexport pins…")
+            act_all = sm.addAction("Export all pins")
+            items[act_all] = ("export_all_pins", active_gid)
+            act_auto = sm.addAction("Export auto (pins on external nets)")
+            items[act_auto] = ("export_auto_pins", active_gid)
+            act_clear = sm.addAction("Unexport all pins")
+            items[act_clear] = ("clear_all_pins", active_gid)
+            sm.addSeparator()
+            if is_direct:
+                pin_count = defn.footprint.pin_count()  # type: ignore[attr-defined]
+                pin_names = defn.pin_names  # type: ignore[attr-defined]
+                for pin_num in range(1, pin_count + 1):
+                    ep = _PinRef(component_id=comp_id, pin_number=pin_num)
+                    pin_name = pin_names.get(pin_num, str(pin_num))
+                    already = ep in active_grp.exported_pins
+                    marker = " ◀" if pin_num == clicked_pin else ""
+                    label = (
+                        f"✓ Unexport pin {pin_num} ({pin_name}){marker}"
+                        if already
+                        else f"  Export pin {pin_num} ({pin_name}){marker}"
+                    )
+                    act = sm.addAction(label)
+                    items[act] = ("export_pin", active_gid, ep, already)
+
+        act_ar = menu.addAction("Autoroute group (internal connections)")
+        items[act_ar] = ("autoroute_group", active_gid)
 
     def _menu_add_wire_section(
         self,
@@ -2757,6 +2905,24 @@ class SelectTool(_Tool):
             self._view.center_on_scene_point(cast("QPointF", data[1]))
         elif action == "view_escape":
             self._view.escape_tool.emit()
+        elif action == "lock":
+            self._menu_lock(
+                cast("set[uuid.UUID]", data[1]), cast(bool, data[2])
+            )
+        elif action == "assign_pin":
+            self._menu_assign_pin(
+                cast("uuid.UUID", data[1]), cast(int, data[2])
+            )
+        elif action == "disconnect_pin":
+            self._menu_disconnect_pin(
+                cast("uuid.UUID", data[1]), cast(int, data[2])
+            )
+        elif action in (
+            "export_pin", "export_all_pins", "export_auto_pins", "clear_all_pins"
+        ):
+            self._menu_export(action, data)
+        elif action == "autoroute_group":
+            self._menu_autoroute_group()
         elif action == "wire_insulated":
             self._menu_set_wire_insulated(
                 cast("set[uuid.UUID]", data[1]), cast(bool, data[2])
@@ -2824,6 +2990,84 @@ class SelectTool(_Tool):
         )
         self._execute_command(cmd)
         self._session.layout_changed.emit()
+
+    def _menu_lock(self, comp_ids: set[uuid.UUID], locked: bool) -> None:
+        from protoboard.domain.commands.base import MacroCommand
+        from protoboard.domain.commands.component_cmds import (
+            LockComponentCommand,
+        )
+
+        cmds = [
+            LockComponentCommand(component_id=t, locked=locked)
+            for t in comp_ids if t in self._session.layout.placements
+        ]
+        if not cmds:
+            return
+        cmd = cmds[0] if len(cmds) == 1 else MacroCommand(
+            cmds,  # type: ignore[arg-type]
+            description=f"{'Lock' if locked else 'Unlock'} {len(cmds)} component(s)",
+        )
+        self._execute_command(cmd)
+        self._session.layout_changed.emit()
+
+    def _menu_assign_pin(self, comp_id: uuid.UUID, pin_num: int) -> None:
+        """Delegate to MainWindow's parameterised assign dialog (single source
+        with the Nets panel UX)."""
+        mw = self._view.window() if self._view is not None else None
+        slot = getattr(mw, "_pin_assign_net_for", None)
+        if callable(slot):
+            slot(comp_id, pin_num)
+
+    def _menu_disconnect_pin(self, comp_id: uuid.UUID, pin_num: int) -> None:
+        from protoboard.domain.commands.component_cmds import (
+            DisconnectPinCommand,
+        )
+
+        self._execute_command(
+            DisconnectPinCommand(component_id=comp_id, pin_number=pin_num)
+        )
+        self._session.layout_changed.emit()
+
+    def _menu_export(self, action: object, data: tuple[object, ...]) -> None:
+        from typing import cast
+
+        from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
+
+        group_id = cast("uuid.UUID", data[1])
+        grp = self._session.layout.groups.get(group_id)
+        if grp is None:
+            return
+        if action == "export_pin":
+            ep = data[2]
+            already = cast(bool, data[3])
+            new_exported = (
+                grp.exported_pins - {ep} if already
+                else grp.exported_pins | {ep}
+            )
+        elif action == "export_all_pins":
+            new_exported = self._session.group_tree().exposable_surface(
+                group_id, self._session.instances, self._session.components,
+            )
+        elif action == "export_auto_pins":
+            new_exported = self._session.group_tree().external_pins_for_group(
+                group_id, self._session.schematic,
+            )
+        else:  # clear_all_pins
+            new_exported = frozenset()
+        if new_exported != grp.exported_pins:
+            self._execute_command(
+                SetExportedPinsCommand(
+                    group_id=group_id, new_exported=new_exported
+                )
+            )
+            self._session.layout_changed.emit()
+
+    def _menu_autoroute_group(self) -> None:
+        """Delegate to MainWindow's group-autoroute slot (worker plumbing)."""
+        mw = self._view.window() if self._view is not None else None
+        slot = getattr(mw, "_group_autoroute", None)
+        if callable(slot):
+            slot()
 
     def _is_editing_wire(self) -> bool:
         """True when a wire fragment is selected (the wire-edit ``WireEditState``)."""
