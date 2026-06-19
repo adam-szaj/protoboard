@@ -2606,6 +2606,8 @@ class SelectTool(_Tool):
         self._menu_add_view_section(menu, items, scene_pt)
         self._menu_add_tool_actions(menu)
         self._menu_add_component_section(menu, items, comp_id, scene_pt)
+        self._menu_add_select_section(menu, items, comp_id, wire_id)
+        self._menu_add_highlight_section(menu, items)
         self._menu_add_wire_section(menu, items, wire_id)
         return menu, items
 
@@ -2806,6 +2808,78 @@ class SelectTool(_Tool):
         act_ar = menu.addAction("Autoroute group (internal connections)")
         items[act_ar] = ("autoroute_group", active_gid)
 
+    def _menu_add_select_section(
+        self,
+        menu: object,
+        items: dict[object, tuple[object, ...]],
+        comp_id: uuid.UUID | None,
+        wire_id: uuid.UUID | None,
+    ) -> None:
+        """Select-by-net entries — promote the click to its whole net(s).
+
+        Built on v2's :class:`SessionConnQuery` (click → net ids) +
+        :class:`SessionNetSource` (net → member comp/wire ids).  Simpler than
+        the legacy section (no name-based global-net exclusion, no physical-vs-
+        logical split) but covers the common "select the rest of this net"."""
+        from PySide6.QtWidgets import QMenu
+
+        from protoboard.gui.selection.queries import SessionConnQuery
+
+        assert isinstance(menu, QMenu)
+        conn = SessionConnQuery(self._session)
+        net_ids: list[uuid.UUID] = []
+        if comp_id is not None:
+            net_ids = list(conn.nets_for_component(comp_id))
+        elif wire_id is not None:
+            nid = conn.net_for_wire(wire_id)
+            if nid is not None:
+                net_ids = [nid]
+        if not net_ids:
+            return
+
+        menu.addSection("Select")
+        nets = self._session.schematic.nets
+
+        def _net_name(nid: uuid.UUID) -> str:
+            n = nets.get(nid)
+            return n.name if n is not None else str(nid)[:8]
+
+        if len(net_ids) == 1:
+            nid = net_ids[0]
+            act_c = menu.addAction(f"Components in net '{_net_name(nid)}'")
+            items[act_c] = ("select_net_components", (nid,))
+            act_w = menu.addAction(f"Wires of net '{_net_name(nid)}'")
+            items[act_w] = ("select_net_wires", (nid,))
+            act_b = menu.addAction(f"Wires + components of net '{_net_name(nid)}'")
+            items[act_b] = ("select_net_all", (nid,))
+        else:
+            ids_t = tuple(net_ids)
+            act_c = menu.addAction("Components in same nets")
+            items[act_c] = ("select_net_components", ids_t)
+            act_w = menu.addAction("Wires of same nets")
+            items[act_w] = ("select_net_wires", ids_t)
+            act_b = menu.addAction("Wires + components of all nets")
+            items[act_b] = ("select_net_all", ids_t)
+            sm = menu.addMenu("Net…")
+            for nid in net_ids:
+                act = sm.addAction(_net_name(nid))
+                items[act] = ("select_net_all", (nid,))
+
+    def _menu_add_highlight_section(
+        self, menu: object, items: dict[object, tuple[object, ...]]
+    ) -> None:
+        """Persistent-highlight entries — push the selection at strong dimming,
+        or clear an active persistent highlight."""
+        from PySide6.QtWidgets import QMenu
+
+        assert isinstance(menu, QMenu)
+        menu.addSection("Highlight")
+        act_hl = menu.addAction("Highlight selection (Dimmed #2)")
+        items[act_hl] = ("highlight_selection",)
+        act_clear = menu.addAction("Clear highlight")
+        items[act_clear] = ("clear_highlight",)
+        act_clear.setEnabled(self._session.highlight_stack.has_persistent())
+
     def _menu_add_wire_section(
         self,
         menu: object,
@@ -2923,6 +2997,16 @@ class SelectTool(_Tool):
             self._menu_export(action, data)
         elif action == "autoroute_group":
             self._menu_autoroute_group()
+        elif action in (
+            "select_net_components", "select_net_wires", "select_net_all"
+        ):
+            self._menu_select_net(
+                action, cast("tuple[uuid.UUID, ...]", data[1])
+            )
+        elif action == "highlight_selection":
+            self._menu_highlight_selection()
+        elif action == "clear_highlight":
+            self._session.highlight_stack.clear()
         elif action == "wire_insulated":
             self._menu_set_wire_insulated(
                 cast("set[uuid.UUID]", data[1]), cast(bool, data[2])
@@ -3068,6 +3152,46 @@ class SelectTool(_Tool):
         slot = getattr(mw, "_group_autoroute", None)
         if callable(slot):
             slot()
+
+    def _menu_select_net(
+        self, action: object, net_ids: tuple[uuid.UUID, ...]
+    ) -> None:
+        """Replace the selection with the components and/or wires of *net_ids*."""
+        from protoboard.gui.selection.queries import SessionNetSource
+
+        src = SessionNetSource(self._session)
+        comp_ids: set[uuid.UUID] = set()
+        wire_ids: set[uuid.UUID] = set()
+        want_comps = action in ("select_net_components", "select_net_all")
+        want_wires = action in ("select_net_wires", "select_net_all")
+        for nid in net_ids:
+            if want_comps:
+                comp_ids |= set(src.net_component_ids(nid))
+            if want_wires:
+                wire_ids |= set(src.wire_ids_on_net(nid))
+        self._set_selection_from_ids(comp_ids, wire_ids, set())
+        self._notify_selection()
+
+    def _menu_highlight_selection(self) -> None:
+        """Push the current selection onto the highlight stack at strong dimming
+        (persistent #2) — the "spotlight this" action."""
+        from protoboard.gui.highlight_state import (
+            PROFILE_DIMMED_2,
+            HighlightEntry,
+        )
+
+        comp_ids = frozenset(self._selected_ids)
+        wire_ids = frozenset(self._selected_wire_ids)
+        if not comp_ids and not wire_ids:
+            return
+        self._session.highlight_stack.push(
+            HighlightEntry(
+                comp_ids=comp_ids,
+                wire_ids=wire_ids,
+                profile=PROFILE_DIMMED_2,
+                label="User",
+            )
+        )
 
     def _is_editing_wire(self) -> bool:
         """True when a wire fragment is selected (the wire-edit ``WireEditState``)."""

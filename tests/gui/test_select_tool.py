@@ -1388,6 +1388,56 @@ class TestContextMenu:
         tool._menu_dispatch(data, QPointF(1.5, 1.5))
         assert session.schematic.net_for_pin(ref) is None  # now disconnected
 
+    def test_select_section_present_over_wire(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        actions = {d[0] for d in self._menu_datas(tool, 2.5, 1.5)}
+        # The wire is on a net → select-by-net entries appear.
+        assert "select_net_components" in actions
+        assert "select_net_wires" in actions
+        assert "select_net_all" in actions
+
+    def test_select_net_wires_promotes_selection(self, qtbot) -> None:
+        from PySide6.QtCore import QPointF
+
+        session, view = _wire_session(qtbot)
+        view.refresh()
+        tool = _v2(view)
+        # Start from a component selection, then "Wires of net" → wire selected.
+        inst = next(iter(session.instances.values()))
+        tool._select_primary(inst.id)
+        wire = next(iter(session.layout.wires))
+
+        data = next(
+            d for d in self._menu_datas(tool, 1.5, 1.5)
+            if d[0] == "select_net_wires"
+        )
+        tool._menu_dispatch(data, QPointF(1.5, 1.5))
+        assert wire.id in tool._selected_wire_ids
+
+    def test_highlight_section_and_push(self, qtbot) -> None:
+        from PySide6.QtCore import QPointF
+
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        actions = {d[0] for d in self._menu_datas(tool, 2.5, 1.5)}
+        assert "highlight_selection" in actions
+        assert "clear_highlight" in actions
+
+        assert not session.highlight_stack.has_persistent()
+        data = next(
+            d for d in self._menu_datas(tool, 2.5, 1.5)
+            if d[0] == "highlight_selection"
+        )
+        tool._menu_dispatch(data, QPointF(2.5, 1.5))
+        assert session.highlight_stack.has_persistent()  # selection spotlit
+
+        # Clear removes it.
+        tool._menu_dispatch(("clear_highlight",), QPointF(2.5, 1.5))
+        assert not session.highlight_stack.has_persistent()
+
 
 class TestDeleteSelectedWire:
     """Delete on a selected (whole) wire removes it — without entering edit."""
