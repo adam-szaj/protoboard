@@ -1739,16 +1739,41 @@ class SelectTool(_Tool):
         self._reroute_live = line
 
     def _reroute_anchor(self) -> Point | None:
-        """The point a new reroute segment starts from (last waypoint or start)."""
+        """The point a new reroute segment starts from (last waypoint or start).
+
+        Single source of truth — the live :class:`PickSession`'s collected
+        waypoints, the same list ``_reroute_progress`` draws the committed
+        polyline from.  ``state.waypoints`` is only populated at commit time
+        (``with_waypoints``), so reading it here would make every live segment
+        start from the fragment start instead of the last picked pad — the same
+        anchoring RouteTool gets for free from its single ``_points`` list.
+        """
         state = self._wire_edit
         if state is None:
             return None
-        if state.waypoints:
-            return state.waypoints[-1]
+        last = self._reroute_last_picked_point()
+        if last is not None:
+            return last
         wire = self._wire_by_id(state.start_wire_id)
         if wire is None:
             return None
         return wire.path[state.start_idx]
+
+    def _reroute_last_picked_point(self) -> Point | None:
+        """The last confirmed waypoint from the active pick, or None.
+
+        Reaches into ``self._mouse`` (the parked ``PointPickController``) for
+        its ``PickSession.collected`` list — the authoritative, live record of
+        what the user has clicked so far this reroute.
+        """
+        from protoboard.gui.selection.adapters import PointSelectable
+
+        mouse = self._mouse
+        session = getattr(mouse, "session", None)
+        if session is None:
+            return None
+        pts = [p.point for p in session.collected if isinstance(p, PointSelectable)]
+        return pts[-1] if pts else None
 
     def _commit_reroute(self, picked: list[Selectable]) -> None:
         """Commit the reroute: build the path command and execute it."""

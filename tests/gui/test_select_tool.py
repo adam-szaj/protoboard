@@ -1123,6 +1123,39 @@ class TestWireEdit:
         _key(tool, Qt.Key.Key_Backspace)  # UNDO drops the waypoint
         assert len(pick.collected) == 0
 
+    def test_reroute_live_anchor_follows_last_waypoint(self, qtbot) -> None:
+        """The live rubber-band starts from the last picked pad, not the start.
+
+        Regression: ``_reroute_anchor`` read ``state.waypoints`` (only filled at
+        commit) so every live segment was drawn from the fragment start.  It now
+        reads the live ``PickSession``, like RouteTool's single ``_points``.
+        """
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)
+        _click(tool, 3.5, 1.5)
+        state = tool._wire_edit
+        assert state is not None
+        wire = tool._wire_by_id(state.start_wire_id)
+        assert wire is not None
+        frag_start = wire.path[state.start_idx]
+
+        _key(tool, Qt.Key.Key_W)  # arm reroute
+        # Before any waypoint: anchor is the fragment start.
+        assert tool._reroute_anchor() == frag_start
+
+        _click(tool, 3.0, 2.5)  # one waypoint (snaps to nearest pad)
+        # After picking: anchor follows the last picked pad, not the start.
+        pick = tool._selection.active_pick
+        assert pick is not None and len(pick.collected) == 1
+        picked_pt = pick.collected[-1].point
+        anchor = tool._reroute_anchor()
+        assert anchor == picked_pt
+        assert anchor != frag_start
+
     def test_press_elsewhere_cancels_fragment(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
         tool = _v2(view)
