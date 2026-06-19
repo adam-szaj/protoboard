@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Wizualny feedback armed-rotate (2026-06-19)
+
+Armed-rotate nie dawał sygnału, że trwa: obrót nie był widać, brak markera
+„wokół czego", konflikty tylko czasem. Naprawione:
+
+* **Obrót renderuje się** — `_rotate_preview` woła `view.refresh()` (re-render
+  ciał w nowej orientacji) zamiast translacyjnego glide `drag_moved`, który
+  ruszał tylko pozycję (per-object pivot = dx/dy 0 → ciało wyglądało
+  nieobrócone). Move dalej używa taniego glide (czysta translacja).
+* **Marker pivota** (`select_color` pomarańcz `⊕`) — pokazuje WOKÓŁ CZEGO się
+  obraca: shared pivot (klik pada) = jeden duży marker na padzie; per-object =
+  mały marker na środku każdego obracanego obiektu. Rysowany od uzbrojenia,
+  re-drawn po każdym refreshu, czyszczony przy disarm + scene-clear.
+* **Konflikty** — corner-text amber (SOFT) / red (HARD) wyciągnięty do
+  współdzielonego `_show_conflict_corner` (drag + rotate identycznie).
+* 1 test (`test_pivot_markers_shown_while_armed_cleared_on_disarm`); 894 GUI
+  green; `ArmedRotate.comp_ids` property dla overlayu.
+
 ### Atomowe `[arm, action, disarm]` caller-API (2026-06-19)
 
 `SelectTool._invoke_armed_atomic(arm, action)` — programmatyczna forma kształtu

@@ -150,6 +150,11 @@ class SelectTool(_Tool):
         self._redrag_comp_id: uuid.UUID | None = None
         self._redrag_pin: int | None = None
         self._redrag_items: list[QGraphicsItem] = []
+        # Armed-rotate pivot markers: re-drawn after each preview refresh (which
+        # rebuilds the scene), so a rotating selection visibly shows *what it
+        # spins around* — one marker per object (per-object pivot) or one on the
+        # shared pad.  Cleared on disarm + scene-clear.
+        self._pivot_marker_items: list[QGraphicsItem] = []
         # Wire-edit: the selected fragment (tool-local, like _rotate_pivot) plus
         # the cluster-cycle state threaded through the wire-vertex pick.  The
         # operations on the fragment (reroute / autoroute / delete) are actions
@@ -211,6 +216,7 @@ class SelectTool(_Tool):
         self._wire_edit_items = []
         self._reroute_items = []
         self._reroute_live = None
+        self._pivot_marker_items = []
         self._drag_corner = None
 
     # -- helpers ------------------------------------------------------------
@@ -998,6 +1004,15 @@ class SelectTool(_Tool):
         self._session.drag_moved.emit()
 
         # 2) Conflict label — built lazily, cleared whenever the drop is clear.
+        self._show_conflict_corner(decision)
+
+    def _show_conflict_corner(self, decision: DragCommitDecision | None) -> None:
+        """Show/clear the corner conflict label for a live preview decision.
+
+        Shared by drag and armed-rotate previews: SOFT amber / HARD red while
+        conflicting, hidden the instant the state is CLEAR (or ``None``) so the
+        frame never lingers.
+        """
         from protoboard.gui.tools.drag_commit_decision import DragSeverity
 
         if decision is None or decision.severity is DragSeverity.CLEAR:
@@ -1012,6 +1027,73 @@ class SelectTool(_Tool):
             else "Drops/edits some wires on release"
         )
         self._show_drag_corner(text, color)
+
+    def _rotate_preview(self, decision: DragCommitDecision | None) -> None:
+        """Live armed-rotate feedback: re-render the rotated bodies + conflict.
+
+        Unlike a drag (pure translation → cheap ``setPos`` glide via
+        ``drag_moved``), a rotation changes each body's *orientation* and pin
+        layout, which the glide cannot show — so a rotate step needs a real
+        ``refresh()`` to re-render at the new angle.  The conflict corner is
+        shared with the drag path so HARD/SOFT feedback looks identical.
+        """
+        if self._view is not None:
+            self._view.refresh()  # rebuilds the scene → markers must be re-drawn
+        self._draw_pivot_markers()
+        self._show_conflict_corner(decision)
+
+    def _draw_pivot_markers(self) -> None:
+        """Draw the armed-rotate pivot marker(s): what the selection spins around.
+
+        Shared pad pivot → one marker on that pad; per-object → one on each
+        rotating component's centre.  Re-drawn after every preview ``refresh``
+        (which clears the scene), and cleared on disarm.  No-op unless an
+        :class:`ArmedRotate` is active.
+        """
+        from protoboard.gui.selection.armed_rotate import ArmedRotate
+
+        self._clear_pivot_markers()
+        armed = self._armed
+        if not isinstance(armed, ArmedRotate) or self._view is None:
+            return
+        if armed.pivot is not None:
+            self._add_pivot_marker(armed.pivot, shared=True)
+        else:
+            for cid in armed.comp_ids:
+                pl = self._session.layout.placements.get(cid)
+                if pl is not None:
+                    self._add_pivot_marker(pl.position, shared=False)
+
+    def _add_pivot_marker(self, pos: Point, *, shared: bool) -> None:
+        """Add one pivot marker (a ⊕ glyph) at *pos*; track it for cleanup."""
+        from PySide6.QtGui import QPen
+        from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem
+
+        # Shared pivot is bigger + brighter (it governs the whole selection);
+        # per-object markers are small.  Orange = "transforming" (distinct from
+        # the cyan static-selection outline).
+        orange = QColor(255, 150, 0, 230)
+        r = 0.34 if shared else 0.18
+        pen = QPen(orange, 0.06 if shared else 0.04)
+        ring = QGraphicsEllipseItem(pos.x - r, pos.y - r, 2 * r, 2 * r)
+        ring.setPen(pen)
+        ring.setZValue(21.0)
+        self._view.scene().addItem(ring)
+        self._pivot_marker_items.append(ring)
+        for dx, dy in ((-r, 0.0), (r, 0.0), (0.0, -r), (0.0, r)):
+            cross = QGraphicsLineItem(pos.x, pos.y, pos.x + dx, pos.y + dy)
+            cross.setPen(pen)
+            cross.setZValue(21.0)
+            self._view.scene().addItem(cross)
+            self._pivot_marker_items.append(cross)
+
+    def _clear_pivot_markers(self) -> None:
+        for item in self._pivot_marker_items:
+            try:
+                self._view.scene().removeItem(item)
+            except RuntimeError:
+                pass
+        self._pivot_marker_items = []
 
     def _show_drag_corner(self, text: str, color: QColor) -> None:
         from protoboard.gui.tools.drag_corner_text import DragCornerText
@@ -2057,6 +2139,7 @@ class SelectTool(_Tool):
             armed.cancel()
         self._armed = None
         self._mouse = None
+        self._clear_pivot_markers()
         self._clear_drag_corner()
         self._refresh_highlight()
         if self._view is not None:
@@ -2130,9 +2213,10 @@ class SelectTool(_Tool):
             snap=self._snap_free,
             commit=self._execute_command,
             pivot=seed,
-            preview=self._drag_preview,
+            preview=self._rotate_preview,
             status=lambda msg: self._status(msg, 0),
         )
+        self._draw_pivot_markers()  # show the pivot(s) the instant we arm
         self._status(self._armed.status_hint(), 0)
 
     def _rotatable_affected(self) -> tuple[frozenset[uuid.UUID], uuid.UUID | None]:

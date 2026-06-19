@@ -428,6 +428,19 @@ class TestArmedRotate:
         after = session.layout.placements[inst.id].position
         assert (after.x, after.y) != (before.x, before.y)
 
+    def test_pivot_markers_shown_while_armed_cleared_on_disarm(
+        self, board_view, session
+    ) -> None:
+        # Visual feedback: arming draws pivot marker(s); disarm clears them.
+        inst, tool = self._armed(board_view, session)
+        assert tool._pivot_marker_items  # per-object marker drawn on arm
+        _press(tool, 3.0, 3.0)  # shared pad pivot
+        assert tool._armed is not None and tool._armed.pivot is not None
+        assert tool._pivot_marker_items  # re-drawn on the shared pad
+        _key(tool, Qt.Key.Key_Escape)  # cancel → disarm
+        assert tool._armed is None
+        assert tool._pivot_marker_items == []  # markers cleared
+
     def test_accept_parks_armed_on_conflict(self, board_view, session) -> None:
         # Conditional-disarm contract: an accept that cannot commit (HARD
         # conflict) leaves the sub-tool armed, waiting — it does NOT disarm.

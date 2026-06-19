@@ -82,6 +82,11 @@ class ArmedRotate:
     def pivot(self) -> Point | None:
         return self._pivot
 
+    @property
+    def comp_ids(self) -> frozenset[uuid.UUID]:
+        """The components being rotated — for the pivot-marker overlay."""
+        return self._comp_ids
+
     def status_hint(self) -> str:
         piv = "shared pad pivot" if self._pivot is not None else "per-object"
         return (
