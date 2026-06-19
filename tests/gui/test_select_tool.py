@@ -889,6 +889,23 @@ class TestWireEdit:
         assert tool._selection.active_pick is None
         assert tool._wire_edit is None
 
+    def test_menu_action_arms_wire_edit(self, qtbot) -> None:
+        # The Edit ► Design ► Wire ► Edit Path menu entry delegates to the same
+        # public arm_wire_edit() the [E] key uses — one behaviour, two surfaces.
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        tool.arm_wire_edit()
+        assert tool._selection.active_pick is not None  # vertex pick armed
+
+    def test_menu_action_has_no_shortcut(self) -> None:
+        # The menu surface must carry no QShortcut: the live [E] keystroke is
+        # owned by the namespaced select-tool.action.edit, so a non-empty
+        # default here would mint a second, competing binding for one op.
+        from protoboard.gui import keybindings as KB
+
+        assert KB.DEFAULTS[KB.ACTION_WIRE_EDIT] == ""
+
 
 def _key_event(key: Qt.Key) -> QKeyEvent:
     return QKeyEvent(QKeyEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)

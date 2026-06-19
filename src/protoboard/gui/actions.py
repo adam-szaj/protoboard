@@ -207,6 +207,10 @@ ALL_ACTIONS: tuple[ActionSpec, ...] = (
     ActionSpec(id=KB.ACTION_WIRE_MOVE_TO_TOP,       label="Wire: Move to &Top Layer",    slot_name="_move_selected_wires_to_side", menu_path=_EDIT_DESIGN_WIRE, shortcut_args=("top",)),
     ActionSpec(id=KB.ACTION_WIRE_MOVE_TO_BOTTOM,    label="Wire: Move to &Bottom Layer", slot_name="_move_selected_wires_to_side", menu_path=_EDIT_DESIGN_WIRE, shortcut_args=("bottom",)),
     ActionSpec(id=KB.ACTION_WIRE_FLIP,              label="Wire: &Flip to Opposite Layer", slot_name="_wire_flip_action", menu_path=_EDIT_DESIGN_WIRE),
+    # Menu surface for wire-edit.  No shortcut here (default empty in keybindings)
+    # — the live [E] keystroke is owned by the namespaced select-tool.action.edit;
+    # the slot just delegates to the active SelectTool's arm_wire_edit().
+    ActionSpec(id=KB.ACTION_WIRE_EDIT,              label="Wire: &Edit Path", slot_name="_wire_edit_action", menu_path=_EDIT_DESIGN_WIRE),
     ActionSpec(id=KB.ACTION_TOOL_SIMPLIFY,          label="Simplify &Wire Tool", slot_name="_tool_simplify",     menu_path=_EDIT_DESIGN_WIRE, checkable=True, action_group="tool", separator_before=True),
     ActionSpec(id=KB.ACTION_SIMPLIFY_WIRE,          label="Simplify Selected Wires", slot_name="_simplify_selected_wires", menu_path=_EDIT_DESIGN_WIRE),
     ActionSpec(id=KB.ACTION_UNWEAVE_WIRES,          label="Unweave Selected Wires",  slot_name="_unweave_selected_wires",  menu_path=_EDIT_DESIGN_WIRE),

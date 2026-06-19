@@ -54,6 +54,11 @@ ACTION_WIRE_MOVE_TO_BOTTOM = "wire_move_to_bottom"
 ACTION_WIRE_FLIP = "wire_flip"
 ACTION_WIRE_CONVERT_TO_WIRE_PIN = "wire_convert_to_wire_pin"
 ACTION_WIRE_CONVERT_FROM_WIRE_PIN = "wire_convert_from_wire_pin"
+# Menu surface only — the live [E] keystroke is owned by the namespaced
+# ``select-tool.action.edit`` in the KeyMap (see select_tool.py).  This action
+# exists so wire-edit has a discoverable Edit ► Design ► Wire menu entry; its
+# default shortcut is empty so no QShortcut competes with the tool binding.
+ACTION_WIRE_EDIT = "wire_edit"
 
 ACTION_DISCONNECT_PIN = "disconnect_pin"
 
@@ -207,6 +212,7 @@ DEFAULTS: dict[str, str] = {
     ACTION_WIRE_FLIP: "Ctrl+F",
     ACTION_WIRE_CONVERT_TO_WIRE_PIN: "",
     ACTION_WIRE_CONVERT_FROM_WIRE_PIN: "",
+    ACTION_WIRE_EDIT: "",  # menu-only; live key is select-tool.action.edit ([E])
     ACTION_DISCONNECT_PIN: "",
     ACTION_TOOL_SELECT: "S",
     ACTION_TOOL_ROUTE: "W",
@@ -312,6 +318,7 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_WIRE_FLIP: "Wire: Flip to Opposite Layer",
     ACTION_WIRE_CONVERT_TO_WIRE_PIN: "Wire: Convert Endpoint to Wire-pin",
     ACTION_WIRE_CONVERT_FROM_WIRE_PIN: "Wire: Convert Wire-pin Back to Endpoint",
+    ACTION_WIRE_EDIT: "Wire: Edit Path",
     ACTION_DISCONNECT_PIN: "Disconnect Pin from Net",
     ACTION_TOOL_SELECT: "Select Tool",
     ACTION_TOOL_ROUTE: "Route Wire Tool",

@@ -1065,6 +1065,19 @@ class MainWindow(QMainWindow):
     def _wire_flip_action(self) -> None:
         self._move_selected_wires_to_side(None)
 
+    def _wire_edit_action(self) -> None:
+        """Menu entry for wire-edit — delegates to the active SelectTool.
+
+        The live ``[E]`` keystroke is owned by the namespaced
+        ``select-tool.action.edit`` in the KeyMap; this slot is the menu-bar
+        surface (Edit ► Design ► Wire ► Edit Path).  ``arm_wire_edit`` itself
+        reports a status hint when no wire is selected.
+        """
+        tool = self._get_select_tool()
+        if tool is None:
+            return
+        tool.arm_wire_edit()
+
     def _zoom_in(self) -> None:
         self._board_view.zoom_by(1.3)
 

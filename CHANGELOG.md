@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Wire-edit jako akcja menu (2026-06-19)
+
+Operacja wire-edit dostała wpis w pasku menu **Edit ► Design ► Wire ►
+Edit Path**, domykając ostatnią lukę zadania „wire-edit w rejestrze akcji".
+Po refaktorze namespaced-KeyMap (keybindings #1–#6) klawisz `[E]` nie jest
+już zahardkodowany — to akcja `select-tool.action.edit` (dziedziczy globalny
+`E`), przebindowalna, widoczna w nakładce `[?]` i menu PPM. Pozostawała tylko
+powierzchnia paska menu.
+
+* **Brak drugiego bindingu**: nowa akcja `ACTION_WIRE_EDIT` ma domyślny skrót
+  pusty — `build_actions` nie tworzy dla niej `QShortcut`, więc żywy `[E]`
+  należy wyłącznie do namespaced-KeyMap (zero konkurencyjnych bindów na jedną
+  operację — zgodnie z wizją „bez równoległej maszynerii").
+* Slot `MainWindow._wire_edit_action` deleguje do publicznego
+  `SelectTool.arm_wire_edit()` — jedno zachowanie, dwie powierzchnie
+  (klawisz + menu), wzorem `_exit_group` / `_redrag_pins`.
+* Spełnia [[every-action-has-keybinding]]: pozycja menu ma `action-id`
+  (skrót może być pusty).
+
 ### SelectTool przepisany na serwis (2026-06-18)
 
 Monolit `gui/tools/select_tool.py` (9568 LoC, 195 metod, 60 pól w jednej
