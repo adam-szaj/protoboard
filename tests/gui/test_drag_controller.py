@@ -31,6 +31,10 @@ from protoboard.gui.selection.drag_controller import (
 )
 from protoboard.gui.selection.mouse_input import Intent, Mods
 from protoboard.gui.session import EditorSession
+from protoboard.gui.tools.drag_commit_decision import (
+    DragCommitDecision,
+    DragSeverity,
+)
 from protoboard.gui.tools.place_tool import PlaceTool
 
 _NO_MODS = Mods()
@@ -222,3 +226,90 @@ class TestFloating:
         ctrl.on_event(Intent.CANCEL)
         assert session.layout.placements[inst.id].position == orig
         assert ctrl.finished is True
+
+
+def _stub_classify(
+    ctrl: DragController, severity_at_x: dict[float, DragSeverity]
+) -> None:
+    """Make ``ctrl._classify`` return a severity that depends on the live x.
+
+    Keyed on the dragged component's *current* position so a test can stage a
+    trajectory that passes through a conflicting x and releases on a clear one —
+    exercising the release-time re-classification.
+    """
+    comp_id = next(iter(ctrl.member_ids))
+
+    def fake() -> DragCommitDecision:
+        x = ctrl._ctx.layout.placements[comp_id].position.x  # type: ignore[attr-defined]
+        sev = severity_at_x.get(round(x, 3), DragSeverity.CLEAR)
+        return DragCommitDecision(severity=sev)
+
+    ctrl._classify = fake  # type: ignore[method-assign]
+
+
+class TestReleaseReclassifies:
+    """Release acts on the *release* position, not a stale on_move decision."""
+
+    def test_transient_conflict_does_not_block_clean_release(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Drag through a HARD-conflicting x (orig+1), then release on a clear
+        # spot (orig+3).  The transient conflict must NOT stick: the clean
+        # release commits.
+        inst = _place(board_view, session, 1.0, 1.0)
+        orig = session.layout.placements[inst.id].position
+        ctrl = _controller(session, inst.id)
+        _stub_classify(ctrl, {round(orig.x + 1.0, 3): DragSeverity.HARD})
+        _move(ctrl, orig.x + 1.0, orig.y)  # through the conflict
+        assert ctrl.last_decision is not None
+        assert ctrl.last_decision.severity is DragSeverity.HARD
+        _release(ctrl, orig.x + 3.0, orig.y)  # land clear
+        assert ctrl.phase is FloatingPhase.COMMITTED
+        assert session.layout.placements[inst.id].position == Point(
+            orig.x + 3.0, orig.y
+        )
+
+    def test_clean_trajectory_then_conflict_release_floats(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Inverse: clean on the way, but the release lands on a HARD conflict —
+        # it must float (be blocked), not commit on a stale CLEAR.
+        inst = _place(board_view, session, 1.0, 1.0)
+        orig = session.layout.placements[inst.id].position
+        ctrl = _controller(session, inst.id)
+        _stub_classify(ctrl, {round(orig.x + 3.0, 3): DragSeverity.HARD})
+        _move(ctrl, orig.x + 1.0, orig.y)  # clean
+        _release(ctrl, orig.x + 3.0, orig.y)  # release on conflict
+        assert ctrl.is_floating
+        assert ctrl.finished is False
+
+
+class TestSoftAutoCommit:
+    """MINIMUM auto-accept: SOFT commits on release; HARD stays floating."""
+
+    def test_soft_release_auto_commits(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        orig = session.layout.placements[inst.id].position
+        depth_before = len(session.stack._undo)  # type: ignore[attr-defined]
+        ctrl = _controller(session, inst.id)
+        _stub_classify(ctrl, {round(orig.x + 2.0, 3): DragSeverity.SOFT})
+        _move(ctrl, orig.x + 2.0, orig.y)
+        _release(ctrl, orig.x + 2.0, orig.y)
+        # SOFT is committable → auto-accept applies it straight away.
+        assert ctrl.phase is FloatingPhase.COMMITTED
+        assert len(session.stack._undo) == depth_before + 1  # type: ignore[attr-defined]
+
+    def test_hard_release_stays_floating(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 1.0, 1.0)
+        orig = session.layout.placements[inst.id].position
+        ctrl = _controller(session, inst.id)
+        _stub_classify(ctrl, {round(orig.x + 2.0, 3): DragSeverity.HARD})
+        _move(ctrl, orig.x + 2.0, orig.y)
+        _release(ctrl, orig.x + 2.0, orig.y)
+        # HARD cannot be accepted → held floating, awaiting move/cancel.
+        assert ctrl.is_floating
+        assert ctrl.finished is False

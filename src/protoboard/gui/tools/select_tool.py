@@ -37,7 +37,7 @@ from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point
 from protoboard.gui.board_view import _Tool
 from protoboard.gui.highlight.controller import HighlightController
-from protoboard.gui.selection.drag_controller import DragController
+from protoboard.gui.selection.drag_controller import DragController, FloatingPhase
 from protoboard.gui.selection.hit_test import HitTester, SelectionFilters
 from protoboard.gui.selection.mouse_input import Intent, Mods
 from protoboard.gui.selection.rubber_band_controller import RubberBandController
@@ -60,6 +60,8 @@ if TYPE_CHECKING:
     from protoboard.gui.selection.selectable import Selectable
     from protoboard.gui.selection.wire_edit import WireEditState
     from protoboard.gui.session import EditorSession
+    from protoboard.gui.tools.drag_commit_decision import DragCommitDecision
+    from protoboard.gui.tools.drag_corner_text import DragCornerText
 
 # Below this travel (raster units) a press+release is a click, not a drag —
 # used to synthesise the on_click event for click-driven controllers (picks).
@@ -101,6 +103,11 @@ class SelectTool(_Tool):
         self._mouse: MouseInputController | None = None
         self._press_pt: QPointF | None = None
         self._band_item: QGraphicsRectItem | None = None
+        # Live-drag conflict label (corner text).  Lazily built on first
+        # conflicting drag step; cleared the moment the drag returns to CLEAR
+        # so the frame never lingers after the cursor leaves the conflict zone
+        # (the legacy "sticky yellow frame" complaint, 2026-06-19).
+        self._drag_corner: DragCornerText | None = None
         # Rotate-around-point pivot capture.
         self._pivot_capture_pending: bool = False
         self._rotate_pivot: object | None = None  # geometry.Point | None
@@ -155,6 +162,7 @@ class SelectTool(_Tool):
     def deactivate(self) -> None:
         self._cancel_gesture()
         self._clear_band()
+        self._clear_drag_corner()
         self._redrag_clear()
         self._wire_edit_clear()
 
@@ -165,6 +173,7 @@ class SelectTool(_Tool):
         self._wire_edit_items = []
         self._reroute_items = []
         self._reroute_live = None
+        self._drag_corner = None
 
     # -- helpers ------------------------------------------------------------
 
@@ -683,9 +692,26 @@ class SelectTool(_Tool):
         if not mouse.finished:
             return
         self._mouse = None
+        self._clear_drag_corner()
+        self._report_drag_outcome(mouse)
         self._refresh_highlight()
         if self._view is not None:
             self._view.refresh()
+
+    def _report_drag_outcome(self, mouse: MouseInputController) -> None:
+        """Status-bar toast after a drag auto-commits on release.
+
+        Only a drag reports an outcome; the toast names how many wires were
+        dropped/edited so a SOFT auto-commit is visible and obviously undoable.
+        """
+        if not isinstance(mouse, DragController):
+            return
+        outcome = mouse.last_outcome
+        if outcome is None or outcome.phase is not FloatingPhase.COMMITTED:
+            return
+        n = outcome.dropped_wire_count
+        if n:
+            self._status(f"Moved — {n} wire(s) dropped/edited  ·  Ctrl+Z undoes", 4000)
 
     @traced("SelectTool.on_double_press")
     def on_double_press(self, scene_pt: QPointF) -> None:
@@ -760,9 +786,57 @@ class SelectTool(_Tool):
             press_pt=press,
             grab_offset=grab,
             snap=self._snap,
+            preview=self._drag_preview,
             execute=self._execute_command,
             auto_accept_clear=True,
         )
+
+    def _drag_preview(self, decision: DragCommitDecision | None) -> None:
+        """Live drag feedback: glide the scene + show/clear the conflict label.
+
+        Called by :class:`DragController` after every move (and at release) with
+        the live conflict decision (``None`` when the drag is cancelled).  We do
+        two things, both keyed *only* on the current decision so nothing lingers:
+
+        * emit ``session.drag_moved`` so :meth:`BoardView._on_drag_moved`
+          translates the dragged scene items to follow the cursor without a full
+          rebuild — the visual feedback that was missing;
+        * show a corner label while the drop is conflicting (SOFT amber / HARD
+          red) and **hide it the instant the drop is CLEAR again**, so the frame
+          can't stick after the cursor leaves the conflict zone.
+        """
+        # 1) Glide the dragged items to their current (already-mutated) layout
+        #    positions.  _on_drag_moved reads layout.placements / wires directly.
+        self._session.drag_moved.emit()
+
+        # 2) Conflict label — built lazily, cleared whenever the drop is clear.
+        from protoboard.gui.tools.drag_commit_decision import DragSeverity
+
+        if decision is None or decision.severity is DragSeverity.CLEAR:
+            self._clear_drag_corner()
+            return
+        amber = QColor(180, 130, 0, 220)
+        red = QColor(180, 40, 25, 230)
+        color = red if decision.severity is DragSeverity.HARD else amber
+        text = decision.description or (
+            "Cannot drop here — overlap  ·  [Esc] cancel"
+            if decision.severity is DragSeverity.HARD
+            else "Drops/edits some wires on release"
+        )
+        self._show_drag_corner(text, color)
+
+    def _show_drag_corner(self, text: str, color: QColor) -> None:
+        from protoboard.gui.tools.drag_corner_text import DragCornerText
+
+        if self._view is None:
+            return
+        if self._drag_corner is None:
+            self._drag_corner = DragCornerText()
+        self._drag_corner.show(self._view.scene(), self._view, text, color)
+
+    def _clear_drag_corner(self) -> None:
+        if self._drag_corner is not None and self._view is not None:
+            self._drag_corner.hide(self._view.scene())
 
     def _build_drag_set(self, sel: Selectable) -> DragSet:
         """Snapshot what the grab moves: free components, or whole groups.
@@ -967,6 +1041,7 @@ class SelectTool(_Tool):
             return False
         if mouse.finished:
             self._mouse = None
+            self._clear_drag_corner()
             self._refresh_highlight()
             if dropped:
                 self._status(

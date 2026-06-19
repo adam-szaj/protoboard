@@ -204,6 +204,10 @@ class DragController:
         self._floating_orig: dict[uuid.UUID, ComponentPlacement] = {}
         self._was_click = False
         self._cancelled = False
+        #: The outcome of the last terminal step (commit / cancel) — lets the
+        #: tool report what happened (drop count, severity) after a release that
+        #: auto-committed, without re-reading internals.
+        self._last_outcome: DragOutcome | None = None
 
     # -- introspection (for the tool / tests) ------------------------------
 
@@ -218,6 +222,11 @@ class DragController:
     @property
     def last_decision(self) -> DragCommitDecision | None:
         return self._last_decision
+
+    @property
+    def last_outcome(self) -> DragOutcome | None:
+        """The outcome of the last commit / cancel — for the tool's status bar."""
+        return self._last_outcome
 
     @property
     def member_ids(self) -> frozenset[uuid.UUID]:
@@ -260,6 +269,19 @@ class DragController:
                 return
             self._threshold_crossed = True
 
+        self._settle_at(scene_pt)
+
+    def _settle_at(self, scene_pt: Point) -> None:
+        """Place the drag set at *scene_pt*, re-sync the index, re-classify.
+
+        The single source of truth for "where is the drag right now": snap the
+        anchor, translate every member + wire by the shared delta, refresh the
+        trial PadIndex, classify the conflict, and report the live decision.
+        Both :meth:`on_move` and :meth:`on_release` call it, so the decision the
+        release acts on always reflects the *current* cursor position — a
+        transient conflict the cursor passed *through* on the way here cannot
+        stick and block a clean drop (2026-06-19).
+        """
         # Snap the anchor (grab offset applied), then derive one shared delta.
         raw_anchor = Point(scene_pt.x + self._grab[0], scene_pt.y + self._grab[1])
         if self._snap is not None:
@@ -342,8 +364,9 @@ class DragController:
 
         Restores the world and marks the interaction a no-op click when the
         gesture never crossed its start threshold.  On a real drag, resolves the
-        conflict decision: CLEAR + auto-accept commits now; otherwise it enters
-        the *floating* sub-state and waits for a CONFIRM / CANCEL intent.
+        conflict decision: a committable drop (CLEAR or SOFT) under auto-accept
+        commits now; a HARD drop (body-on-body, cross-net collision) stays
+        *floating* and waits for the user to move somewhere legal or cancel.
         """
         if not self._threshold_crossed:
             self._restore_origin()
@@ -351,9 +374,12 @@ class DragController:
             self._was_click = True
             return
 
-        decision = self._last_decision or self._classify()
-        self._last_decision = decision
-        severity = decision.severity if decision is not None else DragSeverity.CLEAR
+        # Re-classify for the *release* position, not whatever the last on_move
+        # left in ``_last_decision``.  Qt may deliver the release a hair off the
+        # final move, and — more importantly — a conflict the cursor merely
+        # passed through must not stick and block a drop on a now-clear spot.
+        self._settle_at(scene_pt)
+        decision = self._last_decision
 
         # Snapshot the floating origin (for revert) before any further mutation.
         self._floating_orig = {
@@ -362,7 +388,12 @@ class DragController:
             if (pl := self._original_placement(cid)) is not None
         }
 
-        if severity is DragSeverity.CLEAR and self._auto_accept_clear:
+        # MINIMUM auto-accept (2026-06-19): a committable drop (CLEAR *or* SOFT)
+        # applies straight away — SOFT's auto-fixes (drop skewed wires, create
+        # nets, disconnect cross-group) run through the resolvers below.  Only a
+        # HARD drop is held floating, since the user genuinely cannot accept it.
+        committable = decision is not None and decision.can_commit
+        if committable and self._auto_accept_clear:
             self.confirm_floating()
             return
         self._phase = FloatingPhase.FLOATING
@@ -432,12 +463,14 @@ class DragController:
 
         self._phase = FloatingPhase.COMMITTED
         self._trial_pad_index = None
-        return DragOutcome(
+        outcome = DragOutcome(
             phase=FloatingPhase.COMMITTED,
             severity=decision.severity,
             dropped_wire_count=len(dropped),
             reroute_net_ids=frozenset(reroute_nets),
         )
+        self._last_outcome = outcome
+        return outcome
 
     def _resolve_drops(
         self, decision: DragCommitDecision
