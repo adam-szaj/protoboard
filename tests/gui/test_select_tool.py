@@ -181,6 +181,32 @@ class TestCyanSelectionOutline:
         assert border_rgb in restored
         assert select_rgb not in restored
 
+    def test_scene_rebuild_while_selected_does_not_crash(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """A scene rebuild (as during drag) must not leave dead overlay refs.
+
+        Regression: the cyan SVG-overlay rects were kept across a scene clear,
+        so the next recolour pass touched already-deleted C++ items
+        (libshiboken "already deleted") — which aborted the highlight refresh
+        and broke dragging.
+        """
+        inst = _place(board_view, session, 0.5, 0.5)
+        board_view.refresh()
+        tool = _v2(board_view)
+        _click(tool, 0.5, 0.5)  # select → may register a cyan / SVG overlay
+        assert inst.id in _comp_ids(tool)
+
+        # Simulate the scene wipe + rebuild that a drag refresh performs.
+        board_view._invalidate_all_groups()
+        assert not board_view._svg_select_overlays  # refs dropped, not dangling
+        assert not board_view._cyan_outlined
+        board_view.refresh()
+
+        # A subsequent highlight pass (the one that crashed) must be clean.
+        board_view._apply_highlight_opacity_impl()
+        tool._refresh_highlight()
+
 
 class TestGroupSelectAndEdit:
     """A group selects, shows a cyan outline, and [E] enters its edit context."""

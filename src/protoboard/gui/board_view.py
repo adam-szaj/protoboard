@@ -737,8 +737,15 @@ class BoardView(QGraphicsView):
 
     def _remove_svg_select_overlay(self, comp_id: uuid.UUID) -> None:
         rect = self._svg_select_overlays.pop(comp_id, None)
-        if rect is not None and rect.scene() is self._scene:
-            self._scene.removeItem(rect)
+        if rect is None:
+            return
+        try:
+            if rect.scene() is self._scene:
+                self._scene.removeItem(rect)
+        except RuntimeError:
+            # The underlying C++ item was already destroyed by a scene rebuild
+            # between recolour passes — nothing to remove.
+            pass
 
     _LABEL_MIN_SCENE_UNITS: float = 0.8
 
@@ -1231,6 +1238,13 @@ class BoardView(QGraphicsView):
         self._wire_groups.clear()
         self._wire_fingerprints.clear()
         self._overlay_items.clear()
+        # The cyan selection-outline overlays/state reference items that the
+        # scene clear just destroyed — drop the refs (do NOT removeItem; the
+        # C++ objects are already gone).  Without this, the next recolour pass
+        # touches dead wrappers (libshiboken "already deleted").
+        self._svg_select_overlays.clear()
+        self._cyan_outlined.clear()
+        self._cyan_group_outlined.clear()
 
     def refresh(self) -> None:
         """Update the scene to reflect current session state.
