@@ -26,7 +26,6 @@ in tested, Qt-free controllers.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import structlog
@@ -49,7 +48,7 @@ from protoboard.services.debug_trace import traced
 _log = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
-    from PySide6.QtGui import QKeyEvent, QMouseEvent
+    from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
     from PySide6.QtWidgets import QGraphicsItem
 
     from protoboard.domain.layout.group_tree import GroupTree
@@ -57,6 +56,7 @@ if TYPE_CHECKING:
     from protoboard.gui.board_view import BoardView
     from protoboard.gui.drag_set import DragSet
     from protoboard.gui.selection.adapters import WireVertexSelectable
+    from protoboard.gui.selection.armed import ArmedSubTool
     from protoboard.gui.selection.mouse_input import MouseInputController
     from protoboard.gui.selection.selectable import Selectable
     from protoboard.gui.selection.wire_edit import WireEditState
@@ -106,27 +106,6 @@ _EDIT_PREVIEW_PEN.setStyle(Qt.PenStyle.DashLine)
 _NODE_RADIUS = 0.13
 
 
-@dataclass
-class _RotateArm:
-    """Live state of an armed float-rotate ([R]).
-
-    ``accum`` is the net degrees applied to the live layout so far (multiples of
-    90); ``[Enter]`` turns it into one committed rotate command and ``[Esc]``
-    reverts it.  ``comp_ids`` are the components actually rotated (group-locked
-    filtered out, group expanded).  ``pivot`` is the shared pad pivot, or
-    ``None`` for the default per-object spin.
-    """
-
-    comp_ids: frozenset[uuid.UUID]
-    group_id: uuid.UUID | None
-    accum: int = 0
-    pivot: object | None = None  # geometry.Point | None
-    # Undo-stack length at arm time; [Esc] undoes back to here (each step may
-    # push >1 command — rotate + crossing-wire cleanup — so we mark the floor
-    # rather than count steps).
-    undo_floor: int = 0
-
-
 class SelectTool(_Tool):
     """Selection tool built on the SelectionService / HitTester / Highlight stack."""
 
@@ -152,21 +131,16 @@ class SelectTool(_Tool):
         # so the frame never lingers after the cursor leaves the conflict zone
         # (the legacy "sticky yellow frame" complaint, 2026-06-19).
         self._drag_corner: DragCornerText | None = None
-        # Rotate-around-point pivot capture.
+        # Rotate-around-point pivot capture (legacy menu path; seeds the armed
+        # rotate's shared pivot).
         self._pivot_capture_pending: bool = False
         self._rotate_pivot: object | None = None  # geometry.Point | None
-        # Armed float-rotate ([R]): the selection rotates live (wheel / arrows /
-        # rotate actions) about each object's own pivot, or about a clicked pad
-        # (shared pivot).  Accumulates degrees so [Enter] commits ONE command and
-        # [Esc] reverts the live preview.  None when not armed.
-        self._rotate_arm: _RotateArm | None = None
-        # Armed keyboard float-move ([G] "grab"): a DragController driven by the
-        # keyboard (arrows / WSAD step the anchor one grid unit) instead of the
-        # mouse — reuses the whole drag engine (snap / classify / preview).  The
-        # live controller lives in self._mouse; this marks the mode and tracks
-        # the accumulated keyboard target (anchor world position).
-        self._move_arm_active: bool = False
-        self._move_anchor: Point | None = None
+        # The active armed transform sub-tool (float-rotate [R] / keyboard
+        # float-move [G]) or None.  One field, one dispatch — no branching on
+        # *which* mode is live (see gui/selection/armed.py).  A keyboard-move
+        # sub-tool also parks its live DragController in self._mouse so the
+        # preview/glide path is shared with a mouse drag.
+        self._armed: ArmedSubTool | None = None
         # Re-drag (bendable lead reposition) — a request_pick client; the
         # overlay items live here, the pick state lives in the service.
         self._redrag_comp_id: uuid.UUID | None = None
@@ -217,11 +191,8 @@ class SelectTool(_Tool):
     @traced("SelectTool.deactivate")
     def deactivate(self) -> None:
         # Cancel an armed transform first so leaving the tool reverts a
-        # half-done rotate session and drops the keyboard-move controller.
-        if self._rotate_arm is not None:
-            self._rotate_arm_cancel()
-        self._move_arm_active = False
-        self._move_anchor = None
+        # half-done rotate/move (and drops its live preview / controller).
+        self._disarm(cancel=True)
         self._cancel_gesture()
         self._clear_band()
         self._clear_drag_corner()
@@ -338,9 +309,11 @@ class SelectTool(_Tool):
             )
             return True
 
-        # 1b. Armed float-rotate: a click sets / resets the shared pad pivot
-        #     (it does not change the selection while armed).
-        if self._set_rotate_pivot_from_pad(scene_pt):
+        # 1b. An armed sub-tool may claim the click (e.g. float-rotate sets its
+        #     shared pad pivot) — it does not change the selection while armed.
+        if self._armed is not None and self._armed.on_click(
+            Point(scene_pt.x(), scene_pt.y())
+        ):
             return True
 
         # 2. An active mouse interaction (drag / band / pick) owns the press.
@@ -1907,12 +1880,13 @@ class SelectTool(_Tool):
         shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
         alt = bool(mods & Qt.KeyboardModifier.AltModifier)
 
-        # Armed float-rotate owns its keys first: step (±90°), accept, cancel.
-        if self._rotate_arm is not None and self._rotate_arm_on_key(event):
-            return
-
-        # Armed keyboard-move owns its keys: step (arrows / WASD), accept, cancel.
-        if self._move_arm_active and self._move_arm_on_key(event):
+        # An armed sub-tool (float-rotate / keyboard-move) owns its keys first:
+        # one uniform dispatch — step / accept / cancel live on the sub-tool, no
+        # branching on which mode it is.  Drop it once it reports finished.
+        if self._armed is not None and self._armed.on_key(event):
+            if self._armed.finished:
+                self._disarm()
+            event.accept()
             return
 
         # Pivot mode: Esc clears it first.
@@ -2033,19 +2007,16 @@ class SelectTool(_Tool):
             return True
         return False
 
-    def wants_wheel(self, event: object) -> bool:
-        """Claim the wheel only while float-rotate is armed (to step ±90°)."""
-        return self._rotate_arm is not None
+    def wants_wheel(self, event: QWheelEvent) -> bool:
+        """Claim the wheel only when the armed sub-tool consumes it (rotate)."""
+        return self._armed is not None and self._armed.wants_wheel(event)
 
-    def on_wheel(self, event: object) -> None:
-        """Wheel tick while armed: one notch = one ±90° step (up = CW)."""
-        if self._rotate_arm is None:
+    def on_wheel(self, event: QWheelEvent) -> None:
+        """Route a wheel tick to the armed sub-tool (it steps / declines)."""
+        if self._armed is None:
             return
-        dy = 0
-        angle = getattr(event, "angleDelta", None)
-        if callable(angle):
-            dy = angle().y()
-        self._rotate_step(delta=90 if dy >= 0 else -90)
+        if self._armed.on_wheel(event) and self._armed.finished:
+            self._disarm()
 
     # -- rotate / flip ------------------------------------------------------
 
@@ -2062,20 +2033,43 @@ class SelectTool(_Tool):
         self._pivot_capture_pending = False
         self._rotate_pivot = None
 
-    # -- armed float-rotate ([R]) -------------------------------------------
+    # -- armed transform sub-tools ([R] rotate / [G] move) ------------------
+
+    def _disarm(self, *, cancel: bool = False) -> None:
+        """Drop the active armed sub-tool, refreshing the view.
+
+        ``cancel=True`` reverts a still-live sub-tool first (used on deactivate /
+        tool switch).  Also drops the keyboard-move's parked DragController and
+        clears the conflict corner.
+        """
+        armed = self._armed
+        if armed is None:
+            return
+        if cancel and not armed.finished:
+            armed.cancel()
+        self._armed = None
+        self._mouse = None
+        self._clear_drag_corner()
+        self._refresh_highlight()
+        if self._view is not None:
+            self._view.refresh()
 
     @traced("SelectTool.arm_rotate")
     def arm_rotate(self) -> None:
-        """Enter armed float-rotate on the selection — the ``[R]`` entry point.
+        """Arm float-rotate on the selection — the ``[R]`` entry point.
 
-        Like wire-edit's ``[E]``: arms a mode the selection stays "live" in.
-        While armed, the wheel / ``[Up]`` / ``[Down]`` / the rotate actions step
-        ±90° (each a real, undoable command via :meth:`_apply_rotate`, so
-        crossing wires are cleaned), clicking a pad sets a shared pivot, ``[Esc]``
-        cancels the whole session (undoes every step taken since arming) and
-        ``[Enter]`` accepts.  Re-arming while armed is a no-op.
+        The selection stays live: wheel / ``[↑]`` / ``[↓]`` / ``[R]`` step ±90°
+        (previewed off the undo stack), clicking a pad sets a shared pivot,
+        ``[Enter]`` accepts (commits ONE rotation **only if** the result is
+        committable, else parks armed in the conflict) and ``[Esc]`` cancels.
+        A legacy ``begin_rotate_around_point`` pivot capture seeds the pivot.
         """
-        if self._rotate_arm is not None:
+        from typing import cast
+
+        from protoboard.gui.selection.armed_rotate import ArmedRotate
+        from protoboard.gui.selection.drag_controller import DragContext
+
+        if self._armed is not None:
             return
         if self._selection.is_empty():
             self._status("Rotate: select component(s) or a group first")
@@ -2085,30 +2079,25 @@ class SelectTool(_Tool):
             self._status("Rotate: nothing rotatable in the selection")
             return
         self._cancel_gesture()  # drop any stray drag/pick first
-        # A pivot captured via the legacy rotate-around-point path (menu /
-        # begin_rotate_around_point) seeds the shared pivot, so the two pivot
-        # routes converge on one armed session.
-        seed_pivot = self._rotate_pivot if isinstance(self._rotate_pivot, Point) else None
+        seed = self._rotate_pivot if isinstance(self._rotate_pivot, Point) else None
         self._pivot_capture_pending = False
-        self._rotate_arm = _RotateArm(
+        self._armed = ArmedRotate(
+            cast("DragContext", self._session),
             comp_ids=comp_ids,
             group_id=group_id,
-            accum=0,
-            pivot=seed_pivot,
-            undo_floor=len(self._session.stack._undo),
+            snap=self._snap_free,
+            commit=self._execute_command,
+            pivot=seed,
+            preview=self._drag_preview,
+            status=lambda msg: self._status(msg, 0),
         )
-        self._status(
-            "Rotate armed  ·  wheel / [↑][↓] / [R] step 90°  ·  "
-            "click a pad = shared pivot  ·  [Enter] accept  ·  [Esc] cancel",
-            0,
-        )
+        self._status(self._armed.status_hint(), 0)
 
     def _rotatable_affected(self) -> tuple[frozenset[uuid.UUID], uuid.UUID | None]:
         """The components a rotate would actually move (+ a whole-group id).
 
         A selected group rotates as a monolith (all its components, group id
-        returned); otherwise loose components not locked in a sub-group.  Shared
-        with :meth:`_rotate_multi` so arming and stepping agree on the set.
+        returned); otherwise loose components not locked in a sub-group.
         """
         group_id = self._selected_group_id
         if group_id is not None:
@@ -2126,119 +2115,26 @@ class SelectTool(_Tool):
         )
         return loose, None
 
-    @traced("SelectTool._rotate_step")
-    def _rotate_step(self, delta: int) -> None:
-        """Apply one ±90° step inside the armed mode (a real, undoable command)."""
-        arm = self._rotate_arm
-        if arm is None:
-            return
-        self._rotate_pivot = arm.pivot  # _rotate_multi reads this for the pivot
-        self._rotate_multi(delta=delta)
-        self._rotate_pivot = None
-        arm.accum = (arm.accum + delta) % 360
-        if self._view is not None:
-            self._view.refresh()
+    def _snap_free(self, raw: Point) -> Point | None:
+        """Snap a click to the grid for the rotate pivot (no exclusions)."""
+        if self._view is None:
+            return None
+        from PySide6.QtCore import QPointF
 
-    def _set_rotate_pivot_from_pad(self, scene_pt: QPointF) -> bool:
-        """A click while armed: set/reset the shared pad pivot.  True if handled.
-
-        Snaps the click to the grid; clicking the current pivot again (or the
-        same snapped point) resets to the per-object spin.  Only consumes the
-        click while armed — otherwise the press falls through to selection.
-        """
-        arm = self._rotate_arm
-        if arm is None:
-            return False
-        pad = self._view.snap(scene_pt) if self._view is not None else None
-        if pad is None:
-            return False
-        cur = arm.pivot
-        if isinstance(cur, Point) and cur.x == pad.x and cur.y == pad.y:
-            arm.pivot = None
-            self._status("Rotate pivot: per-object (each around its own centre)", 0)
-        else:
-            arm.pivot = pad
-            self._status(f"Rotate pivot: pad ({pad.x:g}, {pad.y:g})", 0)
-        return True
-
-    @traced("SelectTool._rotate_arm_accept")
-    def _rotate_arm_accept(self) -> None:
-        """``[Enter]`` — leave the mode, keeping every committed step."""
-        if self._rotate_arm is None:
-            return
-        self._rotate_arm = None
-        self._rotate_pivot = None
-        self._status("Rotation applied")
-
-    @traced("SelectTool._rotate_arm_cancel")
-    def _rotate_arm_cancel(self) -> None:
-        """``[Esc]`` — undo every step taken since arming, then leave the mode."""
-        arm = self._rotate_arm
-        if arm is None:
-            return
-        self._rotate_arm = None
-        self._rotate_pivot = None
-        from typing import cast
-
-        from protoboard.domain.commands.base import ComponentState
-
-        stack = self._session.stack
-        while len(stack._undo) > arm.undo_floor:
-            stack.undo(cast("ComponentState", self._session))
-        self._session.layout_changed.emit()
-        self._refresh_highlight()
-        if self._view is not None:
-            self._view.refresh()
-        self._status("Rotation cancelled")
-
-    def _rotate_arm_on_key(self, event: QKeyEvent) -> bool:
-        """Key handler while float-rotate is armed.  True when consumed.
-
-        Step keys (several at once, by design): the configurable rotate action,
-        ``[R]`` to repeat, and the ``[Up]`` / ``[Down]`` arrows — CW on
-        up/repeat, CCW with Shift / on down.  ``[Enter]`` accepts, ``[Esc]``
-        cancels the whole session.
-        """
-        key = event.key()
-        shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self._rotate_arm_accept()
-            event.accept()
-            return True
-        if key == Qt.Key.Key_Escape:
-            self._rotate_arm_cancel()
-            event.accept()
-            return True
-        # CCW: Shift+R / Down arrow.  CW: R / Up arrow / the rotate action.
-        if key == Qt.Key.Key_Down:
-            self._rotate_step(delta=-90)
-            event.accept()
-            return True
-        if key == Qt.Key.Key_Up:
-            self._rotate_step(delta=90)
-            event.accept()
-            return True
-        if key == Qt.Key.Key_R and not (
-            event.modifiers() & Qt.KeyboardModifier.ControlModifier
-        ):
-            self._rotate_step(delta=-90 if shift else 90)
-            event.accept()
-            return True
-        return False
-
-    # -- armed keyboard float-move ([G]) ------------------------------------
+        return self._view.snap(QPointF(raw.x, raw.y))
 
     @traced("SelectTool.arm_move")
     def arm_move(self) -> None:
-        """Enter keyboard float-move on the selection — the ``[G]`` entry point.
+        """Arm keyboard float-move on the selection — the ``[G]`` entry point.
 
-        Builds the same :class:`DragController` a mouse drag would (so snap /
-        conflict-classify / live preview are identical), but driven by the
-        keyboard: arrows or WSAD step the anchor one grid unit per press.
-        ``[Enter]`` confirms (commits the move), ``[Esc]`` cancels.  No mouse
-        needed — the controller is fed synthetic targets via ``nudge_to``.
+        Builds the same :class:`DragController` a mouse drag would (snap /
+        conflict-classify / live preview), driven by the keyboard: arrows / WASD
+        step the anchor one grid cell.  ``[Enter]`` drops (only when
+        committable), ``[Esc]`` cancels.
         """
-        if self._move_arm_active:
+        from protoboard.gui.selection.armed_move import ArmedMove
+
+        if self._armed is not None:
             return
         if self._selection.is_empty():
             self._status("Move: select component(s) or a group first")
@@ -2247,8 +2143,6 @@ class SelectTool(_Tool):
         if sel is None:
             self._status("Move: nothing movable in the selection")
             return
-        # Anchor at its current position with a zero grab offset, so a nudge
-        # target maps directly to the desired anchor position.
         anchor_pt = self._move_anchor_point(sel)
         if anchor_pt is None:
             self._status("Move: selection has no placed anchor")
@@ -2257,14 +2151,9 @@ class SelectTool(_Tool):
         if drag is None:
             self._status("Move: selection is not draggable")
             return
-        self._mouse = drag
-        self._move_arm_active = True
-        self._move_anchor = Point(anchor_pt.x(), anchor_pt.y())
-        self._status(
-            "Move armed  ·  arrows / WASD step one cell  ·  "
-            "[Enter] drop  ·  [Esc] cancel",
-            0,
-        )
+        self._mouse = drag  # parked so the drag-preview glide path is shared
+        self._armed = ArmedMove(drag, anchor=Point(anchor_pt.x(), anchor_pt.y()))
+        self._status(self._armed.status_hint(), 0)
 
     def _move_anchor_point(self, sel: Selectable) -> QPointF | None:
         """The current world position of the drag anchor, as a QPointF.
@@ -2279,57 +2168,6 @@ class SelectTool(_Tool):
         if pl is None:
             return None
         return QPointF(pl.position.x, pl.position.y)
-
-    @traced("SelectTool._move_step")
-    def _move_step(self, dx: float, dy: float) -> None:
-        """Nudge the armed move by (dx, dy) grid units and re-settle."""
-        if not self._move_arm_active or self._move_anchor is None:
-            return
-        mouse = self._mouse
-        from protoboard.gui.selection.drag_controller import DragController
-
-        if not isinstance(mouse, DragController):
-            return
-        self._move_anchor = Point(
-            self._move_anchor.x + dx, self._move_anchor.y + dy
-        )
-        mouse.nudge_to(self._move_anchor)
-
-    def _move_arm_on_key(self, event: QKeyEvent) -> bool:
-        """Key handler while keyboard-move is armed.  True when consumed.
-
-        Arrows and WASD step one grid unit; ``[Enter]`` confirms (CONFIRM intent
-        → the controller commits), ``[Esc]`` cancels (CANCEL intent).  Confirm /
-        cancel route through :meth:`_dispatch_intent`, the one place that drives
-        the controller, then clear the armed flag.
-        """
-        key = event.key()
-        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self._dispatch_intent(Intent.CONFIRM)
-            self._move_arm_active = False
-            self._move_anchor = None
-            self._status("Move applied")
-            event.accept()
-            return True
-        if key == Qt.Key.Key_Escape:
-            self._dispatch_intent(Intent.CANCEL)
-            self._move_arm_active = False
-            self._move_anchor = None
-            self._status("Move cancelled")
-            event.accept()
-            return True
-        step: dict[int, tuple[float, float]] = {
-            int(Qt.Key.Key_Left): (-1.0, 0.0), int(Qt.Key.Key_A): (-1.0, 0.0),
-            int(Qt.Key.Key_Right): (1.0, 0.0), int(Qt.Key.Key_D): (1.0, 0.0),
-            int(Qt.Key.Key_Up): (0.0, -1.0), int(Qt.Key.Key_W): (0.0, -1.0),
-            int(Qt.Key.Key_Down): (0.0, 1.0), int(Qt.Key.Key_S): (0.0, 1.0),
-        }
-        nudge = step.get(int(key))
-        if nudge is not None:
-            self._move_step(nudge[0], nudge[1])
-            event.accept()
-            return True
-        return False
 
     def _selected_comp_ids(self) -> frozenset[uuid.UUID]:
         import uuid as _uuid

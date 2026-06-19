@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ArmedSubTool protocol + conditional-disarm (2026-06-19)
+
+Tryby uzbrajane (rotate `[R]` / move `[G]`) zunifikowane za jednym protokołem
+zamiast rozgałęzień po „który tryb aktywny".
+
+* **`gui/selection/armed.py`** — `ArmedSubTool` Protocol: `on_key`/`on_wheel`/
+  `on_click` → `can_commit` → `accept`/`cancel` + `finished`. SelectTool trzyma
+  jedno `self._armed` i dispatchuje jednolicie (znikły `_rotate_arm`,
+  `_move_arm_active` i równoległe `_rotate_arm_on_key`/`_move_arm_on_key`).
+  `ArmedRotate` (`armed_rotate.py`) i `ArmedMove` (`armed_move.py`) implementują
+  protokół. Verdict polimorfizmu (skill `consider-polymorphism`): wspólny
+  interfejs, bo tryby dzielą kształt arm→step→commit/cancel.
+* **Conditional-disarm** (wymóg, który wymusił protokół): `accept()` commituje
+  i kończy **tylko gdy `can_commit()`**; w konflikcie tryb ZOSTAJE uzbrojony i
+  czeka (przywraca zachowanie sprzed refaktoru). Rotate jest teraz
+  **preview-then-commit**: kroki podglądają poza undo-stackiem, `[Enter]`
+  commituje JEDEN obrót o sumę (jeden wpis undo); obrót lądujący w jakimkolwiek
+  konflikcie (SOFT/HARD) parkuje zamiast auto-commitu + usuwania drutów. Move
+  owija `DragController` (jego FLOATING-on-HARD to już ten kontrakt).
+* Zakres: rotate + move wciągnięte; wire-edit i redrag świadomie ad-hoc (luźniej
+  pasują — fold-in później). `DragController.nudge_to` snapuje `_floating_orig`
+  na pierwszym kroku, by keyboard-move commitował (nie ma release'u).
+* 9 testów (`TestArmedRotate` ×6 w tym conditional-disarm, `TestArmedMove` ×3);
+  2900 testów green; 3 nowe moduły czyste pod `mypy --strict`.
+
 ### Tryby uzbrajane: float-rotate [R] + keyboard float-move [G] (2026-06-19)
 
 Rotacja i przesuwanie zaznaczenia działają teraz jak wire-edit (`[E]`) —

@@ -331,7 +331,7 @@ class TestRotate:
         _press(tool, 0.5, 0.5)
         before = session.layout.placements[inst.id].rotation
         _key(tool, Qt.Key.Key_R)  # arm
-        assert tool._rotate_arm is not None
+        assert tool._armed is not None
         assert session.layout.placements[inst.id].rotation == before  # not yet
         _key(tool, Qt.Key.Key_R)  # step +90
         assert session.layout.placements[inst.id].rotation == (before + 90) % 360
@@ -375,7 +375,7 @@ class TestArmedRotate:
         tool = _v2(board_view)
         _press(tool, 0.5, 0.5)
         _key(tool, Qt.Key.Key_R)  # arm
-        assert tool._rotate_arm is not None
+        assert tool._armed is not None
         return inst, tool
 
     def test_up_down_step_cw_ccw(self, board_view, session) -> None:
@@ -408,7 +408,7 @@ class TestArmedRotate:
         _key(tool, Qt.Key.Key_R)  # +90  (now base+180)
         assert session.layout.placements[inst.id].rotation == (base + 180) % 360
         _key(tool, Qt.Key.Key_Escape)  # cancel the whole session
-        assert tool._rotate_arm is None
+        assert tool._armed is None
         assert session.layout.placements[inst.id].rotation == base
 
     def test_enter_accepts_keeps_rotation(self, board_view, session) -> None:
@@ -416,17 +416,36 @@ class TestArmedRotate:
         base = session.layout.placements[inst.id].rotation
         _key(tool, Qt.Key.Key_R)  # +90
         _key(tool, Qt.Key.Key_Return)  # accept
-        assert tool._rotate_arm is None
+        assert tool._armed is None
         assert session.layout.placements[inst.id].rotation == (base + 90) % 360
 
     def test_pad_click_sets_shared_pivot(self, board_view, session) -> None:
         inst, tool = self._armed(board_view, session)
         before = session.layout.placements[inst.id].position
         _press(tool, 3.0, 3.0)  # click a pad away from the part → shared pivot
-        assert tool._rotate_arm is not None and tool._rotate_arm.pivot is not None
+        assert tool._armed is not None and tool._armed.pivot is not None
         _key(tool, Qt.Key.Key_R)  # step → orbit the pivot, position changes
         after = session.layout.placements[inst.id].position
         assert (after.x, after.y) != (before.x, before.y)
+
+    def test_accept_parks_armed_on_conflict(self, board_view, session) -> None:
+        # Conditional-disarm contract: an accept that cannot commit (HARD
+        # conflict) leaves the sub-tool armed, waiting — it does NOT disarm.
+        from protoboard.gui.tools.drag_commit_decision import (
+            DragCommitDecision,
+            DragSeverity,
+        )
+
+        inst, tool = self._armed(board_view, session)
+        _key(tool, Qt.Key.Key_R)  # step once so there is a non-zero rotation
+        armed = tool._armed
+        assert armed is not None
+        # Force the classifier to report a HARD (un-committable) state.
+        armed._classify = lambda: DragCommitDecision(severity=DragSeverity.HARD)  # type: ignore[attr-defined]
+        assert armed.can_commit() is False
+        _key(tool, Qt.Key.Key_Return)  # accept → must stay armed
+        assert tool._armed is armed  # not disarmed
+        assert tool._armed.finished is False
 
 
 class TestArmedMove:
@@ -438,7 +457,7 @@ class TestArmedMove:
         _press(tool, 0.5, 0.5)
         assert not tool._selection.is_empty()
         _key(tool, Qt.Key.Key_G)  # arm
-        assert tool._move_arm_active is True
+        assert tool._armed is not None
         return inst, tool
 
     def test_arrows_then_enter_commits_move(self, board_view, session) -> None:
@@ -447,7 +466,7 @@ class TestArmedMove:
         _key(tool, Qt.Key.Key_Right)
         _key(tool, Qt.Key.Key_Down)
         _key(tool, Qt.Key.Key_Return)  # drop
-        assert tool._move_arm_active is False
+        assert tool._armed is None
         after = session.layout.placements[inst.id].position
         assert (after.x, after.y) == (before.x + 1.0, before.y + 1.0)
 
@@ -465,7 +484,7 @@ class TestArmedMove:
         before = session.layout.placements[inst.id].position
         _key(tool, Qt.Key.Key_Right)
         _key(tool, Qt.Key.Key_Escape)  # cancel — no commit
-        assert tool._move_arm_active is False
+        assert tool._armed is None
         after = session.layout.placements[inst.id].position
         assert (after.x, after.y) == (before.x, before.y)
 

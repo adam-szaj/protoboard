@@ -204,9 +204,9 @@ as one undo entry.  **Constraint preserved:** flip currently applies only to
    pivot (re-click resets to per-object); `[Enter]` accepts; `[Esc]` cancels the
    whole session (undoes back to the arm-time undo-stack floor).  A legacy
    `begin_rotate_around_point` pivot capture seeds the shared pivot, converging
-   the two pivot routes.  *Note:* implemented as tool-local state on SelectTool
-   (`_RotateArm`), not yet the extracted sub-tool of §2.1 B — the extraction is
-   stage 5.
+   the two pivot routes.  *Superseded by stage 5:* the tool-local `_RotateArm`
+   was replaced by the `ArmedRotate` sub-tool; rotate is now preview-then-commit
+   (see stage 5) rather than per-step-commit.
 3. **Armed keyboard float-move** — ✅ DONE (2026-06-19).  `[G]` ("grab") arms a
    `DragController` driven by the keyboard: arrows / WASD step the anchor one
    grid cell via the new `DragController.nudge_to`, reusing the entire drag
@@ -215,12 +215,119 @@ as one undo entry.  **Constraint preserved:** flip currently applies only to
 4. **Wire fragment-flip** — land the deferred `_flip_wire_fragment` as a
    wire-edit op-table entry (todo.md item) — first concrete "operation moves
    into the sub-tool" step.
-5. **ArmedSubTool protocol** — now that rotate / move / wire-edit / redrag all
-   share the arm → (step | op-table | pick) → commit/cancel shape, factor the
-   common interface (only if the polymorphism check passes) and migrate the
-   tool-local `_RotateArm` / `_move_arm_*` state onto it.
-6. **Atomic `[arm, action, disarm]` caller API** — deferred; design once the
-   protocol is real.
+5. **ArmedSubTool protocol** — ✅ DONE (2026-06-19).  `gui/selection/armed.py`
+   defines the `ArmedSubTool` Protocol (arm → on_key/on_wheel/on_click →
+   can_commit → accept/cancel + finished).  `armed_rotate.ArmedRotate` and
+   `armed_move.ArmedMove` implement it; SelectTool holds one
+   `self._armed: ArmedSubTool | None` and dispatches uniformly (the
+   `_rotate_arm` / `_move_arm_*` tool-local state and the parallel
+   `_rotate_arm_on_key` / `_move_arm_on_key` methods are gone).  **Scope:** rotate
+   + move folded in; wire-edit + redrag deliberately left ad-hoc (their op-table
+   / pick shape is a looser fit — fold in later only if it maps cleanly).
+   **Conditional-disarm contract** (the requirement that drove the protocol):
+   `accept()` commits + finishes *only if* `can_commit()`; otherwise it parks
+   armed in the conflict.  Rotate is now **preview-then-commit** (steps preview
+   off the undo stack; accept commits ONE rotation by the net angle → one undo
+   entry); a previewed rotate that lands in *any* conflict (SOFT or HARD) parks
+   rather than auto-committing + dropping wires — the pre-refactor feel restored.
+   Move wraps `DragController`, whose FLOATING-on-HARD already is the contract.
+6. **Atomic `[arm, action, disarm]` caller API** — deferred; now a thin helper
+   over the real protocol (arm → invoke one op → accept()), and because accept()
+   is conditional, a programmatic op on a conflicting selection parks armed
+   rather than forcing an illegal commit.
 
 Nothing above is committed until each stage has a green suite + a smoke test,
 per CLAUDE.md §8.
+
+---
+
+## 5. The `ArmedSubTool` protocol (design for stage 5)
+
+**Polymorphism verdict (consider-polymorphism skill):** *Using* a shared
+interface.  SelectTool's `on_key` / `on_press` / `wheelEvent` currently branch
+on *which* armed mode is live (`if self._rotate_arm` / `elif
+self._move_arm_active` / `elif self._wire_edit`).  The modes share one shape —
+**arm → (handle key / wheel / click) → accept-if-committable / cancel** — so the
+caller should hold one `self._armed: ArmedSubTool | None` and dispatch through
+it without knowing the concrete mode.  The branches and the parallel
+`_rotate_arm_on_key` / `_move_arm_on_key` / `_wire_edit_on_key` collapse into one
+dispatch.
+
+### 5.1 The conditional-disarm contract (the key requirement)
+
+`[arm, action, disarm]` is **not** unconditionally atomic: `disarm` is
+*conditional on the resulting state being committable*.  If an action leaves the
+sub-tool in a conflict it cannot accept (a HARD overlap), the sub-tool **stays
+armed** and waits for the user — exactly as the floating drag already does
+(`DragController.on_release` holds `FloatingPhase.FLOATING` when
+`not decision.can_commit`).  This restores the pre-refactor feel: an illegal
+rotate/move does not silently commit-and-cleanup, it parks in a conflict state
+the user resolves (step again to a legal spot, or cancel).
+
+So the protocol needs a **commit-readiness** query, and `accept()` returns
+whether it *actually* disarmed:
+
+```python
+class ArmedSubTool(Protocol):
+    def on_key(self, event: QKeyEvent) -> bool: ...     # consumed?
+    def on_wheel(self, event: QWheelEvent) -> bool: ...
+    def on_click(self, scene_pt: Point) -> bool: ...    # e.g. set pad pivot
+    def can_commit(self) -> bool: ...                   # False ⇒ HARD conflict
+    def accept(self) -> bool: ...   # commit + disarm IF can_commit; else stay
+    def cancel(self) -> None: ...   # always revert + disarm
+    def status_hint(self) -> str: ...
+```
+
+SelectTool dispatch becomes uniform:
+
+```python
+if self._armed is not None:
+    if self._armed.on_key(event):       # the sub-tool owns its keys
+        if self._armed.finished:        # accept() that committed, or cancel()
+            self._armed = None
+        return
+```
+
+`accept()` semantics: classify the current state; if `can_commit()` → commit
+(one undo entry) + mark finished; else **leave armed**, surface the conflict
+(corner text / status), wait.  This is where the current rotate's auto-commit +
+`_remove_crossing_wires` is *replaced* by "stay armed on conflict" — the
+behaviour the user wants back.
+
+### 5.2 Three current implementations to fold in
+
+* **float-rotate** (`_RotateArm`) — `can_commit` runs `classify_drag_commit`
+  over the rotated `comp_ids` (rotate moves positions, so the same classifier
+  applies); HARD ⇒ stay armed.  Today it auto-commits each step and drops
+  crossing wires; under the contract a step that lands HARD parks instead.
+* **keyboard-move** (`_move_arm_active` + `DragController`) — already *has*
+  `can_commit` via `last_decision.can_commit` and the FLOATING hold; it is the
+  reference implementation.  Wrapping it in the protocol is mostly adapter work.
+* **wire-edit** (`_wire_edit` + `_wire_edit_on_key` op-table) — its ops
+  (reroute / autoroute / delete) are the op-table variant of "handle key";
+  folding it in unifies the third ad-hoc armed mode.
+
+Redrag is a pick (a degenerate armed sub-tool) and can join later.
+
+### 5.3 Caveats for the implementation
+
+* **Don't force wire-edit in if it fights the interface.**  The skill's rule:
+  the three modes must *genuinely* share the shape.  rotate + move clearly do
+  (both float a transform, both have a commit decision).  wire-edit's op-table
+  is a looser fit (its "conflict" is per-op, e.g. reroute validity) — fold it in
+  only if `can_commit` / `accept` map cleanly; otherwise leave it ad-hoc and
+  note why.
+* The shared **conflict surface** (corner text amber/red, status hint) already
+  exists for drag (`_drag_preview` / `DragCornerText`); the protocol should
+  route every sub-tool's conflict through it so the feedback is identical.
+* Keep each sub-tool's command-commit on the existing domain commands
+  (`RotateComponentsCommand` / `RotateAroundPointCommand` / `MoveDragSetCommand`)
+  — the protocol unifies *control flow*, not the domain operations.
+
+### 5.4 What this unblocks (stage 6)
+
+With `ArmedSubTool` real, the atomic `[arm, action, disarm]` caller API is a thin
+helper: `arm a sub-tool → invoke one op → accept()`.  Because `accept()` is
+conditional, a menu/macro that triggers e.g. "rotate 90°" on a selection that
+would conflict leaves the user in the armed conflict state rather than forcing
+an illegal commit — same contract, now reachable programmatically.

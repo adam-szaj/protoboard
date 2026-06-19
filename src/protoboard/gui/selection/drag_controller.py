@@ -281,6 +281,16 @@ class DragController:
         same snap / classify / preview pipeline runs.
         """
         self._threshold_crossed = True
+        # The mouse path snapshots the pre-move placements in on_release (the
+        # _floating_orig the commit reads).  Keyboard-move never releases, so
+        # snapshot here on the first nudge — from the *original* positions, not
+        # the already-nudged ones — so confirm_floating can build the command.
+        if not self._floating_orig:
+            self._floating_orig = {
+                cid: pl
+                for cid in self._member_ids
+                if (pl := self._original_placement(cid)) is not None
+            }
         self._settle_at(target)
 
     def _settle_at(self, scene_pt: Point) -> None:
