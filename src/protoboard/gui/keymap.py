@@ -124,6 +124,7 @@ GLOBAL_ACTIONS: tuple[KeyAction, ...] = (
     KeyAction(_global_id("rotate_ccw"), "Shift+R", "Rotate CCW"),
     KeyAction(_global_id("flip"), "Alt+R", "Flip"),
     KeyAction(_global_id("redrag"), "Ctrl+R", "Re-drag Pins"),
+    KeyAction(_global_id("show_shortcuts"), "?", "Show Shortcuts"),
     # Example of a protected shortcut a tool may not re-purpose.
     KeyAction("session.action.save_as", "Ctrl+Shift+S", "Save As", final=True),
 )
@@ -261,6 +262,19 @@ class KeyMap:
     def known_actions(self) -> tuple[KeyAction, ...]:
         """Every declared action, for UI / introspection."""
         return tuple(self._actions.values())
+
+    def actions_in(self, category: str) -> tuple[KeyAction, ...]:
+        """Every declared action in *category* (text before the first dot)."""
+        return tuple(
+            a for a in self._actions.values() if a.category == category
+        )
+
+    def display_of(self, action_id: str) -> str:
+        """The human label for *action_id* (declared display, else the name)."""
+        action = self._actions.get(action_id)
+        if action is not None and action.display:
+            return action.display
+        return name_of(action_id).replace("_", " ").title()
 
     # -- disk ---------------------------------------------------------------
 

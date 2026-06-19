@@ -172,3 +172,59 @@ class TestBoardSandwichCache:
         # Labels independent.
         assert ls.alpha_for_label("top") == 1.0
         assert ls.alpha_for_pin_names("top") == 1.0
+
+
+class TestShortcutsHelp:
+    """The [?] overlay and the RMB tool-action menu — both read the live KeyMap."""
+
+    def test_overlay_toggles(self, board_view: BoardView) -> None:
+        board_view.set_tool(SelectTool())
+        assert not board_view._shortcuts_overlay_visible()
+        board_view._toggle_shortcuts_overlay()
+        assert board_view._shortcuts_overlay_visible()
+        board_view._toggle_shortcuts_overlay()
+        assert not board_view._shortcuts_overlay_visible()
+
+    def test_overlay_lists_tool_actions(self, board_view: BoardView) -> None:
+        from PySide6.QtWidgets import QLabel
+        board_view.set_tool(SelectTool())
+        board_view._show_shortcuts_overlay()
+        ov = board_view._shortcuts_overlay
+        assert isinstance(ov, QLabel)
+        text = ov.text()
+        # A SelectTool action and its shortcut appear.
+        assert "Reroute" in text
+        assert "Edit" in text
+
+    def test_overlay_reflects_rebind(self, board_view: BoardView) -> None:
+        from PySide6.QtWidgets import QLabel
+        board_view.keymap.set_override("select-tool.action.reroute", "Q")
+        board_view.set_tool(SelectTool())
+        board_view._show_shortcuts_overlay()
+        ov = board_view._shortcuts_overlay
+        assert isinstance(ov, QLabel)
+        # The rebound key, not the default, is shown.
+        assert ">Q<" in ov.text() or "<code>Q</code>" in ov.text()
+
+    def test_tool_action_menu_items(self, board_view: BoardView) -> None:
+        from PySide6.QtWidgets import QMenu
+        board_view.set_tool(SelectTool())
+        menu = QMenu()
+        items = board_view._add_tool_action_menu(menu)
+        # Maps QAction -> action_id for each declared SelectTool action.
+        ids = set(items.values())
+        assert "select-tool.action.reroute" in ids
+        assert "select-tool.action.edit" in ids
+
+    def test_trigger_tool_action_rotates(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.tools.place_tool import PlaceTool
+
+        board_view.set_tool(PlaceTool("R"))
+        tool = board_view._active_tool
+        assert isinstance(tool, PlaceTool)
+        before = tool._rotation
+        # Triggering the rotate action synthesises its key into on_key.
+        board_view._trigger_tool_action("place-tool.action.rotate_cw")
+        assert tool._rotation == (before + 90) % 360

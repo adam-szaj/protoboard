@@ -142,6 +142,9 @@ class BoardView(QGraphicsView):
         # into it; tools register their own actions on activate().
         from protoboard.gui.keymap import KeyMap as _KeyMap
         self._keymap = _KeyMap.with_globals()
+        # ``[?]`` shortcut-help overlay — a QLabel parked over the viewport,
+        # built lazily on first toggle.
+        self._shortcuts_overlay: object | None = None
         # View state — camera side and visual transform are independent.
         self._camera_side: str = "top"           # "top" | "bottom"
         self._view_transform: str = "normal"     # "normal" | "mirror_h" | "mirror_v"
@@ -1717,13 +1720,170 @@ class BoardView(QGraphicsView):
     def _show_canvas_menu(self, vp_pos: QPoint, scene_pt: QPointF) -> None:
         from PySide6.QtWidgets import QMenu
         menu = QMenu(self)
+        # The active tool's own actions, with their current shortcuts, so the
+        # keyboard operations are discoverable + clickable.  Triggering one
+        # synthesises its resolved key and feeds it back through on_key — the
+        # real dispatch path, never duplicated behaviour.
+        tool_action_items = self._add_tool_action_menu(menu)
         act_center = menu.addAction("Center view here")
         act_escape = menu.addAction("Cancel tool (Esc)")
         chosen = menu.exec(self.mapToGlobal(vp_pos))
+        if chosen is None:
+            return
         if chosen is act_center:
             self.center_on_scene_point(scene_pt)
         elif chosen is act_escape:
             self.escape_tool.emit()
+        elif chosen in tool_action_items:
+            self._trigger_tool_action(tool_action_items[chosen])
+
+    def _add_tool_action_menu(self, menu: object) -> dict[object, str]:
+        """Add the active tool's actions to *menu*; return {QAction: action_id}.
+
+        Empty (no tool, or the tool declares no actions) → adds nothing.
+        """
+        from PySide6.QtWidgets import QMenu
+        assert isinstance(menu, QMenu)
+        tool = self._active_tool
+        if tool is None:
+            return {}
+        action_ids = tool.displayable_action_ids()
+        if not action_ids:
+            return {}
+        from protoboard.gui.shortcuts_help import (
+            category_label,
+            tool_shortcut_rows,
+        )
+        rows = tool_shortcut_rows(self._keymap, action_ids)
+        header = category_label(action_ids[0]) + " actions"
+        menu.addSection(header)
+        items: dict[object, str] = {}
+        for row in rows:
+            text = f"{row.label}\t{row.shortcut}" if row.shortcut else row.label
+            act = menu.addAction(text)
+            items[act] = row.action_id
+        menu.addSeparator()
+        return items
+
+    def _trigger_tool_action(self, action_id: str) -> None:
+        """Run *action_id* by synthesising its resolved key into the tool."""
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QKeyEvent
+
+        from protoboard.gui.shortcuts_help import shortcut_to_key_mods
+        tool = self._active_tool
+        if tool is None:
+            return
+        decoded = shortcut_to_key_mods(self._keymap.resolve(action_id))
+        if decoded is None:
+            return
+        key, mods = decoded
+        event = QKeyEvent(
+            QEvent.Type.KeyPress, key, Qt.KeyboardModifier(mods)
+        )
+        tool.on_key(event)
+
+    # -- [?] shortcut-help overlay -----------------------------------------
+
+    def _shortcuts_overlay_visible(self) -> bool:
+        # Track shown-state via ``isHidden()`` (False once ``show()`` is called)
+        # rather than ``isVisible()`` — the latter is False in a headless test
+        # whose parent viewport is never mapped.
+        from PySide6.QtWidgets import QLabel
+        ov = self._shortcuts_overlay
+        return isinstance(ov, QLabel) and not ov.isHidden()
+
+    def _toggle_shortcuts_overlay(self) -> None:
+        if self._shortcuts_overlay_visible():
+            self._hide_shortcuts_overlay()
+        else:
+            self._show_shortcuts_overlay()
+
+    def _hide_shortcuts_overlay(self) -> None:
+        from PySide6.QtWidgets import QLabel
+        ov = self._shortcuts_overlay
+        if isinstance(ov, QLabel):
+            ov.hide()
+
+    def _show_shortcuts_overlay(self) -> None:
+        """Float a panel listing the globally + tool-relevant shortcuts.
+
+        Reads the live :class:`KeyMap`, so the panel always reflects the user's
+        current bindings.  Global rows first, then the active tool's actions.
+        """
+        from PySide6.QtCore import Qt as _Qt
+        from PySide6.QtWidgets import QLabel
+
+        from protoboard.gui.shortcuts_help import (
+            category_label,
+            tool_shortcut_rows,
+        )
+
+        # The handful of generic globals worth surfacing here (Stage 1).
+        global_ids = [
+            "global.action.show_shortcuts",
+            "global.action.edit",
+            "global.action.delete",
+            "global.action.cancel",
+            "global.action.confirm",
+            "global.action.rotate_cw",
+            "global.action.rotate_ccw",
+            "global.action.flip",
+            "global.action.redrag",
+        ]
+        sections: list[tuple[str, list[object]]] = [
+            ("Global", list(tool_shortcut_rows(self._keymap, global_ids))),
+        ]
+        tool = self._active_tool
+        if tool is not None:
+            tool_ids = tool.displayable_action_ids()
+            if tool_ids:
+                sections.append((
+                    category_label(tool_ids[0]),
+                    list(tool_shortcut_rows(self._keymap, tool_ids)),
+                ))
+
+        html = self._render_shortcuts_html(sections)
+        ov = self._shortcuts_overlay
+        if not isinstance(ov, QLabel):
+            ov = QLabel(self.viewport())
+            ov.setTextFormat(_Qt.TextFormat.RichText)
+            ov.setStyleSheet(
+                "QLabel { background: rgba(20,22,28,235); color: #E6E6E6; "
+                "border: 1px solid #4A5060; border-radius: 6px; padding: 10px; }"
+            )
+            self._shortcuts_overlay = ov
+        ov.setText(html)
+        ov.adjustSize()
+        margin = 12
+        ov.move(self.viewport().width() - ov.width() - margin, margin)
+        ov.show()
+        ov.raise_()
+
+    @staticmethod
+    def _render_shortcuts_html(
+        sections: list[tuple[str, list[object]]]
+    ) -> str:
+        from protoboard.gui.shortcuts_help import ShortcutRow
+
+        parts = [
+            "<div style='font-size:11pt'><b>Keyboard shortcuts</b> "
+            "<span style='color:#9098A8'>(? to close)</span></div>"
+        ]
+        for title, rows in sections:
+            parts.append(
+                f"<div style='margin-top:8px;color:#9098A8'><b>{title}</b></div>"
+                "<table cellspacing='2'>"
+            )
+            for row in rows:
+                assert isinstance(row, ShortcutRow)
+                sc = row.shortcut or "—"
+                parts.append(
+                    f"<tr><td style='padding-right:18px'>{row.label}</td>"
+                    f"<td style='color:#7FD0FF'><code>{sc}</code></td></tr>"
+                )
+            parts.append("</table>")
+        return "".join(parts)
 
     # ------------------------------------------------------------------
     # Qt event handlers
@@ -2632,7 +2792,19 @@ class BoardView(QGraphicsView):
             event.ignore()
             return
         key = event.key()
+        # ``?`` toggles the shortcut-help overlay (resolved through the KeyMap,
+        # so a rebind moves it).  Esc closes it before anything else.
+        if self._keymap.matches(
+            key, event.modifiers(), "global.action.show_shortcuts"
+        ):
+            self._toggle_shortcuts_overlay()
+            event.accept()
+            return
         if key == Qt.Key.Key_Escape:
+            if self._shortcuts_overlay_visible():
+                self._hide_shortcuts_overlay()
+                event.accept()
+                return
             if self._active_tool is not None:
                 self._active_tool.on_key(event)
             self.escape_tool.emit()
@@ -2797,6 +2969,14 @@ class _Tool:
         if view is None:
             return False
         return view.keymap.matches(event.key(), event.modifiers(), action_id)
+
+    def displayable_action_ids(self) -> list[str]:
+        """Ordered action ids to surface in the ``[?]`` overlay / RMB menu.
+
+        Default: the tool's own declared actions (:meth:`key_actions`).  A tool
+        can override to add the inherited generic globals it also responds to.
+        """
+        return list(self.key_actions().keys())
 
     def on_scene_cleared(self) -> None:
         """Called after scene.clear() so tool can drop stale item references."""
