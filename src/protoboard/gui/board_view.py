@@ -1808,6 +1808,16 @@ class BoardView(QGraphicsView):
         if isinstance(ov, QLabel):
             ov.hide()
 
+    def _app_keybindings(self) -> object | None:
+        """The live ``KeyBindings`` table (with user overrides), or None.
+
+        Held by the MainWindow; the overlay reaches it through ``window()`` so
+        the global section reflects real, currently-bound shortcuts.  None ⇒
+        ``app_shortcut_sections`` falls back to the shipped defaults.
+        """
+        win = self.window()
+        return getattr(win, "_keybindings", None)
+
     @traced("BoardView._show_shortcuts_overlay")
     def _show_shortcuts_overlay(self) -> None:
         """Float a panel listing the globally + tool-relevant shortcuts.
@@ -1819,25 +1829,19 @@ class BoardView(QGraphicsView):
         from PySide6.QtWidgets import QLabel
 
         from protoboard.gui.shortcuts_help import (
+            app_shortcut_sections,
             category_label,
             tool_shortcut_rows,
         )
 
-        # The handful of generic globals worth surfacing here (Stage 1).
-        global_ids = [
-            "global.action.show_shortcuts",
-            "global.action.edit",
-            "global.action.delete",
-            "global.action.cancel",
-            "global.action.confirm",
-            "global.action.rotate_cw",
-            "global.action.rotate_ccw",
-            "global.action.flip",
-            "global.action.redrag",
-        ]
+        # Application shortcuts straight from the authoritative registry +
+        # the live KeyBindings (user overrides included), grouped by menu —
+        # replaces the old hand-maintained "Stage 1" id list.
         sections: list[tuple[str, list[object]]] = [
-            ("Global", list(tool_shortcut_rows(self._keymap, global_ids))),
+            (title, list(rows))
+            for title, rows in app_shortcut_sections(self._app_keybindings())
         ]
+        # Then the active tool's own (armed) actions, resolved through the KeyMap.
         tool = self._active_tool
         if tool is not None:
             tool_ids = tool.displayable_action_ids()
@@ -2821,6 +2825,16 @@ class BoardView(QGraphicsView):
                 self._active_tool.on_key(event)
             self.escape_tool.emit()
             return
+        # An armed tool (float-rotate / keyboard-move) claims arrows for
+        # stepping — give it first crack BEFORE the arrow-scroll fallback, else
+        # the view scrolls instead.  Gated on wants_key (the tool decides by
+        # action id), so an idle tool still scrolls on arrows as before.
+        tool = self._active_tool
+        if tool is not None and tool.wants_key(event):
+            tool.on_key(event)
+            if event.isAccepted():
+                return
+
         # Arrow keys — scroll by one raster unit (only without modifier).
         if not event.modifiers() and key in (
             Qt.Key.Key_Left, Qt.Key.Key_Right,

@@ -87,6 +87,19 @@ _ACT_FLIP_FRAGMENT = "select-tool.action.flip_fragment"
 _ACT_ROTATE = "select-tool.action.rotate"
 _ACT_MOVE = "select-tool.action.move"
 _ACT_FLIP = "select-tool.action.flip"
+# Directional step actions used INSIDE the armed modes — each carries two
+# default binds (arrow ``|`` WASD) so both work; rebindable like any action.
+# rotate steps CW/CCW; move steps the anchor one cell.  Dispatched + vetoed
+# through the KeyMap by id (never raw Qt.Key), per [[every-action-has-keybinding]].
+_ACT_STEP_LEFT = "select-tool.action.step_left"
+_ACT_STEP_RIGHT = "select-tool.action.step_right"
+_ACT_STEP_UP = "select-tool.action.step_up"
+_ACT_STEP_DOWN = "select-tool.action.step_down"
+# Every action the armed sub-tools dispatch / veto against (the superset).
+_ARMED_ACTION_IDS: tuple[str, ...] = (
+    _ACT_STEP_LEFT, _ACT_STEP_RIGHT, _ACT_STEP_UP, _ACT_STEP_DOWN,
+    _ACT_ROTATE, _ACT_FLIP, _ACT_CANCEL,
+)
 
 # Rubber-band visuals (match the legacy tool's cyan band).
 _BAND_PEN_LR = QPen(QColor(0, 200, 255, 180), 0.06)
@@ -2066,6 +2079,12 @@ class SelectTool(_Tool):
             _ACT_MOVE: "G",         # arm keyboard float-move ("grab")
             _ACT_FLIP: None,        # global.action.flip (default "Alt+R")
             _ACT_FLIP_FRAGMENT: "F",  # wire-edit op: flip fragment to other layer
+            # Directional steps inside the armed modes — arrow OR WASD (the
+            # ``|`` carries both binds; rebindable).
+            _ACT_STEP_LEFT: "Left|A",
+            _ACT_STEP_RIGHT: "Right|D",
+            _ACT_STEP_UP: "Up|W",
+            _ACT_STEP_DOWN: "Down|S",
         }
 
     def wants_key(self, event: QKeyEvent) -> bool:
@@ -2083,6 +2102,14 @@ class SelectTool(_Tool):
         non-action keys that aren't global shortcuts, so they reach the tool
         anyway and need no veto here.
         """
+        # An armed transform (float-rotate / keyboard-move) claims its step +
+        # action keys, resolved through the KeyMap — so a global QAction (Route
+        # on the step-up/WASD key, Select on 'S', …) never shadows the live
+        # mode.  All ids, no raw Qt.Key literals.
+        if self._armed is not None and any(
+            self._key_matches(event, a) for a in _ARMED_ACTION_IDS
+        ):
+            return True
         # A selected wire-edit fragment claims its operation keys.
         if self._wire_edit is not None and (
             self._key_matches(event, _ACT_REROUTE)
@@ -2212,6 +2239,10 @@ class SelectTool(_Tool):
             group_id=group_id,
             snap=self._snap_free,
             commit=self._execute_command,
+            matches=self._key_matches,
+            # CW = step-up / the rotate action; CCW = step-down.
+            cw_ids=(_ACT_STEP_UP, _ACT_ROTATE),
+            ccw_ids=(_ACT_STEP_DOWN,),
             pivot=seed,
             preview=self._rotate_preview,
             status=lambda msg: self._status(msg, 0),
@@ -2278,7 +2309,17 @@ class SelectTool(_Tool):
             self._status("Move: selection is not draggable")
             return
         self._mouse = drag  # parked so the drag-preview glide path is shared
-        self._armed = ArmedMove(drag, anchor=Point(anchor_pt.x(), anchor_pt.y()))
+        self._armed = ArmedMove(
+            drag,
+            anchor=Point(anchor_pt.x(), anchor_pt.y()),
+            matches=self._key_matches,
+            steps={
+                _ACT_STEP_LEFT: (-1.0, 0.0),
+                _ACT_STEP_RIGHT: (1.0, 0.0),
+                _ACT_STEP_UP: (0.0, -1.0),
+                _ACT_STEP_DOWN: (0.0, 1.0),
+            },
+        )
         self._status(self._armed.status_hint(), 0)
 
     def _move_anchor_point(self, sel: Selectable) -> QPointF | None:

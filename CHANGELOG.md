@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Keybindingi: overlay z rejestru, kierunki jako akcje, fix przechwytywania (2026-06-19)
+
+Trzy powiązane naprawy keybindingów:
+
+* **Overlay `[?]` — sekcja Global z rejestru.** Była zahardkodowana lista ~9
+  akcji ("Stage 1"); teraz `shortcuts_help.app_shortcut_sections` buduje ją z
+  autorytatywnego `ALL_ACTIONS` + żywego `KeyBindings` (override'y usera),
+  pogrupowane wg menu (File/Edit/Select/View/Analysis). Realne skróty
+  (Save/Undo/DRC/zoom…) zamiast statycznej garstki.
+* **Kierunki ruchu/obrotu jako akcje KeyMap** — strzałki/WSAD/R były literałami
+  `Qt.Key.*` w `ArmedMove`/`ArmedRotate`. Teraz akcje `select-tool.action.step_*`
+  z **podwójnym bindem** (`"Up|W"` itd.); KeyMap rozszerzony o `|`-alternatywy
+  (`matches` sprawdza każdą, `resolve_display`→`"Up / W"`). Sub-toole dostają
+  wstrzyknięty matcher i dispatchują po action-id — zero literałów, przebindowalne
+  ([[every-action-has-keybinding]]).
+* **Fix: WSAD przełączał tryby / strzałki scrollowały.** Armed-tryb nie wetował
+  globalnych skrótów (S=Select, W=Route…) ani nie wyprzedzał arrow-scrolla.
+  `wants_key` przejmuje teraz `_ARMED_ACTION_IDS` gdy uzbrojone (po action-id);
+  `keyPressEvent` daje uzbrojonemu toolowi arrow PRZED scrollem (gated `wants_key`).
+* Testy: armed-move veto (S/WASD/arrows claimed tylko gdy armed, released po
+  disarm), overlay-pokazuje-realne-skróty, `KeyMap` multi-bind. 896 GUI green;
+  4 zmienione moduły czyste pod `mypy --strict`.
+
 ### Wizualny feedback armed-rotate (2026-06-19)
 
 Armed-rotate nie dawał sygnału, że trwa: obrót nie był widać, brak markera

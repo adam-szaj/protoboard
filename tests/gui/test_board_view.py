@@ -218,6 +218,20 @@ class TestShortcutsHelp:
         assert "Reroute" in text
         assert "Edit" in text
 
+    def test_overlay_lists_real_app_shortcuts(self, board_view: BoardView) -> None:
+        # Regression: the global section is built from the real action registry
+        # (ALL_ACTIONS + live KeyBindings), not a hand-maintained id list — so
+        # actual app shortcuts (Save, Undo, DRC…) appear, grouped by menu.
+        from PySide6.QtWidgets import QLabel
+        board_view.set_tool(SelectTool())
+        board_view._show_shortcuts_overlay()
+        ov = board_view._shortcuts_overlay
+        assert isinstance(ov, QLabel)
+        text = ov.text()
+        assert "Save" in text and "Ctrl+S" in text  # File
+        assert "Undo" in text                        # Edit
+        assert "File" in text and "Analysis" in text  # menu-grouped headings
+
     def test_overlay_reflects_rebind(self, board_view: BoardView) -> None:
         from PySide6.QtWidgets import QLabel
         board_view.keymap.set_override("select-tool.action.reroute", "Q")

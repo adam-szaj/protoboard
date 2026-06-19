@@ -1196,6 +1196,28 @@ class TestWantsKeyShortcutVeto:
         assert tool.wants_key(_key_event(Qt.Key.Key_W)) is True
         assert tool.wants_key(_key_event(Qt.Key.Key_A)) is True
 
+    def test_armed_move_claims_wasd_and_arrows(
+        self, board_view, session
+    ) -> None:
+        # Bug: WASD switched tools / arrows scrolled because the armed mode
+        # didn't veto the global shortcuts.  While armed-move is live the step
+        # keys (arrow OR WASD, by action id) must be claimed so neither a global
+        # QAction (S=Select…) nor the arrow-scroll handler steals them.
+        _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)
+        # Idle: 'S' is the global Select-tool shortcut, not the tool's.
+        assert tool.wants_key(_key_event(Qt.Key.Key_S)) is False
+        _key(tool, Qt.Key.Key_G)  # arm move
+        assert tool._armed is not None
+        for k in (
+            Qt.Key.Key_S, Qt.Key.Key_W, Qt.Key.Key_A, Qt.Key.Key_D,
+            Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down,
+        ):
+            assert tool.wants_key(_key_event(k)) is True
+        _key(tool, Qt.Key.Key_Escape)  # disarm
+        assert tool.wants_key(_key_event(Qt.Key.Key_S)) is False  # released
+
 
 class TestDynamicRebind:
     """Veto + dispatch follow the *current* binding, never a hard-coded key."""

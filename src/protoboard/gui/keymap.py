@@ -250,6 +250,10 @@ class KeyMap:
             return ""  # a global action with a None default = unbound
         return self.resolve(global_id)
 
+    def resolve_display(self, action_id: str) -> str:
+        """Human-facing binding text: ``|`` alternatives shown as ``"Up / W"``."""
+        return " / ".join(a for a in self.resolve(action_id).split("|") if a)
+
     def is_final(self, action_id: str) -> bool:
         action = self._actions.get(action_id)
         return action is not None and action.final
@@ -285,13 +289,32 @@ class KeyMap:
         shortcut = self.resolve(action_id)
         if not shortcut:
             return False
+        # A binding may carry several alternatives separated by ``|`` (e.g.
+        # ``"Up|W"`` — arrow OR WASD step); the press matches if it equals ANY.
+        return any(
+            self._seq_matches(key, modifiers, alt)
+            for alt in shortcut.split("|")
+            if alt
+        )
+
+    @staticmethod
+    def _seq_matches(
+        key: int, modifiers: Qt.KeyboardModifier, shortcut: str
+    ) -> bool:
+        """True when a key press equals one (single, non-``|``) shortcut string.
+
+        A shifted *symbol* (``?``, ``:``, ``+`` …) reaches us as its
+        already-shifted keycode (``Key_Question``) **plus** a live
+        ``ShiftModifier`` — but its canonical ``QKeySequence`` form (``"?"``)
+        bakes the shift into the keycode and carries no separate Shift flag, so
+        the raw event sequence (``"Shift+?"``) compares unequal to the binding.
+        We therefore also test the event with Shift stripped, but *only for a
+        symbol keycode* — for a letter/digit, Shift is a deliberate, additive
+        modifier, so ``Shift+R`` must stay distinct from ``R``.
+        """
         target = QKeySequence(shortcut)
         if event_to_sequence(key, modifiers) == target:
             return True
-        # Shifted-symbol fallback: the key is a symbol (its keycode already
-        # implies Shift) and the binding carries no explicit Shift flag → drop
-        # the live Shift and retry.  Gated on _is_symbol_key so a real
-        # ``Shift+<letter/digit>`` chord is never equated with the bare key.
         if (
             modifiers & Qt.KeyboardModifier.ShiftModifier
             and _is_symbol_key(key)

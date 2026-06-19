@@ -3,9 +3,14 @@
 
 A thin adapter over :class:`DragController`: the controller already floats a
 selection, classifies the drop, and holds a HARD conflict without committing —
-exactly the armed-sub-tool contract.  This wraps it for keyboard driving
-(arrows / WASD step the anchor one grid cell via ``nudge_to``) and maps the
-protocol's ``accept`` / ``cancel`` onto the controller's CONFIRM / CANCEL.
+exactly the armed-sub-tool contract.  This wraps it for keyboard driving (the
+directional *step* actions nudge the anchor one grid cell via ``nudge_to``) and
+maps the protocol's ``accept`` / ``cancel`` onto the controller's
+CONFIRM / CANCEL.
+
+Keys are matched by **action id through the injected matcher** (resolved against
+the live KeyMap), never by raw ``Qt.Key`` literals — so the step bindings
+(arrow ``|`` WASD by default) are rebindable like any other action.
 
 ``accept()`` is conditional by construction: the controller's
 ``confirm_floating`` only commits when the drop is committable; an un-committable
@@ -21,25 +26,35 @@ from PySide6.QtCore import Qt
 from protoboard.geometry import Point
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from PySide6.QtGui import QKeyEvent, QWheelEvent
 
     from protoboard.gui.selection.drag_controller import DragController
 
-# Per-key anchor nudge in grid cells (arrows + WASD).
-_STEP: dict[int, tuple[float, float]] = {
-    int(Qt.Key.Key_Left): (-1.0, 0.0), int(Qt.Key.Key_A): (-1.0, 0.0),
-    int(Qt.Key.Key_Right): (1.0, 0.0), int(Qt.Key.Key_D): (1.0, 0.0),
-    int(Qt.Key.Key_Up): (0.0, -1.0), int(Qt.Key.Key_W): (0.0, -1.0),
-    int(Qt.Key.Key_Down): (0.0, 1.0), int(Qt.Key.Key_S): (0.0, 1.0),
-}
+    #: ``(event, action_id) -> matched`` — resolves through the live KeyMap.
+    Matcher = Callable[[QKeyEvent, str], bool]
 
 
 class ArmedMove:
-    """Keyboard float-move sub-tool wrapping a live :class:`DragController`."""
+    """Keyboard float-move sub-tool wrapping a live :class:`DragController`.
 
-    def __init__(self, drag: DragController, *, anchor: Point) -> None:
+    *steps* maps each directional step action id to its ``(dx, dy)`` grid nudge;
+    *matches* resolves a key event against an action id via the KeyMap.
+    """
+
+    def __init__(
+        self,
+        drag: DragController,
+        *,
+        anchor: Point,
+        matches: Matcher,
+        steps: dict[str, tuple[float, float]],
+    ) -> None:
         self._drag = drag
         self._anchor = anchor
+        self._matches = matches
+        self._steps = steps
 
     @property
     def finished(self) -> bool:
@@ -53,17 +68,19 @@ class ArmedMove:
 
     def on_key(self, event: QKeyEvent) -> bool:
         key = event.key()
+        # Enter / Esc are raw confirm / cancel (not global shortcuts) — same as
+        # wire-edit; the directional steps dispatch by action id.
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.accept()
             return True
         if key == Qt.Key.Key_Escape:
             self.cancel()
             return True
-        nudge = _STEP.get(int(key))
-        if nudge is not None:
-            self._anchor = Point(self._anchor.x + nudge[0], self._anchor.y + nudge[1])
-            self._drag.nudge_to(self._anchor)
-            return True
+        for action_id, (dx, dy) in self._steps.items():
+            if self._matches(event, action_id):
+                self._anchor = Point(self._anchor.x + dx, self._anchor.y + dy)
+                self._drag.nudge_to(self._anchor)
+                return True
         return False
 
     def wants_wheel(self, event: QWheelEvent) -> bool:

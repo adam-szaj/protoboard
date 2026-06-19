@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     CommitFn = Callable[["object"], bool]  # execute a command; False = rejected
     PreviewFn = Callable[["DragCommitDecision | None"], None]
     StatusFn = Callable[[str], None]
+    Matcher = Callable[["QKeyEvent", str], bool]  # (event, action_id) via KeyMap
 
 
 class ArmedRotate:
@@ -50,6 +51,9 @@ class ArmedRotate:
         group_id: uuid.UUID | None,
         snap: SnapFn,
         commit: CommitFn,
+        matches: "Matcher",
+        cw_ids: "tuple[str, ...]",
+        ccw_ids: "tuple[str, ...]",
         pivot: Point | None = None,
         preview: PreviewFn | None = None,
         status: StatusFn | None = None,
@@ -59,6 +63,9 @@ class ArmedRotate:
         self._group_id = group_id
         self._snap = snap
         self._commit = commit
+        self._matches = matches
+        self._cw_ids = cw_ids    # action ids that step +90 (CW)
+        self._ccw_ids = ccw_ids  # action ids that step -90 (CCW)
         self._preview = preview
         self._status = status
         self._accum = 0            # net previewed degrees (multiple of 90)
@@ -98,23 +105,19 @@ class ArmedRotate:
 
     def on_key(self, event: QKeyEvent) -> bool:
         key = event.key()
-        shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        # Enter / Esc are raw confirm / cancel (not global shortcuts); the
+        # rotation steps dispatch by action id through the KeyMap.
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.accept()
             return True
         if key == Qt.Key.Key_Escape:
             self.cancel()
             return True
-        if key == Qt.Key.Key_Down:
-            self._step(-90)
-            return True
-        if key == Qt.Key.Key_Up:
+        if any(self._matches(event, a) for a in self._cw_ids):
             self._step(90)
             return True
-        if key == Qt.Key.Key_R and not (
-            event.modifiers() & Qt.KeyboardModifier.ControlModifier
-        ):
-            self._step(-90 if shift else 90)
+        if any(self._matches(event, a) for a in self._ccw_ids):
+            self._step(-90)
             return True
         return False
 
