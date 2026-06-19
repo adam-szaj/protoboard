@@ -322,20 +322,25 @@ class TestRubberBand:
 
 
 class TestRotate:
-    def test_r_rotates_selected(
+    def test_r_arms_then_steps_rotation(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
+        # [R] now ARMS float-rotate; a second [R] (or wheel/arrow) steps 90°.
         inst = _place(board_view, session, 0.5, 0.5)
         tool = _v2(board_view)
         _press(tool, 0.5, 0.5)
         before = session.layout.placements[inst.id].rotation
-        _key(tool, Qt.Key.Key_R)
-        after = session.layout.placements[inst.id].rotation
-        assert after == (before + 90) % 360
+        _key(tool, Qt.Key.Key_R)  # arm
+        assert tool._rotate_arm is not None
+        assert session.layout.placements[inst.id].rotation == before  # not yet
+        _key(tool, Qt.Key.Key_R)  # step +90
+        assert session.layout.placements[inst.id].rotation == (before + 90) % 360
 
     def test_rotate_around_point_moves_component(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
+        # Legacy pivot-capture seeds the armed session's shared pivot; the part
+        # then orbits it when stepped.
         inst = _place(board_view, session, 0.5, 0.5)
         tool = _v2(board_view)
         _press(tool, 0.5, 0.5)
@@ -344,7 +349,8 @@ class TestRotate:
         assert tool._pivot_capture_pending is True
         _press(tool, 3.0, 3.0)  # capture pivot away from the part
         assert tool._rotate_pivot is not None
-        _key(tool, Qt.Key.Key_R)
+        _key(tool, Qt.Key.Key_R)  # arm (seeds pivot from the captured point)
+        _key(tool, Qt.Key.Key_R)  # step
         after = session.layout.placements[inst.id].position
         assert (after.x, after.y) != (before.x, before.y)
 
@@ -359,6 +365,109 @@ class TestRotate:
         assert tool._rotate_pivot is not None
         _key(tool, Qt.Key.Key_Escape)
         assert tool._rotate_pivot is None
+
+
+class TestArmedRotate:
+    """[R] arms a float-rotate the selection stays live in."""
+
+    def _armed(self, board_view, session):
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)
+        _key(tool, Qt.Key.Key_R)  # arm
+        assert tool._rotate_arm is not None
+        return inst, tool
+
+    def test_up_down_step_cw_ccw(self, board_view, session) -> None:
+        inst, tool = self._armed(board_view, session)
+        base = session.layout.placements[inst.id].rotation
+        _key(tool, Qt.Key.Key_Up)
+        assert session.layout.placements[inst.id].rotation == (base + 90) % 360
+        _key(tool, Qt.Key.Key_Down)
+        assert session.layout.placements[inst.id].rotation == base
+
+    def test_wheel_steps_rotation(self, board_view, session) -> None:
+        from PySide6.QtCore import QPoint
+        from PySide6.QtGui import QWheelEvent
+
+        inst, tool = self._armed(board_view, session)
+        base = session.layout.placements[inst.id].rotation
+        assert tool.wants_wheel(object())  # claims the wheel while armed
+        ev = QWheelEvent(
+            QPointF(0, 0), QPointF(0, 0), QPoint(0, 0), QPoint(0, 120),
+            Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase, False,
+        )
+        tool.on_wheel(ev)
+        assert session.layout.placements[inst.id].rotation == (base + 90) % 360
+
+    def test_esc_cancels_whole_session(self, board_view, session) -> None:
+        inst, tool = self._armed(board_view, session)
+        base = session.layout.placements[inst.id].rotation
+        _key(tool, Qt.Key.Key_R)  # +90
+        _key(tool, Qt.Key.Key_R)  # +90  (now base+180)
+        assert session.layout.placements[inst.id].rotation == (base + 180) % 360
+        _key(tool, Qt.Key.Key_Escape)  # cancel the whole session
+        assert tool._rotate_arm is None
+        assert session.layout.placements[inst.id].rotation == base
+
+    def test_enter_accepts_keeps_rotation(self, board_view, session) -> None:
+        inst, tool = self._armed(board_view, session)
+        base = session.layout.placements[inst.id].rotation
+        _key(tool, Qt.Key.Key_R)  # +90
+        _key(tool, Qt.Key.Key_Return)  # accept
+        assert tool._rotate_arm is None
+        assert session.layout.placements[inst.id].rotation == (base + 90) % 360
+
+    def test_pad_click_sets_shared_pivot(self, board_view, session) -> None:
+        inst, tool = self._armed(board_view, session)
+        before = session.layout.placements[inst.id].position
+        _press(tool, 3.0, 3.0)  # click a pad away from the part → shared pivot
+        assert tool._rotate_arm is not None and tool._rotate_arm.pivot is not None
+        _key(tool, Qt.Key.Key_R)  # step → orbit the pivot, position changes
+        after = session.layout.placements[inst.id].position
+        assert (after.x, after.y) != (before.x, before.y)
+
+
+class TestArmedMove:
+    """[G] arms a keyboard-driven float-move (arrows / WASD)."""
+
+    def _armed(self, board_view, session):
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)
+        assert not tool._selection.is_empty()
+        _key(tool, Qt.Key.Key_G)  # arm
+        assert tool._move_arm_active is True
+        return inst, tool
+
+    def test_arrows_then_enter_commits_move(self, board_view, session) -> None:
+        inst, tool = self._armed(board_view, session)
+        before = session.layout.placements[inst.id].position
+        _key(tool, Qt.Key.Key_Right)
+        _key(tool, Qt.Key.Key_Down)
+        _key(tool, Qt.Key.Key_Return)  # drop
+        assert tool._move_arm_active is False
+        after = session.layout.placements[inst.id].position
+        assert (after.x, after.y) == (before.x + 1.0, before.y + 1.0)
+
+    def test_wasd_steps(self, board_view, session) -> None:
+        inst, tool = self._armed(board_view, session)
+        before = session.layout.placements[inst.id].position
+        _key(tool, Qt.Key.Key_D)  # right
+        _key(tool, Qt.Key.Key_S)  # down
+        _key(tool, Qt.Key.Key_Return)
+        after = session.layout.placements[inst.id].position
+        assert (after.x, after.y) == (before.x + 1.0, before.y + 1.0)
+
+    def test_esc_cancels_move(self, board_view, session) -> None:
+        inst, tool = self._armed(board_view, session)
+        before = session.layout.placements[inst.id].position
+        _key(tool, Qt.Key.Key_Right)
+        _key(tool, Qt.Key.Key_Escape)  # cancel — no commit
+        assert tool._move_arm_active is False
+        after = session.layout.placements[inst.id].position
+        assert (after.x, after.y) == (before.x, before.y)
 
 
 class TestDragGesture:

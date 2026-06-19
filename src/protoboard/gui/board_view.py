@@ -1908,6 +1908,14 @@ class BoardView(QGraphicsView):
         the wheel intends to zoom around wherever the cursor currently
         is, not the position where the burst started.
         """
+        # An armed tool (e.g. float-rotate) may claim the wheel to step its
+        # own state instead of zooming — consulted before any accumulation so
+        # the zoom path is byte-for-byte unchanged when no tool opts in.
+        tool = self._active_tool
+        if tool is not None and tool.wants_wheel(event):
+            tool.on_wheel(event)
+            event.accept()
+            return
         self._wheel_accum_delta += event.angleDelta().y()
         self._wheel_pivot_vp = event.position().toPoint()
         if not self._wheel_timer.isActive():
@@ -2950,6 +2958,20 @@ class _Tool:
         Default: claim nothing.
         """
         return False
+
+    def wants_wheel(self, event: QWheelEvent) -> bool:
+        """True when the tool consumes the wheel *right now* instead of zooming.
+
+        Consulted by :meth:`BoardView.wheelEvent` before its zoom accumulation:
+        an armed float-rotate uses the wheel to step the rotation ±90°, so it
+        claims the wheel while armed and lets it zoom otherwise.  Default: never
+        — every tool/state keeps the wheel zooming unless it opts in here.
+        """
+        return False
+
+    def on_wheel(self, event: QWheelEvent) -> None:
+        """Handle a wheel tick the tool claimed via :meth:`wants_wheel`."""
+        pass
 
     def key_actions(self) -> dict[str, str | None]:
         """The keyboard actions this tool declares (namespaced keybindings).

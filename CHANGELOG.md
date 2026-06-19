@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tryby uzbrajane: float-rotate [R] + keyboard float-move [G] (2026-06-19)
+
+Rotacja i przesuwanie zaznaczenia działają teraz jak wire-edit (`[E]`) —
+tryby *uzbrajane*, nie jednorazowe komendy.
+
+* **`[R]` uzbraja float-rotate.** Selekcja (komponent / grupa / mix) zostaje
+  „żywa": kółko / `[↑]` / `[↓]` / `[R]` krokują ±90° (każdy krok to realna,
+  cofalna komenda — `_rotate_multi`/`_apply_rotate`, więc kolidujące druty są
+  czyszczone). Domyślnie każdy obiekt obraca się wokół własnego środka; **klik
+  w pad = wspólny pivot dla całego zaznaczenia** (`RotateAroundPointCommand`),
+  ponowny klik resetuje do per-obiekt. `[Enter]` zatwierdza, `[Esc]` anuluje
+  CAŁĄ sesję (cofa wszystkie kroki do undo-floor z chwili uzbrojenia). Stare
+  natychmiastowe `R = obróć 90°` zniknęło; `Alt+R` (flip 2-pin) i `Ctrl+R`
+  (re-drag) bez zmian. Legacy `begin_rotate_around_point` zasila wspólny pivot.
+* **`[G]` uzbraja keyboard float-move** („grab"). Przesuwanie bez myszy:
+  strzałki / WASD krokują kotwicę o jedną komórkę siatki. Reużywa CAŁY silnik
+  `DragController` (snap / klasyfikacja konfliktów / live preview) przez nowe
+  `DragController.nudge_to`. `[Enter]` upuszcza (commit), `[Esc]` anuluje.
+* **Wheel-seam:** `_Tool.wants_wheel`/`on_wheel` konsultowane przez
+  `BoardView.wheelEvent` PRZED zoomem — domyślnie off, więc zoom bez zmian;
+  tylko uzbrojony float-rotate przejmuje kółko.
+* Akcje namespaced w KeyMap (`select-tool.action.rotate`/`.move`/`.flip`),
+  przebindowalne, widoczne w nakładce `[?]` i menu PPM (Rotate R / Move G /
+  Flip Alt+R).
+* 8 testów (`TestArmedRotate` ×5, `TestArmedMove` ×3); 2 testy `TestRotate`
+  zaktualizowane do nowej semantyki arm-then-step. 2899 testów green.
+* Design + staging: `docs/armed-rotate-and-subtool-delegation.md` (etapy 1-3
+  DONE; ekstrakcja `ArmedSubTool` protocol + atomic caller-API dalej odłożone).
+
 ### Fix: [?] nie otwierał nakładki skrótów (2026-06-19)
 
 `[?]` (overlay z helpem skrótów) nie reagował. Przyczyna w `KeyMap.matches`:

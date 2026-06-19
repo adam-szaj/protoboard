@@ -271,6 +271,18 @@ class DragController:
 
         self._settle_at(scene_pt)
 
+    def nudge_to(self, target: Point) -> None:
+        """Keyboard analogue of :meth:`on_move`: settle the drag at *target*.
+
+        Used by an armed keyboard-move (arrows / WSAD) — there is no cursor and
+        no start threshold to cross, so this marks the drag started and settles
+        directly.  ``target`` is the desired anchor *grab point*; the grab offset
+        is applied inside :meth:`_settle_at` exactly as for the mouse, so the
+        same snap / classify / preview pipeline runs.
+        """
+        self._threshold_crossed = True
+        self._settle_at(target)
+
     def _settle_at(self, scene_pt: Point) -> None:
         """Place the drag set at *scene_pt*, re-sync the index, re-classify.
 

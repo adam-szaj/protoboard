@@ -1,9 +1,26 @@
 # Armed-rotate mode + sub-tool delegation (design)
 
-Status: **DESIGN ONLY — not implemented.**  Captures the agreed shape of the
-new rotate interaction and the larger direction it belongs to (SelectTool
-sheds operations to delegated sub-tools).  Implementation is staged; this doc
-is the map.
+Status: **armed-rotate + armed-move SHIPPED** (2026-06-19); the sub-tool
+delegation direction (§2) is still design-only.  Captures the agreed shape of
+the armed transform interactions and the larger direction they belong to
+(SelectTool sheds operations to delegated sub-tools).
+
+Shipped so far:
+
+* `[R]` arms float-rotate — wheel / `[↑]` / `[↓]` / `[R]` step ±90° (each a
+  real undoable command), click a pad = shared pivot for the whole selection
+  (re-click resets), `[Enter]` accepts, `[Esc]` cancels the whole session
+  (undoes every step since arming).
+* `[G]` arms keyboard float-move ("grab") — arrows / WASD step the anchor one
+  grid cell, reusing the whole `DragController` engine (snap / conflict-classify
+  / live preview) via a new `nudge_to`; `[Enter]` drops, `[Esc]` cancels.
+* Wheel seam: `_Tool.wants_wheel` / `on_wheel` consulted by
+  `BoardView.wheelEvent` before zooming (default off → zoom unchanged).
+* Both are namespaced KeyMap actions (`select-tool.action.rotate` / `.move` /
+  `.flip`), rebindable, and surface in the `[?]` overlay + RMB menu.
+
+Still design-only: the §2 delegation refactor and the atomic
+`[arm, action, disarm]` caller API.
 
 Related: [docs/gui.md](gui.md), [docs/commands.md](commands.md),
 [docs/drag-pipeline-architecture.md](drag-pipeline-architecture.md),
@@ -176,19 +193,33 @@ as one undo entry.  **Constraint preserved:** flip currently applies only to
 
 ---
 
-## 4. Implementation staging (when scheduled)
+## 4. Implementation staging
 
-1. **Wheel seam** — `_Tool.wants_wheel`/`on_wheel` hooks + `BoardView.wheelEvent`
-   consult (no behaviour change while no tool wants the wheel).
-2. **Float-transform sub-tool** — extract rotate/flip/pivot (§2.1 B) into an
-   armed sub-tool; `[R]` arms it; wheel + arrows + actions drive ±90°; pad-click
-   sets shared pivot; `[Enter]`/`[Esc]` commit/cancel; one command per commit.
-3. **Wire fragment-flip** — land the deferred `_flip_wire_fragment` as a
+1. **Wheel seam** — ✅ DONE (2026-06-19).  `_Tool.wants_wheel`/`on_wheel` hooks +
+   `BoardView.wheelEvent` consult (no behaviour change while no tool wants the
+   wheel).
+2. **Armed float-rotate** — ✅ DONE (2026-06-19).  `[R]` arms; wheel / `[↑]` /
+   `[↓]` / `[R]` step ±90° (each a real undoable command via `_rotate_multi`/
+   `_apply_rotate`, so crossing wires are cleaned); pad-click sets a shared
+   pivot (re-click resets to per-object); `[Enter]` accepts; `[Esc]` cancels the
+   whole session (undoes back to the arm-time undo-stack floor).  A legacy
+   `begin_rotate_around_point` pivot capture seeds the shared pivot, converging
+   the two pivot routes.  *Note:* implemented as tool-local state on SelectTool
+   (`_RotateArm`), not yet the extracted sub-tool of §2.1 B — the extraction is
+   stage 5.
+3. **Armed keyboard float-move** — ✅ DONE (2026-06-19).  `[G]` ("grab") arms a
+   `DragController` driven by the keyboard: arrows / WASD step the anchor one
+   grid cell via the new `DragController.nudge_to`, reusing the entire drag
+   engine (snap / conflict-classify / live preview); `[Enter]` confirms (CONFIRM
+   intent → commit), `[Esc]` cancels (CANCEL intent).
+4. **Wire fragment-flip** — land the deferred `_flip_wire_fragment` as a
    wire-edit op-table entry (todo.md item) — first concrete "operation moves
    into the sub-tool" step.
-4. **ArmedSubTool protocol** — once two sub-tools exist, factor the shared
-   arm/op/commit shape (only if the polymorphism check passes).
-5. **Atomic `[arm, action, disarm]` caller API** — deferred; design once the
+5. **ArmedSubTool protocol** — now that rotate / move / wire-edit / redrag all
+   share the arm → (step | op-table | pick) → commit/cancel shape, factor the
+   common interface (only if the polymorphism check passes) and migrate the
+   tool-local `_RotateArm` / `_move_arm_*` state onto it.
+6. **Atomic `[arm, action, disarm]` caller API** — deferred; design once the
    protocol is real.
 
 Nothing above is committed until each stage has a green suite + a smoke test,
