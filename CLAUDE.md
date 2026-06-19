@@ -63,6 +63,7 @@ display server.
 | Selection / highlight FSM (canonical) | [docs/highlight-state-machine.txt](docs/highlight-state-machine.txt) |
 | Pad / pin / wire / joint semantics (hard and soft rules) | [docs/pad-pin-wire-junction-semantics.md](docs/pad-pin-wire-junction-semantics.md) |
 | Drag pipeline architecture | [docs/drag-pipeline-architecture.md](docs/drag-pipeline-architecture.md) |
+| Armed-rotate mode + sub-tool delegation (design) | [docs/armed-rotate-and-subtool-delegation.md](docs/armed-rotate-and-subtool-delegation.md) |
 | Testing strategy | [docs/testing.md](docs/testing.md) |
 | Benchmarks, profiling, GUI performance architecture | [docs/benchmarks.md](docs/benchmarks.md) |
 | Historical performance optimisations | [docs/performance.md](docs/performance.md) |
