@@ -890,6 +890,69 @@ class TestWireEdit:
         assert tool._wire_edit is None
 
 
+def _key_event(key: Qt.Key) -> QKeyEvent:
+    return QKeyEvent(QKeyEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
+
+
+class TestDeleteSelectedWire:
+    """Delete on a selected (whole) wire removes it — without entering edit."""
+
+    def test_del_on_selected_wire_removes_it(self, qtbot) -> None:
+        from protoboard.domain.commands.component_cmds import RemoveWireCommand
+
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        depth = _depth(session)
+        n_before = len(list(session.layout.wires))
+
+        _key(tool, Qt.Key.Key_Delete)
+
+        assert len(list(session.layout.wires)) == n_before - 1
+        assert _depth(session) == depth + 1
+        assert isinstance(
+            session.stack._undo[-1], RemoveWireCommand  # type: ignore[attr-defined]
+        )
+
+    def test_del_with_empty_selection_is_noop(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        depth = _depth(session)
+        _key(tool, Qt.Key.Key_Delete)
+        assert _depth(session) == depth  # nothing selected → nothing deleted
+
+
+class TestWantsKeyShortcutVeto:
+    """The tool vetoes global shortcuts only for keys it needs contextually."""
+
+    def test_wants_delete_when_wire_selected(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        assert tool.wants_key(_key_event(Qt.Key.Key_Delete)) is True
+
+    def test_does_not_want_delete_when_nothing_selected(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        assert tool.wants_key(_key_event(Qt.Key.Key_Delete)) is False
+
+    def test_wants_w_and_a_only_in_wire_edit(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        # No fragment yet → [W] belongs to the global Route-tool shortcut.
+        assert tool.wants_key(_key_event(Qt.Key.Key_W)) is False
+        assert tool.wants_key(_key_event(Qt.Key.Key_A)) is False
+        # Enter wire-edit and pick a fragment.
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)
+        _click(tool, 3.5, 1.5)
+        assert tool._wire_edit is not None
+        # Now the fragment claims [W] (reroute) and [A] (autoroute).
+        assert tool.wants_key(_key_event(Qt.Key.Key_W)) is True
+        assert tool.wants_key(_key_event(Qt.Key.Key_A)) is True
+
+
 # -- net / connectivity relation ----------------------------------------------
 
 

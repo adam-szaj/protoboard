@@ -20,7 +20,7 @@ _PAINT_PROFILE = os.environ.get("PROTOBOARD_PAINT_PROFILE") not in (None, "", "0
 
 _DRAG_REFRESH_INTERVAL = 0.033  # 30 fps max during live drag
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -2571,6 +2571,28 @@ class BoardView(QGraphicsView):
         else:
             super().mouseReleaseEvent(event)
 
+    def event(self, event: QEvent) -> bool:
+        """Give the active tool first refusal on a global shortcut's key.
+
+        Application shortcuts are ``WindowShortcut`` QActions, so Qt would fire
+        them (switch tool on ``[W]``, focus library on ``[A]``, delete on
+        ``Del``) before the focused board view ever sees the key.  On a
+        ``ShortcutOverride`` we ask the active tool whether it needs that key
+        *right now* (e.g. a selected wire-edit fragment); if it does, accepting
+        the event vetoes the shortcut and Qt re-delivers the key as a normal
+        ``KeyPress`` → ``keyPressEvent`` → ``tool.on_key``.
+        """
+        if event.type() == QEvent.Type.ShortcutOverride:
+            tool = self._active_tool
+            if (
+                tool is not None
+                and isinstance(event, QKeyEvent)
+                and tool.wants_key(event)
+            ):
+                event.accept()
+                return True
+        return super().event(event)
+
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.isAutoRepeat():
             event.ignore()
@@ -2706,6 +2728,18 @@ class _Tool:
 
     def on_key_release(self, event: QKeyEvent) -> None:
         pass
+
+    def wants_key(self, event: QKeyEvent) -> bool:
+        """True when the tool wants to handle *event* itself this very moment.
+
+        Consulted on a Qt ``ShortcutOverride`` so a tool can veto a global
+        application shortcut whose key it needs contextually right now (e.g. a
+        wire-edit fragment claiming ``[W]`` / ``[A]`` / ``Delete`` from the
+        Route / Library / Delete actions).  Vetoing makes Qt deliver the key as
+        an ordinary ``KeyPress`` to ``on_key`` instead of firing the QAction.
+        Default: claim nothing.
+        """
+        return False
 
     def on_scene_cleared(self) -> None:
         """Called after scene.clear() so tool can drop stale item references."""

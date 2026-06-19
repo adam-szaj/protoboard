@@ -559,6 +559,84 @@ class SelectTool(_Tool):
         nets = primary.net_ids(SessionConnQuery(self._session))
         return next(iter(nets), None)
 
+    def _delete_selection(self, *, force: bool = False) -> bool:
+        """Delete the selected wires and/or components.  Returns True if it ran.
+
+        Wires structurally owned by a non-active group are skipped unless
+        *force* (Shift+Delete) is set — the legacy group-lock guard.  Both
+        kinds go into one atomic macro so a mixed selection undoes in one step.
+        """
+        from typing import cast
+
+        from protoboard.domain.commands.base import (
+            Command,
+            ComponentState,
+            MacroCommand,
+        )
+        from protoboard.domain.commands.component_cmds import (
+            RemoveComponentCommand,
+            RemoveWireCommand,
+        )
+
+        existing_wires = {w.id for w in self._session.layout.wires}
+        wire_ids = [
+            wid for wid in self._selected_by_kind("wire")
+            if wid in existing_wires and (force or not self._wire_is_locked(wid))
+        ]
+        existing_comps = set(self._session.layout.placements)
+        comp_ids = [
+            cid for cid in self._selected_by_kind("component")
+            if cid in existing_comps and not self._is_locked_in_group(cid)
+        ]
+        if not wire_ids and not comp_ids:
+            return False
+
+        cmds: list[Command[ComponentState]] = [
+            cast("Command[ComponentState]", RemoveWireCommand(wire_id=wid))
+            for wid in wire_ids
+        ]
+        cmds += [
+            cast("Command[ComponentState]", RemoveComponentCommand(component_id=cid))
+            for cid in comp_ids
+        ]
+        cmd: Command[ComponentState] = (
+            cmds[0] if len(cmds) == 1
+            else cast(
+                "Command[ComponentState]",
+                MacroCommand(cmds, description="Delete selection"),
+            )
+        )
+        self._wire_edit_clear()
+        self._execute_command(cmd)
+        self._clear_multi_selection()
+        self._notify_selection()
+        return True
+
+    def _wire_is_locked(self, wire_id: uuid.UUID) -> bool:
+        """True iff *wire_id* is structurally owned by a group viewed from outside.
+
+        Mirrors :meth:`_is_locked_in_group` for components: selecting a locked
+        wire (for highlight) stays allowed, but mutating it (delete/edit) gates
+        here and skips it.  Verbatim port of the legacy guard.
+        """
+        from protoboard.domain.layout.group_ownership import OwnershipResolver
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+
+        wire = self._wire_by_id(wire_id)
+        if wire is None:
+            return False
+        groups = self._session.layout.groups
+        active_gid = self._current_group_id
+        tree = self._session.group_tree()
+        resolver = OwnershipResolver.from_session(self._session)
+        for gid, group in groups.items():
+            if gid == ROOT_GROUP_ID or gid == active_gid:
+                continue
+            comp_ids = frozenset(tree.all_component_ids(gid))
+            if comp_ids and resolver.is_owned(wire, group, comp_ids):
+                return True
+        return False
+
     def _status_msg(self, msg: str, timeout_ms: int = 4000) -> None:
         """Status-bar message (legacy name; v2's primitive is ``_status``)."""
         self._status(msg, timeout_ms)
@@ -1792,6 +1870,11 @@ class SelectTool(_Tool):
             if self._wire_edit_on_key(event):
                 return
 
+        if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and not ctrl:
+            if self._delete_selection(force=shift):
+                event.accept()
+            return
+
         if key == Qt.Key.Key_E and not ctrl and not alt and not shift:
             self._begin_edit_selected()  # [E] — edit the selected object
             event.accept()
@@ -1820,6 +1903,40 @@ class SelectTool(_Tool):
 
     def on_key_release(self, event: QKeyEvent) -> None:
         pass
+
+    def wants_key(self, event: QKeyEvent) -> bool:
+        """Claim keys the tool needs contextually, vetoing the global shortcut.
+
+        Without this, Qt fires the ``WindowShortcut`` QActions first: ``[W]``
+        switches to the Route tool, ``[A]`` focuses the library, ``Del`` runs
+        the global delete — none of which is what the user wants mid wire-edit
+        or with a wire selected.  Returning True on a ``ShortcutOverride`` makes
+        Qt deliver the key as a plain ``KeyPress`` to :meth:`on_key` instead.
+        """
+        key = event.key()
+        mods = event.modifiers()
+        if mods & (
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
+        ):
+            return False
+        # A pick is in flight (wire-vertex / reroute waypoints): its Enter /
+        # Backspace / Esc route through the tool, not a global shortcut.
+        if self._mouse is not None and not self._mouse.finished:
+            return key in (
+                Qt.Key.Key_Return, Qt.Key.Key_Enter,
+                Qt.Key.Key_Backspace, Qt.Key.Key_Escape,
+            )
+        # A selected wire-edit fragment claims its operation keys.
+        if self._wire_edit is not None:
+            return key in (
+                Qt.Key.Key_W, Qt.Key.Key_A,
+                Qt.Key.Key_Delete, Qt.Key.Key_Backspace, Qt.Key.Key_Escape,
+            )
+        # Delete acts on the current selection (wires / components) — claim it
+        # so the global delete action doesn't shadow the tool's handler.
+        if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            return not self._selection.is_empty()
+        return False
 
     # -- rotate / flip ------------------------------------------------------
 
