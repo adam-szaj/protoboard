@@ -66,6 +66,7 @@ from protoboard.gui.renderers.wire_renderer import (
 )
 from protoboard.gui.session import EditorSession
 from protoboard.gui.theme import DEFAULT_THEME, Theme
+from protoboard.services.debug_trace import traced
 from protoboard.services.routing.net_status import routed_net_ids
 
 # Scene units = raster units. 1 raster unit = 1 "pixel" in scene space.
@@ -1793,18 +1794,21 @@ class BoardView(QGraphicsView):
         ov = self._shortcuts_overlay
         return isinstance(ov, QLabel) and not ov.isHidden()
 
+    @traced("BoardView._toggle_shortcuts_overlay")
     def _toggle_shortcuts_overlay(self) -> None:
         if self._shortcuts_overlay_visible():
             self._hide_shortcuts_overlay()
         else:
             self._show_shortcuts_overlay()
 
+    @traced("BoardView._hide_shortcuts_overlay")
     def _hide_shortcuts_overlay(self) -> None:
         from PySide6.QtWidgets import QLabel
         ov = self._shortcuts_overlay
         if isinstance(ov, QLabel):
             ov.hide()
 
+    @traced("BoardView._show_shortcuts_overlay")
     def _show_shortcuts_overlay(self) -> None:
         """Float a panel listing the globally + tool-relevant shortcuts.
 

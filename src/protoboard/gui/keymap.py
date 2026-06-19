@@ -39,6 +39,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
 
 from protoboard.errors import ProtoboardError
+from protoboard.services.debug_trace import traced
 
 __all__ = [
     "KeyAction",
@@ -144,6 +145,28 @@ def event_to_sequence(key: int, modifiers: Qt.KeyboardModifier) -> QKeySequence:
     return QKeySequence(int(modifiers.value) | int(key))
 
 
+def _has_shift(sequence: QKeySequence) -> bool:
+    """True when *sequence*'s single chord carries an explicit Shift modifier.
+
+    Used to tell a real ``Shift+<letter>`` binding (which must NOT match the
+    unshifted key) from a bare shifted-symbol binding like ``?`` (whose keycode
+    already implies Shift and so carries no separate flag).
+    """
+    return "shift+" in sequence.toString().lower()
+
+
+def _is_symbol_key(key: int) -> bool:
+    """True when *key* is a symbol (not a letter or digit).
+
+    A symbol keycode (``Key_Question``, ``Key_Plus`` …) already encodes Shift;
+    a letter/digit takes Shift as a separate, additive modifier.  The
+    shifted-symbol matcher fallback applies only to the former.
+    """
+    is_letter = int(Qt.Key.Key_A) <= key <= int(Qt.Key.Key_Z)
+    is_digit = int(Qt.Key.Key_0) <= key <= int(Qt.Key.Key_9)
+    return not (is_letter or is_digit)
+
+
 # ---------------------------------------------------------------------------
 # KeyMap
 # ---------------------------------------------------------------------------
@@ -244,14 +267,40 @@ class KeyMap:
 
     # -- matching -----------------------------------------------------------
 
+    @traced("KeyMap.matches")
     def matches(
         self, key: int, modifiers: Qt.KeyboardModifier, action_id: str
     ) -> bool:
-        """True when a key press equals *action_id*'s resolved shortcut."""
+        """True when a key press equals *action_id*'s resolved shortcut.
+
+        A shifted *symbol* (``?``, ``:``, ``+`` …) reaches us as its
+        already-shifted keycode (``Key_Question``) **plus** a live
+        ``ShiftModifier`` — but its canonical ``QKeySequence`` form (``"?"``)
+        bakes the shift into the keycode and carries no separate Shift flag, so
+        the raw event sequence (``"Shift+?"``) compares unequal to the binding.
+        We therefore also test the event with Shift stripped, but *only for a
+        symbol keycode* — for a letter/digit, Shift is a deliberate, additive
+        modifier, so ``Shift+R`` must stay distinct from ``R``.
+        """
         shortcut = self.resolve(action_id)
         if not shortcut:
             return False
-        return event_to_sequence(key, modifiers) == QKeySequence(shortcut)
+        target = QKeySequence(shortcut)
+        if event_to_sequence(key, modifiers) == target:
+            return True
+        # Shifted-symbol fallback: the key is a symbol (its keycode already
+        # implies Shift) and the binding carries no explicit Shift flag → drop
+        # the live Shift and retry.  Gated on _is_symbol_key so a real
+        # ``Shift+<letter/digit>`` chord is never equated with the bare key.
+        if (
+            modifiers & Qt.KeyboardModifier.ShiftModifier
+            and _is_symbol_key(key)
+            and not _has_shift(target)
+        ):
+            without_shift = modifiers & ~Qt.KeyboardModifier.ShiftModifier
+            if event_to_sequence(key, without_shift) == target:
+                return True
+        return False
 
     # -- overrides / persistence -------------------------------------------
 

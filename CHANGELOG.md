@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fix: [?] nie otwierał nakładki skrótów (2026-06-19)
+
+`[?]` (overlay z helpem skrótów) nie reagował. Przyczyna w `KeyMap.matches`:
+`?` to na większości układów `Shift+/` → Qt dostarcza `Key_Question` **z**
+`ShiftModifier`, ale kanoniczna postać bindingu (`"?"`) ma shift wpieczony w
+keycode i nie niesie osobnej flagi Shift — więc `event_to_sequence` dawał
+`"Shift+?"`, co nie równa się `"?"`. Ogólny bug dla każdego symbolu pod
+Shiftem (`?`, `:`, `+`…), nie tylko `?`.
+
+* Fallback w `matches`: gdy klawisz jest **symbolem** (`_is_symbol_key` —
+  keycode nie jest literą/cyfrą) a binding nie ma jawnej flagi Shift, próbuj
+  dopasowania z usuniętym Shiftem. Bramka na symbol gwarantuje, że
+  `Shift+<litera>` (np. `Shift+R` = rotate-CCW) NIE jest mylone z gołym
+  klawiszem (`R` = rotate-CW) — dla liter Shift jest dodatkowym modyfikatorem.
+* `@traced` na `KeyMap.matches` + nakładce (`_toggle/_show/_hide_shortcuts_overlay`)
+  — gotowa diagnoza ścieżki klawisz→overlay (zero-overhead off).
+* Testy: `tests/gui/test_keymap.py` (matcher matrix) + regresja w
+  `test_board_view.py` driająca prawdziwy `keyPressEvent(Shift+Key_Question)`
+  (stary test wołał tylko `_toggle…` bezpośrednio — dlatego bug przeszedł).
+
 ### Wire-edit jako akcja menu (2026-06-19)
 
 Operacja wire-edit dostała wpis w pasku menu **Edit ► Design ► Wire ►

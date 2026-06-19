@@ -185,6 +185,28 @@ class TestShortcutsHelp:
         board_view._toggle_shortcuts_overlay()
         assert not board_view._shortcuts_overlay_visible()
 
+    def test_question_keystroke_opens_overlay(self, board_view: BoardView) -> None:
+        """Regression: the real ``?`` keystroke toggles the overlay.
+
+        On most layouts ``?`` is ``Shift+/`` → ``Key_Question`` *with*
+        ``ShiftModifier``.  The KeyMap binding is bare ``"?"`` (no Shift flag),
+        so the matcher must reconcile the live Shift against the shifted symbol
+        — previously it did not and ``[?]`` did nothing.  Drive the genuine
+        keyPressEvent, not the toggle method, so the key→toggle path is covered.
+        """
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QKeyEvent
+
+        board_view.set_tool(SelectTool())
+        assert not board_view._shortcuts_overlay_visible()
+        ev = QKeyEvent(
+            QKeyEvent.Type.KeyPress,
+            Qt.Key.Key_Question,
+            Qt.KeyboardModifier.ShiftModifier,
+        )
+        board_view.keyPressEvent(ev)
+        assert board_view._shortcuts_overlay_visible()
+
     def test_overlay_lists_tool_actions(self, board_view: BoardView) -> None:
         from PySide6.QtWidgets import QLabel
         board_view.set_tool(SelectTool())
