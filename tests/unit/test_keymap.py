@@ -108,6 +108,24 @@ class TestFinal:
         assert km.is_final("global.action.delete") is False
 
 
+class TestGlobalTransformActions:
+    """The generic rotate/flip/redrag globals two tools inherit (Stage 1)."""
+
+    def test_transform_defaults_match_legacy(self) -> None:
+        km = KeyMap.with_globals()
+        assert km.resolve("global.action.rotate_cw") == "R"
+        assert km.resolve("global.action.rotate_ccw") == "Shift+R"
+        assert km.resolve("global.action.flip") == "Alt+R"
+        assert km.resolve("global.action.redrag") == "Ctrl+R"
+
+    def test_tool_inherits_transform_global(self) -> None:
+        km = KeyMap.with_globals()
+        km.register_tool_actions({"place-tool.action.rotate_cw": None})
+        assert km.resolve("place-tool.action.rotate_cw") == "R"
+        km.set_override("global.action.rotate_cw", "K")
+        assert km.resolve("place-tool.action.rotate_cw") == "K"
+
+
 class TestPersistence:
     def test_save_then_load_round_trip(self, tmp_path, monkeypatch) -> None:
         import protoboard.paths as paths

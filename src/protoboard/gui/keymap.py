@@ -116,8 +116,14 @@ class KeyAction:
 GLOBAL_ACTIONS: tuple[KeyAction, ...] = (
     KeyAction(_global_id("delete"), "Del", "Delete"),
     KeyAction(_global_id("cancel"), "Esc", "Cancel"),
-    KeyAction(_global_id("edit"), "E", "Edit"),
     KeyAction(_global_id("confirm"), "Return", "Confirm"),
+    KeyAction(_global_id("edit"), "E", "Edit"),
+    # Generic transform ops shared by Select / Place (defaults match the legacy
+    # flat table so behaviour is identical until the Stage-2 migration).
+    KeyAction(_global_id("rotate_cw"), "R", "Rotate CW"),
+    KeyAction(_global_id("rotate_ccw"), "Shift+R", "Rotate CCW"),
+    KeyAction(_global_id("flip"), "Alt+R", "Flip"),
+    KeyAction(_global_id("redrag"), "Ctrl+R", "Re-drag Pins"),
     # Example of a protected shortcut a tool may not re-purpose.
     KeyAction("session.action.save_as", "Ctrl+Shift+S", "Save As", final=True),
 )

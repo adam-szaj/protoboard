@@ -148,6 +148,44 @@ class TestPlaceToolRotation:
         assert placement.rotation == 90
 
 
+def _key_event(
+    key: Qt.Key, mods: Qt.KeyboardModifier = Qt.KeyboardModifier.NoModifier
+) -> QKeyEvent:
+    return QKeyEvent(QKeyEvent.Type.KeyPress, key, mods)
+
+
+class TestPlaceToolKeymap:
+    """PlaceTool claims the transform keys (so the no-op-while-placing global
+    rotate/flip actions don't shadow them), dynamically via the KeyMap."""
+
+    def test_wants_rotate_and_flip_keys(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        board_view.set_tool(PlaceTool("R"))
+        tool = board_view._active_tool
+        assert isinstance(tool, PlaceTool)
+        assert tool.wants_key(_key_event(Qt.Key.Key_R)) is True  # rotate CW
+        assert tool.wants_key(
+            _key_event(Qt.Key.Key_R, Qt.KeyboardModifier.AltModifier)
+        ) is True  # flip
+        # An unrelated key is not claimed.
+        assert tool.wants_key(_key_event(Qt.Key.Key_K)) is False
+
+    def test_rotate_follows_rebound_global(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Rebind the global rotate from "R" to "K"; PlaceTool inherits it.
+        board_view.keymap.set_override("global.action.rotate_cw", "K")
+        board_view.set_tool(PlaceTool("R"))
+        tool = board_view._active_tool
+        assert isinstance(tool, PlaceTool)
+        assert tool.wants_key(_key_event(Qt.Key.Key_R)) is False
+        assert tool.wants_key(_key_event(Qt.Key.Key_K)) is True
+        # [K] now rotates the ghost.
+        tool.on_key(_key_event(Qt.Key.Key_K))
+        assert tool._rotation == 90
+
+
 class TestPlaceToolRefdes:
     def test_first_component_gets_r1(
         self, board_view: BoardView, session: EditorSession

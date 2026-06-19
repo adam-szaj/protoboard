@@ -2786,6 +2786,18 @@ class _Tool:
         """
         return {}
 
+    def _key_matches(self, event: QKeyEvent, action_id: str) -> bool:
+        """True when *event* equals *action_id*'s currently-resolved shortcut.
+
+        Resolves through the view's :class:`KeyMap`, so a tool dispatches and
+        vetoes keys by *action id* — never by hard-coded ``Qt.Key`` literals.
+        Returns False pre-activate / headless (no view).
+        """
+        view = self._view
+        if view is None:
+            return False
+        return view.keymap.matches(event.key(), event.modifiers(), action_id)
+
     def on_scene_cleared(self) -> None:
         """Called after scene.clear() so tool can drop stale item references."""
         pass

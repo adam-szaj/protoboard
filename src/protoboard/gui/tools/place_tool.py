@@ -49,6 +49,15 @@ from PySide6.QtWidgets import QGraphicsItemGroup
 _log = structlog.get_logger(__name__)
 _REACH_PAD_RADIUS = 0.18
 
+# Namespaced key actions PlaceTool owns.  All inherit the generic global
+# defaults (rotate ``R`` / ``Shift+R``, flip ``Alt+R``, re-drag ``Ctrl+R``):
+# while placing, those globals route through the (read-only) SelectTool and
+# no-op, so PlaceTool claims them and drives its own ghost transform.
+_ACT_ROTATE_CW = "place-tool.action.rotate_cw"
+_ACT_ROTATE_CCW = "place-tool.action.rotate_ccw"
+_ACT_FLIP = "place-tool.action.flip"
+_ACT_REDRAG = "place-tool.action.redrag"
+
 
 class PlaceTool(_Tool):
     """Places a component at the snapped cursor position on left-click.
@@ -177,14 +186,35 @@ class PlaceTool(_Tool):
                 self._rebuild_ghost_at_anchor()
             self._update_reach_line(snapped)
 
+    def key_actions(self) -> dict[str, str | None]:
+        """Transform keys PlaceTool drives during placement (all inherit global).
+
+        While the tool is active the global rotate / flip / re-drag actions run
+        through the read-only SelectTool and no-op, so PlaceTool claims them to
+        transform its ghost.  ``None`` inherits the generic global default, so
+        rebinding any of them is honoured by both the veto and the handler.
+        """
+        return {
+            _ACT_ROTATE_CW: None,
+            _ACT_ROTATE_CCW: None,
+            _ACT_FLIP: None,
+            _ACT_REDRAG: None,
+        }
+
+    def wants_key(self, event: QKeyEvent) -> bool:
+        """Claim the transform keys so the (no-op while placing) globals don't
+        shadow them.  Decided dynamically through the KeyMap — no key literals."""
+        return (
+            self._key_matches(event, _ACT_ROTATE_CW)
+            or self._key_matches(event, _ACT_ROTATE_CCW)
+            or self._key_matches(event, _ACT_FLIP)
+            or self._key_matches(event, _ACT_REDRAG)
+        )
+
     def on_key(self, event: object) -> None:
         if not isinstance(event, QKeyEvent):
             return
         key = event.key()
-        mods = event.modifiers()
-        ctrl  = bool(mods & Qt.KeyboardModifier.ControlModifier)
-        shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
-        alt   = bool(mods & Qt.KeyboardModifier.AltModifier)
 
         # Floating phase: Enter commits, Esc cancels.
         if self._phase == "floating":
@@ -197,8 +227,8 @@ class PlaceTool(_Tool):
                 event.accept()
             return
 
-        if key == Qt.Key.Key_R and alt and not ctrl and self._phase == "drag_pin":
-            # Alt+R: flip pin1/pin2 — anchor moves to old pin2 pad.
+        if self._key_matches(event, _ACT_FLIP) and self._phase == "drag_pin":
+            # Flip pin1/pin2 — anchor moves to old pin2 pad.
             defn = self._session.components.get(self._definition_ref)
             if defn and defn.footprint.pin_count() == 2 and self._anchor_pos is not None:
                 import uuid as _uuid
@@ -217,8 +247,10 @@ class PlaceTool(_Tool):
                 self._update_reach_overlay()
             event.accept()
 
-        elif key == Qt.Key.Key_R and not ctrl and not alt:
-            delta = -90 if shift else 90
+        elif self._key_matches(event, _ACT_ROTATE_CW) or self._key_matches(
+            event, _ACT_ROTATE_CCW
+        ):
+            delta = -90 if self._key_matches(event, _ACT_ROTATE_CCW) else 90
             self._rotation = (self._rotation + delta) % 360
             if self._phase == "drag_pin":
                 self._rebuild_ghost_at_anchor()
@@ -233,8 +265,8 @@ class PlaceTool(_Tool):
                     )
             event.accept()
 
-        elif key == Qt.Key.Key_R and ctrl:
-            # Ctrl+R — restart drag for the current bendable pin from default.
+        elif self._key_matches(event, _ACT_REDRAG):
+            # Re-drag — restart drag for the current bendable pin from default.
             defn = self._session.components.get(self._definition_ref)
             specs = self._bend_specs(defn) if defn else {}
             if not specs:

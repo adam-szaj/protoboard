@@ -55,7 +55,6 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Wire
     from protoboard.gui.board_view import BoardView
     from protoboard.gui.drag_set import DragSet
-    from protoboard.gui.keymap import KeyMap
     from protoboard.gui.selection.adapters import WireVertexSelectable
     from protoboard.gui.selection.mouse_input import MouseInputController
     from protoboard.gui.selection.selectable import Selectable
@@ -1935,17 +1934,6 @@ class SelectTool(_Tool):
             _ACT_DELETE: None,      # global.action.delete (default "Del")
             _ACT_CANCEL: None,      # global.action.cancel (default "Esc")
         }
-
-    def _keymap(self) -> KeyMap | None:
-        """The active KeyMap (None pre-activate / headless without a view)."""
-        return getattr(self._view, "keymap", None)
-
-    def _key_matches(self, event: QKeyEvent, action_id: str) -> bool:
-        """True when *event* equals *action_id*'s currently-resolved shortcut."""
-        km = self._keymap()
-        if km is None:
-            return False
-        return km.matches(event.key(), event.modifiers(), action_id)
 
     def wants_key(self, event: QKeyEvent) -> bool:
         """Claim keys the tool needs contextually, vetoing the global shortcut.
