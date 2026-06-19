@@ -953,6 +953,40 @@ class TestWantsKeyShortcutVeto:
         assert tool.wants_key(_key_event(Qt.Key.Key_A)) is True
 
 
+class TestDynamicRebind:
+    """Veto + dispatch follow the *current* binding, never a hard-coded key."""
+
+    def test_reroute_follows_rebound_key(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        # User rebinds reroute from "W" to "Q".
+        view.keymap.set_override("select-tool.action.reroute", "Q")
+        _select_wire(tool, session)
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)
+        _click(tool, 3.5, 1.5)
+        assert tool._wire_edit is not None
+        # Old key no longer claimed; the new key is.
+        assert tool.wants_key(_key_event(Qt.Key.Key_W)) is False
+        assert tool.wants_key(_key_event(Qt.Key.Key_Q)) is True
+        # And [Q] now drives reroute (arms the waypoint pick).
+        _key(tool, Qt.Key.Key_Q)
+        assert tool._selection.active_pick is not None
+
+    def test_delete_follows_rebound_global(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        # Rebind the *global* delete from "Del" to "X"; the tool inherits it.
+        view.keymap.set_override("global.action.delete", "X")
+        _select_wire(tool, session)
+        assert tool.wants_key(_key_event(Qt.Key.Key_Delete)) is False
+        assert tool.wants_key(_key_event(Qt.Key.Key_X)) is True
+        # [X] now deletes the selected wire.
+        n_before = len(list(session.layout.wires))
+        _key(tool, Qt.Key.Key_X)
+        assert len(list(session.layout.wires)) == n_before - 1
+
+
 # -- net / connectivity relation ----------------------------------------------
 
 

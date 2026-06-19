@@ -55,6 +55,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Wire
     from protoboard.gui.board_view import BoardView
     from protoboard.gui.drag_set import DragSet
+    from protoboard.gui.keymap import KeyMap
     from protoboard.gui.selection.adapters import WireVertexSelectable
     from protoboard.gui.selection.mouse_input import MouseInputController
     from protoboard.gui.selection.selectable import Selectable
@@ -66,6 +67,17 @@ if TYPE_CHECKING:
 # Below this travel (raster units) a press+release is a click, not a drag —
 # used to synthesise the on_click event for click-driven controllers (picks).
 _CLICK_THRESHOLD = 0.3
+
+# Namespaced key actions this tool declares.  None → inherit the generic
+# ``global.action.<name>`` default (so Delete/Edit/Cancel follow whatever the
+# user bound globally); a literal overrides for this tool.  The shortcut veto
+# and on_key dispatch resolve keys against these *by id*, never by hard-coded
+# Qt.Key literals — so a user rebinding any of them is honoured automatically.
+_ACT_EDIT = "select-tool.action.edit"
+_ACT_REROUTE = "select-tool.action.reroute"
+_ACT_AUTOROUTE = "select-tool.action.autoroute"
+_ACT_DELETE = "select-tool.action.delete"
+_ACT_CANCEL = "select-tool.action.cancel"
 
 # Rubber-band visuals (match the legacy tool's cyan band).
 _BAND_PEN_LR = QPen(QColor(0, 200, 255, 180), 0.06)
@@ -1538,17 +1550,19 @@ class SelectTool(_Tool):
     def _wire_edit_on_key(self, event: QKeyEvent) -> bool:
         """Op-table for the selected fragment — one entry per operation.
 
-        Returns True when the key was consumed.  Adding a future operation
-        (flip / simplify / lay-tightly) is one more entry here.
+        Dispatches by *action id* resolved through the KeyMap (not by hard-coded
+        keys), so rebinding reroute/autoroute/delete is honoured.  Cancel stays
+        on raw Esc / Backspace too, since those are not global shortcuts.
+        Returns True when the key was consumed.
         """
         key = event.key()
-        if key == Qt.Key.Key_W:
+        if self._key_matches(event, _ACT_REROUTE):
             self._begin_reroute()
-        elif key == Qt.Key.Key_A:
+        elif self._key_matches(event, _ACT_AUTOROUTE):
             self._autoroute_fragment()
-        elif key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+        elif self._key_matches(event, _ACT_DELETE) or key == Qt.Key.Key_Backspace:
             self._delete_fragment()
-        elif key == Qt.Key.Key_Escape:
+        elif self._key_matches(event, _ACT_CANCEL) or key == Qt.Key.Key_Escape:
             self._wire_edit_clear()
         else:
             return False
@@ -1870,13 +1884,16 @@ class SelectTool(_Tool):
             if self._wire_edit_on_key(event):
                 return
 
-        if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and not ctrl:
+        if (
+            self._key_matches(event, _ACT_DELETE)
+            or (key == Qt.Key.Key_Backspace and not ctrl)
+        ):
             if self._delete_selection(force=shift):
                 event.accept()
             return
 
-        if key == Qt.Key.Key_E and not ctrl and not alt and not shift:
-            self._begin_edit_selected()  # [E] — edit the selected object
+        if self._key_matches(event, _ACT_EDIT):
+            self._begin_edit_selected()  # edit the selected object
             event.accept()
             return
 
@@ -1904,38 +1921,58 @@ class SelectTool(_Tool):
     def on_key_release(self, event: QKeyEvent) -> None:
         pass
 
+    def key_actions(self) -> dict[str, str | None]:
+        """The keyboard actions this tool owns (namespaced; see module consts).
+
+        ``None`` inherits the generic global default; ``reroute`` / ``autoroute``
+        carry tool-specific shortcuts.  Registered into the view's KeyMap on
+        activate; the veto + on_key dispatch resolve against these by id.
+        """
+        return {
+            _ACT_EDIT: None,        # global.action.edit  (default "E")
+            _ACT_REROUTE: "W",
+            _ACT_AUTOROUTE: "A",
+            _ACT_DELETE: None,      # global.action.delete (default "Del")
+            _ACT_CANCEL: None,      # global.action.cancel (default "Esc")
+        }
+
+    def _keymap(self) -> KeyMap | None:
+        """The active KeyMap (None pre-activate / headless without a view)."""
+        return getattr(self._view, "keymap", None)
+
+    def _key_matches(self, event: QKeyEvent, action_id: str) -> bool:
+        """True when *event* equals *action_id*'s currently-resolved shortcut."""
+        km = self._keymap()
+        if km is None:
+            return False
+        return km.matches(event.key(), event.modifiers(), action_id)
+
     def wants_key(self, event: QKeyEvent) -> bool:
         """Claim keys the tool needs contextually, vetoing the global shortcut.
 
-        Without this, Qt fires the ``WindowShortcut`` QActions first: ``[W]``
-        switches to the Route tool, ``[A]`` focuses the library, ``Del`` runs
-        the global delete — none of which is what the user wants mid wire-edit
-        or with a wire selected.  Returning True on a ``ShortcutOverride`` makes
-        Qt deliver the key as a plain ``KeyPress`` to :meth:`on_key` instead.
+        Without this, Qt fires the ``WindowShortcut`` QActions first (Route on
+        the reroute key, Library on the autoroute key, the global Delete), none
+        of which is wanted mid wire-edit or with something selected.  We decide
+        *dynamically* — by matching the event against the tool's action ids
+        resolved through the current :class:`KeyMap` — so rebinding any shortcut
+        is honoured.  Returning True on a ``ShortcutOverride`` makes Qt deliver
+        the key as a plain ``KeyPress`` to :meth:`on_key`.
+
+        Pick-confirm / cancel / undo (Enter / Esc / Backspace) are raw,
+        non-action keys that aren't global shortcuts, so they reach the tool
+        anyway and need no veto here.
         """
-        key = event.key()
-        mods = event.modifiers()
-        if mods & (
-            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
-        ):
-            return False
-        # A pick is in flight (wire-vertex / reroute waypoints): its Enter /
-        # Backspace / Esc route through the tool, not a global shortcut.
-        if self._mouse is not None and not self._mouse.finished:
-            return key in (
-                Qt.Key.Key_Return, Qt.Key.Key_Enter,
-                Qt.Key.Key_Backspace, Qt.Key.Key_Escape,
-            )
         # A selected wire-edit fragment claims its operation keys.
-        if self._wire_edit is not None:
-            return key in (
-                Qt.Key.Key_W, Qt.Key.Key_A,
-                Qt.Key.Key_Delete, Qt.Key.Key_Backspace, Qt.Key.Key_Escape,
-            )
-        # Delete acts on the current selection (wires / components) — claim it
-        # so the global delete action doesn't shadow the tool's handler.
-        if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
-            return not self._selection.is_empty()
+        if self._wire_edit is not None and (
+            self._key_matches(event, _ACT_REROUTE)
+            or self._key_matches(event, _ACT_AUTOROUTE)
+            or self._key_matches(event, _ACT_DELETE)
+        ):
+            return True
+        # Delete acts on the current selection — claim it so the global delete
+        # action doesn't shadow the tool's handler.
+        if self._key_matches(event, _ACT_DELETE) and not self._selection.is_empty():
+            return True
         return False
 
     # -- rotate / flip ------------------------------------------------------

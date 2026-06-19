@@ -28,6 +28,9 @@ CONFIG_DIR: Path = Path.home() / ".config" / APP_NAME
 
 # Individual config files
 KEYBINDINGS_FILE: Path = CONFIG_DIR / "keybindings.yaml"
+# Namespaced, category-grouped keybindings (Stage 1 of the keybindings
+# redesign — lives alongside the legacy flat file until the migration stage).
+KEYBINDINGS_V2_FILE: Path = CONFIG_DIR / "keybindings_v2.yaml"
 THEME_FILE: Path        = CONFIG_DIR / "theme.yaml"
 WINDOW_STATE_FILE: Path = CONFIG_DIR / "window_state.yaml"
 APP_SETTINGS_FILE: Path = CONFIG_DIR / "app_settings.yaml"

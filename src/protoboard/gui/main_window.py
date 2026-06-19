@@ -149,6 +149,10 @@ class MainWindow(QMainWindow):
 
         # Central widget — board view.
         self._board_view = BoardView(session, self)
+        # Load the user's namespaced keybinding overrides (Stage 1) into the
+        # view's KeyMap so tool shortcut customisation persists.  The legacy
+        # flat ``_keybindings`` still drives the global QActions for now.
+        self._board_view.keymap.load_overrides()
         self._board_view.set_theme(self._theme)
         self._board_view.setMinimumSize(200, 200)
         self.setCentralWidget(self._board_view)

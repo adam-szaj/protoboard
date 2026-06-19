@@ -7,8 +7,12 @@ import math
 import os
 import time
 import uuid
+from typing import TYPE_CHECKING
 
 import structlog
+
+if TYPE_CHECKING:
+    from protoboard.gui.keymap import KeyMap
 
 _click_log = structlog.get_logger("protoboard.gui.board_view.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
@@ -132,6 +136,12 @@ class BoardView(QGraphicsView):
         self._pan_start = QPointF()
         self._active_tool: _Tool | None = None
         self._permanent_tools: list[_Tool] = []  # always notified on scene_cleared
+        # Namespaced keybindings (Stage 1).  Owned here so a tool always has a
+        # KeyMap to consult for the contextual shortcut veto, even headless
+        # (BoardView without a MainWindow).  MainWindow loads user overrides
+        # into it; tools register their own actions on activate().
+        from protoboard.gui.keymap import KeyMap as _KeyMap
+        self._keymap = _KeyMap.with_globals()
         # View state — camera side and visual transform are independent.
         self._camera_side: str = "top"           # "top" | "bottom"
         self._view_transform: str = "normal"     # "normal" | "mirror_h" | "mirror_v"
@@ -1184,7 +1194,31 @@ class BoardView(QGraphicsView):
         self._board_layer_dirty = True
         if tool is not None:
             tool.activate(self._session, self)
+            self._register_tool_keymap(tool)
         self.refresh()
+
+    @property
+    def keymap(self) -> KeyMap:
+        """The namespaced keybindings the active tool consults for the veto."""
+        return self._keymap
+
+    def _register_tool_keymap(self, tool: _Tool) -> None:
+        """Merge a tool's declared key actions into the KeyMap.
+
+        Best-effort: a binding that collides with a ``final`` global action is
+        logged and skipped rather than crashing the tool switch.
+        """
+        actions = tool.key_actions()
+        if not actions:
+            return
+        from protoboard.gui.keymap import FinalShortcutError
+        try:
+            self._keymap.register_tool_actions(actions)
+        except FinalShortcutError as exc:
+            import structlog
+            structlog.get_logger(__name__).warning(
+                "keymap.tool_action_rejected", error=str(exc)
+            )
 
     def board_pad_positions(self) -> list[Point]:
         """Cached list of all board pad positions (raster units)."""
@@ -2740,6 +2774,17 @@ class _Tool:
         Default: claim nothing.
         """
         return False
+
+    def key_actions(self) -> dict[str, str | None]:
+        """The keyboard actions this tool declares (namespaced keybindings).
+
+        Maps ``"<category>.action.<name>" -> shortcut | None``: a literal
+        shortcut overrides for this tool, ``None`` inherits the matching generic
+        ``global.action.<name>`` default.  Registered into the view's
+        :class:`~protoboard.gui.keymap.KeyMap` on :meth:`activate`, and consulted
+        (dynamically, by current binding) for the shortcut veto.  Default: none.
+        """
+        return {}
 
     def on_scene_cleared(self) -> None:
         """Called after scene.clear() so tool can drop stale item references."""
