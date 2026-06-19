@@ -240,6 +240,19 @@ class BoardView(QGraphicsView):
         # Group outline rects (tagged "group_outline") recoloured to the select
         # colour for the currently-selected groups — restored when deselected.
         self._cyan_group_outlined: set[uuid.UUID] = set()
+        # Bright-yellow overlay items drawn on top of *selected wires*, keyed by
+        # wire id.  The dim-others pipeline can't tell the user *which* wire was
+        # picked (everything else just fades); these neon overlays do — the same
+        # role the cyan outline plays for components.  Rebuilt by
+        # _redraw_selected_wire_overlays whenever the selection or scene changes.
+        self._wire_select_overlays: dict[uuid.UUID, QGraphicsItemGroup] = {}
+        # Bright-yellow discs drawn on the pads of the *highlighted net* so the
+        # user can see which pads the selection touches (the pin-pad layer alone
+        # never reacts to selection).  Standalone scene items, rebuilt by
+        # _redraw_net_pad_highlights.  The records they read are cached from the
+        # last refresh's classify_pin_pads (avoids a recompute per highlight).
+        self._net_pad_highlight_items: list[object] = []
+        self._pin_pad_records: list[object] = []
         # Scene items kept hidden while a valid _back_cache shows them
         # as a rasterised blit instead.  Restored on cache invalidation.
         self._back_hidden_items: list[object] = []
@@ -504,6 +517,8 @@ class BoardView(QGraphicsView):
             # A component can be selected with no net context (RelationClass.
             # NONE) — keep the cyan outline in sync even on this no-dim path.
             self._recolour_selected_outlines()
+            # No net in context → no net-pad discs.
+            self._redraw_net_pad_highlights(set())
             # No-highlight branch — also invalidate the back cache when
             # we just transitioned out of a non-empty highlight state.
             # Without this, the cached pixmap keeps the old dimmed
@@ -561,6 +576,10 @@ class BoardView(QGraphicsView):
         # colour (cyan).  Distinct from the net-dim above: dimming says "this
         # net is in context", the cyan outline says "this is what you picked".
         selected_comp_ids = self._recolour_selected_outlines()
+
+        # Bright neon discs on the highlighted net's pads — the pad layer alone
+        # never reacts to selection, so this is the only "these pads" signal.
+        self._redraw_net_pad_highlights(net_ids)
 
         # Invalidate the back-cache pixmap when the *set* of highlighted
         # items changes — opacity-only shifts (same set, different alpha
@@ -643,6 +662,9 @@ class BoardView(QGraphicsView):
 
         # 3. Selected *groups* get their outline rect recoloured to cyan too.
         self._recolour_selected_group_outlines(theme, select_rgb)
+        # 4. Selected *wires* get a bright neon overlay (components use the cyan
+        #    outline above; wires can't be "outlined", so we overdraw instead).
+        self._redraw_selected_wire_overlays()
         return selected
 
     def _recolour_selected_group_outlines(
@@ -760,6 +782,128 @@ class BoardView(QGraphicsView):
             # The underlying C++ item was already destroyed by a scene rebuild
             # between recolour passes — nothing to remove.
             pass
+
+    def _redraw_selected_wire_overlays(self) -> set[uuid.UUID]:
+        """Draw a bright-yellow overlay over every *selected* wire.
+
+        The dimming pipeline fades unselected items, but a selected wire then
+        looks identical to any other in-context wire — there is no positive "you
+        picked *this*" signal (the exact complaint in bug #3).  This draws a
+        thick neon-yellow polyline on top of each selected wire's path, the same
+        treatment the legacy SelectTool gave (``routing_target_color``, round
+        caps), so the clicked wire is unmistakable even when colours are hard to
+        tell apart.
+
+        Reads the active tool's ``_selected_wire_ids`` and is idempotent: wires
+        that left the selection have their overlay removed.  Skips wires the
+        tool is actively editing (``[E]``) — that mode draws its own cyan
+        overlay and a second one on top would only clutter.  Returns the
+        selected wire-id set for the caller's back-cache signature.
+        """
+        from PySide6.QtWidgets import QGraphicsItemGroup, QGraphicsLineItem
+
+        from protoboard.gui.layer_state import Z_WIRE_HIGHLIGHT
+
+        theme = self._theme_override if self._theme_override is not None else DEFAULT_THEME
+        tool = self._active_tool
+        selected: set[uuid.UUID] = set(getattr(tool, "_selected_wire_ids", set()))
+        # Don't double-draw over a wire the tool is editing in place.
+        editing = bool(getattr(tool, "is_wire_editing", lambda: False)())
+        edit_wire = getattr(tool, "_wire_edit_wire_id", None) if editing else None
+
+        # 1. Drop overlays for wires no longer selected (or now being edited).
+        for wid in set(self._wire_select_overlays):
+            if wid not in selected or wid == edit_wire:
+                self._remove_wire_select_overlay(wid)
+
+        # 2. Build a bright overlay for each freshly-selected wire.
+        yellow = QColor(theme.routing_target_color)
+        yellow.setAlpha(220)
+        pen = QPen(yellow, 0.38)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        wires_by_id = {w.id: w for w in self._session.layout.wires}
+        for wid in selected:
+            if wid == edit_wire or wid in self._wire_select_overlays:
+                continue
+            wire = wires_by_id.get(wid)
+            if wire is None or len(wire.path) < 2:
+                continue
+            group = QGraphicsItemGroup()
+            pts = wire.path
+            for i in range(len(pts) - 1):
+                seg = QGraphicsLineItem(
+                    pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y
+                )
+                seg.setPen(pen)
+                group.addToGroup(seg)
+            # Below the pin-modifier glyphs (Z 9.5) so pin markers on the
+            # wire's route stay legible on top of the highlight.
+            group.setZValue(Z_WIRE_HIGHLIGHT)
+            self._scene.addItem(group)
+            self._wire_select_overlays[wid] = group
+        return selected
+
+    def _remove_wire_select_overlay(self, wire_id: uuid.UUID) -> None:
+        group = self._wire_select_overlays.pop(wire_id, None)
+        if group is None:
+            return
+        try:
+            if group.scene() is self._scene:
+                self._scene.removeItem(group)
+        except RuntimeError:
+            # C++ item already destroyed by a scene rebuild — nothing to do.
+            pass
+
+    def _redraw_net_pad_highlights(self, net_ids: set[uuid.UUID]) -> None:
+        """Draw bright-yellow discs on every pad of the *highlighted nets*.
+
+        Ported from the legacy SelectTool's ``_draw_net_pad_highlights`` (kept
+        as-is — it read well): a fully-opaque neon-yellow disc
+        (``routing_target_color``) on each pin-pad position belonging to a
+        highlighted net, at ``Z_NET_PAD_HIGHLIGHT`` (above the coloured pads /
+        wires / back wash, below the pin-modifier glyph so the modifier shape
+        stays visible on top).  The pin-pad layer itself never reacts to
+        selection, so without this nothing tells the user which pads the picked
+        net touches.
+
+        Reuses the records cached from the last refresh's ``classify_pin_pads``
+        so no reclassification happens on a plain selection click.  An empty
+        *net_ids* just tears the discs down.
+        """
+        from PySide6.QtWidgets import QGraphicsEllipseItem
+
+        from protoboard.domain.layout.pin_pad_classification import PinPadInfo
+        from protoboard.gui.layer_state import Z_NET_PAD_HIGHLIGHT
+
+        self._clear_net_pad_highlights()
+        if not net_ids:
+            return
+        theme = self._theme_override if self._theme_override is not None else DEFAULT_THEME
+        r = 0.38
+        yellow = QColor(theme.routing_target_color)
+        yellow.setAlpha(255)  # unmistakable — nothing on the pad layer washes it out
+        pen = QPen(yellow, 0.12)
+        brush = QBrush(yellow)
+        for rec in self._pin_pad_records:
+            if not isinstance(rec, PinPadInfo) or rec.net_id not in net_ids:
+                continue
+            pt = rec.position
+            item = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
+            item.setPen(pen)
+            item.setBrush(brush)
+            item.setZValue(Z_NET_PAD_HIGHLIGHT)
+            self._scene.addItem(item)
+            self._net_pad_highlight_items.append(item)
+
+    def _clear_net_pad_highlights(self) -> None:
+        for item in self._net_pad_highlight_items:
+            try:
+                if isinstance(item, _QGItem) and item.scene() is self._scene:
+                    self._scene.removeItem(item)
+            except RuntimeError:
+                pass  # C++ item already gone (scene cleared)
+        self._net_pad_highlight_items.clear()
 
     _LABEL_MIN_SCENE_UNITS: float = 0.8
 
@@ -1283,6 +1427,11 @@ class BoardView(QGraphicsView):
         self._svg_select_overlays.clear()
         self._cyan_outlined.clear()
         self._cyan_group_outlined.clear()
+        # Same for the bright wire-select overlays: the scene clear destroyed
+        # the C++ items; drop the dict so the next redraw rebuilds fresh.
+        self._wire_select_overlays.clear()
+        # Net-pad highlight discs are scene items too — drop the stale refs.
+        self._net_pad_highlight_items.clear()
 
     def refresh(self) -> None:
         """Update the scene to reflect current session state.
@@ -1476,6 +1625,9 @@ class BoardView(QGraphicsView):
             # the whole paint pipeline.  The layer is purely visual.
             self._pin_pad_items = []
             pp_records = []
+        # Cache the records so the highlight pass can draw bright net-pad discs
+        # without recomputing the classification.
+        self._pin_pad_records = list(pp_records)
 
         # ── Overlays (always recreated — fast, few items) ────────────────────
         new_overlays: list[object] = []

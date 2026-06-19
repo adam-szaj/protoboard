@@ -1200,6 +1200,71 @@ def _key_event(key: Qt.Key) -> QKeyEvent:
     return QKeyEvent(QKeyEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
 
 
+class TestWireAndPadHighlight:
+    """Selecting a wire draws a bright overlay; its net's pads get neon discs.
+
+    Dimming alone can't tell the user *which* wire/pads they picked (everything
+    else just fades).  The bright overlay (wire) + neon discs (net pads) are the
+    positive "this is what you selected" signal — ported from the legacy tool.
+    """
+
+    @staticmethod
+    def _select_wire_and_highlight(tool, view, session) -> None:  # type: ignore[no-untyped-def]
+        """Select the wire and run the highlight pass (what a real click does)."""
+        _select_wire(tool, session)
+        tool._refresh_highlight()  # publish to the highlight stack
+        view._apply_highlight_opacity_impl()  # draw overlays now (no debounce wait)
+
+    def test_selected_wire_gets_bright_overlay(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        view.refresh()
+        tool = _v2(view)
+        assert not view._wire_select_overlays  # nothing selected yet
+
+        self._select_wire_and_highlight(tool, view, session)
+        wire = next(iter(session.layout.wires))
+        # A bright overlay group now exists for the selected wire.
+        assert wire.id in view._wire_select_overlays
+
+    def test_deselect_removes_wire_overlay(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        view.refresh()
+        tool = _v2(view)
+        self._select_wire_and_highlight(tool, view, session)
+        wire = next(iter(session.layout.wires))
+        assert wire.id in view._wire_select_overlays
+
+        tool._selection.clear()
+        tool._refresh_highlight()
+        view._apply_highlight_opacity_impl()
+        assert wire.id not in view._wire_select_overlays
+
+    def test_selected_wire_net_pads_get_discs(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        view.refresh()  # populate the pin-pad record cache
+        tool = _v2(view)
+        assert not view._net_pad_highlight_items
+
+        self._select_wire_and_highlight(tool, view, session)
+        # The wire's net has a 1-pin component (X1) → at least one pad disc.
+        assert view._net_pad_highlight_items
+
+    def test_scene_rebuild_while_wire_selected_is_clean(self, qtbot) -> None:
+        """Scene wipe must drop overlay refs, not leave dead C++ wrappers."""
+        session, view = _wire_session(qtbot)
+        view.refresh()
+        tool = _v2(view)
+        self._select_wire_and_highlight(tool, view, session)
+        assert view._wire_select_overlays
+
+        view._invalidate_all_groups()
+        assert not view._wire_select_overlays  # refs dropped, not dangling
+        assert not view._net_pad_highlight_items
+        view.refresh()
+        # The post-rebuild highlight pass (which would crash on dead refs) is clean.
+        view._apply_highlight_opacity_impl()
+
+
 class TestDeleteSelectedWire:
     """Delete on a selected (whole) wire removes it — without entering edit."""
 

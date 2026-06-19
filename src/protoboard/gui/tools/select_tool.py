@@ -446,9 +446,24 @@ class SelectTool(_Tool):
             return
         shown: list[Selectable] = list(self._selection.selected())
         anchor = primary if primary is not None else self._primary_selectable()
+        net_id: uuid.UUID | None = None
         if anchor is not None:
             shown.extend(self._relation_correlated_selectables(anchor))
-        self._highlight.show(shown)
+            # Publish the anchor's net so BoardView can light up that net's pads
+            # (the pad layer has no other "this net is selected" signal).
+            net_id = self._anchor_net_id(anchor)
+        self._highlight.show(shown, net_id=net_id)
+
+    def _anchor_net_id(self, anchor: Selectable) -> uuid.UUID | None:
+        """The logical net of *anchor* (wire/component/pin), or None.
+
+        Same resolution as :meth:`_primary_net_id` but for an explicit anchor,
+        so a SET click that passes ``primary=`` lights up the right net.
+        """
+        from protoboard.gui.selection.queries import SessionConnQuery
+
+        nets = anchor.net_ids(SessionConnQuery(self._session))
+        return next(iter(nets), None)
 
     def _primary_selectable(self) -> Selectable | None:
         if self._selection is None:
