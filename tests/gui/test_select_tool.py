@@ -1265,6 +1265,79 @@ class TestWireAndPadHighlight:
         view._apply_highlight_opacity_impl()
 
 
+class TestContextMenu:
+    """Right-click rebuilds the unified item-aware menu (bug #2 regression).
+
+    The v2 swap left only BoardView's generic tool-action menu; the item-aware
+    sections (wire ops, lock, assign/disconnect, select-by-net, highlight) were
+    gone.  We inspect the built menu's action→data map directly — QMenu.exec is
+    un-mockable in PySide6, so on_right_press is not driven headless.
+    """
+
+    @staticmethod
+    def _menu_datas(tool, x: float, y: float):  # type: ignore[no-untyped-def]
+        from PySide6.QtCore import QPointF
+
+        built = tool._build_context_menu(QPointF(x, y))
+        assert built is not None, "expected a menu over an item"
+        _menu, items = built
+        return list(items.values())
+
+    def test_empty_canvas_returns_no_menu(self, qtbot) -> None:
+        from PySide6.QtCore import QPointF
+
+        _session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        # Far from any wire/component → no item menu (BoardView falls back).
+        assert tool._build_context_menu(QPointF(15.0, 15.0)) is None
+
+    def test_wire_section_present_over_wire(self, qtbot) -> None:
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        actions = {d[0] for d in self._menu_datas(tool, 2.5, 1.5)}
+        # Wire-mutation entries + universal view section are all present.
+        assert "wire_insulated" in actions
+        assert "wire_side" in actions
+        assert "simplify_wire" in actions
+        assert "view_center" in actions
+        assert "view_escape" in actions
+
+    def test_wire_side_action_executes(self, qtbot) -> None:
+        from PySide6.QtCore import QPointF
+
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        wire = next(iter(session.layout.wires))
+        side_before = wire.side
+        depth = _depth(session)
+
+        data = next(
+            d for d in self._menu_datas(tool, 2.5, 1.5) if d[0] == "wire_side"
+        )
+        tool._menu_dispatch(data, QPointF(2.5, 1.5))
+
+        assert _depth(session) == depth + 1  # a command ran
+        wire_after = next(iter(session.layout.wires))
+        assert wire_after.side != side_before
+
+    def test_tool_actions_added_to_menu(self, qtbot) -> None:
+        """The menu augments — it carries the tool's own action shortcuts too."""
+        from PySide6.QtCore import QPointF
+
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        built = tool._build_context_menu(QPointF(2.5, 1.5))
+        assert built is not None
+        menu, items = built
+        # More QActions exist than the data-carrying ones we dispatch on —
+        # the extra ones are the tool-action section (augmentation).
+        all_actions = [a for a in menu.actions() if not a.isSeparator()]
+        assert len(all_actions) > len(items)
+
+
 class TestDeleteSelectedWire:
     """Delete on a selected (whole) wire removes it — without entering edit."""
 

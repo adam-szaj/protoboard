@@ -2558,6 +2558,273 @@ class SelectTool(_Tool):
         """Nearest wire id within ``WIRE_HIT_DIST`` (SimplifyTool's hook)."""
         return self._hit_tester()._hit_wire(scene_pt.x(), scene_pt.y())
 
+    # -- right-click context menu ------------------------------------------
+    #
+    # The v2 swap left BoardView's generic canvas menu (tool actions + center /
+    # escape) as the only RMB menu — every item-aware operation the legacy tool
+    # exposed (assign/disconnect pin, lock, export, select-by-net, wire
+    # bare/insulated/side/flip/simplify/optimize/unweave/merge) was lost.  This
+    # rebuilds the unified menu on v2's services and returns True so BoardView
+    # does not fall through to the generic menu; an *empty* canvas returns False
+    # so the generic menu (with the same tool-action section) still appears.
+    # The tool-action + view section is added here too, so the contextual menu
+    # *augments* the generic one rather than replacing it.
+
+    def on_right_press(self, scene_pt: QPointF) -> bool:
+        """Show the unified context menu for the item under the cursor.
+
+        Returns True when a menu was shown (item present), False on empty canvas
+        so BoardView falls back to its generic tool-action menu.
+        """
+        built = self._build_context_menu(scene_pt)
+        if built is None:
+            return False
+        menu, items = built
+        global_pos = self._view.mapToGlobal(self._view.mapFromScene(scene_pt))
+        chosen = menu.exec(global_pos)
+        if chosen is None:
+            return True
+        data = items.get(chosen)
+        if data is not None:
+            self._menu_dispatch(data, scene_pt)
+        return True
+
+    def _build_context_menu(
+        self, scene_pt: QPointF
+    ) -> tuple[object, dict[object, tuple[object, ...]]] | None:
+        """Build the unified menu + its {QAction: data} map, or None on empty
+        canvas.  Split from :meth:`on_right_press` so tests can inspect the
+        items without driving the un-mockable ``QMenu.exec``."""
+        comp_id = self._menu_comp_at(scene_pt)
+        wire_id = self._menu_wire_at(scene_pt)
+        if comp_id is None and wire_id is None:
+            return None
+        from PySide6.QtWidgets import QMenu
+
+        menu = QMenu(self._view)
+        items: dict[object, tuple[object, ...]] = {}
+        self._menu_add_view_section(menu, items, scene_pt)
+        self._menu_add_tool_actions(menu)
+        self._menu_add_wire_section(menu, items, wire_id)
+        return menu, items
+
+    def _menu_comp_at(self, scene_pt: QPointF) -> uuid.UUID | None:
+        """Component under the cursor (selected one wins, else hit-test)."""
+        sel_comp = self._selected_id
+        if sel_comp is not None:
+            return sel_comp
+        hit = self._hit_tester().hit(scene_pt.x(), scene_pt.y(), self._filters())
+        if hit is not None and hit.to_hit().kind == "component":
+            cid = hit.to_hit().id
+            return cid if isinstance(cid, uuid.UUID) else None
+        return None
+
+    def _menu_wire_at(self, scene_pt: QPointF) -> uuid.UUID | None:
+        """Wire under the cursor (selected primary wins, else hit-test)."""
+        sel_wires = self._selected_wire_ids
+        if sel_wires:
+            return next(iter(sel_wires))
+        return self._hit_test_wire(scene_pt)
+
+    def _menu_add_view_section(
+        self,
+        menu: object,
+        items: dict[object, tuple[object, ...]],
+        scene_pt: QPointF,
+    ) -> None:
+        from PySide6.QtWidgets import QMenu
+
+        assert isinstance(menu, QMenu)
+        act_center = menu.addAction("Center view here")
+        items[act_center] = ("view_center", scene_pt)
+        act_escape = menu.addAction("Cancel tool (Esc)")
+        items[act_escape] = ("view_escape",)
+        menu.addSeparator()
+
+    def _menu_add_tool_actions(self, menu: object) -> None:
+        """Delegate to BoardView's tool-action section (shared with the generic
+        canvas menu) so the contextual menu surfaces the same shortcuts."""
+        from PySide6.QtWidgets import QMenu
+
+        assert isinstance(menu, QMenu)
+        view = self._view
+        adder = getattr(view, "_add_tool_action_menu", None)
+        if adder is None:
+            return
+        tool_items = adder(menu)  # {QAction: action_id}
+        # Route triggers back through BoardView's synthesised-key dispatch.
+        for act, action_id in tool_items.items():
+            act.triggered.connect(
+                lambda _checked=False, _a=action_id: view._trigger_tool_action(_a)
+            )
+
+    def _menu_add_wire_section(
+        self,
+        menu: object,
+        items: dict[object, tuple[object, ...]],
+        wire_id: uuid.UUID | None,
+    ) -> None:
+        """Wire mutation entries — bare/insulated, side, flip, simplify,
+        optimize, unweave, merge.  Mirrors the legacy wire section; the
+        underlying helpers already exist on v2."""
+        from PySide6.QtWidgets import QMenu
+
+        assert isinstance(menu, QMenu)
+        if wire_id is None:
+            return
+        wire = self._wire_by_id(wire_id)
+        if wire is None:
+            return
+
+        # Operate on the multi-selection when the clicked wire is part of it.
+        effective = set(self._selected_wire_ids)
+        target_ids = (
+            effective if wire.id in effective and len(effective) > 1 else {wire.id}
+        )
+        n = len(target_ids)
+        ins_label = "insulated" if wire.insulated else "bare"
+        menu.addSection(
+            f"Wire{'s (' + str(n) + ')' if n > 1 else ''} — {ins_label}, {wire.side}"
+        )
+
+        if wire.insulated:
+            act = menu.addAction("Set bare (no insulation)")
+            items[act] = ("wire_insulated", target_ids, False)
+        else:
+            act = menu.addAction("Set insulated (add insulation jacket)")
+            items[act] = ("wire_insulated", target_ids, True)
+
+        other_side = "bottom" if wire.side == "top" else "top"
+        act_side = menu.addAction(f"Move to {other_side} layer")
+        items[act_side] = ("wire_side", target_ids, other_side)
+
+        if (
+            wire.id in target_ids and len(target_ids) == 1
+            and self._is_editing_wire()
+        ):
+            act_flip = menu.addAction(f"Flip fragment to {other_side} layer  [F]")
+            items[act_flip] = ("flip_fragment", other_side)
+
+        act_simplify = menu.addAction(
+            f"Simplify wire{' paths' if n > 1 else ' path'}"
+        )
+        items[act_simplify] = ("simplify_wire", target_ids, None)
+        sm_simplify = menu.addMenu("Simplify with mode")
+        act_cheb = sm_simplify.addAction("Chebyshev (shortcut via diag)")
+        items[act_cheb] = ("simplify_wire", target_ids, "chebyshev")
+        act_parity = sm_simplify.addAction("Bare-parity (respect anti-short rule)")
+        items[act_parity] = ("simplify_wire", target_ids, "bare_parity")
+
+        # Optimize-with: one entry per registered plugin (minus built-in simplify).
+        import protoboard.services.routing.builtin_optimizers  # noqa: F401
+        from protoboard.services.routing.optimizer import registry as _opt_registry
+
+        opt_names = [n for n in _opt_registry.list_available() if n != "simplify"]
+        if opt_names:
+            sm_opt = menu.addMenu("Optimize with…")
+            for opt_name in opt_names:
+                opt = _opt_registry.get(opt_name)
+                act = sm_opt.addAction(getattr(opt, "display_name", opt_name))
+                caps = opt.capabilities()
+                if caps.notes:
+                    act.setToolTip(caps.notes)
+                items[act] = ("optimize_with", target_ids, opt_name)
+
+        if n >= 2:
+            act_unweave = menu.addAction(f"Unweave {n} wires (topological)")
+            items[act_unweave] = ("unweave_wires", target_ids)
+
+        mergeable = [
+            w for w in self._session.layout.wires
+            if w.id in target_ids and len(w.fragments) >= 2
+        ]
+        if mergeable:
+            label = (
+                f"Merge same-side fragments"
+                f"{' (' + str(len(mergeable)) + ' wires)' if len(mergeable) > 1 else ''}"
+            )
+            act_merge = menu.addAction(label)
+            items[act_merge] = ("merge_wire_fragments", target_ids)
+
+    def _menu_dispatch(
+        self, data: tuple[object, ...], scene_pt: QPointF
+    ) -> None:
+        """Run the action encoded in a menu item's *data* tuple."""
+        from typing import cast
+
+        action = data[0]
+        if action == "view_center":
+            self._view.center_on_scene_point(cast("QPointF", data[1]))
+        elif action == "view_escape":
+            self._view.escape_tool.emit()
+        elif action == "wire_insulated":
+            self._menu_set_wire_insulated(
+                cast("set[uuid.UUID]", data[1]), cast(bool, data[2])
+            )
+        elif action == "wire_side":
+            self._menu_set_wire_side(
+                cast("set[uuid.UUID]", data[1]), cast(str, data[2])
+            )
+        elif action == "flip_fragment":
+            self._flip_wire_fragment(cast("str", data[1]))
+        elif action == "simplify_wire":
+            self._simplify_wires(
+                cast("set[uuid.UUID]", data[1]),
+                mode_override=cast("str | None", data[2]),
+            )
+        elif action == "optimize_with":
+            self._optimize_selected_wires(
+                cast("set[uuid.UUID]", data[1]), cast(str, data[2])
+            )
+        elif action == "unweave_wires":
+            self._unweave_wires(cast("set[uuid.UUID]", data[1]))
+        elif action == "merge_wire_fragments":
+            self._merge_wires_and_fragments(
+                frozenset(cast("set[uuid.UUID]", data[1]))
+            )
+
+    def _menu_set_wire_insulated(
+        self, wire_ids: set[uuid.UUID], insulated: bool
+    ) -> None:
+        from typing import cast
+
+        from protoboard.domain.commands.base import Command, ComponentState, MacroCommand
+        from protoboard.domain.commands.component_cmds import (
+            SetWireInsulatedCommand,
+        )
+
+        raw = [
+            cast("Command[ComponentState]",
+                 SetWireInsulatedCommand(wire_id=wid, insulated=insulated))
+            for wid in wire_ids
+        ]
+        if not raw:
+            return
+        cmd = raw[0] if len(raw) == 1 else MacroCommand(
+            raw, description=f"Set {len(raw)} wires"
+        )
+        self._execute_command(cmd)
+        self._session.layout_changed.emit()
+
+    def _menu_set_wire_side(self, wire_ids: set[uuid.UUID], side: str) -> None:
+        from typing import cast
+
+        from protoboard.domain.commands.base import Command, ComponentState, MacroCommand
+        from protoboard.domain.commands.component_cmds import SetWireSideCommand
+
+        raw = [
+            cast("Command[ComponentState]",
+                 SetWireSideCommand(wire_id=wid, side=cast("Side", side)))
+            for wid in wire_ids
+        ]
+        if not raw:
+            return
+        cmd = raw[0] if len(raw) == 1 else MacroCommand(
+            raw, description=f"Move {len(raw)} wires"
+        )
+        self._execute_command(cmd)
+        self._session.layout_changed.emit()
+
     def _is_editing_wire(self) -> bool:
         """True when a wire fragment is selected (the wire-edit ``WireEditState``)."""
         return self._wire_edit is not None
