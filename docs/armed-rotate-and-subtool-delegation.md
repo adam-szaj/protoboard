@@ -212,9 +212,14 @@ as one undo entry.  **Constraint preserved:** flip currently applies only to
    grid cell via the new `DragController.nudge_to`, reusing the entire drag
    engine (snap / conflict-classify / live preview); `[Enter]` confirms (CONFIRM
    intent → commit), `[Esc]` cancels (CANCEL intent).
-4. **Wire fragment-flip** — land the deferred `_flip_wire_fragment` as a
-   wire-edit op-table entry (todo.md item) — first concrete "operation moves
-   into the sub-tool" step.
+4. **Wire fragment-flip** — ✅ DONE (2026-06-19).  The deferred
+   `_flip_wire_fragment` stub is now a wire-edit op-table entry (`[F]`,
+   `select-tool.action.flip_fragment`), alongside reroute / autoroute / delete.
+   `wire_edit.build_flip_fragment_command` (Qt-free, mirrors
+   `build_delete_command`) wraps `FlipWireFragmentCommand`; same-wire only
+   (cross-wire has no single wire to flip → falls back to the whole-wire layer
+   move).  The first concrete "operation lives on the wire-edit sub-tool, not
+   loose on SelectTool" step.
 5. **ArmedSubTool protocol** — ✅ DONE (2026-06-19).  `gui/selection/armed.py`
    defines the `ArmedSubTool` Protocol (arm → on_key/on_wheel/on_click →
    can_commit → accept/cancel + finished).  `armed_rotate.ArmedRotate` and

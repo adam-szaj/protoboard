@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Wire fragment-flip jako op-table wire-edit (2026-06-19)
+
+`[F]` w wire-edit flipuje zaznaczony fragment druta na przeciwną warstwę —
+dołącza do reroute `[W]` / autoroute `[A]` / delete `[Del]` jako kolejna
+operacja na fragmencie (domyka stub `_flip_wire_fragment`, etap 4).
+
+* `wire_edit.build_flip_fragment_command` (Qt-free, wzorem `build_delete_command`)
+  owija `FlipWireFragmentCommand`; same-wire only — selekcja cross-wire nie ma
+  jednego druta do flipu → fallback na whole-wire layer move.
+* Konduktor zostaje jednym `Wire` (granice fragmentu = vias), zachowuje id +
+  knoty. Akcja `select-tool.action.flip_fragment` (`F`), przebindowalna, w
+  vecie `wants_key` i op-table; status-bar fragmentu pokazuje `[F] Flip layer`.
+* 1 test (`test_f_flips_fragment_to_other_layer`); 890 GUI green; `wire_edit.py`
+  czysty pod `mypy --strict`.
+
 ### ArmedSubTool protocol + conditional-disarm (2026-06-19)
 
 Tryby uzbrajane (rotate `[R]` / move `[G]`) zunifikowane za jednym protokołem

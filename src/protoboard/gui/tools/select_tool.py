@@ -78,6 +78,8 @@ _ACT_REROUTE = "select-tool.action.reroute"
 _ACT_AUTOROUTE = "select-tool.action.autoroute"
 _ACT_DELETE = "select-tool.action.delete"
 _ACT_CANCEL = "select-tool.action.cancel"
+# Wire-edit op-table extra: [F] flips the selected fragment to the other layer.
+_ACT_FLIP_FRAGMENT = "select-tool.action.flip_fragment"
 # Armed transform modes: [R] arms float-rotate, [G] arms keyboard float-move.
 # Both inherit a generic global default and dispatch by id, never raw key.
 _ACT_ROTATE = "select-tool.action.rotate"
@@ -1565,7 +1567,7 @@ class SelectTool(_Tool):
         self._draw_wire_edit_overlay()
         self._status(
             "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
-            "[Del] Delete  ·  [Esc] Cancel",
+            "[F] Flip layer  ·  [Del] Delete  ·  [Esc] Cancel",
             0,
         )
 
@@ -1582,6 +1584,8 @@ class SelectTool(_Tool):
             self._begin_reroute()
         elif self._key_matches(event, _ACT_AUTOROUTE):
             self._autoroute_fragment()
+        elif self._key_matches(event, _ACT_FLIP_FRAGMENT):
+            self._flip_wire_fragment()
         elif self._key_matches(event, _ACT_DELETE) or key == Qt.Key.Key_Backspace:
             self._delete_fragment()
         elif self._key_matches(event, _ACT_CANCEL) or key == Qt.Key.Key_Escape:
@@ -1676,7 +1680,7 @@ class SelectTool(_Tool):
         if self._wire_edit is not None:
             self._status(
                 "Fragment selected  ·  [W] Reroute  ·  [A] Autoroute  ·  "
-                "[Del] Delete  ·  [Esc] Cancel",
+                "[F] Flip layer  ·  [Del] Delete  ·  [Esc] Cancel",
                 0,
             )
 
@@ -1977,6 +1981,7 @@ class SelectTool(_Tool):
             _ACT_ROTATE: "R",       # arm float-rotate
             _ACT_MOVE: "G",         # arm keyboard float-move ("grab")
             _ACT_FLIP: None,        # global.action.flip (default "Alt+R")
+            _ACT_FLIP_FRAGMENT: "F",  # wire-edit op: flip fragment to other layer
         }
 
     def wants_key(self, event: QKeyEvent) -> bool:
@@ -1998,6 +2003,7 @@ class SelectTool(_Tool):
         if self._wire_edit is not None and (
             self._key_matches(event, _ACT_REROUTE)
             or self._key_matches(event, _ACT_AUTOROUTE)
+            or self._key_matches(event, _ACT_FLIP_FRAGMENT)
             or self._key_matches(event, _ACT_DELETE)
         ):
             return True
@@ -2363,15 +2369,32 @@ class SelectTool(_Tool):
         return False
 
     def _flip_wire_fragment(self, target_side: str | None = None) -> None:
-        """Flip the selected wire *fragment* to a layer.
+        """Flip the selected wire *fragment* to the opposite layer — ``[F]``.
 
-        Deferred (Phase 4 decision — fragment-flip is out of the wire-edit op
-        set for now).  The whole-wire layer move (:meth:`_move_selected_wires_to_side`)
-        remains available; the menu falls back to it when no fragment is active.
+        A wire-edit op (alongside reroute / autoroute / delete): re-sides the
+        selected contiguous fragment of one wire (boundary vertices become
+        vias) via :class:`FlipWireFragmentCommand`.  Same-wire only — a
+        cross-wire selection has no single wire to flip.  ``target_side``
+        defaults to the opposite of the wire's current side.  Falls back to the
+        whole-wire layer move when no fragment is armed.
         """
-        self._status_msg(
-            "Fragment flip not yet available — use whole-wire layer move."
+        from protoboard.gui.selection.wire_edit import build_flip_fragment_command
+
+        state = self._wire_edit
+        if state is None:
+            self._move_selected_wires_to_side(target_side)
+            return
+        cmd = build_flip_fragment_command(
+            list(self._session.layout.wires), state, target_side
         )
+        if cmd is None:
+            self._status_msg(
+                "Flip: pick a fragment on a single wire (two vertices apart)."
+            )
+            return
+        self._wire_edit_clear()
+        self._execute_command(cmd)
+        self._refresh_after_wire_op()
 
     def _move_selected_wires_to_side(self, target_side: str | None) -> None:
         """Move all selected wires to a layer (``None`` toggles a shared side)."""

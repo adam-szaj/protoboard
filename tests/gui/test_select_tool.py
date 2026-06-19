@@ -874,6 +874,38 @@ class TestWireEdit:
         assert tool._mouse is None  # range pick finished
         assert _depth(session) == depth  # no command yet
 
+    def test_f_flips_fragment_to_other_layer(self, qtbot) -> None:
+        from protoboard.domain.commands.component_cmds import (
+            FlipWireFragmentCommand,
+        )
+
+        session, view = _wire_session(qtbot)
+        tool = _v2(view)
+        _select_wire(tool, session)
+        wire = next(iter(session.layout.wires))
+        assert wire.side == "bottom"
+        # The flip goes through replace_wire_fragments, which needs both endpoint
+        # knots — backfill them (the fixture appends a bare wire; runtime wires
+        # get knots from AddWireCommand / load migration).
+        session.layout.ensure_wire_knots(wire)
+        depth = _depth(session)
+
+        _key(tool, Qt.Key.Key_E)
+        _click(tool, 2.5, 1.5)  # idx 1
+        _click(tool, 3.5, 1.5)  # idx 2
+        assert tool._wire_edit is not None
+        _key(tool, Qt.Key.Key_F)  # flip the fragment
+
+        assert _depth(session) == depth + 1
+        cmd = session.stack._undo[-1]  # type: ignore[attr-defined]
+        assert isinstance(cmd, FlipWireFragmentCommand)
+        assert cmd.target_side == "top"
+        assert tool._wire_edit is None  # op leaves wire-edit
+        # The conductor stays one wire, now multi-fragment (a via boundary).
+        flipped = next(iter(session.layout.wires))
+        assert flipped.id == wire.id
+        assert any(f.side == "top" for f in flipped.fragments)
+
     def test_w_reroute_commits_replace_fragments(self, qtbot) -> None:
         from protoboard.domain.commands.component_cmds import (
             ReplaceWireFragmentsCommand,

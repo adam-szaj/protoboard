@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING
 from protoboard.domain.commands.base import MacroCommand
 from protoboard.domain.commands.component_cmds import (
     AddWireCommand,
+    FlipWireFragmentCommand,
     RemoveWireCommand,
     ReplaceWireFragmentsCommand,
 )
@@ -415,6 +416,39 @@ def build_delete_command(
     return cast(
         "Command[ComponentState]",
         MacroCommand(cmds, description="Cut wire fragment"),
+    )
+
+
+def build_flip_fragment_command(
+    wires: Sequence[Wire],
+    state: WireEditState,
+    target_side: str | None = None,
+) -> Command[ComponentState] | None:
+    """Build the command flipping the selected fragment to the opposite layer.
+
+    Same-wire only: a fragment-flip re-sides one contiguous index range of a
+    single wire (the conductor stays one :class:`Wire`; the boundary vertices
+    become vias).  A cross-wire selection has no single wire to flip, so this
+    returns ``None``.  ``target_side`` defaults to the opposite of the wire's
+    current side.  Returns ``None`` when the wire is missing or the range is
+    degenerate (a single vertex cannot be a fragment).
+    """
+    if state.is_cross:
+        return None
+    wire = _find_wire(wires, state.start_wire_id)
+    if wire is None:
+        return None
+    start, end = state.start_idx, state.end_idx
+    if start >= end:
+        return None
+    side = target_side or ("bottom" if wire.side == "top" else "top")
+    from typing import cast
+
+    return cast(
+        "Command[ComponentState]",
+        FlipWireFragmentCommand(
+            wire_id=wire.id, start_idx=start, end_idx=end, target_side=side
+        ),
     )
 
 

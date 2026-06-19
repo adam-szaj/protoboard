@@ -17,15 +17,11 @@ two consciously-deferred gaps:
    (`HitTester.hit(..., filters)`) so components/wires/groups can be
    excluded from selection as the legacy tool did.
 
-2. **Wire fragment-flip.** `_flip_wire_fragment` is a status-bar stub.
-   The whole-wire layer move (`_move_selected_wires_to_side`) works; the
-   per-fragment flip (legacy 140 LoC of via-endpoint + alien-net + target-
-   layer-overlap validation via `FlipWireFragmentCommand`) was out of the
-   Phase-4 wire-edit op set.  Re-implement it against the `WireEditState`
-   model and add it as a wire-edit op-table entry (alongside reroute /
-   autoroute / delete) — `FlipWireFragmentCommand` takes
-   `(wire_id, start_idx, end_idx, side)`, which `WireEditState` already
-   carries.
+2. **Wire fragment-flip.** ✅ DONE (2026-06-19).  `_flip_wire_fragment` is now
+   a wire-edit op-table entry (`[F]`) backed by
+   `wire_edit.build_flip_fragment_command` → `FlipWireFragmentCommand`.
+   Same-wire only; cross-wire falls back to the whole-wire layer move.  See
+   `docs/armed-rotate-and-subtool-delegation.md` §4 stage 4.
 
 ## Parametric renderer for DIP / QIL / SIL packages
 
