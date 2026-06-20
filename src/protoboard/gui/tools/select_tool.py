@@ -374,7 +374,7 @@ class SelectTool(_Tool):
         #   intact (so a press-drag moves the *whole* multi-selection instead of
         #   collapsing it to the grabbed item first).  With Ctrl/Shift the press
         #   only mutates the set (no drag).
-        if op is SetOp.SET:
+        if op is SetOp.SET and basis is not BasisScope.RELATION:
             self._deferred_click_sel = None
             if self._is_already_selected(sel):
                 # Keep the selection intact for a possible drag; if this turns
@@ -386,6 +386,13 @@ class SelectTool(_Tool):
             if drag is not None:
                 self._mouse = drag
             return True
+
+        # Alt+LMB (RELATION basis): the user explicitly asks to expand the
+        # highlight/selection to the clicked object's whole net — apply it
+        # immediately even when the object is already selected.  Without this,
+        # the "click wire to select, then Alt+click to extend to the net"
+        # sequence silently no-ops, because the plain-SET branch above would
+        # defer it to a drag-or-release decision (legacy parity regression).
 
         self._apply_selection(sel, op, basis)
         return True

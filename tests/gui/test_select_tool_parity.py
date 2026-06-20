@@ -244,6 +244,47 @@ class TestRelationBasisSelection:
         assert i1.id in selected
         assert i2.id in selected
 
+    def test_alt_click_on_already_selected_wire_expands_to_net(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """Select a wire, THEN Alt+click it → highlight expands to the whole net.
+
+        Regression: the plain-SET on_press branch deferred a click on an
+        already-selected object to a drag/release decision and never applied the
+        RELATION basis, so 'click wire to select, Alt+click to extend' silently
+        no-opped.  Alt+LMB now bypasses the defer and expands immediately.
+        """
+        import uuid
+
+        from protoboard.domain.layout.wire import Wire
+        from protoboard.domain.schematic.net import Net, PinRef
+        from protoboard.geometry import Point
+
+        i1 = _place(board_view, session, 0.5, 0.5)
+        # Two wires sharing one net via the component pin.
+        net = Net(id=uuid.uuid4(), name="N1", pins={PinRef(i1.id, 1)})
+        session.schematic.nets[net.id] = net
+        w1 = Wire(id=uuid.uuid4(), path=[Point(0.5, 0.5), Point(2.5, 0.5)],
+                  insulated=False, side="top")
+        w2 = Wire(id=uuid.uuid4(), path=[Point(0.5, 0.5), Point(0.5, 2.5)],
+                  insulated=False, side="top")
+        session.layout.wires.append(w1)
+        session.layout.wires.append(w2)
+        session.invalidate_graph()
+        tool = _v2(board_view)
+        tool.set_relation(RelationClass.SAME_LOGICAL_NET)
+        board_view.refresh()
+
+        # 1. Plain click selects only w1 (its midpoint).
+        _press(tool, 1.5, 0.5)
+        assert w1.id in tool._selected_wire_ids
+        assert w2.id not in tool._selected_wire_ids  # not yet
+
+        # 2. Alt+click the *already-selected* w1 → expands to the whole net.
+        _press(tool, 1.5, 0.5, modifiers=Qt.KeyboardModifier.AltModifier)
+        assert w1.id in tool._selected_wire_ids
+        assert w2.id in tool._selected_wire_ids  # net expansion applied
+
 
 # ---------------------------------------------------------------------------
 # HighlightStack precedence — pure stack/session, no tool internals.

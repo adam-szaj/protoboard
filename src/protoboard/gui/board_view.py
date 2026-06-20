@@ -880,11 +880,16 @@ class BoardView(QGraphicsView):
         if not net_ids:
             return
         theme = self._theme_override if self._theme_override is not None else DEFAULT_THEME
-        r = 0.38
-        yellow = QColor(theme.routing_target_color)
-        yellow.setAlpha(255)  # unmistakable — nothing on the pad layer washes it out
-        pen = QPen(yellow, 0.12)
-        brush = QBrush(yellow)
+        # Disc radius = 70% of the pad radius (sits inside the pad rather than
+        # swamping it); fill at ~50% alpha so the pad colour underneath still
+        # reads, while the ring stays opaque for a crisp high-contrast edge.
+        r = 0.7 * theme.pad_radius
+        ring = QColor(theme.routing_target_color)
+        ring.setAlpha(255)
+        fill = QColor(theme.routing_target_color)
+        fill.setAlpha(128)
+        pen = QPen(ring, 0.12)
+        brush = QBrush(fill)
         for rec in self._pin_pad_records:
             if not isinstance(rec, PinPadInfo) or rec.net_id not in net_ids:
                 continue
