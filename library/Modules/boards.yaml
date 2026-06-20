@@ -7,15 +7,15 @@ components:
     component_class: ic
     footprint: {type: DIP, pins: 30, rows_spacing: 7}
     pin_names:
-      1: D1/TX
-      2: D0/RX
-      3: NRST
+      1: PD1/TX/PCINT17/31
+      2: PD0/RX/PCINT16/30
+      3: PC6/RST/PCINT14/29
       4: GND
-      5: D2
-      6: D3/PWM
-      7: D4
-      8: D5/PWM
-      9: D6/PWM
+      5: PD2/INT0/PCINT18/32
+      6: PD3/INT1/PCINT19/OC2B/1
+      7: PD4/T0/PCINT20/XCK/2
+      8: PD5/T1/PCINT21/OC0B/9
+      9: PD6/AIN0/PCINT22/OC0A/10
       10: D7
       11: D8
       12: D9/PWM
