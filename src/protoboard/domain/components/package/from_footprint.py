@@ -45,9 +45,13 @@ _PRISM_FOOTPRINTS = (DualRow, SingleRow, QuadRow)
 _MARGIN_HOLES = 0.5
 _RASTER_MM = 2.5
 
-# DIP body geometry (JEDEC-ish), in mm.  A DIP body is *narrower* than the row
-# spacing so the legs show on both sides, and runs a little past the end pins.
-_DIP_BODY_INSET_MM = 1.27   # body edge inset from each pin row (≈0.05 in)
+# DIP body geometry, in mm.  A DIP body is *narrower* than the row spacing so
+# the legs show on both sides, and runs a little past the end pins.  The moulded
+# body width is fitted to measured parts as a linear function of the row spacing
+# R (in 2.54 mm units): width ≈ 2.54·R − 1.35 mm — so a narrow 0.3" DIP (R=3)
+# is ≈6.27 mm across and a wide 0.6" DIP (R=6) is ≈13.9 mm.
+_DIP_WIDTH_PITCH_MM = 2.54  # row-pitch coefficient in the body-width fit
+_DIP_WIDTH_INSET_MM = 1.35  # constant inset in the body-width fit
 _DIP_END_MARGIN_MM = 1.27   # body extent past the first/last pin (along the axis)
 _PIN_PITCH_MM = 2.5         # package-domain hole pitch
 
@@ -55,11 +59,12 @@ _PIN_PITCH_MM = 2.5         # package-domain hole pitch
 def _dual_row_body_dims(fp: DualRow) -> tuple[float, float]:
     """DIP body (width across rows, length along pins) in mm for *fp*.
 
-    width  = row spacing − a body inset on each side (legs show outside the
-             moulded body); length = pin span + an end margin past each end pin.
+    width  = a measured linear fit of the moulded-body width to the row spacing
+             (``2.54·R − 1.35`` mm, R = rows in 2.54 mm units) — the legs show
+             outside it on both sides; length = pin span + an end margin past
+             each end pin.
     """
-    rows_mm = fp.rows_spacing * _PIN_PITCH_MM
-    width_mm = rows_mm - 2.0 * _DIP_BODY_INSET_MM
+    width_mm = _DIP_WIDTH_PITCH_MM * fp.rows_spacing - _DIP_WIDTH_INSET_MM
     length_mm = (fp.n_per_row - 1) * fp.pitch * _PIN_PITCH_MM + 2.0 * _DIP_END_MARGIN_MM
     return width_mm, length_mm
 

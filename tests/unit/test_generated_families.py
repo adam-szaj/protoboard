@@ -64,6 +64,20 @@ class TestDipFamily:
         # The wide body is physically wider.
         assert w_pkg.bbox().width > n_pkg.bbox().width
 
+    def test_body_width_matches_measured_mm(self) -> None:
+        # Moulded-body width is a linear fit of the row spacing R (in 2.54 mm
+        # units), measured off real parts: width = 2.54·R − 1.35 mm.  So a
+        # narrow 0.3" DIP (R=3) ≈ 6.27 mm and a wide 0.6" DIP (R=6) ≈ 13.89 mm.
+        # bbox() is in holes (2.5 mm raster), so convert before comparing.
+        raster = 2.5
+        narrow = dip_family(16, wide=False)
+        wide = dip_family(16, wide=True)
+        assert narrow is not None and wide is not None
+        n_mm = narrow.variants[0].package.bbox().width * raster
+        w_mm = wide.variants[0].package.bbox().width * raster
+        assert round(n_mm, 2) == round(2.54 * 3 - 1.35, 2)   # 6.27
+        assert round(w_mm, 2) == round(2.54 * 6 - 1.35, 2)   # 13.89
+
     def test_pin_count_matches_name(self) -> None:
         fam = dip_family(28, wide=False)
         assert fam is not None
