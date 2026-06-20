@@ -727,6 +727,7 @@ class MainWindow(QMainWindow):
         self._nets_editor_panel.sync_selection(comp_ids, wire_ids, net_id)
         _t3 = _time.monotonic() if _CLICK_PROFILE else 0.0
         self._net_inspector_panel.sync_selection(comp_ids, wire_ids, net_id)
+        self._sync_properties_panel(comp_ids)
 
         # Mode label gets the SelectTool selection summary appended so
         # the status bar always shows the current primary + multi
@@ -744,6 +745,29 @@ class MainWindow(QMainWindow):
                 nets_editor_ms=round((_t3 - _t2) * 1000, 1),
                 net_inspector_ms=round((_time.monotonic() - _t3) * 1000, 1),
             )
+
+    def _sync_properties_panel(self, comp_ids: object) -> None:
+        """Show the single selected component in the Properties panel, else clear.
+
+        v2 regression: the panel was never told what's selected (``show_component``
+        had no caller), so it stayed blank — and a keyboard rotate left a stale
+        rotation combo.  Re-wiring it here populates it on select AND refreshes
+        it after rotate/flip (those now re-broadcast the selection).
+        """
+        ids = list(comp_ids) if isinstance(comp_ids, (set, frozenset, list, tuple)) else []
+        if len(ids) != 1:
+            self._props_panel.clear_component()
+            return
+        cid = ids[0]
+        inst = self._session.instances.get(cid)
+        if inst is None:
+            self._props_panel.clear_component()
+            return
+        placement = self._session.layout.placements.get(cid)
+        defn = self._session.components.get(inst.definition_ref)
+        self._props_panel.show_component(
+            inst, placement, defn, package_families=self._session.package_families,
+        )
 
     def _refresh_panels(self) -> None:
         """Debounced refresh of all sidebar panels — called via _panels_timer."""

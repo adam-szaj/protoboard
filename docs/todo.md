@@ -46,16 +46,29 @@ worked through:
 - **Free-pin click hint.**  ✅ DONE (2026-06-20).  `_hint_free_pin_under`
   fires from `on_press` when a press lands on an unassigned pin:
   "Pin N (name) — no net (right-click → Assign to net)".
-- **Properties-panel rotation combo** not refreshed after keyboard rotate.
-- **Ctrl+Alt+LMB highlight union** no longer accumulates across nets (ADD
-  basis resets the relation context each click).
-- **Long-press (1s) group-enter** affordance gone (only `[E]` enters a group).
-- **Wire-edit pad-node enrichment.**  `HitTester.hit_wire_vertex` dropped the
-  legacy `_ensure_wire_ready_for_edit` step, so board pads a simplified wire
-  rests on but doesn't list as vertices can't be clicked in wire-edit.
+- **Properties panel selection sync.**  ✅ DONE (2026-06-20).  Broader than the
+  audit framed it: the panel was never told what was selected
+  (`show_component` had no caller), so it stayed blank.  `MainWindow.
+  _sync_properties_panel` (from `_on_selection_changed`) populates it on select
+  / clears on deselect, and rotate/flip now `_notify_selection()` so the combo
+  refreshes.
+- **Ctrl+Alt+LMB highlight union.**  ✅ DONE (2026-06-20).  `_apply_selection`
+  ADD now rebuilds a relation-agnostic union (clear→set_many), so successive
+  Ctrl+Alt clicks accumulate across different nets instead of the FSM add()
+  dropping the prior one.
+- **Group-enter affordance.**  ✅ DONE (2026-06-20).  Restored as a
+  double-click (more discoverable than the legacy 1 s long-press):
+  `on_double_press` → `_group_under` → `enter_group`.
+- **Wire-edit pad-node enrichment.**  ✅ DONE (2026-06-20).
+  `_ensure_wire_ready_for_edit` (called from `arm_wire_edit`) re-inserts board
+  pads on the wire's path as vertices via `insert_pad_nodes` +
+  `replace_wire_path_cmd`, so simplified wires' intermediate pads are
+  clickable again.
 
 NOT a regression (audit false positive): "selection-filter enforcement (GROUPS)
 not wired" — that is item 1 above, deliberately deferred, not a swap loss.
+
+All confirmed audit regressions are now resolved.
 
 ## Parametric renderer for DIP / QIL / SIL packages
 

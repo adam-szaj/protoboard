@@ -1027,6 +1027,36 @@ def _depth(session: EditorSession) -> int:
 
 
 class TestWireEdit:
+    def test_arm_enriches_pad_vertices(self, qtbot) -> None:
+        """Arming wire-edit materialises board pads the wire passes over.
+
+        Regression: the v2 hit-test dropped the legacy pad-vertex enrichment, so
+        intermediate pads on a shortcut/simplified wire were unselectable.
+        """
+        import uuid as _uuid
+
+        from protoboard.domain.layout.wire import Wire
+        from protoboard.geometry import Point
+        from protoboard.gui.selection.adapters import WireSelectable
+
+        session, view = _wire_session(qtbot)
+        # Replace the fixture wire with an endpoints-only one spanning 4 pads.
+        session.layout.wires.clear()
+        w = Wire(id=_uuid.uuid4(), path=[Point(1.5, 1.5), Point(4.5, 1.5)],
+                 insulated=False, side="top")
+        session.layout.wires.append(w)
+        session.invalidate_graph()
+        view.refresh()
+        tool = _v2(view)
+        tool._selection.set(WireSelectable(wire=w))
+        assert len(next(iter(session.layout.wires)).path) == 2  # endpoints only
+
+        tool.arm_wire_edit()
+        # The two intermediate pads (2.5,1.5)/(3.5,1.5) are now vertices.
+        path = next(iter(session.layout.wires)).path
+        xs = {round(p.x, 1) for p in path}
+        assert {1.5, 2.5, 3.5, 4.5} <= xs
+
     def test_e_arms_then_two_clicks_select_fragment(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
         tool = _v2(view)

@@ -469,8 +469,19 @@ class SelectTool(_Tool):
             targets = self._relation_correlated_selectables(sel) or [sel]
 
         if op == SetOp.ADD:
+            # Union the targets into the current selection, relation-agnostic so
+            # successive Ctrl+Alt clicks accumulate across *different* nets (the
+            # FSM's add() only extends within one relation and toggles, which
+            # dropped prior nets — the audit regression).  Rebuild from empty:
+            # set_many re-set()s an already-selected first item OFF otherwise.
+            union = list(self._selection.selected())
+            seen = {s.to_hit() for s in union}
             for t in targets:
-                self._selection.add(t)
+                if t.to_hit() not in seen:
+                    union.append(t)
+                    seen.add(t.to_hit())
+            self._clear_selection_to_empty()
+            self._selection.set_many(union)
         elif op == SetOp.REMOVE:
             # Phase 2 MVP: remove not yet a first-class FSM op here; treat as
             # a fresh SET so the click is never a silent no-op. Refined later.
@@ -1006,14 +1017,58 @@ class SelectTool(_Tool):
 
     @traced("SelectTool.on_double_press")
     def on_double_press(self, scene_pt: QPointF) -> None:
-        """Board double-click → forward to the active interaction.
+        """Board double-click → enter the group under the cursor, else forward.
 
-        (BoardView calls this hook for ``MouseButtonDblClick``.)
+        (BoardView calls this hook for ``MouseButtonDblClick``.)  Double-clicking
+        a group steps into its edit context — the affordance the legacy tool gave
+        via a 1-second long-press, restored here as a double-click (more
+        discoverable, the common CAD convention).  An active pick still gets the
+        double-click first.
         """
         if self._mouse is not None and not self._mouse.finished:
             self._mouse.on_double_click(
                 Point(scene_pt.x(), scene_pt.y()), Mods()
             )
+            return
+        gid = self._group_under(scene_pt)
+        if gid is not None:
+            self.enter_group(gid)
+
+    def _group_under(self, scene_pt: QPointF) -> uuid.UUID | None:
+        """The non-active group whose member-bbox the point falls in, or None.
+
+        Skips the active group (already inside it) and root.  Used by
+        double-click-to-enter; resolves via member bboxes so a click anywhere on
+        the group's footprint counts, not only on a component body.
+        """
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+
+        px, py = scene_pt.x(), scene_pt.y()
+        active = self._current_group_id
+        tree = self._session.group_tree()
+        best: uuid.UUID | None = None
+        best_area = 0.0
+        for gid, _grp in self._session.layout.groups.items():
+            if gid in (ROOT_GROUP_ID, active):
+                continue
+            bbs = [
+                b for b in (
+                    self._session.component_bbox(m)
+                    for m in tree.all_component_ids(gid)
+                ) if b is not None
+            ]
+            if not bbs:
+                continue
+            x0 = min(b.x for b in bbs)
+            y0 = min(b.y for b in bbs)
+            x1 = max(b.x + b.width for b in bbs)
+            y1 = max(b.y + b.height for b in bbs)
+            if x0 <= px <= x1 and y0 <= py <= y1:
+                # Prefer the tightest (smallest) enclosing group when nested.
+                area = (x1 - x0) * (y1 - y0)
+                if best is None or area < best_area:
+                    best, best_area = gid, area
+        return best
 
     def _is_click(self, scene_pt: QPointF) -> bool:
         """True when the release is within the click threshold of the press."""
@@ -1859,6 +1914,7 @@ class SelectTool(_Tool):
         if wire_id is None:
             self._status("Wire-edit: select a wire first")
             return
+        self._ensure_wire_ready_for_edit(wire_id)
         self._wire_edit_clear()
         self._wire_edit_wire_id = wire_id
         self._wire_edit_cycle = WireEditCycle()
@@ -1873,6 +1929,38 @@ class SelectTool(_Tool):
             on_cancel=self._wire_edit_clear,
             on_progress=self._range_progress,
         )
+
+    def _ensure_wire_ready_for_edit(self, wire_id: uuid.UUID) -> None:
+        """Materialise every board pad on a wire's path as a vertex.
+
+        Shortcut / post-simplify wires carry only their endpoints even though
+        the physical conductor rests on intermediate pads; wire-edit hit-test
+        only matches existing vertices, so those pads would be unselectable.
+        Re-insert them with one ReplaceWireFragmentsCommand — idempotent (no
+        command when the path is already enriched).  Pads from BOTH sides are
+        considered (a plated-through pad on the far side still anchors a vertex).
+        Restored from the legacy tool; dropped in the v2 hit-test rewrite.
+        """
+        from protoboard.domain.layout.wire_utils import (
+            board_pads_for_side,
+            insert_pad_nodes,
+        )
+        from protoboard.gui.selection.wire_edit import replace_wire_path_cmd
+
+        wire = self._wire_by_id(wire_id)
+        if wire is None or len(wire.path) < 2:
+            return
+        pads = (
+            board_pads_for_side(self._session.board, "top")
+            | board_pads_for_side(self._session.board, "bottom")
+        )
+        enriched = insert_pad_nodes(list(wire.path), pads)
+        if enriched == list(wire.path):
+            return  # already has every pad vertex
+        cmd = replace_wire_path_cmd(
+            self._session.layout, wire, enriched, list(wire.path),
+        )
+        self._execute(cmd)
 
     @property
     def _selected_wire_id(self) -> uuid.UUID | None:
@@ -2661,6 +2749,7 @@ class SelectTool(_Tool):
         else:
             cmd = RotateComponentsCommand(comp_ids=comp_ids, delta=delta % 360)
         self._execute(cmd)
+        self._notify_selection()  # refresh Properties panel rotation, etc.
 
     @traced("SelectTool._flip_selected")
     def _flip_selected(self) -> None:
@@ -2687,6 +2776,7 @@ class SelectTool(_Tool):
         if not cmds:
             return
         self._execute(MacroCommand(cmds, description=f"Flip {len(cmds)} components"))  # type: ignore[arg-type]
+        self._notify_selection()  # refresh Properties panel after flip
 
     # -- legacy multi rotate / flip / redrag entry points -------------------
     #
@@ -2732,6 +2822,7 @@ class SelectTool(_Tool):
                 MacroCommand(remove_cmds, description="Remove crossing wires")  # type: ignore[arg-type]
             )
         self._refresh_highlight()
+        self._notify_selection()  # refresh Properties panel after multi-rotate
 
     def _rotate_multi(self, delta: int = 90) -> None:
         from protoboard.domain.commands.group_cmds import (

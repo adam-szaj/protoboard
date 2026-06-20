@@ -285,6 +285,69 @@ class TestRelationBasisSelection:
         assert w1.id in tool._selected_wire_ids
         assert w2.id in tool._selected_wire_ids  # net expansion applied
 
+    def test_ctrl_alt_accumulates_across_nets(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """Successive Ctrl+Alt (ADD + RELATION) clicks union *different* nets.
+
+        Regression: the FSM add() only extended within one relation and toggled,
+        so the second net's click dropped the first.  ADD now rebuilds a
+        relation-agnostic union.
+        """
+        from protoboard.gui.selection.adapters import ComponentSelectable
+        from protoboard.gui.selection_fsm import BasisScope, SetOp
+
+        a = _place(board_view, session, 0.5, 0.5)
+        b = _place(board_view, session, 2.5, 0.5)
+        c = _place(board_view, session, 4.5, 0.5)
+        d = _place(board_view, session, 6.5, 0.5)
+        _net(session, (a.id, 1), (b.id, 1), name="NA")
+        _net(session, (c.id, 1), (d.id, 1), name="NB")
+        tool = _v2(board_view)
+        tool.set_relation(RelationClass.SAME_LOGICAL_NET)
+        board_view.refresh()
+
+        def _sel(inst):  # type: ignore[no-untyped-def]
+            return ComponentSelectable(
+                component_id=inst.id, placement=session.layout.placements[inst.id]
+            )
+
+        tool._apply_selection(_sel(a), SetOp.ADD, BasisScope.RELATION)
+        tool._apply_selection(_sel(c), SetOp.ADD, BasisScope.RELATION)
+        sel = set(tool._selected_ids)
+        # Both nets accumulated: A (a,b) ∪ B (c,d).
+        assert {a.id, b.id, c.id, d.id} <= sel
+
+
+class TestDoubleClickEnterGroup:
+    """Double-clicking a group steps into it (legacy long-press affordance)."""
+
+    def test_double_click_enters_group(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+
+        inst = _place(board_view, session, 2.5, 2.5)
+        gid = _make_group(session, [inst.id])
+        board_view.refresh()
+        tool = _v2(board_view)
+        assert tool._current_group_id == ROOT_GROUP_ID
+
+        tool.on_double_press(QPointF(2.5, 2.5))
+        assert tool._current_group_id == gid  # stepped inside
+
+    def test_double_click_empty_space_no_enter(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+
+        inst = _place(board_view, session, 2.5, 2.5)
+        _make_group(session, [inst.id])
+        board_view.refresh()
+        tool = _v2(board_view)
+        tool.on_double_press(QPointF(9.0, 9.0))  # far from the group
+        assert tool._current_group_id == ROOT_GROUP_ID  # stayed out
+
 
 # ---------------------------------------------------------------------------
 # HighlightStack precedence — pure stack/session, no tool internals.
