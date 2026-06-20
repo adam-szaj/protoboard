@@ -266,13 +266,18 @@ class PropertiesPanel(QWidget):
         self._pin_offset_spins.clear()
         self._pin_bend_widgets = {}
 
-        if defn is None or not defn.bendable_pins:
+        # Package-aware specs: a parametric package (incl. an SMD chip's discrete
+        # mount points) drives bending; the loader clears bendable_pins for rigid
+        # packages, so reading it directly would miss the SMD mount picker.
+        from protoboard.domain.components.package import effective_bend_specs
+        specs = effective_bend_specs(defn) if defn is not None else {}
+        if defn is None or not specs:
             self._pin_offsets_grp.setVisible(False)
             return
 
-        for pin_num in sorted(defn.bendable_pins.keys()):
+        for pin_num in sorted(specs.keys()):
             pin_name = defn.pin_name(pin_num)
-            spec: PinBendSpec = defn.bendable_pins[pin_num]
+            spec: PinBendSpec = specs[pin_num]
             current = current_offsets.get(pin_num, spec.default_offset)
 
             if spec.is_free():

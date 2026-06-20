@@ -121,18 +121,38 @@ catalogue()` is the single source of the merged generated+authored catalogue
 centred on the pad pair, aligned to the pad axis, spanning the gap + a small
 overhang.
 
-**Deferred — SMD mounting mechanic (ortho + diagonal).**  The SMD body is
-rigid, but its *mounting* is bound by the metallised **pad**, not a hole, so
-a chip may sit on two orthogonally- **or** diagonally-adjacent pads.  Today
-placement rotation is 90°-only, so the rigid 2-pin SMD footprint reaches the
-4 ortho orientations but not diagonal.  The renderer already orients the body
-to whatever pad axis the two pins define (`atan2`), so the missing piece is a
-**mount-point mechanic**: let an SMD 2-pin part choose pin 2 among pin 1's
-neighbours (4 ortho + 4 diagonal — a king-move), giving variable geometry
-from the mount side rather than from bending.  Design questions to settle:
-how the user picks the mount (a place-time step like bendable pins? a
-post-place toggle?), and how DRC/collision treat pad-bound (not hole-bound)
-SMD footprints.
+**SMD mounting mechanic (ortho + diagonal) — done 2026-06-20.**  The SMD body
+is rigid, but its mounting is pad-bound, so a chip may rest on two
+orthogonally- **or** diagonally-adjacent pads.  Implemented as a *discrete
+mount* on the package, reusing the existing bendable-pin discrete-snap — no new
+FSM, no 45° rotation:
+
+- `MountStyle` (`package/body.py`): `THROUGH_HOLE` / `SURFACE`.  `Prism` gains
+  `mount` + `mount_points`; `prism_smd` base declares `mount: surface`.
+- `surface_mount_offsets` (`package/shapes.py`): pin-2 offsets that land it on
+  each king-move neighbour pad of pin 1 (the package's `mount_points` neighbour
+  set, default the 8 king-move neighbours), excluding pin 1's own pad.
+- `package_to_bend_specs` (`package/reach.py`): a surface-mount 2-pin package
+  → `{2: PinBendSpec(discrete=<mount offsets>)}`; `is_pin_bendable` reports pin
+  2 movable.  Through-hole packages unchanged.
+- `effective_bend_specs(defn)` (`package/reach.py`): the single resolver
+  (package-driven → else `bendable_pins`) shared by `PlaceTool._bend_specs`
+  **and** the properties panel — the panel previously read `bendable_pins`
+  directly and so showed nothing for an SMD part.
+- The loader records the resolved rigid package on `defn.package` (not just the
+  footprint) so `effective_bend_specs` sees it.
+- `place_tool` overlay now highlights the discrete mount-candidate pads (was
+  free-reach only).  The properties-panel `_DiscreteBendWidget` combo edits the
+  mount post-placement, free.  The choice is just `pin_offsets[2]` — persisted
+  and recorded by the existing placement machinery.
+
+DRC/collision already treat the diagonal mount correctly (pins checked
+independently; body collision masks snap to integer holes; body `body_blocks`
+unset → occupies space, not a hole).  Renderer already aligns the body to the
+pad axis.
+
+Not done: friendlier combo labels (compass arrows) — kept `(dx, dy)` because an
+arrow needs pin-1 context the widget lacks; sub-hole "floating" positions.
 
 **Named DIP/SIL variants — generated + picker (done 2026-06-20).**
 The whole multi-pin body set is *generated* by name (no static YAML

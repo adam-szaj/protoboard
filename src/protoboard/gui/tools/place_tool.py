@@ -35,7 +35,7 @@ from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsLine
 
 from protoboard.domain.commands.component_cmds import PlaceComponentCommand
 from protoboard.domain.components.definition import ComponentDefinition, PinBendSpec
-from protoboard.domain.components.package.reach import package_to_bend_specs
+from protoboard.domain.components.package.reach import effective_bend_specs
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement, flip_component, pin_world_position, unrotate
 from protoboard.geometry import Point
@@ -117,12 +117,10 @@ class PlaceTool(_Tool):
 
     @staticmethod
     def _bend_specs(defn: ComponentDefinition) -> dict[int, PinBendSpec]:
-        """Effective per-pin bend specs: from the parametric package when set,
-        otherwise the legacy ``bendable_pins``. Single point of migration —
-        the rest of the tool keeps its PinBendSpec logic unchanged."""
-        if defn.package is not None:
-            return package_to_bend_specs(defn.package)
-        return defn.bendable_pins
+        """Effective per-pin bend specs — package-driven when set, else the
+        legacy ``bendable_pins``.  Shared with the properties panel via
+        :func:`effective_bend_specs`."""
+        return effective_bend_specs(defn)
 
     # ------------------------------------------------------------------
     # Mouse events
@@ -351,7 +349,12 @@ class PlaceTool(_Tool):
     # ------------------------------------------------------------------
 
     def _update_reach_overlay(self) -> None:
-        """Draw green dots on all board pads reachable by the active pin."""
+        """Draw green dots on the pads the active pin may land on.
+
+        Free pins highlight every board pad within reach; a discrete pin (an SMD
+        chip's second terminal) highlights its mount-candidate pads instead, so
+        the orthogonal + diagonal mounting options are visible during the drag.
+        """
         self._clear_reach_overlay()
         if self._phase != "drag_pin" or self._anchor_pos is None:
             return
@@ -359,21 +362,33 @@ class PlaceTool(_Tool):
         if defn is None or self._current_drag_pin is None:
             return
         spec = self._bend_specs(defn).get(self._current_drag_pin)
-        if spec is None or not spec.is_free():
+        if spec is None:
             return
 
-        origin = self._anchor_pos  # placement.position = component (0,0) = reach centre
-
+        from PySide6.QtGui import QBrush, QPen
         r = _REACH_PAD_RADIUS
-        for pt in self._view.board_pad_positions():
-            if spec.is_reachable_from_origin(origin, pt):
-                item = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
-                from PySide6.QtGui import QBrush, QPen
-                item.setBrush(QBrush(QColor(self._theme().placement_reach_color)))
-                item.setPen(QPen(Qt.GlobalColor.transparent, 0))
-                item.setZValue(20.0)
-                self._view.scene().addItem(item)
-                self._reach_items.append(item)
+        color = QColor(self._theme().placement_reach_color)
+
+        def _dot(pt: Point) -> None:
+            item = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
+            item.setBrush(QBrush(color))
+            item.setPen(QPen(Qt.GlobalColor.transparent, 0))
+            item.setZValue(20.0)
+            self._view.scene().addItem(item)
+            self._reach_items.append(item)
+
+        if spec.is_free():
+            origin = self._anchor_pos  # placement.position = component (0,0)
+            for pt in self._view.board_pad_positions():
+                if spec.is_reachable_from_origin(origin, pt):
+                    _dot(pt)
+            return
+
+        if spec.discrete:
+            for pt in self._discrete_candidate_world_positions(
+                defn, self._current_drag_pin, spec.discrete,
+            ):
+                _dot(pt)
 
     def _update_reach_line(self, cursor: Point) -> None:
         """Update the feedback line from pin baseline to cursor."""
@@ -387,7 +402,7 @@ class PlaceTool(_Tool):
         if defn is None or self._current_drag_pin is None:
             return
         spec = self._bend_specs(defn).get(self._current_drag_pin)
-        if spec is None or not spec.is_free():
+        if spec is None or not (spec.is_free() or spec.discrete):
             return
 
         origin = self._anchor_pos  # component (0,0) = reach centre
@@ -425,6 +440,32 @@ class PlaceTool(_Tool):
             pin_offsets={},
         )
         return pin_world_position(defn.footprint, temp, pin_number)
+
+    def _discrete_candidate_world_positions(
+        self,
+        defn: ComponentDefinition,
+        pin_number: int,
+        discrete: tuple[Point, ...],
+    ) -> list[Point]:
+        """World positions of *pin_number* for each discrete offset option.
+
+        Each candidate is placed through ``pin_world_position`` (anchor +
+        rotation honoured), so the overlay dots land exactly where picking that
+        offset would put the pin.  Used for the SMD mount-candidate overlay.
+        """
+        if self._anchor_pos is None:
+            return []
+        out: list[Point] = []
+        for off in discrete:
+            pl = ComponentPlacement(
+                component_id=uuid.UUID(int=0),
+                position=self._anchor_pos,
+                rotation=self._rotation,
+                side="top",
+                pin_offsets={pin_number: off},
+            )
+            out.append(pin_world_position(defn.footprint, pl, pin_number))
+        return out
 
     def _compute_drag_offset(self, cursor: Point) -> Point | None:
         """Return the clamped/snapped local offset for the active drag pin."""

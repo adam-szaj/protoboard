@@ -22,6 +22,7 @@ from protoboard.domain.components.package.body import (
     DiscProfile,
     EdgeStyle,
     LeadArrangement,
+    MountStyle,
 )
 from protoboard.domain.components.package.shapes import (
     BOARD_DEFAULT,
@@ -289,6 +290,28 @@ def _disc_profile(raw: object, pkg: str) -> DiscProfile:
         raise PackageDefError(f"{pkg}: unknown disc profile {raw!r}")
 
 
+def _mount_style(raw: object, pkg: str) -> MountStyle:
+    if raw is None:
+        return MountStyle.THROUGH_HOLE
+    try:
+        return MountStyle(str(raw))
+    except ValueError:
+        raise PackageDefError(f"{pkg}: unknown mount style {raw!r}")
+
+
+def _mount_points(raw: object, pkg: str) -> tuple[Point, ...]:
+    """Pin-2 mount-point offsets (holes) — a list of [dx, dy] vectors, or empty.
+
+    Empty means the surface-mount default (8 king-move neighbours); a package
+    may list its own subset (e.g. orthogonal-only)."""
+    if raw is None:
+        return ()
+    try:
+        return tuple(expand_offsets(raw))  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise PackageDefError(f"{pkg}: invalid mount_points: {exc}") from exc
+
+
 def _color(raw: object) -> str | None:
     return None if raw is None else str(raw)
 
@@ -345,6 +368,8 @@ def build_package(merged: PackageDict, pkg: str) -> Package:
         ),
         edge=_edge(edge_raw, EdgeStyle.SHARP, pkg),
         color=color,
+        mount=_mount_style(merged.get("mount"), pkg),
+        mount_points=_mount_points(merged.get("mount_points"), pkg),
     )
 
 

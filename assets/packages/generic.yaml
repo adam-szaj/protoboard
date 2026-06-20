@@ -71,6 +71,9 @@ packages:
     abstract: true                  # leży na dwóch sąsiednich padach, nie
     extends: prism                  # zasłania otworu (body_blocks=False)
     arrangement: axial              # terminale na końcach wzdłuż osi body
+    mount: surface                  # montaż na padach: pin 2 na dowolnym
+                                    # sąsiednim padzie (ortho lub diag), nie
+                                    # sztywno w jednym otworze
     leads:
       direction:    [[0, 0, -1], [0, 0, -1]]
       body_offset:  {unit: 2.5, value: [[1, 0]]}

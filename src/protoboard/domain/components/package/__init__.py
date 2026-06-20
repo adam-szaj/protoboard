@@ -21,6 +21,7 @@ from protoboard.domain.components.package.body import (
     DiscProfile,
     EdgeStyle,
     LeadArrangement,
+    MountStyle,
 )
 from protoboard.domain.components.package.component_package import (
     resolve_component_package,
@@ -45,12 +46,15 @@ from protoboard.domain.components.package.mask import (
 )
 from protoboard.domain.components.package.reach import (
     PinReach,
+    effective_bend_specs,
     is_pin_bendable,
+    package_to_bend_specs,
     pin_reaches,
 )
 from protoboard.domain.components.package.shapes import (
     BOARD_DEFAULT,
     BOARD_SOLVE,
+    KING_MOVE_OFFSETS,
     SHAPE_REGISTRY,
     Cylinder,
     Disc,
@@ -58,6 +62,7 @@ from protoboard.domain.components.package.shapes import (
     Package,
     Prism,
     is_rigid_package,
+    surface_mount_offsets,
 )
 from protoboard.domain.components.package.solver import (
     RASTER_MM,
@@ -96,6 +101,11 @@ __all__ = [
     "has_collision",
     "is_rigid_package",
     "is_pin_bendable",
+    "effective_bend_specs",
+    "package_to_bend_specs",
+    "KING_MOVE_OFFSETS",
+    "MountStyle",
+    "surface_mount_offsets",
     "load_packages",
     "masks_collide",
     "pin_reaches",

@@ -413,6 +413,10 @@ def _component_from_dict(
         if variant is not None and is_rigid_package(variant.package):
             footprint = PackageFootprint(variant.package)
             bendable_pins = {}
+            # The resolved package is the geometry source — record it on the
+            # definition (like an inline ``package``) so package-driven consumers
+            # (effective_bend_specs → the SMD mount picker) see it.
+            package_obj = variant.package
 
     default_value_raw = data.get("default_value")
     default_value: str = ""

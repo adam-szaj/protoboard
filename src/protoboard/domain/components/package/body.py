@@ -50,3 +50,19 @@ class DiscProfile(StrEnum):
 
     FLAT = "flat"
     CANDY = "candy"
+
+
+class MountStyle(StrEnum):
+    """How a package mounts onto the board.
+
+    THROUGH_HOLE — leads go through holes; pin geometry is fixed (or bends via
+                   the lead solver / ``bend``).
+    SURFACE      — an SMD chip resting on metallised pads, not in holes.  The
+                   body is rigid, but the *mount* is flexible: the part may sit
+                   on any pair of adjacent pads (orthogonal or diagonal), so the
+                   second terminal picks one of a discrete set of neighbour pads
+                   rather than a fixed hole.
+    """
+
+    THROUGH_HOLE = "through_hole"
+    SURFACE = "surface"

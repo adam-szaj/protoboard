@@ -19,6 +19,7 @@ from protoboard.domain.components.package.body import (
     DiscProfile,
     EdgeStyle,
     LeadArrangement,
+    MountStyle,
 )
 from protoboard.domain.components.package.offsets import cumulative_positions
 from protoboard.domain.components.package.solver import (
@@ -216,6 +217,13 @@ class Prism:
     arrangement: LeadArrangement = LeadArrangement.AXIAL
     edge: EdgeStyle = EdgeStyle.SHARP
     color: str | None = None  # #rrggbb fill; None → renderer default
+    # Surface-mount parts (SMD chips) rest on pads, not in holes: the body is
+    # rigid but the second terminal may land on any of a discrete set of
+    # neighbour pads (mount_points, offsets in holes from its default).  Empty
+    # mount_points + SURFACE → the 8 king-move neighbours (see
+    # ``surface_mount_offsets``).
+    mount: MountStyle = MountStyle.THROUGH_HOLE
+    mount_points: tuple[Point, ...] = ()
 
     def pin_count(self) -> int:
         return self.leads.pin_count
@@ -342,6 +350,54 @@ def is_rigid_package(package: Package) -> bool:
     if leads.board_offset == BOARD_SOLVE:
         return False
     return getattr(package, "bend_holes", 0.0) == 0.0
+
+
+# The 8 king-move neighbours of a hole (in holes): 4 orthogonal + 4 diagonal,
+# excluding (0, 0).  A surface-mount second terminal may rest on any pad
+# adjacent to the first terminal — these are those neighbour pads, as offsets
+# from the first terminal's hole.
+KING_MOVE_OFFSETS: tuple[Point, ...] = tuple(
+    Point(float(dx), float(dy))
+    for dy in (-1, 0, 1)
+    for dx in (-1, 0, 1)
+    if not (dx == 0 and dy == 0)
+)
+
+
+def surface_mount_offsets(package: Package) -> tuple[Point, ...]:
+    """Discrete pin-2 ``pin_offsets`` (holes) for a surface-mount package.
+
+    The chip's second terminal may sit on any pad **adjacent to the first
+    terminal** — its straight-across default plus the king-move neighbours of
+    pin 1 (or the package's own ``mount_points`` neighbour set).  The returned
+    values are offsets from pin 2's *default* footprint position (what
+    ``pin_world_position`` adds), so they account for the straight-across step:
+    e.g. with pin 1 at ``(0,0)`` and pin 2 default ``(1,0)``, landing pin 2 on
+    pin 1's north neighbour ``(0,-1)`` is the offset ``(-1,-1)``.  The pad under
+    pin 1 itself is excluded (the two terminals never share a pad).
+    """
+    pins = package.pin_positions()
+    if len(pins) < 2:
+        return (Point(0.0, 0.0),)
+    p1, p2_default = pins[0], pins[1]
+    declared = getattr(package, "mount_points", ())
+    # Neighbour *pads* of pin 1 (absolute holes): declared set applied around
+    # pin 1, or the king-move neighbours.
+    neighbour_pads = [
+        Point(p1.x + n.x, p1.y + n.y)
+        for n in (tuple(declared) if declared else KING_MOVE_OFFSETS)
+    ]
+    # Pin 2's default pad is itself one of pin 1's neighbours (straight across);
+    # offset (0,0) keeps it there.  Express every neighbour pad as an offset
+    # from pin 2's default, dropping pin 1's own pad.
+    offsets = [Point(0.0, 0.0)]
+    for pad in neighbour_pads:
+        if abs(pad.x - p1.x) < 1e-9 and abs(pad.y - p1.y) < 1e-9:
+            continue
+        if abs(pad.x - p2_default.x) < 1e-9 and abs(pad.y - p2_default.y) < 1e-9:
+            continue  # the straight-across default, already covered by (0,0)
+        offsets.append(Point(pad.x - p2_default.x, pad.y - p2_default.y))
+    return tuple(offsets)
 
 
 # Dispatch by `shape` (registry), NOT subclassing the `extends` chain (spec).

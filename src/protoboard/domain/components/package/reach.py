@@ -20,7 +20,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from protoboard.domain.components.package.shapes import Package
+from protoboard.domain.components.package.body import MountStyle
+from protoboard.domain.components.package.shapes import (
+    Package,
+    surface_mount_offsets,
+)
 from protoboard.domain.components.package.solver import (
     RASTER_MM,
     MountOrientation,
@@ -30,7 +34,10 @@ from protoboard.geometry import Point
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
-    from protoboard.domain.components.definition import PinBendSpec
+    from protoboard.domain.components.definition import (
+        ComponentDefinition,
+        PinBendSpec,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,12 +101,15 @@ def is_pin_bendable(
     *,
     orientation: MountOrientation = MountOrientation.HORIZONTAL,
 ) -> bool:
-    """Whether a pin can bend (non-zero slack) — replaces ``pin in bendable_pins``.
+    """Whether a pin can move — replaces ``pin in bendable_pins``.
 
-    A pin is bendable iff its reach ring is wider than a point. This covers both
-    ``bend`` and the axial solver uniformly: the solver yields r_max > r_min when
-    lead_length > 0, so movability falls out of the ring itself.
+    A through-hole pin is movable iff its reach ring is wider than a point
+    (covers both ``bend`` and the axial solver: the solver yields r_max > r_min
+    when lead_length > 0).  A surface-mount package's second terminal is movable
+    via its discrete mount points even though its body is rigid.
     """
+    if getattr(package, "mount", None) is MountStyle.SURFACE:
+        return pin_number == 2 and package.pin_count() == 2
     reach = pin_reaches(package, orientation=orientation).get(pin_number)
     return reach is not None and reach.is_movable
 
@@ -113,13 +123,29 @@ def package_to_bend_specs(
     """Adapt a Package into the legacy ``dict[int, PinBendSpec]``.
 
     Lets existing consumers (place_tool) keep their ``PinBendSpec`` logic while
-    geometry is driven by the package. Only movable pins are included (a pin with
-    a single-point ring is rigid → not bendable). ``min_reach``/``max_reach`` are
-    the ring in HOLE units (legacy convention; ring is mm → ÷ RASTER_MM).
-    ``default_offset`` is zero (the pin sits at its default; bending is a user
-    action). ``discrete`` is always empty — our model is always free-2D.
+    geometry is driven by the package.
+
+    A **surface-mount** package (an SMD chip) is the special case: the body is
+    rigid (no lead bend), but the part rests on pads, so its second terminal may
+    sit on any of a *discrete* set of neighbour pads (``surface_mount_offsets``)
+    — orthogonal or diagonal.  That pin gets a discrete ``PinBendSpec`` whose
+    options are those offsets; place_tool's discrete-snap and the panel's combo
+    handle the rest.
+
+    Every other package keeps the free-ring behaviour: only movable pins (ring
+    wider than a point) are included; ``min_reach``/``max_reach`` are the ring in
+    HOLE units (ring mm ÷ RASTER_MM); ``discrete`` is empty (free-2D).
     """
     from protoboard.domain.components.definition import PinBendSpec
+
+    is_surface = getattr(package, "mount", None) is MountStyle.SURFACE
+    if is_surface and package.pin_count() == 2:
+        return {
+            2: PinBendSpec(
+                discrete=surface_mount_offsets(package),
+                default_offset=Point(0.0, 0.0),
+            )
+        }
 
     out: dict[int, PinBendSpec] = {}
     for pin, reach in pin_reaches(package, orientation=orientation).items():
@@ -132,3 +158,19 @@ def package_to_bend_specs(
             default_offset=Point(0.0, 0.0),
         )
     return out
+
+
+def effective_bend_specs(
+    defn: "ComponentDefinition",
+) -> dict[int, "PinBendSpec"]:
+    """The per-pin bend specs in force for a definition.
+
+    Single point of truth shared by the place tool and the properties panel: a
+    parametric ``package`` drives the specs (including an SMD chip's discrete
+    mount points); otherwise the legacy ``bendable_pins`` apply.  Without this,
+    a consumer reading ``defn.bendable_pins`` directly would miss package-driven
+    specs — the loader clears ``bendable_pins`` for rigid (incl. SMD) packages.
+    """
+    if defn.package is not None:
+        return package_to_bend_specs(defn.package)
+    return defn.bendable_pins

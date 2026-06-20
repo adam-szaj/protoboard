@@ -80,6 +80,93 @@ class TestPlaceToolPlacement:
         assert placement.rotation == 0
 
 
+class TestPlaceToolSmdMount:
+    """An SMD chip's pin 2 snaps to an orthogonal or diagonal neighbour pad."""
+
+    def _add_smd_def(self, session: EditorSession) -> str:
+        from protoboard.domain.components.definition import (
+            ComponentClass,
+            ComponentDefinition,
+        )
+        from protoboard.domain.components.package.adapter import PackageFootprint
+        from protoboard.domain.components.package.loader import build_package
+        pkg = build_package(
+            {
+                "shape": "prism",
+                "dims": {"length": 2.0, "width": 1.25},
+                "arrangement": "axial", "mount": "surface", "bend": 0,
+                "leads": {
+                    "direction": [[0, 0, -1], [0, 0, -1]],
+                    "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                    "board_offset": "default",
+                },
+            },
+            "SMD_TEST",
+        )
+        defn = ComponentDefinition(
+            name="R_SMD", component_class=ComponentClass.RESISTOR,
+            footprint=PackageFootprint(pkg), pin_names={}, package=pkg,
+        )
+        session.components["R_SMD"] = defn
+        return "R_SMD"
+
+    def test_smd_enters_drag_pin_phase(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # The SMD second terminal is movable → placing it is a two-phase drag.
+        name = self._add_smd_def(session)
+        board_view.set_tool(PlaceTool(name))
+        tool = board_view._active_tool
+        assert isinstance(tool, PlaceTool)
+        from PySide6.QtGui import QMouseEvent
+        ev = QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress, QPointF(1, 1), QPointF(1, 1),
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        tool.on_press(ev, QPointF(1, 1))
+        assert tool._phase == "drag_pin"
+        assert tool._current_drag_pin == 2
+
+    def test_pin2_snaps_to_diagonal_neighbour(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.geometry import Point
+        from protoboard.domain.layout.placement import pin_world_position
+        name = self._add_smd_def(session)
+        board_view.set_tool(PlaceTool(name))
+        tool = board_view._active_tool
+        assert isinstance(tool, PlaceTool)
+        from PySide6.QtGui import QMouseEvent
+
+        def press(x: float, y: float) -> None:
+            ev = QMouseEvent(
+                QMouseEvent.Type.MouseButtonPress, QPointF(x, y), QPointF(x, y),
+                Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+            tool.on_press(ev, QPointF(x, y))
+
+        press(1, 1)                       # anchor pin 1 at (1,1)
+        assert tool._phase == "drag_pin"
+        # Drag pin 2 toward the diagonal SE pad (2,2) and confirm.
+        off = tool._compute_drag_offset(Point(2.0, 2.0))
+        assert off is not None
+        # Committing that offset must land pin 2 on the SE diagonal neighbour.
+        tool._pin_offsets[2] = off
+        defn = session.components[name]
+        from protoboard.domain.layout.placement import ComponentPlacement
+        import uuid
+        pl = ComponentPlacement(
+            component_id=uuid.uuid4(), position=Point(1.0, 1.0),
+            rotation=0, side="top", pin_offsets={2: off},
+        )
+        p1 = pin_world_position(defn.footprint, pl, 1)
+        p2 = pin_world_position(defn.footprint, pl, 2)
+        assert (round(p1.x), round(p1.y)) == (1, 1)
+        assert (round(p2.x), round(p2.y)) == (2, 2)  # SE diagonal neighbour
+
+
 class TestPlaceToolUndo:
     def test_undo_removes_placement(
         self, board_view: BoardView, session: EditorSession
