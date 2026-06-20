@@ -38,9 +38,12 @@ from protoboard.domain.components.footprints import (
 from protoboard.domain.components.package import (
     Package,
     PackageDefError,
+    PackageFamily,
     PackageFootprint,
     build_package,
+    is_rigid_package,
     resolve_extends,
+    resolve_variant,
 )
 from protoboard.errors import SerializationError
 from protoboard.paths import BUILTIN_ASSETS_DIR
@@ -107,21 +110,34 @@ class ComponentLibrary:
         return isinstance(name, str) and name in self._by_name
 
 
-def load_library(directories: Iterable[Path]) -> ComponentLibrary:
-    """Load a library from the given directories. Earlier directories win."""
+def load_library(
+    directories: Iterable[Path],
+    package_families: "dict[str, PackageFamily] | None" = None,
+) -> ComponentLibrary:
+    """Load a library from the given directories. Earlier directories win.
+
+    *package_families* is the package-family catalogue; when a component's
+    ``package_family_ref`` names a **rigid** package (an SMD chip, a DIP — fixed
+    pin geometry), its footprint is derived from that package and its bendable
+    leads are dropped, so the body fixes the pad spacing.  Omit it (or pass an
+    empty dict) to keep the legacy footprint-only behaviour.
+    """
+    families = package_families or {}
     lib = ComponentLibrary()
     for directory in directories:
         if not directory.exists():
             raise FileNotFoundError(f"Library directory not found: {directory}")
         for yaml_path in sorted(directory.glob("**/*.yaml")):
-            for defn in _load_file(yaml_path):
+            for defn in _load_file(yaml_path, families):
                 # First directory wins → only set if not already present.
                 if lib._by_name.setdefault(defn.name, defn) is defn:
                     lib._source[defn.name] = yaml_path
     return lib
 
 
-def _load_file(path: Path) -> list[ComponentDefinition]:
+def _load_file(
+    path: Path, families: "dict[str, PackageFamily] | None" = None
+) -> list[ComponentDefinition]:
     try:
         data = _yaml.load(path.read_text())
     except YAMLError as exc:
@@ -151,7 +167,7 @@ def _load_file(path: Path) -> list[ComponentDefinition]:
             continue  # template — not placeable, skip
         resolved = _resolve_extends(raw, raw_by_name, source=path, chain=[])
         try:
-            defn = _component_from_dict(resolved, source=path)
+            defn = _component_from_dict(resolved, source=path, families=families or {})
         except PackageDefError as exc:
             # A malformed parametric package must not sink the whole library.
             # Skip this component; the user re-places it with a fresh definition.
@@ -207,7 +223,11 @@ def _resolve_extends(
     return merged
 
 
-def _component_from_dict(data: Any, source: Path) -> ComponentDefinition:
+def _component_from_dict(
+    data: Any,
+    source: Path,
+    families: "dict[str, PackageFamily] | None" = None,
+) -> ComponentDefinition:
     if not isinstance(data, dict):
         raise SerializationError(f"{source}: each component must be a mapping")
     if "name" not in data or not isinstance(data["name"], str):
@@ -377,6 +397,22 @@ def _component_from_dict(data: Any, source: Path) -> ComponentDefinition:
                 f"string 'family/variant_id'; got {package_family_ref_raw!r}"
             )
         package_family_ref = package_family_ref_raw
+
+    # A rigid catalogue body (SMD chip, DIP — fixed pin geometry) referenced via
+    # package_family_ref becomes the source of geometry, exactly like an inline
+    # ``package``: derive the footprint from it and drop the bendable leads, so
+    # the body fixes the pad spacing.  Bendable/axial bodies (resistor, diode)
+    # are not rigid, so they keep their footprint and bend.  An inline package
+    # already drove the footprint above, so skip then.
+    if (
+        package_obj is None
+        and package_family_ref is not None
+        and families
+    ):
+        variant = resolve_variant(families, package_family_ref)
+        if variant is not None and is_rigid_package(variant.package):
+            footprint = PackageFootprint(variant.package)
+            bendable_pins = {}
 
     default_value_raw = data.get("default_value")
     default_value: str = ""

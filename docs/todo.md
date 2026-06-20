@@ -106,6 +106,34 @@ Appearance is data-driven: the body fill is the package `color:` if set,
 else the component / theme fill the renderer passes in (no hard-coded
 DIP blue any more).
 
+**SMD chip bodies + rigid-package geometry (done 2026-06-20).**
+`SMD-0805` / `SMD-0603` (`assets/package_families/smd_chip.yaml`, base
+`prism_smd`) are two-pin axial prisms; dedicated parts `R_SMD_0805 /
+R_SMD_0603 / C_SMD_0805 / C_SMD_0603` reference them.  Key fix: a **rigid**
+package (`is_rigid_package` — fixed `board_offset`, zero bend, vs the axial
+solver/bend of a resistor) referenced via `package_family_ref` now drives
+the footprint.  `load_library(dirs, families)` resolves such a ref to a
+`PackageFootprint` and drops `bendable_pins`, so the body fixes the 1-hole
+pin spacing instead of inheriting the resistor's bendable 4-hole lead (which
+made the chip render as a long stretched rectangle).  `load_full_package_
+catalogue()` is the single source of the merged generated+authored catalogue
+(session picker + loader).  `PackageBody._draw_smd_chip` renders the chip
+centred on the pad pair, aligned to the pad axis, spanning the gap + a small
+overhang.
+
+**Deferred — SMD mounting mechanic (ortho + diagonal).**  The SMD body is
+rigid, but its *mounting* is bound by the metallised **pad**, not a hole, so
+a chip may sit on two orthogonally- **or** diagonally-adjacent pads.  Today
+placement rotation is 90°-only, so the rigid 2-pin SMD footprint reaches the
+4 ortho orientations but not diagonal.  The renderer already orients the body
+to whatever pad axis the two pins define (`atan2`), so the missing piece is a
+**mount-point mechanic**: let an SMD 2-pin part choose pin 2 among pin 1's
+neighbours (4 ortho + 4 diagonal — a king-move), giving variable geometry
+from the mount side rather than from bending.  Design questions to settle:
+how the user picks the mount (a place-time step like bendable pins? a
+post-place toggle?), and how DRC/collision treat pad-bound (not hole-bound)
+SMD footprints.
+
 **Named DIP/SIL variants — generated + picker (done 2026-06-20).**
 The whole multi-pin body set is *generated* by name (no static YAML
 catalogue):

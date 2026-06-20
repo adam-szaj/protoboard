@@ -57,6 +57,7 @@ from protoboard.domain.components.package.shapes import (
     Leads,
     Package,
     Prism,
+    is_rigid_package,
 )
 from protoboard.domain.components.package.solver import (
     RASTER_MM,
@@ -93,6 +94,7 @@ __all__ = [
     "build_package",
     "build_pad_mask",
     "has_collision",
+    "is_rigid_package",
     "is_pin_bendable",
     "load_packages",
     "masks_collide",

@@ -90,6 +90,27 @@ def load_package_families(
     return out
 
 
+def load_full_package_catalogue(
+    directory: Path | None = None,
+) -> dict[str, PackageFamily]:
+    """The complete body catalogue: generated in-line families + authored YAML.
+
+    Generated ``dip-N`` / ``wdip-N`` / ``sil-N`` bodies (from
+    :func:`generate_inline_families`) plus the authored families loaded from
+    *directory*; an authored family wins on an id clash.  This is the single
+    source of truth for both the session's picker catalogue and the library
+    loader's rigid-package resolution, so they never diverge.
+    """
+    from protoboard.domain.components.package.generated_families import (
+        generate_inline_families,
+    )
+
+    return {
+        **generate_inline_families(),
+        **load_package_families(directory),
+    }
+
+
 def _load_one_file(
     path: Path, generics: dict[str, dict[str, Any]]
 ) -> list[PackageFamily]:

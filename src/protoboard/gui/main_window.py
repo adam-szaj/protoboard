@@ -3025,7 +3025,7 @@ class MainWindow(QMainWindow):
         self._app_settings = settings
         extra_dirs = [d for d in settings.component_library_dirs if d.exists()]
         library_dirs = ([BUILTIN_LIBRARY_DIR] if BUILTIN_LIBRARY_DIR.exists() else []) + extra_dirs
-        new_library = load_library(library_dirs)
+        new_library = load_library(library_dirs, self._session.package_families)
         self._session.library = new_library
         self._session.components = {
             name: new_library.get(name) for name in new_library.names()

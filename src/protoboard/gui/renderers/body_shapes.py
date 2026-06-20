@@ -822,10 +822,11 @@ class PackageBody(BodyShape):
         """A surface-mount chip (0805 / 0603): a flat rounded rectangle centred
         on the two pads and aligned to the pad axis.
 
-        The chip terminals end at the pads, so the body spans at least the pad
-        spacing (it bridges the two holes); its width is the package body width.
-        Aligning to the pad axis makes ortho and diagonal placements both render
-        correctly.  No leads and no pin-1 marker — a chip carries neither.
+        The chip's two terminals end on the pads, so the body bridges them: its
+        length spans the pad gap plus a small overhang (the terminals tuck just
+        under the chip ends), its width is the package body width.  Aligning to
+        the pad axis makes ortho and diagonal placements both render correctly.
+        No leads and no pin-1 marker — a chip carries neither.
         """
         mm = theme.raster_pitch_mm
         bb = pkg.bbox()
@@ -841,10 +842,11 @@ class PackageBody(BodyShape):
         mid_x = (p1.x + p2.x) / 2.0
         mid_y = (p1.y + p2.y) / 2.0
         angle_deg = math.degrees(math.atan2(dy, dx))
-        # Cover both pads: the body reaches at least the pad spacing so each
-        # terminal sits under a chip end.  A margin past the pads keeps the
-        # terminals tucked under the body rather than poking out.
-        length = max(body_len, dist + body_w)
+        # The body bridges the pads: it spans the pad gap plus a small overhang
+        # (a fraction of a hole) so the terminals sit just under the chip ends —
+        # not the full body width, which made it read as a long thin rectangle.
+        _SMD_END_OVERHANG = 0.25  # holes past each pad
+        length = max(body_len, dist + 2.0 * _SMD_END_OVERHANG)
         r = min(_package_corner_radius(pkg) / mm, body_w / 2.0, length / 2.0)
 
         path = QPainterPath()

@@ -323,6 +323,27 @@ class Disc:
         return self.thickness_mm + _lead_diameter_mm(self.leads)
 
 
+def is_rigid_package(package: Package) -> bool:
+    """Whether *package* has fixed pin geometry (no bend, no axial solver).
+
+    A rigid package — an SMD chip, a DIP, an HC-49 crystal — sits on a fixed
+    pad pattern: its ``board_offset`` is concrete (or the ``default`` sentinel,
+    read straight off the grid) and it has zero ``bend``.  Such a part overrides
+    a component's bendable leads — the body, not a bent wire, fixes the pad
+    spacing.
+
+    A bendable package — an axial resistor/diode — uses the axial solver
+    (``BOARD_SOLVE``) or declares a ``bend`` reach, so its lead span is variable
+    and the footprint's ``bendable_pins`` still apply.
+    """
+    leads = getattr(package, "leads", None)
+    if leads is None:
+        return False
+    if leads.board_offset == BOARD_SOLVE:
+        return False
+    return getattr(package, "bend_holes", 0.0) == 0.0
+
+
 # Dispatch by `shape` (registry), NOT subclassing the `extends` chain (spec).
 SHAPE_REGISTRY: dict[str, type] = {
     "cylinder": Cylinder,

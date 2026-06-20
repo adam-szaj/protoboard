@@ -22,6 +22,69 @@ from protoboard.services.library.loader import ComponentLibrary, load_library
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "library"
 
 
+class TestRigidPackageFamilyRef:
+    """A rigid package_family_ref (SMD) drives the footprint and drops bend;
+    a bendable axial ref leaves the footprint and bend intact."""
+
+    _LIB = """\
+components:
+  - name: R_SMD
+    component_class: resistor
+    footprint: {type: TwoPin}
+    pin_names: {}
+    package_family_ref: "SMD-0805/typ"
+    bendable_pins:
+      2: {min_reach: 1, max_reach: 23, default: {x: 0, y: 4}}
+  - name: R_AXIAL
+    component_class: resistor
+    footprint: {type: TwoPin}
+    pin_names: {}
+    package_family_ref: "DIN-0207/typ"
+    bendable_pins:
+      2: {min_reach: 1, max_reach: 23, default: {x: 0, y: 4}}
+"""
+
+    def _lib(self, tmp_path: Path) -> ComponentLibrary:
+        from protoboard.services.library.package_family_loader import (
+            load_full_package_catalogue,
+        )
+        (tmp_path / "p.yaml").write_text(self._LIB)
+        return load_library([tmp_path], load_full_package_catalogue())
+
+    def test_rigid_smd_ref_overrides_footprint_and_clears_bend(
+        self, tmp_path: Path,
+    ) -> None:
+        from protoboard.domain.components.package import PackageFootprint
+        defn = self._lib(tmp_path).get("R_SMD")
+        # The SMD body fixes the geometry: a PackageFootprint with rigid
+        # 1-hole pin spacing, and no bendable leads.
+        assert isinstance(defn.footprint, PackageFootprint)
+        xs = sorted({round(p.x, 1) for p in defn.footprint.pin_positions()})
+        assert xs == [0.0, 1.0]
+        assert defn.bendable_pins == {}
+
+    def test_bendable_axial_ref_keeps_footprint_and_bend(
+        self, tmp_path: Path,
+    ) -> None:
+        from protoboard.domain.components.footprints import TwoPin
+        defn = self._lib(tmp_path).get("R_AXIAL")
+        # An axial cylinder is not rigid (it bends), so the footprint and the
+        # bendable leads survive.
+        assert isinstance(defn.footprint, TwoPin)
+        assert defn.bendable_pins  # kept
+
+    def test_no_catalogue_leaves_footprint_unchanged(
+        self, tmp_path: Path,
+    ) -> None:
+        # Without a catalogue the loader can't resolve the ref → legacy
+        # footprint-only behaviour (no rigid override).
+        from protoboard.domain.components.footprints import TwoPin
+        (tmp_path / "p.yaml").write_text(self._LIB)
+        defn = load_library([tmp_path]).get("R_SMD")
+        assert isinstance(defn.footprint, TwoPin)
+        assert defn.bendable_pins  # kept
+
+
 class TestLoadLibrary:
     def test_load_single_directory(self) -> None:
         lib = load_library([FIXTURES])

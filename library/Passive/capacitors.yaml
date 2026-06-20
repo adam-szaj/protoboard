@@ -15,10 +15,31 @@ components:
         max_reach: 5
         default: {x: 0, y: 1}
     aliases:
-      - C_0603_1608Metric
-      - C_0805_2012Metric
+      # (The SMD 0603/0805 strings map to the rigid C_SMD_* parts below.)
       - C_1206_3216Metric
       - C_Disc_D3.0mm
+
+  # SMD chip capacitors — rigid bodies on two adjacent pads (SMD-0805 /
+  # SMD-0603 family fixes the 1-hole spacing; no bendable leads).
+  - name: C_SMD_0805
+    description: "Capacitor (SMD chip, 0805)"
+    component_class: capacitor_nonpolar
+    footprint: {type: TwoPin}
+    pin_names: {}
+    package_family_ref: "SMD-0805/typ"
+    default_value: "?"
+    aliases:
+      - C_0805_2012Metric
+
+  - name: C_SMD_0603
+    description: "Capacitor (SMD chip, 0603)"
+    component_class: capacitor_nonpolar
+    footprint: {type: TwoPin}
+    pin_names: {}
+    package_family_ref: "SMD-0603/typ"
+    default_value: "?"
+    aliases:
+      - C_0603_1608Metric
 
   # Generic polar capacitor — default 5 mm radial electrolytic.  Picker
   # offers larger radial cans (6.3 / 8 / 10 mm) or the axial elko

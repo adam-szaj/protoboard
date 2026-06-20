@@ -16,9 +16,8 @@ components:
         max_reach: 23
         default: {x: 0, y: 4}
     aliases:
-      # KiCAD SMD footprint strings → same 2-pin resistor body for perfboard
-      - R_0603_1608Metric
-      - R_0805_2012Metric
+      # KiCAD axial footprint strings → this bendable through-hole body.
+      # (The SMD 0603/0805 strings map to the rigid R_SMD_* parts below.)
       - R_1206_3216Metric
       - R_2010_5025Metric
       - R_2512_6332Metric
@@ -27,6 +26,29 @@ components:
       - R_Axial_DIN0204
       - R_Axial_DIN0411
       - R_Axial_DIN0617
+
+  # SMD chip resistors — rigid bodies that lie on two adjacent pads (the
+  # SMD-0805 / SMD-0603 family fixes the 1-hole pin spacing; no bendable
+  # leads).  Switch body in the picker between 0805 and 0603.
+  - name: R_SMD_0805
+    description: "Resistor (SMD chip, 0805)"
+    component_class: resistor
+    footprint: {type: TwoPin}
+    pin_names: {}
+    package_family_ref: "SMD-0805/typ"
+    default_value: "?"
+    aliases:
+      - R_0805_2012Metric
+
+  - name: R_SMD_0603
+    description: "Resistor (SMD chip, 0603)"
+    component_class: resistor
+    footprint: {type: TwoPin}
+    pin_names: {}
+    package_family_ref: "SMD-0603/typ"
+    default_value: "?"
+    aliases:
+      - R_0603_1608Metric
 
   - name: R_Net_4
     description: "4-resistor SIL network (common bus pin 1)"

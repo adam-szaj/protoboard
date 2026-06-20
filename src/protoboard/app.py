@@ -23,6 +23,9 @@ from protoboard.gui.session import EditorSession
 from protoboard.logging_config import configure_logging
 from protoboard.paths import BUILTIN_LIBRARY_DIR
 from protoboard.services.library.loader import load_library
+from protoboard.services.library.package_family_loader import (
+    load_full_package_catalogue,
+)
 from protoboard.services.persistence.project_yaml import load_project, save_project
 
 _log = _structlog.get_logger(__name__)
@@ -146,7 +149,10 @@ def main() -> None:
     app_settings = load_app_settings()
     extra_dirs = [d for d in app_settings.component_library_dirs if d.exists()]
     library_dirs = ([BUILTIN_LIBRARY_DIR] if BUILTIN_LIBRARY_DIR.exists() else []) + extra_dirs
-    library = load_library(library_dirs)
+    # The body catalogue lets the loader resolve a rigid package_family_ref
+    # (SMD / DIP) into a fixed footprint; the session rebuilds the same
+    # catalogue for the picker.
+    library = load_library(library_dirs, load_full_package_catalogue())
 
     window: MainWindow | None = None
 
