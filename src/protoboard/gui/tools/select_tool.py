@@ -105,6 +105,34 @@ _ARMED_ACTION_IDS: tuple[str, ...] = (
     _ACT_ROTATE, _ACT_FLIP, _ACT_CANCEL,
 )
 
+def _segment_intersects_rect(
+    a: Point, b: Point, rx0: float, ry0: float, rx1: float, ry1: float
+) -> bool:
+    """True if segment a→b intersects the axis-aligned rect [rx0,rx1]×[ry0,ry1].
+
+    Used by the rubber-band's RTL wire catch: a wire whose endpoints are both
+    outside the band but whose body crosses it still counts as touched.  Cheap
+    Liang–Barsky-style clip against the four slabs.
+    """
+    dx, dy = b.x - a.x, b.y - a.y
+    p = [-dx, dx, -dy, dy]
+    q = [a.x - rx0, rx1 - a.x, a.y - ry0, ry1 - a.y]
+    t0, t1 = 0.0, 1.0
+    for pi, qi in zip(p, q, strict=True):
+        if pi == 0:
+            if qi < 0:
+                return False  # parallel and outside this slab
+        else:
+            t = qi / pi
+            if pi < 0:
+                t0 = max(t0, t)
+            else:
+                t1 = min(t1, t)
+            if t0 > t1:
+                return False
+    return True
+
+
 # Rubber-band visuals (match the legacy tool's cyan band).
 _BAND_PEN_LR = QPen(QColor(0, 200, 255, 180), 0.06)
 _BAND_PEN_RL = QPen(QColor(0, 200, 255, 180), 0.06)
@@ -999,7 +1027,67 @@ class SelectTool(_Tool):
             draw=self._draw_band,
             clear=self._clear_band,
             select=self._band_select,
+            extra_catch=self._band_catch_extras,
         )
+
+    def _band_catch_extras(
+        self, rx0: float, ry0: float, rx1: float, ry1: float, ltr: bool
+    ) -> list[object]:
+        """Wires + groups the band rectangle catches, as Selectables.
+
+        LTR (left-to-right): only fully-enclosed (every wire vertex inside / all
+        group members inside).  RTL: anything touching (a wire vertex inside or a
+        segment crossing the rect / any group member intersecting).  Mirrors the
+        legacy band's wire + group catching, lost in the v2 rewrite where the
+        band only collected component bboxes.
+        """
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.gui.selection.adapters import (
+            GroupSelectable,
+            WireSelectable,
+        )
+
+        out: list[object] = []
+        for wire in self._session.layout.wires:
+            pts = wire.path
+            if not pts:
+                continue
+            if ltr:
+                hit = all(rx0 <= p.x <= rx1 and ry0 <= p.y <= ry1 for p in pts)
+            else:
+                hit = any(rx0 <= p.x <= rx1 and ry0 <= p.y <= ry1 for p in pts) or any(
+                    _segment_intersects_rect(pts[i], pts[i + 1], rx0, ry0, rx1, ry1)
+                    for i in range(len(pts) - 1)
+                )
+            if hit:
+                out.append(WireSelectable(wire=wire))
+        tree = self._session.group_tree()
+        for gid, grp in self._session.layout.groups.items():
+            if gid == ROOT_GROUP_ID:
+                continue
+            bbs = [
+                b for b in (
+                    self._session.component_bbox(m)
+                    for m in tree.all_component_ids(gid)
+                ) if b is not None
+            ]
+            if not bbs:
+                continue
+            if ltr:
+                hit = all(
+                    b.x >= rx0 and b.y >= ry0
+                    and b.x + b.width <= rx1 and b.y + b.height <= ry1
+                    for b in bbs
+                )
+            else:
+                hit = any(
+                    b.x < rx1 and b.x + b.width > rx0
+                    and b.y < ry1 and b.y + b.height > ry0
+                    for b in bbs
+                )
+            if hit:
+                out.append(GroupSelectable(group=grp))
+        return out
 
     @traced("SelectTool._arm_drag")
     def _arm_drag(
@@ -1334,16 +1422,57 @@ class SelectTool(_Tool):
             self._band_item.setPen(_BAND_PEN_LR if ltr else _BAND_PEN_RL)
             self._band_item.setBrush(_BAND_FILL_LR if ltr else _BAND_FILL_RL)
 
-    def _band_select(self, comp_ids: list[uuid.UUID]) -> None:
-        from protoboard.gui.selection.adapters import ComponentSelectable
+    def _band_select(self, hit: object, mods: object) -> None:
+        """Commit a rubber-band result under the decoded modifier op.
 
+        Plain band → SET (replace).  Ctrl+band → ADD (union into the current
+        selection).  Ctrl+Shift+band → REMOVE (subtract).  Catches components
+        (by bbox) plus wires and groups (the controller's extra-catch) — the
+        legacy band's full reach, lost when v2's band only set components.
+
+        ADD/REMOVE go through ``set_many`` (relation-agnostic): the FSM's
+        ``add`` only extends within the same relation, but a band is an explicit
+        "these exact items" set that must union/subtract regardless of net.
+        """
+        from typing import cast
+
+        from protoboard.gui.selection.adapters import ComponentSelectable
+        from protoboard.gui.selection.mouse_input import Mods
+        from protoboard.gui.selection.rubber_band_controller import BandHit
+
+        if not isinstance(hit, BandHit):
+            return
         picked: list[Selectable] = []
-        for cid in comp_ids:
+        for cid in hit.comp_ids:
             pl = self._session.layout.placements.get(cid)
             if pl is not None:
                 picked.append(ComponentSelectable(component_id=cid, placement=pl))
-        if picked:
-            self._selection.set_many(picked)
+        picked.extend(cast("list[Selectable]", hit.extras))  # wires + groups
+
+        ctrl = bool(isinstance(mods, Mods) and mods.ctrl)
+        shift = bool(isinstance(mods, Mods) and mods.shift)
+        if ctrl and shift:  # REMOVE — current minus the caught set
+            drop = {p.to_hit() for p in picked}
+            final = [
+                s for s in self._selection.selected() if s.to_hit() not in drop
+            ]
+        elif ctrl:  # ADD — union of current + caught (dedup by hit)
+            final = list(self._selection.selected())
+            seen = {s.to_hit() for s in final}
+            for sel in picked:
+                if sel.to_hit() not in seen:
+                    final.append(sel)
+                    seen.add(sel.to_hit())
+        else:  # SET — replace
+            final = picked
+        # Rebuild from empty: set_many starts with set(first), and the FSM SET op
+        # toggles an already-selected hit OFF — so re-setting a still-selected
+        # first item would drop it.  Clearing first makes set_many land exactly
+        # *final*.
+        self._clear_selection_to_empty()
+        if final:
+            self._selection.set_many(final)
+        self._refresh_highlight()
 
     # -- intent dispatch (CONFIRM / CANCEL / UNDO) -------------------------
 

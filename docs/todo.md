@@ -23,6 +23,39 @@ two consciously-deferred gaps:
    Same-wire only; cross-wire falls back to the whole-wire layer move.  See
    `docs/armed-rotate-and-subtool-delegation.md` §4 stage 4.
 
+## SelectTool v2 — silent-regression audit (2026-06-20)
+
+A full legacy-vs-v2 behaviour audit (parallel finders + adversarial verify)
+surfaced silent user-visible regressions from the swap.  Already fixed in this
+branch: group-protection lock, relation status label, keyboard relation-cycle,
+reroute anchor, bright wire+pad highlight, Alt+LMB net expansion, net-pad discs
+following the real selection.  Remaining confirmed items (all medium), being
+worked through:
+
+- **Rubber-band only catches components.**  `_arm_band` passes only
+  `comp_ids`; `_band_select` builds only `ComponentSelectable` and always
+  SETs.  Lost vs legacy: wire catching (LTR all-inside / RTL any-inside or
+  segment-crosses), group catching (member-bbox coverage), and Ctrl/Shift
+  ADD/REMOVE ops (always replaces).
+- **Drag conflict feedback.**  `DragConflictOverlay` + `set_wire_drag_state`
+  are dead code (no live caller); only the corner text label remains.  Decision
+  (2026-06-20): instead of the legacy dashed bbox rect, recolour the dragged
+  components' body outline red (HARD) / amber (SOFT), reusing the
+  `_recolour_selected_outlines` mechanism; plus ghost-dim wires that will
+  drop/disconnect via `set_wire_drag_state`.
+- **Free-pin click hint.**  Legacy `_hint_free_pin` status message on clicking
+  an unassigned pin is gone (v2 has `_free_bendable_pin` but no hint).
+- **Properties-panel rotation combo** not refreshed after keyboard rotate.
+- **Ctrl+Alt+LMB highlight union** no longer accumulates across nets (ADD
+  basis resets the relation context each click).
+- **Long-press (1s) group-enter** affordance gone (only `[E]` enters a group).
+- **Wire-edit pad-node enrichment.**  `HitTester.hit_wire_vertex` dropped the
+  legacy `_ensure_wire_ready_for_edit` step, so board pads a simplified wire
+  rests on but doesn't list as vertices can't be clicked in wire-edit.
+
+NOT a regression (audit false positive): "selection-filter enforcement (GROUPS)
+not wired" — that is item 1 above, deliberately deferred, not a swap loss.
+
 ## Parametric renderer for DIP / QIL / SIL packages
 
 **Where:** `src/protoboard/gui/renderers/body_shapes.py` —

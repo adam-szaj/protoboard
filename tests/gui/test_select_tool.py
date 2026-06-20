@@ -320,6 +320,80 @@ class TestRubberBand:
         _release(tool, cx, cy)
         assert a.id in _comp_ids(tool)
 
+    @staticmethod
+    def _release_mods(tool, x, y, mods):  # type: ignore[no-untyped-def]
+        from PySide6.QtGui import QMouseEvent
+
+        tool.on_release(
+            QMouseEvent(
+                QMouseEvent.Type.MouseButtonRelease,
+                QPointF(x, y), QPointF(x, y),
+                Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, mods,
+            ),
+            QPointF(x, y),
+        )
+
+    def test_band_catches_wires(self, qtbot) -> None:
+        """A rubber-band over a wire selects it (regression: band ignored wires)."""
+        session, view = _wire_session(qtbot)
+        view.refresh()
+        tool = _v2(view)
+        wire = next(iter(session.layout.wires))
+        # The fixture wire runs (1.5,1.5)→(4.5,1.5); enclose it L→R.
+        _press(tool, 1.0, 1.0)
+        _move(tool, 5.0, 2.0)
+        _release(tool, 5.0, 2.0)
+        assert wire.id in tool._selected_wire_ids
+
+    def test_band_catches_groups(self, qtbot) -> None:
+        """A rubber-band over a group's members selects the group."""
+        import uuid as _uuid
+
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+
+        session, view = _wire_session(qtbot)
+        inst = next(iter(session.instances.values()))  # X1 at (1.5, 1.5)
+        gid = _uuid.uuid4()
+        session.layout.groups[gid] = ComponentGroup(
+            id=gid, name="G1", component_ids=frozenset([inst.id]),
+            child_group_ids=frozenset(), exported_pins=frozenset(),
+        )
+        root = session.layout.groups[ROOT_GROUP_ID]
+        session.layout.groups[ROOT_GROUP_ID] = ComponentGroup(
+            id=ROOT_GROUP_ID, name=root.name,
+            component_ids=root.component_ids - frozenset([inst.id]),
+            child_group_ids=root.child_group_ids | {gid},
+            exported_pins=root.exported_pins,
+        )
+        session.invalidate_graph()
+        view.refresh()
+        tool = _v2(view)
+        _press(tool, 0.5, 0.5)
+        _move(tool, 3.0, 3.0)
+        _release(tool, 3.0, 3.0)
+        assert gid in tool._selected_group_ids
+
+    def test_ctrl_band_adds_to_selection(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """Ctrl+band ADDs to the existing selection instead of replacing it."""
+        a = _place(board_view, session, 1.0, 1.0)
+        b = _place(board_view, session, 6.0, 6.0)
+        tool = _v2(board_view)
+        tool._select_primary(a.id)
+        assert _comp_ids(tool) == {a.id}
+        # Ctrl+band starting on EMPTY space, sweeping over b only → b joins a.
+        bb = session.component_bbox(b.id)
+        assert bb is not None
+        x0, y0 = bb.x - 0.5, bb.y - 0.5   # empty corner near b (a is far away)
+        x1, y1 = bb.x + bb.width + 0.5, bb.y + bb.height + 0.5
+        _press(tool, x0, y0, Qt.KeyboardModifier.ControlModifier)
+        _move(tool, x1, y1)
+        self._release_mods(tool, x1, y1, Qt.KeyboardModifier.ControlModifier)
+        ids = _comp_ids(tool)
+        assert a.id in ids and b.id in ids  # union, not replace
+
 
 class TestRotate:
     def test_r_arms_then_steps_rotation(

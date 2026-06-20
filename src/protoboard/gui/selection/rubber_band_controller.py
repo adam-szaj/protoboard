@@ -49,16 +49,29 @@ if TYPE_CHECKING:
     """``(corner_a, corner_b, ltr) -> None`` — update the on-screen rectangle."""
     ClearFn = Callable[[], None]
     """Remove the on-screen rectangle."""
-    SelectFn = Callable[[list[uuid.UUID]], None]
-    """Commit the caught component ids as the new selection."""
+    ExtraCatchFn = Callable[[float, float, float, float, bool], list[object]]
+    """``(rx0, ry0, rx1, ry1, ltr) -> [Selectable]`` — wires/groups the band
+    catches, beyond components.  Injected by the tool so the controller stays
+    geometry-agnostic about non-bbox kinds (wire paths, group member coverage)."""
+    SelectFn = Callable[["BandHit", Mods], None]
+    """Commit the band's result (caught comp ids + extra selectables) under the
+    decoded modifier op (SET / ADD / REMOVE)."""
 
 
 class BandHit:
-    """Result of a finished band — the caught component ids and the mode."""
+    """Result of a finished band — caught component ids, extra selectables, mode."""
 
-    def __init__(self, comp_ids: list[uuid.UUID], *, ltr: bool) -> None:
+    def __init__(
+        self,
+        comp_ids: list[uuid.UUID],
+        *,
+        ltr: bool,
+        extras: list[object] | None = None,
+    ) -> None:
         self.comp_ids = comp_ids
         self.ltr = ltr
+        #: Caught wires/groups as Selectables (from the injected extra-catch).
+        self.extras = extras or []
 
 
 class RubberBandController:
@@ -79,6 +92,7 @@ class RubberBandController:
         draw: DrawFn | None = None,
         clear: ClearFn | None = None,
         select: SelectFn | None = None,
+        extra_catch: ExtraCatchFn | None = None,
     ) -> None:
         self._press = press_pt
         self._comp_ids = comp_ids
@@ -86,7 +100,9 @@ class RubberBandController:
         self._draw = draw
         self._clear = clear
         self._select = select
+        self._extra_catch = extra_catch
         self._cur = press_pt
+        self._press_mods: Mods | None = None
         self._last_hit: BandHit | None = None
         self._finished = False
         self._was_click = False
@@ -126,9 +142,13 @@ class RubberBandController:
             return  # a click, not a band
         ltr = self._cur.x >= self._press.x
         caught = self._catch(rx0, ry0, rx1, ry1, ltr)
-        self._last_hit = BandHit(caught, ltr=ltr)
+        extras = (
+            self._extra_catch(rx0, ry0, rx1, ry1, ltr)
+            if self._extra_catch is not None else []
+        )
+        self._last_hit = BandHit(caught, ltr=ltr, extras=extras)
         if self._select is not None:
-            self._select(caught)
+            self._select(self._last_hit, mods)
 
     def on_event(self, intent: Intent) -> bool:
         """CANCEL aborts the band; CONFIRM is not used (release finalizes it)."""
