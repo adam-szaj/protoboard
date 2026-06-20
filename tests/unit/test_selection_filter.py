@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: MIT
-"""Unit tests for the SelectTool selection-filter *state* shim (no Qt required).
+"""Unit tests for the SelectTool selection filter (state + hit-test enforcement).
 
-v2 holds the :class:`SelectionFilter` and mirrors it to the status-bar widget,
-but does not yet *enforce* it in the hit-test (deferred — see ``docs/todo.md``).
-These tests pin the state contract (``filter`` / ``set_filter``); enforcement
-tests arrive with the enforcement work.
+v2 holds the :class:`SelectionFilter` (state contract below) AND now enforces it:
+``_filters()`` translates the held flags into the hit-test's per-kind gate, so a
+component-only filter excludes wire/group hits, etc.
 """
 
 from protoboard.gui.selection_axes import SelectionFilter
@@ -35,3 +34,32 @@ def test_set_filter_none_then_restore() -> None:
     assert t.filter == SelectionFilter.NONE
     t.set_filter(SelectionFilter.ALL)
     assert t.filter == SelectionFilter.ALL
+
+
+# -- enforcement: _filters() gates which kinds the hit-test may return ---------
+
+
+def test_filters_all_admits_every_kind() -> None:
+    f = SelectTool()._filters()
+    assert f.components and f.wires and f.groups
+
+
+def test_filters_components_only_excludes_wires_and_groups() -> None:
+    t = SelectTool()
+    t.set_filter(SelectionFilter.COMPONENTS)
+    f = t._filters()
+    assert f.components and not f.wires and not f.groups
+
+
+def test_filters_wires_only_excludes_components() -> None:
+    t = SelectTool()
+    t.set_filter(SelectionFilter.WIRES)
+    f = t._filters()
+    assert f.wires and not f.components and not f.groups
+
+
+def test_filters_none_admits_nothing() -> None:
+    t = SelectTool()
+    t.set_filter(SelectionFilter.NONE)
+    f = t._filters()
+    assert not f.components and not f.wires and not f.groups

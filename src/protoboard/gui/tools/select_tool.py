@@ -287,8 +287,17 @@ class SelectTool(_Tool):
         )
 
     def _filters(self) -> SelectionFilters:
-        # Phase 2: all kinds hittable; the status-bar filter wires in later.
-        return SelectionFilters()
+        """Translate the held :class:`SelectionFilter` into the hit-test's
+        per-kind gate, so the status-bar filter actually excludes kinds from
+        selection (a component-only filter ignores wire/group hits, etc.)."""
+        from protoboard.gui.selection_axes import SelectionFilter
+
+        f = self._filter
+        return SelectionFilters(
+            components=bool(f & SelectionFilter.COMPONENTS),
+            wires=bool(f & SelectionFilter.WIRES),
+            groups=bool(f & SelectionFilter.GROUPS),
+        )
 
     @traced("SelectTool._pick_at")
     def _pick_at(
@@ -957,15 +966,24 @@ class SelectTool(_Tool):
             SessionConnQuery(self._session),
             SessionNetSource(self._session),
         )
+        from protoboard.gui.selection_axes import SelectionFilter
+
+        # Respect the object filter: an Alt+click relation-expansion includes
+        # only the kinds the filter admits (wire filter → just the net's wires;
+        # component filter → just its components) — spec rule 5.
+        want_comps = bool(self._filter & SelectionFilter.COMPONENTS)
+        want_wires = bool(self._filter & SelectionFilter.WIRES)
         out: list[Selectable] = []
-        for cid in comp_ids:
-            pl = self._session.layout.placements.get(cid)
-            if pl is not None:
-                out.append(ComponentSelectable(component_id=cid, placement=pl))
-        for wid in wire_ids:
-            wire = self._wire_by_id(wid)
-            if wire is not None:
-                out.append(WireSelectable(wire=wire))
+        if want_comps:
+            for cid in comp_ids:
+                pl = self._session.layout.placements.get(cid)
+                if pl is not None:
+                    out.append(ComponentSelectable(component_id=cid, placement=pl))
+        if want_wires:
+            for wid in wire_ids:
+                wire = self._wire_by_id(wid)
+                if wire is not None:
+                    out.append(WireSelectable(wire=wire))
         return out
 
     # -- mouse-interaction routing -----------------------------------------

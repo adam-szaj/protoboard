@@ -10,12 +10,12 @@ The SelectTool rewrite (`gui/tools/select_tool.py` — the service-based tool
 that replaced the 9.5k-line monolith) reached full integration parity, with
 two consciously-deferred gaps:
 
-1. **Selection-filter enforcement.** `set_filter`/`filter` hold the
-   `SelectionFilter` state and mirror it to the status-bar widget, but
-   `SelectTool._filters()` still returns an empty `SelectionFilters()`
-   — every kind stays hittable.  Wire the held filter into the hit-test
-   (`HitTester.hit(..., filters)`) so components/wires/groups can be
-   excluded from selection as the legacy tool did.
+1. **Selection-filter enforcement.** ✅ DONE (2026-06-20).  `SelectTool.
+   _filters()` now translates the held `SelectionFilter` into the hit-test's
+   per-kind `SelectionFilters` gate, so components/wires/groups can be excluded
+   from selection; the Alt+click relation-expansion
+   (`_relation_correlated_selectables`) also honours the filter (rule 5: wire
+   filter → net's wires + their pads; component filter → net's component pads).
 
 2. **Wire fragment-flip.** ✅ DONE (2026-06-19).  `_flip_wire_fragment` is now
    a wire-edit op-table entry (`[F]`) backed by
@@ -66,7 +66,8 @@ worked through:
   clickable again.
 
 NOT a regression (audit false positive): "selection-filter enforcement (GROUPS)
-not wired" — that is item 1 above, deliberately deferred, not a swap loss.
+not wired" — that was the consciously-deferred item 1 above (now ✅ done), not a
+swap loss.
 
 All confirmed audit regressions are now resolved.
 
