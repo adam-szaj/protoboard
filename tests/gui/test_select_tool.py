@@ -1658,6 +1658,33 @@ class TestDragConflictOutline:
         assert after == (before[1], before[0])
         assert after != before
 
+    def test_selection_bbox_overlay_on_and_off(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # A selected component gets a thin dashed bbox overlay when the toggle
+        # is on; selecting with it off draws none; deselecting removes it.
+        from PySide6.QtCore import Qt as _Qt
+        board_view.set_show_selection_bbox(True)
+        inst = _place(board_view, session, 2.5, 2.5)
+        board_view.refresh()
+        tool = _v2(board_view)
+        tool._select_primary(inst.id)
+        board_view.refresh()
+        rect = board_view._selection_bbox_overlays.get(inst.id)
+        assert rect is not None
+        assert rect.pen().style() == _Qt.PenStyle.DashLine  # dashed, not solid
+
+        # Deselect → overlay removed.
+        tool._deselect()
+        board_view.refresh()
+        assert inst.id not in board_view._selection_bbox_overlays
+
+        # Toggle off → no overlay even when selected.
+        board_view.set_show_selection_bbox(False)
+        tool._select_primary(inst.id)
+        board_view.refresh()
+        assert inst.id not in board_view._selection_bbox_overlays
+
     def test_clear_drag_corner_resets_outline(
         self, board_view: BoardView, session: EditorSession
     ) -> None:

@@ -55,6 +55,10 @@ class AppSettings:
     # off to claw back paint time on very large boards or weak GPUs at
     # the cost of jagged pad / wire edges.
     antialiasing: bool = True
+    # Draw a thin dashed bounding box around each selected component (in
+    # addition to the bright body outline).  On by default; turn off to keep
+    # only the body outline.
+    show_selection_bbox: bool = True
     # User-defined cost-model presets.  Built-in presets ("default",
     # "clean_routing") are always available without being stored here.
     # Each entry maps preset_name → {cost_key: weight}.  Editing via
@@ -120,6 +124,9 @@ def load_app_settings() -> AppSettings:
             aa = render.get("antialiasing")
             if isinstance(aa, bool):
                 s.antialiasing = aa
+            sbb = render.get("show_selection_bbox")
+            if isinstance(sbb, bool):
+                s.show_selection_bbox = sbb
             rmode = render.get("ratsnest_mode")
             if isinstance(rmode, str) and rmode in ("full", "closest"):
                 s.ratsnest_mode = rmode
@@ -182,6 +189,7 @@ def save_app_settings(settings: AppSettings) -> None:
         }
         data["render"] = {
             "antialiasing": settings.antialiasing,
+            "show_selection_bbox": settings.show_selection_bbox,
             "ratsnest_mode": settings.ratsnest_mode,
         }
         data["drag"] = {

@@ -54,6 +54,11 @@ class TestRoundTrip:
         assert loaded.rubber_band_throttle_ms == 33
         assert loaded.zoom_refresh_ms == 80
 
+    def test_show_selection_bbox_roundtrip(self) -> None:
+        assert AppSettings().show_selection_bbox is True  # default on
+        save_app_settings(AppSettings(show_selection_bbox=False))
+        assert load_app_settings().show_selection_bbox is False
+
 
 class TestClamping:
     def test_garbage_value_clamped(self, _isolate_settings_file):

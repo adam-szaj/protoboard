@@ -237,6 +237,11 @@ class BoardView(QGraphicsView):
         # baked-in outline cannot be recoloured in place.
         self._cyan_outlined: set[uuid.UUID] = set()
         self._svg_select_overlays: dict[uuid.UUID, QGraphicsRectItem] = {}
+        # Thin dashed bounding box around each selected component (separate from
+        # the bright body outline above).  Toggled by AppSettings.
+        # show_selection_bbox via set_show_selection_bbox().
+        self._selection_bbox_overlays: dict[uuid.UUID, QGraphicsRectItem] = {}
+        self._show_selection_bbox: bool = True
         # Selection-outline colour state.  Normally the theme select colour
         # (cyan); during a drag with a live conflict the SelectTool flips it to
         # amber (SOFT) / red (HARD) so the *selection highlight itself* signals
@@ -392,6 +397,22 @@ class BoardView(QGraphicsView):
         self._antialiasing = enabled
         self.setRenderHint(QPainter.RenderHint.Antialiasing, enabled)
         self._invalidate_bg_cache()
+        self.viewport().update()
+
+    def set_show_selection_bbox(self, enabled: bool) -> None:
+        """Toggle the thin dashed bounding box drawn around selections.
+
+        Off → existing bbox overlays are dropped; on → they reappear on the next
+        selection recolour.  The bright body outline is unaffected either way.
+        """
+        enabled = bool(enabled)
+        if enabled == self._show_selection_bbox:
+            return
+        self._show_selection_bbox = enabled
+        if not enabled:
+            for cid in list(self._selection_bbox_overlays):
+                self._remove_selection_bbox_overlay(cid)
+        self._recolour_selected_outlines()
         self.viewport().update()
 
     @property
@@ -710,6 +731,9 @@ class BoardView(QGraphicsView):
         # 4. Selected *wires* get a bright neon overlay (components use the cyan
         #    outline above; wires can't be "outlined", so we overdraw instead).
         self._redraw_selected_wire_overlays()
+        # 5. Thin dashed bounding box around each selected component (opt-in,
+        #    in addition to the bright body outline).
+        self._sync_selection_bbox_overlays(selected)
         return selected
 
     def set_selection_outline_override(self, color: QColor | None) -> None:
@@ -869,6 +893,75 @@ class BoardView(QGraphicsView):
             # The underlying C++ item was already destroyed by a scene rebuild
             # between recolour passes — nothing to remove.
             pass
+
+    # -- selection bounding box (thin dashed rect, opt-in) -----------------
+    #
+    # A faint dashed rectangle around the whole component, drawn in addition to
+    # the bright body outline.  It uses the same management lifecycle as the SVG
+    # outline overlay (add / re-sync / remove on selection change) but is gated
+    # by ``show_selection_bbox``.
+
+    def _selection_bbox_pen(self) -> QPen:
+        theme = self._theme_override if self._theme_override is not None else DEFAULT_THEME
+        pen = QPen(QColor(theme.selection_bbox_color), theme.selection_bbox_width)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        return pen
+
+    def _add_selection_bbox_overlay(self, comp_id: uuid.UUID) -> None:
+        from protoboard.gui.layer_state import Z_SELECTION
+
+        bbox = self._session.component_bbox(comp_id)
+        if bbox is None:
+            return
+        m = 0.06
+        rect = QGraphicsRectItem(
+            QRectF(bbox.x - m, bbox.y - m, bbox.width + 2 * m, bbox.height + 2 * m)
+        )
+        rect.setPen(self._selection_bbox_pen())
+        rect.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        rect.setZValue(Z_SELECTION)
+        self._scene.addItem(rect)
+        self._selection_bbox_overlays[comp_id] = rect
+
+    def _update_selection_bbox_overlay(self, comp_id: uuid.UUID) -> None:
+        rect = self._selection_bbox_overlays.get(comp_id)
+        if rect is None:
+            return
+        bbox = self._session.component_bbox(comp_id)
+        if bbox is None:
+            return
+        m = 0.06
+        try:
+            rect.setRect(
+                QRectF(bbox.x - m, bbox.y - m,
+                       bbox.width + 2 * m, bbox.height + 2 * m)
+            )
+            rect.setPen(self._selection_bbox_pen())
+        except RuntimeError:
+            self._selection_bbox_overlays.pop(comp_id, None)
+
+    def _remove_selection_bbox_overlay(self, comp_id: uuid.UUID) -> None:
+        rect = self._selection_bbox_overlays.pop(comp_id, None)
+        if rect is None:
+            return
+        try:
+            if rect.scene() is self._scene:
+                self._scene.removeItem(rect)
+        except RuntimeError:
+            pass
+
+    def _sync_selection_bbox_overlays(self, selected: set[uuid.UUID]) -> None:
+        """Add/refresh a dashed bbox for each selected component, drop the rest.
+
+        No-op (and clears any leftovers) when ``show_selection_bbox`` is off."""
+        target = selected if self._show_selection_bbox else set()
+        for cid in set(self._selection_bbox_overlays) - target:
+            self._remove_selection_bbox_overlay(cid)
+        for cid in target:
+            if cid in self._selection_bbox_overlays:
+                self._update_selection_bbox_overlay(cid)
+            else:
+                self._add_selection_bbox_overlay(cid)
 
     def _redraw_selected_wire_overlays(self) -> set[uuid.UUID]:
         """Draw a bright-yellow overlay over every *selected* wire.

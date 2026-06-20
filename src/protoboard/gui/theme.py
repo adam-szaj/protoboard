@@ -167,6 +167,10 @@ class Theme:
     select_width: float = 0.07
     multi_select_color: str = "#FF00FFFF"  # multi selection outline
     multi_select_width: float = 0.05
+    # Thin dashed bounding box drawn around a selected component (in addition to
+    # the bright body outline) — dimmed cyan, much thinner than the outline.
+    selection_bbox_color: str = "#8000FFFF"
+    selection_bbox_width: float = 0.03
 
     # ── Tool feedback ────────────────────────────────────────────────────────
     placement_reach_color: str = "#7800c850"      # reachable pad highlight

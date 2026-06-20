@@ -571,6 +571,15 @@ class _PathsPage(QWidget):
             "paint time on very large boards or weak GPUs."
         )
         render_layout.addWidget(self._antialiasing_cb)
+        self._selection_bbox_cb = QCheckBox(
+            "Selection bounding box (dashed)"
+        )
+        self._selection_bbox_cb.setChecked(settings.show_selection_bbox)
+        self._selection_bbox_cb.setToolTip(
+            "Draw a thin dashed bounding box around each selected component, "
+            "in addition to the bright body outline.  Default on."
+        )
+        render_layout.addWidget(self._selection_bbox_cb)
         vbox.addWidget(render_grp)
 
         # Connections layer (ratsnest) — line-mode selector.  Full draws
@@ -619,6 +628,7 @@ class _PathsPage(QWidget):
         self._settings.rubber_band_throttle_ms = self._rubber_ms.value()
         self._settings.zoom_refresh_ms = self._zoom_ms.value()
         self._settings.antialiasing = self._antialiasing_cb.isChecked()
+        self._settings.show_selection_bbox = self._selection_bbox_cb.isChecked()
         self._settings.ratsnest_mode = (
             "closest" if self._ratsnest_closest_rb.isChecked() else "full"
         )

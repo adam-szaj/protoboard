@@ -283,6 +283,9 @@ class MainWindow(QMainWindow):
             zoom_refresh_ms=self._app_settings.zoom_refresh_ms,
         )
         self._board_view.set_antialiasing(self._app_settings.antialiasing)
+        self._board_view.set_show_selection_bbox(
+            self._app_settings.show_selection_bbox
+        )
         self._board_view.set_ratsnest_mode(self._app_settings.ratsnest_mode)
 
         # Auto-DRC timer — fires 600 ms after the last layout_changed.
@@ -3039,6 +3042,7 @@ class MainWindow(QMainWindow):
             zoom_refresh_ms=settings.zoom_refresh_ms,
         )
         self._board_view.set_antialiasing(settings.antialiasing)
+        self._board_view.set_show_selection_bbox(settings.show_selection_bbox)
         self._board_view.set_ratsnest_mode(settings.ratsnest_mode)
         self._board_view.refresh()
 
