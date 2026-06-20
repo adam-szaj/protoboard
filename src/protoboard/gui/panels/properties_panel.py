@@ -397,27 +397,32 @@ class PropertiesPanel(QWidget):
         """Repopulate the body-variant dropdown for the current instance.
 
         ``packages`` is the package-family catalogue (family_id →
-        :class:`PackageFamily`).  Only shown for two-pin components
-        (``TwoPin`` footprint) when a catalogue is available.  The list is:
+        :class:`PackageFamily`).  Shown whenever the footprint has body choices
+        (two-pin catalogue bodies, or the generated ``dip-N`` / ``wdip-N`` /
+        ``sil-N`` for multi-pin in-line parts) and a catalogue is available.
+        The list is:
 
         * ``Default`` — fall back to ``defn.package_family_ref`` (or the inline
           package when neither default nor instance override resolves).
         * The variants of the **definition's default family** first.
-        * Every other family's variants (alphabetic), so the user can swap a
-          resistor's body to a brick or a ceramic-disc cap to a tantalum drop
+        * The remaining offered families' variants, so the user can swap a
+          DIP-16 between narrow / wide (or a resistor's body to a brick)
           without leaving the panel.
         """
-        from protoboard.domain.components.footprints import TwoPin
+        from protoboard.domain.components.package.generated_families import (
+            offered_body_families,
+        )
 
         self._body_variant_combo.blockSignals(True)
         self._body_variant_combo.clear()
         self._body_variant_addresses = []
 
-        show = (
-            defn is not None
-            and isinstance(defn.footprint, TwoPin)
-            and bool(packages)
+        offered = (
+            offered_body_families(defn.footprint, packages)
+            if defn is not None and packages
+            else []
         )
+        show = bool(offered)
         self._body_variant_form_row_label.setVisible(show)
         self._body_variant_combo.setVisible(show)
         if not show or defn is None:
@@ -435,18 +440,14 @@ class PropertiesPanel(QWidget):
             if len(parts) == 2:
                 primary_pkg_id = parts[0]
 
-        # Build sorted list of (package_id, package_obj) with primary first.
-        sorted_pkg_ids = sorted(packages.keys())
-        ordered = []
-        if primary_pkg_id and primary_pkg_id in packages:
-            ordered.append(primary_pkg_id)
-        ordered.extend(p for p in sorted_pkg_ids if p != primary_pkg_id)
+        # Offer order: the definition's default family first, then the rest.
+        ordered = sorted(offered, key=lambda f: f.family_id != primary_pkg_id)
 
-        for pkg_id in ordered:
-            pkg = packages[pkg_id]
+        for pkg in ordered:
+            pkg_id = pkg.family_id
             for variant in pkg.variants:
                 addr = f"{pkg_id}/{variant.variant_id}"
-                # Display: "DIN-0207 / typ — 1/4 W (resistor)" etc.
+                # Display: "dip-16 / std — DIP-16 (narrow 0.3")" etc.
                 label = f"{pkg_id} / {variant.variant_id}"
                 if variant.label and variant.label != variant.variant_id:
                     label = f"{label} — {variant.label}"

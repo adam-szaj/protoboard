@@ -1,0 +1,158 @@
+# SPDX-License-Identifier: MIT
+"""Tests for generated in-line package families (dip-N / wdip-N / sil-N)."""
+
+from __future__ import annotations
+
+import pytest
+
+from protoboard.domain.components.definition import (
+    ComponentClass,
+    ComponentDefinition,
+)
+from protoboard.domain.components.footprints import (
+    DualRow,
+    GridFootprint,
+    SingleRow,
+    TwoPin,
+)
+from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package import resolve_component_package
+from protoboard.domain.components.package.family import PackageFamily, PackageVariant
+from protoboard.domain.components.package.generated_families import (
+    STD,
+    dip_family,
+    generate_inline_families,
+    inline_family_ids_for_pins,
+    offered_body_families,
+    sil_family,
+)
+from protoboard.domain.components.package.loader import build_package
+
+
+def _two_pin_family() -> PackageFamily:
+    pkg = build_package(
+        {
+            "shape": "cylinder",
+            "dims": {"diameter": 2.0, "length": 4.0},
+            "bend": 0,
+            "leads": {
+                "direction": [0, 0, -1],
+                "body_offset": {"unit": 2.5, "value": [[4, 0]]},
+                "board_offset": "default",
+            },
+        },
+        "DO-35/typ",
+    )
+    return PackageFamily(
+        family_id="DO-35",
+        label="DO-35",
+        variants=(PackageVariant(STD, "typ", pkg),),
+    )
+
+
+class TestDipFamily:
+    def test_narrow_vs_wide_row_spacing(self) -> None:
+        narrow = dip_family(16, wide=False)
+        wide = dip_family(16, wide=True)
+        assert narrow is not None and wide is not None
+        n_pkg = narrow.variants[0].package
+        w_pkg = wide.variants[0].package
+        n_cols = sorted({round(p.x, 1) for p in n_pkg.pin_positions()})
+        w_cols = sorted({round(p.x, 1) for p in w_pkg.pin_positions()})
+        assert n_cols == [0.0, 3.0]   # 0.3" narrow
+        assert w_cols == [0.0, 6.0]   # 0.6" wide
+        # The wide body is physically wider.
+        assert w_pkg.bbox().width > n_pkg.bbox().width
+
+    def test_pin_count_matches_name(self) -> None:
+        fam = dip_family(28, wide=False)
+        assert fam is not None
+        assert fam.family_id == "dip-28"
+        assert fam.variants[0].package.pin_count() == 28
+
+    @pytest.mark.parametrize("pins", [0, 2, 3, 15, -4])
+    def test_odd_or_too_small_returns_none(self, pins: int) -> None:
+        assert dip_family(pins, wide=False) is None
+
+
+class TestSilFamily:
+    def test_sil_family_pin_count(self) -> None:
+        fam = sil_family(8)
+        assert fam is not None
+        assert fam.family_id == "sil-8"
+        assert fam.variants[0].package.pin_count() == 8
+
+    @pytest.mark.parametrize("pins", [1, 0, -3])
+    def test_too_small_returns_none(self, pins: int) -> None:
+        assert sil_family(pins) is None
+
+
+class TestGenerateInlineFamilies:
+    def test_contains_dip_wdip_sil(self) -> None:
+        fams = generate_inline_families()
+        assert "dip-16" in fams
+        assert "wdip-16" in fams
+        assert "sil-6" in fams
+        # No odd DIP.
+        assert "dip-15" not in fams
+
+    def test_every_family_is_valid(self) -> None:
+        # PackageFamily.__post_init__ raises on empties / dup ids; building the
+        # whole set without error is the assertion.
+        fams = generate_inline_families()
+        assert all(isinstance(f, PackageFamily) for f in fams.values())
+
+
+class TestInlineFamilyIdsForPins:
+    def test_dual_row_even(self) -> None:
+        assert inline_family_ids_for_pins(16, dual_row=True) == ["dip-16", "wdip-16"]
+
+    def test_dual_row_odd_empty(self) -> None:
+        assert inline_family_ids_for_pins(15, dual_row=True) == []
+
+    def test_single_row(self) -> None:
+        assert inline_family_ids_for_pins(6, dual_row=False) == ["sil-6"]
+
+
+class TestOfferedBodyFamilies:
+    def _catalogue(self) -> dict[str, PackageFamily]:
+        cat = dict(generate_inline_families())
+        cat["DO-35"] = _two_pin_family()
+        return cat
+
+    def test_dual_row_offers_only_matching_dip(self) -> None:
+        offered = offered_body_families(DualRow(n_per_row=8), self._catalogue())
+        assert [f.family_id for f in offered] == ["dip-16", "wdip-16"]
+
+    def test_single_row_offers_only_matching_sil(self) -> None:
+        offered = offered_body_families(SingleRow(n=8), self._catalogue())
+        assert [f.family_id for f in offered] == ["sil-8"]
+
+    def test_two_pin_offers_only_two_pin_families(self) -> None:
+        offered = offered_body_families(TwoPin(), self._catalogue())
+        ids = [f.family_id for f in offered]
+        assert "DO-35" in ids
+        # No DIP / SIL bodies offered to a two-pin part.
+        assert not any(i.startswith(("dip-", "wdip-", "sil-")) for i in ids)
+
+    def test_unsupported_footprint_offers_nothing(self) -> None:
+        grid = GridFootprint(rows=2, cols=3)
+        assert offered_body_families(grid, self._catalogue()) == []
+
+
+class TestEndToEndResolution:
+    def test_picking_wdip_resolves_wide_package(self) -> None:
+        fams = generate_inline_families()
+        defn = ComponentDefinition(
+            name="U1", component_class=ComponentClass.IC,
+            footprint=DualRow(n_per_row=8), pin_names={},
+        )
+        inst = ComponentInstance.new(
+            definition_ref="U1", refdes="U1", value="",
+            package_variant="wdip-16/std",
+        )
+        pkg = resolve_component_package(defn, inst, fams)
+        assert pkg is not None
+        # Wide body: columns 6 holes apart.
+        cols = sorted({round(p.x, 1) for p in pkg.pin_positions()})
+        assert cols == [0.0, 6.0]

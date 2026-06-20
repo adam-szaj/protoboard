@@ -38,6 +38,9 @@ from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Rect
 from protoboard.services.drc.engine import DRCEngine, DRCIssue
 from protoboard.domain.components.package import PackageFamily
+from protoboard.domain.components.package.generated_families import (
+    generate_inline_families,
+)
 from protoboard.services.library.package_family_loader import (
     load_package_families,
 )
@@ -183,8 +186,13 @@ class EditorSession(QObject):
             name: library.get(name) for name in library.names()
         }
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
-        # Package-family body catalogue, keyed by family id.
-        self.package_families: dict[str, PackageFamily] = load_package_families()
+        # Package-family body catalogue, keyed by family id: the authored
+        # two-pin families plus the generated in-line bodies (dip-N / wdip-N /
+        # sil-N).  Authored families win on an id clash.
+        self.package_families: dict[str, PackageFamily] = {
+            **generate_inline_families(),
+            **load_package_families(),
+        }
         self.stack: CommandStack[ComponentState] = CommandStack()
         self.routing_settings: RoutingSettings = RoutingSettings()
         self.axis_label_settings: AxisLabelSettings = AxisLabelSettings()

@@ -243,7 +243,9 @@ class LibraryPanel(QWidget):
     def _rebuild_body_picker(
         self, current: "QTreeWidgetItem | None",
     ) -> None:
-        from protoboard.domain.components.footprints import TwoPin
+        from protoboard.domain.components.package.generated_families import (
+            offered_body_families,
+        )
 
         self._body_variant_combo.blockSignals(True)
         self._body_variant_combo.clear()
@@ -257,11 +259,12 @@ class LibraryPanel(QWidget):
                 defn = self._library.get(name)
             except KeyError:
                 defn = None
-        show = (
-            defn is not None
-            and isinstance(defn.footprint, TwoPin)
-            and bool(self._package_families)
+        offered = (
+            offered_body_families(defn.footprint, self._package_families)
+            if defn is not None and self._package_families
+            else []
         )
+        show = bool(offered)
         self._body_row.setVisible(show)
         if not show or defn is None:
             self._body_variant_combo.blockSignals(False)
@@ -280,14 +283,11 @@ class LibraryPanel(QWidget):
             if len(parts) == 2:
                 primary_pkg_id = parts[0]
 
-        sorted_pkg_ids = sorted(self._package_families.keys())
-        ordered = []
-        if primary_pkg_id and primary_pkg_id in self._package_families:
-            ordered.append(primary_pkg_id)
-        ordered.extend(p for p in sorted_pkg_ids if p != primary_pkg_id)
+        # Offer order: the definition's default family first, then the rest.
+        ordered = sorted(offered, key=lambda f: f.family_id != primary_pkg_id)
 
-        for pkg_id in ordered:
-            pkg = self._package_families[pkg_id]
+        for pkg in ordered:
+            pkg_id = pkg.family_id
             for v in pkg.variants:
                 addr = f"{pkg_id}/{v.variant_id}"
                 label = f"{pkg_id} / {v.variant_id}"

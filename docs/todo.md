@@ -98,18 +98,28 @@ Appearance is data-driven: the body fill is the package `color:` if set,
 else the component / theme fill the renderer passes in (no hard-coded
 DIP blue any more).
 
-**Deferred — named DIP variants, fully generated (no static catalogue).**
-The renderer keys off footprint geometry; it does *not* yet offer a
-"DIP-16 narrow vs wide" choice by name.  Plan (per user, 2026-06-20):
-generate the whole package set programmatically from a naming convention
-rather than authoring YAML families:
+**Named DIP/SIL variants — generated + picker (done 2026-06-20).**
+The whole multi-pin body set is *generated* by name (no static YAML
+catalogue):
 
-- `dip-N`  → narrow body (0.3", `rows_spacing` ≈ 3 holes).
-- `wdip-N` → wide body (0.6", `rows_spacing` ≈ 6 holes).
+- `dip-N`  → narrow body (0.3", `rows_spacing` 3 holes).
+- `wdip-N` → wide body (0.6", `rows_spacing` 6 holes).
+- `sil-N`  → single in-line header shell.
 
-A component declaring such a name resolves through a generator (same
-prism-building machinery as `prism_for_footprint`, parameterised by the
-prefix → row spacing and `N` → pin count), and the picker offers the
-generated names — no per-package YAML.  SIL headers follow the same
-generated `sil-N` shape.  Wire the picker UI (`LibraryPanel` /
-`PropertiesPanel`) once the generator exists.
+`domain/components/package/generated_families.py` builds these as
+`PackageFamily` objects (one `std` variant each) via the same
+`prism_for_footprint` machinery; `EditorSession` merges them into
+`package_families` (authored two-pin families win on an id clash).  A part
+selects one through the existing `instance.package_variant` →
+`resolve_component_package` path — `"wdip-16/std"` renders the wide body.
+
+The body-variant picker (properties + library panels) is opened to
+multi-pin in-line footprints via `offered_body_families`, which offers only
+the pin-count-matching families (a DIP-16 sees `dip-16` / `wdip-16`, never
+`dip-8` or a resistor body; a two-pin part still sees only two-pin
+families).
+
+Follow-up (not scheduled): library YAML could set a multi-pin part's
+`package_family_ref` (e.g. an ATmega328P defaulting to `wdip-28`) so the
+"Default" picker entry resolves to a specific width; today an unset default
+falls through to the synthesized narrow body.
