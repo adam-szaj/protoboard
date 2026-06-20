@@ -237,6 +237,14 @@ class BoardView(QGraphicsView):
         # baked-in outline cannot be recoloured in place.
         self._cyan_outlined: set[uuid.UUID] = set()
         self._svg_select_overlays: dict[uuid.UUID, QGraphicsRectItem] = {}
+        # Selection-outline colour state.  Normally the theme select colour
+        # (cyan); during a drag with a live conflict the SelectTool flips it to
+        # amber (SOFT) / red (HARD) so the *selection highlight itself* signals
+        # the conflict — one recolour pass, no competing overlay.  The applied
+        # RGB is tracked so the restore step matches whatever was last painted
+        # even as the colour changes mid-drag.
+        self._select_outline_override: QColor | None = None
+        self._applied_outline_rgb: int | None = None
         # Group outline rects (tagged "group_outline") recoloured to the select
         # colour for the currently-selected groups — restored when deselected.
         self._cyan_group_outlined: set[uuid.UUID] = set()
@@ -636,8 +644,20 @@ class BoardView(QGraphicsView):
         selected: set[uuid.UUID] = set(getattr(tool, "_selected_ids", set()))
 
         border_rgb = QColor(theme.comp_border).rgb() & 0x00FFFFFF
-        select_rgb = QColor(theme.select_color)
-        select_match = select_rgb.rgb() & 0x00FFFFFF
+        # Cyan normally; amber/red while a drag conflict is live (the override).
+        select_rgb = (
+            self._select_outline_override
+            if self._select_outline_override is not None
+            else QColor(theme.select_color)
+        )
+        select_rgb = QColor(select_rgb)
+        # Restore matches whatever colour was last painted (may differ from the
+        # new target when the override just changed cyan→amber→red mid-drag).
+        prev_rgb = (
+            self._applied_outline_rgb
+            if self._applied_outline_rgb is not None
+            else QColor(theme.select_color).rgb() & 0x00FFFFFF
+        )
 
         # 1. Restore components that are no longer selected.
         for cid in self._cyan_outlined - selected:
@@ -645,13 +665,15 @@ class BoardView(QGraphicsView):
             if isinstance(grp, QGraphicsItemGroup):
                 self._set_outline_colour(
                     grp, select_rgb, QColor(theme.comp_border),
-                    match_rgb=select_match,
+                    match_rgb=prev_rgb,
                 )
         for cid in set(self._svg_select_overlays) - selected:
             self._remove_svg_select_overlay(cid)
         self._cyan_outlined &= selected
 
-        # 2. Apply cyan to the freshly-selected components.
+        # 2. Apply the select colour to the selected components.  Match either
+        #    the neutral border (fresh selection) or the previously-applied
+        #    select colour (re-paint when the override changed mid-drag).
         for cid in selected:
             grp = self._comp_groups.get(cid)
             if not isinstance(grp, QGraphicsItemGroup):
@@ -659,11 +681,18 @@ class BoardView(QGraphicsView):
             recoloured = self._set_outline_colour(
                 grp, QColor(theme.comp_border), select_rgb, match_rgb=border_rgb
             )
+            if cid in self._cyan_outlined and prev_rgb != (select_rgb.rgb() & 0x00FFFFFF):
+                # Already outlined in the previous colour — repaint to the new one.
+                self._set_outline_colour(
+                    grp, select_rgb, select_rgb, match_rgb=prev_rgb
+                )
+                recoloured = True
             if recoloured:
                 self._cyan_outlined.add(cid)
             elif cid not in self._svg_select_overlays:
-                # No recolourable native outline (SVG body) — cyan bbox overlay.
+                # No recolourable native outline (SVG body) — bbox overlay.
                 self._add_svg_select_overlay(cid, select_rgb, theme.select_width)
+        self._applied_outline_rgb = select_rgb.rgb() & 0x00FFFFFF
 
         # 3. Selected *groups* get their outline rect recoloured to cyan too.
         self._recolour_selected_group_outlines(theme, select_rgb)
@@ -671,6 +700,24 @@ class BoardView(QGraphicsView):
         #    outline above; wires can't be "outlined", so we overdraw instead).
         self._redraw_selected_wire_overlays()
         return selected
+
+    def set_selection_outline_override(self, color: QColor | None) -> None:
+        """Override the selection-outline colour (None → back to theme cyan).
+
+        Used by SelectTool during a drag: amber for a SOFT (removable) conflict,
+        red for a HARD (blocked) one, so the selection highlight itself shows the
+        drop's consequence — instead of a separate overlay.  Re-runs the
+        highlight pass so the change paints immediately.
+        """
+        new_rgb = color.rgb() & 0x00FFFFFF if color is not None else None
+        cur_rgb = (
+            self._select_outline_override.rgb() & 0x00FFFFFF
+            if self._select_outline_override is not None else None
+        )
+        if new_rgb == cur_rgb:
+            return  # no change → skip the repaint
+        self._select_outline_override = QColor(color) if color is not None else None
+        self._apply_highlight_opacity()
 
     def _recolour_selected_group_outlines(
         self, theme: Theme, select_rgb: QColor

@@ -1410,6 +1410,63 @@ class TestWireAndPadHighlight:
         view._apply_highlight_opacity_impl()
 
 
+class TestDragConflictOutline:
+    """A live drag conflict recolours the selection outline (red HARD / amber
+    SOFT), restoring cyan when clear — replaces the dropped dashed overlay.
+    """
+
+    def test_severity_drives_outline_override(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.tools.drag_commit_decision import (
+            DragCommitDecision,
+            DragSeverity,
+        )
+
+        _place(board_view, session, 0.5, 0.5)
+        board_view.refresh()
+        tool = _v2(board_view)
+
+        # HARD → red override.
+        tool._show_conflict_corner(
+            DragCommitDecision(severity=DragSeverity.HARD, description="x")
+        )
+        hard = board_view._select_outline_override
+        assert hard is not None and hard.red() > hard.green()  # reddish
+
+        # SOFT → amber override (more green than red's, still warm).
+        tool._show_conflict_corner(
+            DragCommitDecision(severity=DragSeverity.SOFT, description="y")
+        )
+        soft = board_view._select_outline_override
+        assert soft is not None and soft.green() > hard.green()  # amber vs red
+
+        # CLEAR → back to cyan (override removed).
+        tool._show_conflict_corner(
+            DragCommitDecision(severity=DragSeverity.CLEAR)
+        )
+        assert board_view._select_outline_override is None
+
+    def test_clear_drag_corner_resets_outline(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.gui.tools.drag_commit_decision import (
+            DragCommitDecision,
+            DragSeverity,
+        )
+
+        _place(board_view, session, 0.5, 0.5)
+        board_view.refresh()
+        tool = _v2(board_view)
+        tool._show_conflict_corner(
+            DragCommitDecision(severity=DragSeverity.HARD, description="x")
+        )
+        assert board_view._select_outline_override is not None
+        # Any drag-end path routes through _clear_drag_corner → outline resets.
+        tool._clear_drag_corner()
+        assert board_view._select_outline_override is None
+
+
 class TestContextMenu:
     """Right-click rebuilds the unified item-aware menu (bug #2 regression).
 

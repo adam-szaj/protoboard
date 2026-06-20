@@ -1175,6 +1175,17 @@ class SelectTool(_Tool):
             else "Drops/edits some wires on release"
         )
         self._show_drag_corner(text, color)
+        # Flip the selection-outline colour to match the conflict severity —
+        # red HARD / amber SOFT — so the dragged bodies' own highlight signals
+        # the drop's consequence (replaces the legacy dashed conflict overlay).
+        self._set_drag_outline(color)
+
+    def _set_drag_outline(self, color: object) -> None:
+        """Drive BoardView's selection-outline override (None → back to cyan)."""
+        view = self._view
+        setter = getattr(view, "set_selection_outline_override", None)
+        if setter is not None:
+            setter(color)
 
     def _rotate_preview(self, decision: DragCommitDecision | None) -> None:
         """Live armed-rotate feedback: re-render the rotated bodies + conflict.
@@ -1255,6 +1266,10 @@ class SelectTool(_Tool):
     def _clear_drag_corner(self) -> None:
         if self._drag_corner is not None and self._view is not None:
             self._drag_corner.hide(self._view.scene())
+        # The conflict outline colour travels with the corner label — clear it
+        # together so the selection returns to cyan when the conflict resolves
+        # or the drag ends (every drag-end path routes through here).
+        self._set_drag_outline(None)
 
     def _build_drag_set(self, sel: Selectable) -> DragSet:
         """Snapshot what the grab moves: free components, or whole groups.
