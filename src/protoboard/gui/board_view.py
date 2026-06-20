@@ -577,9 +577,14 @@ class BoardView(QGraphicsView):
         # net is in context", the cyan outline says "this is what you picked".
         selected_comp_ids = self._recolour_selected_outlines()
 
-        # Bright neon discs on the highlighted net's pads — the pad layer alone
-        # never reacts to selection, so this is the only "these pads" signal.
-        self._redraw_net_pad_highlights(net_ids)
+        # Bright neon discs on the pads of every net the *selection* actually
+        # touches.  Driving this off the single published ``net_id`` was wrong:
+        # a multi-net component publishes only one arbitrary net (frozenset
+        # iteration order), so the same pad lit regardless of what was selected.
+        # Derive the net set from the tool's real selection (before the net
+        # expansion above inflates highlighted_comp_ids) so a selected component
+        # lights exactly the nets it sits on.
+        self._redraw_net_pad_highlights(self._selection_disc_net_ids(net_ids))
 
         # Invalidate the back-cache pixmap when the *set* of highlighted
         # items changes — opacity-only shifts (same set, different alpha
@@ -854,6 +859,35 @@ class BoardView(QGraphicsView):
         except RuntimeError:
             # C++ item already destroyed by a scene rebuild — nothing to do.
             pass
+
+    def _selection_disc_net_ids(self, fallback: set[uuid.UUID]) -> set[uuid.UUID]:
+        """Nets whose pads should get bright discs: every net the *current
+        selection* (the tool's real selected comps/wires) actually touches.
+
+        Reads the active tool's ``_selected_ids`` / ``_selected_wire_ids`` (the
+        selection before any net-expansion), so a multi-net component lights all
+        the nets it sits on — not one arbitrary one.  Falls back to *fallback*
+        (the published net_id set, e.g. RouteTool's routing net) when the active
+        tool exposes no selection.
+        """
+        tool = self._active_tool
+        sel_comps = getattr(tool, "_selected_ids", None)
+        sel_wires = getattr(tool, "_selected_wire_ids", None)
+        if sel_comps is None and sel_wires is None:
+            return set(fallback)
+        out: set[uuid.UUID] = set(fallback)
+        session = self._session
+        for cid in (sel_comps or set()):
+            for n in session.schematic.nets.values():
+                if any(ref.component_id == cid for ref in n.pins):
+                    out.add(n.id)
+        if sel_wires:
+            wire_net_map = session.cached_wire_net_map()
+            for wid in sel_wires:
+                wnid = wire_net_map.get(wid)
+                if wnid is not None:
+                    out.add(wnid)
+        return out
 
     def _redraw_net_pad_highlights(self, net_ids: set[uuid.UUID]) -> None:
         """Draw bright-yellow discs on every pad of the *highlighted nets*.

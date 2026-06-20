@@ -1249,6 +1249,77 @@ class TestWireAndPadHighlight:
         # The wire's net has a 1-pin component (X1) → at least one pad disc.
         assert view._net_pad_highlight_items
 
+    def test_discs_follow_selected_component_net_not_arbitrary(self, qtbot) -> None:
+        """Selecting a component lights ITS net's pads — not one constant net.
+
+        Regression: _anchor_net_id published next(iter(frozenset)) — a single
+        arbitrary net by hash order — so the same pad lit regardless of what was
+        selected, and other pads never reacted.  Discs now follow the actual
+        selection's nets.
+        """
+        import uuid as _uuid
+        from pathlib import Path
+
+        from protoboard.domain.board.board import Board
+        from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
+        from protoboard.domain.board.pads import PadLayers
+        from protoboard.domain.components.definition import ComponentDefinition
+        from protoboard.domain.components.footprints import SIL
+        from protoboard.domain.components.instance import ComponentInstance
+        from protoboard.domain.layout.placement import ComponentPlacement
+        from protoboard.domain.schematic.net import Net, PinRef
+        from protoboard.geometry import Point
+        from protoboard.services.library.loader import load_library
+
+        grid = BoardGrid(
+            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=10, cols=10, row_gap=0.0, col_gap=0.0,
+        )
+        lib = load_library([Path(__file__).parent.parent / "fixtures" / "library"])
+        session = EditorSession(board=Board(root=grid), library=lib)
+        defn = ComponentDefinition(name="D1", footprint=SIL(1), pin_names={1: "A"})
+        session.components["D1"] = defn
+        c1 = ComponentInstance.new(definition_ref="D1", refdes="U1", value="")
+        c2 = ComponentInstance.new(definition_ref="D1", refdes="U2", value="")
+        session.instances[c1.id] = c1
+        session.instances[c2.id] = c2
+        session.layout.placements[c1.id] = ComponentPlacement(
+            component_id=c1.id, position=Point(1.5, 1.5), rotation=0, side="top")
+        session.layout.placements[c2.id] = ComponentPlacement(
+            component_id=c2.id, position=Point(5.5, 1.5), rotation=0, side="top")
+        # U1 → netA only, U2 → netB only.
+        session.schematic.nets[_uuid.uuid4()] = Net(
+            id=_uuid.uuid4(), name="NA", pins={PinRef(c1.id, 1)})
+        nb = Net(id=_uuid.uuid4(), name="NB", pins={PinRef(c2.id, 1)})
+        session.schematic.nets[nb.id] = nb
+        session.invalidate_graph()
+        view = BoardView(session)
+        qtbot.addWidget(view)
+        view.refresh()
+        tool = _v2(view)
+
+        def _disc_centers() -> set:
+            return {
+                (round(i.rect().center().x(), 1), round(i.rect().center().y(), 1))
+                for i in view._net_pad_highlight_items
+            }
+
+        tool._select_primary(c1.id)
+        view._apply_highlight_opacity_impl()
+        u1_discs = _disc_centers()
+        tool._select_primary(c2.id)
+        view._apply_highlight_opacity_impl()
+        u2_discs = _disc_centers()
+
+        # Each lights its own pad position — and the two sets differ.
+        assert (1.5, 1.5) in u1_discs
+        assert (5.5, 1.5) in u2_discs
+        assert u1_discs != u2_discs  # not the same constant pad
+
     def test_scene_rebuild_while_wire_selected_is_clean(self, qtbot) -> None:
         """Scene wipe must drop overlay refs, not leave dead C++ wrappers."""
         session, view = _wire_session(qtbot)
