@@ -116,7 +116,7 @@ packages:
     description: "DIP-8 / DIL-8, 0.3 inch rows"
     # Body narrower than the 0.3in row spacing so the legs show on both sides;
     # length runs a little past the end pins.  (width 4.96 / length 10.04 mm.)
-    dims: {width: 4.96, length: 10.04, height: 4.0}
+    dims: {width: 6.25, length: 9.20, height: 4.0}
     leads:
       body_offset:
         unit: 2.5

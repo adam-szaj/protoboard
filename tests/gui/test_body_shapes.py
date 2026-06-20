@@ -545,18 +545,22 @@ class TestSmdChipBody:
         c = items[0].sceneBoundingRect().center()
         assert (round(c.x(), 2), round(c.y(), 2)) == (1.0, 0.0)
 
-    def test_body_spans_both_pads(self, qtbot: QtBot) -> None:
-        # The chip bridges the two holes: its body reaches both pad centres.
+    def test_body_shorter_than_pad_span(self, qtbot: QtBot) -> None:
+        # A real chip sits *between* its pads at its declared length, shorter
+        # than the hole pitch — it does not stretch to reach the pad centres.
+        # The body covers the midpoint but leaves the terminals (pad centres)
+        # outside, so the metallised pads stay visible at each end.
         from PySide6.QtCore import QPointF
         items = PackageBody(_smd_chip_package()).draw(  # type: ignore[arg-type]
             _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
         body = items[0]
         assert isinstance(body, QGraphicsPathItem)
         place = body.sceneTransform()
-        for pad in (QPointF(0.0, 0.0), QPointF(1.0, 0.0)):
-            # Map the scene pad into the body's local frame, then test coverage.
-            local = place.inverted()[0].map(pad)
-            assert body.path().contains(local)
+        midpoint, pads = QPointF(0.5, 0.0), (QPointF(0.0, 0.0), QPointF(1.0, 0.0))
+        # Map scene points into the body's local frame, then test coverage.
+        assert body.path().contains(place.inverted()[0].map(midpoint))
+        for pad in pads:
+            assert not body.path().contains(place.inverted()[0].map(pad))
 
     def test_diagonal_placement_aligns_to_pad_axis(self, qtbot: QtBot) -> None:
         # Diagonally-adjacent pads → the body rotates to the 45° pad axis and

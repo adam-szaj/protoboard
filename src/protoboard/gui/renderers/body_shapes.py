@@ -842,11 +842,12 @@ class PackageBody(BodyShape):
         mid_x = (p1.x + p2.x) / 2.0
         mid_y = (p1.y + p2.y) / 2.0
         angle_deg = math.degrees(math.atan2(dy, dx))
-        # The body bridges the pads: it spans the pad gap plus a small overhang
-        # (a fraction of a hole) so the terminals sit just under the chip ends —
-        # not the full body width, which made it read as a long thin rectangle.
-        _SMD_END_OVERHANG = 0.25  # holes past each pad
-        length = max(body_len, dist + 2.0 * _SMD_END_OVERHANG)
+        # The chip is drawn at its declared body length, centred on the pad
+        # midpoint — a real SMD chip is shorter than the pad pitch and sits
+        # between the pads, leaving the metallised pads visible at each end.
+        # (It is *not* stretched to span the pad gap, which read as a long thin
+        # rectangle.)
+        length = body_len
         r = min(_package_corner_radius(pkg) / mm, body_w / 2.0, length / 2.0)
 
         path = QPainterPath()
