@@ -186,7 +186,7 @@ class TestCyanSelectionOutline:
     ) -> None:
         """A scene rebuild (as during drag) must not leave dead overlay refs.
 
-        Regression: the cyan SVG-overlay rects were kept across a scene clear,
+        Regression: the cyan selection overlays were kept across a scene clear,
         so the next recolour pass touched already-deleted C++ items
         (libshiboken "already deleted") — which aborted the highlight refresh
         and broke dragging.
@@ -194,12 +194,12 @@ class TestCyanSelectionOutline:
         inst = _place(board_view, session, 0.5, 0.5)
         board_view.refresh()
         tool = _v2(board_view)
-        _click(tool, 0.5, 0.5)  # select → may register a cyan / SVG overlay
+        _click(tool, 0.5, 0.5)  # select → registers a cyan outline + dashed bbox
         assert inst.id in _comp_ids(tool)
 
         # Simulate the scene wipe + rebuild that a drag refresh performs.
         board_view._invalidate_all_groups()
-        assert not board_view._svg_select_overlays  # refs dropped, not dangling
+        assert not board_view._selection_bbox_overlays  # refs dropped, not dangling
         assert not board_view._cyan_outlined
         board_view.refresh()
 
@@ -1633,21 +1633,21 @@ class TestDragConflictOutline:
         assert grp.opacity() == 1.0
         assert not tool._ghosted_wire_ids
 
-    def test_svg_overlay_follows_committed_rotate(
+    def test_selection_bbox_follows_committed_rotate(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        """The SVG selection bbox rect re-syncs to the component after a rotate.
+        """The dashed selection bbox re-syncs to the component after a rotate.
 
         Regression: the standalone overlay rect lingered at the pre-rotate
         position/size because it doesn't ride the comp group's refresh.
         """
-        inst = _place(board_view, session, 2.5, 2.5)  # R → SVG body
+        inst = _place(board_view, session, 2.5, 2.5)
         board_view.refresh()
         tool = _v2(board_view)
         tool._select_primary(inst.id)
         board_view.refresh()
-        rect = board_view._svg_select_overlays.get(inst.id)
-        assert rect is not None  # SVG-bodied → bbox overlay
+        rect = board_view._selection_bbox_overlays.get(inst.id)
+        assert rect is not None  # dashed bbox drawn for the selection
         before = (round(rect.rect().width(), 2), round(rect.rect().height(), 2))
 
         tool._rotate_selected(delta=90)

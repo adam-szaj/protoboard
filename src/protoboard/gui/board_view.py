@@ -233,10 +233,8 @@ class BoardView(QGraphicsView):
         self._last_highlight_signature: int = 0
         # Cyan selection outline: comp_ids whose body outline we recoloured
         # to the select colour (so we can restore them when they leave the
-        # selection), plus the bbox-rect overlays drawn for SVG-bodies whose
-        # baked-in outline cannot be recoloured in place.
+        # selection).
         self._cyan_outlined: set[uuid.UUID] = set()
-        self._svg_select_overlays: dict[uuid.UUID, QGraphicsRectItem] = {}
         # Thin dashed bounding box around each selected component (separate from
         # the bright body outline above).  Toggled by AppSettings.
         # show_selection_bbox via set_show_selection_bbox().
@@ -694,18 +692,20 @@ class BoardView(QGraphicsView):
                     grp, select_rgb, QColor(theme.comp_border),
                     match_rgb=prev_rgb,
                 )
-        for cid in set(self._svg_select_overlays) - selected:
-            self._remove_svg_select_overlay(cid)
         self._cyan_outlined &= selected
 
         # 2. Apply the select colour to the selected components.  Match either
         #    the neutral border (fresh selection) or the previously-applied
-        #    select colour (re-paint when the override changed mid-drag).
+        #    select colour (re-paint when the override changed mid-drag).  Every
+        #    component renders a parametric ``PackageBody`` whose outline pen can
+        #    be recoloured in place, so the selection highlight is always the
+        #    cyan body outline; the separate thin dashed bbox (step 5) is the
+        #    only bbox overlay.
         for cid in selected:
             grp = self._comp_groups.get(cid)
             if not isinstance(grp, QGraphicsItemGroup):
                 continue
-            recoloured = self._set_outline_colour(
+            self._set_outline_colour(
                 grp, QColor(theme.comp_border), select_rgb, match_rgb=border_rgb
             )
             if cid in self._cyan_outlined and prev_rgb != (select_rgb.rgb() & 0x00FFFFFF):
@@ -713,17 +713,7 @@ class BoardView(QGraphicsView):
                 self._set_outline_colour(
                     grp, select_rgb, select_rgb, match_rgb=prev_rgb
                 )
-                recoloured = True
-            if recoloured:
-                self._cyan_outlined.add(cid)
-            elif cid not in self._svg_select_overlays:
-                # No recolourable native outline (SVG body) — bbox overlay.
-                self._add_svg_select_overlay(cid, select_rgb, theme.select_width)
-            else:
-                # Overlay already present — re-sync it to the current bbox /
-                # colour so it follows a committed rotate / move (regression:
-                # the rect lingered at the old position).
-                self._update_svg_select_overlay(cid, select_rgb, theme.select_width)
+            self._cyan_outlined.add(cid)
         self._applied_outline_rgb = select_rgb.rgb() & 0x00FFFFFF
 
         # 3. Selected *groups* get their outline rect recoloured to cyan too.
@@ -838,61 +828,6 @@ class BoardView(QGraphicsView):
             child.setPen(new_pen)
             changed = True
         return changed
-
-    def _add_svg_select_overlay(
-        self, comp_id: uuid.UUID, colour: QColor, width: float
-    ) -> None:
-        """Draw a cyan bbox rect over an SVG-bodied component (outline fallback)."""
-        from protoboard.gui.layer_state import Z_SELECTION
-
-        bbox = self._session.component_bbox(comp_id)
-        if bbox is None:
-            return
-        m = 0.06
-        rect = QGraphicsRectItem(
-            QRectF(bbox.x - m, bbox.y - m, bbox.width + 2 * m, bbox.height + 2 * m)
-        )
-        rect.setPen(QPen(QColor(colour), width))
-        rect.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-        rect.setZValue(Z_SELECTION)
-        self._scene.addItem(rect)
-        self._svg_select_overlays[comp_id] = rect
-
-    def _update_svg_select_overlay(
-        self, comp_id: uuid.UUID, colour: QColor, width: float
-    ) -> None:
-        """Re-sync an existing SVG bbox overlay to the component's current bbox
-        and colour.  Without this the rect lingers at the pre-rotate/-move
-        position (the standalone scene item doesn't ride the comp group's
-        setPos / refresh)."""
-        rect = self._svg_select_overlays.get(comp_id)
-        if rect is None:
-            return
-        bbox = self._session.component_bbox(comp_id)
-        if bbox is None:
-            return
-        m = 0.06
-        try:
-            rect.setRect(
-                QRectF(bbox.x - m, bbox.y - m,
-                       bbox.width + 2 * m, bbox.height + 2 * m)
-            )
-            rect.setPen(QPen(QColor(colour), width))
-        except RuntimeError:
-            # C++ item gone (scene rebuilt between passes) — drop the stale ref.
-            self._svg_select_overlays.pop(comp_id, None)
-
-    def _remove_svg_select_overlay(self, comp_id: uuid.UUID) -> None:
-        rect = self._svg_select_overlays.pop(comp_id, None)
-        if rect is None:
-            return
-        try:
-            if rect.scene() is self._scene:
-                self._scene.removeItem(rect)
-        except RuntimeError:
-            # The underlying C++ item was already destroyed by a scene rebuild
-            # between recolour passes — nothing to remove.
-            pass
 
     # -- selection bounding box (thin dashed rect, opt-in) -----------------
     #
@@ -1682,11 +1617,11 @@ class BoardView(QGraphicsView):
         self._wire_groups.clear()
         self._wire_fingerprints.clear()
         self._overlay_items.clear()
-        # The cyan selection-outline overlays/state reference items that the
-        # scene clear just destroyed — drop the refs (do NOT removeItem; the
-        # C++ objects are already gone).  Without this, the next recolour pass
-        # touches dead wrappers (libshiboken "already deleted").
-        self._svg_select_overlays.clear()
+        # The selection-outline state and the dashed-bbox overlays reference
+        # items that the scene clear just destroyed — drop the refs (do NOT
+        # removeItem; the C++ objects are already gone).  Without this, the next
+        # recolour pass touches dead wrappers (libshiboken "already deleted").
+        self._selection_bbox_overlays.clear()
         self._cyan_outlined.clear()
         self._cyan_group_outlined.clear()
         # Same for the bright wire-select overlays: the scene clear destroyed
