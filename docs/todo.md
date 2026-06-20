@@ -21,9 +21,42 @@ were consciously deferred:
 
 2. **No GUI editor for per-instance appearance.** The override is YAML-driven only
    (component definition or `instances.yaml`). There is no Properties-panel control
-   nor a `SetAppearanceCommand` (cf. the existing `SetPackageVariantCommand`). To
-   finish: add an undoable command + a Properties-panel colour/radius control that
-   sets `ComponentInstance.appearance`.
+   nor a `SetAppearanceCommand` (cf. the existing `SetPackageVariantCommand`).
+
+   **Planned (decided 2026-06-20, deferred — pick up cold):** edit a selected
+   instance's body colour + corner radius in the Properties panel.
+   - **UX (decided):** two **text fields** — colour as `#RRGGBBAA`, radius as float
+     mm (NOT a QColorDialog swatch). Commit via the **existing Apply button** (like
+     refdes/value), not live-on-pick. **Empty field = no override** (clear the field
+     → falls back to the package colour/radius: empty colour → `color=None`, empty
+     radius → `corner_radius_mm=None`).
+   - **(1) Command** — add `SetComponentAppearanceCommand` to
+     `domain/commands/component_cmds.py`, mirroring `SetComponentPackageVariantCommand`
+     (`:1221-1252`): `dataclasses.replace(inst, appearance=…)` into
+     `state.instances[id]`, `_old` saved in apply / restored in revert. Match the
+     base method names (`apply`/`revert`) of that command.
+   - **(2) Recording** — register `"set_appearance"` in
+     `services/recording/serialization.py` (mirror the `set_package_variant`
+     registration `:503-506`): `to` emits `{component_id, color, corner_radius}`
+     (None-safe), `from` rebuilds `Appearance(...)` or `None`. Reuse `_uuid_to/_from`,
+     `_register`.
+   - **(3) Properties panel** (`gui/panels/properties_panel.py`, **signal-out**, holds
+     no session): add `appearance_changed = Signal(uuid.UUID, object)` (`:44-54`); two
+     `QLineEdit`s as `QFormLayout` rows near the Body row (`:114`); populate them in
+     `show_component` (`:177`) from `inst.appearance`, blank in `clear_component`
+     (`:203`); in `_on_apply` (`:487-503`) build an `Appearance` from the fields and
+     emit `appearance_changed` (validate via the domain — reject a bad colour, do not
+     emit; only emit when changed, to avoid no-op undo entries). Emit it as a sibling
+     of the existing `pin_offsets_changed` from Apply.
+   - **(4) MainWindow** — connect near `:336-340`; add `_on_appearance_changed`
+     mirroring `_on_package_variant_changed` (`:2692-2706`):
+     `stack.execute(cmd, cast(ComponentState, self._session))` + `mark_dirty()` +
+     `board_view.refresh()`. **No renderer change** — `instance.appearance` already
+     flows `body_shape_for` → `PackageBody`; refresh re-renders.
+   - **Tests:** command apply/revert (incl. None→set→None); serializer round-trip
+     (`test_command_recording.py`); panel populate + emit + bad-colour rejection.
+     Drive panel signals/slots directly (heavy Qt event loops hang under pytest-qt).
+     Then mark this item done + note GUI editing in `authoring.md` §8.
 
 ## SelectTool — deferred parity items (after the rewrite landed)
 
