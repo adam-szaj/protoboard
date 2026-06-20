@@ -69,12 +69,16 @@ class Hit:
     on (when the click resolved through the nearest-pin path) — used
     by the highlight pipeline to scope relation to a single net.
     None when the hit came from a bbox-fallback (no specific pin) or
-    when the kind is not "component".
+    when the kind is not "component".  It is **metadata, not identity**:
+    excluded from eq/hash so a pin-pad hit and a body hit on the same
+    component compare equal (selection is keyed on the object, not the
+    pin) — otherwise pressing a selected component's pad would read as a
+    fresh object and collapse a multi-selection.
     """
 
     kind: HitKind
     id: object
-    pin_number: int | None = None
+    pin_number: int | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         # ``frozen=True`` blocks setattr, so we validate here.

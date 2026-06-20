@@ -44,6 +44,11 @@ if TYPE_CHECKING:
 
 # Thresholds — identical to the legacy SelectTool constants.
 HIT_RADIUS = 0.5  # pin reach (Euclidean, raster units)
+# A click counts as landing *on a pin-pad* (→ that pin's net context) only when
+# this close to the pin; between PAD_HIT_RADIUS and HIT_RADIUS the component is
+# still selected, but as a body click (no net context).  Mirrors
+# ``Theme.pad_radius`` (kept a constant so the hit-test stays Theme-free).
+PAD_HIT_RADIUS = 0.35
 BBOX_MARGIN = 0.45  # component bbox padding
 WIRE_HIT_DIST = 0.35  # perpendicular distance to a wire segment
 NODE_HIT_RADIUS = 0.32  # wire-vertex reach (Euclidean, raster units)
@@ -153,11 +158,14 @@ class HitTester:
         f = filters if filters is not None else SelectionFilters()
 
         if f.components:
-            cid = self._hit_component_pin(x, y)
-            if cid is not None:
+            pin_hit = self._hit_component_pin(x, y)
+            if pin_hit is not None:
+                cid, pin_number = pin_hit
                 pl = self._ctx.layout.placements.get(cid)
                 if pl is not None:
-                    return ComponentSelectable(component_id=cid, placement=pl)
+                    return ComponentSelectable(
+                        component_id=cid, placement=pl, pin_number=pin_number,
+                    )
 
         if f.wires:
             wid = self._hit_wire(x, y)
@@ -174,11 +182,14 @@ class HitTester:
                     return GroupSelectable(group=grp)
 
         if f.components:
-            cid = self._hit_component_bbox(x, y)
-            if cid is not None:
-                pl = self._ctx.layout.placements.get(cid)
+            bbox_cid = self._hit_component_bbox(x, y)
+            if bbox_cid is not None:
+                pl = self._ctx.layout.placements.get(bbox_cid)
                 if pl is not None:
-                    return ComponentSelectable(component_id=cid, placement=pl)
+                    # bbox fallback = body click → no pin context.
+                    return ComponentSelectable(
+                        component_id=bbox_cid, placement=pl, pin_number=None,
+                    )
 
         return None
 
@@ -305,27 +316,37 @@ class HitTester:
                 out.update(index.get((cell_x + dcx, cell_y + dcy), []))
         return out
 
-    def _hit_component_pin(self, px: float, py: float) -> uuid.UUID | None:
-        """Nearest component within HIT_RADIUS; camera-side preferred."""
-        front_best: uuid.UUID | None = None
+    def _hit_component_pin(
+        self, px: float, py: float
+    ) -> tuple[uuid.UUID, int | None] | None:
+        """Nearest component within HIT_RADIUS; camera-side preferred.
+
+        Returns ``(comp_id, pin_number)`` where ``pin_number`` is the nearest
+        pin **only when the click landed within ``PAD_HIT_RADIUS`` of it** (→ a
+        genuine pin-pad click, carrying that pin's net context); otherwise
+        ``None`` (the component is still selected, but as a body click with no
+        net context).  Returns ``None`` outright when nothing is within reach.
+        """
+        front_best: tuple[uuid.UUID, int] | None = None
         front_d = math.inf
-        back_best: uuid.UUID | None = None
+        back_best: tuple[uuid.UUID, int] | None = None
         back_d = math.inf
         for cid in self._candidates(self._ctx.comp_spatial_index(), px, py):
             pl = self._ctx.layout.placements.get(cid)
             if pl is None:
                 continue
-            for _pin, pos in self._ctx.iter_pin_positions(cid):
+            for pin, pos in self._ctx.iter_pin_positions(cid):
                 d = math.hypot(px - pos.x, py - pos.y)
                 if pl.side == self._camera:
                     if d < front_d:
-                        front_d, front_best = d, cid
+                        front_d, front_best = d, (cid, pin)
                 elif d < back_d:
-                    back_d, back_best = d, cid
-        if front_best is not None and front_d <= HIT_RADIUS:
-            return front_best
-        if back_best is not None and back_d <= HIT_RADIUS:
-            return back_best
+                    back_d, back_best = d, (cid, pin)
+        for best, dist in ((front_best, front_d), (back_best, back_d)):
+            if best is not None and dist <= HIT_RADIUS:
+                cid, pin = best
+                # Pin context only when truly on the pad; otherwise body click.
+                return cid, (pin if dist <= PAD_HIT_RADIUS else None)
         return None
 
     def _hit_component_bbox(self, px: float, py: float) -> uuid.UUID | None:

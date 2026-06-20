@@ -1426,17 +1426,39 @@ class TestWireAndPadHighlight:
                 for i in view._net_pad_highlight_items
             }
 
+        net_a = next(n.id for n in session.schematic.nets.values() if n.name == "NA")
+        net_b = nb.id
+        # Discs follow the selection's *net context* (a pad click → that net),
+        # not all nets of selected components.  Drive the context directly.
         tool._select_primary(c1.id)
+        tool._context_net_id = net_a
         view._apply_highlight_opacity_impl()
         u1_discs = _disc_centers()
         tool._select_primary(c2.id)
+        tool._context_net_id = net_b
         view._apply_highlight_opacity_impl()
         u2_discs = _disc_centers()
 
-        # Each lights its own pad position — and the two sets differ.
+        # Each context lights its own net's pad — and the two sets differ.
         assert (1.5, 1.5) in u1_discs
         assert (5.5, 1.5) in u2_discs
-        assert u1_discs != u2_discs  # not the same constant pad
+        assert u1_discs != u2_discs  # context net drives it, not a constant pad
+
+    def test_body_select_no_context_no_discs(self, qtbot) -> None:
+        """A body click (no net context) lights no pads, even when netted."""
+        from protoboard.gui.selection.adapters import ComponentSelectable
+
+        session, view = _wire_session(qtbot)
+        view.refresh()
+        tool = _v2(view)
+        inst = next(iter(session.instances.values()))  # netted X1
+        # Select by body (pin_number=None) → context stays None → no discs.
+        pl = session.layout.placements[inst.id]
+        tool._selection.set(ComponentSelectable(component_id=inst.id, placement=pl))
+        tool._context_net_id = None
+        tool._refresh_highlight()
+        view._apply_highlight_opacity_impl()
+        assert view._net_pad_highlight_items == []
 
     def test_scene_rebuild_while_wire_selected_is_clean(self, qtbot) -> None:
         """Scene wipe must drop overlay refs, not leave dead C++ wrappers."""
@@ -1606,8 +1628,11 @@ class TestFreePinHint:
         msgs: list[str] = []
         tool._status = lambda m, t=3000: msgs.append(m)  # type: ignore[assignment]
 
+        # A pin-pad hit carries pin_number (the new hit-test contract).
         sel = ComponentSelectable(
-            component_id=inst.id, placement=session.layout.placements[inst.id]
+            component_id=inst.id,
+            placement=session.layout.placements[inst.id],
+            pin_number=1,
         )
         tool._hint_free_pin_under(sel, QPointF(1.5, 1.5))
         assert msgs == []  # netted pin → silent
@@ -1622,6 +1647,29 @@ class TestFreePinHint:
         assert "no net" in msgs[0]
         assert "Assign to net" in msgs[0]
 
+    def test_body_click_no_pin_no_hint(self, qtbot) -> None:
+        from PySide6.QtCore import QPointF
+
+        from protoboard.gui.selection.adapters import ComponentSelectable
+
+        session, view = _wire_session(qtbot)
+        view.refresh()
+        tool = _v2(view)
+        inst = next(iter(session.instances.values()))
+        # Disconnect so the pin is free — but a *body* hit (pin_number=None)
+        # must still stay silent: no pin context means no free-pin feedback.
+        from protoboard.domain.commands.component_cmds import DisconnectPinCommand
+        session.stack.execute(
+            DisconnectPinCommand(component_id=inst.id, pin_number=1), session,
+        )
+        msgs: list[str] = []
+        tool._status = lambda m, t=3000: msgs.append(m)  # type: ignore[assignment]
+        sel = ComponentSelectable(  # body hit: no pin_number
+            component_id=inst.id, placement=session.layout.placements[inst.id]
+        )
+        tool._hint_free_pin_under(sel, QPointF(1.5, 1.5))
+        assert msgs == []  # body click → no free-pin hint
+
     def test_no_hint_for_wire_or_empty(self, qtbot) -> None:
         from PySide6.QtCore import QPointF
 
@@ -1635,6 +1683,93 @@ class TestFreePinHint:
         wire = next(iter(session.layout.wires))
         tool._hint_free_pin_under(WireSelectable(wire=wire), QPointF(2.5, 1.5))
         assert msgs == []  # wire hit → never a free-pin hint
+
+
+class TestNetContext:
+    """Net context (drives bright pads) comes only from a pin-pad or wire click.
+
+    Click a pad → context = that pin's net; click body → no context; re-click a
+    different pin → context moves; click empty/Esc → cleared.  Pin number is
+    metadata on the Hit (excluded from identity), so a pad click on a selected
+    component doesn't read as a new object.
+    """
+
+    @staticmethod
+    def _ctx_session(qtbot):  # type: ignore[no-untyped-def]
+        import uuid as _uuid
+        from pathlib import Path
+
+        from protoboard.domain.board.board import Board
+        from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
+        from protoboard.domain.board.pads import PadLayers
+        from protoboard.domain.components.definition import ComponentDefinition
+        from protoboard.domain.components.footprints import SIL
+        from protoboard.domain.components.instance import ComponentInstance
+        from protoboard.domain.layout.placement import ComponentPlacement
+        from protoboard.domain.schematic.net import Net, PinRef
+        from protoboard.geometry import Point
+        from protoboard.services.library.loader import load_library
+
+        grid = BoardGrid(
+            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=10, cols=10, row_gap=0.0, col_gap=0.0,
+        )
+        lib = load_library([Path(__file__).parent.parent / "fixtures" / "library"])
+        sess = EditorSession(board=Board(root=grid), library=lib)
+        # 2-pin component: pin1 on netA, pin2 on netB.
+        sess.components["D2"] = ComponentDefinition(
+            name="D2", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+        inst = ComponentInstance.new(definition_ref="D2", refdes="U1", value="")
+        sess.instances[inst.id] = inst
+        sess.layout.placements[inst.id] = ComponentPlacement(
+            component_id=inst.id, position=Point(2.5, 2.5), rotation=0, side="top")
+        na = Net(id=_uuid.uuid4(), name="NA", pins={PinRef(inst.id, 1)})
+        nb = Net(id=_uuid.uuid4(), name="NB", pins={PinRef(inst.id, 2)})
+        sess.schematic.nets[na.id] = na
+        sess.schematic.nets[nb.id] = nb
+        sess.invalidate_graph()
+        view = BoardView(sess)
+        qtbot.addWidget(view)
+        view.refresh()
+        return sess, view, inst, na, nb
+
+    def test_pad_click_sets_pin_net_context(self, qtbot) -> None:
+        session, view, inst, na, nb = self._ctx_session(qtbot)
+        tool = _v2(view)
+        _click(tool, 2.5, 2.5)  # pin1 pad → netA
+        assert tool.context_net_id == na.id
+        _click(tool, 2.5, 3.5)  # re-click pin2 pad → context moves to netB
+        assert tool.context_net_id == nb.id
+        assert inst.id in _comp_ids(tool)  # component stays selected
+
+    def test_body_click_clears_context(self, qtbot) -> None:
+        session, view, inst, na, nb = self._ctx_session(qtbot)
+        tool = _v2(view)
+        _click(tool, 2.5, 2.5)  # pin1 → netA context
+        assert tool.context_net_id == na.id
+        _click(tool, 2.5, 2.92)  # body band (0.42 off pad) → no context
+        assert tool.context_net_id is None
+        assert inst.id in _comp_ids(tool)  # still selected (body click)
+
+    def test_context_persists_across_rotate(self, qtbot) -> None:
+        session, view, inst, na, nb = self._ctx_session(qtbot)
+        tool = _v2(view)
+        _click(tool, 2.5, 2.5)  # netA context
+        assert tool.context_net_id == na.id
+        tool._rotate_selected(delta=90)
+        assert tool.context_net_id == na.id  # context survives the rotate
+
+    def test_empty_click_clears_context(self, qtbot) -> None:
+        session, view, inst, na, nb = self._ctx_session(qtbot)
+        tool = _v2(view)
+        _click(tool, 2.5, 2.5)
+        assert tool.context_net_id == na.id
+        _click(tool, 8.5, 8.5)  # empty board
+        assert tool.context_net_id is None
 
 
 class TestContextMenu:

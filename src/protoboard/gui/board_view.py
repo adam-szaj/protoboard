@@ -261,6 +261,12 @@ class BoardView(QGraphicsView):
         # last refresh's classify_pin_pads (avoids a recompute per highlight).
         self._net_pad_highlight_items: list[object] = []
         self._pin_pad_records: list[object] = []
+        # World position of the single *clicked free pin-pad* (no net), drawn as
+        # a light ring — click feedback that the pad is active (and its context
+        # menu offers "assign to net").  None = no free pad clicked.  A free pad
+        # has no net context, so it never gets the neon net disc; this ring is
+        # the only highlight it can carry, and only while it is the click target.
+        self._free_pad_ring_pos: Point | None = None
         # Scene items kept hidden while a valid _back_cache shows them
         # as a rasterised blit instead.  Restored on cache invalidation.
         self._back_hidden_items: list[object] = []
@@ -937,28 +943,30 @@ class BoardView(QGraphicsView):
             pass
 
     def _selection_disc_net_ids(self, fallback: set[uuid.UUID]) -> set[uuid.UUID]:
-        """Nets whose pads should get bright discs: every net the *current
-        selection* (the tool's real selected comps/wires) actually touches.
+        """Nets whose pads get the bright highlight (bhl), per the spec:
 
-        Reads the active tool's ``_selected_ids`` / ``_selected_wire_ids`` (the
-        selection before any net-expansion), so a multi-net component lights all
-        the nets it sits on — not one arbitrary one.  Falls back to *fallback*
-        (the published net_id set, e.g. RouteTool's routing net) when the active
-        tool exposes no selection.
+        * the selection's **net context** (``SelectTool.context_net_id``) — set
+          only by a click on a *pin-pad* (that pin's net) or a *wire* (the wire's
+          net); a body click / rubber-band / group carries none, so no discs;
+        * plus the nets of any **selected wires** — rule 5 "pads at those wires".
+
+        Components selected by body click contribute **nothing** (no net context).
+        Falls back to *fallback* (e.g. RouteTool's routing net) when the active
+        tool exposes no context (non-SelectTool tools).
         """
         tool = self._active_tool
-        sel_comps = getattr(tool, "_selected_ids", None)
+        ctx = getattr(tool, "context_net_id", "__missing__")
+        if ctx == "__missing__":
+            return set(fallback)  # not a SelectTool — keep the routing fallback
+        # SelectTool: discs come ONLY from the click context + selected wires —
+        # NOT the published net_id (which still drives dimming and is the union
+        # for a body click).  An empty result → no discs (body click / multi).
+        out: set[uuid.UUID] = set()
+        if isinstance(ctx, uuid.UUID):
+            out.add(ctx)
         sel_wires = getattr(tool, "_selected_wire_ids", None)
-        if sel_comps is None and sel_wires is None:
-            return set(fallback)
-        out: set[uuid.UUID] = set(fallback)
-        session = self._session
-        for cid in (sel_comps or set()):
-            for n in session.schematic.nets.values():
-                if any(ref.component_id == cid for ref in n.pins):
-                    out.add(n.id)
         if sel_wires:
-            wire_net_map = session.cached_wire_net_map()
+            wire_net_map = self._session.cached_wire_net_map()
             for wid in sel_wires:
                 wnid = wire_net_map.get(wid)
                 if wnid is not None:
@@ -987,6 +995,7 @@ class BoardView(QGraphicsView):
         from protoboard.gui.layer_state import Z_NET_PAD_HIGHLIGHT
 
         self._clear_net_pad_highlights()
+        self._draw_free_pad_ring()  # the clicked free-pad ring (net-independent)
         if not net_ids:
             return
         theme = self._theme_override if self._theme_override is not None else DEFAULT_THEME
@@ -1010,6 +1019,51 @@ class BoardView(QGraphicsView):
             item.setZValue(Z_NET_PAD_HIGHLIGHT)
             self._scene.addItem(item)
             self._net_pad_highlight_items.append(item)
+
+    def _draw_free_pad_ring(self) -> None:
+        """Draw the light ring on the clicked free pin-pad (if any).
+
+        A bright, near-white ring (brighter than the resting ``pin_free_color``)
+        at ``_free_pad_ring_pos`` — feedback that a netless pad was clicked.
+        Tracked in ``_net_pad_highlight_items`` so it is torn down with the discs
+        on the next highlight pass.  No-op when no free pad is the click target.
+        """
+        from PySide6.QtWidgets import QGraphicsEllipseItem
+
+        from protoboard.gui.layer_state import Z_NET_PAD_HIGHLIGHT
+
+        pos = self._free_pad_ring_pos
+        if pos is None:
+            return
+        theme = self._theme_override if self._theme_override is not None else DEFAULT_THEME
+        r = 0.7 * theme.pad_radius
+        ring_col = QColor("#F0F4F8")  # near-white, clearly brighter than grey free pads
+        pen = QPen(ring_col, 0.1)
+        item = QGraphicsEllipseItem(pos.x - r, pos.y - r, 2 * r, 2 * r)
+        item.setPen(pen)
+        item.setBrush(QBrush(Qt.BrushStyle.NoBrush))  # ring only, no fill
+        item.setZValue(Z_NET_PAD_HIGHLIGHT)
+        self._scene.addItem(item)
+        self._net_pad_highlight_items.append(item)
+
+    def set_clicked_free_pad(self, pos: Point | None) -> None:
+        """Set (or clear) the clicked free-pin pad whose ring is drawn.
+
+        Called by SelectTool when a press lands on a netless pin-pad (``pos``) or
+        on anything else (``None``).  Re-runs the highlight pass so the ring
+        appears / disappears immediately.
+        """
+        same = (
+            pos is None and self._free_pad_ring_pos is None
+        ) or (
+            pos is not None and self._free_pad_ring_pos is not None
+            and abs(pos.x - self._free_pad_ring_pos.x) < 1e-6
+            and abs(pos.y - self._free_pad_ring_pos.y) < 1e-6
+        )
+        if same:
+            return
+        self._free_pad_ring_pos = pos
+        self._apply_highlight_opacity()
 
     def _clear_net_pad_highlights(self) -> None:
         for item in self._net_pad_highlight_items:

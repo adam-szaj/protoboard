@@ -175,6 +175,13 @@ class SelectTool(_Tool):
         # deselects it when it was the only thing selected.  None when the press
         # was on something not selected (selection already happened on press).
         self._deferred_click_sel: Selectable | None = None
+        # The net context of the current selection — the single net whose pads
+        # get the bright highlight.  Set only by a click that lands on a
+        # *pin-pad* (→ that pin's net) or a *wire* (→ that wire's net); a body
+        # click / rubber-band / group / empty press clears it.  Persists across
+        # refresh / rotate / drag until the selection changes.  ``None`` ⇒ no
+        # net context ⇒ no bright pad discs.
+        self._context_net_id: uuid.UUID | None = None
         # Live-drag conflict label (corner text).  Lazily built on first
         # conflicting drag step; cleared the moment the drag returns to CLEAR
         # so the frame never lingers after the cursor leaves the conflict zone
@@ -394,15 +401,22 @@ class SelectTool(_Tool):
         basis, op = self._decode_modifiers(event)
         sel = self._hit_tester().hit(scene_pt.x(), scene_pt.y(), self._filters())
 
+        # Net context (drives the bright pad highlight) comes from the click
+        # itself: a pin-pad click → that pin's net, a wire click → the wire's
+        # net, anything else → none.  Set here, before the defer/toggle branches,
+        # so re-clicking a *different pin* of an already-selected component still
+        # moves the context to the new pin's net.
+        self._context_net_id = self._compute_context_net(sel)
+
+        #   Free-pin click feedback (status hint + light ring), or clear it when
+        #   the press is not on a free pin-pad.  Runs for every press — including
+        #   ``sel is None`` — so the ring never lingers.
+        self._hint_free_pin_under(sel, scene_pt)
+
         #   3a. Empty space → arm a rubber-band interaction.
         if sel is None:
             self._mouse = self._arm_band(scene_pt)
             return True
-
-        #   3a'. Free-pin click feedback: a press landing on an unassigned pin
-        #   highlights to nothing, so without a hint the click looks like a
-        #   no-op.  Confirm it landed and point to the assign action.
-        self._hint_free_pin_under(sel, scene_pt)
 
         #   3b. A plain (no-modifier) press arms a drag of the selection — the
         #   controller's own threshold decides drag-vs-click.  Selecting happens
@@ -523,6 +537,33 @@ class SelectTool(_Tool):
 
         nets = anchor.net_ids(SessionConnQuery(self._session))
         return next(iter(nets), None)
+
+    def _compute_context_net(self, sel: Selectable | None) -> uuid.UUID | None:
+        """The net context a click on *sel* establishes (drives bright pads).
+
+        A pin-pad hit (component Selectable with a ``pin_number``) → that pin's
+        single net.  A wire hit → the wire's net.  A *body* component hit
+        (``pin_number is None``), a group, or an empty press → ``None`` (no
+        context, so no bright pad discs).  This is intentionally narrower than
+        :meth:`_anchor_net_id`, which unions all of a component's nets.
+        """
+        if sel is None:
+            return None
+        hit = sel.to_hit()
+        if hit.kind == "component" and hit.pin_number is None:
+            return None  # body click — no net context
+        return self._anchor_net_id(sel)
+
+    @property
+    def context_net_id(self) -> uuid.UUID | None:
+        """The selection's net context (BoardView reads this to draw bright pads)."""
+        return self._context_net_id
+
+    def _clear_free_pad_ring(self) -> None:
+        """Tell BoardView to drop the clicked-free-pad ring (no-op headless)."""
+        setter = getattr(self._view, "set_clicked_free_pad", None)
+        if setter is not None:
+            setter(None)
 
     def _primary_selectable(self) -> Selectable | None:
         if self._selection is None:
@@ -653,6 +694,7 @@ class SelectTool(_Tool):
     def _clear_multi_selection(self) -> None:
         """Clear the whole selection."""
         self._selection.clear()
+        self._context_net_id = None
         self._refresh_highlight()
 
     def _redraw_multi_highlights(self) -> None:
@@ -2460,6 +2502,8 @@ class SelectTool(_Tool):
                 self.exit_group()
             else:
                 self._selection.clear()
+                self._context_net_id = None  # deselect drops the net context
+                self._clear_free_pad_ring()
                 self._refresh_highlight()
             event.accept()
 
@@ -3031,37 +3075,42 @@ class SelectTool(_Tool):
                 lambda _checked=False, _a=action_id: view._trigger_tool_action(_a)
             )
 
-    def _hint_free_pin_under(self, sel: Selectable, scene_pt: QPointF) -> None:
-        """Status-bar hint when the press lands on a pin with no net.
+    def _hint_free_pin_under(self, sel: Selectable | None, scene_pt: QPointF) -> None:
+        """Feedback when the press lands on a *free* (netless) pin-pad.
 
-        Restores the legacy ``_hint_free_pin`` feedback lost in the v2 rewrite:
-        a free pin's highlight resolves to nothing, so the click otherwise looks
-        like a no-op.  Only fires for a component hit whose nearest pin is
-        unassigned; netted pins and wires/groups are silent.
+        A free pin carries no net context, so it gets neither selection-net
+        dimming nor a neon disc — the click would look like a no-op.  Two
+        signals restore it: a status-bar hint and a light ring on the pad
+        (drawn by BoardView).  Both clear on any non-free-pin press.  Only a
+        component hit whose *clicked pin* is unassigned qualifies.
         """
         from protoboard.domain.schematic.net import PinRef
 
-        hit = sel.to_hit()
-        if hit.kind != "component" or not isinstance(hit.id, uuid.UUID):
-            return
-        pin = self._menu_clicked_pin(scene_pt, hit.id)
-        if pin is None:
-            return
-        if self._session.schematic.net_for_pin(
-            PinRef(component_id=hit.id, pin_number=pin)
-        ) is not None:
-            return  # netted → no hint
-        inst = self._session.instances.get(hit.id)
-        defn = (
-            self._session.components.get(inst.definition_ref)
-            if inst is not None else None
-        )
-        name = (
-            defn.pin_names.get(pin, str(pin)) if defn is not None else str(pin)
-        )
-        self._status(
-            f"Pin {pin} ({name}) — no net (right-click → Assign to net)", 4000
-        )
+        free_pos: Point | None = None
+        hit = sel.to_hit() if sel is not None else None
+        if hit is not None and hit.kind == "component" and isinstance(hit.id, uuid.UUID):
+            pin = hit.pin_number  # the on-pad pin (None for a body click)
+            if pin is not None and self._session.schematic.net_for_pin(
+                PinRef(component_id=hit.id, pin_number=pin)
+            ) is None:
+                free_pos = self._session.get_pin_position(hit.id, pin)
+                inst = self._session.instances.get(hit.id)
+                defn = (
+                    self._session.components.get(inst.definition_ref)
+                    if inst is not None else None
+                )
+                name = (
+                    defn.pin_names.get(pin, str(pin))
+                    if defn is not None else str(pin)
+                )
+                self._status(
+                    f"Pin {pin} ({name}) — no net (right-click → Assign to net)",
+                    4000,
+                )
+        # Drive the ring: position when a free pad was clicked, else clear it.
+        setter = getattr(self._view, "set_clicked_free_pad", None)
+        if setter is not None:
+            setter(free_pos)
 
     def _menu_clicked_pin(
         self, scene_pt: QPointF, comp_id: uuid.UUID
