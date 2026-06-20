@@ -95,6 +95,10 @@ _ACT_STEP_LEFT = "select-tool.action.step_left"
 _ACT_STEP_RIGHT = "select-tool.action.step_right"
 _ACT_STEP_UP = "select-tool.action.step_up"
 _ACT_STEP_DOWN = "select-tool.action.step_down"
+# Global relation-cycle actions (backtick / Shift+backtick) — the ids live in
+# keybindings.py with their own defaults; the tool dispatches them in on_key.
+_ACT_RELATION_CYCLE = "highlight_cycle"
+_ACT_RELATION_CYCLE_BACK = "relation_cycle_back"
 # Every action the armed sub-tools dispatch / veto against (the superset).
 _ARMED_ACTION_IDS: tuple[str, ...] = (
     _ACT_STEP_LEFT, _ACT_STEP_RIGHT, _ACT_STEP_UP, _ACT_STEP_DOWN,
@@ -771,12 +775,33 @@ class SelectTool(_Tool):
         return self._relation
 
     def set_relation(self, relation) -> None:  # type: ignore[no-untyped-def]
-        """Set the correlation axis used by Alt-select and the auto-highlight."""
-        from protoboard.gui.selection_axes import RelationClass
+        """Set the correlation axis used by Alt-select and the auto-highlight.
+
+        Emits ``session.highlight_mode_changed`` with the relation's label so the
+        status bar reflects the active mode — the legacy contract (lost in the v2
+        rewrite, restored by the parity test)."""
+        from protoboard.gui.selection_axes import RELATION_LABELS, RelationClass
 
         if isinstance(relation, RelationClass):
             self._relation = relation
             self._refresh_highlight()
+            if self._session is not None:
+                self._session.highlight_mode_changed.emit(
+                    RELATION_LABELS[relation]
+                )
+
+    def _cycle_relation(self, *, forward: bool = True) -> None:
+        """Step the relation axis to the next/previous class — backtick / Shift+`.
+
+        The keyboard counterpart to the status-bar relation widget; lost in the
+        v2 rewrite (the action ids existed in the KeyMap but nothing dispatched
+        them), restored by the parity test."""
+        from protoboard.gui.selection_axes import RelationClass
+
+        relations = list(RelationClass)
+        idx = relations.index(self._relation)
+        step = 1 if forward else -1
+        self.set_relation(relations[(idx + step) % len(relations)])
 
     @property
     def filter(self):  # type: ignore[no-untyped-def]
@@ -1217,13 +1242,32 @@ class SelectTool(_Tool):
         return False
 
     def _is_locked_in_group(self, comp_id: uuid.UUID) -> bool:
-        """True when *comp_id* belongs to a group other than the active context."""
-        tree = self._session.group_tree()
-        containing = tree.groups_containing_component(comp_id)
-        if not containing:
-            return False
-        # Free to drag alone only when the active context is one of its groups.
-        return self._current_group_id not in containing
+        """True when *comp_id* is a direct member of a group we view from outside.
+
+        A group is a "hand-crafted IC": from the outside it is a sealed package —
+        selection (for inspection / properties) is allowed, but layout-mutating
+        ops (drag, delete, rotate, flip) are not.  Stepping inside the group
+        (``_current_group_id`` advances to it) unlocks its direct members.
+
+        Locked iff the component's *direct* group is NOT the active group.
+
+        NB: do **not** use ``groups_containing_component`` here — it folds in the
+        parent chain up to ROOT, so for any grouped component ROOT is always in
+        the set, and with the default ROOT context the lock would never fire
+        (the v2-rewrite regression this guard was restored to catch).  The
+        direct-membership check, skipping ROOT, is the correct gate.
+        """
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+
+        active_gid = self._current_group_id
+        for gid, g in self._session.layout.groups.items():
+            if gid == ROOT_GROUP_ID:
+                continue
+            if comp_id not in g.component_ids:
+                continue
+            # Direct member of group `g`: locked unless we're inside `g`.
+            return gid != active_gid
+        return False
 
     def _anchor_component(self, sel: Selectable) -> uuid.UUID | None:
         import uuid as _uuid
@@ -2056,6 +2100,22 @@ class SelectTool(_Tool):
             if self._wire_edit_on_key(event):
                 return
 
+        # Relation-axis cycling: backtick forward, Shift+backtick back.  Match
+        # via the KeyMap (rebindable), with a raw Key_QuoteLeft fallback so it
+        # works headless where the KeyMap may be absent.
+        if self._key_matches(event, _ACT_RELATION_CYCLE_BACK) or (
+            key == Qt.Key.Key_QuoteLeft and shift
+        ):
+            self._cycle_relation(forward=False)
+            event.accept()
+            return
+        if self._key_matches(event, _ACT_RELATION_CYCLE) or (
+            key == Qt.Key.Key_QuoteLeft and not shift
+        ):
+            self._cycle_relation(forward=True)
+            event.accept()
+            return
+
         if (
             self._key_matches(event, _ACT_DELETE)
             or (key == Qt.Key.Key_Backspace and not ctrl)
@@ -2576,10 +2636,13 @@ class SelectTool(_Tool):
         Returns True when a menu was shown (item present), False on empty canvas
         so BoardView falls back to its generic tool-action menu.
         """
+        from PySide6.QtWidgets import QMenu
+
         built = self._build_context_menu(scene_pt)
         if built is None:
             return False
         menu, items = built
+        assert isinstance(menu, QMenu)
         global_pos = self._view.mapToGlobal(self._view.mapFromScene(scene_pt))
         chosen = menu.exec(global_pos)
         if chosen is None:
@@ -3061,10 +3124,11 @@ class SelectTool(_Tool):
 
         from protoboard.domain.commands.base import Command, ComponentState, MacroCommand
         from protoboard.domain.commands.component_cmds import SetWireSideCommand
+        from protoboard.types import Side
 
         raw = [
             cast("Command[ComponentState]",
-                 SetWireSideCommand(wire_id=wid, side=cast("Side", side)))
+                 SetWireSideCommand(wire_id=wid, side=cast(Side, side)))
             for wid in wire_ids
         ]
         if not raw:
@@ -3088,7 +3152,7 @@ class SelectTool(_Tool):
         if not cmds:
             return
         cmd = cmds[0] if len(cmds) == 1 else MacroCommand(
-            cmds,  # type: ignore[arg-type]
+            cmds,
             description=f"{'Lock' if locked else 'Unlock'} {len(cmds)} component(s)",
         )
         self._execute_command(cmd)
@@ -3116,13 +3180,15 @@ class SelectTool(_Tool):
         from typing import cast
 
         from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
+        from protoboard.domain.schematic.net import PinRef
 
         group_id = cast("uuid.UUID", data[1])
         grp = self._session.layout.groups.get(group_id)
         if grp is None:
             return
+        new_exported: frozenset[PinRef]
         if action == "export_pin":
-            ep = data[2]
+            ep = cast(PinRef, data[2])
             already = cast(bool, data[3])
             new_exported = (
                 grp.exported_pins - {ep} if already

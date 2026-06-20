@@ -170,3 +170,31 @@ src/protoboard/
 - If you hit a design decision not covered by this document — **stop and ask**.
 - Update this file and the files under `docs/` whenever a decision is taken.
 - Every new public API gets a test and a docstring before the commit.
+
+### Rewrites and swaps (no silent regressions)
+
+Hard-won lesson from the SelectTool v1→v2 swap, where dozens of polished,
+user-facing behaviours (bright selection highlight, the unified context menu,
+the reroute preview anchor) silently vanished or degraded because they lived
+*inside* the monolith rather than behind a stable interface, and the swap
+deleted their tests along with the old code. The principle you should have been
+able to rely on — "a new piece of work must not change finished functionality
+except by fixing how it's *called*" — only holds if finished functionality has
+a seam and a guard. Enforce both:
+
+- **Parity tests survive the swap; they do not die with the old code.** Before
+  deleting an old module, repoint its *behaviour* tests (what the user sees —
+  not tests of private internals) at the replacement. If the replacement does
+  not pass them, it is **not** ready to swap in. Delete old tests only after
+  their behaviour is re-asserted against the new code, never in the same breath
+  as the implementation they guarded.
+- **"Deferred to Phase 2" is tracked debt, not a code comment.** Any behaviour
+  deliberately dropped during a swap goes into `docs/todo.md` with a date and
+  the commit that dropped it — never as an inline comment that no one reads. A
+  swap that defers user-visible parity is incomplete by definition.
+- **Pull polished functionality out of the monolith *before* swapping it.** If a
+  behaviour is worth perfecting, it is worth extracting into a service with a
+  named interface first, so the swap only re-wires call sites and cannot drag
+  the behaviour down with it. Prefer incremental refactor over from-scratch
+  rewrite precisely because a rewrite re-implements (and therefore can lose)
+  every undocumented refinement.
