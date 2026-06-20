@@ -16,6 +16,7 @@ from protoboard.domain.commands.component_cmds import (
     MoveComponentCommand,
     PlaceComponentCommand,
     RemoveWireCommand,
+    SetComponentPackageVariantCommand,
     SetWireSideCommand,
 )
 from protoboard.domain.commands.net_cmds import (
@@ -98,6 +99,29 @@ class TestSerializationRoundtrip:
         assert isinstance(restored, MoveComponentCommand)
         assert restored.new_placement.position == Point(2, 1)
         assert restored.skip_conflict_check is True
+
+    def test_set_package_variant(self) -> None:
+        # Regression: the body-variant picker fires this command; without a
+        # registered serializer the recorder skipped it (recorder.skip_unknown).
+        comp_id = uuid.uuid4()
+        cmd = SetComponentPackageVariantCommand(
+            component_id=comp_id, new_variant="SMD-0603/typ",
+        )
+        d = serialize_command(cmd)
+        assert d["type"] == "set_package_variant"
+        restored = deserialize_command(d)
+        assert isinstance(restored, SetComponentPackageVariantCommand)
+        assert restored.component_id == comp_id
+        assert restored.new_variant == "SMD-0603/typ"
+
+    def test_set_package_variant_none_clears(self) -> None:
+        comp_id = uuid.uuid4()
+        cmd = SetComponentPackageVariantCommand(
+            component_id=comp_id, new_variant=None,
+        )
+        restored = deserialize_command(serialize_command(cmd))
+        assert isinstance(restored, SetComponentPackageVariantCommand)
+        assert restored.new_variant is None
 
     def test_wire(self) -> None:
         wire = Wire(
