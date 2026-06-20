@@ -1447,6 +1447,31 @@ class TestDragConflictOutline:
         )
         assert board_view._select_outline_override is None
 
+    def test_svg_overlay_follows_committed_rotate(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        """The SVG selection bbox rect re-syncs to the component after a rotate.
+
+        Regression: the standalone overlay rect lingered at the pre-rotate
+        position/size because it doesn't ride the comp group's refresh.
+        """
+        inst = _place(board_view, session, 2.5, 2.5)  # R → SVG body
+        board_view.refresh()
+        tool = _v2(board_view)
+        tool._select_primary(inst.id)
+        board_view.refresh()
+        rect = board_view._svg_select_overlays.get(inst.id)
+        assert rect is not None  # SVG-bodied → bbox overlay
+        before = (round(rect.rect().width(), 2), round(rect.rect().height(), 2))
+
+        tool._rotate_selected(delta=90)
+        board_view.refresh()
+        after = (round(rect.rect().width(), 2), round(rect.rect().height(), 2))
+        # A 2-pin part's bbox swaps width/height on a 90° turn → the overlay must
+        # follow (before this fix it stayed at the old extent).
+        assert after == (before[1], before[0])
+        assert after != before
+
     def test_clear_drag_corner_resets_outline(
         self, board_view: BoardView, session: EditorSession
     ) -> None:

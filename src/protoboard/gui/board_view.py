@@ -692,6 +692,11 @@ class BoardView(QGraphicsView):
             elif cid not in self._svg_select_overlays:
                 # No recolourable native outline (SVG body) — bbox overlay.
                 self._add_svg_select_overlay(cid, select_rgb, theme.select_width)
+            else:
+                # Overlay already present — re-sync it to the current bbox /
+                # colour so it follows a committed rotate / move (regression:
+                # the rect lingered at the old position).
+                self._update_svg_select_overlay(cid, select_rgb, theme.select_width)
         self._applied_outline_rgb = select_rgb.rgb() & 0x00FFFFFF
 
         # 3. Selected *groups* get their outline rect recoloured to cyan too.
@@ -822,6 +827,30 @@ class BoardView(QGraphicsView):
         rect.setZValue(Z_SELECTION)
         self._scene.addItem(rect)
         self._svg_select_overlays[comp_id] = rect
+
+    def _update_svg_select_overlay(
+        self, comp_id: uuid.UUID, colour: QColor, width: float
+    ) -> None:
+        """Re-sync an existing SVG bbox overlay to the component's current bbox
+        and colour.  Without this the rect lingers at the pre-rotate/-move
+        position (the standalone scene item doesn't ride the comp group's
+        setPos / refresh)."""
+        rect = self._svg_select_overlays.get(comp_id)
+        if rect is None:
+            return
+        bbox = self._session.component_bbox(comp_id)
+        if bbox is None:
+            return
+        m = 0.06
+        try:
+            rect.setRect(
+                QRectF(bbox.x - m, bbox.y - m,
+                       bbox.width + 2 * m, bbox.height + 2 * m)
+            )
+            rect.setPen(QPen(QColor(colour), width))
+        except RuntimeError:
+            # C++ item gone (scene rebuilt between passes) — drop the stale ref.
+            self._svg_select_overlays.pop(comp_id, None)
 
     def _remove_svg_select_overlay(self, comp_id: uuid.UUID) -> None:
         rect = self._svg_select_overlays.pop(comp_id, None)
