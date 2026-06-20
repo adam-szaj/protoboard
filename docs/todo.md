@@ -77,6 +77,23 @@ All confirmed audit regressions are now resolved.
 same parametric `PackageBody` as catalogued packages — the hand-written
 SVG generators are gone.
 
+**DIP body sizing — by mm, centred on the pins (fixed 2026-06-20).**  Generated
+`dip-N` / `wdip-N` bodies were too wide (pin-cloud + uniform 0.5-hole margin),
+covering the pin columns.  Now a DIP body is sized by explicit mm and **centred
+on the pin cloud**:
+
+- `Prism.bbox()` (`package/shapes.py`) with explicit `width_mm`/`length_mm`
+  returns a rect centred on the pin-cloud centre (+ optional `body_offset_mm`),
+  not anchored at pin 1.  All consumers read bbox in the same pin-1-relative
+  frame, so the collision mask now marks the *interior* holes (between rows),
+  not the pin columns — physically correct.
+- `prism_for_footprint` (`package/from_footprint.py`): a `DualRow` gets JEDEC
+  dims — `width = rows_mm − 2·1.27` (body narrower than the row spacing, legs
+  show), `length = pin_span + 2·1.27` (runs past the end pins).  SIL / dev-board
+  keep the margin path.  Named `DIP-8` in `generic.yaml` re-derived to match.
+
+---
+
 - `src/protoboard/gui/renderers/prism_silhouette.py` — a `PrismSilhouette`
   strategy family (SIL housing, DIP notched body), selected by clustering
   a prism's pin cloud into columns (`silhouette_for`).  1 col of ≥3 pins →

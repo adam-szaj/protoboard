@@ -888,7 +888,9 @@ class PackageBody(BodyShape):
             )
             return generic
 
-        # bbox() is anchored at pin 1 ([0, 0]); shift it onto the placed pins.
+        # bbox() is in the package-local frame (pin 1 at the origin); its x/y is
+        # the body's top-left there (negative for a body centred on the pin
+        # cloud).  Shift it onto the placed pins by the anchor (pin 1) world pos.
         anchor = positions[0]
         x0 = anchor.x + box.x
         y0 = anchor.y + box.y

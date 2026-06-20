@@ -290,11 +290,11 @@ class TestParametricDIPBody:
         assert any(isinstance(it, QGraphicsPathItem) for it in items)
 
     def test_body_has_pin1_notch(self, qtbot: QtBot) -> None:
-        # The notch carves the top edge midway between the rows.  The body bbox
-        # is (-0.5,-0.5,4,4); the row midpoint is x=1.5 and the notch (r=0.25)
-        # cuts inward from the top edge (y=-0.5) to y=-0.25.  A point in that
-        # carved zone is OUTSIDE the body; the interior and the un-notched
-        # corners stay filled.
+        # The DIP body is centred between the rows (cols at x=0 and x=3, so the
+        # body spans roughly x=0.5…2.5) and sits a little past the end pins
+        # (top edge near y=-0.5).  The notch (r=0.25) cuts the top edge at the
+        # row midpoint x=1.5.  A point in that carved zone is OUTSIDE the body;
+        # the interior and the un-notched part of the top edge stay filled.
         from PySide6.QtCore import QPointF
         items = PackageBody(_dip8_prism()).draw(  # type: ignore[arg-type]
             _dip8_positions(), _RED, _DARK, 1.0, _Z)
@@ -305,7 +305,8 @@ class TestParametricDIPBody:
         path = body.path()
         assert not path.contains(QPointF(1.5, -0.4))   # inside the notch
         assert path.contains(QPointF(1.5, 1.5))        # body interior
-        assert path.contains(QPointF(0.0, -0.4))       # un-notched top, filled
+        # Un-notched part of the top edge (within the body, off the notch).
+        assert path.contains(QPointF(0.8, -0.4))
 
     def test_too_few_pins_falls_back(self, qtbot: QtBot) -> None:
         # A single position can't form a body → the bbox fallback (a rect or

@@ -40,9 +40,28 @@ from protoboard.domain.components.package.shapes import Prism
 _PRISM_FOOTPRINTS = (DualRow, SingleRow, QuadRow)
 
 # Body margin around the pin cloud, in holes — matches the legacy SVG bodies'
-# fixed 0.5-hole inset.  The package domain's raster is 2.5 mm/hole.
+# fixed 0.5-hole inset.  Used for SIL housings / dev-board bodies that hug their
+# pin cloud.  The package domain's raster is 2.5 mm/hole.
 _MARGIN_HOLES = 0.5
 _RASTER_MM = 2.5
+
+# DIP body geometry (JEDEC-ish), in mm.  A DIP body is *narrower* than the row
+# spacing so the legs show on both sides, and runs a little past the end pins.
+_DIP_BODY_INSET_MM = 1.27   # body edge inset from each pin row (≈0.05 in)
+_DIP_END_MARGIN_MM = 1.27   # body extent past the first/last pin (along the axis)
+_PIN_PITCH_MM = 2.5         # package-domain hole pitch
+
+
+def _dual_row_body_dims(fp: DualRow) -> tuple[float, float]:
+    """DIP body (width across rows, length along pins) in mm for *fp*.
+
+    width  = row spacing − a body inset on each side (legs show outside the
+             moulded body); length = pin span + an end margin past each end pin.
+    """
+    rows_mm = fp.rows_spacing * _PIN_PITCH_MM
+    width_mm = rows_mm - 2.0 * _DIP_BODY_INSET_MM
+    length_mm = (fp.n_per_row - 1) * fp.pitch * _PIN_PITCH_MM + 2.0 * _DIP_END_MARGIN_MM
+    return width_mm, length_mm
 
 
 def _step_offsets(fp: FootprintTemplate) -> list[list[float]]:
@@ -62,16 +81,26 @@ def _step_offsets(fp: FootprintTemplate) -> list[list[float]]:
 def _prism_dict(fp: FootprintTemplate) -> dict[str, Any]:
     """A prism package definition whose pins follow *fp* (holes, pin 1 = 0).
 
-    Geometry only: rigid downward leads, body sized from the pin cloud plus a
-    uniform margin.  Colour/edge are left default so the renderer's caller-fill
-    (component / theme colour) drives appearance.
+    Geometry only: rigid downward leads.  A ``DualRow`` (DIP) is sized by explicit
+    JEDEC dimensions and centred on the pin cloud (body between the rows, legs
+    showing); a ``SingleRow`` (SIL) / ``QuadRow`` (dev-board) hugs its pin cloud
+    with a uniform margin.  Colour/edge are left default so the renderer's
+    caller-fill (component / theme colour) drives appearance.
     """
-    m = _MARGIN_HOLES * _RASTER_MM
+    dims: dict[str, Any]
+    extra: dict[str, Any]
+    if isinstance(fp, DualRow):
+        width_mm, length_mm = _dual_row_body_dims(fp)
+        dims = {"width": width_mm, "length": length_mm}
+        extra = {}  # explicit dims → Prism.bbox centres on the pins
+    else:
+        dims = {}  # bbox derived from pins + margin (SIL housing / dev-board)
+        extra = {"margin": _MARGIN_HOLES * _RASTER_MM}
     return {
         "shape": "prism",
-        "dims": {},  # bbox derived from pins + margin
-        "margin": m,
+        "dims": dims,
         "bend": 0,
+        **extra,
         "leads": {
             "direction": [0, 0, -1],
             # Steps are in holes; unit: 2.5 (the package raster, mm/hole) scales

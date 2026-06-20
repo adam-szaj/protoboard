@@ -70,6 +70,34 @@ class TestDipFamily:
         assert fam.family_id == "dip-28"
         assert fam.variants[0].package.pin_count() == 28
 
+    def test_body_sits_between_rows_not_over_pins(self) -> None:
+        # Regression: the body must be narrower than the row spacing and centred
+        # on the pin cloud, so the legs show on both sides and pins aren't
+        # covered.  (Was: pin-cloud + uniform 0.5-hole margin → body overlapped
+        # the columns.)
+        for fam in (dip_family(8, wide=False), dip_family(16, wide=True)):
+            assert fam is not None
+            pkg = fam.variants[0].package
+            cols = sorted({round(p.x, 3) for p in pkg.pin_positions()})
+            bb = pkg.bbox()
+            # Body strictly inside the two pin columns (across the rows)…
+            assert bb.x > cols[0] + 1e-6
+            assert bb.x + bb.width < cols[-1] - 1e-6
+            # …and centred on the pin cloud across the rows.
+            assert round(bb.x + bb.width / 2.0, 3) == round(
+                (cols[0] + cols[-1]) / 2.0, 3
+            )
+
+    def test_body_extends_past_end_pins_along_axis(self) -> None:
+        # Along the pin axis the body runs a little past the first/last pin.
+        fam = dip_family(8, wide=False)
+        assert fam is not None
+        pkg = fam.variants[0].package
+        ys = sorted({round(p.y, 3) for p in pkg.pin_positions()})
+        bb = pkg.bbox()
+        assert bb.y < ys[0]                 # past the first pin
+        assert bb.y + bb.height > ys[-1]    # past the last pin
+
     @pytest.mark.parametrize("pins", [0, 2, 3, 15, -4])
     def test_odd_or_too_small_returns_none(self, pins: int) -> None:
         assert dip_family(pins, wide=False) is None

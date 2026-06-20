@@ -224,6 +224,10 @@ class Prism:
     # ``surface_mount_offsets``).
     mount: MountStyle = MountStyle.THROUGH_HOLE
     mount_points: tuple[Point, ...] = ()
+    # Shift (mm) of the body centre off the pin-cloud centre, for parts whose
+    # body is not symmetric about its pins.  Default (0, 0) → centred on the
+    # pin cloud.  Only used with explicit width_mm/length_mm.
+    body_offset_mm: Point = Point(0.0, 0.0)
 
     def pin_count(self) -> int:
         return self.leads.pin_count
@@ -261,9 +265,20 @@ class Prism:
             return self._bbox_from_pins(self.margin_mm)
         if self.width_mm is None or self.length_mm is None:
             raise ValueError("prism needs explicit dims or a margin to derive bbox")
+        # An explicit body is W (across the rows) × L (along the pin axis),
+        # centred on the pin cloud — so a DIP body sits between the rows with
+        # the legs showing, rather than anchored at pin 1 and overlapping them.
+        # ``body_offset_mm`` shifts the centre for asymmetric parts.
         w = self.width_mm / RASTER_MM
         h = self.length_mm / RASTER_MM
-        return Rect(0.0, 0.0, w, h)
+        centre = _pins_bbox(self.pin_positions()).center
+        off = self.body_offset_mm
+        return Rect(
+            centre.x + off.x / RASTER_MM - w / 2.0,
+            centre.y + off.y / RASTER_MM - h / 2.0,
+            w,
+            h,
+        )
 
     def _bbox_from_pins(self, margin: Insets) -> Rect:
         pins = self.pin_positions()
