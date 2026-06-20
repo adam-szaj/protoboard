@@ -29,14 +29,18 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
 from protoboard.gui.renderers.body_shapes import (
     BodyShape,
-    DIPBody,
     GenericBody,
     PackageBody,
-    SvgDIPBody,
     TO92Body,
     TO220Body,
     body_shape_for,
 )
+from protoboard.gui.renderers.prism_silhouette import (
+    DipSilhouette,
+    SilSilhouette,
+    silhouette_for,
+)
+from protoboard.domain.components.package.from_footprint import prism_for_footprint
 from protoboard.domain.components.package.loader import build_package
 from protoboard.gui.theme import DEFAULT_THEME
 
@@ -164,6 +168,35 @@ def _colored_prism_package(color: str = "#d6c08c", edge: str = "sharp") -> objec
     )
 
 
+def _bbox_prism_positions() -> list[Point]:
+    """Pins for a three-column prism — no DIP/SIL silhouette matches it, so the
+    body renders via the plain bbox path (where edge style still applies)."""
+    return _pts((0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1))
+
+
+def _bbox_prism_package(color: str = "#d6c08c", edge: str = "sharp") -> object:
+    """A three-column prism (silhouette_for → None → bbox rendering)."""
+    return build_package(
+        {
+            "shape": "prism",
+            "dims": {"width": 7.62, "length": 7.62, "corner_radius": 1.0},
+            "bend": 0,
+            "color": color,
+            "edge": edge,
+            "leads": {
+                "direction": [0, 0, -1],
+                # 3 columns: down, across, down, across, down (6 pins).
+                "body_offset": {
+                    "unit": 2.5,
+                    "value": [[0, 1], [1, -1], [0, 1], [1, -1], [0, 1]],
+                },
+                "board_offset": "default",
+            },
+        },
+        "TEST_BBOX_PRISM",
+    )
+
+
 # ---------------------------------------------------------------------------
 # GenericBody
 # ---------------------------------------------------------------------------
@@ -211,22 +244,56 @@ class TestTO220Body:
         assert len(items) >= 1
 
 
-class TestSvgDIPBody:
+def _dip8_prism() -> object:
+    """The prism synthesized for a DIP-8 footprint (the parametric DIP body)."""
+    return prism_for_footprint(DualRow(n_per_row=4, rows_spacing=3))
+
+
+def _dip8_positions() -> list[Point]:
+    return _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
+
+
+class TestParametricDIPBody:
+    """The DIP body now renders parametrically (synthesized prism + DIP
+    silhouette), replacing the legacy hand-written SVG/DIP generators.  These
+    re-assert the behaviour those generators provided."""
+
+    def test_dip_footprint_synthesizes_dip_silhouette(self) -> None:
+        prism = _dip8_prism()
+        assert isinstance(silhouette_for(prism), DipSilhouette)  # type: ignore[arg-type]
+
     def test_produces_items_for_dip8(self, qtbot: QtBot) -> None:
-        pos = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
-        items = SvgDIPBody(n_per_row=4).draw(pos, _RED, _DARK, 1.0, _Z)
+        items = PackageBody(_dip8_prism()).draw(  # type: ignore[arg-type]
+            _dip8_positions(), _RED, _DARK, 1.0, _Z)
         assert len(items) >= 1
+        # The body is a path (the notched silhouette), not a plain rect.
+        assert any(isinstance(it, QGraphicsPathItem) for it in items)
+
+    def test_body_has_pin1_notch(self, qtbot: QtBot) -> None:
+        # The notch carves the top edge midway between the rows.  The body bbox
+        # is (-0.5,-0.5,4,4); the row midpoint is x=1.5 and the notch (r=0.25)
+        # cuts inward from the top edge (y=-0.5) to y=-0.25.  A point in that
+        # carved zone is OUTSIDE the body; the interior and the un-notched
+        # corners stay filled.
+        from PySide6.QtCore import QPointF
+        items = PackageBody(_dip8_prism()).draw(  # type: ignore[arg-type]
+            _dip8_positions(), _RED, _DARK, 1.0, _Z)
+        body = max(
+            (it for it in items if isinstance(it, QGraphicsPathItem)),
+            key=lambda it: it.sceneBoundingRect().width(),
+        )
+        path = body.path()
+        assert not path.contains(QPointF(1.5, -0.4))   # inside the notch
+        assert path.contains(QPointF(1.5, 1.5))        # body interior
+        assert path.contains(QPointF(0.0, -0.4))       # un-notched top, filled
 
     def test_too_few_pins_falls_back(self, qtbot: QtBot) -> None:
-        items = SvgDIPBody(n_per_row=4).draw(_pts((0, 0)), _RED, _DARK, 1.0, _Z)
-        assert isinstance(items[0], QGraphicsRectItem)
-
-
-class TestDIPBody:
-    def test_produces_rect_for_8_pins(self, qtbot: QtBot) -> None:
-        pos = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
-        items = DIPBody(4).draw(pos, _RED, _DARK, 1.0, _Z)
-        assert len(items) >= 1
+        # A single position can't form a body → the bbox fallback (a rect or
+        # generic rectangle), never a crash.
+        items = PackageBody(_dip8_prism()).draw(  # type: ignore[arg-type]
+            _pts((0, 0)), _RED, _DARK, 1.0, _Z)
+        assert items
+        assert isinstance(items[0], (QGraphicsRectItem, QGraphicsPathItem))
 
 
 # ---------------------------------------------------------------------------
@@ -257,14 +324,25 @@ class TestBodyShapeFor:
         shape = body_shape_for(defn)
         assert isinstance(shape, TO92Body)
 
-    def test_dual_row_returns_svg_dip(self) -> None:
+    def test_dual_row_returns_parametric_package_body(self) -> None:
+        # A DualRow with no catalogue package synthesizes a prism and renders
+        # through the parametric PackageBody (DIP silhouette), not a dedicated
+        # legacy generator.
         fp = DualRow(n_per_row=4)
         defn = ComponentDefinition(
             name="U1", component_class=ComponentClass.IC,
             footprint=fp, pin_names={}
         )
         shape = body_shape_for(defn)
-        assert isinstance(shape, SvgDIPBody)
+        assert isinstance(shape, PackageBody)
+
+    def test_single_row_returns_parametric_package_body(self) -> None:
+        defn = _make_defn(ComponentClass.CONNECTOR, n_pins=6, fp_type="SIL")
+        shape = body_shape_for(defn)
+        assert isinstance(shape, PackageBody)
+        # A single-column footprint synthesizes a SIL silhouette.
+        prism = prism_for_footprint(SingleRow(n=6))
+        assert isinstance(silhouette_for(prism), SilSilhouette)  # type: ignore[arg-type]
 
     def test_generic_fallback_for_large_connector(self) -> None:
         # 10-pin SIL connector — no special shape.
@@ -290,8 +368,9 @@ class TestBodyShapeFor:
 
 class TestPackageBodyDispatch:
     def test_package_wins_over_legacy_footprint(self) -> None:
-        # A definition that would otherwise dispatch to SvgDIPBody, but
-        # carries a package → PackageBody takes precedence.
+        # A catalogue package on the definition takes precedence over the prism
+        # synthesized from the footprint (both render via PackageBody, but the
+        # catalogue geometry wins).
         defn = ComponentDefinition(
             name="U1", component_class=ComponentClass.IC,
             footprint=DualRow(n_per_row=4), pin_names={},
@@ -299,14 +378,18 @@ class TestPackageBodyDispatch:
         )
         shape = body_shape_for(defn)
         assert isinstance(shape, PackageBody)
+        assert shape._pkg is not None  # type: ignore[attr-defined]
 
-    def test_no_package_uses_legacy_path(self) -> None:
+    def test_unsupported_footprint_falls_to_generic(self) -> None:
+        # A footprint with neither a package nor a synthesizable prism body
+        # (a pin grid) keeps the GenericBody bbox path.
+        from protoboard.domain.components.footprints import GridFootprint
         defn = ComponentDefinition(
-            name="U1", component_class=ComponentClass.IC,
-            footprint=DualRow(n_per_row=4), pin_names={},
+            name="J1", component_class=ComponentClass.CONNECTOR,
+            footprint=GridFootprint(rows=2, cols=3), pin_names={},
         )
         shape = body_shape_for(defn)
-        assert not isinstance(shape, PackageBody)
+        assert isinstance(shape, GenericBody)
 
     def _families(self) -> dict:
         from protoboard.domain.components.package import (
@@ -399,12 +482,13 @@ class TestPackageBodyDraw:
         items = shape.draw(_pts((0, 0), (0, 0)), _RED, _DARK, 1.0, _Z)
         assert items  # degenerate spacing → bbox rectangle, not a crash
 
-    def test_prism_draws_rectangle(self, qtbot: QtBot) -> None:
+    def test_prism_draws_dip_silhouette(self, qtbot: QtBot) -> None:
+        # A two-column prism is a DIP: a notched body path plus a pin-1 marker.
         shape = PackageBody(_prism_package())  # type: ignore[arg-type]
         pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
         items = shape.draw(pts, _RED, _DARK, 1.0, _Z)
-        assert len(items) == 1
-        assert isinstance(items[0], (QGraphicsRectItem, QGraphicsPathItem))
+        assert all(isinstance(it, QGraphicsPathItem) for it in items)
+        assert len(items) == 2  # body + pin-1 marker
 
     def test_empty_positions_returns_no_items(self, qtbot: QtBot) -> None:
         shape = PackageBody(_cylinder_package())  # type: ignore[arg-type]
@@ -421,12 +505,18 @@ class TestPackageBodyColor:
     """Body presentation (colour / edge) is read from the package."""
 
     def _body_item(self, items: list) -> object:
-        # The capsule / rect carrying the body fill is the last path/rect item.
+        # The body fill lives on the largest path/rect item — the silhouette /
+        # capsule — not the small pin-1 marker that a prism also emits.
         bodies = [
             it for it in items
             if isinstance(it, (QGraphicsPathItem, QGraphicsRectItem))
         ]
-        return bodies[-1]
+        return max(
+            bodies,
+            key=lambda it: (
+                it.sceneBoundingRect().width() * it.sceneBoundingRect().height()
+            ),
+        )
 
     def test_cylinder_uses_package_color(self, qtbot: QtBot) -> None:
         shape = PackageBody(_colored_cylinder_package("#d6c08c"))  # type: ignore[arg-type]
@@ -456,17 +546,15 @@ class TestPackageBodyColor:
         assert pen.lightnessF() < fill.lightnessF()
 
     def test_sharp_edge_squares_prism_corners(self, qtbot: QtBot) -> None:
-        # corner_radius=1.0 is declared, but edge=sharp forces 0 → a plain
-        # QGraphicsRectItem (rounded would be a QGraphicsPathItem).
-        shape = PackageBody(_colored_prism_package(edge="sharp"))  # type: ignore[arg-type]
-        pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
-        items = shape.draw(pts, _RED, _DARK, 1.0, _Z)
+        # A bbox prism (no DIP/SIL silhouette) honours edge style: corner_radius
+        # is declared but edge=sharp forces 0 → a plain QGraphicsRectItem.
+        shape = PackageBody(_bbox_prism_package(edge="sharp"))  # type: ignore[arg-type]
+        items = shape.draw(_bbox_prism_positions(), _RED, _DARK, 1.0, _Z)
         assert isinstance(self._body_item(items), QGraphicsRectItem)
 
     def test_rounded_edge_rounds_prism_corners(self, qtbot: QtBot) -> None:
-        shape = PackageBody(_colored_prism_package(edge="rounded"))  # type: ignore[arg-type]
-        pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
-        items = shape.draw(pts, _RED, _DARK, 1.0, _Z)
+        shape = PackageBody(_bbox_prism_package(edge="rounded"))  # type: ignore[arg-type]
+        items = shape.draw(_bbox_prism_positions(), _RED, _DARK, 1.0, _Z)
         assert isinstance(self._body_item(items), QGraphicsPathItem)
 
 
@@ -691,10 +779,10 @@ class TestBodyShapeContract:
         (lambda: PackageBody(_cylinder_package()), _pts((0, 0), (4, 0))),
         (lambda: PackageBody(_radial_cyl_package()), _pts((0, 0), (1, 0))),
         (lambda: TO92Body(), _pts((0, 0), (1, 0), (2, 0))),
-        (lambda: DIPBody(4),
+        (lambda: PackageBody(_dip8_prism()),
          _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))),
-        (lambda: SvgDIPBody(4),
-         _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))),
+        (lambda: PackageBody(prism_for_footprint(SingleRow(n=6))),
+         _pts(*[(0, i) for i in range(6)])),
     ])
     def test_draw_returns_list_of_qgraphicsitem(
         self, qtbot: QtBot, shape_factory, positions: list[Point],

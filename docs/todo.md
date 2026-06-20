@@ -71,84 +71,45 @@ swap loss.
 
 All confirmed audit regressions are now resolved.
 
-## Parametric renderer for DIP / QIL / SIL packages
+## Parametric renderer for DIP / SIL / dev-board packages
 
-**Where:** `src/protoboard/gui/renderers/body_shapes.py` —
-`SvgDIPBody`, `SvgSILBody`, `SvgQuadDIPBody`.
+**Done (2026-06-20).** Multi-pin in-line bodies now render through the
+same parametric `PackageBody` as catalogued packages — the hand-written
+SVG generators are gone.
 
-**Current state.** Three-or-more-pin packages still render through
-hand-written SVG generators:
+- `src/protoboard/gui/renderers/prism_silhouette.py` — a `PrismSilhouette`
+  strategy family (SIL housing, DIP notched body), selected by clustering
+  a prism's pin cloud into columns (`silhouette_for`).  1 col → SIL, 2 →
+  DIP, anything else → plain bbox (the dev-board body look).
+- `src/protoboard/domain/components/package/from_footprint.py` —
+  `prism_for_footprint` synthesizes a `Prism` from a `DualRow` / `SingleRow`
+  / `QuadRow` footprint (pins derived as consecutive differences of the
+  footprint's own pin cloud, body = bbox + 0.5-hole margin).  Memoised by
+  footprint identity (`@lru_cache`) so a given DIP-16 is built once.
+- `body_shape_for` now routes those footprints through the synthesized
+  prism + `PackageBody` when no catalogue package resolves (catalogue /
+  `package_family_ref` / inline `package` still win first).
+- Deleted: `SvgDIPBody`, `SvgSILBody`, `SvgQuadDIPBody`, the legacy
+  `DIPBody` / `SILBody`.  (`SvgBodyShape` no longer existed.)  Their
+  behaviour tests were repointed at `PackageBody` before deletion
+  (`tests/gui/test_body_shapes.py`) — no silent regression.
 
-- `SvgSILBody` — used by `body_shape_for` for `SingleRow(n>=3)` when
-  the class is not a transistor (headers, R networks, pots, slide
-  switches).
-- `SvgDIPBody` — used for every `DualRow` footprint (DIP-N ICs).
-- `SvgQuadDIPBody` — used for `QuadRow` footprints (WeAct STM32G4
-  CoreBoard).
+Appearance is data-driven: the body fill is the package `color:` if set,
+else the component / theme fill the renderer passes in (no hard-coded
+DIP blue any more).
 
-The fourth class — `SvgBodyShape` — is unused dead code (no
-`body_shape_for` branch returns it; no test or tool constructs it).
-It can be removed independently of the larger refactor and would save
-~150 LOC.
+**Deferred — named DIP variants, fully generated (no static catalogue).**
+The renderer keys off footprint geometry; it does *not* yet offer a
+"DIP-16 narrow vs wide" choice by name.  Plan (per user, 2026-06-20):
+generate the whole package set programmatically from a naming convention
+rather than authoring YAML families:
 
-**Why this matters.** Two-pin packages now live in a clean parametric
-pipeline:
+- `dip-N`  → narrow body (0.3", `rows_spacing` ≈ 3 holes).
+- `wdip-N` → wide body (0.6", `rows_spacing` ≈ 6 holes).
 
-```
-TwoPinBodySpec (assets/body_types/*.yaml)
-    ↓
-TwoPinParametricBody (material palette + class flavour)
-```
-
-3+pin packages have no equivalent.  Their dimensions are hard-coded
-into the SVG templates / generators (notch radius, slot size, body
-margins, pin pitch).  Consequences:
-
-- Material differentiation is impossible (a DIP-8 in plastic vs
-  ceramic vs metal-lid looks identical).
-- Industry standards (DIP-300/600, SOIC widths, QFP body sizes) are
-  not expressed.  The renderer guesses geometry from `n_per_row` and
-  `rows_spacing`.
-- The package picker built in [B2/B3] only offers TwoPin packages —
-  there is no analogous "ATmega328P → DIP-28W vs DIP-28N" dropdown.
-
-**What to do.**
-
-1. Introduce a `MultiPinBodyPackage` model alongside `TwoPinBodyPackage`
-   in `src/protoboard/domain/components/`.  Likely fields:
-
-   - `package_id`, `label`, `material`, `pin_count`
-   - `body_length_mm`, `body_width_mm`, `body_height_mm`
-   - `pin_pitch_mm`, `rows_spacing_mm`
-   - shape-specific extras: notch (DIP), tab (TO-220), corner-pin
-     marker (QFP)
-
-   Package YAMLs go under `assets/body_types/` (existing flat list)
-   or a sibling directory.
-
-2. Map standard footprints to packages:
-
-   - `DualRow(n_per_row=N, rows_spacing=S)` → DIP-{2N} packages
-     parameterised by N and S (e.g. DIP-8 narrow vs DIP-8 wide).
-   - `SingleRow(n=N)` → SIL-{N} header / R-network shells.
-   - `QuadRow` → custom or module-class packages (WeAct CoreBoard).
-
-3. Replace the SVG generators with a single
-   `MultiPinParametricBody(spec, component_class, …)` analogous to
-   `TwoPinParametricBody`:
-
-   - Body silhouette (rectangle / rounded rectangle), corner radius
-     from `edge`.
-   - Class flavour: pin-1 notch (DIP), polarity marker if `polar`,
-     metal tab (TO-220).
-   - Material palette from `Theme.material_palette`.
-
-4. Extend the picker UI (`LibraryPanel` + `PropertiesPanel`) so
-   multi-pin parts also expose a body-variant dropdown.
-
-5. Remove the SVG generators (`SvgBodyShape`, `SvgDIPBody`,
-   `SvgSILBody`, `SvgQuadDIPBody`) and their tests.
-
-**Quick win (independent of the larger refactor).** Remove
-`SvgBodyShape` — it is fully unused.  ~150 LOC saved, no test
-changes needed, no behaviour change in shipped renderings.
+A component declaring such a name resolves through a generator (same
+prism-building machinery as `prism_for_footprint`, parameterised by the
+prefix → row spacing and `N` → pin count), and the picker offers the
+generated names — no per-package YAML.  SIL headers follow the same
+generated `sil-N` shape.  Wire the picker UI (`LibraryPanel` /
+`PropertiesPanel`) once the generator exists.

@@ -3,9 +3,12 @@
 
 A component's body is drawn by a :class:`BodyShape`; ``body_shape_for`` picks
 the right one.  The parametric package model (:class:`PackageBody`) is the
-source of truth when a package resolves; the remaining concrete shapes are
-hand-coded ``QPainterPath`` renderers (``GenericBody``, ``TO92Body``,
-``TO220Body``, the ``Svg*`` DIP/SIL generators, …).
+source of truth for every multi-pin in-line body — DIP / SIL / dev-board
+modules synthesize a prism package (see
+:func:`~protoboard.domain.components.package.from_footprint.prism_for_footprint`)
+and render through it.  The remaining concrete shapes are hand-coded
+``QPainterPath`` renderers for the special transistor/power packages
+(``GenericBody``, ``TO92Body``, ``TO220Body``).
 
 Usage::
 
@@ -19,12 +22,9 @@ from __future__ import annotations
 
 import math
 from abc import ABC, abstractmethod
-from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QRectF, Qt
+from PySide6.QtCore import QRectF
 from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
-from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtSvgWidgets import QGraphicsSvgItem
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsItem,
@@ -38,8 +38,6 @@ from protoboard.domain.components.definition import (
     ComponentDefinition,
 )
 from protoboard.domain.components.footprints import (
-    DualRow,
-    QuadRow,
     SingleRow,
     TO220Footprint,
     TwoPin,
@@ -51,6 +49,7 @@ from protoboard.domain.components.package.body import (
     LeadArrangement,
 )
 from protoboard.domain.components.package.family import PackageFamily
+from protoboard.domain.components.package.from_footprint import prism_for_footprint
 from protoboard.domain.components.package.shapes import (
     Cylinder as _PkgCylinder,
     Disc as _PkgDisc,
@@ -59,6 +58,7 @@ from protoboard.domain.components.package.shapes import (
 )
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
+from protoboard.gui.renderers.prism_silhouette import silhouette_for
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 
 _big_body_alpha: float = 0.90
@@ -107,415 +107,6 @@ def _body_pen(border: QColor, alpha: float, width: float = 0.06) -> QPen:
     c = QColor(border)
     c.setAlphaF(alpha)
     return QPen(c, width)
-
-
-# ---------------------------------------------------------------------------
-# SVG-based DIP renderer (generates SVG programmatically for any N)
-# ---------------------------------------------------------------------------
-
-class SvgDIPBody(BodyShape):
-    """Generate DIP SVG on the fly for any n_per_row × rows_spacing."""
-
-    def __init__(self, n_per_row: int, rows_spacing: float = 3.0) -> None:
-        self._n = n_per_row
-        self._rs = rows_spacing
-
-    def draw(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme = DEFAULT_THEME,
-    ) -> list[QGraphicsItem]:
-        n = self._n
-        rs = self._rs
-        if len(positions) < 2 * n:
-            return GenericBody().draw(positions, fill, border, alpha, z, theme)
-
-        fill = QColor(0x22, 0x22, 0x44)
-        fill.setAlphaF(alpha*_big_body_alpha)
-        fill_hex = fill.name()
-        fill_a = f"{fill.alphaF() * alpha:.3f}"
-        border_hex = border.name()
-        border_a = f"{border.alphaF() * alpha:.3f}"
-        pin_hex = "#606060" #fill.name()  # placeholder; caller patches per-net
-
-        margin = 0.5
-        body_h = (n - 1) + 2 * margin
-        notch_r = theme.dip_notch_radius
-        r = theme.body_corner_radius
-        mid_x = rs / 2.0
-
-        # Build SVG string directly
-        pin_circles = []
-        # Left column: pins 1..n at x=0, y=0..(n-1)
-        for i in range(1,n):
-            pin_circles.append(
-                f'<circle id="pin-{i+1}" cx="0" cy="{i}" r="0.14"'
-                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="{border_hex}" stroke-width="0.05"/>'
-            )
-        # Right column: pins n+1..2n at x=rs, y=(n-1)..0
-        for i in range(n):
-            pid = n + i + 1
-            pin_circles.append(
-                f'<circle id="pin-{pid}" cx="{rs}" cy="{n-1-i}" r="0.14"'
-                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="{border_hex}" stroke-width="0.05"/>'
-            )
-
-        pin1_marker = (
-            f'<rect id="pin1-marker" x="-0.12" y="-0.12" width="0.24" height="0.24"'
-            f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="{border_hex}" stroke-width="0.05"/>'
-        )
-
-        # Notch: semicircle cut into the top edge at pin-1 side.
-        # Two-arc technique: start at left edge of notch, arc through top,
-        # end at right edge — both points on the body top edge (y=-margin).
-        nx0 = mid_x - notch_r   # left notch point
-        nx1 = mid_x + notch_r   # right notch point
-        svg = f"""<svg xmlns="http://www.w3.org/2000/svg"
-     viewBox="{-margin} {-margin} {rs + 2*margin:.3f} {body_h:.3f}"
-     width="{rs + 2*margin:.3f}" height="{body_h:.3f}"
-     data-pin-count="{2*n}" data-n-per-row="{n}" data-rows-spacing="{rs}">
-  <path id="body" fill-rule="evenodd"
-        d="M {r},{-margin}
-           L {nx0},{-margin}
-           A {notch_r},{notch_r} 0 0,0 {nx1},{-margin}
-           L {rs-r},{-margin} Q {rs},{-margin} {rs},{-margin+r}
-           L {rs},{n-1+margin-r} Q {rs},{n-1+margin} {rs-r},{n-1+margin}
-           L {r},{n-1+margin} Q {0},{n-1+margin} {0},{n-1+margin-r}
-           L {0},{-margin+r} Q {0},{-margin} {r},{-margin} Z"
-        fill="{fill_hex}" fill-opacity="{fill_a}"
-        stroke="{border_hex}" stroke-opacity="{border_a}" stroke-width="0.05"/>
-  {pin1_marker}
-  {"".join(pin_circles)}
-</svg>"""
-
-        xml_bytes = svg.encode("utf-8")
-        item = QGraphicsSvgItem()
-        renderer = QSvgRenderer(QByteArray(xml_bytes), item)
-        item.setSharedRenderer(renderer)
-        item._svg_renderer = renderer
-        item.setZValue(z)
-
-        # Scale: QSvgRenderer rounds viewBox to integer pixels, so we must
-        # compensate to keep 1 raster unit == 1 scene unit.
-        vb = renderer.viewBoxF()
-        br = item.boundingRect()
-        sx = vb.width()  / br.width()  if br.width()  > 1e-9 else 1.0
-        sy = vb.height() / br.height() if br.height() > 1e-9 else 1.0
-
-        # pin-1 in item-pixel space is at (margin, margin); scale to raster.
-        pin1_item_x = margin / sx
-        pin1_item_y = margin / sy
-
-        # Derive rotation from the direction pin1→pin2 (first column).
-        p1 = positions[0]
-        if len(positions) >= 2:
-            dx = positions[1].x - p1.x
-            dy = positions[1].y - p1.y
-            angle_deg = -math.degrees(math.atan2(dx, dy))
-        else:
-            angle_deg = 0.0
-
-        t = QTransform()
-        t.translate(p1.x, p1.y)
-        t.rotate(angle_deg)
-        t.scale(sx, sy)
-        t.translate(-pin1_item_x, -pin1_item_y)
-        item.setTransform(t)
-        return [item]
-
-
-# ---------------------------------------------------------------------------
-# SVG-based SIL renderer (generates SVG programmatically for any N)
-# ---------------------------------------------------------------------------
-
-class SvgSILBody(BodyShape):
-    """Generate SIL header SVG on the fly for any pin count."""
-
-    def draw(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme = DEFAULT_THEME,
-    ) -> list[QGraphicsItem]:
-        if not positions:
-            return []
-
-        n = len(positions)
-        pitch = 1.0  # SingleRow default; close enough for all SIL headers
-        # Determine actual pitch from positions if possible
-        if n >= 2:
-            pitch = math.hypot(
-                positions[1].x - positions[0].x,
-                positions[1].y - positions[0].y,
-            )
-            if pitch < 1e-6:
-                pitch = 1.0
-
-        fill_hex = fill.name()
-        fill_a = f"{fill.alphaF() * alpha:.3f}"
-        border_hex = border.name()
-        border_a = f"{border.alphaF() * alpha:.3f}"
-        pin_hex = fill.name()
-        slot = theme.sil_slot_size
-        m = slot / 2 + 0.05
-        body_h = (n - 1) * pitch + 2 * m
-        r = theme.body_corner_radius
-
-        slots = []
-        pin_circles = []
-        for i in range(n):
-            y = i * pitch
-            hs = slot / 2
-            slots.append(
-                f'<rect id="slot-{i+1}" x="{-hs:.3f}" y="{y-hs:.3f}"'
-                f' width="{slot:.3f}" height="{slot:.3f}"'
-                f' fill="{fill_hex}" fill-opacity="0.5"'
-                f' stroke="{border_hex}" stroke-width="0.03"/>'
-            )
-            pin_circles.append(
-                f'<circle id="pin-{i+1}" cx="0" cy="{y:.3f}" r="0.14"'
-                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="none"/>'
-            )
-
-        pin1_marker = (
-            f'<rect id="pin1-marker" x="-0.08" y="-0.08" width="0.16" height="0.16"'
-            f' fill="{pin_hex}" fill-opacity="{alpha:.3f}" stroke="none"/>'
-        )
-
-        svg = f"""<svg xmlns="http://www.w3.org/2000/svg"
-     viewBox="{-m:.3f} {-m:.3f} {2*m:.3f} {body_h:.3f}"
-     width="{2*m:.3f}" height="{body_h:.3f}"
-     data-pin-count="{n}" data-pitch="{pitch:.3f}">
-  <rect id="housing"
-        x="{-m:.3f}" y="{-m:.3f}" width="{2*m:.3f}" height="{body_h:.3f}"
-        rx="{r}" ry="{r}"
-        fill="{fill_hex}" fill-opacity="{fill_a}"
-        stroke="{border_hex}" stroke-opacity="{border_a}" stroke-width="0.05"/>
-  {"".join(slots)}
-  {pin1_marker}
-  {"".join(pin_circles)}
-</svg>"""
-
-        xml_bytes = svg.encode("utf-8")
-        item = QGraphicsSvgItem()
-        renderer = QSvgRenderer(QByteArray(xml_bytes), item)
-        item.setSharedRenderer(renderer)
-        item._svg_renderer = renderer
-        item.setZValue(z)
-
-        # QSvgRenderer.defaultSize() rounds viewBox dimensions to integer pixels,
-        # so QGraphicsSvgItem.boundingRect() is in pixels, not raster units.
-        # We must scale the item so that 1 item-pixel == 1 raster unit.
-        # viewBoxF gives the true SVG dimensions; boundingRect gives the pixel size.
-        vb = renderer.viewBoxF()
-        br = item.boundingRect()
-        sx = vb.width()  / br.width()  if br.width()  > 1e-9 else 1.0
-        sy = vb.height() / br.height() if br.height() > 1e-9 else 1.0
-        # pin1 in item-space: (m, m) in pixels, which maps to (m*sx, m*sy) in raster
-        pin1_item_x = m / sx
-        pin1_item_y = m / sy
-
-        p1 = positions[0]
-        if n >= 2:
-            dx = positions[1].x - p1.x
-            dy = positions[1].y - p1.y
-            angle_deg = -math.degrees(math.atan2(dx, dy))
-        else:
-            angle_deg = 0.0
-        t = QTransform()
-        t.translate(p1.x, p1.y)
-        t.rotate(angle_deg)
-        t.scale(sx, sy)
-        t.translate(-pin1_item_x, -pin1_item_y)
-        item.setTransform(t)
-        return [item]
-
-
-# ---------------------------------------------------------------------------
-# SVG-based Quad-DIP renderer (4 columns: L_outer, L_inner, R_inner, R_outer)
-# ---------------------------------------------------------------------------
-
-
-class SvgQuadDIPBody(BodyShape):
-    """Renderer for QuadRow footprints (QIL / quad in-line modules).
-
-    Draws:
-    - 4 columns of pad circles, positions taken directly from pin_positions()
-    - A filled rectangle covering the main PCB body (between inner columns)
-      with rounded corners and a notch at the top (pin-1 side)
-    - Two thin strip rectangles flanking the body (outer goldpin rows)
-    - Pin-1 corner marker
-    """
-
-    def __init__(
-        self,
-        n_per_col: int,
-        col_spacings: tuple[float, float, float],
-        pitch: float = 1.0,
-    ) -> None:
-        self._n = n_per_col
-        self._s0, self._s1, self._s2 = col_spacings
-        self._pitch = pitch
-
-    def draw(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme = DEFAULT_THEME,
-    ) -> list[QGraphicsItem]:
-        n = self._n
-        s0, s1, s2 = self._s0, self._s1, self._s2
-        pitch = self._pitch
-
-        if len(positions) < 4 * n:
-            return GenericBody().draw(positions, fill, border, alpha, z, theme)
-
-        fill = QColor(0x22, 0x22, 0x44, 0xe0)
-        fill.setAlphaF(alpha*_big_body_alpha)
-        fill_hex = fill.name()
-        fill_a = f"{fill.alphaF() * alpha:.3f}"
-        border_hex = border.name()
-        border_a = f"{border.alphaF() * alpha:.3f}"
-        pin_hex = "#606060"
-
-        # Column x-positions (in raster units)
-        x0 = 0.0
-        x1 = s0
-        x2 = s0 + s1
-        x3 = s0 + s1 + s2
-
-        body_margin = 0.5
-        y_top = -body_margin
-        y_bot = (n - 1) * pitch + body_margin
-        body_h = y_bot - y_top
-        total_w = x3
-
-        # Body covers the inner columns (x1..x2) — main PCB chip area
-        r = theme.body_corner_radius
-        notch_r = theme.dip_notch_radius
-        mid_x = (x1 + x2) / 2.0
-        nx0 = mid_x - notch_r
-        nx1 = mid_x + notch_r
-
-        # Outer strip width: fits snugly around the goldpin rows
-        strip_w = 0.3
-
-        # --- Build pin circles ---
-        circles: list[str] = []
-
-        # L_outer (pins 1..n): col x0, y top→bottom
-        for i in range(n):
-            pid = i + 1
-            cx = f"{i}" if i > 0 else "0"
-            circles.append(
-                f'<circle id="pin-{pid}" cx="{x0}" cy="{i * pitch}" r="0.14"'
-                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}"'
-                f' stroke="{border_hex}" stroke-width="0.05"/>'
-            )
-
-        # L_inner (pins n+1..2n): col x1, y top→bottom
-        for i in range(n):
-            pid = n + i + 1
-            circles.append(
-                f'<circle id="pin-{pid}" cx="{x1}" cy="{i * pitch}" r="0.14"'
-                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}"'
-                f' stroke="{border_hex}" stroke-width="0.05"/>'
-            )
-
-        # R_inner (pins 2n+1..3n): col x2, y bottom→top
-        for i in range(n):
-            pid = 2 * n + i + 1
-            circles.append(
-                f'<circle id="pin-{pid}" cx="{x2}" cy="{(n - 1 - i) * pitch}" r="0.14"'
-                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}"'
-                f' stroke="{border_hex}" stroke-width="0.05"/>'
-            )
-
-        # R_outer (pins 3n+1..4n): col x3, y bottom→top
-        for i in range(n):
-            pid = 3 * n + i + 1
-            circles.append(
-                f'<circle id="pin-{pid}" cx="{x3}" cy="{(n - 1 - i) * pitch}" r="0.14"'
-                f' fill="{pin_hex}" fill-opacity="{alpha:.3f}"'
-                f' stroke="{border_hex}" stroke-width="0.05"/>'
-            )
-
-        pin1_marker = (
-            f'<rect id="pin1-marker" x="{x0 - 0.12}" y="-0.12" width="0.24" height="0.24"'
-            f' fill="{pin_hex}" fill-opacity="{alpha:.3f}"'
-            f' stroke="{border_hex}" stroke-width="0.05"/>'
-        )
-
-        svg = f"""<svg xmlns="http://www.w3.org/2000/svg"
-     viewBox="{x0 - body_margin} {y_top} {total_w + 2 * body_margin:.3f} {body_h:.3f}"
-     width="{total_w + 2 * body_margin:.3f}" height="{body_h:.3f}">
-  <!-- Left outer goldpin strip -->
-  <rect x="{x0 - strip_w / 2:.3f}" y="{y_top:.3f}"
-        width="{strip_w:.3f}" height="{body_h:.3f}" rx="0.15"
-        fill="{fill_hex}" fill-opacity="{fill.alphaF() * alpha * 0.6:.3f}"
-        stroke="{border_hex}" stroke-opacity="{border_a}" stroke-width="0.04"/>
-  <!-- Right outer goldpin strip -->
-  <rect x="{x3 - strip_w / 2:.3f}" y="{y_top:.3f}"
-        width="{strip_w:.3f}" height="{body_h:.3f}" rx="0.15"
-        fill="{fill_hex}" fill-opacity="{fill.alphaF() * alpha * 0.6:.3f}"
-        stroke="{border_hex}" stroke-opacity="{border_a}" stroke-width="0.04"/>
-  <!-- Main PCB body (between inner columns, with notch) -->
-  <path id="body" fill-rule="evenodd"
-        d="M {x1 + r},{y_top}
-           L {nx0},{y_top}
-           A {notch_r},{notch_r} 0 0,0 {nx1},{y_top}
-           L {x2 - r},{y_top} Q {x2},{y_top} {x2},{y_top + r}
-           L {x2},{y_bot - r} Q {x2},{y_bot} {x2 - r},{y_bot}
-           L {x1 + r},{y_bot} Q {x1},{y_bot} {x1},{y_bot - r}
-           L {x1},{y_top + r} Q {x1},{y_top} {x1 + r},{y_top} Z"
-        fill="{fill_hex}" fill-opacity="{fill_a}"
-        stroke="{border_hex}" stroke-opacity="{border_a}" stroke-width="0.05"/>
-  {pin1_marker}
-  {"".join(circles)}
-</svg>"""
-
-        xml_bytes = svg.encode("utf-8")
-        item = QGraphicsSvgItem()
-        renderer = QSvgRenderer(QByteArray(xml_bytes), item)
-        item.setSharedRenderer(renderer)
-        item._svg_renderer = renderer  # type: ignore[attr-defined]
-        item.setZValue(z)
-
-        vb = renderer.viewBoxF()
-        br = item.boundingRect()
-        sx = vb.width()  / br.width()  if br.width()  > 1e-9 else 1.0
-        sy = vb.height() / br.height() if br.height() > 1e-9 else 1.0
-
-        # pin-1 in item-pixel space
-        pin1_item_x = (x0 - (x0 - body_margin)) / sx  # = body_margin / sx
-        pin1_item_y = body_margin / sy
-
-        # Rotation from pin1→pin2 direction (both in L_outer column, y increases)
-        p1 = positions[0]
-        if len(positions) >= 2:
-            dx = positions[1].x - p1.x
-            dy = positions[1].y - p1.y
-            angle_deg = -math.degrees(math.atan2(dx, dy))
-        else:
-            angle_deg = 0.0
-
-        t = QTransform()
-        t.translate(p1.x, p1.y)
-        t.rotate(angle_deg)
-        t.scale(sx, sy)
-        t.translate(-pin1_item_x, -pin1_item_y)
-        item.setTransform(t)
-        return [item]
 
 
 # ---------------------------------------------------------------------------
@@ -730,113 +321,6 @@ class TO220Body(BodyShape):
 
 
 # ---------------------------------------------------------------------------
-# DIPBody — IC in DIP package
-#
-#  1○ 2○ 3○ 4○
-#  ╔═══════════╗
-#  ║     ⌒     ║  ← notch marks pin-1 end
-#  ╚═══════════╝
-#  8○ 7○ 6○ 5○
-# ---------------------------------------------------------------------------
-
-class DIPBody(BodyShape):
-    def __init__(self, n_per_row: int) -> None:
-        self._n = n_per_row
-
-    def draw(self, positions, fill, border, alpha, z, theme=DEFAULT_THEME):
-        n = self._n
-        if len(positions) < 2 * n:
-            return GenericBody().draw(positions, fill, border, alpha, z, theme)
-
-        fill = QColor(0x33, 0x33, 0x66)
-        fill.setAlphaF(alpha*_big_body_alpha)
-        # Left column: positions[0..n-1], right column: positions[n..2n-1]
-        left = positions[:n]
-        right = positions[n:]
-
-        # Body bounds: between the two rows + margin
-        margin = 0.5
-        lx = min(p.x for p in left + right)
-        rx = max(p.x for p in left + right)
-        ty = min(p.y for p in left + right) - margin
-        by = max(p.y for p in left + right) + margin
-
-        bp = _body_pen(border, alpha)
-        items: list[QGraphicsItem] = []
-
-        # Main body rectangle via QPainterPath (so we can subtract notch)
-        r = theme.body_corner_radius
-        notch_r = theme.dip_notch_radius
-        mid_x = (lx + rx) / 2.0
-
-        path = QPainterPath()
-        path.setFillRule(Qt.FillRule.OddEvenFill)
-        path.addRoundedRect(QRectF(lx, ty, rx - lx, by - ty), r, r)
-        # Subtract notch via even-odd fill rule
-        path.addEllipse(QRectF(
-            mid_x - notch_r, ty - notch_r,
-            2 * notch_r, 2 * notch_r
-        ))
-
-        body = QGraphicsPathItem(path)
-        body.setBrush(QBrush(fill))
-        body.setPen(bp)
-        body.setZValue(z)
-        items.append(body)
-
-        return items
-
-
-# ---------------------------------------------------------------------------
-# SILBody — single in-line header / connector
-#
-#  ╔═╤═╤═╤═╗
-#  ║ | | | ║
-#  [1][2][3][4]
-# ---------------------------------------------------------------------------
-
-class SILBody(BodyShape):
-    def draw(self, positions, fill, border, alpha, z, theme=DEFAULT_THEME):
-        if not positions:
-            return []
-
-        slot = theme.sil_slot_size
-        items: list[QGraphicsItem] = []
-        bp = _body_pen(border, alpha)
-        lead = _lead_pen(theme, alpha)
-
-        # Overall housing: tight bbox around all pins + slot/2 margin
-        xs = [p.x for p in positions]
-        ys = [p.y for p in positions]
-        m = slot / 2 + 0.05
-        housing = QGraphicsRectItem(QRectF(
-            min(xs) - m, min(ys) - m,
-            max(xs) - min(xs) + 2 * m,
-            max(ys) - min(ys) + 2 * m,
-        ))
-        housing.setBrush(QBrush(fill))
-        housing.setPen(bp)
-        housing.setZValue(z)
-        items.append(housing)
-
-        # Per-pin slot (small inset square)
-        slot_fill = QColor(fill)
-        slot_fill.setAlphaF(slot_fill.alphaF() * _big_body_alpha)
-        slot_border = QColor(border)
-        slot_border.setAlphaF(alpha * theme.body_slot_opacity)
-        slot_pen = QPen(slot_border, theme.body_slot_pen_width)
-        hs = slot / 2
-        for p in positions:
-            sq = QGraphicsRectItem(QRectF(p.x - hs, p.y - hs, slot, slot))
-            sq.setBrush(QBrush(slot_fill))
-            sq.setPen(slot_pen)
-            sq.setZValue(z + 0.01)
-            items.append(sq)
-
-        return items
-
-
-# ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
 
@@ -979,6 +463,15 @@ class PackageBody(BodyShape):
             return self._draw_cylinder(
                 self._pkg, positions, fill, border, alpha, z, theme,
             )
+        # A multi-pin prism (DIP / SIL / quad) draws its class-agnostic
+        # silhouette — notch, slots, outer strips, pin-1 marker — placed onto
+        # the pins.  Layouts without a dedicated silhouette fall to the bbox.
+        if isinstance(self._pkg, _PkgPrism) and len(positions) >= 2:
+            prism_items = self._draw_prism(
+                self._pkg, positions, fill, border, alpha, z, theme,
+            )
+            if prism_items is not None:
+                return prism_items
         return self._draw_bbox(positions, fill, border, alpha, z, theme)
 
     # ------------------------------------------------------------------
@@ -1250,6 +743,62 @@ class PackageBody(BodyShape):
         return seg
 
     # ------------------------------------------------------------------
+    # Prism — DIP / SIL / quad silhouette placed onto the pins
+    # ------------------------------------------------------------------
+
+    def _draw_prism(
+        self,
+        pkg: _PkgPrism,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme,
+    ) -> list[QGraphicsItem] | None:
+        """Render a multi-pin prism body from its column silhouette.
+
+        Returns ``None`` when the prism has no dedicated silhouette (an odd
+        column count) so the caller falls back to the plain bbox rectangle.
+        The silhouette is built in the package-local frame (pin 1 at the
+        origin) and placed with the pin1→pin2 transform, mirroring the legacy
+        ``Svg*Body`` generators.
+        """
+        sil = silhouette_for(pkg)
+        if sil is None:
+            return None
+        drawing = sil.build(pkg, theme)
+
+        # Place: translate to the anchor pad, rotate by the pin1→pin2 heading.
+        # The package-local +y axis runs pin1→pin2 down the first column, so
+        # the rotation is derived the same way the SVG bodies did.
+        p1 = positions[0]
+        dx = positions[1].x - p1.x
+        dy = positions[1].y - p1.y
+        angle_deg = -math.degrees(math.atan2(dx, dy)) if (dx or dy) else 0.0
+        place = QTransform()
+        place.translate(p1.x, p1.y)
+        place.rotate(angle_deg)
+
+        fill_c = QColor(fill)
+        fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        items: list[QGraphicsItem] = []
+
+        body = QGraphicsPathItem(place.map(drawing.body))
+        body.setBrush(QBrush(fill_c))
+        body.setPen(_body_pen(border, alpha))
+        body.setZValue(z)
+        items.append(body)
+
+        if drawing.marker is not None:
+            marker = QGraphicsPathItem(place.map(drawing.marker))
+            marker.setBrush(QBrush(_body_pen(border, alpha).color()))
+            marker.setPen(_body_pen(border, alpha, width=0.0))
+            marker.setZValue(z + 0.01)
+            items.append(marker)
+        return items
+
+    # ------------------------------------------------------------------
     # Generic — bbox() rectangle in holes (prism, devboard, fallback)
     # ------------------------------------------------------------------
 
@@ -1356,19 +905,16 @@ def body_shape_for(
         # a package the part draws a generic bbox.
         return GenericBody()
 
-    if isinstance(fp, SingleRow):
-        # Single-row footprints are 3-or-more by convention (TwoPin owns the
-        # n=2 case).  Transistors get TO-92, other SILs use the headed renderer.
-        if fp.n == 3 and cls in _TRANSISTOR_CLASSES:
-            return TO92Body()
-        if fp.n == 2:
-            return GenericBody()
-        return SvgSILBody()
+    if isinstance(fp, SingleRow) and fp.n == 3 and cls in _TRANSISTOR_CLASSES:
+        # A 3-pin transistor in a SIL footprint is a TO-92.
+        return TO92Body()
 
-    if isinstance(fp, DualRow):
-        return SvgDIPBody(fp.n_per_row, fp.rows_spacing)
-
-    if isinstance(fp, QuadRow):
-        return SvgQuadDIPBody(fp.n_per_col, fp.col_spacings, fp.pitch)
+    # In-line multi-pin footprints (DIP / SIL header / dev-board module) with no
+    # catalogue package synthesize a prism whose pins match the footprint and
+    # render through the parametric PackageBody (DIP notch, SIL slots, or a
+    # plain dev-board bbox) — the same path a catalogued package takes.
+    synth = prism_for_footprint(fp)
+    if synth is not None:
+        return PackageBody(synth, component_class=cls, vertical_flipped=vf)
 
     return GenericBody()
