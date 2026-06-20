@@ -717,11 +717,13 @@ def _band_select(tool: SelectTool, session: EditorSession, ids: list) -> None:
 
 
 class TestPressReleaseSelection:
-    """Selecting on press, but deferring collapse / deselect to a click release.
+    """Selecting on press, but deferring collapse to a click release.
 
     A press on an already-selected entity must NOT mutate the selection (so a
-    drag moves the whole multi-selection); if the gesture is a click, the
-    release collapses onto / deselects the entity.
+    drag moves the whole multi-selection); if the gesture is a click on a
+    multi-selection, the release collapses onto the clicked entity.  A click on
+    the *sole* selected entity is a no-op — clicking never toggles selection off
+    (explicit deselect is Ctrl+Shift+A / clicking the empty board).
     """
 
     def test_press_on_selected_keeps_multiselection_for_drag(
@@ -754,15 +756,27 @@ class TestPressReleaseSelection:
         _click(tool, 0.5, 0.5)
         assert _comp_ids(tool) == {a.id}
 
-    def test_click_on_sole_selection_deselects(
+    def test_click_on_sole_selection_keeps_it(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         inst = _place(board_view, session, 0.5, 0.5)
         tool = _v2(board_view)
         _click(tool, 0.5, 0.5)
         assert inst.id in _comp_ids(tool)
-        # Clicking the only selected component again deselects it.
+        # Clicking the only selected component again is a NO-OP — it stays
+        # selected (clicking never toggles off; that read as a mis-select).
         _click(tool, 0.5, 0.5)
+        assert _comp_ids(tool) == {inst.id}
+
+    def test_click_empty_board_clears_selection(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _click(tool, 0.5, 0.5)
+        assert inst.id in _comp_ids(tool)
+        # Clicking empty board clears the selection (the deselect gesture).
+        _click(tool, 9.5, 9.5)
         assert _comp_ids(tool) == set()
 
     def test_click_on_unselected_selects_on_press(

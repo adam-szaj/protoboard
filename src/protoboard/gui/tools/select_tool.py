@@ -963,19 +963,36 @@ class SelectTool(_Tool):
             return
         self._mouse = None
         self._resolve_deferred_click(mouse)
+        self._clear_on_empty_band_click(mouse)
         self._clear_drag_corner()
         self._report_drag_outcome(mouse)
         self._refresh_highlight()
         if self._view is not None:
             self._view.refresh()
 
+    def _clear_on_empty_band_click(self, mouse: MouseInputController) -> None:
+        """A plain click on the empty board clears the selection.
+
+        An empty-space press arms a rubber-band; a sub-threshold release ends it
+        as a *click* (``was_click``) that caught nothing, so it never ran the
+        band's select.  That click is the deselect gesture — clear here.
+        """
+        if (
+            isinstance(mouse, RubberBandController)
+            and getattr(mouse, "was_click", False)
+        ):
+            self._clear_selection_to_empty()
+
     def _resolve_deferred_click(self, mouse: MouseInputController) -> None:
         """Apply the selection change a press-on-selected deferred to release.
 
-        Only fires when the gesture was a click (no drag happened): collapse the
-        selection onto the clicked entity, or — when it was already the sole
-        selection — deselect it.  A real drag consumes the press, so the
-        deferred change is dropped.
+        Only fires when the gesture was a click (no drag happened).  A click on
+        an item that is part of a *multi*-selection collapses the selection onto
+        that single item.  A click on the *sole* selected item is a no-op — it
+        stays selected (clicking never toggles an object off; that read as
+        "I selected by mistake").  Explicit deselect is Shift+S / clicking the
+        empty board.  A real drag consumes the press, so the deferred change is
+        dropped entirely.
         """
         sel = self._deferred_click_sel
         self._deferred_click_sel = None
@@ -985,12 +1002,13 @@ class SelectTool(_Tool):
             return
         selected = self._selection.selected()
         sole = len(selected) == 1 and selected[0].to_hit() == sel.to_hit()
-        # Pop the selection back to empty first: the FSM's SET op toggles an
-        # already-selected hit OFF, so a plain ``set`` here would clear instead
-        # of collapsing.  From empty, a fresh ``set`` lands exactly *sel*.
+        if sole:
+            return  # already the only selection — keep it, don't toggle off
+        # Multi-selection click: collapse onto the clicked item.  Pop to empty
+        # first — the FSM's SET op toggles an already-selected hit OFF, so a
+        # plain ``set`` would clear instead of collapse.
         self._clear_selection_to_empty()
-        if not sole:
-            self._selection.set(sel)
+        self._selection.set(sel)
         self._refresh_highlight()
 
     def _clear_selection_to_empty(self) -> None:
