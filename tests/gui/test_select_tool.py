@@ -1447,6 +1447,60 @@ class TestDragConflictOutline:
         )
         assert board_view._select_outline_override is None
 
+    def test_wire_ghosting_dims_drop_wires(self, qtbot) -> None:
+        """A drop decision ghost-dims its drop/disconnect wires; CLEAR restores."""
+        from protoboard.gui.tools.drag_commit_decision import (
+            DragCommitDecision,
+            DragSeverity,
+        )
+
+        session, view = _wire_session(qtbot)
+        view.refresh()
+        tool = _v2(view)
+        wire = next(iter(session.layout.wires))
+
+        grp = view._wire_groups.get(wire.id)
+        assert grp is not None and grp.opacity() == 1.0
+
+        # SOFT decision marking the wire as a free drop → dimmed.
+        tool._update_wire_ghosting(
+            DragCommitDecision(
+                severity=DragSeverity.SOFT,
+                free_drop_wire_ids=(wire.id,),
+            )
+        )
+        assert grp.opacity() < 1.0
+        assert wire.id in tool._ghosted_wire_ids
+
+        # CLEAR decision → wire restored to full opacity.
+        tool._update_wire_ghosting(
+            DragCommitDecision(severity=DragSeverity.CLEAR)
+        )
+        assert grp.opacity() == 1.0
+        assert wire.id not in tool._ghosted_wire_ids
+
+    def test_clear_drag_corner_restores_ghosted_wires(self, qtbot) -> None:
+        from protoboard.gui.tools.drag_commit_decision import (
+            DragCommitDecision,
+            DragSeverity,
+        )
+
+        session, view = _wire_session(qtbot)
+        view.refresh()
+        tool = _v2(view)
+        wire = next(iter(session.layout.wires))
+        tool._update_wire_ghosting(
+            DragCommitDecision(
+                severity=DragSeverity.SOFT, free_drop_wire_ids=(wire.id,)
+            )
+        )
+        grp = view._wire_groups.get(wire.id)
+        assert grp is not None and grp.opacity() < 1.0
+        # Any drag-end path routes through _clear_drag_corner → wires restored.
+        tool._clear_drag_corner()
+        assert grp.opacity() == 1.0
+        assert not tool._ghosted_wire_ids
+
     def test_svg_overlay_follows_committed_rotate(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
@@ -1490,6 +1544,53 @@ class TestDragConflictOutline:
         # Any drag-end path routes through _clear_drag_corner → outline resets.
         tool._clear_drag_corner()
         assert board_view._select_outline_override is None
+
+
+class TestFreePinHint:
+    """Clicking an unassigned pin shows a status-bar hint (legacy parity)."""
+
+    def test_free_pin_click_emits_hint(self, qtbot) -> None:
+        from PySide6.QtCore import QPointF
+
+        from protoboard.gui.selection.adapters import ComponentSelectable
+
+        session, view = _wire_session(qtbot)
+        view.refresh()
+        tool = _v2(view)
+        # X1 (1-pin) is at (1.5,1.5) and IS netted in the fixture → no hint.
+        inst = next(iter(session.instances.values()))
+        msgs: list[str] = []
+        tool._status = lambda m, t=3000: msgs.append(m)  # type: ignore[assignment]
+
+        sel = ComponentSelectable(
+            component_id=inst.id, placement=session.layout.placements[inst.id]
+        )
+        tool._hint_free_pin_under(sel, QPointF(1.5, 1.5))
+        assert msgs == []  # netted pin → silent
+
+        # Disconnect the pin → now free → clicking it hints.
+        from protoboard.domain.commands.component_cmds import DisconnectPinCommand
+        session.stack.execute(
+            DisconnectPinCommand(component_id=inst.id, pin_number=1), session,
+        )
+        tool._hint_free_pin_under(sel, QPointF(1.5, 1.5))
+        assert len(msgs) == 1
+        assert "no net" in msgs[0]
+        assert "Assign to net" in msgs[0]
+
+    def test_no_hint_for_wire_or_empty(self, qtbot) -> None:
+        from PySide6.QtCore import QPointF
+
+        from protoboard.gui.selection.adapters import WireSelectable
+
+        session, view = _wire_session(qtbot)
+        view.refresh()
+        tool = _v2(view)
+        msgs: list[str] = []
+        tool._status = lambda m, t=3000: msgs.append(m)  # type: ignore[assignment]
+        wire = next(iter(session.layout.wires))
+        tool._hint_free_pin_under(WireSelectable(wire=wire), QPointF(2.5, 1.5))
+        assert msgs == []  # wire hit → never a free-pin hint
 
 
 class TestContextMenu:

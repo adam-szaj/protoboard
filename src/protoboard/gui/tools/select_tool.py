@@ -213,6 +213,10 @@ class SelectTool(_Tool):
         self._wire_edit_items: list[QGraphicsItem] = []  # cyan overlay + dots
         self._reroute_items: list[QGraphicsItem] = []  # orange waypoint preview
         self._reroute_live: QGraphicsItem | None = None  # live cursor segment
+        # Wires currently ghost-dimmed during a drag (drop / disconnect preview).
+        # Tracked so a wire that stops being a drop-candidate — or the drag end —
+        # is reset to full opacity, not left dimmed.
+        self._ghosted_wire_ids: set[uuid.UUID] = set()
         # Net/connectivity relation axis: which set is correlated to a clicked
         # object — drives Alt (RELATION-basis) selection and the auto-highlight
         # that follows any plain SET click.  Default = same logical net.
@@ -394,6 +398,11 @@ class SelectTool(_Tool):
         if sel is None:
             self._mouse = self._arm_band(scene_pt)
             return True
+
+        #   3a'. Free-pin click feedback: a press landing on an unassigned pin
+        #   highlights to nothing, so without a hint the click looks like a
+        #   no-op.  Confirm it landed and point to the assign action.
+        self._hint_free_pin_under(sel, scene_pt)
 
         #   3b. A plain (no-modifier) press arms a drag of the selection — the
         #   controller's own threshold decides drag-vs-click.  Selecting happens
@@ -1151,8 +1160,39 @@ class SelectTool(_Tool):
         #    positions.  _on_drag_moved reads layout.placements / wires directly.
         self._session.drag_moved.emit()
 
-        # 2) Conflict label — built lazily, cleared whenever the drop is clear.
+        # 2) Conflict label + outline colour — cleared whenever the drop is clear.
         self._show_conflict_corner(decision)
+
+        # 3) Ghost-dim the wires this drop would drop/disconnect, so the user
+        #    sees *which* wires are affected before releasing.
+        self._update_wire_ghosting(decision)
+
+    def _update_wire_ghosting(self, decision: DragCommitDecision | None) -> None:
+        """Dim wires the current drop would remove ("drop") or tear apart
+        ("disconnect"); reset any previously-ghosted wire that no longer
+        qualifies.  No-op when BoardView lacks the setter (headless test)."""
+        view = self._view
+        setter = getattr(view, "set_wire_drag_state", None)
+        if setter is None:
+            return
+        states: dict[uuid.UUID, str] = {}
+        if decision is not None:
+            for wid in (
+                *decision.free_drop_wire_ids,
+                *decision.stationary_group_drop_wire_ids,
+                *decision.auto_remove_wire_ids,
+            ):
+                states[wid] = "drop"
+            for wid in decision.cross_group_disconnect_wire_ids:
+                states.setdefault(wid, "disconnect")
+        # Reset wires we dimmed last tick that aren't dimmed now.
+        for wid in self._ghosted_wire_ids - set(states):
+            states[wid] = "normal"
+        if states:
+            setter(states)
+        self._ghosted_wire_ids = {
+            wid for wid, st in states.items() if st != "normal"
+        }
 
     def _show_conflict_corner(self, decision: DragCommitDecision | None) -> None:
         """Show/clear the corner conflict label for a live preview decision.
@@ -1270,6 +1310,13 @@ class SelectTool(_Tool):
         # together so the selection returns to cyan when the conflict resolves
         # or the drag ends (every drag-end path routes through here).
         self._set_drag_outline(None)
+        # Restore any ghost-dimmed wires to full opacity (the CLEAR-decision tick
+        # and every drag-end path route through here).
+        if self._ghosted_wire_ids:
+            setter = getattr(self._view, "set_wire_drag_state", None)
+            if setter is not None:
+                setter({wid: "normal" for wid in self._ghosted_wire_ids})
+            self._ghosted_wire_ids = set()
 
     def _build_drag_set(self, sel: Selectable) -> DragSet:
         """Snapshot what the grab moves: free components, or whole groups.
@@ -2874,6 +2921,38 @@ class SelectTool(_Tool):
             act.triggered.connect(
                 lambda _checked=False, _a=action_id: view._trigger_tool_action(_a)
             )
+
+    def _hint_free_pin_under(self, sel: Selectable, scene_pt: QPointF) -> None:
+        """Status-bar hint when the press lands on a pin with no net.
+
+        Restores the legacy ``_hint_free_pin`` feedback lost in the v2 rewrite:
+        a free pin's highlight resolves to nothing, so the click otherwise looks
+        like a no-op.  Only fires for a component hit whose nearest pin is
+        unassigned; netted pins and wires/groups are silent.
+        """
+        from protoboard.domain.schematic.net import PinRef
+
+        hit = sel.to_hit()
+        if hit.kind != "component" or not isinstance(hit.id, uuid.UUID):
+            return
+        pin = self._menu_clicked_pin(scene_pt, hit.id)
+        if pin is None:
+            return
+        if self._session.schematic.net_for_pin(
+            PinRef(component_id=hit.id, pin_number=pin)
+        ) is not None:
+            return  # netted → no hint
+        inst = self._session.instances.get(hit.id)
+        defn = (
+            self._session.components.get(inst.definition_ref)
+            if inst is not None else None
+        )
+        name = (
+            defn.pin_names.get(pin, str(pin)) if defn is not None else str(pin)
+        )
+        self._status(
+            f"Pin {pin} ({name}) — no net (right-click → Assign to net)", 4000
+        )
 
     def _menu_clicked_pin(
         self, scene_pt: QPointF, comp_id: uuid.UUID

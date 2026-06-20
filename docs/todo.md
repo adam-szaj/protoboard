@@ -37,14 +37,15 @@ worked through:
   SETs.  Lost vs legacy: wire catching (LTR all-inside / RTL any-inside or
   segment-crosses), group catching (member-bbox coverage), and Ctrl/Shift
   ADD/REMOVE ops (always replaces).
-- **Drag conflict feedback.**  `DragConflictOverlay` + `set_wire_drag_state`
-  are dead code (no live caller); only the corner text label remains.  Decision
-  (2026-06-20): instead of the legacy dashed bbox rect, recolour the dragged
-  components' body outline red (HARD) / amber (SOFT), reusing the
-  `_recolour_selected_outlines` mechanism; plus ghost-dim wires that will
-  drop/disconnect via `set_wire_drag_state`.
-- **Free-pin click hint.**  Legacy `_hint_free_pin` status message on clicking
-  an unassigned pin is gone (v2 has `_free_bendable_pin` but no hint).
+- **Drag conflict feedback.**  ✅ DONE (2026-06-20).  Body-outline recolour
+  red (HARD) / amber (SOFT) via `BoardView.set_selection_outline_override`
+  driven from `SelectTool._show_conflict_corner`; wire ghost-dimming via
+  `_update_wire_ghosting` → `set_wire_drag_state` (drop 0.3 / disconnect 0.5),
+  reset in `_clear_drag_corner`.  (Legacy dashed bbox overlay intentionally
+  not restored — the outline recolour replaces it.)
+- **Free-pin click hint.**  ✅ DONE (2026-06-20).  `_hint_free_pin_under`
+  fires from `on_press` when a press lands on an unassigned pin:
+  "Pin N (name) — no net (right-click → Assign to net)".
 - **Properties-panel rotation combo** not refreshed after keyboard rotate.
 - **Ctrl+Alt+LMB highlight union** no longer accumulates across nets (ADD
   basis resets the relation context each click).
