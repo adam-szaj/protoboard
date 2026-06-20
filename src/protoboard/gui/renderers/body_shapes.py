@@ -23,7 +23,7 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 
-from PySide6.QtCore import QRectF
+from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
@@ -771,7 +771,14 @@ class PackageBody(BodyShape):
         if pkg.pin_count() == 2 and len(positions) >= 2:
             return self._draw_smd_chip(pkg, positions, fill, border, alpha, z, theme)
 
-        sil = silhouette_for(pkg)
+        # A dev-board module renders as a plain PCB rectangle — no DIP notch /
+        # SIL slots — regardless of how its pins cluster into columns.  Suppress
+        # the silhouette so the caller falls through to the plain bbox body, and
+        # mark the pins with a faint pad-sized active-area ring (drawn there).
+        if self._component_class is ComponentClass.DEVBOARD:
+            sil = None
+        else:
+            sil = silhouette_for(pkg)
         if sil is None:
             return None
         drawing = sil.build(pkg, theme)
@@ -906,12 +913,44 @@ class PackageBody(BodyShape):
             path_item.setBrush(QBrush(fill_c))
             path_item.setPen(_body_pen(border, alpha))
             path_item.setZValue(z)
-            return [path_item]
-        rect_item = QGraphicsRectItem(rect)
-        rect_item.setBrush(QBrush(fill_c))
-        rect_item.setPen(_body_pen(border, alpha))
-        rect_item.setZValue(z)
-        return [rect_item]
+            items: list[QGraphicsItem] = [path_item]
+        else:
+            rect_item = QGraphicsRectItem(rect)
+            rect_item.setBrush(QBrush(fill_c))
+            rect_item.setPen(_body_pen(border, alpha))
+            rect_item.setZValue(z)
+            items = [rect_item]
+        # A dev-board's pins sit on the PCB's top surface — mark each with a
+        # faint pad-sized ring (the click-active area) drawn on top of the body.
+        # The real pin glyph / modifier is drawn by the component renderer on a
+        # higher layer, so these rings are additive and not claimed.
+        if self._component_class is ComponentClass.DEVBOARD:
+            items.extend(self._pad_active_rings(positions, border, alpha, z, theme))
+        return items
+
+    def _pad_active_rings(
+        self,
+        positions: list[Point],
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme,
+    ) -> list[QGraphicsItem]:
+        """A faint pad-sized ring per pin, marking the click-active area."""
+        pad_r = theme.pad_radius
+        ring_c = QColor(border)
+        ring_c.setAlphaF(ring_c.alphaF() * alpha * 0.35)
+        pen = QPen(ring_c, theme.pad_outline_width)
+        rings: list[QGraphicsItem] = []
+        for p in positions:
+            ring = QGraphicsEllipseItem(
+                QRectF(p.x - pad_r, p.y - pad_r, 2 * pad_r, 2 * pad_r)
+            )
+            ring.setPen(pen)
+            ring.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            ring.setZValue(z + 0.02)
+            rings.append(ring)
+        return rings
 
 
 def _darken(c: QColor) -> QColor:

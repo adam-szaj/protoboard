@@ -6,9 +6,24 @@ import uuid
 
 import pytest
 
-from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.definition import (
+    REFDES_PREFIX,
+    ComponentClass,
+    ComponentDefinition,
+)
 from protoboard.domain.components.footprints import DIP, SIL
 from protoboard.domain.components.instance import ComponentInstance
+
+
+class TestComponentClass:
+    def test_refdes_prefix_total(self) -> None:
+        # refdes_prefix indexes REFDES_PREFIX with no fallback, so every class
+        # MUST have a prefix or a placed component of that class crashes.
+        for cls in ComponentClass:
+            assert cls in REFDES_PREFIX, f"REFDES_PREFIX missing {cls}"
+
+    def test_devboard_prefix(self) -> None:
+        assert REFDES_PREFIX[ComponentClass.DEVBOARD] == "U"
 
 
 class TestComponentDefinition:

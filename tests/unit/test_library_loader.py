@@ -11,7 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.definition import (
+    ComponentClass,
+    ComponentDefinition,
+)
 from protoboard.domain.components.footprints import (
     DualRow,
     SingleRow,
@@ -20,6 +23,40 @@ from protoboard.errors import SerializationError
 from protoboard.services.library.loader import ComponentLibrary, load_library
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "library"
+
+
+class TestDevboardInlinePackage:
+    """A dev-board module is a component with an inline prism package whose pins
+    are declared as aggregated (run-length) consecutive offsets — no footprint
+    block.  Pin positions come from the package."""
+
+    _LIB = """\
+components:
+  - name: MOD_2x4
+    component_class: devboard
+    package:
+      shape: prism
+      dims: {width: 12.5, length: 12.5, height: 1.6}
+      leads:
+        direction: [0, 0, -1]
+        body_offset: {unit: 2.5, value: [[3, [0, 1]], [5, 0], [3, [0, -1]]]}
+        board_offset: default
+      bend: 0
+    pin_names: {1: A, 8: B}
+"""
+
+    def test_loads_as_devboard_with_package_pins(self, tmp_path: Path) -> None:
+        (tmp_path / "m.yaml").write_text(self._LIB)
+        defn = load_library([tmp_path]).get("MOD_2x4")
+        assert defn.component_class is ComponentClass.DEVBOARD
+        pins = defn.footprint.pin_positions()
+        # 8 pins, cumulative from pin 1 = (0,0): down col A, jump 5, down… up col B.
+        assert len(pins) == 8
+        coords = [(round(p.x), round(p.y)) for p in pins]
+        assert coords == [
+            (0, 0), (0, 1), (0, 2), (0, 3),
+            (5, 3), (5, 2), (5, 1), (5, 0),
+        ]
 
 
 class TestRigidPackageFamilyRef:

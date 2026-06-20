@@ -317,6 +317,52 @@ class TestParametricDIPBody:
         assert isinstance(items[0], (QGraphicsRectItem, QGraphicsPathItem))
 
 
+class TestDevboardBody:
+    """A devboard renders as a plain PCB rectangle — no DIP notch — even when
+    its pins cluster into the two columns that would otherwise be a DIP.  The
+    suppression is keyed on ``component_class``, not the pin layout."""
+
+    def test_devboard_has_no_notch(self, qtbot: QtBot) -> None:
+        from PySide6.QtCore import QPointF
+        body_dev = PackageBody(  # type: ignore[arg-type]
+            _dip8_prism(), component_class=ComponentClass.DEVBOARD
+        )
+        items = body_dev.draw(_dip8_positions(), _RED, _DARK, 1.0, _Z)
+        body = max(
+            (it for it in items if isinstance(it, (QGraphicsRectItem, QGraphicsPathItem))),
+            key=lambda it: it.sceneBoundingRect().width() * it.sceneBoundingRect().height(),
+        )
+        # The point the DIP notch carves out (row midpoint, top edge) is now
+        # INSIDE the plain rectangle — no notch was cut.
+        if isinstance(body, QGraphicsPathItem):
+            assert body.path().contains(QPointF(1.5, -0.4))
+        # A plain rect body OR a rounded-rect path, never the notched silhouette.
+
+    def test_ic_same_prism_still_notched(self, qtbot: QtBot) -> None:
+        # Control: the very same prism rendered as an IC keeps the DIP notch, so
+        # the gate is class-driven (devboard), not a change to the silhouette.
+        from PySide6.QtCore import QPointF
+        items = PackageBody(  # type: ignore[arg-type]
+            _dip8_prism(), component_class=ComponentClass.IC
+        ).draw(_dip8_positions(), _RED, _DARK, 1.0, _Z)
+        body = max(
+            (it for it in items if isinstance(it, QGraphicsPathItem)),
+            key=lambda it: it.sceneBoundingRect().width(),
+        )
+        assert not body.path().contains(QPointF(1.5, -0.4))  # notch still carved
+
+    def test_pad_active_rings_one_per_pin(self, qtbot: QtBot) -> None:
+        # Each pin gets a faint pad-sized ring (the click-active marker) on top
+        # of the body; the body itself is one item, so rings == pin count.
+        from PySide6.QtWidgets import QGraphicsEllipseItem
+        positions = _dip8_positions()
+        items = PackageBody(  # type: ignore[arg-type]
+            _dip8_prism(), component_class=ComponentClass.DEVBOARD
+        ).draw(positions, _RED, _DARK, 1.0, _Z)
+        rings = [it for it in items if isinstance(it, QGraphicsEllipseItem)]
+        assert len(rings) == len(positions)
+
+
 # ---------------------------------------------------------------------------
 # body_shape_for dispatch
 # ---------------------------------------------------------------------------
@@ -353,6 +399,35 @@ class TestBodyShapeFor:
         defn = ComponentDefinition(
             name="U1", component_class=ComponentClass.IC,
             footprint=fp, pin_names={}
+        )
+        shape = body_shape_for(defn)
+        assert isinstance(shape, PackageBody)
+
+    def test_devboard_with_inline_package_returns_package_body(self) -> None:
+        # A devboard module carries an inline prism package, so it takes the
+        # first (parametric package) dispatch arm and renders via PackageBody —
+        # which, for the DEVBOARD class, draws a plain rect (no notch).
+        from protoboard.domain.components.package.loader import build_package
+        from protoboard.domain.components.package.adapter import PackageFootprint
+        pkg = build_package(
+            {
+                "shape": "prism",
+                "dims": {"width": 18.0, "length": 38.1, "height": 1.6},
+                "bend": 0,
+                "leads": {
+                    "direction": [0, 0, -1],
+                    "body_offset": {
+                        "unit": 2.5,
+                        "value": [[3, [0, 1]], [7, 0], [3, [0, -1]]],
+                    },
+                    "board_offset": "default",
+                },
+            },
+            "TEST_DEVBOARD",
+        )
+        defn = ComponentDefinition(
+            name="MOD1", component_class=ComponentClass.DEVBOARD,
+            footprint=PackageFootprint(pkg), package=pkg, pin_names={},
         )
         shape = body_shape_for(defn)
         assert isinstance(shape, PackageBody)

@@ -35,6 +35,7 @@ class ComponentClass(StrEnum):
     TRANSISTOR_NJFET = "transistor_njfet"
     TRANSISTOR_PJFET = "transistor_pjfet"
     IC = "ic"
+    DEVBOARD = "devboard"
     CONNECTOR = "connector"
     SWITCH = "switch"
     FUSE = "fuse"
@@ -60,6 +61,7 @@ REFDES_PREFIX: dict[ComponentClass, str] = {
     ComponentClass.TRANSISTOR_NJFET: "Q",
     ComponentClass.TRANSISTOR_PJFET: "Q",
     ComponentClass.IC: "U",
+    ComponentClass.DEVBOARD: "U",
     ComponentClass.CONNECTOR: "J",
     ComponentClass.SWITCH: "SW",
     ComponentClass.FUSE: "F",

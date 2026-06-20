@@ -4,8 +4,17 @@ components:
 
   - name: Arduino_Nano
     description: "Arduino Nano v3 (30-pin: 15 per side, 18mm wide)"
-    component_class: ic
-    footprint: {type: DIP, pins: 30, rows_spacing: 7}
+    component_class: devboard
+    # PCB module: real outline (18 × 38.1 mm) + pins as aggregated offsets.
+    # 2×15 header: 14 steps down the left column, jump 7 across, 14 up the right.
+    package:
+      shape: prism
+      dims: {width: 18.0, length: 38.1, height: 1.6}
+      leads:
+        direction: [0, 0, -1]
+        body_offset: {unit: 2.5, value: [[14, [0, 1]], [7, 0], [14, [0, -1]]]}
+        board_offset: default
+      bend: 0
     pin_names:
       1: PD1/TX/PCINT17/31
       2: PD0/RX/PCINT16/30
@@ -46,8 +55,17 @@ components:
   # Pin 1 = VBAT (top-left), matches standard WeAct/RobotDyn silkscreen.
   - name: STM32_BluePill
     description: "STM32F103C8T6 Blue Pill module (2×20, 20.32mm wide)"
-    component_class: ic
-    footprint: {type: DIP, pins: 40, rows_spacing: 7}
+    component_class: devboard
+    # PCB module: real outline (22.86 × 53 mm) + pins as aggregated offsets.
+    # 2×20 header: 19 steps down the left column, jump 6 across, 19 up the right.
+    package:
+      shape: prism
+      dims: {width: 22.86, length: 53.0, height: 1.6}
+      leads:
+        direction: [0, 0, -1]
+        body_offset: {unit: 2.5, value: [[19, [0, 1]], [6, 0], [19, [0, -1]]]}
+        board_offset: default
+      bend: 0
     pin_names:
       1: VBAT
       2: PC13
@@ -99,8 +117,17 @@ components:
   # Pin 1 = 3V3 (top-left), pin 20 = B9, pin 21 = GND, pin 40 = B12.
   - name: STM32_BlackPill
     description: "STM32F401/F411 Black Pill module (2×20, 17.78mm wide)"
-    component_class: ic
-    footprint: {type: DIP, pins: 40, rows_spacing: 7}
+    component_class: devboard
+    # PCB module: real outline (20.8 × 52.8 mm) + pins as aggregated offsets.
+    # 2×20 header: 19 steps down the left column, jump 6 across, 19 up the right.
+    package:
+      shape: prism
+      dims: {width: 20.8, length: 52.8, height: 1.6}
+      leads:
+        direction: [0, 0, -1]
+        body_offset: {unit: 2.5, value: [[19, [0, 1]], [6, 0], [19, [0, -1]]]}
+        board_offset: default
+      bend: 0
     pin_names:
       1: 3V3
       2: PC13
@@ -153,8 +180,28 @@ components:
   # WeAct Studio v1.0 schematic. G431CB/RB and G474CE/RE use the same board layout.
   - name: STM32G4_WeAct
     description: "WeAct STM32G431/G474 CoreBoard (4×20, col_spacings [1,8,1])"
-    component_class: ic
-    footprint: {type: QuadRow, n_per_col: 20, col_spacings: [1, 8, 1]}
+    component_class: devboard
+    # PCB module: real outline (28 × 53 mm) + pins as aggregated offsets.
+    # 4 columns at x = 0,1,9,10: L_outer↓ (1-20), jump to L_inner↓ (21-40),
+    # jump to R_inner↑ (41-60), jump to R_outer↑ (61-80).  The within-column
+    # runs are 19 steps; the three [Δx, Δy] vectors are the column jumps.
+    package:
+      shape: prism
+      dims: {width: 28.0, length: 53.0, height: 1.6}
+      leads:
+        direction: [0, 0, -1]
+        body_offset:
+          unit: 2.5
+          value:
+            - [19, [0, 1]]    # L_outer (x=0): pin 1→20 down
+            - [1, -19]        # jump to L_inner top (x=1, y=0)
+            - [19, [0, 1]]    # L_inner (x=1): pin 21→40 down
+            - [8, 0]          # jump to R_inner bottom (x=9, y=19)
+            - [19, [0, -1]]   # R_inner (x=9): pin 41→60 up
+            - [1, 19]         # jump to R_outer bottom (x=10, y=0… then up)
+            - [19, [0, -1]]   # R_outer (x=10): pin 61→80 up
+        board_offset: default
+      bend: 0
     pin_names:
       # L_outer (col 0), pins 1-20, top→bottom
       1: VBAT
