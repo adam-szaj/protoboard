@@ -67,6 +67,16 @@ packages:
       board_offset: default
     bend: 0.0
 
+  - name: prism_smd                 # SMD chip (0805 / 0603) — flat, no leads
+    abstract: true                  # leży na dwóch sąsiednich padach, nie
+    extends: prism                  # zasłania otworu (body_blocks=False)
+    arrangement: axial              # terminale na końcach wzdłuż osi body
+    leads:
+      direction:    [[0, 0, -1], [0, 0, -1]]
+      body_offset:  {unit: 2.5, value: [[1, 0]]}
+      board_offset: default
+    bend: 0.0
+
   # --- named (instantiable) ---
   - name: DO-35
     extends: cylinder_axial

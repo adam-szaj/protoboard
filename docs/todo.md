@@ -79,8 +79,16 @@ SVG generators are gone.
 
 - `src/protoboard/gui/renderers/prism_silhouette.py` — a `PrismSilhouette`
   strategy family (SIL housing, DIP notched body), selected by clustering
-  a prism's pin cloud into columns (`silhouette_for`).  1 col → SIL, 2 →
-  DIP, anything else → plain bbox (the dev-board body look).
+  a prism's pin cloud into columns (`silhouette_for`).  1 col of ≥3 pins →
+  SIL, 2 cols of ≥2 pins each → DIP; a two-pin prism (SMD chip) and anything
+  else → plain bbox / SMD body (no silhouette).
+- SMD chips (`SMD-0805` / `SMD-0603`, `assets/package_families/smd_chip.yaml`,
+  base `prism_smd`) are two-pin axial prisms.  `PackageBody._draw_smd_chip`
+  renders them as a flat rounded body centred on the pad pair and aligned to
+  the pad axis (ortho + diagonal), spanning both pads — no leads, no marker.
+  The body lies on adjacent pads without covering a hole (`body_blocks`
+  stays unset, so the collision mask treats it as a low body, not a hole
+  blocker).
 - `src/protoboard/domain/components/package/from_footprint.py` —
   `prism_for_footprint` synthesizes a `Prism` from a `DualRow` / `SingleRow`
   / `QuadRow` footprint (pins derived as consecutive differences of the

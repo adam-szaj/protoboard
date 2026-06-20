@@ -764,6 +764,13 @@ class PackageBody(BodyShape):
         origin) and placed with the pin1→pin2 transform, mirroring the legacy
         ``Svg*Body`` generators.
         """
+        # A two-pin prism is an SMD chip (0805 / 0603): a flat body that lies on
+        # the two pads, centred on their midpoint and aligned to the pad axis
+        # (so ortho and diagonal placements both render correctly).  It has no
+        # column silhouette.
+        if pkg.pin_count() == 2 and len(positions) >= 2:
+            return self._draw_smd_chip(pkg, positions, fill, border, alpha, z, theme)
+
         sil = silhouette_for(pkg)
         if sil is None:
             return None
@@ -797,6 +804,64 @@ class PackageBody(BodyShape):
             marker.setZValue(z + 0.01)
             items.append(marker)
         return items
+
+    # ------------------------------------------------------------------
+    # SMD chip — flat two-terminal body centred on the pad pair
+    # ------------------------------------------------------------------
+
+    def _draw_smd_chip(
+        self,
+        pkg: _PkgPrism,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme,
+    ) -> list[QGraphicsItem]:
+        """A surface-mount chip (0805 / 0603): a flat rounded rectangle centred
+        on the two pads and aligned to the pad axis.
+
+        The chip terminals end at the pads, so the body spans at least the pad
+        spacing (it bridges the two holes); its width is the package body width.
+        Aligning to the pad axis makes ortho and diagonal placements both render
+        correctly.  No leads and no pin-1 marker — a chip carries neither.
+        """
+        mm = theme.raster_pitch_mm
+        bb = pkg.bbox()
+        body_w = bb.width    # across the terminal axis (package width)
+        body_len = bb.height  # along the terminal axis (package length)
+
+        p1, p2 = positions[0], positions[1]
+        dx, dy = p2.x - p1.x, p2.y - p1.y
+        dist = math.hypot(dx, dy)
+        if dist < 1e-9:
+            return self._draw_bbox(positions, fill, border, alpha, z, theme)
+
+        mid_x = (p1.x + p2.x) / 2.0
+        mid_y = (p1.y + p2.y) / 2.0
+        angle_deg = math.degrees(math.atan2(dy, dx))
+        # Cover both pads: the body reaches at least the pad spacing so each
+        # terminal sits under a chip end.  A margin past the pads keeps the
+        # terminals tucked under the body rather than poking out.
+        length = max(body_len, dist + body_w)
+        r = min(_package_corner_radius(pkg) / mm, body_w / 2.0, length / 2.0)
+
+        path = QPainterPath()
+        path.addRoundedRect(
+            QRectF(-length / 2.0, -body_w / 2.0, length, body_w), r, r,
+        )
+        body = QGraphicsPathItem(path)
+        fill_c = QColor(fill)
+        fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        body.setBrush(QBrush(fill_c))
+        body.setPen(_body_pen(border, alpha))
+        body.setZValue(z)
+        t = QTransform()
+        t.translate(mid_x, mid_y)
+        t.rotate(angle_deg)
+        body.setTransform(t)
+        return [body]
 
     # ------------------------------------------------------------------
     # Generic — bbox() rectangle in holes (prism, devboard, fallback)

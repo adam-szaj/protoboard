@@ -128,6 +128,26 @@ def _prism_package() -> object:
     )
 
 
+def _smd_chip_package() -> object:
+    """A two-pin SMD chip (0805-like) prism: flat axial body, 1-hole pins."""
+    return build_package(
+        {
+            "shape": "prism",
+            "dims": {"length": 2.0, "width": 1.25, "corner_radius": 0.12},
+            "color": "#cdd2d6",
+            "edge": "sharp",
+            "arrangement": "axial",
+            "bend": 0,
+            "leads": {
+                "direction": [[0, 0, -1], [0, 0, -1]],
+                "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                "board_offset": "default",
+            },
+        },
+        "TEST_SMD",
+    )
+
+
 def _colored_cylinder_package(color: str = "#d6c08c", edge: str = "rounded") -> object:
     """An axial cylinder declaring an explicit body colour and edge style."""
     return build_package(
@@ -499,6 +519,51 @@ class TestPackageBodyDraw:
         pts = _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
         items = shape.draw(pts, _RED, _DARK, 1.0, _Z)
         assert items[0].zValue() == _Z
+
+
+class TestSmdChipBody:
+    """A two-pin prism renders as a flat SMD chip centred on the pad pair."""
+
+    def test_no_dip_silhouette_for_two_pin_prism(self) -> None:
+        # A two-pin (two single-pin columns) prism is not a DIP — no notch.
+        assert silhouette_for(_smd_chip_package()) is None  # type: ignore[arg-type]
+
+    def test_single_body_no_marker_no_leads(self, qtbot: QtBot) -> None:
+        items = PackageBody(_smd_chip_package()).draw(  # type: ignore[arg-type]
+            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        # One body path; no pin-1 marker and no lead lines (a chip has neither).
+        assert len(items) == 1
+        assert isinstance(items[0], QGraphicsPathItem)
+        assert not any(isinstance(it, QGraphicsLineItem) for it in items)
+
+    def test_body_centred_on_pad_midpoint(self, qtbot: QtBot) -> None:
+        # Pads at (0,0)-(2,0): the chip body is centred at the midpoint (1,0),
+        # not anchored at pin 1.
+        items = PackageBody(_smd_chip_package()).draw(  # type: ignore[arg-type]
+            _pts((0, 0), (2, 0)), _RED, _DARK, 1.0, _Z)
+        c = items[0].sceneBoundingRect().center()
+        assert (round(c.x(), 2), round(c.y(), 2)) == (1.0, 0.0)
+
+    def test_body_spans_both_pads(self, qtbot: QtBot) -> None:
+        # The chip bridges the two holes: its body reaches both pad centres.
+        from PySide6.QtCore import QPointF
+        items = PackageBody(_smd_chip_package()).draw(  # type: ignore[arg-type]
+            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        body = items[0]
+        assert isinstance(body, QGraphicsPathItem)
+        place = body.sceneTransform()
+        for pad in (QPointF(0.0, 0.0), QPointF(1.0, 0.0)):
+            # Map the scene pad into the body's local frame, then test coverage.
+            local = place.inverted()[0].map(pad)
+            assert body.path().contains(local)
+
+    def test_diagonal_placement_aligns_to_pad_axis(self, qtbot: QtBot) -> None:
+        # Diagonally-adjacent pads → the body rotates to the 45° pad axis and
+        # still centres on the midpoint.
+        items = PackageBody(_smd_chip_package()).draw(  # type: ignore[arg-type]
+            _pts((0, 0), (1, 1)), _RED, _DARK, 1.0, _Z)
+        c = items[0].sceneBoundingRect().center()
+        assert (round(c.x(), 2), round(c.y(), 2)) == (0.5, 0.5)
 
 
 class TestPackageBodyColor:

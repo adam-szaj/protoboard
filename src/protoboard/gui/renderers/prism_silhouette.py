@@ -37,13 +37,15 @@ from protoboard.gui.theme import Theme
 _COLUMN_EPS = 0.25
 
 
-def _column_xs(positions: list[Point]) -> list[float]:
-    """The x of each column in *positions*, left to right.
+def _columns(positions: list[Point]) -> list[tuple[float, int]]:
+    """Each column in *positions* as ``(mean_x, pin_count)``, left to right.
 
     Pins whose x differ by less than :data:`_COLUMN_EPS` share a column; each
-    column reports the mean x of its members.  The column *count* selects the
-    silhouette and the two-column mean fixes the DIP notch; the body's extent
-    comes from the package bbox, so the per-column y-span is not needed here.
+    column reports the mean x of its members and how many it holds.  The column
+    count and per-column pin count select the silhouette (a two-column layout
+    with one pin per column is a two-pin part, not a DIP); the two-column mean
+    fixes the DIP notch.  The body's extent comes from the package bbox, so the
+    per-column y-span is not needed here.
     """
     cols: list[list[float]] = []
     for p in sorted(positions, key=lambda q: q.x):
@@ -51,7 +53,7 @@ def _column_xs(positions: list[Point]) -> list[float]:
             cols[-1].append(p.x)
         else:
             cols.append([p.x])
-    return [sum(xs) / len(xs) for xs in cols]
+    return [(sum(xs) / len(xs), len(xs)) for xs in cols]
 
 
 @dataclass(frozen=True)
@@ -156,16 +158,17 @@ class SilSilhouette(PrismSilhouette):
 def silhouette_for(prism: Prism) -> PrismSilhouette | None:
     """Pick the silhouette strategy for *prism* from its column layout.
 
-    One column → SIL header, two → DIP.  Everything else — a single pin, a
-    three-column oddity, or a multi-column dev-board module — has no dedicated
-    silhouette and the caller falls back to the plain bbox rectangle (the
-    dev-board body look).
+    One column of ≥3 pins → SIL header; two columns of ≥2 pins each → DIP.
+    Everything else — a two-pin part (incl. an SMD chip: two columns of one
+    pin, or one column of two), a three-column oddity, or a multi-column
+    dev-board module — has no dedicated silhouette and the caller falls back to
+    the plain bbox rectangle (the SMD chip / dev-board body look).
     """
-    cols = _column_xs(prism.pin_positions())
-    if len(cols) == 1:
+    cols = _columns(prism.pin_positions())
+    if len(cols) == 1 and cols[0][1] >= 3:
         return SilSilhouette()
-    if len(cols) == 2:
-        return DipSilhouette(notch_cx=(cols[0] + cols[1]) / 2.0)
+    if len(cols) == 2 and all(count >= 2 for _, count in cols):
+        return DipSilhouette(notch_cx=(cols[0][0] + cols[1][0]) / 2.0)
     return None
 
 

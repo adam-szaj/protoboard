@@ -19,6 +19,21 @@ class TestBuiltinCatalogue:
         assert "Ceramic-Disc-D5" in fams
         assert "LED-5mm" in fams
         assert "HC-49" in fams
+        # SMD chip bodies.
+        assert "SMD-0805" in fams
+        assert "SMD-0603" in fams
+
+    def test_smd_chip_is_two_pin_axial_prism(self) -> None:
+        fams = load_package_families()
+        for fid, length_mm in (("SMD-0805", 2.0), ("SMD-0603", 1.6)):
+            pkg = fams[fid].default_variant().package
+            assert isinstance(pkg, Prism)
+            assert pkg.pin_count() == 2
+            # Terminals one hole apart; body does not declare a hole blocker
+            # (it lies on the pads, occupying space but not an opening).
+            xs = sorted({round(p.x, 1) for p in pkg.pin_positions()})
+            assert xs == [0.0, 1.0]
+            assert pkg.length_mm == length_mm
 
     def test_every_variant_builds(self) -> None:
         for fam in load_package_families().values():
