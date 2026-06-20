@@ -1,0 +1,386 @@
+# Defining components and packages
+
+A practical guide to the library YAML: how to declare a **component**, how to give
+it a **package** (its physical body + lead geometry), which **generic packages**
+you can extend, what is **generated in code**, and what you can **customise** and
+how.
+
+For the underlying design rationale (the lead/offset model, the two offset
+domains, the axial solver) see [spec.md](spec.md). For a rendered gallery see
+[README.md](README.md). This document is the *authoring* reference and is grounded
+in the loader as implemented (`src/protoboard/services/library/loader.py`,
+`src/protoboard/domain/components/package/loader.py`).
+
+---
+
+## 1. The big picture
+
+```
+component  ──references──▶  package        ──gives──▶  body shape + pin geometry
+(what it is)               (physical body)            (how it draws / where pins land)
+```
+
+- A **component** (`components:` entry) is an electrical part: a name, a class, pin
+  names, and a way to obtain its **pins + body**.
+- A **package** (`packages:` entry, or a `package_families:` family, or an inline
+  `package:` block on the component) is the physical body — a `cylinder`, `prism`
+  or `disc` with lead geometry. The package decides the pin positions and the body
+  outline/colour.
+- A component gets its package one of three ways (precedence, highest first):
+  1. the placed **instance's** `package_variant` (`"family/variant"`),
+  2. the definition's **`package_family_ref`** (`"family/variant"`),
+  3. an **inline `package:`** block on the component.
+
+  Resolved in `resolve_component_package`
+  (`domain/components/package/component_package.py`). If none resolve, the
+  component falls back to its bare `footprint:` (pin geometry only, generic body).
+
+Files: components load from `library/**/*.yaml` and `assets/**/*.yaml`; packages
+from `assets/packages/*.yaml`; families from `assets/package_families/*.yaml`
+(earlier directories win on name collision).
+
+---
+
+## 2. Defining a component
+
+A `components:` entry. Fields (from `_component_from_dict`, `loader.py:226`, and the
+`ComponentDefinition` dataclass, `definition.py:124`):
+
+| Field | Req. | Meaning |
+|---|---|---|
+| `name` | yes | Part identifier (`"BC547"`, `"R"`, `"NE555"`). |
+| `footprint` | yes¹ | Pin-cloud template — see §6. ¹Required **unless** an inline `package:` is given (the package then supplies the pins). A `package_family_ref` does **not** remove the need for a `footprint:` — ship both. |
+| `pin_names` | — | `{1: "C", 2: "B", 3: "E"}` — pin number → signal label. Belong to the component, not the package. |
+| `component_class` | — | One of the `ComponentClass` values (§7). Default `other`. Drives the refdes prefix and a few rendering specifics (polarity marker, devboard body). |
+| `description` | — | Human text. |
+| `package` | — | Inline parametric package (§3) — body + pin geometry. |
+| `package_family_ref` | — | `"family/variant"` into the family catalogue (§5). |
+| `variants` | — | Alternative `pin_names` mappings (same footprint, different labelling) — each `{id, label, pin_names}`. |
+| `aliases` | — | Extra names the part is also found under. |
+| `default_value` | — | Value shown when placed (`"?"` for a generic template, `""` for a concrete part). |
+| `metadata` | — | Free key→value bag (not interpreted by the renderer). |
+| `bendable_pins` | — | Per-pin reach/bend for flexible THT leads (resistors etc.). |
+| `body_blocks_routing` | — | `true` for SMD/tight parts whose body should block routing under it. |
+
+Minimal examples:
+
+```yaml
+components:
+  # A) component that points at a catalogue family (preferred for real parts).
+  #    NOTE: a footprint: is still required alongside package_family_ref — the
+  #    family supplies the body, the footprint supplies the pin grid.
+  - name: R_SMD_0805
+    component_class: resistor
+    footprint: {type: TwoPin}
+    package_family_ref: SMD-0805/typ
+    pin_names: {}
+
+  # B) component with just a footprint (generic body, no catalogue package)
+  - name: J1
+    component_class: connector
+    footprint: {type: SIL, pins: 4}
+    pin_names: {1: VCC, 2: GND, 3: TX, 4: RX}
+
+  # C) component with an inline package (body + pins defined right here; no
+  #    footprint: needed — the package supplies the pins)
+  - name: BC547
+    component_class: transistor_npn
+    package: {extends: TO-92}
+    pin_names: {1: C, 2: B, 3: E}
+```
+
+---
+
+## 3. Defining a package (the body)
+
+A package is a `cylinder`, `prism` or `disc` (the `shape:` registry; dispatch in
+`package/loader.py`). Geometry is computed in code from the data — the YAML is pure
+description.
+
+| `shape` | `dims` keys (mm) | Typical use |
+|---|---|---|
+| `cylinder` | `diameter`, `length`, `edge_radius` | axial resistor/diode bodies, radial electrolytics |
+| `prism` | `width`, `length`, `height`, `corner_radius` | DIP, TO-92, SMD chips, dev-board PCBs |
+| `disc` | `diameter`, `thickness` | disc capacitors, LEDs |
+
+Common fields on a package:
+
+| Field | Meaning |
+|---|---|
+| `shape` | `cylinder` \| `prism` \| `disc`. |
+| `extends` | Name of a package to inherit from and close (deep-merge, §4). |
+| `abstract: true` | A base meant only for `extends`, never used directly. |
+| `dims` | Body dimensions in **mm** (datasheet numbers). |
+| `color` | Body fill, `#rrggbb` (see §8). |
+| `edge` | `sharp` \| `rounded`. |
+| `margin` | (prism) PCB margin in mm from outer pin centres — when present, `dims` may be derived from the pin bbox. |
+| `bend` | Lead "give": one radius in **holes** the pin may move from its default (rigid = `0`). |
+| `leads` | Lead geometry — `direction`, `body_offset`, `board_offset`, … (see §3.1 and spec.md). |
+
+### 3.1 Pin geometry — aggregated offsets
+
+Pin positions are a chain of **consecutive offset vectors**, cumulative from pin 1
+at the origin `[0,0]`. For N pins you give **N−1** step vectors. Two domains
+(see spec.md §"Dwa offsety"):
+
+- **`body_offset`** — where leads exit the body. Declares its own `unit` (mm per
+  step); `{unit: 2.5, value: [...]}` (or a bare list, unit defaults to 1.0).
+- **`board_offset`** — where pins land in the grid (holes, fixed raster 2.5 mm).
+  Usually `default` = the same vectors read on the grid; or an explicit list when
+  the board shape differs; or `solve` for the axial solver (`body_offset == 0`).
+
+**Run-length form** for repeated steps: `[count, [x, y]]` (second element a *list*
+= repeat `count` times) vs `[x, y]` (second element a *number* = a single step).
+The repeat counts must sum to N−1.
+
+```yaml
+# DIP-8: down the left column (3 steps), jump 3 across, down the right (3 steps)
+body_offset: {unit: 2.5, value: [[3, [0, 1]], [3, 0], [3, [0, -1]]]}
+board_offset: default
+```
+
+This is also how **dev-board modules** declare their (many) pins — see §9.
+
+---
+
+## 4. Generic packages and `extends:`
+
+`extends:` does a recursive **deep merge** of the parent dict under the child
+(`resolve_extends` + `_deep_merge`, `package/loader.py:52`): nested dicts merge,
+scalars/lists replace, child wins. A field set to `null` means **required** — a
+child (or the GUI at instancing time) must supply it, else load fails
+(`_require_*`). This is how a generic base leaves `diameter: null` for the concrete
+part to fill.
+
+Generic bases you can `extends:` (from `assets/packages/generic.yaml`):
+
+| Base | Shape | What it sets up |
+|---|---|---|
+| `cylinder` | cylinder | abstract root; `diameter/length` left `null` |
+| `prism` | prism | abstract root |
+| `disc` | disc | abstract root |
+| `cylinder_axial` | cylinder | two opposite leads, `body_offset: 0`, `board_offset: solve` (axial solver) |
+| `cylinder_radial` | cylinder | two same-side leads, `board_offset: default`, `bend: 0` |
+| `prism_dil` | prism | rigid DIP-style (`direction: [0,0,-1]`, `bend: 0`) |
+| `prism_smd` | prism | SMD chip (`mount: surface`, axial arrangement) |
+| `disc_radial`, `radial_brick`, `prism_radial` | disc/prism | radial two-lead bodies (LED, ceramic, HC-49) |
+
+Concrete named packages in the same file (`DO-35`, `R_Axial_DIN0207`,
+`CP_Elec_6.3x11`, `TO-92`, `DIP-8`) show the pattern: `extends:` a base, fill the
+`dims`/`leads`, done.
+
+```yaml
+packages:
+  - name: DO-35
+    extends: cylinder_axial
+    description: "Glass axial diode body"
+    dims: {diameter: 2.0, length: 4.0}
+    leads: {lead_r: 0.27}        # board_offset stays `solve`
+```
+
+---
+
+## 5. Package families and variants
+
+A **family** (`package_families:` entry) groups variants of one body that differ
+only by dimensions — e.g. resistor body sizes. A component picks
+`"family/variant"`; a placed instance may override with its own `package_variant`.
+
+```yaml
+families:
+  - family: DIN-0207
+    extends: cylinder_axial
+    label: "DIN 0207 / R-6 (1/4 W axial)"
+    color: "#d6c08c"
+    default: typ
+    variants:
+      - id: typ
+        label: "Typical (2.5 x 6.5 mm)"
+        dims: {diameter: 2.5, length: 6.5}
+        leads: {lead_r: 0.27, lead_length: 8.0}
+      - id: S
+        label: "Small (2.0 x 5.5 mm)"
+        dims: {diameter: 2.0, length: 5.5}
+```
+
+Resolution: `resolve_variant(families, "DIN-0207/typ")` → that variant; a bare
+`"DIN-0207"` → the `default` (or first) variant
+(`family.py`, `resolve_variant`).
+
+---
+
+## 6. Footprint types (the `footprint:` block)
+
+When a component has no package, `footprint:` supplies the pin cloud (generic
+body). Builders registry `_FOOTPRINT_BUILDERS` (`loader.py:538`):
+
+| `type` | Params (defaults) | Pins |
+|---|---|---|
+| `DIP` | `pins`, `pitch=1.0`, `rows_spacing=3.0` | two rows of `pins/2` |
+| `SIL` | `pins`, `pitch=1.0` | one row (`pins`=2 redirects to `TwoPin`) |
+| `TwoPin` | `pitch=1.0` | 2 |
+| `DualRow` | `n_per_row`, `pitch=1.0`, `rows_spacing=3.0` | `2·n_per_row` |
+| `SingleRow` | `n`, `pitch=1.0` | `n` |
+| `QuadRow` | `n_per_col`, `col_spacings=[1,8,1]`, `pitch=1.0` | `4·n_per_col` |
+| `Grid` / `GridFootprint` | `rows`, `cols`, `pitch=1.0` | `rows·cols` |
+| `TO92` | — | 3 (`SingleRow(n=3)`) |
+| `TO220` | — | 3 (`TO220Footprint`) |
+
+Spacings/pitch are in **holes** (raster 2.5 mm). Example:
+`footprint: {type: DIP, pins: 16, rows_spacing: 3}`.
+
+---
+
+## 7. Component classes
+
+`ComponentClass` (`definition.py:16`): `resistor`, `capacitor_polar`,
+`capacitor_nonpolar`, `inductor`, `transformer`, `diode`, `diode_zener`,
+`diode_led`, `transistor_npn/pnp/nmos/pmos/njfet/pjfet`, `ic`, `devboard`,
+`connector`, `switch`, `fuse`, `crystal`, `mechanical`, `other`.
+
+The class drives:
+
+- the **refdes prefix** (`REFDES_PREFIX`, `definition.py:47` — R, C, L, D, Q, U,
+  J, …; `devboard` → `U`). Every class must have an entry (indexed with no
+  fallback);
+- a few **rendering specifics**: polarity marker for diodes / polar caps; the
+  half-circle `TO92Body` for a 3-pin SIL transistor; the plain-PCB body + pad
+  rings for `devboard` (§9).
+
+The class does **not** by itself pick the body shape or its colour (those come from
+the package / footprint).
+
+---
+
+## 8. Customising appearance — colour
+
+> **Headline question: can a resistor in SMD-0805 render with `fill: black` while a
+> capacitor in the *same* SMD-0805 renders `fill: beige`?**
+>
+> **Not today.** The body fill colour lives on the **package** (`color:`), and at
+> render time the package colour wins over everything else. Two components sharing
+> the SMD-0805 *package/family* therefore share its colour.
+
+How colour resolves (verbatim from `PackageBody._resolve_colors`,
+`gui/renderers/body_shapes.py:386`, and the component renderer
+`component_renderer.py:505`):
+
+1. If the resolved **package** declares `color:` → that is the fill (border = a
+   darkened shade). **Package wins.**
+2. Otherwise → the theme default `comp_fill_color` (`theme.py:74`, pale green).
+
+There is **no** colour field on `ComponentDefinition` or `ComponentInstance`, and
+colour is **not** derived from `component_class`. So:
+
+- ✅ You *can* give two **different packages/families** different colours
+  (`smd_chip.yaml` could define `SMD-0805-R` black and `SMD-0805-C` beige, each its
+  own family) — but that duplicates the geometry just to vary colour.
+- ✅ You *can* set a colour on an **inline `package:`** per component — because then
+  each component owns its package. An inline `package:` may `extends:` a **builtin
+  generic package** (the bases in `assets/packages/` — `prism_smd`, `cylinder_axial`,
+  `TO-92`, …), **not** a family from `package_families/`. So extend `prism_smd`
+  (the SMD-chip base), supply the chip `dims`, and override `color`:
+
+  ```yaml
+  components:
+    - name: R_0805
+      component_class: resistor
+      package:
+        extends: prism_smd
+        dims: {length: 2.0, width: 1.25, height: 0.55}
+        color: "#1a1a1a"                                   # black-ish
+        leads: {body_offset: {unit: 2.5, value: [[1, 0]]}, board_offset: default}
+      pin_names: {}
+    - name: C_0805
+      component_class: capacitor_nonpolar
+      package:
+        extends: prism_smd
+        dims: {length: 2.0, width: 1.25, height: 0.55}
+        color: "#d9c7a3"                                   # beige
+        leads: {body_offset: {unit: 2.5, value: [[1, 0]]}, board_offset: default}
+      pin_names: {}
+  ```
+
+  Each `extends` the shared SMD-chip base and only overrides `dims`/`color`. This is
+  the **recommended way today** to get per-part colour on a shared body without a
+  code change. (Both resolve correctly: R → `#1a1a1a`, C → `#d9c7a3` — verified.)
+- ❌ What is *not* supported: a single shared `package_family_ref: SMD-0805/typ`
+  on both parts while overriding colour per component/instance. The family's
+  `color` (`#cdd2d6`) would apply to both — there is nowhere on the component or
+  instance to override it.
+
+> **If you want true per-component override of a shared family colour** (so both
+> parts keep `package_family_ref: SMD-0805/typ` but differ in fill), that is a
+> code/schema change: add an optional `body_color` to `ComponentDefinition`
+> (parsed in `_component_from_dict`) and/or `ComponentInstance`, thread it through
+> `component_renderer` → `body_shape_for` → `PackageBody`, and make
+> `_resolve_colors` prefer it over the package colour. Not currently wired.
+
+Other appearance knobs that *are* data-driven on the package: `edge`
+(`sharp`/`rounded`) and, for discs, the disc profile.
+
+---
+
+## 9. Dev-board modules (`devboard`)
+
+A development board (Arduino Nano, STM32 BluePill, …) is a `devboard` component
+with an **inline `prism` package**: explicit real PCB `dims` (mm) and its pins as
+aggregated run-length offsets. It renders as a plain PCB rectangle (no DIP notch),
+pins on the top surface with a faint pad-sized ring marking the click-active area.
+
+```yaml
+components:
+  - name: STM32_BluePill
+    component_class: devboard
+    package:
+      shape: prism
+      dims: {width: 22.86, length: 53.0, height: 1.6}   # real PCB, mm
+      leads:
+        direction: [0, 0, -1]
+        # 2×20 header: 19 down the left column, jump 6 across, 19 up the right
+        body_offset: {unit: 2.5, value: [[19, [0, 1]], [6, 0], [19, [0, -1]]]}
+        board_offset: default
+      bend: 0
+    pin_names: {1: VBAT, 2: PC13, …}
+```
+
+See `library/Modules/boards.yaml` for the four shipped modules (Nano, BluePill,
+BlackPill, STM32G4 WeAct — the WeAct uses four columns via two extra column-jump
+vectors).
+
+---
+
+## 10. Generated families (no YAML needed)
+
+Some families are **synthesized in code** (`generated_families.py`) and merged into
+the catalogue, so you do not write YAML for every pin count:
+
+| Family | Generated for | Body |
+|---|---|---|
+| `dip-N` | even N ∈ [4, 64], 0.3" rows | narrow DIP |
+| `wdip-N` | even N ∈ [4, 64], 0.6" rows | wide DIP |
+| `sil-N` | N ∈ [3, 40] | single-row header housing |
+
+A component opts in by referencing the address (`package_family_ref: dip-16/std`)
+or, when picking a body in the UI, the picker offers the families matching the
+footprint's pin count (`offered_body_families`). Each generated family has a single
+variant `std`.
+
+Separately, `prism_for_footprint` (`from_footprint.py`) synthesizes a prism on the
+fly for a bare `DualRow` / `SingleRow` / `QuadRow` footprint that has no catalogue
+package — so even a plain `footprint: {type: DIP, pins: 16}` gets a proper DIP body.
+
+---
+
+## 11. Quick recipes
+
+- **Real part on a standard body** → `footprint:` + `package_family_ref` into a
+  catalogue family, set `pin_names`. (Resistor → `TwoPin` + `SMD-0805/typ`.)
+- **Same body, two colours per part** → inline `package: {extends: <builtin base>,
+  dims: …, color: "#…"}` on each component — extend a generic base like
+  `prism_smd`, not a family (§8).
+- **A new body size** → add a `variant` to an existing family, or a new named
+  package with `extends:` a generic base + `dims`.
+- **A module / dev board** → `component_class: devboard` + inline prism with real
+  `dims` and run-length `body_offset` (§9).
+- **Just need pins, generic body** → bare `footprint:` block (§6).

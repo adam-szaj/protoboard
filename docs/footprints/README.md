@@ -1,5 +1,14 @@
 # Footprint gallery
 
+> To **author** components and packages (library YAML — fields, generics, colour
+> customisation, dev-board modules) see [authoring.md](authoring.md); for the
+> design rationale (lead/offset model) see [spec.md](spec.md). This file is the
+> rendered gallery.
+>
+> Note: the "How footprints map to body shapes" table below still names the old
+> `Svg*Body` generators; those were replaced by `PackageBody` + prism silhouettes
+> (`gui/renderers/prism_silhouette.py`). The mapping is otherwise current.
+
 Every entry below is rendered headless via `tools/render_footprints.py`. Re-generate with:
 
 ```bash
