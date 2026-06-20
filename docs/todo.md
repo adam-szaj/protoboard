@@ -145,6 +145,13 @@ FSM, no 45° rotation:
   free-reach only).  The properties-panel `_DiscreteBendWidget` combo edits the
   mount post-placement, free.  The choice is just `pin_offsets[2]` — persisted
   and recorded by the existing placement machinery.
+- **Rotating / re-orienting a placed SMD**: `Ctrl+R` ("Re-drag Pins") now works
+  for SMD — `SelectTool._redraggable_pin` accepts a discrete-mount pin and
+  `_build_redrag_command` snaps the clicked pad to the nearest of the 8 mount
+  offsets, so a placed chip re-orients (ortho + diagonal) in one gesture.
+  Plain `R` still gives the 4 orthogonal rotations; the diagonal mounts come
+  from the mount pick (drag at place-time, `Ctrl+R` after, or the Properties
+  combo).
 
 DRC/collision already treat the diagonal mount correctly (pins checked
 independently; body collision masks snap to integer holes; body `body_blocks`

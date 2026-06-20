@@ -932,6 +932,72 @@ class TestRedrag:
         # No free lead → no pick armed.
         assert tool._selection.active_pick is None
 
+    def _place_smd(self, session: EditorSession, x: float, y: float):
+        """Inject a placed SMD chip (rigid body, discrete pin-2 mount)."""
+        import uuid
+        from protoboard.domain.components.definition import (
+            ComponentClass, ComponentDefinition,
+        )
+        from protoboard.domain.components.instance import ComponentInstance
+        from protoboard.domain.components.package.adapter import PackageFootprint
+        from protoboard.domain.components.package.loader import build_package
+        from protoboard.domain.layout.placement import ComponentPlacement
+        from protoboard.geometry import Point
+        pkg = build_package(
+            {
+                "shape": "prism", "dims": {"length": 2.0, "width": 1.25},
+                "arrangement": "axial", "mount": "surface", "bend": 0,
+                "leads": {
+                    "direction": [[0, 0, -1], [0, 0, -1]],
+                    "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                    "board_offset": "default",
+                },
+            },
+            "SMD_TEST",
+        )
+        defn = ComponentDefinition(
+            name="R_SMD_T", component_class=ComponentClass.RESISTOR,
+            footprint=PackageFootprint(pkg), pin_names={}, package=pkg,
+        )
+        cid = uuid.uuid4()
+        session.components["R_SMD_T"] = defn
+        session.instances[cid] = ComponentInstance(
+            id=cid, definition_ref="R_SMD_T", refdes="R9", value="",
+        )
+        session.layout.placements[cid] = ComponentPlacement(
+            component_id=cid, position=Point(x, y), rotation=0, side="top",
+        )
+        return cid
+
+    def test_redrag_arms_for_smd_discrete_mount(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Board pads sit at half-integer holes (0.5, 1.5, …); place pin 1 on one.
+        cid = self._place_smd(session, 1.5, 1.5)
+        tool = _v2(board_view)
+        _press(tool, 1.5, 1.5)  # select
+        tool.begin_redrag(cid)
+        # The SMD second terminal is a discrete mount → re-drag arms a pick.
+        assert tool._selection.active_pick is not None
+        assert tool._redrag_pin == 2
+
+    def test_redrag_smd_to_diagonal_pad(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.domain.layout.placement import pin_world_position
+        cid = self._place_smd(session, 1.5, 1.5)
+        tool = _v2(board_view)
+        _press(tool, 1.5, 1.5)
+        tool.begin_redrag(cid)
+        # Click the SE diagonal pad (2.5, 2.5) → pin 2 snaps onto it.
+        _click(tool, 2.5, 2.5)
+        pl = session.layout.placements[cid]
+        defn = session.components["R_SMD_T"]
+        p1 = pin_world_position(defn.footprint, pl, 1)
+        p2 = pin_world_position(defn.footprint, pl, 2)
+        assert (round(p2.x - p1.x), round(p2.y - p1.y)) == (1, 1)  # SE diagonal
+        assert tool._selection.active_pick is None
+
 
 class TestPickRouting:
     def test_click_feeds_active_pick(
