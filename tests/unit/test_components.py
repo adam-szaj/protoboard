@@ -15,6 +15,42 @@ from protoboard.domain.components.footprints import DIP, SIL
 from protoboard.domain.components.instance import ComponentInstance
 
 
+class TestAppearance:
+    def test_resolve_per_field_precedence(self) -> None:
+        from protoboard.domain.components.appearance import Appearance
+        # Instance wins per field; definition fills the gaps.
+        eff = Appearance.resolve(
+            Appearance(color="#111"),                       # instance: color only
+            Appearance(color="#222", corner_radius_mm=0.5),  # defn: color + radius
+        )
+        assert eff.color == "#111"          # instance color wins
+        assert eff.corner_radius_mm == 0.5  # radius falls through to defn
+
+    def test_resolve_all_none_is_empty(self) -> None:
+        from protoboard.domain.components.appearance import Appearance
+        assert Appearance.resolve(None, None).is_empty
+        assert Appearance().is_empty
+        assert not Appearance(color="#fff").is_empty
+
+    def test_negative_radius_rejected(self) -> None:
+        from protoboard.domain.components.appearance import Appearance
+        with pytest.raises(ValueError):
+            Appearance(corner_radius_mm=-1.0)
+
+    def test_parse_validates(self) -> None:
+        from protoboard.domain.components.appearance import (
+            Appearance,
+            parse_appearance,
+        )
+        assert parse_appearance(None, ctx="t") is None
+        assert parse_appearance({}, ctx="t") is None  # empty → None
+        assert parse_appearance({"color": "#abc"}, ctx="t") == Appearance(color="#abc")
+        with pytest.raises(ValueError):
+            parse_appearance({"color": "red"}, ctx="t")     # bad hex
+        with pytest.raises(ValueError):
+            parse_appearance({"corner_radius": -2}, ctx="t")  # negative
+
+
 class TestComponentClass:
     def test_refdes_prefix_total(self) -> None:
         # refdes_prefix indexes REFDES_PREFIX with no fallback, so every class

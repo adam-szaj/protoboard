@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem,
 )
 
+from protoboard.domain.components.appearance import Appearance
 from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
@@ -370,10 +371,12 @@ class PackageBody(BodyShape):
         package: Package,
         component_class: ComponentClass = ComponentClass.OTHER,
         vertical_flipped: bool = False,
+        appearance: Appearance = Appearance(),
     ) -> None:
         self._pkg = package
         self._component_class = component_class
         self._vertical_flipped = vertical_flipped
+        self._appearance = appearance
 
     @property
     def _is_polar(self) -> bool:
@@ -388,11 +391,15 @@ class PackageBody(BodyShape):
     ) -> tuple[QColor, QColor]:
         """Body fill/border for this package.
 
-        When the package declares a ``color`` it is the fill, and the border is
-        derived by darkening it — the package fully describes its own appearance
-        (no Material → theme-palette indirection).  Otherwise the caller-supplied
-        colours are used unchanged.
+        Precedence: the per-component / per-instance ``appearance`` colour wins;
+        then the package's own ``color`` (the border is derived by darkening the
+        fill); otherwise the caller-supplied colours are used unchanged.
         """
+        override = self._appearance.color
+        if override is not None:
+            override_fill = QColor(override)
+            if override_fill.isValid():
+                return override_fill, _darken(override_fill)
         pkg_color = getattr(self._pkg, "color", None)
         if pkg_color is None:
             return fill, border
@@ -400,6 +407,13 @@ class PackageBody(BodyShape):
         if not body_fill.isValid():
             return fill, border
         return body_fill, _darken(body_fill)
+
+    def _effective_corner_radius_mm(self) -> float:
+        """Corner radius (mm): the appearance override wins (0 = sharp, > 0 =
+        rounded), else the package's own edge/radius via ``_package_corner_radius``."""
+        if self._appearance.corner_radius_mm is not None:
+            return self._appearance.corner_radius_mm
+        return _package_corner_radius(self._pkg)
 
     def drawn_pin_numbers(
         self,
@@ -619,7 +633,7 @@ class PackageBody(BodyShape):
         length_r, width_r = bb.height, bb.width
         angle_deg = math.degrees(math.atan2(p2.y - p1.y, p2.x - p1.x))
         rect_path = QPainterPath()
-        r = _package_corner_radius(pkg) / mm
+        r = self._effective_corner_radius_mm() / mm
         rect_path.addRoundedRect(
             QRectF(-length_r / 2.0, -width_r / 2.0, length_r, width_r), r, r,
         )
@@ -781,7 +795,15 @@ class PackageBody(BodyShape):
             sil = silhouette_for(pkg)
         if sil is None:
             return None
-        drawing = sil.build(pkg, theme)
+        # An appearance corner-radius override (mm) reaches the DIP/SIL body via
+        # the silhouette builder, converted to holes; absent → the builder keeps
+        # using theme.body_corner_radius (the notch radius is unaffected either way).
+        corner_holes = (
+            self._appearance.corner_radius_mm / theme.raster_pitch_mm
+            if self._appearance.corner_radius_mm is not None
+            else None
+        )
+        drawing = sil.build(pkg, theme, corner_r=corner_holes)
 
         # Place: translate to the anchor pad, rotate by the pin1→pin2 heading.
         # The package-local +y axis runs pin1→pin2 down the first column, so
@@ -855,7 +877,7 @@ class PackageBody(BodyShape):
         # (It is *not* stretched to span the pad gap, which read as a long thin
         # rectangle.)
         length = body_len
-        r = min(_package_corner_radius(pkg) / mm, body_w / 2.0, length / 2.0)
+        r = min(self._effective_corner_radius_mm() / mm, body_w / 2.0, length / 2.0)
 
         path = QPainterPath()
         path.addRoundedRect(
@@ -902,7 +924,7 @@ class PackageBody(BodyShape):
         anchor = positions[0]
         x0 = anchor.x + box.x
         y0 = anchor.y + box.y
-        r = _package_corner_radius(self._pkg) / theme.raster_pitch_mm
+        r = self._effective_corner_radius_mm() / theme.raster_pitch_mm
         rect = QRectF(x0, y0, box.width, box.height)
         fill_c = QColor(fill)
         fill_c.setAlphaF(fill_c.alphaF() * alpha)
@@ -992,6 +1014,12 @@ def body_shape_for(
     """
     cls = defn.component_class
     vf = placement.vertical_flipped if placement is not None else False
+    # Visual-only override (fill colour, corner radius) layered over the
+    # package/theme defaults — instance wins over definition, per field.
+    eff_appearance = Appearance.resolve(
+        instance.appearance if instance is not None else None,
+        defn.appearance,
+    )
 
     # A parametric package (new spec model) is the source of truth for the
     # body geometry when one resolves: the instance's package_variant, the
@@ -1002,7 +1030,10 @@ def body_shape_for(
     from protoboard.domain.components.package import resolve_component_package
     pkg = resolve_component_package(defn, instance, package_families or {})
     if pkg is not None:
-        return PackageBody(pkg, component_class=cls, vertical_flipped=vf)
+        return PackageBody(
+            pkg, component_class=cls, vertical_flipped=vf,
+            appearance=eff_appearance,
+        )
 
     fp  = defn.footprint
 
@@ -1024,6 +1055,9 @@ def body_shape_for(
     # plain dev-board bbox) — the same path a catalogued package takes.
     synth = prism_for_footprint(fp)
     if synth is not None:
-        return PackageBody(synth, component_class=cls, vertical_flipped=vf)
+        return PackageBody(
+            synth, component_class=cls, vertical_flipped=vf,
+            appearance=eff_appearance,
+        )
 
     return GenericBody()

@@ -52,6 +52,24 @@ class TestInstancesRoundtrip:
         assert loaded.value == "10k"
         assert loaded.definition_ref == "R"
 
+    def test_appearance_roundtrip(self, tmp_path: Path) -> None:
+        from protoboard.domain.components.appearance import Appearance
+        board = _perfboard()
+        styled = ComponentInstance.new(
+            definition_ref="R", refdes="R1", value="10k",
+            appearance=Appearance(color="#1a1a1a", corner_radius_mm=0.4),
+        )
+        plain = ComponentInstance.new(definition_ref="C", refdes="C1", value="100n")
+        instances = {styled.id: styled, plain.id: plain}
+        save_project(tmp_path, board, Layout(), Schematic(nets={}), instances=instances)
+        # An instance without appearance must not emit the key (no file bloat).
+        assert "appearance" in (tmp_path / "instances.yaml").read_text()
+        _, _, _, loaded, _, _, _ = load_project(tmp_path)
+        assert loaded[styled.id].appearance == Appearance(
+            color="#1a1a1a", corner_radius_mm=0.4
+        )
+        assert loaded[plain.id].appearance is None
+
     def test_empty_instances_roundtrip(self, tmp_path: Path) -> None:
         board = _perfboard()
         lay = Layout(placements={}, wires=[])

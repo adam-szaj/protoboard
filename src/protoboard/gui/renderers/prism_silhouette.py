@@ -72,7 +72,13 @@ class PrismSilhouette(ABC):
     """Builds the local-frame outline of one prism column layout."""
 
     @abstractmethod
-    def build(self, prism: Prism, theme: Theme) -> PrismDrawing: ...
+    def build(
+        self, prism: Prism, theme: Theme, *, corner_r: float | None = None
+    ) -> PrismDrawing:
+        """Build the body outline.  ``corner_r`` (holes) overrides the theme's
+        ``body_corner_radius`` when given (an appearance override); ``None`` keeps
+        the theme default."""
+        ...
 
 
 def _notched_rect_path(
@@ -127,11 +133,13 @@ class DipSilhouette(PrismSilhouette):
 
     notch_cx: float
 
-    def build(self, prism: Prism, theme: Theme) -> PrismDrawing:
+    def build(
+        self, prism: Prism, theme: Theme, *, corner_r: float | None = None
+    ) -> PrismDrawing:
         box = prism.bbox()
         body = _notched_rect_path(
             box.x, box.y, box.x + box.width, box.y + box.height,
-            corner_r=theme.body_corner_radius,
+            corner_r=theme.body_corner_radius if corner_r is None else corner_r,
             notch_r=theme.dip_notch_radius,
             notch_cx=self.notch_cx,
         )
@@ -147,9 +155,11 @@ class SilSilhouette(PrismSilhouette):
     redundant per-pin slot decoration.
     """
 
-    def build(self, prism: Prism, theme: Theme) -> PrismDrawing:
+    def build(
+        self, prism: Prism, theme: Theme, *, corner_r: float | None = None
+    ) -> PrismDrawing:
         box = prism.bbox()
-        r = theme.body_corner_radius
+        r = theme.body_corner_radius if corner_r is None else corner_r
         body = QPainterPath()
         body.addRoundedRect(QRectF(box.x, box.y, box.width, box.height), r, r)
         return PrismDrawing(body=body, marker=_pin1_marker_path(0.08))

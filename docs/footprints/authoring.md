@@ -252,72 +252,78 @@ the package / footprint).
 
 ---
 
-## 8. Customising appearance — colour
+## 8. Customising appearance — the `appearance:` override
 
-> **Headline question: can a resistor in SMD-0805 render with `fill: black` while a
-> capacitor in the *same* SMD-0805 renders `fill: beige`?**
+> **Headline question: can a resistor in SMD-0805 render black while a capacitor in
+> the *same* SMD-0805 renders beige?**
 >
-> **Not today.** The body fill colour lives on the **package** (`color:`), and at
-> render time the package colour wins over everything else. Two components sharing
-> the SMD-0805 *package/family* therefore share its colour.
+> **Yes.** A component definition *and* a placed instance can carry a visual-only
+> **`appearance:`** block that overrides the body's fill colour and corner radius
+> without touching geometry. Both parts keep the shared
+> `package_family_ref: SMD-0805/typ`; each just adds an `appearance.color`.
 
-How colour resolves (verbatim from `PackageBody._resolve_colors`,
-`gui/renderers/body_shapes.py:386`, and the component renderer
-`component_renderer.py:505`):
+The `appearance:` block has two optional fields:
 
-1. If the resolved **package** declares `color:` → that is the fill (border = a
-   darkened shade). **Package wins.**
-2. Otherwise → the theme default `comp_fill_color` (`theme.py:74`, pale green).
+| Field | Meaning |
+|---|---|
+| `color` | `#rgb` / `#rrggbb` body fill; border is derived by darkening. |
+| `corner_radius` | mm, like `dims`: **`0` = sharp (square)**, **`> 0` = rounded** with that radius. Overrides the package edge either way. |
 
-There is **no** colour field on `ComponentDefinition` or `ComponentInstance`, and
-colour is **not** derived from `component_class`. So:
+It can sit on a **component** (override for the whole type) and on a placed
+**instance** (override for one part). Precedence per field is **instance →
+definition → package → theme default** (`Appearance.resolve`,
+`domain/components/appearance.py`).
 
-- ✅ You *can* give two **different packages/families** different colours
-  (`smd_chip.yaml` could define `SMD-0805-R` black and `SMD-0805-C` beige, each its
-  own family) — but that duplicates the geometry just to vary colour.
-- ✅ You *can* set a colour on an **inline `package:`** per component — because then
-  each component owns its package. An inline `package:` may `extends:` a **builtin
-  generic package** (the bases in `assets/packages/` — `prism_smd`, `cylinder_axial`,
-  `TO-92`, …), **not** a family from `package_families/`. So extend `prism_smd`
-  (the SMD-chip base), supply the chip `dims`, and override `color`:
+```yaml
+components:
+  # Two parts share the SMD-0805 body; only the colour differs.
+  - name: R_0805
+    component_class: resistor
+    footprint: {type: TwoPin}
+    package_family_ref: SMD-0805/typ
+    appearance: {color: "#1a1a1a"}            # black-ish
+    pin_names: {}
+  - name: C_0805
+    component_class: capacitor_nonpolar
+    footprint: {type: TwoPin}
+    package_family_ref: SMD-0805/typ
+    appearance: {color: "#d9c7a3", corner_radius: 0.3}   # beige, slightly rounded
+    pin_names: {}
+```
 
-  ```yaml
-  components:
-    - name: R_0805
-      component_class: resistor
-      package:
-        extends: prism_smd
-        dims: {length: 2.0, width: 1.25, height: 0.55}
-        color: "#1a1a1a"                                   # black-ish
-        leads: {body_offset: {unit: 2.5, value: [[1, 0]]}, board_offset: default}
-      pin_names: {}
-    - name: C_0805
-      component_class: capacitor_nonpolar
-      package:
-        extends: prism_smd
-        dims: {length: 2.0, width: 1.25, height: 0.55}
-        color: "#d9c7a3"                                   # beige
-        leads: {body_offset: {unit: 2.5, value: [[1, 0]]}, board_offset: default}
-      pin_names: {}
-  ```
+A placed instance overrides per part (in the project's `instances.yaml`, or
+programmatically), winning over the definition:
 
-  Each `extends` the shared SMD-chip base and only overrides `dims`/`color`. This is
-  the **recommended way today** to get per-part colour on a shared body without a
-  code change. (Both resolve correctly: R → `#1a1a1a`, C → `#d9c7a3` — verified.)
-- ❌ What is *not* supported: a single shared `package_family_ref: SMD-0805/typ`
-  on both parts while overriding colour per component/instance. The family's
-  `color` (`#cdd2d6`) would apply to both — there is nowhere on the component or
-  instance to override it.
+```yaml
+instances:
+  - id: …
+    definition_ref: R_0805
+    refdes: R7
+    value: 10k
+    appearance: {color: "#cc3030"}            # this one part is red
+```
 
-> **If you want true per-component override of a shared family colour** (so both
-> parts keep `package_family_ref: SMD-0805/typ` but differ in fill), that is a
-> code/schema change: add an optional `body_color` to `ComponentDefinition`
-> (parsed in `_component_from_dict`) and/or `ComponentInstance`, thread it through
-> `component_renderer` → `body_shape_for` → `PackageBody`, and make
-> `_resolve_colors` prefer it over the package colour. Not currently wired.
+Resolution at render time (`PackageBody._resolve_colors` /
+`_effective_corner_radius_mm`, `gui/renderers/body_shapes.py`):
 
-Other appearance knobs that *are* data-driven on the package: `edge`
-(`sharp`/`rounded`) and, for discs, the disc profile.
+1. `appearance.color` (instance then definition) — **override wins**;
+2. else the resolved **package** `color:` (border = darkened);
+3. else the theme default `comp_fill_color` (`theme.py`, pale green).
+
+Corner radius follows the same fall-through, with `0` forcing square corners even
+on a `rounded` package and `> 0` forcing rounded even on a `sharp` one.
+
+Notes:
+- **Visual only.** `appearance` changes nothing in geometry, collision mask, DRC,
+  routing or pin positions.
+- Colour is **not** derived from `component_class`.
+- An inline `package:` may still set `color`/`corner_radius` on the package itself
+  (it `extends:` a builtin base like `prism_smd` — not a family); `appearance:` is
+  the lighter way to vary just the visuals on a shared family.
+- Coverage gap (see `docs/todo.md`): the non-package bodies `TO92Body`,
+  `TO220Body` and `GenericBody` do not honour `appearance` yet — only
+  package-backed bodies (`PackageBody`) do. There is no GUI editor for per-instance
+  appearance yet; set it in YAML.
 
 ---
 
@@ -376,9 +382,8 @@ package — so even a plain `footprint: {type: DIP, pins: 16}` gets a proper DIP
 
 - **Real part on a standard body** → `footprint:` + `package_family_ref` into a
   catalogue family, set `pin_names`. (Resistor → `TwoPin` + `SMD-0805/typ`.)
-- **Same body, two colours per part** → inline `package: {extends: <builtin base>,
-  dims: …, color: "#…"}` on each component — extend a generic base like
-  `prism_smd`, not a family (§8).
+- **Same body, two colours per part** → keep the shared `package_family_ref` and
+  add an `appearance: {color: "#…"}` block to each component (or instance) (§8).
 - **A new body size** → add a `variant` to an existing family, or a new named
   package with `extends:` a generic base + `dims`.
 - **A module / dev board** → `component_class: devboard` + inline prism with real

@@ -11,6 +11,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from protoboard.domain.components.appearance import Appearance
 from protoboard.domain.schematic.net import PinIdentity, PinRef
 
 if TYPE_CHECKING:
@@ -42,6 +43,10 @@ class ComponentInstance:
     # ``package_family_ref`` (or inline ``package``).
     package_variant: str | None = None
     pin_variant: str | None = None   # variant id from ComponentDefinition.variants or None
+    # Per-instance visual-only override (fill colour, corner radius), layered
+    # over the definition's appearance and the package/theme defaults. None =
+    # inherit. Geometry/mask/DRC/routing are unaffected.
+    appearance: Appearance | None = None
     # pin_number → shared PinIdentity for same-name pin groups. Excluded from
     # eq/hash (compare=False): two instances are equal by their value fields,
     # not by transient electrical state. Populated by build_pin_identities.
@@ -60,6 +65,7 @@ class ComponentInstance:
         definition_ref: str, refdes: str, value: str, type: str = "",
         pin_variant: str | None = None,
         package_variant: str | None = None,
+        appearance: Appearance | None = None,
     ) -> ComponentInstance:
         """Create an instance with a freshly generated UUID."""
         return ComponentInstance(
@@ -70,6 +76,7 @@ class ComponentInstance:
             type=type,
             pin_variant=pin_variant,
             package_variant=package_variant,
+            appearance=appearance,
         )
 
     def build_pin_identities(self, defn: "ComponentDefinition") -> None:

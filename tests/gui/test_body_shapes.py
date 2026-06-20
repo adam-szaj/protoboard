@@ -317,6 +317,75 @@ class TestParametricDIPBody:
         assert isinstance(items[0], (QGraphicsRectItem, QGraphicsPathItem))
 
 
+def _colored_prism(color: str) -> object:
+    """A 2-pin axial SMD-chip prism carrying its own package ``color``."""
+    return build_package(
+        {
+            "shape": "prism",
+            "dims": {"length": 2.0, "width": 1.25, "height": 0.55},
+            "color": color, "edge": "sharp", "arrangement": "axial", "bend": 0,
+            "leads": {
+                "direction": [[0, 0, -1], [0, 0, -1]],
+                "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                "board_offset": "default",
+            },
+        },
+        "TEST_COLORED",
+    )
+
+
+class TestAppearanceOverride:
+    """A visual-only Appearance override (color + corner radius) on PackageBody,
+    layered over the package's own color/edge. Geometry is unchanged."""
+
+    def _body_brush(self, items: list) -> QColor:
+        body = max(
+            (it for it in items
+             if isinstance(it, (QGraphicsPathItem, QGraphicsRectItem))),
+            key=lambda it: it.sceneBoundingRect().width()
+            * it.sceneBoundingRect().height(),
+        )
+        return body.brush().color()  # type: ignore[attr-defined]
+
+    def test_color_override_beats_package_color(self, qtbot: QtBot) -> None:
+        from protoboard.domain.components.appearance import Appearance
+        pkg = _colored_prism("#cdd2d6")  # shared package color
+        black = PackageBody(pkg, appearance=Appearance(color="#1a1a1a"))  # type: ignore[arg-type]
+        beige = PackageBody(pkg, appearance=Appearance(color="#d9c7a3"))  # type: ignore[arg-type]
+        pts = _pts((0, 0), (1, 0))
+        assert self._body_brush(black.draw(pts, _RED, _DARK, 1.0, _Z)).name() == "#1a1a1a"
+        assert self._body_brush(beige.draw(pts, _RED, _DARK, 1.0, _Z)).name() == "#d9c7a3"
+        # No override → the package color shows through.
+        plain = PackageBody(pkg)  # type: ignore[arg-type]
+        assert self._body_brush(plain.draw(pts, _RED, _DARK, 1.0, _Z)).name() == "#cdd2d6"
+
+    def test_dip_body_fill_follows_override(self, qtbot: QtBot) -> None:
+        from protoboard.domain.components.appearance import Appearance
+        body = PackageBody(  # type: ignore[arg-type]
+            _dip8_prism(), component_class=ComponentClass.IC,
+            appearance=Appearance(color="#3050a0"),
+        )
+        items = body.draw(_dip8_positions(), _RED, _DARK, 1.0, _Z)
+        assert self._body_brush(items).name() == "#3050a0"
+
+    def test_corner_radius_zero_is_square_gt0_is_rounded(self, qtbot: QtBot) -> None:
+        # The bbox/devboard path: override 0 → QGraphicsRectItem (square),
+        # > 0 → QGraphicsPathItem (rounded). Use a 3-column prism (no silhouette
+        # → bbox path).
+        from protoboard.domain.components.appearance import Appearance
+        prism = _bbox_prism_package()
+        sharp = PackageBody(  # type: ignore[arg-type]
+            prism, appearance=Appearance(corner_radius_mm=0.0))
+        rounded = PackageBody(  # type: ignore[arg-type]
+            prism, appearance=Appearance(corner_radius_mm=0.5))
+        pts = _bbox_prism_positions()
+        s_items = sharp.draw(pts, _RED, _DARK, 1.0, _Z)
+        r_items = rounded.draw(pts, _RED, _DARK, 1.0, _Z)
+        assert any(isinstance(it, QGraphicsRectItem) for it in s_items)
+        assert not any(isinstance(it, QGraphicsRectItem) for it in r_items)
+        assert any(isinstance(it, QGraphicsPathItem) for it in r_items)
+
+
 class TestDevboardBody:
     """A devboard renders as a plain PCB rectangle — no DIP notch — even when
     its pins cluster into the two columns that would otherwise be a DIP.  The

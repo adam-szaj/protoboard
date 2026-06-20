@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from protoboard.domain.components.appearance import Appearance
 from protoboard.domain.components.footprints import FootprintTemplate
 from protoboard.domain.components.package.shapes import Package
 from protoboard.geometry import Point
@@ -168,6 +169,11 @@ class ComponentDefinition:
     # it per instance. Precedence at resolution: instance override → this ref →
     # the inline ``package`` above → None (see ``component_package``).
     package_family_ref: str | None = None
+    # Visual-only override (fill colour, corner radius) for every instance of
+    # this type, layered on top of the package/theme defaults. A placed
+    # ``ComponentInstance.appearance`` overrides this per part. ``None`` = inherit
+    # the package/theme appearance. Geometry/mask/DRC/routing are unaffected.
+    appearance: Appearance | None = None
 
     def __post_init__(self) -> None:
         if not self.name:

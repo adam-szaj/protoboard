@@ -4,6 +4,27 @@ Open follow-ups that don't fit into the closed plans archived under
 [docs/archive/](archive/).  Each entry has enough context to pick up
 the work cold.
 
+## Appearance override — deferred coverage (added 2026-06-20)
+
+The per-component / per-instance visual `appearance:` override (fill `color` +
+`corner_radius`) landed for **package-backed bodies** (`PackageBody`) — see
+`docs/footprints/authoring.md` §8 and `domain/components/appearance.py`. Two gaps
+were consciously deferred:
+
+1. **Non-package bodies ignore `appearance`.** `TO92Body`, `TO220Body` and
+   `GenericBody` (`gui/renderers/body_shapes.py`) do not take or honour the
+   `Appearance` override yet — only `PackageBody` does (the catalogue/inline-package
+   and synthesized-prism arms of `body_shape_for`). A 3-pin TO-92 transistor or a
+   bare-footprint generic part therefore can't be recoloured/re-rounded via
+   `appearance:`. To finish: thread the resolved `Appearance` into those three
+   bodies' `draw()` and apply colour/corner-radius the same way `PackageBody` does.
+
+2. **No GUI editor for per-instance appearance.** The override is YAML-driven only
+   (component definition or `instances.yaml`). There is no Properties-panel control
+   nor a `SetAppearanceCommand` (cf. the existing `SetPackageVariantCommand`). To
+   finish: add an undoable command + a Properties-panel colour/radius control that
+   sets `ComponentInstance.appearance`.
+
 ## SelectTool — deferred parity items (after the rewrite landed)
 
 The SelectTool rewrite (`gui/tools/select_tool.py` — the service-based tool

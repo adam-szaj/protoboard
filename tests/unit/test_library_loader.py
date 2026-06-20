@@ -59,6 +59,61 @@ components:
         ]
 
 
+class TestComponentAppearance:
+    """A component may carry a visual-only ``appearance:`` override block."""
+
+    def test_parses_color_and_corner_radius(self, tmp_path: Path) -> None:
+        from protoboard.domain.components.appearance import Appearance
+        (tmp_path / "c.yaml").write_text(
+            "components:\n"
+            "  - name: R_BLACK\n"
+            "    component_class: resistor\n"
+            "    footprint: {type: TwoPin}\n"
+            "    appearance: {color: '#1a1a1a', corner_radius: 0.4}\n"
+            "    pin_names: {}\n"
+        )
+        defn = load_library([tmp_path]).get("R_BLACK")
+        assert defn.appearance == Appearance(color="#1a1a1a", corner_radius_mm=0.4)
+
+    def test_absent_appearance_is_none(self, tmp_path: Path) -> None:
+        (tmp_path / "c.yaml").write_text(
+            "components:\n"
+            "  - name: R_PLAIN\n    component_class: resistor\n"
+            "    footprint: {type: TwoPin}\n    pin_names: {}\n"
+        )
+        assert load_library([tmp_path]).get("R_PLAIN").appearance is None
+
+    def test_short_hex_accepted(self, tmp_path: Path) -> None:
+        from protoboard.domain.components.appearance import Appearance
+        (tmp_path / "c.yaml").write_text(
+            "components:\n"
+            "  - name: R3\n    component_class: resistor\n"
+            "    footprint: {type: TwoPin}\n    appearance: {color: '#abc'}\n"
+            "    pin_names: {}\n"
+        )
+        assert load_library([tmp_path]).get("R3").appearance == Appearance(color="#abc")
+
+    def test_bad_hex_rejected(self, tmp_path: Path) -> None:
+        (tmp_path / "c.yaml").write_text(
+            "components:\n"
+            "  - name: RBAD\n    component_class: resistor\n"
+            "    footprint: {type: TwoPin}\n    appearance: {color: 'red'}\n"
+            "    pin_names: {}\n"
+        )
+        with pytest.raises(SerializationError):
+            load_library([tmp_path])
+
+    def test_negative_radius_rejected(self, tmp_path: Path) -> None:
+        (tmp_path / "c.yaml").write_text(
+            "components:\n"
+            "  - name: RNEG\n    component_class: resistor\n"
+            "    footprint: {type: TwoPin}\n    appearance: {corner_radius: -1}\n"
+            "    pin_names: {}\n"
+        )
+        with pytest.raises(SerializationError):
+            load_library([tmp_path])
+
+
 class TestRigidPackageFamilyRef:
     """A rigid package_family_ref (SMD) drives the footprint and drops bend;
     a bendable axial ref leaves the footprint and bend intact."""

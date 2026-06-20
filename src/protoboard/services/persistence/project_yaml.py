@@ -19,6 +19,7 @@ from typing import Any
 from ruamel.yaml import YAML
 
 from protoboard.domain.board.board import Board
+from protoboard.domain.components.appearance import Appearance, parse_appearance
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.normalize import (
@@ -149,6 +150,22 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def _appearance_to_dict(appearance: Appearance | None) -> dict[str, Any]:
+    """``{"appearance": {...}}`` when set (None sub-fields omitted), else ``{}``.
+
+    Kept out of the instance dict entirely when there is nothing to store, so
+    untouched instances do not gain an ``appearance:`` key.
+    """
+    if appearance is None or appearance.is_empty:
+        return {}
+    body: dict[str, Any] = {}
+    if appearance.color is not None:
+        body["color"] = appearance.color
+    if appearance.corner_radius_mm is not None:
+        body["corner_radius"] = appearance.corner_radius_mm
+    return {"appearance": body}
+
+
 def _instances_to_yaml(instances: dict[uuid.UUID, ComponentInstance]) -> str:
     data: dict[str, Any] = {
         "instances": [
@@ -163,6 +180,7 @@ def _instances_to_yaml(instances: dict[uuid.UUID, ComponentInstance]) -> str:
                     if inst.package_variant else {}
                 ),
                 **({"pin_variant": inst.pin_variant} if inst.pin_variant else {}),
+                **_appearance_to_dict(inst.appearance),
             }
             for inst in instances.values()
         ]
@@ -830,6 +848,12 @@ def _instances_from_yaml(text: str) -> dict[uuid.UUID, ComponentInstance]:
     result: dict[uuid.UUID, ComponentInstance] = {}
     for raw in data.get("instances") or []:
         inst_id = uuid.UUID(raw["id"])
+        try:
+            appearance = parse_appearance(
+                raw.get("appearance"), ctx=f"instance {inst_id}"
+            )
+        except (TypeError, ValueError) as exc:
+            raise SerializationError(str(exc)) from exc
         result[inst_id] = ComponentInstance(
             id=inst_id,
             definition_ref=str(raw["definition_ref"]),
@@ -842,6 +866,7 @@ def _instances_from_yaml(text: str) -> dict[uuid.UUID, ComponentInstance]:
                 str(raw["package_variant"]) if raw.get("package_variant") else None
             ),
             pin_variant=str(raw["pin_variant"]) if raw.get("pin_variant") else None,
+            appearance=appearance,
         )
     return result
 
