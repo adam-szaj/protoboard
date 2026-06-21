@@ -59,6 +59,188 @@ components:
         ]
 
 
+class TestFootprintsList:
+    """A component offers a ``footprints:`` list (ref or inline) instead of a
+    single fixed footprint; the default/first entry derives ``defn.footprint``."""
+
+    def test_footprints_only_derives_default_geometry(self, tmp_path: Path) -> None:
+        # No footprint:/package: block — geometry comes from the first entry.
+        (tmp_path / "ic.yaml").write_text(
+            "components:\n"
+            "  - name: U_DIP14\n"
+            "    component_class: ic\n"
+            "    symbol: U\n"
+            "    pins: {count: 14}\n"
+            "    footprints:\n"
+            "      - name: DIP-14\n"
+            "        package: {kind: dip_ic}\n"
+            "      - name: WDIP-14\n"
+            "        package: {kind: wdip_ic}\n"
+            "    pin_names: {7: GND, 14: VCC}\n"
+        )
+        defn = load_library([tmp_path]).get("U_DIP14")
+        assert defn.footprint.pin_count() == 14          # from the first entry
+        assert len(defn.footprints) == 2
+        assert defn.footprints[0].name == "DIP-14"
+        assert defn.footprints[1].package is not None    # inline package built
+
+    def test_footprint_style_default_and_per_entry_override(
+        self, tmp_path: Path
+    ) -> None:
+        from protoboard.domain.components.appearance import Appearance
+        (tmp_path / "r.yaml").write_text(
+            "components:\n"
+            "  - name: R\n"
+            "    component_class: resistor\n"
+            "    symbol: R\n"
+            "    pins: {count: 2}\n"
+            "    footprint_style: 'color: #228822'\n"
+            "    footprints:\n"
+            "      - name: A\n"
+            "        package: {kind: sil}\n"
+            "        pins: 2\n"
+            "      - name: B\n"
+            "        package: {kind: sil}\n"
+            "        pins: 2\n"
+            "        style: 'color: #333333'\n"
+            "    pin_names: {}\n"
+        )
+        defn = load_library([tmp_path]).get("R")
+        # entry A inherits the list default; entry B overrides the colour.
+        assert defn.footprints[0].style == Appearance(color="#228822")
+        assert defn.footprints[1].style == Appearance(color="#333333")
+
+    def test_ref_entry_resolves_against_catalogue(self, tmp_path: Path) -> None:
+        from protoboard.domain.components.package.generated_families import (
+            generate_inline_families,
+        )
+        (tmp_path / "ic.yaml").write_text(
+            "components:\n"
+            "  - name: U_DIP16\n"
+            "    component_class: ic\n    symbol: U\n"
+            "    footprints:\n"
+            "      - ref: dip-16/std\n"
+            "    pin_names: {}\n"
+        )
+        lib = load_library([tmp_path], package_families=generate_inline_families())
+        defn = lib.get("U_DIP16")
+        assert defn.footprint.pin_count() == 16
+        assert defn.footprints[0].ref == "dip-16/std"
+        assert defn.footprints[0].name == "dip-16/std"   # name defaults to ref
+
+    def test_inline_option_resolves_via_synthesized_family(
+        self, tmp_path: Path
+    ) -> None:
+        # An inline footprint option is registered as an @defn/name family so an
+        # instance can select it via the normal resolve_component_package path.
+        from protoboard.domain.components.instance import ComponentInstance
+        from protoboard.domain.components.package import (
+            resolve_component_package,
+        )
+        from protoboard.services.library.loader import (
+            inline_option_address,
+            inline_option_families,
+        )
+        (tmp_path / "ic.yaml").write_text(
+            "components:\n"
+            "  - name: U_DIP14\n"
+            "    component_class: ic\n    symbol: U\n"
+            "    pins: {count: 14}\n"
+            "    footprints:\n"
+            "      - name: DIP-14\n        package: {kind: dip_ic}\n"
+            "    pin_names: {}\n"
+        )
+        lib = load_library([tmp_path])
+        defn = lib.get("U_DIP14")
+        families = inline_option_families(lib)
+        addr = inline_option_address("U_DIP14", "DIP-14")
+        assert addr in {f.address("std") for f in families.values()}
+        inst = ComponentInstance.new(
+            definition_ref="U_DIP14", refdes="U1", value="",
+            package_variant=addr,
+        )
+        pkg = resolve_component_package(defn, inst, families)
+        assert pkg is not None and pkg.pin_count() == 14
+
+
+class TestCrossFileExtends:
+    """`extends:` now resolves against a global index, so a base in one file can
+    be extended from another (two-pass load)."""
+
+    def test_child_extends_base_in_another_file(self, tmp_path: Path) -> None:
+        (tmp_path / "_bases.yaml").write_text(
+            "components:\n"
+            "  - name: _DIP14_BASE\n"
+            "    component_class: ic\n"
+            "    symbol: U\n"
+            "    footprint: {type: DIP, pins: 14}\n"
+            "    pin_names: {7: GND, 14: VCC}\n"
+        )
+        (tmp_path / "parts.yaml").write_text(
+            "components:\n"
+            "  - name: 74HC00\n"
+            "    extends: _DIP14_BASE\n"
+            "    pin_names: {1: A1, 2: B1, 3: Y1}\n"
+        )
+        lib = load_library([tmp_path])
+        defn = lib.get("74HC00")
+        assert defn.footprint.pin_count() == 14
+        assert defn.refdes_prefix == "U"          # symbol inherited cross-file
+        assert defn.pin_name(1) == "A1"           # child override
+        assert defn.pin_name(7) == "GND"          # base pin_names deep-merged
+        assert "_DIP14_BASE" not in lib           # templates not placeable
+
+    def test_unknown_extends_still_raises(self, tmp_path: Path) -> None:
+        (tmp_path / "p.yaml").write_text(
+            "components:\n"
+            "  - name: Orphan\n    extends: _NOPE\n"
+            "    footprint: {type: TwoPin}\n    pin_names: {}\n"
+        )
+        with pytest.raises(SerializationError):
+            load_library([tmp_path])
+
+
+class TestKindPackage:
+    """A ``kind:`` package field names a parameterized body; its geometry is the
+    same prism the existing generator builds for the matching footprint."""
+
+    def test_build_kind_dip_ic_matches_dual_row_prism(self) -> None:
+        from protoboard.domain.components.package.from_footprint import (
+            prism_for_footprint,
+        )
+        from protoboard.domain.components.package.kind import build_kind_package
+        # dip_ic + 14 pins == a DualRow(7, rows 3) prism (narrow DIP-14).
+        expected = prism_for_footprint(DualRow(n_per_row=7, rows_spacing=3.0))
+        assert build_kind_package("dip_ic", 14) == expected
+
+    def test_kind_pin_count_from_component_pins(self, tmp_path: Path) -> None:
+        # The component declares its pin count; the kind package builds from it.
+        (tmp_path / "ic.yaml").write_text(
+            "components:\n"
+            "  - name: U_DIP14\n"
+            "    component_class: ic\n"
+            "    symbol: U\n"
+            "    pins: {count: 14}\n"
+            "    package: {kind: dip_ic}\n"
+            "    pin_names: {7: GND, 14: VCC}\n"
+        )
+        defn = load_library([tmp_path]).get("U_DIP14")
+        assert defn.footprint.pin_count() == 14
+        assert defn.refdes_prefix == "U"
+
+    def test_odd_pin_count_for_dip_is_rejected(self) -> None:
+        from protoboard.domain.components.package.kind import build_kind_package
+        from protoboard.domain.components.package import PackageDefError
+        with pytest.raises(PackageDefError):
+            build_kind_package("dip_ic", 13)
+
+    def test_unknown_kind_rejected(self) -> None:
+        from protoboard.domain.components.package.kind import build_kind_package
+        from protoboard.domain.components.package import PackageDefError
+        with pytest.raises(PackageDefError):
+            build_kind_package("nope", 14)
+
+
 class TestComponentStyle:
     """A component may carry a visual-only ``style:`` override string."""
 
