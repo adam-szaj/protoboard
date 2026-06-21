@@ -122,6 +122,33 @@ class PinVariant:
 
 
 @dataclass(frozen=True, slots=True)
+class FootprintOption:
+    """One available footprint a component offers (a picker entry).
+
+    A component's logical identity (name/pins/class) is separate from the
+    *footprints* it can be placed in. Each option is either a **reference** into
+    the package-family catalogue (``ref = "family/variant"``) or an **inline**
+    parametric package built from the component's YAML (``package``) — exactly
+    one of the two is set. ``name`` is the picker leaf (joined with the
+    component ``symbol`` as ``symbol_name``); ``style`` overrides the list's
+    ``footprint_style`` for this entry only.
+    """
+
+    name: str
+    ref: str | None = None
+    package: Package | None = None
+    style: Appearance | None = None
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("FootprintOption.name must not be empty")
+        if (self.ref is None) == (self.package is None):
+            raise ValueError(
+                "FootprintOption requires exactly one of 'ref' / 'package'"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class ComponentDefinition:
     """Static definition of a component (a "type")."""
 
@@ -174,6 +201,16 @@ class ComponentDefinition:
     # ``ComponentInstance.appearance`` overrides this per part. ``None`` = inherit
     # the package/theme appearance. Geometry/mask/DRC/routing are unaffected.
     appearance: Appearance | None = None
+    # Schematic symbol root (e.g. "R", "U", "LED"). Drives the refdes prefix and
+    # the footprint-picker label root (``symbol_name``). ``None`` falls back to
+    # ``REFDES_PREFIX[component_class]``. Inheritable via library ``extends``.
+    symbol: str | None = None
+    # Available footprints this component can be placed in (the picker offers
+    # these; the user must choose one at place time). The default/first entry
+    # derives the singular ``footprint`` above so existing geometry consumers see
+    # one footprint. Empty = no choice (the part carries its ``footprint``
+    # directly). See docs/footprints/authoring.md.
+    footprints: tuple[FootprintOption, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -198,8 +235,11 @@ class ComponentDefinition:
 
     @property
     def refdes_prefix(self) -> str:
-        """Standard refdes prefix for this component class (e.g. 'U', 'R', 'Q')."""
-        return REFDES_PREFIX[self.component_class]
+        """Refdes prefix: the explicit ``symbol`` if set, else the class default.
+
+        ``symbol`` (e.g. 'R', 'U', 'LED') is also the footprint-picker label root.
+        """
+        return self.symbol or REFDES_PREFIX[self.component_class]
 
     def pin_name(self, pin_number: int) -> str:
         """Return the user-facing name of the given pin (1-indexed)."""

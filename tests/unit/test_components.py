@@ -111,6 +111,47 @@ class TestComponentClass:
         assert REFDES_PREFIX[ComponentClass.DEVBOARD] == "U"
 
 
+class TestFootprintOption:
+    def test_ref_only_is_valid(self) -> None:
+        from protoboard.domain.components.definition import FootprintOption
+        opt = FootprintOption(name="DIP-14", ref="dip-14/std")
+        assert opt.ref == "dip-14/std" and opt.package is None
+
+    def test_requires_exactly_one_of_ref_package(self) -> None:
+        from protoboard.domain.components.definition import FootprintOption
+        with pytest.raises(ValueError):
+            FootprintOption(name="x")  # neither
+        with pytest.raises(ValueError):
+            FootprintOption(name="x", ref="a/b", package=DIP(8))  # type: ignore[arg-type]
+
+    def test_empty_name_rejected(self) -> None:
+        from protoboard.domain.components.definition import FootprintOption
+        with pytest.raises(ValueError):
+            FootprintOption(name="", ref="a/b")
+
+
+class TestComponentSymbol:
+    def test_symbol_drives_refdes_prefix(self) -> None:
+        defn = ComponentDefinition(
+            name="LED_5mm", footprint=SIL(2), pin_names={},
+            component_class=ComponentClass.DIODE_LED, symbol="LED",
+        )
+        assert defn.refdes_prefix == "LED"
+
+    def test_refdes_prefix_falls_back_to_class(self) -> None:
+        # No explicit symbol → the class default (RESISTOR → "R").
+        defn = ComponentDefinition(
+            name="R", footprint=SIL(2), pin_names={},
+            component_class=ComponentClass.RESISTOR,
+        )
+        assert defn.symbol is None
+        assert defn.refdes_prefix == "R"
+
+    def test_footprints_default_empty(self) -> None:
+        defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={})
+        assert defn.footprints == ()
+
+
 class TestComponentDefinition:
     def test_full_pin_names(self) -> None:
         defn = ComponentDefinition(
