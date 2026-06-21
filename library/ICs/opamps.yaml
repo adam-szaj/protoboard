@@ -7,7 +7,8 @@ components:
   # Used by: LM358, LM393, LM2904, ...
   - name: _DUAL_OPAMP_SS
     component_class: ic
-    footprint: {type: DIP, pins: 8}
+    pins: {count: 8}
+    package: {kind: dip_ic}
     pin_names:
       1: OUT_A
       2: IN-_A
@@ -22,7 +23,8 @@ components:
   # Used by: TL072, NE5532, MC1458, RC4558, ...
   - name: _DUAL_OPAMP_DS
     component_class: ic
-    footprint: {type: DIP, pins: 8}
+    pins: {count: 8}
+    package: {kind: dip_ic}
     pin_names:
       1: OUT_A
       2: IN-_A
@@ -37,7 +39,8 @@ components:
   # Used by: LM324, TL074, MC3403, ...
   - name: _QUAD_OPAMP
     component_class: ic
-    footprint: {type: DIP, pins: 14}
+    pins: {count: 14}
+    package: {kind: dip_ic}
     pin_names:
       1: OUT_A
       2: IN-_A
@@ -53,21 +56,6 @@ components:
       12: IN+_D
       13: IN-_D
       14: OUT_D
-
-  # Single op-amp, 741-style (pin 4 = VEE, offset null on pins 1/5)
-  # Used by: uA741, TL071, LM741, ...
-  - name: _SINGLE_OPAMP_741
-    component_class: ic
-    footprint: {type: DIP, pins: 8}
-    pin_names:
-      1: OFFSET_N1
-      2: IN-
-      3: IN+
-      4: VEE
-      5: OFFSET_N2
-      6: OUT
-      7: VCC
-      8: NC
 
   # -----------------------------------------------------------------------
   # Dual op-amps — single supply
@@ -87,7 +75,8 @@ components:
 
   - name: LM339
     component_class: ic
-    footprint: {type: DIP, pins: 14}
+    pins: {count: 14}
+    package: {kind: dip_ic}
     description: "Quad voltage comparator, open-collector output"
     pin_names:
       1: OUT_A
@@ -154,13 +143,46 @@ components:
   # -----------------------------------------------------------------------
 
   - name: uA741
-    extends: _SINGLE_OPAMP_741
+    component_class: ic
+    pins: {count: 8}
+    package: {kind: dip_ic}
     description: "Classic single general-purpose op-amp"
+    pin_names:
+      1: OFFSET_N1
+      2: IN-
+      3: IN+
+      4: VEE
+      5: OFFSET_N2
+      6: OUT
+      7: VCC
+      8: NC
 
   - name: TL071
-    extends: _SINGLE_OPAMP_741
+    component_class: ic
+    pins: {count: 8}
+    package: {kind: dip_ic}
     description: "Single JFET op-amp, low noise"
+    pin_names:
+      1: OFFSET_N1
+      2: IN-
+      3: IN+
+      4: VEE
+      5: OFFSET_N2
+      6: OUT
+      7: VCC
+      8: NC
 
   - name: LM741
-    extends: _SINGLE_OPAMP_741
+    component_class: ic
+    pins: {count: 8}
+    package: {kind: dip_ic}
     description: "Single op-amp, military/industrial"
+    pin_names:
+      1: OFFSET_N1
+      2: IN-
+      3: IN+
+      4: VEE
+      5: OFFSET_N2
+      6: OUT
+      7: VCC
+      8: NC

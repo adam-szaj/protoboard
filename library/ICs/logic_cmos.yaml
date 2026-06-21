@@ -4,22 +4,14 @@ components:
   # VDD = pin N (last), VSS = pin N/2+1 (centre of second row)
   # -----------------------------------------------------------------------
 
-  - name: _DIP14_IC
-    component_class: ic
-    footprint: {type: DIP, pins: 14}
-    pin_names: {7: VSS, 14: VDD}
-
-  - name: _DIP16_IC
-    component_class: ic
-    footprint: {type: DIP, pins: 16}
-    pin_names: {8: VSS, 16: VDD}
-
   # -----------------------------------------------------------------------
   # Logic gates
   # -----------------------------------------------------------------------
 
   - name: CD4001
-    extends: _DIP14_IC
+    component_class: ic
+    pins: {count: 14}
+    package: {kind: dip_ic}
     description: "Quad 2-input NOR gate"
     pin_names:
       1: A1
@@ -38,7 +30,9 @@ components:
       14: VDD
 
   - name: CD4011
-    extends: _DIP14_IC
+    component_class: ic
+    pins: {count: 14}
+    package: {kind: dip_ic}
     description: "Quad 2-input NAND gate"
     pin_names:
       1: A1
@@ -57,7 +51,9 @@ components:
       14: VDD
 
   - name: CD4069
-    extends: _DIP14_IC
+    component_class: ic
+    pins: {count: 14}
+    package: {kind: dip_ic}
     description: "Hex inverter (NOT gate)"
     pin_names:
       1: A1
@@ -76,7 +72,9 @@ components:
       14: VDD
 
   - name: CD4081
-    extends: _DIP14_IC
+    component_class: ic
+    pins: {count: 14}
+    package: {kind: dip_ic}
     description: "Quad 2-input AND gate"
     pin_names:
       1: A1
@@ -95,7 +93,9 @@ components:
       14: VDD
 
   - name: CD4071
-    extends: _DIP14_IC
+    component_class: ic
+    pins: {count: 14}
+    package: {kind: dip_ic}
     description: "Quad 2-input OR gate"
     pin_names:
       1: A1
@@ -118,7 +118,9 @@ components:
   # -----------------------------------------------------------------------
 
   - name: CD4013
-    extends: _DIP14_IC
+    component_class: ic
+    pins: {count: 14}
+    package: {kind: dip_ic}
     description: "Dual D flip-flop"
     pin_names:
       1: Q1
@@ -137,7 +139,9 @@ components:
       14: VDD
 
   - name: CD4017
-    extends: _DIP16_IC
+    component_class: ic
+    pins: {count: 16}
+    package: {kind: dip_ic}
     description: "Johnson decade counter / divider"
     pin_names:
       1: Q5
@@ -158,7 +162,9 @@ components:
       16: VDD
 
   - name: CD4040
-    extends: _DIP16_IC
+    component_class: ic
+    pins: {count: 16}
+    package: {kind: dip_ic}
     description: "12-bit binary ripple counter"
     pin_names:
       1: Q12
@@ -183,7 +189,9 @@ components:
   # -----------------------------------------------------------------------
 
   - name: CD4016
-    extends: _DIP14_IC
+    component_class: ic
+    pins: {count: 14}
+    package: {kind: dip_ic}
     description: "Quad bilateral switch"
     pin_names:
       1: IN_A
@@ -202,7 +210,9 @@ components:
       14: VDD
 
   - name: CD4051
-    extends: _DIP16_IC
+    component_class: ic
+    pins: {count: 16}
+    package: {kind: dip_ic}
     description: "Single 8-channel analog multiplexer"
     pin_names:
       1: Y

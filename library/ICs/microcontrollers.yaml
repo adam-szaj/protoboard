@@ -1,7 +1,8 @@
 components:
   - name: ATmega328P
     component_class: ic
-    footprint: {type: DIP, pins: 28}
+    pins: {count: 28}
+    package: {kind: wdip_ic}
     description: "AVR 8-bit MCU, 32kB flash (Arduino Uno core)"
     pin_names:
       1: PC6
@@ -35,7 +36,8 @@ components:
 
   - name: ATtiny85
     component_class: ic
-    footprint: {type: DIP, pins: 8}
+    pins: {count: 8}
+    package: {kind: dip_ic}
     description: "AVR 8-bit MCU, 8kB flash (DIP-8)"
     pin_names:
       1: PB5
@@ -49,7 +51,8 @@ components:
 
   - name: PIC16F628A
     component_class: ic
-    footprint: {type: DIP, pins: 18}
+    pins: {count: 18}
+    package: {kind: dip_ic}
     description: "PIC 8-bit MCU, 2kB flash"
     pin_names:
       1: RA2

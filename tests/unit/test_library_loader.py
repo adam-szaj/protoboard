@@ -377,6 +377,66 @@ class TestConsolidatedPassives:
             assert alias in lib
 
 
+class TestMigratedICs:
+    """ICs are migrated off footprint:{type:DIP} onto pins+kind:dip_ic; shared
+    opamp pinouts stay as templates, the rest carry per-component pin_names.
+    These guard that the migration kept every IC's geometry and pin labels."""
+
+    def _lib(self) -> "ComponentLibrary":
+        from protoboard.paths import BUILTIN_LIBRARY_DIR
+        from protoboard.services.library.package_family_loader import (
+            load_full_package_catalogue,
+        )
+        return load_library([BUILTIN_LIBRARY_DIR], load_full_package_catalogue())
+
+    def test_override_children_keep_pinout(self) -> None:
+        lib = self._lib()
+        for name, pc, pin, label in (
+            ("74HC00", 14, 7, "GND"), ("74HC00", 14, 14, "VCC"),
+            ("CD4001", 14, 7, "VSS"), ("74HC245", 20, 10, "GND"),
+        ):
+            d = lib.get(name)
+            assert d.footprint.pin_count() == pc
+            assert d.pin_name(pin) == label
+
+    def test_kept_opamp_templates_still_feed_children(self) -> None:
+        # Inherit-only children resolve their pinout through the surviving
+        # _DUAL_OPAMP_* / _QUAD_OPAMP templates (a genuine shared pinout).
+        lib = self._lib()
+        assert lib.get("LM358").pin_name(4) == "GND"    # _DUAL_OPAMP_SS
+        assert lib.get("TL072").pin_name(4) == "VEE"    # _DUAL_OPAMP_DS
+        assert lib.get("LM324").pin_name(11) == "GND"   # _QUAD_OPAMP
+        # Templates remain non-placeable (_-prefixed).
+        assert "_DUAL_OPAMP_SS" not in lib
+
+    def test_dropped_741_template_pinout_inlined(self) -> None:
+        lib = self._lib()
+        assert "_SINGLE_OPAMP_741" not in lib
+        for name in ("uA741", "TL071", "LM741"):
+            d = lib.get(name)
+            assert d.footprint.pin_count() == 8
+            assert d.pin_name(4) == "VEE" and d.pin_name(8) == "NC"
+
+    def test_dip_geometry_and_notch_via_kind(self) -> None:
+        from protoboard.gui.renderers.prism_silhouette import (
+            DipSilhouette,
+            silhouette_for_prism,
+        )
+        lib = self._lib()
+        d = lib.get("74HC00")
+        assert d.package is not None and d.package.kind == "dip_ic"
+        assert isinstance(silhouette_for_prism(d.package), DipSilhouette)
+        # DIP-28 parts are wide.
+        assert lib.get("ATmega328P").package.kind == "wdip_ic"
+
+    def test_regulators_untouched(self) -> None:
+        # TO92/TO220 regulators keep their footprint (not dip_ic) and pinouts.
+        lib = self._lib()
+        assert lib.get("7805").pin_name(1) == "IN"
+        assert lib.get("LM317").pin_name(1) == "ADJ"
+        assert lib.get("7805").footprint.pin_count() == 3
+
+
 class TestRigidPackageFamilyRef:
     """A rigid package_family_ref (SMD) drives the footprint and drops bend;
     a bendable axial ref leaves the footprint and bend intact."""

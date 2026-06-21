@@ -1,7 +1,8 @@
 components:
   - name: AT24C02
     component_class: ic
-    footprint: {type: DIP, pins: 8}
+    pins: {count: 8}
+    package: {kind: dip_ic}
     description: "2kbit I2C EEPROM"
     pin_names:
       1: A0
@@ -15,7 +16,8 @@ components:
 
   - name: 28C256
     component_class: ic
-    footprint: {type: DIP, pins: 28}
+    pins: {count: 28}
+    package: {kind: wdip_ic}
     description: "256kbit parallel EEPROM"
     pin_names:
       1: A14

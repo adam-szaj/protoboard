@@ -1,7 +1,8 @@
 components:
   - name: NE555
     component_class: ic
-    footprint: {type: DIP, pins: 8}
+    pins: {count: 8}
+    package: {kind: dip_ic}
     description: "555 timer IC"
     pin_names:
       1: GND
@@ -15,7 +16,8 @@ components:
 
   - name: NE556
     component_class: ic
-    footprint: {type: DIP, pins: 14}
+    pins: {count: 14}
+    package: {kind: dip_ic}
     description: "Dual 555 timer IC"
     pin_names:
       1: DIS_A

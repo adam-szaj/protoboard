@@ -11,16 +11,14 @@ Phases A/B/C of the declaration rework shipped: `extends` (cross-file),
 recently-used, declared body-kind render, and the passive library shrunk to
 generic `R` / `C` / `C_POL` (each offering its bodies as a `footprints:` list).
 
-**Deferred — repoint the ICs.** The 74-series / CD40xx / op-amp / regulator
-entries under `library/ICs/` still use `_`-prefixed base templates that carry
-**both** a `footprint: {type: DIP, pins: N}` and shared `pin_names`. The intended
-end state: move `pin_names` onto each component (there are exceptions to the
-GND/VCC convention, so sharing them via a template is risky), drop the
-`_`-templates, and give each IC `pins: {count: N}` + `package: {kind: dip_ic}`
-(or `wdip_ic`). This is ~74 entries across 8 files; do it file-by-file with a
-per-file parity test (placed pin world positions + pin_names unchanged for a
-representative part). The `kind: dip_ic` machinery and the declared-notch render
-already exist (Phases A/B), so this is an authoring migration, not new code.
+**DONE (2026-06-21) — ICs repointed.** The DIP ICs under `library/ICs/` moved
+off `footprint: {type: DIP, pins: N}` onto `pins: {count: N}` +
+`package: {kind: dip_ic}` (DIP-28 → `wdip_ic`). Footprint-only base templates
+(`_74_DIP14/16/20`, `_DIP14_IC/16`, `_SINGLE_OPAMP_741`) were dropped; their
+override children carry their own pin_names, the 741 children got the pinout
+inlined. Genuine shared pinouts kept as templates (`_DUAL_OPAMP_SS/DS`,
+`_QUAD_OPAMP` — the standard dual/quad-opamp DIP-8/14 pinouts). TO92/TO220
+regulators left untouched. Guarded by `TestMigratedICs`.
 
 Also deferred (per the passive work): predefined standard sizes as
 `kind`-with-dimensions (e.g. `kind: tht-din`, size `0207/typ`) sourced from

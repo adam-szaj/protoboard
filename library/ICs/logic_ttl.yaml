@@ -1,31 +1,18 @@
 components:
   # -----------------------------------------------------------------------
-  # Templates — 74xx series, DIP packages
+  # 74xx series, DIP packages
   # Standard supply: pin 7 = GND, pin 14 = VCC (DIP-14)
   #                  pin 8 = GND, pin 16 = VCC (DIP-16)
   # -----------------------------------------------------------------------
-
-  - name: _74_DIP14
-    component_class: ic
-    footprint: {type: DIP, pins: 14}
-    pin_names: {7: GND, 14: VCC}
-
-  - name: _74_DIP16
-    component_class: ic
-    footprint: {type: DIP, pins: 16}
-    pin_names: {8: GND, 16: VCC}
-
-  - name: _74_DIP20
-    component_class: ic
-    footprint: {type: DIP, pins: 20}
-    pin_names: {10: GND, 20: VCC}
 
   # -----------------------------------------------------------------------
   # Gates
   # -----------------------------------------------------------------------
 
   - name: 74HC00
-    extends: _74_DIP14
+    component_class: ic
+    pins: {count: 14}
+    package: {kind: dip_ic}
     description: "Quad 2-input NAND gate"
     pin_names:
       1: A1
@@ -44,7 +31,9 @@ components:
       14: VCC
 
   - name: 74HC02
-    extends: _74_DIP14
+    component_class: ic
+    pins: {count: 14}
+    package: {kind: dip_ic}
     description: "Quad 2-input NOR gate"
     pin_names:
       1: Y1
@@ -63,7 +52,9 @@ components:
       14: VCC
 
   - name: 74HC04
-    extends: _74_DIP14
+    component_class: ic
+    pins: {count: 14}
+    package: {kind: dip_ic}
     description: "Hex inverter"
     pin_names:
       1: A1
@@ -82,7 +73,9 @@ components:
       14: VCC
 
   - name: 74HC08
-    extends: _74_DIP14
+    component_class: ic
+    pins: {count: 14}
+    package: {kind: dip_ic}
     description: "Quad 2-input AND gate"
     pin_names:
       1: A1
@@ -101,7 +94,9 @@ components:
       14: VCC
 
   - name: 74HC32
-    extends: _74_DIP14
+    component_class: ic
+    pins: {count: 14}
+    package: {kind: dip_ic}
     description: "Quad 2-input OR gate"
     pin_names:
       1: A1
@@ -120,7 +115,9 @@ components:
       14: VCC
 
   - name: 74HC86
-    extends: _74_DIP14
+    component_class: ic
+    pins: {count: 14}
+    package: {kind: dip_ic}
     description: "Quad 2-input XOR gate"
     pin_names:
       1: A1
@@ -143,7 +140,9 @@ components:
   # -----------------------------------------------------------------------
 
   - name: 74HC74
-    extends: _74_DIP14
+    component_class: ic
+    pins: {count: 14}
+    package: {kind: dip_ic}
     description: "Dual D flip-flop with Set/Reset"
     pin_names:
       1: NR1
@@ -162,10 +161,10 @@ components:
       14: VCC
 
   - name: 74HC373
-    extends: _74_DIP20
     description: "Octal D latch (3-state)"
     component_class: ic
-    footprint: {type: DIP, pins: 20}
+    pins: {count: 20}
+    package: {kind: dip_ic}
     pin_names:
       1: OE
       2: D1
@@ -193,7 +192,9 @@ components:
   # -----------------------------------------------------------------------
 
   - name: 74HC163
-    extends: _74_DIP16
+    component_class: ic
+    pins: {count: 16}
+    package: {kind: dip_ic}
     description: "4-bit synchronous binary counter"
     pin_names:
       1: NR
@@ -214,7 +215,9 @@ components:
       16: VCC
 
   - name: 74HC595
-    extends: _74_DIP16
+    component_class: ic
+    pins: {count: 16}
+    package: {kind: dip_ic}
     description: "8-bit shift register with output latches"
     pin_names:
       1: Q1
@@ -239,10 +242,10 @@ components:
   # -----------------------------------------------------------------------
 
   - name: 74HC245
-    extends: _74_DIP20
     description: "Octal bus transceiver (3-state)"
     component_class: ic
-    footprint: {type: DIP, pins: 20}
+    pins: {count: 20}
+    package: {kind: dip_ic}
     pin_names:
       1: DIR
       2: A1
@@ -270,7 +273,9 @@ components:
   # -----------------------------------------------------------------------
 
   - name: 74HC138
-    extends: _74_DIP16
+    component_class: ic
+    pins: {count: 16}
+    package: {kind: dip_ic}
     description: "3-to-8 line decoder/demultiplexer"
     pin_names:
       1: A
@@ -291,10 +296,10 @@ components:
       16: VCC
 
   - name: 74HC244
-    extends: _74_DIP20
     description: "Octal buffer/line driver (3-state)"
     component_class: ic
-    footprint: {type: DIP, pins: 20}
+    pins: {count: 20}
+    package: {kind: dip_ic}
     pin_names:
       1: OE1
       2: A1

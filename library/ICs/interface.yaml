@@ -1,7 +1,8 @@
 components:
   - name: MAX232
     component_class: ic
-    footprint: {type: DIP, pins: 16}
+    pins: {count: 16}
+    package: {kind: dip_ic}
     description: "RS-232 dual driver/receiver, 5V single supply"
     pin_names:
       1: C1+
@@ -23,7 +24,8 @@ components:
 
   - name: ULN2003
     component_class: ic
-    footprint: {type: DIP, pins: 16}
+    pins: {count: 16}
+    package: {kind: dip_ic}
     description: "7-channel Darlington transistor array"
     pin_names:
       1: IN1
@@ -45,7 +47,8 @@ components:
 
   - name: L293D
     component_class: ic
-    footprint: {type: DIP, pins: 16}
+    pins: {count: 16}
+    package: {kind: dip_ic}
     description: "Dual H-bridge motor driver, 600mA"
     pin_names:
       1: EN1
@@ -67,7 +70,8 @@ components:
 
   - name: PC817
     component_class: ic
-    footprint: {type: DIP, pins: 4}
+    pins: {count: 4}
+    package: {kind: dip_ic}
     description: "Single optocoupler, CTR 50-300%"
     pin_names:
       1: A
