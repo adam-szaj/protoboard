@@ -4,6 +4,29 @@ Open follow-ups that don't fit into the closed plans archived under
 [docs/archive/](archive/).  Each entry has enough context to pick up
 the work cold.
 
+## Component-declaration rework — IC repoint deferred (added 2026-06-21)
+
+Phases A/B/C of the declaration rework shipped: `extends` (cross-file),
+`footprints:` lists, `symbol`, `kind` packages, the forced-choice picker +
+recently-used, declared body-kind render, and the passive library shrunk to
+generic `R` / `C` / `C_POL` (each offering its bodies as a `footprints:` list).
+
+**Deferred — repoint the ICs.** The 74-series / CD40xx / op-amp / regulator
+entries under `library/ICs/` still use `_`-prefixed base templates that carry
+**both** a `footprint: {type: DIP, pins: N}` and shared `pin_names`. The intended
+end state: move `pin_names` onto each component (there are exceptions to the
+GND/VCC convention, so sharing them via a template is risky), drop the
+`_`-templates, and give each IC `pins: {count: N}` + `package: {kind: dip_ic}`
+(or `wdip_ic`). This is ~74 entries across 8 files; do it file-by-file with a
+per-file parity test (placed pin world positions + pin_names unchanged for a
+representative part). The `kind: dip_ic` machinery and the declared-notch render
+already exist (Phases A/B), so this is an authoring migration, not new code.
+
+Also deferred (per the passive work): predefined standard sizes as
+`kind`-with-dimensions (e.g. `kind: tht-din`, size `0207/typ`) sourced from
+norms/catalogues — the generator already builds cylinder/prism bodies from
+`dims`, so this is adding named size presets, not new geometry.
+
 ## Appearance override — deferred coverage (added 2026-06-20)
 
 The per-component / per-instance visual override (fill `color` + corner radius)

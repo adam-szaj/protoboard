@@ -106,8 +106,10 @@ class TestBundledLibrary:
     def test_generic_passives_marked_question(self) -> None:
         from protoboard.services.library.loader import load_library
         lib = load_library([Path("library")])
+        # C_Disc / R_SMD_* are consolidated into the generic R / C (their bodies
+        # are now footprint options), so only the generic passives remain.
         for name in (
-            "R", "C", "C_POL", "C_Disc", "L", "F", "Pot",
+            "R", "C", "C_POL", "L", "F", "Pot",
             "R_Net_4", "R_Net_8",
         ):
             assert lib.get(name).default_value == "?", (

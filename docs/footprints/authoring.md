@@ -209,6 +209,52 @@ Resolution: `resolve_variant(families, "DIN-0207/typ")` → that variant; a bare
 
 ---
 
+## 5b. Offering several footprints — `footprints:`, `symbol:`, `kind:`
+
+A component's **logical identity** (name / pins / class) is separate from the
+**footprints** it can be placed in. Instead of a single `package_family_ref`, a
+component may list the bodies it offers; the place-time picker forces the user to
+choose one (label `symbol_name`, e.g. `R_DIN-0207`).
+
+```yaml
+- name: R
+  component_class: resistor
+  symbol: R                      # refdes prefix + picker label root
+  pins: {count: 2}              # logical pin count (drives kind packages)
+  default_value: "?"
+  footprints:                    # the available bodies (the first is the default)
+    - {name: DIN-0207, ref: "DIN-0207/typ"}   # a catalogue family/variant
+    - {name: SMD-0805, ref: "SMD-0805/typ"}
+    - name: custom               # …or an inline package per entry
+      package: {shape: prism, dims: {width: 5, length: 2, height: 1}, leads: {...}}
+      style: "color: #333"       # optional per-entry style override
+  footprint_style: "color: #228" # default style for every entry (overridable)
+```
+
+- **`symbol:`** is the refdes prefix and the picker-label root; omit it to fall
+  back to the class default (`REFDES_PREFIX[component_class]`, e.g. resistor → `R`).
+- **`footprints:`** entries are a **ref** (`ref: "family/variant"`) or an **inline
+  `package:`** (built like a top-level package). `name` defaults to the ref token.
+  The default/first entry derives the component's singular geometry; inheriting
+  definitions that re-list `footprints:` **replace** the list.
+- **`kind:`** in a `package:` block names a parameterized body whose geometry is
+  built from the pin count: `dip_ic` / `wdip_ic` (DIP narrow / wide), `sil`
+  (header), `dip_switch` (plain dual-row, no notch). The renderer draws the
+  declared look (the notch for a DIP-IC, plain for a DIP-switch) instead of
+  guessing from the pin columns; an unknown kind falls back to that guess.
+
+```yaml
+- name: 74HC00
+  component_class: ic
+  pins: {count: 14}
+  package: {kind: dip_ic}        # DIP-14 body + notch, sized from pins
+  pin_names: {1: A1, 2: B1, 7: GND, 14: VCC, ...}
+```
+
+`extends:` (§4) works across files now (a base in one file, a child in another).
+
+---
+
 ## 6. Footprint types (the `footprint:` block)
 
 When a component has no package, `footprint:` supplies the pin cloud (generic

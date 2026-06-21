@@ -336,6 +336,47 @@ class TestComponentStyle:
         assert load_library([tmp_path]).get("ROLD").appearance is None
 
 
+class TestConsolidatedPassives:
+    """The shipped passives are consolidated to generic R / C / C_POL, each
+    offering its bodies as a footprints: list. These assert the consolidation
+    preserves the default geometry and identity (no silent regression)."""
+
+    def _lib(self) -> "ComponentLibrary":
+        from protoboard.paths import BUILTIN_LIBRARY_DIR
+        from protoboard.services.library.package_family_loader import (
+            load_full_package_catalogue,
+        )
+        return load_library([BUILTIN_LIBRARY_DIR], load_full_package_catalogue())
+
+    def test_generic_R_default_geometry_and_offers(self) -> None:
+        defn = self._lib().get("R")
+        assert defn.refdes_prefix == "R"
+        # Default body = the axial DIN-0207 TwoPin (unchanged from pre-consolidation).
+        pins = [(round(p.x), round(p.y)) for p in defn.footprint.pin_positions()]
+        assert pins == [(0, 0), (0, 1)]
+        names = [o.name for o in defn.footprints]
+        assert "DIN-0207" in names and "SMD-0805" in names
+        assert defn.default_value == "?"
+
+    def test_generic_C_and_C_POL(self) -> None:
+        lib = self._lib()
+        c = lib.get("C")
+        cp = lib.get("C_POL")
+        assert c.refdes_prefix == "C" and cp.refdes_prefix == "C"
+        assert cp.pin_name(1) == "+" and cp.pin_name(2) == "-"   # polarity kept
+        assert "Disc-D5" in [o.name for o in c.footprints]
+        assert "Radial-D5" in [o.name for o in cp.footprints]
+
+    def test_consolidated_names_dropped_aliases_kept(self) -> None:
+        lib = self._lib()
+        # The per-size component names are gone…
+        for gone in ("R_SMD_0805", "R_SMD_0603", "C_SMD_0805", "C_Disc"):
+            assert gone not in lib
+        # …but the KiCAD footprint-string aliases still resolve (to the generic).
+        for alias in ("R_0805_2012Metric", "C_0603_1608Metric", "R_Axial_DIN0207"):
+            assert alias in lib
+
+
 class TestRigidPackageFamilyRef:
     """A rigid package_family_ref (SMD) drives the footprint and drops bend;
     a bendable axial ref leaves the footprint and bend intact."""

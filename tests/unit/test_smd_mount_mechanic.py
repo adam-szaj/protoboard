@@ -169,19 +169,28 @@ class TestEffectiveBendSpecs:
 
 
 class TestLibrarySmdIsRigidWithMount:
-    def test_loaded_smd_part_has_package_and_mount_spec(self) -> None:
+    def test_consolidated_resistor_offers_rigid_smd_footprint(self) -> None:
+        # The SMD chip is now a footprint option of the generic ``R`` (not a
+        # separate ``R_SMD_0805`` component).  Resolving that option must still
+        # yield a rigid package whose pin-2 carries the discrete mount spec.
+        from protoboard.domain.components.package import (
+            is_rigid_package,
+            package_to_bend_specs,
+            resolve_variant,
+        )
         from protoboard.paths import BUILTIN_LIBRARY_DIR
         from protoboard.services.library.loader import load_library
         from protoboard.services.library.package_family_loader import (
             load_full_package_catalogue,
         )
-        lib = load_library([BUILTIN_LIBRARY_DIR], load_full_package_catalogue())
-        defn = lib.get("R_SMD_0805")
-        # Rigid: package recorded, bendable_pins cleared, footprint rigid.
-        assert defn.package is not None
-        assert defn.bendable_pins == {}
-        # But the mount mechanic exposes a discrete pin-2 spec.
-        specs = effective_bend_specs(defn)
+        families = load_full_package_catalogue()
+        lib = load_library([BUILTIN_LIBRARY_DIR], families)
+        defn = lib.get("R")
+        smd = next(o for o in defn.footprints if o.name == "SMD-0805")
+        variant = resolve_variant(families, smd.ref)
+        assert variant is not None
+        assert is_rigid_package(variant.package)        # SMD body is rigid
+        specs = package_to_bend_specs(variant.package)  # discrete mount spec
         assert list(specs.keys()) == [2]
         assert not specs[2].is_free()
         assert len(specs[2].discrete) == 8

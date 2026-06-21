@@ -1,78 +1,55 @@
 components:
-  # Generic non-polar capacitor.  Default body is a 5 mm ceramic disc;
-  # switch via the body-variant picker to a 7 / 10 mm disc or to an
-  # axial-cylinder package for axial film caps.
+  # One generic non-polar capacitor — value and body chosen per placed part.
+  # The footprints: list offers the ceramic discs (5 mm default, 7 / 10 mm) and
+  # the rigid SMD chips; the picker forces the choice at place time ("C_<name>").
   - name: C
-    description: "Capacitor (non-polar, ceramic, generic)"
+    description: "Capacitor, non-polar — pick the body, set the value when placing"
     component_class: capacitor_nonpolar
+    symbol: C
+    pins: {count: 2}
     footprint: {type: TwoPin}
     pin_names: {}
-    package_family_ref: "Ceramic-Disc-D5/typ"
     default_value: "?"
     bendable_pins:
       2:
         min_reach: 1
         max_reach: 5
         default: {x: 0, y: 1}
+    footprints:
+      - {name: Disc-D5, ref: "Ceramic-Disc-D5/typ"}   # 5 mm ceramic disc (default)
+      - {name: Disc-D7, ref: "Ceramic-Disc-D7/typ"}   # 7 mm disc
+      - {name: Disc-D10, ref: "Ceramic-Disc-D10/typ"} # 10 mm disc
+      - {name: SMD-0805, ref: "SMD-0805/typ"}         # rigid chip
+      - {name: SMD-0603, ref: "SMD-0603/typ"}         # rigid chip
     aliases:
-      # (The SMD 0603/0805 strings map to the rigid C_SMD_* parts below.)
+      # KiCAD footprint strings (disc + SMD) → this generic non-polar cap.
       - C_1206_3216Metric
       - C_Disc_D3.0mm
-
-  # SMD chip capacitors — rigid bodies on two adjacent pads (SMD-0805 /
-  # SMD-0603 family fixes the 1-hole spacing; no bendable leads).
-  - name: C_SMD_0805
-    description: "Capacitor (SMD chip, 0805)"
-    component_class: capacitor_nonpolar
-    footprint: {type: TwoPin}
-    pin_names: {}
-    package_family_ref: "SMD-0805/typ"
-    default_value: "?"
-    aliases:
       - C_0805_2012Metric
-
-  - name: C_SMD_0603
-    description: "Capacitor (SMD chip, 0603)"
-    component_class: capacitor_nonpolar
-    footprint: {type: TwoPin}
-    pin_names: {}
-    package_family_ref: "SMD-0603/typ"
-    default_value: "?"
-    aliases:
       - C_0603_1608Metric
 
-  # Generic polar capacitor — default 5 mm radial electrolytic.  Picker
-  # offers larger radial cans (6.3 / 8 / 10 mm) or the axial elko
-  # families for through-hole projects.
+  # One generic polar (electrolytic / tantalum) capacitor.  The footprints: list
+  # offers the radial electrolytic cans (5 mm default, 6.3 / 8 / 10 mm).
   - name: C_POL
-    description: "Capacitor (polar, electrolytic, generic)"
+    description: "Capacitor, polar — pick the body, set the value when placing"
     component_class: capacitor_polar
+    symbol: C
+    pins: {count: 2}
     footprint: {type: TwoPin}
     pin_names: {1: "+", 2: "-"}
-    package_family_ref: "Radial-Elko-D5/typ"
     default_value: "?"
     bendable_pins:
       2:
         min_reach: 1
         max_reach: 5
         default: {x: 0, y: 1}
+    footprints:
+      - {name: Radial-D5, ref: "Radial-Elko-D5/typ"}      # 5 mm can (default)
+      - {name: Radial-D6.3, ref: "Radial-Elko-D6.3/typ"}  # 6.3 mm
+      - {name: Radial-D8, ref: "Radial-Elko-D8/typ"}      # 8 mm
+      - {name: Radial-D10, ref: "Radial-Elko-D10/typ"}    # 10 mm
     aliases:
       - CP_Elec_5x11
       - CP_Elec_6.3x11
       - CP_Elec_8x11
       - CP_Elec_10x16
-
-  # Larger ceramic disc as a separate entry — useful for high-voltage
-  # safety caps that physically dominate the board.  Default is 7 mm.
-  - name: C_Disc
-    description: "Disc ceramic capacitor (radial)"
-    component_class: capacitor_nonpolar
-    footprint: {type: TwoPin}
-    pin_names: {}
-    package_family_ref: "Ceramic-Disc-D7/typ"
-    default_value: "?"
-    bendable_pins:
-      2:
-        min_reach: 1
-        max_reach: 3
-        default: {x: 0, y: 1}
