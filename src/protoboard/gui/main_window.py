@@ -315,6 +315,9 @@ class MainWindow(QMainWindow):
         self._board_view.cursor_moved.connect(self._on_cursor_moved)
         self._board_view.escape_tool.connect(self._tool_select)
         self._library_panel.component_selected.connect(self._tool_place)
+        self._library_panel.footprint_choice_required.connect(
+            self._on_footprint_choice_required
+        )
         self._netlist_panel.instance_selected.connect(self._board_view.select_component)
         self._components_panel.instance_selected.connect(self._board_view.select_component)
         self._components_panel.place_requested.connect(self._tool_place_instance)
@@ -825,6 +828,12 @@ class MainWindow(QMainWindow):
             f"Select | {self._select_tool.selection_summary()}"
         )
         self._sync_tool_check(KB.ACTION_TOOL_SELECT)
+
+    def _on_footprint_choice_required(self, definition_ref: str) -> None:
+        """The user double-clicked a part but has not picked a footprint yet."""
+        self._status.showMessage(
+            f"Choose a footprint for {definition_ref} before placing it.", 3000
+        )
 
     def _tool_place(
         self,

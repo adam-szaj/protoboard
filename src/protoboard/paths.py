@@ -35,6 +35,7 @@ THEME_FILE: Path        = CONFIG_DIR / "theme.yaml"
 WINDOW_STATE_FILE: Path = CONFIG_DIR / "window_state.yaml"
 APP_SETTINGS_FILE: Path = CONFIG_DIR / "app_settings.yaml"
 RECENT_PROJECTS_FILE: Path = CONFIG_DIR / "recent.json"
+RECENT_FOOTPRINTS_FILE: Path = CONFIG_DIR / "recent_footprints.json"
 TOOLBARS_FILE: Path = CONFIG_DIR / "toolbars.yaml"
 
 # ---------------------------------------------------------------------------

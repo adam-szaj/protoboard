@@ -41,7 +41,10 @@ from protoboard.domain.components.package import PackageFamily
 from protoboard.services.library.package_family_loader import (
     load_full_package_catalogue,
 )
-from protoboard.services.library.loader import ComponentLibrary
+from protoboard.services.library.loader import (
+    ComponentLibrary,
+    inline_option_families,
+)
 from protoboard.domain.axis_labels_settings import AxisLabelSettings
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.gui.layer_state import LayerOverrides
@@ -185,10 +188,13 @@ class EditorSession(QObject):
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         # Package-family body catalogue, keyed by family id: the authored
         # two-pin families plus the generated in-line bodies (dip-N / wdip-N /
-        # sil-N).  Authored families win on an id clash.
-        self.package_families: dict[str, PackageFamily] = (
-            load_full_package_catalogue()
-        )
+        # sil-N), plus a one-variant family for each component's inline footprint
+        # options (so the picker can offer them and an instance can record the
+        # choice as a normal address).  Authored families win on an id clash.
+        self.package_families: dict[str, PackageFamily] = {
+            **load_full_package_catalogue(),
+            **inline_option_families(library),
+        }
         self.stack: CommandStack[ComponentState] = CommandStack()
         self.routing_settings: RoutingSettings = RoutingSettings()
         self.axis_label_settings: AxisLabelSettings = AxisLabelSettings()

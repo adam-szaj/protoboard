@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -20,6 +21,9 @@ from PySide6.QtWidgets import (
 
 from protoboard.services.library.loader import ComponentLibrary
 
+if TYPE_CHECKING:
+    from protoboard.domain.components.definition import ComponentDefinition
+
 
 class LibraryPanel(QWidget):
     # emits (definition_ref, pin_variant_id_or_None, body_variant_id_or_None)
@@ -27,6 +31,10 @@ class LibraryPanel(QWidget):
     # to inherit the definition's default.  Older slots that accept
     # only two args still work — Qt unpacks positional signal args.
     component_selected = Signal(str, object, object)
+    # Emitted (definition_ref) when a placement is attempted but the user has not
+    # yet chosen a footprint from the (multi-option) picker. MainWindow surfaces a
+    # status hint; nothing is placed.
+    footprint_choice_required = Signal(str)
 
     def __init__(self, library: ComponentLibrary, parent: object = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
@@ -207,11 +215,24 @@ class LibraryPanel(QWidget):
 
     def _on_double_click(self, item: QTreeWidgetItem, _column: int) -> None:
         data = item.data(0, Qt.ItemDataRole.UserRole)
-        if data:
-            name, pin_variant = data
-            self.component_selected.emit(
-                name, pin_variant, self._current_body_variant_address(),
+        if not data:
+            return
+        name, pin_variant = data
+        address = self._current_body_variant_address()
+        # Force a choice: when the picker offers options but none is selected (the
+        # "Choose a footprint…" placeholder, address None at index 0), block
+        # placement. A part with no options (empty picker) places normally.
+        # NB: don't gate on ``_body_row.isVisible()`` — an un-shown widget reports
+        # not-visible under tests; gate on the picker actually having entries.
+        if self._body_variant_addresses and address is None:
+            self.footprint_choice_required.emit(name)
+            return
+        if address is not None:
+            from protoboard.gui import recent_footprints
+            recent_footprints.add(
+                name, address, self._body_variant_combo.currentText()
             )
+        self.component_selected.emit(name, pin_variant, address)
 
     def _current_body_variant_address(self) -> "str | None":
         idx = self._body_variant_combo.currentIndex()
@@ -240,13 +261,11 @@ class LibraryPanel(QWidget):
         current = self._tree.currentItem()
         self._rebuild_body_picker(current)
 
+    _CHOOSE_PLACEHOLDER = "Choose a footprint…"
+
     def _rebuild_body_picker(
         self, current: "QTreeWidgetItem | None",
     ) -> None:
-        from protoboard.domain.components.package.generated_families import (
-            offered_body_families,
-        )
-
         self._body_variant_combo.blockSignals(True)
         self._body_variant_combo.clear()
         self._body_variant_addresses = []
@@ -259,42 +278,81 @@ class LibraryPanel(QWidget):
                 defn = self._library.get(name)
             except KeyError:
                 defn = None
-        offered = (
-            offered_body_families(defn.footprint, self._package_families)
-            if defn is not None and self._package_families
-            else []
-        )
-        show = bool(offered)
-        self._body_row.setVisible(show)
-        if not show or defn is None:
+
+        # (label, address) pairs the user can pick. A component's ``footprints``
+        # list drives this; parts without a list fall back to the catalogue
+        # families that fit their footprint (legacy bodies).
+        entries = self._footprint_entries(defn) if defn is not None else []
+        self._body_row.setVisible(bool(entries))
+        if not entries or defn is None:
             self._body_variant_combo.blockSignals(False)
             return
 
-        # Default entry first (uses defn.package_family_ref at place time).
-        default_label = "Default"
-        if defn.package_family_ref:
-            default_label = f"Default ({defn.package_family_ref})"
-        self._body_variant_combo.addItem(default_label)
-        self._body_variant_addresses.append(None)
+        # Recently-used footprints for this component, shown first (only those
+        # still offered), so the common case is one click away.
+        offered_addrs = {addr for _label, addr in entries}
+        recent = self._recent_entries(defn.name, offered_addrs)
 
-        primary_pkg_id: "str | None" = None
-        if defn.package_family_ref:
-            parts = defn.package_family_ref.split("/", 1)
-            if len(parts) == 2:
-                primary_pkg_id = parts[0]
-
-        # Offer order: the definition's default family first, then the rest.
-        ordered = sorted(offered, key=lambda f: f.family_id != primary_pkg_id)
-
-        for pkg in ordered:
-            pkg_id = pkg.family_id
-            for v in pkg.variants:
-                addr = f"{pkg_id}/{v.variant_id}"
-                label = f"{pkg_id} / {v.variant_id}"
-                if v.label and v.label != v.variant_id:
-                    label = f"{label} — {v.label}"
-                self._body_variant_combo.addItem(label)
-                self._body_variant_addresses.append(addr)
-
+        # Force a choice: with more than one option, prepend a disabled
+        # placeholder (address None) so nothing is silently the default. A single
+        # option is auto-selected (no friction).
+        if len(entries) > 1:
+            self._body_variant_combo.addItem(self._CHOOSE_PLACEHOLDER)
+            self._body_variant_addresses.append(None)
+        # Recently-used picks first (★), then the full offered list.
+        for label, addr in recent:
+            self._body_variant_combo.addItem(f"★ {label}")
+            self._body_variant_addresses.append(addr)
+        for label, addr in entries:
+            self._body_variant_combo.addItem(label)
+            self._body_variant_addresses.append(addr)
         self._body_variant_combo.setCurrentIndex(0)
         self._body_variant_combo.blockSignals(False)
+
+    def _recent_entries(
+        self, defn_name: str, offered: set[str],
+    ) -> list[tuple[str, str]]:
+        """``(label, address)`` for this component's recent picks still offered."""
+        from protoboard.gui import recent_footprints
+        out: list[tuple[str, str]] = []
+        for r in recent_footprints.load():
+            if r.definition_ref == defn_name and r.address in offered:
+                out.append((r.label, r.address))
+        return out
+
+    def _footprint_entries(
+        self, defn: "ComponentDefinition"
+    ) -> list[tuple[str, str]]:
+        """``(label, address)`` pairs for *defn*'s offered footprints.
+
+        Built from the component's ``footprints`` list (labels ``symbol_name``);
+        a part without a list falls back to the catalogue families matching its
+        footprint (legacy bodies), labelled ``family/variant``.
+        """
+        from protoboard.domain.components.package.generated_families import (
+            offered_body_families,
+        )
+        from protoboard.services.library.loader import inline_option_address
+
+        root = defn.refdes_prefix  # symbol or class prefix
+        entries: list[tuple[str, str]] = []
+        if defn.footprints:
+            for opt in defn.footprints:
+                addr = (
+                    opt.ref
+                    if opt.ref is not None
+                    else inline_option_address(defn.name, opt.name)
+                )
+                entries.append((f"{root}_{opt.name}", addr))
+            return entries
+
+        # Legacy fallback — catalogue families fitting the singular footprint.
+        if not self._package_families:
+            return []
+        for pkg in offered_body_families(defn.footprint, self._package_families):
+            for v in pkg.variants:
+                label = f"{pkg.family_id} / {v.variant_id}"
+                if v.label and v.label != v.variant_id:
+                    label = f"{label} — {v.label}"
+                entries.append((label, f"{pkg.family_id}/{v.variant_id}"))
+        return entries

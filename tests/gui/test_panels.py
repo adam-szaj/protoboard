@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.gui.panels.library_panel import LibraryPanel
 from protoboard.gui.panels.properties_panel import PropertiesPanel
@@ -190,6 +192,21 @@ class TestLibraryPanelBodyPicker:
     """LibraryPanel exposes a body-variant picker under the tree when a
     two-pin component is selected and a package catalogue is wired."""
 
+    @pytest.fixture(autouse=True)
+    def _isolate_recent(self, tmp_path: object, monkeypatch: object) -> None:
+        # Placing through the picker records a recent footprint; isolate the
+        # store so it never touches ~/.config and never bleeds between tests.
+        import pytest as _pytest
+        from pathlib import Path
+        from protoboard.gui import recent_footprints
+        assert isinstance(tmp_path, Path)
+        assert isinstance(monkeypatch, _pytest.MonkeyPatch)
+        monkeypatch.setattr(recent_footprints, "_CONFIG_DIR", tmp_path)
+        monkeypatch.setattr(
+            recent_footprints, "_RECENT_FILE",
+            tmp_path / "recent_footprints.json",
+        )
+
     def _packages(self) -> dict:
         from protoboard.domain.components.package import (
             PackageFamily, PackageVariant,
@@ -256,9 +273,11 @@ class TestLibraryPanelBodyPicker:
         panel.set_package_families(self._packages())
         r_item = self._select_R(panel)
         assert r_item is not None
-        # "Default" entry plus DIN-0207/typ + DIN-0617/typ = 3 entries.
+        # Forced choice: a "Choose a footprint…" placeholder (address None) plus
+        # the two offered family variants = 3 entries; nothing pre-selected.
         assert len(panel._body_variant_addresses) == 3
-        assert panel._body_variant_addresses[0] is None
+        assert panel._body_variant_addresses[0] is None       # placeholder
+        assert panel._current_body_variant_address() is None  # no default
 
     def test_body_picker_hidden_without_catalogue(
         self, qtbot: object, session: EditorSession,
@@ -294,9 +313,11 @@ class TestLibraryPanelBodyPicker:
         assert name == "R"
         assert bodyv == "DIN-0617/typ"
 
-    def test_default_emits_none_body_variant(
+    def test_unchosen_footprint_blocks_placement(
         self, qtbot: object, session: EditorSession,
     ) -> None:
+        # Forced choice: with the placeholder selected, double-click does NOT
+        # place — it asks for a footprint instead.
         from pytestqt.qtbot import QtBot
         assert isinstance(qtbot, QtBot)
         panel = LibraryPanel(session.library)
@@ -304,15 +325,109 @@ class TestLibraryPanelBodyPicker:
         panel.set_package_families(self._packages())
         r_item = self._select_R(panel)
         assert r_item is not None
-        # Default is the first item (already selected after rebuild).
-        received: list[tuple] = []
+        placed: list[tuple] = []
+        required: list[str] = []
         panel.component_selected.connect(
-            lambda name, pinv, bodyv: received.append((name, pinv, bodyv))
+            lambda name, pinv, bodyv: placed.append((name, pinv, bodyv))
+        )
+        panel.footprint_choice_required.connect(required.append)
+        panel._tree.itemDoubleClicked.emit(r_item, 0)  # type: ignore[arg-type]
+        assert placed == []                 # nothing placed
+        assert required == ["R"]            # a choice was requested
+
+    def test_single_option_auto_selected_and_places(
+        self, qtbot: object, session: EditorSession,
+    ) -> None:
+        # With exactly one offered footprint, it is auto-selected (no friction)
+        # and a double-click places with that address.
+        from pytestqt.qtbot import QtBot
+        from protoboard.domain.components.package import (
+            PackageFamily, PackageVariant,
+        )
+        from protoboard.domain.components.package.loader import build_package
+        assert isinstance(qtbot, QtBot)
+
+        def _cyl() -> object:
+            return build_package(
+                {
+                    "shape": "cylinder",
+                    "dims": {"diameter": 2.0, "length": 5.0}, "bend": 0,
+                    "leads": {
+                        "direction": [[0, 0, -1], [0, 0, 1]],
+                        "body_offset": 0, "board_offset": "solve",
+                        "lead_r": 0.25, "lead_length": 8.0,
+                    },
+                },
+                "C",
+            )
+
+        panel = LibraryPanel(session.library)
+        qtbot.addWidget(panel)
+        panel.set_package_families({
+            "DIN-0207": PackageFamily(
+                family_id="DIN-0207", label="DIN 0207",
+                variants=(PackageVariant("typ", "typ", _cyl()),),  # type: ignore[arg-type]
+            ),
+        })
+        r_item = self._select_R(panel)
+        assert r_item is not None
+        # One option → no placeholder, it is the current selection.
+        assert panel._body_variant_addresses == ["DIN-0207/typ"]
+        placed: list[tuple] = []
+        panel.component_selected.connect(
+            lambda name, pinv, bodyv: placed.append((name, pinv, bodyv))
         )
         panel._tree.itemDoubleClicked.emit(r_item, 0)  # type: ignore[arg-type]
-        assert len(received) == 1
-        _, _, bodyv = received[0]
-        assert bodyv is None
+        assert placed == [("R", None, "DIN-0207/typ")]
+
+    def test_footprints_list_labels_are_symbol_name(
+        self, qtbot: object, tmp_path: object,
+    ) -> None:
+        # A component with a footprints: list labels each entry "symbol_name".
+        from pathlib import Path
+        from pytestqt.qtbot import QtBot
+        from protoboard.services.library.loader import load_library
+        assert isinstance(qtbot, QtBot) and isinstance(tmp_path, Path)
+        (tmp_path / "ic.yaml").write_text(
+            "components:\n"
+            "  - name: U_DIP14\n"
+            "    component_class: ic\n    symbol: U\n"
+            "    pins: {count: 14}\n"
+            "    footprints:\n"
+            "      - name: DIP-14\n        package: {kind: dip_ic}\n"
+            "      - name: WDIP-14\n        package: {kind: wdip_ic}\n"
+            "    pin_names: {}\n"
+        )
+        lib = load_library([tmp_path])
+        panel = LibraryPanel(lib)
+        qtbot.addWidget(panel)
+        labels = [lbl for lbl, _ in panel._footprint_entries(lib.get("U_DIP14"))]
+        assert labels == ["U_DIP-14", "U_WDIP-14"]
+
+    def test_recently_used_footprint_shown_first(
+        self, qtbot: object, session: EditorSession, monkeypatch: object,
+    ) -> None:
+        # A recent pick for this component appears at the top (★) of the picker.
+        import pytest as _pytest
+        from pytestqt.qtbot import QtBot
+        from protoboard.gui import recent_footprints
+        assert isinstance(qtbot, QtBot)
+        assert isinstance(monkeypatch, _pytest.MonkeyPatch)
+        # Isolate the store; pre-seed a recent pick for R.
+        store: list = []
+        monkeypatch.setattr(
+            recent_footprints, "load",
+            lambda: [recent_footprints.RecentFootprint("R", "DIN-0617/typ", "R_x")],
+        )
+        monkeypatch.setattr(recent_footprints, "add", lambda *a, **k: store.append(a))
+        panel = LibraryPanel(session.library)
+        qtbot.addWidget(panel)
+        panel.set_package_families(self._packages())
+        r_item = self._select_R(panel)
+        assert r_item is not None
+        # placeholder, then the recent ★ entry, then the full list.
+        assert panel._body_variant_combo.itemText(1).startswith("★ ")
+        assert panel._body_variant_addresses[1] == "DIN-0617/typ"
 
 
 class TestBodyVariantDropdown:
