@@ -410,9 +410,13 @@ class PackageBody(BodyShape):
 
     def _effective_corner_radius_mm(self) -> float:
         """Corner radius (mm): the appearance override wins (0 = sharp, > 0 =
-        rounded), else the package's own edge/radius via ``_package_corner_radius``."""
-        if self._appearance.corner_radius_mm is not None:
-            return self._appearance.corner_radius_mm
+        rounded), else the package's own edge/radius via ``_package_corner_radius``.
+
+        Only the first radius is used (per-corner render is deferred); the full
+        tuple is preserved on the appearance value object."""
+        scalar = self._appearance.corner_radius_mm_scalar
+        if scalar is not None:
+            return scalar
         return _package_corner_radius(self._pkg)
 
     def drawn_pin_numbers(
@@ -798,9 +802,10 @@ class PackageBody(BodyShape):
         # An appearance corner-radius override (mm) reaches the DIP/SIL body via
         # the silhouette builder, converted to holes; absent → the builder keeps
         # using theme.body_corner_radius (the notch radius is unaffected either way).
+        corner_scalar = self._appearance.corner_radius_mm_scalar
         corner_holes = (
-            self._appearance.corner_radius_mm / theme.raster_pitch_mm
-            if self._appearance.corner_radius_mm is not None
+            corner_scalar / theme.raster_pitch_mm
+            if corner_scalar is not None
             else None
         )
         drawing = sil.build(pkg, theme, corner_r=corner_holes)

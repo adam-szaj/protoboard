@@ -252,24 +252,31 @@ the package / footprint).
 
 ---
 
-## 8. Customising appearance — the `appearance:` override
+## 8. Customising appearance — the `style:` override
 
 > **Headline question: can a resistor in SMD-0805 render black while a capacitor in
 > the *same* SMD-0805 renders beige?**
 >
 > **Yes.** A component definition *and* a placed instance can carry a visual-only
-> **`appearance:`** block that overrides the body's fill colour and corner radius
+> **`style:`** string that overrides the body's fill colour and corner radius
 > without touching geometry. Both parts keep the shared
-> `package_family_ref: SMD-0805/typ`; each just adds an `appearance.color`.
+> `package_family_ref: SMD-0805/typ`; each just adds a `style:` colour.
 
-The `appearance:` block has two optional fields:
+`style:` is a single CSS-like string of `;`-separated declarations, each
+`property: value` (the first `:` splits the property from its value). Two
+properties are supported:
 
-| Field | Meaning |
+| Property | Meaning |
 |---|---|
-| `color` | `#rgb` / `#rrggbb` body fill; border is derived by darkening. |
-| `corner_radius` | mm, like `dims`: **`0` = sharp (square)**, **`> 0` = rounded** with that radius. Overrides the package edge either way. |
+| `color` | `#rgb` / `#rrggbb` body fill; the border is derived by darkening. |
+| `corner-radius` | 1–4 bare millimetre numbers in CSS `border-radius` order. **`0` = sharp (square)**, **`> 0` = rounded** with that radius; overrides the package edge either way. |
 
-It can sit on a **component** (override for the whole type) and on a placed
+An unknown property is an error; a duplicate property keeps the **last**
+declaration (CSS behaviour). **Per-corner render is not implemented yet** — the
+parser accepts and stores 1–4 values, but the renderer currently draws using the
+**first** value only (see `docs/todo.md`).
+
+`style:` can sit on a **component** (override for the whole type) and on a placed
 **instance** (override for one part). Precedence per field is **instance →
 definition → package → theme default** (`Appearance.resolve`,
 `domain/components/appearance.py`).
@@ -281,13 +288,13 @@ components:
     component_class: resistor
     footprint: {type: TwoPin}
     package_family_ref: SMD-0805/typ
-    appearance: {color: "#1a1a1a"}            # black-ish
+    style: "color: #1a1a1a"                       # black-ish
     pin_names: {}
   - name: C_0805
     component_class: capacitor_nonpolar
     footprint: {type: TwoPin}
     package_family_ref: SMD-0805/typ
-    appearance: {color: "#d9c7a3", corner_radius: 0.3}   # beige, slightly rounded
+    style: "color: #d9c7a3; corner-radius: 0.3"   # beige, slightly rounded
     pin_names: {}
 ```
 
@@ -300,13 +307,13 @@ instances:
     definition_ref: R_0805
     refdes: R7
     value: 10k
-    appearance: {color: "#cc3030"}            # this one part is red
+    style: "color: #cc3030"                       # this one part is red
 ```
 
 Resolution at render time (`PackageBody._resolve_colors` /
 `_effective_corner_radius_mm`, `gui/renderers/body_shapes.py`):
 
-1. `appearance.color` (instance then definition) — **override wins**;
+1. `color` (instance then definition) — **override wins**;
 2. else the resolved **package** `color:` (border = darkened);
 3. else the theme default `comp_fill_color` (`theme.py`, pale green).
 
@@ -314,16 +321,18 @@ Corner radius follows the same fall-through, with `0` forcing square corners eve
 on a `rounded` package and `> 0` forcing rounded even on a `sharp` one.
 
 Notes:
-- **Visual only.** `appearance` changes nothing in geometry, collision mask, DRC,
+- **Visual only.** `style:` changes nothing in geometry, collision mask, DRC,
   routing or pin positions.
 - Colour is **not** derived from `component_class`.
+- The legacy `appearance: {color, corner_radius}` mapping is **no longer read** —
+  a leftover block is silently ignored (no override). Use `style:`.
 - An inline `package:` may still set `color`/`corner_radius` on the package itself
-  (it `extends:` a builtin base like `prism_smd` — not a family); `appearance:` is
+  (it `extends:` a builtin base like `prism_smd` — not a family); `style:` is
   the lighter way to vary just the visuals on a shared family.
 - Coverage gap (see `docs/todo.md`): the non-package bodies `TO92Body`,
-  `TO220Body` and `GenericBody` do not honour `appearance` yet — only
+  `TO220Body` and `GenericBody` do not honour `style:` yet — only
   package-backed bodies (`PackageBody`) do. There is no GUI editor for per-instance
-  appearance yet; set it in YAML.
+  style yet; set it in YAML.
 
 ---
 

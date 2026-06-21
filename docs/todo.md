@@ -6,20 +6,30 @@ the work cold.
 
 ## Appearance override — deferred coverage (added 2026-06-20)
 
-The per-component / per-instance visual `appearance:` override (fill `color` +
-`corner_radius`) landed for **package-backed bodies** (`PackageBody`) — see
-`docs/footprints/authoring.md` §8 and `domain/components/appearance.py`. Two gaps
-were consciously deferred:
+The per-component / per-instance visual override (fill `color` + corner radius)
+landed for **package-backed bodies** (`PackageBody`) — see
+`docs/footprints/authoring.md` §8 and `domain/components/appearance.py`. It is now
+authored as a single CSS-like **`style:`** string (`"color: #…; corner-radius: …"`,
+2026-06-21); the legacy `appearance: {color, corner_radius}` mapping is no longer
+read. Three gaps were consciously deferred:
 
-1. **Non-package bodies ignore `appearance`.** `TO92Body`, `TO220Body` and
+0. **Per-corner corner radius is parsed but not rendered (added 2026-06-21).**
+   `style: corner-radius` accepts 1–4 values in CSS `border-radius` order and
+   `Appearance.corner_radius_mm` stores them as a tuple, but the render path uses
+   only the **first** value (`Appearance.corner_radius_mm_scalar`, read by
+   `PackageBody._effective_corner_radius_mm` and the silhouette `corner_r` path).
+   To finish: thread the full tuple into the rounded-rect / silhouette paths so
+   each corner gets its own radius.
+
+1. **Non-package bodies ignore the override.** `TO92Body`, `TO220Body` and
    `GenericBody` (`gui/renderers/body_shapes.py`) do not take or honour the
    `Appearance` override yet — only `PackageBody` does (the catalogue/inline-package
    and synthesized-prism arms of `body_shape_for`). A 3-pin TO-92 transistor or a
    bare-footprint generic part therefore can't be recoloured/re-rounded via
-   `appearance:`. To finish: thread the resolved `Appearance` into those three
+   `style:`. To finish: thread the resolved `Appearance` into those three
    bodies' `draw()` and apply colour/corner-radius the same way `PackageBody` does.
 
-2. **No GUI editor for per-instance appearance.** The override is YAML-driven only
+2. **No GUI editor for per-instance style.** The override is YAML-driven only
    (component definition or `instances.yaml`). There is no Properties-panel control
    nor a `SetAppearanceCommand` (cf. the existing `SetPackageVariantCommand`).
 
@@ -37,9 +47,9 @@ were consciously deferred:
      base method names (`apply`/`revert`) of that command.
    - **(2) Recording** — register `"set_appearance"` in
      `services/recording/serialization.py` (mirror the `set_package_variant`
-     registration `:503-506`): `to` emits `{component_id, color, corner_radius}`
-     (None-safe), `from` rebuilds `Appearance(...)` or `None`. Reuse `_uuid_to/_from`,
-     `_register`.
+     registration `:503-506`): `to` emits `{component_id, style}` where `style` is
+     `Appearance.to_style_string()` (or null when the override is `None`), `from`
+     rebuilds via `parse_style(...)` or `None`. Reuse `_uuid_to/_from`, `_register`.
    - **(3) Properties panel** (`gui/panels/properties_panel.py`, **signal-out**, holds
      no session): add `appearance_changed = Signal(uuid.UUID, object)` (`:44-54`); two
      `QLineEdit`s as `QFormLayout` rows near the Body row (`:114`); populate them in

@@ -59,8 +59,8 @@ components:
         ]
 
 
-class TestComponentAppearance:
-    """A component may carry a visual-only ``appearance:`` override block."""
+class TestComponentStyle:
+    """A component may carry a visual-only ``style:`` override string."""
 
     def test_parses_color_and_corner_radius(self, tmp_path: Path) -> None:
         from protoboard.domain.components.appearance import Appearance
@@ -69,13 +69,15 @@ class TestComponentAppearance:
             "  - name: R_BLACK\n"
             "    component_class: resistor\n"
             "    footprint: {type: TwoPin}\n"
-            "    appearance: {color: '#1a1a1a', corner_radius: 0.4}\n"
+            "    style: 'color: #1a1a1a; corner-radius: 0.4'\n"
             "    pin_names: {}\n"
         )
         defn = load_library([tmp_path]).get("R_BLACK")
-        assert defn.appearance == Appearance(color="#1a1a1a", corner_radius_mm=0.4)
+        assert defn.appearance == Appearance(
+            color="#1a1a1a", corner_radius_mm=(0.4,)
+        )
 
-    def test_absent_appearance_is_none(self, tmp_path: Path) -> None:
+    def test_absent_style_is_none(self, tmp_path: Path) -> None:
         (tmp_path / "c.yaml").write_text(
             "components:\n"
             "  - name: R_PLAIN\n    component_class: resistor\n"
@@ -88,16 +90,28 @@ class TestComponentAppearance:
         (tmp_path / "c.yaml").write_text(
             "components:\n"
             "  - name: R3\n    component_class: resistor\n"
-            "    footprint: {type: TwoPin}\n    appearance: {color: '#abc'}\n"
+            "    footprint: {type: TwoPin}\n    style: 'color: #abc'\n"
             "    pin_names: {}\n"
         )
         assert load_library([tmp_path]).get("R3").appearance == Appearance(color="#abc")
+
+    def test_multi_value_corner_radius(self, tmp_path: Path) -> None:
+        from protoboard.domain.components.appearance import Appearance
+        (tmp_path / "c.yaml").write_text(
+            "components:\n"
+            "  - name: R4\n    component_class: resistor\n"
+            "    footprint: {type: TwoPin}\n    style: 'corner-radius: 2 2 0 0'\n"
+            "    pin_names: {}\n"
+        )
+        assert load_library([tmp_path]).get("R4").appearance == Appearance(
+            corner_radius_mm=(2.0, 2.0, 0.0, 0.0)
+        )
 
     def test_bad_hex_rejected(self, tmp_path: Path) -> None:
         (tmp_path / "c.yaml").write_text(
             "components:\n"
             "  - name: RBAD\n    component_class: resistor\n"
-            "    footprint: {type: TwoPin}\n    appearance: {color: 'red'}\n"
+            "    footprint: {type: TwoPin}\n    style: 'color: red'\n"
             "    pin_names: {}\n"
         )
         with pytest.raises(SerializationError):
@@ -107,11 +121,32 @@ class TestComponentAppearance:
         (tmp_path / "c.yaml").write_text(
             "components:\n"
             "  - name: RNEG\n    component_class: resistor\n"
-            "    footprint: {type: TwoPin}\n    appearance: {corner_radius: -1}\n"
+            "    footprint: {type: TwoPin}\n    style: 'corner-radius: -1'\n"
             "    pin_names: {}\n"
         )
         with pytest.raises(SerializationError):
             load_library([tmp_path])
+
+    def test_unknown_property_rejected(self, tmp_path: Path) -> None:
+        (tmp_path / "c.yaml").write_text(
+            "components:\n"
+            "  - name: RUNK\n    component_class: resistor\n"
+            "    footprint: {type: TwoPin}\n    style: 'fill: #abc'\n"
+            "    pin_names: {}\n"
+        )
+        with pytest.raises(SerializationError):
+            load_library([tmp_path])
+
+    def test_legacy_appearance_block_is_ignored(self, tmp_path: Path) -> None:
+        # The old ``appearance:`` mapping is no longer read; only ``style:`` is.
+        # A leftover block yields no override (silently ignored, not an error).
+        (tmp_path / "c.yaml").write_text(
+            "components:\n"
+            "  - name: ROLD\n    component_class: resistor\n"
+            "    footprint: {type: TwoPin}\n"
+            "    appearance: {color: '#1a1a1a'}\n    pin_names: {}\n"
+        )
+        assert load_library([tmp_path]).get("ROLD").appearance is None
 
 
 class TestRigidPackageFamilyRef:

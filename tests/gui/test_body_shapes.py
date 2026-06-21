@@ -375,9 +375,9 @@ class TestAppearanceOverride:
         from protoboard.domain.components.appearance import Appearance
         prism = _bbox_prism_package()
         sharp = PackageBody(  # type: ignore[arg-type]
-            prism, appearance=Appearance(corner_radius_mm=0.0))
+            prism, appearance=Appearance(corner_radius_mm=(0.0,)))
         rounded = PackageBody(  # type: ignore[arg-type]
-            prism, appearance=Appearance(corner_radius_mm=0.5))
+            prism, appearance=Appearance(corner_radius_mm=(0.5,)))
         pts = _bbox_prism_positions()
         s_items = sharp.draw(pts, _RED, _DARK, 1.0, _Z)
         r_items = rounded.draw(pts, _RED, _DARK, 1.0, _Z)

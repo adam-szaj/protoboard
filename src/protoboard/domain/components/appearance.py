@@ -12,9 +12,21 @@ package → theme default** per field (:meth:`Appearance.resolve` covers the fir
 two; the package/theme defaults apply later in the renderer where a field is still
 ``None``).
 
-``corner_radius_mm`` follows a single convention: ``0`` = sharp (square) corners,
-``> 0`` = rounded with that radius in millimetres (like ``dims``). There is no
-separate edge enum in the override.
+It is authored as a single CSS-like ``style:`` string, e.g.::
+
+    style: "color: #1a1a1a; corner-radius: 0.4"
+    style: "color: #1a1a1a; corner-radius: 2 2 0 0"
+
+Grammar: ``;``-separated declarations, each ``property: value`` (the first ``:``
+splits property from value). Property names use the CSS hyphen. Supported
+properties are ``color`` (``#rgb`` / ``#rrggbb``) and ``corner-radius`` (1–4 bare
+millimetre numbers, CSS ``border-radius`` order). Unknown properties are an error;
+a duplicate property keeps the last declaration (CSS behaviour).
+
+``corner-radius`` follows a single convention: ``0`` = sharp (square) corners,
+``> 0`` = rounded with that radius in millimetres (like ``dims``). It is stored as
+a tuple of 1–4 values; the current render path honours only the first value
+(per-corner render is deferred — see ``docs/todo.md``).
 """
 
 from __future__ import annotations
@@ -30,23 +42,42 @@ class Appearance:
     """A visual-only override of a body's fill colour and corner radius.
 
     ``color`` is a ``#rgb`` / ``#rrggbb`` hex string, or ``None`` to inherit.
-    ``corner_radius_mm`` is ``0`` for sharp, ``> 0`` for rounded (mm), or ``None``
-    to inherit the package's edge behaviour.
+    ``corner_radius_mm`` is a tuple of 1–4 radii in millimetres (CSS
+    ``border-radius`` order), each ``0`` for sharp / ``> 0`` for rounded, or
+    ``None`` to inherit the package's edge behaviour. The render path currently
+    uses :attr:`corner_radius_mm_scalar` (the first value) only.
     """
 
     color: str | None = None
-    corner_radius_mm: float | None = None
+    corner_radius_mm: tuple[float, ...] | None = None
 
     def __post_init__(self) -> None:
-        if self.corner_radius_mm is not None and self.corner_radius_mm < 0:
-            raise ValueError(
-                f"corner_radius must be >= 0, got {self.corner_radius_mm!r}"
-            )
+        radii = self.corner_radius_mm
+        if radii is not None:
+            if not 1 <= len(radii) <= 4:
+                raise ValueError(
+                    f"corner-radius takes 1-4 values, got {len(radii)}"
+                )
+            for value in radii:
+                if value < 0:
+                    raise ValueError(
+                        f"corner-radius must be >= 0, got {value!r}"
+                    )
 
     @property
     def is_empty(self) -> bool:
         """True when neither field is set (nothing to override)."""
         return self.color is None and self.corner_radius_mm is None
+
+    @property
+    def corner_radius_mm_scalar(self) -> float | None:
+        """First/only corner radius (mm) for the current single-radius render.
+
+        Per-corner render is deferred (see ``docs/todo.md``); the renderer reads
+        this scalar while the full :attr:`corner_radius_mm` tuple preserves the
+        authored values.
+        """
+        return None if self.corner_radius_mm is None else self.corner_radius_mm[0]
 
     @staticmethod
     def resolve(*layers: Appearance | None) -> Appearance:
@@ -58,7 +89,7 @@ class Appearance:
         are still ``None`` here, so they are intentionally not part of this merge.
         """
         color: str | None = None
-        radius: float | None = None
+        radius: tuple[float, ...] | None = None
         for layer in layers:
             if layer is None:
                 continue
@@ -67,6 +98,24 @@ class Appearance:
             if radius is None:
                 radius = layer.corner_radius_mm
         return Appearance(color=color, corner_radius_mm=radius)
+
+    def to_style_string(self) -> str:
+        """Serialise back to a canonical ``style:`` string (``""`` when empty).
+
+        ``parse_style(a.to_style_string(), ctx=...) == a`` for any valid ``a``.
+        """
+        parts: list[str] = []
+        if self.color is not None:
+            parts.append(f"color: {self.color}")
+        if self.corner_radius_mm is not None:
+            radii = " ".join(_fmt_mm(v) for v in self.corner_radius_mm)
+            parts.append(f"corner-radius: {radii}")
+        return "; ".join(parts)
+
+
+def _fmt_mm(value: float) -> str:
+    """Format a millimetre value compactly (``0.4`` not ``0.40000001``)."""
+    return f"{value:g}"
 
 
 def _validate_hex(value: str, ctx: str) -> str:
@@ -77,26 +126,53 @@ def _validate_hex(value: str, ctx: str) -> str:
     return value
 
 
-def parse_appearance(raw: object, *, ctx: str) -> Appearance | None:
-    """Parse + validate an ``appearance:`` YAML block.
+def _parse_corner_radius(value: str, ctx: str) -> tuple[float, ...]:
+    tokens = value.split()
+    if not 1 <= len(tokens) <= 4:
+        raise ValueError(f"{ctx}: corner-radius takes 1-4 numbers, got {value!r}")
+    try:
+        return tuple(float(tok) for tok in tokens)
+    except ValueError as exc:
+        raise ValueError(
+            f"{ctx}: corner-radius must be numbers, got {value!r}"
+        ) from exc
 
-    Returns ``None`` for an absent or empty block. Raises ``ValueError`` on a
-    malformed colour, a non-numeric / negative radius, or a non-mapping value;
-    callers translate that into their serialization error type.
+
+def parse_style(raw: object, *, ctx: str) -> Appearance | None:
+    """Parse + validate a CSS-like ``style:`` string into an :class:`Appearance`.
+
+    Returns ``None`` for an absent or empty/whitespace-only value. Raises
+    ``ValueError`` on a non-string value, a malformed declaration, an unknown
+    property, a bad colour or a bad corner-radius; callers translate that into
+    their serialization error type. A duplicate property keeps the last
+    declaration (CSS behaviour).
     """
     if raw is None:
         return None
-    if not isinstance(raw, dict):
-        raise ValueError(f"{ctx}: appearance must be a mapping")
-    color_raw = raw.get("color")
-    color = None if color_raw is None else _validate_hex(str(color_raw), ctx)
-    radius_raw = raw.get("corner_radius")
-    if radius_raw is None:
-        radius = None
-    else:
-        try:
-            radius = float(radius_raw)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{ctx}: corner_radius must be a number") from exc
+    if not isinstance(raw, str):
+        raise ValueError(f"{ctx}: style must be a string")
+    if not raw.strip():
+        return None
+
+    color: str | None = None
+    radius: tuple[float, ...] | None = None
+    for decl in raw.split(";"):
+        decl = decl.strip()
+        if not decl:
+            continue
+        if ":" not in decl:
+            raise ValueError(
+                f"{ctx}: malformed declaration {decl!r} (expected 'property: value')"
+            )
+        name, _, value = decl.partition(":")
+        name = name.strip()
+        value = value.strip()
+        if name == "color":
+            color = _validate_hex(value, ctx)
+        elif name == "corner-radius":
+            radius = _parse_corner_radius(value, ctx)
+        else:
+            raise ValueError(f"{ctx}: unknown style property {name!r}")
+
     appearance = Appearance(color=color, corner_radius_mm=radius)
     return None if appearance.is_empty else appearance

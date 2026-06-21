@@ -20,11 +20,12 @@ class TestAppearance:
         from protoboard.domain.components.appearance import Appearance
         # Instance wins per field; definition fills the gaps.
         eff = Appearance.resolve(
-            Appearance(color="#111"),                       # instance: color only
-            Appearance(color="#222", corner_radius_mm=0.5),  # defn: color + radius
+            Appearance(color="#111"),                          # instance: color only
+            Appearance(color="#222", corner_radius_mm=(0.5,)),  # defn: color + radius
         )
-        assert eff.color == "#111"          # instance color wins
-        assert eff.corner_radius_mm == 0.5  # radius falls through to defn
+        assert eff.color == "#111"               # instance color wins
+        assert eff.corner_radius_mm == (0.5,)    # radius falls through to defn
+        assert eff.corner_radius_mm_scalar == 0.5
 
     def test_resolve_all_none_is_empty(self) -> None:
         from protoboard.domain.components.appearance import Appearance
@@ -35,20 +36,68 @@ class TestAppearance:
     def test_negative_radius_rejected(self) -> None:
         from protoboard.domain.components.appearance import Appearance
         with pytest.raises(ValueError):
-            Appearance(corner_radius_mm=-1.0)
+            Appearance(corner_radius_mm=(-1.0,))
+
+    def test_too_many_radii_rejected(self) -> None:
+        from protoboard.domain.components.appearance import Appearance
+        with pytest.raises(ValueError):
+            Appearance(corner_radius_mm=(1.0, 1.0, 1.0, 1.0, 1.0))
+
+    def test_scalar_is_first_value(self) -> None:
+        from protoboard.domain.components.appearance import Appearance
+        assert Appearance(corner_radius_mm=(2.0, 3.0)).corner_radius_mm_scalar == 2.0
+        assert Appearance().corner_radius_mm_scalar is None
 
     def test_parse_validates(self) -> None:
         from protoboard.domain.components.appearance import (
             Appearance,
-            parse_appearance,
+            parse_style,
         )
-        assert parse_appearance(None, ctx="t") is None
-        assert parse_appearance({}, ctx="t") is None  # empty → None
-        assert parse_appearance({"color": "#abc"}, ctx="t") == Appearance(color="#abc")
+        assert parse_style(None, ctx="t") is None
+        assert parse_style("", ctx="t") is None        # empty → None
+        assert parse_style("   ", ctx="t") is None      # whitespace → None
+        assert parse_style("color: #abc", ctx="t") == Appearance(color="#abc")
         with pytest.raises(ValueError):
-            parse_appearance({"color": "red"}, ctx="t")     # bad hex
+            parse_style("color: red", ctx="t")          # bad hex
         with pytest.raises(ValueError):
-            parse_appearance({"corner_radius": -2}, ctx="t")  # negative
+            parse_style("corner-radius: -2", ctx="t")   # negative
+        with pytest.raises(ValueError):
+            parse_style("fill: #abc", ctx="t")          # unknown property
+        with pytest.raises(ValueError):
+            parse_style("color #abc", ctx="t")          # missing colon
+        with pytest.raises(ValueError):
+            parse_style(42, ctx="t")                    # non-string
+
+    def test_parse_multi_value_and_combined(self) -> None:
+        from protoboard.domain.components.appearance import (
+            Appearance,
+            parse_style,
+        )
+        assert parse_style("corner-radius: 2 2 0 0", ctx="t") == Appearance(
+            corner_radius_mm=(2.0, 2.0, 0.0, 0.0)
+        )
+        assert parse_style("color: #1a1a1a; corner-radius: 0.4", ctx="t") == (
+            Appearance(color="#1a1a1a", corner_radius_mm=(0.4,))
+        )
+        # Duplicate property: last wins (CSS behaviour).
+        assert parse_style("color: #111; color: #222", ctx="t") == Appearance(
+            color="#222"
+        )
+        with pytest.raises(ValueError):
+            parse_style("corner-radius: 1 1 1 1 1", ctx="t")  # > 4 values
+
+    def test_to_style_string_roundtrip(self) -> None:
+        from protoboard.domain.components.appearance import (
+            Appearance,
+            parse_style,
+        )
+        for a in (
+            Appearance(color="#1a1a1a"),
+            Appearance(corner_radius_mm=(0.4,)),
+            Appearance(color="#1a1a1a", corner_radius_mm=(0.3,)),
+            Appearance(corner_radius_mm=(2.0, 2.0, 0.0, 0.0)),
+        ):
+            assert parse_style(a.to_style_string(), ctx="rt") == a
 
 
 class TestComponentClass:

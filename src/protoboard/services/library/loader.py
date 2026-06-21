@@ -17,7 +17,7 @@ from typing import Any
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
-from protoboard.domain.components.appearance import parse_appearance
+from protoboard.domain.components.appearance import parse_style
 from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
@@ -430,9 +430,7 @@ def _component_from_dict(
         default_value = default_value_raw
 
     try:
-        appearance = parse_appearance(
-            data.get("appearance"), ctx=f"{data['name']} appearance"
-        )
+        appearance = parse_style(data.get("style"), ctx=f"{data['name']} style")
     except (TypeError, ValueError) as exc:
         raise SerializationError(f"{source}: {exc}") from exc
 

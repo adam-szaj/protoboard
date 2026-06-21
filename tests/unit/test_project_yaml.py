@@ -57,16 +57,20 @@ class TestInstancesRoundtrip:
         board = _perfboard()
         styled = ComponentInstance.new(
             definition_ref="R", refdes="R1", value="10k",
-            appearance=Appearance(color="#1a1a1a", corner_radius_mm=0.4),
+            appearance=Appearance(color="#1a1a1a", corner_radius_mm=(0.4,)),
         )
         plain = ComponentInstance.new(definition_ref="C", refdes="C1", value="100n")
         instances = {styled.id: styled, plain.id: plain}
         save_project(tmp_path, board, Layout(), Schematic(nets={}), instances=instances)
-        # An instance without appearance must not emit the key (no file bloat).
-        assert "appearance" in (tmp_path / "instances.yaml").read_text()
+        # The styled instance emits a ``style:`` string; an unstyled one must not
+        # gain the key (no file bloat).
+        text = (tmp_path / "instances.yaml").read_text()
+        assert "style:" in text
+        assert "color: #1a1a1a" in text
+        assert "corner-radius: 0.4" in text
         _, _, _, loaded, _, _, _ = load_project(tmp_path)
         assert loaded[styled.id].appearance == Appearance(
-            color="#1a1a1a", corner_radius_mm=0.4
+            color="#1a1a1a", corner_radius_mm=(0.4,)
         )
         assert loaded[plain.id].appearance is None
 
