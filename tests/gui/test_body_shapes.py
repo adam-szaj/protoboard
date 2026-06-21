@@ -317,6 +317,56 @@ class TestParametricDIPBody:
         assert isinstance(items[0], (QGraphicsRectItem, QGraphicsPathItem))
 
 
+class TestDeclaredKindSilhouette:
+    """A package's declared ``kind`` chooses the body look (notch vs plain)
+    instead of the renderer guessing from the pin columns. An unknown / absent
+    kind falls back to the column guess, so render never blocks."""
+
+    def test_dip_ic_kind_selects_notch(self) -> None:
+        from protoboard.domain.components.package.kind import build_kind_package
+        from protoboard.gui.renderers.prism_silhouette import silhouette_for_prism
+        pkg = build_kind_package("dip_ic", 8)
+        assert isinstance(silhouette_for_prism(pkg), DipSilhouette)  # type: ignore[arg-type]
+
+    def test_dip_switch_kind_is_plain_overriding_the_column_guess(self) -> None:
+        # dip_switch has DIP geometry (two columns) so the COLUMN guess would put
+        # a notch on it — the declared kind says "plain", and that wins.
+        from protoboard.domain.components.package.kind import build_kind_package
+        from protoboard.gui.renderers.prism_silhouette import (
+            silhouette_for,
+            silhouette_for_prism,
+        )
+        pkg = build_kind_package("dip_switch", 8)
+        assert isinstance(silhouette_for(pkg), DipSilhouette)  # type: ignore[arg-type]
+        assert silhouette_for_prism(pkg) is None  # declared plain wins
+
+    def test_unknown_kind_falls_back_to_column_guess(self) -> None:
+        # A prism with an unrecognised kind renders by the column guess, not a
+        # crash — render never blocks on an unknown kind.
+        import dataclasses
+        from protoboard.gui.renderers.prism_silhouette import (
+            silhouette_for,
+            silhouette_for_prism,
+        )
+        prism = dataclasses.replace(_dip8_prism(), kind="totally_new_kind")
+        assert silhouette_for_prism(prism) == silhouette_for(prism)  # type: ignore[arg-type]
+
+    def test_dip_switch_renders_without_notch(self, qtbot: QtBot) -> None:
+        # End-to-end: a dip_switch body draws the plain bbox (a rect), not the
+        # notched path a column-guessed DIP would produce.
+        from protoboard.domain.components.package.kind import build_kind_package
+        sw = build_kind_package("dip_switch", 8)
+        ic = build_kind_package("dip_ic", 8)
+        sw_items = PackageBody(sw).draw(  # type: ignore[arg-type]
+            _dip8_positions(), _RED, _DARK, 1.0, _Z)
+        ic_items = PackageBody(ic).draw(  # type: ignore[arg-type]
+            _dip8_positions(), _RED, _DARK, 1.0, _Z)
+        # dip_switch → plain bbox rect; dip_ic → notched path.
+        assert any(isinstance(it, QGraphicsRectItem) for it in sw_items)
+        assert any(isinstance(it, QGraphicsPathItem) for it in ic_items)
+        assert not any(isinstance(it, QGraphicsPathItem) for it in sw_items)
+
+
 def _colored_prism(color: str) -> object:
     """A 2-pin axial SMD-chip prism carrying its own package ``color``."""
     return build_package(

@@ -59,7 +59,7 @@ from protoboard.domain.components.package.shapes import (
 )
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
-from protoboard.gui.renderers.prism_silhouette import silhouette_for
+from protoboard.gui.renderers.prism_silhouette import silhouette_for_prism
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 
 _big_body_alpha: float = 0.90
@@ -796,7 +796,9 @@ class PackageBody(BodyShape):
         if self._component_class is ComponentClass.DEVBOARD:
             sil = None
         else:
-            sil = silhouette_for(pkg)
+            # Declared body kind (dip_ic notch / dip_switch plain / …) when the
+            # package carries one; otherwise the column-guessed silhouette.
+            sil = silhouette_for_prism(pkg)
         if sil is None:
             return None
         # An appearance corner-radius override (mm) reaches the DIP/SIL body via

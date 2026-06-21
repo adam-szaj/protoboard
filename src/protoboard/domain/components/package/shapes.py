@@ -228,6 +228,11 @@ class Prism:
     # body is not symmetric about its pins.  Default (0, 0) → centred on the
     # pin cloud.  Only used with explicit width_mm/length_mm.
     body_offset_mm: Point = Point(0.0, 0.0)
+    # Declared body kind (``dip_ic`` / ``dip_switch`` / …) set when this prism was
+    # built from a package ``kind:`` field. The renderer reads it to draw the
+    # declared look (notch vs plain) instead of guessing from the pin columns;
+    # ``None`` → the renderer falls back to the column-based silhouette.
+    kind: str | None = None
 
     def pin_count(self) -> int:
         return self.leads.pin_count

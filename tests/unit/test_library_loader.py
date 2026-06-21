@@ -205,13 +205,18 @@ class TestKindPackage:
     same prism the existing generator builds for the matching footprint."""
 
     def test_build_kind_dip_ic_matches_dual_row_prism(self) -> None:
+        import dataclasses
         from protoboard.domain.components.package.from_footprint import (
             prism_for_footprint,
         )
         from protoboard.domain.components.package.kind import build_kind_package
-        # dip_ic + 14 pins == a DualRow(7, rows 3) prism (narrow DIP-14).
-        expected = prism_for_footprint(DualRow(n_per_row=7, rows_spacing=3.0))
-        assert build_kind_package("dip_ic", 14) == expected
+        # dip_ic + 14 pins == a DualRow(7, rows 3) prism (narrow DIP-14), with the
+        # declared kind stamped on so the renderer can draw the notch.
+        base = prism_for_footprint(DualRow(n_per_row=7, rows_spacing=3.0))
+        expected = dataclasses.replace(base, kind="dip_ic")  # type: ignore[arg-type]
+        built = build_kind_package("dip_ic", 14)
+        assert built == expected
+        assert built.kind == "dip_ic"  # type: ignore[attr-defined]
 
     def test_kind_pin_count_from_component_pins(self, tmp_path: Path) -> None:
         # The component declares its pin count; the kind package builds from it.

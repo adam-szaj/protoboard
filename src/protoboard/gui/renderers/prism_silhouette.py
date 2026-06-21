@@ -22,6 +22,7 @@ owns the colour, pen and transform.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from PySide6.QtCore import QRectF
@@ -165,6 +166,26 @@ class SilSilhouette(PrismSilhouette):
         return PrismDrawing(body=body, marker=_pin1_marker_path(0.08))
 
 
+def _dip_silhouette(prism: Prism) -> PrismSilhouette | None:
+    """A DIP notch parameterized by *prism*'s two pin columns (None if not two)."""
+    cols = _columns(prism.pin_positions())
+    if len(cols) == 2:
+        return DipSilhouette(notch_cx=(cols[0][0] + cols[1][0]) / 2.0)
+    return None
+
+
+# Declared body kind → silhouette strategy. ``dip_switch`` is intentionally a
+# *plain* dual-row body (returns None → plain bbox), the case the column-guess
+# could not distinguish from a real DIP-IC. ``sil`` → housing. A kind absent
+# from this table falls through to the column-based guess (``silhouette_for``).
+_KIND_SILHOUETTE: dict[str, Callable[[Prism], PrismSilhouette | None]] = {
+    "dip_ic": _dip_silhouette,
+    "wdip_ic": _dip_silhouette,
+    "dip_switch": lambda _prism: None,
+    "sil": lambda _prism: SilSilhouette(),
+}
+
+
 def silhouette_for(prism: Prism) -> PrismSilhouette | None:
     """Pick the silhouette strategy for *prism* from its column layout.
 
@@ -182,10 +203,26 @@ def silhouette_for(prism: Prism) -> PrismSilhouette | None:
     return None
 
 
+def silhouette_for_prism(prism: Prism) -> PrismSilhouette | None:
+    """The body silhouette for *prism*: declared ``kind`` first, else guessed.
+
+    When the prism carries a declared ``kind`` (built from a package ``kind:``
+    field) the look is *declared* — a ``dip_switch`` is a plain dual-row body, a
+    ``dip_ic`` has the notch — instead of being inferred from the pin columns. An
+    unknown / absent kind falls back to :func:`silhouette_for` (the column guess),
+    so render never blocks on a kind it does not recognise.
+    """
+    factory = _KIND_SILHOUETTE.get(prism.kind) if prism.kind else None
+    if factory is not None:
+        return factory(prism)
+    return silhouette_for(prism)
+
+
 __all__ = [
     "DipSilhouette",
     "PrismDrawing",
     "PrismSilhouette",
     "SilSilhouette",
     "silhouette_for",
+    "silhouette_for_prism",
 ]

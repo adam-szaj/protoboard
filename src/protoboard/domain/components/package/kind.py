@@ -21,12 +21,13 @@ Pure domain: no Qt, no I/O.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 
 from protoboard.domain.components.footprints import DualRow, SingleRow
 from protoboard.domain.components.package.from_footprint import prism_for_footprint
 from protoboard.domain.components.package.loader import PackageDefError
-from protoboard.domain.components.package.shapes import Package
+from protoboard.domain.components.package.shapes import Package, Prism
 
 # DIP row spacing in holes (0.3" narrow / 0.6" wide at a 0.1" grid).
 _DIP_NARROW_ROWS = 3.0
@@ -65,6 +66,8 @@ def is_kind(name: object) -> bool:
 def build_kind_package(kind: str, pin_count: int) -> Package:
     """Build the :class:`Package` for *kind* parameterized by *pin_count*.
 
+    The declared *kind* is stamped onto the built body (a :class:`Prism`) so the
+    renderer can draw the declared look instead of guessing from pin columns.
     Raises :class:`PackageDefError` for an unknown kind or a pin count the kind
     cannot realise (e.g. an odd count for a DIP).
     """
@@ -76,6 +79,8 @@ def build_kind_package(kind: str, pin_count: int) -> Package:
         raise PackageDefError(
             f"kind {kind!r} cannot build a body for {pin_count} pins"
         )
+    if isinstance(pkg, Prism):
+        pkg = dataclasses.replace(pkg, kind=kind)
     return pkg
 
 
