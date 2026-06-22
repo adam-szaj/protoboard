@@ -238,6 +238,20 @@ def _opt_float(value: object) -> float | None:
     return None if value is None else float(value)  # type: ignore[arg-type]
 
 
+def _flat_normal(raw: object, pkg: str) -> Point:
+    """Parse a ``dims.flat_normal`` ``[x, y]`` list into a Point.
+
+    None → (0, 0) (no flat side). Any other shape is a package error.
+    """
+    if raw is None:
+        return Point(0.0, 0.0)
+    if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+        raise PackageDefError(
+            f"{pkg}: flat_normal must be a 2-element [x, y] list, got {raw!r}"
+        )
+    return Point(float(raw[0]), float(raw[1]))
+
+
 # --------------------------------------------------------------------------- #
 # Shape instantiation (dispatch by `shape`)
 # --------------------------------------------------------------------------- #
@@ -328,6 +342,7 @@ def build_package(merged: PackageDict, pkg: str) -> Package:
     edge_raw = merged.get("edge")
 
     if shape == "cylinder":
+        flat_r = dims.get("flat_radius", dims.get("flat_r"))
         return Cylinder(
             diameter_mm=_require_float(dims.get("diameter"), "dims.diameter", pkg),
             length_mm=_require_float(dims.get("length"), "dims.length", pkg),
@@ -339,6 +354,8 @@ def build_package(merged: PackageDict, pkg: str) -> Package:
             ),
             edge=_edge(edge_raw, EdgeStyle.ROUNDED, pkg),
             color=color,
+            flat_radius_mm=_opt_float(flat_r),
+            flat_normal=_flat_normal(dims.get("flat_normal"), pkg),
         )
     if shape == "disc":
         return Disc(

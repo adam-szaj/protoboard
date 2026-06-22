@@ -194,6 +194,45 @@ class TestLoadPresentation:
         ])
         assert pkgs["R"].color is None
 
+    def test_flat_sided_cylinder_parsed(self) -> None:
+        from protoboard.geometry import Point
+        pkgs = load_packages(GENERICS + [
+            {"name": "TO-92", "extends": "cylinder_radial",
+             "dims": {"diameter": 4.55, "length": 4.6,
+                      "flat_radius": 1.175, "flat_normal": [-1.0, 0.0]},
+             "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}},
+        ])
+        t = pkgs["TO-92"]
+        assert isinstance(t, Cylinder)
+        assert t.flat_radius_mm == 1.175
+        assert t.flat_normal == Point(-1.0, 0.0)
+
+    def test_flat_radius_alias_flat_r(self) -> None:
+        pkgs = load_packages(GENERICS + [
+            {"name": "TO-92", "extends": "cylinder_radial",
+             "dims": {"diameter": 4.55, "length": 4.6,
+                      "flat_r": 1.175, "flat_normal": [-1.0, 0.0]},
+             "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}},
+        ])
+        assert pkgs["TO-92"].flat_radius_mm == 1.175
+
+    def test_no_flat_side_is_full_circle(self) -> None:
+        pkgs = load_packages(GENERICS + [
+            {"name": "R", "extends": "cylinder_radial",
+             "dims": {"diameter": 2.5, "length": 6.3},
+             "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}},
+        ])
+        assert pkgs["R"].flat_radius_mm is None
+
+    def test_bad_flat_normal_raises(self) -> None:
+        with pytest.raises(PackageDefError, match="flat_normal"):
+            load_packages(GENERICS + [
+                {"name": "TO-92", "extends": "cylinder_radial",
+                 "dims": {"diameter": 4.55, "length": 4.6,
+                          "flat_radius": 1.175, "flat_normal": [1.0]},
+                 "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}},
+            ])
+
     def test_disc_shape_built(self) -> None:
         from protoboard.domain.components.package.body import DiscProfile
         from protoboard.domain.components.package.shapes import Disc

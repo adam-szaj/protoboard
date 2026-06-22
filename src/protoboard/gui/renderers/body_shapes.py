@@ -626,8 +626,11 @@ class PackageBody(BodyShape):
             return items
         if isinstance(pkg, _PkgCylinder):
             diam = pkg.diameter_mm / mm
+            world_axis_deg = math.degrees(math.atan2(p2.y - p1.y, p2.x - p1.x))
+            flat = self._flat_side_world(pkg, world_axis_deg)
             items.extend(self._radial_disc(
                 mid, diam, neg_angle, fill, border, alpha, z, theme,
+                flat=flat,
             ))
             return items
 
@@ -654,6 +657,34 @@ class PackageBody(BodyShape):
         items.append(body)
         return items
 
+    def _flat_side_world(
+        self, pkg: _PkgCylinder, world_axis_deg: float,
+    ) -> tuple[float, float] | None:
+        """The flat side as ``(normal_angle_deg, offset_holes)`` in world space.
+
+        ``None`` for a full circle (no flat side). ``flat_normal`` is given in
+        the package's *local* frame (the same frame the lead offsets use), so we
+        rotate it by the local→world rotation. That rotation is the difference
+        between the world pad axis (``world_axis_deg``) and the local pad axis
+        derived from ``pkg.pin_positions()`` — the pads carry the part's
+        rotation/flip, so the flat side follows the body automatically.
+        """
+        if pkg.flat_radius_mm is None:
+            return None
+        local = pkg.pin_positions()
+        if len(local) < 2:
+            return None
+        dx, dy = local[-1].x - local[0].x, local[-1].y - local[0].y
+        if math.hypot(dx, dy) < 1e-9:
+            return None
+        local_axis_deg = math.degrees(math.atan2(dy, dx))
+        rot = math.radians(world_axis_deg - local_axis_deg)
+        n = pkg.flat_normal
+        nx = n.x * math.cos(rot) - n.y * math.sin(rot)
+        ny = n.x * math.sin(rot) + n.y * math.cos(rot)
+        normal_deg = math.degrees(math.atan2(ny, nx))
+        return normal_deg, pkg.flat_radius_mm / DEFAULT_THEME.raster_pitch_mm
+
     def _radial_disc(
         self,
         centre: Point,
@@ -661,6 +692,8 @@ class PackageBody(BodyShape):
         neg_angle_deg: float,
         fill: QColor, border: QColor, alpha: float, z: float,
         theme: Theme,
+        *,
+        flat: tuple[float, float] | None = None,
     ) -> list[QGraphicsItem]:
         """Top-view (looking at the body face) disc centred between the pads.
 
@@ -669,19 +702,51 @@ class PackageBody(BodyShape):
         negative terminal is marked the way a real radial electrolytic is: a
         dark circular segment (a chord-cut slice of the disc) on the side of the
         ``-`` lead, leaving the rest of the disc in the body colour.
+
+        ``flat`` (``(normal_angle_deg, offset_holes)``) cuts a chord off the
+        circle — a D-shaped cross-section such as a TO-92 — leaving the body a
+        full circle when ``None``.
         """
         r = diam / 2.0
-        circle = QGraphicsEllipseItem(
-            QRectF(centre.x - r, centre.y - r, diam, diam),
-        )
-        circle.setZValue(z)
         fill_c = QColor(fill)
         fill_c.setAlphaF(fill_c.alphaF() * alpha)
-        circle.setBrush(QBrush(fill_c))
-        circle.setPen(_body_pen(border, alpha))
+        if flat is not None:
+            body = self._d_shape(centre, r, flat[0], flat[1])
+        else:
+            body = QGraphicsEllipseItem(
+                QRectF(centre.x - r, centre.y - r, diam, diam),
+            )
+        body.setZValue(z)
+        body.setBrush(QBrush(fill_c))
+        body.setPen(_body_pen(border, alpha))
         if not self._is_polar:
-            return [circle]
-        return [circle, self._disc_segment(centre, r, neg_angle_deg, theme, alpha, z)]
+            return [body]
+        return [body, self._disc_segment(centre, r, neg_angle_deg, theme, alpha, z)]
+
+    def _d_shape(
+        self, centre: Point, radius: float, normal_deg: float, offset: float,
+    ) -> QGraphicsPathItem:
+        """A circle with one chord cut off, normal to ``normal_deg`` at distance
+        ``offset`` (holes) from the centre. The remaining arc spans the far side;
+        the chord is the flat face."""
+        # Half-angle subtended by the chord: the chord sits at +offset along the
+        # flat normal, so the arc we KEEP runs the long way around the far side.
+        c = max(-1.0, min(1.0, offset / radius))
+        half = math.degrees(math.acos(c))
+        rect = QRectF(-radius, -radius, 2 * radius, 2 * radius)
+        path = QPainterPath()
+        # Arc from +half to (360 − half) around the back, then the chord closes
+        # it. Angles are in the local frame where the flat normal points +x;
+        # Qt arc angles are counter-clockwise from +x.
+        path.arcMoveTo(rect, half)
+        path.arcTo(rect, half, 360.0 - 2.0 * half)
+        path.closeSubpath()
+        item = QGraphicsPathItem(path)
+        t = QTransform()
+        t.translate(centre.x, centre.y)
+        t.rotate(normal_deg)
+        item.setTransform(t)
+        return item
 
     def _radial_disc_side(
         self,

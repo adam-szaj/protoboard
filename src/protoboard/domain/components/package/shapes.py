@@ -142,7 +142,17 @@ def _lead_diameter_mm(leads: Leads) -> float:
 
 @dataclass(frozen=True, slots=True)
 class Cylinder:
-    """shape: cylinder — resistor, diode, electrolytic. Implements Package."""
+    """shape: cylinder — resistor, diode, electrolytic, TO-92. Implements Package.
+
+    A *flat side* (D-shaped cross-section, e.g. the real TO-92 transistor) is
+    declared by ``flat_radius_mm`` + ``flat_normal``: the body face is a full
+    circle with one chord cut off. ``flat_radius_mm`` is the distance from the
+    circle centre to that chord (``0 < r < diameter/2``); ``flat_normal`` is the
+    outward normal of the flat face in the package's *local* frame — the same
+    frame the lead offsets use (the renderer rotates it with the part). A flat
+    side only makes sense for a radial (top-view) body; the renderer ignores it
+    for an axial side view.
+    """
 
     diameter_mm: float
     length_mm: float
@@ -152,6 +162,20 @@ class Cylinder:
     arrangement: LeadArrangement = LeadArrangement.AXIAL
     edge: EdgeStyle = EdgeStyle.ROUNDED
     color: str | None = None  # #rrggbb fill; None → renderer default
+    flat_radius_mm: float | None = None  # None → full circle (no flat side)
+    flat_normal: Point = Point(0.0, 0.0)  # outward normal of the flat face
+
+    def __post_init__(self) -> None:
+        if self.flat_radius_mm is not None:
+            if not 0.0 < self.flat_radius_mm < self.diameter_mm / 2.0:
+                raise ValueError(
+                    "flat_radius_mm must satisfy 0 < r < diameter/2 "
+                    f"(got r={self.flat_radius_mm}, diameter={self.diameter_mm})"
+                )
+            if self.flat_normal.x == 0.0 and self.flat_normal.y == 0.0:
+                raise ValueError(
+                    "flat_normal must be non-zero when flat_radius_mm is set"
+                )
 
     @property
     def r_body_mm(self) -> float:

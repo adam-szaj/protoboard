@@ -248,6 +248,52 @@ class TestPresentation:
         assert c.color is None
 
 
+class TestFlatSidedCylinder:
+    """A flat side (D-shaped cross-section, e.g. TO-92)."""
+
+    def test_default_is_full_circle(self) -> None:
+        c = Cylinder(diameter_mm=4.55, length_mm=4.6, leads=_radial_leads())
+        assert c.flat_radius_mm is None
+        assert c.flat_normal == Point(0.0, 0.0)
+
+    def test_flat_side_carried(self) -> None:
+        # TO-92: r = 1.175 mm from the axis to the flat face, normal pointing
+        # towards the pin row (local frame).
+        c = Cylinder(
+            diameter_mm=4.55, length_mm=4.6, leads=_radial_leads(),
+            flat_radius_mm=1.175, flat_normal=Point(-1.0, 0.0),
+        )
+        assert c.flat_radius_mm == 1.175
+        assert c.flat_normal == Point(-1.0, 0.0)
+
+    def test_flat_radius_must_be_inside_circle(self) -> None:
+        # r >= diameter/2 would not cut a chord at all.
+        with pytest.raises(ValueError, match="0 < r < diameter/2"):
+            Cylinder(
+                diameter_mm=4.55, length_mm=4.6, leads=_radial_leads(),
+                flat_radius_mm=2.5, flat_normal=Point(-1.0, 0.0),
+            )
+
+    def test_flat_radius_must_be_positive(self) -> None:
+        with pytest.raises(ValueError, match="0 < r < diameter/2"):
+            Cylinder(
+                diameter_mm=4.55, length_mm=4.6, leads=_radial_leads(),
+                flat_radius_mm=0.0, flat_normal=Point(-1.0, 0.0),
+            )
+
+    def test_flat_normal_must_be_non_zero(self) -> None:
+        with pytest.raises(ValueError, match="flat_normal must be non-zero"):
+            Cylinder(
+                diameter_mm=4.55, length_mm=4.6, leads=_radial_leads(),
+                flat_radius_mm=1.175, flat_normal=Point(0.0, 0.0),
+            )
+
+    def test_full_circle_ignores_zero_normal(self) -> None:
+        # No flat side → the zero default normal is fine, no validation error.
+        c = Cylinder(diameter_mm=4.55, length_mm=4.6, leads=_radial_leads())
+        assert c.flat_radius_mm is None
+
+
 class TestRegistry:
     def test_shape_registry(self) -> None:
         assert SHAPE_REGISTRY["cylinder"] is Cylinder

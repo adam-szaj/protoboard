@@ -264,6 +264,81 @@ class TestTO220Body:
         assert len(items) >= 1
 
 
+def _radial_cylinder_package(
+    *, flat_radius: float | None = None, flat_normal: list[float] | None = None,
+) -> object:
+    """A radial (top-view) cylinder built through the loader, optionally with a
+    flat side (D-shape). 2 pins exiting the same face, body over the midpoint."""
+    dims: dict[str, object] = {"diameter": 5.0, "length": 5.0}
+    if flat_radius is not None:
+        dims["flat_radius"] = flat_radius
+        dims["flat_normal"] = flat_normal
+    return build_package(
+        {
+            "shape": "cylinder",
+            "dims": dims,
+            "arrangement": "radial",
+            "bend": 0,
+            "leads": {
+                "direction": [[0, 0, -1], [0, 0, -1]],
+                "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                "board_offset": "default",
+            },
+        },
+        "TEST_RADIAL_CYL",
+    )
+
+
+def _radial_body(pkg: object) -> QGraphicsItem:
+    """The single body item (ellipse or D-shape path) for a non-polar radial
+    cylinder — leads aside, the first non-line item is the body."""
+    items = PackageBody(pkg).draw(  # type: ignore[arg-type]
+        _pts((0, 0), (0, 1)), _RED, _DARK, 1.0, _Z)
+    bodies = [it for it in items if not isinstance(it, QGraphicsLineItem)]
+    assert len(bodies) == 1
+    return bodies[0]
+
+
+class TestFlatSidedCylinderRender:
+    def test_full_circle_when_no_flat(self, qtbot: QtBot) -> None:
+        body = _radial_body(_radial_cylinder_package())
+        assert isinstance(body, QGraphicsEllipseItem)
+
+    def test_flat_side_draws_d_shape_path(self, qtbot: QtBot) -> None:
+        body = _radial_body(
+            _radial_cylinder_package(flat_radius=1.175, flat_normal=[-1.0, 0.0]))
+        # A chord-cut body is a custom path, not a full ellipse.
+        assert isinstance(body, QGraphicsPathItem)
+        assert not isinstance(body, QGraphicsEllipseItem)
+
+    def test_d_shape_chord_on_flat_normal_side(self, qtbot: QtBot) -> None:
+        # Pins run down +y in world (0,0)->(0,1); flat_normal [-1,0] in local
+        # frame. The flat chord must sit on the correct side: the bounding rect
+        # of the kept arc is narrower on the flat side than a full circle.
+        body = _radial_body(
+            _radial_cylinder_package(flat_radius=1.175, flat_normal=[-1.0, 0.0]))
+        full = _radial_body(_radial_cylinder_package())
+        # The D-shape loses area on one side → its scene bounding rect is
+        # strictly smaller in one dimension than the full circle's.
+        fb = body.sceneBoundingRect()
+        cb = full.sceneBoundingRect()
+        assert fb.width() < cb.width() - 1e-6 or fb.height() < cb.height() - 1e-6
+
+    def test_flat_side_rotates_with_pad_axis(self, qtbot: QtBot) -> None:
+        # Same package, different world pad orientations → the flat chord points
+        # a different world direction (the D-shape follows the part's rotation).
+        pkg = _radial_cylinder_package(flat_radius=1.175, flat_normal=[-1.0, 0.0])
+        items_v = PackageBody(pkg).draw(  # type: ignore[arg-type]
+            _pts((0, 0), (0, 1)), _RED, _DARK, 1.0, _Z)
+        items_h = PackageBody(pkg).draw(  # type: ignore[arg-type]
+            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        body_v = next(it for it in items_v if isinstance(it, QGraphicsPathItem))
+        body_h = next(it for it in items_h if isinstance(it, QGraphicsPathItem))
+        # Different pad axis → different body transform rotation.
+        assert body_v.transform().m11() != pytest.approx(body_h.transform().m11()) \
+            or body_v.transform().m12() != pytest.approx(body_h.transform().m12())
+
+
 def _dip8_prism() -> object:
     """The prism synthesized for a DIP-8 footprint (the parametric DIP body)."""
     return prism_for_footprint(DualRow(n_per_row=4, rows_spacing=3))
