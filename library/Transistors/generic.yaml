@@ -23,7 +23,8 @@ components:
   - name: Q_TO92
     description: "Generic TO-92 transistor (pin order unknown)"
     component_class: transistor_npn
-    footprint: {type: TO92}
+    footprints:
+      - {name: TO92, ref: "TO-92"}
     pin_names: {1: "1", 2: "2", 3: "3"}
     aliases:
       - TO_92_Inline

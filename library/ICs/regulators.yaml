@@ -5,12 +5,14 @@ components:
 
   - name: _TO92_3
     component_class: ic
-    footprint: {type: TO92}
+    footprints:
+      - {name: TO92, ref: "TO-92"}
     pin_names: {}
 
   - name: _TO220_3
     component_class: ic
-    footprint: {type: TO220}
+    footprints:
+      - {name: TO220, ref: "TO-220"}
     pin_names: {}
 
   # -----------------------------------------------------------------------

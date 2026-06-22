@@ -4,7 +4,8 @@ components:
   # -----------------------------------------------------------------------
 
   - name: _MOSFET_TO220_GDS
-    footprint: {type: TO220}
+    footprints:
+      - {name: TO220, ref: "TO-220"}
     pin_names: {1: G, 2: D, 3: S}
 
   - name: _MOSFET_TO220_GDS_N
@@ -37,12 +38,14 @@ components:
 
   - name: _MOSFET_TO92_DGS
     component_class: transistor_npn
-    footprint: {type: TO92}
+    footprints:
+      - {name: TO92, ref: "TO-92"}
     pin_names: {1: D, 2: G, 3: S}
 
   - name: _MOSFET_TO92_SGD
     component_class: transistor_npn
-    footprint: {type: TO92}
+    footprints:
+      - {name: TO92, ref: "TO-92"}
     pin_names: {1: S, 2: G, 3: D}
 
   - name: 2N7000

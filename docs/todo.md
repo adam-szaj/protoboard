@@ -4,6 +4,26 @@ Open follow-ups that don't fit into the closed plans archived under
 [docs/archive/](archive/).  Each entry has enough context to pick up
 the work cold.
 
+## TO-220 metal tab render (added 2026-06-22)
+
+TO-220 became a fully-specified prism package family
+(`assets/package_families/to220.yaml`); regulators (`_TO220_3`) and power
+MOSFETs (`_MOSFET_TO220_GDS`) declare `footprints: [TO-220]`, so preview and
+placed resolve the same prism (commit on this branch; guarded by
+`TestTO220PackageParity`).  The body renders as a **plain radial-prism
+rectangle** — the characteristic light metal mounting tab the legacy
+`TO220Body` drew (using `theme.to220_tab_height_mm`) was consciously dropped
+(user decision 2026-06-22: "goły prostokąt na razie").
+
+To restore it as part of the model — not a per-package renderer — give the
+`Prism` an optional tab feature (e.g. `tab_height_mm`, mirroring how the
+`Cylinder` carries `flat_radius_mm`/`flat_normal` for its D-shape) and have the
+radial-prism branch of `body_shapes._draw_radial` draw the tab strip when
+present.  That makes the tab reusable for other tab packages (TO-247, TO-126).
+The legacy `TO220Body`/`theme.to220_*` can then be removed once the prism path
+proves parity (it currently survives only as the bare-`TO220Footprint` legacy
+fallback — `TestBodyShapeFor.test_to220_footprint_returns_to220body`).
+
 ## Component-declaration rework — IC repoint deferred (added 2026-06-21)
 
 Phases A/B/C of the declaration rework shipped: `extends` (cross-file),

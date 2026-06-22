@@ -492,6 +492,55 @@ class TestTO92PackageParity:
         assert not isinstance(placed, (GenericBody, TO92Body))
 
 
+class TestTO220PackageParity:
+    """Same no-silent-regression guard as TO-92, for the TO-220 power package.
+    Regulators (7805) and power MOSFETs (IRF540_N) declare footprints: [TO-220],
+    a fully-specified prism package, so preview and placed resolve identically.
+    (The metal tab is a deferred refinement — docs/todo.md; the body is a plain
+    radial prism rectangle for now.)
+    """
+
+    def _setup(self, name: str = "7805") -> tuple[object, object, dict]:
+        from pathlib import Path
+        from protoboard.domain.components.instance import ComponentInstance
+        from protoboard.services.library.loader import load_library
+        from protoboard.services.library.package_family_loader import (
+            load_full_package_catalogue,
+        )
+        cat = load_full_package_catalogue()
+        lib = load_library([Path("library")], cat)
+        defn = lib.get(name)
+        inst = ComponentInstance.new(name, "U1", "", package_variant="TO-220")
+        return defn, inst, cat
+
+    def test_regulator_declares_to220_footprint(self) -> None:
+        defn, _inst, _cat = self._setup("7805")
+        assert [(o.name, o.ref) for o in defn.footprints] == [("TO220", "TO-220")]
+
+    def test_preview_and_placed_render_the_same_prism(self, qtbot: QtBot) -> None:
+        from protoboard.domain.components.package.shapes import Prism
+        for name in ("7805", "LM317", "IRF540_N"):
+            defn, inst, cat = self._setup(name)
+            preview = body_shape_for(defn, package_families=cat)
+            placed = body_shape_for(
+                defn, _make_placement(), inst, package_families=cat)
+            assert isinstance(preview, PackageBody), name
+            assert isinstance(placed, PackageBody), name
+            assert isinstance(preview._pkg, Prism), name   # type: ignore[attr-defined]
+            assert isinstance(placed._pkg, Prism), name    # type: ignore[attr-defined]
+
+    def test_board_pins_one_hole_apart(self) -> None:
+        from protoboard.domain.components.package.shapes import Prism
+        _defn, inst, cat = self._setup("7805")
+        from protoboard.domain.components.package.component_package import (
+            resolve_component_package,
+        )
+        pkg = resolve_component_package(_defn, inst, cat)
+        assert isinstance(pkg, Prism)
+        from protoboard.geometry import Point
+        assert pkg.pin_positions() == [Point(0, 0), Point(1.0, 0), Point(2.0, 0)]
+
+
 def _colored_prism(color: str) -> object:
     """A 2-pin axial SMD-chip prism carrying its own package ``color``."""
     return build_package(
@@ -613,6 +662,10 @@ class TestDevboardBody:
 
 class TestBodyShapeFor:
     def test_to220_footprint_returns_to220body(self) -> None:
+        # Legacy fallback: a bare TO220Footprint with no package resolves to the
+        # dedicated TO220Body.  (The shipped regulators/MOSFETs now declare
+        # footprints: [TO-220] and resolve a prism package first — see
+        # TestTO220PackageParity.)
         fp = TO220Footprint(n=3)
         defn = ComponentDefinition(
             name="T1", component_class=ComponentClass.TRANSISTOR_NPN,
