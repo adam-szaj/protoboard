@@ -61,6 +61,23 @@ class TestBuiltinCatalogue:
         tant = load_package_families()["Tantalum-Drop-D3.5"].default_variant()
         assert tant.package.profile is DiscProfile.CANDY  # type: ignore[attr-defined]
 
+    def test_to92_is_flat_sided_cylinder(self) -> None:
+        pkg = load_package_families()["TO-92"].default_variant().package
+        assert isinstance(pkg, Cylinder)
+        assert pkg.pin_count() == 3
+        assert pkg.flat_radius_mm == 1.175  # D-shaped cross-section
+        assert pkg.flat_normal.y == 1.0     # flat faces the lead row
+
+    def test_to92_two_offset_domains(self) -> None:
+        # The leads exit the plastic at the 1.25 mm body pitch but spread to land
+        # 1 hole (2.5 mm raster) apart on the board — the two domains differ, so
+        # ``board_offset`` is given explicitly (not the ``default`` sentinel that
+        # would reuse the 1.25 mm body vector in the holes domain → 0.5-hole pins).
+        from protoboard.geometry import Point
+        pkg = load_package_families()["TO-92"].default_variant().package
+        assert pkg.leads.body_offset_mm == (Point(1.25, 0.0), Point(1.25, 0.0))
+        assert pkg.pin_positions() == [Point(0, 0), Point(1.0, 0), Point(2.0, 0)]
+
 
 class TestLoaderRobustness:
     def test_missing_directory_returns_empty(self, tmp_path: Path) -> None:

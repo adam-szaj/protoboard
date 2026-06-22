@@ -114,16 +114,19 @@ class TestLoadWorkedExamples:
         assert rng.r_min_mm == pytest.approx(2.5)
         assert rng.r_max_mm == pytest.approx(2.5 + 4 * 2.5)
 
-    def test_to92_three_pins(self) -> None:
+    def test_three_pin_prism_board_default_in_holes(self) -> None:
+        # A 3-pin inline prism using ``board_offset: default``: the 1.25 mm body
+        # vector is read in the holes domain → 0.5-hole pins.  (The shipped TO-92
+        # uses an explicit board_offset instead — see the family-loader test.)
         pkgs = self._load([
-            {"name": "TO-92", "extends": "prism",
+            {"name": "PRISM3", "extends": "prism",
              "dims": {"width": 4.5, "length": 4.5, "height": 5.2},
              "leads": {"direction": [[0, 0, -1], [0, 0, -1], [0, 0, -1]],
                        "body_offset": {"unit": 1.25, "value": [[1, 0], [1, 0]]},
                        "board_offset": "default"},
              "bend": 3.54},
         ])
-        t = pkgs["TO-92"]
+        t = pkgs["PRISM3"]
         assert isinstance(t, Prism)
         assert t.pin_count() == 3
         # body 1.25mm in grid domain = 0.5 hole steps

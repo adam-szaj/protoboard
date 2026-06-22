@@ -94,8 +94,14 @@ class TestElectrolyticRadial:
         assert r.r_max_mm == pytest.approx(2.5 + 4 * 2.5)  # 12.5mm = 5 holes
 
 
-class TestTO92:
-    """3-pin prism, body 1.25mm inline, board=default → grid domain (1 hole)."""
+class TestBoardOffsetDefaultMechanism:
+    """``board_offset: default`` reuses the body vector in the *holes* domain.
+
+    A 3-pin prism with a 1.25 mm body pitch resolves board pins at 1.25/2.5 =
+    0.5 hole — i.e. between raster holes.  (The shipped TO-92 deliberately does
+    NOT use ``default``: its leads exit at 1.25 mm but land 1 hole apart, so it
+    gives an explicit ``board_offset`` — see assets/package_families/to92.yaml
+    and ``test_to92_family_board_pins_one_hole_apart``.)"""
 
     def _prism(self) -> Prism:
         leads = Leads(
@@ -109,7 +115,7 @@ class TestTO92:
     def test_three_pins(self) -> None:
         assert self._prism().pin_count() == 3
 
-    def test_board_default_snaps_to_grid_1_hole(self) -> None:
+    def test_board_default_reads_body_vector_in_holes(self) -> None:
         # body 1.25mm → board read in holes = 1.25/2.5 = 0.5 hole steps.
         pins = self._prism().pin_positions()
         assert pins[0] == _pt(0, 0)

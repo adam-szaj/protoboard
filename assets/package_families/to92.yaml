@@ -1,10 +1,16 @@
 # SPDX-License-Identifier: MIT
 # Package-family catalogue — TO-92 plastic transistor shell.
 # A fully-specified package (no generator): a vertical D-shaped cylinder
-# (flat-sided) viewed top-down, with three leads inline at the 1.27 mm
-# (≈ half-hole) inline spread.  The flat face is the package property
-# ``flat_radius`` + ``flat_normal``; the radial top-view renderer draws it
-# without a dedicated TO-92 renderer (see body_shapes._radial_disc).
+# (flat-sided) viewed top-down, with three leads inline.  The flat face is the
+# package property ``flat_radius`` + ``flat_normal``; the radial top-view
+# renderer draws it without a dedicated TO-92 renderer (body_shapes._radial_disc).
+#
+# Two offset domains (docs/footprints/spec.md): the leads exit the plastic at
+# the 1.27 mm body pitch (``body_offset``, mm), then spread to land in adjacent
+# board holes at the 0.1"/2.5 mm raster (``board_offset``, holes).  These DIFFER
+# for TO-92 — ``board_offset: default`` would wrongly reuse the 1.25 mm body
+# vector in the holes domain (0.5-hole pins, between raster holes), so the board
+# pitch is given explicitly as 1 hole.
 families:
   - family: TO-92
     extends: cylinder_radial
@@ -23,6 +29,6 @@ families:
           flat_normal: [0.0, 1.0]
         leads:
           direction:   [[0, 0, -1], [0, 0, -1], [0, 0, -1]]
-          body_offset: {unit: 1.25, value: [[1, 0], [1, 0]]}
-          board_offset: default
+          body_offset:  {unit: 1.25, value: [[1, 0], [1, 0]]}  # leads at body: 1.25 mm
+          board_offset: [[1, 0], [1, 0]]                       # pins on board: 1 hole
           lead_r: 0.25
