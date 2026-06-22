@@ -442,6 +442,56 @@ class TestDeclaredKindSilhouette:
         assert not any(isinstance(it, QGraphicsPathItem) for it in sw_items)
 
 
+class TestTO92PackageParity:
+    """No-silent-regression guard for the reported bug: a TO-92 transistor
+    rendered the correct body in place-preview but a generic body after
+    placement. Root cause was the picker guessing a ``sil-3`` package by pin
+    count and stamping it on the instance, overriding the dedicated body. Now
+    TO-92 is a fully-specified flat-cylinder *package* (the component declares
+    ``footprints: [TO-92]``), so preview and placed resolve the SAME package.
+    """
+
+    def _setup(self) -> tuple[object, object, dict]:
+        from pathlib import Path
+        from protoboard.domain.components.instance import ComponentInstance
+        from protoboard.services.library.loader import load_library
+        from protoboard.services.library.package_family_loader import (
+            load_full_package_catalogue,
+        )
+        cat = load_full_package_catalogue()
+        lib = load_library([Path("library")], cat)
+        defn = lib.get("2N2222")
+        inst = ComponentInstance.new("2N2222", "Q1", "", package_variant="TO-92")
+        return defn, inst, cat
+
+    def test_transistor_declares_to92_footprint(self) -> None:
+        defn, _inst, _cat = self._setup()
+        assert defn.symbol == "Q"
+        assert [(o.name, o.ref) for o in defn.footprints] == [("TO92", "TO-92")]
+
+    def test_preview_and_placed_render_the_same_flat_cylinder(
+        self, qtbot: QtBot,
+    ) -> None:
+        from protoboard.domain.components.package.shapes import Cylinder
+        defn, inst, cat = self._setup()
+        # Preview: no instance. Placed: instance carries the auto-selected
+        # "TO-92" address. Both must resolve the flat-sided cylinder package.
+        preview = body_shape_for(defn, package_families=cat)
+        placed = body_shape_for(defn, _make_placement(), inst, package_families=cat)
+        # Both go through the parametric PackageBody (not TO92Body/GenericBody).
+        assert isinstance(preview, PackageBody)
+        assert isinstance(placed, PackageBody)
+        assert isinstance(preview._pkg, Cylinder)   # type: ignore[attr-defined]
+        assert isinstance(placed._pkg, Cylinder)    # type: ignore[attr-defined]
+        assert preview._pkg.flat_radius_mm == 1.175  # type: ignore[attr-defined]
+        assert placed._pkg.flat_radius_mm == 1.175   # type: ignore[attr-defined]
+
+    def test_placed_is_not_generic_body(self, qtbot: QtBot) -> None:
+        defn, inst, cat = self._setup()
+        placed = body_shape_for(defn, _make_placement(), inst, package_families=cat)
+        assert not isinstance(placed, (GenericBody, TO92Body))
+
+
 def _colored_prism(color: str) -> object:
     """A 2-pin axial SMD-chip prism carrying its own package ``color``."""
     return build_package(

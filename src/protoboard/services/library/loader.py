@@ -291,10 +291,21 @@ def load_library(
     *package_families* is the package-family catalogue; when a component's
     ``package_family_ref`` names a **rigid** package (an SMD chip, a DIP — fixed
     pin geometry), its footprint is derived from that package and its bendable
-    leads are dropped, so the body fixes the pad spacing.  Omit it (or pass an
-    empty dict) to keep the legacy footprint-only behaviour.
+    leads are dropped, so the body fixes the pad spacing.  It is also where a
+    ``footprints:`` *reference* resolves (e.g. a transistor's ``[TO-92]``), so a
+    component declaring its body purely by reference needs the catalogue to
+    build.  When ``None`` (the default), the full shipped catalogue is loaded —
+    matching the production path — so "load the real library" works out of the
+    box.  Pass an explicit ``{}`` for the legacy footprint-only behaviour
+    (fixture libraries that resolve no references).
     """
-    families = package_families or {}
+    if package_families is None:
+        from protoboard.services.library.package_family_loader import (
+            load_full_package_catalogue,
+        )
+        families = load_full_package_catalogue()
+    else:
+        families = package_families
     # Pass 1 — collect every raw component dict (templates included) across all
     # files, keyed by name, with first-wins (earlier directory/file keeps the
     # name). The global index lets ``extends`` reference a base in another file.

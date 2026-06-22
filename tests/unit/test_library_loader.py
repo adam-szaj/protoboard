@@ -491,11 +491,13 @@ components:
     def test_no_catalogue_leaves_footprint_unchanged(
         self, tmp_path: Path,
     ) -> None:
-        # Without a catalogue the loader can't resolve the ref → legacy
-        # footprint-only behaviour (no rigid override).
+        # An explicit empty catalogue is the escape hatch: the loader can't
+        # resolve the ref → legacy footprint-only behaviour (no rigid override).
+        # (Omitting the argument now defaults to the full shipped catalogue, so
+        # this opts out explicitly with ``{}``.)
         from protoboard.domain.components.footprints import TwoPin
         (tmp_path / "p.yaml").write_text(self._LIB)
-        defn = load_library([tmp_path]).get("R_SMD")
+        defn = load_library([tmp_path], {}).get("R_SMD")
         assert isinstance(defn.footprint, TwoPin)
         assert defn.bendable_pins  # kept
 
@@ -890,7 +892,13 @@ components:
         assert names == {1: "1", 2: "2", 3: "3", 4: "4"}
 
     def test_connectors_yaml_has_variants(self) -> None:
-        lib = load_library([FIXTURES.parent.parent.parent / "library"])
+        from protoboard.services.library.package_family_loader import (
+            load_full_package_catalogue,
+        )
+        lib = load_library(
+            [FIXTURES.parent.parent.parent / "library"],
+            load_full_package_catalogue(),
+        )
         defn = lib.get("PinHeader_1x04")
         assert len(defn.variants) >= 4
         ids = [v.id for v in defn.variants]

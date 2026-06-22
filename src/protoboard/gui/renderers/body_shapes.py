@@ -26,6 +26,7 @@ from abc import ABC, abstractmethod
 from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
 from PySide6.QtWidgets import (
+    QAbstractGraphicsShapeItem,
     QGraphicsEllipseItem,
     QGraphicsItem,
     QGraphicsLineItem,
@@ -476,6 +477,7 @@ class PackageBody(BodyShape):
                 neg_pin = positions[1]
                 return self._draw_radial(
                     p1, p2, neg_pin, fill, border, alpha, z, theme,
+                    pads=positions,
                 )
         if isinstance(self._pkg, _PkgCylinder) and len(positions) >= 2:
             return self._draw_cylinder(
@@ -598,17 +600,26 @@ class PackageBody(BodyShape):
         p1: Point, p2: Point, neg_pin: Point,
         fill: QColor, border: QColor, alpha: float, z: float,
         theme: Theme,
+        *,
+        pads: list[Point] | None = None,
     ) -> list[QGraphicsItem]:
+        # The body sits over every pad (a 3-lead TO-92 is centred on its three
+        # pins, not just the first two); a lead stub is drawn to each.  ``pads``
+        # defaults to the anchor pair for the legacy two-pin path.
+        all_pads = pads if pads is not None else [p1, p2]
         items: list[QGraphicsItem] = []
-        lead = QGraphicsLineItem(p1.x, p1.y, p2.x, p2.y)
-        lead.setPen(_lead_pen(theme, alpha))
-        lead.setZValue(z - 0.01)
-        items.append(lead)
+        for a, b in zip(all_pads, all_pads[1:]):
+            lead = QGraphicsLineItem(a.x, a.y, b.x, b.y)
+            lead.setPen(_lead_pen(theme, alpha))
+            lead.setZValue(z - 0.01)
+            items.append(lead)
 
         mm = theme.raster_pitch_mm
-        # The radial body sits over both pads, so it is centred on their
-        # geometric midpoint (not on the anchor pad).
-        mid = Point((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0)
+        # Centroid of all pads — the body's geometric centre.
+        mid = Point(
+            sum(p.x for p in all_pads) / len(all_pads),
+            sum(p.y for p in all_pads) / len(all_pads),
+        )
         # Direction from the body centre towards the negative lead — the side
         # the ``-`` segment marker goes on.
         neg_angle = math.degrees(math.atan2(neg_pin.y - mid.y, neg_pin.x - mid.x))
@@ -710,6 +721,7 @@ class PackageBody(BodyShape):
         r = diam / 2.0
         fill_c = QColor(fill)
         fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        body: QAbstractGraphicsShapeItem
         if flat is not None:
             body = self._d_shape(centre, r, flat[0], flat[1])
         else:

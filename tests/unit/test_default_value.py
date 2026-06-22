@@ -105,7 +105,10 @@ class TestBundledLibrary:
 
     def test_generic_passives_marked_question(self) -> None:
         from protoboard.services.library.loader import load_library
-        lib = load_library([Path("library")])
+        from protoboard.services.library.package_family_loader import (
+            load_full_package_catalogue,
+        )
+        lib = load_library([Path("library")], load_full_package_catalogue())
         # C_Disc / R_SMD_* are consolidated into the generic R / C (their bodies
         # are now footprint options), so only the generic passives remain.
         for name in (
@@ -118,7 +121,10 @@ class TestBundledLibrary:
 
     def test_concrete_parts_inherit_name(self) -> None:
         from protoboard.services.library.loader import load_library
-        lib = load_library([Path("library")])
+        from protoboard.services.library.package_family_loader import (
+            load_full_package_catalogue,
+        )
+        lib = load_library([Path("library")], load_full_package_catalogue())
         for name in (
             "BC547", "2N3904", "1N4148", "1N4007", "LED_Red",
             "NE555", "ATmega328P", "AT24C02", "IRF540_N",

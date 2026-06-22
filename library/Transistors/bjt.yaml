@@ -9,12 +9,16 @@ components:
   # footprint/package. A different spread can be arranged afterwards.
   - name: _NPN_TO92
     component_class: transistor_npn
-    footprint: {type: TO92}
+    symbol: Q
+    footprints:
+      - {name: TO92, ref: "TO-92"}
     pin_names: {}
 
   - name: _PNP_TO92
     component_class: transistor_pnp
-    footprint: {type: TO92}
+    symbol: Q
+    footprints:
+      - {name: TO92, ref: "TO-92"}
     pin_names: {}
 
   # Pinouts per part family.  Layout-critical: same TO-92 shell, three

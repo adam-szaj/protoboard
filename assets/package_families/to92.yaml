@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: MIT
+# Package-family catalogue — TO-92 plastic transistor shell.
+# A fully-specified package (no generator): a vertical D-shaped cylinder
+# (flat-sided) viewed top-down, with three leads inline at the 1.27 mm
+# (≈ half-hole) inline spread.  The flat face is the package property
+# ``flat_radius`` + ``flat_normal``; the radial top-view renderer draws it
+# without a dedicated TO-92 renderer (see body_shapes._radial_disc).
+families:
+  - family: TO-92
+    extends: cylinder_radial
+    label: "TO-92 (plastic transistor, 3-lead inline)"
+    color: "#2b2b2b"
+    variants:
+      - id: std
+        label: "TO-92 (D=4.55 mm)"
+        # D = 4.55 mm body, flat face 1.175 mm from the axis (D-shape).
+        # flat_normal points across the lead row (local +y) — the flat side
+        # faces the pins, as on the real package.
+        dims:
+          diameter: 4.55
+          length: 4.6
+          flat_radius: 1.175
+          flat_normal: [0.0, 1.0]
+        leads:
+          direction:   [[0, 0, -1], [0, 0, -1], [0, 0, -1]]
+          body_offset: {unit: 1.25, value: [[1, 0], [1, 0]]}
+          board_offset: default
+          lead_r: 0.25
