@@ -263,89 +263,105 @@ class TestLibraryPanelBodyPicker:
                 return r
         return None
 
-    def test_body_picker_visible_for_twopin_selection(
+    def _patch_dialog(self, monkeypatch: object, chosen: "str | None") -> list:
+        """Stub the footprint pop-up: capture its (recent, options) and return
+        *chosen* (or reject when ``chosen is None``). Returns the capture list."""
+        import pytest as _pytest
+        from PySide6.QtWidgets import QDialog
+        from protoboard.gui.dialogs import footprint_picker_dialog
+        assert isinstance(monkeypatch, _pytest.MonkeyPatch)
+        seen: list = []
+
+        class _Stub:
+            def __init__(self, provider, recent, options, parent=None):
+                seen.append((recent, options))
+                self.chosen_address = chosen
+
+            def exec(self):
+                return (
+                    QDialog.DialogCode.Accepted if chosen is not None
+                    else QDialog.DialogCode.Rejected
+                )
+
+        monkeypatch.setattr(
+            footprint_picker_dialog, "FootprintPickerDialog", _Stub
+        )
+        return seen
+
+    def test_multi_option_offers_packages(
         self, qtbot: object, session: EditorSession,
     ) -> None:
+        # R offers two package footprints; the provider reports both (no
+        # placeholder / forced choice) and neither is a kind.
         from pytestqt.qtbot import QtBot
         assert isinstance(qtbot, QtBot)
         panel = LibraryPanel(session.library)
         qtbot.addWidget(panel)
         panel.set_package_families(self._packages())
-        r_item = self._select_R(panel)
-        assert r_item is not None
-        # Forced choice: a "Choose a footprint…" placeholder (address None) plus
-        # the two offered family variants = 3 entries; nothing pre-selected.
-        assert len(panel._body_variant_addresses) == 3
-        assert panel._body_variant_addresses[0] is None       # placeholder
-        assert panel._current_body_variant_address() is None  # no default
+        opts = panel._choice.options(session.library.get("R"))
+        addrs = [o.address for o in opts]
+        assert "DIN-0207/typ" in addrs and "DIN-0617/typ" in addrs
+        assert not any(o.is_kind for o in opts)
 
-    def test_body_picker_hidden_without_catalogue(
+    def test_no_options_without_catalogue(
         self, qtbot: object, session: EditorSession,
     ) -> None:
         from pytestqt.qtbot import QtBot
         assert isinstance(qtbot, QtBot)
         panel = LibraryPanel(session.library)
         qtbot.addWidget(panel)
-        # No set_package_families call.
-        self._select_R(panel)
-        assert panel._body_variant_addresses == []
+        # No set_package_families call → the default provider has no catalogue.
+        assert panel._choice.options(session.library.get("R")) == []
 
-    def test_double_click_includes_body_variant(
-        self, qtbot: object, session: EditorSession,
+    def test_multi_option_double_click_opens_dialog_and_places(
+        self, qtbot: object, session: EditorSession, monkeypatch: object,
     ) -> None:
+        # >1 option → the pop-up opens; the chosen address is placed.
         from pytestqt.qtbot import QtBot
         assert isinstance(qtbot, QtBot)
+        self._patch_dialog(monkeypatch, "DIN-0617/typ")
         panel = LibraryPanel(session.library)
         qtbot.addWidget(panel)
         panel.set_package_families(self._packages())
         r_item = self._select_R(panel)
         assert r_item is not None
-        # Pick DIN-0617/typ from the dropdown.
-        target_idx = panel._body_variant_addresses.index("DIN-0617/typ")
-        panel._body_variant_combo.setCurrentIndex(target_idx)
         received: list[tuple] = []
         panel.component_selected.connect(
             lambda name, pinv, bodyv: received.append((name, pinv, bodyv))
         )
         panel._tree.itemDoubleClicked.emit(r_item, 0)  # type: ignore[arg-type]
-        assert len(received) == 1
-        name, _pinv, bodyv = received[0]
-        assert name == "R"
-        assert bodyv == "DIN-0617/typ"
+        assert received == [("R", None, "DIN-0617/typ")]
 
-    def test_unchosen_footprint_blocks_placement(
-        self, qtbot: object, session: EditorSession,
+    def test_dismissed_dialog_places_nothing(
+        self, qtbot: object, session: EditorSession, monkeypatch: object,
     ) -> None:
-        # Forced choice: with the placeholder selected, double-click does NOT
-        # place — it asks for a footprint instead.
+        # Esc / Cancel on the pop-up → nothing is placed.
         from pytestqt.qtbot import QtBot
         assert isinstance(qtbot, QtBot)
+        self._patch_dialog(monkeypatch, None)  # rejected
         panel = LibraryPanel(session.library)
         qtbot.addWidget(panel)
         panel.set_package_families(self._packages())
         r_item = self._select_R(panel)
         assert r_item is not None
         placed: list[tuple] = []
-        required: list[str] = []
         panel.component_selected.connect(
             lambda name, pinv, bodyv: placed.append((name, pinv, bodyv))
         )
-        panel.footprint_choice_required.connect(required.append)
         panel._tree.itemDoubleClicked.emit(r_item, 0)  # type: ignore[arg-type]
-        assert placed == []                 # nothing placed
-        assert required == ["R"]            # a choice was requested
+        assert placed == []
 
-    def test_single_option_auto_selected_and_places(
-        self, qtbot: object, session: EditorSession,
+    def test_single_package_places_with_no_dialog(
+        self, qtbot: object, session: EditorSession, monkeypatch: object,
     ) -> None:
-        # With exactly one offered footprint, it is auto-selected (no friction)
-        # and a double-click places with that address.
+        # Exactly one option that is a package → placed directly, no pop-up.
         from pytestqt.qtbot import QtBot
         from protoboard.domain.components.package import (
             PackageFamily, PackageVariant,
         )
         from protoboard.domain.components.package.loader import build_package
         assert isinstance(qtbot, QtBot)
+        opened = self._patch_dialog(monkeypatch, "should-not-be-used")
 
         def _cyl() -> object:
             return build_package(
@@ -371,19 +387,18 @@ class TestLibraryPanelBodyPicker:
         })
         r_item = self._select_R(panel)
         assert r_item is not None
-        # One option → no placeholder, it is the current selection.
-        assert panel._body_variant_addresses == ["DIN-0207/typ"]
         placed: list[tuple] = []
         panel.component_selected.connect(
             lambda name, pinv, bodyv: placed.append((name, pinv, bodyv))
         )
         panel._tree.itemDoubleClicked.emit(r_item, 0)  # type: ignore[arg-type]
         assert placed == [("R", None, "DIN-0207/typ")]
+        assert opened == []  # dialog never constructed
 
     def test_footprints_list_labels_are_symbol_name(
         self, qtbot: object, tmp_path: object,
     ) -> None:
-        # A component with a footprints: list labels each entry "symbol_name".
+        # A component with a footprints: list labels each option "symbol_name".
         from pathlib import Path
         from pytestqt.qtbot import QtBot
         from protoboard.services.library.loader import load_library
@@ -401,33 +416,33 @@ class TestLibraryPanelBodyPicker:
         lib = load_library([tmp_path])
         panel = LibraryPanel(lib)
         qtbot.addWidget(panel)
-        labels = [lbl for lbl, _ in panel._footprint_entries(lib.get("U_DIP14"))]
+        labels = [o.label for o in panel._choice.options(lib.get("U_DIP14"))]
         assert labels == ["U_DIP-14", "U_WDIP-14"]
 
-    def test_recently_used_footprint_shown_first(
+    def test_recently_used_footprint_offered_first(
         self, qtbot: object, session: EditorSession, monkeypatch: object,
     ) -> None:
-        # A recent pick for this component appears at the top (★) of the picker.
+        # A recent pick for this component is what the panel passes to the pop-up
+        # as the recent list (rendered on top, ★).
         import pytest as _pytest
         from pytestqt.qtbot import QtBot
         from protoboard.gui import recent_footprints
         assert isinstance(qtbot, QtBot)
         assert isinstance(monkeypatch, _pytest.MonkeyPatch)
-        # Isolate the store; pre-seed a recent pick for R.
-        store: list = []
+        seen = self._patch_dialog(monkeypatch, "DIN-0617/typ")
         monkeypatch.setattr(
             recent_footprints, "load",
             lambda: [recent_footprints.RecentFootprint("R", "DIN-0617/typ", "R_x")],
         )
-        monkeypatch.setattr(recent_footprints, "add", lambda *a, **k: store.append(a))
         panel = LibraryPanel(session.library)
         qtbot.addWidget(panel)
         panel.set_package_families(self._packages())
         r_item = self._select_R(panel)
         assert r_item is not None
-        # placeholder, then the recent ★ entry, then the full list.
-        assert panel._body_variant_combo.itemText(1).startswith("★ ")
-        assert panel._body_variant_addresses[1] == "DIN-0617/typ"
+        panel._tree.itemDoubleClicked.emit(r_item, 0)  # type: ignore[arg-type]
+        assert len(seen) == 1
+        recent, _options = seen[0]
+        assert [r.address for r in recent] == ["DIN-0617/typ"]
 
 
 class TestBodyVariantDropdown:

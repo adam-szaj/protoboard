@@ -9,9 +9,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QComboBox,
-    QHBoxLayout,
-    QLabel,
+    QDialog,
     QLineEdit,
     QTreeWidget,
     QTreeWidgetItem,
@@ -19,10 +17,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from protoboard.gui.footprint_choice import DefaultFootprintChoiceProvider
 from protoboard.services.library.loader import ComponentLibrary
 
 if TYPE_CHECKING:
-    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.package.family import PackageFamily
+    from protoboard.gui.footprint_choice import (
+        FootprintChoiceProvider,
+        FootprintOptionView,
+    )
+
+# Sentinel distinguishing "the user dismissed the picker" (place nothing) from a
+# resolved ``None`` address (place with the component's own default geometry).
+_CANCELLED: object = object()
 
 
 class LibraryPanel(QWidget):
@@ -31,17 +38,15 @@ class LibraryPanel(QWidget):
     # to inherit the definition's default.  Older slots that accept
     # only two args still work — Qt unpacks positional signal args.
     component_selected = Signal(str, object, object)
-    # Emitted (definition_ref) when a placement is attempted but the user has not
-    # yet chosen a footprint from the (multi-option) picker. MainWindow surfaces a
-    # status hint; nothing is placed.
-    footprint_choice_required = Signal(str)
 
     def __init__(self, library: ComponentLibrary, parent: object = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
         self._library = library
-        # Package-family catalogue is wired by main_window once the session
-        # exists; until then the picker stays empty.
-        self._package_families: dict = {}
+        # The footprint-choice seam: answers package-vs-kind, recent picks and
+        # kind parameters for the pop-up. The default provider reports every
+        # footprint as a package with no parameters; a session may inject a
+        # model-backed one via ``set_choice_provider``.
+        self._choice: FootprintChoiceProvider = DefaultFootprintChoiceProvider()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -57,28 +62,8 @@ class LibraryPanel(QWidget):
         self._tree.setIndentation(14)
         layout.addWidget(self._tree)
 
-        # Body variant picker — visible only when the selection is a
-        # two-pin component and the catalogue is wired.
-        self._body_row = QWidget()
-        body_layout = QHBoxLayout(self._body_row)
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(4)
-        body_layout.addWidget(QLabel("Body:"))
-        self._body_variant_combo = QComboBox()
-        self._body_variant_combo.setToolTip(
-            "Body package used when this component is placed.  The picker "
-            "lists the variants of the library default first, then every "
-            "other shipped package.",
-        )
-        body_layout.addWidget(self._body_variant_combo, 1)
-        layout.addWidget(self._body_row)
-        self._body_row.setVisible(False)
-        # Parallel to combo indices.
-        self._body_variant_addresses: list[str | None] = []
-
         self._search.textChanged.connect(self._on_search)
         self._tree.itemDoubleClicked.connect(self._on_double_click)
-        self._tree.currentItemChanged.connect(self._on_selection_changed)
 
         self._populate()
 
@@ -218,141 +203,85 @@ class LibraryPanel(QWidget):
         if not data:
             return
         name, pin_variant = data
-        address = self._current_body_variant_address()
-        # Force a choice: when the picker offers options but none is selected (the
-        # "Choose a footprint…" placeholder, address None at index 0), block
-        # placement. A part with no options (empty picker) places normally.
-        # NB: don't gate on ``_body_row.isVisible()`` — an un-shown widget reports
-        # not-visible under tests; gate on the picker actually having entries.
-        if self._body_variant_addresses and address is None:
-            self.footprint_choice_required.emit(name)
+        try:
+            defn = self._library.get(name)
+        except KeyError:
             return
+
+        options = self._choice.options(defn)
+        offered = {o.address for o in options}
+        recent = self._choice.recent(name, offered)
+
+        resolved = self._resolve_address(name, options, recent)
+        if resolved is _CANCELLED:
+            return  # the user dismissed the pop-up — nothing placed
+        address: str | None = resolved  # type: ignore[assignment]
         if address is not None:
-            from protoboard.gui import recent_footprints
-            recent_footprints.add(
-                name, address, self._body_variant_combo.currentText()
-            )
+            self._record_recent(name, address, options, recent)
         self.component_selected.emit(name, pin_variant, address)
 
-    def _current_body_variant_address(self) -> "str | None":
-        idx = self._body_variant_combo.currentIndex()
-        if idx < 0 or idx >= len(self._body_variant_addresses):
-            return None
-        return self._body_variant_addresses[idx]
+    def _resolve_address(
+        self,
+        name: str,
+        options: list[FootprintOptionView],
+        recent: list[FootprintOptionView],
+    ) -> str | None | object:
+        """The footprint address to place with, or ``_CANCELLED``.
 
-    def set_package_families(self, families: dict) -> None:
+        No pop-up when there is nothing to choose: zero options (the component's
+        own default geometry, address ``None``) or a single *package* option.
+        Anything else (several options, or a *kind* that may need parameters)
+        opens the picker; a dismissed picker returns ``_CANCELLED``.
+        """
+        if not options:
+            return None
+        if len(options) == 1 and not options[0].is_kind:
+            return options[0].address
+        # A single kind option with no parameters / variants to offer is also a
+        # no-choice: place it directly rather than show an empty pop-up.
+        if len(options) == 1 and options[0].is_kind and not recent:
+            opt = options[0]
+            if not self._choice.kind_params(opt.address) and not (
+                self._choice.recent_variants(opt.address)
+            ):
+                return self._choice.build_variant(opt.address, {})
+
+        from protoboard.gui.dialogs.footprint_picker_dialog import (
+            FootprintPickerDialog,
+        )
+
+        dialog = FootprintPickerDialog(self._choice, recent, options, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return _CANCELLED
+        return dialog.chosen_address
+
+    def _record_recent(
+        self,
+        name: str,
+        address: str,
+        options: list[FootprintOptionView],
+        recent: list[FootprintOptionView],
+    ) -> None:
+        from protoboard.gui import recent_footprints
+
+        label = next(
+            (o.label for o in [*recent, *options] if o.address == address),
+            address or name,
+        )
+        recent_footprints.add(name, address, label)
+
+    def set_choice_provider(self, provider: FootprintChoiceProvider) -> None:
+        """Replace the footprint-choice seam (e.g. a model-backed provider)."""
+        self._choice = provider
+
+    def set_package_families(
+        self, families: dict[str, PackageFamily] | None
+    ) -> None:
         """Wire the package-family catalogue from the active session.
 
-        Called by MainWindow whenever the session changes (open / close
-        project, switch between projects).  The picker is rebuilt to
-        reflect the current selection.
+        Called by MainWindow whenever the session changes. The default provider
+        uses the catalogue to resolve footprint addresses and detect kinds; a
+        custom provider injected via :meth:`set_choice_provider` ignores this.
         """
-        self._package_families = families or {}
-        self._refresh_body_picker_for_current()
-
-    def _on_selection_changed(
-        self,
-        current: "QTreeWidgetItem | None",
-        _previous: "QTreeWidgetItem | None",
-    ) -> None:
-        self._refresh_body_picker_for_current()
-
-    def _refresh_body_picker_for_current(self) -> None:
-        current = self._tree.currentItem()
-        self._rebuild_body_picker(current)
-
-    _CHOOSE_PLACEHOLDER = "Choose a footprint…"
-
-    def _rebuild_body_picker(
-        self, current: "QTreeWidgetItem | None",
-    ) -> None:
-        self._body_variant_combo.blockSignals(True)
-        self._body_variant_combo.clear()
-        self._body_variant_addresses = []
-
-        data = current.data(0, Qt.ItemDataRole.UserRole) if current else None
-        defn = None
-        if data:
-            name, _pin_variant = data
-            try:
-                defn = self._library.get(name)
-            except KeyError:
-                defn = None
-
-        # (label, address) pairs the user can pick. A component's ``footprints``
-        # list drives this; parts without a list fall back to the catalogue
-        # families that fit their footprint (legacy bodies).
-        entries = self._footprint_entries(defn) if defn is not None else []
-        self._body_row.setVisible(bool(entries))
-        if not entries or defn is None:
-            self._body_variant_combo.blockSignals(False)
-            return
-
-        # Recently-used footprints for this component, shown first (only those
-        # still offered), so the common case is one click away.
-        offered_addrs = {addr for _label, addr in entries}
-        recent = self._recent_entries(defn.name, offered_addrs)
-
-        # Force a choice: with more than one option, prepend a disabled
-        # placeholder (address None) so nothing is silently the default. A single
-        # option is auto-selected (no friction).
-        if len(entries) > 1:
-            self._body_variant_combo.addItem(self._CHOOSE_PLACEHOLDER)
-            self._body_variant_addresses.append(None)
-        # Recently-used picks first (★), then the full offered list.
-        for label, addr in recent:
-            self._body_variant_combo.addItem(f"★ {label}")
-            self._body_variant_addresses.append(addr)
-        for label, addr in entries:
-            self._body_variant_combo.addItem(label)
-            self._body_variant_addresses.append(addr)
-        self._body_variant_combo.setCurrentIndex(0)
-        self._body_variant_combo.blockSignals(False)
-
-    def _recent_entries(
-        self, defn_name: str, offered: set[str],
-    ) -> list[tuple[str, str]]:
-        """``(label, address)`` for this component's recent picks still offered."""
-        from protoboard.gui import recent_footprints
-        out: list[tuple[str, str]] = []
-        for r in recent_footprints.load():
-            if r.definition_ref == defn_name and r.address in offered:
-                out.append((r.label, r.address))
-        return out
-
-    def _footprint_entries(
-        self, defn: "ComponentDefinition"
-    ) -> list[tuple[str, str]]:
-        """``(label, address)`` pairs for *defn*'s offered footprints.
-
-        Built from the component's ``footprints`` list (labels ``symbol_name``);
-        a part without a list falls back to the catalogue families matching its
-        footprint (legacy bodies), labelled ``family/variant``.
-        """
-        from protoboard.domain.components.package.generated_families import (
-            offered_body_families,
-        )
-        from protoboard.services.library.loader import inline_option_address
-
-        root = defn.refdes_prefix  # symbol or class prefix
-        entries: list[tuple[str, str]] = []
-        if defn.footprints:
-            for opt in defn.footprints:
-                addr = (
-                    opt.ref
-                    if opt.ref is not None
-                    else inline_option_address(defn.name, opt.name)
-                )
-                entries.append((f"{root}_{opt.name}", addr))
-            return entries
-
-        # Legacy fallback — catalogue families fitting the singular footprint.
-        if not self._package_families:
-            return []
-        for pkg in offered_body_families(defn.footprint, self._package_families):
-            for v in pkg.variants:
-                label = f"{pkg.family_id} / {v.variant_id}"
-                if v.label and v.label != v.variant_id:
-                    label = f"{label} — {v.label}"
-                entries.append((label, f"{pkg.family_id}/{v.variant_id}"))
-        return entries
+        if isinstance(self._choice, DefaultFootprintChoiceProvider):
+            self._choice.set_package_families(families or {})
