@@ -442,6 +442,90 @@ class TestDeclaredKindSilhouette:
         assert not any(isinstance(it, QGraphicsPathItem) for it in sw_items)
 
 
+class TestConnectorKind:
+    """``pin_header`` / ``jst`` kinds: generated from pin count + arrangement,
+    a plain rectangle (no DIP notch / SIL slots) with a per-kind fill colour."""
+
+    def test_pin_header_single_row(self) -> None:
+        from protoboard.domain.components.package.kind import build_kind_package
+        pkg = build_kind_package("pin_header", 4, {"rows": 1})
+        assert pkg.pin_count() == 4
+        assert pkg.color == "#222222"  # type: ignore[attr-defined]
+        # 1×N → all pins in one column.
+        xs = {round(p.x, 3) for p in pkg.pin_positions()}
+        assert len(xs) == 1
+
+    def test_pin_header_dual_row(self) -> None:
+        from protoboard.domain.components.package.kind import build_kind_package
+        pkg = build_kind_package("pin_header", 6, {"rows": 2})
+        assert pkg.pin_count() == 6
+        # 2×N → two columns, 1 hole apart (connector spacing, not DIP's 3).
+        xs = sorted({round(p.x, 3) for p in pkg.pin_positions()})
+        assert xs == [0.0, 1.0]
+
+    def test_pin_header_defaults_to_single_row(self) -> None:
+        from protoboard.domain.components.package.kind import build_kind_package
+        pkg = build_kind_package("pin_header", 4)
+        assert len({round(p.x, 3) for p in pkg.pin_positions()}) == 1
+
+    def test_jst_is_single_row_light(self) -> None:
+        from protoboard.domain.components.package.kind import build_kind_package
+        pkg = build_kind_package("jst", 3)
+        assert pkg.pin_count() == 3
+        assert pkg.color == "#dddddd"  # type: ignore[attr-defined]
+        assert len({round(p.x, 3) for p in pkg.pin_positions()}) == 1
+
+    def test_connectors_render_plain_no_notch(self, qtbot: QtBot) -> None:
+        # Neither a 1×N (SIL-like) nor a 2×N (DIP-like) connector gets the SIL
+        # slots / DIP notch the column guess would add — they are plain rects.
+        from protoboard.domain.components.package.kind import build_kind_package
+        from protoboard.gui.renderers.prism_silhouette import silhouette_for_prism
+        for kind, n, params in [
+            ("pin_header", 6, {"rows": 1}),
+            ("pin_header", 6, {"rows": 2}),
+            ("jst", 4, {}),
+        ]:
+            pkg = build_kind_package(kind, n, params)
+            assert silhouette_for_prism(pkg) is None, (kind, params)  # type: ignore[arg-type]
+
+
+class TestConnectorPlacement:
+    """Connectors place with no body-picker choice (like dip_ic ICs): the kind
+    package is their only geometry, so preview and placed resolve identically."""
+
+    def _setup(self, name: str) -> tuple[object, object, dict]:
+        from pathlib import Path
+        from protoboard.domain.components.instance import ComponentInstance
+        from protoboard.services.library.loader import load_library
+        from protoboard.services.library.package_family_loader import (
+            load_full_package_catalogue,
+        )
+        cat = load_full_package_catalogue()
+        lib = load_library([Path("library")], cat)
+        defn = lib.get(name)
+        inst = ComponentInstance.new(name, "J1", "")
+        return defn, inst, cat
+
+    def test_connectors_have_no_footprints_list(self) -> None:
+        # No footprints: list → the body picker is empty → no forced choice
+        # blocks placement (the bug the user hit).
+        for name in ("PinHeader_1x04", "PinHeader_2x05", "JST_PH_3pin"):
+            defn, _inst, _cat = self._setup(name)
+            assert not defn.footprints, name
+
+    def test_preview_and_placed_render_same_kind_prism(self, qtbot: QtBot) -> None:
+        from protoboard.domain.components.package.shapes import Prism
+        for name in ("PinHeader_1x04", "PinHeader_2x05", "JST_XH_5pin"):
+            defn, inst, cat = self._setup(name)
+            preview = body_shape_for(defn, package_families=cat)
+            placed = body_shape_for(
+                defn, _make_placement(), inst, package_families=cat)
+            assert isinstance(preview, PackageBody), name
+            assert isinstance(placed, PackageBody), name
+            assert isinstance(preview._pkg, Prism), name   # type: ignore[attr-defined]
+            assert preview._pkg.kind in ("pin_header", "jst"), name  # type: ignore[attr-defined]
+
+
 class TestTO92PackageParity:
     """No-silent-regression guard for the reported bug: a TO-92 transistor
     rendered the correct body in place-preview but a generic body after

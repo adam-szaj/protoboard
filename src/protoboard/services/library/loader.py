@@ -212,7 +212,10 @@ def _build_component_package(
                 f"{name}: package kind {kind!r} needs a pin count "
                 f"(component pins or package 'pins')"
             )
-        return build_kind_package(str(kind), n)
+        # Forward any remaining package fields (e.g. a connector's ``rows``) as
+        # kind params; the builder ignores keys it does not use.
+        params = {k: v for k, v in raw.items() if k not in ("kind", "pins")}
+        return build_kind_package(str(kind), n, params)
 
     registry = dict(_load_builtin_package_defs())
     node = {**raw, "name": name}

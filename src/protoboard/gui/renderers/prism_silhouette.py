@@ -183,6 +183,10 @@ _KIND_SILHOUETTE: dict[str, Callable[[Prism], PrismSilhouette | None]] = {
     "wdip_ic": _dip_silhouette,
     "dip_switch": lambda _prism: None,
     "sil": lambda _prism: SilSilhouette(),
+    # Connectors render as a plain coloured rectangle (no DIP notch / SIL slots);
+    # the 1×N column guess would otherwise add a SIL housing and 2×N a DIP notch.
+    "pin_header": lambda _prism: None,
+    "jst": lambda _prism: None,
 }
 
 

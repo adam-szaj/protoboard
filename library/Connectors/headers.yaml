@@ -1,39 +1,15 @@
 components:
   # -----------------------------------------------------------------------
-  # Templates
-  # -----------------------------------------------------------------------
-
-  - name: _SIL2
-    component_class: connector
-    footprint: {type: SIL, pins: 2}
-    pin_names: {1: "1", 2: "2"}
-
-  - name: _SIL3
-    component_class: connector
-    footprint: {type: SIL, pins: 3}
-    pin_names: {1: "1", 2: "2", 3: "3"}
-
-  - name: _SIL4
-    component_class: connector
-    footprint: {type: SIL, pins: 4}
-    pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
-
-  - name: _SIL5
-    component_class: connector
-    footprint: {type: SIL, pins: 5}
-    pin_names: {1: "1", 2: "2", 3: "3", 4: "4", 5: "5"}
-
-  - name: _SIL6
-    component_class: connector
-    footprint: {type: SIL, pins: 6}
-    pin_names: {1: "1", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6"}
-
-  # -----------------------------------------------------------------------
-  # Generic pin headers (2.54mm)
+  # Generic pin headers (2.54mm) — fully defined by pin count + arrangement, so
+  # they use the generated ``pin_header`` package kind (no footprint choice):
+  # ``rows: 1`` → 1×N single row, ``rows: 2`` → 2×N dual row.  Rendered as a
+  # plain near-black (#222) rectangle.  ``pins.count`` drives the geometry.
   # -----------------------------------------------------------------------
 
   - name: PinHeader_1x02
-    extends: _SIL2
+    component_class: connector
+    pins: {count: 2}
+    package: {kind: pin_header, rows: 1}
     description: "2-pin header 2.54mm"
     variants:
       - id: power_vcc_gnd
@@ -44,7 +20,9 @@ components:
         pin_names: {1: GND, 2: VCC}
 
   - name: PinHeader_1x03
-    extends: _SIL3
+    component_class: connector
+    pins: {count: 3}
+    package: {kind: pin_header, rows: 1}
     description: "3-pin header 2.54mm"
     variants:
       - id: power_sig
@@ -58,7 +36,9 @@ components:
         pin_names: {1: SWDIO, 2: SWDCLK, 3: GND}
 
   - name: PinHeader_1x04
-    extends: _SIL4
+    component_class: connector
+    pins: {count: 4}
+    package: {kind: pin_header, rows: 1}
     description: "4-pin header 2.54mm"
     variants:
       - id: i2c_vcc_gnd_sda_scl
@@ -93,45 +73,50 @@ components:
         pin_names: {1: CS, 2: SCK, 3: MISO, 4: MOSI}
 
   - name: PinHeader_1x05
-    extends: _SIL5
+    component_class: connector
+    pins: {count: 5}
+    package: {kind: pin_header, rows: 1}
     description: "5-pin header 2.54mm"
 
   - name: PinHeader_1x06
-    extends: _SIL6
+    component_class: connector
+    pins: {count: 6}
+    package: {kind: pin_header, rows: 1}
     description: "6-pin header 2.54mm"
 
   - name: PinHeader_1x08
     component_class: connector
-    footprint: {type: SIL, pins: 8}
-    pin_names: {1: "1", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8"}
+    pins: {count: 8}
+    package: {kind: pin_header, rows: 1}
     description: "8-pin header 2.54mm"
 
   - name: PinHeader_2x02
     component_class: connector
-    footprint: {type: DIP, pins: 4}
-    pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
+    pins: {count: 4}
+    package: {kind: pin_header, rows: 2}
     description: "4-pin dual-row header 2.54mm"
 
   - name: PinHeader_2x03
     component_class: connector
-    footprint: {type: DIP, pins: 6}
-    pin_names: {1: "1", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6"}
+    pins: {count: 6}
+    package: {kind: pin_header, rows: 2}
     description: "6-pin dual-row header 2.54mm"
 
   - name: PinHeader_2x05
     component_class: connector
-    footprint: {type: DIP, pins: 10}
-    pin_names: {}
+    pins: {count: 10}
+    package: {kind: pin_header, rows: 2}
     description: "10-pin dual-row header 2.54mm (IDC)"
 
   - name: PinHeader_2x08
     component_class: connector
-    footprint: {type: DIP, pins: 16}
-    pin_names: {}
+    pins: {count: 16}
+    package: {kind: pin_header, rows: 2}
     description: "16-pin dual-row header 2.54mm (IDC)"
 
   # -----------------------------------------------------------------------
-  # Screw terminals (5.08mm pitch — 2 raster units)
+  # Screw terminals (5.08mm pitch — 2 raster units).  Kept on the explicit SIL
+  # footprint: the wide 2-unit pitch is not the connector kind's 0.1" raster.
   # -----------------------------------------------------------------------
 
   - name: Screw_Term_1x02
@@ -147,33 +132,56 @@ components:
     description: "3-pin screw terminal 5.08mm"
 
   # -----------------------------------------------------------------------
-  # JST connectors (2.0mm / 2.54mm pitch)
+  # JST connectors — single-row cable connectors.  The ``jst`` kind is always
+  # 1×N; rendered as a light (#ddd) rectangle.  (Pitch detail — PH 2.0mm vs XH
+  # 2.5mm — is cosmetic here; the body lands on the 0.1" raster.)
   # -----------------------------------------------------------------------
 
   - name: JST_PH_2pin
-    extends: _SIL2
+    component_class: connector
+    pins: {count: 2}
+    package: {kind: jst}
+    pin_names: {1: "1", 2: "2"}
     description: "JST PH 2-pin (2.0mm pitch, through-hole)"
 
   - name: JST_PH_3pin
-    extends: _SIL3
+    component_class: connector
+    pins: {count: 3}
+    package: {kind: jst}
+    pin_names: {1: "1", 2: "2", 3: "3"}
     description: "JST PH 3-pin (2.0mm pitch, through-hole)"
 
   - name: JST_PH_4pin
-    extends: _SIL4
+    component_class: connector
+    pins: {count: 4}
+    package: {kind: jst}
+    pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
     description: "JST PH 4-pin (2.0mm pitch, through-hole)"
 
   - name: JST_XH_2pin
-    extends: _SIL2
+    component_class: connector
+    pins: {count: 2}
+    package: {kind: jst}
+    pin_names: {1: "1", 2: "2"}
     description: "JST XH 2-pin (2.5mm pitch, through-hole)"
 
   - name: JST_XH_3pin
-    extends: _SIL3
+    component_class: connector
+    pins: {count: 3}
+    package: {kind: jst}
+    pin_names: {1: "1", 2: "2", 3: "3"}
     description: "JST XH 3-pin (2.5mm pitch, through-hole)"
 
   - name: JST_XH_4pin
-    extends: _SIL4
+    component_class: connector
+    pins: {count: 4}
+    package: {kind: jst}
+    pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
     description: "JST XH 4-pin (2.5mm pitch, through-hole)"
 
   - name: JST_XH_5pin
-    extends: _SIL5
+    component_class: connector
+    pins: {count: 5}
+    package: {kind: jst}
+    pin_names: {1: "1", 2: "2", 3: "3", 4: "4", 5: "5"}
     description: "JST XH 5-pin (2.5mm pitch, through-hole)"
