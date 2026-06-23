@@ -10,7 +10,8 @@ graphics conventions).
 from __future__ import annotations
 
 from dataclasses import dataclass
-
+from typing import overload
+# from _typeshed import Self
 
 # Coordinate quantisation precision used throughout the codebase for
 # float-equality on world coordinates.  Pad centres land on
@@ -19,6 +20,9 @@ from dataclasses import dataclass
 # precision other modules use for dict keys.
 _COORD_ROUNDING_DIGITS = 4
 
+def norm(x: float, y: float, z: float) -> float:
+    from math import sqrt
+    return sqrt(x*x + y*y + z*z)
 
 def round_coord(v: float) -> float:
     """Round *v* to the canonical coordinate precision.
@@ -41,11 +45,97 @@ class Point:
     x: float
     y: float
 
+    # def __add__(self, v: Vector) -> Point:
+    #     return Point(self.x + v.dx, self.y + v.dy)
+    #
+    # @overload
+    # def __sub__(self, o: Point) -> Vector:
+    #     ...
+    #
+    # @overload
+    # def __sub__(self, o: Vector) -> Point:
+    #     ...
+    #
+    # def __sub__(self, o: Point | Vector) -> Point | Vector:
+    #     if isinstance(o, Point):
+    #         return Vector(self.x - o.x, self.y - o.y)
+    #     else:
+    #         return Point(self.x - o.x, self.y - o.y)
     def __add__(self, other: Point) -> Point:
         return Point(self.x + other.x, self.y + other.y)
 
     def __sub__(self, other: Point) -> Point:
         return Point(self.x - other.x, self.y - other.y)
+
+
+@dataclass(frozen=True, slots=True)
+class Vector:
+    dx: float
+    dy: float
+
+    def __add__(self, other: Vector) -> Vector:
+        return Vector(self.dx + other.dx, self.dy + other.dy)
+
+    def __sub__(self, other: Vector) -> Vector:
+        return Vector(self.dx - other.dx, self.dy - other.dy)
+
+    def length(self) -> float:
+        return norm(self.dx, self.dy, 0.0)
+
+
+@dataclass(frozen=True, slots=True)
+class Point3D:
+    """A 3D point in raster units."""
+
+    x: float
+    y: float
+    z: float
+
+    def __add__(self, v: Vector3D) -> Point3D:
+        return Point3D(self.x + v.dx, self.y + v.dy, self.y + v.dy)
+
+    @overload
+    def __sub__(self, o: Point3D) -> Vector3D:
+        ...
+
+    @overload
+    def __sub__(self, o: Vector3D) -> Point3D:
+        ...
+
+    def __sub__(self, o: Point3D | Vector3D) -> Point3D | Vector3D:
+        if isinstance(o, Point3D):
+            return Vector3D(self.x - o.x, self.y - o.y, self.z - o.z)
+        else:
+            return Point3D(self.x - o.x, self.y - o.y, self.z - o.z)
+
+@dataclass(frozen=True, slots=True)
+class Vector3D:
+    dx: float
+    dy: float
+    dz: float
+
+    @property
+    def x(self) -> float:
+        return self.dx
+
+    @property
+    def y(self) -> float:
+        return self.dy
+
+    @property
+    def z(self) -> float:
+        return self.dz
+
+    def __add__(self, o: Vector3D) -> Vector3D:
+        return Vector3D(self.dx + o.dx, self.dy + o.dy,
+                        self.dz + o.dz)
+
+    def __sub__(self, o: Vector3D) -> Vector3D:
+        return Vector3D(self.dx - o.dx, self.dy - o.dy,
+                        self.dz - o.dz)
+
+    def length(self) -> float:
+        return norm(self.dx, self.dy, self.dz)
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,19 +211,15 @@ class Rect:
 
     def contains(self, point: Point) -> bool:
         """Half-open containment: top/left inclusive, bottom/right exclusive."""
-        return (
-            self.x <= point.x < self.x + self.width
-            and self.y <= point.y < self.y + self.height
-        )
+        return (self.x <= point.x < self.x + self.width
+                and self.y <= point.y < self.y + self.height)
 
     def intersects(self, other: Rect) -> bool:
         """Strict overlap; touching edges do not count as intersection."""
-        return (
-            self.x < other.x + other.width
-            and other.x < self.x + self.width
-            and self.y < other.y + other.height
-            and other.y < self.y + self.height
-        )
+        return (self.x < other.x + other.width
+                and other.x < self.x + self.width
+                and self.y < other.y + other.height
+                and other.y < self.y + self.height)
 
     def inflate(self, insets: Insets) -> Rect:
         """Grow the rect by the insets. Negative insets shrink it."""

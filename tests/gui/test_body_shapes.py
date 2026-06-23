@@ -7,8 +7,6 @@ import uuid
 from typing import TYPE_CHECKING
 
 import pytest
-from pytestqt.qtbot import QtBot
-
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
@@ -17,8 +15,12 @@ from PySide6.QtWidgets import (
     QGraphicsPathItem,
     QGraphicsRectItem,
 )
+from pytestqt.qtbot import QtBot
 
-from protoboard.domain.components.definition import ComponentClass, ComponentDefinition
+from protoboard.domain.components.definition import (
+    ComponentClass,
+    ComponentDefinition,
+)
 from protoboard.domain.components.footprints import (
     DualRow,
     SingleRow,
@@ -26,6 +28,10 @@ from protoboard.domain.components.footprints import (
     TwoPin,
 )
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.from_footprint import (
+    prism_for_footprint,
+)
+from protoboard.domain.components.package.loader import build_package
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
 from protoboard.gui.renderers.body_shapes import (
@@ -41,14 +47,11 @@ from protoboard.gui.renderers.prism_silhouette import (
     SilSilhouette,
     silhouette_for,
 )
-from protoboard.domain.components.package.from_footprint import prism_for_footprint
-from protoboard.domain.components.package.loader import build_package
 from protoboard.gui.theme import DEFAULT_THEME
 
 if TYPE_CHECKING:
     from protoboard.domain.components.package import PackageFamily
     from protoboard.domain.components.package.shapes import Package, Prism
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -412,15 +415,21 @@ class TestDeclaredKindSilhouette:
     kind falls back to the column guess, so render never blocks."""
 
     def test_dip_ic_kind_selects_notch(self) -> None:
-        from protoboard.domain.components.package.kind import build_kind_package
-        from protoboard.gui.renderers.prism_silhouette import silhouette_for_prism
+        from protoboard.domain.components.package.kind import (
+            build_kind_package,
+        )
+        from protoboard.gui.renderers.prism_silhouette import (
+            silhouette_for_prism,
+        )
         pkg = build_kind_package("dip_ic", 8)
         assert isinstance(silhouette_for_prism(pkg), DipSilhouette)  # type: ignore[arg-type]
 
     def test_dip_switch_kind_is_plain_overriding_the_column_guess(self) -> None:
         # dip_switch has DIP geometry (two columns) so the COLUMN guess would put
         # a notch on it — the declared kind says "plain", and that wins.
-        from protoboard.domain.components.package.kind import build_kind_package
+        from protoboard.domain.components.package.kind import (
+            build_kind_package,
+        )
         from protoboard.gui.renderers.prism_silhouette import (
             silhouette_for,
             silhouette_for_prism,
@@ -433,6 +442,7 @@ class TestDeclaredKindSilhouette:
         # A prism with an unrecognised kind renders by the column guess, not a
         # crash — render never blocks on an unknown kind.
         import dataclasses
+
         from protoboard.gui.renderers.prism_silhouette import (
             silhouette_for,
             silhouette_for_prism,
@@ -443,7 +453,9 @@ class TestDeclaredKindSilhouette:
     def test_dip_switch_renders_without_notch(self, qtbot: QtBot) -> None:
         # End-to-end: a dip_switch body draws the plain bbox (a rect), not the
         # notched path a column-guessed DIP would produce.
-        from protoboard.domain.components.package.kind import build_kind_package
+        from protoboard.domain.components.package.kind import (
+            build_kind_package,
+        )
         sw = build_kind_package("dip_switch", 8)
         ic = build_kind_package("dip_ic", 8)
         sw_items = PackageBody(sw).draw(  # type: ignore[arg-type]
@@ -461,7 +473,9 @@ class TestConnectorKind:
     a plain rectangle (no DIP notch / SIL slots) with a per-kind fill colour."""
 
     def test_pin_header_single_row(self) -> None:
-        from protoboard.domain.components.package.kind import build_kind_package
+        from protoboard.domain.components.package.kind import (
+            build_kind_package,
+        )
         pkg = build_kind_package("pin_header", 4, {"rows": 1})
         assert pkg.pin_count() == 4
         assert pkg.color == "#222222"  # type: ignore[attr-defined]
@@ -470,7 +484,9 @@ class TestConnectorKind:
         assert len(xs) == 1
 
     def test_pin_header_dual_row(self) -> None:
-        from protoboard.domain.components.package.kind import build_kind_package
+        from protoboard.domain.components.package.kind import (
+            build_kind_package,
+        )
         pkg = build_kind_package("pin_header", 6, {"rows": 2})
         assert pkg.pin_count() == 6
         # 2×N → two columns, 1 hole apart (connector spacing, not DIP's 3).
@@ -478,12 +494,16 @@ class TestConnectorKind:
         assert xs == [0.0, 1.0]
 
     def test_pin_header_defaults_to_single_row(self) -> None:
-        from protoboard.domain.components.package.kind import build_kind_package
+        from protoboard.domain.components.package.kind import (
+            build_kind_package,
+        )
         pkg = build_kind_package("pin_header", 4)
         assert len({round(p.x, 3) for p in pkg.pin_positions()}) == 1
 
     def test_jst_is_single_row_light(self) -> None:
-        from protoboard.domain.components.package.kind import build_kind_package
+        from protoboard.domain.components.package.kind import (
+            build_kind_package,
+        )
         pkg = build_kind_package("jst", 3)
         assert pkg.pin_count() == 3
         assert pkg.color == "#dddddd"  # type: ignore[attr-defined]
@@ -492,8 +512,12 @@ class TestConnectorKind:
     def test_connectors_render_plain_no_notch(self, qtbot: QtBot) -> None:
         # Neither a 1×N (SIL-like) nor a 2×N (DIP-like) connector gets the SIL
         # slots / DIP notch the column guess would add — they are plain rects.
-        from protoboard.domain.components.package.kind import build_kind_package
-        from protoboard.gui.renderers.prism_silhouette import silhouette_for_prism
+        from protoboard.domain.components.package.kind import (
+            build_kind_package,
+        )
+        from protoboard.gui.renderers.prism_silhouette import (
+            silhouette_for_prism,
+        )
         for kind, n, params in [
             ("pin_header", 6, {"rows": 1}),
             ("pin_header", 6, {"rows": 2}),
@@ -511,6 +535,7 @@ class TestConnectorPlacement:
         self, name: str
     ) -> tuple[ComponentDefinition, ComponentInstance, dict[str, PackageFamily]]:
         from pathlib import Path
+
         from protoboard.domain.components.instance import ComponentInstance
         from protoboard.services.library.loader import load_library
         from protoboard.services.library.package_family_loader import (
@@ -555,6 +580,7 @@ class TestTO92PackageParity:
         self,
     ) -> tuple[ComponentDefinition, ComponentInstance, dict[str, PackageFamily]]:
         from pathlib import Path
+
         from protoboard.domain.components.instance import ComponentInstance
         from protoboard.services.library.loader import load_library
         from protoboard.services.library.package_family_loader import (
@@ -606,6 +632,7 @@ class TestTO220PackageParity:
         self, name: str = "7805"
     ) -> tuple[ComponentDefinition, ComponentInstance, dict[str, PackageFamily]]:
         from pathlib import Path
+
         from protoboard.domain.components.instance import ComponentInstance
         from protoboard.services.library.loader import load_library
         from protoboard.services.library.package_family_loader import (
@@ -808,8 +835,10 @@ class TestBodyShapeFor:
         # A devboard module carries an inline prism package, so it takes the
         # first (parametric package) dispatch arm and renders via PackageBody —
         # which, for the DEVBOARD class, draws a plain rect (no notch).
+        from protoboard.domain.components.package.adapter import (
+            PackageFootprint,
+        )
         from protoboard.domain.components.package.loader import build_package
-        from protoboard.domain.components.package.adapter import PackageFootprint
         pkg = build_package(
             {
                 "shape": "prism",
@@ -890,7 +919,8 @@ class TestPackageBodyDispatch:
 
     def _families(self) -> dict:
         from protoboard.domain.components.package import (
-            PackageFamily, PackageVariant,
+            PackageFamily,
+            PackageVariant,
         )
         return {
             "DO-35": PackageFamily(
