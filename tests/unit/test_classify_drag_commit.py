@@ -144,9 +144,9 @@ class TestClassifyDragCommit:
         )
         nets = [
             Net(id=net_a, name="VCC",
-                pins=frozenset({PinRef(component_id=inst_a.id, pin_number=1)})),
+                pins={PinRef(component_id=inst_a.id, pin_number=1)}),
             Net(id=net_b, name="GND",
-                pins=frozenset({PinRef(component_id=inst_b.id, pin_number=1)})),
+                pins={PinRef(component_id=inst_b.id, pin_number=1)}),
         ]
         session = _build(
             [(inst_a, defn, pl_a), (inst_b, defn, pl_b)],
@@ -184,7 +184,7 @@ class TestClassifyDragCommit:
         net_n = uuid.uuid4()
         nets = [
             Net(id=net_n, name="N1",
-                pins=frozenset({PinRef(component_id=inst_b.id, pin_number=1)})),
+                pins={PinRef(component_id=inst_b.id, pin_number=1)}),
         ]
         session = _build(
             [(inst_a, defn, pl_a), (inst_b, defn, pl_b)],
@@ -263,9 +263,9 @@ class TestClassifyDragCommit:
         )
         nets = [
             Net(id=net_a, name="VCC",
-                pins=frozenset({PinRef(component_id=inst_a.id, pin_number=1)})),
+                pins={PinRef(component_id=inst_a.id, pin_number=1)}),
             Net(id=net_b, name="GND",
-                pins=frozenset({PinRef(component_id=inst_b.id, pin_number=1)})),
+                pins={PinRef(component_id=inst_b.id, pin_number=1)}),
         ]
         skewed = Wire(
             id=uuid.uuid4(),

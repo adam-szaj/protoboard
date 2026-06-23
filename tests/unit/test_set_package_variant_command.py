@@ -19,6 +19,7 @@ from protoboard.domain.components.definition import (
 from protoboard.domain.components.footprints import TwoPin
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.wire import WireCollection
 
 
 def _board() -> Board:
@@ -37,7 +38,9 @@ def _board() -> Board:
 @dataclass
 class _State:
     board: Board = field(default_factory=_board)
-    layout: Layout = field(default_factory=lambda: Layout(placements={}, wires=[]))
+    layout: Layout = field(
+        default_factory=lambda: Layout(placements={}, wires=WireCollection())
+    )
     instances: dict[uuid.UUID, ComponentInstance] = field(default_factory=dict)
     components: dict[str, ComponentDefinition] = field(default_factory=dict)
 

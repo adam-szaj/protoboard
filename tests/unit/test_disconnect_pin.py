@@ -6,14 +6,40 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
+from protoboard.domain.board.board import Board
+from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
+from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.commands.component_cmds import DisconnectPinCommand
+from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 
 
+def _empty_board() -> Board:
+    return Board(
+        root=BoardGrid(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG,
+                height_policy=SizePolicy.HUG,
+                layers=PadLayers(),
+            ),
+            rows=1,
+            cols=1,
+            row_gap=0.0,
+            col_gap=0.0,
+        )
+    )
+
+
 @dataclass
 class _State:
+    """Bare-bones ``SchematicState`` stub for ``DisconnectPinCommand`` tests."""
+
+    board: Board = field(default_factory=_empty_board)
     layout: Layout = field(default_factory=Layout)
     schematic: Schematic = field(
         default_factory=lambda: Schematic(nets={})
@@ -21,8 +47,8 @@ class _State:
     # DisconnectPinCommand expands the pin to its same-name siblings (shared
     # PinIdentity); these tests use bare PinRefs with no instance, so the
     # expansion falls back to the single clicked pin.
-    instances: dict = field(default_factory=dict)
-    components: dict = field(default_factory=dict)
+    instances: dict[uuid.UUID, ComponentInstance] = field(default_factory=dict)
+    components: dict[str, ComponentDefinition] = field(default_factory=dict)
 
 
 def _net(pins: set[PinRef], name: str = "N") -> Net:

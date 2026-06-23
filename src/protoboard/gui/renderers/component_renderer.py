@@ -8,6 +8,7 @@ import uuid
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QPen
 from PySide6.QtWidgets import (
+    QAbstractGraphicsShapeItem,
     QGraphicsEllipseItem,
     QGraphicsItem,
     QGraphicsItemGroup,
@@ -685,7 +686,7 @@ def make_ghost_item(
     )
     for item in shape.draw(positions, ghost_fill, ghost_border, ghost_alpha, 0.0, theme):
         # Ghost body: dashed border
-        if hasattr(item, 'pen'):
+        if isinstance(item, QAbstractGraphicsShapeItem):
             pen = item.pen()
             pen.setStyle(Qt.PenStyle.DashLine)
             item.setPen(pen)

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import structlog
 from PySide6.QtCore import QPointF, Qt
@@ -22,7 +22,9 @@ from protoboard.services.routing.astar import find_paths
 from protoboard.services.routing.cost_model import RoutingCostModel
 
 if TYPE_CHECKING:
-    pass
+    from PySide6.QtWidgets import QMainWindow
+
+    from protoboard.domain.commands.base import ComponentState
 
 _log = structlog.get_logger(__name__)
 _PREVIEW_WIDTH = 0.12
@@ -78,7 +80,7 @@ class RouteTool(_Tool):
         if event.button() != Qt.MouseButton.LeftButton:
             return False
         if self._view.is_locked_pin(scene_pt):
-            sb = self._view.window().statusBar()
+            sb = cast("QMainWindow", self._view.window()).statusBar()
             if sb is not None:
                 sb.showMessage("Pad belongs to a group — export it first (right-click → Export pin)", 3000)
             return True  # consume event, block routing
@@ -177,7 +179,7 @@ class RouteTool(_Tool):
         self._clear_committed()
         self._remove_live()
         self._clear_hints()
-        self._session.stack.execute(cmd, self._session)
+        self._session.stack.execute(cmd, cast("ComponentState", self._session))
         _log.info("route.committed", wire_id=str(wire.id), points=len(wire.path),
                   insulated=wire.insulated)
         self._session.layout_changed.emit()

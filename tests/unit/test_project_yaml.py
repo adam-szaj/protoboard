@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from typing import cast
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
@@ -12,7 +13,7 @@ from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.persistence.project_yaml import load_project, save_project
@@ -40,7 +41,7 @@ class TestInstancesRoundtrip:
         board = _perfboard()
         inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
         instances = {inst.id: inst}
-        lay = Layout(placements={}, wires=[])
+        lay = Layout(placements={}, wires=cast(WireCollection, []))
         sch = Schematic(nets={})
 
         save_project(tmp_path, board, lay, sch, instances=instances)
@@ -76,7 +77,7 @@ class TestInstancesRoundtrip:
 
     def test_empty_instances_roundtrip(self, tmp_path: Path) -> None:
         board = _perfboard()
-        lay = Layout(placements={}, wires=[])
+        lay = Layout(placements={}, wires=cast(WireCollection, []))
         sch = Schematic(nets={})
         save_project(tmp_path, board, lay, sch, instances={})
         _, _, _, instances, _, _, _ = load_project(tmp_path)
@@ -189,7 +190,7 @@ class TestWiresRoundtrip:
             insulated=True,
             side="top",
         )
-        lay = Layout(placements={}, wires=[wire])
+        lay = Layout(placements={}, wires=cast(WireCollection, [wire]))
         save_project(tmp_path, board, lay, Schematic(nets={}))
         _, loaded_lay, _, _, _, _, _ = load_project(tmp_path)
         assert len(loaded_lay.wires) == 1
@@ -206,7 +207,7 @@ class TestWiresRoundtrip:
             side="top",
             color="#FF0000",
         )
-        lay = Layout(placements={}, wires=[wire])
+        lay = Layout(placements={}, wires=cast(WireCollection, [wire]))
         save_project(tmp_path, board, lay, Schematic(nets={}))
         _, loaded_lay, _, _, _, _, _ = load_project(tmp_path)
         assert loaded_lay.wires[0].color == "#FF0000"
@@ -226,7 +227,7 @@ class TestWiresRoundtrip:
             insulated=True,
             side="top",
         )
-        lay = Layout(placements={}, wires=[wire])
+        lay = Layout(placements={}, wires=cast(WireCollection, [wire]))
         save_project(tmp_path, board, lay, Schematic(nets={}))
         _, loaded_lay, _, _, _, _, _ = load_project(tmp_path)
         loaded = loaded_lay.wires[0]
@@ -254,7 +255,7 @@ class TestWiresRoundtrip:
             insulated=True,
             side="top",
         )
-        lay = Layout(placements={}, wires=[wire])
+        lay = Layout(placements={}, wires=cast(WireCollection, [wire]))
         save_project(tmp_path, board, lay, Schematic(nets={}))
         _, loaded_lay, _, _, _, _, _ = load_project(tmp_path)
         assert loaded_lay.wires[0].path == wire.path
@@ -273,7 +274,7 @@ class TestWiresRoundtrip:
             insulated=False,
             side="top",
         )
-        lay = Layout(placements={}, wires=[wire])
+        lay = Layout(placements={}, wires=cast(WireCollection, [wire]))
         save_project(tmp_path, board, lay, Schematic(nets={}))
         _, loaded_lay, _, _, _, _, _ = load_project(tmp_path)
         # Bare wire path comes back unchanged.
@@ -290,7 +291,7 @@ class TestPlacementsRoundtrip:
             rotation=90,
             side="top",
         )
-        lay = Layout(placements={comp_id: pl}, wires=[])
+        lay = Layout(placements={comp_id: pl}, wires=cast(WireCollection, []))
         save_project(tmp_path, board, lay, Schematic(nets={}))
         _, loaded_lay, _, _, _, _, _ = load_project(tmp_path)
         loaded_pl = loaded_lay.placements[comp_id]
@@ -308,7 +309,7 @@ class TestPinVariantRoundtrip:
             pin_variant="i2c_vcc_gnd_sda_scl",
         )
         instances = {inst.id: inst}
-        save_project(tmp_path, board, Layout(placements={}, wires=[]), Schematic(nets={}), instances)
+        save_project(tmp_path, board, Layout(placements={}, wires=cast(WireCollection, [])), Schematic(nets={}), instances)
         _, _, _, loaded_instances, _, _, _ = load_project(tmp_path)
         loaded = loaded_instances[inst.id]
         assert loaded.pin_variant == "i2c_vcc_gnd_sda_scl"
@@ -322,7 +323,7 @@ class TestPinVariantRoundtrip:
             pin_variant=None,
         )
         instances = {inst.id: inst}
-        save_project(tmp_path, board, Layout(placements={}, wires=[]), Schematic(nets={}), instances)
+        save_project(tmp_path, board, Layout(placements={}, wires=cast(WireCollection, [])), Schematic(nets={}), instances)
         _, _, _, loaded_instances, _, _, _ = load_project(tmp_path)
         loaded = loaded_instances[inst.id]
         assert loaded.pin_variant is None
@@ -336,7 +337,7 @@ class TestPinVariantRoundtrip:
             package_variant="DO-41/L",
         )
         instances = {inst.id: inst}
-        save_project(tmp_path, board, Layout(placements={}, wires=[]), Schematic(nets={}), instances)
+        save_project(tmp_path, board, Layout(placements={}, wires=cast(WireCollection, [])), Schematic(nets={}), instances)
         _, _, _, loaded_instances, _, _, _ = load_project(tmp_path)
         assert loaded_instances[inst.id].package_variant == "DO-41/L"
 
@@ -346,7 +347,7 @@ class TestPinVariantRoundtrip:
             definition_ref="D1", refdes="D1", value="", package_variant=None,
         )
         instances = {inst.id: inst}
-        save_project(tmp_path, board, Layout(placements={}, wires=[]), Schematic(nets={}), instances)
+        save_project(tmp_path, board, Layout(placements={}, wires=cast(WireCollection, [])), Schematic(nets={}), instances)
         _, _, _, loaded_instances, _, _, _ = load_project(tmp_path)
         assert loaded_instances[inst.id].package_variant is None
 
@@ -370,7 +371,7 @@ class TestEncapsulatedExportMigration:
             child_group_ids=frozenset(g.id for g in groups.values() if g.id != ROOT_GROUP_ID),
         )
         all_groups = {ROOT_GROUP_ID: root, **groups}
-        lay = Layout(placements={}, wires=[], groups=all_groups)
+        lay = Layout(placements={}, wires=cast(WireCollection, []), groups=all_groups)
         save_project(tmp_path, board, lay, Schematic(nets={}))
 
     def test_grandchild_flat_export_stripped(self, tmp_path: Path) -> None:
@@ -505,7 +506,7 @@ class TestWirePinPersistence:
         from protoboard.domain.layout.knot import JointKnot
         from protoboard.domain.layout.wire import KnotRef
 
-        lay = Layout(placements={}, wires=[])
+        lay = Layout(placements={}, wires=cast(WireCollection, []))
         ka = JointKnot(id=uuid.uuid4(), position=Point(0.5, 0.5))
         kb = JointKnot(id=uuid.uuid4(), position=Point(1.5, 0.5))
         lay.knots[ka.id] = ka
@@ -632,7 +633,7 @@ class TestDropDanglingInstances:
         pl_bad = ComponentPlacement(
             component_id=bad.id, position=Point(1.0, 0.0), rotation=0, side="top",
         )
-        lay = Layout(placements={good.id: pl_good, bad.id: pl_bad}, wires=[])
+        lay = Layout(placements={good.id: pl_good, bad.id: pl_bad}, wires=cast(WireCollection, []))
         save_project(tmp_path, board, lay, Schematic(nets={}), instances=instances)
 
         set_migration_library(self._FakeLibrary({"R"}))  # GHOST unknown

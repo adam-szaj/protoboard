@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QKeySequence
@@ -37,6 +37,11 @@ from PySide6.QtWidgets import (
 from protoboard.gui.app_settings import AppSettings, save_app_settings
 from protoboard.gui.keybindings import DEFAULTS, DISPLAY_NAMES, KeyBindings
 from protoboard.gui.theme import Theme, save_theme
+
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QComboBox, QFormLayout
+
+    from protoboard.services.routing.postprocess import SimplifyMode
 
 
 # ---------------------------------------------------------------------------
@@ -229,13 +234,20 @@ class _ColorsPage(QWidget):
 
         self._widgets: dict[str, _ColorButton | QDoubleSpinBox | QSpinBox | QSlider] = {}
 
-        def add_section(title: str, rows: list[tuple[str, str, object]]) -> None:  # type: ignore[misc]
+        def add_section(
+            title: str,
+            rows: list[
+                tuple[str, str, object] | tuple[str, str, object, tuple[float, float]]
+            ],
+        ) -> None:
             """rows: (field_name, label, initial[, (lo, hi)]) — 4th element enables free range."""
             grp = QGroupBox(title)
             gl = QVBoxLayout(grp)
-            for entry in rows:  # type: ignore[assignment]
+            for entry in rows:
                 field_name, label, init = entry[0], entry[1], entry[2]
-                range_hint: tuple[float, float] | None = entry[3] if len(entry) > 3 else None  # type: ignore[misc]
+                range_hint: tuple[float, float] | None = (
+                    entry[3] if len(entry) > 3 else None
+                )
                 if isinstance(init, str):
                     row_layout, w = _color_row(label, init)
                 elif isinstance(init, int):
@@ -1116,7 +1128,7 @@ class _RoutingPage(QWidget):
         self._session.mark_dirty()
 
 
-def _resolve_simplify_mode(raw: object) -> object:
+def _resolve_simplify_mode(raw: object) -> "SimplifyMode":
     """Translate the QComboBox data role back into a SimplifyMode enum."""
     from protoboard.services.routing.postprocess import SimplifyMode
     if isinstance(raw, str):

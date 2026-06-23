@@ -878,6 +878,7 @@ class MainWindow(QMainWindow):
             PlaceComponentCommand,
         )
         from protoboard.gui.workers.operation_worker import run_with_progress
+        from protoboard.services.placement.auto_placer import AutoPlaceState
         from typing import cast
 
         to_place = [
@@ -893,7 +894,9 @@ class MainWindow(QMainWindow):
         result = run_with_progress(
             parent=self,
             title="Auto-place",
-            fn=lambda: auto_place(to_place, self._session, side="top"),
+            fn=lambda: auto_place(
+                to_place, cast(AutoPlaceState, self._session), side="top"
+            ),
             label=f"Placing {len(to_place)} component{'s' if len(to_place) != 1 else ''}…",
         )
         if result is None:
@@ -937,7 +940,7 @@ class MainWindow(QMainWindow):
             )
         )
 
-        self._session.stack.execute(macro, self._session)
+        self._session.stack.execute(macro, cast(ComponentState, self._session))
         self._session.layout_changed.emit()
         self._board_view.refresh()
         self._update_stats()
@@ -974,6 +977,7 @@ class MainWindow(QMainWindow):
             MoveComponentCommand,
         )
         from protoboard.gui.workers.operation_worker import run_with_progress
+        from protoboard.services.placement.spreader import SpreadState
 
         tool = self._get_select_tool()
         selected: set[uuid.UUID] = set()
@@ -1000,7 +1004,7 @@ class MainWindow(QMainWindow):
         result = run_with_progress(
             parent=self,
             title="Spread",
-            fn=lambda: spread_components(comp_ids, self._session),
+            fn=lambda: spread_components(comp_ids, cast(SpreadState, self._session)),
             label=f"Spreading {len(comp_ids)} component{'s' if len(comp_ids) != 1 else ''}…",
         )
         if result is None:
@@ -1041,7 +1045,7 @@ class MainWindow(QMainWindow):
             )
         )
 
-        self._session.stack.execute(macro, self._session)
+        self._session.stack.execute(macro, cast(ComponentState, self._session))
         self._session.layout_changed.emit()
         self._board_view.refresh()
         self._update_stats()
@@ -1226,7 +1230,7 @@ class MainWindow(QMainWindow):
                 wire_id=wire.id, endpoint=eligible, net_id=wire_net_id,
             ),
         )
-        self._session.stack.execute(cmd, self._session)
+        self._session.stack.execute(cmd, _cast(ComponentState, self._session))
         self._session.layout_changed.emit()
 
     def _convert_wire_pin_to_endpoint_action(self) -> None:
@@ -1276,11 +1280,13 @@ class MainWindow(QMainWindow):
             for wp_id in targets
         ]
         if len(cmds) == 1:
-            self._session.stack.execute(cmds[0], self._session)
+            self._session.stack.execute(
+                cmds[0], _cast(ComponentState, self._session)
+            )
         else:
             self._session.stack.execute(
                 MacroCommand(cmds, description="Convert wire-pins to endpoints"),
-                self._session,
+                _cast(ComponentState, self._session),
             )
         self._session.layout_changed.emit()
 
@@ -1354,8 +1360,10 @@ class MainWindow(QMainWindow):
         self._view_label.setText(f"{camera}  Mirror:{mirror_tag}   ")
 
     def _resize_board(self) -> None:
+        from protoboard.domain.commands.base import ComponentState
         from protoboard.domain.commands.board_cmds import ResizeBoardCommand
         from protoboard.gui.dialogs.resize_board_dialog import ResizeBoardDialog
+        from typing import cast
 
         dlg = ResizeBoardDialog(
             board=self._session.board,
@@ -1369,7 +1377,7 @@ class MainWindow(QMainWindow):
 
         new_board = dlg.new_board()
         cmd = ResizeBoardCommand(new_board=new_board)
-        self._session.stack.execute(cmd, self._session)
+        self._session.stack.execute(cmd, cast(ComponentState, self._session))
         self._session.invalidate_graph()
         # The board geometry itself changed — force the pads/strips layer to
         # be rebuilt; ``layout_changed`` alone only re-renders
@@ -1552,8 +1560,11 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _undo(self) -> None:
+        from protoboard.domain.commands.base import ComponentState
+        from typing import cast
+
         if self._session.stack.can_undo():
-            self._session.stack.undo(self._session)
+            self._session.stack.undo(cast(ComponentState, self._session))
             self._session.invalidate_graph()
             self._session.mark_dirty()
             self._board_view.refresh()
@@ -1561,8 +1572,11 @@ class MainWindow(QMainWindow):
             self._update_undo_redo()
 
     def _redo(self) -> None:
+        from protoboard.domain.commands.base import ComponentState
+        from typing import cast
+
         if self._session.stack.can_redo():
-            self._session.stack.redo(self._session)
+            self._session.stack.redo(cast(ComponentState, self._session))
             self._session.invalidate_graph()
             self._session.mark_dirty()
             self._board_view.refresh()
@@ -1791,7 +1805,9 @@ class MainWindow(QMainWindow):
 
     def _group_rename(self) -> None:
         from PySide6.QtWidgets import QInputDialog
+        from protoboard.domain.commands.base import ComponentState
         from protoboard.domain.commands.group_cmds import RenameGroupCommand
+        from typing import cast
 
         gid = self._active_group_or_warn()
         if gid is None:
@@ -1808,14 +1824,17 @@ class MainWindow(QMainWindow):
         if not name or name == group.name:
             return
         self._session.stack.execute(
-            RenameGroupCommand(group_id=gid, new_name=name), self._session
+            RenameGroupCommand(group_id=gid, new_name=name),
+            cast(ComponentState, self._session),
         )
         self._session.layout_changed.emit()
         self._update_undo_redo()
 
     def _group_set_exported(self, new_exported: frozenset) -> None:  # type: ignore[type-arg]
         """Common back-end for the three Export menu entries."""
+        from protoboard.domain.commands.base import ComponentState
         from protoboard.domain.commands.group_cmds import SetExportedPinsCommand
+        from typing import cast
 
         gid = self._active_group_or_warn()
         if gid is None:
@@ -1828,7 +1847,7 @@ class MainWindow(QMainWindow):
             return
         self._session.stack.execute(
             SetExportedPinsCommand(group_id=gid, new_exported=new_exported),
-            self._session,
+            cast(ComponentState, self._session),
         )
         self._session.layout_changed.emit()
         self._update_undo_redo()
@@ -1897,8 +1916,9 @@ class MainWindow(QMainWindow):
         them all.  Otherwise lock the whole selection (idempotent for
         already-locked entries).
         """
-        from protoboard.domain.commands.base import MacroCommand
+        from protoboard.domain.commands.base import ComponentState, MacroCommand
         from protoboard.domain.commands.component_cmds import LockComponentCommand
+        from typing import cast
 
         tool = self._get_select_tool()
         if tool is None:
@@ -1927,7 +1947,7 @@ class MainWindow(QMainWindow):
         if not cmds:
             return
         macro = MacroCommand(cmds) if len(cmds) > 1 else cmds[0]
-        self._session.stack.execute(macro, self._session)
+        self._session.stack.execute(macro, cast(ComponentState, self._session))
         self._session.layout_changed.emit()
         self._update_undo_redo()
         verb = "Locked" if new_locked else "Unlocked"
@@ -2012,7 +2032,7 @@ class MainWindow(QMainWindow):
             cmds[0] if len(cmds) == 1
             else MacroCommand(cmds, description=f"Set {len(cmds)} wires {'insulated' if insulated else 'bare'}")
         )
-        self._session.stack.execute(cmd, self._session)
+        self._session.stack.execute(cmd, cast(ComponentState, self._session))
         self._session.layout_changed.emit()
 
     def _move_selected_wires_to_side(self, side: str | None) -> None:
@@ -2078,7 +2098,7 @@ class MainWindow(QMainWindow):
             Command[ComponentState],
             DisconnectPinCommand(component_id=comp_id, pin_number=pin_num),
         )
-        self._session.stack.execute(cmd, self._session)
+        self._session.stack.execute(cmd, cast(ComponentState, self._session))
         self._session.layout_changed.emit()
         self._update_undo_redo()
 
@@ -2155,8 +2175,10 @@ class MainWindow(QMainWindow):
 
     def _ungroup_selection(self) -> None:
         """Disband the group currently entered, or the group matching the selection."""
+        from protoboard.domain.commands.base import ComponentState
         from protoboard.domain.commands.group_cmds import DisbandGroupCommand
         from protoboard.gui.tools.select_tool import SelectTool
+        from typing import cast
 
         tool = self._board_view._active_tool
         if not isinstance(tool, SelectTool):
@@ -2183,7 +2205,7 @@ class MainWindow(QMainWindow):
             self._status.showMessage("No group selected", 2000)
             return
         cmd = DisbandGroupCommand(group_id=group_id)
-        self._session.stack.execute(cmd, self._session)
+        self._session.stack.execute(cmd, cast(ComponentState, self._session))
         # Exit the group if we were inside it (never pop root).
         if len(tool._group_stack) > 1 and tool._group_stack[-1] == group_id:
             tool._group_stack.pop()
@@ -2399,6 +2421,7 @@ class MainWindow(QMainWindow):
         from protoboard.domain.commands.base import Command, MacroCommand
         from protoboard.domain.commands.base import ComponentState
         from protoboard.domain.commands.component_cmds import AddWireCommand
+        from protoboard.domain.layout.wire import Wire
         from typing import cast
 
         if not isinstance(result, AutorouteResult):
@@ -2424,7 +2447,7 @@ class MainWindow(QMainWindow):
             existing_signatures = {
                 _wire_signature(w) for w in self._session.layout.wires
             }
-            kept: list[object] = []
+            kept: list[Wire] = []
             duplicates: list[dict[str, object]] = []
             for w in result.wires:
                 sig = _wire_signature(w)
@@ -2463,12 +2486,14 @@ class MainWindow(QMainWindow):
                     "wires (probably a stale connectivity state).",
                 )
                 return
-            cmds = [cast(object, AddWireCommand(wire=w)) for w in kept]
+            cmds = [
+                cast(Command[ComponentState], AddWireCommand(wire=w)) for w in kept
+            ]
             macro: MacroCommand[ComponentState] = MacroCommand(
-                commands=[cast(Command[ComponentState], c) for c in cmds],
+                commands=cmds,
                 description=f"Autoroute ({len(kept)} wires)",
             )
-            self._session.stack.execute(macro, self._session)
+            self._session.stack.execute(macro, cast(ComponentState, self._session))
             self._session.mark_dirty()
             self._board_view.refresh()
             self._update_undo_redo()

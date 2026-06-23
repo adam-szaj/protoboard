@@ -27,7 +27,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.knot import PinKnot
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import KnotRef, Wire
+from protoboard.domain.layout.wire import KnotRef, Wire, WireCollection
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
@@ -78,7 +78,7 @@ def _build_pin_to_pin_wire_state() -> tuple[Layout, dict, Schematic]:
     """One internal pin-to-pin wire whose path matches both PinKnots."""
     from protoboard.domain.layout.placement import pin_world_position
     defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
-    layout = Layout(placements={}, wires=[])
+    layout = Layout(placements={}, wires=WireCollection())
     inst_a = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
     inst_b = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
     instances = {inst_a.id: inst_a, inst_b.id: inst_b}

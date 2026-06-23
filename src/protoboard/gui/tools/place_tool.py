@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import math
 import uuid
-from typing import Literal
+from typing import Literal, cast
 
 import structlog
 from PySide6.QtCore import QPointF, Qt
@@ -44,7 +44,7 @@ from protoboard.gui.placement_conflict import check_and_resolve
 from protoboard.gui.renderers.component_renderer import make_ghost_item
 
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QGraphicsItemGroup
+from PySide6.QtWidgets import QGraphicsItemGroup, QMainWindow
 
 _log = structlog.get_logger(__name__)
 _REACH_PAD_RADIUS = 0.18
@@ -591,7 +591,7 @@ class PlaceTool(_Tool):
             self._phase = "floating"
             self._session.layout_changed.emit()
             win = self._view.window() if self._view is not None else None
-            sb = win.statusBar() if win is not None else None
+            sb = cast(QMainWindow, win).statusBar() if win is not None else None
             if sb is not None:
                 sb.showMessage("[Enter] Accept placement  ·  [Esc] Cancel", 0)
 
@@ -600,8 +600,9 @@ class PlaceTool(_Tool):
     ) -> None:
         """Execute PlaceComponentCommand (and any wire commands) immediately."""
         from protoboard.domain.commands.component_cmds import PlaceComponentCommand
-        from protoboard.domain.commands.base import MacroCommand
+        from protoboard.domain.commands.base import ComponentState, MacroCommand
 
+        state = cast(ComponentState, self._session)
         cmd = PlaceComponentCommand(
             component_id=inst.id,  # type: ignore[union-attr]
             placement=placement,  # type: ignore[arg-type]
@@ -610,9 +611,9 @@ class PlaceTool(_Tool):
         if wire_cmds:
             all_cmds = [cmd] + wire_cmds  # type: ignore[operator]
             macro = MacroCommand(all_cmds, description="Place component")  # type: ignore[arg-type]
-            self._session.stack.execute(macro, self._session)
+            self._session.stack.execute(macro, state)
         else:
-            self._session.stack.execute(cmd, self._session)
+            self._session.stack.execute(cmd, state)
         _log.info("place.committed", definition=self._definition_ref,
                   refdes=inst.refdes, pos=(placement.position.x, placement.position.y))  # type: ignore[union-attr]
         self._session.layout_changed.emit()
@@ -627,7 +628,7 @@ class PlaceTool(_Tool):
         self._pending_wire_cmds = []
         self._phase = "anchor"
         win = self._view.window() if self._view is not None else None
-        sb = win.statusBar() if win is not None else None
+        sb = cast(QMainWindow, win).statusBar() if win is not None else None
         if sb is not None:
             sb.clearMessage()
 
@@ -643,7 +644,7 @@ class PlaceTool(_Tool):
         self._pending_wire_cmds = []
         self._phase = "anchor"
         win = self._view.window() if self._view is not None else None
-        sb = win.statusBar() if win is not None else None
+        sb = cast(QMainWindow, win).statusBar() if win is not None else None
         if sb is not None:
             sb.clearMessage()
 

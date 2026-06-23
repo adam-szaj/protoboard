@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import colorsys
 import uuid
+from typing import cast
 
 from PySide6.QtGui import QColor
 
@@ -49,7 +50,9 @@ def _golden_color_for(net_id: uuid.UUID, base: QColor, step_index: int) -> QColo
     integer index instead of hashing makes the assignment stable per
     schematic without depending on net id ordering.
     """
-    h, s, v = base.getHsvF()[:3]
+    # PySide6 stubs type ``getHsvF`` as returning ``object``; at runtime it is
+    # a 4-tuple of floats (h, s, v, a).  Cast so we can slice/unpack it.
+    h, s, v = cast("tuple[float, float, float, float]", base.getHsvF())[:3]
     new_h = (h + _GOLDEN_HUE_STEP * (step_index + 1)) % 1.0
     # Keep saturation/value bright enough to read on the board; clamp
     # away from the washed-out lower end if the user picked a pale base.

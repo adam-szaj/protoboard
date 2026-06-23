@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
+from protoboard.domain.commands.base import ComponentState
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.place_tool import PlaceTool
@@ -176,7 +179,7 @@ class TestPlaceToolUndo:
         assert isinstance(tool, PlaceTool)
         _left_click(tool, 0.5, 0.5)
         assert len(session.layout.placements) == 1
-        session.stack.undo(session)
+        session.stack.undo(cast(ComponentState, session))
         assert len(session.layout.placements) == 0
 
     def test_undo_removes_instance(
@@ -188,7 +191,7 @@ class TestPlaceToolUndo:
         assert isinstance(tool, PlaceTool)
         _left_click(tool, 0.5, 0.5)
         assert len(session.instances) == 1
-        session.stack.undo(session)
+        session.stack.undo(cast(ComponentState, session))
         assert len(session.instances) == 0
 
     def test_redo_restores_placement(
@@ -198,8 +201,8 @@ class TestPlaceToolUndo:
         tool = board_view._active_tool
         assert isinstance(tool, PlaceTool)
         _left_click(tool, 0.5, 0.5)
-        session.stack.undo(session)
-        session.stack.redo(session)
+        session.stack.undo(cast(ComponentState, session))
+        session.stack.redo(cast(ComponentState, session))
         assert len(session.layout.placements) == 1
 
 

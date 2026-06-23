@@ -22,8 +22,8 @@ def save_window_state(window: QMainWindow) -> None:
         from ruamel.yaml import YAML  # type: ignore[import-untyped]
 
         data = {
-            "geometry": base64.b64encode(bytes(window.saveGeometry())).decode(),
-            "state": base64.b64encode(bytes(window.saveState())).decode(),
+            "geometry": base64.b64encode(window.saveGeometry().data()).decode(),
+            "state": base64.b64encode(window.saveState().data()).decode(),
         }
         _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         yaml = YAML()

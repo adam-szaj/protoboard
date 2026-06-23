@@ -24,6 +24,7 @@ from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.wire import WireCollection
 from protoboard.domain.layout.wire_utils import find_pin_at
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
@@ -96,7 +97,7 @@ def _build_one_resistor() -> tuple[_State, uuid.UUID]:
     placement = ComponentPlacement(
         component_id=inst.id, position=Point(3.0, 5.0), rotation=0, side="top",
     )
-    layout = Layout(placements={inst.id: placement}, wires=[])
+    layout = Layout(placements={inst.id: placement}, wires=WireCollection())
     state = _State(
         layout=layout,
         instances={inst.id: inst},

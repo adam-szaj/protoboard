@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 import pytest
 from pytestqt.qtbot import QtBot
@@ -43,6 +44,10 @@ from protoboard.gui.renderers.prism_silhouette import (
 from protoboard.domain.components.package.from_footprint import prism_for_footprint
 from protoboard.domain.components.package.loader import build_package
 from protoboard.gui.theme import DEFAULT_THEME
+
+if TYPE_CHECKING:
+    from protoboard.domain.components.package import PackageFamily
+    from protoboard.domain.components.package.shapes import Package, Prism
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +93,7 @@ def _make_placement() -> ComponentPlacement:
     )
 
 
-def _cylinder_package(edge_radius: float = 0.0) -> object:
+def _cylinder_package(edge_radius: float = 0.0) -> Package:
     """An axial cylinder (resistor-like) built through the package loader.
 
     ``edge_radius`` defaults to 0 → a rectangular body; pass diameter/2 for a
@@ -108,7 +113,7 @@ def _cylinder_package(edge_radius: float = 0.0) -> object:
     )
 
 
-def _prism_package() -> object:
+def _prism_package() -> Package:
     """A DIP-8 style prism built through the package loader."""
     return build_package(
         {
@@ -128,7 +133,7 @@ def _prism_package() -> object:
     )
 
 
-def _smd_chip_package() -> object:
+def _smd_chip_package() -> Package:
     """A two-pin SMD chip (0805-like) prism: flat axial body, 1-hole pins."""
     return build_package(
         {
@@ -148,7 +153,7 @@ def _smd_chip_package() -> object:
     )
 
 
-def _colored_cylinder_package(color: str = "#d6c08c", edge: str = "rounded") -> object:
+def _colored_cylinder_package(color: str = "#d6c08c", edge: str = "rounded") -> Package:
     """An axial cylinder declaring an explicit body colour and edge style."""
     return build_package(
         {
@@ -167,7 +172,7 @@ def _colored_cylinder_package(color: str = "#d6c08c", edge: str = "rounded") -> 
     )
 
 
-def _colored_prism_package(color: str = "#d6c08c", edge: str = "sharp") -> object:
+def _colored_prism_package(color: str = "#d6c08c", edge: str = "sharp") -> Package:
     return build_package(
         {
             "shape": "prism",
@@ -194,7 +199,7 @@ def _bbox_prism_positions() -> list[Point]:
     return _pts((0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1))
 
 
-def _bbox_prism_package(color: str = "#d6c08c", edge: str = "sharp") -> object:
+def _bbox_prism_package(color: str = "#d6c08c", edge: str = "sharp") -> Package:
     """A three-column prism (silhouette_for → None → bbox rendering)."""
     return build_package(
         {
@@ -266,7 +271,7 @@ class TestTO220Body:
 
 def _radial_cylinder_package(
     *, flat_radius: float | None = None, flat_normal: list[float] | None = None,
-) -> object:
+) -> Package:
     """A radial (top-view) cylinder built through the loader, optionally with a
     flat side (D-shape). 2 pins exiting the same face, body over the midpoint."""
     dims: dict[str, object] = {"diameter": 5.0, "length": 5.0}
@@ -339,13 +344,22 @@ class TestFlatSidedCylinderRender:
             or body_v.transform().m12() != pytest.approx(body_h.transform().m12())
 
 
-def _dip8_prism() -> object:
+def _dip8_prism() -> Prism:
     """The prism synthesized for a DIP-8 footprint (the parametric DIP body)."""
-    return prism_for_footprint(DualRow(n_per_row=4, rows_spacing=3))
+    prism = prism_for_footprint(DualRow(n_per_row=4, rows_spacing=3))
+    assert prism is not None
+    return prism
 
 
 def _dip8_positions() -> list[Point]:
     return _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))
+
+
+def _sil6_prism() -> Prism:
+    """The prism synthesized for a 6-pin single-row (SIL) footprint."""
+    prism = prism_for_footprint(SingleRow(n=6))
+    assert prism is not None
+    return prism
 
 
 class TestParametricDIPBody:
@@ -413,7 +427,7 @@ class TestDeclaredKindSilhouette:
         )
         pkg = build_kind_package("dip_switch", 8)
         assert isinstance(silhouette_for(pkg), DipSilhouette)  # type: ignore[arg-type]
-        assert silhouette_for_prism(pkg) is None  # declared plain wins
+        assert silhouette_for_prism(pkg) is None  # type: ignore[arg-type]  # plain wins
 
     def test_unknown_kind_falls_back_to_column_guess(self) -> None:
         # A prism with an unrecognised kind renders by the column guess, not a
@@ -493,7 +507,9 @@ class TestConnectorPlacement:
     """Connectors place with no body-picker choice (like dip_ic ICs): the kind
     package is their only geometry, so preview and placed resolve identically."""
 
-    def _setup(self, name: str) -> tuple[object, object, dict]:
+    def _setup(
+        self, name: str
+    ) -> tuple[ComponentDefinition, ComponentInstance, dict[str, PackageFamily]]:
         from pathlib import Path
         from protoboard.domain.components.instance import ComponentInstance
         from protoboard.services.library.loader import load_library
@@ -535,7 +551,9 @@ class TestTO92PackageParity:
     ``footprints: [TO-92]``), so preview and placed resolve the SAME package.
     """
 
-    def _setup(self) -> tuple[object, object, dict]:
+    def _setup(
+        self,
+    ) -> tuple[ComponentDefinition, ComponentInstance, dict[str, PackageFamily]]:
         from pathlib import Path
         from protoboard.domain.components.instance import ComponentInstance
         from protoboard.services.library.loader import load_library
@@ -584,7 +602,9 @@ class TestTO220PackageParity:
     radial prism rectangle for now.)
     """
 
-    def _setup(self, name: str = "7805") -> tuple[object, object, dict]:
+    def _setup(
+        self, name: str = "7805"
+    ) -> tuple[ComponentDefinition, ComponentInstance, dict[str, PackageFamily]]:
         from pathlib import Path
         from protoboard.domain.components.instance import ComponentInstance
         from protoboard.services.library.loader import load_library
@@ -625,7 +645,7 @@ class TestTO220PackageParity:
         assert pkg.pin_positions() == [Point(0, 0), Point(1.0, 0), Point(2.0, 0)]
 
 
-def _colored_prism(color: str) -> object:
+def _colored_prism(color: str) -> Package:
     """A 2-pin axial SMD-chip prism carrying its own package ``color``."""
     return build_package(
         {
@@ -1084,7 +1104,7 @@ class TestPackageBodyColor:
         assert isinstance(self._body_item(items), QGraphicsPathItem)
 
 
-def _axial_cyl_package(edge_radius: float = 0.0) -> object:
+def _axial_cyl_package(edge_radius: float = 0.0) -> Package:
     return build_package(
         {
             "shape": "cylinder",
@@ -1100,7 +1120,7 @@ def _axial_cyl_package(edge_radius: float = 0.0) -> object:
     )
 
 
-def _radial_cyl_package() -> object:
+def _radial_cyl_package() -> Package:
     return build_package(
         {
             "shape": "cylinder",
@@ -1116,7 +1136,7 @@ def _radial_cyl_package() -> object:
     )
 
 
-def _radial_prism_package() -> object:
+def _radial_prism_package() -> Package:
     return build_package(
         {
             "shape": "prism",
@@ -1225,7 +1245,7 @@ class TestPackageBodyParity:
         assert not any(isinstance(it, QGraphicsPathItem) for it in items)
         assert sum(isinstance(it, QGraphicsEllipseItem) for it in items) == 1
 
-    def _disc(self, profile: str) -> object:
+    def _disc(self, profile: str) -> Package:
         return build_package(
             {
                 "shape": "disc",
@@ -1307,7 +1327,7 @@ class TestBodyShapeContract:
         (lambda: TO92Body(), _pts((0, 0), (1, 0), (2, 0))),
         (lambda: PackageBody(_dip8_prism()),
          _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))),
-        (lambda: PackageBody(prism_for_footprint(SingleRow(n=6))),
+        (lambda: PackageBody(_sil6_prism()),
          _pts(*[(0, i) for i in range(6)])),
     ])
     def test_draw_returns_list_of_qgraphicsitem(

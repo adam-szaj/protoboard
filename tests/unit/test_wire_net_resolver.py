@@ -78,7 +78,7 @@ class TestWireNetResolverEquivalence:
         sch = Schematic(nets={
             net_id: Net(
                 id=net_id, name="N1",
-                pins=frozenset({PinRef(component_id=r1.id, pin_number=1)}),
+                pins={PinRef(component_id=r1.id, pin_number=1)},
             )
         })
         # Wire terminating on pin1's pad.

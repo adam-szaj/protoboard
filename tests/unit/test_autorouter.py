@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
@@ -18,7 +20,7 @@ from protoboard.domain.components.footprints import SingleRow
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
@@ -191,7 +193,7 @@ class TestAutorouter:
                 cid_a: _place(cid_a, 0.5, 0.5),  # pin1=(0.5,0.5) pin2=(1.5,0.5)
                 cid_b: _place(cid_b, 2.5, 0.5),  # pin1=(2.5,0.5) pin2=(3.5,0.5)
             },
-            wires=[existing_wire],
+            wires=WireCollection([existing_wire]),
         )
         ref_a2 = PinRef(component_id=cid_a, pin_number=2)  # (1.5, 0.5)
         ref_b1 = PinRef(component_id=cid_b, pin_number=1)  # (2.5, 0.5)
@@ -756,7 +758,6 @@ class TestAutoroutePreconditions:
         """Two components placed so pin-1 of each lands on the same pad,
         with each pin assigned to a different net → SHORT.  Autoroute
         must raise instead of running."""
-        import pytest
         from protoboard.services.routing.autorouter import (
             AutoroutePreconditionError,
         )
@@ -957,7 +958,6 @@ class TestPartialRoutingRollback:
             result = autoroute(board, layout, schematic, components, instances,
                                max_optimize_iterations=0)
         except Exception as exc:
-            import pytest
             pytest.skip(f"Autoroute precondition rejected the setup: {exc}")
             return
 

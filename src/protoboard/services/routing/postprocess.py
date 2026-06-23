@@ -34,7 +34,7 @@ _log = structlog.get_logger(__name__)
 # a path but produces no change.
 _SIMPLIFY_TRACE = os.environ.get("SIMPLIFY_TRACE", "").lower() in ("1", "true", "yes")
 from enum import Enum
-from typing import cast, Literal
+from typing import cast, Literal, TYPE_CHECKING
 
 from protoboard.domain.layout.wire import Wire
 from protoboard.types import Side
@@ -43,6 +43,9 @@ from protoboard.services.routing.astar import (
     _build_bare_seg_index,
     _segs_cross,
 )
+
+if TYPE_CHECKING:
+    from protoboard.domain.board.pad_state import Pad
 
 
 class SimplifyMode(str, Enum):
@@ -1154,7 +1157,7 @@ def _candidate_no_new_pin_contact(
     orig_keys = {(round(p.x, 6), round(p.y, 6)) for p in original_path}
     wire_type = "insulated" if wire_is_insulated else "bare"
 
-    def _is_hard_blocker(pad: object) -> bool:
+    def _is_hard_blocker(pad: "Pad") -> bool:
         """Hard-block contacts that the candidate must NOT introduce, even
         if it just shifts them from an existing position.  Reject reasons:
         SHORT_CIRCUIT, alien same-side bare conductor, hard-blocking body,
@@ -1171,7 +1174,7 @@ def _candidate_no_new_pin_contact(
             # Was the rejection caused by alien insulated wire only?  If
             # yes, it's a SOFT contact (counted elsewhere).  Otherwise
             # something else hard-blocks — SHORT, body, or alien bare.
-            blocked_by = pad.physically_blocked_on(wire_side)  # type: ignore[attr-defined]
+            blocked_by = pad.physically_blocked_on(wire_side)
             only_insulated_alien = True
             for it in blocked_by:
                 if isinstance(it, (InsulatedWireItem, InsulatedWireCrossing)):
@@ -1190,7 +1193,7 @@ def _candidate_no_new_pin_contact(
             if not only_insulated_alien:
                 if _SIMPLIFY_TRACE:
                     items_dump = []
-                    for it in pad.iter_items(side=None):  # type: ignore[attr-defined]
+                    for it in pad.iter_items(side=None):
                         items_dump.append({
                             "type": type(it).__name__,
                             "id": str(getattr(it, "id", None)),
@@ -1198,7 +1201,7 @@ def _candidate_no_new_pin_contact(
                         })
                     _log.info(
                         "simplify.pad_blocks.hard",
-                        pad_pos=(pad.position.x, pad.position.y),  # type: ignore[attr-defined]
+                        pad_pos=(pad.position.x, pad.position.y),
                         wire_side=wire_side,
                         wire_net_id=(
                             str(wire_net_id)
@@ -1209,7 +1212,7 @@ def _candidate_no_new_pin_contact(
                     )
                 return True
         # Alien PinItem on either side — always hard.
-        for it in pad.iter_items(side=None):  # type: ignore[attr-defined]
+        for it in pad.iter_items(side=None):
             if not isinstance(it, PinItem):
                 continue
             if wire_net_id is not None and it.net == wire_net_id:
@@ -1217,7 +1220,7 @@ def _candidate_no_new_pin_contact(
             if _SIMPLIFY_TRACE:
                 _log.info(
                     "simplify.pad_blocks.alien_pin",
-                    pad_pos=(pad.position.x, pad.position.y),  # type: ignore[attr-defined]
+                    pad_pos=(pad.position.x, pad.position.y),
                     wire_side=wire_side,
                     wire_net_id=(
                         str(wire_net_id) if wire_net_id is not None else None
@@ -1229,12 +1232,12 @@ def _candidate_no_new_pin_contact(
             return True
         return False
 
-    def _has_soft_insulated_contact(pad: object) -> bool:
+    def _has_soft_insulated_contact(pad: "Pad") -> bool:
         """Pad hosts an alien InsulatedWireItem/Crossing on the wire's side.
         Such contacts are counted (shift-able) rather than absolutely
         rejected — two insulated wires sharing a pad is mechanical but
         electrically harmless."""
-        for it in pad.physically_blocked_on(wire_side):  # type: ignore[attr-defined]
+        for it in pad.physically_blocked_on(wire_side):
             if not isinstance(it, (InsulatedWireItem, InsulatedWireCrossing)):
                 continue
             if wire_net_id is not None and it.net == wire_net_id:
@@ -1242,11 +1245,11 @@ def _candidate_no_new_pin_contact(
             return True
         return False
 
-    def _iter_pads_along(path: list[Point]) -> "list[object]":
+    def _iter_pads_along(path: list[Point]) -> "list[Pad]":
         """Every pad touched by *path* (vertices + mid-segment pads).
         De-duplicates by pad position so each pad counts at most once."""
         seen: set[tuple[float, float]] = set()
-        out: list[object] = []
+        out: list[Pad] = []
         # Vertex pads.
         for v in path:
             key = (round(v.x, 6), round(v.y, 6))
@@ -1267,7 +1270,7 @@ def _candidate_no_new_pin_contact(
             except AttributeError:
                 return out  # caller passed a non-PadIndex object
             for pad in pads_near:
-                key = (round(pad.position.x, 6), round(pad.position.y, 6))  # type: ignore[attr-defined]
+                key = (round(pad.position.x, 6), round(pad.position.y, 6))
                 if key in seen:
                     continue
                 seen.add(key)
@@ -1276,7 +1279,7 @@ def _candidate_no_new_pin_contact(
 
     # Hard-block check first: any NEW hard contact on the candidate aborts.
     for pad in _iter_pads_along(candidate_vertices):
-        key = (round(pad.position.x, 6), round(pad.position.y, 6))  # type: ignore[attr-defined]
+        key = (round(pad.position.x, 6), round(pad.position.y, 6))
         if key in orig_keys:
             continue  # pre-existing — not "new"
         if _is_hard_blocker(pad):
@@ -1355,14 +1358,14 @@ def _candidate_safe_via_pad_index(
         except ImportError:
             return True
 
-        def _pad_is_hard_block_insulated(pad: object) -> bool:
+        def _pad_is_hard_block_insulated(pad: "Pad") -> bool:
             """For insulated wires only: hard-reject SHORT, body, alien
             bare.  Alien insulated same-side is soft."""
             if pad_index.can_route_through(  # type: ignore[attr-defined]
                 pad.position, wire_side, wire_net_id, wire_type,
             ):
                 return False
-            blocked_by = pad.physically_blocked_on(wire_side)  # type: ignore[attr-defined]
+            blocked_by = pad.physically_blocked_on(wire_side)
             for it in blocked_by:
                 if isinstance(it, (InsulatedWireItem, InsulatedWireCrossing)):
                     if wire_net_id is not None and it.net == wire_net_id:

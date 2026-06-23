@@ -29,7 +29,7 @@ from protoboard.domain.layout.placement import (
     ComponentPlacement,
     pin_world_position,
 )
-from protoboard.domain.layout.wire import KnotRef, Wire
+from protoboard.domain.layout.wire import KnotRef, Wire, WireCollection
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
@@ -69,7 +69,7 @@ def _two_wires_sharing_joint(
     defn = ComponentDefinition(
         name="CONN", footprint=SIL(2), pin_names={1: "1", 2: "2"},
     )
-    layout = Layout(placements={}, wires=[])
+    layout = Layout(placements={}, wires=WireCollection([]))
     inst_a = ComponentInstance.new(definition_ref="CONN", refdes="J1", value="")
     inst_b = ComponentInstance.new(definition_ref="CONN", refdes="J2", value="")
     instances = {inst_a.id: inst_a, inst_b.id: inst_b}
@@ -192,7 +192,7 @@ class TestFuseTouchingWires:
         defn = ComponentDefinition(
             name="CONN", footprint=SIL(2), pin_names={1: "1", 2: "2"},
         )
-        layout = Layout(placements={}, wires=[])
+        layout = Layout(placements={}, wires=WireCollection([]))
         inst_a = ComponentInstance.new(definition_ref="CONN", refdes="J1", value="")
         inst_b = ComponentInstance.new(definition_ref="CONN", refdes="J2", value="")
         instances = {inst_a.id: inst_a, inst_b.id: inst_b}
@@ -241,7 +241,7 @@ class TestFuseTouchingWires:
         defn = ComponentDefinition(
             name="CONN", footprint=SIL(2), pin_names={1: "1", 2: "2"},
         )
-        layout = Layout(placements={}, wires=[])
+        layout = Layout(placements={}, wires=WireCollection([]))
         inst = ComponentInstance.new(
             definition_ref="CONN", refdes="J1", value="",
         )

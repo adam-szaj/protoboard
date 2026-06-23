@@ -185,6 +185,7 @@ class TestLoadPresentation:
              "color": "#d6c08c", "edge": "sharp", "arrangement": "radial"},
         ])
         r = pkgs["R"]
+        assert isinstance(r, Cylinder)
         assert r.color == "#d6c08c"
         assert r.edge is EdgeStyle.SHARP
         assert r.arrangement is LeadArrangement.RADIAL
@@ -195,7 +196,9 @@ class TestLoadPresentation:
              "dims": {"diameter": 2.5, "length": 6.3},
              "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}},
         ])
-        assert pkgs["R"].color is None
+        r = pkgs["R"]
+        assert isinstance(r, Cylinder)
+        assert r.color is None
 
     def test_flat_sided_cylinder_parsed(self) -> None:
         from protoboard.geometry import Point
@@ -217,7 +220,9 @@ class TestLoadPresentation:
                       "flat_r": 1.175, "flat_normal": [-1.0, 0.0]},
              "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}},
         ])
-        assert pkgs["TO-92"].flat_radius_mm == 1.175
+        t = pkgs["TO-92"]
+        assert isinstance(t, Cylinder)
+        assert t.flat_radius_mm == 1.175
 
     def test_no_flat_side_is_full_circle(self) -> None:
         pkgs = load_packages(GENERICS + [
@@ -225,7 +230,9 @@ class TestLoadPresentation:
              "dims": {"diameter": 2.5, "length": 6.3},
              "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}},
         ])
-        assert pkgs["R"].flat_radius_mm is None
+        r = pkgs["R"]
+        assert isinstance(r, Cylinder)
+        assert r.flat_radius_mm is None
 
     def test_bad_flat_normal_raises(self) -> None:
         with pytest.raises(PackageDefError, match="flat_normal"):

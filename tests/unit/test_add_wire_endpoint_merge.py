@@ -10,6 +10,7 @@ user sees on screen (one continuous solderable artifact).
 from __future__ import annotations
 
 import uuid
+from typing import cast
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
@@ -22,7 +23,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.knot import JointKnot, PinKnot
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.geometry import Point
 
 
@@ -44,7 +45,7 @@ class _State:
 
     def __init__(self) -> None:
         self.board = _perfboard()
-        self.layout = Layout(placements={}, wires=[])
+        self.layout = Layout(placements={}, wires=WireCollection())
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         self.components: dict[str, ComponentDefinition] = {}
 
@@ -450,9 +451,10 @@ class _StrategyState(_SchematicState):
 
     def strategy_for(self, subsystem: str):
         from protoboard.services.pad_strategy import (
-            StrategyConfig, make_strategy,
+            StrategyConfig, SubsystemName, make_strategy,
         )
-        return make_strategy(subsystem, StrategyConfig.from_session(self, subsystem))
+        name = cast(SubsystemName, subsystem)
+        return make_strategy(name, StrategyConfig.from_session(self, name))
 
 
 class TestPinNetGate:

@@ -20,6 +20,7 @@ from protoboard.services.routing.optimizer import (
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
+    from protoboard.domain.layout.wire import Wire
     from protoboard.geometry import Point
     from protoboard.services.routing.autorouter import AutorouteResult
     from protoboard.services.routing.protocol import ProgressSink
@@ -49,7 +50,7 @@ class _PadContext:
 
 def _build_pad_context(
     request: "RouteRequest",
-    wires: list,
+    wires: "list[Wire]",
 ) -> _PadContext:
     """Construct the PadIndex + pin-net helpers shared by all optimizers.
 
@@ -58,6 +59,7 @@ def _build_pad_context(
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.placement import pin_world_position
+    from protoboard.domain.layout.wire import WireCollection
     from protoboard.domain.layout.wire_utils import board_pads_for_side
     from protoboard.geometry import Point
 
@@ -119,7 +121,7 @@ def _build_pad_context(
 
     layout_for_pads = Layout(
         placements=dict(worker_layout.placements),
-        wires=list(wires),
+        wires=WireCollection(list(wires)),
     )
     layout_for_pads.ensure_root_group()
     pad_index = PadIndex(

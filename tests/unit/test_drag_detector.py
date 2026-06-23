@@ -155,13 +155,13 @@ class TestSeverity:
         nets = [
             Net(
                 id=net_a, name="VCC",
-                pins=frozenset(
+                pins=set(
                     {PinRef(component_id=inst_a.id, pin_number=1)}
                 ),
             ),
             Net(
                 id=net_b, name="GND",
-                pins=frozenset(
+                pins=set(
                     {PinRef(component_id=inst_b.id, pin_number=1)}
                 ),
             ),
@@ -196,7 +196,7 @@ class TestSeverity:
         nets = [
             Net(
                 id=net_n, name="N1",
-                pins=frozenset(
+                pins=set(
                     {PinRef(component_id=inst_b.id, pin_number=1)}
                 ),
             ),
@@ -231,7 +231,7 @@ class TestSeverity:
         nets = [
             Net(
                 id=net_n, name="N1",
-                pins=frozenset(
+                pins=set(
                     {
                         PinRef(component_id=inst_a.id, pin_number=1),
                         PinRef(component_id=inst_b.id, pin_number=1),
@@ -302,13 +302,13 @@ class TestSeverity:
         nets = [
             Net(
                 id=net_a, name="VCC",
-                pins=frozenset(
+                pins=set(
                     {PinRef(component_id=inst_a.id, pin_number=1)}
                 ),
             ),
             Net(
                 id=net_b, name="GND",
-                pins=frozenset(
+                pins=set(
                     {PinRef(component_id=inst_b.id, pin_number=1)}
                 ),
             ),
@@ -358,7 +358,7 @@ class TestStrategyHook:
         nets = [
             Net(
                 id=net_n, name="N1",
-                pins=frozenset(
+                pins=set(
                     {PinRef(component_id=inst_b.id, pin_number=1)}
                 ),
             ),

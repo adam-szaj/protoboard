@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor
@@ -28,6 +28,8 @@ from PySide6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
+    from protoboard.domain.commands.base import Command, CommandStack
+    from protoboard.domain.commands.net_cmds import NetState
     from protoboard.gui.session import EditorSession
 
 # Column indices for the net list tree.
@@ -307,6 +309,22 @@ class NetsEditorPanel(QWidget):
             return None
 
     # ------------------------------------------------------------------
+    # Command dispatch
+    # ------------------------------------------------------------------
+
+    def _execute_net_command(self, cmd: "Command[NetState]") -> None:
+        """Run a net-management command against the active session's stack.
+
+        ``session.stack`` is declared as ``CommandStack[ComponentState]`` while
+        net commands are ``Command[NetState]``; the runtime ``EditorSession``
+        satisfies both protocols, so viewing the stack as ``CommandStack[NetState]``
+        is sound. Callers must hold the ``self._session is not None`` invariant.
+        """
+        assert self._session is not None
+        stack = cast("CommandStack[NetState]", self._session.stack)
+        stack.execute(cmd, cast("NetState", self._session))
+
+    # ------------------------------------------------------------------
     # Net actions
     # ------------------------------------------------------------------
 
@@ -331,7 +349,7 @@ class NetsEditorPanel(QWidget):
         from protoboard.domain.commands.net_cmds import CreateNetCommand
 
         cmd = CreateNetCommand(name=name)
-        self._session.stack.execute(cmd, self._session)
+        self._execute_net_command(cmd)
         self._rebuild()
         self.nets_changed.emit()
 
@@ -363,7 +381,7 @@ class NetsEditorPanel(QWidget):
         from protoboard.domain.commands.net_cmds import RenameNetCommand
 
         cmd = RenameNetCommand(net_id=net_id, new_name=name)
-        self._session.stack.execute(cmd, self._session)
+        self._execute_net_command(cmd)
         self._rebuild()
         self.nets_changed.emit()
 
@@ -387,7 +405,7 @@ class NetsEditorPanel(QWidget):
         from protoboard.domain.commands.net_cmds import DeleteNetCommand
 
         cmd = DeleteNetCommand(net_id=net_id)
-        self._session.stack.execute(cmd, self._session)
+        self._execute_net_command(cmd)
         self._rebuild()
         self.nets_changed.emit()
 
@@ -419,7 +437,7 @@ class NetsEditorPanel(QWidget):
         from protoboard.domain.commands.net_cmds import SetNetColorCommand
 
         cmd = SetNetColorCommand(net_id=net_id, new_color=color)
-        self._session.stack.execute(cmd, self._session)  # type: ignore[union-attr]
+        self._execute_net_command(cmd)
         self._rebuild()
         self.nets_changed.emit()
 
@@ -433,7 +451,7 @@ class NetsEditorPanel(QWidget):
         from protoboard.domain.commands.net_cmds import SetNetGlobalCommand
 
         cmd = SetNetGlobalCommand(net_id=net_id, global_net=not net.global_net)
-        self._session.stack.execute(cmd, self._session)
+        self._execute_net_command(cmd)
         self._rebuild()
         self.nets_changed.emit()
 
@@ -490,7 +508,7 @@ class NetsEditorPanel(QWidget):
         if net is None:
             return
         cmd = UnassignPinCommand(component_id=comp_id, pin_number=pin_num)
-        self._session.stack.execute(cmd, self._session)
+        self._execute_net_command(cmd)
         self._rebuild()
         self.nets_changed.emit()
 
@@ -544,7 +562,7 @@ class NetsEditorPanel(QWidget):
             pin_number=pin_num,
             target_net_id=target_net_id,
         )
-        self._session.stack.execute(cmd, self._session)
+        self._execute_net_command(cmd)
         self._rebuild()
         self.nets_changed.emit()
 
@@ -585,13 +603,13 @@ class NetsEditorPanel(QWidget):
         )
 
         create = CreateNetCommand(name=name)
-        self._session.stack.execute(create, self._session)
+        self._execute_net_command(create)
         assign = AssignPinToNetCommand(
             component_id=comp_id,
             pin_number=pin_num,
             target_net_id=create.net_id,
         )
-        self._session.stack.execute(assign, self._session)
+        self._execute_net_command(assign)
         self._rebuild()
         self.nets_changed.emit()
 

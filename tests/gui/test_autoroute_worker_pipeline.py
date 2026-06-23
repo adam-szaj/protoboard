@@ -17,6 +17,8 @@ spinning up a QThread.
 
 from __future__ import annotations
 
+from typing import cast
+
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
@@ -31,6 +33,7 @@ from protoboard.services.routing.optimizer import (
 )
 from protoboard.services.routing.protocol import (
     ProgressSink,
+    Router,
     RouterCapabilities,
     registry as router_registry,
 )
@@ -133,7 +136,7 @@ class TestLegacyPath:
 
     def test_request_passed_to_router_unchanged(self, qtbot) -> None:
         rec = _RecordingRouter()
-        router_registry.register(rec)
+        router_registry.register(cast(Router, rec))
         try:
             req = _empty_request(enable_simplify_pass=True)
             worker, emitted = _make_worker(
@@ -144,6 +147,7 @@ class TestLegacyPath:
             assert rec.calls == 1
             # Untouched — request flows verbatim.
             assert rec.last_request is req
+            assert rec.last_request is not None
             assert rec.last_request.routing_settings.enable_simplify_pass is True
             assert emitted[-1][0] == "finished"
         finally:
@@ -153,7 +157,7 @@ class TestLegacyPath:
 class TestExplicitOptimizerChain:
     def test_suppresses_embedded_simplify_pass(self, qtbot) -> None:
         rec = _RecordingRouter()
-        router_registry.register(rec)
+        router_registry.register(cast(Router, rec))
         try:
             req = _empty_request(enable_simplify_pass=True)
             worker, emitted = _make_worker(
@@ -163,6 +167,7 @@ class TestExplicitOptimizerChain:
             worker.run()
             # The router sees a request with enable_simplify_pass forced to False.
             assert rec.last_request is not req
+            assert rec.last_request is not None
             assert rec.last_request.routing_settings.enable_simplify_pass is False
             assert emitted[-1][0] == "finished"
         finally:
@@ -172,7 +177,7 @@ class TestExplicitOptimizerChain:
         rec = _RecordingRouter()
         a = _StubOptimizer("opt-a")
         b = _StubOptimizer("opt-b")
-        router_registry.register(rec)
+        router_registry.register(cast(Router, rec))
         optimizer_registry.register(a)
         optimizer_registry.register(b)
         try:
@@ -198,7 +203,7 @@ class TestExplicitOptimizerChain:
         """Missing optimizer name doesn't crash — others still run."""
         rec = _RecordingRouter()
         a = _StubOptimizer("opt-a")
-        router_registry.register(rec)
+        router_registry.register(cast(Router, rec))
         optimizer_registry.register(a)
         try:
             req = _empty_request(enable_simplify_pass=False)
@@ -219,7 +224,7 @@ class TestExplicitOptimizerChain:
     def test_empty_optimizer_list_short_circuits(self, qtbot) -> None:
         """No optimizers ran, but the simplify-pass suppression still applied."""
         rec = _RecordingRouter()
-        router_registry.register(rec)
+        router_registry.register(cast(Router, rec))
         try:
             req = _empty_request(enable_simplify_pass=True)
             worker, emitted = _make_worker(
@@ -228,6 +233,7 @@ class TestExplicitOptimizerChain:
             )
             worker.run()
             assert rec.calls == 1
+            assert rec.last_request is not None
             assert rec.last_request.routing_settings.enable_simplify_pass is False
             assert emitted[-1][0] == "finished"
         finally:
@@ -240,7 +246,7 @@ class TestIncompatibleOptimizerSkipped:
     def test_skipped_when_capabilities_block(self, qtbot) -> None:
         from protoboard.services.routing.optimizer import OptimizerCapabilities
         rec = _RecordingRouter()
-        router_registry.register(rec)
+        router_registry.register(cast(Router, rec))
 
         ran: list[str] = []
 
@@ -281,7 +287,7 @@ class TestCancellationBetweenOptimizers:
         rec = _RecordingRouter()
         a = _StubOptimizer("opt-a")
         b = _StubOptimizer("opt-b")
-        router_registry.register(rec)
+        router_registry.register(cast(Router, rec))
         optimizer_registry.register(a)
         optimizer_registry.register(b)
         try:

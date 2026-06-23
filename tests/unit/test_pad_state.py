@@ -387,7 +387,7 @@ class TestPadIndexBuild:
         net_id = uuid.uuid4()
         sch = Schematic(nets={net_id: Net(
             id=net_id, name="N1",
-            pins=frozenset({PinRef(component_id=inst.id, pin_number=1)}),
+            pins={PinRef(component_id=inst.id, pin_number=1)},
         )})
         idx = PadIndex(board, lay, sch, {"R": defn}, {inst.id: inst})
         pin_pad = idx.pad_at(Point(0.5, 0.5))

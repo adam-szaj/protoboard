@@ -187,6 +187,7 @@ class TestLibrarySmdIsRigidWithMount:
         lib = load_library([BUILTIN_LIBRARY_DIR], families)
         defn = lib.get("R")
         smd = next(o for o in defn.footprints if o.name == "SMD-0805")
+        assert smd.ref is not None  # catalogue footprint option, not inline
         variant = resolve_variant(families, smd.ref)
         assert variant is not None
         assert is_rigid_package(variant.package)        # SMD body is rigid

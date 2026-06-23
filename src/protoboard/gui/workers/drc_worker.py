@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import threading
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from PySide6.QtCore import QThread, Signal
 
@@ -56,7 +56,7 @@ class DRCWorker(QThread):
         receiver; the cancel flag is left alone.
     """
 
-    finished: Signal = Signal(list)
+    finished: ClassVar[Signal] = Signal(list)
     error: Signal = Signal(str)
     # Emitted unconditionally from ``run()``'s finally — including when the
     # worker bails out on cancel.  Lets MainWindow release the strong ref

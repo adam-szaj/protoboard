@@ -52,8 +52,8 @@ from protoboard.domain.layout.placement import ComponentPlacement  # noqa: E402
 from protoboard.geometry import Point  # noqa: E402
 from protoboard.gui.renderers.body_shapes import body_shape_for  # noqa: E402
 from protoboard.gui.theme import DEFAULT_THEME, Theme  # noqa: E402
-from protoboard.services.library.two_pin_body_loader import (  # noqa: E402
-    load_two_pin_body_families,
+from protoboard.services.library.package_family_loader import (  # noqa: E402
+    load_full_package_catalogue,
 )
 
 OUT_DIR = REPO_ROOT / "docs" / "footprints"
@@ -530,7 +530,7 @@ def _render_panel(
     # Body shape (must take the shifted absolute positions).
     shape = body_shape_for(
         defn, shifted_placement, inst,
-        two_pin_families=theme.two_pin_body_families,
+        package_families=theme.package_families,
     )
     fill = QColor(theme.comp_fill_color)
     border = QColor(theme.comp_border)
@@ -628,9 +628,9 @@ def main() -> int:
     if QApplication.instance() is None:
         QApplication(sys.argv)
 
-    families = load_two_pin_body_families()
+    families = load_full_package_catalogue()
     from dataclasses import replace as _replace
-    theme = _replace(DEFAULT_THEME, two_pin_body_families=families)
+    theme = _replace(DEFAULT_THEME, package_families=families)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 

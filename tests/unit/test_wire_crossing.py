@@ -53,7 +53,7 @@ def _schematic(*nets: tuple[uuid.UUID, list[tuple[uuid.UUID, int]]]) -> Schemati
     """Build a schematic with given nets: (net_id, [(comp_id, pin_num), ...])"""
     net_objs: dict[uuid.UUID, Net] = {}
     for net_id, pins in nets:
-        pin_refs = frozenset(PinRef(component_id=c, pin_number=p) for c, p in pins)
+        pin_refs = {PinRef(component_id=c, pin_number=p) for c, p in pins}
         net_objs[net_id] = Net(id=net_id, name=f"N{net_id.int}", pins=pin_refs)
     return Schematic(nets=net_objs)
 

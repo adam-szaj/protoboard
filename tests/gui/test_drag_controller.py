@@ -17,6 +17,7 @@ exercised without synthesising QMouseEvents:
 from __future__ import annotations
 
 import uuid
+from typing import cast
 
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QMouseEvent
@@ -26,6 +27,7 @@ from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.drag_set import DragSet
 from protoboard.gui.selection.drag_controller import (
+    DragContext,
     DragController,
     FloatingPhase,
 )
@@ -85,8 +87,11 @@ def _controller(
         session.stack.execute(cmd, session)  # type: ignore[arg-type]
         return True
 
+    # ``EditorSession`` structurally satisfies the ``DragContext`` seam (its
+    # ``layout`` returns the concrete ``Layout``, which Pyright won't accept as
+    # the narrower ``_LayoutLike`` protocol); cast at the seam.
     return DragController(
-        session,
+        cast(DragContext, session),
         drag_set=drag_set,
         anchor_id=comp_id,
         anchor_pos=pl.position,

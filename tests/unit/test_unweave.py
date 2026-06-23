@@ -4,14 +4,19 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING, cast
 
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.geometry import Point
 from protoboard.services.routing.unweave import (
     count_mutual_crossings,
     find_crossings,
     unweave_wires,
 )
+
+if TYPE_CHECKING:
+    from protoboard.domain.connectivity.graph import ConnectivityGraph
+    from protoboard.domain.schematic.schematic import Schematic
 
 
 def _wire(*pts: tuple[float, float], insulated: bool = True, side: str = "top") -> Wire:
@@ -290,7 +295,11 @@ class TestUnweaveSideChangeSplitting:
             (4.0, 1.0), (3.0, 0.0), (2.0, 1.0), (1.0, 0.0), (0.0, 1.0),
             side="bottom",
         )
-        out = unweave_wires([w1, w2], schematic=schematic, graph=graph)
+        out = unweave_wires(
+            [w1, w2],
+            schematic=cast("Schematic", schematic),
+            graph=cast("ConnectivityGraph", graph),
+        )
         assert count_mutual_crossings(out) == 0
         # Endpoints preserved on whichever output wire matches each input.
         # Either some output wire starts at (0,0) and another at (4,1),
@@ -336,8 +345,8 @@ class TestUnweaveSideChangeSplitting:
         )
         out = unweave_wires(
             [w1, w2],
-            schematic=schematic,
-            graph=graph,
+            schematic=cast("Schematic", schematic),
+            graph=cast("ConnectivityGraph", graph),
             allow_layer_change=False,
         )
         # No wire may carry fragments on both sides.
@@ -410,7 +419,7 @@ class TestUnweaveConnectivityPreserved:
         )
         # Validate connectivity.
         new_layout = Layout()
-        new_layout.wires = out
+        new_layout.wires = cast(WireCollection, out)
         new_layout.placements = layout.placements
         ok, reason = self._connectivity_ok(
             schematic, board, new_layout, components, instances,
@@ -453,7 +462,7 @@ class TestUnweaveConnectivityPreserved:
         }
 
         upper_layout = Layout()
-        upper_layout.wires = upper_wires
+        upper_layout.wires = cast(WireCollection, upper_wires)
         upper_layout.placements = upper_placements
         graph = ConnectivityGraph(
             board=board, layout=upper_layout,
@@ -463,7 +472,7 @@ class TestUnweaveConnectivityPreserved:
 
         # Build a graph from the output layout.
         new_layout = Layout()
-        new_layout.wires = out
+        new_layout.wires = cast(WireCollection, out)
         new_layout.placements = upper_placements
         new_graph = ConnectivityGraph(
             board=board, layout=new_layout,
@@ -772,7 +781,7 @@ class TestUnweaveTangled03Fixture:
         from protoboard.domain.layout.layout import Layout
         upper_wires = [w for w in layout.wires if max(p.y for p in w.path) < 15.0]
         upper_layout = Layout()
-        upper_layout.wires = upper_wires
+        upper_layout.wires = cast(WireCollection, upper_wires)
         upper_layout.placements = layout.placements
         # Pull component definitions from session loader if available;
         # otherwise skip the graph-driven path and assert legacy behaviour.

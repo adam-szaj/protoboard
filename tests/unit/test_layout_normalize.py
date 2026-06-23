@@ -8,7 +8,7 @@ import uuid
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.normalize import normalize_layout_positions
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.geometry import Point
 
 
@@ -31,7 +31,7 @@ class TestNormalizeLayoutPositions:
         cid = uuid.uuid4()
         lay = Layout(
             placements={cid: _pl(cid, 0.5, 0.5)},
-            wires=[_wire((0.5, 0.5), (3.5, 0.5))],
+            wires=WireCollection([_wire((0.5, 0.5), (3.5, 0.5))]),
         )
         report = normalize_layout_positions(lay)
         assert not report.any_corrections
@@ -39,7 +39,7 @@ class TestNormalizeLayoutPositions:
 
     def test_fractional_placement_snapped(self) -> None:
         cid = uuid.uuid4()
-        lay = Layout(placements={cid: _pl(cid, 0.5, 3.503)}, wires=[])
+        lay = Layout(placements={cid: _pl(cid, 0.5, 3.503)}, wires=WireCollection())
         report = normalize_layout_positions(lay)
         assert len(report.placements) == 1
         corr = report.placements[0]
@@ -50,7 +50,7 @@ class TestNormalizeLayoutPositions:
 
     def test_fractional_wire_point_snapped(self) -> None:
         wire = _wire((0.5, 0.5), (1.5, 0.503), (3.5, 0.5))
-        lay = Layout(placements={}, wires=[wire])
+        lay = Layout(placements={}, wires=WireCollection([wire]))
         report = normalize_layout_positions(lay)
         assert len(report.wires) == 1
         wc = report.wires[0]
@@ -62,7 +62,7 @@ class TestNormalizeLayoutPositions:
     def test_within_threshold_snaps(self) -> None:
         # 3.2 nearest half-grid = 3.5 (delta = 0.3) → within ±0.5, will snap.
         cid = uuid.uuid4()
-        lay = Layout(placements={cid: _pl(cid, 0.5, 3.2)}, wires=[])
+        lay = Layout(placements={cid: _pl(cid, 0.5, 3.2)}, wires=WireCollection())
         report = normalize_layout_positions(lay)
         assert report.any_corrections
         assert lay.placements[cid].position == Point(0.5, 3.5)
@@ -88,14 +88,14 @@ class TestNormalizeLayoutPositions:
             position=Point(0.5 + 1e-9, 0.5 - 1e-9),
             rotation=0, side="top",
         )
-        lay = Layout(placements={cid: pl_n}, wires=[])
+        lay = Layout(placements={cid: pl_n}, wires=WireCollection())
         report = normalize_layout_positions(lay)
         # Noise below _MIN_DELTA: no correction recorded.
         assert not report.any_corrections
 
     def test_idempotent(self) -> None:
         cid = uuid.uuid4()
-        lay = Layout(placements={cid: _pl(cid, 0.5, 3.503)}, wires=[])
+        lay = Layout(placements={cid: _pl(cid, 0.5, 3.503)}, wires=WireCollection())
         normalize_layout_positions(lay)
         report2 = normalize_layout_positions(lay)
         assert not report2.any_corrections

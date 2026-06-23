@@ -8,6 +8,9 @@ from dataclasses import dataclass, field
 
 import pytest
 
+from protoboard.domain.board.board import Board
+from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
+from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.commands.group_cmds import (
     AddToGroupCommand,
     CreateGroupCommand,
@@ -15,6 +18,8 @@ from protoboard.domain.commands.group_cmds import (
     RemoveFromGroupCommand,
     RenameGroupCommand,
 )
+from protoboard.domain.components.definition import ComponentDefinition
+from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.layout.group import (
     ComponentGroup,
@@ -34,9 +39,33 @@ from protoboard.domain.layout.layout import Layout, ROOT_GROUP_ID
 # ---------------------------------------------------------------------------
 
 
+def _board() -> Board:
+    return Board(root=BoardGrid(
+        width_policy=SizePolicy.HUG,
+        height_policy=SizePolicy.HUG,
+        cell=PadAtom(
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
+            layers=PadLayers(top=True, bottom=True, plated_through=True),
+        ),
+        rows=4, cols=4, row_gap=0.0, col_gap=0.0,
+    ))
+
+
 @dataclass
 class _State:
+    """Minimal :class:`ComponentState` stub.
+
+    The group commands under test only ever touch ``layout``; the other
+    three attributes exist solely so the dataclass structurally satisfies
+    the :class:`~protoboard.domain.commands.base.ComponentState` protocol
+    that ``apply``/``revert`` are typed against.
+    """
+
     layout: Layout = field(default_factory=Layout)
+    board: Board = field(default_factory=_board)
+    instances: dict[uuid.UUID, ComponentInstance] = field(default_factory=dict)
+    components: dict[str, ComponentDefinition] = field(default_factory=dict)
 
 
 def _make_group(
@@ -680,8 +709,7 @@ class TestSchematicProjectionForGroup:
 # ---------------------------------------------------------------------------
 
 
-def _make_defn(pin_count: int, name: str = "DUT") -> "ComponentDefinition":
-    from protoboard.domain.components.definition import ComponentDefinition
+def _make_defn(pin_count: int, name: str = "DUT") -> ComponentDefinition:
     from protoboard.domain.components.footprints import SingleRow
 
     return ComponentDefinition(
@@ -691,9 +719,7 @@ def _make_defn(pin_count: int, name: str = "DUT") -> "ComponentDefinition":
     )
 
 
-def _make_inst(defn_ref: str, refdes: str) -> "ComponentInstance":
-    from protoboard.domain.components.instance import ComponentInstance
-
+def _make_inst(defn_ref: str, refdes: str) -> ComponentInstance:
     return ComponentInstance.new(definition_ref=defn_ref, refdes=refdes, value="")
 
 

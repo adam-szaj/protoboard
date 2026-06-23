@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, cast
 
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.placement import ComponentPlacement
@@ -21,6 +22,20 @@ from protoboard.gui.selection.adapters import (
     GroupSelectable,
     WireSelectable,
 )
+
+if TYPE_CHECKING:
+    from protoboard.gui.selection.hit_test import HitContext
+    from protoboard.types import Side
+
+
+def _tester(ctx: _FakeCtx, *, camera_side: str = "top") -> HitTester:
+    """Build a HitTester over the minimal fake, satisfying the protocol type.
+
+    ``_FakeCtx`` structurally provides every method HitTester reads, but it is
+    deliberately narrower than the full :class:`HitContext` protocol (e.g. its
+    ``layout`` omits ``wires``), so cast it at the boundary the tester accepts.
+    """
+    return HitTester(cast("HitContext", ctx), camera_side=cast("Side", camera_side))
 
 
 @dataclass
@@ -100,7 +115,7 @@ class TestHitComponent:
     def test_pin_within_radius_hits(self) -> None:
         ctx = _FakeCtx()
         cid = _add_component(ctx, pin_xy=(5.0, 5.0))
-        sel = HitTester(ctx).hit(5.2, 5.1)  # within 0.5
+        sel = _tester(ctx).hit(5.2, 5.1)  # within 0.5
         assert isinstance(sel, ComponentSelectable)
         assert sel.component_id == cid
 
@@ -108,14 +123,14 @@ class TestHitComponent:
         ctx = _FakeCtx()
         _add_component(ctx, pin_xy=(5.0, 5.0))
         # 0.6 away in x → beyond HIT_RADIUS 0.5, and no bbox set
-        assert HitTester(ctx).hit(5.6, 5.0) is None
+        assert _tester(ctx).hit(5.6, 5.0) is None
 
     def test_camera_side_preferred_over_back(self) -> None:
         ctx = _FakeCtx()
         back = _add_component(ctx, pin_xy=(5.0, 5.0), side="bottom")
         top = _add_component(ctx, pin_xy=(5.05, 5.0), side="top")
         # Top is camera side; even though both within radius, top wins.
-        sel = HitTester(ctx, camera_side="top").hit(5.0, 5.0)
+        sel = _tester(ctx, camera_side="top").hit(5.0, 5.0)
         assert isinstance(sel, ComponentSelectable)
         assert sel.component_id == top
         assert sel.component_id != back
@@ -125,14 +140,14 @@ class TestHitWire:
     def test_wire_segment_within_dist_hits(self) -> None:
         ctx = _FakeCtx()
         wid = _add_wire(ctx, [(0.0, 0.0), (10.0, 0.0)])
-        sel = HitTester(ctx).hit(5.0, 0.2)  # 0.2 < WIRE_HIT_DIST 0.35
+        sel = _tester(ctx).hit(5.0, 0.2)  # 0.2 < WIRE_HIT_DIST 0.35
         assert isinstance(sel, WireSelectable)
         assert sel.wire.id == wid
 
     def test_wire_too_far_misses(self) -> None:
         ctx = _FakeCtx()
         _add_wire(ctx, [(0.0, 0.0), (10.0, 0.0)])
-        assert HitTester(ctx).hit(5.0, 0.5) is None  # 0.5 > 0.35
+        assert _tester(ctx).hit(5.0, 0.5) is None  # 0.5 > 0.35
 
 
 class TestHitGroup:
@@ -145,7 +160,7 @@ class TestHitGroup:
         )
         ctx._bboxes[cid] = Rect(x=0.0, y=0.0, width=4.0, height=4.0)
         # No pins/wires near (2,2) → group is the hit.
-        sel = HitTester(ctx).hit(2.0, 2.0)
+        sel = _tester(ctx).hit(2.0, 2.0)
         assert isinstance(sel, GroupSelectable)
         assert sel.group.id == gid
 
@@ -161,7 +176,7 @@ class TestHitGroup:
         )
         ctx._bboxes[c_big] = Rect(x=0.0, y=0.0, width=10.0, height=10.0)
         ctx._bboxes[c_small] = Rect(x=1.0, y=1.0, width=3.0, height=3.0)
-        sel = HitTester(ctx).hit(2.0, 2.0)  # inside both, small is tighter
+        sel = _tester(ctx).hit(2.0, 2.0)  # inside both, small is tighter
         assert isinstance(sel, GroupSelectable)
         assert sel.group.id == g_small
 
@@ -171,7 +186,7 @@ class TestPriorityAndFilters:
         ctx = _FakeCtx()
         cid = _add_component(ctx, pin_xy=(5.0, 5.0))
         _add_wire(ctx, [(4.0, 5.0), (6.0, 5.0)])  # passes through the pin
-        sel = HitTester(ctx).hit(5.0, 5.0)
+        sel = _tester(ctx).hit(5.0, 5.0)
         assert isinstance(sel, ComponentSelectable)
         assert sel.component_id == cid
 
@@ -179,7 +194,7 @@ class TestPriorityAndFilters:
         ctx = _FakeCtx()
         _add_component(ctx, pin_xy=(5.0, 5.0))
         wid = _add_wire(ctx, [(4.0, 5.0), (6.0, 5.0)])
-        sel = HitTester(ctx).hit(
+        sel = _tester(ctx).hit(
             5.0, 5.0, SelectionFilters(components=False, wires=True, groups=True)
         )
         assert isinstance(sel, WireSelectable)
@@ -188,10 +203,10 @@ class TestPriorityAndFilters:
     def test_all_filters_off_returns_none(self) -> None:
         ctx = _FakeCtx()
         _add_component(ctx, pin_xy=(5.0, 5.0))
-        sel = HitTester(ctx).hit(
+        sel = _tester(ctx).hit(
             5.0, 5.0, SelectionFilters(components=False, wires=False, groups=False)
         )
         assert sel is None
 
     def test_empty_board_returns_none(self) -> None:
-        assert HitTester(_FakeCtx()).hit(0.0, 0.0) is None
+        assert _tester(_FakeCtx()).hit(0.0, 0.0) is None

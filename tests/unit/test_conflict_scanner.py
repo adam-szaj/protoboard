@@ -69,12 +69,12 @@ def _schematic(*nets: tuple[uuid.UUID, list[tuple[uuid.UUID, int]]]) -> Schemati
         net_objs[net_id] = Net(
             id=net_id,
             name=f"N{net_id.int}",
-            pins=frozenset(PinRef(component_id=c, pin_number=p) for c, p in pins),
+            pins={PinRef(component_id=c, pin_number=p) for c, p in pins},
         )
     return Schematic(nets=net_objs)
 
 
-def _root_group(*comp_ids: uuid.UUID) -> dict[uuid.UUID, ComponentGroup]:
+def _root_group(*comp_ids: uuid.UUID) -> dict[uuid.UUID, object]:
     return {
         ROOT_GID: ComponentGroup(
             id=ROOT_GID,

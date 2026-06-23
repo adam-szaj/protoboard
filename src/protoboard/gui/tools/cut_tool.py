@@ -3,12 +3,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QMouseEvent
 
 from protoboard.domain.board.boxes import StripAtom
 from protoboard.domain.commands.board_cmds import SplitStripCommand
 from protoboard.gui.board_view import _Tool
+
+if TYPE_CHECKING:
+    from protoboard.domain.commands.base import ComponentState
 
 # Maximum scene-unit distance to accept a click as targeting a strip.
 _MAX_DIST = 0.65
@@ -35,7 +40,7 @@ class CutTool(_Tool):
             cut_index=cut_index,
             cut_between=cut_between,
         )
-        self._session.stack.execute(cmd, self._session)
+        self._session.stack.execute(cmd, cast("ComponentState", self._session))
         # SplitStripCommand rebuilds Board.root, so the board layer (pads /
         # strips) has to be repainted on the next refresh.  ``layout_changed``
         # alone only re-renders components and wires.

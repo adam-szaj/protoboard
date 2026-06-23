@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
+from protoboard.domain.commands.base import ComponentState
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.route_tool import RouteTool
@@ -155,7 +158,7 @@ class TestRouteToolCommit:
         _press(board_view, 1.5, 0.5)
         _enter(board_view)
         assert session.stack.can_undo()
-        session.stack.undo(session)
+        session.stack.undo(cast(ComponentState, session))
         assert len(session.layout.wires) == 0
 
     def test_wire_undo_redo(
@@ -165,9 +168,9 @@ class TestRouteToolCommit:
         _press(board_view, 0.5, 0.5)
         _press(board_view, 1.5, 0.5)
         _enter(board_view)
-        session.stack.undo(session)
+        session.stack.undo(cast(ComponentState, session))
         assert len(session.layout.wires) == 0
-        session.stack.redo(session)
+        session.stack.redo(cast(ComponentState, session))
         assert len(session.layout.wires) == 1
 
 

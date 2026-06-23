@@ -116,7 +116,7 @@ class TestReplaceWireFragmentsRevertWithSiblingRestore:
 
     def test_revert_succeeds_when_sibling_wire_restored_first(self) -> None:
         from dataclasses import dataclass as _dc
-        from typing import Any
+        from typing import Any, cast
         import uuid as _uuid
 
         from protoboard.domain.board.board import Board
@@ -128,7 +128,12 @@ class TestReplaceWireFragmentsRevertWithSiblingRestore:
         )
         from protoboard.domain.layout.knot import JointKnot
         from protoboard.domain.layout.layout import Layout
-        from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
+        from protoboard.domain.layout.wire import (
+            Fragment,
+            KnotRef,
+            Wire,
+            WireCollection,
+        )
         from protoboard.geometry import Point
 
         board = Board(root=BoardGrid(
@@ -139,7 +144,7 @@ class TestReplaceWireFragmentsRevertWithSiblingRestore:
             ),
             rows=5, cols=5, row_gap=0.0, col_gap=0.0,
         ))
-        layout = Layout(placements={}, wires=[])
+        layout = Layout(placements={}, wires=WireCollection([]))
 
         # Joint A and Joint B carry both wires together.  Joint A is
         # the endpoint we'll later slide via ReplaceWireFragments.
@@ -195,7 +200,7 @@ class TestReplaceWireFragmentsRevertWithSiblingRestore:
             old_fragments=tuple(w_primary.fragments),
         )
         rp_cmd.apply(state)
-        assert layout.knots[ja.id].position == Point(1.5, 0.5)
+        assert cast(JointKnot, layout.knots[ja.id]).position == Point(1.5, 0.5)
 
         # Step 3 — Revert in reverse order (as MacroCommand does):
         # FIRST revert the Remove (sibling comes back, joint A's
@@ -208,7 +213,7 @@ class TestReplaceWireFragmentsRevertWithSiblingRestore:
         rp_cmd.revert(state)  # must not raise
 
         # Joint A is back at the original position.
-        assert layout.knots[ja.id].position == Point(0.5, 0.5)
+        assert cast(JointKnot, layout.knots[ja.id]).position == Point(0.5, 0.5)
         # Primary wire path is back to the original.
         primary_after = layout.wires.get(w_primary.id)
         assert primary_after is not None

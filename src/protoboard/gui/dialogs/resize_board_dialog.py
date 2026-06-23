@@ -186,6 +186,8 @@ class ResizeBoardDialog(QDialog):
         cols = self._cols_spin.value()
         if self._is_breadboard:
             return make_breadboard(cols)
+        # Not a breadboard, so _rows_spin was created (see __init__).
+        assert self._rows_spin is not None
         rows = self._rows_spin.value()
         if self._board_type == "Stripboard":
             return make_stripboard(rows, cols)

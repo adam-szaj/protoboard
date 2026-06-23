@@ -131,14 +131,17 @@ class TestCyanSelectionOutline:
 
     @staticmethod
     def _outline_colours(board_view: BoardView, comp_id):  # type: ignore[no-untyped-def]
-        from PySide6.QtWidgets import QGraphicsItemGroup
+        from PySide6.QtWidgets import (
+            QAbstractGraphicsShapeItem,
+            QGraphicsItemGroup,
+        )
 
         grp = board_view._comp_groups.get(comp_id)
         if not isinstance(grp, QGraphicsItemGroup):
             return []
         out = []
         for child in grp.childItems():
-            if hasattr(child, "pen"):
+            if isinstance(child, QAbstractGraphicsShapeItem):
                 out.append(child.pen().color().rgb() & 0x00FFFFFF)
         return out
 
@@ -461,12 +464,15 @@ class TestArmedRotate:
         assert session.layout.placements[inst.id].rotation == base
 
     def test_wheel_steps_rotation(self, board_view, session) -> None:
+        from typing import cast
+
         from PySide6.QtCore import QPoint
         from PySide6.QtGui import QWheelEvent
 
         inst, tool = self._armed(board_view, session)
         base = session.layout.placements[inst.id].rotation
-        assert tool.wants_wheel(object())  # claims the wheel while armed
+        # While armed the wheel-probe ignores the event; a dummy stands in.
+        assert tool.wants_wheel(cast(QWheelEvent, object()))
         ev = QWheelEvent(
             QPointF(0, 0), QPointF(0, 0), QPoint(0, 0), QPoint(0, 120),
             Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
@@ -523,10 +529,12 @@ class TestArmedRotate:
         assert session.layout.placements[inst.id].rotation == (base + 90) % 360
 
     def test_pad_click_sets_shared_pivot(self, board_view, session) -> None:
+        from protoboard.gui.selection.armed_rotate import ArmedRotate
+
         inst, tool = self._armed(board_view, session)
         before = session.layout.placements[inst.id].position
         _press(tool, 3.0, 3.0)  # click a pad away from the part → shared pivot
-        assert tool._armed is not None and tool._armed.pivot is not None
+        assert isinstance(tool._armed, ArmedRotate) and tool._armed.pivot is not None
         _key(tool, Qt.Key.Key_R)  # step → orbit the pivot, position changes
         after = session.layout.placements[inst.id].position
         assert (after.x, after.y) != (before.x, before.y)
@@ -534,11 +542,13 @@ class TestArmedRotate:
     def test_pivot_markers_shown_while_armed_cleared_on_disarm(
         self, board_view, session
     ) -> None:
+        from protoboard.gui.selection.armed_rotate import ArmedRotate
+
         # Visual feedback: arming draws pivot marker(s); disarm clears them.
         inst, tool = self._armed(board_view, session)
         assert tool._pivot_marker_items  # per-object marker drawn on arm
         _press(tool, 3.0, 3.0)  # shared pad pivot
-        assert tool._armed is not None and tool._armed.pivot is not None
+        assert isinstance(tool._armed, ArmedRotate) and tool._armed.pivot is not None
         assert tool._pivot_marker_items  # re-drawn on the shared pad
         _key(tool, Qt.Key.Key_Escape)  # cancel → disarm
         assert tool._armed is None
@@ -561,6 +571,7 @@ class TestArmedRotate:
         assert armed.can_commit() is False
         _key(tool, Qt.Key.Key_Return)  # accept → must stay armed
         assert tool._armed is armed  # not disarmed
+        assert tool._armed is not None
         assert tool._armed.finished is False
 
 
@@ -1314,6 +1325,8 @@ class TestWireEdit:
         commit) so every live segment was drawn from the fragment start.  It now
         reads the live ``PickSession``, like RouteTool's single ``_points``.
         """
+        from protoboard.gui.selection.adapters import PointSelectable
+
         session, view = _wire_session(qtbot)
         tool = _v2(view)
         _select_wire(tool, session)
@@ -1335,7 +1348,9 @@ class TestWireEdit:
         # After picking: anchor follows the last picked pad, not the start.
         pick = tool._selection.active_pick
         assert pick is not None and len(pick.collected) == 1
-        picked_pt = pick.collected[-1].point
+        last = pick.collected[-1]
+        assert isinstance(last, PointSelectable)
+        picked_pt = last.point
         anchor = tool._reroute_anchor()
         assert anchor == picked_pt
         assert anchor != frag_start
@@ -1487,9 +1502,17 @@ class TestWireAndPadHighlight:
         tool = _v2(view)
 
         def _disc_centers() -> set:
+            from typing import cast
+
+            from PySide6.QtWidgets import QGraphicsEllipseItem
+
+            discs = [
+                cast(QGraphicsEllipseItem, i)
+                for i in view._net_pad_highlight_items
+            ]
             return {
                 (round(i.rect().center().x(), 1), round(i.rect().center().y(), 1))
-                for i in view._net_pad_highlight_items
+                for i in discs
             }
 
         net_a = next(n.id for n in session.schematic.nets.values() if n.name == "NA")
@@ -1581,6 +1604,8 @@ class TestDragConflictOutline:
 
     def test_wire_ghosting_dims_drop_wires(self, qtbot) -> None:
         """A drop decision ghost-dims its drop/disconnect wires; CLEAR restores."""
+        from PySide6.QtWidgets import QGraphicsItemGroup
+
         from protoboard.gui.tools.drag_commit_decision import (
             DragCommitDecision,
             DragSeverity,
@@ -1592,7 +1617,7 @@ class TestDragConflictOutline:
         wire = next(iter(session.layout.wires))
 
         grp = view._wire_groups.get(wire.id)
-        assert grp is not None and grp.opacity() == 1.0
+        assert isinstance(grp, QGraphicsItemGroup) and grp.opacity() == 1.0
 
         # SOFT decision marking the wire as a free drop → dimmed.
         tool._update_wire_ghosting(
@@ -1612,6 +1637,8 @@ class TestDragConflictOutline:
         assert wire.id not in tool._ghosted_wire_ids
 
     def test_clear_drag_corner_restores_ghosted_wires(self, qtbot) -> None:
+        from PySide6.QtWidgets import QGraphicsItemGroup
+
         from protoboard.gui.tools.drag_commit_decision import (
             DragCommitDecision,
             DragSeverity,
@@ -1627,7 +1654,7 @@ class TestDragConflictOutline:
             )
         )
         grp = view._wire_groups.get(wire.id)
-        assert grp is not None and grp.opacity() < 1.0
+        assert isinstance(grp, QGraphicsItemGroup) and grp.opacity() < 1.0
         # Any drag-end path routes through _clear_drag_corner → wires restored.
         tool._clear_drag_corner()
         assert grp.opacity() == 1.0
@@ -1731,9 +1758,16 @@ class TestFreePinHint:
         assert msgs == []  # netted pin → silent
 
         # Disconnect the pin → now free → clicking it hints.
+        from typing import cast
+
+        from protoboard.domain.commands.base import Command, ComponentState
         from protoboard.domain.commands.component_cmds import DisconnectPinCommand
         session.stack.execute(
-            DisconnectPinCommand(component_id=inst.id, pin_number=1), session,
+            cast(
+                "Command[ComponentState]",
+                DisconnectPinCommand(component_id=inst.id, pin_number=1),
+            ),
+            cast(ComponentState, session),
         )
         tool._hint_free_pin_under(sel, QPointF(1.5, 1.5))
         assert len(msgs) == 1
@@ -1751,9 +1785,16 @@ class TestFreePinHint:
         inst = next(iter(session.instances.values()))
         # Disconnect so the pin is free — but a *body* hit (pin_number=None)
         # must still stay silent: no pin context means no free-pin feedback.
+        from typing import cast
+
+        from protoboard.domain.commands.base import Command, ComponentState
         from protoboard.domain.commands.component_cmds import DisconnectPinCommand
         session.stack.execute(
-            DisconnectPinCommand(component_id=inst.id, pin_number=1), session,
+            cast(
+                "Command[ComponentState]",
+                DisconnectPinCommand(component_id=inst.id, pin_number=1),
+            ),
+            cast(ComponentState, session),
         )
         msgs: list[str] = []
         tool._status = lambda m, t=3000: msgs.append(m)  # type: ignore[assignment]
@@ -1925,6 +1966,7 @@ class TestContextMenu:
     def test_tool_actions_added_to_menu(self, qtbot) -> None:
         """The menu augments — it carries the tool's own action shortcuts too."""
         from PySide6.QtCore import QPointF
+        from PySide6.QtWidgets import QMenu
 
         session, view = _wire_session(qtbot)
         tool = _v2(view)
@@ -1932,6 +1974,7 @@ class TestContextMenu:
         built = tool._build_context_menu(QPointF(2.5, 1.5))
         assert built is not None
         menu, items = built
+        assert isinstance(menu, QMenu)
         # More QActions exist than the data-carrying ones we dispatch on —
         # the extra ones are the tool-action section (augmentation).
         all_actions = [a for a in menu.actions() if not a.isSeparator()]

@@ -21,7 +21,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.schematic import PinRef
 from protoboard.geometry import Point
 
@@ -58,7 +58,7 @@ def _make_resistor_with_fractional_offset(
         path=[Point(1.5, 0.5), Point(2.5, 0.5)],
         insulated=False, side="top",
     )
-    lay = Layout(placements={inst.id: pl}, wires=[wire])
+    lay = Layout(placements={inst.id: pl}, wires=WireCollection([wire]))
     graph = ConnectivityGraph(
         board=board, layout=lay,
         components={defn.name: defn}, instances={inst.id: inst},
@@ -95,7 +95,7 @@ class TestConnectivityToleratesFractionalOffsets:
             path=[Point(1.5, 0.503), Point(2.5, 0.5)],
             insulated=False, side="top",
         )
-        lay = Layout(placements={inst.id: pl}, wires=[wire])
+        lay = Layout(placements={inst.id: pl}, wires=WireCollection([wire]))
         graph = ConnectivityGraph(
             board=board, layout=lay,
             components={defn.name: defn}, instances={inst.id: inst},

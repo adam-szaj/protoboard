@@ -4,13 +4,14 @@
 from __future__ import annotations
 
 import uuid
+from typing import cast
 
-from protoboard.domain.commands.base import CommandStack
+from protoboard.domain.commands.base import Command, CommandStack
 from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
@@ -47,7 +48,7 @@ class _FakeSchematicState:
             ),
             rows=1, cols=1, row_gap=0.0, col_gap=0.0,
         ))
-        self.layout = Layout(placements={}, wires=[])
+        self.layout = Layout(placements={}, wires=WireCollection())
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         self.components: dict[str, ComponentDefinition] = {}
         self.schematic = Schematic(nets={})
@@ -302,7 +303,7 @@ class TestAddWireWithNetsViaStack:
         cmd = AddWireWithNetsCommand(wire=wire)
         cmd.record_net_change(net_id, before=None, after=net)
 
-        stack.execute(cmd, state)
+        stack.execute(cast("Command[_FakeSchematicState]", cmd), state)
         assert wire in state.layout.wires
         assert net_id in state.schematic.nets
 

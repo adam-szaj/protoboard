@@ -65,7 +65,7 @@ def _route_top_to_top(
     return find_paths(
         graph=graph,
         source=src,
-        targets={tgt},
+        targets=[tgt],
         side="top",
         cost_model=cm,
         k=1,

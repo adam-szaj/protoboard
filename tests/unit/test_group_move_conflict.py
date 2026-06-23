@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import cast
 
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
@@ -56,7 +57,7 @@ def _schematic(*nets: tuple[uuid.UUID, list[tuple[uuid.UUID, int]]]) -> Schemati
         net_objs[net_id] = Net(
             id=net_id,
             name=f"N{net_id.int}",
-            pins=frozenset(PinRef(component_id=c, pin_number=p) for c, p in pins),
+            pins={PinRef(component_id=c, pin_number=p) for c, p in pins},
         )
     return Schematic(nets=net_objs)
 
@@ -90,7 +91,7 @@ class TestCheckGroupMoveConflicts:
             active_group_id=ROOT_GID,
             layout_placements={inst.id: pl},
             layout_wires=[],
-            layout_groups=groups,
+            layout_groups=cast("dict[uuid.UUID, object]", groups),
             instances={inst.id: inst},
             components={defn.name: defn},
             schematic=_schematic(),
@@ -119,7 +120,7 @@ class TestCheckGroupMoveConflicts:
             active_group_id=ROOT_GID,
             layout_placements={inst_a.id: pl_a, inst_b.id: pl_b},
             layout_wires=[],
-            layout_groups=groups,
+            layout_groups=cast("dict[uuid.UUID, object]", groups),
             instances={inst_a.id: inst_a, inst_b.id: inst_b},
             components={"A": defn_a, "B": defn_b},
             schematic=sch,
@@ -151,7 +152,7 @@ class TestCheckGroupMoveConflicts:
             active_group_id=ROOT_GID,
             layout_placements={inst_a.id: pl_a, inst_b.id: pl_b},
             layout_wires=[w],
-            layout_groups=groups,
+            layout_groups=cast("dict[uuid.UUID, object]", groups),
             instances={inst_a.id: inst_a, inst_b.id: inst_b},
             components={"A": defn_a, "B": defn_b},
             schematic=sch,
@@ -208,7 +209,7 @@ class TestCheckGroupMoveConflicts:
             active_group_id=ROOT_GID,
             layout_placements={inst_a.id: pl_a, inst_b.id: pl_b, inst_c.id: pl_c},
             layout_wires=[subgroup_wire],
-            layout_groups=groups,
+            layout_groups=cast("dict[uuid.UUID, object]", groups),
             instances={inst_a.id: inst_a, inst_b.id: inst_b, inst_c.id: inst_c},
             components={"A": defn_a, "B": defn_b, "C": defn_c},
             schematic=sch,
@@ -252,7 +253,7 @@ class TestCheckGroupMoveConflicts:
             active_group_id=ROOT_GID,
             layout_placements={inst_a.id: pl_a, inst_b.id: pl_b, inst_ext.id: pl_ext},
             layout_wires=[],
-            layout_groups=groups,
+            layout_groups=cast("dict[uuid.UUID, object]", groups),
             instances={inst_a.id: inst_a, inst_b.id: inst_b, inst_ext.id: inst_ext},
             components={"A": defn_a, "B": defn_b, "EXT": defn_ext},
             schematic=sch,
@@ -323,7 +324,7 @@ class TestCheckGroupMoveConflictsPadIndex:
             active_group_id=ROOT_GID,
             layout_placements={inst_a.id: pl_a, inst_b.id: pl_b},
             layout_wires=[],
-            layout_groups=groups,
+            layout_groups=cast("dict[uuid.UUID, object]", groups),
             instances={inst_a.id: inst_a, inst_b.id: inst_b},
             components={"A": defn_a, "B": defn_b},
             schematic=sch,
@@ -335,7 +336,7 @@ class TestCheckGroupMoveConflictsPadIndex:
             active_group_id=ROOT_GID,
             layout_placements={inst_a.id: pl_a, inst_b.id: pl_b},
             layout_wires=[],
-            layout_groups=groups,
+            layout_groups=cast("dict[uuid.UUID, object]", groups),
             instances={inst_a.id: inst_a, inst_b.id: inst_b},
             components={"A": defn_a, "B": defn_b},
             schematic=sch,
@@ -360,7 +361,7 @@ class TestCheckGroupMoveConflictsPadIndex:
             active_group_id=ROOT_GID,
             layout_placements={inst.id: pl},
             layout_wires=[],
-            layout_groups=groups,
+            layout_groups=cast("dict[uuid.UUID, object]", groups),
             instances={inst.id: inst},
             components={defn.name: defn},
             schematic=sch,
@@ -500,7 +501,7 @@ class TestMultiGroupMoveConflicts:
             active_group_id=ROOT_GID,
             layout_placements={inst.id: pl},
             layout_wires=[],
-            layout_groups=groups,
+            layout_groups=cast("dict[uuid.UUID, object]", groups),
             instances={inst.id: inst},
             components={defn.name: defn},
             schematic=_schematic(),

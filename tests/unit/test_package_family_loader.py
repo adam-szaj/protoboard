@@ -75,6 +75,7 @@ class TestBuiltinCatalogue:
         # would reuse the 1.25 mm body vector in the holes domain → 0.5-hole pins).
         from protoboard.geometry import Point
         pkg = load_package_families()["TO-92"].default_variant().package
+        assert isinstance(pkg, Cylinder)
         assert pkg.leads.body_offset_mm == (Point(1.25, 0.0), Point(1.25, 0.0))
         assert pkg.pin_positions() == [Point(0, 0), Point(1.0, 0), Point(2.0, 0)]
 

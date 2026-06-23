@@ -3,7 +3,11 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from PySide6.QtCore import QPointF
+from PySide6.QtWidgets import QGraphicsItemGroup
+from pytestqt.qtbot import QtBot
 
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView, _Tool
@@ -73,7 +77,7 @@ class TestToolManagement:
         assert board_view._active_tool is None
 
     def test_layout_changed_triggers_refresh(
-        self, board_view: BoardView, session: EditorSession, qtbot: object
+        self, board_view: BoardView, session: EditorSession, qtbot: QtBot
     ) -> None:
         # Manually count items before and after adding a wire via layout_changed.
         import uuid
@@ -90,8 +94,6 @@ class TestToolManagement:
         session.layout.wires.append(wire)
         session.layout_changed.emit()
         # layout_changed is debounced via a 16ms timer — wait for it to fire.
-        from pytestqt.qtbot import QtBot
-        assert isinstance(qtbot, QtBot)
         qtbot.wait(50)
         # After refresh the wire's QGraphicsItemGroup must be registered.
         # Pad/board items no longer live in the scene (they're rasterised
@@ -104,7 +106,7 @@ class TestBoardSandwichCache:
     """Layered background: board base + back cache + board mid blits."""
 
     def test_back_cache_invalidates_on_refresh(
-        self, board_view: BoardView, session: EditorSession, qtbot: object
+        self, board_view: BoardView, session: EditorSession, qtbot: QtBot
     ) -> None:
         # Build cache once.
         board_view._back_cache_dirty = False
@@ -115,7 +117,7 @@ class TestBoardSandwichCache:
         )
 
     def test_back_cache_hides_back_items_after_render(
-        self, board_view: BoardView, session: EditorSession, qtbot: object
+        self, board_view: BoardView, session: EditorSession, qtbot: QtBot
     ) -> None:
         # Add a back-side wire so we have a back item to cache.
         import uuid
@@ -130,8 +132,6 @@ class TestBoardSandwichCache:
         )
         session.layout.wires.append(wire)
         session.layout_changed.emit()
-        from pytestqt.qtbot import QtBot
-        assert isinstance(qtbot, QtBot)
         qtbot.wait(50)
 
         # Force a viewport size so the cache build is exercised.
@@ -140,7 +140,7 @@ class TestBoardSandwichCache:
         board_view._ensure_back_cache()
 
         # Back-side group exists in scene but was hidden after rasterisation.
-        wire_group = board_view._wire_groups.get(wire.id)
+        wire_group = cast(QGraphicsItemGroup, board_view._wire_groups.get(wire.id))
         assert wire_group is not None
         # Cache may be None if no back items existed at viewport — but with
         # the wire we just added it should be present.

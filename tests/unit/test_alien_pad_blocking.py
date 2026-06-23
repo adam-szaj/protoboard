@@ -21,12 +21,13 @@ from protoboard.domain.components.footprints import SingleRow
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.routing.autorouter import autoroute
+from protoboard.types import Side
 
 
 def _perfboard(rows: int, cols: int) -> Board:
@@ -54,7 +55,7 @@ def _place(cid, x, y, rotation=90):
     )
 
 
-def _bare_wire(*pts, side="top"):
+def _bare_wire(*pts: tuple[float, float], side: Side = "top") -> Wire:
     return Wire(
         id=uuid.uuid4(),
         path=[Point(*p) for p in pts],
@@ -103,7 +104,7 @@ class TestAlienPadBlocking:
                 cid_b1: _place(cid_b1, 0.5, 2.5),  # pin1=(0.5,2.5) pin2=(1.5,2.5)
                 cid_b2: _place(cid_b2, 9.5, 2.5),  # pin1=(9.5,2.5) pin2=(10.5,2.5)
             },
-            wires=[
+            wires=WireCollection([
                 # NET_A chain on bottom: (1.5,0.5) → (8.5,0.5)
                 _bare_wire((1.5, 0.5), (2.5, 0.5), side="bottom"),
                 _bare_wire((2.5, 0.5), (3.5, 0.5), side="bottom"),
@@ -112,7 +113,7 @@ class TestAlienPadBlocking:
                 _bare_wire((5.5, 0.5), (6.5, 0.5), side="bottom"),
                 _bare_wire((6.5, 0.5), (7.5, 0.5), side="bottom"),
                 _bare_wire((7.5, 0.5), (8.5, 0.5), side="bottom"),
-            ],
+            ]),
         )
 
         net_a = Net(

@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import structlog
 
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.types import Side
 from protoboard.geometry import Point
 from protoboard.services.routing.astar import _segs_cross
@@ -2222,7 +2222,7 @@ def _make_short_checker(
                     new_wires.append(w)
         for chain in proposed:
             new_wires.extend(chain)
-        new_layout.wires = new_wires
+        new_layout.wires = WireCollection(new_wires)
         try:
             new_graph = ConnectivityGraph(
                 board=base_board,  # type: ignore[arg-type]
@@ -2273,7 +2273,7 @@ def _make_short_checker(
         # Monotonic — proposed may not exceed the baseline count.
         if check_bare_same_side:
             new_count = _count_bare_same_side_shorts(
-                new_layout.wires, new_graph,
+                new_wires, new_graph,
             )
             if new_count > baseline_same_side_shorts:
                 return False

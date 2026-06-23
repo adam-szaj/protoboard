@@ -52,6 +52,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path as _Path
 from queue import Empty, Queue
+from typing import cast
 
 import structlog
 
@@ -104,6 +105,7 @@ try:
     import os as _os
     _log.info("astar.rust_extension", status="loaded", cpu_count=_os.cpu_count())
 except ImportError:
+    _rs = None  # type: ignore[assignment]
     _RUST_AVAILABLE = False
     _log.info("astar.rust_extension", status="not_available_using_python_fallback")
 
@@ -127,6 +129,7 @@ def _find_paths_rust(
     k: int,
 ) -> list[RoutingResult]:
     """Call the Rust A* extension and convert results back to Python types."""
+    assert _rs is not None  # only reached when _RUST_AVAILABLE is True
     raw = _rs.find_paths_parallel(
         [(p.x, p.y) for p in valid_nodes["top"]],
         [(p.x, p.y) for p in valid_nodes["bottom"]],
@@ -1347,7 +1350,9 @@ def _astar_parallel(
         bare_idx, vias, forbidden_edges, penalised,
         source_parity,
         at_pad_wires,
-        all_segments,
+        # _universe_worker accepts the legacy 4-tuple form at runtime
+        # (it checks ``len(_seg) == 5``); narrow the union for the typed call.
+        cast("list[tuple[Point, Point, str, bool, int]] | None", all_segments),
         active_net_idx,
         at_pad_nets,
         teleport_pads,

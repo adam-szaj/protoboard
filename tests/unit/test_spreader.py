@@ -12,7 +12,7 @@ import pytest
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.commands.base import CommandStack, MacroCommand
+from protoboard.domain.commands.base import Command, CommandStack, MacroCommand
 from protoboard.domain.commands.component_cmds import (
     ComponentState,
     MoveComponentCommand,
@@ -25,7 +25,7 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire_utils import board_pads_for_side
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Rect
 from protoboard.services.placement.spreader import (
     SpreadResult,
     _assign_grid_cells,
@@ -169,7 +169,7 @@ class TestBuildNetGraph:
 
 
 class TestAssignGridCells:
-    def _bounds(self, rows: int = 10, cols: int = 10) -> object:
+    def _bounds(self, rows: int = 10, cols: int = 10) -> Rect:
         return _make_perfboard(rows, cols).bounds
 
     def test_returns_one_cell_per_component(self) -> None:

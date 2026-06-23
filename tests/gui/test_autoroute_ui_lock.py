@@ -12,12 +12,15 @@ Covers:
 from __future__ import annotations
 
 import uuid
+from typing import TypeVar, cast
 
 import pytest
 from pytestqt.qtbot import QtBot
 
 from protoboard.domain.commands.base import (
+    Command,
     CommandRejectedError,
+    CommandStack,
     MacroCommand,
 )
 from protoboard.domain.commands.component_cmds import RemoveWireCommand
@@ -39,6 +42,21 @@ def session_with_net(session: EditorSession) -> tuple[EditorSession, uuid.UUID]:
     return session, net_id
 
 
+_S = TypeVar("_S")
+
+
+def _execute(session: EditorSession, cmd: Command[_S]) -> None:
+    """Execute ``cmd`` against ``session`` through its command stack.
+
+    ``EditorSession`` structurally satisfies every command state protocol
+    (``ComponentState`` / ``NetState`` / …), but ``session.stack`` is declared
+    ``CommandStack[ComponentState]`` and the invariant generic ``T`` prevents
+    Pyright from unifying that with net commands. Cast the stack and state to
+    the command's own state type — the runtime behaviour is unchanged.
+    """
+    cast("CommandStack[_S]", session.stack).execute(cmd, cast("_S", session))
+
+
 class TestCommandGuard:
     def test_hard_mutate_rejected_while_autoroute_active(
         self, session_with_net: tuple[EditorSession, uuid.UUID]
@@ -48,7 +66,7 @@ class TestCommandGuard:
         try:
             cmd = CreateNetCommand(name="GND")
             with pytest.raises(CommandRejectedError):
-                session.stack.execute(cmd, session)
+                _execute(session, cmd)
         finally:
             session.set_autoroute_active(False)
 
@@ -59,7 +77,7 @@ class TestCommandGuard:
         session.set_autoroute_active(True)
         try:
             cmd = SetNetColorCommand(net_id=net_id, new_color="#FF8800")
-            session.stack.execute(cmd, session)
+            _execute(session, cmd)
             assert session.schematic.nets[net_id].color == "#FF8800"
         finally:
             session.set_autoroute_active(False)
@@ -70,9 +88,7 @@ class TestCommandGuard:
         session, net_id = session_with_net
         session.set_autoroute_active(True)
         try:
-            session.stack.execute(
-                RenameNetCommand(net_id=net_id, new_name="V_BAT"), session
-            )
+            _execute(session, RenameNetCommand(net_id=net_id, new_name="V_BAT"))
             assert session.schematic.nets[net_id].name == "V_BAT"
         finally:
             session.set_autoroute_active(False)
@@ -83,9 +99,7 @@ class TestCommandGuard:
         session, net_id = session_with_net
         session.set_autoroute_active(True)
         try:
-            session.stack.execute(
-                SetNetGlobalCommand(net_id=net_id, global_net=True), session
-            )
+            _execute(session, SetNetGlobalCommand(net_id=net_id, global_net=True))
             assert session.schematic.nets[net_id].global_net is True
         finally:
             session.set_autoroute_active(False)
@@ -100,7 +114,7 @@ class TestCommandGuard:
             hard = DeleteNetCommand(net_id=net_id)
             macro = MacroCommand([soft, hard], description="mixed")  # type: ignore[arg-type]
             with pytest.raises(CommandRejectedError):
-                session.stack.execute(macro, session)
+                _execute(session, macro)
         finally:
             session.set_autoroute_active(False)
 
@@ -113,7 +127,7 @@ class TestCommandGuard:
             soft1 = SetNetColorCommand(net_id=net_id, new_color="#FF0000")
             soft2 = RenameNetCommand(net_id=net_id, new_name="ALSO")
             macro = MacroCommand([soft1, soft2], description="bothsoft")  # type: ignore[arg-type]
-            session.stack.execute(macro, session)
+            _execute(session, macro)
             assert session.schematic.nets[net_id].color == "#FF0000"
             assert session.schematic.nets[net_id].name == "ALSO"
         finally:
@@ -125,7 +139,7 @@ class TestCommandGuard:
         session, net_id = session_with_net
         # Default — gate off.
         assert session.autoroute_active is False
-        session.stack.execute(CreateNetCommand(name="GND"), session)
+        _execute(session, CreateNetCommand(name="GND"))
         # No exception → pass.
 
 
@@ -158,7 +172,7 @@ class TestApplyResultPath:
                 [AddWireCommand(wire=wire)],  # type: ignore[arg-type, list-item]
                 description="Autoroute (1 wires)",
             )
-            session.stack.execute(macro, session)
+            _execute(session, macro)
             # No CommandRejectedError raised → path is correct.
             assert wire in session.layout.wires
         finally:

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import cast
 
 import pytest
 from pytestqt.qtbot import QtBot
@@ -189,7 +190,7 @@ class TestNetlistPanel:
         panel.refresh(session)
         # In symbol mode (default=0), there should be one "R" group at top level.
         top_texts = [
-            panel._tree.topLevelItem(i).text(0)
+            cast(QTreeWidgetItem, panel._tree.topLevelItem(i)).text(0)
             for i in range(panel._tree.topLevelItemCount())
         ]
         assert any("R" in t for t in top_texts)
@@ -296,7 +297,9 @@ class TestComponentsPanel:
         panel._search.setText("R1")
         # After filter, only R1 should be visible.
         assert panel._tree.topLevelItemCount() == 1
-        assert "R1" in panel._tree.topLevelItem(0).text(0)
+        top_item = panel._tree.topLevelItem(0)
+        assert top_item is not None
+        assert "R1" in top_item.text(0)
 
     def test_filter_clears_on_empty_string(
         self, qtbot: QtBot, session: EditorSession
@@ -348,12 +351,16 @@ class TestNetInspectorPanel:
         # change).  Make it visible so refresh() actually populates.
         panel.show()
         qtbot.waitExposed(panel)
-        from protoboard.domain.schematic.net import Net
-        net = Net(id=uuid.uuid4(), name="VCC", pins=frozenset())
+        from protoboard.domain.schematic.net import Net, PinRef
+        net = Net(
+            id=uuid.uuid4(), name="VCC", pins=cast("set[PinRef]", frozenset())
+        )
         session.schematic.nets[net.id] = net
         panel.refresh(session)
         assert panel._tree.topLevelItemCount() == 1
-        assert panel._tree.topLevelItem(0).text(0) == "VCC"
+        top_item = panel._tree.topLevelItem(0)
+        assert top_item is not None
+        assert top_item.text(0) == "VCC"
 
     def test_sync_selection_by_net_id(
         self, qtbot: QtBot, board_view: object, session: EditorSession
@@ -363,8 +370,10 @@ class TestNetInspectorPanel:
         panel = NetInspectorPanel(board_view)
         qtbot.addWidget(panel)
         panel.show()
-        from protoboard.domain.schematic.net import Net
-        net = Net(id=uuid.uuid4(), name="GND", pins=frozenset())
+        from protoboard.domain.schematic.net import Net, PinRef
+        net = Net(
+            id=uuid.uuid4(), name="GND", pins=cast("set[PinRef]", frozenset())
+        )
         session.schematic.nets[net.id] = net
         panel.refresh(session)
         panel.sync_selection(frozenset(), frozenset(), net.id)

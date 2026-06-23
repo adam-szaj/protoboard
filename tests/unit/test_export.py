@@ -18,6 +18,7 @@ from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.wire import WireCollection
 from protoboard.geometry import Point
 from protoboard.services.export.bom import export_bom_csv
 
@@ -41,7 +42,7 @@ class TestBomExport:
         pl_r2 = ComponentPlacement(
             component_id=r2.id, position=Point(2.5, 0.5), rotation=90, side="top"
         )
-        lay = Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=[])
+        lay = Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=WireCollection())
         return lay, {defn.name: defn}, {r1.id: r1, r2.id: r2}
 
     def test_returns_string(self) -> None:
@@ -95,7 +96,7 @@ class TestBomExport:
         assert out.exists()
 
     def test_empty_layout_gives_header_only(self) -> None:
-        lay = Layout(placements={}, wires=[])
+        lay = Layout(placements={}, wires=WireCollection())
         result = export_bom_csv(lay, components={}, instances={})
         reader = csv.DictReader(io.StringIO(result))
         rows = list(reader)

@@ -189,9 +189,9 @@ class BoardView(QGraphicsView):
         self._pin_pad_items: list[object] = []
         self._pin_modifier_items: list[object] = []
         # comp_id → placement.position at last full refresh (drag delta origin).
-        self._drag_orig_group_pos: dict[uuid.UUID, object] = {}
+        self._drag_orig_group_pos: dict[uuid.UUID, Point] = {}
         # wire_id → wire.path[0] at last full refresh (drag delta origin for wires).
-        self._drag_orig_wire_pose: dict[uuid.UUID, object] = {}
+        self._drag_orig_wire_pose: dict[uuid.UUID, Point] = {}
         # Board layer: rebuilt only when board geometry / theme / alpha changes.
         self._board_layer_dirty: bool = True
         self._last_board_alpha: float = -1.0   # sentinel: never matches
@@ -333,7 +333,7 @@ class BoardView(QGraphicsView):
         # pass, so over SSH the wheel handler returns in microseconds
         # and Qt processes the next tick without waiting for a paint.
         self._wheel_accum_delta: int = 0
-        self._wheel_pivot_vp: object | None = None
+        self._wheel_pivot_vp: QPoint | None = None
         self._wheel_timer = QTimer(self)
         self._wheel_timer.setSingleShot(True)
         self._wheel_timer.setInterval(16)  # ~1 frame; tunable via apply_throttle_settings
@@ -1179,7 +1179,7 @@ class BoardView(QGraphicsView):
         # new path and resets pos to (0, 0).
         for wire in self._session.layout.wires:
             grp = self._wire_groups.get(wire.id)
-            if grp is None or not wire.path:
+            if not isinstance(grp, QGraphicsItemGroup) or not wire.path:
                 continue
             orig = self._drag_orig_wire_pose.get(wire.id)
             if orig is None:
@@ -1706,8 +1706,8 @@ class BoardView(QGraphicsView):
         # palette, then golden-ratio hue spin once palette is exhausted.
         # Same map drives wire colour AND pad colour so they always match.
         from protoboard.gui.renderers.net_color import build_net_color_map
-        net_color_map = build_net_color_map(
-            self._session.schematic.nets, theme=_theme,
+        net_color_map: dict[uuid.UUID, str | None] = dict(
+            build_net_color_map(self._session.schematic.nets, theme=_theme)
         )
         routed: set[uuid.UUID] | None = None
         if self._session.schematic.nets:
@@ -1718,7 +1718,7 @@ class BoardView(QGraphicsView):
         # ── Wires (group reuse) ───────────────────────────────────────────────
         update_wire_groups(
             self._scene,
-            self._session.layout.wires,
+            list(self._session.layout.wires),
             wire_net_map,
             self._wire_groups,        # type: ignore[arg-type]
             self._wire_fingerprints,  # type: ignore[arg-type]
@@ -1856,7 +1856,7 @@ class BoardView(QGraphicsView):
                 self._session.layout.placements,
                 self._session.instances,
                 self._session.components,
-                wires=self._session.layout.wires,
+                wires=list(self._session.layout.wires),
                 theme=_theme,
                 active_group_id=self._active_group_id,
                 view_scale=self._scale,
@@ -2939,7 +2939,7 @@ class BoardView(QGraphicsView):
         # currently-invisible items is cheap (just a flag flip).
         back_set = set(map(id, back_items))
 
-        def _has_back_ancestor(it: object) -> bool:
+        def _has_back_ancestor(it: _QGItem) -> bool:
             # Walk up until a top-level item; back-cache should render the
             # whole subtree of any back-side group (e.g. a wire's outline +
             # core children), so children of back items must stay VISIBLE.
@@ -2950,7 +2950,7 @@ class BoardView(QGraphicsView):
                 parent = parent.parentItem()
             return False
 
-        temporarily_hidden: list[object] = []
+        temporarily_hidden: list[_QGItem] = []
         try:
             for it in self._scene.items():
                 if id(it) in back_set:

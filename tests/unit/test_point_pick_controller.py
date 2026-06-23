@@ -11,22 +11,34 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import pytest
 
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Rect
 from protoboard.gui.selection.mouse_input import Intent, Mods
 from protoboard.gui.selection.point_pick_controller import PointPickController
 from protoboard.gui.selection.selectable import Selectable, Stop
 from protoboard.gui.selection.service import PickSession
 from protoboard.gui.selection_fsm import Hit
 
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QGraphicsItem
+
+    from protoboard.gui.selection.selectable import ConnQuery, HighlightCtx
+    from protoboard.types import NetId
+
 _NO_MODS = Mods()
 
 
 @dataclass(frozen=True)
 class _FakeSel:
-    """Minimal Selectable carrying an id, for assertions."""
+    """Minimal Selectable carrying an id, for assertions.
+
+    Implements the full :class:`Selectable` protocol so it type-checks as one;
+    only :meth:`identity` / :meth:`to_hit` are exercised by these tests, the
+    rest are inert stubs that are never called.
+    """
 
     n: int
 
@@ -35,6 +47,18 @@ class _FakeSel:
 
     def to_hit(self) -> Hit:
         return Hit("component", uuid.uuid4())
+
+    def bbox(self) -> Rect:
+        return Rect(0.0, 0.0, 0.0, 0.0)
+
+    def net_ids(self, conn: ConnQuery) -> frozenset[NetId]:
+        return frozenset()
+
+    def draw_highlight(self, ctx: HighlightCtx) -> list[QGraphicsItem]:
+        return []
+
+    def to_drag_member(self) -> object | None:
+        return None
 
 
 def _session(

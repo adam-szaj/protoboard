@@ -25,7 +25,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.knot import JointKnot
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.geometry import Point
 
 
@@ -48,7 +48,7 @@ class _State:
 
     def __init__(self) -> None:
         self.board = _perfboard()
-        self.layout = Layout(placements={}, wires=[])
+        self.layout = Layout(placements={}, wires=WireCollection([]))
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         self.components: dict[str, ComponentDefinition] = {}
 

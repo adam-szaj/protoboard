@@ -6,8 +6,6 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
-import pytest
-
 from protoboard.domain.commands.net_cmds import (
     AssignPinToNetCommand,
     CreateNetCommand,

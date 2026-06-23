@@ -13,7 +13,9 @@ rebuild is dwarfed by the actual rasterisation.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import replace as _dc_replace
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen
@@ -44,6 +46,9 @@ from protoboard.gui.renderers.wire_renderer import (
 from protoboard.services.export.snapshot import BoardSnapshot
 from protoboard.services.routing.net_status import routed_net_ids
 
+if TYPE_CHECKING:
+    from protoboard.domain.connectivity.incremental import ConnectivityGraph
+
 
 def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]:
     """Construct a one-shot scene + scene-rect from *snapshot*.
@@ -70,7 +75,14 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
     layers = snapshot.layer_state()
 
     # ── Board layer (pads, strips, frames, isolated-strip Xs) ───────────────
-    pad_color_map = build_net_color_map(snapshot.schematic.nets, theme=theme)
+    pad_color_map: dict[uuid.UUID, str] = build_net_color_map(
+        snapshot.schematic.nets, theme=theme
+    )
+    # Pin / wire renderers declare ``net_color_map`` with the wider, invariant
+    # type ``dict[UUID, str | None]``; a ``dict[UUID, str]`` is a valid value
+    # for their read-only use but the invariance makes Pyright reject it, so we
+    # cast once up front.
+    pad_color_map_opt = cast("dict[uuid.UUID, str | None]", pad_color_map)
     pad_net_map = build_pad_net_map(
         snapshot.layout.placements,
         snapshot.instances,
@@ -108,7 +120,7 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
     render_pin_pads(
         scene, classifications,
         theme=theme, layers=layers,
-        net_color_map=pad_color_map,
+        net_color_map=pad_color_map_opt,
         routing_target_net_id=snapshot.routing_net_id,
     )
 
@@ -116,7 +128,7 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
     graph, wire_net_map = _build_graph_and_wire_net_map(snapshot)
     render_wires_with_nets(
         scene, list(snapshot.layout.wires), wire_net_map,
-        net_color_map=pad_color_map,  # type: ignore[arg-type]
+        net_color_map=pad_color_map_opt,
         theme=theme, layers=layers,
         highlighted_net_id=None,
     )
@@ -130,13 +142,13 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
     if wire_pins:
         render_wire_pins(
             scene, wire_pins,
-            net_color_map=pad_color_map,  # type: ignore[arg-type]
+            net_color_map=pad_color_map_opt,
             theme=theme, layers=layers,
             routing_target_net_id=snapshot.routing_net_id,
         )
 
     # ── Components ──────────────────────────────────────────────────────────
-    routed: set | None = None
+    routed: set[uuid.UUID] | None = None
     if snapshot.schematic.nets and graph is not None:
         routed = routed_net_ids(snapshot.schematic, graph)
 
@@ -188,7 +200,7 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
     render_pin_modifiers(
         scene, classifications,
         theme=theme, layers=layers,
-        net_color_map=pad_color_map,
+        net_color_map=pad_color_map_opt,
         routing_target_net_id=snapshot.routing_net_id,
     )
 
@@ -202,7 +214,7 @@ def build_export_scene(snapshot: BoardSnapshot) -> tuple[QGraphicsScene, QRectF]
 
 def _build_graph_and_wire_net_map(
     snapshot: BoardSnapshot,
-) -> tuple[object | None, dict]:
+) -> tuple["ConnectivityGraph | None", dict[uuid.UUID, uuid.UUID]]:
     """Build a ConnectivityGraph + wire-id → net-id map for *snapshot*.
 
     Both are needed by several renderers (wires, ratsnest, components);
@@ -216,19 +228,19 @@ def _build_graph_and_wire_net_map(
     """
     if not snapshot.schematic.nets or not snapshot.layout.wires:
         return None, {}
-    from protoboard.domain.connectivity.graph import ConnectivityGraph
+    from protoboard.domain.connectivity.incremental import ConnectivityGraph
     graph = ConnectivityGraph(
         snapshot.board, snapshot.layout,
         snapshot.components, snapshot.instances,
     )
     # canonical_key → net.id (one net per electric set with named pins).
-    canonical_to_net: dict[object, object] = {}
+    canonical_to_net: dict[object, uuid.UUID] = {}
     for net in snapshot.schematic.nets.values():
         for ref in net.pins:
             ck = graph.node_for_pin(ref)
             if ck is not None:
                 canonical_to_net[ck] = net.id
-    out: dict = {}
+    out: dict[uuid.UUID, uuid.UUID] = {}
     for wire in snapshot.layout.wires:
         # Insulated wires contact only at endpoints; bare wires contact
         # every pad they pass through.

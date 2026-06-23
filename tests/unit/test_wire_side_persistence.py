@@ -36,7 +36,7 @@ from protoboard.domain.layout.placement import (
     ComponentPlacement,
     pin_world_position,
 )
-from protoboard.domain.layout.wire import KnotRef, Wire
+from protoboard.domain.layout.wire import KnotRef, Wire, WireCollection
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
@@ -110,7 +110,7 @@ def _build_two_connectors_with_wires(
     defn = ComponentDefinition(
         name="CONN_1x2", footprint=SIL(2), pin_names={1: "1", 2: "2"},
     )
-    layout = Layout(placements={}, wires=[])
+    layout = Layout(placements={}, wires=WireCollection())
 
     inst_a = ComponentInstance.new(
         definition_ref="CONN_1x2", refdes="J1", value="",

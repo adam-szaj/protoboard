@@ -61,8 +61,12 @@ class TestNetsEditorPanelNetList:
         _add_net(session, "Z_NET")
         _add_net(session, "A_NET")
         panel.refresh(session)
-        assert panel._net_tree.topLevelItem(0).text(0) == "A_NET"
-        assert panel._net_tree.topLevelItem(1).text(0) == "Z_NET"
+        item0 = panel._net_tree.topLevelItem(0)
+        item1 = panel._net_tree.topLevelItem(1)
+        assert item0 is not None
+        assert item1 is not None
+        assert item0.text(0) == "A_NET"
+        assert item1.text(0) == "Z_NET"
 
     def test_net_pin_count_shown(
         self, qtbot: QtBot, session: EditorSession
@@ -76,6 +80,7 @@ class TestNetsEditorPanelNetList:
         session.schematic.nets[net.id] = net
         panel.refresh(session)
         item = panel._net_tree.topLevelItem(0)
+        assert item is not None
         assert item.text(1) == "1"
 
     def test_empty_session_shows_no_nets(
@@ -126,6 +131,7 @@ class TestNetsEditorPanelPinList:
         # R has 2 pins; should show one parent + 2 children.
         assert panel._pin_tree.topLevelItemCount() == 1
         parent = panel._pin_tree.topLevelItem(0)
+        assert parent is not None
         assert parent.childCount() == 2
 
     def test_pin_shows_net_name_when_assigned(
@@ -153,6 +159,7 @@ class TestNetsEditorPanelPinList:
         _add_instance(session, "R1")
         panel.refresh(session)
         parent = panel._pin_tree.topLevelItem(0)
+        assert parent is not None
         pin_item = parent.child(0)
         assert pin_item is not None
         assert pin_item.text(2) == "—"
@@ -228,7 +235,7 @@ class TestAssignFromBoardClick:
     create one, then assigns the (board-clicked) pin to it."""
 
     def test_no_nets_creates_then_assigns(
-        self, qtbot: QtBot, session: EditorSession, monkeypatch: object
+        self, qtbot: QtBot, session: EditorSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from PySide6.QtWidgets import QInputDialog, QMessageBox
 
@@ -256,7 +263,7 @@ class TestAssignFromBoardClick:
         assert PinRef(component_id=inst.id, pin_number=1) in nets[0].pins
 
     def test_no_nets_cancel_does_nothing(
-        self, qtbot: QtBot, session: EditorSession, monkeypatch: object
+        self, qtbot: QtBot, session: EditorSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from PySide6.QtWidgets import QMessageBox
 

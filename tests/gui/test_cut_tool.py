@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QMouseEvent
+from pytestqt.qtbot import QtBot
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import HBox, SizePolicy, StripAtom, VBox
 from protoboard.domain.board.pads import PadLayers
+from protoboard.domain.commands.base import ComponentState
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 from protoboard.gui.tools.cut_tool import CutTool
@@ -64,9 +67,7 @@ def _strip_atoms(board: Board) -> list[StripAtom]:
 class TestCutToolSplitsBetween:
     """Clicking between two pads splits the segment in two."""
 
-    def test_click_between_pads_splits(self, qtbot: object) -> None:
-        from pytestqt.qtbot import QtBot
-        assert isinstance(qtbot, QtBot)
+    def test_click_between_pads_splits(self, qtbot: QtBot) -> None:
         session = _session(rows=1, cols=5)
         view = BoardView(session)
         qtbot.addWidget(view)
@@ -78,9 +79,7 @@ class TestCutToolSplitsBetween:
         assert lengths == [2, 3]
         assert all(not a.isolated for a in atoms)
 
-    def test_click_far_away_no_change(self, qtbot: object) -> None:
-        from pytestqt.qtbot import QtBot
-        assert isinstance(qtbot, QtBot)
+    def test_click_far_away_no_change(self, qtbot: QtBot) -> None:
         session = _session(rows=1, cols=5)
         view = BoardView(session)
         qtbot.addWidget(view)
@@ -90,9 +89,7 @@ class TestCutToolSplitsBetween:
         assert len(atoms) == 1
         assert atoms[0].length == 5
 
-    def test_emit_once_per_click(self, qtbot: object) -> None:
-        from pytestqt.qtbot import QtBot
-        assert isinstance(qtbot, QtBot)
+    def test_emit_once_per_click(self, qtbot: QtBot) -> None:
         session = _session(rows=1, cols=5)
         view = BoardView(session)
         qtbot.addWidget(view)
@@ -106,9 +103,7 @@ class TestCutToolSplitsBetween:
 class TestCutToolOnPad:
     """Clicking on a pad isolates that pad."""
 
-    def test_click_on_pad_isolates(self, qtbot: object) -> None:
-        from pytestqt.qtbot import QtBot
-        assert isinstance(qtbot, QtBot)
+    def test_click_on_pad_isolates(self, qtbot: QtBot) -> None:
         session = _session(rows=1, cols=5)
         view = BoardView(session)
         qtbot.addWidget(view)
@@ -122,9 +117,7 @@ class TestCutToolOnPad:
         assert isolated[0].length == 1
         assert sorted(a.length for a in active) == [2, 2]
 
-    def test_click_on_first_pad_isolates(self, qtbot: object) -> None:
-        from pytestqt.qtbot import QtBot
-        assert isinstance(qtbot, QtBot)
+    def test_click_on_first_pad_isolates(self, qtbot: QtBot) -> None:
         session = _session(rows=1, cols=4)
         view = BoardView(session)
         qtbot.addWidget(view)
@@ -140,16 +133,14 @@ class TestCutToolOnPad:
 
 
 class TestCutToolUndo:
-    def test_undo_restores_original(self, qtbot: object) -> None:
-        from pytestqt.qtbot import QtBot
-        assert isinstance(qtbot, QtBot)
+    def test_undo_restores_original(self, qtbot: QtBot) -> None:
         session = _session(rows=1, cols=5)
         view = BoardView(session)
         qtbot.addWidget(view)
         view.set_tool(CutTool())
         _click(view, 2.0, 0.5)
         assert len(_strip_atoms(session.board)) == 2
-        session.stack.undo(session)
+        session.stack.undo(cast(ComponentState, session))
         atoms = _strip_atoms(session.board)
         assert len(atoms) == 1
         assert atoms[0].length == 5

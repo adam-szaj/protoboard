@@ -10,10 +10,11 @@ just ``to_hit`` / ``identity``.
 from __future__ import annotations
 
 import uuid
+from typing import cast
 
-import pytest
+import pytest  # pyright: ignore[reportMissingImports]  # resolvable; worktree lacks [tool.pyright] venv
 
-from protoboard.gui.selection import SelectionService, Stop
+from protoboard.gui.selection import Selectable, SelectionService, Stop
 from protoboard.gui.selection_fsm import Hit
 
 
@@ -31,8 +32,11 @@ class _FakeSelectable:
         return Hit("component", self._id)
 
 
-def _sel(n: int) -> _FakeSelectable:
-    return _FakeSelectable(n)
+def _sel(n: int) -> Selectable:
+    # ``_FakeSelectable`` is a deliberate partial stand-in (only ``identity`` /
+    # ``to_hit`` — the members the pick machinery touches).  The service speaks
+    # the full :class:`Selectable` protocol, so present the fake under that type.
+    return cast(Selectable, _FakeSelectable(n))
 
 
 def _wire(wire_id: uuid.UUID | None = None):  # type: ignore[no-untyped-def]
@@ -91,7 +95,7 @@ class TestStop:
 class TestRequestPick:
     def test_count_completes_after_n_feeds(self) -> None:
         svc = SelectionService()
-        done: list[list[object]] = []
+        done: list[list[Selectable]] = []
         session = svc.request_pick(
             "wire-vertex", Stop.count(2), on_done=lambda xs: done.append(xs)
         )
@@ -105,7 +109,7 @@ class TestRequestPick:
 
     def test_confirm_collects_then_user_ends(self) -> None:
         svc = SelectionService()
-        done: list[list[object]] = []
+        done: list[list[Selectable]] = []
         progress: list[int] = []
         session = svc.request_pick(
             "pad",
@@ -146,7 +150,7 @@ class TestRequestPick:
 
     def test_until_predicate_terminates(self) -> None:
         svc = SelectionService()
-        done: list[list[object]] = []
+        done: list[list[Selectable]] = []
         session = svc.request_pick(
             "pad",
             Stop.until(lambda xs: len(xs) == 2),
@@ -172,7 +176,7 @@ class TestRequestPick:
 
     def test_feed_after_finish_is_idempotent(self) -> None:
         svc = SelectionService()
-        done: list[list[object]] = []
+        done: list[list[Selectable]] = []
         session = svc.request_pick(
             "wire-vertex", Stop.count(1), on_done=lambda xs: done.append(xs)
         )
@@ -187,7 +191,7 @@ class TestCorrectionPhase:
 
     def test_count_confirm_does_not_auto_complete(self) -> None:
         svc = SelectionService()
-        done: list[list[object]] = []
+        done: list[list[Selectable]] = []
         session = svc.request_pick(
             "pad", Stop.count_confirm(2), on_done=lambda xs: done.append(xs)
         )
@@ -229,7 +233,7 @@ class TestCorrectionPhase:
 
     def test_confirm_finalizes_count_confirm(self) -> None:
         svc = SelectionService()
-        done: list[list[object]] = []
+        done: list[list[Selectable]] = []
         session = svc.request_pick(
             "pad", Stop.count_confirm(2), on_done=lambda xs: done.append(xs)
         )

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 if TYPE_CHECKING:
+    from protoboard.domain.commands.base import ComponentState
     from protoboard.domain.layout.group import ComponentGroup
     from protoboard.gui.session import EditorSession
 
@@ -136,7 +137,7 @@ class GroupsPanel(QWidget):
         if not ok or not new_name.strip() or new_name.strip() == old_name:
             return
         cmd = RenameGroupCommand(group_id=gid, new_name=new_name.strip())
-        self._session.stack.execute(cmd, self._session)
+        self._session.stack.execute(cmd, cast("ComponentState", self._session))
         self.refresh(self._session)
         self.group_renamed.emit(gid)
 
@@ -158,6 +159,6 @@ class GroupsPanel(QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
         cmd = DisbandGroupCommand(group_id=gid)
-        self._session.stack.execute(cmd, self._session)
+        self._session.stack.execute(cmd, cast("ComponentState", self._session))
         self.refresh(self._session)
         self.group_disbanded.emit(gid)

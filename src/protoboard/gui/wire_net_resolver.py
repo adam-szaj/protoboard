@@ -5,7 +5,7 @@ changes into the command for undo/redo support."""
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import structlog
 from protoboard.domain.schematic.net import Net
@@ -18,7 +18,10 @@ from protoboard.domain.schematic.wire_net_ops import (
 if TYPE_CHECKING:
     from protoboard.domain.commands.component_cmds import AddWireWithNetsCommand
     from protoboard.domain.layout.wire import Wire
-    from protoboard.domain.schematic.wire_net_ops import WireNetClassification
+    from protoboard.domain.schematic.wire_net_ops import (
+        WireNetClassification,
+        _SessionLike,
+    )
     from protoboard.gui.session import EditorSession
 
 _log = structlog.get_logger(__name__)
@@ -38,7 +41,11 @@ def resolve_wire_nets(
     Returns True if the wire should be committed, False if the user cancelled
     (only possible for DIFFERENT_NETS when the merge dialog is rejected).
     """
-    cl = classify_wire_nets(wire, session)
+    # EditorSession satisfies the _SessionLike protocol structurally, but its
+    # ``layout`` is a read/write property rather than a plain attribute, so
+    # Pyright rejects it against the protocol's invariant (mutable) ``layout``
+    # field.  The value is genuinely the right shape — cast across the gap.
+    cl = classify_wire_nets(wire, cast("_SessionLike", session))
 
     if cl.kind == WireNetKind.NO_PINS:
         return True

@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
-from pytestqt.qtbot import QtBot
 
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
@@ -36,6 +36,9 @@ from protoboard.gui.renderers.wire_renderer import (
     render_ratsnest,
 )
 from protoboard.gui.theme import DEFAULT_THEME
+
+if TYPE_CHECKING:
+    from pytestqt.qtbot import QtBot
 
 
 # ---------------------------------------------------------------------------

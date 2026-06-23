@@ -16,6 +16,7 @@ from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.wire import WireCollection
 from protoboard.services.routing.autorouter import autoroute
 
 from tests.unit._autoroute_invariants import (
@@ -66,7 +67,7 @@ class TestAlienPadStealing:
             a2.id: place(a2.id, 8.5, 0.5),
             b1.id: place(b1.id, 0.5, 2.5),
             b2.id: place(b2.id, 9.5, 2.5),
-        }, wires=[
+        }, wires=WireCollection([
             bare((1.5, 0.5), (2.5, 0.5), side="bottom"),
             bare((2.5, 0.5), (3.5, 0.5), side="bottom"),
             bare((3.5, 0.5), (4.5, 0.5), side="bottom"),
@@ -74,7 +75,7 @@ class TestAlienPadStealing:
             bare((5.5, 0.5), (6.5, 0.5), side="bottom"),
             bare((6.5, 0.5), (7.5, 0.5), side="bottom"),
             bare((7.5, 0.5), (8.5, 0.5), side="bottom"),
-        ])
+        ]))
         net_a = _net("NET_A", (a1, 2), (a2, 1))
         net_b = _net("NET_B", (b1, 2), (b2, 1))
         sch = Schematic(nets={net_a.id: net_a, net_b.id: net_b})
@@ -92,14 +93,14 @@ class TestAlienPadStealing:
             a2.id: place(a2.id, 5.5, 5.5),
             b1.id: place(b1.id, 5.5, 0.5),
             b2.id: place(b2.id, 0.5, 5.5),
-        }, wires=[
+        }, wires=WireCollection([
             # NET_A diagonal chain through (1.5,1.5), (2.5,2.5), (3.5,3.5), (4.5,4.5)
             bare((1.5, 0.5), (1.5, 1.5), side="top"),
             bare((1.5, 1.5), (2.5, 2.5), side="top"),
             bare((2.5, 2.5), (3.5, 3.5), side="top"),
             bare((3.5, 3.5), (4.5, 4.5), side="top"),
             bare((4.5, 4.5), (5.5, 5.5), side="top"),
-        ])
+        ]))
         net_a = _net("NET_A", (a1, 2), (a2, 1))
         net_b = _net("NET_B", (b1, 1), (b2, 1))
         sch = Schematic(nets={net_a.id: net_a, net_b.id: net_b})
@@ -127,10 +128,10 @@ class TestPlatedThroughBlocking:
             # NET_B on row 2 that must traverse columns 1.5..3.5 somewhere
             b1.id: place(b1.id, 0.5, 2.5),
             b2.id: place(b2.id, 5.5, 2.5),
-        }, wires=[
+        }, wires=WireCollection([
             bare((1.5, 0.5), (2.5, 0.5), side="bottom"),
             bare((2.5, 0.5), (3.5, 0.5), side="bottom"),
-        ])
+        ]))
         net_a = _net("NET_A", (a1, 2), (a2, 1))
         net_b = _net("NET_B", (b1, 2), (b2, 1))
         sch = Schematic(nets={net_a.id: net_a, net_b.id: net_b})
@@ -160,7 +161,7 @@ class TestAlienElectricSetWithoutPin:
             # NET_B pins at (1.5, 2.5) and (8.5, 2.5) — row 2.
             b1.id: place(b1.id, 0.5, 2.5),
             b2.id: place(b2.id, 8.5, 2.5),
-        }, wires=[
+        }, wires=WireCollection([
             # NET_A pre-wired through row 1.5 (intermediate pads with no pin).
             bare((1.5, 0.5), (1.5, 1.5), side="bottom"),
             bare((1.5, 1.5), (2.5, 1.5), side="bottom"),
@@ -171,7 +172,7 @@ class TestAlienElectricSetWithoutPin:
             bare((6.5, 1.5), (7.5, 1.5), side="bottom"),
             bare((7.5, 1.5), (8.5, 1.5), side="bottom"),
             bare((8.5, 1.5), (8.5, 0.5), side="bottom"),
-        ])
+        ]))
         net_a = _net("NET_A", (a1, 2), (a2, 1))
         net_b = _net("NET_B", (b1, 2), (b2, 1))
         sch = Schematic(nets={net_a.id: net_a, net_b.id: net_b})
@@ -197,7 +198,7 @@ class TestInsulatedJumperEndpoints:
             a2.id: place(a2.id, 6.5, 0.5),
             b1.id: place(b1.id, 0.5, 3.5),
             b2.id: place(b2.id, 6.5, 3.5),
-        }, wires=[
+        }, wires=WireCollection([
             # NET_A claims pads (1.5..6.5, 0.5) via bare bottom row.
             bare((1.5, 0.5), (2.5, 0.5), side="bottom"),
             bare((2.5, 0.5), (3.5, 0.5), side="bottom"),
@@ -207,7 +208,7 @@ class TestInsulatedJumperEndpoints:
             # NET_A also stakes a top-layer jumper toward row 2 — the rest of
             # the board is now visually attractive for any insulated route.
             insulated((6.5, 0.5), (6.5, 2.5), side="top"),
-        ])
+        ]))
         net_a = _net("NET_A", (a1, 2), (a2, 1))
         net_b = _net("NET_B", (b1, 2), (b2, 1))
         sch = Schematic(nets={net_a.id: net_a, net_b.id: net_b})

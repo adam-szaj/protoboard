@@ -11,7 +11,9 @@ target the lifted free functions.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -180,7 +182,9 @@ class TestBuildReroute:
             end_wire_id=wire.id, end_idx=2,
             waypoints=(Point(1.5, 1.0),),
         )
-        cmd = build_reroute_command(sess.layout, sess.layout.wires, nm, state)
+        cmd = build_reroute_command(
+            sess.layout, cast(Sequence[Wire], sess.layout.wires), nm, state
+        )
         assert isinstance(cmd, ReplaceWireFragmentsCommand)
         assert cmd.wire_id == wire.id
         # New path = prefix[:2] + waypoint + suffix[2:] = the rerouted detour.
@@ -198,7 +202,9 @@ class TestBuildReroute:
             end_wire_id=wire.id, end_idx=1,
         )
         # prefix[:1] + [] + suffix[1:] = [p0, p1] — still 2 points, valid.
-        cmd = build_reroute_command(sess.layout, sess.layout.wires, nm, state)
+        cmd = build_reroute_command(
+            sess.layout, cast(Sequence[Wire], sess.layout.wires), nm, state
+        )
         assert isinstance(cmd, ReplaceWireFragmentsCommand)
 
     def test_cross_wire_builds_excise_plus_addwire_macro(self) -> None:
@@ -212,7 +218,9 @@ class TestBuildReroute:
             end_wire_id=wire_b.id, end_idx=0,
             waypoints=(Point(3.0, 9.0),),
         )
-        cmd = build_reroute_command(sess.layout, sess.layout.wires, nm, state)
+        cmd = build_reroute_command(
+            sess.layout, cast(Sequence[Wire], sess.layout.wires), nm, state
+        )
         assert isinstance(cmd, MacroCommand)
         # The outer macro = [excise_macro, AddWire(new_path)].
         assert any(isinstance(c, AddWireCommand) for c in cmd._commands)

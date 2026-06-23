@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import uuid
+from typing import cast
 
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
+from protoboard.domain.commands.base import ComponentState
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.board_view import BoardView
@@ -172,7 +174,7 @@ class TestSimplifyToolApply:
         board_view.set_tool(SimplifyTool())
         _press(board_view, 2.5, 0.5, shift=True)
         _press(board_view, 2.5, 0.5, shift=True)
-        session.stack.undo(session)
+        session.stack.undo(cast(ComponentState, session))
         assert len(session.layout.wires) == 1
         assert list(session.layout.wires[0].path) == original_path
 

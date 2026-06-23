@@ -12,11 +12,29 @@ Pure-Python — no Qt, no QApplication.
 from __future__ import annotations
 
 import uuid
+from typing import Callable, TypedDict
 
 import pytest
 
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.gui.drag_set import DragSet
+
+
+class World(TypedDict):
+    """Typed view of the ``world`` fixture's heterogeneous contents."""
+
+    g1_id: uuid.UUID
+    g2_id: uuid.UUID
+    g3_id: uuid.UUID
+    c1: uuid.UUID
+    c2: uuid.UUID
+    c3: uuid.UUID
+    c4: uuid.UUID
+    c5: uuid.UUID
+    c6: uuid.UUID
+    c7: uuid.UUID
+    groups_map: dict[uuid.UUID, ComponentGroup]
+    in_group_of: Callable[[uuid.UUID], set[uuid.UUID]]
 
 
 # ---------------------------------------------------------------------------
@@ -25,7 +43,7 @@ from protoboard.gui.drag_set import DragSet
 
 
 @pytest.fixture
-def world() -> dict[str, object]:
+def world() -> World:
     """A two-group world:
 
     G1 = {c1, c2}
@@ -93,26 +111,26 @@ class TestDragSetConstructor:
 
 
 class TestAllComponentIds:
-    def test_only_free_components(self, world: dict[str, object]) -> None:
+    def test_only_free_components(self, world: World) -> None:
         ds = DragSet(free_components=frozenset({world["c6"], world["c7"]}))
         assert ds.all_component_ids(world["groups_map"]) == frozenset(
             {world["c6"], world["c7"]}
         )
 
-    def test_only_one_group_expands_to_members(self, world: dict[str, object]) -> None:
+    def test_only_one_group_expands_to_members(self, world: World) -> None:
         ds = DragSet(groups=frozenset({world["g1_id"]}))
         assert ds.all_component_ids(world["groups_map"]) == frozenset(
             {world["c1"], world["c2"]}
         )
 
-    def test_nested_group_includes_child_members(self, world: dict[str, object]) -> None:
+    def test_nested_group_includes_child_members(self, world: World) -> None:
         # G2 = {c3} + child G3{c4, c5} → expanded set should contain all three.
         ds = DragSet(groups=frozenset({world["g2_id"]}))
         assert ds.all_component_ids(world["groups_map"]) == frozenset(
             {world["c3"], world["c4"], world["c5"]}
         )
 
-    def test_union_of_free_and_groups(self, world: dict[str, object]) -> None:
+    def test_union_of_free_and_groups(self, world: World) -> None:
         ds = DragSet(
             free_components=frozenset({world["c6"]}),
             groups=frozenset({world["g1_id"]}),
@@ -121,7 +139,7 @@ class TestAllComponentIds:
             {world["c1"], world["c2"], world["c6"]}
         )
 
-    def test_unknown_group_is_silently_skipped(self, world: dict[str, object]) -> None:
+    def test_unknown_group_is_silently_skipped(self, world: World) -> None:
         # A stale group id (e.g. after disband mid-session) must not raise.
         unknown = uuid.uuid4()
         ds = DragSet(groups=frozenset({unknown}))
@@ -163,7 +181,7 @@ class TestWithAdded:
 
 class TestFromSelection:
     def test_empty_selection_yields_empty_drag_set(
-        self, world: dict[str, object]
+        self, world: World
     ) -> None:
         ds = DragSet.from_selection(
             selected_ids=set(),
@@ -175,7 +193,7 @@ class TestFromSelection:
         assert ds.is_empty
 
     def test_top_level_components_become_free(
-        self, world: dict[str, object]
+        self, world: World
     ) -> None:
         ds = DragSet.from_selection(
             selected_ids={world["c6"], world["c7"]},  # type: ignore[arg-type]
@@ -188,7 +206,7 @@ class TestFromSelection:
         assert ds.groups == frozenset()
 
     def test_group_member_with_group_selected_goes_to_group(
-        self, world: dict[str, object]
+        self, world: World
     ) -> None:
         """When the user selects both a group AND one of its members,
         the member should not appear in ``free_components`` — it moves
@@ -210,7 +228,7 @@ class TestFromSelection:
         assert world["c1"] in ds.all_component_ids(world["groups_map"])  # type: ignore[arg-type]
 
     def test_locked_member_without_group_in_selection_is_dropped(
-        self, world: dict[str, object]
+        self, world: World
     ) -> None:
         """A component belonging to a non-active group, when its group
         is NOT in ``selected_group_ids``, must be dropped from the
@@ -230,7 +248,7 @@ class TestFromSelection:
         # c6 is free → kept.
         assert ds.free_components == frozenset({world["c6"]})
 
-    def test_mixed_free_and_group(self, world: dict[str, object]) -> None:
+    def test_mixed_free_and_group(self, world: World) -> None:
         """Realistic mixed drag: one free component + one group selected."""
         members_of_g1 = world["in_group_of"](world["g1_id"])  # type: ignore[operator]
         ds = DragSet.from_selection(
@@ -247,7 +265,7 @@ class TestFromSelection:
             {world["c1"], world["c2"], world["c6"]}
         )
 
-    def test_wires_pass_through_verbatim(self, world: dict[str, object]) -> None:
+    def test_wires_pass_through_verbatim(self, world: World) -> None:
         w1, w2 = uuid.uuid4(), uuid.uuid4()
         ds = DragSet.from_selection(
             selected_ids=set(),

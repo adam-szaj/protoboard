@@ -28,7 +28,7 @@ from protoboard.gui.action_builder import (
     build_actions,
     resolve_slot,
 )
-from protoboard.gui.actions import ActionSpec, strip_mnemonic
+from protoboard.gui.actions import ActionSpec, ToolbarGroup, strip_mnemonic
 
 
 # ---------------------------------------------------------------------------
@@ -300,7 +300,7 @@ class TestToolbarLayout:
             ActionSpec(id="b", label="B", slot_name="_save", menu_path=None),
             ActionSpec(id="c", label="C", slot_name="_save", menu_path=None),
         )
-        layout = {"view": ["b", "a", "c"]}  # type: ignore[dict-item]
+        layout: dict[ToolbarGroup, list[str]] = {"view": ["b", "a", "c"]}
         reg = build_actions(
             main_window, specs, kb_empty,
             slot_owners={"mw": mw},
@@ -319,7 +319,7 @@ class TestToolbarLayout:
         specs = (
             ActionSpec(id="a", label="A", slot_name="_save", menu_path=None),
         )
-        layout = {"view": ["a", "ghost"]}  # type: ignore[dict-item]
+        layout: dict[ToolbarGroup, list[str]] = {"view": ["a", "ghost"]}
         reg = build_actions(
             main_window, specs, kb_empty,
             slot_owners={"mw": mw},
@@ -337,7 +337,7 @@ class TestToolbarLayout:
         specs = (
             ActionSpec(id="a", label="A", slot_name="_save", menu_path=None),
         )
-        layout = {"view": []}  # type: ignore[dict-item]
+        layout: dict[ToolbarGroup, list[str]] = {"view": []}
         reg = build_actions(
             main_window, specs, kb_empty,
             slot_owners={"mw": mw},
@@ -370,7 +370,7 @@ class TestToolbarLayout:
         specs = (
             ActionSpec(id="a", label="A", slot_name="_save", menu_path=None),
         )
-        layout = {"view": ["a"]}  # type: ignore[dict-item]
+        layout: dict[ToolbarGroup, list[str]] = {"view": ["a"]}
         reg = build_actions(
             main_window, specs, kb_empty,
             slot_owners={"mw": mw},

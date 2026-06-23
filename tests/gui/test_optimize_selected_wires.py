@@ -10,9 +10,11 @@ session unless the optimizer actually produced a different layout.
 from __future__ import annotations
 
 import uuid
+from typing import cast
 
 import pytest
 
+from protoboard.domain.commands.base import ComponentState
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
 from protoboard.gui.session import EditorSession
@@ -194,10 +196,10 @@ class TestOptimizeSelectedWires:
             select_tool._optimize_selected_wires({w.id}, "test-shift-sides")
             assert session.layout.wires[0].side == "bottom"
 
-            session.stack.undo(session)
+            session.stack.undo(cast(ComponentState, session))
             assert session.layout.wires[0].side == "top"
 
-            session.stack.redo(session)
+            session.stack.redo(cast(ComponentState, session))
             assert session.layout.wires[0].side == "bottom"
         finally:
             optimizer_registry.optimizers.pop("test-shift-sides", None)

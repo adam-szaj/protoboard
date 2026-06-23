@@ -26,7 +26,7 @@ from protoboard.domain.commands.net_cmds import (
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.recording import (
@@ -52,7 +52,7 @@ class _State:
 
     def __init__(self) -> None:
         self.board = _empty_board()
-        self.layout = Layout(placements={}, wires=[])
+        self.layout = Layout(placements={}, wires=WireCollection())
         self.schematic = Schematic(nets={})
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         from protoboard.domain.components.definition import ComponentDefinition

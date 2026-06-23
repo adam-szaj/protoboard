@@ -99,11 +99,12 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
 
     def sync_selection(
         self,
-        _comp_ids: object,
-        _wire_ids: object,
+        comp_ids: object,
+        wire_ids: object,
         net_id: object,
     ) -> None:
         """Highlight the row matching net_id. Called by MainWindow on board selection."""
+        del comp_ids, wire_ids  # unused: this panel keys off net_id only
         if not self.isVisible():
             return
         self._syncing = True

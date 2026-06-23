@@ -10,7 +10,7 @@ import pytest
 from protoboard.domain.components.footprints import DIP, SIL
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.geometry import Point
 
 
@@ -428,7 +428,7 @@ class TestWireSegment:
 
 class TestLayout:
     def test_empty_layout(self) -> None:
-        lay = Layout(placements={}, wires=[])
+        lay = Layout(placements={}, wires=WireCollection([]))
         assert len(lay.placements) == 0
         assert len(lay.wires) == 0
 
@@ -440,7 +440,7 @@ class TestLayout:
             rotation=0,
             side="top",
         )
-        lay = Layout(placements={comp_id: pl}, wires=[])
+        lay = Layout(placements={comp_id: pl}, wires=WireCollection([]))
         assert comp_id in lay.placements
 
     def test_add_wire(self) -> None:
@@ -450,5 +450,5 @@ class TestLayout:
             insulated=True,
             side="top",
         )
-        lay = Layout(placements={}, wires=[w])
+        lay = Layout(placements={}, wires=WireCollection([w]))
         assert len(lay.wires) == 1

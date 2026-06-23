@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
@@ -313,8 +311,8 @@ class TestMergeEndpointWires:
         """
         from protoboard.domain.layout.knot import JointKnot
         from protoboard.domain.layout.layout import Layout
-        from protoboard.domain.layout.wire import KnotRef, Wire
-        layout = Layout(placements={}, wires=[])
+        from protoboard.domain.layout.wire import KnotRef, Wire, WireCollection
+        layout = Layout(placements={}, wires=WireCollection())
         # Outer endpoints (left & right) each get a degree-1 joint.
         import uuid as _uuid
         ja = JointKnot(id=_uuid.uuid4(), position=Point(0.5, 0.5))
@@ -401,9 +399,9 @@ class TestSplitWiresAtEndpointCollisions:
         """W2 runs horizontally past (2.5, 0.5); W1 ends at that pad."""
         from protoboard.domain.layout.knot import JointKnot
         from protoboard.domain.layout.layout import Layout
-        from protoboard.domain.layout.wire import KnotRef, Wire
+        from protoboard.domain.layout.wire import KnotRef, Wire, WireCollection
         import uuid as _uuid
-        layout = Layout(placements={}, wires=[])
+        layout = Layout(placements={}, wires=WireCollection())
         # Outer joints for both wires.
         j_w2_a = JointKnot(id=_uuid.uuid4(), position=Point(0.5, 0.5))
         j_w2_b = JointKnot(id=_uuid.uuid4(), position=Point(4.5, 0.5))
@@ -500,6 +498,7 @@ class TestTJunctionNetGate:
         from protoboard.domain.components.instance import ComponentInstance
         from protoboard.domain.layout.layout import Layout
         from protoboard.domain.layout.placement import ComponentPlacement
+        from protoboard.domain.layout.wire import WireCollection
         from protoboard.domain.schematic.net import Net, PinRef
         from protoboard.domain.schematic.schematic import Schematic
         import uuid as _uuid
@@ -529,7 +528,7 @@ class TestTJunctionNetGate:
             pins={PinRef(component_id=r2.id, pin_number=1)},
         )
         schematic = Schematic(nets={net_a.id: net_a, net_b.id: net_b})
-        layout = Layout(placements=placements, wires=[])
+        layout = Layout(placements=placements, wires=WireCollection())
         components = {defn.name: defn}
         instances = {r1.id: r1, r2.id: r2}
         return board, layout, schematic, components, instances, r1, r2, net_a, net_b

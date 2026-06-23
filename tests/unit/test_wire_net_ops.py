@@ -10,7 +10,7 @@ from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.domain.schematic.wire_net_ops import (
@@ -45,7 +45,7 @@ class _FakeSession:
     """Minimal session stub — no Qt, no board needed."""
 
     def __init__(self) -> None:
-        self.layout = Layout(placements={}, wires=[])
+        self.layout = Layout(placements={}, wires=WireCollection())
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         self.components: dict[str, ComponentDefinition] = {}
         self.schematic = Schematic(nets={})

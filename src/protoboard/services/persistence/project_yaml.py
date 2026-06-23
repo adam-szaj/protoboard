@@ -14,9 +14,19 @@ from __future__ import annotations
 import io
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Iterable,
+    Protocol,
+    cast,
+    runtime_checkable,
+)
 
 from ruamel.yaml import YAML
+
+if TYPE_CHECKING:
+    from protoboard.domain.components.definition import ComponentDefinition
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.components.appearance import Appearance, parse_style
@@ -44,6 +54,21 @@ from protoboard.services.persistence.board_yaml import board_from_yaml, board_to
 _log = structlog.get_logger(__name__)
 _yaml = YAML(typ="safe")
 _yaml.default_flow_style = False
+
+
+@runtime_checkable
+class _MigrationLibrary(Protocol):
+    """The subset of ``ComponentLibrary`` the migration passes duck-type.
+
+    The migration global is intentionally typed ``object | None`` (the domain
+    layer must not import the library), so call sites narrow to this protocol
+    via ``cast`` after a ``hasattr`` guard. ``get`` may return ``None`` for a
+    missing definition in the duck-typed legacy/test handles used here.
+    """
+
+    def get(self, name: str) -> ComponentDefinition | None: ...
+
+    def names(self) -> Iterable[str]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -370,10 +395,11 @@ def _drop_dangling_instances(
     """
     if library is None or not hasattr(library, "get"):
         return
+    lib = cast(_MigrationLibrary, library)
     dangling = {
         cid
         for cid, inst in instances.items()
-        if library.get(inst.definition_ref) is None
+        if lib.get(inst.definition_ref) is None
     }
     if not dangling:
         return
@@ -491,7 +517,11 @@ def load_project(
                 inst = instances.get(comp_id)
                 if inst is None:
                     continue
-                defn = library.get(inst.definition_ref) if hasattr(library, "get") else None
+                defn = (
+                    cast(_MigrationLibrary, library).get(inst.definition_ref)
+                    if hasattr(library, "get")
+                    else None
+                )
                 if defn is None:
                     continue
                 n_pins = defn.footprint.pin_count()
@@ -1100,9 +1130,10 @@ def _decode_knots_and_wires(
             raise SerializationError(f"unknown knot kind: {kind!r}")
         layout.knots[kid] = knot
 
-    if raw_wires is None:
-        raw_wires = data.get("wires") or []
-    for raw in raw_wires:
+    wires_to_decode: list[dict[str, Any]] = (
+        raw_wires if raw_wires is not None else (data.get("wires") or [])
+    )
+    for raw in wires_to_decode:
         wid = uuid.UUID(raw["id"])
         a_id = uuid.UUID(raw["a_knot_id"])
         b_id = uuid.UUID(raw["b_knot_id"])

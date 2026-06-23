@@ -116,7 +116,15 @@ def _body_pen(border: QColor, alpha: float, width: float = 0.06) -> QPen:
 # ---------------------------------------------------------------------------
 
 class GenericBody(BodyShape):
-    def draw(self, positions, fill, border, alpha, z, theme=DEFAULT_THEME):
+    def draw(
+        self,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme = DEFAULT_THEME,
+    ) -> list[QGraphicsItem]:
         if not positions:
             return []
         margin = 0.35
@@ -142,7 +150,15 @@ class GenericBody(BodyShape):
 # ---------------------------------------------------------------------------
 
 class TO92Body(BodyShape):
-    def draw(self, positions, fill, border, alpha, z, theme=DEFAULT_THEME):
+    def draw(
+        self,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme = DEFAULT_THEME,
+    ) -> list[QGraphicsItem]:
         if len(positions) < 3:
             return GenericBody().draw(positions, fill, border, alpha, z, theme)
 
@@ -242,7 +258,15 @@ class TO92Body(BodyShape):
 # ---------------------------------------------------------------------------
 
 class TO220Body(BodyShape):
-    def draw(self, positions, fill, border, alpha, z, theme=DEFAULT_THEME):
+    def draw(
+        self,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme = DEFAULT_THEME,
+    ) -> list[QGraphicsItem]:
         if len(positions) < 3:
             return GenericBody().draw(positions, fill, border, alpha, z, theme)
 

@@ -77,9 +77,10 @@ class LayoutSnapshot:
         the snapshot or the original session Layout.
         """
         from protoboard.domain.layout.layout import Layout
+        from protoboard.domain.layout.wire import WireCollection
         return Layout(
             placements=dict(self.placements),
-            wires=list(self.wires),
+            wires=WireCollection(list(self.wires)),
         )
 
 

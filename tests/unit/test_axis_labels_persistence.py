@@ -13,6 +13,7 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.wire import WireCollection
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.services.persistence.project_yaml import (
     load_project,
@@ -41,7 +42,7 @@ def _save(tmp_path: Path, settings: AxisLabelSettings | None) -> None:
     save_project(
         directory=tmp_path,
         board=_perfboard(),
-        layout=Layout(placements={}, wires=[]),
+        layout=Layout(placements={}, wires=WireCollection()),
         schematic=Schematic(nets={}),
         instances={},
         axis_label_settings=settings,

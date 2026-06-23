@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import structlog
 from protoboard.domain.layout.pad_conflict import (
@@ -21,6 +21,9 @@ from protoboard.domain.layout.placement import (
 from protoboard.geometry import Point
 
 if TYPE_CHECKING:
+    from PySide6.QtWidgets import QWidget
+
+    from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.gui.session import EditorSession
     from protoboard.gui.tools.drag_commit_decision import DragCommitDecision
@@ -134,7 +137,7 @@ def check_and_resolve(
         incoming_placement=placement,
         incoming_defn=defn,
         incoming_instance_id=instance_id,
-        wires=session.layout.wires,
+        wires=session.layout.wires.values(),
         schematic=session.schematic,
         point_to_net=point_to_net,
         already_conflicted=already_conflicted,
@@ -319,7 +322,7 @@ def _resolve_wire_conflicts(
     dlg = WireConflictDialog(
         conflicts=wire_conflicts,
         incoming_refdes=incoming_refdes,
-        parent=parent_widget,
+        parent=cast("QWidget | None", parent_widget),
     )
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return None, []
@@ -515,7 +518,7 @@ def classify_drag_commit(
     )
 
 
-def _build_drag_pad_index(session: "EditorSession") -> "object | None":
+def _build_drag_pad_index(session: "EditorSession") -> "PadIndex | None":
     """Build a fresh PadIndex reflecting the live (post-drag) layout.
 
     Returns None when *session* lacks a ``board`` (test stubs) or

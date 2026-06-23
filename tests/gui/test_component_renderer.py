@@ -18,6 +18,7 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
+from protoboard.types import Side
 from protoboard.gui.layer_state import LayerState
 from protoboard.gui.renderers.component_renderer import (
     comp_fingerprint,
@@ -37,7 +38,7 @@ def _make_placement(
     x: float = 0.0,
     y: float = 0.0,
     rotation: int = 0,
-    side: str = "top",
+    side: Side = "top",
 ) -> ComponentPlacement:
     return ComponentPlacement(
         component_id=uuid.uuid4(),

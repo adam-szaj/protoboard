@@ -18,7 +18,7 @@ from protoboard.domain.layout.pad_conflict import (
     find_wire_conflicts,
 )
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
@@ -301,7 +301,7 @@ class TestDRCOverlapSharedPins:
         pl_r2: ComponentPlacement,
     ) -> list[str]:
         sch = Schematic(nets={})
-        lay = Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=[])
+        lay = Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=WireCollection())
         engine = DRCEngine()
         board = _perfboard(1, 4)
         issues = engine.check(

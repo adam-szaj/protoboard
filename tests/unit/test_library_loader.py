@@ -418,16 +418,23 @@ class TestMigratedICs:
             assert d.pin_name(4) == "VEE" and d.pin_name(8) == "NC"
 
     def test_dip_geometry_and_notch_via_kind(self) -> None:
+        from typing import cast
+
+        from protoboard.domain.components.package.shapes import Prism
         from protoboard.gui.renderers.prism_silhouette import (
             DipSilhouette,
             silhouette_for_prism,
         )
         lib = self._lib()
         d = lib.get("74HC00")
-        assert d.package is not None and d.package.kind == "dip_ic"
-        assert isinstance(silhouette_for_prism(d.package), DipSilhouette)
+        assert d.package is not None
+        prism = cast(Prism, d.package)
+        assert prism.kind == "dip_ic"
+        assert isinstance(silhouette_for_prism(prism), DipSilhouette)
         # DIP-28 parts are wide.
-        assert lib.get("ATmega328P").package.kind == "wdip_ic"
+        wide = lib.get("ATmega328P").package
+        assert wide is not None
+        assert cast(Prism, wide).kind == "wdip_ic"
 
     def test_regulators_untouched(self) -> None:
         # TO92/TO220 regulators keep their footprint (not dip_ic) and pinouts.
@@ -789,7 +796,7 @@ components:
 
 
 class TestPinVariants:
-    def _make_lib(self, tmp_path: Path, yaml_text: str) -> object:
+    def _make_lib(self, tmp_path: Path, yaml_text: str) -> ComponentLibrary:
         (tmp_path / "parts.yaml").write_text(yaml_text)
         return load_library([tmp_path])
 

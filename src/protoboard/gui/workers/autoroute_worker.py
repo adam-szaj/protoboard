@@ -6,7 +6,7 @@ from __future__ import annotations
 import threading
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from PySide6.QtCore import QThread, Signal
 
@@ -83,7 +83,7 @@ class AutorouteWorker(QThread):
     # post-autoroute simplify-all fixed-point loop.  Lets MainWindow show
     # a meaningful countdown instead of a frozen-looking progress dialog.
     simplify_progress: Signal = Signal(int, int, int)
-    finished: Signal = Signal(object)          # AutorouteResult
+    finished: ClassVar[Signal] = Signal(object)  # AutorouteResult — overrides QThread.finished
     error: Signal = Signal(str)
 
     def __init__(

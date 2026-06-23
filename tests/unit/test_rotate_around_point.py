@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from typing import cast
 
 import pytest
 
+from protoboard.domain.commands.base import ComponentState
 from protoboard.domain.commands.group_cmds import (
     RotateAroundPointCommand,
     _rotate_point_around,
@@ -49,7 +51,7 @@ class TestRotateAroundPoint:
 
         RotateAroundPointCommand(
             comp_ids=frozenset({cid1, cid2}), origin=pivot, delta=90,
-        ).apply(state)
+        ).apply(cast(ComponentState, state))
 
         # Same geometry as a group rotation around (1,1):
         # (2,1) -> (1,0) rot 90 ; (2,3) -> (3,0) rot 180.
@@ -70,7 +72,7 @@ class TestRotateAroundPoint:
 
         RotateAroundPointCommand(
             comp_ids=frozenset({cid}), origin=pivot, delta=270,
-        ).apply(state)
+        ).apply(cast(ComponentState, state))
 
         expected = _rotate_point_around(Point(5.0, 2.0), pivot, 270)
         moved = state.layout.placements[cid]
@@ -87,10 +89,10 @@ class TestRotateAroundPoint:
         cmd = RotateAroundPointCommand(
             comp_ids=frozenset({cid}), origin=pivot, delta=90,
         )
-        cmd.apply(state)
+        cmd.apply(cast(ComponentState, state))
         assert state.layout.placements[cid].position != Point(4.0, 1.0)
 
-        cmd.revert(state)
+        cmd.revert(cast(ComponentState, state))
         restored = state.layout.placements[cid]
         assert restored.position.x == pytest.approx(4.0)
         assert restored.position.y == pytest.approx(1.0)
@@ -103,7 +105,7 @@ class TestRotateAroundPoint:
 
         RotateAroundPointCommand(
             comp_ids=frozenset(), origin=Point(0.0, 0.0), delta=90,
-        ).apply(state)
+        ).apply(cast(ComponentState, state))
 
         unchanged = state.layout.placements[cid]
         assert unchanged.position == Point(1.0, 1.0)

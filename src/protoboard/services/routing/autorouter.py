@@ -30,7 +30,7 @@ from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, TYPE_CHECKING
+from typing import Literal, TYPE_CHECKING, cast
 
 import structlog
 
@@ -1956,6 +1956,8 @@ def _route_segment_with_ripup(
                 for pad in connectivity_graph.pads_in_same_electric_set(pin_pt, layer):
                     alien_pad_set.add((pad, layer))
 
+        combined_occupied: dict[tuple[Point, str], uuid.UUID] = dict(occupied_pins)
+        effective_near: set[tuple[Point, str]] = set()
         for try_insulated in insulation_attempts:
             active_cm = bare_only_cm if not try_insulated else cost_model
 
@@ -1988,7 +1990,7 @@ def _route_segment_with_ripup(
                 exclude_wire_id=None,
                 both_sides=not try_insulated,
             )
-            combined_occupied: dict[tuple[Point, str], uuid.UUID] = dict(occupied_pins)
+            combined_occupied = dict(occupied_pins)
             for ps, nid in wire_occupied.items():
                 if ps not in combined_occupied:
                     combined_occupied[ps] = nid
@@ -2332,7 +2334,7 @@ def _path_to_wires(path: list[PathStep], insulated: bool) -> list[Wire]:
             id=uuid.uuid4(),
             path=pts,
             insulated=insulated,
-            side=seg_side,
+            side=cast(Side, seg_side),
         ))
     return wires
 

@@ -114,7 +114,7 @@ def export_svg_from_snapshot(
     buffer.close()
 
     raw: QByteArray = buffer.data()
-    return bytes(raw).decode("utf-8")
+    return bytes(raw.data()).decode("utf-8")
 
 
 __all__ = ["export_svg", "export_svg_from_snapshot"]

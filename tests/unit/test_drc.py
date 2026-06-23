@@ -13,7 +13,7 @@ from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point
@@ -45,7 +45,7 @@ class TestDRCClean:
     def test_empty_layout_no_issues(self) -> None:
         board = _perfboard(3, 3)
         sch = Schematic(nets={})
-        lay = Layout(placements={}, wires=[])
+        lay = Layout(placements={}, wires=WireCollection())
         engine = DRCEngine()
         issues = engine.check(
             board=board,
@@ -103,7 +103,7 @@ class TestDRCClean:
         sch = Schematic(nets={n.id: n for n in (vcc_net, mid_net, gnd_net)})
         lay = Layout(
             placements={r1.id: pl_r1, r2.id: pl_r2},
-            wires=[mid_wire],
+            wires=WireCollection([mid_wire]),
         )
         engine = DRCEngine()
         issues = engine.check(
@@ -141,7 +141,7 @@ class TestDRCMissingNet:
         sch = Schematic(nets={net.id: net})
         lay = Layout(
             placements={r1.id: pl_r1, r2.id: pl_r2},
-            wires=[],
+            wires=WireCollection(),
         )
         engine = DRCEngine()
         issues = engine.check(
@@ -190,7 +190,7 @@ class TestDRCShort:
         sch = Schematic(nets={n.id: n for n in (net_a, net_b)})
         lay = Layout(
             placements={r1.id: pl_r1, r2.id: pl_r2},
-            wires=[bad_wire],
+            wires=WireCollection([bad_wire]),
         )
         engine = DRCEngine()
         issues = engine.check(
@@ -222,7 +222,7 @@ class TestDRCOverlap:
         sch = Schematic(nets={})
         lay = Layout(
             placements={r1.id: pl_r1, r2.id: pl_r2},
-            wires=[],
+            wires=WireCollection(),
         )
         engine = DRCEngine()
         issues = engine.check(
@@ -260,7 +260,7 @@ class TestDRCOverlap:
         issues = engine.check(
             board=board,
             schematic=Schematic(nets={}),
-            layout=Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=[]),
+            layout=Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=WireCollection()),
             components={defn.name: defn},
             instances={r1.id: r1, r2.id: r2},
         )
@@ -301,7 +301,7 @@ class TestDRCOverlap:
         issues = engine.check(
             board=board,
             schematic=Schematic(nets={}),
-            layout=Layout(placements={c1.id: pl(c1.id), c2.id: pl(c2.id)}, wires=[]),
+            layout=Layout(placements={c1.id: pl(c1.id), c2.id: pl(c2.id)}, wires=WireCollection()),
             components={defn.name: defn},
             instances={c1.id: c1, c2.id: c2},
         )
@@ -333,7 +333,7 @@ class TestDRCOverlap:
         issues = engine.check(
             board=board,
             schematic=Schematic(nets={}),
-            layout=Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=[]),
+            layout=Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=WireCollection()),
             components={bendy.name: bendy, rigid.name: rigid},
             instances={r1.id: r1, r2.id: r2},
         )
@@ -355,7 +355,7 @@ class TestDRCOverlap:
         issues = engine.check(
             board=board,
             schematic=Schematic(nets={}),
-            layout=Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=[]),
+            layout=Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=WireCollection()),
             components={defn.name: defn},
             instances={r1.id: r1, r2.id: r2},
         )
@@ -410,7 +410,7 @@ class TestDRCBodyOverlap:
                 component_id=inst.id, position=pos, rotation=0,
                 side=side,  # type: ignore[arg-type]
             )
-        return Layout(placements=pls, wires=[]), {defn.name: defn}, insts
+        return Layout(placements=pls, wires=WireCollection()), {defn.name: defn}, insts
 
     def test_overlapping_bodies_flag_body_overlap(self) -> None:
         board = _perfboard(4, 4)
@@ -516,7 +516,7 @@ class TestDRCMessages:
         issues = engine.check(
             board=board,
             schematic=Schematic(nets={}),
-            layout=Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=[]),
+            layout=Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=WireCollection()),
             components={defn.name: defn},
             instances={r1.id: r1, r2.id: r2},
             axis_labels=labels,
@@ -541,7 +541,7 @@ class TestDRCMessages:
         issues = engine.check(
             board=board,
             schematic=Schematic(nets={}),
-            layout=Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=[]),
+            layout=Layout(placements={r1.id: pl_r1, r2.id: pl_r2}, wires=WireCollection()),
             components={defn.name: defn},
             instances={r1.id: r1, r2.id: r2},
             # axis_labels=None → fallback
@@ -594,7 +594,7 @@ class TestDRCFloatingPin:
         )
         sch = Schematic(nets={net.id: net})
         # Component exists in instances but NOT in placements.
-        lay = Layout(placements={}, wires=[])
+        lay = Layout(placements={}, wires=WireCollection())
         engine = DRCEngine()
         issues = engine.check(
             board=board,
@@ -618,7 +618,7 @@ class TestDRCFloatingPin:
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=90, side="top"
         )
-        lay = Layout(placements={inst.id: pl}, wires=[])
+        lay = Layout(placements={inst.id: pl}, wires=WireCollection())
         engine = DRCEngine()
         issues = engine.check(
             board=board,
@@ -680,7 +680,7 @@ class TestDRCBareWireCross:
         sch = Schematic(nets={net_a.id: net_a, net_b.id: net_b})
         lay = Layout(
             placements={r1.id: pl_r1, r2.id: pl_r2},
-            wires=[wire_a, wire_b],
+            wires=WireCollection([wire_a, wire_b]),
         )
         engine = DRCEngine()
         issues = engine.check(
@@ -710,7 +710,7 @@ class TestDRCBareWireCross:
             side="top",
         )
         sch = Schematic(nets={})
-        lay = Layout(placements={}, wires=[wire_a, wire_b])
+        lay = Layout(placements={}, wires=WireCollection([wire_a, wire_b]))
         engine = DRCEngine()
         issues = engine.check(
             board=board, schematic=sch, layout=lay, components={}, instances={}
@@ -751,7 +751,7 @@ class TestDRCBareWireInteriorCross:
             side="top",
         )
         sch = Schematic(nets={})
-        lay = Layout(placements={}, wires=[wire_a, wire_b])
+        lay = Layout(placements={}, wires=WireCollection([wire_a, wire_b]))
         engine = DRCEngine()
         issues = engine.check(
             board=board, schematic=sch, layout=lay, components={}, instances={}
@@ -779,7 +779,7 @@ class TestDRCBareWireInteriorCross:
             side="bottom",
         )
         sch = Schematic(nets={})
-        lay = Layout(placements={}, wires=[wire_a, wire_b])
+        lay = Layout(placements={}, wires=WireCollection([wire_a, wire_b]))
         engine = DRCEngine()
         issues = engine.check(
             board=board, schematic=sch, layout=lay, components={}, instances={}
@@ -803,7 +803,7 @@ class TestDRCBareWireInteriorCross:
             side="top",
         )
         sch = Schematic(nets={})
-        lay = Layout(placements={}, wires=[wire_a, wire_b])
+        lay = Layout(placements={}, wires=WireCollection([wire_a, wire_b]))
         engine = DRCEngine()
         issues = engine.check(
             board=board, schematic=sch, layout=lay, components={}, instances={}
@@ -878,7 +878,7 @@ class TestDRCGroupExports:
             component_ids=frozenset(), child_group_ids=frozenset({gid}),
         )
         lay = Layout(
-            placements=placements, wires=[],
+            placements=placements, wires=WireCollection(),
             groups={ROOT_GROUP_ID: root_grp, gid: grp},
         )
         issues = DRCEngine().check(
@@ -910,7 +910,7 @@ class TestDRCGroupExports:
             component_ids=frozenset(), child_group_ids=frozenset({gid}),
         )
         lay = Layout(
-            placements=placements, wires=[],
+            placements=placements, wires=WireCollection(),
             groups={ROOT_GROUP_ID: root_grp, gid: grp},
         )
         issues = DRCEngine().check(
@@ -955,7 +955,7 @@ class TestDRCGroupExports:
             component_ids=frozenset(), child_group_ids=frozenset({gid}),
         )
         lay = Layout(
-            placements=placements, wires=[],
+            placements=placements, wires=WireCollection(),
             groups={ROOT_GROUP_ID: root_grp, gid: grp},
         )
         issues = DRCEngine().check(
@@ -998,7 +998,7 @@ class TestDRCGroupExports:
             component_ids=frozenset(), child_group_ids=frozenset({outer_gid}),
         )
         lay = Layout(
-            placements=placements, wires=[],
+            placements=placements, wires=WireCollection(),
             groups={ROOT_GROUP_ID: root_grp, outer_gid: outer, inner_gid: inner},
         )
         issues = DRCEngine().check(
@@ -1072,7 +1072,7 @@ class TestDRCGroupInvalidExport:
             component_ids=frozenset(), child_group_ids=frozenset({a_gid}),
         )
         lay = Layout(
-            placements=placements, wires=[],
+            placements=placements, wires=WireCollection(),
             groups={
                 ROOT_GROUP_ID: root_grp,
                 a_gid: a, b_gid: b, c_gid: c,
@@ -1143,7 +1143,7 @@ class TestDRCGroupInvalidExport:
             component_ids=frozenset(), child_group_ids=frozenset({a_gid}),
         )
         lay = Layout(
-            placements=placements, wires=[],
+            placements=placements, wires=WireCollection(),
             groups={
                 ROOT_GROUP_ID: root_grp,
                 a_gid: a, b_gid: b, c_gid: c,
@@ -1212,7 +1212,7 @@ class TestDRCGroupInvalidExport:
             component_ids=frozenset(), child_group_ids=frozenset({a_gid}),
         )
         lay = Layout(
-            placements=placements, wires=[],
+            placements=placements, wires=WireCollection(),
             groups={
                 ROOT_GROUP_ID: root_grp,
                 a_gid: a, b_gid: b, c_gid: c,
@@ -1260,7 +1260,7 @@ class TestDRCOffBoardPin:
         placements = {r1.id: ComponentPlacement(
             component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="top",
         )}
-        lay = Layout(placements=placements, wires=[])
+        lay = Layout(placements=placements, wires=WireCollection())
         sch = Schematic(nets={})
         issues = DRCEngine().check(
             board=board, schematic=sch, layout=lay,
@@ -1277,7 +1277,7 @@ class TestDRCOffBoardPin:
         placements = {r1.id: ComponentPlacement(
             component_id=r1.id, position=Point(1.5, 0.5), rotation=90, side="top",
         )}
-        lay = Layout(placements=placements, wires=[])
+        lay = Layout(placements=placements, wires=WireCollection())
         sch = Schematic(nets={})
         issues = DRCEngine().check(
             board=board, schematic=sch, layout=lay,
@@ -1309,7 +1309,7 @@ class TestDRCOffBoardPin:
         placements = {r1.id: ComponentPlacement(
             component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="bottom",
         )}
-        lay = Layout(placements=placements, wires=[])
+        lay = Layout(placements=placements, wires=WireCollection())
         sch = Schematic(nets={})
         issues = DRCEngine().check(
             board=board, schematic=sch, layout=lay,
@@ -1351,7 +1351,7 @@ class TestDRCHalfOrphanWire:
         from protoboard.domain.layout.knot import JointKnot
         from protoboard.domain.layout.wire import KnotRef
 
-        lay = Layout(placements={}, wires=[])
+        lay = Layout(placements={}, wires=WireCollection())
         ka = JointKnot(id=uuid.uuid4(), position=Point(0.5, 0.5))
         kb = JointKnot(id=uuid.uuid4(), position=Point(1.5, 0.5))
         lay.knots[ka.id] = ka
@@ -1382,7 +1382,7 @@ class TestDRCHalfOrphanWire:
         from protoboard.domain.layout.wire import KnotRef
 
         board = _bare_perfboard(1, 3, plated=True)
-        lay = Layout(placements={}, wires=[])
+        lay = Layout(placements={}, wires=WireCollection())
         ka = JointKnot(id=uuid.uuid4(), position=Point(0.5, 0.5))
         kb = JointKnot(id=uuid.uuid4(), position=Point(1.5, 0.5))
         kc = JointKnot(id=uuid.uuid4(), position=Point(2.5, 0.5))
@@ -1457,7 +1457,7 @@ class TestDRCWirePinOffPlatedThrough:
         from protoboard.domain.layout.knot import JointKnot, WirePinKnot
         from protoboard.domain.layout.wire import KnotRef
 
-        lay = Layout(placements={}, wires=[])
+        lay = Layout(placements={}, wires=WireCollection())
         ka = JointKnot(id=uuid.uuid4(), position=position)
         kb = JointKnot(
             id=uuid.uuid4(),
