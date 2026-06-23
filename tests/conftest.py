@@ -3,6 +3,14 @@
 
 from __future__ import annotations
 
+import os
+
+# Run Qt headless by default so the suite needs no X server / display.
+# Must be set before PySide6 is imported (pulled in transitively below via
+# pytest-qt and the ``protoboard.gui`` modules). An explicit env override
+# (e.g. ``QT_QPA_PLATFORM=xcb``) still wins thanks to ``setdefault``.
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 from pathlib import Path
 
 import pytest
