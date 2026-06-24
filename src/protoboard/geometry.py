@@ -9,7 +9,9 @@ graphics conventions).
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from itertools import accumulate
 from typing import overload
 
 # from _typeshed import Self
@@ -21,9 +23,11 @@ from typing import overload
 # precision other modules use for dict keys.
 _COORD_ROUNDING_DIGITS = 4
 
+
 def norm(x: float, y: float, z: float) -> float:
     from math import sqrt
-    return sqrt(x*x + y*y + z*z)
+    return sqrt(x * x + y * y + z * z)
+
 
 def round_coord(v: float) -> float:
     """Round *v* to the canonical coordinate precision.
@@ -115,6 +119,40 @@ class Point3D:
         else:
             return Point3D(self.x - o.x, self.y - o.y, self.z - o.z)
 
+
+ROTATE2D_TRANSFORM: list = [
+    lambda v: v, lambda v: Vector(v.dy, -v.dx), lambda v: Vector(-v.dx, -v.dy),
+    lambda v: Vector(-v.dy, v.dx)
+]
+
+
+@dataclass(frozen=True, slots=True)
+class Rotate2D:
+    steps: int = 0
+
+    def __call__(self, v: Vector) -> Vector:
+        return ROTATE2D_TRANSFORM[self.steps % 4](v)
+
+
+def _transform_vectors(rotate: Rotate2D, vectors: Iterable[Vector]) -> Iterator[Vector]:
+    return map(rotate, vectors)
+
+
+def transform_vectors(rotate: Rotate2D, vectors: Iterable[Vector]) -> VectorList:
+    return list(_transform_vectors(rotate, vectors))
+
+
+def _transform_points(rotate: Rotate2D, pivot: Point,
+                      points: Iterable[Point]) -> Iterator[Point]:
+    return map(lambda v: pivot + v,
+               _transform_vectors(rotate, map(lambda p: p - pivot, points)))
+
+
+def transform_points(rotate: Rotate2D, pivot: Point,
+                     points: Iterable[Point]) -> PointList:
+    return list(_transform_points(rotate, pivot, points))
+
+
 @dataclass(frozen=True, slots=True)
 class Vector3D:
     dx: float = 0.0
@@ -134,20 +172,81 @@ class Vector3D:
         return self.dz
 
     def __add__(self, o: Vector3D) -> Vector3D:
-        return Vector3D(self.dx + o.dx, self.dy + o.dy,
-                        self.dz + o.dz)
+        return Vector3D(self.dx + o.dx, self.dy + o.dy, self.dz + o.dz)
 
     def __sub__(self, o: Vector3D) -> Vector3D:
-        return Vector3D(self.dx - o.dx, self.dy - o.dy,
-                        self.dz - o.dz)
+        return Vector3D(self.dx - o.dx, self.dy - o.dy, self.dz - o.dz)
 
     def length(self) -> float:
         return norm(self.dx, self.dy, self.dz)
 
 
+PointList = list[Point]
+VectorList = list[Vector]
+Point3DList = list[Point3D]
+Vector3DList = list[Vector3D]
+
+
+@overload
+def _make_points_from_offsets(point, offsets: Iterable[Point]) -> Iterator[Point]:
+    ...
+
+
+@overload
+def _make_points_from_offsets(point, offsets: Iterable[Point3D]) -> Iterator[Point3D]:
+    ...
+
+
+def _make_points_from_offsets(point, offsets) -> Iterable[Point3D] | Iterator[Point]:
+    return accumulate(offsets, initial=point)
+
+
+@overload
+def make_points_from_offsets(point: Point, offsets: Iterable[Vector]) -> PointList:
+    ...
+
+
+@overload
+def make_points_from_offsets(point: Point3D,
+                             offsets: Iterable[Vector3D]) -> Point3DList:
+    ...
+
+
+def make_points_from_offsets(point, offsets) -> Point3DList | PointList:
+    return list(_make_points_from_offsets(point, offsets))
+
+
+@overload
+def _make_offsets_from_points(points: Iterable[Point]) -> Iterator[Vector]:
+    ...
+
+
+@overload
+def _make_offsets_from_points(points: Iterable[Point3D]) -> Iterator[Vector3D]:
+    ...
+
+
+def _make_offsets_from_points(points) -> Iterator[Vector] | Iterator[Vector3D]:
+    from itertools import pairwise
+    return map(lambda pw: pw[1] - pw[0], pairwise(points))
+
+
+@overload
+def make_offsets_from_points(points: Iterable[Point]) -> VectorList:
+    ...
+
+
+@overload
+def make_offsets_from_points(points: Iterable[Point3D]) -> Vector3DList:
+    ...
+
+
+def make_offsets_from_points(points) -> VectorList | Vector3DList:
+    return list(_make_offsets_from_points(points))
+
+
 @dataclass(frozen=True, slots=True)
 class Size:
-    """Width and height in raster units. Both must be non-negative."""
 
     width: float
     height: float
@@ -164,7 +263,7 @@ class Size:
 
     @staticmethod
     def from_points(p1: Point, p2: Point) -> Size:
-        return Size.from_vector(p1-p2)
+        return Size.from_vector(p1 - p2)
 
     @staticmethod
     def zero() -> Size:

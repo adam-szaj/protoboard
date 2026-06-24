@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from protoboard.domain.components.footprints import FootprintTemplate
+from protoboard.domain.components.footprints import Footprint
 from protoboard.types import Side
 from protoboard.geometry import Point, Rect
 from protoboard.services.call_counters import counted
@@ -103,7 +103,7 @@ _PAD_MARGIN  = 0.1      # raster units â€” flexible-lead parts (axial, TO-92, â€
 
 
 def component_bbox(
-    footprint: FootprintTemplate,
+    footprint: Footprint,
     placement: ComponentPlacement,
     component_class: str = "",
 ) -> Rect:
@@ -132,7 +132,7 @@ def component_bbox(
 
 
 def flip_component(
-    footprint: FootprintTemplate,
+    footprint: Footprint,
     placement: ComponentPlacement,
 ) -> ComponentPlacement:
     """Swap pin1 and pin2 local positions via pin_offsets.
@@ -166,7 +166,7 @@ def flip_component(
 
 @counted("pin_world_position")
 def pin_world_position(
-    footprint: FootprintTemplate,
+    footprint: Footprint,
     placement: ComponentPlacement,
     pin_number: int,
 ) -> Point:
@@ -239,7 +239,7 @@ def resolve_pin_world_position(
 
 
 def validate_pins_on_pads(
-    footprint: FootprintTemplate,
+    footprint: Footprint,
     placement: ComponentPlacement,
     pad_positions: frozenset[tuple[float, float]],
     *,

@@ -9,7 +9,7 @@ from enum import StrEnum
 from typing import Any
 
 from protoboard.domain.components.appearance import Appearance
-from protoboard.domain.components.footprints import FootprintTemplate
+from protoboard.domain.components.footprints import Footprint
 from protoboard.domain.components.package.shapes import Package
 from protoboard.geometry import Point
 
@@ -153,7 +153,7 @@ class ComponentDefinition:
     """Static definition of a component (a "type")."""
 
     name: str
-    footprint: FootprintTemplate
+    footprint: Footprint
     pin_names: dict[int, str]
     description: str = ""
     component_class: ComponentClass = ComponentClass.OTHER

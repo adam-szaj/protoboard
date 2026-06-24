@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from protoboard.geometry import Point
+from protoboard.geometry import Vector
 from protoboard.services.debug_trace import traced
 
 # Canonical raster: 2.54 mm / 0.1" is represented internally as 2.5 mm.
@@ -60,7 +60,7 @@ def axial_board_offset_range(
     r_body_mm: float,
     lead_r_mm: float,
     lead_length_mm: float,
-    body_eccentricity_mm: Point = Point(0.0, 0.0),
+    body_eccentricity_mm: Vector = Vector(0.0, 0.0),
     orientation: MountOrientation = MountOrientation.HORIZONTAL,
 ) -> OffsetRange:
     """Compute the allowed board-offset ring for an axial (body=0) component.

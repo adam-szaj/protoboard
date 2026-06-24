@@ -5,7 +5,6 @@ A component's body is drawn by a :class:`BodyShape`; ``body_shape_for`` picks
 the right one.  The parametric package model (:class:`PackageBody`) is the
 source of truth for every multi-pin in-line body — DIP / SIL / dev-board
 modules synthesize a prism package (see
-:func:`~protoboard.domain.components.package.from_footprint.prism_for_footprint`)
 and render through it.  The remaining concrete shapes are hand-coded
 ``QPainterPath`` renderers for the special transistor/power packages
 (``GenericBody``, ``TO92Body``, ``TO220Body``).
@@ -23,7 +22,7 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 
-from PySide6.QtCore import Qt, QRectF
+from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
 from PySide6.QtWidgets import (
     QAbstractGraphicsShapeItem,
@@ -39,11 +38,6 @@ from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
 )
-from protoboard.domain.components.footprints import (
-    SingleRow,
-    TO220Footprint,
-    TwoPin,
-)
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.body import (
     DiscProfile,
@@ -51,11 +45,16 @@ from protoboard.domain.components.package.body import (
     LeadArrangement,
 )
 from protoboard.domain.components.package.family import PackageFamily
-from protoboard.domain.components.package.from_footprint import prism_for_footprint
 from protoboard.domain.components.package.shapes import (
     Cylinder as _PkgCylinder,
+)
+from protoboard.domain.components.package.shapes import (
     Disc as _PkgDisc,
+)
+from protoboard.domain.components.package.shapes import (
     Package,
+)
+from protoboard.domain.components.package.shapes import (
     Prism as _PkgPrism,
 )
 from protoboard.domain.layout.placement import ComponentPlacement
@@ -1157,11 +1156,7 @@ def body_shape_for(
         # A 3-pin transistor in a SIL footprint is a TO-92.
         return TO92Body()
 
-    # In-line multi-pin footprints (DIP / SIL header / dev-board module) with no
-    # catalogue package synthesize a prism whose pins match the footprint and
-    # render through the parametric PackageBody (DIP notch, SIL slots, or a
-    # plain dev-board bbox) — the same path a catalogued package takes.
-    synth = prism_for_footprint(fp)
+    synth = None
     if synth is not None:
         return PackageBody(
             synth, component_class=cls, vertical_flipped=vf,

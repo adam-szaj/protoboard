@@ -75,12 +75,8 @@ class Leads:
                     f"We are expecting touple of Vectors got: {self.board_offset}"
                 )  # .with_traceback(traceback.extract_stack())
         except TypeError as exc:
-            # from traceback import TracebackException
             print(f"Got nasty exception: {exc}", file=sys.stderr)
-            # print(traceback.format_exception(exc, limit=10, chain=True),file=sys.stderr)
             traceback.print_exception(exc)
-            # exc.with_traceback(tb)
-            # TracebackException.from_exception(exc).print()
             raise
 
     @property
