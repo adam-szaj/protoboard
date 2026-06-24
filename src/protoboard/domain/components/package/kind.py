@@ -26,7 +26,9 @@ from collections.abc import Callable
 from typing import Any
 
 from protoboard.domain.components.footprints import DualRow, SingleRow
-from protoboard.domain.components.package.from_footprint import prism_for_footprint
+from protoboard.domain.components.package.from_footprint import (
+    prism_for_footprint,
+)
 from protoboard.domain.components.package.loader import PackageDefError
 from protoboard.domain.components.package.shapes import Package, Prism
 
@@ -63,8 +65,7 @@ def _connector(pins: int, *, rows: int) -> Package | None:
         if pins < 2 or pins % 2 != 0:
             return None
         return prism_for_footprint(
-            DualRow(n_per_row=pins // 2, rows_spacing=_CONNECTOR_ROWS)
-        )
+            DualRow(n_per_row=pins // 2, rows_spacing=_CONNECTOR_ROWS))
     return None
 
 
@@ -86,7 +87,7 @@ _KIND_BUILDERS: dict[str, Callable[..., Package | None]] = {
 # renderer's caller/theme colour drives appearance (as for the DIP/SIL kinds).
 _KIND_COLOR: dict[str, str] = {
     "pin_header": "#222222",  # gold-pin header — near-black plastic strip
-    "jst": "#dddddd",         # JST connector — light housing
+    "jst": "#dddddd",  # JST connector — light housing
 }
 
 
@@ -95,9 +96,9 @@ def is_kind(name: object) -> bool:
     return isinstance(name, str) and name in _KIND_BUILDERS
 
 
-def build_kind_package(
-    kind: str, pin_count: int, params: dict[str, Any] | None = None
-) -> Package:
+def build_kind_package(kind: str,
+                       pin_count: int,
+                       params: dict[str, Any] | None = None) -> Package:
     """Build the :class:`Package` for *kind* parameterized by *pin_count*.
 
     *params* carries extra package fields a kind may need (e.g. a connector's
@@ -113,8 +114,7 @@ def build_kind_package(
     pkg = builder(pin_count, **(params or {}))
     if pkg is None:
         raise PackageDefError(
-            f"kind {kind!r} cannot build a body for {pin_count} pins"
-        )
+            f"kind {kind!r} cannot build a body for {pin_count} pins")
     if isinstance(pkg, Prism):
         changes: dict[str, Any] = {"kind": kind}
         if kind in _KIND_COLOR:

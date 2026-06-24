@@ -21,28 +21,25 @@ from protoboard.domain.components.package.solver import (
     OffsetRange,
     axial_board_offset_range,
 )
-from protoboard.geometry import Point
+from geometry_utils import _pt, _ve
 
-
-def _pt(x: float, y: float) -> Point:
-    return Point(float(x), float(y))
 
 
 class TestExpandOffsets:
     def test_bare_vectors(self) -> None:
-        assert expand_offsets([[0, 1], [3, 0]]) == [_pt(0, 1), _pt(3, 0)]
+        assert expand_offsets([[0, 1], [3, 0]]) == [_ve(0, 1), _ve(3, 0)]
 
     def test_run_length(self) -> None:
-        assert expand_offsets([[3, [0, 1]]]) == [_pt(0, 1), _pt(0, 1), _pt(0, 1)]
+        assert expand_offsets([[3, [0, 1]]]) == [_ve(0, 1), _ve(0, 1), _ve(0, 1)]
 
     def test_dip8_mixed_form(self) -> None:
         # DIP-8: 3×↓, single column-jump, 3×↑ — the spec's canonical example.
         raw = [[3, [0, 1]], [3, 0], [3, [0, -1]]]
         expanded = expand_offsets(raw)
         assert expanded == [
-            _pt(0, 1), _pt(0, 1), _pt(0, 1),
-            _pt(3, 0),
-            _pt(0, -1), _pt(0, -1), _pt(0, -1),
+            _ve(0, 1), _ve(0, 1), _ve(0, 1),
+            _ve(3, 0),
+            _ve(0, -1), _ve(0, -1), _ve(0, -1),
         ]
         assert len(expanded) == 7  # N-1 for 8 pins
 
@@ -58,11 +55,11 @@ class TestExpandOffsets:
 class TestScaleAndCumulative:
     def test_scale_by_unit(self) -> None:
         # TO-92 body: unit 1.25 mm.
-        scaled = scale_offsets([_pt(1, 0), _pt(1, 0)], 1.25)
-        assert scaled == [_pt(1.25, 0), _pt(1.25, 0)]
+        scaled = scale_offsets([_ve(1, 0), _ve(1, 0)], 1.25)
+        assert scaled == [_ve(1.25, 0), _ve(1.25, 0)]
 
     def test_cumulative_pin1_at_origin(self) -> None:
-        pos = cumulative_positions([_pt(0, 1), _pt(0, 1)])
+        pos = cumulative_positions([_ve(0, 1), _ve(0, 1)])
         assert pos == [_pt(0, 0), _pt(0, 1), _pt(0, 2)]
 
     def test_dip8_positions(self) -> None:
@@ -114,7 +111,7 @@ class TestAxialSolver:
         base = self._range(MountOrientation.VERTICAL)
         ecc = axial_board_offset_range(
             length_mm=self.L, r_body_mm=self.R_BODY, lead_r_mm=self.LEAD_R,
-            lead_length_mm=self.LEAD_LEN, body_eccentricity_mm=Point(0.5, 0.0),
+            lead_length_mm=self.LEAD_LEN, body_eccentricity_mm=_pt(0.5, 0.0),
             orientation=MountOrientation.VERTICAL,
         )
         assert ecc.r_min_mm == pytest.approx(base.r_min_mm - 0.5)
@@ -124,7 +121,7 @@ class TestAxialSolver:
         base = self._range(MountOrientation.VERTICAL)
         ecc = axial_board_offset_range(
             length_mm=self.L, r_body_mm=self.R_BODY, lead_r_mm=self.LEAD_R,
-            lead_length_mm=self.LEAD_LEN, body_eccentricity_mm=Point(0.0, 0.9),
+            lead_length_mm=self.LEAD_LEN, body_eccentricity_mm=_pt(0.0, 0.9),
             orientation=MountOrientation.VERTICAL,
         )
         assert ecc.r_min_mm == pytest.approx(base.r_min_mm)

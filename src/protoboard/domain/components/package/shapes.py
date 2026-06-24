@@ -28,13 +28,13 @@ from protoboard.domain.components.package.solver import (
     OffsetRange,
     axial_board_offset_range,
 )
-from protoboard.geometry import Insets, Point, Rect
+from protoboard.geometry import Insets, Point, Rect, Vector, Vector3D
 from protoboard.services.debug_trace import traced
 
 # Sentinels for board_offset source (see spec): a literal list of step vectors,
 # or one of these strings.
 BOARD_DEFAULT = "default"  # same vector as body, read in the grid domain
-BOARD_SOLVE = "solve"      # axial solver (body=0)
+BOARD_SOLVE = "solve"  # axial solver (body=0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,12 +52,36 @@ class Leads:
       absolute ``body_axis_pos`` form and converts it to this vector at load.
     """
 
-    direction: tuple[tuple[float, float, float], ...]
-    body_offset_mm: tuple[Point, ...]
-    board_offset: tuple[Point, ...] | str
+    direction: tuple[Vector3D, ...]
+    body_offset_mm: tuple[Vector, ...]
+    board_offset: tuple[Vector, ...] | str
     lead_length_mm: float | None = None
     lead_r_mm: float | None = None
-    body_eccentricity_mm: Point = Point(0.0, 0.0)
+    body_eccentricity_mm: Vector = Vector(0.0, 0.0)
+
+    def __post_init__(self):
+        import sys
+        import traceback
+        try:
+            if self.body_offset_mm and not isinstance(self.body_offset_mm[0],
+                                                      Vector):
+                raise TypeError(
+                    f"We are expecting touple of Vectors got: {self.body_offset_mm}"
+                )  # .with_traceback(traceback.extract_stack())
+            if self.board_offset and not (isinstance(self.board_offset, str)
+                                          or isinstance(
+                                              self.board_offset[0], Vector)):
+                raise TypeError(
+                    f"We are expecting touple of Vectors got: {self.board_offset}"
+                )  # .with_traceback(traceback.extract_stack())
+        except TypeError as exc:
+            # from traceback import TracebackException
+            print(f"Got nasty exception: {exc}", file=sys.stderr)
+            # print(traceback.format_exception(exc, limit=10, chain=True),file=sys.stderr)
+            traceback.print_exception(exc)
+            # exc.with_traceback(tb)
+            # TracebackException.from_exception(exc).print()
+            raise
 
     @property
     def pin_count(self) -> int:
@@ -68,37 +92,49 @@ class Leads:
 class Package(Protocol):
     """Geometry of a component derived from package data (see spec)."""
 
-    def pin_count(self) -> int: ...
+    def pin_count(self) -> int:
+        ...
 
     def pin_positions(
-        self, *, orientation: MountOrientation = MountOrientation.HORIZONTAL
-    ) -> list[Point]: ...
+        self,
+        *,
+        orientation: MountOrientation = MountOrientation.HORIZONTAL
+    ) -> list[Point]:
+        ...
 
     def board_offset_range(
-        self, *, orientation: MountOrientation = MountOrientation.HORIZONTAL
-    ) -> OffsetRange: ...
+        self,
+        *,
+        orientation: MountOrientation = MountOrientation.HORIZONTAL
+    ) -> OffsetRange:
+        ...
 
-    def bbox(self) -> Rect: ...
+    def bbox(self) -> Rect:
+        ...
 
-    def min_radial_pitch_mm(self) -> float: ...
+    def min_radial_pitch_mm(self) -> float:
+        ...
 
-    def min_axial_pitch_mm(self) -> float: ...
+    def min_axial_pitch_mm(self) -> float:
+        ...
 
 
-def _body_offset_in_holes(leads: Leads) -> list[Point]:
+def _body_offset_in_holes(leads: Leads) -> list[Vector]:
     """The body_offset vectors expressed in the grid domain (holes).
 
     body_offset is in mm; dividing by RASTER_MM gives hole coordinates. For
     radial/DIP this is the canonical case where one vector serves both domains.
     """
-    return [Point(v.x / RASTER_MM, v.y / RASTER_MM) for v in leads.body_offset_mm]
+    return [
+        Vector(v.x / RASTER_MM, v.y / RASTER_MM) for v in leads.body_offset_mm
+    ]
 
 
 def _resolve_board_steps(
     leads: Leads,
     *,
     solved_range: OffsetRange | None,
-) -> list[Point]:
+) -> list[Vector]:
     """Resolve board_offset to concrete step vectors (holes), pin i → i+1.
 
     For the ``BOARD_SOLVE`` sentinel the caller (the shape, which knows the body
@@ -107,14 +143,18 @@ def _resolve_board_steps(
     an explicit list is returned as-is.
     """
     bo = leads.board_offset
+    if isinstance(bo[0], Point):
+        raise TypeError(f"We are expecting Vector, got: {bo}")
+
     if isinstance(bo, str):
         if bo == BOARD_DEFAULT:
             return _body_offset_in_holes(leads)
         if bo == BOARD_SOLVE:
             if solved_range is None:
-                raise ValueError("BOARD_SOLVE requires a solved_range from the shape")
+                raise ValueError(
+                    "BOARD_SOLVE requires a solved_range from the shape")
             # Two-pin axial; multi-pin solve is out of scope here.
-            return [Point(solved_range.r_min_mm / RASTER_MM, 0.0)]
+            return [Vector(solved_range.r_min_mm / RASTER_MM, 0.0)]
         raise ValueError(f"unknown board_offset sentinel: {bo!r}")
     return list(bo)
 
@@ -163,7 +203,7 @@ class Cylinder:
     edge: EdgeStyle = EdgeStyle.ROUNDED
     color: str | None = None  # #rrggbb fill; None → renderer default
     flat_radius_mm: float | None = None  # None → full circle (no flat side)
-    flat_normal: Point = Point(0.0, 0.0)  # outward normal of the flat face
+    flat_normal: Vector = Vector(0.0, 0.0)  # outward normal of the flat face
 
     def __post_init__(self) -> None:
         if self.flat_radius_mm is not None:
@@ -174,8 +214,7 @@ class Cylinder:
                 )
             if self.flat_normal.x == 0.0 and self.flat_normal.y == 0.0:
                 raise ValueError(
-                    "flat_normal must be non-zero when flat_radius_mm is set"
-                )
+                    "flat_normal must be non-zero when flat_radius_mm is set")
 
     @property
     def r_body_mm(self) -> float:
@@ -194,31 +233,34 @@ class Cylinder:
 
     @traced("Cylinder.pin_positions")
     def pin_positions(
-        self, *, orientation: MountOrientation = MountOrientation.HORIZONTAL
+        self,
+        *,
+        orientation: MountOrientation = MountOrientation.HORIZONTAL
     ) -> list[Point]:
-        solved = (
-            self.board_offset_range(orientation=orientation)
-            if self.leads.board_offset == BOARD_SOLVE
-            else None
-        )
+        solved = (self.board_offset_range(orientation=orientation)
+                  if self.leads.board_offset == BOARD_SOLVE else None)
         steps = _resolve_board_steps(self.leads, solved_range=solved)
         return cumulative_positions(steps)
 
     @traced("Cylinder.board_offset_range")
     def board_offset_range(
-        self, *, orientation: MountOrientation = MountOrientation.HORIZONTAL
+        self,
+        *,
+        orientation: MountOrientation = MountOrientation.HORIZONTAL
     ) -> OffsetRange:
         if self.leads.board_offset == BOARD_SOLVE:
             return axial_board_offset_range(
                 length_mm=self.length_mm,
                 r_body_mm=self.r_body_mm,
                 lead_r_mm=_require(self.leads.lead_r_mm, "lead_r_mm"),
-                lead_length_mm=_require(self.leads.lead_length_mm, "lead_length_mm"),
+                lead_length_mm=_require(self.leads.lead_length_mm,
+                                        "lead_length_mm"),
                 body_eccentricity_mm=self.leads.body_eccentricity_mm,
                 orientation=orientation,
             )
         # bend: symmetric radius, lower-clamped at body_offset (spec).
-        base_mm = abs(self.leads.body_offset_mm[0].x) if self.leads.body_offset_mm else 0.0
+        base_mm = abs(self.leads.body_offset_mm[0].x
+                      ) if self.leads.body_offset_mm else 0.0
         return OffsetRange(base_mm, base_mm + self.bend_holes * RASTER_MM)
 
     def bbox(self) -> Rect:
@@ -232,7 +274,7 @@ class Prism:
     """shape: prism — DIP, TO-92, devboard (optional margin)."""
 
     leads: Leads
-    width_mm: float | None = None   # None → bbox from pins + margin
+    width_mm: float | None = None  # None → bbox from pins + margin
     length_mm: float | None = None
     height_mm: float | None = None
     bend_holes: float = 0.0
@@ -251,7 +293,7 @@ class Prism:
     # Shift (mm) of the body centre off the pin-cloud centre, for parts whose
     # body is not symmetric about its pins.  Default (0, 0) → centred on the
     # pin cloud.  Only used with explicit width_mm/length_mm.
-    body_offset_mm: Point = Point(0.0, 0.0)
+    body_offset_mm: Vector = Vector(0.0, 0.0)
     # Declared body kind (``dip_ic`` / ``dip_switch`` / …) set when this prism was
     # built from a package ``kind:`` field. The renderer reads it to draw the
     # declared look (notch vs plain) instead of guessing from the pin columns;
@@ -264,36 +306,46 @@ class Prism:
     def min_radial_pitch_mm(self) -> float:
         # Width perpendicular to the lead axis bounds two same-face leads;
         # fall back to the body bbox width when width is margin-derived.
-        w = self.width_mm if self.width_mm is not None else self.bbox().width * RASTER_MM
+        w = self.width_mm if self.width_mm is not None else self.bbox(
+        ).width * RASTER_MM
         return (w + _lead_diameter_mm(self.leads)) / 2.0
 
     def min_axial_pitch_mm(self) -> float:
-        ln = self.length_mm if self.length_mm is not None else self.bbox().height * RASTER_MM
+        ln = self.length_mm if self.length_mm is not None else self.bbox(
+        ).height * RASTER_MM
         return ln + _lead_diameter_mm(self.leads)
 
     @traced("Prism.pin_positions")
     def pin_positions(
-        self, *, orientation: MountOrientation = MountOrientation.HORIZONTAL
+        self,
+        *,
+        orientation: MountOrientation = MountOrientation.HORIZONTAL
     ) -> list[Point]:
         if self.leads.board_offset == BOARD_SOLVE:
-            raise ValueError("prism does not support the axial solver (body=0)")
+            raise ValueError(
+                "prism does not support the axial solver (body=0)")
         steps = _resolve_board_steps(self.leads, solved_range=None)
         return cumulative_positions(steps)
 
     @traced("Prism.board_offset_range")
     def board_offset_range(
-        self, *, orientation: MountOrientation = MountOrientation.HORIZONTAL
+        self,
+        *,
+        orientation: MountOrientation = MountOrientation.HORIZONTAL
     ) -> OffsetRange:
         if self.leads.board_offset == BOARD_SOLVE:
-            raise ValueError("prism does not support the axial solver (body=0)")
-        base_mm = abs(self.leads.body_offset_mm[0].x) if self.leads.body_offset_mm else 0.0
+            raise ValueError(
+                "prism does not support the axial solver (body=0)")
+        base_mm = abs(self.leads.body_offset_mm[0].x
+                      ) if self.leads.body_offset_mm else 0.0
         return OffsetRange(base_mm, base_mm + self.bend_holes * RASTER_MM)
 
     def bbox(self) -> Rect:
         if self.margin_mm is not None and self.width_mm is None:
             return self._bbox_from_pins(self.margin_mm)
         if self.width_mm is None or self.length_mm is None:
-            raise ValueError("prism needs explicit dims or a margin to derive bbox")
+            raise ValueError(
+                "prism needs explicit dims or a margin to derive bbox")
         # An explicit body is W (across the rows) × L (along the pin axis),
         # centred on the pin cloud — so a DIP body sits between the rows with
         # the legs showing, rather than anchored at pin 1 and overlapping them.
@@ -348,7 +400,9 @@ class Disc:
 
     @traced("Disc.pin_positions")
     def pin_positions(
-        self, *, orientation: MountOrientation = MountOrientation.HORIZONTAL
+        self,
+        *,
+        orientation: MountOrientation = MountOrientation.HORIZONTAL
     ) -> list[Point]:
         if self.leads.board_offset == BOARD_SOLVE:
             raise ValueError("disc does not support the axial solver (body=0)")
@@ -357,11 +411,14 @@ class Disc:
 
     @traced("Disc.board_offset_range")
     def board_offset_range(
-        self, *, orientation: MountOrientation = MountOrientation.HORIZONTAL
+        self,
+        *,
+        orientation: MountOrientation = MountOrientation.HORIZONTAL
     ) -> OffsetRange:
         if self.leads.board_offset == BOARD_SOLVE:
             raise ValueError("disc does not support the axial solver (body=0)")
-        base_mm = abs(self.leads.body_offset_mm[0].x) if self.leads.body_offset_mm else 0.0
+        base_mm = abs(self.leads.body_offset_mm[0].x
+                      ) if self.leads.body_offset_mm else 0.0
         return OffsetRange(base_mm, base_mm + self.bend_holes * RASTER_MM)
 
     def bbox(self) -> Rect:
@@ -400,15 +457,12 @@ def is_rigid_package(package: Package) -> bool:
 # excluding (0, 0).  A surface-mount second terminal may rest on any pad
 # adjacent to the first terminal — these are those neighbour pads, as offsets
 # from the first terminal's hole.
-KING_MOVE_OFFSETS: tuple[Point, ...] = tuple(
-    Point(float(dx), float(dy))
-    for dy in (-1, 0, 1)
-    for dx in (-1, 0, 1)
-    if not (dx == 0 and dy == 0)
-)
+KING_MOVE_OFFSETS: tuple[Vector, ...] = tuple(
+    Vector(float(dx), float(dy)) for dy in (-1, 0, 1) for dx in (-1, 0, 1)
+    if not (dx == 0 and dy == 0))
 
 
-def surface_mount_offsets(package: Package) -> tuple[Point, ...]:
+def surface_mount_offsets(package: Package) -> tuple[Vector, ...]:
     """Discrete pin-2 ``pin_offsets`` (holes) for a surface-mount package.
 
     The chip's second terminal may sit on any pad **adjacent to the first
@@ -422,7 +476,7 @@ def surface_mount_offsets(package: Package) -> tuple[Point, ...]:
     """
     pins = package.pin_positions()
     if len(pins) < 2:
-        return (Point(0.0, 0.0),)
+        return (Vector(0.0, 0.0), )
     p1, p2_default = pins[0], pins[1]
     declared = getattr(package, "mount_points", ())
     # Neighbour *pads* of pin 1 (absolute holes): declared set applied around
@@ -434,13 +488,14 @@ def surface_mount_offsets(package: Package) -> tuple[Point, ...]:
     # Pin 2's default pad is itself one of pin 1's neighbours (straight across);
     # offset (0,0) keeps it there.  Express every neighbour pad as an offset
     # from pin 2's default, dropping pin 1's own pad.
-    offsets = [Point(0.0, 0.0)]
+    offsets = [Vector(0.0, 0.0)]
     for pad in neighbour_pads:
         if abs(pad.x - p1.x) < 1e-9 and abs(pad.y - p1.y) < 1e-9:
             continue
-        if abs(pad.x - p2_default.x) < 1e-9 and abs(pad.y - p2_default.y) < 1e-9:
+        if abs(pad.x - p2_default.x) < 1e-9 and abs(pad.y -
+                                                    p2_default.y) < 1e-9:
             continue  # the straight-across default, already covered by (0,0)
-        offsets.append(Point(pad.x - p2_default.x, pad.y - p2_default.y))
+        offsets.append(pad - p2_default)
     return tuple(offsets)
 
 

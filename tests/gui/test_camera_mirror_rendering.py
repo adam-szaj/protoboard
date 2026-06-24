@@ -67,7 +67,12 @@ from protoboard.gui.session import EditorSession
 
 def _two_pin_def() -> ComponentDefinition:
     return ComponentDefinition(
-        name="CONN", footprint=SIL(2), pin_names={1: "1", 2: "2"},
+        name="CONN",
+        footprint=SIL(2),
+        pin_names={
+            1: "1",
+            2: "2"
+        },
     )
 
 
@@ -95,7 +100,12 @@ class TestPinWorldPositionPerSide:
         # the *behaviour* (mirror local X) is still applied — verify
         # with a footprint whose pins have non-zero local X.
         defn = ComponentDefinition(
-            name="RES", footprint=SIL(2), pin_names={1: "1", 2: "2"},
+            name="RES",
+            footprint=SIL(2),
+            pin_names={
+                1: "1",
+                2: "2"
+            },
         )
         # Shift pin 2 to local (1, 0) via a per-pin offset.
         pl_top = ComponentPlacement(
@@ -127,12 +137,17 @@ class TestPinWorldPositionPerSide:
 
 def _make_board(rows: int = 10, cols: int = 10) -> Board:
     return Board(root=BoardGrid(
-        width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+        width_policy=SizePolicy.HUG,
+        height_policy=SizePolicy.HUG,
         cell=PadAtom(
-            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            width_policy=SizePolicy.HUG,
+            height_policy=SizePolicy.HUG,
             layers=PadLayers(top=True, bottom=True, plated_through=True),
         ),
-        rows=rows, cols=cols, row_gap=0.0, col_gap=0.0,
+        rows=rows,
+        cols=cols,
+        row_gap=0.0,
+        col_gap=0.0,
     ))
 
 
@@ -159,8 +174,12 @@ def _build_session_with_one_bottom_wire() -> EditorSession:
         board=_make_board(),
         library=_MiniLibrary({"CONN": defn}),  # type: ignore[arg-type]
     )
-    inst_a = ComponentInstance.new(definition_ref="CONN", refdes="J1", value="")
-    inst_b = ComponentInstance.new(definition_ref="CONN", refdes="J2", value="")
+    inst_a = ComponentInstance.new(definition_ref="CONN",
+                                   refdes="J1",
+                                   value="")
+    inst_b = ComponentInstance.new(definition_ref="CONN",
+                                   refdes="J2",
+                                   value="")
     session.instances[inst_a.id] = inst_a
     session.instances[inst_b.id] = inst_b
     session.layout.placements[inst_a.id] = ComponentPlacement(
@@ -175,18 +194,21 @@ def _build_session_with_one_bottom_wire() -> EditorSession:
         rotation=0,
         side="bottom",
     )
-    pa = pin_world_position(defn.footprint, session.layout.placements[inst_a.id], 1)
-    pb = pin_world_position(defn.footprint, session.layout.placements[inst_b.id], 1)
+    pa = pin_world_position(defn.footprint,
+                            session.layout.placements[inst_a.id], 1)
+    pb = pin_world_position(defn.footprint,
+                            session.layout.placements[inst_b.id], 1)
     pka = session.layout.get_or_create_pin_knot(PinRef(inst_a.id, 1))
     pkb = session.layout.get_or_create_pin_knot(PinRef(inst_b.id, 1))
-    session.layout.add_wire(Wire(
-        id=uuid.uuid4(),
-        path=[pa, pb],
-        side="bottom",
-        insulated=False,
-        a=KnotRef(id=pka.id),
-        b=KnotRef(id=pkb.id),
-    ))
+    session.layout.add_wire(
+        Wire(
+            id=uuid.uuid4(),
+            path=[pa, pb],
+            side="bottom",
+            insulated=False,
+            a=KnotRef(id=pka.id),
+            b=KnotRef(id=pkb.id),
+        ))
     return session
 
 
@@ -238,13 +260,11 @@ class TestMapToSceneUnderMirror:
         # Establish a baseline source rect under the identity transform.
         board_view.set_view_transform("normal")
         baseline = board_view.mapToScene(
-            board_view.viewport().rect()
-        ).boundingRect().normalized()
+            board_view.viewport().rect()).boundingRect().normalized()
 
         board_view.set_view_transform(transform)
         actual = board_view.mapToScene(
-            board_view.viewport().rect()
-        ).boundingRect().normalized()
+            board_view.viewport().rect()).boundingRect().normalized()
 
         # Normalised, the rects should cover the same scene area — the
         # mirror is a viewport-side concern, not a scene-area change.
@@ -252,12 +272,10 @@ class TestMapToSceneUnderMirror:
         eps = 1e-3
         assert abs(actual.width() - baseline.width()) < eps, (
             f"Under transform={transform}: width drifted "
-            f"{actual.width()} vs baseline {baseline.width()}"
-        )
+            f"{actual.width()} vs baseline {baseline.width()}")
         assert abs(actual.height() - baseline.height()) < eps, (
             f"Under transform={transform}: height drifted "
-            f"{actual.height()} vs baseline {baseline.height()}"
-        )
+            f"{actual.height()} vs baseline {baseline.height()}")
 
 
 # ---------------------------------------------------------------------------
@@ -289,11 +307,8 @@ class TestOppositeSideWireBackCache:
 
     @pytest.mark.parametrize(
         "camera,transform",
-        [
-            (cam, tr)
-            for cam in ("top", "bottom")
-            for tr in ("normal", "mirror_h", "mirror_v", "mirror_hv")
-        ],
+        [(cam, tr) for cam in ("top", "bottom")
+         for tr in ("normal", "mirror_h", "mirror_v", "mirror_hv")],
     )
     def test_bottom_wire_scene_position_stable(
         self,
@@ -326,8 +341,10 @@ class TestOppositeSideWireBackCache:
         def _key(r: QRectF) -> tuple[float, ...]:
             r2 = r.normalized()
             return (
-                round(r2.left(), 4), round(r2.top(), 4),
-                round(r2.right(), 4), round(r2.bottom(), 4),
+                round(r2.left(), 4),
+                round(r2.top(), 4),
+                round(r2.right(), 4),
+                round(r2.bottom(), 4),
             )
 
         before = sorted(_key(r) for r in baseline_rects)
@@ -337,8 +354,7 @@ class TestOppositeSideWireBackCache:
             f"transform={transform}.  Mirror is a viewport-level "
             f"concern; it must not move scene items.\n"
             f"  before = {before}\n"
-            f"  after  = {after}"
-        )
+            f"  after  = {after}")
 
 
 # ---------------------------------------------------------------------------
@@ -387,8 +403,7 @@ class TestBackCacheSourceRect:
         board_view.set_view_transform(transform)
         # Reproduce the exact computation _ensure_back_cache performs.
         source = board_view.mapToScene(
-            board_view.viewport().rect()
-        ).boundingRect()
+            board_view.viewport().rect()).boundingRect()
         # Bug surface: under mirror, source.left() may exceed
         # source.right() (or top/bottom).  scene.render() then maps
         # scene items into the wrong half of the destination pixmap.
@@ -396,13 +411,11 @@ class TestBackCacheSourceRect:
             f"transform={transform}: source.left={source.left()} > "
             f"source.right={source.right()} — scene.render will map "
             f"items into the wrong half of the back-cache pixmap. "
-            f"Fix: normalise the rect before passing to scene.render()."
-        )
+            f"Fix: normalise the rect before passing to scene.render().")
         assert source.top() <= source.bottom(), (
             f"transform={transform}: source.top={source.top()} > "
             f"source.bottom={source.bottom()} — Y axis equivalent of "
-            f"the X-flip drift.  Fix: normalise the rect."
-        )
+            f"the X-flip drift.  Fix: normalise the rect.")
 
 
 class TestBackCachePixmapAppliesMirrorTransform:
@@ -473,13 +486,11 @@ class TestBackCachePixmapAppliesMirrorTransform:
             f"front X={front_dev.x():.2f}.  Δ={back_pixel_x - front_dev.x():.2f}. "
             f"Back-cache scene.render drops the mirror_h sign — bottom "
             f"wires end up at the un-mirrored X position while front "
-            f"items honour viewportTransform."
-        )
+            f"items honour viewportTransform.")
         assert abs(back_pixel_y - front_dev.y()) < eps, (
             f"transform={transform}: back-cache Y={back_pixel_y:.2f} vs "
             f"front Y={front_dev.y():.2f}.  Δ={back_pixel_y - front_dev.y():.2f}. "
-            f"Y-axis equivalent of the X-drift bug under mirror_v."
-        )
+            f"Y-axis equivalent of the X-drift bug under mirror_v.")
 
 
 class TestSceneContentsStableAcrossToggles:
@@ -517,5 +528,4 @@ class TestSceneContentsStableAcrossToggles:
         final = _count()
         assert final == baseline, (
             f"Item counts diverged after cycling: baseline={baseline}, "
-            f"final={final}"
-        )
+            f"final={final}")

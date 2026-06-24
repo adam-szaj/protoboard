@@ -4,7 +4,8 @@
 import dataclasses
 
 import pytest
-from protoboard.geometry import Insets, Point, Rect, Size
+
+from protoboard.geometry import Insets, Point, Rect, Size, Vector
 
 
 class TestPoint:
@@ -18,12 +19,16 @@ class TestPoint:
         assert Point(1.0, 2.0) != Point(1.0, 2.1)
 
     def test_addition(self) -> None:
-        result = Point(1.0, 2.0) + Point(0.5, 0.5)
+        result = Point(1.0, 2.0) + Vector(0.5, 0.5)
         assert result == Point(1.5, 2.5)
 
     def test_subtraction(self) -> None:
-        result = Point(2.0, 3.0) - Point(0.5, 1.0)
+        p1 = Point(2.0, 3.0)
+        v1 = Vector(0.5, 1.0)
+        result = p1 - v1
         assert result == Point(1.5, 2.0)
+
+        assert (result - p1) == - v1
 
     def test_frozen(self) -> None:
         p = Point(0.0, 0.0)

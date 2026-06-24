@@ -23,10 +23,7 @@ from protoboard.domain.components.package.shapes import (
 from protoboard.domain.components.package.solver import MountOrientation
 from protoboard.geometry import Point
 
-
-def _pt(x: float, y: float) -> Point:
-    return Point(float(x), float(y))
-
+from geometry_utils import _pt, _ve
 
 # Generic bases shared by the worked examples (mirrors spec's generics).
 GENERICS = [
@@ -47,18 +44,18 @@ GENERICS = [
 
 class TestExpandDirection:
     def test_single_vector_all_pins(self) -> None:
-        assert expand_direction([0, 0, -1], 3) == [(0, 0, -1)] * 3
+        assert expand_direction([0, 0, -1], 3) == [_ve(0, 0, -1)] * 3
 
     def test_per_pin_list(self) -> None:
         assert expand_direction([[0, 0, -1], [0, 0, 1]], 2) == [
-            (0, 0, -1), (0, 0, 1)
+            _ve(0, 0, -1), _ve(0, 0, 1)
         ]
 
     def test_grouped(self) -> None:
         raw = [[[1, 2, 3, 4], [0, 0, -1]], [[5, 6, 7, 8], [0, 0, 1]]]
         out = expand_direction(raw, 8)
-        assert out[:4] == [(0, 0, -1)] * 4
-        assert out[4:] == [(0, 0, 1)] * 4
+        assert out[:4] == [_ve(0, 0, -1)] * 4
+        assert out[4:] == [_ve(0, 0, 1)] * 4
 
     def test_grouped_missing_pin_raises(self) -> None:
         with pytest.raises(ValueError):
@@ -201,7 +198,6 @@ class TestLoadPresentation:
         assert r.color is None
 
     def test_flat_sided_cylinder_parsed(self) -> None:
-        from protoboard.geometry import Point
         pkgs = load_packages(GENERICS + [
             {"name": "TO-92", "extends": "cylinder_radial",
              "dims": {"diameter": 4.55, "length": 4.6,
@@ -283,7 +279,7 @@ class TestBodyAxisPos:
              "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]},
                        "body_eccentricity": 0.5}},
         ])
-        assert pkgs["Ecc"].leads.body_eccentricity_mm == _pt(0.5, 0.0)
+        assert pkgs["Ecc"].leads.body_eccentricity_mm == _ve(0.5, 0.0)
 
     def test_vector_eccentricity_preserved(self) -> None:
         pkgs = self._load([
@@ -292,7 +288,7 @@ class TestBodyAxisPos:
              "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]},
                        "body_eccentricity": [0.5, -0.25]}},
         ])
-        assert pkgs["Ecc"].leads.body_eccentricity_mm == _pt(0.5, -0.25)
+        assert pkgs["Ecc"].leads.body_eccentricity_mm == _ve(0.5, -0.25)
 
     def test_default_eccentricity_zero(self) -> None:
         pkgs = self._load([
@@ -300,7 +296,7 @@ class TestBodyAxisPos:
              "dims": {"diameter": 6.3, "length": 11.0},
              "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}},
         ])
-        assert pkgs["Ecc"].leads.body_eccentricity_mm == _pt(0.0, 0.0)
+        assert pkgs["Ecc"].leads.body_eccentricity_mm == _ve(0.0, 0.0)
 
     def test_axis_pos_converts_via_geo_mid(self) -> None:
         # Spec example: body_offset [[1,1],[-1,1]] (3 pins, unit 2.5 → grid

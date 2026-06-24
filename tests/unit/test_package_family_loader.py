@@ -7,7 +7,9 @@ from pathlib import Path
 
 from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.components.package.shapes import Cylinder, Disc, Prism
-from protoboard.services.library.package_family_loader import load_package_families
+from protoboard.services.library.package_family_loader import (
+    load_package_families,
+)
 
 
 class TestBuiltinCatalogue:
@@ -73,10 +75,10 @@ class TestBuiltinCatalogue:
         # 1 hole (2.5 mm raster) apart on the board — the two domains differ, so
         # ``board_offset`` is given explicitly (not the ``default`` sentinel that
         # would reuse the 1.25 mm body vector in the holes domain → 0.5-hole pins).
-        from protoboard.geometry import Point
+        from protoboard.geometry import Point, Vector
         pkg = load_package_families()["TO-92"].default_variant().package
         assert isinstance(pkg, Cylinder)
-        assert pkg.leads.body_offset_mm == (Point(1.25, 0.0), Point(1.25, 0.0))
+        assert pkg.leads.body_offset_mm == (Vector(1.25, 0.0), Vector(1.25, 0.0))
         assert pkg.pin_positions() == [Point(0, 0), Point(1.0, 0), Point(2.0, 0)]
 
 

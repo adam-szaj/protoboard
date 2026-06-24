@@ -43,13 +43,14 @@ protoboard = "protoboard.app:main"
 [tool.pyright]
 venvPath = "./"
 venv = ".venv/"
+pythonpath = ["src", "tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/protoboard"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "tests"]
 addopts = "-v -m 'not property and not slow'"
 markers = [
     "property: hypothesis-driven property tests (skipped by default; run with -m property)",

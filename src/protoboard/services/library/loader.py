@@ -8,12 +8,13 @@ directories, the *first* directory wins (so users can override built-ins).
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
 import dataclasses
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import structlog
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
@@ -51,8 +52,6 @@ from protoboard.domain.components.package import (
 from protoboard.errors import SerializationError
 from protoboard.paths import BUILTIN_ASSETS_DIR
 from protoboard.services.debug_trace import traced
-
-import structlog
 
 _log = structlog.get_logger(__name__)
 _yaml = YAML(typ="safe")
@@ -96,7 +95,8 @@ def _component_pin_count(data: dict[str, Any]) -> int | None:
 
 
 def _geometry_from_option(
-    option: FootprintOption, families: dict[str, PackageFamily],
+    option: FootprintOption,
+    families: dict[str, PackageFamily],
 ) -> tuple[Package | None, FootprintTemplate | None, bool]:
     """Resolve a footprint option to ``(package, footprint, drop_bendable)``.
 
@@ -119,7 +119,9 @@ def _geometry_from_option(
 
 
 def _parse_footprints(
-    data: dict[str, Any], pin_count: int | None, source: Path,
+    data: dict[str, Any],
+    pin_count: int | None,
+    source: Path,
     families: dict[str, PackageFamily],
 ) -> tuple[FootprintOption, ...]:
     """Parse a component's ``footprints:`` list into ``FootprintOption``s.
@@ -136,9 +138,8 @@ def _parse_footprints(
         raise SerializationError(f"{source}: 'footprints' must be a list")
     cname = data["name"]
     try:
-        list_style = parse_style(
-            data.get("footprint_style"), ctx=f"{cname} footprint_style"
-        )
+        list_style = parse_style(data.get("footprint_style"),
+                                 ctx=f"{cname} footprint_style")
     except (TypeError, ValueError) as exc:
         raise SerializationError(f"{source}: {exc}") from exc
 
@@ -153,43 +154,40 @@ def _parse_footprints(
             name_raw = entry
         elif isinstance(entry, dict):
             if isinstance(entry.get("package"), dict):
-                package = _build_component_package(
-                    cname, entry["package"], pin_count
-                )
+                package = _build_component_package(cname, entry["package"],
+                                                   pin_count)
             elif entry.get("ref") is not None:
                 ref = str(entry["ref"])
             else:
                 raise SerializationError(
                     f"{source}: footprint entry for {cname!r} needs 'ref' or "
-                    f"'package'"
-                )
+                    f"'package'")
             name_raw = entry.get("name", ref)
             try:
-                entry_style = parse_style(
-                    entry.get("style"), ctx=f"{cname} footprint style"
-                )
+                entry_style = parse_style(entry.get("style"),
+                                          ctx=f"{cname} footprint style")
             except (TypeError, ValueError) as exc:
                 raise SerializationError(f"{source}: {exc}") from exc
         else:
             raise SerializationError(
                 f"{source}: footprint entry for {cname!r} must be a string or "
-                f"mapping"
-            )
+                f"mapping")
         name = str(name_raw) if name_raw is not None else ""
         style = Appearance.resolve(entry_style, list_style)
         options.append(
             FootprintOption(
-                name=name, ref=ref, package=package,
+                name=name,
+                ref=ref,
+                package=package,
                 style=style if not style.is_empty else None,
-            )
-        )
+            ))
     return tuple(options)
 
 
 @traced("_build_component_package")
-def _build_component_package(
-    name: str, raw: dict[str, Any], pin_count: int | None = None
-) -> Package:
+def _build_component_package(name: str,
+                             raw: dict[str, Any],
+                             pin_count: int | None = None) -> Package:
     """Build a Package from a component's inline ``package:`` block.
 
     A ``kind:`` field (e.g. ``dip_ic``) names a parameterized package whose
@@ -210,8 +208,7 @@ def _build_component_package(
         if n is None:
             raise PackageDefError(
                 f"{name}: package kind {kind!r} needs a pin count "
-                f"(component pins or package 'pins')"
-            )
+                f"(component pins or package 'pins')")
         # Forward any remaining package fields (e.g. a connector's ``rows``) as
         # kind params; the builder ignores keys it does not use.
         params = {k: v for k, v in raw.items() if k not in ("kind", "pins")}
@@ -257,8 +254,7 @@ def inline_option_address(defn_name: str, option_name: str) -> str:
 
 
 def inline_option_families(
-    library: ComponentLibrary,
-) -> dict[str, PackageFamily]:
+    library: ComponentLibrary, ) -> dict[str, PackageFamily]:
     """One-variant families for every inline footprint option in *library*.
 
     Merge these into the package-family catalogue so the picker can offer inline
@@ -274,20 +270,18 @@ def inline_option_families(
             out[family_id] = PackageFamily(
                 family_id=family_id,
                 label=option.name,
-                variants=(
-                    PackageVariant(
-                        variant_id=_INLINE_VARIANT,
-                        label=option.name,
-                        package=option.package,
-                    ),
-                ),
+                variants=(PackageVariant(
+                    variant_id=_INLINE_VARIANT,
+                    label=option.name,
+                    package=option.package,
+                ), ),
             )
     return out
 
 
 def load_library(
     directories: Iterable[Path],
-    package_families: "dict[str, PackageFamily] | None" = None,
+    package_families: dict[str, PackageFamily] | None = None,
 ) -> ComponentLibrary:
     """Load a library from the given directories. Earlier directories win.
 
@@ -316,7 +310,8 @@ def load_library(
     raw_source: dict[str, Path] = {}
     for directory in directories:
         if not directory.exists():
-            raise FileNotFoundError(f"Library directory not found: {directory}")
+            raise FileNotFoundError(
+                f"Library directory not found: {directory}")
         for yaml_path in sorted(directory.glob("**/*.yaml")):
             for raw in _read_raw_components(yaml_path):
                 name = raw["name"]
@@ -333,12 +328,16 @@ def load_library(
         path = raw_source[name]
         resolved = _resolve_extends(raw, raw_by_name, source=path, chain=[])
         try:
-            defn = _component_from_dict(resolved, source=path, families=families)
+            defn = _component_from_dict(resolved,
+                                        source=path,
+                                        families=families)
         except PackageDefError as exc:
             # A malformed parametric package must not sink the whole library.
             # Skip this component; the user re-places it with a fresh definition.
             _log.warning(
-                "library.package_skipped", component=name, path=str(path),
+                "library.package_skipped",
+                component=name,
+                path=str(path),
                 error=str(exc),
             )
             continue
@@ -371,8 +370,7 @@ def _read_raw_components(path: Path) -> list[dict[str, Any]]:
     for raw in components_raw:
         if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
             raise SerializationError(
-                f"{path}: each component must be a mapping with 'name'"
-            )
+                f"{path}: each component must be a mapping with 'name'")
         out.append(raw)
     return out
 
@@ -393,14 +391,15 @@ def _resolve_extends(
     if parent_name is None:
         return raw
     if not isinstance(parent_name, str):
-        raise SerializationError(f"{source}: 'extends' must be a string in {name!r}")
+        raise SerializationError(
+            f"{source}: 'extends' must be a string in {name!r}")
     parent_raw = index.get(parent_name)
     if parent_raw is None:
         raise SerializationError(
-            f"{source}: {name!r} extends unknown template {parent_name!r}"
-        )
+            f"{source}: {name!r} extends unknown template {parent_name!r}")
     # Recursively resolve the parent first.
-    resolved_parent = _resolve_extends(parent_raw, index, source, chain + [name])
+    resolved_parent = _resolve_extends(parent_raw, index, source,
+                                       chain + [name])
     # Child fields override parent; 'extends' key is dropped.
     merged: dict[str, Any] = {**resolved_parent, **raw}
     merged.pop("extends", None)
@@ -415,7 +414,7 @@ def _resolve_extends(
 def _component_from_dict(
     data: Any,
     source: Path,
-    families: "dict[str, PackageFamily] | None" = None,
+    families: dict[str, PackageFamily] | None = None,
 ) -> ComponentDefinition:
     if not isinstance(data, dict):
         raise SerializationError(f"{source}: each component must be a mapping")
@@ -435,15 +434,15 @@ def _component_from_dict(
     package_obj: Package | None = None
     package_raw = data.get("package")
     if isinstance(package_raw, dict):
-        package_obj = _build_component_package(
-            data["name"], package_raw, comp_pin_count
-        )
+        package_obj = _build_component_package(data["name"], package_raw,
+                                               comp_pin_count)
 
     # The available footprints (the picker offers these). The default/first entry
     # is the singular geometry source when there is no inline ``package`` /
     # ``footprint`` block, so the ~10 consumers reading ``defn.footprint`` see one
     # footprint as before.
-    footprints = _parse_footprints(data, comp_pin_count, source, families or {})
+    footprints = _parse_footprints(data, comp_pin_count, source, families
+                                   or {})
 
     drop_bend_from_default = False
     if package_obj is not None:
@@ -457,39 +456,33 @@ def _component_from_dict(
             ) from exc
     elif footprints:
         pkg, fp, drop_bend_from_default = _geometry_from_option(
-            footprints[0], families or {}
-        )
+            footprints[0], families or {})
         if pkg is None or fp is None:
             raise SerializationError(
                 f"{source}: component {data['name']!r} default footprint "
-                f"{footprints[0].name!r} did not resolve to a package"
-            )
+                f"{footprints[0].name!r} did not resolve to a package")
         package_obj, footprint = pkg, fp
     else:
         raise SerializationError(
             f"{source}: component {data.get('name')!r} requires 'footprint', "
-            f"'package', or 'footprints'"
-        )
+            f"'package', or 'footprints'")
 
     pin_names_raw = data.get("pin_names") or {}
     if not isinstance(pin_names_raw, dict):
         raise SerializationError(
-            f"{source}: pin_names for {data['name']!r} must be a mapping"
-        )
+            f"{source}: pin_names for {data['name']!r} must be a mapping")
     pin_names: dict[int, str] = {}
     for k, v in pin_names_raw.items():
         try:
             pin_names[int(k)] = str(v)
         except (TypeError, ValueError) as exc:
             raise SerializationError(
-                f"{source}: pin_names key {k!r} is not an integer"
-            ) from exc
+                f"{source}: pin_names key {k!r} is not an integer") from exc
 
     metadata_raw = data.get("metadata") or {}
     if not isinstance(metadata_raw, dict):
         raise SerializationError(
-            f"{source}: metadata for {data['name']!r} must be a mapping"
-        )
+            f"{source}: metadata for {data['name']!r} must be a mapping")
 
     raw_class = str(data.get("component_class", "other"))
     try:
@@ -499,14 +492,24 @@ def _component_from_dict(
             f"{source}: unknown component_class {raw_class!r} for {data['name']!r}"
         )
 
-    from protoboard.geometry import Point as _Point
+    from protoboard.geometry import Vector as _Vector
 
-    def _parse_point(raw: Any, ctx: str) -> _Point:
+    def _parse_vector(raw: Any, ctx: str) -> _Vector:
         if isinstance(raw, dict):
-            return _Point(float(raw["x"]), float(raw["y"]))
+            return _Vector(float(raw["x"]), float(raw["y"]))
         if isinstance(raw, (list, tuple)) and len(raw) == 2:
-            return _Point(float(raw[0]), float(raw[1]))
-        raise SerializationError(f"{source}: invalid Point {raw!r} in {ctx}")
+            return _Vector(float(raw[0]), float(raw[1]))
+        raise SerializationError(f"{source}: invalid Vector {raw!r} in {ctx}")
+
+    def _parse_point(raw: Any, ctx: str) -> _Vector:
+        return _parse_vector(raw, ctx)
+
+    # def _parse_point(raw: Any, ctx: str) -> _Point:
+    #     if isinstance(raw, dict):
+    #         return _Point(float(raw["x"]), float(raw["y"]))
+    #     if isinstance(raw, (list, tuple)) and len(raw) == 2:
+    #         return _Point(float(raw[0]), float(raw[1]))
+    #     raise SerializationError(f"{source}: invalid Point {raw!r} in {ctx}")
 
     bendable_raw = data.get("bendable_pins") or {}
     bendable_pins: dict[int, PinBendSpec] = {}
@@ -523,10 +526,9 @@ def _component_from_dict(
             if isinstance(spec_raw, list):
                 # Format A — lista dyskretnych punktów (TO-92 itp.)
                 pts = tuple(_parse_point(off, ctx) for off in spec_raw)
-                default = pts[0] if pts else _Point(0.0, 0.0)
-                bendable_pins[pin_num] = PinBendSpec(
-                    discrete=pts, default_offset=default
-                )
+                default = pts[0] if pts else _Vector(0.0, 0.0)
+                bendable_pins[pin_num] = PinBendSpec(discrete=pts,
+                                                     default_offset=default)
             elif isinstance(spec_raw, dict):
                 if "min_reach" in spec_raw or "max_reach" in spec_raw:
                     # Format C — zakres 2D swobodny (nowy)
@@ -534,9 +536,9 @@ def _component_from_dict(
                     bendable_pins[pin_num] = PinBendSpec(
                         min_reach=float(spec_raw.get("min_reach", 0.0)),
                         max_reach=float(spec_raw.get("max_reach", 0.0)),
-                        default_offset=_parse_point(
-                            spec_raw["default"], ctx + ".default"
-                        ) if "default" in spec_raw else _Point(0.0, 0.0),
+                        default_offset=_parse_vector(spec_raw["default"], ctx +
+                                                     ".default")
+                        if "default" in spec_raw else _Vector(0.0, 0.0),
                     )
                 elif "min" in spec_raw and "max" in spec_raw:
                     # Format B — stary zakres kierunkowy; konwertuj do reach
@@ -546,32 +548,27 @@ def _component_from_dict(
                     bendable_pins[pin_num] = PinBendSpec(
                         min_reach=_math.hypot(min_pt.x, min_pt.y),
                         max_reach=_math.hypot(max_pt.x, max_pt.y),
-                        default_offset=_parse_point(
-                            spec_raw["default"], ctx + ".default"
-                        ) if "default" in spec_raw else _Point(0.0, 0.0),
+                        default_offset=_parse_vector(spec_raw["default"], ctx +
+                                                     ".default")
+                        if "default" in spec_raw else _Vector(0.0, 0.0),
                     )
                 elif "discrete" in spec_raw:
                     pts = tuple(
-                        _parse_point(off, ctx) for off in spec_raw["discrete"]
-                    )
-                    default = (
-                        _parse_point(spec_raw["default"], ctx + ".default")
-                        if "default" in spec_raw
-                        else (pts[0] if pts else _Point(0.0, 0.0))
-                    )
+                        _parse_point(off, ctx) for off in spec_raw["discrete"])
+                    default = (_parse_point(spec_raw["default"], ctx +
+                                            ".default")
+                               if "default" in spec_raw else
+                               (pts[0] if pts else _Vector(0.0, 0.0)))
                     bendable_pins[pin_num] = PinBendSpec(
-                        discrete=pts, default_offset=default
-                    )
+                        discrete=pts, default_offset=default)
                 else:
                     raise SerializationError(
                         f"{source}: {ctx} dict must have 'min_reach'/'max_reach',"
-                        " 'min'+'max', or 'discrete'"
-                    )
+                        " 'min'+'max', or 'discrete'")
             else:
                 raise SerializationError(
                     f"{source}: {ctx} must be a list or dict,"
-                    f" got {type(spec_raw).__name__}"
-                )
+                    f" got {type(spec_raw).__name__}")
 
     variants_raw = data.get("variants") or []
     variants: list[PinVariant] = []
@@ -583,8 +580,7 @@ def _component_from_dict(
                 )
             if "id" not in v:
                 raise SerializationError(
-                    f"{source}: variant for {data['name']!r} requires 'id'"
-                )
+                    f"{source}: variant for {data['name']!r} requires 'id'")
             v_pins: dict[int, str] = {}
             for k, val in (v.get("pin_names") or {}).items():
                 try:
@@ -593,11 +589,12 @@ def _component_from_dict(
                     raise SerializationError(
                         f"{source}: variant pin_names key {k!r} is not an integer"
                     ) from exc
-            variants.append(PinVariant(
-                id=str(v["id"]),
-                label=str(v.get("label", v["id"])),
-                pin_names=v_pins,
-            ))
+            variants.append(
+                PinVariant(
+                    id=str(v["id"]),
+                    label=str(v.get("label", v["id"])),
+                    pin_names=v_pins,
+                ))
 
     # ``package_family_ref`` — references the package-family catalogue,
     # references the package-family catalogue as ``"family/variant_id"``.
@@ -607,8 +604,7 @@ def _component_from_dict(
         if not isinstance(package_family_ref_raw, str):
             raise SerializationError(
                 f"{source}: package_family_ref for {data['name']!r} must be a "
-                f"string 'family/variant_id'; got {package_family_ref_raw!r}"
-            )
+                f"string 'family/variant_id'; got {package_family_ref_raw!r}")
         package_family_ref = package_family_ref_raw
 
     # A rigid catalogue body (SMD chip, DIP — fixed pin geometry) referenced via
@@ -617,11 +613,7 @@ def _component_from_dict(
     # the body fixes the pad spacing.  Bendable/axial bodies (resistor, diode)
     # are not rigid, so they keep their footprint and bend.  An inline package
     # already drove the footprint above, so skip then.
-    if (
-        package_obj is None
-        and package_family_ref is not None
-        and families
-    ):
+    if (package_obj is None and package_family_ref is not None and families):
         variant = resolve_variant(families, package_family_ref)
         if variant is not None and is_rigid_package(variant.package):
             footprint = PackageFootprint(variant.package)
@@ -637,12 +629,12 @@ def _component_from_dict(
         if not isinstance(default_value_raw, str):
             raise SerializationError(
                 f"{source}: default_value for {data['name']!r} must be a "
-                f"string; got {default_value_raw!r}"
-            )
+                f"string; got {default_value_raw!r}")
         default_value = default_value_raw
 
     try:
-        appearance = parse_style(data.get("style"), ctx=f"{data['name']} style")
+        appearance = parse_style(data.get("style"),
+                                 ctx=f"{data['name']} style")
     except (TypeError, ValueError) as exc:
         raise SerializationError(f"{source}: {exc}") from exc
 
@@ -679,8 +671,7 @@ def _component_from_dict(
         )
     except ValueError as exc:
         raise SerializationError(
-            f"{source}: invalid component {data['name']!r}: {exc}"
-        ) from exc
+            f"{source}: invalid component {data['name']!r}: {exc}") from exc
 
 
 def _footprint_from_dict(data: Any) -> FootprintTemplate:
@@ -762,26 +753,28 @@ def _build_quad_row(data: dict[str, Any]) -> FootprintTemplate:
         raise SerializationError("QuadRow footprint requires 'n_per_col'")
     raw_spacings = data.get("col_spacings", [1.0, 8.0, 1.0])
     if not isinstance(raw_spacings, (list, tuple)) or len(raw_spacings) != 3:
-        raise SerializationError("QuadRow 'col_spacings' must be a list of 3 values")
+        raise SerializationError(
+            "QuadRow 'col_spacings' must be a list of 3 values")
     return QuadRow(
         n_per_col=int(data["n_per_col"]),
-        col_spacings=(float(raw_spacings[0]), float(raw_spacings[1]), float(raw_spacings[2])),
+        col_spacings=(float(raw_spacings[0]), float(raw_spacings[1]),
+                      float(raw_spacings[2])),
         pitch=float(data.get("pitch", 1.0)),
     )
 
 
-_FOOTPRINT_BUILDERS: dict[str, Callable[[dict[str, Any]], FootprintTemplate]] = {
-    "DIP": _build_dip,
-    "SIL": _build_sil,
-    "TwoPin": _build_two_pin,
-    "DualRow": _build_dual_row,
-    "SingleRow": _build_single_row,
-    "Grid": _build_grid,
-    "GridFootprint": _build_grid,
-    "QuadRow": _build_quad_row,
-    "TO92": _build_to92,
-    "TO220": _build_to220,
-}
-
+_FOOTPRINT_BUILDERS: dict[str, Callable[[dict[str, Any]],
+                                        FootprintTemplate]] = {
+                                            "DIP": _build_dip,
+                                            "SIL": _build_sil,
+                                            "TwoPin": _build_two_pin,
+                                            "DualRow": _build_dual_row,
+                                            "SingleRow": _build_single_row,
+                                            "Grid": _build_grid,
+                                            "GridFootprint": _build_grid,
+                                            "QuadRow": _build_quad_row,
+                                            "TO92": _build_to92,
+                                            "TO220": _build_to220,
+                                        }
 
 __all__ = ["ComponentLibrary", "load_library"]

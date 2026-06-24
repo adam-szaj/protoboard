@@ -62,8 +62,7 @@ _FAMILY_STRUCTURAL = frozenset({"family", "label", "default", "variants"})
 
 
 def load_package_families(
-    directory: Path | None = None,
-) -> dict[str, PackageFamily]:
+    directory: Path | None = None, ) -> dict[str, PackageFamily]:
     """Load every ``*.yaml`` family file from *directory* (default: builtin).
 
     Returns a dict keyed by ``family_id``.  Malformed files are logged and
@@ -78,12 +77,16 @@ def load_package_families(
         try:
             families = _load_one_file(path, generics)
         except Exception as exc:  # noqa: BLE001 — one bad asset must not break startup
-            _log.warning("package_family.load_failed", path=str(path), error=str(exc))
+            _log.warning("package_family.load_failed",
+                         path=str(path),
+                         error=str(exc))
             continue
         for fam in families:
             if fam.family_id in out:
                 _log.warning(
-                    "package_family.duplicate", family_id=fam.family_id, path=str(path),
+                    "package_family.duplicate",
+                    family_id=fam.family_id,
+                    path=str(path),
                 )
                 continue
             out[fam.family_id] = fam
@@ -91,8 +94,7 @@ def load_package_families(
 
 
 def load_full_package_catalogue(
-    directory: Path | None = None,
-) -> dict[str, PackageFamily]:
+    directory: Path | None = None, ) -> dict[str, PackageFamily]:
     """The complete body catalogue: generated in-line families + authored YAML.
 
     Generated ``dip-N`` / ``wdip-N`` / ``sil-N`` bodies (from
@@ -111,9 +113,8 @@ def load_full_package_catalogue(
     }
 
 
-def _load_one_file(
-    path: Path, generics: dict[str, dict[str, Any]]
-) -> list[PackageFamily]:
+def _load_one_file(path: Path,
+                   generics: dict[str, dict[str, Any]]) -> list[PackageFamily]:
     with path.open(encoding="utf-8") as fh:
         data: Any = _yaml.load(fh)
     if not isinstance(data, dict):
@@ -124,9 +125,8 @@ def _load_one_file(
     return [_parse_family(entry, path, generics) for entry in raw]
 
 
-def _parse_family(
-    entry: dict[str, Any], path: Path, generics: dict[str, dict[str, Any]]
-) -> PackageFamily:
+def _parse_family(entry: dict[str, Any], path: Path,
+                  generics: dict[str, dict[str, Any]]) -> PackageFamily:
     if not isinstance(entry, dict) or "family" not in entry:
         raise ValueError(f"{path}: every family needs a 'family' id")
     family_id = str(entry["family"])
@@ -142,10 +142,10 @@ def _parse_family(
     variants: list[PackageVariant] = []
     for v in raw_variants:
         if not isinstance(v, dict) or "id" not in v:
-            raise ValueError(f"{path}:{family_id}: every variant needs an 'id'")
-        variants.append(
-            _build_variant(family_id, inherited, v, generics, path)
-        )
+            raise ValueError(
+                f"{path}:{family_id}: every variant needs an 'id'")
+        variants.append(_build_variant(family_id, inherited, v, generics,
+                                       path))
     return PackageFamily(
         family_id=family_id,
         label=label,

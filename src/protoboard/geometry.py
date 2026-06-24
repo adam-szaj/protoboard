@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import overload
+
 # from _typeshed import Self
 
 # Coordinate quantisation precision used throughout the codebase for
@@ -42,36 +43,42 @@ def round_coord(v: float) -> float:
 class Point:
     """A 2D point in raster units."""
 
-    x: float
-    y: float
+    x: float = 0.0
+    y: float = 0.0
 
-    # def __add__(self, v: Vector) -> Point:
-    #     return Point(self.x + v.dx, self.y + v.dy)
-    #
-    # @overload
-    # def __sub__(self, o: Point) -> Vector:
-    #     ...
-    #
-    # @overload
-    # def __sub__(self, o: Vector) -> Point:
-    #     ...
-    #
-    # def __sub__(self, o: Point | Vector) -> Point | Vector:
-    #     if isinstance(o, Point):
-    #         return Vector(self.x - o.x, self.y - o.y)
-    #     else:
-    #         return Point(self.x - o.x, self.y - o.y)
-    def __add__(self, other: Point) -> Point:
-        return Point(self.x + other.x, self.y + other.y)
+    def __add__(self, v: Vector) -> Point:
+        return Point(self.x + v.dx, self.y + v.dy)
 
-    def __sub__(self, other: Point) -> Point:
-        return Point(self.x - other.x, self.y - other.y)
+    @overload
+    def __sub__(self, o: Point) -> Vector:
+        ...
+
+    @overload
+    def __sub__(self, o: Vector) -> Point:
+        ...
+
+    def __sub__(self, o: Point | Vector) -> Point | Vector:
+        if isinstance(o, Point):
+            return Vector(self.x - o.x, self.y - o.y)
+        else:
+            return Point(self.x - o.x, self.y - o.y)
 
 
 @dataclass(frozen=True, slots=True)
 class Vector:
-    dx: float
-    dy: float
+    dx: float = 0.0
+    dy: float = 0.0
+
+    @property
+    def x(self) -> float:
+        return self.dx
+
+    @property
+    def y(self) -> float:
+        return self.dy
+
+    def __neg__(self) -> Vector:
+        return Vector(-self.dx, -self.dy)
 
     def __add__(self, other: Vector) -> Vector:
         return Vector(self.dx + other.dx, self.dy + other.dy)
@@ -87,9 +94,9 @@ class Vector:
 class Point3D:
     """A 3D point in raster units."""
 
-    x: float
-    y: float
-    z: float
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
 
     def __add__(self, v: Vector3D) -> Point3D:
         return Point3D(self.x + v.dx, self.y + v.dy, self.y + v.dy)
@@ -110,9 +117,9 @@ class Point3D:
 
 @dataclass(frozen=True, slots=True)
 class Vector3D:
-    dx: float
-    dy: float
-    dz: float
+    dx: float = 0.0
+    dy: float = 0.0
+    dz: float = 0.0
 
     @property
     def x(self) -> float:
@@ -150,6 +157,14 @@ class Size:
             raise ValueError(f"width must be non-negative; got {self.width}")
         if self.height < 0:
             raise ValueError(f"height must be non-negative; got {self.height}")
+
+    @staticmethod
+    def from_vector(v: Vector) -> Size:
+        return Size(abs(v.dx), abs(v.dy))
+
+    @staticmethod
+    def from_points(p1: Point, p2: Point) -> Size:
+        return Size.from_vector(p1-p2)
 
     @staticmethod
     def zero() -> Size:

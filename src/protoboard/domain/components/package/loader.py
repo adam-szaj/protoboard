@@ -12,17 +12,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from protoboard.domain.components.package.offsets import (
-    cumulative_positions,
-    expand_direction,
-    expand_offsets,
-    scale_offsets,
-)
 from protoboard.domain.components.package.body import (
     DiscProfile,
     EdgeStyle,
     LeadArrangement,
     MountStyle,
+)
+from protoboard.domain.components.package.offsets import (
+    cumulative_positions,
+    expand_direction,
+    expand_offsets,
+    scale_offsets,
 )
 from protoboard.domain.components.package.shapes import (
     BOARD_DEFAULT,
@@ -35,7 +35,7 @@ from protoboard.domain.components.package.shapes import (
     Prism,
 )
 from protoboard.domain.components.package.solver import RASTER_MM
-from protoboard.geometry import Insets, Point
+from protoboard.geometry import Insets, Point, Vector
 from protoboard.services.debug_trace import traced
 
 PackageDict = dict[str, Any]
@@ -48,6 +48,7 @@ class PackageDefError(ValueError):
 # --------------------------------------------------------------------------- #
 # extends resolution (data merge)
 # --------------------------------------------------------------------------- #
+
 
 def _deep_merge(base: PackageDict, override: PackageDict) -> PackageDict:
     """Merge *override* onto *base*. Nested dicts merge; scalars/lists replace.
@@ -65,7 +66,8 @@ def _deep_merge(base: PackageDict, override: PackageDict) -> PackageDict:
     return out
 
 
-def resolve_extends(name: str, registry: dict[str, PackageDict]) -> PackageDict:
+def resolve_extends(name: str, registry: dict[str,
+                                              PackageDict]) -> PackageDict:
     """Flatten a package's ``extends`` chain into a single merged dict."""
     seen: set[str] = set()
 
@@ -91,17 +93,21 @@ def resolve_extends(name: str, registry: dict[str, PackageDict]) -> PackageDict:
 # Leads construction
 # --------------------------------------------------------------------------- #
 
+
 def _require(value: object, field_name: str, pkg: str) -> object:
     if value is None:
-        raise PackageDefError(f"{pkg}: required field {field_name!r} left null")
+        raise PackageDefError(
+            f"{pkg}: required field {field_name!r} left null")
     return value
 
 
 def _require_float(value: object, field_name: str, pkg: str) -> float:
     if value is None:
-        raise PackageDefError(f"{pkg}: required field {field_name!r} left null")
+        raise PackageDefError(
+            f"{pkg}: required field {field_name!r} left null")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise PackageDefError(f"{pkg}: {field_name!r} must be a number, got {value!r}")
+        raise PackageDefError(
+            f"{pkg}: {field_name!r} must be a number, got {value!r}")
     return float(value)
 
 
@@ -132,9 +138,8 @@ def _board_offset(raw: object) -> tuple[Point, ...] | str:
     return tuple(expand_offsets(raw))  # type: ignore[arg-type]
 
 
-def _board_steps_in_holes(
-    board_offset: tuple[Point, ...] | str, body_mm: list[Point]
-) -> list[Point]:
+def _board_steps_in_holes(board_offset: tuple[Vector, ...] | str,
+                          body_mm: list[Vector]) -> list[Vector]:
     """Default board layout pin→pin step vectors, in holes (grid domain).
 
     ``default`` reads body_offset in the grid domain (mm / raster); an explicit
@@ -142,15 +147,17 @@ def _board_steps_in_holes(
     rejects ``body_axis_pos`` for that case before reaching here.
     """
     if board_offset == BOARD_DEFAULT:
-        return [Point(v.x / RASTER_MM, v.y / RASTER_MM) for v in body_mm]
+        return [Vector(v.x / RASTER_MM, v.y / RASTER_MM) for v in body_mm]
     if isinstance(board_offset, str):  # BOARD_SOLVE
         raise PackageDefError("board_offset 'solve' has no default layout")
     return list(board_offset)
 
 
-def _geo_mid_holes(board_offset: tuple[Point, ...] | str, body_mm: list[Point]) -> Point:
+def _geo_mid_holes(board_offset: tuple[Vector, ...] | str,
+                   body_mm: list[Vector]) -> Point:
     """Geometric centre of the default on-board lead axis, in holes (pin1=[0,0])."""
-    positions = cumulative_positions(_board_steps_in_holes(board_offset, body_mm))
+    positions = cumulative_positions(
+        _board_steps_in_holes(board_offset, body_mm))
     n = len(positions)
     return Point(
         sum(p.x for p in positions) / n,
@@ -158,25 +165,24 @@ def _geo_mid_holes(board_offset: tuple[Point, ...] | str, body_mm: list[Point]) 
     )
 
 
-def _as_point(raw: object, field_name: str, pkg: str) -> Point:
-    """Coerce a scalar (sugar → ``(s, 0)``) or a 2-vector into a Point."""
+def _as_vector(raw: object, field_name: str, pkg: str) -> Vector:
+    """Coerce a scalar (sugar → ``(s, 0)``) or a 2-vector into a Vector."""
     if isinstance(raw, (int, float)) and not isinstance(raw, bool):
-        return Point(float(raw), 0.0)
-    if (
-        isinstance(raw, (list, tuple))
-        and len(raw) == 2
-        and all(isinstance(c, (int, float)) and not isinstance(c, bool) for c in raw)
-    ):
-        return Point(float(raw[0]), float(raw[1]))
-    raise PackageDefError(f"{pkg}: {field_name!r} must be a number or [x, y], got {raw!r}")
+        return Vector(float(raw), 0.0)
+    if (isinstance(raw, (list, tuple)) and len(raw) == 2 and all(
+            isinstance(c, (int, float)) and not isinstance(c, bool)
+            for c in raw)):
+        return Vector(float(raw[0]), float(raw[1]))
+    raise PackageDefError(
+        f"{pkg}: {field_name!r} must be a number or [x, y], got {raw!r}")
 
 
 def _resolve_eccentricity(
     leads_raw: PackageDict,
-    board_offset: tuple[Point, ...] | str,
-    body_mm: list[Point],
+    board_offset: tuple[Vector, ...] | str,
+    body_mm: list[Vector],
     pkg: str,
-) -> Point:
+) -> Vector:
     """Lead-exit eccentricity vs body axis as a 2D vector (mm).
 
     Accepts either the relative ``body_eccentricity`` (scalar sugar or vector,
@@ -196,17 +202,16 @@ def _resolve_eccentricity(
         if board_offset == BOARD_SOLVE:
             raise PackageDefError(
                 f"{pkg}: 'body_axis_pos' needs a default board layout; "
-                f"board_offset 'solve' has none — use 'body_eccentricity'"
-            )
-        axis_pos = _as_point(axis_raw, "body_axis_pos", pkg)
+                f"board_offset 'solve' has none — use 'body_eccentricity'")
+        axis_pos = _as_vector(axis_raw, "body_axis_pos", pkg)
         geo_mid = _geo_mid_holes(board_offset, body_mm)
-        return Point(
+        return Vector(
             (axis_pos.x - geo_mid.x) * RASTER_MM,
             (axis_pos.y - geo_mid.y) * RASTER_MM,
         )
     if ecc_raw is not None:
-        return _as_point(ecc_raw, "body_eccentricity", pkg)
-    return Point(0.0, 0.0)
+        return _as_vector(ecc_raw, "body_eccentricity", pkg)
+    return Vector(0.0, 0.0)
 
 
 def build_leads(merged: PackageDict, pkg: str) -> Leads:
@@ -219,8 +224,8 @@ def build_leads(merged: PackageDict, pkg: str) -> Leads:
     pin_count = len(body_mm) + 1
 
     direction = expand_direction(
-        _require(leads_raw.get("direction"), "leads.direction", pkg), pin_count
-    )
+        _require(leads_raw.get("direction"), "leads.direction", pkg),
+        pin_count)
 
     board_offset = _board_offset(leads_raw.get("board_offset", BOARD_DEFAULT))
 
@@ -230,7 +235,8 @@ def build_leads(merged: PackageDict, pkg: str) -> Leads:
         board_offset=board_offset,
         lead_length_mm=_opt_float(leads_raw.get("lead_length")),
         lead_r_mm=_opt_float(leads_raw.get("lead_r")),
-        body_eccentricity_mm=_resolve_eccentricity(leads_raw, board_offset, body_mm, pkg),
+        body_eccentricity_mm=_resolve_eccentricity(leads_raw, board_offset,
+                                                   body_mm, pkg),
     )
 
 
@@ -247,14 +253,14 @@ def _flat_normal(raw: object, pkg: str) -> Point:
         return Point(0.0, 0.0)
     if not isinstance(raw, (list, tuple)) or len(raw) != 2:
         raise PackageDefError(
-            f"{pkg}: flat_normal must be a 2-element [x, y] list, got {raw!r}"
-        )
+            f"{pkg}: flat_normal must be a 2-element [x, y] list, got {raw!r}")
     return Point(float(raw[0]), float(raw[1]))
 
 
 # --------------------------------------------------------------------------- #
 # Shape instantiation (dispatch by `shape`)
 # --------------------------------------------------------------------------- #
+
 
 def _margin_insets(raw: object) -> Insets | None:
     """CSS-style margin: 1 | 2 (V H) | 3 (T H B) | 4 (T R B L) values (mm)."""
@@ -277,7 +283,8 @@ def _margin_insets(raw: object) -> Insets | None:
     raise PackageDefError(f"margin needs 1-4 values, got {len(vals)}")
 
 
-def _arrangement(raw: object, default: LeadArrangement, pkg: str) -> LeadArrangement:
+def _arrangement(raw: object, default: LeadArrangement,
+                 pkg: str) -> LeadArrangement:
     if raw is None:
         return default
     try:
@@ -313,7 +320,7 @@ def _mount_style(raw: object, pkg: str) -> MountStyle:
         raise PackageDefError(f"{pkg}: unknown mount style {raw!r}")
 
 
-def _mount_points(raw: object, pkg: str) -> tuple[Point, ...]:
+def _mount_points(raw: object, pkg: str) -> tuple[Vector, ...]:
     """Pin-2 mount-point offsets (holes) — a list of [dx, dy] vectors, or empty.
 
     Empty means the surface-mount default (8 king-move neighbours); a package
@@ -344,13 +351,16 @@ def build_package(merged: PackageDict, pkg: str) -> Package:
     if shape == "cylinder":
         flat_r = dims.get("flat_radius", dims.get("flat_r"))
         return Cylinder(
-            diameter_mm=_require_float(dims.get("diameter"), "dims.diameter", pkg),
+            diameter_mm=_require_float(dims.get("diameter"), "dims.diameter",
+                                       pkg),
             length_mm=_require_float(dims.get("length"), "dims.length", pkg),
             leads=leads,
             bend_holes=bend,
             edge_radius_mm=float(dims.get("edge_radius", 0.0)),
             arrangement=_arrangement(
-                merged.get("arrangement"), LeadArrangement.AXIAL, pkg,
+                merged.get("arrangement"),
+                LeadArrangement.AXIAL,
+                pkg,
             ),
             edge=_edge(edge_raw, EdgeStyle.ROUNDED, pkg),
             color=color,
@@ -359,13 +369,17 @@ def build_package(merged: PackageDict, pkg: str) -> Package:
         )
     if shape == "disc":
         return Disc(
-            diameter_mm=_require_float(dims.get("diameter"), "dims.diameter", pkg),
-            thickness_mm=_require_float(dims.get("thickness"), "dims.thickness", pkg),
+            diameter_mm=_require_float(dims.get("diameter"), "dims.diameter",
+                                       pkg),
+            thickness_mm=_require_float(dims.get("thickness"),
+                                        "dims.thickness", pkg),
             leads=leads,
             bend_holes=bend,
             profile=_disc_profile(merged.get("disc_profile"), pkg),
             arrangement=_arrangement(
-                merged.get("arrangement"), LeadArrangement.RADIAL, pkg,
+                merged.get("arrangement"),
+                LeadArrangement.RADIAL,
+                pkg,
             ),
             edge=_edge(edge_raw, EdgeStyle.ROUNDED, pkg),
             color=color,
@@ -381,7 +395,9 @@ def build_package(merged: PackageDict, pkg: str) -> Package:
         corner_radius_mm=float(dims.get("corner_radius", 0.0)),
         margin_mm=margin,
         arrangement=_arrangement(
-            merged.get("arrangement"), LeadArrangement.AXIAL, pkg,
+            merged.get("arrangement"),
+            LeadArrangement.AXIAL,
+            pkg,
         ),
         edge=_edge(edge_raw, EdgeStyle.SHARP, pkg),
         color=color,

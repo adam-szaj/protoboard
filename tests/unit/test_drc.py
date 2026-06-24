@@ -16,7 +16,7 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 from protoboard.services.drc.engine import DRCEngine, DRCIssue
 
 
@@ -241,7 +241,7 @@ class TestDRCOverlap:
 
         board = _perfboard(1, 3)
         # Two component definitions where both pin 1 and pin 2 are bendable.
-        bend_spec = PinBendSpec(default_offset=Point(0.0, 0.0))
+        bend_spec = PinBendSpec(default_offset=Vector(0.0, 0.0))
         defn = ComponentDefinition(
             name="R_bend",
             footprint=SIL(2),
@@ -280,7 +280,7 @@ class TestDRCOverlap:
 
         leads = Leads(
             direction=((0, 0, -1), (0, 0, -1)),
-            body_offset_mm=(Point(2.5, 0.0),),
+            body_offset_mm=(Vector(2.5, 0.0),),
             board_offset=BOARD_DEFAULT,
         )
         pkg = Cylinder(diameter_mm=6.3, length_mm=11.0, leads=leads, bend_holes=4.0)
@@ -312,7 +312,7 @@ class TestDRCOverlap:
         from protoboard.domain.components.definition import PinBendSpec
 
         board = _perfboard(1, 3)
-        bend_spec = PinBendSpec(default_offset=Point(0.0, 0.0))
+        bend_spec = PinBendSpec(default_offset=Vector(0.0, 0.0))
         # Only one of the two definitions declares bendable pins.
         bendy = ComponentDefinition(
             name="R_bend",
@@ -495,7 +495,8 @@ class TestDRCMessages:
 
     def test_axis_labels_used_when_enabled(self) -> None:
         from protoboard.domain.axis_labels_settings import (
-            AxisLabelFormat, AxisLabelSettings,
+            AxisLabelFormat,
+            AxisLabelSettings,
         )
 
         board = _perfboard(3, 3)
@@ -893,8 +894,8 @@ class TestDRCGroupExports:
 
     def test_complete_export_no_issues(self) -> None:
         from protoboard.domain.layout.group import ComponentGroup
-        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.domain.schematic.net import PinRef
         board, defn, r1, r2, r3, sch, comps, insts, placements = self._three_resistor_setup()
         gid = uuid.uuid4()
         grp = ComponentGroup(
@@ -921,8 +922,8 @@ class TestDRCGroupExports:
 
     def test_bogus_export_on_internal_net(self) -> None:
         from protoboard.domain.layout.group import ComponentGroup
-        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.schematic.net import PinRef as _PinRef
         board = _perfboard(1, 5)
         defn = _r_defn()
@@ -974,8 +975,8 @@ class TestDRCGroupExports:
         members.  A net spanning sub-group and parent's siblings is external
         to the sub-group, internal to the parent."""
         from protoboard.domain.layout.group import ComponentGroup
-        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.domain.schematic.net import PinRef
         board, defn, r1, r2, r3, sch, comps, insts, placements = self._three_resistor_setup()
         inner_gid = uuid.uuid4()
         outer_gid = uuid.uuid4()
@@ -1025,8 +1026,8 @@ class TestDRCGroupInvalidExport:
 
     def test_grandchild_flat_export_flagged_invalid(self) -> None:
         from protoboard.domain.layout.group import ComponentGroup
-        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.schematic.net import PinRef as _PinRef
         board = _perfboard(1, 5)
         defn = _r_defn()
@@ -1099,8 +1100,8 @@ class TestDRCGroupInvalidExport:
         # Same tree but B re-exports ep → A's entry is chain-legal, no
         # INVALID issue.
         from protoboard.domain.layout.group import ComponentGroup
-        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.schematic.net import PinRef as _PinRef
         board = _perfboard(1, 5)
         defn = _r_defn()
@@ -1160,8 +1161,8 @@ class TestDRCGroupInvalidExport:
         """An INVALID export must not also generate a BOGUS warning —
         the user gets one error per offending entry."""
         from protoboard.domain.layout.group import ComponentGroup
-        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.domain.schematic.net import PinRef
         from protoboard.domain.schematic.net import PinRef as _PinRef
         board = _perfboard(1, 5)
         defn = _r_defn()
@@ -1467,7 +1468,7 @@ class TestDRCWirePinOffPlatedThrough:
         lay.knots[kb.id] = kb
         wire = Wire(
             id=uuid.uuid4(),
-            path=[position, Point(position.x + 1.0, position.y)],
+            path=[position, position + Vector(1.0, 0.0)],
             side="top", a=KnotRef(id=ka.id), b=KnotRef(id=kb.id),
         )
         lay.add_wire(wire)

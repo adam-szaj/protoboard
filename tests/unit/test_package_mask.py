@@ -14,7 +14,7 @@ from protoboard.domain.components.package.shapes import (
     Leads,
     Prism,
 )
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 
 
 def _pt(x: float, y: float) -> Point:
@@ -24,7 +24,7 @@ def _pt(x: float, y: float) -> Point:
 def _two_pin_prism(steps_holes: list[Point]) -> Prism:
     leads = Leads(
         direction=((0, 0, -1),) * (len(steps_holes) + 1),
-        body_offset_mm=tuple(Point(s.x * 2.5, s.y * 2.5) for s in steps_holes),
+        body_offset_mm=tuple(Vector(s.x * 2.5, s.y * 2.5) for s in steps_holes),
         board_offset=BOARD_DEFAULT,
     )
     return Prism(leads=leads, width_mm=2.5, length_mm=2.5, height_mm=2.5)

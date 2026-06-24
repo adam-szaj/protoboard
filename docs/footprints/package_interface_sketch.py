@@ -28,7 +28,6 @@ from typing import Protocol, runtime_checkable
 
 from protoboard.geometry import Insets, Point, Rect
 
-
 # --------------------------------------------------------------------------- #
 # Wartości pomocnicze
 # --------------------------------------------------------------------------- #
@@ -190,12 +189,16 @@ class Leads:
     """Rozpakowana geometria wyprowadzeń (po normalizacji z YAML)."""
 
     direction: list[tuple[float, float, float]]   # per pin (3 formy → lista)
-    body_offset_mm: list[Point]                   # N-1 wektorów, już ×unit→mm
-    board_offset: list[Point] | str               # listy LUB "default"/"solve"
+    body_offset_mm: list[Vector]                   # N-1 wektorów, już ×unit→mm
+    board_offset: list[Vector] | str               # listy LUB "default"/"solve"
     lead_length_mm: float | None
     lead_r_mm: float | None
     body_eccentricity_mm: float = 0.0
 
+@dataclass(slots=True)
+class Body(ABC):
+    position: Point = Point()
+    pass
 
 @dataclass(frozen=True, slots=True)
 class Cylinder:

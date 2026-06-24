@@ -8,34 +8,32 @@ Each test mirrors a worked example from ``docs/footprints/spec.md``: resistor
 
 import pytest
 
-from protoboard.domain.components.package.offsets import (
-    expand_offsets,
-    scale_offsets,
-)
 from protoboard.domain.components.package.body import (
     DiscProfile,
     EdgeStyle,
     LeadArrangement,
 )
+from protoboard.domain.components.package.offsets import (
+    expand_offsets,
+    scale_offsets,
+)
 from protoboard.domain.components.package.shapes import (
     BOARD_DEFAULT,
     BOARD_SOLVE,
+    SHAPE_REGISTRY,
     Cylinder,
     Disc,
     Leads,
     Package,
     Prism,
-    SHAPE_REGISTRY,
 )
 from protoboard.domain.components.package.solver import MountOrientation
-from protoboard.geometry import Insets, Point
+from protoboard.geometry import Insets, Vector
+
+from geometry_utils import _pt, _ve
 
 
-def _pt(x: float, y: float) -> Point:
-    return Point(float(x), float(y))
-
-
-def _steps_mm(raw: list, unit: float) -> tuple[Point, ...]:
+def _steps_mm(raw: list, unit: float) -> tuple[Vector, ...]:
     return tuple(scale_offsets(expand_offsets(raw), unit))
 
 
@@ -45,7 +43,7 @@ class TestResistorAxial:
     def _cyl(self) -> Cylinder:
         leads = Leads(
             direction=((0, 0, -1), (0, 0, 1)),
-            body_offset_mm=(_pt(0, 0),),
+            body_offset_mm=(_ve(0, 0),),
             board_offset=BOARD_SOLVE,
             lead_length_mm=32.0,
             lead_r_mm=0.27,
@@ -78,7 +76,7 @@ class TestElectrolyticRadial:
     def _cyl(self) -> Cylinder:
         leads = Leads(
             direction=((0, 0, -1), (0, 0, -1)),
-            body_offset_mm=(_pt(2.5, 0),),   # 1 hole
+            body_offset_mm=(_ve(2.5, 0),),   # 1 hole
             board_offset=BOARD_DEFAULT,
         )
         return Cylinder(diameter_mm=6.3, length_mm=11.0, leads=leads, bend_holes=4.0)
@@ -172,7 +170,7 @@ class TestDevboardMargin:
 def _radial_leads(*, lead_r: float | None = 0.25) -> Leads:
     return Leads(
         direction=((0.0, 0.0, -1.0), (0.0, 0.0, -1.0)),
-        body_offset_mm=(Point(2.5, 0.0),),
+        body_offset_mm=(_ve(2.5, 0.0),),
         board_offset=BOARD_DEFAULT,
         lead_r_mm=lead_r,
     )
@@ -210,7 +208,7 @@ class TestMinPitch:
         # lead_d = 2·0.25 = 0.5 → radial (D+0.5)/2, axial L+0.5
         leads = Leads(
             direction=((0.0, 0.0, -1.0), (0.0, 0.0, 1.0)),
-            body_offset_mm=(Point(10.0, 0.0),),
+            body_offset_mm=(_ve(10.0, 0.0),),
             board_offset=BOARD_DEFAULT,
             lead_r_mm=0.25,
         )
@@ -231,7 +229,7 @@ class TestMinPitch:
     def test_prism_pitch_from_explicit_dims(self) -> None:
         leads = Leads(
             direction=((0.0, 0.0, -1.0), (0.0, 0.0, -1.0)),
-            body_offset_mm=(Point(2.5, 0.0),),
+            body_offset_mm=(_ve(2.5, 0.0),),
             board_offset=BOARD_DEFAULT,
             lead_r_mm=0.25,
         )
@@ -260,38 +258,38 @@ class TestFlatSidedCylinder:
     def test_default_is_full_circle(self) -> None:
         c = Cylinder(diameter_mm=4.55, length_mm=4.6, leads=_radial_leads())
         assert c.flat_radius_mm is None
-        assert c.flat_normal == Point(0.0, 0.0)
+        assert c.flat_normal == Vector(0.0, 0.0)
 
     def test_flat_side_carried(self) -> None:
         # TO-92: r = 1.175 mm from the axis to the flat face, normal pointing
         # towards the pin row (local frame).
         c = Cylinder(
             diameter_mm=4.55, length_mm=4.6, leads=_radial_leads(),
-            flat_radius_mm=1.175, flat_normal=Point(-1.0, 0.0),
+            flat_radius_mm=1.175, flat_normal=Vector(-1.0, 0.0),
         )
         assert c.flat_radius_mm == 1.175
-        assert c.flat_normal == Point(-1.0, 0.0)
+        assert c.flat_normal == Vector(-1.0, 0.0)
 
     def test_flat_radius_must_be_inside_circle(self) -> None:
         # r >= diameter/2 would not cut a chord at all.
         with pytest.raises(ValueError, match="0 < r < diameter/2"):
             Cylinder(
                 diameter_mm=4.55, length_mm=4.6, leads=_radial_leads(),
-                flat_radius_mm=2.5, flat_normal=Point(-1.0, 0.0),
+                flat_radius_mm=2.5, flat_normal=Vector(-1.0, 0.0),
             )
 
     def test_flat_radius_must_be_positive(self) -> None:
         with pytest.raises(ValueError, match="0 < r < diameter/2"):
             Cylinder(
                 diameter_mm=4.55, length_mm=4.6, leads=_radial_leads(),
-                flat_radius_mm=0.0, flat_normal=Point(-1.0, 0.0),
+                flat_radius_mm=0.0, flat_normal=Vector(-1.0, 0.0),
             )
 
     def test_flat_normal_must_be_non_zero(self) -> None:
         with pytest.raises(ValueError, match="flat_normal must be non-zero"):
             Cylinder(
                 diameter_mm=4.55, length_mm=4.6, leads=_radial_leads(),
-                flat_radius_mm=1.175, flat_normal=Point(0.0, 0.0),
+                flat_radius_mm=1.175, flat_normal=Vector(0.0, 0.0),
             )
 
     def test_full_circle_ignores_zero_normal(self) -> None:

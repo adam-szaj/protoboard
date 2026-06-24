@@ -21,20 +21,29 @@ from protoboard.domain.components.package import (
 )
 from protoboard.domain.components.package.loader import build_package
 from protoboard.domain.components.package.shapes import Prism
-from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
-from protoboard.geometry import Point
+from protoboard.domain.layout.placement import (
+    ComponentPlacement,
+    pin_world_position,
+)
+from protoboard.geometry import Point, Vector
 
 
 def _smd_package(mount_points: list | None = None) -> Prism:
     node: dict = {
         "shape": "prism",
-        "dims": {"length": 2.0, "width": 1.25},
+        "dims": {
+            "length": 2.0,
+            "width": 1.25
+        },
         "arrangement": "axial",
         "mount": "surface",
         "bend": 0,
         "leads": {
             "direction": [[0, 0, -1], [0, 0, -1]],
-            "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+            "body_offset": {
+                "unit": 2.5,
+                "value": [[1, 0]]
+            },
             "board_offset": "default",
         },
     }
@@ -49,12 +58,16 @@ def _through_hole_prism() -> Prism:
     pkg = build_package(
         {
             "shape": "prism",
-            "dims": {"width": 7.62, "length": 10.0},
+            "dims": {
+                "width": 7.62,
+                "length": 10.0
+            },
             "bend": 0,
             "leads": {
                 "direction": [0, 0, -1],
                 "body_offset": {
-                    "unit": 2.5, "value": [[3, [0, 1]], [3, 0], [3, [0, -1]]],
+                    "unit": 2.5,
+                    "value": [[3, [0, 1]], [3, 0], [3, [0, -1]]],
                 },
                 "board_offset": "default",
             },
@@ -66,6 +79,7 @@ def _through_hole_prism() -> Prism:
 
 
 class TestMountParsing:
+
     def test_mount_surface_parses(self) -> None:
         assert _smd_package().mount is MountStyle.SURFACE
 
@@ -74,26 +88,36 @@ class TestMountParsing:
 
     def test_mount_points_parse(self) -> None:
         pkg = _smd_package(mount_points=[[1, 0], [0, 1]])
-        assert pkg.mount_points == (Point(1.0, 0.0), Point(0.0, 1.0))
+        assert pkg.mount_points == (Vector(1.0, 0.0), Vector(0.0, 1.0))
 
 
 class TestSurfaceMountOffsets:
+
     def _world_neighbours(self, pkg: Prism) -> set[tuple[int, int]]:
         """Where pin 2 lands (relative to pin 1) for each mount offset."""
-        from protoboard.domain.components.package.adapter import PackageFootprint
+        from protoboard.domain.components.package.adapter import (
+            PackageFootprint,
+        )
         pf = PackageFootprint(pkg)
         anchor = Point(10.0, 10.0)
         p1 = pin_world_position(
-            pf, ComponentPlacement(
-                component_id=uuid.UUID(int=0), position=anchor,
-                rotation=0, side="top",
-            ), 1,
+            pf,
+            ComponentPlacement(
+                component_id=uuid.UUID(int=0),
+                position=anchor,
+                rotation=0,
+                side="top",
+            ),
+            1,
         )
         out: set[tuple[int, int]] = set()
         for off in surface_mount_offsets(pkg):
             pl = ComponentPlacement(
-                component_id=uuid.UUID(int=0), position=anchor,
-                rotation=0, side="top", pin_offsets={2: off},
+                component_id=uuid.UUID(int=0),
+                position=anchor,
+                rotation=0,
+                side="top",
+                pin_offsets={2: off},
             )
             p2 = pin_world_position(pf, pl, 2)
             out.add((round(p2.x - p1.x), round(p2.y - p1.y)))
@@ -103,27 +127,25 @@ class TestSurfaceMountOffsets:
         # Every mount lands pin 2 on a distinct king-move neighbour of pin 1,
         # never on pin 1's own pad.
         deltas = self._world_neighbours(_smd_package())
-        expected = {
-            (dx, dy)
-            for dy in (-1, 0, 1) for dx in (-1, 0, 1)
-            if (dx, dy) != (0, 0)
-        }
+        expected = {(dx, dy)
+                    for dy in (-1, 0, 1)
+                    for dx in (-1, 0, 1) if (dx, dy) != (0, 0)}
         assert deltas == expected
 
     def test_custom_mount_points_restrict_the_set(self) -> None:
         # Ortho-only: pin 2 may only go E/W/N/S of pin 1.
         deltas = self._world_neighbours(
-            _smd_package(mount_points=[[1, 0], [-1, 0], [0, 1], [0, -1]]),
-        )
+            _smd_package(mount_points=[[1, 0], [-1, 0], [0, 1], [0, -1]]), )
         assert deltas == {(1, 0), (-1, 0), (0, 1), (0, -1)}
 
 
 class TestPackageToBendSpecs:
+
     def test_smd_pin2_gets_discrete_spec(self) -> None:
         specs = package_to_bend_specs(_smd_package())
         assert list(specs.keys()) == [2]
         spec = specs[2]
-        assert not spec.is_free()       # discrete, not a free ring
+        assert not spec.is_free()  # discrete, not a free ring
         assert len(spec.discrete) == 8  # straight-across + 7 other neighbours
         assert spec.default_offset == Point(0.0, 0.0)
 
@@ -137,16 +159,22 @@ class TestPackageToBendSpecs:
 
 
 class TestEffectiveBendSpecs:
+
     def test_smd_definition_exposes_mount_spec(self) -> None:
         from protoboard.domain.components.definition import (
             ComponentClass,
             ComponentDefinition,
         )
-        from protoboard.domain.components.package.adapter import PackageFootprint
+        from protoboard.domain.components.package.adapter import (
+            PackageFootprint,
+        )
         pkg = _smd_package()
         defn = ComponentDefinition(
-            name="R_SMD", component_class=ComponentClass.RESISTOR,
-            footprint=PackageFootprint(pkg), pin_names={}, package=pkg,
+            name="R_SMD",
+            component_class=ComponentClass.RESISTOR,
+            footprint=PackageFootprint(pkg),
+            pin_names={},
+            package=pkg,
         )
         specs = effective_bend_specs(defn)
         assert list(specs.keys()) == [2]
@@ -159,8 +187,10 @@ class TestEffectiveBendSpecs:
             PinBendSpec,
         )
         defn = ComponentDefinition(
-            name="R", component_class=ComponentClass.RESISTOR,
-            footprint=TwoPin(), pin_names={},
+            name="R",
+            component_class=ComponentClass.RESISTOR,
+            footprint=TwoPin(),
+            pin_names={},
             bendable_pins={2: PinBendSpec(min_reach=1, max_reach=5)},
         )
         specs = effective_bend_specs(defn)
@@ -169,6 +199,7 @@ class TestEffectiveBendSpecs:
 
 
 class TestLibrarySmdIsRigidWithMount:
+
     def test_consolidated_resistor_offers_rigid_smd_footprint(self) -> None:
         # The SMD chip is now a footprint option of the generic ``R`` (not a
         # separate ``R_SMD_0805`` component).  Resolving that option must still
@@ -190,7 +221,7 @@ class TestLibrarySmdIsRigidWithMount:
         assert smd.ref is not None  # catalogue footprint option, not inline
         variant = resolve_variant(families, smd.ref)
         assert variant is not None
-        assert is_rigid_package(variant.package)        # SMD body is rigid
+        assert is_rigid_package(variant.package)  # SMD body is rigid
         specs = package_to_bend_specs(variant.package)  # discrete mount spec
         assert list(specs.keys()) == [2]
         assert not specs[2].is_free()
