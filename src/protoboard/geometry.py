@@ -103,7 +103,7 @@ class Point3D:
     z: float = 0.0
 
     def __add__(self, v: Vector3D) -> Point3D:
-        return Point3D(self.x + v.dx, self.y + v.dy, self.y + v.dy)
+        return Point3D(self.x + v.dx, self.y + v.dy, self.z + v.dz)
 
     @overload
     def __sub__(self, o: Point3D) -> Vector3D:
