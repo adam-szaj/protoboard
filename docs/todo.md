@@ -4,6 +4,33 @@ Open follow-ups that don't fit into the closed plans archived under
 [docs/archive/](archive/).  Each entry has enough context to pick up
 the work cold.
 
+## Place-tool ghost / king-move overlay use defn.footprint, not the chosen variant (added 2026-06-25)
+
+Placing `R` as **SMD-0805**, the 8 king-move dots are present but mis-centred:
+pin 1 sits on a corner dot instead of in the empty centre of the 3×3 grid, and
+the ghost draws as the vertical *axial* rectangle, not the horizontal SMD body.
+
+Root cause — the same variant-vs-definition asymmetry the bend-spec fix
+(`effective_bend_specs(defn, instance, families, package_variant)`) solved, but
+now in the **drawing** layer. The bend-spec *offsets* are computed against the
+**chosen variant's package** (SMD-0805: `pin_positions [(0,0),(1,0)]`, pin 2 to
+the **right**, +x). But `place_tool._discrete_candidate_world_positions` and the
+ghost build apply those offsets to **`defn.footprint`** — the resistor's THT
+`GenericFootprint` (`[(0,0),(0,1)]`, pin 2 **down**, +y). Offsets correct for
+one axis, footprint on the other → the dot grid is shifted by
+`pin2_SMD − pin2_axial = (1,−1)`, so pin 1 lands in a corner. (Verified: feeding
+`PackageFootprint(SMD-0805)` to the same math re-centres the grid on pin 1.)
+
+Fix direction: the place tool must draw (ghost, overlay, snap, commit geometry)
+from the **footprint of the chosen variant** — i.e. resolve the variant package
+(as `effective_bend_specs` now does) and use `PackageFootprint(pkg)` wherever it
+currently reads `defn.footprint` during placement. That also fixes the ghost's
+wrong (axial) silhouette for a variant-placed SMD. Audit every `defn.footprint`
+use in `gui/tools/place_tool.py` (ghost build, `_discrete_candidate_world_positions`,
+`_compute_drag_offset`, pin-count for the drag queue, commit). Pairs with the
+deferred `component_bbox` item above (same "use the chosen variant's footprint,
+not the definition's" theme).
+
 ## component_bbox margin should follow package rigidity, not class (added 2026-06-25)
 
 `domain/layout/placement.py::component_bbox` picks its margin by **electrical
