@@ -40,7 +40,7 @@ _VALID_ROTATIONS = frozenset({0, 90, 180, 270})
 class ComponentPlacement:
     component_id: uuid.UUID
     position: Point
-    rotation: int
+    rotation: int # TODO change to Rorate2D
     side: Side
     label_offset: Point = field(default_factory=lambda: Point(0.05, 0.05))
     pin_offsets: dict[int, Point] = field(default_factory=dict)
