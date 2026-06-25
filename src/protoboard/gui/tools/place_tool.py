@@ -121,33 +121,21 @@ class PlaceTool(_Tool):
         The **chosen footprint variant** drives the specs: a part whose bodies
         live in a ``footprints:`` list (e.g. ``R`` placed as ``SMD-0805``)
         resolves its rigid / SMD king-move spec, not the legacy axial
-        ``bendable_pins``. We feed ``effective_bend_specs`` the chosen variant
-        (via a minimal instance carrying ``package_variant``) plus the session's
-        package-family catalogue. With no chosen variant the catalogue still
-        resolves ``defn``'s own package / falls back to ``bendable_pins``, so
-        THT parts are unaffected. Shared with the properties panel and the
-        select-tool re-drag via :func:`effective_bend_specs`."""
-        inst = self._variant_instance()
+        ``bendable_pins``. During placement no real instance exists yet, so we
+        pass the picker's ``package_variant`` address (a netlist-imported
+        ``existing_instance`` supplies it via ``instance`` instead) plus the
+        session catalogue. With no chosen variant the resolver falls through to
+        ``defn``'s own package / ``bendable_pins``, so THT parts are unaffected.
+        Shared with the properties panel and the select-tool re-drag via
+        :func:`effective_bend_specs`."""
+        inst = (
+            self._existing_instance
+            if isinstance(self._existing_instance, ComponentInstance)
+            else None
+        )
         families = getattr(self._session, "package_families", None)
-        return effective_bend_specs(defn, inst, families)
-
-    def _variant_instance(self) -> ComponentInstance | None:
-        """A placed-instance stand-in carrying the chosen ``package_variant``.
-
-        Prefers a netlist-imported ``existing_instance``; otherwise synthesizes a
-        throwaway instance solely so ``resolve_component_package`` can see the
-        picked variant. Returns ``None`` when no variant is chosen (the resolver
-        then falls through to ``defn``'s own package)."""
-        if isinstance(self._existing_instance, ComponentInstance):
-            return self._existing_instance
-        if not self._package_variant:
-            return None
-        return ComponentInstance.new(
-            definition_ref=self._definition_ref,
-            refdes="",
-            value="",
-            pin_variant=self._pin_variant,
-            package_variant=self._package_variant,
+        return effective_bend_specs(
+            defn, inst, families, package_variant=self._package_variant
         )
 
     # ------------------------------------------------------------------

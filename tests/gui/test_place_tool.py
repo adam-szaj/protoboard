@@ -113,6 +113,49 @@ class TestPlaceToolSmdMount:
         session.components["R_SMD"] = defn
         return "R_SMD"
 
+    @staticmethod
+    def _builtin_view(session: EditorSession) -> "BoardView":
+        # A session over the real shipped library (the fixture library has only a
+        # minimal ``R`` with no ``footprints:`` list), reusing the fixture board.
+        from protoboard.paths import BUILTIN_LIBRARY_DIR
+        from protoboard.services.library.loader import load_library
+
+        lib = load_library([BUILTIN_LIBRARY_DIR])
+        sess = EditorSession(board=session.board, library=lib)
+        return BoardView(sess)
+
+    def test_place_library_resistor_as_smd_variant_activates(
+        self, session: EditorSession
+    ) -> None:
+        # Regression: placing the real library ``R`` in its ``SMD-0805``
+        # footprint variant must NOT crash. The variant arrives as a
+        # ``package_variant`` address (no placed instance yet), and the bend-spec
+        # resolution must read it without synthesizing a (refdes-requiring)
+        # ComponentInstance. Reproduces the activate → _rebuild_ghost →
+        # _bend_specs path that raised ``refdes must not be empty``.
+        view = self._builtin_view(session)
+        # The chosen SMD body → pin 2 gets the discrete king-move mount, so the
+        # tool enters the two-phase drag (not a THT free ring).
+        view.set_tool(PlaceTool("R", package_variant="SMD-0805/typ"))
+        tool = view._active_tool
+        assert isinstance(tool, PlaceTool)
+        specs = tool._bend_specs(view._session.components["R"])
+        assert list(specs.keys()) == [2]
+        assert not specs[2].is_free()
+        assert len(specs[2].discrete) == 8
+
+    def test_place_library_resistor_as_axial_variant_stays_free(
+        self, session: EditorSession
+    ) -> None:
+        # The same library ``R`` in a THT axial footprint keeps its free
+        # bendable lead — the SMD fix must not turn axial parts rigid.
+        view = self._builtin_view(session)
+        view.set_tool(PlaceTool("R", package_variant="DIN-0207/typ"))
+        tool = view._active_tool
+        assert isinstance(tool, PlaceTool)
+        specs = tool._bend_specs(view._session.components["R"])
+        assert any(s.is_free() for s in specs.values())
+
     def test_smd_enters_drag_pin_phase(
         self, board_view: BoardView, session: EditorSession
     ) -> None:

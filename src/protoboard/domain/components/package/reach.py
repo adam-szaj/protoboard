@@ -24,6 +24,7 @@ from protoboard.domain.components.package.body import MountStyle
 from protoboard.domain.components.package.component_package import (
     resolve_component_package,
 )
+from protoboard.domain.components.package.family import resolve_variant
 from protoboard.domain.components.package.shapes import (
     Package,
     surface_mount_offsets,
@@ -169,6 +170,7 @@ def effective_bend_specs(
     defn: "ComponentDefinition",
     instance: "ComponentInstance | None" = None,
     families: "dict[str, PackageFamily] | None" = None,
+    package_variant: str | None = None,
 ) -> dict[int, "PinBendSpec"]:
     """The per-pin bend specs in force for a definition / placed instance.
 
@@ -179,16 +181,24 @@ def effective_bend_specs(
     package-driven specs — the loader clears ``bendable_pins`` for rigid (incl.
     SMD) packages baked onto the definition.
 
-    When *families* is given, the **chosen footprint variant** drives the specs:
-    ``resolve_component_package(defn, instance, families)`` picks the package by
-    precedence (``instance.package_variant`` → ``defn.package_family_ref`` →
-    ``defn.package``). This is what makes a part whose bodies live in a
-    ``footprints:`` list (e.g. ``R`` placed as ``SMD-0805``) resolve its rigid /
-    SMD specs even though ``defn.package`` is ``None``. Omitting *families* keeps
-    the legacy ``defn.package`` → ``bendable_pins`` behaviour for callers that
-    have no catalogue to resolve against.
+    When *families* is given, the **chosen footprint variant** drives the specs.
+    The variant comes from *instance* (a placed part — properties panel /
+    select-tool re-drag) or, during placement before any instance exists, from
+    the *package_variant* address string (the place tool's picker choice). Both
+    resolve through the catalogue by the same precedence
+    (``variant`` → ``defn.package_family_ref`` → ``defn.package``). This is what
+    makes a part whose bodies live in a ``footprints:`` list (e.g. ``R`` placed
+    as ``SMD-0805``) resolve its rigid / SMD specs even though ``defn.package``
+    is ``None``. Omitting *families* keeps the legacy ``defn.package`` →
+    ``bendable_pins`` behaviour for callers with no catalogue to resolve against.
     """
     if families is not None:
+        # A picker-chosen address (no placed instance yet) takes precedence — it
+        # is the variant the user is actively placing.
+        if package_variant:
+            variant = resolve_variant(families, package_variant)
+            if variant is not None:
+                return package_to_bend_specs(variant.package)
         pkg = resolve_component_package(defn, instance, families)
         if pkg is not None:
             return package_to_bend_specs(pkg)
