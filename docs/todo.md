@@ -4,6 +4,37 @@ Open follow-ups that don't fit into the closed plans archived under
 [docs/archive/](archive/).  Each entry has enough context to pick up
 the work cold.
 
+## Footprint→body cleanup: two deferred parities (added 2026-06-25)
+
+The geometry/footprint rework (commits `03d432e`/`028259b`/`a28641f` +
+follow-up on this branch) collapsed the concrete footprint types
+(`DualRow`/`SingleRow`/`TwoPin`/…) into a single `GenericFootprint(offsets)`
+— a footprint is now **only** a pin cloud (count + spacing). A footprint no
+longer determines a body (the same SIL-3 fits a TO-92, a header, a trimmer).
+The `isinstance(fp, …)` body fallback in `gui/renderers/body_shapes.py` and the
+`prism_for_footprint` synthesizer were removed accordingly. Two user-visible
+behaviours were deferred as stubs (user decision 2026-06-25 "tylko odblokuj
+import (stub)") and are marked `xfail` so the suite stays green:
+
+1. **Body-variant picker offers nothing.**
+   `domain/components/package/generated_families.offered_body_families` now
+   returns `[]` unconditionally — it used to branch on the footprint *type* to
+   slice the catalogue, and that type is gone. The offer must be re-derived from
+   the component's **explicit** body (`package` / `package_family_ref` /
+   `footprints[]`), not from the footprint. Until then the library/properties
+   body picker shows no alternatives.
+   xfail: `tests/gui/test_panels.py::TestLibraryPanelBodyPicker` (5) and
+   `::TestBodyVariantDropdown` (4).
+
+2. **Generated DIP family body is a uniform-margin bbox, not JEDEC-sized.**
+   `package/kind._prism_from_footprint` wraps the pin cloud with a fixed
+   0.5-hole margin for every kind. The old `prism_for_footprint` had a DualRow
+   branch sizing the DIP body to the measured fit `2.54·R − 1.35` mm and
+   centring it *between* the rows (legs showing). Restore DIP body dims in the
+   prism path (or as a `Prism` feature, like the TO-220 tab above).
+   xfail: `tests/unit/test_generated_families.py::TestDipFamily::`
+   `test_body_width_matches_measured_mm` and `::test_body_sits_between_rows_not_over_pins`.
+
 ## TO-220 metal tab render (added 2026-06-22)
 
 TO-220 became a fully-specified prism package family

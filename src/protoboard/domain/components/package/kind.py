@@ -25,11 +25,11 @@ import dataclasses
 from collections.abc import Callable
 from typing import Any
 
-from protoboard.domain.components.footprints import DualRow, SingleRow
-from protoboard.domain.components.package.from_footprint import (
-    prism_for_footprint,
+from protoboard.domain.components.footprints import DIL, SIL, Footprint
+from protoboard.domain.components.package.loader import (
+    PackageDefError,
+    build_package,
 )
-from protoboard.domain.components.package.loader import PackageDefError
 from protoboard.domain.components.package.shapes import Package, Prism
 
 # DIP row spacing in holes (0.3" narrow / 0.6" wide at a 0.1" grid).
@@ -37,19 +37,57 @@ _DIP_NARROW_ROWS = 3.0
 _DIP_WIDE_ROWS = 6.0
 # Connector row spacing in holes (0.1" pitch — pins on adjacent raster holes).
 _CONNECTOR_ROWS = 1.0
+# Package-domain raster (mm per hole) — scales hole-step offsets to mm so the
+# prism's pins read back as exact hole coordinates (mm ÷ raster).
+_RASTER_MM = 2.5
+# Body margin around the pin cloud, in holes (legacy SVG bodies' 0.5-hole inset).
+_MARGIN_HOLES = 0.5
+
+
+def _prism_from_footprint(fp: Footprint) -> Package | None:
+    """Build a plain prism :class:`Package` whose pins follow *fp*.
+
+    Geometry only: the body bbox is derived from the pin cloud plus a uniform
+    margin, leads point rigidly down. This is a minimal stub of the former
+    ``prism_for_footprint`` — enough for the kind builders to produce a body;
+    richer per-kind silhouettes (DIP notch, etc.) are a renderer concern (see
+    docs/todo.md). Returns ``None`` for a footprint with no body (< 2 pins).
+    """
+    pins = fp.pin_positions()
+    if len(pins) < 2:
+        return None
+    steps = [
+        [pins[i + 1].x - pins[i].x, pins[i + 1].y - pins[i].y]
+        for i in range(len(pins) - 1)
+    ]
+    spec = {
+        "shape": "prism",
+        "dims": {},  # bbox derived from pins + margin
+        "bend": 0,
+        "margin": _MARGIN_HOLES * _RASTER_MM,
+        "leads": {
+            "direction": [0, 0, -1],
+            "body_offset": {"unit": _RASTER_MM, "value": steps},
+            "board_offset": "default",
+        },
+    }
+    try:
+        return build_package(spec, "synth/kind")
+    except PackageDefError:
+        return None
 
 
 def _dip(pins: int, *, wide: bool) -> Package | None:
     if pins < 4 or pins % 2 != 0:
         return None
     rows = _DIP_WIDE_ROWS if wide else _DIP_NARROW_ROWS
-    return prism_for_footprint(DualRow(n_per_row=pins // 2, rows_spacing=rows))
+    return _prism_from_footprint(DIL(n=pins, rows_spacing=rows))
 
 
 def _sil(pins: int) -> Package | None:
     if pins < 2:
         return None
-    return prism_for_footprint(SingleRow(n=pins))
+    return _prism_from_footprint(SIL(n=pins))
 
 
 def _connector(pins: int, *, rows: int) -> Package | None:
@@ -64,8 +102,8 @@ def _connector(pins: int, *, rows: int) -> Package | None:
     if rows == 2:
         if pins < 2 or pins % 2 != 0:
             return None
-        return prism_for_footprint(
-            DualRow(n_per_row=pins // 2, rows_spacing=_CONNECTOR_ROWS))
+        return _prism_from_footprint(
+            DIL(n=pins, rows_spacing=_CONNECTOR_ROWS))
     return None
 
 

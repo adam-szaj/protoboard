@@ -16,7 +16,7 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SingleRow
+from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
@@ -47,7 +47,7 @@ def _perfboard(rows: int, cols: int) -> Board:
 def _sil2_def(name: str = "COMP") -> ComponentDefinition:
     return ComponentDefinition(
         name=name,
-        footprint=SingleRow(n=2),
+        footprint=SIL(n=2),
         pin_names={1: "A", 2: "B"},
     )
 
@@ -331,10 +331,10 @@ class TestAutorouter:
         DIP8 at (2.5,1.5): pin1=(2.5,1.5), pin5=(5.5,4.5).
         Bottom diagonal: (2.5,1.5)→(3.5,2.5)→(4.5,3.5)→(5.5,4.5) — 3 steps.
         """
-        from protoboard.domain.components.footprints import DualRow
+        from protoboard.domain.components.footprints import DIL
 
         board = _perfboard(8, 10)
-        fp = DualRow(n_per_row=4, pitch=1.0, rows_spacing=3.0)
+        fp = DIL(n=8, pitch=1.0, rows_spacing=3.0)
         defn = ComponentDefinition(
             name="DIP8", footprint=fp, pin_names={i: str(i) for i in range(1, 9)}
         )
@@ -374,10 +374,10 @@ class TestAutorouter:
 
         We assert the pin1→pin5 wire uses ≤ 5 hops (optimal=3, allowing small slack).
         """
-        from protoboard.domain.components.footprints import DualRow
+        from protoboard.domain.components.footprints import DIL
 
         board = _perfboard(8, 10)
-        fp = DualRow(n_per_row=4, pitch=1.0, rows_spacing=3.0)
+        fp = DIL(n=8, pitch=1.0, rows_spacing=3.0)
         defn = ComponentDefinition(
             name="DIP8", footprint=fp, pin_names={i: str(i) for i in range(1, 9)}
         )

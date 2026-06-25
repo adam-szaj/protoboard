@@ -16,7 +16,7 @@ import uuid
 from PySide6.QtWidgets import QGraphicsScene
 
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SingleRow
+from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
@@ -28,7 +28,7 @@ from protoboard.gui.theme import DEFAULT_THEME
 def _make_comp() -> tuple[ComponentDefinition, ComponentInstance, ComponentPlacement, uuid.UUID]:
     cid = uuid.uuid4()
     defn = ComponentDefinition(
-        name="R", footprint=SingleRow(n=2), pin_names={1: "A", 2: "B"},
+        name="R", footprint=SIL(n=2), pin_names={1: "A", 2: "B"},
     )
     inst = ComponentInstance(id=cid, definition_ref="R", refdes="R1", value="")
     placement = ComponentPlacement(

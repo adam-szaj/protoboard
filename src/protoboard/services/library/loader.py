@@ -27,16 +27,11 @@ from protoboard.domain.components.definition import (
     PinVariant,
 )
 from protoboard.domain.components.footprints import (
-    DIP,
+    DIL,
     SIL,
     TO92,
     TO220,
-    DualRow,
-    FootprintTemplate,
-    GridFootprint,
-    QuadRow,
-    SingleRow,
-    TwoPin,
+    Footprint,
 )
 from protoboard.domain.components.package import (
     Package,
@@ -97,7 +92,7 @@ def _component_pin_count(data: dict[str, Any]) -> int | None:
 def _geometry_from_option(
     option: FootprintOption,
     families: dict[str, PackageFamily],
-) -> tuple[Package | None, FootprintTemplate | None, bool]:
+) -> tuple[Package | None, Footprint | None, bool]:
     """Resolve a footprint option to ``(package, footprint, drop_bendable)``.
 
     An inline option carries its package directly; a reference resolves through
@@ -446,7 +441,7 @@ def _component_from_dict(
 
     drop_bend_from_default = False
     if package_obj is not None:
-        footprint: FootprintTemplate = PackageFootprint(package_obj)
+        footprint: Footprint = PackageFootprint(package_obj)
     elif "footprint" in data:
         try:
             footprint = _footprint_from_dict(data["footprint"])
@@ -674,7 +669,7 @@ def _component_from_dict(
             f"{source}: invalid component {data['name']!r}: {exc}") from exc
 
 
-def _footprint_from_dict(data: Any) -> FootprintTemplate:
+def _footprint_from_dict(data: Any) -> Footprint:
     if not isinstance(data, dict):
         raise SerializationError("footprint must be a mapping")
     kind = data.get("type")
@@ -686,95 +681,46 @@ def _footprint_from_dict(data: Any) -> FootprintTemplate:
     return builder(data)
 
 
-def _build_dip(data: dict[str, Any]) -> FootprintTemplate:
+def _build_dip(data: dict[str, Any]) -> Footprint:
     if "pins" not in data:
         raise SerializationError("DIP footprint requires 'pins'")
-    return DIP(
+    return DIL(
         n=int(data["pins"]),
         pitch=float(data.get("pitch", 1.0)),
         rows_spacing=float(data.get("rows_spacing", 3.0)),
     )
 
 
-def _build_sil(data: dict[str, Any]) -> FootprintTemplate:
+def _build_sil(data: dict[str, Any]) -> Footprint:
     if "pins" not in data:
         raise SerializationError("SIL footprint requires 'pins'")
     n = int(data["pins"])
     pitch = float(data.get("pitch", 1.0))
-    # Two-pin SIL is a TwoPin: SingleRow with n=2 carried no axial-vs-
-    # radial semantics and lumped resistors, caps, LEDs into the same
-    # "two pads in a line" footprint.  Redirect old library entries so
-    # the migration is transparent.
-    if n == 2:
-        return TwoPin(pitch=pitch)
     return SIL(n=n, pitch=pitch)
 
 
-def _build_two_pin(data: dict[str, Any]) -> FootprintTemplate:
-    return TwoPin(pitch=float(data.get("pitch", 1.0)))
+def _build_two_pin(data: dict[str, Any]) -> Footprint:
+    # A two-pin part is geometrically a SIL of two pads in a line; the
+    # axial-vs-radial distinction lives in the body/package, not the
+    # footprint (which is only pin count + spacing). The old ``TwoPin``
+    # type carried no extra geometry, so it maps to ``SIL(2)``.
+    return SIL(n=2, pitch=float(data.get("pitch", 1.0)))
 
 
-def _build_dual_row(data: dict[str, Any]) -> FootprintTemplate:
-    if "n_per_row" not in data:
-        raise SerializationError("DualRow requires 'n_per_row'")
-    return DualRow(
-        n_per_row=int(data["n_per_row"]),
-        pitch=float(data.get("pitch", 1.0)),
-        rows_spacing=float(data.get("rows_spacing", 3.0)),
-    )
-
-
-def _build_single_row(data: dict[str, Any]) -> FootprintTemplate:
-    if "n" not in data:
-        raise SerializationError("SingleRow requires 'n'")
-    return SingleRow(n=int(data["n"]), pitch=float(data.get("pitch", 1.0)))
-
-
-def _build_grid(data: dict[str, Any]) -> FootprintTemplate:
-    if "rows" not in data or "cols" not in data:
-        raise SerializationError("GridFootprint requires 'rows' and 'cols'")
-    return GridFootprint(
-        rows=int(data["rows"]),
-        cols=int(data["cols"]),
-        pitch=float(data.get("pitch", 1.0)),
-    )
-
-
-def _build_to92(_: dict[str, Any]) -> FootprintTemplate:
+def _build_to92(_: dict[str, Any]) -> Footprint:
     return TO92
 
 
-def _build_to220(_: dict[str, Any]) -> FootprintTemplate:
+def _build_to220(_: dict[str, Any]) -> Footprint:
     return TO220
 
 
-def _build_quad_row(data: dict[str, Any]) -> FootprintTemplate:
-    if "n_per_col" not in data:
-        raise SerializationError("QuadRow footprint requires 'n_per_col'")
-    raw_spacings = data.get("col_spacings", [1.0, 8.0, 1.0])
-    if not isinstance(raw_spacings, (list, tuple)) or len(raw_spacings) != 3:
-        raise SerializationError(
-            "QuadRow 'col_spacings' must be a list of 3 values")
-    return QuadRow(
-        n_per_col=int(data["n_per_col"]),
-        col_spacings=(float(raw_spacings[0]), float(raw_spacings[1]),
-                      float(raw_spacings[2])),
-        pitch=float(data.get("pitch", 1.0)),
-    )
-
-
-_FOOTPRINT_BUILDERS: dict[str, Callable[[dict[str, Any]],
-                                        FootprintTemplate]] = {
-                                            "DIP": _build_dip,
-                                            "SIL": _build_sil,
-                                            "TwoPin": _build_two_pin,
-                                            "DualRow": _build_dual_row,
-                                            "SingleRow": _build_single_row,
-                                            "Grid": _build_grid,
-                                            "GridFootprint": _build_grid,
-                                            "QuadRow": _build_quad_row,
-                                            "TO92": _build_to92,
-                                            "TO220": _build_to220,
-                                        }
+_FOOTPRINT_BUILDERS: dict[str, Callable[[dict[str, Any]], Footprint]] = {
+    "DIP": _build_dip,
+    "SIL": _build_sil,
+    "TwoPin": _build_two_pin,
+    "TO92": _build_to92,
+    "TO220": _build_to220,
+}
 
 __all__ = ["ComponentLibrary", "load_library"]

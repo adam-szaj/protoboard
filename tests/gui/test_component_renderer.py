@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QGraphicsItemGroup, QGraphicsScene
 
 from protoboard.domain.components.definition import ComponentDefinition, ComponentClass
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.footprints import SingleRow
+from protoboard.domain.components.footprints import SIL
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.schematic.net import Net, PinRef
@@ -52,7 +52,7 @@ def _make_resistor_defn() -> ComponentDefinition:
     return ComponentDefinition(
         name="R",
         component_class=ComponentClass.RESISTOR,
-        footprint=SingleRow(n=2),
+        footprint=SIL(n=2),
         pin_names={},
     )
 

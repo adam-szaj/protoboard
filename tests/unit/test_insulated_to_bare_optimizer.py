@@ -16,7 +16,7 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SingleRow
+from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
@@ -62,7 +62,7 @@ def _perfboard(rows: int = 6, cols: int = 6) -> Board:
 
 def _sil2() -> ComponentDefinition:
     return ComponentDefinition(
-        name="COMP", footprint=SingleRow(n=2), pin_names={1: "A", 2: "B"}
+        name="COMP", footprint=SIL(n=2), pin_names={1: "A", 2: "B"}
     )
 
 
@@ -109,7 +109,7 @@ def _two_pin_project_with_insulated_wire(
     schematic = Schematic(nets={net.id: net})
 
     # Build an insulated wire from pin a2 → pin b1 along the row.
-    # SingleRow(n=2) with rotation=90 puts pin1 at placement.position and
+    # SIL(n=2) with rotation=90 puts pin1 at placement.position and
     # pin2 at (position.x + 1, position.y).  Verify via the same helper
     # the optimizer uses.
     from protoboard.domain.layout.placement import pin_world_position

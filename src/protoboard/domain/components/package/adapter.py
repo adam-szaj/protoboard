@@ -38,3 +38,9 @@ class PackageFootprint(Footprint):
 
     def pin_count(self) -> int:
         return self.package.pin_count()
+
+    def rotate(self, cw: int) -> None:
+        # A package-derived footprint has no independent rotation: its pin
+        # geometry is driven by the package's own mount orientation, not by
+        # rotating a flat offset list. Rotation is a no-op here.
+        return None

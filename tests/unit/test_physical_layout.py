@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 
-from protoboard.domain.components.footprints import DIP, SIL
+from protoboard.domain.components.footprints import DIL, SIL
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.domain.layout.wire import Wire, WireCollection
@@ -132,7 +132,7 @@ class TestPinWorldPosition:
     def test_dip8_rotation_0(self) -> None:
         from protoboard.domain.layout.placement import pin_world_position
 
-        fp = DIP(8)
+        fp = DIL(8)
         pl = ComponentPlacement(
             component_id=uuid.uuid4(),
             position=Point(5.0, 5.0),

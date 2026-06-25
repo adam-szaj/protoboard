@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import TwoPin
+from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import (
     PackageFamily,
@@ -63,7 +63,7 @@ def _families() -> dict[str, PackageFamily]:
 
 def _defn(**kw: object) -> ComponentDefinition:
     return ComponentDefinition(
-        name="X", footprint=TwoPin(), pin_names={}, **kw,  # type: ignore[arg-type]
+        name="X", footprint=SIL(n=2), pin_names={}, **kw,  # type: ignore[arg-type]
     )
 
 

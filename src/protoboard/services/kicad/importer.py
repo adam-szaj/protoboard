@@ -27,9 +27,9 @@ from pathlib import Path
 
 import structlog
 from protoboard.domain.components.footprints import (
-    DualRow,
-    FootprintTemplate,
-    SingleRow,
+    DIL,
+    SIL,
+    Footprint,
 )
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.schematic.net import Net, PinRef
@@ -272,8 +272,8 @@ class KiCadNetlistImporter:
     # Footprint resolution heuristic
     # ------------------------------------------------------------------
 
-    def resolve_footprint(self, fp_string: str) -> FootprintTemplate | None:
-        """Map a KiCAD footprint string to a FootprintTemplate, or None."""
+    def resolve_footprint(self, fp_string: str) -> Footprint | None:
+        """Map a KiCAD footprint string to a Footprint, or None."""
         name = fp_string.split(":")[-1] if ":" in fp_string else fp_string
 
         # DIP-N
@@ -281,43 +281,43 @@ class KiCadNetlistImporter:
         if m:
             total = int(m.group(1))
             if total > 0 and total % 2 == 0:
-                return DualRow(n_per_row=total // 2)
+                return DIL(n=total)
 
         # Resistors / axial 2-pin
         if re.search(r"R_Axial|R_\d{4}_\d{4}", name):
-            return SingleRow(n=2)
+            return SIL(n=2)
 
         # Capacitors — all 2-pin
         if re.search(r"C_\d{4}_\d{4}|CP_\d{4}", name):
-            return SingleRow(n=2)
+            return SIL(n=2)
 
         # Diodes — all 2-pin
         if re.search(r"D_DO-|D_SOD|D_SMA|D_SMB|D_SMC", name, re.IGNORECASE):
-            return SingleRow(n=2)
+            return SIL(n=2)
 
         # SOT-23: 3 pins
         if re.search(r"SOT-23", name, re.IGNORECASE):
-            return SingleRow(n=3)
+            return SIL(n=3)
 
         # TO-92: 3 pins (inline or not)
         if re.search(r"TO-92", name, re.IGNORECASE):
-            return SingleRow(n=3)
+            return SIL(n=3)
 
         # TO-126: 3 pins
         if re.search(r"TO-126", name, re.IGNORECASE):
-            return SingleRow(n=3)
+            return SIL(n=3)
 
         # TO-220: 3 pins
         if re.search(r"TO-220", name, re.IGNORECASE):
-            return SingleRow(n=3)
+            return SIL(n=3)
 
         # TSOP-6 / SOT-23-6 / similar 6-pin small packages
         if re.search(r"TSOP-6|SOT-23-6|SC-70-6", name, re.IGNORECASE):
-            return SingleRow(n=6)
+            return SIL(n=6)
 
         # Test points: 1 pin
         if re.search(r"TestPoint", name, re.IGNORECASE):
-            return SingleRow(n=1)
+            return SIL(n=1)
 
         # PinHeader_MxNN
         m2 = re.match(r"PinHeader_(\d+)x(\d+)", name, re.IGNORECASE)
@@ -325,20 +325,20 @@ class KiCadNetlistImporter:
             rows, cols = int(m2.group(1)), int(m2.group(2))
             total = rows * cols
             if rows == 1:
-                return SingleRow(n=total)
+                return SIL(n=total)
             if rows == 2 and total % 2 == 0:
-                return DualRow(n_per_row=cols)
+                return DIL(n=total)
 
         # Arduino Nano module: treat as 30-pin SIL
         if re.search(r"Arduino_Nano", name, re.IGNORECASE):
-            return SingleRow(n=30)
+            return SIL(n=30)
 
         return None
 
     def resolve_by_libsource(
         self, kicad_lib: str, kicad_part: str
-    ) -> FootprintTemplate | None:
-        """Resolve a FootprintTemplate from KiCAD libsource (lib, part) pair.
+    ) -> Footprint | None:
+        """Resolve a Footprint from KiCAD libsource (lib, part) pair.
 
         Used as a fallback when the component has no footprint string.
         Covers KiCAD standard library part names.
@@ -359,21 +359,21 @@ class KiCadNetlistImporter:
             "SW_DIP_x8": 16,
         }
         if part in _SW_PINS:
-            return SingleRow(n=_SW_PINS[part])
+            return SIL(n=_SW_PINS[part])
 
         # Generic switch fallback: SW_* with trailing digits (e.g. SW_MEC_5E → 3 pins).
         if re.match(r"SW_", part):
             m = re.search(r"(\d+)[Pp]ole", part)
             if m:
-                return SingleRow(n=int(m.group(1)) * 2)
-            return SingleRow(n=3)  # most common: SPDT
+                return SIL(n=int(m.group(1)) * 2)
+            return SIL(n=3)  # most common: SPDT
 
         # Test points.
         m_tp = re.match(r"TestPoint_(\d+)[Pp]ole", part)
         if m_tp:
-            return SingleRow(n=int(m_tp.group(1)))
+            return SIL(n=int(m_tp.group(1)))
         if re.match(r"TestPoint", part):
-            return SingleRow(n=1)
+            return SIL(n=1)
 
         # Connectors by part name pattern: Conn_01x02, Conn_02x08 etc.
         m_conn = re.match(r"Conn_0*(\d+)x0*(\d+)", part)
@@ -381,17 +381,17 @@ class KiCadNetlistImporter:
             rows, cols = int(m_conn.group(1)), int(m_conn.group(2))
             total = rows * cols
             if rows == 1:
-                return SingleRow(n=total)
+                return SIL(n=total)
             if rows == 2 and total % 2 == 0:
-                return DualRow(n_per_row=cols)
+                return DIL(n=total)
 
         # Resistor / capacitor / inductor / diode — all 2-pin passives.
         if part in ("R", "R_Small", "R_US", "C", "C_Small", "L", "L_Small", "D", "D_Zener"):
-            return SingleRow(n=2)
+            return SIL(n=2)
 
         # Transistors — 3 pins.
         if re.match(r"(Q_|NPN|PNP|NMOS|PMOS|BJT|FET|JFET|MOSFET)", part):
-            return SingleRow(n=3)
+            return SIL(n=3)
 
         return None
 
@@ -560,14 +560,14 @@ def _libsource_is_authoritative(kicad_lib: str, kicad_part: str) -> bool:
     return kicad_lib in _AUTHORITATIVE_LIBS
 
 
-def _part_to_definition_ref(kicad_part: str, template: FootprintTemplate) -> str:
+def _part_to_definition_ref(kicad_part: str, template: Footprint) -> str:
     """Generate a definition_ref from a KiCAD library part name (used when no footprint)."""
     name = re.sub(r"[^\w]", "_", kicad_part)
     name = re.sub(r"_+", "_", name).strip("_")
     return name or f"generic_{template.pin_count()}pin"
 
 
-def _footprint_to_definition_ref(kicad_fp: str, template: FootprintTemplate) -> str:
+def _footprint_to_definition_ref(kicad_fp: str, template: Footprint) -> str:
     """Generate a stable, human-readable definition_ref from a KiCAD footprint string."""
     name = kicad_fp.split(":")[-1] if ":" in kicad_fp else kicad_fp
     # Trim long suffixes like _P2.54mm_Vertical, _DIN0207_L6.3mm_...

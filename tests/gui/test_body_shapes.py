@@ -22,15 +22,12 @@ from protoboard.domain.components.definition import (
     ComponentDefinition,
 )
 from protoboard.domain.components.footprints import (
-    DualRow,
-    SingleRow,
-    TO220Footprint,
-    TwoPin,
+    DIL,
+    SIL,
+    GenericFootprint,
 )
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package.from_footprint import (
-    prism_for_footprint,
-)
+from protoboard.domain.components.package.kind import _prism_from_footprint
 from protoboard.domain.components.package.loader import build_package
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
@@ -72,13 +69,11 @@ def _make_defn(
     fp_type: str = "SIL",
 ) -> ComponentDefinition:
     if fp_type == "DIP":
-        fp: object = DualRow(n_per_row=n_pins // 2)
-    elif fp_type == "TwoPin":
-        fp = TwoPin()
+        fp: object = DIL(n=n_pins)
     else:
-        # ``SIL`` test marker — use TwoPin for n=2 (matches loader redirect),
-        # SingleRow for n>=3.
-        fp = TwoPin() if n_pins == 2 else SingleRow(n=n_pins)
+        # ``SIL`` / ``TwoPin`` test markers are both a single-row pin cloud now;
+        # a footprint is only pin count + spacing.
+        fp = SIL(n=n_pins)
     return ComponentDefinition(
         name="TEST",
         component_class=cls,
@@ -402,9 +397,9 @@ class TestFlatSidedCylinderRender:
 
 def _dip8_prism() -> Prism:
     """The prism synthesized for a DIP-8 footprint (the parametric DIP body)."""
-    prism = prism_for_footprint(DualRow(n_per_row=4, rows_spacing=3))
+    prism = _prism_from_footprint(DIL(n=8, rows_spacing=3))
     assert prism is not None
-    return prism
+    return prism  # type: ignore[return-value]
 
 
 def _dip8_positions() -> list[Point]:
@@ -413,9 +408,9 @@ def _dip8_positions() -> list[Point]:
 
 def _sil6_prism() -> Prism:
     """The prism synthesized for a 6-pin single-row (SIL) footprint."""
-    prism = prism_for_footprint(SingleRow(n=6))
+    prism = _prism_from_footprint(SIL(n=6))
     assert prism is not None
-    return prism
+    return prism  # type: ignore[return-value]
 
 
 class TestParametricDIPBody:
@@ -913,49 +908,32 @@ class TestDevboardBody:
 
 class TestBodyShapeFor:
 
-    def test_to220_footprint_returns_to220body(self) -> None:
-        # Legacy fallback: a bare TO220Footprint with no package resolves to the
-        # dedicated TO220Body.  (The shipped regulators/MOSFETs now declare
-        # footprints: [TO-220] and resolve a prism package first — see
-        # TestTO220PackageParity.)
-        fp = TO220Footprint(n=3)
-        defn = ComponentDefinition(
-            name="T1",
-            component_class=ComponentClass.TRANSISTOR_NPN,
-            footprint=fp,
-            pin_names={})
-        shape = body_shape_for(defn)
-        assert isinstance(shape, TO220Body)
-
     def test_two_pin_without_package_falls_back_to_generic(self) -> None:
         # No package_family_ref, no instance variant, no inline package.
         defn = ComponentDefinition(
             name="X",
             component_class=ComponentClass.RESISTOR,
-            footprint=TwoPin(),
+            footprint=SIL(n=2),
             pin_names={},
         )
         shape = body_shape_for(defn)
         assert isinstance(shape, GenericBody)
 
-    def test_sil_3_transistor_returns_to92(self) -> None:
-        defn = _make_defn(ComponentClass.TRANSISTOR_NPN,
-                          n_pins=3,
-                          fp_type="SIL")
-        shape = body_shape_for(defn)
-        assert isinstance(shape, TO92Body)
-
-    def test_dual_row_returns_parametric_package_body(self) -> None:
-        # A DualRow with no catalogue package synthesizes a prism and renders
-        # through the parametric PackageBody (DIP silhouette), not a dedicated
-        # legacy generator.
-        fp = DualRow(n_per_row=4)
-        defn = ComponentDefinition(name="U1",
-                                   component_class=ComponentClass.IC,
-                                   footprint=fp,
-                                   pin_names={})
-        shape = body_shape_for(defn)
-        assert isinstance(shape, PackageBody)
+    def test_bare_footprint_falls_back_to_generic(self) -> None:
+        # A footprint is only a pin cloud (count + spacing) — it no longer
+        # determines a body.  Without a resolved package, any bare footprint
+        # (SIL-3 transistor, DIL-8 IC, …) draws the generic bbox body; a part
+        # that wants TO-92 / DIP silhouette declares a package instead (see the
+        # TestTO92PackageParity / TestTO220PackageParity / inline-package tests).
+        for cls, fp in (
+            (ComponentClass.TRANSISTOR_NPN, SIL(n=3)),
+            (ComponentClass.IC, DIL(n=8)),
+        ):
+            defn = ComponentDefinition(name="U1",
+                                       component_class=cls,
+                                       footprint=fp,
+                                       pin_names={})
+            assert isinstance(body_shape_for(defn), GenericBody)
 
     def test_devboard_with_inline_package_returns_package_body(self) -> None:
         # A devboard module carries an inline prism package, so it takes the
@@ -995,12 +973,12 @@ class TestBodyShapeFor:
         shape = body_shape_for(defn)
         assert isinstance(shape, PackageBody)
 
-    def test_single_row_returns_parametric_package_body(self) -> None:
-        defn = _make_defn(ComponentClass.CONNECTOR, n_pins=6, fp_type="SIL")
-        shape = body_shape_for(defn)
-        assert isinstance(shape, PackageBody)
-        # A single-column footprint synthesizes a SIL silhouette.
-        prism = prism_for_footprint(SingleRow(n=6))
+    def test_single_row_footprint_synthesizes_sil_silhouette(self) -> None:
+        # A single-column footprint still synthesizes a SIL silhouette when its
+        # prism is built explicitly — body_shape_for no longer does this from a
+        # bare footprint (it draws GenericBody; a SIL header declares a package),
+        # but the prism→silhouette path that PackageBody uses is intact.
+        prism = _prism_from_footprint(SIL(n=6))
         assert isinstance(silhouette_for(prism),
                           SilSilhouette)  # type: ignore[arg-type]
 
@@ -1036,7 +1014,7 @@ class TestPackageBodyDispatch:
         defn = ComponentDefinition(
             name="U1",
             component_class=ComponentClass.IC,
-            footprint=DualRow(n_per_row=4),
+            footprint=DIL(n=8),
             pin_names={},
             package=_prism_package(),  # type: ignore[arg-type]
         )
@@ -1045,13 +1023,22 @@ class TestPackageBodyDispatch:
         assert shape._pkg is not None  # type: ignore[attr-defined]
 
     def test_unsupported_footprint_falls_to_generic(self) -> None:
-        # A footprint with neither a package nor a synthesizable prism body
-        # (a pin grid) keeps the GenericBody bbox path.
-        from protoboard.domain.components.footprints import GridFootprint
+        # A footprint with no resolved package keeps the GenericBody bbox path.
+        # (Rebuilt from the former GridFootprint(rows=2, cols=3) as an explicit
+        # 2×3 pin grid via GenericFootprint — the removed grid factory had no
+        # replacement.)
+        from protoboard.geometry import Vector
+        grid = GenericFootprint([
+            Vector(0.0, 1.0),  # (0,0)->(0,1)
+            Vector(0.0, 1.0),  # (0,1)->(0,2)
+            Vector(1.0, -2.0),  # (0,2)->(1,0)
+            Vector(0.0, 1.0),  # (1,0)->(1,1)
+            Vector(0.0, 1.0),  # (1,1)->(1,2)
+        ])
         defn = ComponentDefinition(
             name="J1",
             component_class=ComponentClass.CONNECTOR,
-            footprint=GridFootprint(rows=2, cols=3),
+            footprint=grid,
             pin_names={},
         )
         shape = body_shape_for(defn)
@@ -1075,11 +1062,10 @@ class TestPackageBodyDispatch:
         }
 
     def test_family_ref_resolves_to_package_body(self) -> None:
-        from protoboard.domain.components.footprints import TwoPin
         defn = ComponentDefinition(
             name="D1",
             component_class=ComponentClass.DIODE,
-            footprint=TwoPin(),
+            footprint=SIL(n=2),
             pin_names={},
             package_family_ref="DO-35/typ",
         )
@@ -1087,11 +1073,10 @@ class TestPackageBodyDispatch:
         assert isinstance(shape, PackageBody)
 
     def test_instance_variant_resolves_to_package_body(self) -> None:
-        from protoboard.domain.components.footprints import TwoPin
         defn = ComponentDefinition(
             name="D1",
             component_class=ComponentClass.DIODE,
-            footprint=TwoPin(),
+            footprint=SIL(n=2),
             pin_names={},
         )
         inst = ComponentInstance.new(
@@ -1108,11 +1093,10 @@ class TestPackageBodyDispatch:
         assert isinstance(shape, PackageBody)
 
     def test_stale_ref_without_inline_falls_to_legacy(self) -> None:
-        from protoboard.domain.components.footprints import TwoPin
         defn = ComponentDefinition(
             name="D1",
             component_class=ComponentClass.DIODE,
-            footprint=TwoPin(),
+            footprint=SIL(n=2),
             pin_names={},
             package_family_ref="NOPE/x",
         )

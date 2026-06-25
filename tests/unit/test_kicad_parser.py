@@ -175,56 +175,46 @@ class TestKiCadNetlistImporter:
 
 
 class TestFootprintHeuristic:
-    """The importer maps KiCAD footprint strings to our FootprintTemplate."""
+    """The importer maps KiCAD footprint strings to a Footprint."""
 
     def _get_importer(self) -> KiCadNetlistImporter:
         return KiCadNetlistImporter()
 
     def test_dip8_recognised(self) -> None:
-        from protoboard.domain.components.footprints import DualRow
-
         imp = self._get_importer()
         fp = imp.resolve_footprint("Package_DIP:DIP-8_W7.62mm")
-        assert isinstance(fp, DualRow)
-        assert fp.n_per_row == 4
+        assert fp is not None
+        assert fp.pin_count() == 8
 
     def test_dip14_recognised(self) -> None:
-        from protoboard.domain.components.footprints import DualRow
-
         imp = self._get_importer()
         fp = imp.resolve_footprint("Package_DIP:DIP-14_W7.62mm")
-        assert isinstance(fp, DualRow)
-        assert fp.n_per_row == 7
+        assert fp is not None
+        assert fp.pin_count() == 14
 
     def test_sil2_resistor_recognised(self) -> None:
-        from protoboard.domain.components.footprints import SingleRow
-
         imp = self._get_importer()
         fp = imp.resolve_footprint(
             "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal"
         )
-        assert isinstance(fp, SingleRow)
-        assert fp.n == 2
+        assert fp is not None
+        assert fp.pin_count() == 2
 
     def test_sil2_connector_recognised(self) -> None:
-        from protoboard.domain.components.footprints import SingleRow
-
         imp = self._get_importer()
         fp = imp.resolve_footprint(
             "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
         )
-        assert isinstance(fp, SingleRow)
-        assert fp.n == 2
+        assert fp is not None
+        assert fp.pin_count() == 2
 
     def test_pinheader_1x04_recognised(self) -> None:
-        from protoboard.domain.components.footprints import SingleRow
-
         imp = self._get_importer()
         fp = imp.resolve_footprint(
             "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical"
         )
-        assert isinstance(fp, SingleRow)
-        assert fp.n == 4
+        assert fp is not None
+        assert fp.pin_count() == 4
 
     def test_unknown_returns_none(self) -> None:
         imp = self._get_importer()
@@ -232,12 +222,10 @@ class TestFootprintHeuristic:
         assert fp is None
 
     def test_to92_recognised(self) -> None:
-        from protoboard.domain.components.footprints import SingleRow
-
         imp = self._get_importer()
         fp = imp.resolve_footprint("Package_TO_SOT_THT:TO-92_Inline")
-        assert isinstance(fp, SingleRow)
-        assert fp.n == 3
+        assert fp is not None
+        assert fp.pin_count() == 3
 
 
 # ---------------------------------------------------------------------------

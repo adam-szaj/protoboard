@@ -121,7 +121,7 @@ def assert_no_redundant_routes(
 
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
-from protoboard.domain.components.footprints import SingleRow
+from protoboard.domain.components.footprints import SIL
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
 
@@ -142,7 +142,7 @@ def make_perfboard(rows: int, cols: int) -> Board:
 
 def make_sil(name: str, n_pins: int = 2) -> ComponentDefinition:
     return ComponentDefinition(
-        name=name, footprint=SingleRow(n=n_pins),
+        name=name, footprint=SIL(n=n_pins),
         pin_names={i: str(i) for i in range(1, n_pins + 1)},
     )
 

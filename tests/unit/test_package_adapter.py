@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
-"""Tests for the Package → FootprintTemplate adapter."""
+"""Tests for the Package → Footprint adapter."""
 
 from ruamel.yaml import YAML
 
-from protoboard.domain.components.footprints import FootprintTemplate
+from protoboard.domain.components.footprints import Footprint
 from protoboard.domain.components.package import load_packages
 from protoboard.domain.components.package.adapter import PackageFootprint
 from protoboard.domain.components.package.solver import MountOrientation
@@ -20,7 +20,7 @@ def _builtin() -> dict:
 def test_is_footprint_template() -> None:
     pkg = _builtin()["DIP-8"]
     fp = PackageFootprint(pkg)
-    assert isinstance(fp, FootprintTemplate)
+    assert isinstance(fp, Footprint)
 
 
 def test_pin_count_and_positions_match_package() -> None:

@@ -11,7 +11,7 @@ from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
 )
-from protoboard.domain.components.footprints import DIP, SIL
+from protoboard.domain.components.footprints import DIL, SIL
 from protoboard.domain.components.instance import ComponentInstance
 
 
@@ -122,7 +122,7 @@ class TestFootprintOption:
         with pytest.raises(ValueError):
             FootprintOption(name="x")  # neither
         with pytest.raises(ValueError):
-            FootprintOption(name="x", ref="a/b", package=DIP(8))  # type: ignore[arg-type]
+            FootprintOption(name="x", ref="a/b", package=DIL(8))  # type: ignore[arg-type]
 
     def test_empty_name_rejected(self) -> None:
         from protoboard.domain.components.definition import FootprintOption
@@ -156,7 +156,7 @@ class TestComponentDefinition:
     def test_full_pin_names(self) -> None:
         defn = ComponentDefinition(
             name="LM358",
-            footprint=DIP(8),
+            footprint=DIL(8),
             pin_names={
                 1: "OUT_A",
                 2: "IN-_A",
@@ -176,7 +176,7 @@ class TestComponentDefinition:
         # Per user decision: missing pin names default to "P{n}".
         defn = ComponentDefinition(
             name="LM358",
-            footprint=DIP(8),
+            footprint=DIL(8),
             pin_names={1: "OUT_A", 4: "VEE", 8: "VCC"},
         )
         assert defn.pin_name(1) == "OUT_A"
@@ -208,13 +208,13 @@ class TestComponentDefinition:
             )
 
     def test_pin_count_property(self) -> None:
-        defn = ComponentDefinition(name="LM358", footprint=DIP(8), pin_names={})
+        defn = ComponentDefinition(name="LM358", footprint=DIL(8), pin_names={})
         assert defn.pin_count == 8
 
     def test_optional_description(self) -> None:
         defn = ComponentDefinition(
             name="LM358",
-            footprint=DIP(8),
+            footprint=DIL(8),
             pin_names={},
             description="Dual op-amp",
         )

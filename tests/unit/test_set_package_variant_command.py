@@ -16,7 +16,7 @@ from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
 )
-from protoboard.domain.components.footprints import TwoPin
+from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.wire import WireCollection
@@ -48,7 +48,7 @@ class _State:
 def _make_state(package_variant: str | None = None) -> tuple[_State, uuid.UUID]:
     state = _State()
     defn = ComponentDefinition(
-        name="R", footprint=TwoPin(),
+        name="R", footprint=SIL(n=2),
         pin_names={}, component_class=ComponentClass.RESISTOR,
         package_family_ref="DIN-0207/typ",
     )

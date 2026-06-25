@@ -23,20 +23,20 @@ from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
 )
-from protoboard.domain.components.footprints import TwoPin
+from protoboard.domain.components.footprints import SIL
 
 
 class TestDefaultValueField:
     def test_default_is_empty_string(self) -> None:
         defn = ComponentDefinition(
-            name="BC547", footprint=TwoPin(),
+            name="BC547", footprint=SIL(n=2),
             pin_names={}, component_class=ComponentClass.TRANSISTOR_NPN,
         )
         assert defn.default_value == ""
 
     def test_accepts_question_mark(self) -> None:
         defn = ComponentDefinition(
-            name="R", footprint=TwoPin(),
+            name="R", footprint=SIL(n=2),
             pin_names={}, component_class=ComponentClass.RESISTOR,
             default_value="?",
         )
@@ -44,7 +44,7 @@ class TestDefaultValueField:
 
     def test_accepts_arbitrary_string(self) -> None:
         defn = ComponentDefinition(
-            name="BC547", footprint=TwoPin(),
+            name="BC547", footprint=SIL(n=2),
             pin_names={}, component_class=ComponentClass.TRANSISTOR_NPN,
             default_value="BC547",
         )

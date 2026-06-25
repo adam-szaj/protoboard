@@ -22,16 +22,12 @@ Pure domain: no Qt, no I/O.
 
 from __future__ import annotations
 
-from protoboard.domain.components.footprints import (
-    DualRow,
-    FootprintTemplate,
-    SingleRow,
-)
+from protoboard.domain.components.footprints import DIL, SIL, Footprint
 from protoboard.domain.components.package.family import (
     PackageFamily,
     PackageVariant,
 )
-from protoboard.domain.components.package.from_footprint import prism_for_footprint
+from protoboard.domain.components.package.kind import _prism_from_footprint
 
 # Row pitch (in holes) for the two DIP widths.  0.3 in / 0.6 in at a 0.1 in
 # (one-hole) grid → 3 and 6 holes between the columns.
@@ -51,9 +47,9 @@ _SIL_COUNTS = range(3, 41)
 
 
 def _family(
-    family_id: str, label: str, footprint: FootprintTemplate,
+    family_id: str, label: str, footprint: Footprint,
 ) -> PackageFamily | None:
-    pkg = prism_for_footprint(footprint)
+    pkg = _prism_from_footprint(footprint)
     if pkg is None:
         return None
     return PackageFamily(
@@ -71,7 +67,7 @@ def dip_family(pins: int, *, wide: bool) -> PackageFamily | None:
     if pins < 4 or pins % 2 != 0:
         return None
     rows = _DIP_WIDE_ROWS if wide else _DIP_NARROW_ROWS
-    fp = DualRow(n_per_row=pins // 2, rows_spacing=float(rows))
+    fp = DIL(n=pins, rows_spacing=float(rows))
     prefix = "wdip" if wide else "dip"
     width = "wide 0.6\"" if wide else "narrow 0.3\""
     return _family(f"{prefix}-{pins}", f"DIP-{pins} ({width})", fp)
@@ -81,7 +77,7 @@ def sil_family(pins: int) -> PackageFamily | None:
     """The generated ``sil-N`` header family for *pins* (>= 2)."""
     if pins < 2:
         return None
-    return _family(f"sil-{pins}", f"SIL-{pins} header", SingleRow(n=pins))
+    return _family(f"sil-{pins}", f"SIL-{pins} header", SIL(n=pins))
 
 
 def generate_inline_families() -> dict[str, PackageFamily]:
@@ -125,41 +121,18 @@ def offered_body_families(
 ) -> list[PackageFamily]:
     """The package families a body-variant picker should offer for *footprint*.
 
-    The catalogue (*families*) is the merged authored + generated set.  The
-    footprint decides which slice is relevant — this is the one place that
-    branches on footprint type so the two panels (properties / library) don't
-    each grow their own copy:
+    STUB (see docs/todo.md): the body-variant picker is temporarily disabled.
 
-    * ``TwoPin`` → every **two-pin** family (swap a resistor for a brick or a
-      ceramic disc for a tantalum drop); the multi-pin DIP / SIL families are
-      filtered out by pin count.
-    * ``DualRow`` → only the pin-count-matching ``dip-N`` / ``wdip-N``.
-    * ``SingleRow`` → only the pin-count-matching ``sil-N``.
-    * anything else → nothing (no body choice).
+    This used to branch on the footprint's *type* (``TwoPin`` / ``DualRow`` /
+    ``SingleRow``) to slice the catalogue. Under the new model a ``Footprint`` is
+    only a pin count + spacing and no longer carries a body *kind*, so the type
+    branch is gone and there is nothing to dispatch on. Re-deriving the offer
+    from the explicit body (package / package_family_ref) — not from the
+    footprint — is the follow-up; until then no alternative bodies are offered.
 
-    Returns the families in offer order; unknown ids are skipped.
+    Returns an empty list (no body choice) for every footprint.
     """
-    # Imported here to avoid a domain import cycle through footprints at module
-    # load (footprints imports nothing from this package, but keep it local).
-    from protoboard.domain.components.footprints import (
-        DualRow,
-        SingleRow,
-        TwoPin,
-    )
-
-    if isinstance(footprint, TwoPin):
-        return [
-            families[k]
-            for k in sorted(families)
-            if families[k].default_variant().package.pin_count() == 2
-        ]
-    if isinstance(footprint, DualRow):
-        ids = inline_family_ids_for_pins(footprint.pin_count(), dual_row=True)
-    elif isinstance(footprint, SingleRow):
-        ids = inline_family_ids_for_pins(footprint.pin_count(), dual_row=False)
-    else:
-        return []
-    return [families[i] for i in ids if i in families]
+    return []
 
 
 __all__ = [

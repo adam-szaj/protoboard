@@ -9,7 +9,7 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.definition import ComponentDefinition
-from protoboard.domain.components.footprints import SingleRow
+from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
@@ -40,7 +40,7 @@ def _perfboard(rows: int, cols: int) -> Board:
 
 def _sil2() -> ComponentDefinition:
     return ComponentDefinition(
-        name="COMP", footprint=SingleRow(n=2), pin_names={1: "A", 2: "B"}
+        name="COMP", footprint=SIL(n=2), pin_names={1: "A", 2: "B"}
     )
 
 

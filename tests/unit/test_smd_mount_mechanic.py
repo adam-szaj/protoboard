@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 
-from protoboard.domain.components.footprints import TwoPin
+from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.package import (
     MountStyle,
     effective_bend_specs,
@@ -189,7 +189,7 @@ class TestEffectiveBendSpecs:
         defn = ComponentDefinition(
             name="R",
             component_class=ComponentClass.RESISTOR,
-            footprint=TwoPin(),
+            footprint=SIL(n=2),
             pin_names={},
             bendable_pins={2: PinBendSpec(min_reach=1, max_reach=5)},
         )

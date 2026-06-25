@@ -183,11 +183,11 @@ class TestAssignPinToNetPropagation:
             ComponentClass,
             ComponentDefinition,
         )
-        from protoboard.domain.components.footprints import DualRow
+        from protoboard.domain.components.footprints import DIL
         from protoboard.domain.components.instance import ComponentInstance
 
         defn = ComponentDefinition(
-            name="IC", footprint=DualRow(n_per_row=4),
+            name="IC", footprint=DIL(n=8),
             pin_names={1: "A", 2: "B", 3: "C", 4: "GND",
                        5: "E", 6: "F", 7: "G", 8: "GND"},
             component_class=ComponentClass.IC,
@@ -209,11 +209,11 @@ class TestAssignPinToNetPropagation:
             ComponentClass,
             ComponentDefinition,
         )
-        from protoboard.domain.components.footprints import DualRow
+        from protoboard.domain.components.footprints import DIL
         from protoboard.domain.components.instance import ComponentInstance
 
         defn = ComponentDefinition(
-            name="IC", footprint=DualRow(n_per_row=4),
+            name="IC", footprint=DIL(n=8),
             pin_names={1: "A", 2: "B", 3: "C", 4: "GND",
                        5: "E", 6: "F", 7: "G", 8: "GND"},
             component_class=ComponentClass.IC,

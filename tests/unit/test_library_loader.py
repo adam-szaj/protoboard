@@ -15,9 +15,8 @@ from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
 )
-from protoboard.domain.components.footprints import (
-    DualRow,
-    SingleRow,
+from protoboard.domain.components.package import (
+    PackageFootprint,
 )
 from protoboard.errors import SerializationError
 from protoboard.services.library.loader import ComponentLibrary, load_library
@@ -205,18 +204,16 @@ class TestKindPackage:
     same prism the existing generator builds for the matching footprint."""
 
     def test_build_kind_dip_ic_matches_dual_row_prism(self) -> None:
-        import dataclasses
-        from protoboard.domain.components.package.from_footprint import (
-            prism_for_footprint,
-        )
         from protoboard.domain.components.package.kind import build_kind_package
-        # dip_ic + 14 pins == a DualRow(7, rows 3) prism (narrow DIP-14), with the
-        # declared kind stamped on so the renderer can draw the notch.
-        base = prism_for_footprint(DualRow(n_per_row=7, rows_spacing=3.0))
-        expected = dataclasses.replace(base, kind="dip_ic")  # type: ignore[arg-type]
+        # dip_ic + 14 pins == a narrow DIP-14 prism: two rows of 7 pins, 3 holes
+        # apart, with the declared kind stamped on so the renderer can draw the
+        # notch.
         built = build_kind_package("dip_ic", 14)
-        assert built == expected
         assert built.kind == "dip_ic"  # type: ignore[attr-defined]
+        assert built.pin_count() == 14
+        pins = built.pin_positions()
+        xs = sorted({round(p.x, 1) for p in pins})
+        assert xs == [0.0, 3.0]   # two rows 3 holes apart
 
     def test_kind_pin_count_from_component_pins(self, tmp_path: Path) -> None:
         # The component declares its pin count; the kind package builds from it.
@@ -488,11 +485,12 @@ components:
     def test_bendable_axial_ref_keeps_footprint_and_bend(
         self, tmp_path: Path,
     ) -> None:
-        from protoboard.domain.components.footprints import TwoPin
         defn = self._lib(tmp_path).get("R_AXIAL")
-        # An axial cylinder is not rigid (it bends), so the footprint and the
+        # An axial cylinder is not rigid (it bends), so the original
+        # footprint-derived geometry (not a rigid PackageFootprint) and the
         # bendable leads survive.
-        assert isinstance(defn.footprint, TwoPin)
+        assert not isinstance(defn.footprint, PackageFootprint)
+        assert defn.footprint.pin_count() == 2
         assert defn.bendable_pins  # kept
 
     def test_no_catalogue_leaves_footprint_unchanged(
@@ -502,10 +500,12 @@ components:
         # resolve the ref → legacy footprint-only behaviour (no rigid override).
         # (Omitting the argument now defaults to the full shipped catalogue, so
         # this opts out explicitly with ``{}``.)
-        from protoboard.domain.components.footprints import TwoPin
         (tmp_path / "p.yaml").write_text(self._LIB)
         defn = load_library([tmp_path], {}).get("R_SMD")
-        assert isinstance(defn.footprint, TwoPin)
+        # Legacy footprint-only behaviour: footprint-derived geometry, not a
+        # rigid PackageFootprint.
+        assert not isinstance(defn.footprint, PackageFootprint)
+        assert defn.footprint.pin_count() == 2
         assert defn.bendable_pins  # kept
 
 
@@ -521,18 +521,23 @@ class TestLoadLibrary:
         defn = lib.get("LM358")
         assert isinstance(defn, ComponentDefinition)
         assert defn.name == "LM358"
-        assert isinstance(defn.footprint, DualRow)
+        # DIP-8 geometry: two rows of 4 pins, columns 3 holes apart.
+        assert defn.footprint.pin_count() == 8
+        xs = sorted({round(p.x, 1) for p in defn.footprint.pin_positions()})
+        assert xs == [0.0, 3.0]
         assert defn.pin_count == 8
         assert defn.pin_name(1) == "OUT_A"
         assert defn.pin_name(8) == "VCC"
 
     def test_get_resistor(self) -> None:
-        from protoboard.domain.components.footprints import TwoPin
         lib = load_library([FIXTURES])
         defn = lib.get("R")
-        # Two-pin components now use TwoPin (loader redirects SIL pins=2).
-        assert isinstance(defn.footprint, TwoPin)
+        # Two-pin footprint-derived geometry: a single in-line pair of pads
+        # (not a rigid package-derived footprint).
+        assert not isinstance(defn.footprint, PackageFootprint)
         assert defn.pin_count == 2
+        pins = [(round(p.x), round(p.y)) for p in defn.footprint.pin_positions()]
+        assert pins == [(0, 0), (0, 1)]
         # Pin names not declared → defaults.
         assert defn.pin_name(1) == "P1"
         assert defn.pin_name(2) == "P2"
@@ -540,7 +545,11 @@ class TestLoadLibrary:
     def test_get_to92_transistor(self) -> None:
         lib = load_library([FIXTURES])
         defn = lib.get("BC547")
-        assert isinstance(defn.footprint, SingleRow)
+        # TO92 → single in-line row of 3 pins (footprint-derived geometry).
+        assert not isinstance(defn.footprint, PackageFootprint)
+        assert defn.footprint.pin_count() == 3
+        xs = {round(p.x) for p in defn.footprint.pin_positions()}
+        assert xs == {0}            # single column
         assert defn.pin_count == 3
         assert defn.pin_name(1) == "C"
         assert defn.pin_name(2) == "B"
@@ -704,8 +713,10 @@ components:
 """)
         defn = lib.get("MyNPN")
         from protoboard.domain.components.definition import ComponentClass
-        from protoboard.domain.components.footprints import SingleRow
-        assert isinstance(defn.footprint, SingleRow)
+        # TO92 → single in-line row of 3 pins, inherited via extends.
+        assert not isinstance(defn.footprint, PackageFootprint)
+        assert defn.footprint.pin_count() == 3
+        assert {round(p.x) for p in defn.footprint.pin_positions()} == {0}
         assert defn.pin_count == 3
         assert defn.pin_name(1) == "C"
         assert defn.component_class == ComponentClass.TRANSISTOR_NPN

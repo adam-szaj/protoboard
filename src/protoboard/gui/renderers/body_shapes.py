@@ -1142,25 +1142,9 @@ def body_shape_for(
             appearance=eff_appearance,
         )
 
-    fp  = defn.footprint
-
-    if isinstance(fp, TO220Footprint):
-        return TO220Body()
-
-    if isinstance(fp, TwoPin):
-        # Two-pin bodies come from the package model (resolved above); without
-        # a package the part draws a generic bbox.
-        return GenericBody()
-
-    if isinstance(fp, SingleRow) and fp.n == 3 and cls in _TRANSISTOR_CLASSES:
-        # A 3-pin transistor in a SIL footprint is a TO-92.
-        return TO92Body()
-
-    synth = None
-    if synth is not None:
-        return PackageBody(
-            synth, component_class=cls, vertical_flipped=vf,
-            appearance=eff_appearance,
-        )
-
+    # No explicit package resolved: a footprint is only a pin cloud (pin count
+    # + spacing) and does not determine a body — the same footprint fits many
+    # bodies (a SIL-3 is a TO-92, a header, a trimmer…). A part that wants a
+    # specific silhouette declares it via ``package`` / ``package_family_ref``
+    # (resolved above). Without one, draw the generic bbox body.
     return GenericBody()

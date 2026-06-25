@@ -710,11 +710,11 @@ class TestSchematicProjectionForGroup:
 
 
 def _make_defn(pin_count: int, name: str = "DUT") -> ComponentDefinition:
-    from protoboard.domain.components.footprints import SingleRow
+    from protoboard.domain.components.footprints import SIL
 
     return ComponentDefinition(
         name=name,
-        footprint=SingleRow(n=pin_count),
+        footprint=SIL(n=pin_count),
         pin_names={i: f"P{i}" for i in range(1, pin_count + 1)},
     )
 
