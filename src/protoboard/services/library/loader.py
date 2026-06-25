@@ -647,6 +647,23 @@ def _component_from_dict(
     if drop_bend_from_default:
         bendable_pins = {}
 
+    # Invariant: every definition carries a package. When none was declared
+    # (axial diodes / R / C placed as THT, crystals, screw terminals), synthesize
+    # a NON-rigid generic bbox package from the footprint so consumers can always
+    # read ``defn.package`` instead of branching on ``None``. It is tagged
+    # ``kind="_generic"`` and non-rigid (bend > 0) so ``is_rigid_package`` stays
+    # False and the part keeps its authored bendable leads — bend-spec and DRC
+    # consumers exclude the generic tag to preserve their pre-invariant behaviour.
+    if package_obj is None and footprint.pin_count() >= 1:
+        # Local import (mirrors the build_kind_package import above) to avoid a
+        # module-load cycle: package.kind imports this package's loader.
+        from protoboard.domain.components.package.kind import (
+            synth_generic_package,
+        )
+        synth = synth_generic_package(footprint)
+        if synth is not None:
+            package_obj = synth
+
     try:
         return ComponentDefinition(
             name=data["name"],

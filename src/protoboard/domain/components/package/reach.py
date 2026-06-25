@@ -192,6 +192,8 @@ def effective_bend_specs(
     is ``None``. Omitting *families* keeps the legacy ``defn.package`` →
     ``bendable_pins`` behaviour for callers with no catalogue to resolve against.
     """
+    # Local import avoids a module-load cycle (kind → package.loader).
+    from protoboard.domain.components.package.kind import is_generic_package
     if families is not None:
         # A picker-chosen address (no placed instance yet) takes precedence — it
         # is the variant the user is actively placing.
@@ -200,8 +202,12 @@ def effective_bend_specs(
             if variant is not None:
                 return package_to_bend_specs(variant.package)
         pkg = resolve_component_package(defn, instance, families)
-        if pkg is not None:
+        if pkg is not None and not is_generic_package(pkg):
             return package_to_bend_specs(pkg)
-    if defn.package is not None:
+    # A declared package drives the specs; the synthetic generic fallback
+    # (``kind="_generic"``) does not — it defers to the authored ``bendable_pins``
+    # so a THT part keeps its real bend ring after the package invariant made
+    # ``defn.package`` always non-None.
+    if defn.package is not None and not is_generic_package(defn.package):
         return package_to_bend_specs(defn.package)
     return defn.bendable_pins

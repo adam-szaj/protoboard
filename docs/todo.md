@@ -4,6 +4,39 @@ Open follow-ups that don't fit into the closed plans archived under
 [docs/archive/](archive/).  Each entry has enough context to pick up
 the work cold.
 
+## Generic-package invariant — follow-ups (added 2026-06-25)
+
+`ComponentDefinition.package` is now an invariant: the loader synthesizes a
+NON-rigid generic bbox package (`kind="_generic"`, `synth_generic_package` in
+`domain/components/package/kind.py`) for parts that declare none. Bend-spec
+(`reach.effective_bend_specs`) and DRC (`drc/engine.py` ×3) exclude the
+`_generic` tag so their behaviour is frozen. Two follow-ups remain:
+
+1. **Body-mask bent-span difference.** `pad_state.add_component` now always uses
+   `_package_body_pads(defn.package, …)` → `body_holes`, computed from the
+   package's **default** (unbent) pin positions. The removed legacy path used
+   `component_bbox(defn.footprint, placement, …)`, whose `pin_world_position`
+   includes `placement.pin_offsets` (the bent-lead span). For a part placed at
+   default pitch the two match exactly; for a **bent** lead the synth marks
+   fewer body holes (only the default span + 0.5 margin). Routing impact is nil
+   (these flexible parts have `body_blocks_routing=False`, so their `ComponentBody`
+   is non-blocking), and the synth path gains side-awareness (plated-through) the
+   legacy bbox lacked — but anything that *counts* `ComponentBody` items under a
+   bent lead sees a difference. Revisit if a consumer needs the bent-span body.
+
+2. **Consolidate the `_generic` exclusion.** The `is_generic_package(pkg)` guard
+   now appears in `reach.py` (×2) and `engine.py` (×3) — a `.kind == "_generic"`
+   tag-branch repeated in 5 sites. Once authored `bendable_pins` are migrated into
+   real non-rigid packages (a data migration), the whole generic fallback +
+   `bendable_pins` field can retire; until then, the shared `is_generic_package`
+   predicate already centralises the check — keep it the single source.
+
+3. **The ~7 `component_bbox` collision call sites** (placement/pad_conflict/
+   placement_conflict/drag_detector/auto_placer) and routing-cost ones still use
+   the footprint bbox unconditionally (they never branched on `defn.package`).
+   They could now read the package body mask instead, but that is a separate
+   collision-semantics change — out of scope for the invariant.
+
 ## Place-tool ghost / king-move overlay use defn.footprint, not the chosen variant (added 2026-06-25)
 
 Placing `R` as **SMD-0805**, the 8 king-move dots are present but mis-centred:

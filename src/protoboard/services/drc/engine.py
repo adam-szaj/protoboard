@@ -23,6 +23,7 @@ from protoboard.domain.components.package.mask import (
     build_pad_mask,
     masks_collide,
 )
+from protoboard.domain.components.package.kind import is_generic_package
 from protoboard.domain.components.package.reach import is_pin_bendable
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
@@ -304,7 +305,7 @@ def _check_overlap(
             defn = components.get(inst.definition_ref)
             if defn is None:
                 return False
-            if defn.package is not None:
+            if defn.package is not None and not is_generic_package(defn.package):
                 return is_pin_bendable(defn.package, pin_num)
             return pin_num in defn.bendable_pins
         if all(_is_bendable(cid, p) for cid, p in unshared):
@@ -387,6 +388,9 @@ def _check_body_overlap(
         if cid in instances
         and instances[cid].definition_ref in components
         and components[instances[cid].definition_ref].package is not None
+        and not is_generic_package(
+            components[instances[cid].definition_ref].package
+        )
     ]
     if len(placed) < 2:
         return []
@@ -415,7 +419,7 @@ def _check_body_overlap(
         if pin_num in pl.shared_pins:
             return True
         defn = components[instances[cid].definition_ref]
-        if defn.package is not None:
+        if defn.package is not None and not is_generic_package(defn.package):
             return is_pin_bendable(defn.package, pin_num)
         return pin_num in defn.bendable_pins
 

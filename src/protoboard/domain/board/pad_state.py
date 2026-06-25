@@ -847,9 +847,7 @@ class PadIndex:
         """
         if comp_id in self._component_records:
             return
-        from protoboard.domain.layout.placement import (
-            component_bbox, pin_world_position,
-        )
+        from protoboard.domain.layout.placement import pin_world_position
         footprint: list[tuple[_PadKey, Side, Item]] = []
         side = placement.side
         # Pin items.
@@ -881,17 +879,16 @@ class PadIndex:
             blocks_routing=getattr(defn, "body_blocks_routing", False),
         )
         pin_keys = {f[0] for f in footprint}
-        # When a parametric package is present it is the source of truth for the
-        # body footprint: its mask knows exactly which holes the body covers
-        # (side-aware), so we mark those holes directly instead of flooding a
-        # rectangular bbox.  Without a package, fall back to the legacy bbox.
+        # The package is the single source of truth for the body footprint: its
+        # mask knows exactly which holes the body covers (side-aware), so we mark
+        # those holes directly. ``defn.package`` is an invariant (the loader
+        # synthesizes a generic bbox package when none is declared), so the
+        # legacy ``component_bbox`` fallback is gone; the empty-list branch only
+        # guards a degenerate definition with no package at all.
         if defn.package is not None:
             body_pads = self._package_body_pads(defn.package, placement)
         else:
-            bbox = component_bbox(
-                defn.footprint, placement, defn.component_class,
-            )
-            body_pads = self._pads_in_bbox(bbox)
+            body_pads = []
         for pad in body_pads:
             key = qpair(pad.position)
             if key in pin_keys:
@@ -972,28 +969,6 @@ class PadIndex:
             pad = self._pads.get(qpair(world))
             if pad is not None:
                 out.append(pad)
-        return out
-
-    def _pads_in_bbox(self, bbox) -> list[Pad]:  # noqa: ANN001  (Rect is geometry)
-        """Pads whose center lies inside *bbox* (inclusive on both bounds)."""
-        out: list[Pad] = []
-        # Brute-force iterate the grid cells the bbox covers.
-        x0 = int(math.floor(bbox.x))
-        x1 = int(math.floor(bbox.x + bbox.width))
-        y0 = int(math.floor(bbox.y))
-        y1 = int(math.floor(bbox.y + bbox.height))
-        for cx in range(x0, x1 + 1):
-            for cy in range(y0, y1 + 1):
-                for k in self._pad_grid.get((cx, cy), []):
-                    pad = self._pads.get(k)
-                    if pad is None:
-                        continue
-                    px, py = pad.position.x, pad.position.y
-                    if (
-                        bbox.x - SNAP_TOL <= px <= bbox.x + bbox.width + SNAP_TOL
-                        and bbox.y - SNAP_TOL <= py <= bbox.y + bbox.height + SNAP_TOL
-                    ):
-                        out.append(pad)
         return out
 
     # ------------------------------------------------------------------

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Callable
+from functools import lru_cache
 from typing import Any
 
 from protoboard.domain.components.footprints import DIL, SIL, Footprint
@@ -75,6 +76,68 @@ def _prism_from_footprint(fp: Footprint) -> Package | None:
         return build_package(spec, "synth/kind")
     except PackageDefError:
         return None
+
+
+# Marker stamped on the synthetic fallback package (``Prism.kind``) so consumers
+# can tell a *declared* body apart from this generic bbox stand-in and keep their
+# pre-invariant behaviour (authored ``bendable_pins``, DRC body-overlap skip).
+GENERIC_PACKAGE_KIND = "_generic"
+
+
+def is_generic_package(package: object) -> bool:
+    """True when *package* is the synthetic generic bbox fallback (not declared).
+
+    Single predicate so the ``kind == "_generic"`` tag-check is not duplicated
+    across ``effective_bend_specs`` and the DRC engine.
+    """
+    return getattr(package, "kind", None) == GENERIC_PACKAGE_KIND
+
+
+@lru_cache(maxsize=None)
+def _synth_generic_by_pins(
+    pins: tuple[tuple[float, float], ...], bend_holes: float
+) -> Package | None:
+    if len(pins) < 1:
+        return None
+    steps = [
+        [pins[i + 1][0] - pins[i][0], pins[i + 1][1] - pins[i][1]]
+        for i in range(len(pins) - 1)
+    ]
+    spec = {
+        "shape": "prism",
+        "dims": {},  # bbox derived from pins + margin
+        "bend": bend_holes,  # > 0 → non-rigid (is_rigid_package stays False)
+        "margin": _MARGIN_HOLES * _RASTER_MM,
+        "leads": {
+            "direction": [0, 0, -1],
+            "body_offset": {"unit": _RASTER_MM, "value": steps},
+            "board_offset": "default",
+        },
+    }
+    try:
+        pkg = build_package(spec, "synth/generic")
+    except PackageDefError:
+        return None
+    if isinstance(pkg, Prism):
+        pkg = dataclasses.replace(pkg, kind=GENERIC_PACKAGE_KIND)
+    return pkg
+
+
+def synth_generic_package(
+    fp: Footprint, *, bend_holes: float = 1.0
+) -> Package | None:
+    """A NON-rigid generic bbox package whose pins follow *fp*.
+
+    The fallback body for a library part that declares no real package, so
+    ``ComponentDefinition.package`` can be an invariant (always set). Geometry is
+    the pin-cloud bbox + 0.5-hole margin (matching the legacy ``component_bbox``
+    body footprint); ``bend > 0`` keeps ``is_rigid_package`` False so the part's
+    bendable leads survive. Tagged ``kind="_generic"`` so bend-spec / DRC
+    consumers can tell it from a declared body and keep today's behaviour.
+    Returns ``None`` for a footprint with no pins. Cached by pin-cloud (the ~187
+    library parts collapse to a handful of distinct clouds)."""
+    pins = tuple((p.x, p.y) for p in fp.pin_positions())
+    return _synth_generic_by_pins(pins, bend_holes)
 
 
 def _dip(pins: int, *, wide: bool) -> Package | None:
