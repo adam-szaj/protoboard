@@ -226,3 +226,53 @@ class TestLibrarySmdIsRigidWithMount:
         assert list(specs.keys()) == [2]
         assert not specs[2].is_free()
         assert len(specs[2].discrete) == 8
+
+
+class TestEffectiveBendSpecsResolvesChosenVariant:
+    """Regression: a part whose bodies live in a ``footprints:`` list (``R``)
+    must get the chosen variant's specs from ``effective_bend_specs`` — the
+    place tool / properties panel / select-tool re-drag all rely on this so an
+    SMD-0805 resistor is a rigid king-move mount, not a THT axial free ring."""
+
+    @staticmethod
+    def _resistor_and_catalogue():  # type: ignore[no-untyped-def]
+        from protoboard.paths import BUILTIN_LIBRARY_DIR
+        from protoboard.services.library.loader import load_library
+        from protoboard.services.library.package_family_loader import (
+            load_full_package_catalogue,
+        )
+        families = load_full_package_catalogue()
+        lib = load_library([BUILTIN_LIBRARY_DIR], families)
+        return lib.get("R"), families
+
+    def test_smd_variant_yields_discrete_king_move(self) -> None:
+        from protoboard.domain.components.instance import ComponentInstance
+
+        defn, families = self._resistor_and_catalogue()
+        inst = ComponentInstance.new(
+            definition_ref="R", refdes="R1", value="",
+            package_variant="SMD-0805/typ",
+        )
+        specs = effective_bend_specs(defn, inst, families)
+        assert list(specs.keys()) == [2]
+        assert not specs[2].is_free()           # discrete, not a reach ring
+        assert len(specs[2].discrete) == 8      # the 8 king-move neighbours
+
+    def test_axial_variant_stays_free(self) -> None:
+        from protoboard.domain.components.instance import ComponentInstance
+
+        defn, families = self._resistor_and_catalogue()
+        inst = ComponentInstance.new(
+            definition_ref="R", refdes="R2", value="",
+            package_variant="DIN-0207/typ",
+        )
+        specs = effective_bend_specs(defn, inst, families)
+        # A THT axial body keeps its free bendable lead (no regression).
+        assert any(s.is_free() for s in specs.values())
+
+    def test_no_catalogue_falls_back_to_bendable_pins(self) -> None:
+        # Backward compat for every legacy caller that passes only the defn:
+        # behaviour is unchanged (the THT axial free spec).
+        defn, _ = self._resistor_and_catalogue()
+        specs = effective_bend_specs(defn)
+        assert specs == defn.bendable_pins

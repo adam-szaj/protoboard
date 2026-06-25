@@ -21,6 +21,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from protoboard.domain.components.package.body import MountStyle
+from protoboard.domain.components.package.component_package import (
+    resolve_component_package,
+)
 from protoboard.domain.components.package.shapes import (
     Package,
     surface_mount_offsets,
@@ -38,6 +41,8 @@ if TYPE_CHECKING:
         ComponentDefinition,
         PinBendSpec,
     )
+    from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.components.package.family import PackageFamily
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,15 +167,31 @@ def package_to_bend_specs(
 
 def effective_bend_specs(
     defn: "ComponentDefinition",
+    instance: "ComponentInstance | None" = None,
+    families: "dict[str, PackageFamily] | None" = None,
 ) -> dict[int, "PinBendSpec"]:
-    """The per-pin bend specs in force for a definition.
+    """The per-pin bend specs in force for a definition / placed instance.
 
-    Single point of truth shared by the place tool and the properties panel: a
-    parametric ``package`` drives the specs (including an SMD chip's discrete
-    mount points); otherwise the legacy ``bendable_pins`` apply.  Without this,
-    a consumer reading ``defn.bendable_pins`` directly would miss package-driven
-    specs — the loader clears ``bendable_pins`` for rigid (incl. SMD) packages.
+    Single point of truth shared by the place tool, the properties panel and the
+    select-tool re-drag: a parametric package drives the specs (including an SMD
+    chip's discrete mount points); otherwise the legacy ``bendable_pins`` apply.
+    Without this, a consumer reading ``defn.bendable_pins`` directly would miss
+    package-driven specs — the loader clears ``bendable_pins`` for rigid (incl.
+    SMD) packages baked onto the definition.
+
+    When *families* is given, the **chosen footprint variant** drives the specs:
+    ``resolve_component_package(defn, instance, families)`` picks the package by
+    precedence (``instance.package_variant`` → ``defn.package_family_ref`` →
+    ``defn.package``). This is what makes a part whose bodies live in a
+    ``footprints:`` list (e.g. ``R`` placed as ``SMD-0805``) resolve its rigid /
+    SMD specs even though ``defn.package`` is ``None``. Omitting *families* keeps
+    the legacy ``defn.package`` → ``bendable_pins`` behaviour for callers that
+    have no catalogue to resolve against.
     """
+    if families is not None:
+        pkg = resolve_component_package(defn, instance, families)
+        if pkg is not None:
+            return package_to_bend_specs(pkg)
     if defn.package is not None:
         return package_to_bend_specs(defn.package)
     return defn.bendable_pins

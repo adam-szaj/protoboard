@@ -1843,7 +1843,9 @@ class SelectTool(_Tool):
         defn = self._session.components.get(inst.definition_ref)
         if defn is None:
             return None
-        specs = effective_bend_specs(defn)
+        specs = effective_bend_specs(
+            defn, inst, getattr(self._session, "package_families", None)
+        )
         if not specs:
             return None
 
@@ -1911,7 +1913,9 @@ class SelectTool(_Tool):
         defn = self._session.components.get(inst.definition_ref)
         if defn is None:
             return None
-        spec = effective_bend_specs(defn).get(pin)
+        spec = effective_bend_specs(
+            defn, inst, getattr(self._session, "package_families", None)
+        ).get(pin)
         if spec is None:
             return None
         snapped = self._snap(target, frozenset())
@@ -2001,7 +2005,9 @@ class SelectTool(_Tool):
         defn = self._session.components.get(inst.definition_ref)
         if defn is None:
             return
-        spec = effective_bend_specs(defn).get(pin)
+        spec = effective_bend_specs(
+            defn, inst, getattr(self._session, "package_families", None)
+        ).get(pin)
         if spec is None:
             return
         r = 0.18

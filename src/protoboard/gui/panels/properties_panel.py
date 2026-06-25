@@ -193,6 +193,8 @@ class PropertiesPanel(QWidget):
         self._rebuild_pin_offsets(
             defn,
             placement.pin_offsets if placement is not None else {},
+            inst,
+            package_families or {},
         )
         self._update_geometry_table(placement, defn)
         self._rebuild_pin_variant_combo(defn, inst.pin_variant)
@@ -260,17 +262,24 @@ class PropertiesPanel(QWidget):
         self,
         defn: ComponentDefinition | None,
         current_offsets: dict[int, Point],
+        instance: ComponentInstance | None = None,
+        package_families: "dict | None" = None,
     ) -> None:
         while self._pin_offsets_form.rowCount():
             self._pin_offsets_form.removeRow(0)
         self._pin_offset_spins.clear()
         self._pin_bend_widgets = {}
 
-        # Package-aware specs: a parametric package (incl. an SMD chip's discrete
-        # mount points) drives bending; the loader clears bendable_pins for rigid
-        # packages, so reading it directly would miss the SMD mount picker.
+        # Package-aware specs: the chosen footprint variant (incl. an SMD chip's
+        # discrete mount points) drives bending. We pass the placed instance +
+        # the catalogue so a part whose bodies live in a ``footprints:`` list
+        # (e.g. ``R`` as ``SMD-0805``) shows the SMD mount picker, matching the
+        # place tool — not the legacy axial ``bendable_pins``.
         from protoboard.domain.components.package import effective_bend_specs
-        specs = effective_bend_specs(defn) if defn is not None else {}
+        specs = (
+            effective_bend_specs(defn, instance, package_families)
+            if defn is not None else {}
+        )
         if defn is None or not specs:
             self._pin_offsets_grp.setVisible(False)
             return

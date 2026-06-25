@@ -4,6 +4,36 @@ Open follow-ups that don't fit into the closed plans archived under
 [docs/archive/](archive/).  Each entry has enough context to pick up
 the work cold.
 
+## component_bbox margin should follow package rigidity, not class (added 2026-06-25)
+
+`domain/layout/placement.py::component_bbox` picks its margin by **electrical
+class**: `m = _PAD_MARGIN if component_class in _FLEXIBLE_LEAD_CLASSES else
+_BODY_MARGIN`. So an SMD resistor (class `resistor`, but a *rigid* body lying
+flat on pads) is given the flexible-lead pad-margin as if its body floated with
+bendable leads — the geometric twin of the bend-spec bug just fixed (where the
+place tool treated SMD `R` as THT). This bbox drives hit-test, placement-conflict
+detection and the selection outline (`board_view.py`, `placement_conflict.py`,
+`pad_conflict.py`, routing).
+
+The model already has the right signal: `shapes.is_rigid_package(package)` — the
+same function `loader.py:613` uses for "the rigid body fixes the spacing". The
+clean fix is to choose the margin from `is_rigid_package(resolved_pkg)` instead
+of the class.
+
+**Why deferred (2026-06-25):** all 15 `component_bbox` call sites pass only
+`footprint` + `component_class`; **none** has the package-family catalogue, and
+several (`pad_state`, `drag_detector`, `auto_placer`) have no instance either, so
+none can resolve the chosen variant. Worse, `component_bbox` receives
+`defn.footprint` (the *default* variant), not the footprint of the chosen
+instance variant — so even reading `is_rigid_package(footprint.package)` off a
+`PackageFootprint` would miss `R`-placed-as-SMD (its body lives in a `footprints:`
+list, chosen per-instance). Fixing this needs the chosen variant's footprint/
+package threaded to the bbox call sites that have an instance (`pad_conflict`,
+`placement`, `placement_conflict`, `session.component_bbox`, routing) — the same
+variant-vs-definition asymmetry the bend-spec fix solved via
+`effective_bend_specs(defn, instance, families)`. Do it as its own change with
+regression tests (THT axial keeps `_PAD_MARGIN`; SMD/DIP get `_BODY_MARGIN`).
+
 ## Footprint→body cleanup: two deferred parities (added 2026-06-25)
 
 The geometry/footprint rework (commits `03d432e`/`028259b`/`a28641f` +
