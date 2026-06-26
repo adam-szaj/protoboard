@@ -4,6 +4,39 @@ Open follow-ups that don't fit into the closed plans archived under
 [docs/archive/](archive/).  Each entry has enough context to pick up
 the work cold.
 
+## Bendable leads for N-pin parts + per-pin re-drag (added 2026-06-26)
+
+Design agreed, **nothing implemented** — full spec in
+[docs/bendable-leads-redrag.md](bendable-leads-redrag.md).
+
+Gap: both the reach model and the re-drag UI assume **one movable lead per
+part**. The data model already reports every TO-92 pin as bendable
+(`tests/unit/test_package_reach.py::test_to92_bendable`), but the reach is one
+ring shared by all pins measured **from the component origin**
+(`PinReach`/`PinBendSpec.is_reachable_from_origin`,
+`reach.py:46` / `definition.py:75`), and `SelectTool._redraggable_pin`
+(`select_tool.py:1829`) auto-picks a **single** pin (first movable, sorted) — the
+user cannot choose which lead to bend, and the clicked pin is never remembered
+(`hit_test.py` resolves a click to the component, not the pin).
+
+Agreed model: reach is **per-pin**, a euclidean `(min, max)` **disc centred on
+each pin's own default hole** (`min ≈ 0`). One feasibility rule: a re-drag is
+legal iff every pin's final hole lies in its own disc and no rigid pin is forced
+off its pad. Grab a **bendable** pin → pure single-lead bend (body fixed); grab a
+**rigid** pin → body translates and the other leads absorb it within their discs
+(this is why 2-pin rigid-end grab slides the body). Entry is **click-a-pin**
+(re-click switches; pick-a-pin sub-step when the component wasn't selected via a
+pin); the silent auto-pick is removed. Overlay shows **both** reachable-pad
+highlight (∩ feasibility) and the disc outline + green/red validity tint.
+
+Phases (see the doc): (1) per-pin disc reach model + tests; (2) remember clicked
+pin + click-a-pin entry, remove auto-pick; (3) rigid-grab body-translate path +
+unified feasibility predicate; (4) overlay. Riskiest: phase 3 (new
+body-translation logic — today's `_build_redrag_command` only ever bends one
+lead). Overlay legality must call the **same** predicate as commit (no silent
+divergence). Deferred: a bendable grab that *also* translates the body (needs an
+"extra range" knob in the package definition).
+
 ## Generic-package invariant — follow-ups (added 2026-06-25)
 
 `ComponentDefinition.package` is now an invariant: the loader synthesizes a
