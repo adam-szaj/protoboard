@@ -203,6 +203,9 @@ class SelectTool(_Tool):
         self._redrag_comp_id: uuid.UUID | None = None
         self._redrag_pin: int | None = None
         self._redrag_items: list[QGraphicsItem] = []
+        # Live validity-tint marker under the cursor during a re-drag pad pick;
+        # cleared and redrawn on each pointer move.
+        self._redrag_live: QGraphicsItem | None = None
         # Armed-rotate pivot markers: re-drawn after each preview refresh (which
         # rebuilds the scene), so a rotating selection visibly shows *what it
         # spins around* — one marker per object (per-object pivot) or one on the
@@ -1823,6 +1826,7 @@ class SelectTool(_Tool):
             on_done=self._redrag_commit,
             on_cancel=self._redrag_clear,
             on_progress=self._redrag_progress,
+            on_preview=self._redrag_preview,
             resolve=self._resolve_redrag_pad,
         )
 
@@ -2072,10 +2076,18 @@ class SelectTool(_Tool):
         )
 
     def _draw_redrag_overlay(self, comp_id: uuid.UUID) -> None:
+        """Light every legal landing pad + outline the grabbed pin's reach disc.
+
+        A pad is lit iff :func:`redrag_feasibility` accepts it as the target —
+        the same predicate the commit uses, so the lit set IS the committable
+        set.  For a bendable grab the grabbed pin's reach disc is outlined,
+        centred on that pin's default hole.
+        """
         from PySide6.QtGui import QBrush, QPen
         from PySide6.QtWidgets import QGraphicsEllipseItem
 
         from protoboard.domain.components.package import effective_bend_specs
+        from protoboard.domain.layout.placement import pin_world_position
 
         self._clear_redrag_overlay()
         pin = self._redrag_pin
@@ -2086,11 +2098,7 @@ class SelectTool(_Tool):
         defn = self._session.components.get(inst.definition_ref)
         if defn is None:
             return
-        spec = effective_bend_specs(
-            defn, inst, getattr(self._session, "package_families", None)
-        ).get(pin)
-        if spec is None:
-            return
+
         r = 0.18
         green = QColor(0, 200, 80, 120)
 
@@ -2102,10 +2110,74 @@ class SelectTool(_Tool):
             self._view.scene().addItem(item)
             self._redrag_items.append(item)
 
-        if spec.is_free():
-            for pt in self._view.board_pad_positions():
-                if spec.is_reachable_from_origin(pl.position, pt):
-                    _dot(pt)
+        # Legal landing pads — feasibility per pad (overlay == commit).
+        for pt in self._view.board_pad_positions():
+            result = self._redrag_feasibility(comp_id, pin, pt)
+            if result is not None and result.ok:
+                _dot(pt)
+
+        # Reach-disc outline for a bendable grab, centred on the pin's default.
+        spec = effective_bend_specs(
+            defn, inst, getattr(self._session, "package_families", None)
+        ).get(pin)
+        if spec is not None and spec.is_free() and spec.max_reach > 0.0:
+            temp = pl.copy()
+            temp.pin_offsets = {
+                k: v for k, v in pl.pin_offsets.items() if k != pin
+            }
+            centre = pin_world_position(defn.footprint, temp, pin)
+            rad = spec.max_reach
+            ring = QGraphicsEllipseItem(
+                centre.x - rad, centre.y - rad, 2 * rad, 2 * rad
+            )
+            ring.setBrush(QBrush(Qt.GlobalColor.transparent))
+            ring.setPen(QPen(QColor(0, 200, 80, 160), 0))
+            ring.setZValue(19.5)
+            self._view.scene().addItem(ring)
+            self._redrag_items.append(ring)
+
+    def _redrag_preview(self, scene_pt: Point, _mods: Mods) -> None:
+        """Live validity tint under the cursor during the re-drag pad pick.
+
+        Green ring = the snapped pad is a legal landing; red ring with a central
+        cross = illegal.  The cross is a non-colour cue so the legal/illegal
+        signal does not rely on colour alone (accessibility).
+        """
+        from PySide6.QtGui import QBrush, QPen
+        from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem
+        from PySide6.QtWidgets import QGraphicsItemGroup
+
+        self._clear_redrag_live()
+        cid, pin = self._redrag_comp_id, self._redrag_pin
+        if cid is None or pin is None:
+            return
+        # A re-click on another pin is a grab-switch, not a target — skip tint.
+        hit = self._hit_tester().hit(scene_pt.x, scene_pt.y, self._filters())
+        if self._selectable_pin(cid, hit) is not None:
+            return
+        snapped = self._snap(scene_pt, frozenset())
+        result = self._redrag_feasibility(cid, pin, snapped)
+        ok = result is not None and result.ok
+        r = 0.28
+        group = QGraphicsItemGroup()
+        colour = QColor(0, 200, 80, 200) if ok else QColor(220, 40, 40, 200)
+        ring = QGraphicsEllipseItem(snapped.x - r, snapped.y - r, 2 * r, 2 * r)
+        ring.setBrush(QBrush(Qt.GlobalColor.transparent))
+        ring.setPen(QPen(colour, 0))
+        group.addToGroup(ring)
+        if not ok:
+            # Non-colour cue: an "X" through the ring marks "no drop here".
+            c = r * 0.6
+            for x1, y1, x2, y2 in (
+                (snapped.x - c, snapped.y - c, snapped.x + c, snapped.y + c),
+                (snapped.x - c, snapped.y + c, snapped.x + c, snapped.y - c),
+            ):
+                ln = QGraphicsLineItem(x1, y1, x2, y2)
+                ln.setPen(QPen(colour, 0))
+                group.addToGroup(ln)
+        group.setZValue(21.0)
+        self._view.scene().addItem(group)
+        self._redrag_live = group
 
     def _redrag_clear(self) -> None:
         self._clear_redrag_overlay()
@@ -2113,12 +2185,21 @@ class SelectTool(_Tool):
         self._redrag_pin = None
 
     def _clear_redrag_overlay(self) -> None:
+        self._clear_redrag_live()
         for item in self._redrag_items:
             try:
                 self._view.scene().removeItem(item)
             except RuntimeError:
                 pass
         self._redrag_items = []
+
+    def _clear_redrag_live(self) -> None:
+        if self._redrag_live is not None:
+            try:
+                self._view.scene().removeItem(self._redrag_live)
+            except RuntimeError:
+                pass
+            self._redrag_live = None
 
     # -- wire-edit (fragment = selection, operations = actions) -------------
 

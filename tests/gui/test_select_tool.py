@@ -1096,6 +1096,26 @@ class TestRedrag:
         # Pin 2 absorbed the shift — its world position is unchanged.
         assert pin_world_position(defn.footprint, pl, 2) == pin2_before
 
+    def test_redrag_overlay_lights_only_feasible_pads(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # The overlay's lit pads must equal the set redrag_feasibility accepts —
+        # overlay legality == commit legality (no silent divergence).
+        inst = _place(board_view, session, 1.0, 1.0)
+        _make_bendable(session, inst.id, pin=2)  # pin 2 bendable, pin 1 rigid
+        tool = _v2(board_view)
+        _press(tool, 0.5, 1.5)  # click pin 2
+        tool.begin_redrag(inst.id)
+        assert tool._redrag_pin == 2
+        # Independently compute the feasible pads via the shared predicate.
+        feasible = [
+            p for p in board_view.board_pad_positions()
+            if (r := tool._redrag_feasibility(inst.id, 2, p)) is not None and r.ok
+        ]
+        # The overlay drew one green dot per feasible pad (plus the disc ring).
+        assert len(feasible) > 0
+        assert len(tool._redrag_items) == len(feasible) + 1  # dots + disc outline
+
 
 class TestPickRouting:
     def test_click_feeds_active_pick(

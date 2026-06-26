@@ -10,9 +10,12 @@ Full spec in [docs/bendable-leads-redrag.md](bendable-leads-redrag.md).
 **Phase 1 DONE** `aebaf1e` (per-pin reach disc centred on each pin's default).
 **Phase 2 DONE** `eacd3f5` (click-a-pin entry; clicked pin remembered; re-click
 switches; pick-a-pin sub-step; `_redraggable_pin` auto-pick removed).
-**Phase 3 DONE** (rigid-grab body-translate + the shared `redrag_feasibility`
-predicate in `reach.py`, called by both commit and overlay). Phase 4 (overlay
-disc outline + validity tint) remains.
+**Phase 3 DONE** `58d25cd` (rigid-grab body-translate + the shared
+`redrag_feasibility` predicate in `reach.py`, called by both commit and overlay).
+**Phase 4 DONE** (overlay: lit pads = feasibility ∩ board pads via the shared
+predicate; reach-disc outline for a bendable grab; live green/red validity tint
+under the cursor with an "X" non-colour cue for illegal). **All four phases of
+the bendable-leads/per-pin re-drag work are complete.**
 
 Behaviour change in Phase 3 (tracked per CLAUDE.md): clicking the **rigid**
 anchor pin of an SMD chip now grabs that pin (a body-translate), not the free

@@ -1,8 +1,13 @@
 # Bendable leads for N-pin parts + per-pin re-drag (design)
 
-Status: **design-only** (agreed 2026-06-26). Nothing implemented yet. Captures
-the agreed reach model and the re-drag interaction so the per-pin model and the
-feasibility rule are written down before code.
+Status: **SHIPPED** (2026-06-26). All four phases landed —
+phase 1 `aebaf1e` (per-pin reach disc), phase 2 `eacd3f5` (click-a-pin entry),
+phase 3 `58d25cd` (rigid-grab body-translate + shared `redrag_feasibility`),
+phase 4 (overlay). Captures the agreed reach model and the re-drag interaction;
+kept as the canonical reference. One behaviour change from the original sketch is
+noted in [todo.md](todo.md): clicking the rigid anchor of an SMD chip
+body-translates (the single-movable convenience now applies only to a body
+click). Deferred items in §5 remain open.
 
 The gap this closes: the reach model and the re-drag UI both effectively assume
 **one movable lead per part**. They work for axial 2-pin parts and the SMD 2-pin
