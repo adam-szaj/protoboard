@@ -70,6 +70,32 @@ class TestBendableGrab:
         )
         assert not r.ok and r.new_placement is None
 
+    def test_bent_pin_can_return_to_its_default_despite_min_reach(self) -> None:
+        # Regression (2026-06-26): after several re-drags a pin sits off its
+        # default; the user re-drags it back ONTO its default.  min_reach (the
+        # 2-pin spacing floor) must NOT block that — the bend disc is [0, max].
+        fp = SIL(3)
+        # min_reach 1.0 like a 2-pin spacing floor leaking into an N-pin spec.
+        specs = {
+            1: PinBendSpec(min_reach=1.0, max_reach=4.0),
+            2: _RIGID,
+            3: _RIGID,
+        }
+        # Pin 1 currently bent to (2,0); its default is the origin (0,0).
+        pl = ComponentPlacement(
+            component_id=uuid.uuid4(), position=Point(0.0, 0.0), rotation=0,
+            side="top", pin_offsets={1: Vector(2.0, 0.0)},
+        )
+        assert pin_world_position(fp, pl, 1) == Point(2.0, 0.0)
+        r = redrag_feasibility(
+            footprint=fp, placement=pl, specs=specs,
+            grabbed_pin=1, target=Point(0.0, 0.0), free_pads=_PADS,
+        )
+        assert r.ok and r.new_placement is not None
+        # Pin 1 is back on its default; its offset is cleared.
+        assert pin_world_position(fp, r.new_placement, 1) == Point(0.0, 0.0)
+        assert 1 not in r.new_placement.pin_offsets
+
 
 class TestRigidGrab:
     def test_rigid_grab_translates_body_axial_2pin(self) -> None:

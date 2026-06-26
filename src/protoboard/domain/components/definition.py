@@ -92,15 +92,36 @@ class PinBendSpec:
         """True gdy tryb swobodny 2D (dowolny pad w dozwolonym promieniu)."""
         return self.max_reach > 0.0
 
+    def is_within_bend_disc(
+        self, pin_default_world: Point, target_world: Point
+    ) -> bool:
+        """Czy ``target`` mieści się w dysku odgięcia ``[0, max_reach]`` wokół
+        domyślnej pozycji pinu.
+
+        The per-pin BEND check used by re-drag: the lead may bend anywhere from
+        its own default (offset 0 — always legal, the lead simply straightens)
+        out to ``max_reach``.  ``min_reach`` is intentionally NOT applied here —
+        it is the 2-pin *spacing* floor (distance from the origin / the other
+        terminal, enforced by the place tool via
+        :meth:`is_reachable_from_origin`), a different axis.  Conflating the two
+        wrongly blocked a pin from returning to its own default after several
+        re-drags (2026-06-26).
+        """
+        d = math.hypot(
+            target_world.x - pin_default_world.x,
+            target_world.y - pin_default_world.y,
+        )
+        return d <= self.max_reach
+
     def is_reachable_from_pin_default(
         self, pin_default_world: Point, target_world: Point
     ) -> bool:
-        """Czy ``target`` mieści się w dysku zasięgu wyśrodkowanym na domyślnym
-        położeniu pinu (model per-pin, 2026-06-26).
+        """Czy ``target`` mieści się w pierścieniu ``[min_reach, max_reach]``
+        wyśrodkowanym na ``pin_default_world``.
 
-        The canonical reach check: the disc is centred on the pin's OWN default
-        world position, so callers pass that pin's un-offset baseline, not the
-        component origin.
+        Annulus form — applies ``min_reach`` as well.  Kept for callers that want
+        the spacing floor centred on a point; re-drag's per-pin bend uses
+        :meth:`is_within_bend_disc` instead (no ``min_reach``).
         """
         d = math.hypot(
             target_world.x - pin_default_world.x,

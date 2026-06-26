@@ -281,8 +281,10 @@ def redrag_feasibility(
     The induced transform depends only on whether the grabbed pin is bendable:
 
     * **Bendable grab** — a pure lead bend: only ``pin_offsets[grabbed_pin]``
-      changes, the body stays put.  Legal iff *target* is within that pin's reach
-      disc (and is a free pad).  Other pins are untouched.
+      changes, the body stays put.  Legal iff *target* is within that pin's bend
+      disc ``[0, max_reach]`` of its own default — so the pin can ALWAYS return
+      to its default (offset 0); ``min_reach`` (the 2-pin spacing floor) does not
+      apply to a pin's bend about its own home.  Other pins are untouched.
     * **Rigid grab** — the body translates so the rigid pin reaches *target*;
       every *other* bendable lead absorbs the shift (its world position stays on
       its current pad via a compensating offset) and must remain within its own
@@ -300,7 +302,7 @@ def redrag_feasibility(
     if grabbed_bendable:
         assert spec is not None
         baseline = _pin_baseline_world(footprint, placement, grabbed_pin)
-        if not spec.is_reachable_from_pin_default(baseline, target):
+        if not spec.is_within_bend_disc(baseline, target):
             return RedragResult(ok=False)
         local_off = _world_delta_to_local_offset(target - baseline, placement)
         new_pl = placement.copy()
@@ -329,9 +331,9 @@ def redrag_feasibility(
         other_spec = specs.get(other)
         if other_spec is not None and other_spec.is_free():
             # Bendable: keep this lead on its current pad — the offset absorbs
-            # the body shift.  It must stay within this pin's own disc.
+            # the body shift.  It must stay within this pin's own bend disc.
             baseline_new = _pin_baseline_world(footprint, new_pl, other)
-            if not other_spec.is_reachable_from_pin_default(baseline_new, old_world):
+            if not other_spec.is_within_bend_disc(baseline_new, old_world):
                 return RedragResult(ok=False)
             local_off = _world_delta_to_local_offset(old_world - baseline_new, new_pl)
             if local_off.x == 0.0 and local_off.y == 0.0:
