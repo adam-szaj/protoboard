@@ -21,7 +21,7 @@ from protoboard.domain.components.package.shapes import (
     Prism,
 )
 from protoboard.domain.components.package.solver import MountOrientation
-from protoboard.geometry import Point
+from protoboard.geometry import Vector
 
 from geometry_utils import _pt, _ve
 
@@ -207,7 +207,7 @@ class TestLoadPresentation:
         t = pkgs["TO-92"]
         assert isinstance(t, Cylinder)
         assert t.flat_radius_mm == 1.175
-        assert t.flat_normal == Point(-1.0, 0.0)
+        assert t.flat_normal == Vector(-1.0, 0.0)
 
     def test_flat_radius_alias_flat_r(self) -> None:
         pkgs = load_packages(GENERICS + [
@@ -272,7 +272,7 @@ class TestBodyAxisPos:
         return load_packages(GENERICS + extra)
 
     def test_scalar_eccentricity_is_sugar_for_x(self) -> None:
-        # Legacy scalar body_eccentricity → Point(s, 0).
+        # Legacy scalar body_eccentricity → Vector(s, 0).
         pkgs = self._load([
             {"name": "Ecc", "extends": "cylinder_radial",
              "dims": {"diameter": 6.3, "length": 11.0},
