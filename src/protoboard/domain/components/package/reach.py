@@ -41,8 +41,10 @@ if TYPE_CHECKING:
         ComponentDefinition,
         PinBendSpec,
     )
+    from protoboard.domain.components.footprints import Footprint
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.components.package.family import PackageFamily
+    from protoboard.domain.layout.placement import ComponentPlacement
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,3 +217,132 @@ def effective_bend_specs(
     if defn.package is not None and not is_generic_package(defn.package):
         return package_to_bend_specs(defn.package)
     return defn.bendable_pins
+
+
+# ---------------------------------------------------------------------------
+# Re-drag feasibility — the single predicate shared by overlay and commit.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class RedragResult:
+    """The outcome of a candidate re-drag.
+
+    ``ok`` is whether the move is legal (every pin's final hole lies in its own
+    reach disc and no rigid pin is forced off a free pad).  ``new_placement`` is
+    the placement that *would* result (``position`` + recomputed ``pin_offsets``)
+    when ``ok``; ``None`` otherwise.  Both the overlay (per candidate pad) and
+    the commit (on the clicked pad) call :func:`redrag_feasibility`, so the lit
+    pads and the committable pads are guaranteed identical.
+    """
+
+    ok: bool
+    new_placement: "ComponentPlacement | None" = None
+
+
+def _pin_baseline_world(
+    footprint: "Footprint", placement: "ComponentPlacement", pin: int
+) -> Point:
+    """World position of *pin* with its own offset stripped (its default hole)."""
+    from protoboard.domain.layout.placement import pin_world_position
+
+    temp = placement.copy()
+    temp.pin_offsets = {k: v for k, v in placement.pin_offsets.items() if k != pin}
+    return pin_world_position(footprint, temp, pin)
+
+
+def _world_delta_to_local_offset(
+    world_delta: Vector, placement: "ComponentPlacement"
+) -> Vector:
+    """Invert the placement pipeline: world delta → local pin offset.
+
+    Mirrors the forward pipeline (local → X-mirror(bottom) → rotate → +position)
+    used by ``pin_world_position``: unrotate, then un-mirror on the bottom side.
+    """
+    from protoboard.domain.layout.placement import unrotate
+
+    local = unrotate(world_delta, placement.rotation)
+    if placement.side == "bottom":
+        local = Vector(-local.dx, local.dy)
+    return local
+
+
+def redrag_feasibility(
+    *,
+    footprint: "Footprint",
+    placement: "ComponentPlacement",
+    specs: dict[int, "PinBendSpec"],
+    grabbed_pin: int,
+    target: Point,
+    free_pads: frozenset[tuple[float, float]],
+) -> RedragResult:
+    """Whether moving *grabbed_pin* to *target* is legal, and the resulting placement.
+
+    The induced transform depends only on whether the grabbed pin is bendable:
+
+    * **Bendable grab** — a pure lead bend: only ``pin_offsets[grabbed_pin]``
+      changes, the body stays put.  Legal iff *target* is within that pin's reach
+      disc (and is a free pad).  Other pins are untouched.
+    * **Rigid grab** — the body translates so the rigid pin reaches *target*;
+      every *other* bendable lead absorbs the shift (its world position stays on
+      its current pad via a compensating offset) and must remain within its own
+      disc, and every *other* rigid pin must land on a free pad.  Legal iff all
+      those hold.
+
+    *free_pads* is the set of board holes a moved rigid pin may land on (rounded
+    ``(x, y)`` tuples); pass the board's free-pad set.  Pure domain — no Qt.
+    """
+    from protoboard.domain.layout.placement import pin_world_position
+
+    spec = specs.get(grabbed_pin)
+    grabbed_bendable = spec is not None and spec.is_free()
+
+    if grabbed_bendable:
+        assert spec is not None
+        baseline = _pin_baseline_world(footprint, placement, grabbed_pin)
+        if not spec.is_reachable_from_pin_default(baseline, target):
+            return RedragResult(ok=False)
+        local_off = _world_delta_to_local_offset(target - baseline, placement)
+        new_pl = placement.copy()
+        new_offsets = dict(placement.pin_offsets)
+        if local_off.x == 0.0 and local_off.y == 0.0:
+            new_offsets.pop(grabbed_pin, None)
+        else:
+            new_offsets[grabbed_pin] = local_off
+        new_pl.pin_offsets = new_offsets
+        return RedragResult(ok=True, new_placement=new_pl)
+
+    # Rigid grab: translate the body so the grabbed pin reaches the target.
+    grabbed_world = pin_world_position(footprint, placement, grabbed_pin)
+    body_shift = target - grabbed_world  # Vector
+    if body_shift.dx == 0.0 and body_shift.dy == 0.0:
+        return RedragResult(ok=True, new_placement=placement.copy())
+
+    new_pl = placement.copy()
+    new_pl.position = placement.position + body_shift
+    new_offsets = dict(placement.pin_offsets)
+
+    for other in range(1, footprint.pin_count() + 1):
+        if other == grabbed_pin:
+            continue
+        old_world = pin_world_position(footprint, placement, other)
+        other_spec = specs.get(other)
+        if other_spec is not None and other_spec.is_free():
+            # Bendable: keep this lead on its current pad — the offset absorbs
+            # the body shift.  It must stay within this pin's own disc.
+            baseline_new = _pin_baseline_world(footprint, new_pl, other)
+            if not other_spec.is_reachable_from_pin_default(baseline_new, old_world):
+                return RedragResult(ok=False)
+            local_off = _world_delta_to_local_offset(old_world - baseline_new, new_pl)
+            if local_off.x == 0.0 and local_off.y == 0.0:
+                new_offsets.pop(other, None)
+            else:
+                new_offsets[other] = local_off
+        else:
+            # Rigid: this pin moves with the body and must land on a free pad.
+            landing = old_world + body_shift
+            key = (round(landing.x, 4), round(landing.y, 4))
+            if key not in free_pads:
+                return RedragResult(ok=False)
+    new_pl.pin_offsets = new_offsets
+    return RedragResult(ok=True, new_placement=new_pl)

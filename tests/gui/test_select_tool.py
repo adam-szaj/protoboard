@@ -980,27 +980,29 @@ class TestRedrag:
         )
         return cid
 
-    def test_redrag_arms_for_smd_discrete_mount(
+    def test_redrag_arms_for_smd_grabs_clicked_terminal(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
-        # Board pads sit at half-integer holes (0.5, 1.5, …); place pin 1 on one.
+        # SMD pin 1 (1.5,1.5) is the rigid body anchor; pin 2 (2.5,1.5) is the
+        # free terminal.  Clicking the free terminal grabs it; clicking the rigid
+        # anchor grabs the anchor (a body-translate).  Either way a pick arms.
         cid = self._place_smd(session, 1.5, 1.5)
         tool = _v2(board_view)
-        _press(tool, 1.5, 1.5)  # select
+        _press(tool, 2.5, 1.5)  # click the free terminal (pin 2)
         tool.begin_redrag(cid)
-        # The SMD second terminal is a discrete mount → re-drag arms a pick.
         assert tool._selection.active_pick is not None
         assert tool._redrag_pin == 2
 
-    def test_redrag_smd_to_diagonal_pad(
+    def test_redrag_smd_free_terminal_to_diagonal_pad(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
         from protoboard.domain.layout.placement import pin_world_position
         cid = self._place_smd(session, 1.5, 1.5)
         tool = _v2(board_view)
-        _press(tool, 1.5, 1.5)
+        _press(tool, 2.5, 1.5)  # grab the free terminal (pin 2)
         tool.begin_redrag(cid)
-        # Click the SE diagonal pad (2.5, 2.5) → pin 2 snaps onto it.
+        assert tool._redrag_pin == 2
+        # Click the SE-of-pin1 diagonal pad (2.5, 2.5) → pin 2 bends onto it.
         _click(tool, 2.5, 2.5)
         pl = session.layout.placements[cid]
         defn = session.components["R_SMD_T"]
@@ -1067,6 +1069,32 @@ class TestRedrag:
         # Clicking pin 2 resolves the sub-step and arms the pad pick on pin 2.
         _click(tool, 0.5, 1.5)
         assert tool._redrag_pin == 2
+
+    def test_redrag_rigid_grab_translates_body(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Grab the RIGID pin 1 of a part whose pin 2 is bendable: the body slides
+        # so pin 1 reaches the target, and pin 2 absorbs the shift (stays put).
+        from protoboard.domain.layout.placement import pin_world_position
+        from protoboard.geometry import Point
+
+        inst = _place(board_view, session, 1.0, 1.0)  # pin1 (0.5,0.5) rigid
+        _make_bendable(session, inst.id, pin=2)       # only pin 2 bends
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)  # click the rigid pin 1
+        assert tool._selected_clicked_pin(inst.id) == 1
+        tool.begin_redrag(inst.id)
+        assert tool._redrag_pin == 1
+        defn = session.components[session.instances[inst.id].definition_ref]
+        pin2_before = pin_world_position(
+            defn.footprint, session.layout.placements[inst.id], 2
+        )
+        _click(tool, 1.5, 0.5)  # move pin 1 one hole east
+        pl = session.layout.placements[inst.id]
+        assert pl.position == Point(1.5, 0.5)  # body translated
+        assert pin_world_position(defn.footprint, pl, 1) == Point(1.5, 0.5)
+        # Pin 2 absorbed the shift — its world position is unchanged.
+        assert pin_world_position(defn.footprint, pl, 2) == pin2_before
 
 
 class TestPickRouting:

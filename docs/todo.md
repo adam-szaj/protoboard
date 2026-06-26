@@ -8,8 +8,18 @@ the work cold.
 
 Full spec in [docs/bendable-leads-redrag.md](bendable-leads-redrag.md).
 **Phase 1 DONE** `aebaf1e` (per-pin reach disc centred on each pin's default).
-**Phase 2 DONE** (click-a-pin entry; clicked pin remembered; re-click switches;
-pick-a-pin sub-step; `_redraggable_pin` auto-pick removed). Phases 3-4 remain.
+**Phase 2 DONE** `eacd3f5` (click-a-pin entry; clicked pin remembered; re-click
+switches; pick-a-pin sub-step; `_redraggable_pin` auto-pick removed).
+**Phase 3 DONE** (rigid-grab body-translate + the shared `redrag_feasibility`
+predicate in `reach.py`, called by both commit and overlay). Phase 4 (overlay
+disc outline + validity tint) remains.
+
+Behaviour change in Phase 3 (tracked per CLAUDE.md): clicking the **rigid**
+anchor pin of an SMD chip now grabs that pin (a body-translate), not the free
+terminal — the old single-movable convenience only applies to a *body* click
+now. To re-drag the free terminal, click the terminal. SMD parity tests
+repointed accordingly (`test_redrag_arms_for_smd_grabs_clicked_terminal`,
+`test_redrag_smd_free_terminal_to_diagonal_pad`).
 
 Dropped in Phase 2 (per CLAUDE.md, tracked here not as an inline comment): the
 old `_redraggable_pin` had a special case forcing **pin 1** as the re-drag target

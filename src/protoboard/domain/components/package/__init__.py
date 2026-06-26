@@ -46,10 +46,12 @@ from protoboard.domain.components.package.mask import (
 )
 from protoboard.domain.components.package.reach import (
     PinReach,
+    RedragResult,
     effective_bend_specs,
     is_pin_bendable,
     package_to_bend_specs,
     pin_reaches,
+    redrag_feasibility,
 )
 from protoboard.domain.components.package.shapes import (
     BOARD_DEFAULT,
@@ -101,6 +103,8 @@ __all__ = [
     "is_pin_bendable",
     "effective_bend_specs",
     "package_to_bend_specs",
+    "redrag_feasibility",
+    "RedragResult",
     "MountStyle",
     "load_packages",
     "masks_collide",

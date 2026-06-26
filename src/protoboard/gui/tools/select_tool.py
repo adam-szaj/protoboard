@@ -34,7 +34,7 @@ from PySide6.QtGui import QColor, QPen
 from PySide6.QtWidgets import QGraphicsRectItem
 
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
-from protoboard.geometry import Point, Vector
+from protoboard.geometry import Point
 from protoboard.gui.board_view import _Tool
 from protoboard.gui.highlight.controller import HighlightController
 from protoboard.gui.selection.drag_controller import DragController, FloatingPhase
@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
     from PySide6.QtWidgets import QGraphicsItem
 
+    from protoboard.domain.components.package import RedragResult
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.wire import Wire
     from protoboard.gui.board_view import BoardView
@@ -1740,14 +1741,19 @@ class SelectTool(_Tool):
 
     @traced("SelectTool.begin_redrag")
     def begin_redrag(self, comp_id: uuid.UUID | None = None) -> None:
-        """Arm re-drag: choose a pin, then the pad its lead should reach.
+        """Arm re-drag: choose a pin, then the pad it should reach.
 
-        Entry is **click-a-pin** (no silent auto-pick): the grabbed pin is the
-        one the component was selected by clicking, if that pin is movable.
-        Failing that, the sole movable pin is used as a convenience (so clicking
-        an SMD chip's rigid body still grabs its one free terminal); otherwise
-        the user must pick a pin first (the pick-a-pin sub-step).  Re-clicking
-        another movable pin during the pad pick switches the grab.
+        Entry is **click-a-pin** (no silent auto-pick).  The grabbed pin is the
+        one the component was selected by clicking — *any* pin, rigid or
+        bendable: grabbing a bendable pin bends that lead, grabbing a rigid pin
+        translates the body while the other leads absorb the shift (feasibility
+        is decided per target by :func:`redrag_feasibility`).  The component must
+        have at least one movable lead for a re-drag to be possible at all.
+
+        On a body click (no specific pin) the grab is ambiguous: the sole movable
+        lead is used as a convenience, otherwise the user picks a pin first (the
+        pick-a-pin sub-step).  Re-clicking another pin during the pad pick
+        switches the grab.
         """
         cid = comp_id if comp_id is not None else next(
             iter(self._selected_comp_ids()), None
@@ -1761,34 +1767,33 @@ class SelectTool(_Tool):
             return
 
         clicked = self._selected_clicked_pin(cid)
-        if clicked is not None and clicked in movable:
+        if clicked is not None:
+            # Grab the clicked pin directly — rigid pins translate the body.
             self._arm_redrag_pad_pick(cid, clicked)
         elif len(movable) == 1:
-            # One free lead → no ambiguity; grab it even on a body click.
+            # Body click, one free lead → no ambiguity; grab it.
             self._arm_redrag_pad_pick(cid, next(iter(movable)))
         else:
-            self._begin_redrag_pick_pin(cid, movable)
+            self._begin_redrag_pick_pin(cid)
 
-    def _begin_redrag_pick_pin(
-        self, comp_id: uuid.UUID, movable: set[int]
-    ) -> None:
+    def _begin_redrag_pick_pin(self, comp_id: uuid.UUID) -> None:
         """Pick-a-pin sub-step: arm a component pick to choose the grabbed pin.
 
-        Reached when the component was not selected via one of its movable pins
-        and more than one lead can bend.  The pick resolves a board entity; we
-        accept it only when it is a movable pin of *comp_id*, then arm the pad
-        pick for that pin.
+        Reached on a body click when more than one lead can bend, so the grab is
+        ambiguous.  The pick resolves a board entity; we accept it only when it
+        is a pin of *comp_id* (rigid or bendable — a rigid grab translates the
+        body), then arm the pad pick for that pin.
         """
         from protoboard.gui.selection import Stop
 
         self._redrag_comp_id = comp_id
-        self._status("Click a bendable pin to re-drag  ·  [Esc] Cancel", 0)
+        self._status("Click a pin to re-drag  ·  [Esc] Cancel", 0)
 
         def _on_pin(picked: list[Selectable]) -> None:
-            pin = self._picked_movable_pin(comp_id, picked, movable)
+            pin = self._picked_pin(comp_id, picked)
             if pin is None:
                 self._redrag_clear()
-                self._status("Re-drag: that is not a bendable pin")
+                self._status("Re-drag: that is not a pin of this component")
                 return
             self._arm_redrag_pad_pick(comp_id, pin)
 
@@ -1800,11 +1805,11 @@ class SelectTool(_Tool):
         )
 
     def _arm_redrag_pad_pick(self, comp_id: uuid.UUID, pin: int) -> None:
-        """Arm the pad pick for *pin*; a re-click on another movable pin switches.
+        """Arm the pad pick for *pin*; a re-click on another pin switches grab.
 
-        The resolver intercepts clicks landing on a movable pin of the same
-        component and switches the grab (redrawing the overlay) instead of
-        treating the click as a pad target; any other click resolves as a pad.
+        The resolver intercepts clicks landing on a pin of the same component and
+        switches the grab (redrawing the overlay) instead of treating the click
+        as a pad target; any other click resolves as a pad.
         """
         from protoboard.gui.selection import Stop
 
@@ -1822,17 +1827,17 @@ class SelectTool(_Tool):
         )
 
     def _resolve_redrag_pad(self, pt: Point, _mods: Mods) -> Selectable | None:
-        """Redrag pad resolver: re-click on another movable pin switches grab.
+        """Redrag pad resolver: re-click on another pin switches grab.
 
-        Returns ``None`` (swallowing the click) when it lands on a movable pin
-        of the redrag component — after switching ``_redrag_pin`` and redrawing —
-        so the single-pad pick is not completed by a pin re-click.  Otherwise it
+        Returns ``None`` (swallowing the click) when it lands on a pin of the
+        redrag component — after switching ``_redrag_pin`` and redrawing — so the
+        single-pad pick is not completed by a pin re-click.  Otherwise it
         resolves to the snapped pad like a normal ``pad`` pick.
         """
         cid = self._redrag_comp_id
         if cid is not None:
             hit = self._hit_tester().hit(pt.x, pt.y, self._filters())
-            new_pin = self._selectable_movable_pin(cid, hit)
+            new_pin = self._selectable_pin(cid, hit)
             if new_pin is not None and new_pin != self._redrag_pin:
                 self._redrag_pin = new_pin
                 self._draw_redrag_overlay(cid)
@@ -1879,29 +1884,31 @@ class SelectTool(_Tool):
                 return sel.pin_number
         return None
 
-    def _selectable_movable_pin(
+    def _selectable_pin(
         self, comp_id: uuid.UUID, sel: Selectable | None
     ) -> int | None:
-        """The movable pin number if *sel* is a pin of *comp_id*, else ``None``."""
+        """The pin number if *sel* is a pin of *comp_id* (any pin), else ``None``.
+
+        Any pin is a valid re-drag grab: a bendable pin bends its lead, a rigid
+        pin translates the body (feasibility is decided later per target).
+        """
         from protoboard.gui.selection.adapters import ComponentSelectable
 
         if (
             isinstance(sel, ComponentSelectable)
             and sel.component_id == comp_id
             and sel.pin_number is not None
-            and sel.pin_number in self._movable_pins(comp_id)
         ):
             return sel.pin_number
         return None
 
-    def _picked_movable_pin(
-        self, comp_id: uuid.UUID, picked: list[Selectable], movable: set[int]
+    def _picked_pin(
+        self, comp_id: uuid.UUID, picked: list[Selectable]
     ) -> int | None:
-        """Extract a movable pin of *comp_id* from a completed component pick."""
+        """Extract a pin of *comp_id* from a completed component pick."""
         if not picked:
             return None
-        pin = self._selectable_movable_pin(comp_id, picked[0])
-        return pin if pin in movable else None
+        return self._selectable_pin(comp_id, picked[0])
 
     @traced("SelectTool._arm_pick")
     def _arm_pick(
@@ -1995,18 +2002,42 @@ class SelectTool(_Tool):
     def _build_redrag_command(
         self, comp_id: uuid.UUID, pin: int, target: Point
     ) -> object | None:
-        """Build the MoveComponentCommand setting *pin*'s offset to reach *target*.
+        """Build the MoveComponentCommand re-dragging *pin* to *target*.
 
-        Free leads validate the snapped pad against the reach ring.  The
-        placement pipeline is inverted (unrotate + bottom-side X-mirror) to
-        express the world delta as a local pin offset — mirrors legacy
-        ``_commit_redrag``.
+        Delegates the geometry + legality to the pure-domain
+        :func:`redrag_feasibility` (the same predicate the overlay uses, so the
+        lit pads and the committable pads cannot diverge).  A bendable grab bends
+        that one lead; a rigid grab translates the body, the other leads
+        absorbing the shift within their own discs.  Returns ``None`` when the
+        move is illegal.
         """
         from protoboard.domain.commands.component_cmds import MoveComponentCommand
-        from protoboard.domain.components.package import effective_bend_specs
-        from protoboard.domain.layout.placement import (
-            pin_world_position,
-            unrotate,
+
+        pl = self._session.layout.placements.get(comp_id)
+        inst = self._session.instances.get(comp_id)
+        if pl is None or inst is None:
+            return None
+        result = self._redrag_feasibility(comp_id, pin, target)
+        if result is None or not result.ok or result.new_placement is None:
+            return None
+        return MoveComponentCommand(
+            component_id=comp_id,
+            new_placement=result.new_placement,
+            old_placement=pl.copy(),
+        )
+
+    def _redrag_feasibility(
+        self, comp_id: uuid.UUID, pin: int, target: Point
+    ) -> "RedragResult | None":
+        """Evaluate a candidate re-drag of *pin* to *target* (snapped).
+
+        Resolves the component's footprint + bend specs and calls the pure-domain
+        predicate.  Shared by the commit and the overlay so both agree on
+        legality.  ``None`` when the component cannot be resolved.
+        """
+        from protoboard.domain.components.package import (
+            effective_bend_specs,
+            redrag_feasibility,
         )
 
         pl = self._session.layout.placements.get(comp_id)
@@ -2016,36 +2047,28 @@ class SelectTool(_Tool):
         defn = self._session.components.get(inst.definition_ref)
         if defn is None:
             return None
-        spec = effective_bend_specs(
+        specs = effective_bend_specs(
             defn, inst, getattr(self._session, "package_families", None)
-        ).get(pin)
-        if spec is None:
-            return None
+        )
         snapped = self._snap(target, frozenset())
+        return redrag_feasibility(
+            footprint=defn.footprint,
+            placement=pl,
+            specs=specs,
+            grabbed_pin=pin,
+            target=snapped,
+            free_pads=self._board_pad_keys(),
+        )
 
-        if not spec.is_free():
-            return None
-        if not spec.is_reachable_from_origin(pl.position, snapped):
-            return None
-        # World delta vs. the un-offset baseline → local offset (invert).
-        temp = pl.copy()
-        temp.pin_offsets = {
-            k: v for k, v in pl.pin_offsets.items() if k != pin
-        }
-        baseline = pin_world_position(defn.footprint, temp, pin)
-        world_delta = snapped - baseline
-        local_off = unrotate(world_delta, pl.rotation)
-        if pl.side == "bottom":
-            local_off = Vector(-local_off.dx, local_off.dy)
-        new_pl = pl.copy()
-        new_offsets = dict(pl.pin_offsets)
-        if local_off.x == 0.0 and local_off.y == 0.0:
-            new_offsets.pop(pin, None)
-        else:
-            new_offsets[pin] = local_off
-        new_pl.pin_offsets = new_offsets
-        return MoveComponentCommand(
-            component_id=comp_id, new_placement=new_pl, old_placement=pl.copy()
+    def _board_pad_keys(self) -> frozenset[tuple[float, float]]:
+        """Rounded (x, y) keys of every board pad — landing set for a moved pin."""
+        if self._view is None:
+            return frozenset()
+        from protoboard.geometry import round_coord
+
+        return frozenset(
+            (round_coord(p.x), round_coord(p.y))
+            for p in self._view.board_pad_positions()
         )
 
     def _draw_redrag_overlay(self, comp_id: uuid.UUID) -> None:
