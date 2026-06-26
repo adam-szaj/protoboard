@@ -39,6 +39,7 @@ def test_orientation_threaded_to_package() -> None:
 
 
 def test_pin1_at_origin() -> None:
-    fp = PackageFootprint(_builtin()["TO-92"])
+    # Pin 1 sits at the local origin for every package (generic invariant).
+    fp = PackageFootprint(_builtin()["DIP-8"])
     assert fp.pin_positions()[0].x == 0.0
     assert fp.pin_positions()[0].y == 0.0

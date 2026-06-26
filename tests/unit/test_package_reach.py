@@ -9,6 +9,7 @@ from protoboard.domain.components.package.reach import (
     package_to_bend_specs,
     pin_reaches,
 )
+from protoboard.domain.components.package.shapes import Package
 from protoboard.domain.components.package.solver import RASTER_MM
 from protoboard.geometry import Point, Vector
 from protoboard.paths import BUILTIN_ASSETS_DIR
@@ -19,6 +20,32 @@ _yaml = YAML(typ="safe")
 def _builtin() -> dict:
     data = _yaml.load((BUILTIN_ASSETS_DIR / "packages" / "generic.yaml").read_text())
     return load_packages(data["packages"])
+
+
+# A self-contained 3-pin bendable part (TO-92-like): each lead bends about its
+# own default hole.  Inline so the test owns its geometry and does not depend on
+# which 3-pin package happens to live in the builtin catalogue.
+_GENERIC_BASES = [
+    {"name": "prism", "abstract": True, "shape": "prism"},
+]
+
+
+def _bendable_3pin() -> Package:
+    pkgs = load_packages(_GENERIC_BASES + [
+        {
+            "name": "BEND3",
+            "extends": "prism",
+            "dims": {"width": 4.5, "length": 4.5, "height": 5.2},
+            "leads": {
+                "direction": [[0, 0, -1], [0, 0, -1], [0, 0, -1]],
+                # 1-hole board pitch → pins at (0,0), (1,0), (2,0).
+                "body_offset": {"unit": 2.5, "value": [[1, 0], [1, 0]]},
+                "board_offset": "default",
+            },
+            "bend": 3.54,
+        },
+    ])
+    return pkgs["BEND3"]
 
 
 class TestPinReaches:
@@ -61,13 +88,13 @@ class TestPinReaches:
 
     def test_each_pin_has_own_centre(self) -> None:
         # N>2: every pin's disc is centred on that pin's default, independently.
-        t = _builtin()["TO-92"]                 # pins at (0,0), (0.5,0), (1,0)
+        t = _bendable_3pin()                    # pins at (0,0), (1,0), (2,0)
         reaches = pin_reaches(t)
         assert reaches[1].default != reaches[2].default != reaches[3].default
         # A target on pin 3's far side: in pin 3's disc, outside pin 1's disc.
         far = Point(reaches[3].default.x + 4.0, 0.0)   # 4.0 holes from pin 3
         assert reaches[3].is_reachable(far, raster_mm=RASTER_MM) is True
-        assert reaches[1].is_reachable(far, raster_mm=RASTER_MM) is False  # 5.0 from pin 1 > r_max
+        assert reaches[1].is_reachable(far, raster_mm=RASTER_MM) is False  # 6.0 from pin 1 > r_max
 
 
 class TestIsPinBendable:
@@ -85,7 +112,7 @@ class TestIsPinBendable:
         assert is_pin_bendable(r, 2)
 
     def test_to92_bendable(self) -> None:
-        t = _builtin()["TO-92"]   # bend 3.54
+        t = _bendable_3pin()   # 3-pin prism, bend 3.54
         assert is_pin_bendable(t, 2)
         assert is_pin_bendable(t, 3)
 
@@ -119,7 +146,7 @@ class TestPackageToBendSpecs:
 
     def test_no_discrete_for_to92(self) -> None:
         # TO-92 was discrete in legacy; package model makes it free-2D.
-        specs = package_to_bend_specs(_builtin()["TO-92"])
+        specs = package_to_bend_specs(_bendable_3pin())
         for spec in specs.values():
             assert spec.is_free()
 

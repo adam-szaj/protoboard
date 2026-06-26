@@ -25,8 +25,10 @@ def _load_builtin() -> dict:
 
 def test_all_named_packages_build() -> None:
     pkgs = _load_builtin()
-    # Abstract bases are skipped; named ones present.
-    for name in ("DO-35", "R_Axial_DIN0207", "CP_Elec_6.3x11", "TO-92", "DIP-8"):
+    # Abstract bases are skipped; named ones present.  (TO-92 / DO-35 are no
+    # longer in the generic catalogue — they live in the package-family
+    # catalogue, which is what placed parts resolve; see package_families/.)
+    for name in ("R_Axial_DIN0207", "CP_Elec_6.3x11", "DIP-8"):
         assert name in pkgs
     for name in ("cylinder", "prism", "cylinder_axial", "prism_dil"):
         assert name not in pkgs
