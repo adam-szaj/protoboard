@@ -36,13 +36,38 @@ class TestPinReaches:
         assert reaches[1].origin == Point(0.0, 0.0)
 
     def test_electrolytic_reachable_within_bend(self) -> None:
-        c = _builtin()["CP_Elec_6.3x11"]  # ring 1..5 holes from ORIGIN [0,0]
+        c = _builtin()["CP_Elec_6.3x11"]  # ring 1..5 holes from the pin's default
         reach = pin_reaches(c)[2]
-        # measured from the fixed origin at (0,0):
-        assert reach.is_reachable(Point(5.0, 0.0), raster_mm=RASTER_MM) is True   # 5 holes = r_max
-        assert reach.is_reachable(Point(1.0, 0.0), raster_mm=RASTER_MM) is True   # 1 hole = r_min
-        assert reach.is_reachable(Point(0.0, 0.0), raster_mm=RASTER_MM) is False  # on origin
-        assert reach.is_reachable(Point(6.0, 0.0), raster_mm=RASTER_MM) is False  # beyond r_max
+        d = reach.default  # pin 2 home hole = (1, 0); the disc is centred here
+        # measured from the pin's own default hole:
+        assert reach.is_reachable(Point(d.x + 5.0, d.y), raster_mm=RASTER_MM) is True   # 5 holes = r_max
+        assert reach.is_reachable(Point(d.x + 1.0, d.y), raster_mm=RASTER_MM) is True   # 1 hole = r_min
+        assert reach.is_reachable(d, raster_mm=RASTER_MM) is False                      # on the default (< r_min)
+        assert reach.is_reachable(Point(d.x + 6.0, d.y), raster_mm=RASTER_MM) is False  # beyond r_max
+
+    def test_disc_centred_on_pin_default(self) -> None:
+        # Reach is a disc centred on the pin's OWN default hole, not the origin.
+        c = _builtin()["CP_Elec_6.3x11"]
+        reach = pin_reaches(c)[2]
+        d = reach.default                       # (1, 0), not the origin (0, 0)
+        assert d == Point(1.0, 0.0)
+        # A point r_max away from the default is reachable in any direction…
+        assert reach.is_reachable(Point(d.x, d.y + 5.0), raster_mm=RASTER_MM) is True
+        # (6, 0) is exactly r_max (5 holes) from the default (1,0) → reachable,
+        # but 6 holes from the origin (0,0) → it would be OUT under the old
+        # origin-centred model. Proves the centre moved to the pin default.
+        assert reach.is_reachable(Point(d.x + 5.0, d.y), raster_mm=RASTER_MM) is True
+        assert reach.is_reachable(Point(d.x + 6.0, d.y), raster_mm=RASTER_MM) is False
+
+    def test_each_pin_has_own_centre(self) -> None:
+        # N>2: every pin's disc is centred on that pin's default, independently.
+        t = _builtin()["TO-92"]                 # pins at (0,0), (0.5,0), (1,0)
+        reaches = pin_reaches(t)
+        assert reaches[1].default != reaches[2].default != reaches[3].default
+        # A target on pin 3's far side: in pin 3's disc, outside pin 1's disc.
+        far = Point(reaches[3].default.x + 4.0, 0.0)   # 4.0 holes from pin 3
+        assert reaches[3].is_reachable(far, raster_mm=RASTER_MM) is True
+        assert reaches[1].is_reachable(far, raster_mm=RASTER_MM) is False  # 5.0 from pin 1 > r_max
 
 
 class TestIsPinBendable:
@@ -97,3 +122,14 @@ class TestPackageToBendSpecs:
         specs = package_to_bend_specs(_builtin()["TO-92"])
         for spec in specs.values():
             assert spec.is_free()
+
+    def test_is_reachable_from_pin_default_alias_matches_origin(self) -> None:
+        # The new canonical check and the back-compat alias are pure renames:
+        # both measure the euclidean radius from whatever centre is passed.
+        spec = package_to_bend_specs(_builtin()["CP_Elec_6.3x11"])[2]
+        centre = Point(3.0, 1.0)
+        for target in (Point(3.0, 4.0), Point(9.0, 1.0), Point(3.0, 1.0)):
+            assert (
+                spec.is_reachable_from_pin_default(centre, target)
+                == spec.is_reachable_from_origin(centre, target)
+            )

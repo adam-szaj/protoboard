@@ -92,14 +92,35 @@ class PinBendSpec:
         """True gdy tryb swobodny 2D (dowolny pad w dozwolonym promieniu)."""
         return self.max_reach > 0.0
 
-    def is_reachable_from_origin(self, origin_world: Point, target_world: Point) -> bool:
-        """Czy docelowy pad mieści się w dozwolonym promieniu od punktu (0,0) komponentu."""
-        d = math.hypot(target_world.x - origin_world.x, target_world.y - origin_world.y)
+    def is_reachable_from_pin_default(
+        self, pin_default_world: Point, target_world: Point
+    ) -> bool:
+        """Czy ``target`` mieści się w dysku zasięgu wyśrodkowanym na domyślnym
+        położeniu pinu (model per-pin, 2026-06-26).
+
+        The canonical reach check: the disc is centred on the pin's OWN default
+        world position, so callers pass that pin's un-offset baseline, not the
+        component origin.
+        """
+        d = math.hypot(
+            target_world.x - pin_default_world.x,
+            target_world.y - pin_default_world.y,
+        )
         return self.min_reach <= d <= self.max_reach
 
+    def is_reachable_from_origin(self, origin_world: Point, target_world: Point) -> bool:
+        """Back-compat alias — measures the radius from whatever centre is passed.
+
+        Identical math to :meth:`is_reachable_from_pin_default`; the name reflects
+        the pre-per-pin model where the centre was the component origin. New
+        callers should use ``is_reachable_from_pin_default`` and pass the pin's
+        default world position.
+        """
+        return self.is_reachable_from_pin_default(origin_world, target_world)
+
     def is_reachable_from_pin1(self, pin1_world: Point, target_world: Point) -> bool:
-        """Backward-compat alias — delegates to is_reachable_from_origin."""
-        return self.is_reachable_from_origin(pin1_world, target_world)
+        """Backward-compat alias — delegates to is_reachable_from_pin_default."""
+        return self.is_reachable_from_pin_default(pin1_world, target_world)
 
 
 @dataclass(frozen=True, slots=True)

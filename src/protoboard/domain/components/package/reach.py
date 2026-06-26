@@ -3,16 +3,18 @@
 
 Consumers (place_tool ring overlay, DRC overlap-skip) historically read
 ``PinBendSpec``; this computes the same information from a ``Package`` instead.
-The reach ring is measured from the fixed component ORIGIN ``[0, 0]`` (the
-default position of pin 1, the rotation point) — matching the legacy
-``is_reachable_from_origin`` semantics. The origin never moves; every pin
-(including pin 1) may bend its lead within the ring.
+Each pin's reach is a **disc centred on that pin's OWN default hole** — a
+euclidean ``[r_min, r_max]`` measured from ``default`` (per-pin model, 2026-06-26;
+previously one ring shared by all pins, measured from the fixed component
+origin). The ``origin`` field is retained as the rotation point ``[0, 0]`` but is
+no longer the measurement centre.
 
 ``package_to_bend_specs`` adapts a Package into the legacy ``dict[int,
 PinBendSpec]`` so existing consumers work unchanged; our model is always the
 free-2D mode (no discrete), so ``discrete`` is always empty.
 
-Pure domain. ``bend`` is per package; the resulting reach is shared by all pins.
+Pure domain. The ``ring`` magnitude is per package (one ``OffsetRange`` today),
+but each pin carries its own ``default`` so its disc is centred independently.
 """
 
 from __future__ import annotations
@@ -45,15 +47,15 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class PinReach:
-    """Where a pin's lead may land: a euclidean ring measured from the ORIGIN.
+    """Where a pin's lead may land: a euclidean disc centred on the pin default.
 
-    The component ORIGIN is the fixed reference point ``[0, 0]`` (= the default
-    position of pin 1 = the rotation point). The origin does NOT move; what
-    moves is the pin's bent lead relative to its default. ``default`` is the
-    pin's home hole. ``ring`` is the allowed spacing from the origin (mm) — for
-    bend ``[body_offset, body_offset+bend]``, for axial the solver's
-    ``[r_min, r_max]``. ``is_movable`` is False when the ring is a single point
-    (rigid — DIP, bend=0).
+    ``default`` is the pin's home hole and the **centre of the reach disc**;
+    distance is measured from it (see :meth:`is_reachable`). ``ring`` is the
+    allowed spacing (mm) — for bend ``[body_offset, body_offset+bend]``, for
+    axial the solver's ``[r_min, r_max]``. ``origin`` is the fixed component
+    reference ``[0, 0]`` (the rotation point); it is retained for callers that
+    need it but is no longer the reach centre. ``is_movable`` is False when the
+    ring is a single point (rigid — DIP, bend=0).
     """
 
     origin: Point
@@ -67,11 +69,13 @@ class PinReach:
     def is_reachable(self, target: Point, *, raster_mm: float) -> bool:
         """Whether ``target`` (in holes) is a legal landing for this pin's lead.
 
-        The ring is spacing from the fixed component origin, so distance is
-        measured from the ORIGIN, in mm (holes × raster) to match ring units.
+        The reach is a disc centred on the pin's OWN ``default`` hole, so
+        distance is measured from ``default``, in mm (holes × raster) to match
+        ring units. (Pre-2026-06-26 this measured from the shared component
+        origin; the per-pin model re-centres each pin's disc on its own home.)
         """
-        dx = (target.x - self.origin.x) * raster_mm
-        dy = (target.y - self.origin.y) * raster_mm
+        dx = (target.x - self.default.x) * raster_mm
+        dy = (target.y - self.default.y) * raster_mm
         dist = (dx * dx + dy * dy) ** 0.5
         return self.ring.contains_mm(dist)
 
@@ -83,10 +87,11 @@ def pin_reaches(
 ) -> dict[int, PinReach]:
     """Reach info per pin number (1-based) for a placed package.
 
-    The component ORIGIN is the fixed point ``[0, 0]`` (default position of pin
-    1, the rotation point). The origin never moves; every pin — including pin 1
-    — may have its lead bent within ``ring`` of the origin. ``bend``/solver are
-    per package, so the ring is shared; each pin carries its own default hole.
+    Each pin's reach is a disc centred on that pin's own ``default`` hole. The
+    ``ring`` magnitude is per package (``bend``/solver yield one ``OffsetRange``
+    today), but every pin carries its own ``default`` so the discs are centred
+    independently — pin 3 of a TO-92 bends around pin 3's home, not the origin.
+    ``origin`` stays the fixed rotation point ``[0, 0]``.
     """
     positions = package.pin_positions(orientation=orientation)
     ring = package.board_offset_range(orientation=orientation)
