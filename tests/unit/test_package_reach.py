@@ -10,7 +10,7 @@ from protoboard.domain.components.package.reach import (
     pin_reaches,
 )
 from protoboard.domain.components.package.solver import RASTER_MM
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 from protoboard.paths import BUILTIN_ASSETS_DIR
 
 _yaml = YAML(typ="safe")
@@ -80,11 +80,10 @@ class TestPackageToBendSpecs:
         assert set(specs) == {1, 2}              # both pins bendable
         spec = specs[2]
         assert spec.is_free()                    # always free-2D, never discrete
-        assert spec.discrete == ()
         # ring 1..5 holes from origin; reach in HOLE units (mm ÷ 2.5).
         assert spec.min_reach == 1.0
         assert spec.max_reach == 5.0
-        assert spec.default_offset == Point(0.0, 0.0)
+        assert spec.default_offset == Vector(0.0, 0.0)
 
     def test_axial_specs_match_solver_in_holes(self) -> None:
         specs = package_to_bend_specs(_builtin()["R_Axial_DIN0207"])
@@ -97,5 +96,4 @@ class TestPackageToBendSpecs:
         # TO-92 was discrete in legacy; package model makes it free-2D.
         specs = package_to_bend_specs(_builtin()["TO-92"])
         for spec in specs.values():
-            assert spec.discrete == ()
             assert spec.is_free()

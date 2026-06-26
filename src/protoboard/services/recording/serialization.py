@@ -64,7 +64,7 @@ from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
 from protoboard.errors import SerializationError
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 from protoboard.services.persistence.board_yaml import board_from_yaml, board_to_yaml
 
 
@@ -81,8 +81,16 @@ def _pt_to(p: Point) -> dict[str, float]:
     return {"x": float(p.x), "y": float(p.y)}
 
 
+def _vec_to(v: Vector) -> dict[str, float]:
+    return {"x": float(v.x), "y": float(v.y)}
+
+
 def _pt_from(d: dict[str, Any]) -> Point:
     return Point(float(d["x"]), float(d["y"]))
+
+
+def _vec_from(d: dict[str, Any]) -> Vector:
+    return Vector(float(d["x"]), float(d["y"]))
 
 
 def _uuid_to(u: uuid.UUID) -> str:
@@ -104,7 +112,7 @@ def _placement_to(pl: ComponentPlacement) -> dict[str, Any]:
         out["label_offset"] = _pt_to(pl.label_offset)
     if pl.pin_offsets:
         out["pin_offsets"] = {
-            str(k): _pt_to(v) for k, v in pl.pin_offsets.items()
+            str(k): _vec_to(v) for k, v in pl.pin_offsets.items()
         }
     if pl.shared_pins:
         out["shared_pins"] = sorted(pl.shared_pins)
@@ -119,7 +127,7 @@ def _placement_from(d: dict[str, Any]) -> ComponentPlacement:
     raw_lo = d.get("label_offset")
     label_offset = _pt_from(raw_lo) if raw_lo else Point(0.05, 0.05)
     pin_offsets = {
-        int(k): _pt_from(v) for k, v in (d.get("pin_offsets") or {}).items()
+        int(k): _vec_from(v) for k, v in (d.get("pin_offsets") or {}).items()
     }
     return ComponentPlacement(
         component_id=_uuid_from(d["component_id"]),

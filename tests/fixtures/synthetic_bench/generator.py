@@ -43,7 +43,7 @@ from protoboard.domain.layout.placement import (
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +250,7 @@ def _build_slots(spec: ProjectSpec, archetypes: list[str]) -> list[_Slot]:
 
 def _placement_for_slot(
     slot: _Slot, component_id: uuid.UUID,
-) -> tuple[ComponentPlacement, dict[int, Point]]:
+) -> tuple[ComponentPlacement, dict[int, Vector]]:
     """Build placement + override pin offsets so the body fits the slot.
 
     Pad centres sit at integer + 0.5 (the standard cell-centre convention).
@@ -261,7 +261,7 @@ def _placement_for_slot(
     pos = Point(slot.origin_col + 0.5, slot.origin_row + 0.5)
     # No pin offsets: footprint defaults already place pins on the slot's
     # consecutive cell centres (SIL pitch=1.0 → pin n at (0, n-1)).
-    pin_offsets: dict[int, Point] = {}
+    pin_offsets: dict[int, Vector] = {}
     placement = ComponentPlacement(
         component_id=component_id,
         position=pos,

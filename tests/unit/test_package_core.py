@@ -21,6 +21,8 @@ from protoboard.domain.components.package.solver import (
     OffsetRange,
     axial_board_offset_range,
 )
+from protoboard.geometry import Vector
+
 from geometry_utils import _pt, _ve
 
 
@@ -55,11 +57,11 @@ class TestExpandOffsets:
 class TestScaleAndCumulative:
     def test_scale_by_unit(self) -> None:
         # TO-92 body: unit 1.25 mm.
-        scaled = scale_offsets([_ve(1, 0), _ve(1, 0)], 1.25)
+        scaled = scale_offsets([Vector(1, 0), Vector(1, 0)], 1.25)
         assert scaled == [_ve(1.25, 0), _ve(1.25, 0)]
 
     def test_cumulative_pin1_at_origin(self) -> None:
-        pos = cumulative_positions([_ve(0, 1), _ve(0, 1)])
+        pos = cumulative_positions([Vector(0, 1), Vector(0, 1)])
         assert pos == [_pt(0, 0), _pt(0, 1), _pt(0, 2)]
 
     def test_dip8_positions(self) -> None:
@@ -111,7 +113,7 @@ class TestAxialSolver:
         base = self._range(MountOrientation.VERTICAL)
         ecc = axial_board_offset_range(
             length_mm=self.L, r_body_mm=self.R_BODY, lead_r_mm=self.LEAD_R,
-            lead_length_mm=self.LEAD_LEN, body_eccentricity_mm=_pt(0.5, 0.0),
+            lead_length_mm=self.LEAD_LEN, body_eccentricity_mm=Vector(0.5, 0.0),
             orientation=MountOrientation.VERTICAL,
         )
         assert ecc.r_min_mm == pytest.approx(base.r_min_mm - 0.5)
@@ -121,7 +123,7 @@ class TestAxialSolver:
         base = self._range(MountOrientation.VERTICAL)
         ecc = axial_board_offset_range(
             length_mm=self.L, r_body_mm=self.R_BODY, lead_r_mm=self.LEAD_R,
-            lead_length_mm=self.LEAD_LEN, body_eccentricity_mm=_pt(0.0, 0.9),
+            lead_length_mm=self.LEAD_LEN, body_eccentricity_mm=Vector(0.0, 0.9),
             orientation=MountOrientation.VERTICAL,
         )
         assert ecc.r_min_mm == pytest.approx(base.r_min_mm)

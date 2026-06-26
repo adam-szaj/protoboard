@@ -875,14 +875,14 @@ class TestGroupDrag:
 def _make_bendable(session: EditorSession, comp_id, pin: int = 1) -> None:
     """Give *comp_id*'s definition a free bendable lead on *pin* (in-place)."""
     from protoboard.domain.components.definition import PinBendSpec
-    from protoboard.geometry import Point
+    from protoboard.geometry import Vector
 
     inst = session.instances[comp_id]
     defn = session.components[inst.definition_ref]
     # bendable_pins is a mutable dict on the (frozen) definition — inject a free
     # continuous spec reaching a few raster units in any direction.
     defn.bendable_pins[pin] = PinBendSpec(
-        min_reach=0.0, max_reach=5.0, default_offset=Point(0.0, 0.0)
+        min_reach=0.0, max_reach=5.0, default_offset=Vector(0.0, 0.0)
     )
 
 

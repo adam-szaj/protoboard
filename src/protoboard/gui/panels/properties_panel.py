@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 from protoboard.domain.components.definition import ComponentDefinition, PinBendSpec
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
-from protoboard.geometry import Point
+from protoboard.geometry import Vector
 from protoboard.services.drc.engine import DRCIssue
 
 _SEVERITY_COLORS = {
@@ -43,7 +43,7 @@ class PropertiesPanel(QWidget):
 
     # id, refdes, value, rotation, label_offset_x, label_offset_y
     component_changed = Signal(uuid.UUID, str, str, int, float, float)
-    # id, {pin_number: Point} — emitted when Apply is clicked and offsets changed
+    # id, {pin_number: Vector} — emitted when Apply is clicked and offsets changed
     pin_offsets_changed = Signal(uuid.UUID, object)
     # id, pin_variant (str or None)
     pin_variant_changed = Signal(uuid.UUID, object)
@@ -261,7 +261,7 @@ class PropertiesPanel(QWidget):
     def _rebuild_pin_offsets(
         self,
         defn: ComponentDefinition | None,
-        current_offsets: dict[int, Point],
+        current_offsets: dict[int, Vector],
         instance: ComponentInstance | None = None,
         package_families: "dict | None" = None,
     ) -> None:
@@ -291,8 +291,6 @@ class PropertiesPanel(QWidget):
 
             if spec.is_free():
                 widget: _BendWidget = _FreeBendWidget(spec, current)
-            elif spec.discrete:
-                widget = _DiscreteBendWidget(spec, current)
             else:
                 continue
 
@@ -326,7 +324,7 @@ class PropertiesPanel(QWidget):
             fp_positions = defn.footprint.pin_positions()
             for i, fp_pos in enumerate(fp_positions):
                 pin_num = i + 1
-                off = placement.pin_offsets.get(pin_num, Point(0.0, 0.0))
+                off = placement.pin_offsets.get(pin_num, Vector(0.0, 0.0))
                 world = pin_world_position(defn.footprint, placement, pin_num)
                 rows.append((f"── pin {pin_num} fp_pos", f"({fp_pos.x:g}, {fp_pos.y:g})"))
                 if off.x != 0.0 or off.y != 0.0:
@@ -355,8 +353,8 @@ class PropertiesPanel(QWidget):
         if self._current_id is not None:
             self.pin_offsets_changed.emit(self._current_id, self._collect_pin_offsets())
 
-    def _collect_pin_offsets(self) -> dict[int, Point]:
-        result: dict[int, Point] = {}
+    def _collect_pin_offsets(self) -> dict[int, Vector]:
+        result: dict[int, Vector] = {}
         for pin_num, widget in self._pin_bend_widgets.items():
             pt = widget.current_value()
             if pt.x != 0.0 or pt.y != 0.0:
@@ -365,7 +363,7 @@ class PropertiesPanel(QWidget):
         for pin_num, (sx, sy) in self._pin_offset_spins.items():
             x, y = sx.value(), sy.value()
             if x != 0.0 or y != 0.0:
-                result[pin_num] = Point(x, y)
+                result[pin_num] = Vector(x, y)
         return result
 
     # ------------------------------------------------------------------
@@ -544,7 +542,7 @@ class _BendWidget(QWidget):
     """Abstract base for bend-spec controls."""
     value_changed = Signal()
 
-    def current_value(self) -> Point:
+    def current_value(self) -> Vector:
         raise NotImplementedError
 
 
@@ -555,7 +553,7 @@ class _FreeBendWidget(_BendWidget):
     This widget just shows the current (dx, dy) and the allowed reach range.
     """
 
-    def __init__(self, spec: PinBendSpec, current: Point, parent: object = None) -> None:
+    def __init__(self, spec: PinBendSpec, current: Vector, parent: object = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
         self._spec = spec
         self._current = current
@@ -572,39 +570,15 @@ class _FreeBendWidget(_BendWidget):
         layout.addWidget(reach_label)
         layout.addWidget(hint)
 
-    def set_current(self, pt: Point) -> None:
+    def set_current(self, pt: Vector) -> None:
         self._current = pt
         self._val_label.setText(self._fmt(pt))
 
-    def current_value(self) -> Point:
+    def current_value(self) -> Vector:
         return self._current
 
     @staticmethod
-    def _fmt(pt: Point) -> str:
+    def _fmt(pt: Vector) -> str:
         import math as _math
         d = _math.hypot(pt.x, pt.y)
         return f"dx={pt.x:g}  dy={pt.y:g}  |d|={d:.2f}"
-
-
-class _DiscreteBendWidget(_BendWidget):
-    """Combo-box for a discrete PinBendSpec."""
-
-    def __init__(self, spec: PinBendSpec, current: Point, parent: object = None) -> None:
-        super().__init__(parent)  # type: ignore[arg-type]
-        self._spec = spec
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        self._combo = QComboBox()
-        for pt in spec.discrete:
-            self._combo.addItem(f"({pt.x:g}, {pt.y:g})", userData=pt)
-        # Select the currently active offset.
-        for i, pt in enumerate(spec.discrete):
-            if abs(pt.x - current.x) < 1e-6 and abs(pt.y - current.y) < 1e-6:
-                self._combo.setCurrentIndex(i)
-                break
-        layout.addWidget(self._combo)
-        self._combo.currentIndexChanged.connect(lambda _: self.value_changed.emit())
-
-    def current_value(self) -> Point:
-        pt = self._combo.currentData()
-        return pt if isinstance(pt, Point) else Point(0.0, 0.0)

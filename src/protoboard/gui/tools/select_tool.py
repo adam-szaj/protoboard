@@ -34,7 +34,7 @@ from PySide6.QtGui import QColor, QPen
 from PySide6.QtWidgets import QGraphicsRectItem
 
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 from protoboard.gui.board_view import _Tool
 from protoboard.gui.highlight.controller import HighlightController
 from protoboard.gui.selection.drag_controller import DragController, FloatingPhase
@@ -1829,11 +1829,10 @@ class SelectTool(_Tool):
     def _redraggable_pin(self, comp_id: uuid.UUID) -> int | None:
         """The pin re-drag should reposition, or ``None``.
 
-        A free bendable lead (axial parts) or a discrete mount (an SMD chip's
-        second terminal) both qualify — both let the user pick a new pad.  Specs
-        come from :func:`effective_bend_specs`, so package-driven mounts are seen
-        even when ``bendable_pins`` is empty (the loader clears it for rigid
-        packages)."""
+        A free bendable lead (axial parts) or an SMD chip's free-reach terminal
+        qualify — both let the user pick a new pad.  Specs come from
+        :func:`effective_bend_specs`, so package-driven mounts are seen even when
+        ``bendable_pins`` is empty (the loader clears it for rigid packages)."""
         from protoboard.domain.components.package import effective_bend_specs
 
         inst = self._session.instances.get(comp_id)
@@ -1850,9 +1849,7 @@ class SelectTool(_Tool):
             return None
 
         def _movable(spec: object) -> bool:
-            return bool(getattr(spec, "discrete", ())) or (
-                spec is not None and spec.is_free()  # type: ignore[attr-defined]
-            )
+            return spec is not None and spec.is_free()  # type: ignore[attr-defined]
 
         # After a vertical flip on a 2-pin part the bend offset lives on pin 1.
         if pl.vertical_flipped and defn.footprint.pin_count() == 2:
@@ -1893,11 +1890,10 @@ class SelectTool(_Tool):
     ) -> object | None:
         """Build the MoveComponentCommand setting *pin*'s offset to reach *target*.
 
-        Free leads validate the snapped pad against the reach ring; a discrete
-        mount (an SMD chip's second terminal) snaps to the nearest of its mount
-        offsets instead.  Either way the placement pipeline is inverted (unrotate
-        + bottom-side X-mirror) to express the world delta as a local pin offset
-        — mirrors legacy ``_commit_redrag``.
+        Free leads validate the snapped pad against the reach ring.  The
+        placement pipeline is inverted (unrotate + bottom-side X-mirror) to
+        express the world delta as a local pin offset — mirrors legacy
+        ``_commit_redrag``.
         """
         from protoboard.domain.commands.component_cmds import MoveComponentCommand
         from protoboard.domain.components.package import effective_bend_specs
@@ -1920,29 +1916,20 @@ class SelectTool(_Tool):
             return None
         snapped = self._snap(target, frozenset())
 
-        if spec.discrete:
-            # Discrete mount: pick the offset whose resulting pad is nearest the
-            # clicked pad.  No ring check — the candidate set is the constraint.
-            local_off = self._nearest_discrete_offset(
-                defn, pl, pin, spec.discrete, snapped,
-            )
-            if local_off is None:
-                return None
-        else:
-            if not spec.is_free():
-                return None
-            if not spec.is_reachable_from_origin(pl.position, snapped):
-                return None
-            # World delta vs. the un-offset baseline → local offset (invert).
-            temp = pl.copy()
-            temp.pin_offsets = {
-                k: v for k, v in pl.pin_offsets.items() if k != pin
-            }
-            baseline = pin_world_position(defn.footprint, temp, pin)
-            world_delta = Point(snapped.x - baseline.x, snapped.y - baseline.y)
-            local_off = unrotate(world_delta, pl.rotation)
-            if pl.side == "bottom":
-                local_off = Point(-local_off.x, local_off.y)
+        if not spec.is_free():
+            return None
+        if not spec.is_reachable_from_origin(pl.position, snapped):
+            return None
+        # World delta vs. the un-offset baseline → local offset (invert).
+        temp = pl.copy()
+        temp.pin_offsets = {
+            k: v for k, v in pl.pin_offsets.items() if k != pin
+        }
+        baseline = pin_world_position(defn.footprint, temp, pin)
+        world_delta = snapped - baseline
+        local_off = unrotate(world_delta, pl.rotation)
+        if pl.side == "bottom":
+            local_off = Vector(-local_off.dx, local_off.dy)
         new_pl = pl.copy()
         new_offsets = dict(pl.pin_offsets)
         if local_off.x == 0.0 and local_off.y == 0.0:
@@ -1953,42 +1940,6 @@ class SelectTool(_Tool):
         return MoveComponentCommand(
             component_id=comp_id, new_placement=new_pl, old_placement=pl.copy()
         )
-
-    def _nearest_discrete_offset(
-        self,
-        defn: object,
-        pl: object,
-        pin: int,
-        discrete: tuple[Point, ...],
-        target: Point,
-    ) -> Point | None:
-        """The discrete offset whose pad lands nearest *target* (snapped pad).
-
-        Each candidate is placed through ``pin_world_position`` (anchor +
-        rotation honoured), so the SMD mount is chosen by which neighbour pad
-        the user clicked closest to.  Mirrors the place-tool discrete snap."""
-        import math
-
-        from protoboard.domain.layout.placement import (
-            ComponentPlacement,
-            pin_world_position,
-        )
-
-        best: Point | None = None
-        best_d = math.inf
-        for off in discrete:
-            cand = ComponentPlacement(
-                component_id=pl.component_id,  # type: ignore[attr-defined]
-                position=pl.position,          # type: ignore[attr-defined]
-                rotation=pl.rotation,          # type: ignore[attr-defined]
-                side=pl.side,                  # type: ignore[attr-defined]
-                pin_offsets={pin: off},
-            )
-            wp = pin_world_position(defn.footprint, cand, pin)  # type: ignore[attr-defined]
-            d = math.hypot(wp.x - target.x, wp.y - target.y)
-            if d < best_d:
-                best, best_d = off, d
-        return best
 
     def _draw_redrag_overlay(self, comp_id: uuid.UUID) -> None:
         from PySide6.QtGui import QBrush, QPen
@@ -2020,20 +1971,6 @@ class SelectTool(_Tool):
             item.setZValue(20.0)
             self._view.scene().addItem(item)
             self._redrag_items.append(item)
-
-        if spec.discrete:
-            # SMD mount candidates — the pad each discrete offset lands pin on.
-            from protoboard.domain.layout.placement import (
-                ComponentPlacement,
-                pin_world_position,
-            )
-            for off in spec.discrete:
-                cand = ComponentPlacement(
-                    component_id=pl.component_id, position=pl.position,
-                    rotation=pl.rotation, side=pl.side, pin_offsets={pin: off},
-                )
-                _dot(pin_world_position(defn.footprint, cand, pin))
-            return
 
         if spec.is_free():
             for pt in self._view.board_pad_positions():

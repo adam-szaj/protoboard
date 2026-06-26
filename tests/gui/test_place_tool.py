@@ -134,15 +134,14 @@ class TestPlaceToolSmdMount:
         # ComponentInstance. Reproduces the activate → _rebuild_ghost →
         # _bend_specs path that raised ``refdes must not be empty``.
         view = self._builtin_view(session)
-        # The chosen SMD body → pin 2 gets the discrete king-move mount, so the
-        # tool enters the two-phase drag (not a THT free ring).
+        # The chosen SMD body → pin 2 gets a free neighbour ring (the eight pads
+        # around pin 1), so the tool enters the two-phase drag.
         view.set_tool(PlaceTool("R", package_variant="SMD-0805/typ"))
         tool = view._active_tool
         assert isinstance(tool, PlaceTool)
         specs = tool._bend_specs(view._session.components["R"])
         assert list(specs.keys()) == [2]
-        assert not specs[2].is_free()
-        assert len(specs[2].discrete) == 8
+        assert specs[2].is_free()
 
     def test_place_library_resistor_as_axial_variant_stays_free(
         self, session: EditorSession

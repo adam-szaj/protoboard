@@ -11,7 +11,7 @@ from protoboard.domain.components.footprints import DIL, SIL
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.domain.layout.wire import Wire, WireCollection
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 
 
 def _approx(a: float, b: float, tol: float = 1e-9) -> bool:
@@ -156,7 +156,7 @@ class TestFlipComponent:
         self,
         position: Point,
         rotation: int = 0,
-        pin_offsets: dict[int, Point] | None = None,
+        pin_offsets: dict[int, Vector] | None = None,
     ) -> ComponentPlacement:
         return ComponentPlacement(
             component_id=uuid.uuid4(),
@@ -244,7 +244,7 @@ class TestFlipComponent:
 
         fp = SIL(2)
         # pin2 offset shifts it 1 raster right in local frame (rotation=90 → world +y)
-        pl = self._make_pl(Point(2.0, 3.0), rotation=0, pin_offsets={2: Point(1.0, 0.0)})
+        pl = self._make_pl(Point(2.0, 3.0), rotation=0, pin_offsets={2: Vector(1.0, 0.0)})
         p1_before = pin_world_position(fp, pl, 1)  # (2, 3)
         p2_before = pin_world_position(fp, pl, 2)  # pin2 local=(1,1) → world (2, 4) + offset → (3, 4)? let's check
 
@@ -286,7 +286,7 @@ class TestRedragOffsetInverse:
         position: Point,
         rotation: int = 0,
         side: str = "top",
-        pin_offsets: dict[int, Point] | None = None,
+        pin_offsets: dict[int, Vector] | None = None,
     ) -> ComponentPlacement:
         return ComponentPlacement(
             component_id=uuid.uuid4(),
@@ -298,12 +298,12 @@ class TestRedragOffsetInverse:
 
     def _compute_offset(
         self, target_world: Point, baseline_world: Point, rotation: int, side: str
-    ) -> Point:
+    ) -> Vector:
         from protoboard.domain.layout.placement import unrotate
-        delta = Point(target_world.x - baseline_world.x, target_world.y - baseline_world.y)
+        delta = target_world - baseline_world
         off = unrotate(delta, rotation)
         if side == "bottom":
-            off = Point(-off.x, off.y)
+            off = Vector(-off.x, off.y)
         return off
 
     def test_top_rotation0(self) -> None:

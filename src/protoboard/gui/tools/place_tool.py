@@ -24,7 +24,6 @@ Flow for components with bendable_pins (two-phase):
 
 from __future__ import annotations
 
-import math
 import uuid
 from typing import Literal, cast
 
@@ -38,7 +37,7 @@ from protoboard.domain.components.definition import ComponentDefinition, PinBend
 from protoboard.domain.components.package.reach import effective_bend_specs
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement, flip_component, pin_world_position, unrotate
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 from protoboard.gui.board_view import _Tool
 from protoboard.gui.placement_conflict import check_and_resolve
 from protoboard.gui.renderers.component_renderer import make_ghost_item
@@ -89,7 +88,7 @@ class PlaceTool(_Tool):
         # Two-phase state
         self._phase: Literal["anchor", "drag_pin", "floating"] = "anchor"
         self._anchor_pos: Point | None = None
-        self._pin_offsets: dict[int, Point] = {}
+        self._pin_offsets: dict[int, Vector] = {}
         self._drag_pin_queue: list[int] = []
         self._current_drag_pin: int | None = None
         # Reach overlay items
@@ -326,7 +325,7 @@ class PlaceTool(_Tool):
         defn = self._session.components.get(self._definition_ref)
         if defn is None:
             return
-        offsets: dict[int, Point] = {}
+        offsets: dict[int, Vector] = {}
         if self._phase == "drag_pin":
             offsets = dict(self._pin_offsets)
         else:
@@ -400,12 +399,6 @@ class PlaceTool(_Tool):
                     _dot(pt)
             return
 
-        if spec.discrete:
-            for pt in self._discrete_candidate_world_positions(
-                defn, self._current_drag_pin, spec.discrete,
-            ):
-                _dot(pt)
-
     def _update_reach_line(self, cursor: Point) -> None:
         """Update the feedback line from pin baseline to cursor."""
         # Remove old line (last item if it's a line)
@@ -418,7 +411,7 @@ class PlaceTool(_Tool):
         if defn is None or self._current_drag_pin is None:
             return
         spec = self._bend_specs(defn).get(self._current_drag_pin)
-        if spec is None or not (spec.is_free() or spec.discrete):
+        if spec is None or not spec.is_free():
             return
 
         origin = self._anchor_pos  # component (0,0) = reach centre
@@ -457,33 +450,7 @@ class PlaceTool(_Tool):
         )
         return pin_world_position(defn.footprint, temp, pin_number)
 
-    def _discrete_candidate_world_positions(
-        self,
-        defn: ComponentDefinition,
-        pin_number: int,
-        discrete: tuple[Point, ...],
-    ) -> list[Point]:
-        """World positions of *pin_number* for each discrete offset option.
-
-        Each candidate is placed through ``pin_world_position`` (anchor +
-        rotation honoured), so the overlay dots land exactly where picking that
-        offset would put the pin.  Used for the SMD mount-candidate overlay.
-        """
-        if self._anchor_pos is None:
-            return []
-        out: list[Point] = []
-        for off in discrete:
-            pl = ComponentPlacement(
-                component_id=uuid.UUID(int=0),
-                position=self._anchor_pos,
-                rotation=self._rotation,
-                side="top",
-                pin_offsets={pin_number: off},
-            )
-            out.append(pin_world_position(defn.footprint, pl, pin_number))
-        return out
-
-    def _compute_drag_offset(self, cursor: Point) -> Point | None:
+    def _compute_drag_offset(self, cursor: Point) -> Vector | None:
         """Return the clamped/snapped local offset for the active drag pin."""
         assert self._anchor_pos is not None and self._current_drag_pin is not None
         defn = self._session.components.get(self._definition_ref)
@@ -503,36 +470,9 @@ class PlaceTool(_Tool):
             if not spec.is_reachable_from_origin(self._anchor_pos, snapped):
                 return None
             # Convert world position of snapped pad to local offset for pin.
-            world_delta = Point(snapped.x - baseline.x, snapped.y - baseline.y)
+            world_delta = snapped - baseline
             local_off = unrotate(world_delta, self._rotation)
             return local_off
-
-        if spec.discrete:
-            # Snap to nearest discrete option (in world space).
-            best: Point = spec.discrete[0]
-            best_dist = math.inf
-            temp_no_off = ComponentPlacement(
-                component_id=uuid.UUID(int=0),
-                position=self._anchor_pos,
-                rotation=self._rotation,
-                side="top",
-                pin_offsets={},
-            )
-            for pt in spec.discrete:
-                candidate_pl = ComponentPlacement(
-                    component_id=uuid.UUID(int=0),
-                    position=self._anchor_pos,
-                    rotation=self._rotation,
-                    side="top",
-                    pin_offsets={self._current_drag_pin: pt},
-                )
-                world_pos = pin_world_position(
-                    defn.footprint, candidate_pl, self._current_drag_pin
-                )
-                d = math.hypot(cursor.x - world_pos.x, cursor.y - world_pos.y)
-                if d < best_dist:
-                    best, best_dist = pt, d
-            return best
 
         return None
 
@@ -540,7 +480,7 @@ class PlaceTool(_Tool):
     # Commit
     # ------------------------------------------------------------------
 
-    def _commit(self, position: Point, pin_offsets: dict[int, Point]) -> None:
+    def _commit(self, position: Point, pin_offsets: dict[int, Vector]) -> None:
         _log.debug("place.attempt", definition=self._definition_ref, pos=(position.x, position.y), rotation=self._rotation)
         defn = self._session.components.get(self._definition_ref)
 

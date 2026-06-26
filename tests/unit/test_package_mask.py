@@ -14,13 +14,13 @@ from protoboard.domain.components.package.shapes import (
     Leads,
     Prism,
 )
-from protoboard.geometry import Point, Vector
+from protoboard.geometry import Vector, Vector3D
 
 from ..geometry_utils import _pt
 VectorList = list[Vector]
 def _two_pin_prism(steps_holes: list[Vector]) -> Prism:
     leads = Leads(
-        direction=((0, 0, -1),) * (len(steps_holes) + 1),
+        direction=(Vector3D(0, 0, -1),) * (len(steps_holes) + 1),
         body_offset_mm=tuple(Vector(s.x * 2.5, s.y * 2.5) for s in steps_holes),
         board_offset=BOARD_DEFAULT,
     )
@@ -41,20 +41,20 @@ class TestHasCollision:
 
 class TestBuildPadMask:
     def test_pins_set_pin_and_side(self) -> None:
-        m = build_pad_mask(_two_pin_prism([_pt(1, 0)]), mount_side=TOP)
+        m = build_pad_mask(_two_pin_prism([Vector(1, 0)]), mount_side=TOP)
         assert m[_pt(0, 0)] & PadCell.PIN
         assert m[_pt(0, 0)] & PadCell.PIN_TOP
         assert not (m[_pt(0, 0)] & PadCell.PIN_BOTTOM)
 
     def test_mount_side_bottom(self) -> None:
-        m = build_pad_mask(_two_pin_prism([_pt(1, 0)]), mount_side=BOTTOM)
+        m = build_pad_mask(_two_pin_prism([Vector(1, 0)]), mount_side=BOTTOM)
         assert m[_pt(0, 0)] & PadCell.PIN_BOTTOM
         assert not (m[_pt(0, 0)] & PadCell.PIN_TOP)
 
     def test_high_standoff_body_sets_only_body_bit(self) -> None:
         # body_blocks=False → body holes carry BODY_TOP but NOT pin-side bits.
         m = build_pad_mask(
-            _two_pin_prism([_pt(1, 0)]), mount_side=TOP, body_blocks=False
+            _two_pin_prism([Vector(1, 0)]), mount_side=TOP, body_blocks=False
         )
         # a hole under body that is not a pin (body bbox is 1 hole wide here)
         body_holes = [h for h, b in m.items() if b & PadCell.BODY_TOP]
@@ -65,7 +65,7 @@ class TestBuildPadMask:
 
     def test_blocking_body_lights_pin_side(self) -> None:
         m = build_pad_mask(
-            _two_pin_prism([_pt(1, 0)]), mount_side=TOP, body_blocks=True
+            _two_pin_prism([Vector(1, 0)]), mount_side=TOP, body_blocks=True
         )
         for h, b in m.items():
             if b & PadCell.BODY_TOP:
@@ -77,7 +77,7 @@ class TestMasksCollide:
         # Blocking body on top at holes 0..N, and a part with a pin in one of
         # those holes mounted from top → collision via AND.
         body = build_pad_mask(
-            _two_pin_prism([_pt(2, 0)]), mount_side=TOP, body_blocks=True
+            _two_pin_prism([Vector(2, 0)]), mount_side=TOP, body_blocks=True
         )
         part = {_pt(1, 0): PadCell.PIN | PadCell.PIN_TOP}
         clash = masks_collide(body, part)
@@ -85,7 +85,7 @@ class TestMasksCollide:
 
     def test_part_under_high_standoff_body_ok(self) -> None:
         body = build_pad_mask(
-            _two_pin_prism([_pt(2, 0)]), mount_side=TOP, body_blocks=False
+            _two_pin_prism([Vector(2, 0)]), mount_side=TOP, body_blocks=False
         )
         # part at a pure-body hole (not a pin hole) from top — high standoff → ok
         body_only = [
@@ -99,7 +99,7 @@ class TestMasksCollide:
     def test_opposite_side_under_blocking_body_ok(self) -> None:
         # Even a blocking body on top doesn't block mounting from bottom.
         body = build_pad_mask(
-            _two_pin_prism([_pt(2, 0)]), mount_side=TOP, body_blocks=True
+            _two_pin_prism([Vector(2, 0)]), mount_side=TOP, body_blocks=True
         )
         part = {_pt(1, 0): PadCell.PIN | PadCell.PIN_BOTTOM}
         assert not masks_collide(body, part)

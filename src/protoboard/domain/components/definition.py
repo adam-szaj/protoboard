@@ -11,7 +11,7 @@ from typing import Any
 from protoboard.domain.components.appearance import Appearance
 from protoboard.domain.components.footprints import Footprint
 from protoboard.domain.components.package.shapes import Package
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 
 
 class ComponentClass(StrEnum):
@@ -74,21 +74,19 @@ REFDES_PREFIX: dict[ComponentClass, str] = {
 
 @dataclass(frozen=True, slots=True)
 class PinBendSpec:
-    """Specyfikacja gięcia jednego pinu.
+    """Specyfikacja gięcia jednego pinu — swobodny tryb 2D.
 
-    Dwa tryby (wzajemnie wykluczające się):
-    - dyskretny: ``discrete`` niepusty — lista dozwolonych offsetów (np. TO-92).
-    - swobodny 2D: ``max_reach > 0`` — pin może trafić w dowolny pad siatki
-      w promieniu euklidesowym [min_reach, max_reach] od punktu (0,0) komponentu
-      (placement.position — punkt obrotu, niezależny od offsetów pinów).
+    ``max_reach > 0`` → pin może trafić w dowolny pad siatki w promieniu
+    euklidesowym [min_reach, max_reach] od punktu (0,0) komponentu
+    (placement.position — punkt obrotu, niezależny od offsetów pinów).
+    ``max_reach == 0`` → pin sztywny (brak trybu swobodnego).
 
     Offset zawsze w lokalnym układzie komponentu (przed rotacją).
     """
 
-    discrete: tuple[Point, ...] = ()
     min_reach: float = 0.0   # min odległość euklidesowa od punktu (0,0) komponentu
     max_reach: float = 0.0   # max odległość; 0 = brak trybu swobodnego
-    default_offset: Point = field(default_factory=lambda: Point(0.0, 0.0))
+    default_offset: Vector = field(default_factory=lambda: Vector(0.0, 0.0))
 
     def is_free(self) -> bool:
         """True gdy tryb swobodny 2D (dowolny pad w dozwolonym promieniu)."""

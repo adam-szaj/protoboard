@@ -1,15 +1,14 @@
 # SPDX-License-Identifier: MIT
-"""SMD mounting mechanic — surface-mount pin 2 gets a discrete king-move mount.
+"""SMD mounting mechanic — surface-mount pin 2 gets a free neighbour ring.
 
 An SMD chip body is rigid, but it rests on pads (not in holes), so its second
 terminal may sit on any pad adjacent to the first (orthogonal or diagonal).
-This is expressed as a discrete ``PinBendSpec`` for pin 2; the place tool's
-discrete-snap and the properties-panel combo then drive the choice.
+This is expressed as a FREE reach ring ``[1, √2+ε]`` holes for pin 2 — the band
+spanning pin 1's eight neighbours — so the same free-2D place/re-drag path that
+serves every movable pin lands it on one of those pads.
 """
 
 from __future__ import annotations
-
-import uuid
 
 from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.package import (
@@ -17,15 +16,10 @@ from protoboard.domain.components.package import (
     effective_bend_specs,
     is_pin_bendable,
     package_to_bend_specs,
-    surface_mount_offsets,
 )
 from protoboard.domain.components.package.loader import build_package
 from protoboard.domain.components.package.shapes import Prism
-from protoboard.domain.layout.placement import (
-    ComponentPlacement,
-    pin_world_position,
-)
-from protoboard.geometry import Point, Vector
+from protoboard.geometry import Point
 
 
 def _smd_package(mount_points: list | None = None) -> Prism:
@@ -88,66 +82,24 @@ class TestMountParsing:
 
     def test_mount_points_parse(self) -> None:
         pkg = _smd_package(mount_points=[[1, 0], [0, 1]])
-        assert pkg.mount_points == (Vector(1.0, 0.0), Vector(0.0, 1.0))
-
-
-class TestSurfaceMountOffsets:
-
-    def _world_neighbours(self, pkg: Prism) -> set[tuple[int, int]]:
-        """Where pin 2 lands (relative to pin 1) for each mount offset."""
-        from protoboard.domain.components.package.adapter import (
-            PackageFootprint,
-        )
-        pf = PackageFootprint(pkg)
-        anchor = Point(10.0, 10.0)
-        p1 = pin_world_position(
-            pf,
-            ComponentPlacement(
-                component_id=uuid.UUID(int=0),
-                position=anchor,
-                rotation=0,
-                side="top",
-            ),
-            1,
-        )
-        out: set[tuple[int, int]] = set()
-        for off in surface_mount_offsets(pkg):
-            pl = ComponentPlacement(
-                component_id=uuid.UUID(int=0),
-                position=anchor,
-                rotation=0,
-                side="top",
-                pin_offsets={2: off},
-            )
-            p2 = pin_world_position(pf, pl, 2)
-            out.add((round(p2.x - p1.x), round(p2.y - p1.y)))
-        return out
-
-    def test_default_is_eight_king_move_neighbours(self) -> None:
-        # Every mount lands pin 2 on a distinct king-move neighbour of pin 1,
-        # never on pin 1's own pad.
-        deltas = self._world_neighbours(_smd_package())
-        expected = {(dx, dy)
-                    for dy in (-1, 0, 1)
-                    for dx in (-1, 0, 1) if (dx, dy) != (0, 0)}
-        assert deltas == expected
-
-    def test_custom_mount_points_restrict_the_set(self) -> None:
-        # Ortho-only: pin 2 may only go E/W/N/S of pin 1.
-        deltas = self._world_neighbours(
-            _smd_package(mount_points=[[1, 0], [-1, 0], [0, 1], [0, -1]]), )
-        assert deltas == {(1, 0), (-1, 0), (0, 1), (0, -1)}
+        assert pkg.mount_points == (Point(1.0, 0.0), Point(0.0, 1.0))
 
 
 class TestPackageToBendSpecs:
 
-    def test_smd_pin2_gets_discrete_spec(self) -> None:
+    def test_smd_pin2_gets_free_neighbour_ring(self) -> None:
+        # A surface-mount second terminal may land on any neighbour pad of pin 1.
+        # This is a FREE reach ring [1, √2+ε] (the band over pin 1's orthogonal
+        # and diagonal neighbours), not a discrete set — so the place-tool / re-
+        # drag snap through the same free-2D path as any other movable pin.
+        from math import sqrt
+
         specs = package_to_bend_specs(_smd_package())
         assert list(specs.keys()) == [2]
         spec = specs[2]
-        assert not spec.is_free()  # discrete, not a free ring
-        assert len(spec.discrete) == 8  # straight-across + 7 other neighbours
-        assert spec.default_offset == Point(0.0, 0.0)
+        assert spec.is_free()       # free ring, not a discrete mount set
+        assert spec.min_reach == 1.0
+        assert spec.max_reach == sqrt(2) + 0.1
 
     def test_through_hole_prism_has_no_specs(self) -> None:
         assert package_to_bend_specs(_through_hole_prism()) == {}
@@ -178,7 +130,7 @@ class TestEffectiveBendSpecs:
         )
         specs = effective_bend_specs(defn)
         assert list(specs.keys()) == [2]
-        assert not specs[2].is_free()
+        assert specs[2].is_free()  # SMD pin 2 is now a free neighbour ring
 
     def test_plain_footprint_falls_back_to_bendable_pins(self) -> None:
         from protoboard.domain.components.definition import (
@@ -203,7 +155,7 @@ class TestLibrarySmdIsRigidWithMount:
     def test_consolidated_resistor_offers_rigid_smd_footprint(self) -> None:
         # The SMD chip is now a footprint option of the generic ``R`` (not a
         # separate ``R_SMD_0805`` component).  Resolving that option must still
-        # yield a rigid package whose pin-2 carries the discrete mount spec.
+        # yield a rigid package whose pin-2 carries the free neighbour-ring spec.
         from protoboard.domain.components.package import (
             is_rigid_package,
             package_to_bend_specs,
@@ -222,17 +174,17 @@ class TestLibrarySmdIsRigidWithMount:
         variant = resolve_variant(families, smd.ref)
         assert variant is not None
         assert is_rigid_package(variant.package)  # SMD body is rigid
-        specs = package_to_bend_specs(variant.package)  # discrete mount spec
+        specs = package_to_bend_specs(variant.package)  # free neighbour ring
         assert list(specs.keys()) == [2]
-        assert not specs[2].is_free()
-        assert len(specs[2].discrete) == 8
+        assert specs[2].is_free()
 
 
 class TestEffectiveBendSpecsResolvesChosenVariant:
     """Regression: a part whose bodies live in a ``footprints:`` list (``R``)
     must get the chosen variant's specs from ``effective_bend_specs`` — the
     place tool / properties panel / select-tool re-drag all rely on this so an
-    SMD-0805 resistor is a rigid king-move mount, not a THT axial free ring."""
+    SMD-0805 resistor gets its tight SMD neighbour ring, not the wide THT axial
+    bend ring."""
 
     @staticmethod
     def _resistor_and_catalogue():  # type: ignore[no-untyped-def]
@@ -245,7 +197,9 @@ class TestEffectiveBendSpecsResolvesChosenVariant:
         lib = load_library([BUILTIN_LIBRARY_DIR], families)
         return lib.get("R"), families
 
-    def test_smd_variant_yields_discrete_king_move(self) -> None:
+    def test_smd_variant_yields_neighbour_ring(self) -> None:
+        from math import sqrt
+
         from protoboard.domain.components.instance import ComponentInstance
 
         defn, families = self._resistor_and_catalogue()
@@ -255,8 +209,11 @@ class TestEffectiveBendSpecsResolvesChosenVariant:
         )
         specs = effective_bend_specs(defn, inst, families)
         assert list(specs.keys()) == [2]
-        assert not specs[2].is_free()           # discrete, not a reach ring
-        assert len(specs[2].discrete) == 8      # the 8 king-move neighbours
+        # The SMD neighbour ring [1, √2+ε] — tight enough to land only on pin 1's
+        # eight neighbours, distinct from a wide THT axial bend ring.
+        assert specs[2].is_free()
+        assert specs[2].min_reach == 1.0
+        assert specs[2].max_reach == sqrt(2) + 0.1
 
     def test_axial_variant_stays_free(self) -> None:
         from protoboard.domain.components.instance import ComponentInstance

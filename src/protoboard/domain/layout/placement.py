@@ -5,13 +5,13 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 import structlog
 
 from protoboard.domain.components.footprints import Footprint
 from protoboard.types import Side
-from protoboard.geometry import Point, Rect
+from protoboard.geometry import Point, Rect, Vector
 from protoboard.services.call_counters import counted
 
 if TYPE_CHECKING:
@@ -43,7 +43,7 @@ class ComponentPlacement:
     rotation: int # TODO change to Rorate2D
     side: Side
     label_offset: Point = field(default_factory=lambda: Point(0.05, 0.05))
-    pin_offsets: dict[int, Point] = field(default_factory=dict)
+    pin_offsets: dict[int, Vector] = field(default_factory=dict)
     # Pin numbers (1-based) intentionally sharing a pad with another component.
     shared_pins: frozenset[int] = field(default_factory=frozenset)
     vertical_flipped: bool = False
@@ -80,20 +80,38 @@ class ComponentPlacement:
             raise ValueError(f"side must be 'top' or 'bottom'; got {self.side!r}")
 
 
-def _rotate(p: Point, rotation: int) -> Point:
-    """Rotate (x, y) clockwise by `rotation` degrees around the origin."""
+@overload
+def _rotate(p: Point, rotation: int) -> Point: ...
+@overload
+def _rotate(p: Vector, rotation: int) -> Vector: ...
+
+
+def _rotate(p: Point | Vector, rotation: int) -> Point | Vector:
+    """Rotate (x, y) clockwise by `rotation` degrees around the origin.
+
+    Preserves the input kind: a Point rotates to a Point, a Vector (a pin
+    offset) rotates to a Vector — so offset arithmetic stays in the Vector
+    domain.
+    """
+    cls = type(p)
     x, y = p.x, p.y
     if rotation == 0:
         return p
     if rotation == 90:
-        return Point(y, -x)
+        return cls(y, -x)
     if rotation == 180:
-        return Point(-x, -y)
+        return cls(-x, -y)
     # 270
-    return Point(-y, x)
+    return cls(-y, x)
 
 
-def unrotate(p: Point, rotation: int) -> Point:
+@overload
+def unrotate(p: Point, rotation: int) -> Point: ...
+@overload
+def unrotate(p: Vector, rotation: int) -> Vector: ...
+
+
+def unrotate(p: Point | Vector, rotation: int) -> Point | Vector:
     """Reverse a clockwise rotation — equivalent to rotating by -rotation."""
     return _rotate(p, (360 - rotation) % 360)
 
@@ -147,14 +165,15 @@ def flip_component(
     """
     assert footprint.pin_count() == 2, "flip_component requires a 2-pin footprint"
     fp1, fp2 = footprint.pin_positions()[0], footprint.pin_positions()[1]
-    off1 = placement.pin_offsets.get(1, Point(0.0, 0.0))
-    off2 = placement.pin_offsets.get(2, Point(0.0, 0.0))
-    # local position of each pin = fp_pos + offset
-    loc1 = Point(fp1.x + off1.x, fp1.y + off1.y)
-    loc2 = Point(fp2.x + off2.x, fp2.y + off2.y)
-    # new offset for pin n = (other pin's old local pos) - fp_pos[n]
-    new_off1 = Point(loc2.x - fp1.x, loc2.y - fp1.y)
-    new_off2 = Point(loc1.x - fp2.x, loc1.y - fp2.y)
+    off1 = placement.pin_offsets.get(1, Vector(0.0, 0.0))
+    off2 = placement.pin_offsets.get(2, Vector(0.0, 0.0))
+    # local position of each pin = fp_pos + offset  (Point + Vector → Point)
+    loc1 = fp1 + off1
+    loc2 = fp2 + off2
+    # new offset for pin n = (other pin's old local pos) − fp_pos[n]
+    # (Point − Point → Vector)
+    new_off1 = loc2 - fp1
+    new_off2 = loc1 - fp2
 
     new_pl = placement.copy()
     new_pl.pin_offsets = dict(placement.pin_offsets)
@@ -182,7 +201,7 @@ def pin_world_position(
     rel = footprint.pin_positions()[pin_number - 1]
     off = placement.pin_offsets.get(pin_number)
     if off is not None:
-        rel = Point(rel.x + off.x, rel.y + off.y)
+        rel = rel + off  # Point + Vector → Point
     # Components mounted on the bottom side are physically flipped — their
     # local X axis is mirrored relative to the top view.  We apply this flip
     # before rotation so that rotation=0 on bottom means "same anchor point,

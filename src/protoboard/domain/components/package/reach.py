@@ -25,16 +25,13 @@ from protoboard.domain.components.package.component_package import (
     resolve_component_package,
 )
 from protoboard.domain.components.package.family import resolve_variant
-from protoboard.domain.components.package.shapes import (
-    Package,
-    surface_mount_offsets,
-)
+from protoboard.domain.components.package.shapes import Package
 from protoboard.domain.components.package.solver import (
     RASTER_MM,
     MountOrientation,
     OffsetRange,
 )
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
@@ -112,7 +109,7 @@ def is_pin_bendable(
     A through-hole pin is movable iff its reach ring is wider than a point
     (covers both ``bend`` and the axial solver: the solver yields r_max > r_min
     when lead_length > 0).  A surface-mount package's second terminal is movable
-    via its discrete mount points even though its body is rigid.
+    via its free reach ring over the neighbour pads even though its body is rigid.
     """
     if getattr(package, "mount", None) is MountStyle.SURFACE:
         return pin_number == 2 and package.pin_count() == 2
@@ -133,10 +130,11 @@ def package_to_bend_specs(
 
     A **surface-mount** package (an SMD chip) is the special case: the body is
     rigid (no lead bend), but the part rests on pads, so its second terminal may
-    sit on any of a *discrete* set of neighbour pads (``surface_mount_offsets``)
-    — orthogonal or diagonal.  That pin gets a discrete ``PinBendSpec`` whose
-    options are those offsets; place_tool's discrete-snap and the panel's combo
-    handle the rest.
+    sit on any neighbour pad of the first terminal. That is expressed as a
+    **free reach ring** ``[1, √2 + ε]`` holes from the origin — the band that
+    spans pin 1's orthogonal (1.0) and diagonal (√2) neighbours — so the
+    place-tool / re-drag snap any of the eight surrounding pads via the same
+    free-2D path every other movable pin uses (no discrete-snap special case).
 
     Every other package keeps the free-ring behaviour: only movable pins (ring
     wider than a point) are included; ``min_reach``/``max_reach`` are the ring in
@@ -146,10 +144,12 @@ def package_to_bend_specs(
 
     is_surface = getattr(package, "mount", None) is MountStyle.SURFACE
     if is_surface and package.pin_count() == 2:
+        from math import sqrt
         return {
             2: PinBendSpec(
-                discrete=surface_mount_offsets(package),
-                default_offset=Point(0.0, 0.0),
+                min_reach=1.0,
+                max_reach=(sqrt(2) + 0.1),
+                default_offset=Vector(0.0, 0.0),
             )
         }
 
@@ -158,10 +158,9 @@ def package_to_bend_specs(
         if not reach.is_movable:
             continue
         out[pin] = PinBendSpec(
-            discrete=(),
             min_reach=reach.ring.r_min_mm / RASTER_MM,
             max_reach=reach.ring.r_max_mm / RASTER_MM,
-            default_offset=Point(0.0, 0.0),
+            default_offset=Vector(0.0, 0.0),
         )
     return out
 

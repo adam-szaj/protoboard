@@ -47,7 +47,7 @@ from protoboard.gui.layer_state import LayerOverrides, LayerVisibility
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.errors import SerializationError
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 import structlog
 from protoboard.services.persistence.board_yaml import board_from_yaml, board_to_yaml
 
@@ -913,7 +913,7 @@ def _layout_from_yaml(text: str) -> Layout:
         )
         raw_po = raw.get("pin_offsets") or {}
         pin_offsets = {
-            int(k): Point(float(v["x"]), float(v["y"]))
+            int(k): Vector(float(v["x"]), float(v["y"]))
             for k, v in raw_po.items()
         }
         shared_pins = frozenset(int(p) for p in (raw.get("shared_pins") or []))

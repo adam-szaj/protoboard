@@ -518,16 +518,9 @@ def _component_from_dict(
                 ) from exc
 
             ctx = f"bendable_pins[{pin_num}]"
-            if isinstance(spec_raw, list):
-                # Format A — lista dyskretnych punktów (TO-92 itp.)
-                pts = tuple(_parse_point(off, ctx) for off in spec_raw)
-                default = pts[0] if pts else _Vector(0.0, 0.0)
-                bendable_pins[pin_num] = PinBendSpec(discrete=pts,
-                                                     default_offset=default)
-            elif isinstance(spec_raw, dict):
+            if isinstance(spec_raw, dict):
                 if "min_reach" in spec_raw or "max_reach" in spec_raw:
                     # Format C — zakres 2D swobodny (nowy)
-                    import math as _math
                     bendable_pins[pin_num] = PinBendSpec(
                         min_reach=float(spec_raw.get("min_reach", 0.0)),
                         max_reach=float(spec_raw.get("max_reach", 0.0)),
@@ -547,22 +540,13 @@ def _component_from_dict(
                                                      ".default")
                         if "default" in spec_raw else _Vector(0.0, 0.0),
                     )
-                elif "discrete" in spec_raw:
-                    pts = tuple(
-                        _parse_point(off, ctx) for off in spec_raw["discrete"])
-                    default = (_parse_point(spec_raw["default"], ctx +
-                                            ".default")
-                               if "default" in spec_raw else
-                               (pts[0] if pts else _Vector(0.0, 0.0)))
-                    bendable_pins[pin_num] = PinBendSpec(
-                        discrete=pts, default_offset=default)
                 else:
                     raise SerializationError(
-                        f"{source}: {ctx} dict must have 'min_reach'/'max_reach',"
-                        " 'min'+'max', or 'discrete'")
+                        f"{source}: {ctx} dict must have 'min_reach'/'max_reach'"
+                        " or 'min'+'max'")
             else:
                 raise SerializationError(
-                    f"{source}: {ctx} must be a list or dict,"
+                    f"{source}: {ctx} must be a dict,"
                     f" got {type(spec_raw).__name__}")
 
     variants_raw = data.get("variants") or []

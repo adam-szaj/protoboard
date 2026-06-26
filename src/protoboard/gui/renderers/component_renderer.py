@@ -24,7 +24,7 @@ from protoboard.domain.layout.layout import Layout, ROOT_GROUP_ID
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 from protoboard.gui.layer_state import Z_FRONT_WIRES, LayerState, Z_FRONT_COMPONENTS, Z_FRONT_LABELS, Z_LABELS_TOP
 from protoboard.gui.renderers.body_shapes import body_shape_for
 from protoboard.gui.theme import DEFAULT_THEME, Theme
@@ -648,7 +648,7 @@ def make_ghost_item(
     defn: ComponentDefinition,
     rotation: int = 0,
     theme: Theme = DEFAULT_THEME,
-    pin_offsets: dict[int, Point] | None = None,
+    pin_offsets: dict[int, Vector] | None = None,
 ) -> QGraphicsItemGroup:
     """Return a semi-transparent QGraphicsItemGroup previewing *defn* at origin."""
     placement = ComponentPlacement(

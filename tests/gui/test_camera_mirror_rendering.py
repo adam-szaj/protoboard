@@ -55,7 +55,7 @@ from protoboard.domain.layout.placement import (
 )
 from protoboard.domain.layout.wire import KnotRef, Wire
 from protoboard.domain.schematic.net import PinRef
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 from protoboard.gui.board_view import BoardView
 from protoboard.gui.session import EditorSession
 
@@ -113,14 +113,14 @@ class TestPinWorldPositionPerSide:
             position=Point(5.0, 3.0),
             rotation=0,
             side="top",
-            pin_offsets={2: Point(1.0, -1.0)},  # pin 2 now at local (1.0, 0.0)
+            pin_offsets={2: Vector(1.0, -1.0)},  # pin 2 now at local (1.0, 0.0)
         )
         pl_bottom = ComponentPlacement(
             component_id=uuid.uuid4(),
             position=Point(5.0, 3.0),
             rotation=0,
             side="bottom",
-            pin_offsets={2: Point(1.0, -1.0)},
+            pin_offsets={2: Vector(1.0, -1.0)},
         )
         top_p2 = pin_world_position(defn.footprint, pl_top, 2)
         bot_p2 = pin_world_position(defn.footprint, pl_bottom, 2)

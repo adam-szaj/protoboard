@@ -49,7 +49,7 @@ from protoboard.domain.components.footprints import (  # noqa: E402
 )
 from protoboard.domain.components.instance import ComponentInstance  # noqa: E402
 from protoboard.domain.layout.placement import ComponentPlacement  # noqa: E402
-from protoboard.geometry import Point  # noqa: E402
+from protoboard.geometry import Point, Vector  # noqa: E402
 from protoboard.gui.renderers.body_shapes import body_shape_for  # noqa: E402
 from protoboard.gui.theme import DEFAULT_THEME, Theme  # noqa: E402
 from protoboard.services.library.package_family_loader import (  # noqa: E402
@@ -74,7 +74,7 @@ class Spec:
     pin_names: dict[int, str]
     # When non-empty, render N panels in one PNG, each with these pin
     # positions overrides (None = use the footprint's default).
-    panels: tuple[tuple[str, dict[int, Point] | None], ...] = (("",  None),)
+    panels: tuple[tuple[str, dict[int, Vector] | None], ...] = (("",  None),)
     # Layout hint for pin number labels:
     # - "auto": radial outward from panel centre (default)
     # - "below": always below the pad (good for grids)
@@ -83,7 +83,7 @@ class Spec:
     label_layout: str = "auto"
 
 
-def _axial_panels(extent: float) -> tuple[tuple[str, dict[int, Point] | None], ...]:
+def _axial_panels(extent: float) -> tuple[tuple[str, dict[int, Vector] | None], ...]:
     """Two-panel layout for cylindrical 2-pin parts.
 
     * "Horizontal mount" — body laid flat on the board, pin 2 along X.
@@ -91,8 +91,8 @@ def _axial_panels(extent: float) -> tuple[tuple[str, dict[int, Point] | None], .
       raster away (typical close-mount layout for tall caps / R-stands-up).
     """
     return (
-        ("Horizontal mount", {2: Point(extent, 0.0)}),
-        ("Vertical mount", {2: Point(0.0, 1.0)}),
+        ("Horizontal mount", {2: Vector(extent, 0.0)}),
+        ("Vertical mount", {2: Vector(0.0, 1.0)}),
     )
 
 
@@ -302,7 +302,7 @@ def _make_definition(spec: Spec) -> ComponentDefinition:
 
 
 def _make_placement(
-    pin_offsets: dict[int, Point] | None = None,
+    pin_offsets: dict[int, Vector] | None = None,
 ) -> ComponentPlacement:
     return ComponentPlacement(
         component_id=__import__("uuid").uuid4(),
@@ -319,8 +319,7 @@ def _pin_world_positions(
 ) -> list[Point]:
     base = footprint.pin_positions()
     return [
-        Point(b.x + placement.pin_offsets.get(i + 1, Point(0, 0)).x,
-              b.y + placement.pin_offsets.get(i + 1, Point(0, 0)).y)
+        b + placement.pin_offsets.get(i + 1, Vector(0.0, 0.0))
         for i, b in enumerate(base)
     ]
 
@@ -466,7 +465,7 @@ def _render_panel(
     scene: QGraphicsScene,
     spec: Spec,
     title: str,
-    pin_offsets_override: dict[int, Point] | None,
+    pin_offsets_override: dict[int, Vector] | None,
     offset_x: float,
     width_hint: float,
     theme: Theme,

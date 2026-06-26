@@ -111,7 +111,7 @@ def _require_float(value: object, field_name: str, pkg: str) -> float:
     return float(value)
 
 
-def _body_offset_to_mm(raw: object, pkg: str) -> list[Point]:
+def _body_offset_to_mm(raw: object, pkg: str) -> list[Vector]:
     """Return body_offset step vectors scaled to mm.
 
     Accepts ``{unit: U, value: [...]}`` or a bare list (unit defaults to 1.0)
@@ -130,7 +130,7 @@ def _body_offset_to_mm(raw: object, pkg: str) -> list[Point]:
     return scale_offsets(steps, unit)
 
 
-def _board_offset(raw: object) -> tuple[Point, ...] | str:
+def _board_offset(raw: object) -> tuple[Vector, ...] | str:
     if isinstance(raw, str):
         if raw not in (BOARD_DEFAULT, BOARD_SOLVE):
             raise PackageDefError(f"unknown board_offset sentinel {raw!r}")
@@ -244,17 +244,17 @@ def _opt_float(value: object) -> float | None:
     return None if value is None else float(value)  # type: ignore[arg-type]
 
 
-def _flat_normal(raw: object, pkg: str) -> Point:
-    """Parse a ``dims.flat_normal`` ``[x, y]`` list into a Point.
+def _flat_normal(raw: object, pkg: str) -> Vector:
+    """Parse a ``dims.flat_normal`` ``[x, y]`` list into a Vector.
 
     None → (0, 0) (no flat side). Any other shape is a package error.
     """
     if raw is None:
-        return Point(0.0, 0.0)
+        return Vector(0.0, 0.0)
     if not isinstance(raw, (list, tuple)) or len(raw) != 2:
         raise PackageDefError(
             f"{pkg}: flat_normal must be a 2-element [x, y] list, got {raw!r}")
-    return Point(float(raw[0]), float(raw[1]))
+    return Vector(float(raw[0]), float(raw[1]))
 
 
 # --------------------------------------------------------------------------- #
@@ -320,7 +320,7 @@ def _mount_style(raw: object, pkg: str) -> MountStyle:
         raise PackageDefError(f"{pkg}: unknown mount style {raw!r}")
 
 
-def _mount_points(raw: object, pkg: str) -> tuple[Vector, ...]:
+def _mount_points(raw: object, pkg: str) -> tuple[Point, ...]:
     """Pin-2 mount-point offsets (holes) — a list of [dx, dy] vectors, or empty.
 
     Empty means the surface-mount default (8 king-move neighbours); a package
@@ -328,7 +328,9 @@ def _mount_points(raw: object, pkg: str) -> tuple[Vector, ...]:
     if raw is None:
         return ()
     try:
-        return tuple(expand_offsets(raw))  # type: ignore[arg-type]
+        return tuple(
+            Point(v.x, v.y)
+            for v in expand_offsets(raw))  # type: ignore[arg-type]
     except (TypeError, ValueError) as exc:
         raise PackageDefError(f"{pkg}: invalid mount_points: {exc}") from exc
 
