@@ -34,7 +34,7 @@ import structlog
 
 from protoboard.domain.commands.base import Command
 from protoboard.domain.layout.knot import JointKnot, WirePinKnot
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 
 if TYPE_CHECKING:
     from protoboard.domain.commands.base import ComponentState
@@ -87,7 +87,7 @@ class MoveDragSetCommand(Command["ComponentState"]):
     members: dict[uuid.UUID, tuple["ComponentPlacement", "ComponentPlacement"]]
     internal_wire_ids: frozenset[uuid.UUID]
     dropped_wire_ids: frozenset[uuid.UUID]
-    delta: Point
+    delta: Vector
 
     # Saved state for revert.
     _saved_placements: dict[uuid.UUID, "ComponentPlacement"] = field(

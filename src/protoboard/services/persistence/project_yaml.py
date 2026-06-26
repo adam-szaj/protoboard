@@ -285,7 +285,7 @@ def _layout_to_yaml(layout: Layout) -> str:
                 "side": pl.side,
                 **(
                     {"label_offset": {"x": pl.label_offset.x, "y": pl.label_offset.y}}
-                    if pl.label_offset != Point(0.05, 0.05)
+                    if pl.label_offset != Vector(0.05, 0.05)
                     else {}
                 ),
                 **(
@@ -907,9 +907,9 @@ def _layout_from_yaml(text: str) -> Layout:
         pos = Point(float(raw["position"]["x"]), float(raw["position"]["y"]))
         raw_lo = raw.get("label_offset")
         label_offset = (
-            Point(float(raw_lo["x"]), float(raw_lo["y"]))
+            Vector(float(raw_lo["x"]), float(raw_lo["y"]))
             if raw_lo
-            else Point(0.05, 0.05)
+            else Vector(0.05, 0.05)
         )
         raw_po = raw.get("pin_offsets") or {}
         pin_offsets = {

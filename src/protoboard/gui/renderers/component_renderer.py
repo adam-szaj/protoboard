@@ -587,7 +587,7 @@ def _render_one(
         bg = QColor(bg_color)
         bg.setAlphaF(bg.alphaF() * alpha_label)
 
-        _default_offset = Point(0.05, 0.05)
+        _default_offset = Vector(0.05, 0.05)
         if placement.label_offset != _default_offset:
             lx = x0 + placement.label_offset.x
             ly = y0 + placement.label_offset.y

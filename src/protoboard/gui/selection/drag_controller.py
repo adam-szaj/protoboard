@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Protocol
 
 import structlog
 
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 from protoboard.gui.drag_set import DragSet
 from protoboard.gui.selection.mouse_input import Intent, Mods
 from protoboard.gui.tools.drag_commit_decision import DragSeverity
@@ -197,7 +197,7 @@ class DragController:
                 self._orig_wire_paths[wire.id] = list(wire.path)
 
         self._threshold_crossed = False
-        self._last_delta: Point | None = None
+        self._last_delta: Vector | None = None
         self._last_decision: DragCommitDecision | None = None
         self._phase = FloatingPhase.NONE
         self._trial_pad_index: object | None = None
@@ -310,7 +310,7 @@ class DragController:
             anchor_new = self._snap(raw_anchor, self._member_ids)
         else:
             anchor_new = raw_anchor
-        delta = Point(
+        delta = Vector(
             anchor_new.x - self._anchor_pos.x, anchor_new.y - self._anchor_pos.y
         )
         self._last_delta = delta
@@ -321,7 +321,7 @@ class DragController:
         if self._preview is not None:
             self._preview(self._last_decision)
 
-    def _apply_delta(self, delta: Point) -> None:
+    def _apply_delta(self, delta: Vector) -> None:
         """Re-place every member + wire from its origin offset by *delta*."""
         for cid, orig in self._orig_positions.items():
             pl = self._ctx.layout.placements.get(cid)
@@ -534,7 +534,7 @@ class DragController:
         return resolver(preference, wire_ids)
 
     def _build_move_command(
-        self, delta: Point, dropped: set[uuid.UUID]
+        self, delta: Vector, dropped: set[uuid.UUID]
     ) -> Command[ComponentState] | None:
         """Assemble the atomic :class:`MoveDragSetCommand` for this drag."""
         from protoboard.domain.commands.drag_cmds import MoveDragSetCommand

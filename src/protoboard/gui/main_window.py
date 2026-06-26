@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QToolBar,
 )
 
-from protoboard.geometry import Point
+from protoboard.geometry import Vector
 from protoboard.gui import recent_projects
 from protoboard.gui.action_builder import build_actions
 from protoboard.gui.actions import ALL_ACTIONS
@@ -2690,7 +2690,7 @@ class MainWindow(QMainWindow):
             inst, refdes=refdes, value=value
         )
         pl.rotation = rotation
-        pl.label_offset = Point(label_offset_x, label_offset_y)
+        pl.label_offset = Vector(label_offset_x, label_offset_y)
         self._session.mark_dirty()
         self._board_view.refresh()
 

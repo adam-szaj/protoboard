@@ -108,8 +108,8 @@ def _placement_to(pl: ComponentPlacement) -> dict[str, Any]:
         "rotation": int(pl.rotation),
         "side": pl.side,
     }
-    if pl.label_offset != Point(0.05, 0.05):
-        out["label_offset"] = _pt_to(pl.label_offset)
+    if pl.label_offset != Vector(0.05, 0.05):
+        out["label_offset"] = _vec_to(pl.label_offset)
     if pl.pin_offsets:
         out["pin_offsets"] = {
             str(k): _vec_to(v) for k, v in pl.pin_offsets.items()
@@ -125,7 +125,7 @@ def _placement_to(pl: ComponentPlacement) -> dict[str, Any]:
 
 def _placement_from(d: dict[str, Any]) -> ComponentPlacement:
     raw_lo = d.get("label_offset")
-    label_offset = _pt_from(raw_lo) if raw_lo else Point(0.05, 0.05)
+    label_offset = _vec_from(raw_lo) if raw_lo else Vector(0.05, 0.05)
     pin_offsets = {
         int(k): _vec_from(v) for k, v in (d.get("pin_offsets") or {}).items()
     }

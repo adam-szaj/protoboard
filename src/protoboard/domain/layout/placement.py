@@ -42,7 +42,7 @@ class ComponentPlacement:
     position: Point
     rotation: int # TODO change to Rorate2D
     side: Side
-    label_offset: Point = field(default_factory=lambda: Point(0.05, 0.05))
+    label_offset: Vector = field(default_factory=lambda: Vector(0.05, 0.05))
     pin_offsets: dict[int, Vector] = field(default_factory=dict)
     # Pin numbers (1-based) intentionally sharing a pad with another component.
     shared_pins: frozenset[int] = field(default_factory=frozenset)

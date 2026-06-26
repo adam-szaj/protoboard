@@ -188,12 +188,12 @@ Vector3DList = list[Vector3D]
 
 
 @overload
-def _make_points_from_offsets(point, offsets: Iterable[Point]) -> Iterator[Point]:
+def _make_points_from_offsets(point, offsets: Iterable[Vector]) -> Iterator[Point]:
     ...
 
 
 @overload
-def _make_points_from_offsets(point, offsets: Iterable[Point3D]) -> Iterator[Point3D]:
+def _make_points_from_offsets(point, offsets: Iterable[Vector3D]) -> Iterator[Point3D]:
     ...
 
 
