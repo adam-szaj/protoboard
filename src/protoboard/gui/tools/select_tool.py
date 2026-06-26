@@ -1740,29 +1740,77 @@ class SelectTool(_Tool):
 
     @traced("SelectTool.begin_redrag")
     def begin_redrag(self, comp_id: uuid.UUID | None = None) -> None:
-        """Arm re-drag: ask for the pad a free (bendable) lead should reach.
+        """Arm re-drag: choose a pin, then the pad its lead should reach.
 
-        The first real consumer of the pick service — instead of its own click
-        loop, it does ``request_pick("pad", Stop.count(1))``.  Picks a single
-        board pad; ``on_progress`` draws the reachable-pad overlay + a feedback
-        line, ``on_done`` validates the reach and commits a
-        :class:`MoveComponentCommand` adjusting the pin offset.
+        Entry is **click-a-pin** (no silent auto-pick): the grabbed pin is the
+        one the component was selected by clicking, if that pin is movable.
+        Failing that, the sole movable pin is used as a convenience (so clicking
+        an SMD chip's rigid body still grabs its one free terminal); otherwise
+        the user must pick a pin first (the pick-a-pin sub-step).  Re-clicking
+        another movable pin during the pad pick switches the grab.
         """
-        from protoboard.gui.selection import Stop
-
         cid = comp_id if comp_id is not None else next(
             iter(self._selected_comp_ids()), None
         )
         if cid is None:
             self._status("Re-drag: select a component with a bendable lead first")
             return
-        pin = self._redraggable_pin(cid)
-        if pin is None:
+        movable = self._movable_pins(cid)
+        if not movable:
             self._status("Re-drag: this component has no movable lead or mount")
             return
-        self._redrag_comp_id = cid
+
+        clicked = self._selected_clicked_pin(cid)
+        if clicked is not None and clicked in movable:
+            self._arm_redrag_pad_pick(cid, clicked)
+        elif len(movable) == 1:
+            # One free lead → no ambiguity; grab it even on a body click.
+            self._arm_redrag_pad_pick(cid, next(iter(movable)))
+        else:
+            self._begin_redrag_pick_pin(cid, movable)
+
+    def _begin_redrag_pick_pin(
+        self, comp_id: uuid.UUID, movable: set[int]
+    ) -> None:
+        """Pick-a-pin sub-step: arm a component pick to choose the grabbed pin.
+
+        Reached when the component was not selected via one of its movable pins
+        and more than one lead can bend.  The pick resolves a board entity; we
+        accept it only when it is a movable pin of *comp_id*, then arm the pad
+        pick for that pin.
+        """
+        from protoboard.gui.selection import Stop
+
+        self._redrag_comp_id = comp_id
+        self._status("Click a bendable pin to re-drag  ·  [Esc] Cancel", 0)
+
+        def _on_pin(picked: list[Selectable]) -> None:
+            pin = self._picked_movable_pin(comp_id, picked, movable)
+            if pin is None:
+                self._redrag_clear()
+                self._status("Re-drag: that is not a bendable pin")
+                return
+            self._arm_redrag_pad_pick(comp_id, pin)
+
+        self._arm_pick(
+            "component",
+            Stop.count(1),
+            on_done=_on_pin,
+            on_cancel=self._redrag_clear,
+        )
+
+    def _arm_redrag_pad_pick(self, comp_id: uuid.UUID, pin: int) -> None:
+        """Arm the pad pick for *pin*; a re-click on another movable pin switches.
+
+        The resolver intercepts clicks landing on a movable pin of the same
+        component and switches the grab (redrawing the overlay) instead of
+        treating the click as a pad target; any other click resolves as a pad.
+        """
+        from protoboard.gui.selection import Stop
+
+        self._redrag_comp_id = comp_id
         self._redrag_pin = pin
-        self._draw_redrag_overlay(cid)
+        self._draw_redrag_overlay(comp_id)
         self._status("Click a pad for the lead  ·  [Esc] Cancel", 0)
         self._arm_pick(
             "pad",
@@ -1770,7 +1818,90 @@ class SelectTool(_Tool):
             on_done=self._redrag_commit,
             on_cancel=self._redrag_clear,
             on_progress=self._redrag_progress,
+            resolve=self._resolve_redrag_pad,
         )
+
+    def _resolve_redrag_pad(self, pt: Point, _mods: Mods) -> Selectable | None:
+        """Redrag pad resolver: re-click on another movable pin switches grab.
+
+        Returns ``None`` (swallowing the click) when it lands on a movable pin
+        of the redrag component — after switching ``_redrag_pin`` and redrawing —
+        so the single-pad pick is not completed by a pin re-click.  Otherwise it
+        resolves to the snapped pad like a normal ``pad`` pick.
+        """
+        cid = self._redrag_comp_id
+        if cid is not None:
+            hit = self._hit_tester().hit(pt.x, pt.y, self._filters())
+            new_pin = self._selectable_movable_pin(cid, hit)
+            if new_pin is not None and new_pin != self._redrag_pin:
+                self._redrag_pin = new_pin
+                self._draw_redrag_overlay(cid)
+                self._status("Click a pad for the lead  ·  [Esc] Cancel", 0)
+                return None
+        return self._pick_at("pad", QPointF(pt.x, pt.y))
+
+    def _movable_pins(self, comp_id: uuid.UUID) -> set[int]:
+        """The pins of *comp_id* whose lead can bend (free reach), package-aware.
+
+        Specs come from :func:`effective_bend_specs`, so package-driven mounts
+        are seen even when ``bendable_pins`` is empty (the loader clears it for
+        rigid packages).  Replaces the legacy single-pin ``_redraggable_pin``.
+        """
+        from protoboard.domain.components.package import effective_bend_specs
+
+        inst = self._session.instances.get(comp_id)
+        pl = self._session.layout.placements.get(comp_id)
+        if inst is None or pl is None:
+            return set()
+        defn = self._session.components.get(inst.definition_ref)
+        if defn is None:
+            return set()
+        specs = effective_bend_specs(
+            defn, inst, getattr(self._session, "package_families", None)
+        )
+        return {pin for pin, spec in specs.items() if spec.is_free()}  # type: ignore[union-attr]
+
+    def _selected_clicked_pin(self, comp_id: uuid.UUID) -> int | None:
+        """The pin *comp_id* was selected by clicking, or ``None``.
+
+        Reads the ``pin_number`` the hit-test recorded on the current selection
+        (set only on a true pad click, ``None`` for a body click).
+        """
+        from protoboard.gui.selection.adapters import ComponentSelectable
+
+        if self._selection is None:
+            return None
+        for sel in self._selection.selected():
+            if (
+                isinstance(sel, ComponentSelectable)
+                and sel.component_id == comp_id
+            ):
+                return sel.pin_number
+        return None
+
+    def _selectable_movable_pin(
+        self, comp_id: uuid.UUID, sel: Selectable | None
+    ) -> int | None:
+        """The movable pin number if *sel* is a pin of *comp_id*, else ``None``."""
+        from protoboard.gui.selection.adapters import ComponentSelectable
+
+        if (
+            isinstance(sel, ComponentSelectable)
+            and sel.component_id == comp_id
+            and sel.pin_number is not None
+            and sel.pin_number in self._movable_pins(comp_id)
+        ):
+            return sel.pin_number
+        return None
+
+    def _picked_movable_pin(
+        self, comp_id: uuid.UUID, picked: list[Selectable], movable: set[int]
+    ) -> int | None:
+        """Extract a movable pin of *comp_id* from a completed component pick."""
+        if not picked:
+            return None
+        pin = self._selectable_movable_pin(comp_id, picked[0])
+        return pin if pin in movable else None
 
     @traced("SelectTool._arm_pick")
     def _arm_pick(
@@ -1782,14 +1913,18 @@ class SelectTool(_Tool):
         on_cancel: object = None,
         on_progress: object = None,
         on_preview: object = None,
+        resolve: object = None,
     ) -> None:
         """Start a pick and park it as the active mouse interaction.
 
         Builds a :class:`PickSession` via the service, wraps it in a
         :class:`PointPickController` (a MouseInputController), and routes board
         clicks / intents through ``self._mouse`` like any other interaction.
-        The point→Selectable resolver is the tool's :meth:`_pick_at`, so a
-        ``pad`` pick yields the snapped coordinate and an entity pick hit-tests.
+        The point→Selectable resolver defaults to the tool's :meth:`_pick_at`
+        (so a ``pad`` pick yields the snapped coordinate and an entity pick
+        hit-tests); pass *resolve* (``(Point, Mods) -> Selectable | None``) to
+        override it — re-drag uses this so a click on another movable pin
+        switches the grab instead of completing the pad pick.
         ``on_preview`` (``(scene_pt, mods) -> None``) drives a live cursor
         preview on pointer motion (the reroute rubber-band line).
         """
@@ -1815,7 +1950,13 @@ class SelectTool(_Tool):
             ),
         )
 
+        custom_resolve = cast(
+            "Callable[[Point, Mods], Selectable | None] | None", resolve
+        )
+
         def _resolve(pt: Point, _mods: Mods) -> Selectable | None:
+            if custom_resolve is not None:
+                return custom_resolve(pt, _mods)
             return self._pick_at(kind, QPointF(pt.x, pt.y))
 
         self._mouse = PointPickController(
@@ -1825,40 +1966,6 @@ class SelectTool(_Tool):
                 "Callable[[Point, Mods], None] | None", on_preview
             ),
         )
-
-    def _redraggable_pin(self, comp_id: uuid.UUID) -> int | None:
-        """The pin re-drag should reposition, or ``None``.
-
-        A free bendable lead (axial parts) or an SMD chip's free-reach terminal
-        qualify — both let the user pick a new pad.  Specs come from
-        :func:`effective_bend_specs`, so package-driven mounts are seen even when
-        ``bendable_pins`` is empty (the loader clears it for rigid packages)."""
-        from protoboard.domain.components.package import effective_bend_specs
-
-        inst = self._session.instances.get(comp_id)
-        pl = self._session.layout.placements.get(comp_id)
-        if inst is None or pl is None:
-            return None
-        defn = self._session.components.get(inst.definition_ref)
-        if defn is None:
-            return None
-        specs = effective_bend_specs(
-            defn, inst, getattr(self._session, "package_families", None)
-        )
-        if not specs:
-            return None
-
-        def _movable(spec: object) -> bool:
-            return spec is not None and spec.is_free()  # type: ignore[attr-defined]
-
-        # After a vertical flip on a 2-pin part the bend offset lives on pin 1.
-        if pl.vertical_flipped and defn.footprint.pin_count() == 2:
-            spec = specs.get(1) or specs.get(2)
-            return 1 if _movable(spec) else None
-        for pin, spec in sorted(specs.items()):
-            if _movable(spec):
-                return pin
-        return None
 
     def _redrag_progress(self, picked: list[Selectable]) -> None:
         # The pick is a single pad; nothing to render mid-collection here (the

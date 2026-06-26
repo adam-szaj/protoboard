@@ -6,8 +6,17 @@ the work cold.
 
 ## Bendable leads for N-pin parts + per-pin re-drag (added 2026-06-26)
 
-Design agreed, **nothing implemented** — full spec in
-[docs/bendable-leads-redrag.md](bendable-leads-redrag.md).
+Full spec in [docs/bendable-leads-redrag.md](bendable-leads-redrag.md).
+**Phase 1 DONE** `aebaf1e` (per-pin reach disc centred on each pin's default).
+**Phase 2 DONE** (click-a-pin entry; clicked pin remembered; re-click switches;
+pick-a-pin sub-step; `_redraggable_pin` auto-pick removed). Phases 3-4 remain.
+
+Dropped in Phase 2 (per CLAUDE.md, tracked here not as an inline comment): the
+old `_redraggable_pin` had a special case forcing **pin 1** as the re-drag target
+on a vertically-flipped 2-pin part. Under click-a-pin the user picks the pin
+explicitly, so the heuristic is gone; no test asserted it. If a flipped 2-pin
+needs a particular default grab, re-add it in `begin_redrag`'s pin-resolution,
+not as an auto-pick.
 
 Gap: both the reach model and the re-drag UI assume **one movable lead per
 part**. The data model already reports every TO-92 pin as bendable

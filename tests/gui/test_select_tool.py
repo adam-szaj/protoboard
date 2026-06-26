@@ -1009,6 +1009,65 @@ class TestRedrag:
         assert (round(p2.x - p1.x), round(p2.y - p1.y)) == (1, 1)  # SE diagonal
         assert tool._selection.active_pick is None
 
+    def test_redrag_targets_clicked_pin(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Both leads bendable; selecting via pin 2 grabs pin 2 (not auto pin 1).
+        # _place snaps R to (0.5, 0.5): pin1 (0.5, 0.5), pin2 (0.5, 1.5).
+        inst = _place(board_view, session, 1.0, 1.0)
+        _make_bendable(session, inst.id, pin=1)
+        _make_bendable(session, inst.id, pin=2)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 1.5)  # click pin 2
+        tool.begin_redrag(inst.id)
+        assert tool._redrag_pin == 2
+        # The drag moves pin 2's offset, leaving pin 1 untouched.
+        before1 = session.layout.placements[inst.id].pin_offsets.get(1)
+        _click(tool, 2.5, 1.5)  # a pad in pin 2's reach
+        offs = session.layout.placements[inst.id].pin_offsets
+        assert 2 in offs and offs.get(1) == before1
+
+    def test_redrag_reclick_switches_grab(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Grab defaults to the clicked pin 1; re-clicking pin 2 switches it,
+        # without completing the pad pick.  pin1 (0.5, 0.5), pin2 (0.5, 1.5).
+        inst = _place(board_view, session, 1.0, 1.0)
+        _make_bendable(session, inst.id, pin=1)
+        _make_bendable(session, inst.id, pin=2)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)  # click pin 1
+        depth = len(session.stack._undo)  # type: ignore[attr-defined]
+        tool.begin_redrag(inst.id)
+        assert tool._redrag_pin == 1
+        _click(tool, 0.5, 1.5)  # re-click pin 2 → switch grab, no commit
+        assert tool._redrag_pin == 2
+        assert tool._selection.active_pick is not None  # still armed
+        assert len(session.stack._undo) == depth  # type: ignore[attr-defined]
+        _click(tool, 2.5, 1.5)  # now pick a pad → commits pin 2
+        assert 2 in session.layout.placements[inst.id].pin_offsets
+        assert tool._selection.active_pick is None
+
+    def test_redrag_no_clicked_pin_enters_pick_substep(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Body-selected (no pin) + more than one movable lead → pick-a-pin first.
+        # pin1 (0.5, 0.5), pin2 (0.5, 1.5); midpoint (0.5, 1.0) is > PAD_HIT_RADIUS
+        # (0.35) from either pin but inside the component bbox.
+        inst = _place(board_view, session, 1.0, 1.0)
+        _make_bendable(session, inst.id, pin=1)
+        _make_bendable(session, inst.id, pin=2)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 1.0)  # body click between the pins
+        assert tool._selected_clicked_pin(inst.id) is None
+        tool.begin_redrag(inst.id)
+        # A component pick is armed to choose the pin; _redrag_pin not yet set.
+        assert tool._selection.active_pick is not None
+        assert tool._redrag_pin is None
+        # Clicking pin 2 resolves the sub-step and arms the pad pick on pin 2.
+        _click(tool, 0.5, 1.5)
+        assert tool._redrag_pin == 2
+
 
 class TestPickRouting:
     def test_click_feeds_active_pick(
