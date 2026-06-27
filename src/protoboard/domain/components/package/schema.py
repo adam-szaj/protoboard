@@ -23,6 +23,7 @@ Pure domain: no Qt, no I/O.
 
 from __future__ import annotations
 
+import enum
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -88,6 +89,60 @@ class FieldSpec:
         if not _matches(self.type, value):
             raise SchemaError(
                 f"{path}: value {value!r} does not match type {self.type!r}")
+
+
+# --------------------------------------------------------------------------- #
+# Field view (editability derived from the resolved value)
+# --------------------------------------------------------------------------- #
+
+
+class FieldStatus(enum.Enum):
+    """Why a field is editable or not, read off the resolved value tree.
+
+    The read-only rule (decided 2026-06-27, schema-design.md §2.5): a field is
+    **editable iff its resolved value is null** — an authored hole the user must
+    fill. Any concrete value (set in YAML, or a filled ``default``) and the
+    ``auto`` sentinel (a generator computes it) are read-only. To make a
+    defaulted field editable, the package author writes ``null`` for it
+    explicitly.
+    """
+
+    REQUIRED_EMPTY = "required_empty"  # value is null → RW (a hole to fill)
+    SET = "set"                        # a concrete value (incl. default) → RO
+    AUTO = "auto"                      # the ``auto`` sentinel → RO (generated)
+
+    @property
+    def editable(self) -> bool:
+        return self is FieldStatus.REQUIRED_EMPTY
+
+
+@dataclass(frozen=True, slots=True)
+class FieldView:
+    """One field as the UI sees it: its declaration, resolved value, editability.
+
+    The shared, schema-derived row that both the Properties panel and the
+    place-tool package picker render (one ``FieldView`` per ``schema`` leaf). The
+    panel picks an editor from ``spec.type`` and disables it when not
+    ``editable``. Pure data — no Qt.
+    """
+
+    path: str
+    spec: FieldSpec
+    value: Any
+    status: FieldStatus
+
+    @property
+    def editable(self) -> bool:
+        return self.status.editable
+
+
+def _field_status(value: Any) -> FieldStatus:
+    """Classify a resolved field value into its editability status."""
+    if value is _MISSING or value is None:
+        return FieldStatus.REQUIRED_EMPTY
+    if value == AUTO:
+        return FieldStatus.AUTO
+    return FieldStatus.SET
 
 
 # --------------------------------------------------------------------------- #
@@ -215,6 +270,25 @@ class ParamSchema:
                 continue
             spec.validate(val, path)
 
+    def fields_view(self, values: Mapping[str, Any]) -> list[FieldView]:
+        """One :class:`FieldView` per declared field, for the UI.
+
+        Reads each field's *resolved* value (call :meth:`apply_to` first so
+        defaults are filled) and classifies its editability: null ⇒ editable
+        (``REQUIRED_EMPTY``), a concrete value ⇒ ``SET`` (read-only), ``auto`` ⇒
+        ``AUTO`` (read-only). Order follows the schema's declaration order. This
+        is the single read-only source of truth — there is no stored flag; the
+        answer is a pure function of the value tree (schema-design.md §2.5).
+        """
+        out: list[FieldView] = []
+        for path, spec in self.fields.items():
+            val = _get_path(values, path.split("."))
+            status = _field_status(val)
+            shown = None if val is _MISSING else val
+            out.append(FieldView(path=path, spec=spec, value=shown,
+                                 status=status))
+        return out
+
 
 def parse_schema(raw: object) -> ParamSchema:
     """Parse a raw ``schema:`` mapping into a :class:`ParamSchema`.
@@ -291,6 +365,8 @@ def _deep_copy_tree(values: Mapping[str, Any]) -> dict[str, Any]:
 __all__ = [
     "AUTO",
     "FieldSpec",
+    "FieldStatus",
+    "FieldView",
     "ParamSchema",
     "SchemaError",
     "parse_schema",

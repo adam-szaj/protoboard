@@ -6,6 +6,8 @@ import pytest
 from protoboard.domain.components.package.schema import (
     AUTO,
     FieldSpec,
+    FieldStatus,
+    FieldView,
     ParamSchema,
     SchemaError,
     parse_schema,
@@ -123,3 +125,62 @@ class TestApply:
         src = {"dims": {"width": 5.0}}
         self._schema().apply_to(src)
         assert "radius" not in src["dims"]
+
+
+class TestFieldView:
+    """Editability derives from the RESOLVED value: null ⇒ RW (a hole for the
+    user); a set value / default / auto ⇒ read-only. See schema-design.md §2.5."""
+
+    def _schema(self) -> ParamSchema:
+        return parse_schema({
+            "dims": {
+                "width": {"type": "float", "required": True},   # hole → RW
+                "length": {"type": "float", "required": True},  # filled → RO
+                "radius": {"type": "float", "default": 0.0},     # default → RO
+                "pins": {"type": "int"},                         # auto → RO
+            },
+        })
+
+    def _views(self, values: dict) -> dict[str, FieldView]:
+        return {v.path: v for v in self._schema().fields_view(values)}
+
+    def test_null_is_editable_required_empty(self) -> None:
+        v = self._views({"dims": {"width": None, "length": 5.0,
+                                  "radius": 0.0, "pins": AUTO}})["dims.width"]
+        assert v.editable is True
+        assert v.status is FieldStatus.REQUIRED_EMPTY
+
+    def test_set_value_is_readonly(self) -> None:
+        v = self._views({"dims": {"width": None, "length": 5.0,
+                                  "radius": 0.0, "pins": AUTO}})["dims.length"]
+        assert v.editable is False
+        assert v.status is FieldStatus.SET
+
+    def test_default_value_is_readonly(self) -> None:
+        # radius omitted → apply_to fills default 0.0 → RO (a set value).
+        sch = self._schema()
+        filled = sch.apply_to({"dims": {"width": None, "length": 5.0,
+                                        "pins": AUTO}})
+        v = {x.path: x for x in sch.fields_view(filled)}["dims.radius"]
+        assert v.editable is False
+        assert v.status is FieldStatus.SET
+
+    def test_auto_is_readonly_derived(self) -> None:
+        v = self._views({"dims": {"width": None, "length": 5.0,
+                                  "radius": 0.0, "pins": AUTO}})["dims.pins"]
+        assert v.editable is False
+        assert v.status is FieldStatus.AUTO
+
+    def test_view_carries_spec_and_value(self) -> None:
+        v = self._views({"dims": {"width": None, "length": 5.0,
+                                  "radius": 0.0, "pins": AUTO}})["dims.length"]
+        assert v.spec.type == "float"
+        assert v.value == 5.0
+        assert v.path == "dims.length"
+
+    def test_missing_value_treated_as_null(self) -> None:
+        # A required field with no value slot at all is still a hole → RW.
+        views = self._views({"dims": {"length": 5.0, "radius": 0.0,
+                                      "pins": AUTO}})
+        assert views["dims.width"].editable is True
+        assert views["dims.width"].status is FieldStatus.REQUIRED_EMPTY

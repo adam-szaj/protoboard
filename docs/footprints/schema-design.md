@@ -134,19 +134,33 @@ A descendant may **narrow** an inherited field: change its `default`, add
 deep-merge for free — `schema.dims.length.default` in a child replaces the
 parent's. (Confirmed decision: schema narrows.)
 
-### 2.5 All parameters persist; generated ones are read-only in the UI
+### 2.5 Editability derives from the resolved value — no stored flag
 
-Every parameter — including the generator's new inputs (`pins_per_row`) and the
-resolved `auto` fields (`length`) — exists in the final body. In the component
-Properties panel the **generated/derived fields render read-only** (the user
-sees the computed `length` but edits `pins_per_row`, which recomputes it).
-(Confirmed decision.)
+**The read-only rule (decided 2026-06-27):** a field is **editable iff its
+resolved value is `null`** — an authored hole the user must fill. Every other
+state is read-only:
 
-> **Open implementation note (§A).** Today bodies are *frozen dataclasses with
-> fixed fields* (`Prism.width_mm`, etc. — `shapes.py:268-374`); there is no
-> parameter bag. "All parameters persist, generated ones flagged read-only"
-> needs a place to record (a) the full parameter set and (b) the
-> derived/read-only flag per field. Options weighed in §6.
+| resolved value                          | editability | why                          |
+|-----------------------------------------|-------------|------------------------------|
+| `null` (required, no value)             | **RW**      | a hole the author left open  |
+| a concrete value set in YAML            | RO          | the package declared it      |
+| a filled `default`                      | RO          | a value like any other       |
+| `auto`                                  | RO          | a generator computes it      |
+
+The consequence the author relies on: to make a defaulted field editable, **write
+`null` for it explicitly** — `null` is not "absent", it is a deliberate "this is
+the user's to set". This means read-only needs **no stored flag**: it is a pure
+function of the value tree after `extends` + `apply_to`. The interface is
+`ParamSchema.fields_view(values) -> list[FieldView]`; each `FieldView` carries
+`{path, spec, value, status}` where `status ∈ {REQUIRED_EMPTY, SET, AUTO}` and
+`FieldView.editable` is `status is REQUIRED_EMPTY`. Both panels (§8) render one
+`FieldView` per declared field and disable the editor when not `editable`.
+
+> **§A resolved.** No parameter bag is needed for editability. The full
+> parameter set lives in `schema.fields` (declarations) crossed with the value
+> tree (values); `fields_view` joins them. The bodies stay frozen dataclasses;
+> persisting the *resolved* values per instance (so a generated `length`
+> round-trips) is a separate persistence concern, not a UI flag — see §6.
 
 ## 3. Loader order of operations
 
