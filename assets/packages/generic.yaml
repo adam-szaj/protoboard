@@ -3,16 +3,51 @@
 # These are the parent shapes that the package-family catalogue
 # (assets/package_families/) extends; all are abstract (skipped at load).
 # Concrete, instantiable bodies live in the family catalogue, not here.
+#
+# Fields are declared under `schema:` (path-mirrored to the value tree: a value
+# at dims.width is described at schema.dims.width). A field leaf is
+# {type, default?, required?}. Validation is LOOSE — a value with no schema leaf
+# (flat_radius, flat_normal, margin, edge_radius, corner_radius, …) passes
+# through untouched. See docs/footprints/schema-design.md.
 packages:
-  # --- abstract bryły bazowe ---
+  # --- abstract root ---
+  # NOTE: `leads.direction` is intentionally NOT declared here. It has three
+  # YAML forms (single 3-vector / per-pin list / grouped run-length) expanded by
+  # the loader's `expand_direction`, a richer grammar than a single type shape.
+  # Declaring it in schema would narrow it and double-validate; it stays loose.
+  - name: package
+    abstract: true
+
+  # --- abstract base shapes ---
   - name: cylinder
     abstract: true
+    extends: package
     shape: cylinder
-    dims: {diameter: null, length: null, edge_radius: 0.0}
+    schema:
+      dims:
+        diameter: {type: float, required: true}
+        length:   {type: float, required: true}
 
   - name: prism
     abstract: true
+    extends: package
     shape: prism
+    # width/length/height are OPTIONAL: a prism with a `margin` derives its bbox
+    # from the pin cloud, so these stay un-required (declared for type only).
+    schema:
+      dims:
+        width:  {type: float}
+        length: {type: float}
+        height: {type: float}
+
+  - name: disc
+    abstract: true
+    extends: package
+    shape: disc
+    schema:
+      dims:
+        diameter:  {type: float, required: true}
+        thickness: {type: float, required: true}
 
   # --- abstract bazy z geometrią wyprowadzeń ---
   - name: cylinder_axial            # rezystor, dioda osiowa
@@ -43,11 +78,6 @@ packages:
       direction:    [0, 0, -1]
       board_offset: default
     bend: 0.0
-
-  - name: disc                      # ceramiczny dysk, button cell
-    abstract: true
-    shape: disc
-    dims: {diameter: null, thickness: null}
 
   - name: disc_radial               # ceramiczny kondensator dyskowy
     abstract: true

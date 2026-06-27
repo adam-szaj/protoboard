@@ -193,6 +193,7 @@ def _build_component_package(name: str,
     malformed / incompletely-closed definition (or an unrealisable kind).
     """
     from protoboard.domain.components.package.kind import (
+        GeneratorContext,
         build_kind_package,
         is_kind,
     )
@@ -205,9 +206,12 @@ def _build_component_package(name: str,
                 f"{name}: package kind {kind!r} needs a pin count "
                 f"(component pins or package 'pins')")
         # Forward any remaining package fields (e.g. a connector's ``rows``) as
-        # kind params; the builder ignores keys it does not use.
-        params = {k: v for k, v in raw.items() if k not in ("kind", "pins")}
-        return build_kind_package(str(kind), n, params)
+        # generator values; the builder ignores keys it does not use.
+        values = {k: v for k, v in raw.items() if k not in ("kind", "pins")}
+        ctx = build_kind_package(
+            str(kind), GeneratorContext(pin_count=n, values=values))
+        assert ctx.package is not None  # build_kind_package always sets it
+        return ctx.package
 
     registry = dict(_load_builtin_package_defs())
     node = {**raw, "name": name}

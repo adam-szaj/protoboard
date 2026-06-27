@@ -27,8 +27,23 @@ from protoboard.domain.components.footprints import (
     GenericFootprint,
 )
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package.kind import _prism_from_footprint
+from protoboard.domain.components.package.kind import (
+    GeneratorContext,
+    _prism_from_footprint,
+    build_kind_package,
+)
 from protoboard.domain.components.package.loader import build_package
+
+
+def _kind_pkg(kind: str, pins: int, values: dict | None = None) -> Package:
+    """Build a kind body via the (ctx, schema)->ctx API and return its package.
+
+    Test adapter for the Phase-2 generator signature: the behaviour assertions
+    below are unchanged; only the call shape moved."""
+    ctx = build_kind_package(
+        kind, GeneratorContext(pin_count=pins, values=values or {}))
+    assert ctx.package is not None
+    return ctx.package
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
 from protoboard.gui.renderers.body_shapes import (
@@ -464,13 +479,10 @@ class TestDeclaredKindSilhouette:
     kind falls back to the column guess, so render never blocks."""
 
     def test_dip_ic_kind_selects_notch(self) -> None:
-        from protoboard.domain.components.package.kind import (
-            build_kind_package,
-        )
         from protoboard.gui.renderers.prism_silhouette import (
             silhouette_for_prism,
         )
-        pkg = build_kind_package("dip_ic", 8)
+        pkg = _kind_pkg("dip_ic", 8)
         assert isinstance(silhouette_for_prism(pkg),
                           DipSilhouette)  # type: ignore[arg-type]
 
@@ -478,14 +490,11 @@ class TestDeclaredKindSilhouette:
             self) -> None:
         # dip_switch has DIP geometry (two columns) so the COLUMN guess would put
         # a notch on it — the declared kind says "plain", and that wins.
-        from protoboard.domain.components.package.kind import (
-            build_kind_package,
-        )
         from protoboard.gui.renderers.prism_silhouette import (
             silhouette_for,
             silhouette_for_prism,
         )
-        pkg = build_kind_package("dip_switch", 8)
+        pkg = _kind_pkg("dip_switch", 8)
         assert isinstance(silhouette_for(pkg),
                           DipSilhouette)  # type: ignore[arg-type]
         assert silhouette_for_prism(
@@ -507,11 +516,8 @@ class TestDeclaredKindSilhouette:
     def test_dip_switch_renders_without_notch(self, qtbot: QtBot) -> None:
         # End-to-end: a dip_switch body draws the plain bbox (a rect), not the
         # notched path a column-guessed DIP would produce.
-        from protoboard.domain.components.package.kind import (
-            build_kind_package,
-        )
-        sw = build_kind_package("dip_switch", 8)
-        ic = build_kind_package("dip_ic", 8)
+        sw = _kind_pkg("dip_switch", 8)
+        ic = _kind_pkg("dip_ic", 8)
         sw_items = PackageBody(sw).draw(  # type: ignore[arg-type]
             _dip8_positions(), _RED, _DARK, 1.0, _Z)
         ic_items = PackageBody(ic).draw(  # type: ignore[arg-type]
@@ -527,10 +533,7 @@ class TestConnectorKind:
     a plain rectangle (no DIP notch / SIL slots) with a per-kind fill colour."""
 
     def test_pin_header_single_row(self) -> None:
-        from protoboard.domain.components.package.kind import (
-            build_kind_package,
-        )
-        pkg = build_kind_package("pin_header", 4, {"rows": 1})
+        pkg = _kind_pkg("pin_header", 4, {"rows": 1})
         assert pkg.pin_count() == 4
         assert pkg.color == "#222222"  # type: ignore[attr-defined]
         # 1×N → all pins in one column.
@@ -538,27 +541,18 @@ class TestConnectorKind:
         assert len(xs) == 1
 
     def test_pin_header_dual_row(self) -> None:
-        from protoboard.domain.components.package.kind import (
-            build_kind_package,
-        )
-        pkg = build_kind_package("pin_header", 6, {"rows": 2})
+        pkg = _kind_pkg("pin_header", 6, {"rows": 2})
         assert pkg.pin_count() == 6
         # 2×N → two columns, 1 hole apart (connector spacing, not DIP's 3).
         xs = sorted({round(p.x, 3) for p in pkg.pin_positions()})
         assert xs == [0.0, 1.0]
 
     def test_pin_header_defaults_to_single_row(self) -> None:
-        from protoboard.domain.components.package.kind import (
-            build_kind_package,
-        )
-        pkg = build_kind_package("pin_header", 4)
+        pkg = _kind_pkg("pin_header", 4)
         assert len({round(p.x, 3) for p in pkg.pin_positions()}) == 1
 
     def test_jst_is_single_row_light(self) -> None:
-        from protoboard.domain.components.package.kind import (
-            build_kind_package,
-        )
-        pkg = build_kind_package("jst", 3)
+        pkg = _kind_pkg("jst", 3)
         assert pkg.pin_count() == 3
         assert pkg.color == "#dddddd"  # type: ignore[attr-defined]
         assert len({round(p.x, 3) for p in pkg.pin_positions()}) == 1
@@ -566,9 +560,6 @@ class TestConnectorKind:
     def test_connectors_render_plain_no_notch(self, qtbot: QtBot) -> None:
         # Neither a 1×N (SIL-like) nor a 2×N (DIP-like) connector gets the SIL
         # slots / DIP notch the column guess would add — they are plain rects.
-        from protoboard.domain.components.package.kind import (
-            build_kind_package,
-        )
         from protoboard.gui.renderers.prism_silhouette import (
             silhouette_for_prism,
         )
@@ -581,7 +572,7 @@ class TestConnectorKind:
             }),
             ("jst", 4, {}),
         ]:
-            pkg = build_kind_package(kind, n, params)
+            pkg = _kind_pkg(kind, n, params)
             assert silhouette_for_prism(pkg) is None, (
                 kind, params)  # type: ignore[arg-type]
 

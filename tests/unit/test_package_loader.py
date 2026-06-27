@@ -265,6 +265,62 @@ class TestLoadPresentation:
             ])
 
 
+class TestSchemaFormat:
+    """End-to-end: abstract bases declaring fields via ``schema:`` (the format
+    the shipped generic.yaml uses) drive default/required/type validation."""
+
+    # Bases in the new schema: format. cylinder declares required diameter/length;
+    # cylinder_radial adds the radial leads; a child supplies only values.
+    SCHEMA_GENERICS = [
+        {"name": "cylinder", "abstract": True, "shape": "cylinder",
+         "schema": {"dims": {"diameter": {"type": "float", "required": True},
+                             "length": {"type": "float", "required": True},
+                             "edge_radius": {"type": "float", "default": 0.0}}}},
+        {"name": "cylinder_radial", "abstract": True, "extends": "cylinder",
+         "leads": {"direction": [[0, 0, -1], [0, 0, -1]],
+                   "board_offset": "default"}, "bend": 0.0},
+    ]
+
+    def test_required_missing_raises(self) -> None:
+        with pytest.raises(PackageDefError, match="dims.diameter"):
+            load_packages(self.SCHEMA_GENERICS + [
+                {"name": "Bad", "extends": "cylinder_radial",
+                 "dims": {"length": 6.0},
+                 "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}},
+            ])
+
+    def test_bad_type_raises(self) -> None:
+        with pytest.raises(PackageDefError, match="does not match type"):
+            load_packages(self.SCHEMA_GENERICS + [
+                {"name": "Bad", "extends": "cylinder_radial",
+                 "dims": {"diameter": "huge", "length": 6.0},
+                 "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}},
+            ])
+
+    def test_default_filled(self) -> None:
+        pkgs = load_packages(self.SCHEMA_GENERICS + [
+            {"name": "R", "extends": "cylinder_radial",
+             "dims": {"diameter": 2.5, "length": 6.3},
+             "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}},
+        ])
+        # edge_radius default 0.0 flows through to the built body.
+        r = pkgs["R"]
+        assert isinstance(r, Cylinder)
+        assert r.edge_radius_mm == 0.0
+
+    def test_loose_unknown_field_passes(self) -> None:
+        # flat_radius/flat_normal have no schema leaf → untouched, still built.
+        pkgs = load_packages(self.SCHEMA_GENERICS + [
+            {"name": "TO-92", "extends": "cylinder_radial",
+             "dims": {"diameter": 4.55, "length": 4.6,
+                      "flat_radius": 1.175, "flat_normal": [-1.0, 0.0]},
+             "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}},
+        ])
+        t = pkgs["TO-92"]
+        assert isinstance(t, Cylinder)
+        assert t.flat_radius_mm == 1.175
+
+
 class TestBodyAxisPos:
     """body_axis_pos (absolute) → body_eccentricity (relative vector, mm)."""
 

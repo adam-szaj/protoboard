@@ -22,7 +22,7 @@ Pure domain: no Qt, no I/O.
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import lru_cache
 from typing import Any
 
@@ -31,7 +31,33 @@ from protoboard.domain.components.package.loader import (
     PackageDefError,
     build_package,
 )
+from protoboard.domain.components.package.schema import ParamSchema
 from protoboard.domain.components.package.shapes import Package, Prism
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class GeneratorContext:
+    """Input/output of a package-kind generator.
+
+    A generator is ``generator(ctx, schema) -> new_ctx``: it reads ``pin_count``
+    and ``values`` (current values, including any computed by an earlier
+    generator in a future chain) and returns a *new* context with ``package``
+    set (and possibly more ``values``). Frozen so the steps compose cleanly; the
+    chain driver itself is deferred (see docs/footprints/schema-design.md §7).
+
+    - ``pin_count``: the owning component's pin count (drives DIP/SIL geometry).
+    - ``values``: extra package fields (e.g. a connector's ``rows``); a builder
+      ignores keys it does not use. Carries earlier-computed values too.
+    - ``package``: the built body — ``None`` on input, set on output.
+    """
+
+    pin_count: int
+    values: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+    package: Package | None = None
+
+    def with_package(self, package: Package) -> GeneratorContext:
+        """Return a copy carrying *package* (the generator's output body)."""
+        return dataclasses.replace(self, package=package)
 
 # DIP row spacing in holes (0.3" narrow / 0.6" wide at a 0.1" grid).
 _DIP_NARROW_ROWS = 3.0
@@ -170,11 +196,12 @@ def _connector(pins: int, *, rows: int) -> Package | None:
     return None
 
 
-# kind name → builder(pin_count, **params) → Package | None. ``params`` carries
-# extra package fields (e.g. a connector's ``rows``); a builder ignores keys it
-# does not use. ``dip_switch`` shares DIP-narrow geometry (the notch / plain
-# distinction is a render concern — see Phase B).
-_KIND_BUILDERS: dict[str, Callable[..., Package | None]] = {
+# kind name → geometry builder(pin_count, **values) → Package | None. ``values``
+# carries extra package fields (e.g. a connector's ``rows``); a builder ignores
+# keys it does not use. ``dip_switch`` shares DIP-narrow geometry (the notch /
+# plain distinction is a render concern — see Phase B). These stay
+# pin-count→geometry; the (ctx, schema)→ctx wrapping is in ``build_kind_package``.
+_KIND_GEOMETRY: dict[str, Callable[..., Package | None]] = {
     "dip_ic": lambda n, **_p: _dip(n, wide=False),
     "wdip_ic": lambda n, **_p: _dip(n, wide=True),
     "dip_switch": lambda n, **_p: _dip(n, wide=False),
@@ -194,34 +221,44 @@ _KIND_COLOR: dict[str, str] = {
 
 def is_kind(name: object) -> bool:
     """True when *name* is a recognised package kind."""
-    return isinstance(name, str) and name in _KIND_BUILDERS
+    return isinstance(name, str) and name in _KIND_GEOMETRY
 
 
-def build_kind_package(kind: str,
-                       pin_count: int,
-                       params: dict[str, Any] | None = None) -> Package:
-    """Build the :class:`Package` for *kind* parameterized by *pin_count*.
+def build_kind_package(
+    kind: str,
+    ctx: GeneratorContext,
+    schema: ParamSchema | None = None,
+) -> GeneratorContext:
+    """Generate the body for *kind* and return a new context carrying it.
 
-    *params* carries extra package fields a kind may need (e.g. a connector's
-    ``rows``); builders ignore keys they do not use. The declared *kind* (and any
-    per-kind colour) is stamped onto the built body (a :class:`Prism`) so the
-    renderer can draw the declared look instead of guessing from pin columns.
-    Raises :class:`PackageDefError` for an unknown kind or a pin count the kind
-    cannot realise (e.g. an odd count for a DIP or 2×N connector).
+    The ``(ctx, schema) -> new_ctx`` shape (decided 2026-06-27): the geometry is
+    parameterized by ``ctx.pin_count``; ``ctx.values`` carries extra package
+    fields a kind may need (e.g. a connector's ``rows``) and any earlier-computed
+    values; generators ignore keys they do not use. *schema* is accepted so a
+    generator may read field declarations (types/defaults) — the procedural
+    builders here do not consult it yet, and no generator *chain* is wired
+    (deferred; see docs/footprints/schema-design.md §7).
+
+    The declared *kind* (and any per-kind colour) is stamped onto the built body
+    (a :class:`Prism`) so the renderer can draw the declared look instead of
+    guessing from pin columns. Raises :class:`PackageDefError` for an unknown
+    kind or a pin count the kind cannot realise (e.g. an odd count for a DIP or
+    2×N connector).
     """
-    builder = _KIND_BUILDERS.get(kind)
+    del schema  # accepted for the (ctx, schema)->ctx contract; unused here yet
+    builder = _KIND_GEOMETRY.get(kind)
     if builder is None:
         raise PackageDefError(f"unknown package kind {kind!r}")
-    pkg = builder(pin_count, **(params or {}))
+    pkg = builder(ctx.pin_count, **dict(ctx.values))
     if pkg is None:
         raise PackageDefError(
-            f"kind {kind!r} cannot build a body for {pin_count} pins")
+            f"kind {kind!r} cannot build a body for {ctx.pin_count} pins")
     if isinstance(pkg, Prism):
         changes: dict[str, Any] = {"kind": kind}
         if kind in _KIND_COLOR:
             changes["color"] = _KIND_COLOR[kind]
         pkg = dataclasses.replace(pkg, **changes)
-    return pkg
+    return ctx.with_package(pkg)
 
 
-__all__ = ["build_kind_package", "is_kind"]
+__all__ = ["GeneratorContext", "build_kind_package", "is_kind"]

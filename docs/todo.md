@@ -506,3 +506,37 @@ Follow-up (not scheduled): library YAML could set a multi-pin part's
 `package_family_ref` (e.g. an ATmega328P defaulting to `wdip-28`) so the
 "Default" picker entry resolves to a specific width; today an unset default
 falls through to the synthesized narrow body.
+
+**Package parameter schema — Phase 1 done, follow-ups (2026-06-27).**
+Field declarations now live under `schema:` on abstract bases (path-mirrored to
+the value tree: `schema.dims.width` describes `dims.width`), parsed by
+`domain/components/package/schema.py` into a `ParamSchema`. The loader applies it
+before building a shape: fill `default` → check `required` → type-check declared
+fields. Validation is **loose** — a value with no schema leaf (`flat_radius`,
+`flat_normal`, `margin`, `edge_radius`, `corner_radius`) passes through. The
+`auto` sentinel satisfies `required` and is skipped by the type check (a kind
+generator is meant to resolve it). `leads.direction` is deliberately *not*
+schema-declared (its three YAML forms are a richer grammar than a single type
+shape; `expand_direction` validates it). See `docs/footprints/schema-design.md`.
+
+Phase 2 landed in **limited scope**: the generator API moved to
+`build_kind_package(kind, ctx, schema) -> GeneratorContext` (frozen
+`GeneratorContext{pin_count, values, package}`), so a generator can read schema +
+current/earlier-computed values and so a chain is *possible*. The procedural
+DIP/SIL/connector builders are unchanged in behaviour.
+
+Deferred (not scheduled):
+- **Generator chain driver** — running `generator_X → generator_Y` so one
+  generator sees another's output. The API supports it; the driver is unbuilt.
+- **`auto` resolution *through* generators** — today the procedural builders do
+  not consult `schema` or resolve `auto`; an unresolved `auto` on the YAML path
+  is rejected downstream by `_require_float` (the intended failure). Wiring a
+  kind generator to compute `auto` dims (e.g. DIP `length` from `pins_per_row`)
+  is the next step.
+- **Strict schema mode** — an unknown field (no schema leaf) is currently *not*
+  an error (loose). A strict mode (unknown ⇒ `PackageDefError`) would need every
+  optional field declared in every base first.
+- **Properties panel + place-tool picker** — a shared schema-driven field-list
+  widget (one row per `schema` leaf; generator-derived fields read-only). Both
+  panels consume the schema; designed once the schema API settled (it now has).
+  See `docs/footprints/schema-design.md` §8.

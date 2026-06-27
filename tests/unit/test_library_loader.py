@@ -204,11 +204,16 @@ class TestKindPackage:
     same prism the existing generator builds for the matching footprint."""
 
     def test_build_kind_dip_ic_matches_dual_row_prism(self) -> None:
-        from protoboard.domain.components.package.kind import build_kind_package
+        from protoboard.domain.components.package.kind import (
+            GeneratorContext,
+            build_kind_package,
+        )
         # dip_ic + 14 pins == a narrow DIP-14 prism: two rows of 7 pins, 3 holes
         # apart, with the declared kind stamped on so the renderer can draw the
         # notch.
-        built = build_kind_package("dip_ic", 14)
+        ctx = build_kind_package("dip_ic", GeneratorContext(pin_count=14))
+        built = ctx.package
+        assert built is not None
         assert built.kind == "dip_ic"  # type: ignore[attr-defined]
         assert built.pin_count() == 14
         pins = built.pin_positions()
@@ -231,16 +236,22 @@ class TestKindPackage:
         assert defn.refdes_prefix == "U"
 
     def test_odd_pin_count_for_dip_is_rejected(self) -> None:
-        from protoboard.domain.components.package.kind import build_kind_package
+        from protoboard.domain.components.package.kind import (
+            GeneratorContext,
+            build_kind_package,
+        )
         from protoboard.domain.components.package import PackageDefError
         with pytest.raises(PackageDefError):
-            build_kind_package("dip_ic", 13)
+            build_kind_package("dip_ic", GeneratorContext(pin_count=13))
 
     def test_unknown_kind_rejected(self) -> None:
-        from protoboard.domain.components.package.kind import build_kind_package
+        from protoboard.domain.components.package.kind import (
+            GeneratorContext,
+            build_kind_package,
+        )
         from protoboard.domain.components.package import PackageDefError
         with pytest.raises(PackageDefError):
-            build_kind_package("nope", 14)
+            build_kind_package("nope", GeneratorContext(pin_count=14))
 
 
 class TestComponentStyle:

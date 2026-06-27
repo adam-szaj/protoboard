@@ -24,6 +24,10 @@ from protoboard.domain.components.package.offsets import (
     expand_offsets,
     scale_offsets,
 )
+from protoboard.domain.components.package.schema import (
+    SchemaError,
+    parse_schema,
+)
 from protoboard.domain.components.package.shapes import (
     BOARD_DEFAULT,
     BOARD_SOLVE,
@@ -339,8 +343,37 @@ def _color(raw: object) -> str | None:
     return None if raw is None else str(raw)
 
 
+def _apply_schema(merged: PackageDict, pkg: str) -> PackageDict:
+    """Fill defaults, check required, and type-check declared fields.
+
+    Reads the ``schema:`` block (path-mirrored field declarations), applies it to
+    the value tree, and returns the value tree with defaults filled and the
+    ``schema`` key dropped. Validation is loose: a value with no schema leaf is
+    untouched. The ``auto`` sentinel satisfies ``required`` and is skipped by the
+    type check (a kind generator resolves it later — see schema-design.md §3).
+
+    Type checking happens here (before shape build) for fields that are not
+    ``auto``; ``auto`` slots reach ``build_package`` unresolved on the YAML path
+    only when no generator runs, which the per-shape ``_require_float`` then
+    rejects as a non-number — the intended failure for an unresolved ``auto``.
+    """
+    raw_schema = merged.get("schema")
+    if raw_schema is None:
+        return merged
+    try:
+        schema = parse_schema(raw_schema)
+        filled = schema.apply_to(merged)
+        schema.check_required(filled)
+        schema.validate(filled)
+    except SchemaError as exc:
+        raise PackageDefError(f"{pkg}: {exc}") from exc
+    filled.pop("schema", None)
+    return filled
+
+
 @traced("build_package")
 def build_package(merged: PackageDict, pkg: str) -> Package:
+    merged = _apply_schema(merged, pkg)
     shape = merged.get("shape")
     if shape not in SHAPE_REGISTRY:
         raise PackageDefError(f"{pkg}: unknown or missing shape {shape!r}")
