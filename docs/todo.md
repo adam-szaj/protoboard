@@ -4,26 +4,27 @@ Open follow-ups that don't fit into the closed plans archived under
 [docs/archive/](archive/).  Each entry has enough context to pick up
 the work cold.
 
-## Generic-catalogue named packages vs the family catalogue (added 2026-06-26)
+## Generic-catalogue named packages removed — DONE (2026-06-26/27)
 
-`assets/packages/generic.yaml` still carries a few **named (instantiable)**
-packages — `R_Axial_DIN0207`, `CP_Elec_6.3x11`, `DIP-8` — alongside the abstract
-bases that the family catalogue extends.  These named ones are consumed only by
-tests (`test_package_reach` / `_core` / `_shapes` / `_builtin_yaml` fixtures);
-placed parts resolve through `assets/package_families/` via `footprints: [ref]`.
+`assets/packages/generic.yaml` now carries **only the abstract base shapes**
+(`cylinder`, `prism`, `cylinder_axial`, `cylinder_radial`, `prism_dil`, `disc`,
+`disc_radial`, `prism_radial`, `prism_smd`).  Those are load-bearing: the
+package-family catalogue (`assets/package_families/`) `extends` them and a
+missing base fails family loading at startup.
 
-Two were exact-name duplicates of families and had **drifted**, so they were
-removed (2026-06-26): `TO-92` (generic prism was *bendable* `bend 3.54`, the
-family `cylinder_radial` was *rigid* — the family gained `bend` and is now
-canonical) and `DO-35` (generic `cylinder_axial` dims differed from the
-`axial_glass` family variants).
+All named (instantiable) packages were removed because every placed part
+resolves its body through the family catalogue via `footprints: [ref]` — the
+generic copies were dead in production (consumed only by tests):
+- `TO-92`, `DO-35` — exact-name duplicates of families that had drifted (TO-92
+  generic prism was bendable while the family cylinder was rigid; DO-35 dims
+  differed).
+- `R_Axial_DIN0207`, `CP_Elec_6.3x11`, `DIP-8` — twins of families under
+  different names (`DIN-0207`, `Radial-Elko-D6.3`/`Axial-Elko-*`; DIP families
+  are auto-generated).
 
-Remaining: `R_Axial_DIN0207` ↔ family `DIN-0207` (axial_ceramic) and
-`CP_Elec_6.3x11` ↔ families `Radial-Elko-D6.3` / `Axial-Elko-*` are **twins under
-different names** (not name-collisions, so they don't override each other).
-Follow-up: migrate the package-model tests onto self-contained inline fixtures
-or the family catalogue, then drop the remaining generic named packages so the
-families are the single source of truth (keep the abstract bases).
+The package-model tests (`test_package_reach`, `_adapter`, `_builtin_yaml`) were
+repointed onto self-contained inline catalogues, so they no longer read named
+packages from the file.
 
 ## Bendable leads for N-pin parts + per-pin re-drag (added 2026-06-26)
 

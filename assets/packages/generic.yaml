@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: MIT
-# Builtin generic + named packages (see docs/footprints/spec.md).
-# Abstract bases are skipped at load; named packages below are instantiable.
+# Builtin abstract base packages (see docs/footprints/spec.md).
+# These are the parent shapes that the package-family catalogue
+# (assets/package_families/) extends; all are abstract (skipped at load).
+# Concrete, instantiable bodies live in the family catalogue, not here.
 packages:
   # --- abstract bryły bazowe ---
   - name: cylinder
@@ -80,34 +82,13 @@ packages:
       board_offset: default
     bend: 0.0
 
-  # --- named (instantiable) ---
-  # NOTE: TO-92 and DO-35 used to live here too, but they are duplicated in the
-  # package-family catalogue (assets/package_families/), which is what placed
-  # parts actually resolve via ``footprints: [ref]``. The generic copies had
-  # drifted (TO-92 prism was bendable but the family cylinder was not; DO-35
-  # dims differed), so the generic copies were removed — the families are the
-  # single source of truth. See docs/todo.md.
-  - name: R_Axial_DIN0207
-    extends: cylinder_axial
-    description: "Axial resistor body, DIN 0207 (~1/4 W)"
-    dims: {diameter: 2.5, length: 6.3}
-    leads: {lead_r: 0.27, lead_length: 32.0}
-
-  - name: CP_Elec_6.3x11
-    extends: cylinder_radial
-    description: "Radial electrolytic capacitor, 6.3x11 mm"
-    dims: {diameter: 6.3, length: 11.0}
-    leads:
-      body_offset: {unit: 2.5, value: [[1, 0]]}
-    bend: 4.0
-
-  - name: DIP-8
-    extends: prism_dil
-    description: "DIP-8 / DIL-8, 0.3 inch rows"
-    # Body narrower than the 0.3in row spacing so the legs show on both sides;
-    # length runs a little past the end pins.  (width 4.96 / length 10.04 mm.)
-    dims: {width: 6.25, length: 9.20, height: 4.0}
-    leads:
-      body_offset:
-        unit: 2.5
-        value: [[3, [0, 1]], [3, 0], [3, [0, -1]]]
+  # This file carries ONLY the abstract base shapes above — they are the parents
+  # that the package-family catalogue (assets/package_families/) extends, and are
+  # load-bearing for production (a missing base fails family loading at startup).
+  #
+  # No named (instantiable) packages live here. They used to (TO-92, DO-35,
+  # R_Axial_DIN0207, CP_Elec_6.3x11, DIP-8) but every placed part resolves its
+  # body through the package-family catalogue via ``footprints: [ref]``; the
+  # generic copies were dead in production (tests only) and some had drifted, so
+  # they were removed. Concrete bodies belong in package_families/. See
+  # docs/todo.md.

@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: MIT
 """Tests for reach.py — the Package-derived replacement for bendable_pins."""
 
-from ruamel.yaml import YAML
-
 from protoboard.domain.components.package import load_packages
 from protoboard.domain.components.package.reach import (
     is_pin_bendable,
@@ -12,40 +10,56 @@ from protoboard.domain.components.package.reach import (
 from protoboard.domain.components.package.shapes import Package
 from protoboard.domain.components.package.solver import RASTER_MM
 from protoboard.geometry import Point, Vector
-from protoboard.paths import BUILTIN_ASSETS_DIR
 
-_yaml = YAML(typ="safe")
-
-
-def _builtin() -> dict:
-    data = _yaml.load((BUILTIN_ASSETS_DIR / "packages" / "generic.yaml").read_text())
-    return load_packages(data["packages"])
-
-
-# A self-contained 3-pin bendable part (TO-92-like): each lead bends about its
-# own default hole.  Inline so the test owns its geometry and does not depend on
-# which 3-pin package happens to live in the builtin catalogue.
-_GENERIC_BASES = [
+# Self-contained package catalogue for reach tests — the abstract bases plus a
+# few representative parts (axial resistor, radial electrolytic, rigid DIP, a
+# 3-pin bendable prism).  Inline so the tests own their geometry and do not
+# depend on which named packages happen to live in the builtin generic.yaml
+# (placed parts resolve through the package-family catalogue, not these).
+_CATALOGUE: list[dict] = [
+    {"name": "cylinder", "abstract": True, "shape": "cylinder",
+     "dims": {"diameter": None, "length": None, "edge_radius": 0.0}},
     {"name": "prism", "abstract": True, "shape": "prism"},
+    {"name": "cylinder_axial", "abstract": True, "extends": "cylinder",
+     "leads": {"direction": [[0, 0, -1], [0, 0, 1]], "body_offset": 0,
+               "board_offset": "solve", "lead_length": None, "lead_r": None,
+               "body_eccentricity": 0.0}},
+    {"name": "cylinder_radial", "abstract": True, "extends": "cylinder",
+     "arrangement": "radial",
+     "leads": {"direction": [[0, 0, -1], [0, 0, -1]],
+               "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+               "board_offset": "default"}, "bend": 0.0},
+    {"name": "prism_dil", "abstract": True, "extends": "prism",
+     "leads": {"direction": [0, 0, -1], "board_offset": "default"},
+     "bend": 0.0},
+    # Axial resistor body (DIN 0207): solver-driven reach.
+    {"name": "R_Axial_DIN0207", "extends": "cylinder_axial",
+     "dims": {"diameter": 2.5, "length": 6.3},
+     "leads": {"lead_r": 0.27, "lead_length": 32.0}},
+    # Radial electrolytic 6.3x11: bend ring 1..5 holes.
+    {"name": "CP_Elec_6.3x11", "extends": "cylinder_radial",
+     "dims": {"diameter": 6.3, "length": 11.0},
+     "leads": {"body_offset": {"unit": 2.5, "value": [[1, 0]]}}, "bend": 4.0},
+    # DIP-8: rigid, two rows of 4 at 0.3in.
+    {"name": "DIP-8", "extends": "prism_dil",
+     "dims": {"width": 6.25, "length": 9.20, "height": 4.0},
+     "leads": {"body_offset": {"unit": 2.5,
+               "value": [[3, [0, 1]], [3, 0], [3, [0, -1]]]}}},
+    # A 3-pin bendable prism (TO-92-like): each lead bends about its own home.
+    {"name": "BEND3", "extends": "prism",
+     "dims": {"width": 4.5, "length": 4.5, "height": 5.2},
+     "leads": {"direction": [[0, 0, -1], [0, 0, -1], [0, 0, -1]],
+               "body_offset": {"unit": 2.5, "value": [[1, 0], [1, 0]]},
+               "board_offset": "default"}, "bend": 3.54},
 ]
 
 
+def _builtin() -> dict:
+    return load_packages(_CATALOGUE)
+
+
 def _bendable_3pin() -> Package:
-    pkgs = load_packages(_GENERIC_BASES + [
-        {
-            "name": "BEND3",
-            "extends": "prism",
-            "dims": {"width": 4.5, "length": 4.5, "height": 5.2},
-            "leads": {
-                "direction": [[0, 0, -1], [0, 0, -1], [0, 0, -1]],
-                # 1-hole board pitch → pins at (0,0), (1,0), (2,0).
-                "body_offset": {"unit": 2.5, "value": [[1, 0], [1, 0]]},
-                "board_offset": "default",
-            },
-            "bend": 3.54,
-        },
-    ])
-    return pkgs["BEND3"]
+    return _builtin()["BEND3"]
 
 
 class TestPinReaches:

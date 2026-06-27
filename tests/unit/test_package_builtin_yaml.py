@@ -1,9 +1,14 @@
 # SPDX-License-Identifier: MIT
-"""Loads the builtin packages YAML and checks all named packages instantiate."""
+"""load_packages: abstract bases are skipped, named packages instantiate.
+
+Uses a self-contained inline catalogue (the abstract bases + a couple of named
+parts) rather than the builtin ``assets/packages/generic.yaml`` — the generic
+file now carries only abstract bases; placed parts resolve named bodies through
+the package-family catalogue (``assets/package_families/``).  These tests guard
+the loader + shape builders, which are catalogue-independent.
+"""
 
 import math
-
-from ruamel.yaml import YAML
 
 from protoboard.domain.components.package import (
     BOARD_SOLVE,
@@ -12,31 +17,43 @@ from protoboard.domain.components.package import (
     Prism,
     load_packages,
 )
-from protoboard.paths import BUILTIN_ASSETS_DIR
 
-_yaml = YAML(typ="safe")
+_CATALOGUE: list[dict] = [
+    {"name": "cylinder", "abstract": True, "shape": "cylinder",
+     "dims": {"diameter": None, "length": None, "edge_radius": 0.0}},
+    {"name": "prism", "abstract": True, "shape": "prism"},
+    {"name": "cylinder_axial", "abstract": True, "extends": "cylinder",
+     "leads": {"direction": [[0, 0, -1], [0, 0, 1]], "body_offset": 0,
+               "board_offset": "solve", "lead_length": None, "lead_r": None,
+               "body_eccentricity": 0.0}},
+    {"name": "prism_dil", "abstract": True, "extends": "prism",
+     "leads": {"direction": [0, 0, -1], "board_offset": "default"},
+     "bend": 0.0},
+    {"name": "R_Axial_DIN0207", "extends": "cylinder_axial",
+     "dims": {"diameter": 2.5, "length": 6.3},
+     "leads": {"lead_r": 0.27, "lead_length": 32.0}},
+    {"name": "DIP-8", "extends": "prism_dil",
+     "dims": {"width": 6.25, "length": 9.20, "height": 4.0},
+     "leads": {"body_offset": {"unit": 2.5,
+               "value": [[3, [0, 1]], [3, 0], [3, [0, -1]]]}}},
+]
 
 
-def _load_builtin() -> dict:
-    path = BUILTIN_ASSETS_DIR / "packages" / "generic.yaml"
-    data = _yaml.load(path.read_text())
-    return load_packages(data["packages"])
+def _load() -> dict:
+    return load_packages(_CATALOGUE)
 
 
-def test_all_named_packages_build() -> None:
-    pkgs = _load_builtin()
-    # Abstract bases are skipped; named ones present.  (TO-92 / DO-35 are no
-    # longer in the generic catalogue — they live in the package-family
-    # catalogue, which is what placed parts resolve; see package_families/.)
-    for name in ("R_Axial_DIN0207", "CP_Elec_6.3x11", "DIP-8"):
+def test_abstract_bases_skipped_named_built() -> None:
+    pkgs = _load()
+    # Named packages instantiate; abstract bases are skipped.
+    for name in ("R_Axial_DIN0207", "DIP-8"):
         assert name in pkgs
     for name in ("cylinder", "prism", "cylinder_axial", "prism_dil"):
         assert name not in pkgs
 
 
-def test_resistor_reproduces_spec() -> None:
-    pkgs = _load_builtin()
-    r = pkgs["R_Axial_DIN0207"]
+def test_axial_resistor_reproduces_spec() -> None:
+    r = _load()["R_Axial_DIN0207"]
     assert isinstance(r, Cylinder)
     assert r.leads.board_offset == BOARD_SOLVE
     rng = r.board_offset_range(orientation=MountOrientation.HORIZONTAL)
@@ -44,8 +61,7 @@ def test_resistor_reproduces_spec() -> None:
 
 
 def test_dip8_topology() -> None:
-    pkgs = _load_builtin()
-    d = pkgs["DIP-8"]
+    d = _load()["DIP-8"]
     assert isinstance(d, Prism)
     pins = d.pin_positions()
     assert len(pins) == 8
