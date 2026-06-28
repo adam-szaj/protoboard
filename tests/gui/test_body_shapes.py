@@ -1130,12 +1130,27 @@ class TestPackageBodyDraw:
         from PySide6.QtCore import QPointF
         assert not body.path().contains(QPointF(-1.26 + 0.02, -0.5 + 0.02))
 
-    def test_cylinder_short_spacing_omits_leads(self, qtbot: QtBot) -> None:
+    def test_cylinder_short_spacing_renders_upright(self, qtbot: QtBot) -> None:
         shape = PackageBody(_cylinder_package())  # type: ignore[arg-type]
-        # Pads closer than the body length → no separate lead lines.
+        # Pads closer than the body length → the part stands upright: it renders
+        # as the radial top-view (a near-circular disc body + a lead stub to the
+        # second pad), NOT a side-view capsule spanning the gap. (Previously this
+        # drew a full-length horizontal capsule even on adjacent pads.)
         items = shape.draw(_pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
-        assert any(isinstance(it, QGraphicsPathItem) for it in items)
-        assert not any(isinstance(it, QGraphicsLineItem) for it in items)
+        # A round body (ellipse, or a path for a D-shaped/polar body).
+        assert any(isinstance(it, (QGraphicsEllipseItem, QGraphicsPathItem))
+                   for it in items)
+        # And a lead stub from the upright body to the adjacent pad.
+        assert any(isinstance(it, QGraphicsLineItem) for it in items)
+        # The body spans about the diameter (1 hole), far less than body_len.
+        mm = DEFAULT_THEME.raster_pitch_mm
+        body_len = _cylinder_package().length_mm / mm  # type: ignore[attr-defined]
+        body = max(
+            (it for it in items if isinstance(
+                it, (QGraphicsEllipseItem, QGraphicsPathItem))),
+            key=lambda it: it.sceneBoundingRect().width(),
+        )
+        assert body.sceneBoundingRect().width() < body_len - 1e-6
 
     def test_cylinder_coincident_pins_falls_back(self, qtbot: QtBot) -> None:
         shape = PackageBody(_cylinder_package())  # type: ignore[arg-type]
@@ -1375,6 +1390,61 @@ class TestPackageBodyParity:
             isinstance(it, QGraphicsPathItem)
             for it in plain.draw(_pts((0, 0), (4, 0)), _RED, _DARK, 1.0, _Z))
         assert d_paths == p_paths + 1
+
+    @staticmethod
+    def _upright_body(shape: PackageBody, p1: tuple[float, float],
+                      p2: tuple[float, float]) -> QGraphicsItem:
+        items = shape.draw(_pts(p1, p2), _RED, _DARK, 1.0, _Z)
+        return max(
+            (it for it in items if isinstance(
+                it, (QGraphicsPathItem, QGraphicsEllipseItem))),
+            key=lambda it: it.sceneBoundingRect().width(),
+        )
+
+    def test_axial_upright_body_sits_over_anchor_pad(
+        self, qtbot: QtBot
+    ) -> None:
+        # An axial cylinder whose pads are CLOSER than its body length stands
+        # UPRIGHT, the body sitting directly OVER ONE pad (the anchor), the bent
+        # lead reaching the other — NOT centred between the pads (that is the
+        # radial centroid silhouette, a different mount). User rule 2026-06-28.
+        pkg = _axial_cyl_package()  # diameter 2.5, length 6.3 → body_len 2.52
+        shape = PackageBody(pkg)  # type: ignore[arg-type]
+        mm = DEFAULT_THEME.raster_pitch_mm
+        body_len = pkg.length_mm / mm   # type: ignore[attr-defined]
+        diam = pkg.diameter_mm / mm     # type: ignore[attr-defined]
+
+        body = self._upright_body(shape, (0, 0), (1, 0))
+        c = body.sceneBoundingRect().center()
+        # Body is over the anchor pad (pin 1 at the origin), NOT the midpoint.
+        assert (c.x(), c.y()) == pytest.approx((0.0, 0.0), abs=0.05)
+        # And it spans ~the diameter, far less than the flat body length.
+        assert body.sceneBoundingRect().width() == pytest.approx(diam, abs=0.2)
+        assert body.sceneBoundingRect().width() < body_len - 1e-6
+
+    def test_axial_upright_flip_moves_body_to_other_pad(
+        self, qtbot: QtBot
+    ) -> None:
+        # Flip (vertical_flipped) chooses WHICH pad the upright body stands on:
+        # unflipped → over pin 1; flipped → over pin 2.
+        pkg = _axial_cyl_package()
+        unflipped = PackageBody(pkg)  # type: ignore[arg-type]
+        flipped = PackageBody(
+            pkg, vertical_flipped=True)  # type: ignore[arg-type]
+        cu = self._upright_body(unflipped, (0, 0), (1, 0)).sceneBoundingRect()
+        cf = self._upright_body(flipped, (0, 0), (1, 0)).sceneBoundingRect()
+        assert (cu.center().x(), cu.center().y()) == pytest.approx(
+            (0.0, 0.0), abs=0.05)   # over pin 1
+        assert (cf.center().x(), cf.center().y()) == pytest.approx(
+            (1.0, 0.0), abs=0.05)   # over pin 2
+
+    def test_axial_flat_body_spans_more_than_upright(
+        self, qtbot: QtBot
+    ) -> None:
+        shape = PackageBody(_axial_cyl_package())  # type: ignore[arg-type]
+        up = self._upright_body(shape, (0, 0), (1, 0)).sceneBoundingRect()
+        flat = self._upright_body(shape, (0, 0), (4, 0)).sceneBoundingRect()
+        assert flat.width() > up.width() + 1e-6
 
     def test_cathode_stripe_stays_on_flat_part_of_capsule(
         self,

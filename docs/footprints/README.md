@@ -30,7 +30,13 @@ uv run python tools/render_footprints.py
 | `QuadRow(n_per_col, col_spacings)` | `SvgQuadDIPBody` |
 | `GridFootprint` / anything else | `GenericBody` (plain rectangle) |
 
-`PackageBody` dispatches on the package's `arrangement` × shape: AXIAL cylinders draw a side-view capsule between the two pads, RADIAL parts draw a top-down silhouette (disc / circle / rect) on the anchor pad with a single lead reaching the other pad. The body colour comes from the package (`color`); polarity (diode cathode stripe, polar-cap disc) is driven by `component_class` and `vertical_flipped`, not the package. Prisms / discs honour `edge` (SHARP vs ROUNDED) and `disc_profile` (FLAT vs CANDY).
+`PackageBody` dispatches on the package's `arrangement` × shape:
+
+- **AXIAL cylinder, horizontal** (pads farther apart than the body length): a side-view capsule lying *between* the two pads, leads to each end.
+- **AXIAL cylinder, vertical / upright** (pads closer than the body length — a part stood on end, one lead bent down): the body is a top-view disc sitting **directly over ONE pad**, with a single lead stub reaching the other. *Which* pad it stands on is the **Flip** (`vertical_flipped`): unflipped → over pin 1, flipped → over pin 2. The orientation is chosen automatically by the placed pad spacing — there is no separate toggle. (This is **not** the radial centroid silhouette below; an axial part mounts over a single pad.)
+- **RADIAL part** (electrolytic, TO-92, disc cap): a top-down silhouette (disc / circle / rect) centred per its leads — the centroid of the pads — with a lead stub to each. The body sits *between* the pads as its leads dictate, not over one pad.
+
+The body colour comes from the package (`color`); polarity (diode cathode stripe, polar-cap disc) is driven by `component_class` and `vertical_flipped` (the `−` marker always tracks the physical cathode, pin 2, independent of the Flip anchor), not the package. Prisms / discs honour `edge` (SHARP vs ROUNDED) and `disc_profile` (FLAT vs CANDY).
 
 ## Conventions in these images
 

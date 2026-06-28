@@ -546,6 +546,36 @@ class PackageBody(BodyShape):
         if dist < 1e-9:
             return self._draw_bbox(positions, fill, border, alpha, z, theme)
 
+        # Upright mount: when the pad spacing is shorter than the body, the part
+        # cannot lie flat — an axial resistor/diode placed on adjacent pads
+        # STANDS UPRIGHT, the body sitting directly OVER ONE pad (its anchor),
+        # with the bent lead reaching the other. This is NOT the radial centroid
+        # silhouette: an axial part mounts over a single pad (which pad = the
+        # Flip / ``vertical_flipped`` end, already swapped into ``p1`` above),
+        # whereas a radial part sits per its leads (centroid). Seen from above
+        # the upright body is a disc (diameter = body width) on ``p1``; the ``-``
+        # marker points towards the physical cathode (pin 2). (User rule,
+        # 2026-06-28.)
+        if dist < body_len - 1e-6:
+            anchor = p1               # the Flip-chosen pad the body stands on
+            other = p2                # the bent lead reaches here
+            upright: list[QGraphicsItem] = []
+            lead = QGraphicsLineItem(anchor.x, anchor.y, other.x, other.y)
+            lead.setPen(_lead_pen(theme, alpha))
+            lead.setZValue(z - 0.01)
+            upright.append(lead)
+            neg_pin = positions[1]    # physical cathode, independent of flip
+            neg_angle = math.degrees(
+                math.atan2(neg_pin.y - anchor.y, neg_pin.x - anchor.x))
+            world_axis_deg = math.degrees(
+                math.atan2(other.y - anchor.y, other.x - anchor.x))
+            flat = self._flat_side_world(pkg, world_axis_deg)
+            upright.extend(self._radial_disc(
+                anchor, body_w, neg_angle, fill, border, alpha, z, theme,
+                flat=flat,
+            ))
+            return upright
+
         mid_x = (p1.x + p2.x) / 2.0
         mid_y = (p1.y + p2.y) / 2.0
         angle_deg = math.degrees(math.atan2(dy, dx))
