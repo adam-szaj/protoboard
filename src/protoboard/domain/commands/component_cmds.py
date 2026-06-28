@@ -101,13 +101,20 @@ def _pad_index_from_state(state: "ComponentState") -> "PadIndex | None":
 
 
 def build_pin_identities_for(state: ComponentState, comp_id: uuid.UUID) -> None:
-    """Populate a placed instance's same-name PinIdentity groups from its
-    definition.
+    """Bind a placed instance to its definition and seed its pin identities.
 
     Call this whenever an instance enters the project or its pin-variant
-    changes — the identities (and the ``net_id`` they carry) must persist
-    across layout-change rebuilds, so they are built here, not lazily. No-op
-    if the instance or its definition is missing.
+    changes. Two things must happen here, not lazily, because both must persist
+    across layout-change rebuilds:
+
+    * the same-name :class:`PinIdentity` groups (and the ``net_id`` they carry);
+    * the live ``definition`` + ``package_families`` back-reference, so the
+      instance can resolve its variant-aware footprint geometry on its own
+      (``inst.resolved_footprint()``) without callers threading the catalogue.
+
+    Binding returns a fresh frozen copy, so the bound instance is stored back
+    into ``state.instances``. No-op if the instance or its definition is
+    missing.
     """
     inst = state.instances.get(comp_id)
     if inst is None:
@@ -115,7 +122,9 @@ def build_pin_identities_for(state: ComponentState, comp_id: uuid.UUID) -> None:
     defn = state.components.get(inst.definition_ref)
     if defn is None:
         return
-    inst.build_pin_identities(defn)
+    bound = inst.bind(defn, getattr(state, "package_families", None))
+    state.instances[comp_id] = bound
+    bound.build_pin_identities(defn)
 
 
 @dataclass

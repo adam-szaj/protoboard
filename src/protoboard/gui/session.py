@@ -381,19 +381,29 @@ class EditorSession(QObject):
         self._wire_by_id_cache = None
 
     def rebuild_all_pin_identities(self) -> None:
-        """(Re)build same-name PinIdentity groups for every placed instance.
+        """Bind every placed instance and (re)build its PinIdentity groups.
 
-        Call after bulk-loading instances (project open, KiCAD import) so each
-        instance's ``pin_identities`` — and the ``net_id`` they carry for
-        same-name pins — is populated. Unlike the graph/PadIndex this is NOT
-        tied to ``invalidate_graph``: identities must persist across layout
-        changes (they hold net membership), so they are rebuilt only on bulk
+        Call after bulk-loading instances (project open, KiCAD import). Two
+        things are seeded per instance, both of which must persist across
+        layout-change rebuilds:
+
+        * the live ``definition`` + ``package_families`` back-reference, so the
+          instance resolves its own variant-aware footprint
+          (``inst.resolved_footprint()``) without the caller threading the
+          catalogue;
+        * the same-name ``pin_identities`` (and the ``net_id`` they carry).
+
+        Binding returns a fresh frozen copy, stored back into ``instances``.
+        Unlike the graph/PadIndex this is NOT tied to ``invalidate_graph``:
+        these persist across layout changes, so they are rebuilt only on bulk
         entry, not on every refresh.
         """
-        for inst in self.instances.values():
+        for comp_id, inst in list(self.instances.items()):
             defn = self.components.get(inst.definition_ref)
             if defn is not None:
-                inst.build_pin_identities(defn)
+                bound = inst.bind(defn, self.package_families)
+                self.instances[comp_id] = bound
+                bound.build_pin_identities(defn)
 
     def cached_under_component_pads(self) -> set[Point]:
         """Return cached set of top-layer pads sitting under a component body.

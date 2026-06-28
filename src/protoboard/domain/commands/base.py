@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.components.package.family import PackageFamily
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.schematic.schematic import Schematic
 
@@ -37,6 +38,7 @@ class ComponentState(Protocol):
     layout: "Layout"
     instances: dict[uuid.UUID, "ComponentInstance"]
     components: dict[str, "ComponentDefinition"]
+    package_families: dict[str, "PackageFamily"]
 
 
 class SchematicState(ComponentState, Protocol):
