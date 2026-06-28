@@ -358,7 +358,7 @@ class DragController:
                     continue
                 self._trial_pad_index.remove_component(cid)
                 self._trial_pad_index.add_component(
-                    cid, pl, defn, schematic=self._ctx.schematic
+                    cid, pl, defn, schematic=self._ctx.schematic, instance=inst
                 )
         except Exception as exc:  # noqa: BLE001 — best-effort; fall back to layout
             _log.warning("drag.pad_index.refresh_failed", error=str(exc))

@@ -596,7 +596,9 @@ class PadIndex:
             defn = self._components.get(inst.definition_ref)
             if defn is None:
                 continue
-            self.add_component(comp_id, placement, defn, schematic=schematic)
+            self.add_component(
+                comp_id, placement, defn, schematic=schematic, instance=inst
+            )
 
     def _build_wires(
         self, layout: "Layout", schematic: "Schematic",
@@ -841,13 +843,36 @@ class PadIndex:
         placement: "ComponentPlacement",
         defn: "ComponentDefinition",
         schematic: "Schematic | None" = None,
+        instance: "ComponentInstance | None" = None,
     ) -> None:
         """Place pin items on each pad the component's pins land on, plus
         component-body blockers on every pad covered by the component bbox.
+
+        Geometry (pin cloud + body mask) comes from the *instance's resolved
+        variant* — a placed R as SMD-0805 must put its pins on the 1-hole
+        pitch, not the definition default axial pitch. When *instance* is given
+        (the normal placed case) it is the source of truth; when omitted (a bare
+        topology-only call) the definition default applies.
         """
         if comp_id in self._component_records:
             return
+        from protoboard.domain.components.package.component_package import (
+            resolve_component_package,
+            resolved_footprint,
+        )
         from protoboard.domain.layout.placement import pin_world_position
+        # Variant-aware footprint/package: a bound instance resolves the body
+        # the user actually chose; without one (or an unbound stub) the
+        # definition default applies. The free ``resolved_footprint`` degrades
+        # gracefully — it never raises on an unbound instance, unlike the
+        # instance method — which keeps this hot rebuild path crash-free.
+        if instance is not None:
+            families = instance.families or {}
+            footprint_geom = resolved_footprint(defn, instance, families)
+            package = resolve_component_package(defn, instance, families)
+        else:
+            footprint_geom = defn.footprint
+            package = defn.package
         footprint: list[tuple[_PadKey, Side, Item]] = []
         side = placement.side
         # Pin items.
@@ -857,8 +882,8 @@ class PadIndex:
                 for ref in net.pins:
                     if ref.component_id == comp_id:
                         pin_net_map[ref.pin_number] = net.id
-        for pin_num in range(1, defn.footprint.pin_count() + 1):
-            pin_pos = pin_world_position(defn.footprint, placement, pin_num)
+        for pin_num in range(1, footprint_geom.pin_count() + 1):
+            pin_pos = pin_world_position(footprint_geom, placement, pin_num)
             key = qpair(pin_pos)
             pad = self._pads.get(key)
             if pad is None:
@@ -881,12 +906,11 @@ class PadIndex:
         pin_keys = {f[0] for f in footprint}
         # The package is the single source of truth for the body footprint: its
         # mask knows exactly which holes the body covers (side-aware), so we mark
-        # those holes directly. ``defn.package`` is an invariant (the loader
-        # synthesizes a generic bbox package when none is declared), so the
-        # legacy ``component_bbox`` fallback is gone; the empty-list branch only
-        # guards a degenerate definition with no package at all.
-        if defn.package is not None:
-            body_pads = self._package_body_pads(defn.package, placement)
+        # those holes directly. The resolved variant's package is used when an
+        # instance is bound; the empty-list branch only guards a degenerate
+        # definition with no package at all.
+        if package is not None:
+            body_pads = self._package_body_pads(package, placement)
         else:
             body_pads = []
         for pad in body_pads:

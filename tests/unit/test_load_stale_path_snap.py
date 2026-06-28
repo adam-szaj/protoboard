@@ -341,3 +341,87 @@ class TestVariantFootprintOnLoad:
         default_pos = pin_world_position(
             _SIL(2), l2.placements[inst.id], 2)
         assert (pos2.x, pos2.y) != (default_pos.x, default_pos.y)
+
+
+class TestPadIndexUsesVariantFootprint:
+    """Regression (pin-pad highlight off-pad): ``PadIndex.add_component`` must
+    place a bound instance's PinItems on its *chosen variant's* pads, not the
+    definition-default pads. The user saw pin-2's highlight ring ~3.2 holes off
+    because the index put the PinItem at the default axial pitch while the part
+    was an SMD-0805 (1-hole pitch)."""
+
+    @staticmethod
+    def _resistor_and_catalogue():  # type: ignore[no-untyped-def]
+        from protoboard.paths import BUILTIN_LIBRARY_DIR
+        from protoboard.services.library.loader import load_library
+        from protoboard.services.library.package_family_loader import (
+            load_full_package_catalogue,
+        )
+        families = load_full_package_catalogue()
+        lib = load_library([BUILTIN_LIBRARY_DIR], families)
+        return lib.get("R"), families
+
+    def test_pin_item_lands_on_variant_pad(self) -> None:
+        from protoboard.domain.board.pad_state import PadIndex, PinItem
+        from protoboard.domain.components.package import resolved_footprint
+        from protoboard.domain.components.package.adapter import (
+            PackageFootprint,
+        )
+        from protoboard.domain.components.package.family import resolve_variant
+        from protoboard.domain.layout.placement import pin_world_position
+
+        defn, families = self._resistor_and_catalogue()
+        # Bind an instance to the SMD-0805 variant (tight 1-hole pin pitch).
+        inst = ComponentInstance.new(
+            definition_ref="R", refdes="R1", value="",
+            package_variant="SMD-0805/typ",
+        ).bind(defn, families)
+
+        board = _board()
+        layout = Layout(placements={}, wires=WireCollection())
+        # The HUG board's pad centres sit at half-integer coordinates, so place
+        # pin-1 on a real pad centre; variant pin-2 then lands on (6.5, 5.5).
+        placement = ComponentPlacement(
+            component_id=inst.id, position=Point(5.5, 5.5), rotation=0,
+            side="top",
+        )
+        layout.placements[inst.id] = placement
+        instances = {inst.id: inst}
+        components = {"R": defn}
+        schematic = Schematic(nets={})
+
+        index = PadIndex(board, layout, schematic, components, instances)
+
+        # Where the variant says pin-2 is, vs the (wrong) default footprint.
+        variant = resolve_variant(families, "SMD-0805/typ")
+        assert variant is not None
+        variant_fp = PackageFootprint(variant.package)
+        variant_pin2 = pin_world_position(variant_fp, placement, 2)
+        default_pin2 = pin_world_position(defn.footprint, placement, 2)
+        # The variant and default must actually disagree, else the test proves
+        # nothing.
+        assert (variant_pin2.x, variant_pin2.y) != (
+            default_pin2.x, default_pin2.y)
+
+        def pin2_items(pos: Point) -> list[PinItem]:
+            pad = index.pad_at(pos)
+            if pad is None:
+                return []
+            return [
+                it for it in pad.physically_blocked_on("top")
+                if isinstance(it, PinItem) and it.pin_number == 2
+            ]
+
+        # A PinItem for pin-2 must sit on the VARIANT pad…
+        assert pin2_items(variant_pin2), "pin-2 PinItem is not on the variant pad"
+        # …and NOT on the default-footprint pad.
+        assert not pin2_items(default_pin2), (
+            "pin-2 PinItem leaked onto the default-footprint pad"
+        )
+
+        # Sanity: the bound instance resolves to the same footprint the index
+        # used.
+        assert (
+            inst.resolved_footprint().pin_positions()
+            == resolved_footprint(defn, inst, families).pin_positions()
+        )
