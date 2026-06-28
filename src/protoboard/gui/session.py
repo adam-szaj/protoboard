@@ -112,8 +112,10 @@ def _build_comp_spatial_index(
     layout: Layout,
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
+    families: "dict[str, PackageFamily] | None" = None,
 ) -> dict[tuple[int, int], list[uuid.UUID]]:
     """Build grid-cell → comp_id index from current placements."""
+    from protoboard.domain.components.package import resolved_footprint
     idx: dict[tuple[int, int], list[uuid.UUID]] = defaultdict(list)
     for comp_id, placement in layout.placements.items():
         inst = instances.get(comp_id)
@@ -122,9 +124,10 @@ def _build_comp_spatial_index(
         defn = components.get(inst.definition_ref)
         if defn is None:
             continue
+        fp = resolved_footprint(defn, inst, families)
         seen_cells: set[tuple[int, int]] = set()
-        for n in range(defn.footprint.pin_count()):
-            p = pin_world_position(defn.footprint, placement, n + 1)
+        for n in range(fp.pin_count()):
+            p = pin_world_position(fp, placement, n + 1)
             cell = (round(p.x), round(p.y))
             if cell not in seen_cells:
                 seen_cells.add(cell)
@@ -543,7 +546,8 @@ class EditorSession(QObject):
         """Return grid-cell → comp_id index, rebuilding lazily after layout_changed."""
         if self._comp_spatial_index is None:
             self._comp_spatial_index = _build_comp_spatial_index(
-                self.layout, self.instances, self.components
+                self.layout, self.instances, self.components,
+                self.package_families,
             )
         return self._comp_spatial_index
 
