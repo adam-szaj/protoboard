@@ -42,8 +42,7 @@ if TYPE_CHECKING:
     from protoboard.gui.selection.selectable import Selectable
     from protoboard.types import Side
 
-# Thresholds — identical to the legacy SelectTool constants.
-HIT_RADIUS = 0.5  # pin reach (Euclidean, raster units)
+HIT_RADIUS = 0.25  # pin reach (Euclidean, raster units)
 # A click counts as landing *on a pin-pad* (→ that pin's net context) only when
 # this close to the pin; between PAD_HIT_RADIUS and HIT_RADIUS the component is
 # still selected, but as a body click (no net context).  Mirrors
