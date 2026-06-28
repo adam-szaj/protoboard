@@ -27,6 +27,7 @@ from ruamel.yaml import YAML
 
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.package import PackageFamily
 
 from protoboard.domain.board.board import Board
 from protoboard.domain.components.appearance import Appearance, parse_style
@@ -468,6 +469,26 @@ def load_project(
     # loads; the user re-places the part with a fresh definition. Done BEFORE
     # the migration passes so they never operate on dangling instances.
     _drop_dangling_instances(instances, layout, _library_for_migration)
+
+    # Bind each loaded instance to its definition + the package catalogue, so
+    # every downstream migration pass (v1→v2 pin index, stale-path snap) and
+    # the returned instances can resolve their chosen-variant footprint via the
+    # strict ``resolved_footprint`` path. Mirrors ``session.py`` /
+    # ``recording.headless`` — the model requires binding wherever an instance
+    # enters the project. Instances whose definition is unavailable (duck-typed
+    # legacy/test handles) are left unbound; the migration passes already guard
+    # for a missing defn before resolving geometry.
+    if _library_for_migration is not None and hasattr(
+        _library_for_migration, "get",
+    ):
+        _mig_lib = cast(_MigrationLibrary, _library_for_migration)
+        _mig_families = cast(
+            "dict[str, PackageFamily] | None", _families_for_migration,
+        )
+        for _cid, _inst in list(instances.items()):
+            _defn = _mig_lib.get(_inst.definition_ref)
+            if _defn is not None:
+                instances[_cid] = _inst.bind(_defn, _mig_families)
 
     # Enrich every insulated wire with pad-position vertices wherever its
     # path geometrically crosses a board pad.  Legacy projects saved before

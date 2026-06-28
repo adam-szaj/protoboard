@@ -39,12 +39,21 @@ def footprint_of(
 ) -> "Footprint":
     """The variant-aware footprint of a placed component.
 
-    A bound instance resolves the body the user chose; without one
-    (legacy / topology-only callers) the definition default applies.
+    Delegates to :meth:`ComponentInstance.resolved_footprint`. It does NOT
+    fall back to ``defn.footprint`` for a missing instance: a placed component
+    in a conflict/geometry path must have a bound instance, so ``None`` raises
+    :class:`~protoboard.errors.UnboundInstanceError` (surfacing the bug instead
+    of silently using the wrong default body). ``defn`` is kept in the
+    signature only for the error message and source-compatibility.
     """
-    if inst is not None and inst.definition is not None:
-        return inst.resolved_footprint()
-    return defn.footprint
+    if inst is None:
+        from protoboard.errors import UnboundInstanceError
+
+        raise UnboundInstanceError(
+            f"footprint_of called for {defn.name!r} with no instance; a placed "
+            "component's geometry must come from its bound instance"
+        )
+    return inst.resolved_footprint()
 
 
 class ConflictKind(Enum):
@@ -1051,6 +1060,10 @@ class ConflictScanner:
             point_to_net=point_to_net,
             already_conflicted=already_conflicted,
             pad_index=self.pad_index,
+            # Resolve the incoming geometry from the bound instance — the free
+            # function has no instances dict, so without this it raises on a
+            # placed component (previously masked by the defn.footprint fallback).
+            incoming_instance=self.instances.get(incoming_instance_id),
         )
 
     def find_wires_crossing_pads(

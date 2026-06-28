@@ -100,23 +100,44 @@ class ComponentInstance:
     def resolved_footprint(self) -> "Footprint":
         """The footprint of this instance's *resolved* package variant.
 
-        Variant-aware single source of truth for "the footprint this placed
-        component actually uses". Requires :meth:`bind` to have run; if this
-        instance is unbound (no ``definition``) it raises, because reading the
-        definition default in a placement context is the very bug this model
-        removes. Use :func:`resolved_footprint` (the free function) when you
-        only have a possibly-unbound instance and want the legacy fallback.
+        The single source of truth for "the footprint this placed component
+        actually uses" — and the ONLY supported way to get a placed
+        component's geometry. Requires :meth:`bind` to have run; if this
+        instance is unbound (no ``definition``) it raises
+        :class:`~protoboard.errors.UnboundInstanceError`, because falling back
+        to the definition default in a placement context is the exact
+        silent-wrong-body bug this model removes.
+
+        When the instance *is* bound but its part declares no package/variant
+        (a legacy part), the definition's own footprint is its genuine default
+        geometry — not a fallback — so that is returned. The distinction is
+        deliberate: unbound = programming error (raise); no package = correct
+        default (use ``defn.footprint``).
         """
         if self.definition is None:
-            raise ValueError(
-                f"ComponentInstance {self.refdes!r} is not bound to a "
-                "definition; call bind() before resolving geometry"
+            from protoboard.errors import UnboundInstanceError
+
+            raise UnboundInstanceError(
+                f"ComponentInstance {self.refdes!r} (def "
+                f"{self.definition_ref!r}) is not bound to a definition; call "
+                "bind() before resolving its geometry"
             )
         from protoboard.domain.components.package.component_package import (
-            resolved_footprint,
+            resolve_component_package,
         )
 
-        return resolved_footprint(self.definition, self, self.families)
+        pkg = resolve_component_package(
+            self.definition, self, self.families or {}
+        )
+        if pkg is not None:
+            from protoboard.domain.components.package.adapter import (
+                PackageFootprint,
+            )
+
+            return PackageFootprint(pkg)
+        # Bound, but the part has no package/variant — its definition footprint
+        # IS its real default geometry, not a silent fallback.
+        return self.definition.footprint
 
     @staticmethod
     def new(

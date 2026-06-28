@@ -2955,6 +2955,11 @@ class MainWindow(QMainWindow):
             for refdes, inst in result.instances.items():
                 if inst.id not in placed_ids:
                     self._session.instances[inst.id] = inst
+            # Imported instances arrive unbound (no definition/catalogue) and
+            # carry no pin identities — bind them so geometry/DRC can resolve
+            # their footprint and same-name pins share a net. Mirrors the
+            # interactive _import_kicad_net path.
+            self._session.rebuild_all_pin_identities()
 
             if self._session.project_path:
                 map_path = self._session.project_path / "footprint_map.yaml"

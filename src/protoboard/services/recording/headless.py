@@ -42,6 +42,16 @@ class ReplayState:
         """Load a project directory and bind it to a fresh ReplayState."""
         board, layout, schematic, instances, *_rest = load_project(project_dir)
         components = {name: library.get(name) for name in library.names()}
+        # Deserialized instances arrive unbound: bind each to its definition so
+        # replayed commands that touch geometry (move/conflict/render) can
+        # resolve the instance footprint instead of raising
+        # UnboundInstanceError. No package-family catalogue is threaded through
+        # the headless path, so bind with families=None (the resolver tolerates
+        # it; legacy parts fall back to their definition default geometry).
+        for comp_id, inst in list(instances.items()):
+            defn = components.get(inst.definition_ref)
+            if defn is not None:
+                instances[comp_id] = inst.bind(defn, None)
         return cls(
             board=board,
             layout=layout,

@@ -62,23 +62,31 @@ def resolved_footprint(
     instance: "ComponentInstance | None",
     families: dict[str, PackageFamily] | None,
 ) -> "Footprint":
-    """The footprint of the component's *resolved* package variant.
+    """The footprint a placed component actually uses — variant-aware.
 
-    ``ComponentDefinition.footprint`` is the pin cloud of the *default* variant.
-    When a component carries a chosen ``instance.package_variant`` (or a
-    ``package_family_ref``), its real pin spacing lives in that variant's
-    package, not the default footprint — so any placement-time geometry (load
-    snapping, render, bbox, place/route) that reads ``defn.footprint`` silently
-    uses the wrong variant. This resolves the variant via
-    :func:`resolve_component_package` and adapts it to a ``Footprint``; it falls
-    back to ``defn.footprint`` when no package resolves (legacy parts, or no
-    instance/catalogue available). Single source of truth for "the footprint
-    this placed component actually uses".
+    Thin wrapper over :meth:`ComponentInstance.resolved_footprint` for call
+    sites that hold ``(defn, instance, families)`` separately. It does **not**
+    silently fall back to ``defn.footprint`` for a missing/unbound instance:
+    a placed component without a bound instance reaching a geometry path is the
+    silent-wrong-body bug this model removes, so it raises
+    :class:`~protoboard.errors.UnboundInstanceError`.
+
+    The *families* argument is accepted for source-compatibility but is
+    redundant once the instance is bound (it carries its own catalogue); when
+    *instance* is unbound this raises regardless.
+
+    For the legitimate *pre-placement* case — a picker/ghost that has no
+    instance yet — call :func:`resolve_component_package` directly (or use
+    ``defn.footprint`` explicitly), so the no-instance path is visible at the
+    call site rather than hidden behind a fallback here.
     """
-    pkg = resolve_component_package(defn, instance, families or {})
-    if pkg is not None:
-        from protoboard.domain.components.package.adapter import (
-            PackageFootprint,
+    if instance is None:
+        from protoboard.errors import UnboundInstanceError
+
+        raise UnboundInstanceError(
+            f"resolved_footprint called for {defn.name!r} with no instance; "
+            "placed-component geometry must come from a bound instance "
+            "(pre-placement callers must use resolve_component_package "
+            "explicitly)"
         )
-        return PackageFootprint(pkg)
-    return defn.footprint
+    return instance.resolved_footprint()

@@ -598,6 +598,12 @@ class DragDetector:
             point_to_net=point_to_net,
             already_conflicted=already_conflicted,
             pad_index=snapshot.pad_index,
+            # The incoming geometry must come from the bound instance — without
+            # it find_wire_conflicts has no instances dict to resolve from and
+            # raises UnboundInstanceError (previously masked by the silent
+            # defn.footprint fallback, which also meant drag used the wrong
+            # variant pitch).
+            incoming_instance=snapshot.instances.get(cid),
         )
 
         annotated: list[tuple[PadConflict, str]] = []
