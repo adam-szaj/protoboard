@@ -544,6 +544,15 @@ class PlaceTool(_Tool):
                 package_variant=self._package_variant,
             )
 
+        # Bind the instance to its definition + catalogue so its chosen variant
+        # footprint resolves now — the conflict check runs *before* the instance
+        # enters session.instances, so without binding it would fall back to the
+        # definition default footprint (wrong pin spacing → bogus body overlap /
+        # off-pad pins, blocking valid placements).
+        if defn is not None:
+            families = getattr(self._session, "package_families", None)
+            inst = inst.bind(defn, families)
+
         placement = ComponentPlacement(
             component_id=inst.id,
             position=position,
@@ -560,6 +569,7 @@ class PlaceTool(_Tool):
                 defn=defn,
                 instance_id=inst.id,
                 parent_widget=self._view.window(),
+                instance=inst,
             )
             if resolved is None:
                 _log.info("place.blocked", definition=self._definition_ref, pos=(position.x, position.y))

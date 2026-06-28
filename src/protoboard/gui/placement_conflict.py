@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.instance import ComponentInstance
     from protoboard.gui.session import EditorSession
     from protoboard.gui.tools.drag_commit_decision import DragCommitDecision
 
@@ -58,6 +59,7 @@ def check_and_resolve(
     defn: ComponentDefinition,
     instance_id: uuid.UUID,
     parent_widget: object = None,
+    instance: "ComponentInstance | None" = None,
 ) -> PlacementResolution | None:
     """Check pad conflicts for *placement* and resolve interactively.
 
@@ -67,6 +69,12 @@ def check_and_resolve(
 
     Side-effects when returning non-None:
     - Updates schematic (adds unconnected pins to nets) directly on session.
+
+    *instance* is the (preferably bound) incoming instance. At placement time it
+    is not yet in ``session.instances``, so the caller must pass it — otherwise
+    the incoming geometry falls back to the definition default footprint (wrong
+    pin spacing for a chosen variant). When omitted, it is looked up by id (the
+    move/re-check path, where the instance is already registered).
     """
     # Body-overlap check: block if the incoming bbox intersects a placed component
     # AND no pin of the incoming component actually coincides with a pin of that
@@ -76,7 +84,7 @@ def check_and_resolve(
     # the user actually chose), not the definition default — otherwise the bbox
     # and pin cloud use the wrong pin spacing and the overlap/coincidence test is
     # wrong (e.g. an SMD-0805 part checked against axial 3.2-hole pitch).
-    incoming_instance = session.instances.get(instance_id)
+    incoming_instance = instance or session.instances.get(instance_id)
     in_footprint = _footprint_of(defn, incoming_instance)
     incoming_bbox = component_bbox(in_footprint, placement, defn.component_class)
     _EPS = 1e-4
