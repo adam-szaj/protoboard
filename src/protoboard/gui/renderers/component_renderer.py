@@ -649,8 +649,15 @@ def make_ghost_item(
     rotation: int = 0,
     theme: Theme = DEFAULT_THEME,
     pin_offsets: dict[int, Vector] | None = None,
+    package_variant: str | None = None,
 ) -> QGraphicsItemGroup:
-    """Return a semi-transparent QGraphicsItemGroup previewing *defn* at origin."""
+    """Return a semi-transparent QGraphicsItemGroup previewing *defn* at origin.
+
+    *package_variant* is the picker's chosen body address (``"family/variant"``);
+    when set, the preview draws that body and its pin spacing, not the
+    definition's default footprint. (Without it the default is used — a part with
+    a single body, or a netlist-imported instance, is unaffected.)
+    """
     placement = ComponentPlacement(
         component_id=uuid.UUID(int=0),
         position=Point(0.0, 0.0),
@@ -658,7 +665,25 @@ def make_ghost_item(
         side="top",
         pin_offsets=pin_offsets or {},
     )
+    # The chosen variant drives both the body shape and the pin spacing: a
+    # ghost instance carries the address, resolved against the theme catalogue.
+    ghost_inst: ComponentInstance | None = None
     fp = defn.footprint
+    if package_variant is not None:
+        ghost_inst = ComponentInstance.new(
+            definition_ref=defn.name, refdes="?", value="",
+            package_variant=package_variant,
+        )
+        from protoboard.domain.components.package import (
+            resolve_component_package,
+        )
+        from protoboard.domain.components.package.adapter import (
+            PackageFootprint,
+        )
+        pkg = resolve_component_package(
+            defn, ghost_inst, theme.package_families or {})
+        if pkg is not None:
+            fp = PackageFootprint(pkg)
     positions = [
         pin_world_position(fp, placement, n + 1) for n in range(fp.pin_count())
     ]
@@ -682,7 +707,7 @@ def make_ghost_item(
     # Use the same body shape as the real component, semi-transparent.
     ghost_alpha = ghost_fill.alphaF()
     shape = body_shape_for(
-        defn, package_families=theme.package_families,
+        defn, instance=ghost_inst, package_families=theme.package_families,
     )
     for item in shape.draw(positions, ghost_fill, ghost_border, ghost_alpha, 0.0, theme):
         # Ghost body: dashed border

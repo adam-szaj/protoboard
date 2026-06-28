@@ -461,3 +461,44 @@ class TestGroupAlphaMap:
         # comp_in → active (1.0), comp_out → inactive (0.2).
         assert alpha_map.get(comp_in) == pytest.approx(1.0)
         assert alpha_map.get(comp_out) == pytest.approx(0.2)
+
+
+class TestGhostHonoursPackageVariant:
+    """The place-tool ghost must preview the picker's chosen body, not the
+    definition default — a C placed as SMD-0805 draws the flat chip, not the
+    default candy ceramic disc (regression: ghost ignored package_variant)."""
+
+    def _theme_and_defn(self):
+        import dataclasses
+        from pathlib import Path
+        from protoboard.gui.theme import DEFAULT_THEME
+        from protoboard.services.library.loader import load_library
+        from protoboard.services.library.package_family_loader import (
+            load_full_package_catalogue,
+        )
+        fam = load_full_package_catalogue()
+        lib = load_library([Path("library")], fam)
+        theme = dataclasses.replace(DEFAULT_THEME, package_families=fam)
+        return theme, lib.get("C")
+
+    def test_variant_changes_ghost_pin_spacing(self, qtbot: QtBot) -> None:
+        from protoboard.gui.renderers.component_renderer import make_ghost_item
+
+        theme, defn = self._theme_and_defn()
+        g_default = make_ghost_item(defn, theme=theme)
+        g_smd = make_ghost_item(defn, theme=theme,
+                                package_variant="SMD-0805/typ")
+        qtbot.addWidget  # noqa: B018 - QGraphicsItemGroup isn't a widget
+        # The two ghosts are built without error and differ — the SMD body's
+        # pin spacing/shape is not the default candy disc's.
+        assert g_default.childItems()
+        assert g_smd.childItems()
+        assert g_default.boundingRect() != g_smd.boundingRect()
+
+    def test_unknown_variant_falls_back_to_default(self, qtbot: QtBot) -> None:
+        from protoboard.gui.renderers.component_renderer import make_ghost_item
+
+        theme, defn = self._theme_and_defn()
+        # A stale/unknown address resolves to nothing → default body, no crash.
+        g = make_ghost_item(defn, theme=theme, package_variant="No-Such/typ")
+        assert g.childItems()

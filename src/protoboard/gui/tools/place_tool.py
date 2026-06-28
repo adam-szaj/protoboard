@@ -332,7 +332,10 @@ class PlaceTool(_Tool):
             specs = self._bend_specs(defn)
             if specs:
                 offsets = {p: spec.default_offset for p, spec in specs.items()}
-        ghost = make_ghost_item(defn, rotation=self._rotation, pin_offsets=offsets)
+        ghost = make_ghost_item(
+            defn, rotation=self._rotation, pin_offsets=offsets,
+            package_variant=self._package_variant,
+        )
         # Z=20 puts the ghost above all back-side scene items (Z<Z_BOARD=3.0)
         # so BoardView._ensure_back_cache doesn't bake it into the back-side
         # pixmap and hide it.  Without this the ghost stays "stuck" at (0,0)
