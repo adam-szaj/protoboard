@@ -502,3 +502,53 @@ class TestGhostHonoursPackageVariant:
         # A stale/unknown address resolves to nothing → default body, no crash.
         g = make_ghost_item(defn, theme=theme, package_variant="No-Such/typ")
         assert g.childItems()
+
+    def test_rotation_turns_body_with_the_pins(self, qtbot: QtBot) -> None:
+        # The body must rotate WITH the pins: make_ghost_item passes the
+        # placement (rotation) to body_shape_for, so an SMD chip body at 0° vs
+        # 90° has a transposed bbox. Regression: without the placement the body
+        # drew in an unrotated frame while the pins turned. (Tested on the body
+        # shape itself — the whole ghost's bbox is dominated by the fixed-
+        # orientation name label, which never rotates.)
+        import uuid as _uuid
+
+        from PySide6.QtGui import QColor
+        from PySide6.QtWidgets import QGraphicsItemGroup
+
+        from protoboard.domain.components.instance import ComponentInstance
+        from protoboard.domain.components.package import (
+            resolve_component_package,
+        )
+        from protoboard.domain.components.package.adapter import PackageFootprint
+        from protoboard.domain.layout.placement import (
+            ComponentPlacement,
+            pin_world_position,
+        )
+        from protoboard.geometry import Point
+        from protoboard.gui.renderers.body_shapes import body_shape_for
+
+        theme, defn = self._theme_and_defn()
+        inst = ComponentInstance.new(
+            definition_ref="C", refdes="?", value="",
+            package_variant="SMD-0805/typ")
+        pkg = resolve_component_package(defn, inst, theme.package_families)
+        assert pkg is not None
+        fp = PackageFootprint(pkg)
+
+        def _body_bbox(rotation: int):
+            pl = ComponentPlacement(
+                component_id=_uuid.UUID(int=0), position=Point(0.0, 0.0),
+                rotation=rotation, side="top", pin_offsets={})
+            positions = [pin_world_position(fp, pl, n + 1)
+                         for n in range(fp.pin_count())]
+            shape = body_shape_for(defn, pl, inst,
+                                   package_families=theme.package_families)
+            g = QGraphicsItemGroup()
+            for it in shape.draw(positions, QColor("red"), QColor("black"),
+                                 1.0, 0.0, theme):
+                g.addToGroup(it)
+            return g.boundingRect()
+
+        r0, r90 = _body_bbox(0), _body_bbox(90)
+        assert r0.width() == pytest.approx(r90.height(), abs=0.05)
+        assert r0.height() == pytest.approx(r90.width(), abs=0.05)

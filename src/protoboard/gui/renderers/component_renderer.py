@@ -706,8 +706,13 @@ def make_ghost_item(
 
     # Use the same body shape as the real component, semi-transparent.
     ghost_alpha = ghost_fill.alphaF()
+    # Pass the placement so the body knows the rotation / vertical-flip the pin
+    # positions already carry — otherwise the silhouette and polarity markers
+    # draw in an unrotated frame while the pins are rotated, and the mismatch
+    # grows with the rotation angle.
     shape = body_shape_for(
-        defn, instance=ghost_inst, package_families=theme.package_families,
+        defn, placement, ghost_inst,
+        package_families=theme.package_families,
     )
     for item in shape.draw(positions, ghost_fill, ghost_border, ghost_alpha, 0.0, theme):
         # Ghost body: dashed border
