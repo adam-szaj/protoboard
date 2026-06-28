@@ -78,9 +78,14 @@ def _open_session(
             return None
         try:
             from protoboard.services.persistence.project_yaml import (
+                set_migration_families,
                 set_migration_library,
             )
             set_migration_library(library)
+            # The catalogue lets load resolve each component's chosen variant
+            # footprint, so stale-path snapping measures pins against the
+            # variant, not the definition default (which moves every pin).
+            set_migration_families(load_full_package_catalogue())
             (board, layout, schematic, instances,
              routing_settings, layer_overrides, axis_label_settings) = load_project(project_path)
         except Exception as exc:

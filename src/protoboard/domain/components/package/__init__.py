@@ -25,6 +25,7 @@ from protoboard.domain.components.package.body import (
 )
 from protoboard.domain.components.package.component_package import (
     resolve_component_package,
+    resolved_footprint,
 )
 from protoboard.domain.components.package.family import (
     PackageFamily,
@@ -95,6 +96,7 @@ __all__ = [
     "axial_board_offset_range",
     "body_holes",
     "resolve_component_package",
+    "resolved_footprint",
     "resolve_variant",
     "build_package",
     "build_pad_mask",

@@ -245,3 +245,99 @@ class TestStalePathSnapOnLoad:
         )
         # path[0] should still be ~+1 off in x (the corruption is preserved).
         assert w.path[0].x - pin_pos.x == pytest.approx(1.0)
+
+
+class TestVariantFootprintOnLoad:
+    """Regression: load must measure pin positions against the component's
+    CHOSEN variant footprint, not the definition default. A part saved as a
+    variant whose pin spacing differs from the default would otherwise have
+    every pin "move" on load, snapping the wire and dragging neighbours."""
+
+    def _catalogue(self):
+        from protoboard.services.library.package_family_loader import (
+            load_full_package_catalogue,
+        )
+        return load_full_package_catalogue()
+
+    def _variant_with_offset_spacing(self, fam):
+        # Find a family with >=2 variants whose two-pin spacing differs, so the
+        # default footprint and the chosen variant disagree (the bug's trigger).
+        from protoboard.domain.components.package.adapter import PackageFootprint
+
+        def spacing(variant) -> float:
+            pins = PackageFootprint(variant.package).pin_positions()
+            return pins[1].x - pins[0].x if len(pins) >= 2 else 0.0
+
+        for fid, family in fam.items():
+            vs = list(family.variants)
+            if len(vs) < 2:
+                continue
+            spans = {round(spacing(v), 2) for v in vs}
+            if len(spans) >= 2 and all(
+                    v.package.pin_count() == 2 for v in vs):
+                # default = first variant; pick a later one with other spacing.
+                default_v = vs[0]
+                for v in vs[1:]:
+                    if round(spacing(v), 2) != round(spacing(default_v), 2):
+                        return fid, default_v.variant_id, v.variant_id
+        return None
+
+    def test_variant_part_path_stable_across_loads(
+        self, tmp_path: Path
+    ) -> None:
+        from protoboard.domain.components.definition import ComponentDefinition
+        from protoboard.domain.components.footprints import SIL
+        from protoboard.services.persistence.project_yaml import (
+            set_migration_families,
+        )
+
+        fam = self._catalogue()
+        found = self._variant_with_offset_spacing(fam)
+        if found is None:
+            pytest.skip("no 2-pin family with differing variant spacing")
+        family_id, default_vid, other_vid = found
+
+        # Definition defaults to the FIRST variant; the instance overrides to a
+        # variant with different pin spacing.
+        defn = ComponentDefinition(
+            name="P", footprint=SIL(2), pin_names={1: "A", 2: "B"},
+            package_family_ref=f"{family_id}/{default_vid}",
+        )
+        lib = _MiniLibrary()
+        lib._by_name["P"] = defn
+
+        layout = Layout(placements={}, wires=WireCollection())
+        inst = ComponentInstance.new(
+            definition_ref="P", refdes="P1", value="",
+            package_variant=f"{family_id}/{other_vid}")
+        instances = {inst.id: inst}
+        layout.placements[inst.id] = ComponentPlacement(
+            component_id=inst.id, position=Point(3.0, 5.0), rotation=0,
+            side="top")
+        schematic = Schematic(nets={})
+
+        set_migration_library(lib)
+        set_migration_families(fam)
+        try:
+            save_project(directory=tmp_path, board=_board(), layout=layout,
+                         schematic=schematic, instances=instances)
+            _b1, l1, _s1, i1, *_ = load_project(tmp_path)
+            save_project(directory=tmp_path, board=_board(), layout=l1,
+                         schematic=schematic, instances=i1)
+            _b2, l2, _s2, _i2, *_ = load_project(tmp_path)
+        finally:
+            set_migration_library(None)
+            set_migration_families(None)
+
+        # The chosen variant resolves to the SAME footprint on both loads, so
+        # the placement is stable — pin positions don't drift to the default.
+        from protoboard.domain.components.package import resolved_footprint
+        from protoboard.domain.layout.placement import pin_world_position
+        fp = resolved_footprint(defn, inst, fam)
+        pos2 = pin_world_position(fp, l2.placements[inst.id], 2)
+        # The variant's pin-2 world position must match what resolved_footprint
+        # gives — i.e. load used the variant, not defn.footprint (SIL spacing).
+        from protoboard.domain.components.footprints import SIL as _SIL
+        default_pos = pin_world_position(
+            _SIL(2), l2.placements[inst.id], 2)
+        assert (pos2.x, pos2.y) != (default_pos.x, default_pos.y)

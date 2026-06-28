@@ -118,3 +118,43 @@ class TestFieldValidation:
 
     def test_good_family_ref_ok(self) -> None:
         assert _defn(package_family_ref="a/b").package_family_ref == "a/b"
+
+
+class TestResolvedFootprint:
+    """resolved_footprint gives the chosen variant's pin geometry, falling back
+    to defn.footprint when no package resolves."""
+
+    def test_variant_footprint_is_package_footprint(self) -> None:
+        from protoboard.domain.components.package import resolved_footprint
+        from protoboard.domain.components.package.adapter import PackageFootprint
+
+        d = _defn(package_family_ref="DO-35/S")
+        fp = resolved_footprint(d, None, _families())
+        assert isinstance(fp, PackageFootprint)
+
+    def test_variant_differs_from_default_footprint(self) -> None:
+        # DO-35/S vs DO-35/typ have different lengths → different pin spacing.
+        from protoboard.domain.components.package import resolved_footprint
+
+        d = _defn(package_family_ref="DO-35/typ")
+        inst = ComponentInstance.new(
+            definition_ref="X", refdes="X1", value="", package_variant="DO-35/S",
+        )
+        fp_inst = resolved_footprint(d, inst, _families())
+        fp_default = resolved_footprint(d, None, _families())
+        assert fp_inst.pin_positions() != fp_default.pin_positions()
+
+    def test_no_package_falls_back_to_defn_footprint(self) -> None:
+        from protoboard.domain.components.package import resolved_footprint
+
+        d = _defn()  # no package / family_ref
+        fp = resolved_footprint(d, None, _families())
+        assert fp is d.footprint
+
+    def test_none_families_falls_back(self) -> None:
+        from protoboard.domain.components.package import resolved_footprint
+
+        d = _defn(package_family_ref="DO-35/S")
+        # Without a catalogue the variant cannot resolve → default footprint.
+        fp = resolved_footprint(d, None, None)
+        assert fp is d.footprint

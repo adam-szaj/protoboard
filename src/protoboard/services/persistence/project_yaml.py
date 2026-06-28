@@ -507,6 +507,9 @@ def load_project(
         # We need the library to look up footprints; library load happens
         # before load_project at the call site, so plumb it via the
         # `_library_for_migration` module global set by load_project below.
+        from protoboard.domain.components.package import (
+            resolved_footprint as _resolved_footprint,
+        )
         from protoboard.domain.layout.placement import (
             pin_world_position as _pwp,
         )
@@ -524,10 +527,12 @@ def load_project(
                 )
                 if defn is None:
                     continue
-                n_pins = defn.footprint.pin_count()
+                fp = _resolved_footprint(
+                    defn, inst, _families_for_migration)  # type: ignore[arg-type]
+                n_pins = fp.pin_count()
                 for pin_num in range(1, n_pins + 1):
                     try:
-                        pos = _pwp(defn.footprint, pl, pin_num)
+                        pos = _pwp(fp, pl, pin_num)
                     except (IndexError, ValueError):
                         continue
                     pin_index[pos] = PinRef(component_id=comp_id, pin_number=pin_num)
@@ -546,7 +551,9 @@ def load_project(
                 if defn is None:
                     return None
                 try:
-                    return _pwp(defn.footprint, pl, pin_num)
+                    fp = _resolved_footprint(
+                        defn, inst, _families_for_migration)  # type: ignore[arg-type]
+                    return _pwp(fp, pl, pin_num)
                 except (IndexError, ValueError):
                     return None
 
@@ -748,6 +755,9 @@ def load_project(
     # disagrees with PinKnot position``.  Snap each offending endpoint
     # back to the pin position so the layout opens consistent.
     if _library_for_migration is not None and layout.wires and layout.knots:
+        from protoboard.domain.components.package import (
+            resolved_footprint as _resolved_footprint,
+        )
         from protoboard.domain.layout.knot import PinKnot as _PK
         from protoboard.domain.layout.placement import pin_world_position as _pwp
         snapped_endpoints: list[dict[str, object]] = []
@@ -772,7 +782,14 @@ def load_project(
                 if defn is None:
                     continue
                 try:
-                    pin_pos = _pwp(defn.footprint, pl, k.pin.pin_number)
+                    # Use the chosen variant's footprint, not the definition
+                    # default — else a part saved as e.g. an SMD body (1-hole
+                    # pin pitch) is measured against its default axial body
+                    # (3.2-hole pitch) and every pin "moves", snapping the whole
+                    # wire and dragging neighbours.
+                    fp = _resolved_footprint(
+                        defn, inst, _families_for_migration)  # type: ignore[arg-type]
+                    pin_pos = _pwp(fp, pl, k.pin.pin_number)
                 except (IndexError, ValueError):
                     continue
                 if not w.path:
@@ -843,12 +860,21 @@ def load_project(
 # the load falls back to JointKnot-only knot backfill (acceptable for tests
 # that don't exercise PinKnot persistence).
 _library_for_migration: "object | None" = None
+_families_for_migration: "object | None" = None
 
 
 def set_migration_library(library: "object | None") -> None:
     """Register the ComponentLibrary used during legacy v1→v2 wire migration."""
     global _library_for_migration
     _library_for_migration = library
+
+
+def set_migration_families(families: "object | None") -> None:
+    """Register the package-family catalogue used at load to resolve each
+    component's chosen variant footprint (so stale-path snapping measures pin
+    positions against the variant, not the definition default)."""
+    global _families_for_migration
+    _families_for_migration = families
 
 
 # Per-directory record of the last normalize report so the GUI can pick it up
