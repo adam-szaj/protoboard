@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package import resolved_footprint
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.domain.layout.wire import Fragment, Wire, Wire
 from protoboard.domain.schematic.net import PinRef
@@ -723,7 +724,9 @@ def _pin_islands_for_net(
         defn = components.get(inst.definition_ref)
         if defn is None or ref.pin_number > defn.pin_count:
             continue
-        pos = pin_world_position(defn.footprint, pl, ref.pin_number)
+        pos = pin_world_position(
+            resolved_footprint(defn, inst, inst.families), pl, ref.pin_number
+        )
         node = node_for_pin(ref)
         if node is None:
             unassigned.append(pos)
@@ -867,5 +870,7 @@ def _placed_pin_positions(
         defn = components.get(inst.definition_ref)
         if defn is None or ref.pin_number > defn.pin_count:
             continue
-        result.append(pin_world_position(defn.footprint, pl, ref.pin_number))
+        result.append(pin_world_position(
+            resolved_footprint(defn, inst, inst.families), pl, ref.pin_number
+        ))
     return result

@@ -196,8 +196,11 @@ class RouteTool(_Tool):
 
     def _show_routing_hints(self, source: Point) -> None:
         """Compute and render top-3 routing hint paths from source."""
+        from protoboard.domain.components.package import resolved_footprint
+
         self._clear_hints()
         session = self._session
+        families = getattr(session, "package_families", None)
         graph = ConnectivityGraph(
             board=session.board,
             layout=session.layout,
@@ -220,7 +223,8 @@ class RouteTool(_Tool):
                 if defn is None:
                     continue
                 pin_pos = pin_world_position(
-                    defn.footprint, placement, pin_ref.pin_number
+                    resolved_footprint(defn, inst, families),
+                    placement, pin_ref.pin_number
                 )
                 pin_node = graph.node_for_pad(pin_pos, placement.side)
                 if pin_node is not None and pin_node == source_node:
@@ -239,7 +243,10 @@ class RouteTool(_Tool):
                             continue
                         targets.append(
                             pin_world_position(
-                                other_defn.footprint, other_pl, other_ref.pin_number
+                                resolved_footprint(
+                                    other_defn, other_inst, families
+                                ),
+                                other_pl, other_ref.pin_number
                             )
                         )
                     break

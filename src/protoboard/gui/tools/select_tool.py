@@ -2051,12 +2051,12 @@ class SelectTool(_Tool):
         defn = self._session.components.get(inst.definition_ref)
         if defn is None:
             return None
-        specs = effective_bend_specs(
-            defn, inst, getattr(self._session, "package_families", None)
-        )
+        families = getattr(self._session, "package_families", None)
+        specs = effective_bend_specs(defn, inst, families)
         snapped = self._snap(target, frozenset())
+        from protoboard.domain.components.package import resolved_footprint
         return redrag_feasibility(
-            footprint=defn.footprint,
+            footprint=resolved_footprint(defn, inst, families),
             placement=pl,
             specs=specs,
             grabbed_pin=pin,
@@ -2117,15 +2117,17 @@ class SelectTool(_Tool):
                 _dot(pt)
 
         # Reach-disc outline for a bendable grab, centred on the pin's default.
-        spec = effective_bend_specs(
-            defn, inst, getattr(self._session, "package_families", None)
-        ).get(pin)
+        from protoboard.domain.components.package import resolved_footprint
+        families = getattr(self._session, "package_families", None)
+        spec = effective_bend_specs(defn, inst, families).get(pin)
         if spec is not None and spec.is_free() and spec.max_reach > 0.0:
             temp = pl.copy()
             temp.pin_offsets = {
                 k: v for k, v in pl.pin_offsets.items() if k != pin
             }
-            centre = pin_world_position(defn.footprint, temp, pin)
+            centre = pin_world_position(
+                resolved_footprint(defn, inst, families), temp, pin
+            )
             rad = spec.max_reach
             ring = QGraphicsEllipseItem(
                 centre.x - rad, centre.y - rad, 2 * rad, 2 * rad
@@ -3081,8 +3083,10 @@ class SelectTool(_Tool):
     def _flip_selected(self) -> None:
         from protoboard.domain.commands.base import MacroCommand
         from protoboard.domain.commands.component_cmds import MoveComponentCommand
+        from protoboard.domain.components.package import resolved_footprint
         from protoboard.domain.layout.placement import flip_component
 
+        families = getattr(self._session, "package_families", None)
         cmds: list[object] = []
         for cid in self._selected_comp_ids():
             pl = self._session.layout.placements.get(cid)
@@ -3090,12 +3094,16 @@ class SelectTool(_Tool):
             if pl is None or inst is None:
                 continue
             defn = self._session.components.get(inst.definition_ref)
+            # pin_count is variant-invariant — the 2-pin gate stays on defn.
             if defn is None or defn.footprint.pin_count() != 2:
                 continue
             cmds.append(
                 MoveComponentCommand(
                     component_id=cid,
-                    new_placement=flip_component(defn.footprint, pl),
+                    # flip pivots around the pin span → variant-sensitive.
+                    new_placement=flip_component(
+                        resolved_footprint(defn, inst, families), pl
+                    ),
                     old_placement=pl.copy(),
                 )
             )
@@ -3192,8 +3200,10 @@ class SelectTool(_Tool):
     def _flip_multi(self) -> None:
         from protoboard.domain.commands.base import MacroCommand
         from protoboard.domain.commands.component_cmds import MoveComponentCommand
+        from protoboard.domain.components.package import resolved_footprint
         from protoboard.domain.layout.placement import flip_component
 
+        families = getattr(self._session, "package_families", None)
         ids = [
             cid for cid in self._selected_ids if not self._is_locked_in_group(cid)
         ]
@@ -3204,12 +3214,15 @@ class SelectTool(_Tool):
             if pl is None or inst is None:
                 continue
             defn = self._session.components.get(inst.definition_ref)
+            # pin_count is variant-invariant — the 2-pin gate stays on defn.
             if defn is None or defn.footprint.pin_count() != 2:
                 continue
             cmds.append(
                 MoveComponentCommand(
                     component_id=cid,
-                    new_placement=flip_component(defn.footprint, pl),
+                    new_placement=flip_component(
+                        resolved_footprint(defn, inst, families), pl
+                    ),
                     old_placement=pl.copy(),
                 )
             )
