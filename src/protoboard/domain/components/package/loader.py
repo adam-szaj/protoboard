@@ -344,19 +344,43 @@ def _color(raw: object) -> str | None:
     return None if raw is None else str(raw)
 
 
+def _normalise_body_offset(filled: PackageDict, pkg: str) -> None:
+    """Unwrap a ``{unit, value}`` ``leads.body_offset`` to a bare mm step-list.
+
+    The leads schema (proposal §4) declares ``body_offset`` as a scalar or a
+    bare offset list — it has no ``{unit, value}`` branch (§5b: keep the matcher
+    shape-only). So before :meth:`ParamSchema.validate` sees the value, fold the
+    wrapper away here: scale by ``unit`` into mm exactly as ``build_leads`` would
+    (via the same :func:`_body_offset_to_mm`), and write the resulting bare list
+    back. ``build_leads`` then reads it with the default ``unit = 1.0`` and
+    arrives at the identical mm — the unwrap is value-preserving. Mutates
+    *filled* in place; a no-op unless ``leads.body_offset`` is a mapping.
+    """
+    leads = filled.get("leads")
+    if not isinstance(leads, dict):
+        return
+    body_raw = leads.get("body_offset")
+    if not isinstance(body_raw, dict):
+        return
+    body_mm = _body_offset_to_mm(body_raw, pkg)
+    leads["body_offset"] = [[v.x, v.y] for v in body_mm]
+
+
 def _apply_schema(
         merged: PackageDict,
-        pkg: str) -> tuple[PackageDict, ParamSchema | None]:
+        pkg: str) -> tuple[PackageDict, ParamSchema | None, dict[str, Any]]:
     """Fill defaults, check required, and type-check declared fields.
 
     Reads the ``schema:`` block (path-mirrored field declarations), applies it to
-    the value tree, and returns ``(filled_values, schema)`` — the value tree with
-    defaults filled and the ``schema`` key dropped, plus the parsed
-    :class:`ParamSchema` (or ``None`` when there is no ``schema:``). The shape
-    build stamps both onto the body so the resolved definition survives for the
-    UI. Validation is loose: a value with no schema leaf is untouched. The
-    ``auto`` sentinel satisfies ``required`` and is skipped by the type check (a
-    kind generator resolves it later — see schema-design.md §3).
+    the value tree, and returns ``(filled_values, schema, raw_values)`` — the
+    value tree with defaults filled and the ``schema`` key dropped, the parsed
+    :class:`ParamSchema` (or ``None`` when there is no ``schema:``), and the
+    *original* resolved value tree for the UI (before the body_offset unwrap, so
+    the Properties panel keeps the authored ``{unit, value}`` form). The shape
+    build stamps schema + raw_values onto the body so the resolved definition
+    survives for the UI. Validation is loose: a value with no schema leaf is
+    untouched. The ``auto`` sentinel satisfies ``required`` and is skipped by the
+    type check (a kind generator resolves it later — see schema-design.md §3).
 
     Type checking happens here (before shape build) for fields that are not
     ``auto``; ``auto`` slots reach ``build_package`` unresolved on the YAML path
@@ -365,16 +389,18 @@ def _apply_schema(
     """
     raw_schema = merged.get("schema")
     if raw_schema is None:
-        return merged, None
+        return merged, None, _resolved_values(merged)
     try:
         schema = parse_schema(raw_schema)
         filled = schema.apply_to(merged)
+        raw_values = _resolved_values(filled)  # before the body_offset unwrap
         schema.check_required(filled)
+        _normalise_body_offset(filled, pkg)    # §5b: fold {unit,value} → mm list
         schema.validate(filled)
     except SchemaError as exc:
         raise PackageDefError(f"{pkg}: {exc}") from exc
     filled.pop("schema", None)
-    return filled, schema
+    return filled, schema, raw_values
 
 
 def _resolved_values(merged: PackageDict) -> dict[str, Any]:
@@ -392,8 +418,7 @@ def _resolved_values(merged: PackageDict) -> dict[str, Any]:
 
 @traced("build_package")
 def build_package(merged: PackageDict, pkg: str) -> Package:
-    merged, schema = _apply_schema(merged, pkg)
-    raw_values = _resolved_values(merged)
+    merged, schema, raw_values = _apply_schema(merged, pkg)
     shape = merged.get("shape")
     if shape not in SHAPE_REGISTRY:
         raise PackageDefError(f"{pkg}: unknown or missing shape {shape!r}")

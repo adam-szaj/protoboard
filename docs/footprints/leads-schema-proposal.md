@@ -1,14 +1,14 @@
 <!-- SPDX-License-Identifier: MIT -->
 # Schema proposal — `leads.direction`, `leads.body_offset`, `leads.board_offset`
 
-**Status:** design / proposal. Nothing here is implemented. This extends the
-agreed model in [schema-design.md](schema-design.md); read §2.1 (the `type`
-grammar) and §2.3 (`auto`) there first. The three `leads` fields below were
-**deliberately left undeclared** in the Phase-1 migration because their YAML
-grammar is richer than the current `TypeSpec` can express — see the NOTE comment
-in `assets/packages/generic.yaml` and project history. This document catalogs
-every form actually used and proposes the minimum `TypeSpec` extensions needed
-to declare them.
+**Status: IMPLEMENTED.** The matcher extensions (§2), the `{unit,value}` loader
+unwrap (§5b), and the §4 declarations on the `package` root base are all in
+place — see the §7 status table. This extends the agreed model in
+[schema-design.md](schema-design.md); read §2.1 (the `type` grammar) and §2.3
+(`auto`) there first. The three `leads` fields were **previously left
+undeclared** in the Phase-1 migration because their YAML grammar is richer than
+the original `TypeSpec` could express; this document catalogs every form and
+records the extensions that now declare them.
 
 The format of all three fields is canonically documented in
 [spec.md](spec.md); this file only adds the *schema declaration* layer on top.
@@ -270,16 +270,20 @@ implementation.
 | Decision | Recommendation | Status |
 |---|---|---|
 | Extensions | Add **A** (variadic `{list}`), **B** (`{oneof}`), **C** (`{const}`), **D** (`{seq}`). | **Done** (`schema.py`) |
-| Variable length | **3a** — element-shape only, no `len`; loader owns arity. | Done (`len` also supported, unused) |
-| `{unit,value}` | **5b** — unwrap in loader before `validate`; matcher stays shape-only. | Matcher done; **loader unwrap pending** |
-| Grouped `direction` | Advisory outer-structure only; `expand_direction` stays the validator. | Done (advisory shape expressible) |
-| If panels not needed yet | **§6** — keep loose, revisit with §8 panels. | Declarations not yet placed in YAML |
+| Variable length | **3a** — element-shape only, no `len`; loader owns arity. | **Done** (`len` also supported, unused) |
+| `{unit,value}` | **5b** — unwrap in loader before `validate`; matcher stays shape-only. | **Done** (`_normalise_body_offset`) |
+| Grouped `direction` | Advisory outer-structure only; `expand_direction` stays the validator. | **Done** (advisory shape declared) |
+| Declarations in YAML | Place §4 on the `package` root base, inherited by all. | **Done** (`assets/packages/generic.yaml`) |
 
 All extensions are additive to `_matches` and break no existing `schema:` block.
-The matcher changes touch only `schema.py`; no loader behaviour changes (loader
-still owns count/index/sentinel semantics). **Not yet done** (deliberately, to
-keep this change matcher-only): wiring the §4 declarations into `generic.yaml`,
-and the §5b loader unwrap. The matcher is ready for both.
+The matcher changes touch only `schema.py`. The loader's one behavioural change
+is `_normalise_body_offset` (folds the `{unit,value}` body-offset wrapper to a
+bare mm list *before* `validate`, value-preserving — `build_leads` reaches the
+identical mm); `raw_values` keeps the authored wrapper for the Properties panel.
+The `leads.*` schema is declared once on the `package` root base and inherited
+by every descendant via `extends`-merge. Verified against the **full shipped
+catalogue**: 132 package families build and 187 components load with zero
+schema-skips.
 
 ---
 
@@ -296,3 +300,11 @@ and the §5b loader unwrap. The matcher is ready for both.
   board_offset sentinels + explicit list, plus rejection cases).
 * Regression: the existing `TestParse` / `TestTypeMatch` / `TestApply` /
   `TestFieldView` (flat-list-as-vector, nested-list-as-union) still pass.
+
+Loader-level (`tests/unit/test_package_loader.py::TestSchemaBodyOffsetUnwrap`):
+
+* `{unit,value}` body_offset validates and builds identical pin geometry.
+* mm identical with vs without a schema block.
+* bare-list body_offset validates (no normalisation needed).
+* a bad (string) body_offset is rejected by the schema.
+* `raw_values` keeps the original `{unit,value}` wrapper for the panel.

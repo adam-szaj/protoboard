@@ -11,12 +11,35 @@
 # through untouched. See docs/footprints/schema-design.md.
 packages:
   # --- abstract root ---
-  # NOTE: `leads.direction` is intentionally NOT declared here. It has three
-  # YAML forms (single 3-vector / per-pin list / grouped run-length) expanded by
-  # the loader's `expand_direction`, a richer grammar than a single type shape.
-  # Declaring it in schema would narrow it and double-validate; it stays loose.
+  # The leads.* fields are declared here (path-mirrored, inherited by every
+  # descendant via extends-merge). Their richer YAML grammar uses the list /
+  # seq / oneof / const TypeSpec constructors — see
+  # docs/footprints/leads-schema-proposal.md. An offset element is "bare [x,y]
+  # OR run-length {seq: [count, [x,y]]}"; body_offset's {unit,value} wrapper is
+  # unwrapped by the loader before validation (proposal §5b), so it is declared
+  # as a scalar-or-list only. board_offset adds the 'default'/'solve' sentinels.
   - name: package
     abstract: true
+    schema:
+      leads:
+        direction:
+          type:
+            oneof:
+              - [float, float, float]                          # broadcast
+              - {list: [float, float, float]}                  # per-pin
+              - {list: {seq: [{list: int}, [float, float, float]]}}  # grouped
+        body_offset:
+          type:
+            oneof:
+              - float                                          # scalar sugar
+              - {list: {oneof: [[float, float],                # bare [x,y]
+                                {seq: [int, [float, float]]}]}}  # run-length
+        board_offset:
+          type:
+            oneof:
+              - {const: default}
+              - {const: solve}
+              - {list: {oneof: [[float, float], {seq: [int, [float, float]]}]}}
 
   # --- abstract base shapes ---
   - name: cylinder

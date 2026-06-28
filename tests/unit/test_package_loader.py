@@ -406,3 +406,108 @@ class TestBodyAxisPos:
                  "leads": {"lead_r": 0.27, "lead_length": 32.0,
                            "body_axis_pos": [0, 0]}},
             ])
+
+
+# Offset element used by the leads schema (proposal §4): bare [x,y] OR
+# run-length {seq: [count, [x,y]]}.
+_OFFSET_ELEM = {"oneof": [["float", "float"],
+                          {"seq": ["int", ["float", "float"]]}]}
+
+# A prism base that declares the leads schema (proposal §4) — including
+# body_offset, whose {unit,value} wrapper the loader must unwrap before
+# schema.validate runs (§5b).
+_SCHEMA_PRISM = {
+    "name": "prism_sch", "abstract": True, "shape": "prism",
+    "schema": {
+        "leads": {
+            "direction": {"type": {"oneof": [
+                ["float", "float", "float"],
+                {"list": ["float", "float", "float"]},
+                {"list": {"seq": [{"list": "int"},
+                                  ["float", "float", "float"]]}},
+            ]}},
+            "body_offset": {"type": {"oneof": [
+                "float", {"list": _OFFSET_ELEM}]}},
+            "board_offset": {"type": {"oneof": [
+                {"const": "default"}, {"const": "solve"},
+                {"list": _OFFSET_ELEM}]}},
+        },
+    },
+}
+
+
+class TestSchemaBodyOffsetUnwrap:
+    """§5b — a schema-bearing package whose body_offset is the {unit,value}
+    wrapper still validates and builds to identical mm geometry."""
+
+    def _load(self, extra: list[dict]) -> dict:
+        return load_packages([_SCHEMA_PRISM] + extra)
+
+    def test_unit_value_wrapper_validates_and_builds(self) -> None:
+        # DIP-8 run-length under {unit, value}; the wrapper must pass schema
+        # validation (unwrapped first) and produce the same pin geometry.
+        pkgs = self._load([
+            {"name": "DIP8s", "extends": "prism_sch",
+             "dims": {"width": 9.8, "length": 10.2, "height": 4.0},
+             "leads": {"direction": [0, 0, -1],
+                       "body_offset": {"unit": 2.5,
+                           "value": [[3, [0, 1]], [3, 0], [3, [0, -1]]]},
+                       "board_offset": "default"}},
+        ])
+        d = pkgs["DIP8s"]
+        pins = d.pin_positions()
+        assert len(pins) == 8
+        assert pins[4] == _pt(3, 3)
+        assert pins[7] == _pt(3, 0)
+
+    def test_mm_identical_to_no_schema(self) -> None:
+        # Same body_offset, with vs without a schema block → identical mm.
+        leads = {"direction": [0, 0, -1],
+                 "body_offset": {"unit": 2.5, "value": [[1, 0], [1, 0]]},
+                 "board_offset": "default"}
+        dims = {"width": 4.5, "length": 4.5, "height": 5.2}
+        with_schema = self._load([
+            {"name": "P", "extends": "prism_sch", "dims": dims,
+             "leads": dict(leads)}])["P"]
+        no_schema = load_packages([
+            {"name": "prism", "abstract": True, "shape": "prism"},
+            {"name": "P", "extends": "prism", "dims": dims,
+             "leads": dict(leads)}])["P"]
+        assert (with_schema.leads.body_offset_mm
+                == no_schema.leads.body_offset_mm)
+
+    def test_bare_list_body_offset_validates(self) -> None:
+        # The unwrapped (bare-list) form needs no normalisation.
+        pkgs = self._load([
+            {"name": "Pb", "extends": "prism_sch",
+             "dims": {"width": 4.5, "length": 4.5, "height": 5.2},
+             "leads": {"direction": [0, 0, -1],
+                       "body_offset": [[1, 0], [1, 0]],
+                       "board_offset": "default"}},
+        ])
+        assert pkgs["Pb"].pin_count() == 3
+
+    def test_bad_body_offset_rejected_by_schema(self) -> None:
+        # A string body_offset matches no schema branch → PackageDefError.
+        with pytest.raises(PackageDefError):
+            self._load([
+                {"name": "Pbad", "extends": "prism_sch",
+                 "dims": {"width": 4.5, "length": 4.5, "height": 5.2},
+                 "leads": {"direction": [0, 0, -1],
+                           "body_offset": "nonsense",
+                           "board_offset": "default"}},
+            ])
+
+    def test_raw_values_keeps_original_wrapper(self) -> None:
+        # The Properties-panel value tree should keep the authored {unit,value}
+        # form, not the normalised mm list.
+        pkgs = self._load([
+            {"name": "Pr", "extends": "prism_sch",
+             "dims": {"width": 4.5, "length": 4.5, "height": 5.2},
+             "leads": {"direction": [0, 0, -1],
+                       "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                       "board_offset": "default"}},
+        ])
+        raw = pkgs["Pr"].raw_values
+        assert raw is not None
+        assert raw["leads"]["body_offset"] == {"unit": 2.5, "value": [[1, 0]]}
