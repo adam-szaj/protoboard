@@ -19,7 +19,11 @@ from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.types import Side
-from protoboard.gui.layer_state import LayerState
+from protoboard.gui.layer_state import (
+    LayerOverrides,
+    LayerState,
+    LayerVisibility,
+)
 from protoboard.gui.renderers.component_renderer import (
     comp_fingerprint,
     update_component_groups,
@@ -552,3 +556,82 @@ class TestGhostHonoursPackageVariant:
         r0, r90 = _body_bbox(0), _body_bbox(90)
         assert r0.width() == pytest.approx(r90.height(), abs=0.05)
         assert r0.height() == pytest.approx(r90.width(), abs=0.05)
+
+
+# ---------------------------------------------------------------------------
+# Pin-names layer independence from the labels layer (regression)
+# ---------------------------------------------------------------------------
+
+class TestPinNamesLayerIndependence:
+    """Pin-name labels are governed solely by the ``pin_names`` layer.
+
+    Regression: pin-name rendering used to live inside the ``alpha_label > 0``
+    block, so hiding the "Labels" layer also hid pin names even though the two
+    layers are meant to toggle independently (see
+    ``LayerState.alpha_for_pin_names``).
+    """
+
+    def _scene_texts(self, layers: LayerState) -> set[str]:
+        from PySide6.QtWidgets import QGraphicsTextItem
+
+        defn = ComponentDefinition(
+            name="U",
+            component_class=ComponentClass.IC,
+            footprint=SIL(n=2),
+            pin_names={1: "VCC", 2: "GND"},
+        )
+        inst = ComponentInstance(
+            id=uuid.uuid4(), definition_ref=defn.name, refdes="U1", value="",
+        ).bind(defn, {})
+        pl = ComponentPlacement(
+            component_id=inst.id, position=Point(1, 1), rotation=0, side="top",
+        )
+        layout = Layout()
+        layout.ensure_root_group()
+        layout.placements[inst.id] = pl
+        scene = QGraphicsScene()
+        update_component_groups(
+            scene=scene,
+            placements={inst.id: pl},
+            instances={inst.id: inst},
+            components={defn.name: defn},
+            existing_groups={},
+            existing_fingerprints={},
+            schematic=Schematic(nets={}),
+            routed_nets=None,
+            theme=DEFAULT_THEME,
+            layers=layers,
+            active_group_id=None,
+            layout=layout,
+            highlighted_net_id=None,
+        )
+        return {
+            it.toPlainText()
+            for it in scene.items()
+            if isinstance(it, QGraphicsTextItem)
+        }
+
+    def _layers(self, **overrides: LayerVisibility) -> LayerState:
+        return LayerState(overrides=LayerOverrides(**overrides))
+
+    def test_pin_names_visible_when_labels_hidden(self, qtbot: QtBot) -> None:
+        # Labels off, pin names on → pin names still render; refdes does not.
+        texts = self._scene_texts(
+            self._layers(labels=LayerVisibility.HIDDEN)
+        )
+        assert "VCC" in texts
+        assert "GND" in texts
+        assert "U1" not in texts
+
+    def test_pin_names_hidden_when_labels_visible(self, qtbot: QtBot) -> None:
+        # The converse: pin-names layer off still hides them even with labels on.
+        texts = self._scene_texts(
+            self._layers(pin_names=LayerVisibility.HIDDEN)
+        )
+        assert "VCC" not in texts
+        assert "GND" not in texts
+        assert "U1" in texts
+
+    def test_both_layers_visible(self, qtbot: QtBot) -> None:
+        texts = self._scene_texts(self._layers())
+        assert {"VCC", "GND", "U1"} <= texts

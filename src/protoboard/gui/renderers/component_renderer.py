@@ -610,25 +610,26 @@ def _render_one(
             label_grp.addToGroup(item)
             _label_count += 1
 
-        # Pin-name labels (controlled by the pin_names layer).
-        alpha_pin_names = layers.alpha_for_pin_names(side) * group_alpha
-        if alpha_pin_names > 0.0 and defn.pin_names:
-            # Text colour stays at full theme alpha; only the background pill
-            # fades.  Keeps pin names readable even on ghosted/back layers.
-            pin_name_color = QColor(theme.pin_label_fallback_color)
-            pin_bg = QColor(bg_color)
-            pin_bg.setAlphaF(pin_bg.alphaF() * alpha_pin_names)
-            for pin_idx, pos in enumerate(positions):
-                pin_number = pin_idx + 1
-                name = defn.pin_names.get(pin_number)
-                if not name:
-                    continue
-                for item in _make_overlay_label(
-                    name, _get_pin_name_font(fpt), pin_name_color, pin_bg,
-                    pos.x, pos.y, 0.1,
-                ):
-                    label_grp.addToGroup(item)
-                    _label_count += 1
+    # Pin-name labels (controlled by the pin_names layer) — independent of the
+    # labels layer, so they render even when the refdes/value labels are hidden.
+    alpha_pin_names = layers.alpha_for_pin_names(side) * group_alpha
+    if alpha_pin_names > 0.0 and defn.pin_names:
+        # Text colour stays at full theme alpha; only the background pill
+        # fades.  Keeps pin names readable even on ghosted/back layers.
+        pin_name_color = QColor(theme.pin_label_fallback_color)
+        pin_bg = QColor(bg_color)
+        pin_bg.setAlphaF(pin_bg.alphaF() * alpha_pin_names)
+        for pin_idx, pos in enumerate(positions):
+            pin_number = pin_idx + 1
+            name = defn.pin_names.get(pin_number)
+            if not name:
+                continue
+            for item in _make_overlay_label(
+                name, _get_pin_name_font(fpt), pin_name_color, pin_bg,
+                pos.x, pos.y, 0.1,
+            ):
+                label_grp.addToGroup(item)
+                _label_count += 1
 
     if placement.locked and alpha > 0.05:
         # Lock emoji stays at full alpha; only the bg pill fades with layer.
