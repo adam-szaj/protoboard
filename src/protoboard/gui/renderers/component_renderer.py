@@ -476,7 +476,12 @@ def _render_one(
     alpha_label = layers.alpha_for_label(side) * group_alpha
     z_comp = layers.z_for_component(side)
 
-    fp = defn.footprint
+    # The placed part's pins follow its CHOSEN variant, not the definition
+    # default — an R placed as SMD-0805 has a 1-hole pitch, not the default
+    # axial 3.2-hole pitch. Resolve the variant footprint (falls back to
+    # defn.footprint when none resolves).
+    from protoboard.domain.components.package import resolved_footprint
+    fp = resolved_footprint(defn, inst, theme.package_families)
     positions = [
         pin_world_position(fp, placement, n + 1) for n in range(fp.pin_count())
     ]
@@ -800,8 +805,10 @@ def render_groups(
             defn = components.get(inst.definition_ref)
             if defn is None:
                 continue
-            for n in range(defn.footprint.pin_count()):
-                positions.append(pin_world_position(defn.footprint, pl, n + 1))
+            from protoboard.domain.components.package import resolved_footprint
+            fp = resolved_footprint(defn, inst, theme.package_families)
+            for n in range(fp.pin_count()):
+                positions.append(pin_world_position(fp, pl, n + 1))
         if not positions:
             continue
         # Extend bbox to include all points of owned wires (net-aware

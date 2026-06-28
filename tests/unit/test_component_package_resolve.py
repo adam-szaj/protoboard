@@ -158,3 +158,36 @@ class TestResolvedFootprint:
         # Without a catalogue the variant cannot resolve → default footprint.
         fp = resolved_footprint(d, None, None)
         assert fp is d.footprint
+
+
+class TestResolvePinWorldPositionVariant:
+    """resolve_pin_world_position honours the chosen variant when given the
+    catalogue — the placed component's pin lands on the variant geometry, not
+    the definition default. This is the renderer/session path that drove the
+    'SMD pin sits 3.2 holes away instead of 1' bug."""
+
+    def test_variant_pin_position_differs_with_families(self) -> None:
+        import uuid
+
+        from protoboard.domain.layout.placement import (
+            ComponentPlacement,
+            resolve_pin_world_position,
+        )
+        from protoboard.geometry import Point
+
+        d = _defn(package_family_ref="DO-35/typ")
+        inst = ComponentInstance.new(
+            definition_ref="X", refdes="X1", value="", package_variant="DO-35/S")
+        cid = inst.id
+        pl = ComponentPlacement(
+            component_id=cid, position=Point(0.0, 0.0), rotation=0, side="top")
+        kw = dict(placements={cid: pl}, instances={cid: inst},
+                  components={"X": d})
+
+        without = resolve_pin_world_position(cid, 2, **kw)  # type: ignore[arg-type]
+        with_fam = resolve_pin_world_position(
+            cid, 2, families=_families(), **kw)  # type: ignore[arg-type]
+        assert without is not None and with_fam is not None
+        # The catalogue resolves the variant → a different pin-2 spacing than
+        # the default SIL footprint the fallback uses.
+        assert (with_fam.x, with_fam.y) != (without.x, without.y)

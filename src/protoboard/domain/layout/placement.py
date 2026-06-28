@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.components.package.family import PackageFamily
     from protoboard.domain.layout.layout import Layout
 
 _log = structlog.get_logger(__name__)
@@ -222,6 +223,7 @@ def resolve_pin_world_position(
     placements: dict[uuid.UUID, ComponentPlacement],
     instances: "dict[uuid.UUID, ComponentInstance]",
     components: "dict[str, ComponentDefinition]",
+    families: "dict[str, PackageFamily] | None" = None,
 ) -> Point | None:
     """Resolve world position of *(comp_id, pin_number)* with full safety chain.
 
@@ -252,7 +254,9 @@ def resolve_pin_world_position(
     if defn is None:
         return None
     try:
-        return pin_world_position(defn.footprint, placement, pin_number)
+        from protoboard.domain.components.package import resolved_footprint
+        fp = resolved_footprint(defn, inst, families)
+        return pin_world_position(fp, placement, pin_number)
     except (IndexError, ValueError):
         return None
 

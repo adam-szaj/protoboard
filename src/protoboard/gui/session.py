@@ -699,6 +699,7 @@ class EditorSession(QObject):
                 placements=self.layout.placements,
                 instances=self.instances,
                 components=self.components,
+                families=self.package_families,
             )
             if pos is not None:
                 result.append((pin_num, pos))
@@ -713,6 +714,7 @@ class EditorSession(QObject):
         so renderers/tools never have to inline the (placement,
         instance, definition) lookup themselves.
         """
+        from protoboard.domain.components.package import resolved_footprint
         from protoboard.domain.layout.placement import component_bbox
         placement = self.layout.placements.get(comp_id)
         if placement is None:
@@ -724,7 +726,8 @@ class EditorSession(QObject):
         if defn is None:
             return None
         try:
-            return component_bbox(defn.footprint, placement, defn.component_class)
+            fp = resolved_footprint(defn, inst, self.package_families)
+            return component_bbox(fp, placement, defn.component_class)
         except Exception:  # noqa: BLE001
             return None
 
