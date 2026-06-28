@@ -12,8 +12,10 @@ is in mm (physics). Conversion is the consumer's job.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from abc import ABC, abstractmethod
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import Any
 
 from protoboard.domain.components.package.body import (
     DiscProfile,
@@ -22,6 +24,7 @@ from protoboard.domain.components.package.body import (
     MountStyle,
 )
 from protoboard.domain.components.package.offsets import cumulative_positions
+from protoboard.domain.components.package.schema import ParamSchema
 from protoboard.domain.components.package.solver import (
     RASTER_MM,
     MountOrientation,
@@ -59,7 +62,7 @@ class Leads:
     lead_r_mm: float | None = None
     body_eccentricity_mm: Vector = Vector(0.0, 0.0)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         import sys
         import traceback
         try:
@@ -84,13 +87,34 @@ class Leads:
         return len(self.direction)
 
 
-@runtime_checkable
-class Package(Protocol):
-    """Geometry of a component derived from package data (see spec)."""
+class Package(ABC):
+    """Geometry of a component derived from package data (see spec).
 
+    Abstract base for the concrete shapes (``Cylinder`` / ``Prism`` / ``Disc``).
+    Besides the geometry contract (the abstract methods below), it carries the
+    package's *parameter metadata* so the UI can show editable/derived fields:
+
+    - ``schema``: the parsed ``ParamSchema`` (field declarations) — ``None`` for
+      a synthetic body built without a ``schema:`` block.
+    - ``raw_values``: the resolved value tree (``dims`` / ``leads`` after
+      ``extends`` + default-fill) the schema describes. Paired with ``schema``,
+      ``schema.fields_view(raw_values)`` yields the per-field editability the
+      Properties panel renders. Geometry never reads these; they exist only so
+      the resolved definition survives ``build_package`` for the UI.
+
+    Concrete shapes declare ``schema`` / ``raw_values`` as their own trailing
+    dataclass fields (default ``None``, ``compare=False``) — keeping the existing
+    positional field order intact — and this base unifies their type.
+    """
+
+    schema: ParamSchema | None
+    raw_values: Mapping[str, Any] | None
+
+    @abstractmethod
     def pin_count(self) -> int:
         ...
 
+    @abstractmethod
     def pin_positions(
         self,
         *,
@@ -98,6 +122,7 @@ class Package(Protocol):
     ) -> list[Point]:
         ...
 
+    @abstractmethod
     def board_offset_range(
         self,
         *,
@@ -105,12 +130,15 @@ class Package(Protocol):
     ) -> OffsetRange:
         ...
 
+    @abstractmethod
     def bbox(self) -> Rect:
         ...
 
+    @abstractmethod
     def min_radial_pitch_mm(self) -> float:
         ...
 
+    @abstractmethod
     def min_axial_pitch_mm(self) -> float:
         ...
 
@@ -177,7 +205,7 @@ def _lead_diameter_mm(leads: Leads) -> float:
 
 
 @dataclass(frozen=True, slots=True)
-class Cylinder:
+class Cylinder(Package):
     """shape: cylinder — resistor, diode, electrolytic, TO-92. Implements Package.
 
     A *flat side* (D-shaped cross-section, e.g. the real TO-92 transistor) is
@@ -200,6 +228,10 @@ class Cylinder:
     color: str | None = None  # #rrggbb fill; None → renderer default
     flat_radius_mm: float | None = None  # None → full circle (no flat side)
     flat_normal: Vector = Vector(0.0, 0.0)  # outward normal of the flat face
+    # Parameter metadata (UI only; never read by geometry). See ``Package``.
+    schema: ParamSchema | None = field(default=None, compare=False, hash=False)
+    raw_values: Mapping[str, Any] | None = field(
+        default=None, compare=False, hash=False)
 
     def __post_init__(self) -> None:
         if self.flat_radius_mm is not None:
@@ -266,7 +298,7 @@ class Cylinder:
 
 
 @dataclass(frozen=True, slots=True)
-class Prism:
+class Prism(Package):
     """shape: prism — DIP, TO-92, devboard (optional margin)."""
 
     leads: Leads
@@ -295,6 +327,10 @@ class Prism:
     # declared look (notch vs plain) instead of guessing from the pin columns;
     # ``None`` → the renderer falls back to the column-based silhouette.
     kind: str | None = None
+    # Parameter metadata (UI only; never read by geometry). See ``Package``.
+    schema: ParamSchema | None = field(default=None, compare=False, hash=False)
+    raw_values: Mapping[str, Any] | None = field(
+        default=None, compare=False, hash=False)
 
     def pin_count(self) -> int:
         return self.leads.pin_count
@@ -374,7 +410,7 @@ class Prism:
 
 
 @dataclass(frozen=True, slots=True)
-class Disc:
+class Disc(Package):
     """shape: disc — ceramic disc cap, button cell, disc varistor.
 
     A flat puck whose face is normal to the lead axis; radial-mounted (both
@@ -390,6 +426,10 @@ class Disc:
     arrangement: LeadArrangement = LeadArrangement.RADIAL
     edge: EdgeStyle = EdgeStyle.ROUNDED
     color: str | None = None  # #rrggbb fill; None → renderer default
+    # Parameter metadata (UI only; never read by geometry). See ``Package``.
+    schema: ParamSchema | None = field(default=None, compare=False, hash=False)
+    raw_values: Mapping[str, Any] | None = field(
+        default=None, compare=False, hash=False)
 
     def pin_count(self) -> int:
         return self.leads.pin_count

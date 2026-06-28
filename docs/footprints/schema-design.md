@@ -162,6 +162,28 @@ function of the value tree after `extends` + `apply_to`. The interface is
 > persisting the *resolved* values per instance (so a generated `length`
 > round-trips) is a separate persistence concern, not a UI flag — see §6.
 
+**Where holes live — the value lifecycle (don't conflate with a placed part).**
+A package with *holes* (unfilled required params) is a **`kind`**, not a
+concrete package. The lifecycle is:
+
+```
+kind (parameterized, has holes)  →  PICKER fills the missing params  →  concrete package  →  geometry
+```
+
+So a **placed component's instance always has a concrete package** — its
+`kind` was resolved in the picker before placement, and `build_package`
+succeeded with every field filled. The Properties panel of a *placed* part
+therefore never sees a `null`: every field is `SET` (read-only). The editable
+(`REQUIRED_EMPTY`) state is what the **picker** shows for a `kind`'s holes, and
+is resolved there — it is *not* a state a placed instance carries. Concretely:
+`build_package` calls `check_required` and **rejects** a `null` required field
+(geometry needs a number) — which is correct, because holes never reach
+`build_package`; the picker / kind generator fills them first. Editing a placed
+part's filled-from-a-hole field later (with a non-empty constraint) is a
+**separate deferred feature** (picker dialog + per-instance param overrides),
+not implemented here. Do **not** invent a `null`-tolerant `build_package` or a
+parallel resolved-definition object — that re-implements the `kind` mechanism.
+
 ## 3. Loader order of operations
 
 The schema-driven build is a fixed pipeline. This *is* the contract:

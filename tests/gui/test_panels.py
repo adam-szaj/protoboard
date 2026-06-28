@@ -612,3 +612,88 @@ class TestBodyVariantDropdown:
         # Combo should pick the DIN-0617/typ entry, not Default.
         idx = panel._body_variant_combo.currentIndex()
         assert panel._body_variant_addresses[idx] == "DIN-0617/typ"
+
+
+class TestPropertiesParameters:
+    """The schema-driven Parameters section: one row per package schema field.
+
+    A *placed* component always has a concrete package (a ``kind`` resolves its
+    holes in the picker before placement), so every field is a set value →
+    read-only. Read-only is signalled non-colour (a ``(set)`` suffix + a
+    non-editable field). Editing-with-overrides is a separate deferred feature.
+    """
+
+    def _defn_with_schema_package(self):
+        """A ComponentDefinition whose package carries a ParamSchema (all set)."""
+        from protoboard.domain.components.definition import ComponentDefinition
+        from protoboard.domain.components.footprints import SIL
+        from protoboard.domain.components.package.loader import build_package
+
+        merged = {
+            "name": "P",
+            "shape": "prism",
+            "schema": {
+                "dims": {
+                    "width": {"type": "float", "required": True},
+                    "length": {"type": "float", "required": True},
+                },
+            },
+            "dims": {"width": 7.62, "length": 9.4},
+            "leads": {
+                "direction": [0, 0, -1],
+                "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                "board_offset": "default",
+            },
+        }
+        pkg = build_package(merged, "P")
+        return ComponentDefinition(
+            name="P", footprint=SIL(2), pin_names={1: "1", 2: "2"},
+            package=pkg,
+        )
+
+    def test_section_shows_one_row_per_field(self, qtbot: object) -> None:
+        from pytestqt.qtbot import QtBot
+        assert isinstance(qtbot, QtBot)
+        panel = PropertiesPanel()
+        qtbot.addWidget(panel)
+        defn = self._defn_with_schema_package()
+        inst = ComponentInstance.new(definition_ref="P", refdes="P1", value="")
+        panel.show_component(inst, defn=defn, package_families={})
+        # isHidden (not isVisible): the panel isn't shown in the test, so Qt
+        # reports the group not-visible regardless of our setVisible(True);
+        # isHidden tests our own show/hide call, not parent-tree visibility.
+        assert panel._params_grp.isHidden() is False
+        assert set(panel._param_widgets) == {"dims.width", "dims.length"}
+
+    def test_set_field_is_readonly_with_value(self, qtbot: object) -> None:
+        from pytestqt.qtbot import QtBot
+        assert isinstance(qtbot, QtBot)
+        panel = PropertiesPanel()
+        qtbot.addWidget(panel)
+        defn = self._defn_with_schema_package()
+        inst = ComponentInstance.new(definition_ref="P", refdes="P1", value="")
+        panel.show_component(inst, defn=defn, package_families={})
+        w = panel._param_widgets["dims.length"]
+        assert w.isReadOnly() is True  # a placed part's fields are set -> RO
+        assert w.text() == "9.4"
+
+    def test_hidden_without_schema(self, qtbot: object) -> None:
+        from pytestqt.qtbot import QtBot
+        assert isinstance(qtbot, QtBot)
+        panel = PropertiesPanel()
+        qtbot.addWidget(panel)
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+        panel.show_component(inst, package_families={})
+        assert panel._params_grp.isVisible() is False
+
+    def test_clear_hides_section(self, qtbot: object) -> None:
+        from pytestqt.qtbot import QtBot
+        assert isinstance(qtbot, QtBot)
+        panel = PropertiesPanel()
+        qtbot.addWidget(panel)
+        defn = self._defn_with_schema_package()
+        inst = ComponentInstance.new(definition_ref="P", refdes="P1", value="")
+        panel.show_component(inst, defn=defn, package_families={})
+        panel.clear_component()
+        assert panel._params_grp.isVisible() is False
+        assert panel._param_widgets == {}

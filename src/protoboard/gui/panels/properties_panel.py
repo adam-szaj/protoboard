@@ -139,6 +139,18 @@ class PropertiesPanel(QWidget):
         layout.addWidget(self._pin_offsets_grp)
         self._pin_offsets_grp.setVisible(False)
 
+        # Package parameters — schema-driven, shown when the selected component
+        # has a package carrying a ParamSchema. Editability comes from the
+        # schema's fields_view (a hole/null field is RW; a set/default/auto value
+        # is read-only). Read-only is signalled non-colour (a "(set)"/"(auto)"
+        # suffix + a non-editable field) — the user can have trouble with colour.
+        self._params_grp = QGroupBox("Parameters")
+        self._params_form = QFormLayout(self._params_grp)
+        # path -> editor widget, rebuilt per selection.
+        self._param_widgets: dict[str, QLineEdit] = {}
+        layout.addWidget(self._params_grp)
+        self._params_grp.setVisible(False)
+
         # Geometry debug table — read-only, shown when component selected.
         self._geo_grp = QGroupBox("Geometry")
         geo_layout = QVBoxLayout(self._geo_grp)
@@ -201,6 +213,7 @@ class PropertiesPanel(QWidget):
         self._rebuild_body_variant_combo(
             defn, inst.package_variant, package_families or {},
         )
+        self._rebuild_parameters(defn, inst, package_families or {})
 
     def clear_component(self) -> None:
         self._current_id = None
@@ -210,6 +223,7 @@ class PropertiesPanel(QWidget):
         self._rebuild_pin_offsets(None, {})
         self._rebuild_pin_variant_combo(None, None)
         self._rebuild_body_variant_combo(None, None, {})
+        self._rebuild_parameters(None, None, {})
         self._geo_table.setRowCount(0)
         self._geo_grp.setVisible(False)
 
@@ -299,6 +313,78 @@ class PropertiesPanel(QWidget):
             self._pin_offsets_form.addRow(f"Pin {pin_num} ({pin_name}):", widget)
 
         self._pin_offsets_grp.setVisible(bool(self._pin_bend_widgets))
+
+    def _rebuild_parameters(
+        self,
+        defn: ComponentDefinition | None,
+        inst: ComponentInstance | None,
+        packages: "dict[str, Any]",
+    ) -> None:
+        """Show the resolved package's schema-declared parameters.
+
+        Resolves the selected component's package (instance override → definition
+        default → inline) and renders one row per ``schema`` field via
+        ``fields_view``. Editability is read off each field's status: a null /
+        ``REQUIRED_EMPTY`` field is editable (a hole the author left for the
+        user); a concrete value, a filled default, or ``auto`` is read-only.
+        Read-only is signalled *without colour* — a status suffix on the label
+        (``(set)`` / ``(auto)``) and a non-editable field — because the user can
+        have trouble distinguishing colours. Hidden when the package has no
+        schema (synthetic bodies, or parts not yet on the schema format).
+        """
+        self._clear_params_form()
+        if defn is None:
+            self._params_grp.setVisible(False)
+            return
+        from protoboard.domain.components.package.component_package import (
+            resolve_component_package,
+        )
+
+        package = resolve_component_package(defn, inst, packages)
+        schema = getattr(package, "schema", None)
+        raw_values = getattr(package, "raw_values", None)
+        if schema is None or raw_values is None:
+            self._params_grp.setVisible(False)
+            return
+        views = schema.fields_view(raw_values)
+        if not views:
+            self._params_grp.setVisible(False)
+            return
+
+        for view in views:
+            self._add_param_row(view)
+        self._params_grp.setVisible(True)
+
+    def _clear_params_form(self) -> None:
+        self._param_widgets = {}
+        while self._params_form.rowCount():
+            self._params_form.removeRow(0)
+
+    def _add_param_row(self, view: "Any") -> None:
+        """One label+editor row for a FieldView (read-only signalled non-colour)."""
+        from protoboard.domain.components.package.schema import FieldStatus
+
+        leaf = view.path.rsplit(".", 1)[-1]
+        suffix = {
+            FieldStatus.REQUIRED_EMPTY: "",       # editable → no suffix
+            FieldStatus.SET: "  (set)",
+            FieldStatus.AUTO: "  (auto)",
+        }[view.status]
+        label = QLabel(f"{leaf}{suffix}")
+        edit = QLineEdit()
+        edit.setText("" if view.value is None else str(view.value))
+        edit.setReadOnly(not view.editable)
+        if not view.editable:
+            # Non-colour read-only cue: a clear-button-less, non-editable field
+            # plus the label suffix. A tooltip explains why it cannot be edited.
+            reason = ("computed by the package generator"
+                      if view.status is FieldStatus.AUTO
+                      else "fixed by the package definition")
+            edit.setToolTip(f"Read-only — {reason}.")
+        else:
+            edit.setToolTip("Editable — left open by the package definition.")
+        self._params_form.addRow(label, edit)
+        self._param_widgets[view.path] = edit
 
     def _update_geometry_table(
         self,

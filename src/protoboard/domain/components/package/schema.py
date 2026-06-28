@@ -253,7 +253,12 @@ class ParamSchema:
     def check_required(self, values: Mapping[str, Any]) -> None:
         """Raise :class:`SchemaError` for any required field absent from values.
 
-        The ``auto`` sentinel counts as present (a generator fills it later).
+        A concrete package (the body of a placed part) must have every required
+        field filled. Holes (unfilled parameters) live in a ``kind``, not a
+        concrete package, and are resolved by the kind generator / place-tool
+        picker *before* the package is built — so by the time this runs the
+        values are complete. The ``auto`` sentinel counts as present (a generator
+        fills it later).
         """
         for path, spec in self.fields.items():
             if not spec.required:
