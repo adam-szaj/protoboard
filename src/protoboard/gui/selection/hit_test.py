@@ -49,8 +49,8 @@ HIT_RADIUS = 0.25  # pin reach (Euclidean, raster units)
 # ``Theme.pad_radius`` (kept a constant so the hit-test stays Theme-free).
 PAD_HIT_RADIUS = 0.35
 BBOX_MARGIN = 0.45  # component bbox padding
-WIRE_HIT_DIST = 0.35  # perpendicular distance to a wire segment
-NODE_HIT_RADIUS = 0.32  # wire-vertex reach (Euclidean, raster units)
+WIRE_HIT_DIST = 0.20  # perpendicular distance to a wire segment
+NODE_HIT_RADIUS = 0.30  # wire-vertex reach (Euclidean, raster units)
 _CLUSTER_EPS = 1e-3  # two vertices within this are the same shared knot
 
 
