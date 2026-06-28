@@ -155,6 +155,30 @@ class TestPlaceToolSmdMount:
         specs = tool._bend_specs(view._session.components["R"])
         assert any(s.is_free() for s in specs.values())
 
+    def test_ghost_body_matches_chosen_variant(
+        self, session: EditorSession
+    ) -> None:
+        # Regression: the ghost resolves its body against the catalogue, so
+        # _rebuild_ghost must draw with a theme carrying the session's
+        # package_families — otherwise the chosen SMD-0805 falls through to the
+        # default candy disc. The two variants must give different ghost bodies.
+        view = self._builtin_view(session)
+        view.set_tool(PlaceTool("R", package_variant="SMD-0805/typ"))
+        smd_tool = view._active_tool
+        assert isinstance(smd_tool, PlaceTool)
+        smd_tool._rebuild_ghost()
+        assert smd_tool._ghost is not None
+        smd_rect = smd_tool._ghost.boundingRect()
+
+        view.set_tool(PlaceTool("R", package_variant="DIN-0207/typ"))
+        axial_tool = view._active_tool
+        assert isinstance(axial_tool, PlaceTool)
+        axial_tool._rebuild_ghost()
+        assert axial_tool._ghost is not None
+        # Different bodies → different ghost geometry (the SMD chip vs the axial
+        # body). If the theme lacked the catalogue both would be the default.
+        assert smd_rect != axial_tool._ghost.boundingRect()
+
     def test_smd_enters_drag_pin_phase(
         self, board_view: BoardView, session: EditorSession
     ) -> None:

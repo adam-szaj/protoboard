@@ -332,8 +332,16 @@ class PlaceTool(_Tool):
             specs = self._bend_specs(defn)
             if specs:
                 offsets = {p: spec.default_offset for p, spec in specs.items()}
+        # The ghost resolves its body from the chosen variant against the
+        # catalogue, so the theme it draws with must carry the session's
+        # package_families (the view's theme override may not). Without this the
+        # resolve falls through to the default body — the candy-disc bug.
+        import dataclasses
+        families = getattr(self._session, "package_families", None)
+        theme = dataclasses.replace(
+            self._theme(), package_families=families or {})
         ghost = make_ghost_item(
-            defn, rotation=self._rotation, pin_offsets=offsets,
+            defn, rotation=self._rotation, theme=theme, pin_offsets=offsets,
             package_variant=self._package_variant,
         )
         # Z=20 puts the ghost above all back-side scene items (Z<Z_BOARD=3.0)
