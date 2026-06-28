@@ -10,7 +10,6 @@ components:
     component_class: resistor
     symbol: R
     pins: {count: 2}
-    footprint: {type: TwoPin}
     pin_names: {}
     default_value: "?"
     bendable_pins:

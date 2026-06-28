@@ -89,9 +89,16 @@ class TestBendSpecParityFrozen:
         assert is_generic_package(defn.package)
         assert effective_bend_specs(defn) == defn.bendable_pins
 
-    def test_generic_resistor_keeps_bend_specs(self) -> None:
+    def test_generic_resistor_uses_package_bend_specs(self) -> None:
+        # R's default is now the real DIN-0207 axial body (the dead
+        # ``footprint: TwoPin`` neutral default was dropped), so its lead reach
+        # comes from that package, not the authored bendable_pins.
         defn = self._lib().get("R")
-        assert effective_bend_specs(defn) == defn.bendable_pins
+        assert not is_generic_package(defn.package)
+        specs = effective_bend_specs(defn)
+        # Both leads bend, with the package-derived reach (not the YAML ring).
+        assert set(specs) == {1, 2}
+        assert specs != defn.bendable_pins
 
     def test_crystal_with_no_bend_stays_empty(self) -> None:
         defn = self._lib().get("OSC_1MHz")

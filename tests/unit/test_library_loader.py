@@ -359,9 +359,11 @@ class TestConsolidatedPassives:
     def test_generic_R_default_geometry_and_offers(self) -> None:
         defn = self._lib().get("R")
         assert defn.refdes_prefix == "R"
-        # Default body = the axial DIN-0207 TwoPin (unchanged from pre-consolidation).
+        # Default body = the first offered footprint (DIN-0207 axial) now that the
+        # dead ``footprint: TwoPin`` default was dropped — the neutral generic
+        # default is gone, the picker's first real body wins.
         pins = [(round(p.x), round(p.y)) for p in defn.footprint.pin_positions()]
-        assert pins == [(0, 0), (0, 1)]
+        assert pins == [(0, 0), (3, 0)]
         names = [o.name for o in defn.footprints]
         assert "DIN-0207" in names and "SMD-0805" in names
         assert defn.default_value == "?"

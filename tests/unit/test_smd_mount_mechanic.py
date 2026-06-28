@@ -227,9 +227,12 @@ class TestEffectiveBendSpecsResolvesChosenVariant:
         # A THT axial body keeps its free bendable lead (no regression).
         assert any(s.is_free() for s in specs.values())
 
-    def test_no_catalogue_falls_back_to_bendable_pins(self) -> None:
-        # Backward compat for every legacy caller that passes only the defn:
-        # behaviour is unchanged (the THT axial free spec).
+    def test_no_catalogue_uses_default_package_bend_specs(self) -> None:
+        # Legacy callers pass only the defn (no instance/catalogue). R's default
+        # body is now the real DIN-0207 axial package (the dead ``footprint:
+        # TwoPin`` default was dropped), so the reach comes from that package —
+        # both leads bend — not the authored bendable_pins ring.
         defn, _ = self._resistor_and_catalogue()
         specs = effective_bend_specs(defn)
-        assert specs == defn.bendable_pins
+        assert set(specs) == {1, 2}
+        assert specs != defn.bendable_pins

@@ -7,7 +7,6 @@ components:
     component_class: capacitor_nonpolar
     symbol: C
     pins: {count: 2}
-    footprint: {type: TwoPin}
     pin_names: {}
     default_value: "?"
     bendable_pins:
@@ -35,7 +34,6 @@ components:
     component_class: capacitor_polar
     symbol: C
     pins: {count: 2}
-    footprint: {type: TwoPin}
     pin_names: {1: "+", 2: "-"}
     default_value: "?"
     bendable_pins:
