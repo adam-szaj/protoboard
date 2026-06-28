@@ -69,7 +69,9 @@ def _ctx_with_resistor_lib() -> _Ctx:
 
 
 def _place(ctx: _Ctx, x: float, y: float, refdes: str) -> uuid.UUID:
-    inst = ComponentInstance.new(definition_ref="R", refdes=refdes, value="10k")
+    inst = ComponentInstance.new(
+        definition_ref="R", refdes=refdes, value="10k"
+    ).bind(ctx.components["R"], {})
     ctx.instances[inst.id] = inst
     ctx.layout.placements[inst.id] = ComponentPlacement(
         component_id=inst.id, position=Point(x, y), rotation=0, side="top",

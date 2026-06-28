@@ -49,7 +49,9 @@ def _defn(name: str, n: int = 2) -> ComponentDefinition:
 
 
 def _inst(defn: ComponentDefinition, refdes: str = "R1") -> ComponentInstance:
-    return ComponentInstance.new(definition_ref=defn.name, refdes=refdes, value="")
+    return ComponentInstance.new(
+        definition_ref=defn.name, refdes=refdes, value="",
+    ).bind(defn, {})
 
 
 def _pl(x: float, y: float) -> ComponentPlacement:

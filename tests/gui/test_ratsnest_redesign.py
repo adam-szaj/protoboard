@@ -160,8 +160,8 @@ def _build_two_island_scenario() -> (
         J1.pin2   J2.pin2     <- island B (or wherever)
     """
     defn = _two_pin_def()
-    inst_a = ComponentInstance.new(definition_ref="CONN", refdes="J1", value="")
-    inst_b = ComponentInstance.new(definition_ref="CONN", refdes="J2", value="")
+    inst_a = ComponentInstance.new(definition_ref="CONN", refdes="J1", value="").bind(defn, {})
+    inst_b = ComponentInstance.new(definition_ref="CONN", refdes="J2", value="").bind(defn, {})
     instances = {inst_a.id: inst_a, inst_b.id: inst_b}
     components = {"CONN": defn}
     placements = {

@@ -19,6 +19,8 @@ from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
 from protoboard.services.routing.autorouter import autoroute
 
+from tests.instance_utils import bind
+
 
 def _perfboard(rows: int, cols: int) -> Board:
     return Board(
@@ -76,8 +78,8 @@ class TestBareDiagonalMode:
         board = _perfboard(5, 5)
         defn = _sil2()
         cid_a, cid_b = uuid.uuid4(), uuid.uuid4()
-        inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value="")
-        inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value="")
+        inst_a = bind(ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""), defn, {})
+        inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
         # R1 horizontal at (0.5,0.5): pin2 = (1.5, 0.5)  → parity (1+0)=1 → "\"
         # R2 horizontal at (3.5,3.5): pin1 = (3.5, 3.5)  → parity (3+3)=0 → "/"
         layout = Layout(placements={
@@ -112,10 +114,10 @@ class TestBareDiagonalMode:
         # NET2: odd-parity diagonal C→D from (0.5,3.5) to (3.5,0.5).
         # These naturally want to cross at (2.0, 2.0).
         insts = {
-            ids[0]: ComponentInstance(id=ids[0], definition_ref="COMP", refdes="R1", value=""),
-            ids[1]: ComponentInstance(id=ids[1], definition_ref="COMP", refdes="R2", value=""),
-            ids[2]: ComponentInstance(id=ids[2], definition_ref="COMP", refdes="R3", value=""),
-            ids[3]: ComponentInstance(id=ids[3], definition_ref="COMP", refdes="R4", value=""),
+            ids[0]: bind(ComponentInstance(id=ids[0], definition_ref="COMP", refdes="R1", value=""), defn, {}),
+            ids[1]: bind(ComponentInstance(id=ids[1], definition_ref="COMP", refdes="R2", value=""), defn, {}),
+            ids[2]: bind(ComponentInstance(id=ids[2], definition_ref="COMP", refdes="R3", value=""), defn, {}),
+            ids[3]: bind(ComponentInstance(id=ids[3], definition_ref="COMP", refdes="R4", value=""), defn, {}),
         }
         # Place so that pin1 sits exactly at the desired endpoints.
         layout = Layout(placements={

@@ -64,7 +64,9 @@ def _resistor_defn() -> ComponentDefinition:
 
 
 def _place(state: _State, x: float, y: float, refdes: str) -> uuid.UUID:
-    inst = ComponentInstance.new(definition_ref="R", refdes=refdes, value="10k")
+    inst = ComponentInstance.new(
+        definition_ref="R", refdes=refdes, value="10k",
+    ).bind(state.components["R"], {})
     state.instances[inst.id] = inst
     state.layout.placements[inst.id] = ComponentPlacement(
         component_id=inst.id, position=Point(x, y), rotation=0, side="top",

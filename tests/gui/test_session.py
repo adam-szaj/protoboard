@@ -21,6 +21,7 @@ def _place_r(session: EditorSession, x: float, y: float) -> ComponentInstance:
         refdes="R1",
         value="10k",
     )
+    inst = inst.bind(session.components["R"], session.package_families)
     session.instances[inst.id] = inst
     placement = ComponentPlacement(
         component_id=inst.id,
@@ -152,6 +153,7 @@ class TestIterPinPositions:
         inst = ComponentInstance(
             id=uuid.uuid4(), definition_ref="LM358", refdes="U1", value="LM358"
         )
+        inst = inst.bind(session.components["LM358"], session.package_families)
         session.instances[inst.id] = inst
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0, 0), rotation=0, side="top"

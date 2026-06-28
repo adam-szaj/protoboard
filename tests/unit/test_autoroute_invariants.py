@@ -14,19 +14,25 @@ import uuid
 from protoboard.domain.routing_settings import RoutingSettings
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
+from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.wire import WireCollection
 from protoboard.services.routing.autorouter import autoroute
 
+from tests.instance_utils import bind
 from tests.unit._autoroute_invariants import (
     assert_no_net_fusion, bare, insulated, make_perfboard, make_sil, place,
 )
 
 
-def _inst(name: str, refdes: str) -> ComponentInstance:
-    return ComponentInstance(
-        id=uuid.uuid4(), definition_ref=name, refdes=refdes, value=""
+def _inst(name: str, refdes: str, defn: ComponentDefinition) -> ComponentInstance:
+    return bind(
+        ComponentInstance(
+            id=uuid.uuid4(), definition_ref=name, refdes=refdes, value=""
+        ),
+        defn,
+        {},
     )
 
 
@@ -60,8 +66,8 @@ class TestAlienPadStealing:
         with pins straddling row 2.5 must detour, not punch the chain."""
         board = make_perfboard(rows=3, cols=12)
         defn = make_sil("COMP")
-        a1, a2 = _inst("COMP", "A1"), _inst("COMP", "A2")
-        b1, b2 = _inst("COMP", "B1"), _inst("COMP", "B2")
+        a1, a2 = _inst("COMP", "A1", defn), _inst("COMP", "A2", defn)
+        b1, b2 = _inst("COMP", "B1", defn), _inst("COMP", "B2", defn)
         layout = Layout(placements={
             a1.id: place(a1.id, 0.5, 0.5),
             a2.id: place(a2.id, 8.5, 0.5),
@@ -86,8 +92,8 @@ class TestAlienPadStealing:
         """Same idea but the alien net is built from diagonal steps."""
         board = make_perfboard(rows=6, cols=10)
         defn = make_sil("COMP")
-        a1, a2 = _inst("COMP", "A1"), _inst("COMP", "A2")
-        b1, b2 = _inst("COMP", "B1"), _inst("COMP", "B2")
+        a1, a2 = _inst("COMP", "A1", defn), _inst("COMP", "A2", defn)
+        b1, b2 = _inst("COMP", "B1", defn), _inst("COMP", "B2", defn)
         layout = Layout(placements={
             a1.id: place(a1.id, 0.5, 0.5),
             a2.id: place(a2.id, 5.5, 5.5),
@@ -119,8 +125,8 @@ class TestPlatedThroughBlocking:
         from landing on the same pad — the plated-through hole would short."""
         board = make_perfboard(rows=4, cols=8)
         defn = make_sil("COMP")
-        a1, a2 = _inst("COMP", "A1"), _inst("COMP", "A2")
-        b1, b2 = _inst("COMP", "B1"), _inst("COMP", "B2")
+        a1, a2 = _inst("COMP", "A1", defn), _inst("COMP", "A2", defn)
+        b1, b2 = _inst("COMP", "B1", defn), _inst("COMP", "B2", defn)
         layout = Layout(placements={
             # NET_A on row 0 with bare bottom wires across (1.5..3.5, 0.5)
             a1.id: place(a1.id, 0.5, 0.5),
@@ -152,8 +158,8 @@ class TestAlienElectricSetWithoutPin:
         miss it; the fix must catch it via the electric-set expansion."""
         board = make_perfboard(rows=4, cols=10)
         defn = make_sil("COMP")
-        a1, a2 = _inst("COMP", "A1"), _inst("COMP", "A2")
-        b1, b2 = _inst("COMP", "B1"), _inst("COMP", "B2")
+        a1, a2 = _inst("COMP", "A1", defn), _inst("COMP", "A2", defn)
+        b1, b2 = _inst("COMP", "B1", defn), _inst("COMP", "B2", defn)
         layout = Layout(placements={
             # NET_A connects (1.5, 0.5) to (8.5, 0.5) — pins on row 0.
             a1.id: place(a1.id, 0.5, 0.5),
@@ -191,8 +197,8 @@ class TestInsulatedJumperEndpoints:
         belongs to a different net."""
         board = make_perfboard(rows=5, cols=8)
         defn = make_sil("COMP")
-        a1, a2 = _inst("COMP", "A1"), _inst("COMP", "A2")
-        b1, b2 = _inst("COMP", "B1"), _inst("COMP", "B2")
+        a1, a2 = _inst("COMP", "A1", defn), _inst("COMP", "A2", defn)
+        b1, b2 = _inst("COMP", "B1", defn), _inst("COMP", "B2", defn)
         layout = Layout(placements={
             a1.id: place(a1.id, 0.5, 0.5),
             a2.id: place(a2.id, 6.5, 0.5),
@@ -226,8 +232,8 @@ class TestDiagonalCrossings:
         routable as crossing diagonals without fusing nets."""
         board = make_perfboard(rows=5, cols=5)
         defn = make_sil("COMP")
-        a1, a2 = _inst("COMP", "A1"), _inst("COMP", "A2")
-        b1, b2 = _inst("COMP", "B1"), _inst("COMP", "B2")
+        a1, a2 = _inst("COMP", "A1", defn), _inst("COMP", "A2", defn)
+        b1, b2 = _inst("COMP", "B1", defn), _inst("COMP", "B2", defn)
         layout = Layout(placements={
             # NET_A: (1.5, 1.5) → (3.5, 3.5) — even parity "/" family
             a1.id: place(a1.id, 0.5, 1.5),  # pin1=(0.5,1.5), pin2=(1.5,1.5)
@@ -254,7 +260,7 @@ class TestMultiNetSmoke:
         Catches global ordering / push-and-shove regressions."""
         board = make_perfboard(rows=6, cols=8)
         defn = make_sil("COMP")
-        comps = {f"R{i}": _inst("COMP", f"R{i}") for i in range(1, 9)}
+        comps = {f"R{i}": _inst("COMP", f"R{i}", defn) for i in range(1, 9)}
         layout = Layout(placements={
             comps["R1"].id: place(comps["R1"].id, 0.5, 0.5),
             comps["R2"].id: place(comps["R2"].id, 6.5, 0.5),

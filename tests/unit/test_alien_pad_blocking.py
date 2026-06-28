@@ -29,6 +29,8 @@ from protoboard.geometry import Point
 from protoboard.services.routing.autorouter import autoroute
 from protoboard.types import Side
 
+from tests.instance_utils import bind
+
 
 def _perfboard(rows: int, cols: int) -> Board:
     return Board(
@@ -89,13 +91,13 @@ class TestAlienPadBlocking:
         defn = _sil2()
         # NET_A pins at (0.5,0.5) and (9.5,0.5) — both ends of an 8-pad chain.
         cid_a1, cid_a2 = uuid.uuid4(), uuid.uuid4()
-        inst_a1 = ComponentInstance(id=cid_a1, definition_ref="COMP", refdes="A1", value="")
-        inst_a2 = ComponentInstance(id=cid_a2, definition_ref="COMP", refdes="A2", value="")
+        inst_a1 = bind(ComponentInstance(id=cid_a1, definition_ref="COMP", refdes="A1", value=""), defn, {})
+        inst_a2 = bind(ComponentInstance(id=cid_a2, definition_ref="COMP", refdes="A2", value=""), defn, {})
         # NET_B pins outside the chain — (10.5,0.5) and (11.5,0.5) — and a
         # second NET_B pin at (10.5, 2.5) to force routing through row 0.
         cid_b1, cid_b2 = uuid.uuid4(), uuid.uuid4()
-        inst_b1 = ComponentInstance(id=cid_b1, definition_ref="COMP", refdes="B1", value="")
-        inst_b2 = ComponentInstance(id=cid_b2, definition_ref="COMP", refdes="B2", value="")
+        inst_b1 = bind(ComponentInstance(id=cid_b1, definition_ref="COMP", refdes="B1", value=""), defn, {})
+        inst_b2 = bind(ComponentInstance(id=cid_b2, definition_ref="COMP", refdes="B2", value=""), defn, {})
 
         layout = Layout(
             placements={

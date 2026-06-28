@@ -37,6 +37,8 @@ from protoboard.services.routing.optimizer import (
 from protoboard.services.routing.protocol import ProgressSink
 from protoboard.services.routing.snapshot import RouteRequest
 
+from tests.instance_utils import bind
+
 
 # ---------------------------------------------------------------------------
 # Fixture builders
@@ -85,8 +87,8 @@ def _two_pin_project_with_insulated_wire(
     board = _perfboard()
     defn = _sil2()
     cid_a, cid_b = uuid.uuid4(), uuid.uuid4()
-    inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value="")
-    inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value="")
+    inst_a = bind(ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""), defn, {})
+    inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
     placements = {
         cid_a: _place(cid_a, *a_pos),
         cid_b: _place(cid_b, *b_pos),
@@ -96,9 +98,9 @@ def _two_pin_project_with_insulated_wire(
     if extra_components:
         for x, y in extra_components:
             cid = uuid.uuid4()
-            inst = ComponentInstance(
+            inst = bind(ComponentInstance(
                 id=cid, definition_ref="COMP", refdes=f"R_{len(instances)+1}", value="",
-            )
+            ), defn, {})
             placements[cid] = _place(cid, x, y)
             instances[cid] = inst
 
@@ -276,9 +278,9 @@ class TestRefusesWhenUnsafe:
         defn = _sil2()
         ids = [uuid.uuid4() for _ in range(4)]
         instances = {
-            ids[i]: ComponentInstance(
+            ids[i]: bind(ComponentInstance(
                 id=ids[i], definition_ref="COMP", refdes=f"R{i+1}", value=""
-            ) for i in range(4)
+            ), defn, {}) for i in range(4)
         }
         placements = {
             ids[0]: _place(ids[0], 0.5, 0.5),

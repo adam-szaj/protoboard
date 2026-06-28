@@ -52,7 +52,7 @@ def _snapshot_with_resistor() -> BoardSnapshot:
         rows=2, cols=4, row_gap=0, col_gap=0,
     ))
     defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
-    inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+    inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(defn, {})
     pl = ComponentPlacement(
         component_id=inst.id, position=Point(0.5, 0.5),
         rotation=90, side="top",

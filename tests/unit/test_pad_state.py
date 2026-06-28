@@ -377,7 +377,7 @@ class TestPadIndexBuild:
     def test_component_pin_adds_pin_item_and_net(self) -> None:
         board = _perfboard(3, 3)
         defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={})
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(defn, {})
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5),
             rotation=90, side="top",  # SIL(2) rot=90: pin2 at (1.5, 0.5)
@@ -572,7 +572,7 @@ def _placed_packaged_index(
 ) -> "PadIndex":
     board = _perfboard(4, 4)
     defn = _packaged_defn(blocks_routing=blocks_routing)
-    inst = ComponentInstance.new(definition_ref="U", refdes="U1", value="")
+    inst = ComponentInstance.new(definition_ref="U", refdes="U1", value="").bind(defn, {})
     pl = ComponentPlacement(
         component_id=inst.id, position=Point(0.5, 0.5),
         rotation=0, side="top",

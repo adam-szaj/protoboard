@@ -40,6 +40,8 @@ from protoboard.services.routing.protocol import (
 )
 from protoboard.services.routing.snapshot import RouteRequest
 
+from tests.instance_utils import bind
+
 
 def _perfboard(rows: int = 6, cols: int = 6) -> Board:
     return Board(
@@ -78,8 +80,8 @@ def _two_pin_project(
     defn = _sil2()
     cid_a, cid_b = uuid.uuid4(), uuid.uuid4()
     insts = {
-        cid_a: ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""),
-        cid_b: ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""),
+        cid_a: bind(ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""), defn, {}),
+        cid_b: bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {}),
     }
     layout = Layout(placements={
         cid_a: _place(cid_a, 0.5, 0.5),

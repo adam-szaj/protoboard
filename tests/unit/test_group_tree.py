@@ -171,8 +171,8 @@ def _two_resistors() -> tuple[
     from protoboard.geometry import Point
 
     defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
-    inst_a = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
-    inst_b = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+    inst_a = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k").bind(defn, {})
+    inst_b = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k").bind(defn, {})
     placements = {
         inst_a.id: ComponentPlacement(
             component_id=inst_a.id, position=Point(0, 0), rotation=0, side="top"

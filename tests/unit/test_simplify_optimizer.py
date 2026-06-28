@@ -34,6 +34,8 @@ from protoboard.services.routing.postprocess import SimplifyMode
 from protoboard.services.routing.protocol import ProgressSink
 from protoboard.services.routing.snapshot import RouteRequest
 
+from tests.instance_utils import bind
+
 
 def _perfboard(rows: int = 5, cols: int = 5) -> Board:
     return Board(
@@ -70,8 +72,8 @@ def _two_pin_diag_project() -> tuple[Board, Layout, Schematic, dict, dict]:
     board = _perfboard()
     defn = _sil2()
     cid_a, cid_b = uuid.uuid4(), uuid.uuid4()
-    inst_a = ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value="")
-    inst_b = ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value="")
+    inst_a = bind(ComponentInstance(id=cid_a, definition_ref="COMP", refdes="R1", value=""), defn, {})
+    inst_b = bind(ComponentInstance(id=cid_b, definition_ref="COMP", refdes="R2", value=""), defn, {})
     layout = Layout(placements={
         cid_a: _place(cid_a, 0.5, 0.5),
         cid_b: _place(cid_b, 3.5, 3.5),

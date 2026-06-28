@@ -69,6 +69,7 @@ def _place(mw: MainWindow, x: float, y: float):  # type: ignore[no-untyped-def]
             name="D1", footprint=SIL(1), pin_names={1: "A"},
         )
     inst = ComponentInstance.new(definition_ref="D1", refdes="U1", value="")
+    inst = inst.bind(sess.components["D1"], {})
     sess.instances[inst.id] = inst
     sess.layout.placements[inst.id] = ComponentPlacement(
         component_id=inst.id, position=Point(x, y), rotation=0, side="top",

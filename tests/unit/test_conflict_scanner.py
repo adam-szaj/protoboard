@@ -45,7 +45,9 @@ def _defn(name: str, n: int = 2) -> ComponentDefinition:
 
 
 def _inst(defn: ComponentDefinition, refdes: str = "X1") -> ComponentInstance:
-    return ComponentInstance.new(definition_ref=defn.name, refdes=refdes, value="")
+    return ComponentInstance.new(
+        definition_ref=defn.name, refdes=refdes, value="",
+    ).bind(defn, {})
 
 
 def _pl(comp_id: uuid.UUID, x: float, y: float, rot: int = 90) -> ComponentPlacement:
@@ -184,6 +186,7 @@ class TestWireConflictEquivalence:
             schematic=sch,
             point_to_net=point_to_net,
             already_conflicted=set(),
+            incoming_instance=r1,
         )
         scanner = ConflictScanner(
             placements=placements,

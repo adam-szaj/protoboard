@@ -51,7 +51,11 @@ def _r_defn() -> ComponentDefinition:
 
 
 def _make_inst(refdes: str = "R1") -> ComponentInstance:
-    return ComponentInstance.new(definition_ref="R", refdes=refdes, value="10k")
+    # The R defn has no package, so bind with families={} — resolved_footprint
+    # then returns defn.footprint (the part's genuine default geometry).
+    return ComponentInstance.new(
+        definition_ref="R", refdes=refdes, value="10k"
+    ).bind(_r_defn(), {})
 
 
 def _placement(inst: ComponentInstance, x: float, y: float, rot: int = 90,
@@ -79,6 +83,7 @@ class TestFindConflictsNone:
             incoming_placement=pl,
             incoming_defn=defn,
             incoming_instance_id=r1.id,
+            incoming_instance=r1,
             layout_placements={},
             instances={},
             components={},
@@ -99,6 +104,7 @@ class TestFindConflictsNone:
             incoming_placement=pl_r2,
             incoming_defn=defn,
             incoming_instance_id=r2.id,
+            incoming_instance=r2,
             layout_placements={r1.id: pl_r1},
             instances={r1.id: r1},
             components={"R": defn},
@@ -140,6 +146,7 @@ class TestFindConflictsBothUnconnected:
             incoming_placement=pl_r2,
             incoming_defn=defn,
             incoming_instance_id=r2.id,
+            incoming_instance=r2,
             layout_placements={r1.id: pl_r1},
             instances={r1.id: r1},
             components={"R": defn},
@@ -160,6 +167,7 @@ class TestFindConflictsBothUnconnected:
             incoming_placement=pl_r2,
             incoming_defn=defn,
             incoming_instance_id=r2.id,
+            incoming_instance=r2,
             layout_placements={r1.id: pl_r1},
             instances={r1.id: r1},
             components={"R": defn},
@@ -202,6 +210,7 @@ class TestFindConflictsSameNet:
             incoming_placement=pl_r2,
             incoming_defn=defn,
             incoming_instance_id=r2.id,
+            incoming_instance=r2,
             layout_placements={r1.id: pl_r1},
             instances={r1.id: r1},
             components={"R": defn},
@@ -238,6 +247,7 @@ class TestFindConflictsDifferentNets:
             incoming_placement=pl_r2,
             incoming_defn=defn,
             incoming_instance_id=r2.id,
+            incoming_instance=r2,
             layout_placements={r1.id: pl_r1},
             instances={r1.id: r1},
             components={"R": defn},
@@ -272,6 +282,7 @@ class TestFindConflictsOneUnconnected:
             incoming_placement=pl_r2,
             incoming_defn=defn,
             incoming_instance_id=r2.id,
+            incoming_instance=r2,
             layout_placements={r1.id: pl_r1},
             instances={r1.id: r1},
             components={"R": defn},
@@ -366,6 +377,7 @@ class TestFindWireConflicts:
             incoming_placement=pl,
             incoming_defn=defn,
             incoming_instance_id=r1.id,
+            incoming_instance=r1,
             wires=[],
             schematic=sch,
             point_to_net={},
@@ -386,6 +398,7 @@ class TestFindWireConflicts:
             incoming_placement=pl,
             incoming_defn=defn,
             incoming_instance_id=r1.id,
+            incoming_instance=r1,
             wires=[wire],
             schematic=sch,
             point_to_net={},
@@ -418,6 +431,7 @@ class TestFindWireConflicts:
             incoming_placement=pl_r1,
             incoming_defn=defn,
             incoming_instance_id=r1.id,
+            incoming_instance=r1,
             wires=[wire],
             schematic=sch,
             point_to_net=point_to_net,
@@ -451,6 +465,7 @@ class TestFindWireConflicts:
             incoming_placement=pl_r1,
             incoming_defn=defn,
             incoming_instance_id=r1.id,
+            incoming_instance=r1,
             wires=[wire],
             schematic=sch,
             point_to_net=point_to_net,
@@ -484,6 +499,7 @@ class TestFindWireConflicts:
             incoming_placement=pl_r1,
             incoming_defn=defn,
             incoming_instance_id=r1.id,
+            incoming_instance=r1,
             wires=[wire],
             schematic=sch,
             point_to_net=point_to_net,
@@ -503,6 +519,7 @@ class TestFindWireConflicts:
             incoming_placement=pl,
             incoming_defn=defn,
             incoming_instance_id=r1.id,
+            incoming_instance=r1,
             wires=[wire],
             schematic=sch,
             point_to_net={},
@@ -560,12 +577,14 @@ class TestPadIndexPath:
         legacy = find_conflicts(
             incoming_placement=pl_r2, incoming_defn=defn,
             incoming_instance_id=r2.id,
+            incoming_instance=r2,
             layout_placements={r1.id: pl_r1},
             instances={r1.id: r1}, components={"R": defn}, schematic=sch,
         )
         via_index = find_conflicts(
             incoming_placement=pl_r2, incoming_defn=defn,
             incoming_instance_id=r2.id,
+            incoming_instance=r2,
             layout_placements={r1.id: pl_r1},
             instances={r1.id: r1}, components={"R": defn}, schematic=sch,
             pad_index=idx,
@@ -588,6 +607,7 @@ class TestPadIndexPath:
         out = find_conflicts(
             incoming_placement=pl, incoming_defn=defn,
             incoming_instance_id=r1.id,
+            incoming_instance=r1,
             layout_placements={}, instances={}, components={}, schematic=sch,
             pad_index=idx,
         )
@@ -619,6 +639,7 @@ class TestPadIndexPath:
         out = find_wire_conflicts(
             incoming_placement=pl, incoming_defn=defn,
             incoming_instance_id=r1.id,
+            incoming_instance=r1,
             wires=[wire], schematic=sch,
             point_to_net={}, already_conflicted=set(),
             pad_index=idx,
@@ -699,13 +720,17 @@ class TestPadIndexPath:
         conn_defn = ComponentDefinition(
             name="J", footprint=SIL(3), pin_names={1: "A", 2: "B", 3: "C"},
         )
-        conn = ComponentInstance.new(definition_ref="J", refdes="J1", value="")
+        conn = ComponentInstance.new(
+            definition_ref="J", refdes="J1", value=""
+        ).bind(conn_defn, {})
         pl_conn = _placement(conn, 1.5, 0.5, rot=0)  # pins (1.5,0.5),(1.5,1.5),(1.5,2.5)
         # Foreign-net bare wire spanning (1.5, 0.5)→(1.5, 2.5) — every
         # connector pin lands on it (endpoint, middle vertex,
         # endpoint).  Wire belongs to NET_FOREIGN via an anchor pin
         # off to the side.
-        anchor = ComponentInstance.new(definition_ref="J", refdes="ANCHOR", value="")
+        anchor = ComponentInstance.new(
+            definition_ref="J", refdes="ANCHOR", value=""
+        ).bind(conn_defn, {})
         pl_anchor = _placement(anchor, 5.5, 0.5, rot=0)
         net_foreign = Net(
             id=uuid.uuid4(), name="FOREIGN",
@@ -731,6 +756,7 @@ class TestPadIndexPath:
         out = find_wire_conflicts(
             incoming_placement=pl_conn, incoming_defn=conn_defn,
             incoming_instance_id=conn.id,
+            incoming_instance=conn,
             wires=[wire], schematic=sch,
             point_to_net=point_to_net, already_conflicted=set(),
             pad_index=idx,

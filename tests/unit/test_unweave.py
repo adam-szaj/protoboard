@@ -19,6 +19,30 @@ if TYPE_CHECKING:
     from protoboard.domain.schematic.schematic import Schematic
 
 
+def _load_project_bound(fixture, library):  # type: ignore[no-untyped-def]
+    """``load_project`` with instances bound to *library* + the package
+    catalogue, exactly as production does (mirrors session.py). Without the
+    bind the returned instances are unbound and any geometry resolution
+    raises ``UnboundInstanceError``."""
+    from protoboard.services.library.package_family_loader import (
+        load_full_package_catalogue,
+    )
+    from protoboard.services.persistence.project_yaml import (
+        load_project,
+        set_migration_families,
+        set_migration_library,
+    )
+
+    families = load_full_package_catalogue()
+    set_migration_library(library)
+    set_migration_families(families)
+    try:
+        return load_project(fixture)
+    finally:
+        set_migration_library(None)
+        set_migration_families(None)
+
+
 def _wire(*pts: tuple[float, float], insulated: bool = True, side: str = "top") -> Wire:
     return Wire(
         id=uuid.uuid4(),
@@ -406,8 +430,10 @@ class TestUnweaveConnectivityPreserved:
         if not BUILTIN_LIBRARY_DIR.exists():
             return
         fixture = Path(__file__).resolve().parents[1] / "fixtures" / "tangled_04"
-        board, layout, schematic, instances, *_ = load_project(fixture)
         library = load_library([BUILTIN_LIBRARY_DIR])
+        board, layout, schematic, instances, *_ = _load_project_bound(
+            fixture, library,
+        )
         components = {n: library.get(n) for n in library.names()}
 
         graph = ConnectivityGraph(
@@ -441,8 +467,10 @@ class TestUnweaveConnectivityPreserved:
         if not BUILTIN_LIBRARY_DIR.exists():
             return  # env-dependent, skip
         fixture = Path(__file__).resolve().parents[1] / "fixtures" / "tangled_03"
-        board, layout, schematic, instances, *_ = load_project(fixture)
         library = load_library([BUILTIN_LIBRARY_DIR])
+        board, layout, schematic, instances, *_ = _load_project_bound(
+            fixture, library,
+        )
         components = {name: library.get(name) for name in library.names()}
 
         # Restrict to the upper circuit.
@@ -517,8 +545,10 @@ class TestUnweaveSideRebalance:
         if not BUILTIN_LIBRARY_DIR.exists():
             return
         fixture = Path(__file__).resolve().parents[1] / "fixtures" / "tangled_04"
-        board, layout, schematic, instances, *_ = load_project(fixture)
         library = load_library([BUILTIN_LIBRARY_DIR])
+        board, layout, schematic, instances, *_ = _load_project_bound(
+            fixture, library,
+        )
         components = {n: library.get(n) for n in library.names()}
         g = ConnectivityGraph(
             board=board, layout=layout,
@@ -557,8 +587,10 @@ class TestUnweaveSubsetSelection:
         if not BUILTIN_LIBRARY_DIR.exists():
             return
         fixture = Path(__file__).resolve().parents[1] / "fixtures" / "tangled_04"
-        board, layout, schematic, instances, *_ = load_project(fixture)
         library = load_library([BUILTIN_LIBRARY_DIR])
+        board, layout, schematic, instances, *_ = _load_project_bound(
+            fixture, library,
+        )
         components = {n: library.get(n) for n in library.names()}
         g = ConnectivityGraph(
             board=board, layout=layout,
@@ -775,14 +807,6 @@ class TestUnweaveTangled03Fixture:
         from protoboard.domain.connectivity.graph import ConnectivityGraph
 
         fixture = Path(__file__).resolve().parents[1] / "fixtures" / "tangled_03"
-        board, layout, schematic, instances, *_ = load_project(fixture)
-        components = {}  # filled by autoroute helpers; not needed here
-        # Build a minimal connectivity graph for the upper circuit only.
-        from protoboard.domain.layout.layout import Layout
-        upper_wires = [w for w in layout.wires if max(p.y for p in w.path) < 15.0]
-        upper_layout = Layout()
-        upper_layout.wires = cast(WireCollection, upper_wires)
-        upper_layout.placements = layout.placements
         # Pull component definitions from session loader if available;
         # otherwise skip the graph-driven path and assert legacy behaviour.
         try:
@@ -793,6 +817,15 @@ class TestUnweaveTangled03Fixture:
             library = None
         if library is None:
             return  # environment-dependent — skip
+        board, layout, schematic, instances, *_ = _load_project_bound(
+            fixture, library,
+        )
+        # Build a minimal connectivity graph for the upper circuit only.
+        from protoboard.domain.layout.layout import Layout
+        upper_wires = [w for w in layout.wires if max(p.y for p in w.path) < 15.0]
+        upper_layout = Layout()
+        upper_layout.wires = cast(WireCollection, upper_wires)
+        upper_layout.placements = layout.placements
         components = {name: library.get(name) for name in library.names()}
         graph = ConnectivityGraph(
             board=board, layout=upper_layout,

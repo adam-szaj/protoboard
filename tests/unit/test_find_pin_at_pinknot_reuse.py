@@ -93,7 +93,9 @@ class _AlwaysRejectStrategy:
 def _build_one_resistor() -> tuple[_State, uuid.UUID]:
     """One SIL(2) resistor at (3, 5) so pin 1 sits at (3.5, 5.5)."""
     defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
-    inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+    inst = ComponentInstance.new(
+        definition_ref="R", refdes="R1", value="10k"
+    ).bind(defn, {})
     placement = ComponentPlacement(
         component_id=inst.id, position=Point(3.0, 5.0), rotation=0, side="top",
     )

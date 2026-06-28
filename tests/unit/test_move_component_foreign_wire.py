@@ -87,7 +87,9 @@ def _place(
     defn_name = f"_J_{refdes}"
     defn = ComponentDefinition(name=defn_name, footprint=SIL(1), pin_names={1: "P"})
     state.components[defn_name] = defn
-    inst = ComponentInstance.new(definition_ref=defn_name, refdes=refdes, value="")
+    inst = ComponentInstance.new(
+        definition_ref=defn_name, refdes=refdes, value="",
+    ).bind(defn, {})
     state.instances[inst.id] = inst
     pl = ComponentPlacement(
         component_id=inst.id, position=pos, rotation=0, side="top",

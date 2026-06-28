@@ -219,7 +219,7 @@ def _state_with_pin_at(pos: Point) -> _State:
     comp_id = uuid.uuid4()
     state.instances[comp_id] = ComponentInstance(
         id=comp_id, definition_ref="STUB", refdes="X1", value="",
-    )
+    ).bind(defn, {})
     state.layout.placements[comp_id] = ComponentPlacement(
         component_id=comp_id,
         position=pos,
@@ -322,7 +322,9 @@ def _place_pin_at(
     defn_name = f"_R_{refdes}"
     defn = ComponentDefinition(name=defn_name, footprint=SIL(1), pin_names={1: "P"})
     state.components[defn_name] = defn
-    inst = ComponentInstance.new(definition_ref=defn_name, refdes=refdes, value="")
+    inst = ComponentInstance.new(
+        definition_ref=defn_name, refdes=refdes, value="",
+    ).bind(defn, {})
     state.instances[inst.id] = inst
     state.layout.placements[inst.id] = ComponentPlacement(
         component_id=inst.id, position=pos, rotation=0, side=side,  # type: ignore[arg-type]

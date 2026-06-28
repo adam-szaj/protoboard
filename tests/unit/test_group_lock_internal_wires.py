@@ -162,8 +162,8 @@ class TestDragDetectorLockPromotion:
             name="R", footprint=SIL(2),
             pin_names={i: str(i) for i in (1, 2)},
         )
-        inst_g = ComponentInstance.new(definition_ref="R", refdes="Rg", value="")
-        inst_drag = ComponentInstance.new(definition_ref="R", refdes="Rd", value="")
+        inst_g = ComponentInstance.new(definition_ref="R", refdes="Rg", value="").bind(defn, {})
+        inst_drag = ComponentInstance.new(definition_ref="R", refdes="Rd", value="").bind(defn, {})
         pl_g = ComponentPlacement(
             component_id=inst_g.id, position=Point(0.5, 0.5),
             rotation=0, side="top",

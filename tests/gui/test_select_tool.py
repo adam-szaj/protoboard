@@ -974,7 +974,7 @@ class TestRedrag:
         session.components["R_SMD_T"] = defn
         session.instances[cid] = ComponentInstance(
             id=cid, definition_ref="R_SMD_T", refdes="R9", value="",
-        )
+        ).bind(defn, session.package_families)
         session.layout.placements[cid] = ComponentPlacement(
             component_id=cid, position=Point(x, y), rotation=0, side="top",
         )
@@ -1191,6 +1191,7 @@ def _wire_session(qtbot) -> tuple[EditorSession, BoardView]:
     defn = ComponentDefinition(name="STUB1", footprint=SIL(1), pin_names={1: "P1"})
     sess.components["STUB1"] = defn
     inst = ComponentInstance.new(definition_ref="STUB1", refdes="X1", value="")
+    inst = inst.bind(defn, {})
     sess.instances[inst.id] = inst
     sess.layout.placements[inst.id] = ComponentPlacement(
         component_id=inst.id, position=Point(1.5, 1.5), rotation=0, side="top",
@@ -1589,8 +1590,8 @@ class TestWireAndPadHighlight:
         session = EditorSession(board=Board(root=grid), library=lib)
         defn = ComponentDefinition(name="D1", footprint=SIL(1), pin_names={1: "A"})
         session.components["D1"] = defn
-        c1 = ComponentInstance.new(definition_ref="D1", refdes="U1", value="")
-        c2 = ComponentInstance.new(definition_ref="D1", refdes="U2", value="")
+        c1 = ComponentInstance.new(definition_ref="D1", refdes="U1", value="").bind(defn, {})
+        c2 = ComponentInstance.new(definition_ref="D1", refdes="U2", value="").bind(defn, {})
         session.instances[c1.id] = c1
         session.instances[c2.id] = c2
         session.layout.placements[c1.id] = ComponentPlacement(
@@ -1965,6 +1966,7 @@ class TestNetContext:
         sess.components["D2"] = ComponentDefinition(
             name="D2", footprint=SIL(2), pin_names={1: "A", 2: "B"})
         inst = ComponentInstance.new(definition_ref="D2", refdes="U1", value="")
+        inst = inst.bind(sess.components["D2"], {})
         sess.instances[inst.id] = inst
         sess.layout.placements[inst.id] = ComponentPlacement(
             component_id=inst.id, position=Point(2.5, 2.5), rotation=0, side="top")

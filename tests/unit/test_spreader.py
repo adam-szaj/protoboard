@@ -33,6 +33,7 @@ from protoboard.services.placement.spreader import (
     _snap_to_grid,
     spread_components,
 )
+from tests.instance_utils import bind
 
 
 # ---------------------------------------------------------------------------
@@ -70,13 +71,18 @@ def _resistor_defn(name: str = "R") -> ComponentDefinition:
     )
 
 
-def _inst(refdes: str, definition_ref: str) -> ComponentInstance:
-    return ComponentInstance(
+def _inst(
+    refdes: str,
+    definition_ref: str,
+    defn: ComponentDefinition | None = None,
+) -> ComponentInstance:
+    inst = ComponentInstance(
         id=uuid.uuid4(),
         definition_ref=definition_ref,
         refdes=refdes,
         value="",
     )
+    return inst if defn is None else bind(inst, defn, {})
 
 
 def _place(comp_id: uuid.UUID, x: float, y: float) -> ComponentPlacement:
@@ -255,7 +261,7 @@ class TestSnapToGrid:
         pads = board_pads_for_side(board, "top")
         defn = _resistor_defn()
         ids = [uuid.uuid4() for _ in range(3)]
-        insts = {c: _inst(f"R{i}", "R") for i, c in enumerate(ids)}
+        insts = {c: _inst(f"R{i}", "R", defn) for i, c in enumerate(ids)}
         original = {c: _place(c, 0.5, 0.5) for c in ids}
         ideal = {
             ids[0]: Point(1.5, 1.5),
@@ -280,7 +286,7 @@ class TestSnapToGrid:
         pads = board_pads_for_side(board, "top")
         defn = _resistor_defn()
         ids = [uuid.uuid4() for _ in range(4)]
-        insts = {c: _inst(f"R{i}", "R") for i, c in enumerate(ids)}
+        insts = {c: _inst(f"R{i}", "R", defn) for i, c in enumerate(ids)}
         original = {c: _place(c, 0.5, float(i)) for i, c in enumerate(ids)}
         ideal = {
             ids[0]: Point(0.5, 0.5),
@@ -313,9 +319,9 @@ class TestSnapToGrid:
         defn = _resistor_defn()
         fixed_id = uuid.uuid4()
         fixed_pl = _place(fixed_id, 0.5, 0.5)
-        fixed_inst = _inst("RF", "R")
+        fixed_inst = _inst("RF", "R", defn)
         mobile_id = uuid.uuid4()
-        mobile_inst = _inst("R1", "R")
+        mobile_inst = _inst("R1", "R", defn)
         original = {mobile_id: _place(mobile_id, 2.5, 2.5)}
         ideal = {mobile_id: Point(0.5, 0.5)}
         session = _FakeSession(
@@ -350,7 +356,7 @@ class TestSpreadComponents:
         board = _make_perfboard(20, 20)
         defn = _resistor_defn()
         ids = [uuid.uuid4() for _ in range(5)]
-        insts = {c: _inst(f"R{i}", "R") for i, c in enumerate(ids)}
+        insts = {c: _inst(f"R{i}", "R", defn) for i, c in enumerate(ids)}
         layout = Layout()
         for c in ids:
             layout.placements[c] = _place(c, 5.5, 5.5)
@@ -367,7 +373,7 @@ class TestSpreadComponents:
         pads = board_pads_for_side(board, "top")
         defn = _resistor_defn()
         ids = [uuid.uuid4() for _ in range(5)]
-        insts = {c: _inst(f"R{i}", "R") for i, c in enumerate(ids)}
+        insts = {c: _inst(f"R{i}", "R", defn) for i, c in enumerate(ids)}
         layout = Layout()
         for i, c in enumerate(ids):
             layout.placements[c] = _place(c, float(i) + 0.5, 0.5)
@@ -382,7 +388,7 @@ class TestSpreadComponents:
         board = _make_perfboard(20, 20)
         defn = _resistor_defn()
         ids = [uuid.uuid4() for _ in range(6)]
-        insts = {c: _inst(f"R{i}", "R") for i, c in enumerate(ids)}
+        insts = {c: _inst(f"R{i}", "R", defn) for i, c in enumerate(ids)}
         layout = Layout()
         for c in ids:
             layout.placements[c] = _place(c, 10.5, 10.5)
@@ -403,7 +409,7 @@ class TestSpreadComponents:
         board = _make_perfboard(20, 20)
         defn = _resistor_defn()
         ids = [uuid.uuid4() for _ in range(8)]
-        insts = {c: _inst(f"R{i}", "R") for i, c in enumerate(ids)}
+        insts = {c: _inst(f"R{i}", "R", defn) for i, c in enumerate(ids)}
         layout = Layout()
         for c in ids:
             layout.placements[c] = _place(c, 5.5, 5.5)  # all stacked
@@ -426,7 +432,7 @@ class TestSpreadComponents:
         all_ids = [uuid.uuid4() for _ in range(5)]
         mobile_ids = all_ids[:3]
         fixed_ids = all_ids[3:]
-        insts = {c: _inst(f"R{i}", "R") for i, c in enumerate(all_ids)}
+        insts = {c: _inst(f"R{i}", "R", defn) for i, c in enumerate(all_ids)}
         layout = Layout()
         orig_positions = {c: Point(float(i) + 0.5, 0.5) for i, c in enumerate(all_ids)}
         for c in all_ids:
@@ -447,7 +453,7 @@ class TestSpreadComponents:
         layout.placements[c] = _place(c, 0.5, 0.5)
         session = _FakeSession(
             board=board, layout=layout, components={"R": defn},
-            instances={c: _inst("R1", "R")},
+            instances={c: _inst("R1", "R", defn)},
         )
         result = spread_components([c], session)
         assert result.moved_ids == set()
@@ -464,7 +470,7 @@ class TestSpreadComponents:
         board = _make_perfboard(20, 20)
         defn = _resistor_defn()
         ids = [uuid.uuid4() for _ in range(3)]
-        insts = {c: _inst(f"R{i}", "R") for i, c in enumerate(ids)}
+        insts = {c: _inst(f"R{i}", "R", defn) for i, c in enumerate(ids)}
         layout = Layout()
         rotations = [0, 90, 180]
         for i, c in enumerate(ids):
@@ -481,7 +487,7 @@ class TestSpreadComponents:
         board = _make_perfboard(20, 20)
         defn = _resistor_defn()
         ids = [uuid.uuid4() for _ in range(4)]
-        insts = {c: _inst(f"R{i}", "R") for i, c in enumerate(ids)}
+        insts = {c: _inst(f"R{i}", "R", defn) for i, c in enumerate(ids)}
         layout = Layout()
         for c in ids:
             layout.placements[c] = _place(c, 10.5, 10.5)

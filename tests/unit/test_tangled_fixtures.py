@@ -27,8 +27,26 @@ FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 
 
 def _run_autoroute_and_drc(fixture_dir: Path):
+    from protoboard.services.library.package_family_loader import (
+        load_full_package_catalogue,
+    )
+    from protoboard.services.persistence.project_yaml import (
+        set_migration_families,
+        set_migration_library,
+    )
+
     lib = load_library([BUILTIN_LIBRARY_DIR])
-    board, layout, schematic, instances, routing, _, _ = load_project(fixture_dir)
+    families = load_full_package_catalogue()
+    # Bind loaded instances to the catalogue exactly as production does
+    # (mirrors session.py): without it the returned instances are unbound
+    # and resolving their geometry raises UnboundInstanceError.
+    set_migration_library(lib)
+    set_migration_families(families)
+    try:
+        board, layout, schematic, instances, routing, _, _ = load_project(fixture_dir)
+    finally:
+        set_migration_library(None)
+        set_migration_families(None)
     components = {name: lib.get(name) for name in lib.names()}
 
     # Re-route from a clean slate so the simplify pass is the *only* code

@@ -95,7 +95,7 @@ def _build_state(
     for i, (x, y) in enumerate(components):
         inst = ComponentInstance.new(
             definition_ref="R", refdes=f"R{i+1}", value="10k",
-        )
+        ).bind(defn, {})
         cid = inst.id
         cids.append(cid)
         placements[cid] = _placement(cid, x, y, rot)

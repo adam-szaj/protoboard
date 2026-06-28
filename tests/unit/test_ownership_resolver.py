@@ -48,8 +48,8 @@ def _two_pin_group_scene() -> tuple[
 ]:
     """Group of two SIL(2) components, a wire between two of their pins (owned)."""
     defn = _defn()
-    c1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
-    c2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="")
+    c1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(defn, {})
+    c2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="").bind(defn, {})
     # SIL(2) rot=90 → pin1@(0.5,0.5), pin2@(1.5,0.5).
     pl1 = ComponentPlacement(component_id=c1.id, position=Point(0.5, 0.5), rotation=90, side="top")
     pl2 = ComponentPlacement(component_id=c2.id, position=Point(0.5, 2.5), rotation=90, side="top")

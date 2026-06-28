@@ -18,6 +18,7 @@ from protoboard.domain.schematic.net import Net
 from protoboard.domain.schematic.schematic import PinRef, Schematic
 from protoboard.geometry import Point, Vector
 from protoboard.services.drc.engine import DRCEngine, DRCIssue
+from tests.instance_utils import bind
 
 
 def _perfboard(rows: int, cols: int) -> Board:
@@ -61,8 +62,8 @@ class TestDRCClean:
         # a mid-point. All pins assigned → DRC clean.
         board = _perfboard(1, 5)
         defn = _r_defn()
-        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
-        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
+        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
 
         # Pad centers at x=0.5,1.5,2.5,3.5,4.5, y=0.5 (1-row board).
         # SIL(2) rotation=90: pin2 rel=(0,1) rotates to (1,0) → world at (px+1, py).
@@ -120,8 +121,8 @@ class TestDRCMissingNet:
     def test_missing_connection_detected(self) -> None:
         board = _perfboard(1, 4)
         defn = _r_defn()
-        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
-        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
+        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
         # Pad centers at 0.5, 1.5, 2.5, 3.5
         pl_r1 = ComponentPlacement(
             component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="top"
@@ -161,8 +162,8 @@ class TestDRCShort:
         # Two separate nets, but a wire accidentally connects both.
         board = _perfboard(1, 4)
         defn = _r_defn()
-        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
-        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
+        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
         # Pad centers at 0.5, 1.5, 2.5, 3.5
         pl_r1 = ComponentPlacement(
             component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="top"
@@ -210,8 +211,8 @@ class TestDRCOverlap:
         # Two components placed at the same position → pin overlap.
         board = _perfboard(1, 3)
         defn = _r_defn()
-        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
-        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
+        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
         # Both at (0,0) → same pads.
         pl_r1 = ComponentPlacement(
             component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top"
@@ -248,8 +249,8 @@ class TestDRCOverlap:
             pin_names={1: "A", 2: "B"},
             bendable_pins={1: bend_spec, 2: bend_spec},
         )
-        r1 = ComponentInstance.new(definition_ref="R_bend", refdes="R1", value="10k")
-        r2 = ComponentInstance.new(definition_ref="R_bend", refdes="R2", value="10k")
+        r1 = bind(ComponentInstance.new(definition_ref="R_bend", refdes="R1", value="10k"), defn, {})
+        r2 = bind(ComponentInstance.new(definition_ref="R_bend", refdes="R2", value="10k"), defn, {})
         pl_r1 = ComponentPlacement(
             component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top",
         )
@@ -292,8 +293,8 @@ class TestDRCOverlap:
         defn = ComponentDefinition(
             name="C_pkg", footprint=SIL(2), pin_names={1: "+", 2: "-"}, package=pkg,
         )
-        c1 = ComponentInstance.new(definition_ref="C_pkg", refdes="C1", value="10u")
-        c2 = ComponentInstance.new(definition_ref="C_pkg", refdes="C2", value="10u")
+        c1 = bind(ComponentInstance.new(definition_ref="C_pkg", refdes="C1", value="10u"), defn, {})
+        c2 = bind(ComponentInstance.new(definition_ref="C_pkg", refdes="C2", value="10u"), defn, {})
         pl = lambda cid: ComponentPlacement(  # noqa: E731
             component_id=cid, position=Point(0.0, 0.0), rotation=0, side="top",
         )
@@ -321,8 +322,8 @@ class TestDRCOverlap:
             bendable_pins={1: bend_spec, 2: bend_spec},
         )
         rigid = _r_defn()
-        r1 = ComponentInstance.new(definition_ref="R_bend", refdes="R1", value="10k")
-        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        r1 = bind(ComponentInstance.new(definition_ref="R_bend", refdes="R1", value="10k"), bendy, {})
+        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), rigid, {})
         pl_r1 = ComponentPlacement(
             component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top",
         )
@@ -343,8 +344,8 @@ class TestDRCOverlap:
     def test_overlap_populates_affected_components_and_pins(self) -> None:
         board = _perfboard(1, 3)
         defn = _r_defn()
-        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
-        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
+        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
         pl_r1 = ComponentPlacement(
             component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top",
         )
@@ -402,8 +403,12 @@ class TestDRCBodyOverlap:
         insts: dict = {}
         pls: dict = {}
         for refdes, pos, side in placements:
-            inst = ComponentInstance.new(
-                definition_ref=defn.name, refdes=refdes, value="",
+            inst = bind(
+                ComponentInstance.new(
+                    definition_ref=defn.name, refdes=refdes, value="",
+                ),
+                defn,
+                {},
             )
             insts[inst.id] = inst
             pls[inst.id] = ComponentPlacement(
@@ -501,8 +506,8 @@ class TestDRCMessages:
 
         board = _perfboard(3, 3)
         defn = _r_defn()
-        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
-        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
+        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
         pl_r1 = ComponentPlacement(
             component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top",
         )
@@ -530,8 +535,8 @@ class TestDRCMessages:
     def test_axis_labels_fallback_to_col_row(self) -> None:
         board = _perfboard(3, 3)
         defn = _r_defn()
-        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
-        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
+        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
         pl_r1 = ComponentPlacement(
             component_id=r1.id, position=Point(0.0, 0.0), rotation=0, side="top",
         )
@@ -583,7 +588,7 @@ class TestDRCFloatingPin:
     def _setup(self) -> tuple[Board, ComponentDefinition, ComponentInstance]:
         board = _perfboard(1, 3)
         defn = _r_defn()
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        inst = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
         return board, defn, inst
 
     def test_floating_pin_when_component_not_placed(self) -> None:
@@ -642,8 +647,8 @@ class TestDRCBareWireCross:
         # They share pad (1.5,1.5) → BARE_WIRE_CROSS.
         board = _perfboard(3, 3)
         defn = _r_defn()
-        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="1k")
-        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="1k")
+        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="1k"), defn, {})
+        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="1k"), defn, {})
         pl_r1 = ComponentPlacement(
             component_id=r1.id, position=Point(0.5, 1.5), rotation=90, side="top"
         )
@@ -831,9 +836,9 @@ class TestDRCGroupExports:
         from protoboard.domain.schematic.net import PinRef as _PinRef
         board = _perfboard(1, 7)
         defn = _r_defn()
-        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
-        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
-        r3 = ComponentInstance.new(definition_ref="R", refdes="R3", value="10k")
+        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
+        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
+        r3 = bind(ComponentInstance.new(definition_ref="R", refdes="R3", value="10k"), defn, {})
         placements = {
             r1.id: ComponentPlacement(component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="top"),
             r2.id: ComponentPlacement(component_id=r2.id, position=Point(2.5, 0.5), rotation=90, side="top"),
@@ -927,8 +932,8 @@ class TestDRCGroupExports:
         from protoboard.domain.schematic.net import PinRef as _PinRef
         board = _perfboard(1, 5)
         defn = _r_defn()
-        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
-        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
+        r2 = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
         placements = {
             r1.id: ComponentPlacement(component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="top"),
             r2.id: ComponentPlacement(component_id=r2.id, position=Point(2.5, 0.5), rotation=90, side="top"),
@@ -1031,8 +1036,8 @@ class TestDRCGroupInvalidExport:
         from protoboard.domain.schematic.net import PinRef as _PinRef
         board = _perfboard(1, 5)
         defn = _r_defn()
-        r_inner = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
-        r_outside = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        r_inner = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
+        r_outside = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
         placements = {
             r_inner.id: ComponentPlacement(component_id=r_inner.id, position=Point(0.5, 0.5), rotation=90, side="top"),
             r_outside.id: ComponentPlacement(component_id=r_outside.id, position=Point(2.5, 0.5), rotation=90, side="top"),
@@ -1105,8 +1110,8 @@ class TestDRCGroupInvalidExport:
         from protoboard.domain.schematic.net import PinRef as _PinRef
         board = _perfboard(1, 5)
         defn = _r_defn()
-        r_inner = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
-        r_outside = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        r_inner = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
+        r_outside = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
         placements = {
             r_inner.id: ComponentPlacement(component_id=r_inner.id, position=Point(0.5, 0.5), rotation=90, side="top"),
             r_outside.id: ComponentPlacement(component_id=r_outside.id, position=Point(2.5, 0.5), rotation=90, side="top"),
@@ -1166,8 +1171,8 @@ class TestDRCGroupInvalidExport:
         from protoboard.domain.schematic.net import PinRef as _PinRef
         board = _perfboard(1, 5)
         defn = _r_defn()
-        r_inner = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
-        r_outside = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        r_inner = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
+        r_outside = bind(ComponentInstance.new(definition_ref="R", refdes="R2", value="10k"), defn, {})
         placements = {
             r_inner.id: ComponentPlacement(component_id=r_inner.id, position=Point(0.5, 0.5), rotation=90, side="top"),
             r_outside.id: ComponentPlacement(component_id=r_outside.id, position=Point(2.5, 0.5), rotation=90, side="top"),
@@ -1256,7 +1261,7 @@ class TestDRCOffBoardPin:
     def test_component_fully_on_board_no_issue(self) -> None:
         board = _perfboard(1, 4)
         defn = _r_defn()
-        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
         # SIL(2) rot=90: pin1@(0.5,0.5), pin2@(1.5,0.5) — both on board.
         placements = {r1.id: ComponentPlacement(
             component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="top",
@@ -1273,7 +1278,7 @@ class TestDRCOffBoardPin:
     def test_component_overhanging_board_flags_pin(self) -> None:
         board = _perfboard(1, 2)  # pads at x=0.5, 1.5
         defn = _r_defn()
-        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
         # pin1@(1.5, 0.5)=on board last pad, pin2@(2.5, 0.5)=off board.
         placements = {r1.id: ComponentPlacement(
             component_id=r1.id, position=Point(1.5, 0.5), rotation=90, side="top",
@@ -1306,7 +1311,7 @@ class TestDRCOffBoardPin:
         )
         board = Board(root=grid)
         defn = _r_defn()
-        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        r1 = bind(ComponentInstance.new(definition_ref="R", refdes="R1", value="10k"), defn, {})
         placements = {r1.id: ComponentPlacement(
             component_id=r1.id, position=Point(0.5, 0.5), rotation=90, side="bottom",
         )}

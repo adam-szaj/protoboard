@@ -33,7 +33,9 @@ def _defn() -> ComponentDefinition:
 
 
 def _inst(refdes: str = "R1") -> ComponentInstance:
-    return ComponentInstance.new(definition_ref="R", refdes=refdes, value="10k")
+    return ComponentInstance.new(
+        definition_ref="R", refdes=refdes, value="10k"
+    ).bind(_defn(), {})
 
 
 def _placement(comp_id: uuid.UUID, x: float, y: float) -> ComponentPlacement:

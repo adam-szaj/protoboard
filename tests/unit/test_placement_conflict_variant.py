@@ -97,10 +97,15 @@ class TestIncomingVariantNotBlocked:
             f"variant-aware incoming should not collide; got {conflicts}"
         )
 
-    def test_without_instance_falls_back_and_collides(self) -> None:
-        """Control: same geometry, but WITHOUT the bound incoming instance the
-        check uses the default footprint and DOES report the (spurious) conflict
-        — proving the test above exercises the real difference."""
+    def test_unbound_incoming_raises(self) -> None:
+        """Control: WITHOUT a bound incoming instance the check no longer
+        silently falls back to the default footprint — it raises, surfacing the
+        forgot-to-bind bug instead of computing geometry against the wrong body.
+        """
+        import pytest
+
+        from protoboard.errors import UnboundInstanceError
+
         defn, families = self._catalogue_check()
         if defn is None:
             return
@@ -113,23 +118,25 @@ class TestIncomingVariantNotBlocked:
             component_id=incoming_id, position=Point(5.0, 5.0), rotation=0,
             side="top",
         )
-        default_pin2 = pin_world_position(defn.footprint, incoming_pl, 2)
+        default_pin2 = pin_world_position(
+            existing.resolved_footprint(), incoming_pl, 2)
         existing_pl = ComponentPlacement(
             component_id=existing.id, position=default_pin2, rotation=0,
             side="top",
         )
 
-        conflicts = find_conflicts(
-            incoming_placement=incoming_pl,
-            incoming_defn=defn,
-            incoming_instance_id=incoming_id,
-            layout_placements={existing.id: existing_pl},
-            instances={existing.id: existing},
-            components={"R": defn},
-            schematic=Schematic(nets={}),
-            # no incoming_instance → default footprint (3.2) → collides
-        )
-        assert conflicts, "default-footprint fallback should report the conflict"
+        with pytest.raises(UnboundInstanceError):
+            find_conflicts(
+                incoming_placement=incoming_pl,
+                incoming_defn=defn,
+                incoming_instance_id=incoming_id,
+                layout_placements={existing.id: existing_pl},
+                instances={existing.id: existing},
+                components={"R": defn},
+                schematic=Schematic(nets={}),
+                # no incoming_instance, and incoming_id not in instances →
+                # the incoming geometry has no bound instance → raises.
+            )
 
     def _catalogue_check(self):  # type: ignore[no-untyped-def]
         import pytest

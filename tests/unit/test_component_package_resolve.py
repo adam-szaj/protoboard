@@ -129,7 +129,10 @@ class TestResolvedFootprint:
         from protoboard.domain.components.package.adapter import PackageFootprint
 
         d = _defn(package_family_ref="DO-35/S")
-        fp = resolved_footprint(d, None, _families())
+        inst = ComponentInstance.new(
+            definition_ref="X", refdes="X1", value="",
+        ).bind(d, _families())
+        fp = resolved_footprint(d, inst, _families())
         assert isinstance(fp, PackageFootprint)
 
     def test_variant_differs_from_default_footprint(self) -> None:
@@ -137,27 +140,39 @@ class TestResolvedFootprint:
         from protoboard.domain.components.package import resolved_footprint
 
         d = _defn(package_family_ref="DO-35/typ")
+        # Instance overrides to DO-35/S; both bound to the same catalogue.
         inst = ComponentInstance.new(
             definition_ref="X", refdes="X1", value="", package_variant="DO-35/S",
-        )
+        ).bind(d, _families())
+        # No instance-level override → resolves the defn default (DO-35/typ).
+        inst_default = ComponentInstance.new(
+            definition_ref="X", refdes="X2", value="",
+        ).bind(d, _families())
         fp_inst = resolved_footprint(d, inst, _families())
-        fp_default = resolved_footprint(d, None, _families())
+        fp_default = resolved_footprint(d, inst_default, _families())
         assert fp_inst.pin_positions() != fp_default.pin_positions()
 
     def test_no_package_falls_back_to_defn_footprint(self) -> None:
         from protoboard.domain.components.package import resolved_footprint
 
         d = _defn()  # no package / family_ref
-        fp = resolved_footprint(d, None, _families())
+        # Bound instance whose part has no package: defn.footprint is its real
+        # default geometry (correct default, not a silent fallback).
+        inst = ComponentInstance.new(
+            definition_ref="X", refdes="X1", value="",
+        ).bind(d, {})
+        fp = resolved_footprint(d, inst, _families())
         assert fp is d.footprint
 
-    def test_none_families_falls_back(self) -> None:
+    def test_none_instance_raises(self) -> None:
         from protoboard.domain.components.package import resolved_footprint
+        from protoboard.errors import UnboundInstanceError
 
         d = _defn(package_family_ref="DO-35/S")
-        # Without a catalogue the variant cannot resolve → default footprint.
-        fp = resolved_footprint(d, None, None)
-        assert fp is d.footprint
+        # No instance reaching a geometry path is the silent-wrong-body bug this
+        # model removes: it must raise rather than fall back to defn.footprint.
+        with pytest.raises(UnboundInstanceError):
+            resolved_footprint(d, None, None)
 
 
 class TestResolvePinWorldPositionVariant:
@@ -176,18 +191,26 @@ class TestResolvePinWorldPositionVariant:
         from protoboard.geometry import Point
 
         d = _defn(package_family_ref="DO-35/typ")
-        inst = ComponentInstance.new(
-            definition_ref="X", refdes="X1", value="", package_variant="DO-35/S")
-        cid = inst.id
+        # Bound WITH the catalogue → the instance resolves its DO-35/S variant.
+        inst_with = ComponentInstance.new(
+            definition_ref="X", refdes="X1", value="", package_variant="DO-35/S",
+        ).bind(d, _families())
+        # Bound WITHOUT a catalogue → the variant ref can't resolve, so the
+        # instance falls back to the definition's default SIL footprint.
+        inst_without = ComponentInstance.new(
+            definition_ref="X", refdes="X1", value="", package_variant="DO-35/S",
+        ).bind(d, {})
+        cid = inst_with.id
         pl = ComponentPlacement(
             component_id=cid, position=Point(0.0, 0.0), rotation=0, side="top")
-        kw = dict(placements={cid: pl}, instances={cid: inst},
-                  components={"X": d})
 
-        without = resolve_pin_world_position(cid, 2, **kw)  # type: ignore[arg-type]
+        without = resolve_pin_world_position(
+            cid, 2, placements={cid: pl}, instances={cid: inst_without},
+            components={"X": d})
         with_fam = resolve_pin_world_position(
-            cid, 2, families=_families(), **kw)  # type: ignore[arg-type]
+            cid, 2, placements={cid: pl}, instances={cid: inst_with},
+            components={"X": d})
         assert without is not None and with_fam is not None
         # The catalogue resolves the variant → a different pin-2 spacing than
-        # the default SIL footprint the fallback uses.
+        # the default SIL footprint the no-catalogue binding uses.
         assert (with_fam.x, with_fam.y) != (without.x, without.y)

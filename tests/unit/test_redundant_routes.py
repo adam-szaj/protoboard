@@ -25,6 +25,7 @@ from protoboard.services.library.loader import load_library
 from protoboard.services.persistence.project_yaml import load_project
 from protoboard.services.routing.autorouter import autoroute
 
+from tests.instance_utils import bind
 from tests.unit._autoroute_invariants import (
     assert_no_net_fusion,
     assert_no_redundant_routes,
@@ -40,6 +41,16 @@ class TestRedundantRoutes:
         lib = load_library([BUILTIN_LIBRARY_DIR])
         board, layout, schematic, instances, routing, _, _ = load_project(FIXTURE)
         components = {name: lib.get(name) for name in lib.names()}
+
+        # load_project returns unbound instances unless the migration library
+        # globals are registered; bind each to its definition so geometry /
+        # routing can resolve its footprint.  These parts bake the package into
+        # the definition (``package: {kind: jst}``) with no per-instance
+        # ``package_variant``, so an empty families dict resolves correctly.
+        instances = {
+            cid: bind(inst, lib.get(inst.definition_ref))
+            for cid, inst in instances.items()
+        }
 
         # Re-route from a clean slate — drop the fixture's own wires so the
         # test exercises greedy autoroute deterministically.

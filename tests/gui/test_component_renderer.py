@@ -60,7 +60,7 @@ def _make_resistor_defn() -> ComponentDefinition:
 def _make_instance(defn: ComponentDefinition, refdes: str = "R1") -> ComponentInstance:
     return ComponentInstance(
         id=uuid.uuid4(), definition_ref=defn.name, refdes=refdes, value="10k"
-    )
+    ).bind(defn, {})
 
 
 def _layers_key(layers: LayerState) -> tuple[object, ...]:

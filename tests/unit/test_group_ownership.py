@@ -54,7 +54,7 @@ def _defn(name: str = "R") -> ComponentDefinition:
 def _inst(defn: ComponentDefinition, refdes: str) -> ComponentInstance:
     return ComponentInstance.new(
         definition_ref=defn.name, refdes=refdes, value="",
-    )
+    ).bind(defn, {})
 
 
 def _pin_knot(component_id: uuid.UUID, pin_number: int) -> PinKnot:

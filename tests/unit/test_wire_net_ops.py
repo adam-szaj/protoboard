@@ -30,7 +30,9 @@ def _r_defn() -> ComponentDefinition:
 
 
 def _make_inst(refdes: str = "R1") -> ComponentInstance:
-    return ComponentInstance.new(definition_ref="R", refdes=refdes, value="10k")
+    return ComponentInstance.new(
+        definition_ref="R", refdes=refdes, value="10k"
+    ).bind(_r_defn(), {})
 
 
 def _placement(

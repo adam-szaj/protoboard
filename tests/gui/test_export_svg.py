@@ -93,7 +93,7 @@ class TestSvgExport:
         # which we don't pin in tests; we just confirm the painter ran.
         board = _perfboard(2, 4)
         defn = _r_defn()
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k").bind(defn, {})
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=90, side="top"
         )

@@ -79,8 +79,12 @@ def _build_pin_to_pin_wire_state() -> tuple[Layout, dict, Schematic]:
     from protoboard.domain.layout.placement import pin_world_position
     defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
     layout = Layout(placements={}, wires=WireCollection())
-    inst_a = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
-    inst_b = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+    # The R defn has no package → bind with families={}; resolved_footprint then
+    # returns defn.footprint (the part's genuine default geometry).
+    inst_a = ComponentInstance.new(
+        definition_ref="R", refdes="R1", value="10k").bind(defn, {})
+    inst_b = ComponentInstance.new(
+        definition_ref="R", refdes="R2", value="10k").bind(defn, {})
     instances = {inst_a.id: inst_a, inst_b.id: inst_b}
     layout.placements[inst_a.id] = ComponentPlacement(
         component_id=inst_a.id, position=Point(3.0, 5.0), rotation=0, side="top",
@@ -309,7 +313,7 @@ class TestVariantFootprintOnLoad:
         layout = Layout(placements={}, wires=WireCollection())
         inst = ComponentInstance.new(
             definition_ref="P", refdes="P1", value="",
-            package_variant=f"{family_id}/{other_vid}")
+            package_variant=f"{family_id}/{other_vid}").bind(defn, fam)
         instances = {inst.id: inst}
         layout.placements[inst.id] = ComponentPlacement(
             component_id=inst.id, position=Point(3.0, 5.0), rotation=0,

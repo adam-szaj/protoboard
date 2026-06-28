@@ -30,7 +30,7 @@ def _make_comp() -> tuple[ComponentDefinition, ComponentInstance, ComponentPlace
     defn = ComponentDefinition(
         name="R", footprint=SIL(n=2), pin_names={1: "A", 2: "B"},
     )
-    inst = ComponentInstance(id=cid, definition_ref="R", refdes="R1", value="")
+    inst = ComponentInstance(id=cid, definition_ref="R", refdes="R1", value="").bind(defn, {})
     placement = ComponentPlacement(
         component_id=cid, position=Point(0.5, 0.5), rotation=90, side="top",
     )

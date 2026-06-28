@@ -28,6 +28,7 @@ from protoboard.services.placement.auto_placer import (
     _has_collision,
     _extended_candidates,
 )
+from tests.instance_utils import bind
 
 
 # ---------------------------------------------------------------------------
@@ -74,13 +75,18 @@ def _connector_defn(n: int = 2, name: str = "J") -> ComponentDefinition:
     )
 
 
-def _inst(refdes: str, definition_ref: str) -> ComponentInstance:
-    return ComponentInstance(
+def _inst(
+    refdes: str,
+    definition_ref: str,
+    defn: ComponentDefinition | None = None,
+) -> ComponentInstance:
+    inst = ComponentInstance(
         id=uuid.uuid4(),
         definition_ref=definition_ref,
         refdes=refdes,
         value="",
     )
+    return inst if defn is None else bind(inst, defn, {})
 
 
 @dataclass
@@ -144,14 +150,14 @@ class TestHasCollision:
 
     def test_no_collision_when_empty_existing(self) -> None:
         defn = _resistor_defn()
-        inst = _inst("R1", "R")
+        inst = _inst("R1", "R", defn)
         pl = self._make_placement(uuid.uuid4(), 0.5, 0.5)
         assert not _has_collision(pl, defn, inst, {})
 
     def test_collision_when_bbox_overlaps(self) -> None:
         defn = _resistor_defn()
-        inst1 = _inst("R1", "R")
-        inst2 = _inst("R2", "R")
+        inst1 = _inst("R1", "R", defn)
+        inst2 = _inst("R2", "R", defn)
         comp1 = uuid.uuid4()
         comp2 = uuid.uuid4()
         pl1 = self._make_placement(comp1, 0.5, 0.5)
@@ -161,8 +167,8 @@ class TestHasCollision:
 
     def test_no_collision_when_far_apart(self) -> None:
         defn = _resistor_defn()
-        inst1 = _inst("R1", "R")
-        inst2 = _inst("R2", "R")
+        inst1 = _inst("R1", "R", defn)
+        inst2 = _inst("R2", "R", defn)
         comp1 = uuid.uuid4()
         comp2 = uuid.uuid4()
         pl1 = self._make_placement(comp1, 0.5, 0.5)
@@ -198,7 +204,7 @@ class TestAutoPlaceBasic:
     def test_returns_auto_place_result(self) -> None:
         board = _make_perfboard(5, 5)
         defn = _resistor_defn()
-        inst = _inst("R1", "R")
+        inst = _inst("R1", "R", defn)
         session = _FakeSession(board=board, components={"R": defn})
         result = auto_place([inst], session)
         assert isinstance(result, AutoPlaceResult)
@@ -206,7 +212,7 @@ class TestAutoPlaceBasic:
     def test_places_single_component(self) -> None:
         board = _make_perfboard(5, 5)
         defn = _resistor_defn()
-        inst = _inst("R1", "R")
+        inst = _inst("R1", "R", defn)
         session = _FakeSession(board=board, components={"R": defn})
         result = auto_place([inst], session)
         assert len(result.placements) == 1
@@ -223,7 +229,7 @@ class TestAutoPlaceBasic:
     def test_places_multiple_without_collision(self) -> None:
         board = _make_perfboard(10, 10)
         defn = _resistor_defn()
-        insts = [_inst(f"R{i}", "R") for i in range(1, 6)]
+        insts = [_inst(f"R{i}", "R", defn) for i in range(1, 6)]
         session = _FakeSession(board=board, components={"R": defn})
         result = auto_place(insts, session)
         assert len(result.placements) == 5
@@ -235,8 +241,12 @@ class TestAutoPlaceBasic:
         board = _make_perfboard(5, 5)
         defn = _resistor_defn()
         existing_id = uuid.uuid4()
-        existing_inst = ComponentInstance(
-            id=existing_id, definition_ref="R", refdes="R0", value=""
+        existing_inst = bind(
+            ComponentInstance(
+                id=existing_id, definition_ref="R", refdes="R0", value=""
+            ),
+            defn,
+            {},
         )
         layout = Layout()
         layout.placements[existing_id] = ComponentPlacement(
@@ -245,7 +255,7 @@ class TestAutoPlaceBasic:
             rotation=0,
             side="top",
         )
-        new_inst = _inst("R1", "R")
+        new_inst = _inst("R1", "R", defn)
         session = _FakeSession(
             board=board,
             layout=layout,
@@ -263,7 +273,7 @@ class TestAutoPlaceBasic:
         from protoboard.domain.layout.wire_utils import board_pads_for_side
         board_pads = board_pads_for_side(board, "top")
         defn = _resistor_defn()
-        inst = _inst("R1", "R")
+        inst = _inst("R1", "R", defn)
         session = _FakeSession(board=board, components={"R": defn})
         result = auto_place([inst], session)
         assert result.placements[0].position in board_pads
@@ -278,8 +288,12 @@ class TestAutoPlaceGravity:
 
         # R1 already placed at top-left corner area
         r1_id = uuid.uuid4()
-        r1_inst = ComponentInstance(
-            id=r1_id, definition_ref="R", refdes="R1", value=""
+        r1_inst = bind(
+            ComponentInstance(
+                id=r1_id, definition_ref="R", refdes="R1", value=""
+            ),
+            defn,
+            {},
         )
         layout = Layout()
         layout.placements[r1_id] = ComponentPlacement(
@@ -291,8 +305,12 @@ class TestAutoPlaceGravity:
 
         # R2 shares a net with R1 (pin 1 ↔ pin 1)
         r2_id = uuid.uuid4()
-        r2_inst = ComponentInstance(
-            id=r2_id, definition_ref="R", refdes="R2", value=""
+        r2_inst = bind(
+            ComponentInstance(
+                id=r2_id, definition_ref="R", refdes="R2", value=""
+            ),
+            defn,
+            {},
         )
 
         net_id = uuid.uuid4()
@@ -339,8 +357,12 @@ class TestAutoPlaceOutsideBoard:
 
         # First component already occupies the only pad on the 1×1 board.
         r1_id = uuid.uuid4()
-        r1_inst = ComponentInstance(
-            id=r1_id, definition_ref="R", refdes="R1", value=""
+        r1_inst = bind(
+            ComponentInstance(
+                id=r1_id, definition_ref="R", refdes="R1", value=""
+            ),
+            defn,
+            {},
         )
         layout = Layout()
         layout.placements[r1_id] = ComponentPlacement(
@@ -350,7 +372,7 @@ class TestAutoPlaceOutsideBoard:
             side="top",
         )
 
-        r2_inst = _inst("R2", "R")
+        r2_inst = _inst("R2", "R", defn)
         session = _FakeSession(
             board=board,
             layout=layout,

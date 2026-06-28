@@ -176,10 +176,10 @@ def _build_session_with_one_bottom_wire() -> EditorSession:
     )
     inst_a = ComponentInstance.new(definition_ref="CONN",
                                    refdes="J1",
-                                   value="")
+                                   value="").bind(defn, {})
     inst_b = ComponentInstance.new(definition_ref="CONN",
                                    refdes="J2",
-                                   value="")
+                                   value="").bind(defn, {})
     session.instances[inst_a.id] = inst_a
     session.instances[inst_b.id] = inst_b
     session.layout.placements[inst_a.id] = ComponentPlacement(

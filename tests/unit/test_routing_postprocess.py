@@ -702,8 +702,12 @@ class TestSimplifyNoNewPinContact:
             ),
             rows=rows, cols=cols, row_gap=0, col_gap=0,
         ))
+        from tests.instance_utils import bind
         defn = ComponentDefinition(name="X", footprint=SIL(1), pin_names={})
-        inst = ComponentInstance.new(definition_ref="X", refdes="X1", value="")
+        inst = bind(
+            ComponentInstance.new(definition_ref="X", refdes="X1", value=""),
+            defn, {},
+        )
         pl = ComponentPlacement(
             component_id=inst.id,
             position=Point(pin_pos[0], pin_pos[1]),

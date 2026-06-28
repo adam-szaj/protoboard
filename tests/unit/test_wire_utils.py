@@ -506,8 +506,12 @@ class TestTJunctionNetGate:
         board = _perfboard(3, 10)
         defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
 
-        r1 = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
-        r2 = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k")
+        r1 = ComponentInstance.new(
+            definition_ref="R", refdes="R1", value="10k"
+        ).bind(defn, {})
+        r2 = ComponentInstance.new(
+            definition_ref="R", refdes="R2", value="10k"
+        ).bind(defn, {})
         # SIL(2) rot=90: pin1=(x, 0.5), pin2=(x+1, 0.5).
         placements = {
             r1.id: ComponentPlacement(

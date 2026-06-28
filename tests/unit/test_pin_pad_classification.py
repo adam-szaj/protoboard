@@ -114,7 +114,7 @@ class TestEmpty:
     def test_unconnected_pin_is_free_not_empty(self) -> None:
         board = _perfboard(2, 2)
         defn = _r_defn(1)
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(defn, {})
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5),
             rotation=0, side="top",
@@ -143,7 +143,7 @@ class TestPinPadModifier:
     ) -> tuple[PadIndex, Layout, uuid.UUID, uuid.UUID, uuid.UUID]:
         board = _perfboard(2, 3)
         defn = _r_defn(2)
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(defn, {})
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5),
             rotation=90, side="top",  # SIL(2) rot=90: pin1@(0.5,0.5), pin2@(1.5,0.5)
@@ -213,7 +213,7 @@ class TestSideAwareness:
     ) -> tuple[PadIndex, Layout, uuid.UUID]:
         board = _perfboard(2, 2, layers=layers)
         defn = _r_defn(1)
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(defn, {})
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5),
             rotation=0, side="top",
@@ -351,7 +351,7 @@ class TestFreePin:
     ) -> tuple[PadIndex, Layout, uuid.UUID]:
         board = _perfboard(2, 3)
         defn = _r_defn(2)
-        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(defn, {})
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5),
             rotation=90, side="top",  # pin1@(0.5,0.5), pin2@(1.5,0.5)
@@ -412,7 +412,7 @@ class TestSameNamePinColouring:
     def _setup(self, gnd_pins: tuple[int, ...]) -> tuple[PadIndex, Layout, uuid.UUID]:
         board = _perfboard(4, 1)
         defn = self._ic_two_gnd()
-        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="")
+        inst = ComponentInstance.new(definition_ref="IC", refdes="U1", value="").bind(defn, {})
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5), rotation=0, side="top",
         )
