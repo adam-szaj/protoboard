@@ -151,12 +151,20 @@ class TestPackageToBendSpecs:
         assert spec.max_reach == 5.0
         assert spec.default_offset == Vector(0.0, 0.0)
 
-    def test_axial_specs_match_solver_in_holes(self) -> None:
+    def test_axial_specs_span_both_orientations(self) -> None:
+        # The reach an axial part offers the place tool is the UNION of its two
+        # mount orientations: min_reach is the UPRIGHT (vertical) minimum so pin
+        # 2 may sit on an adjacent pad, max_reach the FLAT (horizontal) maximum.
         specs = package_to_bend_specs(_builtin()["R_Axial_DIN0207"])
         spec = specs[2]
         assert spec.is_free()
-        # horizontal min 7.92mm / 2.5 = 3.168 holes
-        assert round(spec.min_reach, 2) == 3.17
+        # vertical min 2.06mm / 2.5 = 0.824 holes (was the horizontal 3.17 —
+        # that floor wrongly blocked upright placement on adjacent pads).
+        assert round(spec.min_reach, 2) == 0.82
+        # horizontal max 71.92mm / 2.5 = 28.768 holes.
+        assert round(spec.max_reach, 2) == 28.77
+        # An adjacent pad (1 hole) is now within reach → upright mount allowed.
+        assert spec.min_reach <= 1.0 <= spec.max_reach
 
     def test_no_discrete_for_to92(self) -> None:
         # TO-92 was discrete in legacy; package model makes it free-2D.
@@ -174,3 +182,40 @@ class TestPackageToBendSpecs:
                 spec.is_reachable_from_pin_default(centre, target)
                 == spec.is_reachable_from_origin(centre, target)
             )
+
+
+class TestReachOffsetRange:
+    """reach_offset_range — the union-over-orientations ring the place tool sees,
+    distinct from board_offset_range (one chosen orientation)."""
+
+    def test_axial_reach_is_union_of_orientations(self) -> None:
+        from protoboard.domain.components.package.solver import MountOrientation
+        r = _builtin()["R_Axial_DIN0207"]
+        h = r.board_offset_range(orientation=MountOrientation.HORIZONTAL)
+        v = r.board_offset_range(orientation=MountOrientation.VERTICAL)
+        reach = r.reach_offset_range()
+        # Union: tightest (vertical) minimum, widest (horizontal) maximum.
+        assert reach.r_min_mm == min(h.r_min_mm, v.r_min_mm) == v.r_min_mm
+        assert reach.r_max_mm == max(h.r_max_mm, v.r_max_mm) == h.r_max_mm
+        # The adjacent-pad spacing (one raster step) is inside the reach.
+        assert reach.contains_mm(RASTER_MM)
+
+    def test_axial_default_layout_stays_horizontal(self) -> None:
+        # pin_positions (the ghost's default spacing) is unchanged — only the
+        # reach widened. Pin 2 still defaults to the flat horizontal spacing.
+        r = _builtin()["R_Axial_DIN0207"]
+        positions = r.pin_positions()
+        # Default pin-2 spacing equals the horizontal solver minimum (in holes).
+        from protoboard.domain.components.package.solver import MountOrientation
+        h = r.board_offset_range(orientation=MountOrientation.HORIZONTAL)
+        assert round(positions[1].x, 3) == round(h.r_min_mm / RASTER_MM, 3)
+
+    def test_dip_reach_equals_board_offset_range(self) -> None:
+        # A non-axial part has one orientation → reach == board_offset_range.
+        dip = _builtin()["DIP-8"]
+        assert dip.reach_offset_range() == dip.board_offset_range()
+
+    def test_radial_bend_reach_unchanged(self) -> None:
+        # A radial (bend, non-solve) cylinder keeps its single ring.
+        cp = _builtin()["CP_Elec_6.3x11"]
+        assert cp.reach_offset_range() == cp.board_offset_range()

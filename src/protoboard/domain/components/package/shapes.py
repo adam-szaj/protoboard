@@ -130,6 +130,20 @@ class Package(ABC):
     ) -> OffsetRange:
         ...
 
+    def reach_offset_range(self) -> OffsetRange:
+        """The ring of spacings a movable terminal may legally take, regardless
+        of mount orientation — the union over every orientation the part can be
+        mounted in.
+
+        This is the **place-tool / re-drag** reach (where pin 2 *may* land),
+        distinct from :meth:`board_offset_range`, which gives the spacing for one
+        chosen orientation (and drives the default ghost layout). For most parts
+        the two coincide; an axial part is the exception (it can mount flat or
+        upright), so :class:`Cylinder` widens this to span both. The default here
+        returns the (orientation-independent) ``board_offset_range``.
+        """
+        return self.board_offset_range()
+
     @abstractmethod
     def bbox(self) -> Rect:
         ...
@@ -290,6 +304,28 @@ class Cylinder(Package):
         base_mm = abs(self.leads.body_offset_mm[0].x
                       ) if self.leads.body_offset_mm else 0.0
         return OffsetRange(base_mm, base_mm + self.bend_holes * RASTER_MM)
+
+    def reach_offset_range(self) -> OffsetRange:
+        """Axial reach spans BOTH mount orientations (the union).
+
+        An axial part can lie flat (horizontal: ``r_min = L + 6·lead_r``, a wide
+        spacing) OR stand upright with the leads bent down (vertical: ``r_min =
+        r_body − ecc + 3·lead_r``, a much smaller spacing — pin 2 on an adjacent
+        pad). The orientation is chosen by the spacing the user actually places,
+        so the legal reach is ``[min of the two r_min, max of the two r_max]`` —
+        a continuous band from the upright minimum out to the flat maximum.
+        Without this the place tool only ever saw the horizontal ring and an
+        upright resistor/diode could not be placed on adjacent pads.
+        For the non-solve (``bend``) case there is a single ring → unchanged.
+        """
+        if self.leads.board_offset != BOARD_SOLVE:
+            return self.board_offset_range()
+        horiz = self.board_offset_range(orientation=MountOrientation.HORIZONTAL)
+        vert = self.board_offset_range(orientation=MountOrientation.VERTICAL)
+        return OffsetRange(
+            min(horiz.r_min_mm, vert.r_min_mm),
+            max(horiz.r_max_mm, vert.r_max_mm),
+        )
 
     def bbox(self) -> Rect:
         # Body extent on the grid: a square of side = diameter, in holes.

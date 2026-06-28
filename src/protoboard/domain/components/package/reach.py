@@ -96,7 +96,10 @@ def pin_reaches(
     ``origin`` stays the fixed rotation point ``[0, 0]``.
     """
     positions = package.pin_positions(orientation=orientation)
-    ring = package.board_offset_range(orientation=orientation)
+    # The reach ring is where a movable terminal MAY land — the union over mount
+    # orientations (axial parts can lie flat or stand upright). pin_positions
+    # still uses the per-orientation layout for the default (ghost) spacing.
+    ring = package.reach_offset_range()
     origin = Point(0.0, 0.0)
     out: dict[int, PinReach] = {}
     for idx, pos in enumerate(positions, start=1):
