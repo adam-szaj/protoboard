@@ -301,12 +301,14 @@ def warn_pins_off_pads(
     if defn is None:
         return
     from protoboard.domain.board.boxes import GapAtom
+    from protoboard.domain.components.package import resolved_footprint
     pad_set: frozenset[tuple[float, float]] = frozenset(
         (center.x, center.y)
         for atom, center in board.atoms()
         if not isinstance(atom, GapAtom)
     )
-    misses = validate_pins_on_pads(defn.footprint, placement, pad_set)
+    fp = resolved_footprint(defn, inst, inst.families)
+    misses = validate_pins_on_pads(fp, placement, pad_set)
     if misses:
         _log.warning(
             "placement.pins_off_pads",
@@ -342,12 +344,17 @@ def move_blocked(
     if defn is None:
         return False
 
-    new_bbox = component_bbox(defn.footprint, new_pl, defn.component_class)
+    # Geometry resolves the moved/other components' chosen variant footprints,
+    # not the definition default (pin_count stays on defn — variant-invariant).
+    from protoboard.domain.components.package import resolved_footprint
 
-    n_pins = defn.footprint.pin_count()
+    fp = resolved_footprint(defn, inst, inst.families)
+    new_bbox = component_bbox(fp, new_pl, defn.component_class)
+
+    n_pins = fp.pin_count()
     new_pin_positions: set[tuple[float, float]] = set()
     for pin_num in range(1, n_pins + 1):
-        p = pin_world_position(defn.footprint, new_pl, pin_num)
+        p = pin_world_position(fp, new_pl, pin_num)
         new_pin_positions.add((round(p.x, 4), round(p.y, 4)))
 
     for other_id, other_pl in layout.placements.items():
@@ -360,16 +367,17 @@ def move_blocked(
         if other_defn is None:
             continue
 
+        other_fp = resolved_footprint(other_defn, other_inst, other_inst.families)
         other_bbox = component_bbox(
-            other_defn.footprint, other_pl, other_defn.component_class,
+            other_fp, other_pl, other_defn.component_class,
         )
         if new_bbox.intersects(other_bbox):
             # Only block when no pin of the moved component coincides with a pin
             # of the other — that would be a shared-pad scenario which the GUI
             # conflict resolver handles separately.
             other_pin_positions: set[tuple[float, float]] = set()
-            for pin_num in range(1, other_defn.footprint.pin_count() + 1):
-                p = pin_world_position(other_defn.footprint, other_pl, pin_num)
+            for pin_num in range(1, other_fp.pin_count() + 1):
+                p = pin_world_position(other_fp, other_pl, pin_num)
                 other_pin_positions.add((round(p.x, 4), round(p.y, 4)))
             if new_pin_positions.isdisjoint(other_pin_positions):
                 return True

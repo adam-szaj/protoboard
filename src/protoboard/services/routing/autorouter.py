@@ -41,6 +41,7 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import component_bbox, pin_world_position
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net, PinRef
@@ -1311,7 +1312,7 @@ def _build_pin_positions(
         if defn is None:
             continue
         for pin_num in range(1, defn.footprint.pin_count() + 1):
-            p = pin_world_position(defn.footprint, placement, pin_num)
+            p = pin_world_position(footprint_of(defn, inst), placement, pin_num)
             pos[PinRef(component_id=comp_id, pin_number=pin_num)] = (p, placement.side)
     return pos
 
@@ -2311,7 +2312,7 @@ def _build_under_component_penalty(
             # Bottom-mounted components penalise bottom pads instead.
             # (Rare case — skip for now, extend if needed.)
             continue
-        bbox = component_bbox(defn.footprint, placement)
+        bbox = component_bbox(footprint_of(defn, inst), placement)
         # Iterate board atoms and mark those inside the bbox on the top layer.
         for atom, pos in board.atoms():
             if isinstance(atom, (PadAtom, StripAtom)) and bbox.contains(pos):

@@ -40,6 +40,7 @@ from protoboard.domain.board.pad_state import (
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import component_bbox
 from protoboard.domain.layout.wire import Wire
 from protoboard.geometry import Point
@@ -192,7 +193,7 @@ def _under_component_pads(
         defn = components.get(inst.definition_ref)
         if defn is None or placement.side != "top":
             continue
-        bbox = component_bbox(defn.footprint, placement)
+        bbox = component_bbox(footprint_of(defn, inst), placement)
         for atom, pos in board.atoms():
             if isinstance(atom, (PadAtom, StripAtom)) and bbox.contains(pos):
                 out.add(pos)

@@ -58,6 +58,7 @@ def _build_pad_context(
     """
     from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.layout.layout import Layout
+    from protoboard.domain.layout.pad_conflict import footprint_of
     from protoboard.domain.layout.placement import pin_world_position
     from protoboard.domain.layout.wire import WireCollection
     from protoboard.domain.layout.wire_utils import board_pads_for_side
@@ -85,7 +86,9 @@ def _build_pad_context(
                 continue
             if ref.pin_number < 1 or ref.pin_number > defn.footprint.pin_count():
                 continue
-            pt = pin_world_position(defn.footprint, placement, ref.pin_number)
+            pt = pin_world_position(
+                footprint_of(defn, inst), placement, ref.pin_number
+            )
             point_side_to_net[(pt, "top")] = net.id
             point_side_to_net[(pt, "bottom")] = net.id
     for comp_id, placement in worker_layout.placements.items():
@@ -96,7 +99,7 @@ def _build_pad_context(
         if defn is None:
             continue
         for pin_num in range(1, defn.footprint.pin_count() + 1):
-            pt = pin_world_position(defn.footprint, placement, pin_num)
+            pt = pin_world_position(footprint_of(defn, inst), placement, pin_num)
             ps_top = (pt, "top")
             ps_bot = (pt, "bottom")
             net_id = point_side_to_net.get(ps_top, _FLOATING)

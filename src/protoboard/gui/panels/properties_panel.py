@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from protoboard.domain.components.definition import ComponentDefinition, PinBendSpec
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.geometry import Vector
 from protoboard.services.drc.engine import DRCIssue
@@ -208,7 +209,7 @@ class PropertiesPanel(QWidget):
             inst,
             package_families or {},
         )
-        self._update_geometry_table(placement, defn)
+        self._update_geometry_table(placement, defn, inst, package_families or {})
         self._rebuild_pin_variant_combo(defn, inst.pin_variant)
         self._rebuild_body_variant_combo(
             defn, inst.package_variant, package_families or {},
@@ -390,6 +391,8 @@ class PropertiesPanel(QWidget):
         self,
         placement: ComponentPlacement | None,
         defn: ComponentDefinition | None,
+        inst: ComponentInstance | None = None,
+        package_families: dict[str, PackageFamily] | None = None,
     ) -> None:
         self._geo_table.setRowCount(0)
         if placement is None:
@@ -405,13 +408,15 @@ class PropertiesPanel(QWidget):
         rows.append(("side", placement.side))
         rows.append(("vertical_flipped", str(placement.vertical_flipped)))
 
-        # Per-pin geometry.
+        # Per-pin geometry — resolved against the instance's chosen variant.
         if defn is not None:
-            fp_positions = defn.footprint.pin_positions()
+            from protoboard.domain.components.package import resolved_footprint
+            fp = resolved_footprint(defn, inst, package_families)
+            fp_positions = fp.pin_positions()
             for i, fp_pos in enumerate(fp_positions):
                 pin_num = i + 1
                 off = placement.pin_offsets.get(pin_num, Vector(0.0, 0.0))
-                world = pin_world_position(defn.footprint, placement, pin_num)
+                world = pin_world_position(fp, placement, pin_num)
                 rows.append((f"── pin {pin_num} fp_pos", f"({fp_pos.x:g}, {fp_pos.y:g})"))
                 if off.x != 0.0 or off.y != 0.0:
                     rows.append((f"   pin {pin_num} offset", f"({off.x:g}, {off.y:g})"))

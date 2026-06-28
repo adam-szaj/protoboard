@@ -83,13 +83,15 @@ def components_outside_bounds(
 
     bounds = new_board.bounds
     outside = []
+    from protoboard.domain.components.package import resolved_footprint
     for comp_id, placement in layout.placements.items():
         inst = instances.get(comp_id)
         defn = components.get(inst.definition_ref) if inst else None
         if defn is None:
             continue
-        for pin_num in range(1, defn.footprint.pin_count() + 1):
-            pt = pin_world_position(defn.footprint, placement, pin_num)
+        fp = resolved_footprint(defn, inst, inst.families if inst else None)
+        for pin_num in range(1, fp.pin_count() + 1):
+            pt = pin_world_position(fp, placement, pin_num)
             if not (bounds.x <= pt.x <= bounds.x + bounds.width and
                     bounds.y <= pt.y <= bounds.y + bounds.height):
                 refdes = inst.refdes if inst else str(comp_id)[:8]

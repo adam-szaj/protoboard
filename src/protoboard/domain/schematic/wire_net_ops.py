@@ -44,8 +44,10 @@ def find_pin_at(
         defn = session.components.get(inst.definition_ref)
         if defn is None:
             continue
-        for pin_num in range(1, defn.footprint.pin_count() + 1):
-            pos = pin_world_position(defn.footprint, placement, pin_num)
+        from protoboard.domain.components.package import resolved_footprint
+        fp = resolved_footprint(defn, inst, inst.families)
+        for pin_num in range(1, fp.pin_count() + 1):
+            pos = pin_world_position(fp, placement, pin_num)
             if abs(pos.x - pt.x) < _EPS and abs(pos.y - pt.y) < _EPS:
                 return (comp_id, pin_num)
     return None

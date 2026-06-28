@@ -934,6 +934,7 @@ def _pin_at(
             for p in plated_pads
         )
     )
+    from protoboard.domain.components.package import resolved_footprint
     for comp_id, placement in layout.placements.items():
         if not cross_side_ok and placement.side != side:
             continue
@@ -943,8 +944,9 @@ def _pin_at(
         defn = components.get(inst.definition_ref)
         if defn is None:
             continue
-        for pin_num in range(1, defn.footprint.pin_count() + 1):
-            wp = pin_world_position(defn.footprint, placement, pin_num)
+        fp = resolved_footprint(defn, inst, inst.families)
+        for pin_num in range(1, fp.pin_count() + 1):
+            wp = pin_world_position(fp, placement, pin_num)
             if abs(wp.x - position.x) < tol and abs(wp.y - position.y) < tol:
                 return PinRef(component_id=comp_id, pin_number=pin_num)
     return None
@@ -1882,6 +1884,7 @@ def find_pin_at(
     tests that drive commands without a full session.  The command-layer
     caller resolves ``strategy`` / ``pad_index`` off the host session.
     """
+    from protoboard.domain.components.package import resolved_footprint
     from protoboard.domain.layout.placement import pin_world_position
     from protoboard.domain.schematic.net import PinRef
 
@@ -1892,10 +1895,11 @@ def find_pin_at(
         defn = components.get(inst.definition_ref)
         if defn is None:
             continue
-        n_pins = defn.footprint.pin_count()
+        fp = resolved_footprint(defn, inst, inst.families)
+        n_pins = fp.pin_count()
         for pin_num in range(1, n_pins + 1):
             try:
-                pos = pin_world_position(defn.footprint, placement, pin_num)
+                pos = pin_world_position(fp, placement, pin_num)
             except (IndexError, ValueError):
                 continue
             if not (
@@ -2154,6 +2158,7 @@ def update_wires_for_move(
     avoid double-translation when old_pin_pos of this component coincides with
     the (already-shifted) position of another component's pin.
     """
+    from protoboard.domain.components.package import resolved_footprint
     from protoboard.domain.layout.knot import PinKnot
     from protoboard.domain.layout.placement import pin_world_position
 
@@ -2164,12 +2169,13 @@ def update_wires_for_move(
     if defn is None:
         return
 
-    n_pins = defn.footprint.pin_count()
+    fp = resolved_footprint(defn, inst, inst.families)
+    n_pins = fp.pin_count()
     # Build map: old_pin_pos → new_pin_pos
     pin_map: dict[tuple[float, float], Point] = {}
     for pin_num in range(1, n_pins + 1):
-        old_pos = pin_world_position(defn.footprint, old_pl, pin_num)
-        new_pos = pin_world_position(defn.footprint, new_pl, pin_num)
+        old_pos = pin_world_position(fp, old_pl, pin_num)
+        new_pos = pin_world_position(fp, new_pl, pin_num)
         if not _pts_equal(old_pos, new_pos):
             pin_map[(round(old_pos.x, 6), round(old_pos.y, 6))] = new_pos
 
@@ -2258,8 +2264,8 @@ def update_wires_for_move(
         # drag a foreign wire onto the new pin location.
         wire_pin_map: dict[tuple[float, float], Point] = {}
         for pin_num in range(1, n_pins + 1):
-            old_pos = pin_world_position(defn.footprint, old_pl, pin_num)
-            new_pos = pin_world_position(defn.footprint, new_pl, pin_num)
+            old_pos = pin_world_position(fp, old_pl, pin_num)
+            new_pos = pin_world_position(fp, new_pl, pin_num)
             if _pts_equal(old_pos, new_pos):
                 continue
             if _wire_anchored_at_comp_pin(wire, pin_num, old_pos):

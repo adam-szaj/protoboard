@@ -228,6 +228,7 @@ def _pin_endpoint_matches_path(
                 return False
             wp = cached
     if wp is None:
+        from protoboard.domain.components.package import resolved_footprint
         from protoboard.domain.layout.placement import pin_world_position
         pl = placements.get(pin.component_id)
         if pl is None:
@@ -245,7 +246,8 @@ def _pin_endpoint_matches_path(
                 pin_world_cache[cache_key] = False  # type: ignore[assignment]
             return False
         try:
-            wp = pin_world_position(defn.footprint, pl, pin.pin_number)
+            fp = resolved_footprint(defn, inst, inst.families)
+            wp = pin_world_position(fp, pl, pin.pin_number)
         except Exception:  # noqa: BLE001
             if pin_world_cache is not None:
                 pin_world_cache[cache_key] = False  # type: ignore[assignment]
@@ -440,6 +442,7 @@ def group_bbox_with_owned_wires(
     Returns ``(x0, y0, x1, y1)`` with a ``pad`` margin, or ``None`` if
     the group has no resolvable pins (and therefore no meaningful bbox).
     """
+    from protoboard.domain.components.package import resolved_footprint
     from protoboard.domain.layout.placement import pin_world_position
 
     xs: list[float] = []
@@ -455,8 +458,9 @@ def group_bbox_with_owned_wires(
         defn = definitions.get(inst.definition_ref)
         if defn is None:
             continue
-        for n in range(defn.footprint.pin_count()):
-            p = pin_world_position(defn.footprint, pl, n + 1)
+        fp = resolved_footprint(defn, inst, inst.families)
+        for n in range(fp.pin_count()):
+            p = pin_world_position(fp, pl, n + 1)
             xs.append(p.x)
             ys.append(p.y)
 

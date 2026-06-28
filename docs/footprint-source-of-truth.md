@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: MIT -->
 # Footprint source-of-truth refactor — remove `defn.footprint` for placement geometry
 
-**Status:** plan / in progress (2026-06-28). Several call sites already migrated
-(see "Done"); the rest is staged below.
+**Status:** DONE (2026-06-28). All geometry consumers migrated; remaining
+`defn.footprint` reads are topology-only or documented fallbacks (see end).
 
 ## The principle (decided 2026-06-28)
 
@@ -13,74 +13,98 @@ of placement geometry** — it is the *default variant's* pin cloud, which is th
 wrong body whenever the instance chose another variant (e.g. R placed as
 SMD-0805: default axial 3.2-hole pitch vs SMD 1-hole pitch). Every "components
 drift / pin-pad highlight off / reach ring wrong / can't place" bug in this area
-is the same root: a consumer read `defn.footprint` instead of the resolved
+was the same root: a consumer read `defn.footprint` instead of the resolved
 variant.
 
 `defn.footprint` legitimately stays for **topology only**: `pin_count`,
 `pin_names` validation, union-find membership, BOM type name — things identical
 across all variants.
 
-## The helper (exists)
+## The mechanism — the instance carries its definition (decided 2026-06-28)
+
+Rather than thread a `families` catalogue through a dozen call signatures, the
+**instance holds a live back-reference to the definition it was placed from and
+the package catalogue**. A placed instance is never separated from its
+definition: if an instance exists, its definition is always available. So the
+instance can resolve its own variant geometry.
+
+`ComponentInstance` (`domain/components/instance.py`) gains two
+`compare=False, hash=False` fields, **never serialized** (the loader
+reconstructs them from `definition_ref` + the session catalogue):
+
+```python
+definition: ComponentDefinition | None = None
+families:   dict[str, PackageFamily] | None = None
+
+def bind(self, definition, families) -> ComponentInstance:  # frozen-safe copy
+def resolved_footprint(self) -> Footprint:                  # variant-aware
+```
+
+**Binding ritual** — mirrors `build_pin_identities`: whenever an instance enters
+the project, `build_pin_identities_for` (command path) and
+`rebuild_all_pin_identities` (bulk load) call `inst.bind(defn, families)` and
+store the bound copy back. `package_families` is read best-effort via
+`getattr(state, "package_families", None)` so it is *not* a required
+`ComponentState` protocol member (bare test stubs stay valid; they degrade to
+the definition default).
+
+This unlocks **in-place footprint/package swaps**: with the definition bound, a
+placed instance always knows the full variant option set, so a future
+"change footprint" command needs no extra plumbing.
+
+## The helpers
 
 `domain/components/package/component_package.py`:
 ```python
-resolved_footprint(defn, instance, families) -> Footprint
-# resolve_component_package(...) → PackageFootprint, else defn.footprint
+resolved_footprint(defn, instance, families) -> Footprint   # graceful, never raises
 ```
-`resolve_pin_world_position(..., families=...)` already routes through it.
+`domain/layout/pad_conflict.py`:
+```python
+footprint_of(defn, inst) -> Footprint   # inst.resolved_footprint() else defn.footprint
+```
+`inst.resolved_footprint()` — the instance method; raises if unbound (use the
+free functions when an instance may be unbound).
 
-## Done (committed)
+## Migrated (all committed)
 
-- `resolve_pin_world_position` gained `families`; routes through `resolved_footprint`. (`d37c147`)
-- `session.get_pin_positions`, `session.component_bbox`, `_build_comp_spatial_index`. (`d37c147`, `0eea557`)
+Early call sites (pre-binding, families-threaded):
+- `resolve_pin_world_position(families=…)`; `session.get_pin_positions`,
+  `component_bbox`, `_build_comp_spatial_index`. (`d37c147`, `0eea557`)
 - `component_renderer._render_one` + `render_groups`. (`d37c147`)
 - `project_yaml` load: v1→v2 pin index, migration resolver, stale-path snap. (`8be4011`)
-- `place_tool._resolved_footprint` (baseline / flip / pin-count). (`e2023dc`)
+- `place_tool._resolved_footprint`. (`e2023dc`)
 
-## Group A — easy (instance + families in scope; local wrap, no signature change)
+Binding model + remaining consumers (instance carries its definition):
+- **Foundation** — `ComponentInstance.bind/resolved_footprint`, binding ritual in
+  `build_pin_identities_for` + `rebuild_all_pin_identities`. (`94f4a59`)
+- **PadIndex** `add_component(instance=…)` — the pin-pad highlight bug. (`4a8273d`)
+- **Conflicts** — `pad_conflict.footprint_of`, `find_conflicts`/`find_wire_conflicts`
+  (`incoming_instance` param), `placement_conflict.check_and_resolve`. The
+  reach/can't-place bug. (`0470289`)
+- **Group A** — `select_tool` flip + redrag overlay/feasibility, `route_tool`
+  hints, `wire_renderer` anchors. (`a718391`)
+- **Group B + extras** — `drag_detector`, `drc/engine`, `autorouter`,
+  `cost_analyzer`, `unweave`, `builtin_optimizers`, `auto_placer` (+`spreader`
+  3-tuple ripple), `group_tree`, `group_ownership`, `wire_utils`,
+  `placement.move_blocked`, `wire_net_ops`, `properties_panel` (threaded the
+  instance into `_update_geometry_table`), `resize_board_dialog`.
 
-| File:line | Function | Note |
-|---|---|---|
-| `gui/placement_conflict.py:73,84,91-94` | `check_and_resolve` | `session.package_families` in scope → pass to `find_conflicts` |
-| `gui/tools/select_tool.py:2128,3093,3098,3207,3212,3508` | flip / centre / pin-count | wrap with `resolved_footprint(defn, inst, self._session.package_families)`; 3093/3207/3508 pin_count are TOPOLOGY (leave) |
-| `gui/tools/route_tool.py:223,242` | routing pin pos | `self._session.package_families` |
-| `gui/renderers/wire_renderer.py:726,870` | wire anchor/target pin pos | `theme.package_families` + instance lookup |
+Services in domain/layout import `resolved_footprint` **locally** (the package
+free function) to avoid a `pad_conflict → placement` module-load cycle; pure
+services import `footprint_of` from `pad_conflict` at top.
 
-## Group B — needs plumbing (families/instance not in signature)
+## Deliberately left on `defn.footprint`
 
-Each needs `families` threaded through. Caller chain always bottoms out at
-`EditorSession.package_families`.
+- **Topology** (variant-invariant): `incremental.py` union-find, `bom.py` type
+  name, `board_renderer.py` strip groups, every `defn.footprint.pin_count()`
+  loop bound and `pin_names` lookup.
+- **Pre-placement / no instance**: the picker (`footprint_choice.py`,
+  `properties_panel` body-variant combo via `offered_body_families`) lists
+  *options* before any instance variant exists.
+- **Documented fallbacks**: `pad_state.add_component` `else` branch (unbound
+  instance), `make_ghost_item` default-when-no-variant, the `resolved_footprint`
+  / `footprint_of` fallbacks themselves.
 
-- **`domain/board/pad_state.py:861` (`PadIndex.add_component`)** — CRITICAL (this
-  is the pin-pad highlight bug). Plumb `families` into `PadIndex.__init__` →
-  `add_component`; resolve with `resolved_footprint(defn, instances[comp_id],
-  families)`. Callers: `pad_state.rebuild`, `drag_controller`,
-  `placement_conflict._build_drag_pad_index` — all have `session.package_families`.
-- **`domain/layout/pad_conflict.py` (`find_conflicts`, `find_wire_conflicts`)** —
-  add `families` param; resolve per-pin for incoming + existing components.
-- **`services/drag_detector.py` (`DragSnapshot`)** — add `families` field, used in
-  classify loops.
-- **`domain/layout/group_tree.py`, `group_ownership.py`** — geometry methods need
-  `families` (verify which are GEOMETRY vs TOPOLOGY first).
-- **`services/drc/engine.py`, `services/routing/autorouter.py`,
-  `builtin_optimizers.py`, `auto_placer.py`, `cost_analyzer.py`, `unweave.py`** —
-  service entry points get a `families` param, passed from `gui/workers/*` which
-  hold `session.package_families`. Largest, most systematic block.
-- **`gui/dialogs/resize_board_dialog.py:91-92`** — has `session`.
-
-## Group C — topology, leave as-is
-
-`definition.py:259,262,274` (pin_count / pin_names validation),
-`incremental.py:576,658` (union-find), `board_renderer.py:483` (strip groups
-topology), `bom.py:33` (type name).
-
-## Phasing
-
-1. **Group A** + `pad_state.PadIndex` (the pin-pad highlight + conflict bugs the
-   user is hitting now). Highest user-visible value.
-2. `pad_conflict`, `drag_detector`, group tree.
-3. Services (DRC, autorouter, optimizers, auto_placer) — thread `families` from workers.
-4. Renderers / wire_utils — defer; `defn.footprint` fallback is visually safe.
-
-Test per area: a placed variant (SMD-0805) whose pin-2 lands on the variant pad,
-not the default 3.2-hole position.
+Regression guard: `TestPadIndexUsesVariantFootprint` (a placed SMD-0805 puts
+pin-2 on the variant pad, not the default 3.2-hole position) +
+`TestVariantFootprintOnLoad`.

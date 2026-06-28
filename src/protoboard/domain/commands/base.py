@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from protoboard.domain.board.board import Board
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
-    from protoboard.domain.components.package.family import PackageFamily
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.schematic.schematic import Schematic
 
@@ -38,7 +37,13 @@ class ComponentState(Protocol):
     layout: "Layout"
     instances: dict[uuid.UUID, "ComponentInstance"]
     components: dict[str, "ComponentDefinition"]
-    package_families: dict[str, "PackageFamily"]
+    # NOTE: ``package_families`` is intentionally NOT a required member here.
+    # The binding ritual (``build_pin_identities_for``) reads it best-effort via
+    # ``getattr(state, "package_families", None)`` so an instance binds to its
+    # variant catalogue when the real session provides one, and degrades to the
+    # definition default footprint for bare test stubs that don't. Requiring it
+    # would force every structural ``ComponentState`` stub to carry a catalogue
+    # they don't need.
 
 
 class SchematicState(ComponentState, Protocol):

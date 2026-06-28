@@ -38,6 +38,7 @@ from protoboard.domain.layout.pad_conflict import (
     find_conflicts,
     find_wire_conflicts,
     find_wires_crossing_pads,
+    footprint_of,
 )
 from protoboard.domain.layout.placement import (
     component_bbox,
@@ -185,10 +186,13 @@ class DragDetector:
                 cid=cid,
                 pl=pl,
                 defn=defn,
+                inst=inst,
                 moved_comp_ids=moved_comp_ids,
             )
             if body_overlap_refdes is not None:
-                hard_pads.append(pin_world_position(defn.footprint, pl, 1))
+                hard_pads.append(
+                    pin_world_position(footprint_of(defn, inst), pl, 1)
+                )
                 descriptions.append(
                     f"{inst.refdes} body overlap with {body_overlap_refdes}"
                 )
@@ -482,13 +486,15 @@ class DragDetector:
         cid: uuid.UUID,
         pl: "ComponentPlacement",
         defn: "ComponentDefinition",
+        inst: "ComponentInstance",
         moved_comp_ids: set[uuid.UUID],
     ) -> str | None:
         """Return the refdes of the first non-moved component whose bbox
         overlaps *pl*'s without any pin coincidence, else None.
         """
+        incoming_fp = footprint_of(defn, inst)
         incoming_bbox = component_bbox(
-            defn.footprint, pl, defn.component_class,
+            incoming_fp, pl, defn.component_class,
         )
         _eps = 1e-4
         for other_id, other_pl in snapshot.placements.items():
@@ -500,17 +506,18 @@ class DragDetector:
             other_defn = snapshot.components.get(other_inst.definition_ref)
             if other_defn is None:
                 continue
+            other_fp = footprint_of(other_defn, other_inst)
             other_bbox = component_bbox(
-                other_defn.footprint, other_pl, other_defn.component_class,
+                other_fp, other_pl, other_defn.component_class,
             )
             if not incoming_bbox.intersects(other_bbox):
                 continue
             has_pin_overlap = False
             for in_pin in range(1, defn.footprint.pin_count() + 1):
-                in_pos = pin_world_position(defn.footprint, pl, in_pin)
+                in_pos = pin_world_position(incoming_fp, pl, in_pin)
                 for ot_pin in range(1, other_defn.footprint.pin_count() + 1):
                     ot_pos = pin_world_position(
-                        other_defn.footprint, other_pl, ot_pin,
+                        other_fp, other_pl, ot_pin,
                     )
                     if (
                         abs(in_pos.x - ot_pos.x) < _eps

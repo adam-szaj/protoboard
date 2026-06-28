@@ -112,16 +112,20 @@ def spread_components(
     if len(mobile_ids) < 2:
         return SpreadResult()
 
-    # Fixed obstacles: placed but not being spread.
+    # Fixed obstacles: placed but not being spread. The bound instance travels
+    # with each entry so geometry resolves the chosen variant.
     mobile_set = set(mobile_ids)
-    fixed: dict[uuid.UUID, tuple[ComponentPlacement, ComponentDefinition]] = {}
+    fixed: dict[
+        uuid.UUID,
+        tuple[ComponentPlacement, ComponentDefinition, ComponentInstance],
+    ] = {}
     for cid, pl in session.layout.placements.items():
         if cid in mobile_set:
             continue
         inst = session.instances.get(cid)
         defn = session.components.get(inst.definition_ref) if inst else None
-        if defn is not None:
-            fixed[cid] = (pl, defn)
+        if defn is not None and inst is not None:
+            fixed[cid] = (pl, defn, inst)
 
     pads_top: set[Point] = board_pads_for_side(session.board, "top")
     pads_bottom: set[Point] = board_pads_for_side(session.board, "bottom")
@@ -250,7 +254,10 @@ def _snap_to_grid(
     ideal_positions: dict[uuid.UUID, Point],
     mobile_ids: list[uuid.UUID],
     original_placements: dict[uuid.UUID, ComponentPlacement],
-    fixed_obstacles: dict[uuid.UUID, tuple[ComponentPlacement, ComponentDefinition]],
+    fixed_obstacles: dict[
+        uuid.UUID,
+        tuple[ComponentPlacement, ComponentDefinition, ComponentInstance],
+    ],
     pads_top: set[Point],
     pads_bottom: set[Point],
     session: SpreadState,
@@ -271,7 +278,10 @@ def _snap_to_grid(
     ordered = sorted(mobile_ids, key=lambda c: -net_degree.get(c, 0))
 
     # Start collision map with immovable obstacles.
-    collision_map: dict[uuid.UUID, tuple[ComponentPlacement, ComponentDefinition]] = dict(fixed_obstacles)
+    collision_map: dict[
+        uuid.UUID,
+        tuple[ComponentPlacement, ComponentDefinition, ComponentInstance],
+    ] = dict(fixed_obstacles)
 
     result: dict[uuid.UUID, ComponentPlacement] = {}
 
@@ -292,7 +302,8 @@ def _snap_to_grid(
         sorted_pads = sorted(board_pads, key=lambda p: math.hypot(p.x - target.x, p.y - target.y))
 
         pl = _find_free_slot(
-            cid, defn, sorted_pads, [orig_pl.rotation], orig_pl.side, collision_map
+            cid, defn, inst, sorted_pads, [orig_pl.rotation], orig_pl.side,
+            collision_map,
         )
 
         if pl is None:
@@ -312,7 +323,7 @@ def _snap_to_grid(
             )
 
         result[cid] = new_pl
-        collision_map[cid] = (new_pl, defn)
+        collision_map[cid] = (new_pl, defn, inst)
 
     return result
 

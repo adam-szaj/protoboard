@@ -144,26 +144,31 @@ class TestHasCollision:
 
     def test_no_collision_when_empty_existing(self) -> None:
         defn = _resistor_defn()
+        inst = _inst("R1", "R")
         pl = self._make_placement(uuid.uuid4(), 0.5, 0.5)
-        assert not _has_collision(pl, defn, {})
+        assert not _has_collision(pl, defn, inst, {})
 
     def test_collision_when_bbox_overlaps(self) -> None:
         defn = _resistor_defn()
+        inst1 = _inst("R1", "R")
+        inst2 = _inst("R2", "R")
         comp1 = uuid.uuid4()
         comp2 = uuid.uuid4()
         pl1 = self._make_placement(comp1, 0.5, 0.5)
         pl2 = self._make_placement(comp2, 0.5, 0.5)  # same position → bbox overlap
-        existing = {comp1: (pl1, defn)}
-        assert _has_collision(pl2, defn, existing)
+        existing = {comp1: (pl1, defn, inst1)}
+        assert _has_collision(pl2, defn, inst2, existing)
 
     def test_no_collision_when_far_apart(self) -> None:
         defn = _resistor_defn()
+        inst1 = _inst("R1", "R")
+        inst2 = _inst("R2", "R")
         comp1 = uuid.uuid4()
         comp2 = uuid.uuid4()
         pl1 = self._make_placement(comp1, 0.5, 0.5)
         pl2 = self._make_placement(comp2, 8.5, 8.5)
-        existing = {comp1: (pl1, defn)}
-        assert not _has_collision(pl2, defn, existing)
+        existing = {comp1: (pl1, defn, inst1)}
+        assert not _has_collision(pl2, defn, inst2, existing)
 
 
 class TestExtendedCandidates:

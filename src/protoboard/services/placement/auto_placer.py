@@ -38,6 +38,7 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     component_bbox,
@@ -100,13 +101,17 @@ def auto_place(
     # column top-to-bottom first — produces a compact grid without clustering.
     all_pads: list[Point] = sorted(board_pads, key=lambda p: (p.x, p.y))
 
-    # Existing placed components: comp_id → (placement, defn).
-    existing: dict[uuid.UUID, tuple[ComponentPlacement, ComponentDefinition]] = {}
+    # Existing placed components: comp_id → (placement, defn, inst). The bound
+    # instance travels with each entry so geometry resolves the chosen variant.
+    existing: dict[
+        uuid.UUID,
+        tuple[ComponentPlacement, ComponentDefinition, ComponentInstance],
+    ] = {}
     for comp_id, pl in session.layout.placements.items():
         inst = session.instances.get(comp_id)
         defn = session.components.get(inst.definition_ref) if inst else None
-        if defn is not None:
-            existing[comp_id] = (pl, defn)
+        if defn is not None and inst is not None:
+            existing[comp_id] = (pl, defn, inst)
 
     # Pre-sort: process components with the most gravity connections first.
     ordered = _sort_by_gravity(instances_to_place, session, existing)
@@ -136,8 +141,10 @@ def auto_place(
         center = _centroid(grav_pts)
         sorted_pads = _sort_candidates(all_pads, center)
 
-        rotations = _preferred_rotations(defn, board_bounds)
-        pl = _find_free_slot(inst.id, defn, sorted_pads, rotations, side, existing)
+        rotations = _preferred_rotations(defn, inst, board_bounds)
+        pl = _find_free_slot(
+            inst.id, defn, inst, sorted_pads, rotations, side, existing
+        )
         on_board = True
 
         if pl is None:
@@ -145,7 +152,7 @@ def auto_place(
             extra = _extended_candidates(board_pads, board_bounds)
             extra_sorted = _sort_candidates(extra, center)
             pl = _find_free_slot(
-                inst.id, defn, extra_sorted, rotations, side, existing
+                inst.id, defn, inst, extra_sorted, rotations, side, existing
             )
             on_board = False
 
@@ -159,7 +166,7 @@ def auto_place(
             continue
 
         result.placements.append(pl)
-        existing[inst.id] = (pl, defn)
+        existing[inst.id] = (pl, defn, inst)
         if not on_board:
             result.outside_board.append(inst.id)
 
@@ -171,7 +178,11 @@ def auto_place(
 # ---------------------------------------------------------------------------
 
 
-def _preferred_rotations(defn: ComponentDefinition, board_bounds: Rect) -> list[int]:
+def _preferred_rotations(
+    defn: ComponentDefinition,
+    inst: ComponentInstance,
+    board_bounds: Rect,
+) -> list[int]:
     """Return rotations to try, best first.
 
     Heuristic: prefer the orientation whose longer axis aligns with the
@@ -179,7 +190,7 @@ def _preferred_rotations(defn: ComponentDefinition, board_bounds: Rect) -> list[
     (horizontal) on a wider-than-tall board, which compacts rows nicely.
     DIP footprints are symmetric and default to 0.
     """
-    pin_positions = defn.footprint.pin_positions()
+    pin_positions = footprint_of(defn, inst).pin_positions()
     if len(pin_positions) < 2:
         return [0, 90, 180, 270]
 
@@ -217,7 +228,10 @@ def _preferred_rotations(defn: ComponentDefinition, board_bounds: Rect) -> list[
 def _gravity_points(
     inst: ComponentInstance,
     session: AutoPlaceState,
-    current_placements: dict[uuid.UUID, tuple[ComponentPlacement, ComponentDefinition]],
+    current_placements: dict[
+        uuid.UUID,
+        tuple[ComponentPlacement, ComponentDefinition, ComponentInstance],
+    ],
 ) -> list[Point]:
     """Return world positions of all already-placed pins sharing a net with *inst*."""
     pts: list[Point] = []
@@ -230,9 +244,11 @@ def _gravity_points(
             entry = current_placements.get(pr.component_id)
             if entry is None:
                 continue
-            pl, defn = entry
+            pl, defn, other_inst = entry
             try:
-                pt = pin_world_position(defn.footprint, pl, pr.pin_number)
+                pt = pin_world_position(
+                    footprint_of(defn, other_inst), pl, pr.pin_number
+                )
                 pts.append(pt)
             except (IndexError, ValueError):
                 pass
@@ -251,7 +267,10 @@ def _centroid(points: list[Point]) -> Point | None:
 def _sort_by_gravity(
     instances: list[ComponentInstance],
     session: AutoPlaceState,
-    existing: dict[uuid.UUID, tuple[ComponentPlacement, ComponentDefinition]],
+    existing: dict[
+        uuid.UUID,
+        tuple[ComponentPlacement, ComponentDefinition, ComponentInstance],
+    ],
 ) -> list[ComponentInstance]:
     """Sort descending by number of gravity connections to already-placed comps."""
     def _key(inst: ComponentInstance) -> int:
@@ -298,7 +317,11 @@ def _extended_candidates(
 def _has_collision(
     new_pl: ComponentPlacement,
     new_defn: ComponentDefinition,
-    existing: dict[uuid.UUID, tuple[ComponentPlacement, ComponentDefinition]],
+    new_inst: ComponentInstance,
+    existing: dict[
+        uuid.UUID,
+        tuple[ComponentPlacement, ComponentDefinition, ComponentInstance],
+    ],
     extra_gap: float = 0.0,
 ) -> bool:
     """True when *new_pl* body-overlaps any existing placement.
@@ -309,16 +332,20 @@ def _has_collision(
     *extra_gap* raster units, regardless of each component's individual body
     margin (rigid vs. flexible leads).
     """
-    raw_new = component_bbox(new_defn.footprint, new_pl, new_defn.component_class.value)
+    raw_new = component_bbox(
+        footprint_of(new_defn, new_inst), new_pl, new_defn.component_class.value
+    )
     new_bbox = Rect(
         x=raw_new.x - extra_gap,
         y=raw_new.y - extra_gap,
         width=raw_new.width + 2 * extra_gap,
         height=raw_new.height + 2 * extra_gap,
     )
-    for other_pl, other_defn in existing.values():
+    for other_pl, other_defn, other_inst in existing.values():
         other_bbox = component_bbox(
-            other_defn.footprint, other_pl, other_defn.component_class.value
+            footprint_of(other_defn, other_inst),
+            other_pl,
+            other_defn.component_class.value,
         )
         if new_bbox.intersects(other_bbox):
             return True
@@ -333,10 +360,14 @@ def _has_collision(
 def _find_free_slot(
     comp_id: uuid.UUID,
     defn: ComponentDefinition,
+    inst: ComponentInstance,
     candidates: list[Point],
     rotations: list[int],
     side: str,
-    existing: dict[uuid.UUID, tuple[ComponentPlacement, ComponentDefinition]],
+    existing: dict[
+        uuid.UUID,
+        tuple[ComponentPlacement, ComponentDefinition, ComponentInstance],
+    ],
     extra_gap: float = 0.0,
 ) -> ComponentPlacement | None:
     """Try each candidate position with each rotation; return first free slot.
@@ -352,6 +383,6 @@ def _find_free_slot(
                 rotation=rot,
                 side=side,  # type: ignore[arg-type]
             )
-            if not _has_collision(pl, defn, existing, extra_gap=extra_gap):
+            if not _has_collision(pl, defn, inst, existing, extra_gap=extra_gap):
                 return pl
     return None

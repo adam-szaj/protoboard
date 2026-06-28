@@ -542,6 +542,7 @@ def unweave_wires(
     # pass so that reroute candidates stay on free pads (no alien pins).
     forbidden_pads: set[Point] | None = None
     if graph is not None:
+        from protoboard.domain.layout.pad_conflict import footprint_of
         from protoboard.domain.layout.placement import pin_world_position
         forbidden_pads = set()
         for cid, pl in graph.layout.placements.items():
@@ -552,7 +553,9 @@ def unweave_wires(
             if defn is None:
                 continue
             for pn in range(1, defn.footprint.pin_count() + 1):
-                forbidden_pads.add(pin_world_position(defn.footprint, pl, pn))
+                forbidden_pads.add(
+                    pin_world_position(footprint_of(defn, inst), pl, pn)
+                )
 
     # Foreign-wire vertices = every (pad, side) used by a wire on the board
     # that is NOT one of our unweave targets.  Used by Phase 0 to reject

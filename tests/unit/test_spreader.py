@@ -301,8 +301,11 @@ class TestSnapToGrid:
         from protoboard.services.placement.auto_placer import _has_collision
         placed_list = list(result.items())
         for i, (cid_i, pl_i) in enumerate(placed_list):
-            existing = {cid_j: (pl_j, defn) for cid_j, pl_j in placed_list[:i]}
-            assert not _has_collision(pl_i, defn, existing)
+            existing = {
+                cid_j: (pl_j, defn, insts[cid_j])
+                for cid_j, pl_j in placed_list[:i]
+            }
+            assert not _has_collision(pl_i, defn, insts[cid_i], existing)
 
     def test_fixed_obstacles_treated_as_immovable(self) -> None:
         board = _make_perfboard(5, 5)
@@ -324,7 +327,7 @@ class TestSnapToGrid:
             ideal_positions=ideal,
             mobile_ids=[mobile_id],
             original_placements=original,
-            fixed_obstacles={fixed_id: (fixed_pl, defn)},
+            fixed_obstacles={fixed_id: (fixed_pl, defn, fixed_inst)},
             pads_top=pads,
             pads_bottom=set(),
             session=session,
@@ -390,8 +393,10 @@ class TestSpreadComponents:
         from protoboard.services.placement.auto_placer import _has_collision
         placed = [(cid, result.new_placements[cid]) for cid in ids]
         for i, (cid_i, pl_i) in enumerate(placed):
-            existing = {cid_j: (pl_j, defn) for cid_j, pl_j in placed[:i]}
-            assert not _has_collision(pl_i, defn, existing)
+            existing = {
+                cid_j: (pl_j, defn, insts[cid_j]) for cid_j, pl_j in placed[:i]
+            }
+            assert not _has_collision(pl_i, defn, insts[cid_i], existing)
 
     def test_components_cover_board_area_evenly(self) -> None:
         """After spread, components should be distributed across board quadrants."""

@@ -27,6 +27,7 @@ from protoboard.domain.components.package.kind import is_generic_package
 from protoboard.domain.components.package.reach import is_pin_bendable
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.pad_conflict import footprint_of
 from protoboard.domain.layout.placement import _rotate, pin_world_position
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -277,7 +278,7 @@ def _check_overlap(
         if defn is None:
             continue
         for pin_num in range(1, defn.pin_count + 1):
-            wp = pin_world_position(defn.footprint, placement, pin_num)
+            wp = pin_world_position(footprint_of(defn, inst), placement, pin_num)
             key = (wp.x, wp.y, placement.side)
             pad_occupancy.setdefault(key, []).append((comp_id, pin_num))
 
@@ -402,10 +403,11 @@ def _check_body_overlap(
     _BODY_BITS = PadCell.BODY_TOP | PadCell.BODY_BOTTOM
 
     def _pin_at(cid: uuid.UUID, hole: Point) -> int | None:
-        defn = components[instances[cid].definition_ref]
+        inst = instances[cid]
+        defn = components[inst.definition_ref]
         pl = layout.placements[cid]
         for pin_num in range(1, defn.pin_count + 1):
-            wp = pin_world_position(defn.footprint, pl, pin_num)
+            wp = pin_world_position(footprint_of(defn, inst), pl, pin_num)
             if wp.x == hole.x and wp.y == hole.y:
                 return pin_num
         return None
@@ -926,7 +928,7 @@ def _check_off_board_pins(
             continue
         side = placement.side
         for pin_num in range(1, defn.footprint.pin_count() + 1):
-            wp = pin_world_position(defn.footprint, placement, pin_num)
+            wp = pin_world_position(footprint_of(defn, inst), placement, pin_num)
             on_pad = False
             if pad_index is not None:
                 pad = pad_index.pad_at(wp)

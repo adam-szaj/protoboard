@@ -339,6 +339,7 @@ class GroupTree:
         top-left pin".
         """
         from protoboard.domain.components.definition import ComponentDefinition
+        from protoboard.domain.components.package import resolved_footprint
         from protoboard.domain.layout.placement import (
             ComponentPlacement,
             pin_world_position,
@@ -356,8 +357,10 @@ class GroupTree:
                 defn, ComponentDefinition
             ):
                 continue
-            for n in range(defn.footprint.pin_count()):
-                p = pin_world_position(defn.footprint, pl, n + 1)
+            assert inst is not None  # defn non-None implies inst non-None
+            fp = resolved_footprint(defn, inst, inst.families)
+            for n in range(fp.pin_count()):
+                p = pin_world_position(fp, pl, n + 1)
                 key = p.x + p.y
                 if key < best_key:
                     best_key, best = key, p
