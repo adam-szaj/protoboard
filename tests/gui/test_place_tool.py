@@ -263,6 +263,40 @@ class TestPlaceToolSmdMount:
         assert (round(p1.x), round(p1.y)) == (1, 1)
         assert (round(p2.x), round(p2.y)) == (2, 2)  # SE diagonal neighbour
 
+    def test_axial_pin1_anchors_at_click(self, session: EditorSession) -> None:
+        # Regression: an axial part (R / diode) has BOTH leads free, so its
+        # bendable specs are {1, 2}. Pin 1 is the anchor and must land exactly on
+        # the (snapped) first click — it must NOT become the dragged pin.
+        # Previously pin 1 was dragged (current_drag_pin == 1) and, bound by its
+        # r_min reach disc, could not stick to the clicked pad (it snapped out to
+        # the ring).
+        view = self._builtin_view(session)
+        view.set_tool(PlaceTool("R"))  # default axial footprint
+        tool = view._active_tool
+        assert isinstance(tool, PlaceTool)
+        # Sanity: both axial leads are free → bendable {1, 2}.
+        defn = view._session.components["R"]
+        assert set(tool._bend_specs(defn).keys()) == {1, 2}
+
+        from PySide6.QtGui import QMouseEvent
+        ev = QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress, QPointF(5, 5), QPointF(5, 5),
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        snapped = view.snap(QPointF(5, 5))
+        tool.on_press(ev, QPointF(5, 5))
+
+        # Pin 1 anchors — it is NOT the dragged pin; pin 2 is.
+        assert tool._phase == "drag_pin"
+        assert tool._current_drag_pin == 2
+        assert tool._anchor_pos == snapped
+        # Pin 1's baseline world position equals the anchor (its default offset),
+        # i.e. it sits on the clicked pad — not pushed out to the r_min ring.
+        base1 = tool._pin_baseline_world(1)
+        assert base1 is not None
+        assert (base1.x, base1.y) == (snapped.x, snapped.y)
+
 
 class TestPlaceToolUndo:
     def test_undo_removes_placement(

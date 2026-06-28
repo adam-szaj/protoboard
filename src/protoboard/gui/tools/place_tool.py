@@ -55,6 +55,10 @@ _REACH_PAD_RADIUS = 0.18
 # defaults (rotate ``R`` / ``Shift+R``, flip ``Alt+R``, re-drag ``Ctrl+R``):
 # while placing, those globals route through the (read-only) SelectTool and
 # no-op, so PlaceTool claims them and drives its own ghost transform.
+# Pin 1 anchors the placement: it lands on the first click and is never the
+# dragged pin (see on_press). Pins are numbered from 1.
+_ANCHOR_PIN = 1
+
 _ACT_ROTATE_CW = "place-tool.action.rotate_cw"
 _ACT_ROTATE_CCW = "place-tool.action.rotate_ccw"
 _ACT_FLIP = "place-tool.action.flip"
@@ -161,15 +165,29 @@ class PlaceTool(_Tool):
             if not bendable:
                 self._commit(snapped, pin_offsets={})
             else:
+                # Pin 1 is the ANCHOR: it lands exactly on the click and is
+                # never dragged. Only the OTHER pins enter the drag pipeline.
+                # The drag queue is therefore the bendable pins minus pin 1.
+                #   * SMD: bendable is [2] (pin 1 is a rigid anchor, not free),
+                #     so the queue stays [2] — pin 2 is dragged to a neighbour.
+                #   * Axial (R, diode): both leads are free so bendable is
+                #     [1, 2]; dropping pin 1 leaves [2]. Without this, pin 1 was
+                #     itself dragged and — bound by its r_min reach disc — could
+                #     not stick to the clicked pad (it snapped out to the ring).
                 self._anchor_pos = snapped
                 self._pin_offsets = {
                     p: specs[p].default_offset for p in bendable
                 }
-                self._drag_pin_queue = bendable[1:]
-                self._current_drag_pin = bendable[0]
-                self._phase = "drag_pin"
-                self._rebuild_ghost_at_anchor()
-                self._update_reach_overlay()
+                self._drag_pin_queue = [p for p in bendable if p != _ANCHOR_PIN]
+                if self._drag_pin_queue:
+                    self._current_drag_pin = self._drag_pin_queue.pop(0)
+                    self._phase = "drag_pin"
+                    self._rebuild_ghost_at_anchor()
+                    self._update_reach_overlay()
+                else:
+                    # Only the anchor pin is bendable — nothing to drag; commit
+                    # at its default offset (it sits on the clicked pad).
+                    self._commit(snapped, pin_offsets=dict(self._pin_offsets))
             return True
 
         if self._phase == "drag_pin":
