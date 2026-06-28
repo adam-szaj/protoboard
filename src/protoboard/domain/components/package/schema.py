@@ -42,6 +42,26 @@ AUTO = "auto"
 # ``type: [float, [float, float], [float, [float, float]]]`` whose *elements are
 # themselves shapes* is a union of those three shapes — disambiguated by the rule
 # below (a list whose every element is a known shape-or-shape-list is a union).
+#
+# Four *dict* constructors extend the grammar for the richer ``leads`` fields
+# (see ``docs/footprints/leads-schema-proposal.md``). A dict is never a plain
+# shape, so these compose with the rules above without ambiguity:
+#
+#   * ``{list: <shape>}``            — a variable-length list whose every element
+#     ``{list: <shape>, len: N}``      matches ``<shape>``; an optional integer
+#                                      ``len`` also pins the exact length.
+#   * ``{seq: [<shape>, ...]}``      — a fixed-length *positional* tuple (element
+#                                      *i* matches shape *i*). The unambiguous way
+#                                      to write a pair of differing members, e.g.
+#                                      run-length ``{seq: [int, [float, float]]}``
+#                                      — which as a bare list would be read as the
+#                                      union "int OR 2-vector".
+#   * ``{oneof: [<spec>, ...]}``     — matches if the value matches any branch;
+#                                      the *named* form of the implicit union, so
+#                                      a ``list`` element can itself be a union.
+#   * ``{const: <value>}``           — matches iff the value equals ``<value>``
+#                                      (lets sentinels like ``"default"`` / ``"solve"``
+#                                      be declared).
 TypeSpec = Any  # structurally recursive; validated, not statically typed.
 
 _PRIMITIVES: dict[str, type | tuple[type, ...]] = {
@@ -164,28 +184,85 @@ def _matches_primitive(name: str, value: object) -> bool:
 
 
 def _matches_shape(spec: TypeSpec, value: object) -> bool:
-    """Match a single shape (primitive name or fixed-length vector)."""
+    """Match a single shape (primitive name or fixed-length vector).
+
+    Vector elements delegate to :func:`_matches`, so a fixed-length shape may
+    carry a dict constructor at any position (e.g. the grouped-``direction``
+    shape ``[{list: int}, [float, float, float]]`` — an index list paired with a
+    3-vector).
+    """
+    if isinstance(spec, Mapping):
+        return _matches(spec, value)
     if isinstance(spec, str):
         return _matches_primitive(spec, value)
     if isinstance(spec, (list, tuple)):
         if not isinstance(value, (list, tuple)) or len(value) != len(spec):
             return False
-        return all(_matches_shape(s, v) for s, v in zip(spec, value))
+        return all(_matches(s, v) for s, v in zip(spec, value))
     raise SchemaError(f"malformed type shape {spec!r}")
 
 
+def _matches_list(spec: Mapping[str, Any], value: object) -> bool:
+    """Match the ``{list: <shape>, len?: N}`` variadic-list constructor."""
+    inner = spec["list"]
+    if not isinstance(value, (list, tuple)):
+        return False
+    declared_len = spec.get("len")
+    if declared_len is not None:
+        if not isinstance(declared_len, int) or isinstance(declared_len, bool):
+            raise SchemaError(f"'len' must be an int, got {declared_len!r}")
+        if len(value) != declared_len:
+            return False
+    return all(_matches(inner, el) for el in value)
+
+
+def _matches_seq(spec: Mapping[str, Any], value: object) -> bool:
+    """Match the ``{seq: [<shape>, ...]}`` fixed-length heterogeneous tuple.
+
+    Unlike a bare nested list (which the union heuristic reads as "any branch"),
+    ``seq`` is an *ordered, positional* match — element *i* of the value matches
+    element *i* of the shape. This is the only way to express a pair whose
+    members differ, e.g. run-length ``[count, [x, y]]`` as
+    ``{seq: [int, [float, float]]}`` (without it ``[int, [float, float]]`` is
+    read as the union "int OR 2-vector").
+    """
+    shapes = spec["seq"]
+    if not isinstance(shapes, (list, tuple)):
+        raise SchemaError(f"'seq' must be a list, got {shapes!r}")
+    if not isinstance(value, (list, tuple)) or len(value) != len(shapes):
+        return False
+    return all(_matches(s, v) for s, v in zip(shapes, value))
+
+
 def _matches(spec: TypeSpec, value: object) -> bool:
-    """Match *value* against a :data:`TypeSpec` (single shape or union).
+    """Match *value* against a :data:`TypeSpec` (single shape, union, or a
+    ``list`` / ``seq`` / ``oneof`` / ``const`` dict constructor).
 
     Disambiguation: a list is a *union* when at least one element is itself a
     shape-list (e.g. ``[float, [float, float]]`` — a scalar OR a 2-vector); a
     list whose every element is a *primitive name* is a single vector shape
-    (``[float, float]`` — a 2-vector, not a "float-or-float" union).
+    (``[float, float]`` — a 2-vector, not a "float-or-float" union). A *dict*
+    is one of the named constructors and is never a plain shape.
     """
+    if isinstance(spec, Mapping):
+        if "list" in spec:
+            return _matches_list(spec, value)
+        if "seq" in spec:
+            return _matches_seq(spec, value)
+        if "oneof" in spec:
+            branches = spec["oneof"]
+            if not isinstance(branches, (list, tuple)):
+                raise SchemaError(f"'oneof' must be a list, got {branches!r}")
+            return any(_matches(b, value) for b in branches)
+        if "const" in spec:
+            return bool(value == spec["const"])
+        raise SchemaError(
+            f"type dict must carry 'list', 'seq', 'oneof', or 'const', "
+            f"got {spec!r}")
     if isinstance(spec, str):
         return _matches_primitive(spec, value)
     if isinstance(spec, (list, tuple)):
-        has_nested = any(isinstance(s, (list, tuple)) for s in spec)
+        has_nested = any(isinstance(s, (list, tuple, Mapping)) for s in spec)
         if has_nested:
             # union of shapes
             return any(_matches_shape(s, value) for s in spec)

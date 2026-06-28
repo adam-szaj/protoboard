@@ -85,6 +85,174 @@ class TestTypeMatch:
         FieldSpec(type="float").validate(AUTO, "len")  # no raise
 
 
+class TestListConstructor:
+    """``{list: <shape>}`` — variable-length list of a repeated shape."""
+
+    def test_empty_list_matches(self) -> None:
+        FieldSpec(type={"list": ["float", "float", "float"]}).validate([], "v")
+
+    def test_all_elements_match(self) -> None:
+        fs = FieldSpec(type={"list": ["float", "float", "float"]})
+        fs.validate([[0.0, 0.0, -1.0], [0.0, 0.0, 1.0]], "v")
+
+    def test_one_element_mismatch_fails(self) -> None:
+        fs = FieldSpec(type={"list": ["float", "float", "float"]})
+        with pytest.raises(SchemaError):
+            fs.validate([[0.0, 0.0, -1.0], [0.0, 0.0]], "v")  # 2nd is 2-vec
+
+    def test_scalar_is_not_a_list(self) -> None:
+        with pytest.raises(SchemaError):
+            FieldSpec(type={"list": "float"}).validate(0.0, "v")
+
+    def test_len_pins_exact_length(self) -> None:
+        fs = FieldSpec(type={"list": ["float", "float"], "len": 2})
+        fs.validate([[1.0, 2.0], [3.0, 4.0]], "v")
+        with pytest.raises(SchemaError):
+            fs.validate([[1.0, 2.0]], "v")  # wrong length
+
+    def test_bad_len_raises(self) -> None:
+        with pytest.raises(SchemaError, match="len"):
+            FieldSpec(type={"list": "int", "len": "two"}).validate([1], "v")
+
+
+class TestSeqConstructor:
+    """``{seq: [...]}`` — fixed-length positional tuple of differing members."""
+
+    def test_runlength_pair_matches(self) -> None:
+        fs = FieldSpec(type={"seq": ["int", ["float", "float"]]})
+        fs.validate([3, [1.0, 2.0]], "s")
+
+    def test_wrong_length_fails(self) -> None:
+        fs = FieldSpec(type={"seq": ["int", ["float", "float"]]})
+        with pytest.raises(SchemaError):
+            fs.validate([3], "s")
+        with pytest.raises(SchemaError):
+            fs.validate([3, [1.0, 2.0], 4], "s")
+
+    def test_positional_mismatch_fails(self) -> None:
+        fs = FieldSpec(type={"seq": ["int", ["float", "float"]]})
+        with pytest.raises(SchemaError):
+            fs.validate([[1.0, 2.0], 3], "s")  # swapped positions
+
+    def test_seq_must_be_list(self) -> None:
+        with pytest.raises(SchemaError, match="seq"):
+            FieldSpec(type={"seq": "int"}).validate([1], "s")
+
+
+class TestOneofConstructor:
+    """``{oneof: [...]}`` — named union; branches may be shapes, dicts, consts."""
+
+    def test_each_branch_matches(self) -> None:
+        # bare [x,y] OR run-length {seq: [count, [x,y]]}
+        fs = FieldSpec(type={"oneof": [["float", "float"],
+                                       {"seq": ["int", ["float", "float"]]}]})
+        fs.validate([1.0, 2.0], "o")              # bare
+        fs.validate([3, [1.0, 2.0]], "o")         # run-length
+
+    def test_none_match_fails(self) -> None:
+        fs = FieldSpec(type={"oneof": [["float", "float"],
+                                       {"seq": ["int", ["float", "float"]]}]})
+        with pytest.raises(SchemaError):
+            fs.validate("nope", "o")
+
+    def test_oneof_must_be_list(self) -> None:
+        with pytest.raises(SchemaError, match="oneof"):
+            FieldSpec(type={"oneof": "float"}).validate(1.0, "o")
+
+
+class TestConstConstructor:
+    """``{const: <value>}`` — literal equality (for sentinels)."""
+
+    def test_const_string_matches_exact(self) -> None:
+        fs = FieldSpec(type={"const": "default"})
+        fs.validate("default", "b")
+        with pytest.raises(SchemaError):
+            fs.validate("solve", "b")
+
+    def test_const_inside_oneof(self) -> None:
+        fs = FieldSpec(type={"oneof": [{"const": "default"},
+                                       {"const": "solve"}]})
+        fs.validate("default", "b")
+        fs.validate("solve", "b")
+        with pytest.raises(SchemaError):
+            fs.validate("other", "b")
+
+
+class TestBadDictConstructor:
+    def test_unknown_dict_key_raises(self) -> None:
+        with pytest.raises(SchemaError, match="list.*seq.*oneof.*const"):
+            FieldSpec(type={"nope": 1}).validate(0, "x")
+
+
+class TestLeadsRoundTrip:
+    """Every real YAML form (proposal §1) validates against its §4 declaration.
+
+    The declarations follow the recommended §3a / §5b shape: element-only list
+    matching (loader owns arity) and the ``{unit,value}`` wrapper assumed already
+    unwrapped, so ``body_offset`` is a bare offset list by validation time.
+    """
+
+    _OFFSET_ELEM = {"oneof": [["float", "float"],            # bare [x, y]
+                              {"seq": ["int",                # run-length
+                                       ["float", "float"]]}]}  # [count,[x,y]]
+
+    def _direction(self) -> FieldSpec:
+        return FieldSpec(type={"oneof": [
+            ["float", "float", "float"],                    # form 1: broadcast
+            {"list": ["float", "float", "float"]},          # form 2: per-pin
+            {"list": {"seq": [{"list": "int"},              # form 3: grouped
+                              ["float", "float", "float"]]}},
+        ]})
+
+    def _body_offset(self) -> FieldSpec:
+        return FieldSpec(type={"oneof": ["float",            # scalar sugar
+                                         {"list": self._OFFSET_ELEM}]})
+
+    def _board_offset(self) -> FieldSpec:
+        return FieldSpec(type={"oneof": [{"const": "default"},
+                                         {"const": "solve"},
+                                         {"list": self._OFFSET_ELEM}]})
+
+    def test_direction_form1_broadcast(self) -> None:
+        self._direction().validate([0.0, 0.0, -1.0], "leads.direction")
+
+    def test_direction_form2_per_pin(self) -> None:
+        self._direction().validate(
+            [[0, 0, -1], [0, 0, 1]], "leads.direction")
+
+    def test_direction_form3_grouped(self) -> None:
+        self._direction().validate(
+            [[[1, 2, 3, 4], [0, 0, -1]], [[5, 6, 7, 8], [0, 0, 1]]],
+            "leads.direction")
+
+    def test_direction_garbage_rejected(self) -> None:
+        with pytest.raises(SchemaError):
+            self._direction().validate("down", "leads.direction")
+
+    def test_body_offset_scalar(self) -> None:
+        self._body_offset().validate(0, "leads.body_offset")
+
+    def test_body_offset_runlength_and_bare_mixed(self) -> None:
+        self._body_offset().validate(
+            [[14, [0, 1]], [7, 0], [14, [0, -1]]], "leads.body_offset")
+
+    def test_body_offset_single_runlength(self) -> None:
+        self._body_offset().validate([[1, 0]], "leads.body_offset")
+
+    def test_board_offset_default_sentinel(self) -> None:
+        self._board_offset().validate("default", "leads.board_offset")
+
+    def test_board_offset_solve_sentinel(self) -> None:
+        self._board_offset().validate("solve", "leads.board_offset")
+
+    def test_board_offset_explicit_list(self) -> None:
+        self._board_offset().validate([[2, [1, 0]]], "leads.board_offset")
+
+    def test_board_offset_unknown_sentinel_rejected(self) -> None:
+        with pytest.raises(SchemaError):
+            self._board_offset().validate("magic", "leads.board_offset")
+
+
 class TestApply:
     def _schema(self) -> ParamSchema:
         return parse_schema({

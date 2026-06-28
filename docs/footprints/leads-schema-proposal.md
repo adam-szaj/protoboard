@@ -89,7 +89,8 @@ Note `board_offset` takes **no `{unit,value}` dict** — holes are unitless.
 
 ## 2. Proposed `TypeSpec` extensions
 
-Three new constructors, each a dict so they never collide with the existing
+Four new constructors (A–C proposed up front; **D added during implementation**,
+see its note), each a dict so they never collide with the existing
 list-is-vector / list-is-union rules. They compose with the current grammar.
 
 ### (A) Variadic list — `{list: <shape>}`, optional `len`
@@ -114,7 +115,7 @@ inner-list element can itself be a union without the "≥1 nested element" heuri
 becoming ambiguous.
 
 ```yaml
-{oneof: [[float, float], [int, [float, float]]]}   # bare [x,y] OR run-length [count,[x,y]]
+{oneof: [[float, float], {seq: [int, [float, float]]}]}  # bare [x,y] OR run-length [count,[x,y]]
 ```
 
 ### (C) Literal constant — `{const: <value>}` (or sugar inside `oneof`)
@@ -126,9 +127,23 @@ Matches iff `value == <value>`. Lets sentinels be declared.
 {oneof: [{const: default}, {const: solve}, {list: {oneof: […]}}]}
 ```
 
-> All three are **additive**: a `type:` that is a string, a flat list, or a
+### (D) Fixed-length positional tuple — `{seq: [<shape>, …]}`
+
+> **Added during implementation.** The original draft wrote run-length as the
+> bare list `[int, [float, float]]`. But the existing matcher reads a 2-element
+> list whose 2nd element is nested as a **union** ("int OR 2-vector", per
+> `test_union_scalar_or_vector`), not a positional pair — so a run-length value
+> `[3, [1, 0]]` would never match. `seq` resolves this: it is an **ordered**
+> match where element *i* of the value matches shape *i* of the spec, the only
+> unambiguous way to write a pair of differing members.
+
+```yaml
+{seq: [int, [float, float]]}   # run-length [count, [x, y]]
+```
+
+> All four are **additive**: a `type:` that is a string, a flat list, or a
 > nested list keeps its current meaning. The new forms are only triggered by the
-> `list` / `oneof` / `const` keys, which a plain shape never has.
+> `list` / `seq` / `oneof` / `const` keys, which a plain shape never has.
 
 ---
 
@@ -151,10 +166,11 @@ placed instance. Two honest options:
   Defer unless the UI panels (schema-design.md §8) need the exact arity.
 
 The grouped `direction#3` form (`[[indices],[vec]]…`) is a **domain encoding**,
-not a geometric shape; even with A/B/C its index-coverage invariant (every pin
+not a geometric shape; even with A/B/C/D its index-coverage invariant (every pin
 assigned exactly once, 1-based, in range) lives in `expand_direction`. Schema
-can at best assert the outer structure `{list: [{list: int}, [float,float,float]]}`
-— proposed as *advisory only*, with `expand_direction` remaining the validator.
+can at best assert the outer structure
+`{list: {seq: [{list: int}, [float,float,float]]}}` — proposed as *advisory
+only*, with `expand_direction` remaining the validator.
 
 ---
 
@@ -168,26 +184,28 @@ which carries no `leads` block). Schema is path-mirrored to the value path
 it once and descendants inherit. Declare it on the highest base that actually
 holds a `leads` value.
 
+These are the **as-implemented** declarations (the loader is assumed to unwrap
+the `{unit, value}` body-offset wrapper before `validate`, per §5b — the
+recommended and tested shape). An offset element is the reused union "bare
+`[x,y]` OR run-length `{seq: [count, [x,y]]}`".
+
 ```yaml
 schema:
   leads:
     direction:
       type:
         oneof:
-          - [float, float, float]                       # form 1: broadcast
-          - {list: [float, float, float]}               # form 2: per-pin (len via loader)
-          - {list: [{list: int}, [float, float, float]]} # form 3: grouped (advisory)
+          - [float, float, float]                          # form 1: broadcast
+          - {list: [float, float, float]}                  # form 2: per-pin (len via loader)
+          - {list: {seq: [{list: int}, [float, float, float]]}}  # form 3: grouped (advisory)
       required: true
 
     body_offset:
       type:
         oneof:
-          - float                                        # scalar sugar (0)
-          - {list: {oneof: [[float, float],              # bare [x,y]
-                            [int, [float, float]]]}}      # run-length [count,[x,y]]
-          - {unit: float, value: {list: {oneof: [[float, float],
-                                                 [int, [float, float]]]}}}
-      # NOTE: the {unit, value} wrapper is itself a section-shaped dict; see §5.
+          - float                                          # scalar sugar (0)
+          - {list: {oneof: [[float, float],                # bare [x,y]
+                            {seq: [int, [float, float]]}]}}  # run-length [count,[x,y]]
       required: true
 
     board_offset:
@@ -195,13 +213,14 @@ schema:
         oneof:
           - {const: default}
           - {const: solve}
-          - {list: {oneof: [[float, float], [int, [float, float]]]}}
+          - {list: {oneof: [[float, float], {seq: [int, [float, float]]}]}}
       default: default
 ```
 
 `required: true` is satisfied by `auto` and by any concrete value
 (schema-design.md §2.3/§2.5). `board_offset` gets a real `default: default`
-because most families inherit it.
+because most families inherit it. Every form in §1 is covered by a round-trip
+test (`tests/unit/test_package_schema.py::TestLeadsRoundTrip`).
 
 ---
 
@@ -220,16 +239,11 @@ ways to declare it, pick one:
   drops its third `oneof` branch entirely. **Recommended** — keeps the matcher
   shape-only and matches the existing loader order (schema-design.md §3).
 
-Under 5b the `body_offset` declaration simplifies to:
-
-```yaml
-    body_offset:
-      type:
-        oneof:
-          - float
-          - {list: {oneof: [[float, float], [int, [float, float]]]}}
-      required: true
-```
+Under 5b the `body_offset` declaration simplifies to the §4 form above (no
+`{unit,value}` branch). **5b is what §4 reflects and what the matcher tests
+assume.** The loader unwrap-before-validate move is *not yet wired* — that is the
+one remaining loader change to make `body_offset`'s `{unit,value}` dict reach
+`validate` already unwrapped (the matcher itself is done).
 
 ---
 
@@ -246,32 +260,39 @@ fields and raise precise errors. The *only* things a schema buys here are:
    of a prose comment.
 
 If neither is needed yet, do nothing and revisit when the panels land. If they
-*are* needed, §2 (A+B+C) + §4 with the §3a / §5b recommendations is the minimal
+*are* needed, §2 (A–D) + §4 with the §3a / §5b recommendations is the minimal
 implementation.
 
 ---
 
 ## 7. Recommendation summary
 
-| Decision | Recommendation |
-|---|---|
-| Extensions | Add **A** (variadic `{list}`), **B** (`{oneof}`), **C** (`{const}`). |
-| Variable length | **3a** — element-shape only, no `len`; loader owns arity. |
-| `{unit,value}` | **5b** — unwrap in loader before `validate`; matcher stays shape-only. |
-| Grouped `direction` | Advisory outer-structure only; `expand_direction` stays the validator. |
-| If panels not needed yet | **§6** — keep loose, revisit with §8 panels. |
+| Decision | Recommendation | Status |
+|---|---|---|
+| Extensions | Add **A** (variadic `{list}`), **B** (`{oneof}`), **C** (`{const}`), **D** (`{seq}`). | **Done** (`schema.py`) |
+| Variable length | **3a** — element-shape only, no `len`; loader owns arity. | Done (`len` also supported, unused) |
+| `{unit,value}` | **5b** — unwrap in loader before `validate`; matcher stays shape-only. | Matcher done; **loader unwrap pending** |
+| Grouped `direction` | Advisory outer-structure only; `expand_direction` stays the validator. | Done (advisory shape expressible) |
+| If panels not needed yet | **§6** — keep loose, revisit with §8 panels. | Declarations not yet placed in YAML |
 
 All extensions are additive to `_matches` and break no existing `schema:` block.
-The matcher changes touch only `schema.py`; no loader behaviour changes under
-3a + 5b (loader still owns count/index/sentinel semantics).
+The matcher changes touch only `schema.py`; no loader behaviour changes (loader
+still owns count/index/sentinel semantics). **Not yet done** (deliberately, to
+keep this change matcher-only): wiring the §4 declarations into `generic.yaml`,
+and the §5b loader unwrap. The matcher is ready for both.
 
 ---
 
-## 8. Tests to add when implemented
+## 8. Tests — implemented in `tests/unit/test_package_schema.py`
 
-* `_matches({list: [...]}, …)` — empty list, all-match, one-mismatch.
-* `_matches({oneof: [...]}, …)` — each branch, none-match.
-* `_matches({const: default}, "default")` true; `"solve"` false.
-* Round-trip: every real YAML form in §1 validates against the §4 declaration.
-* Regression: existing flat-list-as-vector and nested-list-as-union still pass
-  (schema-design.md §9 list).
+* `TestListConstructor` — empty list, all-match, one-mismatch, scalar-not-list,
+  exact `len`, bad `len`.
+* `TestSeqConstructor` — run-length pair, wrong length, positional mismatch.
+* `TestOneofConstructor` — each branch, none-match, non-list `oneof`.
+* `TestConstConstructor` — exact match, `const` inside `oneof`.
+* `TestBadDictConstructor` — unknown dict key raises.
+* `TestLeadsRoundTrip` — every real YAML form in §1 validates against its §4
+  declaration (direction forms 1–3, body_offset scalar/mixed/single,
+  board_offset sentinels + explicit list, plus rejection cases).
+* Regression: the existing `TestParse` / `TestTypeMatch` / `TestApply` /
+  `TestFieldView` (flat-list-as-vector, nested-list-as-union) still pass.
