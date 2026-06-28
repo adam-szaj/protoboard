@@ -24,18 +24,6 @@ components:
       - {name: DIN-0617, ref: "DIN-0617/typ"}   # power axial
       - {name: SMD-0805, ref: "SMD-0805/typ"}   # rigid chip
       - {name: SMD-0603, ref: "SMD-0603/typ"}   # rigid chip
-    aliases:
-      # KiCAD footprint strings (axial + SMD) → this generic resistor.
-      - R_1206_3216Metric
-      - R_2010_5025Metric
-      - R_2512_6332Metric
-      - R_2816_7142Metric_Pad3_20x4_45mm_HandSolder
-      - R_Axial_DIN0207
-      - R_Axial_DIN0204
-      - R_Axial_DIN0411
-      - R_Axial_DIN0617
-      - R_0805_2012Metric
-      - R_0603_1608Metric
 
   - name: R_Net_4
     description: "4-resistor SIL network (common bus pin 1)"

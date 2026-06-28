@@ -20,12 +20,6 @@ components:
       - {name: Disc-D10, ref: "Ceramic-Disc-D10/typ"} # 10 mm disc
       - {name: SMD-0805, ref: "SMD-0805/typ"}         # rigid chip
       - {name: SMD-0603, ref: "SMD-0603/typ"}         # rigid chip
-    aliases:
-      # KiCAD footprint strings (disc + SMD) → this generic non-polar cap.
-      - C_1206_3216Metric
-      - C_Disc_D3.0mm
-      - C_0805_2012Metric
-      - C_0603_1608Metric
 
   # One generic polar (electrolytic / tantalum) capacitor.  The footprints: list
   # offers the radial electrolytic cans (5 mm default, 6.3 / 8 / 10 mm).
@@ -46,8 +40,3 @@ components:
       - {name: Radial-D6.3, ref: "Radial-Elko-D6.3/typ"}  # 6.3 mm
       - {name: Radial-D8, ref: "Radial-Elko-D8/typ"}      # 8 mm
       - {name: Radial-D10, ref: "Radial-Elko-D10/typ"}    # 10 mm
-    aliases:
-      - CP_Elec_5x11
-      - CP_Elec_6.3x11
-      - CP_Elec_8x11
-      - CP_Elec_10x16
