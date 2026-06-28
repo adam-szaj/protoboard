@@ -12,6 +12,7 @@ from protoboard.domain.layout.pad_conflict import (
     PadConflict,
     find_conflicts,
     find_wire_conflicts,
+    footprint_of as _footprint_of,
 )
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
@@ -70,7 +71,14 @@ def check_and_resolve(
     # Body-overlap check: block if the incoming bbox intersects a placed component
     # AND no pin of the incoming component actually coincides with a pin of that
     # component (which would be a shared-pad case handled by pad-conflict below).
-    incoming_bbox = component_bbox(defn.footprint, placement, defn.component_class)
+    #
+    # Geometry comes from each component's *resolved variant* footprint (the body
+    # the user actually chose), not the definition default — otherwise the bbox
+    # and pin cloud use the wrong pin spacing and the overlap/coincidence test is
+    # wrong (e.g. an SMD-0805 part checked against axial 3.2-hole pitch).
+    incoming_instance = session.instances.get(instance_id)
+    in_footprint = _footprint_of(defn, incoming_instance)
+    incoming_bbox = component_bbox(in_footprint, placement, defn.component_class)
     _EPS = 1e-4
     for other_id, other_pl in session.layout.placements.items():
         if other_id == instance_id:
@@ -81,17 +89,18 @@ def check_and_resolve(
         other_defn = session.components.get(other_inst.definition_ref)
         if other_defn is None:
             continue
-        if not incoming_bbox.intersects(component_bbox(other_defn.footprint, other_pl, other_defn.component_class)):
+        other_footprint = _footprint_of(other_defn, other_inst)
+        if not incoming_bbox.intersects(component_bbox(other_footprint, other_pl, other_defn.component_class)):
             continue
         # Bboxes overlap — check whether any pin pair actually coincides.
         # If at least one pin coincides this is a shared-pad scenario: let
         # the pad-conflict logic below decide.  If no pin coincides at all,
         # it is a pure body-on-body overlap → block.
         has_pin_overlap = False
-        for in_pin in range(1, defn.footprint.pin_count() + 1):
-            in_pos = pin_world_position(defn.footprint, placement, in_pin)
-            for ot_pin in range(1, other_defn.footprint.pin_count() + 1):
-                ot_pos = pin_world_position(other_defn.footprint, other_pl, ot_pin)
+        for in_pin in range(1, in_footprint.pin_count() + 1):
+            in_pos = pin_world_position(in_footprint, placement, in_pin)
+            for ot_pin in range(1, other_footprint.pin_count() + 1):
+                ot_pos = pin_world_position(other_footprint, other_pl, ot_pin)
                 if abs(in_pos.x - ot_pos.x) < _EPS and abs(in_pos.y - ot_pos.y) < _EPS:
                     has_pin_overlap = True
                     break
@@ -118,6 +127,7 @@ def check_and_resolve(
         components=session.components,
         schematic=session.schematic,
         pad_index=pad_index,
+        incoming_instance=incoming_instance,
     )
 
     # Build point→net map for wire-conflict detection.
@@ -142,6 +152,7 @@ def check_and_resolve(
         point_to_net=point_to_net,
         already_conflicted=already_conflicted,
         pad_index=pad_index,
+        incoming_instance=incoming_instance,
     )
 
     # --- Separate pad conflicts from wire conflicts ---
