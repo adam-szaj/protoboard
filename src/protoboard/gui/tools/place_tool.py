@@ -34,6 +34,9 @@ from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QGraphicsLine
 
 from protoboard.domain.commands.component_cmds import PlaceComponentCommand
 from protoboard.domain.components.definition import ComponentDefinition, PinBendSpec
+from protoboard.domain.components.footprints import Footprint
+from protoboard.domain.components.package import resolve_component_package
+from protoboard.domain.components.package.adapter import PackageFootprint
 from protoboard.domain.components.package.reach import effective_bend_specs
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement, flip_component, pin_world_position, unrotate
@@ -243,7 +246,9 @@ class PlaceTool(_Tool):
         if self._key_matches(event, _ACT_FLIP) and self._phase == "drag_pin":
             # Flip pin1/pin2 — anchor moves to old pin2 pad.
             defn = self._session.components.get(self._definition_ref)
-            if defn and defn.footprint.pin_count() == 2 and self._anchor_pos is not None:
+            fp = self._resolved_footprint(defn) if defn else None
+            if (defn and fp is not None and fp.pin_count() == 2
+                    and self._anchor_pos is not None):
                 import uuid as _uuid
                 tmp_pl = ComponentPlacement(
                     component_id=_uuid.UUID(int=0),
@@ -252,7 +257,7 @@ class PlaceTool(_Tool):
                     side="top",
                     pin_offsets=dict(self._pin_offsets),
                 )
-                flipped = flip_component(defn.footprint, tmp_pl)
+                flipped = flip_component(fp, tmp_pl)
                 self._anchor_pos  = flipped.position
                 self._rotation    = flipped.rotation
                 self._pin_offsets = flipped.pin_offsets
@@ -445,6 +450,25 @@ class PlaceTool(_Tool):
     # Offset computation
     # ------------------------------------------------------------------
 
+    def _resolved_footprint(self, defn: ComponentDefinition) -> "Footprint":
+        """The footprint of the *chosen* package variant, not the definition's.
+
+        The ghost renders the picked ``package_variant``'s body and pin spacing
+        (see ``make_ghost_item``); the drag-pin baseline, flip and pin-count
+        logic must use that SAME geometry, or the offset is measured against one
+        footprint and drawn against another — the body drifts, worse with
+        rotation. Falls back to ``defn.footprint`` when no variant resolves."""
+        if self._package_variant is not None:
+            inst = ComponentInstance.new(
+                definition_ref=defn.name, refdes="?", value="",
+                package_variant=self._package_variant,
+            )
+            families = getattr(self._session, "package_families", None) or {}
+            pkg = resolve_component_package(defn, inst, families)
+            if pkg is not None:
+                return PackageFootprint(pkg)
+        return defn.footprint
+
     def _pin_baseline_world(self, pin_number: int) -> Point | None:
         """World position of the pin ignoring any current offset."""
         if self._anchor_pos is None:
@@ -459,7 +483,8 @@ class PlaceTool(_Tool):
             side="top",
             pin_offsets={},
         )
-        return pin_world_position(defn.footprint, temp, pin_number)
+        return pin_world_position(self._resolved_footprint(defn), temp,
+                                  pin_number)
 
     def _compute_drag_offset(self, cursor: Point) -> Vector | None:
         """Return the clamped/snapped local offset for the active drag pin."""

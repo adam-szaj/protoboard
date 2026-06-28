@@ -179,6 +179,34 @@ class TestPlaceToolSmdMount:
         # body). If the theme lacked the catalogue both would be the default.
         assert smd_rect != axial_tool._ghost.boundingRect()
 
+    def test_drag_baseline_uses_chosen_variant_geometry(
+        self, session: EditorSession
+    ) -> None:
+        # Regression: the drag-pin baseline (and flip / pin-count) must use the
+        # chosen variant's footprint, the same geometry the ghost renders. When
+        # it used defn.footprint instead, the offset was measured against one
+        # body and drawn against another, so the ghost drifted in drag-pin —
+        # worse with rotation. The pin-2 baseline must differ between the SMD
+        # chip and the axial body (different pin spacing).
+        from protoboard.geometry import Point
+
+        view = self._builtin_view(session)
+        view.set_tool(PlaceTool("R", package_variant="SMD-0805/typ"))
+        smd = view._active_tool
+        assert isinstance(smd, PlaceTool)
+        smd._anchor_pos = Point(5.0, 5.0)
+        smd_base = smd._pin_baseline_world(2)
+
+        view.set_tool(PlaceTool("R", package_variant="DIN-0207/typ"))
+        axial = view._active_tool
+        assert isinstance(axial, PlaceTool)
+        axial._anchor_pos = Point(5.0, 5.0)
+        axial_base = axial._pin_baseline_world(2)
+
+        assert smd_base is not None and axial_base is not None
+        # Different bodies → pin 2 sits at different world spots from the anchor.
+        assert (smd_base.x, smd_base.y) != (axial_base.x, axial_base.y)
+
     def test_smd_enters_drag_pin_phase(
         self, board_view: BoardView, session: EditorSession
     ) -> None:
