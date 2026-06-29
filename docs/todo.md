@@ -155,7 +155,18 @@ use in `gui/tools/place_tool.py` (ghost build, `_discrete_candidate_world_positi
 deferred `component_bbox` item above (same "use the chosen variant's footprint,
 not the definition's" theme).
 
-## component_bbox margin should follow package rigidity, not class (added 2026-06-25)
+## component_bbox margin should follow package rigidity, not class (added 2026-06-25) — DONE (2026-06-29)
+
+**Done** (`3676256`). `component_bbox` now selects the margin via
+`_is_flexible_body(footprint, component_class)`: when the footprint is a
+`PackageFootprint` it reads `not is_rigid_package(fp.package)`, otherwise it
+falls back to the class test for bare footprints (`drag_detector` / `auto_placer`
+call sites, unchanged). SMD/DIP-as-rigid now get `_BODY_MARGIN`; axial `R`
+(`BOARD_SOLVE`) and the synth `_generic` package stay `_PAD_MARGIN`. Guarded by
+`tests/unit/test_component_bbox_rigidity.py` (SMD→body, axial→pad, DIP→body,
+bare-footprint→class). Closes "Generic-package invariant follow-up #3" too.
+
+Original report (kept for context):
 
 `domain/layout/placement.py::component_bbox` picks its margin by **electrical
 class**: `m = _PAD_MARGIN if component_class in _FLEXIBLE_LEAD_CLASSES else
