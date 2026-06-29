@@ -39,9 +39,38 @@ class TreePanelMixin:
     _id_col: int = 0
 
     def refresh(self, session: "EditorSession") -> None:
-        """Store session and rebuild the tree from scratch."""
+        """Store session, (re)subscribe to ``selection_changed``, and rebuild.
+
+        The panel owns its own board -> panel sync: it listens directly to the
+        session rather than having ``MainWindow`` fan selection out to it.  On a
+        session swap (open project) ``refresh`` is called with the new session,
+        so we move the subscription across — the old session would otherwise keep
+        a dead panel on its signal.
+        """
+        if self._session is not session:
+            if self._session is not None:
+                try:
+                    self._session.selection_changed.disconnect(
+                        self._on_session_selection
+                    )
+                except (TypeError, RuntimeError):
+                    pass
+            try:
+                session.selection_changed.connect(self._on_session_selection)
+            except (TypeError, RuntimeError):
+                pass
         self._session = session
         self._rebuild()
+
+    def _on_session_selection(
+        self, comp_ids: object, wire_ids: object, net_id: object
+    ) -> None:
+        """Board -> panel: forward the broadcast selection to ``sync_selection``.
+
+        Default behaviour; a panel needing more than row-highlighting can
+        override ``sync_selection`` (not this) so the subscription stays uniform.
+        """
+        self.sync_selection(comp_ids, wire_ids, net_id)
 
     def _rebuild(self) -> None:  # pragma: no cover
         """Populate self._tree from self._session.  Must be overridden."""

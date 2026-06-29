@@ -174,6 +174,37 @@ an orthogonal `Alt(basis) × Ctrl/Ctrl+Shift(set-op)` modifier matrix).
   endpoint to / from wire-pin (when the endpoint qualifies), Simplify,
   Unweave, Merge.
 
+## Selection sync (session hub)
+
+Selection is synchronised between the board view and the side panels through
+the `EditorSession`, which is the single hub for **both** directions.
+`MainWindow` does not fan selection out to panels nor relay panel clicks to the
+board — each panel owns its own wiring.
+
+- **Board → panel.** Every selection-changing click funnels through
+  `SelectTool._apply_selection` (and the release / rubber-band / clear paths),
+  each of which calls `_notify_selection()` →
+  `session.selection_changed(comp_ids, wire_ids, net_id)`. Panels subscribe to
+  that signal themselves: `TreePanelMixin.refresh()` connects
+  `_on_session_selection`; `NetsEditorPanel` and `PropertiesPanel` connect in
+  their own `refresh` / `set_session`. A panel's `sync_selection` highlights the
+  matching rows (component rows, the net row, the Component-Pin rows, the
+  Inspector row + its cost column).
+- **Panel → board.** A row click calls `session.request_select_*`
+  (`request_select_component` / `request_select_net` / `request_select_pin`),
+  which emits `session.selection_requested`. `BoardView._on_selection_requested`
+  is the single subscriber; it drives `SelectTool` via the existing
+  `_set_selection_from_ids` (expanding a net through `SessionNetSource`), then
+  `_notify_selection()` loops the result back out so every panel re-syncs.
+- **No loops.** `selection_requested` and `selection_changed` are distinct
+  signals, and each panel's row-click slot early-returns while `_syncing` is set
+  during a programmatic `sync_selection`, so the click → sync → click cycle is
+  broken.
+- **Session swap.** On open-project, panels re-bind their subscription off the
+  old (dead) session: tree panels via `refresh(new_session)`, `PropertiesPanel`
+  via `set_session`, and `BoardView` re-connects `selection_requested` in
+  `set_session`.
+
 ## Drag pipeline
 
 See [drag-pipeline-architecture.md](drag-pipeline-architecture.md). The

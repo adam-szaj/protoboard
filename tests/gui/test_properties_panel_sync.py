@@ -3,8 +3,10 @@
 
 v2 never told the Properties panel what was selected (``show_component`` had no
 caller), so it stayed blank and a keyboard rotate left a stale rotation combo.
-``MainWindow._sync_properties_panel`` re-wires it, and rotate/flip re-broadcast
-the selection so the panel refreshes.
+The panel now owns its sync: it subscribes to ``session.selection_changed`` and
+its ``_on_session_selection`` slot populates / clears itself (previously
+``MainWindow._sync_properties_panel`` did this).  rotate/flip re-broadcast the
+selection so the panel refreshes.
 """
 
 from __future__ import annotations
@@ -79,10 +81,11 @@ def _place(mw: MainWindow, x: float, y: float):  # type: ignore[no-untyped-def]
     return inst
 
 
-# These drive ``_on_selection_changed`` / ``_sync_properties_panel`` directly
-# (the wiring under test) rather than relying on the Qt ``selection_changed``
-# signal being delivered synchronously — pytest-qt does not pump the event loop
-# between calls, so the queued emission would not have landed by the assert.
+# These drive the panel's own ``_on_session_selection`` slot directly (the
+# wiring under test) rather than relying on the Qt ``selection_changed`` signal
+# being delivered synchronously — pytest-qt does not pump the event loop between
+# calls, so the queued emission would not have landed by the assert.  Driving the
+# slot exercises the same code the live subscription invokes.
 
 
 def test_selecting_component_populates_panel(main_window, qtbot) -> None:
@@ -90,7 +93,7 @@ def test_selecting_component_populates_panel(main_window, qtbot) -> None:
     panel = main_window._props_panel
     assert panel._current_id is None  # blank before select
 
-    main_window._on_selection_changed({inst.id}, set(), None)
+    panel._on_session_selection(frozenset({inst.id}), frozenset(), None)
     assert panel._current_id == inst.id  # panel now shows the component
 
 
@@ -104,20 +107,21 @@ def test_panel_reflects_current_rotation(main_window, qtbot) -> None:
     """
     inst = _place(main_window, 2.5, 2.5)
     panel = main_window._props_panel
-    main_window._on_selection_changed({inst.id}, set(), None)
+    panel._on_session_selection(frozenset({inst.id}), frozenset(), None)
     assert panel._rotation_combo.currentIndex() == 0  # 0°
 
     # Simulate the post-rotate state: placement at 90°, selection re-broadcast.
     pl = main_window._session.layout.placements[inst.id]
     pl.rotation = 90
-    main_window._on_selection_changed({inst.id}, set(), None)
+    panel._on_session_selection(frozenset({inst.id}), frozenset(), None)
     assert panel._rotation_combo.currentIndex() == 1  # combo followed the rotation
 
 
 def test_deselect_clears_panel(main_window, qtbot) -> None:
     inst = _place(main_window, 2.5, 2.5)
-    main_window._on_selection_changed({inst.id}, set(), None)
-    assert main_window._props_panel._current_id == inst.id
+    panel = main_window._props_panel
+    panel._on_session_selection(frozenset({inst.id}), frozenset(), None)
+    assert panel._current_id == inst.id
 
-    main_window._on_selection_changed(set(), set(), None)
-    assert main_window._props_panel._current_id is None  # cleared
+    panel._on_session_selection(frozenset(), frozenset(), None)
+    assert panel._current_id is None  # cleared

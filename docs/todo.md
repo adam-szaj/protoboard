@@ -540,3 +540,20 @@ Deferred (not scheduled):
   widget (one row per `schema` leaf; generator-derived fields read-only). Both
   panels consume the schema; designed once the schema API settled (it now has).
   See `docs/footprints/schema-design.md` §8.
+
+## Selection sync — single-pin precision deferred (2026-06-29)
+
+Bidirectional board↔panel selection sync ships through the `EditorSession` hub
+(see [docs/gui.md](gui.md) "Selection sync (session hub)"). The
+`selection_changed` / `selection_requested` triple is
+`(comp_ids, wire_ids, net_id)` — it carries **no pin number**.
+
+Consequence: a pin click on the board, or a Component-Pin row click in the Nets
+panel, selects/lights **all pin rows of that component**, not the single clicked
+pin. The component + its net are correct; only per-pin row precision is missing.
+
+To add it later: extend the signal triple with a 4th `pin_number: int | None`
+arg (or a `frozenset[PinRef]`), thread it through
+`session.request_select_pin` / `notify_selection`, and have
+`NetsEditorPanel.sync_selection` select just the matching `f"{cid}:{pin}"` row.
+Keep the existing 3-arg slots working (default the pin arg to None).

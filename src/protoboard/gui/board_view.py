@@ -166,6 +166,11 @@ class BoardView(QGraphicsView):
         # mere opacity tweak can't add or remove it.
         session.routing_net_changed.connect(self._apply_highlight_opacity)
         session.routing_net_changed.connect(self._on_routing_net_changed)
+        # Panel -> board selection: a panel asks the session to select something
+        # (component / net / pin); the session re-broadcasts it here and we drive
+        # SelectTool.  This is the single subscription point — no panel-awareness
+        # leaks into the view; it only ever knows the session it already holds.
+        session.selection_requested.connect(self._on_selection_requested)
         # Theme — overridden by MainWindow after Preferences apply.
         self._theme_override: Theme | None = None
         self._last_drag_refresh: float = 0.0
@@ -1515,12 +1520,19 @@ class BoardView(QGraphicsView):
         if self._active_tool is not None:
             self._active_tool.deactivate()
             self._active_tool = None
+        # Drop the old session's selection-request hook before swapping, so a
+        # lingering old session can't drive this view alongside the new one.
+        try:
+            self._session.selection_requested.disconnect(self._on_selection_requested)
+        except (TypeError, RuntimeError):
+            pass
         self._session = session
         self._highlighted_net_id = None
         self._board_layer_dirty = True
         session.layout_changed.connect(self._schedule_refresh)
         session.layout_changed.connect(session.invalidate_graph)
         session.drag_moved.connect(self._on_drag_moved)
+        session.selection_requested.connect(self._on_selection_requested)
         self.refresh()
 
     def set_tool(self, tool: _Tool | None) -> None:
@@ -1945,6 +1957,52 @@ class BoardView(QGraphicsView):
         tool = self._active_tool
         if isinstance(tool, SelectTool):
             tool._select_primary(comp_id)
+
+    def _on_selection_requested(
+        self, comp_ids: object, wire_ids: object, net_id: object
+    ) -> None:
+        """Drive SelectTool from a session-level selection request (panel -> board).
+
+        The mirror of the board -> panel signal: a panel asked the session to
+        select something; the session re-broadcast it here.  We switch to
+        SelectTool (so the request is honoured even from Route/Place mode) and
+        rebuild its selection through the SAME setters the context menu and
+        ``select_component`` use, so the result loops back out through
+        ``_notify_selection`` and every panel syncs.
+
+        A ``net_id`` pulls in the whole net's comps + wires (via
+        ``SessionNetSource``); any explicit component/wire ids are unioned on top
+        so a *pin* request (comp id + the pin's net) lights the net AND focuses
+        the component.  The full target set is built first and applied in a
+        single ``_set_selection_from_ids`` — re-running a net-select then a union
+        would re-pass already-selected items to ``set_many``, which toggles them
+        back OFF (the documented FSM trap).
+        """
+        from protoboard.gui.selection.queries import SessionNetSource
+        from protoboard.gui.tools.select_tool import SelectTool
+
+        if not isinstance(self._active_tool, SelectTool):
+            self.set_tool(SelectTool())
+        tool = self._active_tool
+        if not isinstance(tool, SelectTool):
+            return
+        nid = net_id if isinstance(net_id, uuid.UUID) else None
+        target_c: set[uuid.UUID] = (
+            set(comp_ids) if isinstance(comp_ids, frozenset) else set()
+        )
+        target_w: set[uuid.UUID] = (
+            set(wire_ids) if isinstance(wire_ids, frozenset) else set()
+        )
+        if nid is not None:
+            src = SessionNetSource(self._session)
+            target_c |= set(src.net_component_ids(nid))
+            target_w |= set(src.wire_ids_on_net(nid))
+        # Clear first: _set_selection_from_ids -> set_many -> set(first), and the
+        # FSM SET op no-ops / toggles-off a still-selected first item, so applying
+        # onto a non-empty selection can silently drop it.
+        tool._clear_selection_to_empty()
+        tool._set_selection_from_ids(target_c, target_w, set())
+        tool._notify_selection()
 
     def snap(self, scene_pt: QPointF, exclude_ids: frozenset[uuid.UUID] | None = None) -> Point:
         """Snap scene-space point to nearest accessible pad or component pin.

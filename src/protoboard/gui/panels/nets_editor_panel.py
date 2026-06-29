@@ -108,6 +108,7 @@ class NetsEditorPanel(QWidget):
         self._pin_tree.setAlternatingRowColors(True)
         self._pin_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._pin_tree.customContextMenuRequested.connect(self._on_pin_context_menu)
+        self._pin_tree.itemClicked.connect(self._on_pin_item_clicked)
         pin_layout.addWidget(self._pin_tree)
 
         pin_btn_row = QHBoxLayout()
@@ -142,21 +143,43 @@ class NetsEditorPanel(QWidget):
         _wire_ids: object,
         net_id: object,
     ) -> None:
-        """Highlight net row matching net_id, or pins matching comp_ids."""
+        """Board -> panel: select the net row (by net_id) and the Component-Pin
+        rows of every selected component (by comp_ids).
+
+        A component click lights its pin rows; a wire click lights the net row;
+        a pin click does both (the request carries the component id AND the
+        pin's net).  Runs under ``_syncing`` so the resulting ``setSelected``
+        does not echo back out as a panel->board click.
+        """
         if not self.isVisible():
             return
         self._syncing = True
         try:
             self._net_tree.clearSelection()
-            if net_id is not None:
-                for i in range(self._net_tree.topLevelItemCount()):
-                    item = self._net_tree.topLevelItem(i)
-                    if item is None:
-                        continue
-                    if item.data(_NET_COL_NAME, _ROLE) == str(net_id):
-                        item.setSelected(True)
-                        self._net_tree.scrollToItem(item)
-                        break
+            if isinstance(net_id, uuid.UUID):
+                self._select_net_row(net_id)
+            self._pin_tree.clearSelection()
+            cid_strs = {
+                str(c)
+                for c in (comp_ids if isinstance(comp_ids, frozenset) else frozenset())
+            }
+            first: QTreeWidgetItem | None = None
+            for i in range(self._pin_tree.topLevelItemCount()):
+                parent = self._pin_tree.topLevelItem(i)
+                for j in range(parent.childCount() if parent else 0):
+                    assert parent is not None
+                    child = parent.child(j)
+                    raw = child.data(0, _ROLE) if child is not None else None
+                    if (
+                        child is not None
+                        and isinstance(raw, str)
+                        and raw.split(":", 1)[0] in cid_strs
+                    ):
+                        child.setSelected(True)
+                        if first is None:
+                            first = child
+            if first is not None:
+                self._pin_tree.scrollToItem(first)
         finally:
             self._syncing = False
 
@@ -171,17 +194,51 @@ class NetsEditorPanel(QWidget):
             except ValueError:
                 pass
 
+    def _on_pin_item_clicked(self, item: "QTreeWidgetItem", _col: int) -> None:
+        """Panel -> board: a Component-Pin row click selects the pin on the board.
+
+        Reads the clicked item directly (not ``currentItem``, which Qt updates
+        only after this slot) and routes through the session hub, which lights
+        the pin's net AND focuses its component.
+        """
+        if self._syncing or self._session is None:
+            return
+        raw = item.data(0, _ROLE)
+        if not isinstance(raw, str):
+            return
+        try:
+            comp_id_str, pin_str = raw.split(":", 1)
+            comp_id, pin_num = uuid.UUID(comp_id_str), int(pin_str)
+        except (ValueError, AttributeError):
+            return
+        self._session.request_select_pin(comp_id, pin_num)
+
     def refresh(self, session: EditorSession) -> None:
         if self._session is not session:
-            # Hook the autoroute gate exactly once per session — subsequent
-            # refresh() calls with the same session are no-ops here.
+            # Hook the autoroute gate and the board->panel selection feed exactly
+            # once per session — subsequent same-session refresh() calls no-op
+            # here.  On a session swap, drop the old session's selection hook.
+            if self._session is not None:
+                try:
+                    self._session.selection_changed.disconnect(
+                        self._on_session_selection
+                    )
+                except (TypeError, RuntimeError):
+                    pass
             try:
                 session.autoroute_active_changed.connect(self._on_autoroute_active)
+                session.selection_changed.connect(self._on_session_selection)
             except (TypeError, RuntimeError):
                 pass
         self._session = session
         self._on_autoroute_active(session.autoroute_active)
         self._rebuild()
+
+    def _on_session_selection(
+        self, comp_ids: object, wire_ids: object, net_id: object
+    ) -> None:
+        """Board -> panel feed (this panel is not a TreePanelMixin)."""
+        self.sync_selection(comp_ids, wire_ids, net_id)
 
     def _on_autoroute_active(self, active: bool) -> None:
         """Disable structural net edits while autoroute is running.

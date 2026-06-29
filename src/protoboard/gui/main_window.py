@@ -315,8 +315,10 @@ class MainWindow(QMainWindow):
         self._board_view.cursor_moved.connect(self._on_cursor_moved)
         self._board_view.escape_tool.connect(self._tool_select)
         self._library_panel.component_selected.connect(self._tool_place)
-        self._netlist_panel.instance_selected.connect(self._board_view.select_component)
-        self._components_panel.instance_selected.connect(self._board_view.select_component)
+        # Panel -> board goes through the session hub (not a direct board_view
+        # call): the session re-broadcasts and every panel re-syncs.
+        self._netlist_panel.instance_selected.connect(session.request_select_component)
+        self._components_panel.instance_selected.connect(session.request_select_component)
         self._components_panel.place_requested.connect(self._tool_place_instance)
         self._components_panel.auto_place_selected_requested.connect(
             self._auto_place_instances
@@ -349,8 +351,13 @@ class MainWindow(QMainWindow):
         self._groups_panel.group_renamed.connect(lambda _: self._session.mark_dirty())
 
         self._nets_editor_panel.nets_changed.connect(self._on_nets_editor_changed)
-        self._nets_editor_panel.net_selected.connect(self._board_view.set_highlighted_net)
+        # net_selected is Signal(object); narrow to UUID before the session call.
+        self._nets_editor_panel.net_selected.connect(self._on_panel_net_selected)
         self._layers_panel.overrides_changed.connect(self._on_layer_panel_changed)
+        # MainWindow keeps only the status-bar mode label off selection_changed;
+        # the panels subscribe to the session themselves.  Properties is not a
+        # tree panel, so it is bound explicitly here (and on every session swap).
+        self._props_panel.set_session(session)
         self._session.selection_changed.connect(self._on_selection_changed)
         self._session.highlight_mode_changed.connect(self._hl_mode_widget.on_highlight_mode_changed)
         # Persist selection axes globally whenever the user changes them.
@@ -607,6 +614,7 @@ class MainWindow(QMainWindow):
         self._layers_panel.sync()
         self._board_view.set_session(session)
         self._perf_panel.set_session(session)
+        self._props_panel.set_session(session)
         self._tool_select()
         self._refresh_netlist()
         self._refresh_groups()
@@ -719,58 +727,25 @@ class MainWindow(QMainWindow):
         self._net_inspector_panel.refresh(self._session)
 
     def _on_selection_changed(
-        self, comp_ids: object, wire_ids: object, net_id: object
+        self, comp_ids: object, _wire_ids: object, _net_id: object
     ) -> None:
-        """Broadcast board selection state to all panels."""
-        _t0 = _time.monotonic() if _CLICK_PROFILE else 0.0
-        self._netlist_panel.sync_selection(comp_ids, wire_ids, net_id)
-        _t1 = _time.monotonic() if _CLICK_PROFILE else 0.0
-        self._components_panel.sync_selection(comp_ids, wire_ids, net_id)
-        _t2 = _time.monotonic() if _CLICK_PROFILE else 0.0
-        self._nets_editor_panel.sync_selection(comp_ids, wire_ids, net_id)
-        _t3 = _time.monotonic() if _CLICK_PROFILE else 0.0
-        self._net_inspector_panel.sync_selection(comp_ids, wire_ids, net_id)
-        self._sync_properties_panel(comp_ids)
+        """Keep the status-bar mode label in step with the selection.
 
-        # Mode label gets the SelectTool selection summary appended so
-        # the status bar always shows the current primary + multi
-        # counts.  Only applies when SelectTool is the active tool —
-        # other tools (Route / Place / Cut) keep their own label.
+        Panels sync themselves by subscribing to ``session.selection_changed``;
+        MainWindow no longer fans selection out to them.  Its only remaining
+        stake in the signal is the SelectTool selection summary in the status
+        bar (other tools keep their own label).
+        """
+        del comp_ids  # the label reads live tool state, not the broadcast ids
         from protoboard.gui.tools.select_tool import SelectTool
         active = getattr(self._board_view, "_active_tool", None)
         if isinstance(active, SelectTool):
             self._mode_label.setText(f"Select | {active.selection_summary()}")
-        if _CLICK_PROFILE:
-            _click_log.info(
-                "click_profile.main_window.on_selection_changed",
-                netlist_ms=round((_t1 - _t0) * 1000, 1),
-                components_ms=round((_t2 - _t1) * 1000, 1),
-                nets_editor_ms=round((_t3 - _t2) * 1000, 1),
-                net_inspector_ms=round((_time.monotonic() - _t3) * 1000, 1),
-            )
 
-    def _sync_properties_panel(self, comp_ids: object) -> None:
-        """Show the single selected component in the Properties panel, else clear.
-
-        v2 regression: the panel was never told what's selected (``show_component``
-        had no caller), so it stayed blank — and a keyboard rotate left a stale
-        rotation combo.  Re-wiring it here populates it on select AND refreshes
-        it after rotate/flip (those now re-broadcast the selection).
-        """
-        ids = list(comp_ids) if isinstance(comp_ids, (set, frozenset, list, tuple)) else []
-        if len(ids) != 1:
-            self._props_panel.clear_component()
-            return
-        cid = ids[0]
-        inst = self._session.instances.get(cid)
-        if inst is None:
-            self._props_panel.clear_component()
-            return
-        placement = self._session.layout.placements.get(cid)
-        defn = self._session.components.get(inst.definition_ref)
-        self._props_panel.show_component(
-            inst, placement, defn, package_families=self._session.package_families,
-        )
+    def _on_panel_net_selected(self, net_id: object) -> None:
+        """Relay a Nets-panel net-row click to the session hub (narrow to UUID)."""
+        if isinstance(net_id, uuid.UUID):
+            self._session.request_select_net(net_id)
 
     def _refresh_panels(self) -> None:
         """Debounced refresh of all sidebar panels — called via _panels_timer."""

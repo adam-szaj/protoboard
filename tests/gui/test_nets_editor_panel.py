@@ -214,6 +214,67 @@ class TestNetsEditorPanelSyncSelection:
         panel.sync_selection(frozenset(), frozenset(), net.id)
         assert panel._net_tree.selectedItems() == []
 
+    def test_sync_selects_component_pin_rows(
+        self, qtbot: QtBot, session: EditorSession
+    ) -> None:
+        """A component broadcast lights its Component-Pin rows (board → panel)."""
+        panel = _panel(qtbot)
+        panel.show()
+        inst = _add_instance(session, "R1")
+        panel.refresh(session)
+
+        panel.sync_selection(frozenset({inst.id}), frozenset(), None)
+
+        selected = panel._pin_tree.selectedItems()
+        assert selected, "the component's pin row(s) should be selected"
+        for item in selected:
+            raw = item.data(0, _ROLE)
+            assert isinstance(raw, str) and raw.split(":", 1)[0] == str(inst.id)
+
+
+class TestNetsEditorPinClickToBoard:
+    """A Component-Pin row click drives board selection through the session."""
+
+    def test_pin_click_requests_select_pin(
+        self, qtbot: QtBot, session: EditorSession
+    ) -> None:
+        panel = _panel(qtbot)
+        inst = _add_instance(session, "R1")
+        panel.refresh(session)
+        captured: list[tuple] = []
+        session.selection_requested.connect(
+            lambda c, w, n: captured.append((c, w, n))
+        )
+
+        # Grab the first pin row and fire the click slot directly.
+        parent = panel._pin_tree.topLevelItem(0)
+        assert parent is not None and parent.childCount() >= 1
+        pin_row = parent.child(0)
+        assert pin_row is not None
+        panel._on_pin_item_clicked(pin_row, 0)
+
+        assert captured, "a pin-row click must emit a selection request"
+        comp_ids, _wires, _net = captured[-1]
+        assert inst.id in comp_ids
+
+    def test_pin_click_ignored_while_syncing(
+        self, qtbot: QtBot, session: EditorSession
+    ) -> None:
+        panel = _panel(qtbot)
+        _add_instance(session, "R1")  # need a pin row; its id is irrelevant here
+        panel.refresh(session)
+        captured: list[tuple] = []
+        session.selection_requested.connect(lambda *a: captured.append(a))
+
+        panel._syncing = True
+        parent = panel._pin_tree.topLevelItem(0)
+        assert parent is not None
+        pin_row = parent.child(0)
+        assert pin_row is not None
+        panel._on_pin_item_clicked(pin_row, 0)
+
+        assert captured == [], "a click during programmatic sync must be ignored"
+
 
 # ---------------------------------------------------------------------------
 # signals — nets_changed

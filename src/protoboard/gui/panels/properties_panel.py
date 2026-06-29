@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
@@ -31,6 +31,9 @@ from protoboard.domain.components.package.family import PackageFamily
 from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
 from protoboard.geometry import Vector
 from protoboard.services.drc.engine import DRCIssue
+
+if TYPE_CHECKING:
+    from protoboard.gui.session import EditorSession
 
 _SEVERITY_COLORS = {
     "error": QColor("#CC2222"),
@@ -128,6 +131,9 @@ class PropertiesPanel(QWidget):
             self._on_package_variant_changed,
         )
         self._current_id: uuid.UUID | None = None
+        # Set via set_session(); the panel fetches inst/placement/defn itself now
+        # that it subscribes to selection directly (no MainWindow fan-out).
+        self._session: "EditorSession | None" = None
         self._pin_variant_ids: list[str | None] = []
         # Parallel to _pin_variant_ids: address strings or None for default.
         self._body_variant_addresses: list[str | None] = []
@@ -186,6 +192,56 @@ class PropertiesPanel(QWidget):
         layout.addStretch()
 
     # ------------------------------------------------------------------
+
+    def set_session(self, session: "EditorSession") -> None:
+        """Bind the session and subscribe to its selection broadcasts.
+
+        The panel owns its own board -> panel sync (no MainWindow fan-out): it
+        listens to ``selection_changed`` and pulls the selected instance's
+        placement/definition straight off the session.  Re-binding on a session
+        swap moves the subscription off the dead session.
+        """
+        if self._session is session:
+            return
+        if self._session is not None:
+            try:
+                self._session.selection_changed.disconnect(self._on_session_selection)
+            except (TypeError, RuntimeError):
+                pass
+        self._session = session
+        try:
+            session.selection_changed.connect(self._on_session_selection)
+        except (TypeError, RuntimeError):
+            pass
+
+    def _on_session_selection(
+        self, comp_ids: object, _wire_ids: object, _net_id: object
+    ) -> None:
+        """Board -> panel: show the single selected component, else clear.
+
+        Mirrors the old ``MainWindow._sync_properties_panel`` — moved here so the
+        panel drives itself.  Only a lone component selection populates the
+        editor; anything else (multi-select, wire, group, empty) clears it.
+        """
+        ids = (
+            list(comp_ids)
+            if isinstance(comp_ids, (set, frozenset, list, tuple))
+            else []
+        )
+        if len(ids) != 1 or self._session is None:
+            self.clear_component()
+            return
+        cid = ids[0]
+        inst = self._session.instances.get(cid)
+        if inst is None:
+            self.clear_component()
+            return
+        placement = self._session.layout.placements.get(cid)
+        defn = self._session.components.get(inst.definition_ref)
+        self.show_component(
+            inst, placement, defn,
+            package_families=self._session.package_families,
+        )
 
     def show_component(
         self,

@@ -2394,3 +2394,51 @@ class TestNetRelation:
         _key(tool, Qt.Key.Key_A)
         assert tool._wire_edit is None
         assert tool._selection.active_pick is None
+
+
+class TestSelectionBroadcastOnClick:
+    """Every click-driven selection change must emit ``selection_changed`` so the
+    side panels (which subscribe to it) stay in sync — not just the ~6
+    programmatic paths that called ``_notify_selection`` before.
+    """
+
+    @staticmethod
+    def _spy(session: EditorSession) -> list[tuple]:
+        events: list[tuple] = []
+        session.selection_changed.connect(
+            lambda c, w, n: events.append((c, w, n))
+        )
+        return events
+
+    def test_plain_click_select_broadcasts(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        events = self._spy(session)
+        _click(tool, 0.5, 0.5)
+        assert events, "a plain component click must broadcast selection_changed"
+        assert inst.id in events[-1][0]
+
+    def test_empty_canvas_click_broadcasts_clear(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        tool._select_primary(inst.id)
+        events = self._spy(session)
+        # Click far from any component → rubber-band sub-threshold click → clear.
+        _click(tool, 9.0, 9.0)
+        assert events, "an empty-canvas click must broadcast the cleared selection"
+        assert not events[-1][0]  # no components in the final broadcast
+
+    def test_rubber_band_broadcasts(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        a = _place(board_view, session, 1.0, 1.0)
+        b = _place(board_view, session, 6.0, 6.0)
+        tool = _v2(board_view)
+        events = self._spy(session)
+        _band_select(tool, session, [a.id, b.id])  # band starts off-bbox
+        assert events, "a rubber-band commit must broadcast selection_changed"
+        assert {a.id, b.id} <= events[-1][0]

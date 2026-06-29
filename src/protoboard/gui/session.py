@@ -156,8 +156,16 @@ class EditorSession(QObject):
     drc_changed = Signal(list)  # list[DRCIssue]
     dirty_changed = Signal(bool)
     # Carries (frozenset[UUID] comp_ids, frozenset[UUID] wire_ids, UUID|None net_id).
-    # Emitted by SelectTool after any selection change so panels can sync.
+    # Emitted by SelectTool after any selection change so panels can sync
+    # (board -> panel half of the selection hub).
     selection_changed = Signal(object, object, object)
+    # Carries the same (comp_ids, wire_ids, net_id) triple, but in the opposite
+    # direction: a panel row-click asks the board to select these objects
+    # (panel -> board half).  BoardView subscribes once and drives SelectTool;
+    # SelectTool then re-broadcasts the result through ``selection_changed`` so
+    # every panel syncs.  Kept distinct from ``selection_changed`` so the two
+    # directions never short-circuit into each other inside the session.
+    selection_requested = Signal(object, object, object)
     # Emitted by SelectTool when the interaction mode changes (carries mode label str).
     highlight_mode_changed = Signal(str)
     # Emitted by RouteTool when it starts/ends routing a specific net.
@@ -304,6 +312,41 @@ class EditorSession(QObject):
     ) -> None:
         """Called by SelectTool to broadcast selection state to all panels."""
         self.selection_changed.emit(comp_ids, wire_ids, net_id)
+
+    def request_select_component(self, comp_id: uuid.UUID) -> None:
+        """Ask the board to make *comp_id* the sole selection (panel -> board).
+
+        Emits ``selection_requested`` with a single component id and no
+        wires/net; BoardView translates it into ``SelectTool._select_primary``.
+        """
+        self.selection_requested.emit(frozenset({comp_id}), frozenset(), None)
+
+    def request_select_net(self, net_id: uuid.UUID) -> None:
+        """Ask the board to select the whole net — all comps + wires (panel -> board).
+
+        Emits ``selection_requested`` with ``net_id`` set and empty id sets;
+        BoardView expands it via the canonical ``SelectTool._menu_select_net``.
+        """
+        self.selection_requested.emit(frozenset(), frozenset(), net_id)
+
+    def request_select_pin(self, comp_id: uuid.UUID, pin_number: int) -> None:
+        """Ask the board to select the pin's component AND light its net.
+
+        The request triple carries no pin field, so the pin's net is resolved
+        here (Qt-free, via the schematic) and component + net are passed so BOTH
+        component- and net-panels react.  Falls back to a bare component request
+        when the pin is netless.
+        """
+        from protoboard.domain.schematic.net import PinRef
+
+        net = self.schematic.net_for_pin(
+            PinRef(component_id=comp_id, pin_number=pin_number)
+        )
+        self.selection_requested.emit(
+            frozenset({comp_id}),
+            frozenset(),
+            net.id if net is not None else None,
+        )
 
     def notify_highlight_mode(self, label: str) -> None:
         """Called by SelectTool when the interaction mode changes."""

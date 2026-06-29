@@ -518,6 +518,10 @@ class SelectTool(_Tool):
         else:
             self._selection.set(sel)
         self._refresh_highlight(primary=sel)
+        # Broadcast to the panels: every click-driven selection change funnels
+        # through here, so this is the one spot that keeps board -> panel sync
+        # honest for plain mouse clicks (the highlight above is board-only).
+        self._notify_selection()
 
     def _refresh_highlight(self, *, primary: Selectable | None = None) -> None:
         """Publish the auto-highlight: the selection plus the primary's net context.
@@ -709,6 +713,7 @@ class SelectTool(_Tool):
         self._selection.clear()
         self._context_net_id = None
         self._refresh_highlight()
+        self._notify_selection()
 
     def _redraw_multi_highlights(self) -> None:
         self._refresh_highlight()
@@ -1046,6 +1051,8 @@ class SelectTool(_Tool):
             and getattr(mouse, "was_click", False)
         ):
             self._clear_selection_to_empty()
+            self._refresh_highlight()
+            self._notify_selection()
 
     def _resolve_deferred_click(self, mouse: MouseInputController) -> None:
         """Apply the selection change a press-on-selected deferred to release.
@@ -1074,6 +1081,7 @@ class SelectTool(_Tool):
         self._clear_selection_to_empty()
         self._selection.set(sel)
         self._refresh_highlight()
+        self._notify_selection()
 
     def _clear_selection_to_empty(self) -> None:
         """Pop every selection layer until nothing is selected (NORMAL state)."""
@@ -1672,6 +1680,7 @@ class SelectTool(_Tool):
         if final:
             self._selection.set_many(final)
         self._refresh_highlight()
+        self._notify_selection()
 
     # -- intent dispatch (CONFIRM / CANCEL / UNDO) -------------------------
 

@@ -74,6 +74,54 @@ class TestTreePanelMixin:
         panel.refresh(session)
         assert panel._session is session
 
+    def test_refresh_subscribes_to_selection_changed(
+        self, qtbot: QtBot, session: EditorSession
+    ) -> None:
+        """refresh() wires the panel to selection_changed so a board broadcast
+        selects the matching row without any MainWindow fan-out."""
+        panel = _SimplePanel()
+        qtbot.addWidget(panel)
+        inst = _make_instance(session)
+        panel.refresh(session)
+        panel.show()
+        qtbot.waitExposed(panel)
+
+        session.notify_selection(frozenset({inst.id}), frozenset(), None)
+
+        selected = panel._tree.selectedItems()
+        assert selected
+        assert selected[0].data(0, Qt.ItemDataRole.UserRole) == str(inst.id)
+
+    def test_refresh_moves_subscription_on_session_swap(
+        self, qtbot: QtBot, session: EditorSession
+    ) -> None:
+        """A second refresh() with a new session detaches the old one, so an old
+        broadcast no longer drives the panel (the open-project re-bind)."""
+        from pathlib import Path
+
+        from protoboard.services.library.loader import load_library
+        from tests.conftest import _make_perfboard  # type: ignore[attr-defined]
+
+        panel = _SimplePanel()
+        qtbot.addWidget(panel)
+        panel.refresh(session)
+        panel.show()
+        qtbot.waitExposed(panel)
+
+        lib = load_library([Path(__file__).parent.parent / "fixtures" / "library"])
+        new_session = EditorSession(board=_make_perfboard(), library=lib)
+        new_inst = _make_instance(new_session)
+        panel.refresh(new_session)
+
+        # Old session no longer drives the panel.
+        old_inst = _make_instance(session)
+        session.notify_selection(frozenset({old_inst.id}), frozenset(), None)
+        assert panel._tree.selectedItems() == []
+        # New session does.
+        new_session.notify_selection(frozenset({new_inst.id}), frozenset(), None)
+        sel = panel._tree.selectedItems()
+        assert sel and sel[0].data(0, Qt.ItemDataRole.UserRole) == str(new_inst.id)
+
     def test_find_item_returns_none_when_empty(
         self, qtbot: QtBot, session: EditorSession
     ) -> None:

@@ -272,7 +272,7 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
             self._tree.addTopLevelItem(item)
 
     def _on_item_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
-        if self._syncing:
+        if self._syncing or self._session is None:
             return
         raw = item.data(_COL_NAME, _ROLE)
         if not isinstance(raw, str):
@@ -281,7 +281,10 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
             net_id = uuid.UUID(raw)
         except ValueError:
             return
-        self._board_view.set_highlighted_net(net_id)
+        # Panel -> board through the session hub (not a direct board_view call):
+        # selecting the whole net lights its pads/wires AND, looping back through
+        # selection_changed, re-selects this row and the Nets-panel net row.
+        self._session.request_select_net(net_id)
 
 
 # ---------------------------------------------------------------------------
