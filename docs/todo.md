@@ -171,19 +171,25 @@ same function `loader.py:613` uses for "the rigid body fixes the spacing". The
 clean fix is to choose the margin from `is_rigid_package(resolved_pkg)` instead
 of the class.
 
-**Why deferred (2026-06-25):** all 15 `component_bbox` call sites pass only
-`footprint` + `component_class`; **none** has the package-family catalogue, and
-several (`pad_state`, `drag_detector`, `auto_placer`) have no instance either, so
-none can resolve the chosen variant. Worse, `component_bbox` receives
-`defn.footprint` (the *default* variant), not the footprint of the chosen
-instance variant — so even reading `is_rigid_package(footprint.package)` off a
-`PackageFootprint` would miss `R`-placed-as-SMD (its body lives in a `footprints:`
-list, chosen per-instance). Fixing this needs the chosen variant's footprint/
-package threaded to the bbox call sites that have an instance (`pad_conflict`,
-`placement`, `placement_conflict`, `session.component_bbox`, routing) — the same
-variant-vs-definition asymmetry the bend-spec fix solved via
-`effective_bend_specs(defn, instance, families)`. Do it as its own change with
-regression tests (THT axial keeps `_PAD_MARGIN`; SMD/DIP get `_BODY_MARGIN`).
+**Why deferred (2026-06-25) — original blocker now LIFTED (verified 2026-06-29):**
+the original reason was that every `component_bbox` call site passed only
+`defn.footprint` (the *default* variant) + `component_class`, so none could see
+the chosen variant to read `is_rigid_package(...)`. That is no longer true: the
+instance-carrying sites now thread the **chosen variant's** footprint —
+`session.component_bbox` via `resolved_footprint(defn, inst, families)`
+(`gui/session.py:786`), and `pad_conflict` + the routing-cost sites via
+`footprint_of(defn, inst)` (`pad_conflict.py:673`, `cost_analyzer.py:196`,
+`autorouter.py:2315`). So `is_rigid_package(fp.package)` off the passed
+`PackageFootprint` would now correctly tell SMD-`R` from THT-`R` at those sites.
+
+**Remaining work (now actionable):** change the margin selection in
+`placement.py:144` from `component_class in _FLEXIBLE_LEAD_CLASSES` to
+`is_rigid_package(fp.package)` when `fp` is a `PackageFootprint` (fall back to the
+class test for bare `Footprint`s). Two sites still cannot resolve the variant
+(`drag_detector`, `auto_placer` — no instance/catalogue), so they keep the class
+fallback. Do it as its own change with regression tests (THT axial keeps
+`_PAD_MARGIN`; SMD/DIP get `_BODY_MARGIN`). Same item as "Generic-package
+invariant follow-up #3" above.
 
 ## Footprint→body cleanup: two deferred parities (added 2026-06-25)
 
@@ -236,7 +242,10 @@ The legacy `TO220Body`/`theme.to220_*` can then be removed once the prism path
 proves parity (it currently survives only as the bare-`TO220Footprint` legacy
 fallback — `TestBodyShapeFor.test_to220_footprint_returns_to220body`).
 
-## Component-declaration rework — IC repoint deferred (added 2026-06-21)
+## Component-declaration rework — IC repoint deferred (added 2026-06-21) — IC repoint DONE (2026-06-21)
+
+The headline IC repoint is done (see below, guarded by `TestMigratedICs`). Only
+the named-standard-sizes sub-item (last paragraph) is still deferred.
 
 Phases A/B/C of the declaration rework shipped: `extends` (cross-file),
 `footprints:` lists, `symbol`, `kind` packages, the forced-choice picker +
@@ -321,11 +330,11 @@ read. Three gaps were consciously deferred:
      Drive panel signals/slots directly (heavy Qt event loops hang under pytest-qt).
      Then mark this item done + note GUI editing in `authoring.md` §8.
 
-## SelectTool — deferred parity items (after the rewrite landed)
+## SelectTool — deferred parity items (after the rewrite landed) — DONE (both items)
 
 The SelectTool rewrite (`gui/tools/select_tool.py` — the service-based tool
-that replaced the 9.5k-line monolith) reached full integration parity, with
-two consciously-deferred gaps:
+that replaced the 9.5k-line monolith) reached full integration parity. Both
+consciously-deferred gaps are now closed (verified in code 2026-06-29):
 
 1. **Selection-filter enforcement.** ✅ DONE (2026-06-20).  `SelectTool.
    _filters()` now translates the held `SelectionFilter` into the hit-test's
