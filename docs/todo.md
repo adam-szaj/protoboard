@@ -332,14 +332,13 @@ A full legacy-vs-v2 behaviour audit (parallel finders + adversarial verify)
 surfaced silent user-visible regressions from the swap.  Already fixed in this
 branch: group-protection lock, relation status label, keyboard relation-cycle,
 reroute anchor, bright wire+pad highlight, Alt+LMB net expansion, net-pad discs
-following the real selection.  Remaining confirmed items (all medium), being
-worked through:
+following the real selection.  All confirmed items are now resolved:
 
-- **Rubber-band only catches components.**  `_arm_band` passes only
-  `comp_ids`; `_band_select` builds only `ComponentSelectable` and always
-  SETs.  Lost vs legacy: wire catching (LTR all-inside / RTL any-inside or
-  segment-crosses), group catching (member-bbox coverage), and Ctrl/Shift
-  ADD/REMOVE ops (always replaces).
+- **Rubber-band only catches components.**  ✅ DONE.  `_band_select` now
+  extends the picked set with `hit.extras` (wires + groups caught by the
+  controller's LTR all-inside / RTL any-inside test) and decodes the modifier
+  into SET / ADD / REMOVE (`set_many` after a clear, relation-agnostic), not a
+  bare component-only SET.
 - **Drag conflict feedback.**  ✅ DONE (2026-06-20).  Body-outline recolour
   red (HARD) / amber (SOFT) via `BoardView.set_selection_outline_override`
   driven from `SelectTool._show_conflict_corner`; wire ghost-dimming via
@@ -351,10 +350,12 @@ worked through:
   "Pin N (name) — no net (right-click → Assign to net)".
 - **Properties panel selection sync.**  ✅ DONE (2026-06-20).  Broader than the
   audit framed it: the panel was never told what was selected
-  (`show_component` had no caller), so it stayed blank.  `MainWindow.
-  _sync_properties_panel` (from `_on_selection_changed`) populates it on select
-  / clears on deselect, and rotate/flip now `_notify_selection()` so the combo
-  refreshes.
+  (`show_component` had no caller), so it stayed blank.  Originally re-wired via
+  `MainWindow._sync_properties_panel`; since the session-hub rework (2026-06-29)
+  the panel subscribes to `session.selection_changed` itself
+  (`PropertiesPanel.set_session` → `_on_session_selection`) and populates /
+  clears on each broadcast, and rotate/flip `_notify_selection()` so the combo
+  refreshes.  See [docs/gui.md](gui.md) "Selection sync (session hub)".
 - **Ctrl+Alt+LMB highlight union.**  ✅ DONE (2026-06-20).  `_apply_selection`
   ADD now rebuilds a relation-agnostic union (clear→set_many), so successive
   Ctrl+Alt clicks accumulate across different nets instead of the FSM add()
