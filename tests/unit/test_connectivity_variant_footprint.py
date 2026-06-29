@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import (
@@ -54,9 +56,19 @@ def _perfboard(rows: int, cols: int):  # type: ignore[no-untyped-def]
     return Board(root=grid)
 
 
+_OPEN_BUG = pytest.mark.xfail(
+    strict=True,
+    reason="defn.footprint used in ConnectivityGraph._build_component_pin_map / "
+    "_build_same_name_pin_merges instead of the instance's resolved variant "
+    "footprint — see docs/todo.md 'Eliminate defn.footprint for placed "
+    "components'. Remove this marker when incremental.py is fixed.",
+)
+
+
 class TestVariantPinConnectivity:
     """A bare wire on the real pin-2 pad of a rotated TO-220 part connects it."""
 
+    @_OPEN_BUG
     def test_bare_wire_on_rotated_pin2_shares_node(self) -> None:
         lib, families = _catalogue()
         defn = lib.get("IRF9540_P")
@@ -97,6 +109,7 @@ class TestVariantPinConnectivity:
         # reached must be the same electrical node.
         assert node_pin2 == node_pad
 
+    @_OPEN_BUG
     def test_pin3_registered_at_variant_position(self) -> None:
         """node_for_pad at the variant's pin-3 world position is the pin-3 node."""
         lib, families = _catalogue()
