@@ -121,6 +121,24 @@ _BODY_MARGIN = 0.5      # raster units — rigid packages (DIP, SIL, connectors)
 _PAD_MARGIN  = 0.1      # raster units — flexible-lead parts (axial, TO-92, …)
 
 
+def _is_flexible_body(footprint: Footprint, component_class: str) -> bool:
+    """Whether the body floats above the board (only pads matter for the bbox).
+
+    Rigidity is a property of the **package**, not the electrical class: an SMD
+    resistor is class ``resistor`` but its chip body lies flat on the pads, so it
+    is *not* flexible.  When the footprint resolves to a concrete package (a
+    ``PackageFootprint``) decide from ``is_rigid_package``; otherwise fall back to
+    the class test for bare footprints that carry no package (the ``drag_detector``
+    / ``auto_placer`` call sites, which never resolve the chosen variant).
+    """
+    from protoboard.domain.components.package.adapter import PackageFootprint
+    from protoboard.domain.components.package.shapes import is_rigid_package
+
+    if isinstance(footprint, PackageFootprint):
+        return not is_rigid_package(footprint.package)
+    return component_class in _FLEXIBLE_LEAD_CLASSES
+
+
 def component_bbox(
     footprint: Footprint,
     placement: ComponentPlacement,
@@ -141,7 +159,7 @@ def component_bbox(
     ys = [p.y for p in positions]
     min_x, max_x = min(xs), max(xs)
     min_y, max_y = min(ys), max(ys)
-    m = _PAD_MARGIN if component_class in _FLEXIBLE_LEAD_CLASSES else _BODY_MARGIN
+    m = _PAD_MARGIN if _is_flexible_body(footprint, component_class) else _BODY_MARGIN
     return Rect(
         x=min_x - m,
         y=min_y - m,
