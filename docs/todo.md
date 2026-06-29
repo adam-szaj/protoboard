@@ -592,3 +592,53 @@ arg (or a `frozenset[PinRef]`), thread it through
 `session.request_select_pin` / `notify_selection`, and have
 `NetsEditorPanel.sync_selection` select just the matching `f"{cid}:{pin}"` row.
 Keep the existing 3-arg slots working (default the pin arg to None).
+
+## Eliminate `defn.footprint` for placed components — RULE + audit (added 2026-06-30)
+
+**HARD RULE (user, 5th time):** any `defn.footprint` used for a component that is
+*placed on the board* is a **critical bug**. A placed component always has a
+bound instance, and its real package/footprint is the chosen variant
+(`inst.resolved_footprint()` / `pad_conflict.footprint_of(defn, inst)`), NOT the
+definition default. When the instance picked a non-default variant the pin
+*positions* differ (e.g. `IRF9540_P` as `package_variant: sil-3/std`: TO-220
+default pins along X `[(0,0),(1,0),(2,0)]` vs sil-3 along Y `[(0,0),(0,1),(0,2)]`),
+so after rotation pins 2/3 land on the wrong pads. Pin 1 (anchor, offset 0,0)
+usually still works, so the bug looks path-dependent / partial.
+
+Already fixed instances of this exact bug: place-tool ghost/king-move
+(`_resolved_footprint`), `component_bbox` margin (`footprint_of`), placement
+conflict, drag-pin.
+
+**Goal:** drive `defn.footprint` usage to minimum (ideally zero) outside
+picker/topology/fallback-for-unbound contexts.
+
+### CRITICAL — compute pin *world positions* of a placed component from `defn.footprint` (wrong pads on a variant)
+- `domain/connectivity/incremental.py:576` (`_build_same_name_pin_merges`) and
+  `:658` (`_build_component_pin_map`) — **the open IRF9540 MISSING_NET bug.** Red
+  test: `tests/unit/test_connectivity_variant_footprint.py` (uncommitted). ⚠ some
+  of the 9 `ConnectivityGraph(...)` build sites (paint / unweave / autorouter /
+  drc_worker) may receive UNBOUND instances (`load_project` returns unbound;
+  session binds lazily), so `resolved_footprint()` would raise
+  `UnboundInstanceError` — the fix must use the variant when bound and fall back
+  to `defn.footprint` when not.
+- `gui/renderers/board_renderer.py:483` and `gui/renderers/component_renderer.py:677`
+  — pin glyph / body positions drawn from `defn.footprint`; a variant-placed part
+  renders pins at the wrong spots.
+
+### Likely-critical — pin *count*/iteration over a placed component (count is usually variant-stable, but verify and prefer resolved)
+- `services/drc/engine.py:930`, `domain/board/pad_state.py:874`,
+  `domain/layout/group_tree.py:199,400`, `services/routing/autorouter.py:1314`,
+  `services/routing/unweave.py:555`, `services/routing/builtin_optimizers.py:87,101`,
+  `services/placement/auto_placer.py:131`, `services/drag_detector.py:516,518`,
+  `gui/session.py:752`, `gui/main_window.py:2225`,
+  `gui/tools/select_tool.py:3107,3227`.
+
+### Legitimate (leave) — no placed-component geometry
+- `instance.py:140` (the documented no-package default return — the ONE correct
+  fallback), `component_package.py` / `pad_conflict.py` docstrings, `loader.py:265`
+  / `footprint_choice.py` / `properties_panel.py:580` (picker over
+  `defn.footprints` list), `bom.py:33` (type name for the BOM).
+
+Tackle the CRITICAL group first (connectivity is an active user-facing bug);
+each needs the bound→resolved / unbound→defn.footprint fallback and a regression
+test asserting a rotated non-default-variant part wires up.
