@@ -114,7 +114,21 @@ NON-rigid generic bbox package (`kind="_generic"`, `synth_generic_package` in
    They could now read the package body mask instead, but that is a separate
    collision-semantics change — out of scope for the invariant.
 
-## Place-tool ghost / king-move overlay use defn.footprint, not the chosen variant (added 2026-06-25)
+## Place-tool ghost / king-move overlay use defn.footprint, not the chosen variant (added 2026-06-25) — DONE (2026-06-25)
+
+**Done** (`a15d56e`, `d572052`, `e2023dc`, `7bfda89`, `d906630`). `PlaceTool`
+now carries the picker's `package_variant` and resolves it through
+`_resolved_footprint(defn)` → `resolve_component_package` + `PackageFootprint`
+(falling back to `defn.footprint` only when no variant resolves). The ghost,
+king-move candidate positions, drag baseline, snap and commit all read the
+chosen variant's footprint, so an SMD-placed `R` shows the horizontal SMD body
+with pin 1 centred. Regression tests: `test_ghost_body_matches_chosen_variant`,
+`test_drag_baseline_uses_chosen_variant_geometry`,
+`test_place_library_resistor_as_smd_variant_activates`,
+`test_place_library_resistor_as_axial_variant_stays_free`,
+`test_smd_enters_drag_pin_phase` in `tests/gui/test_place_tool.py`.
+
+Original report (kept for context):
 
 Placing `R` as **SMD-0805**, the 8 king-move dots are present but mis-centred:
 pin 1 sits on a corner dot instead of in the empty centre of the 3×3 grid, and
