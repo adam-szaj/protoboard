@@ -38,7 +38,7 @@ from protoboard.domain.layout.normalize import (
     normalize_layout_positions,
 )
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.domain.layout.wire import Wire
+from protoboard.domain.layout.wire import Wire, transform_wire_geometry
 from protoboard.domain.axis_labels_settings import (
     AxisLabelFormat,
     AxisLabelSettings,
@@ -816,39 +816,26 @@ def load_project(
                 if not w.path:
                     continue
                 cur = w.path[path_idx]
-                dx = pin_pos.x - cur.x
-                dy = pin_pos.y - cur.y
-                # Sub-grid drift (< 0.1 raster) is float noise; leave alone.
-                # Sub-pad mismatch (>= 0.4) is what the group-ownership
-                # sanity check already rejects — exactly the bug we're
-                # repairing.  Snap aggressively.
-                if abs(dx) < 0.1 and abs(dy) < 0.1:
+                dv = pin_pos - cur  # Point − Point → Vector
+                # Sub-grid drift (displacement < 0.1 raster) is float noise;
+                # leave alone.  Sub-pad mismatch (>= 0.4) is what the
+                # group-ownership sanity check already rejects — exactly the
+                # bug we're repairing.  Snap aggressively.
+                if dv.length() < 0.1:
                     continue
-                # Translate the WHOLE wire by (dx, dy) so the other
-                # endpoint and intermediate vertices move together —
-                # otherwise a single-vertex snap would skew the path.
-                # The other endpoint is checked independently in this
-                # loop; if it doesn't need snapping, the per-endpoint
-                # delta will be (0, 0) and the wire stops drifting.
-                w.path = [
-                    type(p)(p.x + dx, p.y + dy) for p in w.path
-                ]
-                if w.fragments:
-                    new_frags: list[object] = []
-                    for frag in w.fragments:
-                        new_frag_path = [
-                            type(p)(p.x + dx, p.y + dy) for p in frag.path
-                        ]
-                        new_frags.append(
-                            type(frag)(path=new_frag_path, side=frag.side),
-                        )
-                    w.fragments = new_frags  # type: ignore[assignment]
+                # Translate the WHOLE wire by dv so the other endpoint and
+                # intermediate vertices move together — otherwise a
+                # single-vertex snap would skew the path.  The other
+                # endpoint is checked independently in this loop; if it
+                # doesn't need snapping, the per-endpoint delta will be
+                # (0, 0) and the wire stops drifting.
+                transform_wire_geometry(w, lambda p: p + dv)  # Point + Vector → Point
                 snapped_endpoints.append({
                     "wire_id": str(w.id)[:8],
                     "endpoint": endpoint_label,
                     "comp": str(comp_id)[:8],
                     "pin": k.pin.pin_number,
-                    "delta": (round(dx, 3), round(dy, 3)),
+                    "delta": (round(dv.x, 3), round(dv.y, 3)),
                 })
         if snapped_endpoints:
             _log.info(

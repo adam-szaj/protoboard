@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from protoboard.domain.commands.base import Command, ComponentState
 from protoboard.domain.layout.group import ComponentGroup, all_component_ids, would_create_cycle
 from protoboard.domain.layout.group_tree import GroupTree
+from protoboard.domain.layout.wire import transform_wire_geometry
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
@@ -89,16 +90,9 @@ def rotate_components_around(
         if wire.id not in wire_ids:
             continue
         old_wire_paths[wire.id] = list(wire.path)
-        wire.path = [_rotate_point_around(p, origin, delta) for p in wire.path]
-        new_fragments_local: list[object] = []
-        for frag in wire.fragments:
-            new_frag_path = [
-                _rotate_point_around(p, origin, delta) for p in frag.path
-            ]
-            new_fragments_local.append(
-                type(frag)(path=new_frag_path, side=frag.side),
-            )
-        wire.fragments = new_fragments_local  # type: ignore[assignment]
+        transform_wire_geometry(
+            wire, lambda p: _rotate_point_around(p, origin, delta)
+        )
         for ref in (wire.a, wire.b):
             if ref is None:
                 continue
@@ -132,17 +126,12 @@ def restore_rotation(state: ComponentState, snap: RotateSnapshot) -> None:
     for wire in state.layout.wires:
         if wire.id not in snap.old_wire_paths:
             continue
+        # Path is restored verbatim from the snapshot; fragments are
+        # inverse-rotated (their vertices weren't snapshotted).
+        transform_wire_geometry(
+            wire, lambda p: _rotate_point_around(p, snap.origin, inv_delta)
+        )
         wire.path = snap.old_wire_paths[wire.id]
-        new_fragments_local: list[object] = []
-        for frag in wire.fragments:
-            reverted = [
-                _rotate_point_around(p, snap.origin, inv_delta)
-                for p in frag.path
-            ]
-            new_fragments_local.append(
-                type(frag)(path=reverted, side=frag.side),
-            )
-        wire.fragments = new_fragments_local  # type: ignore[assignment]
         for ref in (wire.a, wire.b):
             if ref is None:
                 continue

@@ -22,6 +22,7 @@ edits.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from protoboard.geometry import Point
@@ -89,6 +90,33 @@ def rebuild_fragments(
         Fragment(path=list(frag.path), side=side)
         for frag, side in zip(fragments, sides)
     ]
+
+
+def transform_wire_geometry(
+    wire: "Wire", point_fn: Callable[[Point], Point]
+) -> None:
+    """Apply *point_fn* to every vertex of *wire* — path and fragments — in place.
+
+    Each point of ``wire.path`` and of every ``Fragment.path`` is replaced by
+    ``point_fn(point)``; fragment ``side`` and the wire's identity / knot refs
+    are untouched.  The named home for the "rotate / translate / re-pin a wire's
+    geometry" loop that rotate, drag-move and stale-path-snap each inlined as
+
+        wire.path = [<transform>(p) for p in wire.path]
+        for frag in wire.fragments:
+            new_path = [<transform>(p) for p in frag.path]
+            new_frags.append(Fragment(path=new_path, side=frag.side))
+
+    so those bodies read as the intent ("rotate the wire") rather than vertex
+    plumbing.  ``point_fn`` is any pure point→point map: a rotation about a
+    pivot, a translation by a delta, or a lookup that snaps named vertices.
+    """
+    wire.path = [point_fn(p) for p in wire.path]
+    if wire.fragments:
+        wire.fragments = [
+            Fragment(path=[point_fn(p) for p in frag.path], side=frag.side)
+            for frag in wire.fragments
+        ]
 
 
 @dataclass

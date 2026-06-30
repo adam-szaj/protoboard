@@ -135,20 +135,14 @@ class MoveDragSetCommand(ConditionalCommand["ComponentState"]):
         # 4. Translate internal wires by delta.  Fragment paths get the
         #    same translation; PinKnot refs are untouched (they resolve
         #    by component_id+pin_number against the new placement).
+        from protoboard.domain.layout.wire import transform_wire_geometry
+
         dx, dy = self.delta.x, self.delta.y
         for wid in self.internal_wire_ids:
             wire = state.layout.wires.get(wid)
             if wire is None:
                 continue
-            wire.path = [Point(p.x + dx, p.y + dy) for p in wire.path]
-            if wire.fragments:
-                new_frags = []
-                for frag in wire.fragments:
-                    new_path = [Point(p.x + dx, p.y + dy) for p in frag.path]
-                    new_frags.append(
-                        type(frag)(path=new_path, side=frag.side),
-                    )
-                wire.fragments = new_frags
+            transform_wire_geometry(wire, lambda p: Point(p.x + dx, p.y + dy))
 
         # 5. Remove dropped wires (and capture orphan joints for revert).
         #    Shared helper with RemoveWireCommand / DropWiresCommand —
