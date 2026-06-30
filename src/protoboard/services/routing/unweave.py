@@ -47,7 +47,7 @@ import structlog
 
 from protoboard.domain.layout.wire import Wire, WireCollection
 from protoboard.types import Side
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 from protoboard.services.routing.astar import _segs_cross
 from protoboard.services.routing.postprocess import _canonical_subpath
 
@@ -109,7 +109,7 @@ def _pt_equal(a: Point, b: Point) -> bool:
 
 
 def _dist(a: Point, b: Point) -> float:
-    return math.hypot(b.x - a.x, b.y - a.y)
+    return (b - a).length()
 
 
 # ---------------------------------------------------------------------------
@@ -1176,7 +1176,7 @@ def _try_1step_reroute_at(
     }
 
     for dx, dy in _NEIGHBOUR_OFFSETS:
-        cand = Point(s.x + dx, s.y + dy)
+        cand = s + Vector(dx, dy)
         if board_pads is not None and cand not in board_pads:
             continue
         if forbidden_pads is not None and cand in forbidden_pads:
@@ -1684,7 +1684,7 @@ def _try_shift_overlap_run(
     }
 
     for dx, dy in _NEIGHBOUR_OFFSETS:
-        cand_pts = [Point(p.x + dx, p.y + dy) for p in orig_pts]
+        cand_pts = [p + Vector(dx, dy) for p in orig_pts]
 
         # Geometric validity of the chained steps.
         if not _is_unit_step(prev_pt, cand_pts[0]):

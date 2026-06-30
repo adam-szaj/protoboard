@@ -38,7 +38,7 @@ from typing import cast, Literal, TYPE_CHECKING
 
 from protoboard.domain.layout.wire import Wire
 from protoboard.types import Side
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 from protoboard.services.routing.astar import (
     _build_bare_seg_index,
     _segs_cross,
@@ -73,14 +73,12 @@ class SimplifyMode(str, Enum):
 
 def _collinear(a: Point, b: Point, c: Point) -> bool:
     """True if b lies on segment a→c (strict interior or endpoint match)."""
-    abx, aby = b.x - a.x, b.y - a.y
-    bcx, bcy = c.x - b.x, c.y - b.y
+    ab = b - a
+    bc = c - b
     # Cross product must be zero (collinear) and direction the same sign.
-    cross = abx * bcy - aby * bcx
-    if cross != 0.0:
+    if ab.cross(bc) != 0.0:
         return False
-    dot = abx * bcx + aby * bcy
-    return dot >= 0.0
+    return ab.dot(bc) >= 0.0
 
 
 def straighten_wire(
@@ -271,7 +269,7 @@ def _path_length(path: list[Point]) -> float:
     """Geometric length of a polyline (sum of Euclidean segment lengths)."""
     total = 0.0
     for p, q in zip(path, path[1:]):
-        total += math.hypot(q.x - p.x, q.y - p.y)
+        total += (q - p).length()
     return total
 
 
@@ -291,14 +289,14 @@ def _count_total_corners(path: list[Point]) -> int:
     count = 0
     for k in range(1, len(path) - 1):
         a, b, c = path[k - 1], path[k], path[k + 1]
-        d1x, d1y = b.x - a.x, b.y - a.y
-        d2x, d2y = c.x - b.x, c.y - b.y
-        l1 = math.hypot(d1x, d1y)
-        l2 = math.hypot(d2x, d2y)
+        d1 = b - a
+        d2 = c - b
+        l1 = d1.length()
+        l2 = d2.length()
         if l1 < _EPS or l2 < _EPS:
             continue  # zero-length segment, skip
         # Same direction? Normalised dot ≈ 1 → collinear.
-        cos = (d1x * d2x + d1y * d2y) / (l1 * l2)
+        cos = d1.dot(d2) / (l1 * l2)
         if cos > 1.0 - _EPS:
             continue
         count += 1
@@ -361,7 +359,7 @@ def _fast_pads_on_segment(
         n = int(round(adx))
         out: list[Point] = []
         for k in range(1, n):
-            p = Point(a.x + sx * k, a.y)
+            p = a + Vector(sx * k, 0.0)
             if p in board_pads:
                 out.append(p)
         return out
@@ -370,7 +368,7 @@ def _fast_pads_on_segment(
         n = int(round(ady))
         out = []
         for k in range(1, n):
-            p = Point(a.x, a.y + sy * k)
+            p = a + Vector(0.0, sy * k)
             if p in board_pads:
                 out.append(p)
         return out
@@ -381,7 +379,7 @@ def _fast_pads_on_segment(
         n = int(round(adx))
         out = []
         for k in range(1, n):
-            p = Point(a.x + sx * k, a.y + sy * k)
+            p = a + Vector(sx * k, sy * k)
             if p in board_pads:
                 out.append(p)
         return out
@@ -426,7 +424,7 @@ def _canonical_subpath(
         sx = 1.0 if dx > 0 else -1.0
         sy = 1.0 if dy > 0 else -1.0
         diag = min(ax, ay)
-        m = Point(a.x + sx * diag, a.y + sy * diag)
+        m = a + Vector(sx * diag, sy * diag)
         base = [a, m, b]
     if board_pads:
         # Each segment of `base` is pure ortho or pure diag (guaranteed by
@@ -455,18 +453,17 @@ def _point_on_segment_interior(
     because the autoroute upstream uses a separate occupancy map to catch
     these, but simplify has no such upstream and must check here.
     """
-    abx, aby = b.x - a.x, b.y - a.y
-    apx, apy = p.x - a.x, p.y - a.y
-    cross = abx * apy - aby * apx
-    if abs(cross) > eps:
+    ab = b - a
+    ap = p - a
+    if abs(ab.cross(ap)) > eps:
         return False  # not collinear
     # Parameterise along the longer axis for numerical stability.
-    if abs(abx) >= abs(aby):
-        if abs(abx) < eps:
+    if abs(ab.x) >= abs(ab.y):
+        if abs(ab.x) < eps:
             return False
-        t = apx / abx
+        t = ap.x / ab.x
     else:
-        t = apy / aby
+        t = ap.y / ab.y
     return eps < t < 1.0 - eps
 
 
@@ -509,16 +506,16 @@ def _segs_overlap_collinear(
     those are caught by the shared-vertex check in the caller.
     """
     # Collinearity: both b1 and b2 must lie on the infinite line through a1-a2.
-    abx, aby = a2.x - a1.x, a2.y - a1.y
-    if abs(abx) < eps and abs(aby) < eps:
+    ab = a2 - a1
+    if abs(ab.x) < eps and abs(ab.y) < eps:
         return False  # degenerate
-    cross1 = abx * (b1.y - a1.y) - aby * (b1.x - a1.x)
-    cross2 = abx * (b2.y - a1.y) - aby * (b2.x - a1.x)
-    ab_len = math.hypot(abx, aby)
+    cross1 = ab.cross(b1 - a1)
+    cross2 = ab.cross(b2 - a1)
+    ab_len = ab.length()
     if abs(cross1) > eps * ab_len or abs(cross2) > eps * ab_len:
         return False
     # Project both segments to the dominant axis to measure interval overlap.
-    if abs(abx) >= abs(aby):
+    if abs(ab.x) >= abs(ab.y):
         ta1, ta2 = a1.x, a2.x
         tb1, tb2 = b1.x, b2.x
     else:
@@ -1042,18 +1039,17 @@ def _candidate_safe_against_own(
 def _seg_passes_through_pad(a: Point, b: Point, pad: Point) -> bool:
     """True if *pad* lies strictly inside or at the endpoint of segment a→b."""
     # Cross product zero → collinear; then check param t in [0, 1].
-    abx, aby = b.x - a.x, b.y - a.y
-    apx, apy = pad.x - a.x, pad.y - a.y
-    cross = abx * apy - aby * apx
-    if abs(cross) > _EPS:
+    ab = b - a
+    ap = pad - a
+    if abs(ab.cross(ap)) > _EPS:
         return False
     # Parameterise: pad = a + t*(b - a); use longest axis for stability.
-    if abs(abx) >= abs(aby):
-        if abs(abx) < _EPS:
+    if abs(ab.x) >= abs(ab.y):
+        if abs(ab.x) < _EPS:
             return False
-        t = apx / abx
+        t = ap.x / ab.x
     else:
-        t = apy / aby
+        t = ap.y / ab.y
     return -_EPS <= t <= 1.0 + _EPS
 
 

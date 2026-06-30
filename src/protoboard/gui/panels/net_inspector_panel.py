@@ -342,7 +342,7 @@ def _convex_hull_area(points: list["Point"]) -> float:
     pivot = min(points, key=lambda p: (p.y, p.x))
 
     def _angle(p: "Point") -> float:
-        return math.atan2(p.y - pivot.y, p.x - pivot.x)
+        return (p - pivot).angle()
 
     sorted_pts = sorted(points, key=_angle)
     hull: list[Point] = []

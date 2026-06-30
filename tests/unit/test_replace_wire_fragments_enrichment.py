@@ -177,3 +177,47 @@ class TestReplaceWireFragmentsApply:
         assert len(wire_after.path) == 2
         assert wire_after.path[0] == Point(0.5, 0.5)
         assert wire_after.path[1] == Point(1.5, 0.5)
+
+
+class TestReplaceWireFragmentsEndpointMismatch:
+    """The reject path of ``Layout.replace_wire_fragments`` — parity guard for
+    the extracted ``_endpoint_mismatch_error`` diagnostics helper.
+
+    A shared JointKnot (degree >= 2) must NOT slide with one wire, so a
+    fragment edit that moves that endpoint to a non-matching position raises
+    ``ValueError`` with the canonical "disagrees with" message.
+    """
+
+    def test_shared_joint_endpoint_move_raises(self) -> None:
+        import pytest
+
+        from protoboard.domain.layout.knot import JointKnot
+        from protoboard.domain.layout.wire import KnotRef
+
+        layout = Layout()
+        layout.ensure_root_group()
+        # One shared JointKnot at (1.5, 0.5) — two wires meet there, so it is
+        # NOT sole-owner of either wire and cannot slide.
+        shared = JointKnot(id=uuid.uuid4(), position=Point(1.5, 0.5))
+        end_a = JointKnot(id=uuid.uuid4(), position=Point(0.5, 0.5))
+        end_c = JointKnot(id=uuid.uuid4(), position=Point(2.5, 0.5))
+        for k in (shared, end_a, end_c):
+            layout.knots[k.id] = k
+        w1 = Wire(
+            id=uuid.uuid4(),
+            fragments=[Fragment(path=[Point(0.5, 0.5), Point(1.5, 0.5)], side="top")],
+            a=KnotRef(id=end_a.id), b=KnotRef(id=shared.id),
+        )
+        w2 = Wire(
+            id=uuid.uuid4(),
+            fragments=[Fragment(path=[Point(1.5, 0.5), Point(2.5, 0.5)], side="top")],
+            a=KnotRef(id=shared.id), b=KnotRef(id=end_c.id),
+        )
+        layout.add_wire(w1)
+        layout.add_wire(w2)
+
+        # Try to move w1's shared endpoint to (1.5, 1.5) — shared joint can't
+        # follow, so this must raise rather than silently shift w2 too.
+        moved = [Fragment(path=[Point(0.5, 0.5), Point(1.5, 1.5)], side="top")]
+        with pytest.raises(ValueError, match="disagrees with"):
+            layout.replace_wire_fragments(w1.id, moved)

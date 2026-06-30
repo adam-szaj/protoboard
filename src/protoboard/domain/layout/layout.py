@@ -384,69 +384,12 @@ class Layout:
                 # will line up with the pin position as soon as
                 # MoveComponentCommand.revert runs.
                 return
-            # Diagnostic context for replace_wire_fragments mismatch.  Most
-            # common cause: a group-drag commit re-running
-            # _update_wires_for_move on a wire whose endpoint JointKnot is
-            # not sole-owner (shared with another wire / t-junction), so
-            # the slide branch above didn't trigger.  Log everything a
-            # future investigator needs to localise the offending wire.
-            from protoboard.domain.layout.knot import (
-                JointKnot as _JK,
-                PinKnot as _PK,
-                WirePinKnot as _WK,
-            )
-            knot_kind = (
-                "PinKnot" if isinstance(knot, _PK)
-                else "WirePinKnot" if isinstance(knot, _WK)
-                else "JointKnot" if isinstance(knot, _JK)
-                else type(knot).__name__
-            )
-            pin_ref = (
-                f"{str(knot.pin.component_id)[:8]}/pin{knot.pin.pin_number}"
-                if isinstance(knot, _PK) else None
-            )
-            other_label = "path[-1]" if label == "path[0]" else "path[0]"
-            other_pos = (
-                frag_list[-1].path[-1] if label == "path[0]"
-                else frag_list[0].path[0]
-            )
-            other_ref = existing.b if label == "path[0]" else existing.a
-            other_knot = (
-                self.knots.get(other_ref.id) if other_ref is not None else None
-            )
-            other_kind = (
-                type(other_knot).__name__ if other_knot is not None else None
-            )
-            other_cur = (
-                _knot_position(other_knot, self)
-                if other_knot is not None else None
-            )
-            _log.error(
-                "replace_wire_fragments.endpoint_mismatch",
-                wire_id=str(wire_id_),
-                endpoint=label,
-                new_pos=(new_pos.x, new_pos.y),
-                knot_id=str(knot.id),
-                knot_kind=knot_kind,
-                knot_pos=(cur.x, cur.y),
-                knot_wire_ids=[str(w)[:8] for w in knot.wire_ids],
-                knot_n_owners=len(knot.wire_ids),
-                pin_ref=pin_ref,
-                other_endpoint=other_label,
-                other_new_pos=(other_pos.x, other_pos.y),
-                other_knot_kind=other_kind,
-                other_knot_pos=(
-                    (other_cur.x, other_cur.y) if other_cur is not None
-                    else None
-                ),
-                delta=(new_pos.x - cur.x, new_pos.y - cur.y),
+            # No branch accepted the mismatch — log full diagnostics and raise.
+            raise _endpoint_mismatch_error(
+                self, knot, wire_id_, new_pos, cur, label,
+                frag_list=frag_list,
+                existing=existing,
                 skip_pin_knot_validation=skip_pin_knot_validation,
-            )
-            raise ValueError(
-                f"replace_wire_fragments: new {label}={new_pos} disagrees with "
-                f"{knot_kind} {label[-1]} position {cur} "
-                f"(wire={str(wire_id_)[:8]}, knot_owners={len(knot.wire_ids)}, "
-                f"other_endpoint={other_kind})"
             )
         _resolve_endpoint(a_knot, wire_id, a_pos, "path[0]")
         _resolve_endpoint(b_knot, wire_id, b_pos, "path[-1]")
@@ -616,6 +559,81 @@ def _knot_position(knot: Knot, layout: Layout) -> Point:
         return resolver(pin)
 
     return knot.world_position(_resolve)
+
+
+def _endpoint_mismatch_error(
+    layout: Layout,
+    knot: Knot,
+    wire_id: uuid.UUID,
+    new_pos: Point,
+    cur: Point,
+    label: str,
+    *,
+    frag_list: list[Fragment],
+    existing: Wire,
+    skip_pin_knot_validation: bool,
+) -> ValueError:
+    """Log full diagnostics for a fragment-endpoint mismatch and build the error.
+
+    The "how" behind ``replace_wire_fragments``' reject path — kind-string
+    derivation, other-endpoint lookup, and the structured ``_log.error`` —
+    extracted so the ``_resolve_endpoint`` closure reads as its three-branch
+    decision (slide / accept-transient / reject) instead of 60 lines of log
+    plumbing.  Most common trigger: a group-drag commit re-running
+    ``_update_wires_for_move`` on a wire whose endpoint JointKnot is not
+    sole-owner (shared with another wire / t-junction), so the slide branch
+    didn't fire.  Returns the ``ValueError`` for the caller to ``raise``.
+    """
+    knot_kind = (
+        "PinKnot" if isinstance(knot, PinKnot)
+        else "WirePinKnot" if isinstance(knot, WirePinKnot)
+        else "JointKnot" if isinstance(knot, JointKnot)
+        else type(knot).__name__
+    )
+    pin_ref = (
+        f"{str(knot.pin.component_id)[:8]}/pin{knot.pin.pin_number}"
+        if isinstance(knot, PinKnot) else None
+    )
+    other_label = "path[-1]" if label == "path[0]" else "path[0]"
+    other_pos = (
+        frag_list[-1].path[-1] if label == "path[0]"
+        else frag_list[0].path[0]
+    )
+    other_ref = existing.b if label == "path[0]" else existing.a
+    other_knot = (
+        layout.knots.get(other_ref.id) if other_ref is not None else None
+    )
+    other_kind = type(other_knot).__name__ if other_knot is not None else None
+    other_cur = (
+        _knot_position(other_knot, layout) if other_knot is not None else None
+    )
+    delta = new_pos - cur  # Point − Point → Vector
+    _log.error(
+        "replace_wire_fragments.endpoint_mismatch",
+        wire_id=str(wire_id),
+        endpoint=label,
+        new_pos=(new_pos.x, new_pos.y),
+        knot_id=str(knot.id),
+        knot_kind=knot_kind,
+        knot_pos=(cur.x, cur.y),
+        knot_wire_ids=[str(w)[:8] for w in knot.wire_ids],
+        knot_n_owners=len(knot.wire_ids),
+        pin_ref=pin_ref,
+        other_endpoint=other_label,
+        other_new_pos=(other_pos.x, other_pos.y),
+        other_knot_kind=other_kind,
+        other_knot_pos=(
+            (other_cur.x, other_cur.y) if other_cur is not None else None
+        ),
+        delta=(delta.x, delta.y),
+        skip_pin_knot_validation=skip_pin_knot_validation,
+    )
+    return ValueError(
+        f"replace_wire_fragments: new {label}={new_pos} disagrees with "
+        f"{knot_kind} {label[-1]} position {cur} "
+        f"(wire={str(wire_id)[:8]}, knot_owners={len(knot.wire_ids)}, "
+        f"other_endpoint={other_kind})"
+    )
 
 
 def _orient_wire_toward(

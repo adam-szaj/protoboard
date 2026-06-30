@@ -118,17 +118,15 @@ def _segment_unit_steps(a: Point, b: Point) -> list[tuple[Point, Point]]:
     kind = _step_kind(a, b)
     if kind is None:
         return [(a, b)]
-    dx = b.x - a.x
-    dy = b.y - a.y
-    n_steps = int(round(max(abs(dx), abs(dy))))
+    span = b - a  # Point − Point → Vector
+    n_steps = int(round(max(abs(span.x), abs(span.y))))
     if n_steps <= 1:
         return [(a, b)]
-    sx = dx / n_steps
-    sy = dy / n_steps
+    step = span / n_steps  # per-unit displacement
     out: list[tuple[Point, Point]] = []
     prev = a
     for i in range(1, n_steps + 1):
-        nxt = Point(a.x + sx * i, a.y + sy * i)
+        nxt = a + step * i
         out.append((prev, nxt))
         prev = nxt
     return out
@@ -165,12 +163,11 @@ def _bend_kind(prev: tuple[float, float], cur: tuple[float, float]) -> str | Non
 
 
 def _unit_direction(a: Point, b: Point) -> tuple[float, float]:
-    dx = b.x - a.x
-    dy = b.y - a.y
-    n = math.hypot(dx, dy)
+    span = b - a  # Point − Point → Vector
+    n = span.length()
     if n == 0:
         return (0.0, 0.0)
-    return (round(dx / n), round(dy / n))
+    return (round(span.x / n), round(span.y / n))
 
 
 def _under_component_pads(
@@ -371,17 +368,17 @@ def _point_on_segment_interior(
     the segment endpoint, not its interior.
     """
     # Collinearity: cross product (b-a) × (p-a) must be zero.
-    cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
+    cross = (b - a).cross(p - a)
     if abs(cross) > eps:
         return False
     # Parameter t such that p = a + t·(b - a); reject endpoints and out-of-range.
-    dx, dy = b.x - a.x, b.y - a.y
-    if abs(dx) >= abs(dy):
-        if dx == 0:
+    span = b - a  # Point − Point → Vector
+    if abs(span.x) >= abs(span.y):
+        if span.x == 0:
             return False
-        t = (p.x - a.x) / dx
+        t = (p.x - a.x) / span.x
     else:
-        t = (p.y - a.y) / dy
+        t = (p.y - a.y) / span.y
     return eps < t < 1.0 - eps
 
 

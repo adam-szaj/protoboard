@@ -46,7 +46,7 @@ from protoboard.domain.layout.placement import component_bbox, pin_world_positio
 from protoboard.domain.layout.wire import Wire
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 from protoboard.services.routing.astar import PathStep, find_paths, split_path_by_side
 from protoboard.services.routing.congestion import build_congestion_map
 from protoboard.services.routing.cost_model import RoutingCostModel
@@ -1483,7 +1483,7 @@ def _route_net(
             pending_pin_pts.add(pin_pt)
     for pin_pt in pending_pin_pts:
         for dx, dy in ((1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)):
-            nb = Point(pin_pt.x + dx, pin_pt.y + dy)
+            nb = pin_pt + Vector(dx, dy)
             if nb not in pending_pin_pts and nb not in net_pts:
                 near_pin_pads.add((nb, "top"))
                 near_pin_pads.add((nb, "bottom"))
@@ -2566,7 +2566,7 @@ def _nudge_wire(
     Returns the shifted Wire if all new path points are free board pads
     and unoccupied by component pins or other wires, else None.
     """
-    new_path = [Point(p.x + dx, p.y + dy) for p in wire.path]
+    new_path = [p + Vector(dx, dy) for p in wire.path]
 
     # All new points must be valid board pads.
     for pt in new_path:

@@ -90,8 +90,48 @@ class Vector:
     def __sub__(self, other: Vector) -> Vector:
         return Vector(self.dx - other.dx, self.dy - other.dy)
 
+    def __mul__(self, scalar: float) -> Vector:
+        """Scale the displacement by a scalar (``v * k``)."""
+        return Vector(self.dx * scalar, self.dy * scalar)
+
+    def __rmul__(self, scalar: float) -> Vector:
+        """Scalar on the left (``k * v``) — same as ``v * k``."""
+        return Vector(self.dx * scalar, self.dy * scalar)
+
+    def __truediv__(self, scalar: float) -> Vector:
+        """Scale the displacement by ``1 / scalar`` (``v / k``)."""
+        return Vector(self.dx / scalar, self.dy / scalar)
+
+    def dot(self, other: Vector) -> float:
+        """Dot product ``self · other`` (a scalar)."""
+        return self.dx * other.dx + self.dy * other.dy
+
+    def cross(self, other: Vector) -> float:
+        """2D cross product ``self × other`` — the scalar z of the 3D cross.
+
+        Positive when *other* is counter-clockwise from *self*, zero when the
+        two are collinear; its magnitude is twice the triangle area.  This is
+        the z-component of ``Vector3D(self, z=0) × Vector3D(other, z=0)``.
+        """
+        return self.dx * other.dy - self.dy * other.dx
+
     def length(self) -> float:
         return norm(self.dx, self.dy, 0.0)
+
+    def angle(self) -> float:
+        """Direction of the vector in radians, measured CCW from +x.
+
+        Wraps ``atan2(dy, dx)`` so callers ask for "the angle of this vector"
+        instead of unpacking components into trigonometry.  The zero vector
+        returns ``0.0`` (atan2's convention).
+        """
+        from math import atan2
+        return atan2(self.dy, self.dx)
+
+    def angle_deg(self) -> float:
+        """Direction of the vector in degrees, measured CCW from +x."""
+        from math import degrees
+        return degrees(self.angle())
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +216,30 @@ class Vector3D:
 
     def __sub__(self, o: Vector3D) -> Vector3D:
         return Vector3D(self.dx - o.dx, self.dy - o.dy, self.dz - o.dz)
+
+    def __neg__(self) -> Vector3D:
+        return Vector3D(-self.dx, -self.dy, -self.dz)
+
+    def __mul__(self, scalar: float) -> Vector3D:
+        return Vector3D(self.dx * scalar, self.dy * scalar, self.dz * scalar)
+
+    def __rmul__(self, scalar: float) -> Vector3D:
+        return Vector3D(self.dx * scalar, self.dy * scalar, self.dz * scalar)
+
+    def __truediv__(self, scalar: float) -> Vector3D:
+        return Vector3D(self.dx / scalar, self.dy / scalar, self.dz / scalar)
+
+    def dot(self, other: Vector3D) -> float:
+        """Dot product ``self · other`` (a scalar)."""
+        return self.dx * other.dx + self.dy * other.dy + self.dz * other.dz
+
+    def cross(self, other: Vector3D) -> Vector3D:
+        """Cross product ``self × other`` (a vector perpendicular to both)."""
+        return Vector3D(
+            self.dy * other.dz - self.dz * other.dy,
+            self.dz * other.dx - self.dx * other.dz,
+            self.dx * other.dy - self.dy * other.dx,
+        )
 
     def length(self) -> float:
         return norm(self.dx, self.dy, self.dz)

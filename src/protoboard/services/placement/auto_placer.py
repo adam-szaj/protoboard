@@ -27,7 +27,6 @@ preferring the "landscape" orientation.
 
 from __future__ import annotations
 
-import math
 import uuid
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -289,8 +288,7 @@ def _sort_by_gravity(
 def _sort_candidates(candidates: list[Point], center: Point | None) -> list[Point]:
     if center is None:
         return candidates  # already in column-major order
-    cx, cy = center.x, center.y
-    return sorted(candidates, key=lambda p: math.hypot(p.x - cx, p.y - cy))
+    return sorted(candidates, key=lambda p: (p - center).length())
 
 
 def _extended_candidates(

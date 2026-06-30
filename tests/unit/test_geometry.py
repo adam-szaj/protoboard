@@ -5,7 +5,7 @@ import dataclasses
 
 import pytest
 
-from protoboard.geometry import Insets, Point, Rect, Size, Vector
+from protoboard.geometry import Insets, Point, Rect, Size, Vector, Vector3D
 
 
 class TestPoint:
@@ -39,6 +39,100 @@ class TestPoint:
         p = Point(-1.5, -2.0)
         assert p.x == -1.5
         assert p.y == -2.0
+
+
+class TestVectorScaling:
+    def test_mul_scalar_on_right(self) -> None:
+        assert Vector(1.0, -2.0) * 3 == Vector(3.0, -6.0)
+
+    def test_mul_scalar_on_left(self) -> None:
+        assert 3 * Vector(1.0, -2.0) == Vector(3.0, -6.0)
+
+    def test_truediv_scalar(self) -> None:
+        assert Vector(3.0, -6.0) / 3 == Vector(1.0, -2.0)
+
+    def test_scaled_step_along_direction(self) -> None:
+        # The routing idiom: a + dir * k walks k units along a unit step.
+        a = Point(0.5, 0.5)
+        direction = Vector(1.0, 0.0)
+        assert a + direction * 3 == Point(3.5, 0.5)
+
+    def test_lerp_via_scaled_displacement(self) -> None:
+        # a + (b - a) * t — the parametric point-on-segment idiom.
+        a, b = Point(0.0, 0.0), Point(4.0, 2.0)
+        assert a + (b - a) * 0.5 == Point(2.0, 1.0)
+
+
+class TestVectorProducts:
+    def test_dot(self) -> None:
+        assert Vector(1.0, 2.0).dot(Vector(3.0, 4.0)) == 11.0
+        # Perpendicular vectors dot to zero.
+        assert Vector(1.0, 0.0).dot(Vector(0.0, 1.0)) == 0.0
+
+    def test_cross_2d_sign(self) -> None:
+        # +x cross +y is +1 (counter-clockwise).
+        assert Vector(1.0, 0.0).cross(Vector(0.0, 1.0)) == 1.0
+        # Reversed order flips the sign.
+        assert Vector(0.0, 1.0).cross(Vector(1.0, 0.0)) == -1.0
+
+    def test_cross_2d_zero_when_collinear(self) -> None:
+        assert Vector(2.0, 4.0).cross(Vector(1.0, 2.0)) == 0.0
+
+    def test_collinearity_via_point_cross(self) -> None:
+        # The cost_analyzer idiom: (b - a) × (p - a) == 0 ⇔ p on line a→b.
+        a, b = Point(0.0, 0.0), Point(4.0, 4.0)
+        on_line, off_line = Point(2.0, 2.0), Point(2.0, 3.0)
+        assert (b - a).cross(on_line - a) == 0.0
+        assert (b - a).cross(off_line - a) != 0.0
+
+
+class TestVectorAngle:
+    def test_angle_deg_axes(self) -> None:
+        assert Vector(1.0, 0.0).angle_deg() == 0.0
+        assert Vector(0.0, 1.0).angle_deg() == 90.0
+        assert Vector(-1.0, 0.0).angle_deg() == 180.0
+        assert Vector(0.0, -1.0).angle_deg() == -90.0
+
+    def test_angle_radians(self) -> None:
+        import math
+        assert Vector(1.0, 1.0).angle() == pytest.approx(math.pi / 4)
+
+    def test_angle_of_displacement(self) -> None:
+        # The body_shapes idiom: angle of the axis between two pins.
+        p1, p2 = Point(2.0, 2.0), Point(5.0, 2.0)
+        assert (p2 - p1).angle_deg() == 0.0
+        assert (Point(2.0, 5.0) - p1).angle_deg() == 90.0
+
+    def test_zero_vector_angle_is_zero(self) -> None:
+        assert Vector(0.0, 0.0).angle_deg() == 0.0
+
+
+class TestVector3DProducts:
+    def test_dot(self) -> None:
+        assert Vector3D(1.0, 2.0, 3.0).dot(Vector3D(4.0, 5.0, 6.0)) == 32.0
+
+    def test_cross_basis(self) -> None:
+        # x̂ × ŷ = ẑ
+        x = Vector3D(1.0, 0.0, 0.0)
+        y = Vector3D(0.0, 1.0, 0.0)
+        assert x.cross(y) == Vector3D(0.0, 0.0, 1.0)
+
+    def test_cross_anticommutes(self) -> None:
+        u = Vector3D(1.0, 2.0, 3.0)
+        v = Vector3D(4.0, 5.0, 6.0)
+        assert u.cross(v) == -(v.cross(u))
+
+    def test_2d_cross_is_z_of_3d_cross(self) -> None:
+        # Vector.cross matches the z of the embedded 3D cross.
+        a, b = Vector(1.0, 2.0), Vector(3.0, -1.0)
+        a3 = Vector3D(a.dx, a.dy, 0.0)
+        b3 = Vector3D(b.dx, b.dy, 0.0)
+        assert a.cross(b) == a3.cross(b3).dz
+
+    def test_scaling(self) -> None:
+        assert Vector3D(1.0, -2.0, 3.0) * 2 == Vector3D(2.0, -4.0, 6.0)
+        assert 2 * Vector3D(1.0, -2.0, 3.0) == Vector3D(2.0, -4.0, 6.0)
+        assert Vector3D(2.0, -4.0, 6.0) / 2 == Vector3D(1.0, -2.0, 3.0)
 
 
 class TestSize:

@@ -58,7 +58,7 @@ from protoboard.domain.components.package.shapes import (
     Prism as _PkgPrism,
 )
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 from protoboard.gui.renderers.prism_silhouette import silhouette_for_prism
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 
@@ -183,11 +183,10 @@ class TO92Body(BodyShape):
         # Ensure it points away from "below" (choose direction by sign)
         # For unrotated TO-92 pins at y=0,1,2 the row is vertical, not horizontal.
         # Recalculate: pin row direction
-        row_dx = positions[2].x - positions[0].x
-        row_dy = positions[2].y - positions[0].y
+        row = positions[2] - positions[0]  # Point − Point → Vector
         # Perpendicular pointing left of row direction
-        perp_x = -row_dy / perp_len
-        perp_y = -row_dx / perp_len
+        perp_x = -row.dy / perp_len
+        perp_y = -row.dx / perp_len
 
         mm = theme.raster_pitch_mm
         w = theme.to92_body_width_mm  / mm
@@ -201,7 +200,7 @@ class TO92Body(BodyShape):
         # cy = p_mid.y + perp_y * (h / 2)
 
         # Angle of the pin row
-        row_angle = math.degrees(math.atan2(row_dy, row_dx))
+        row_angle = row.angle_deg()
 
         # D-shape path (flat on pin side, rounded on top)
         path = QPainterPath()
@@ -269,18 +268,17 @@ class TO220Body(BodyShape):
         if len(positions) < 3:
             return GenericBody().draw(positions, fill, border, alpha, z, theme)
 
-        row_dx = positions[2].x - positions[0].x
-        row_dy = positions[2].y - positions[0].y
-        perp_len = math.hypot(row_dx, row_dy)
+        row = positions[2] - positions[0]  # Point − Point → Vector
+        perp_len = row.length()
         if perp_len < 1e-6:
             return GenericBody().draw(positions, fill, border, alpha, z, theme)
 
         # Perpendicular unit vector pointing "away" from user (left of row dir)
-        perp_x = -row_dy / perp_len
-        perp_y =  row_dx / perp_len
+        perp_x = -row.dy / perp_len
+        perp_y =  row.dx / perp_len
 
         p_mid = positions[1]
-        row_angle = math.degrees(math.atan2(row_dy, row_dx))
+        row_angle = row.angle_deg()
 
         mm = theme.raster_pitch_mm
         w     = theme.to220_body_width_mm  / mm
@@ -541,8 +539,9 @@ class PackageBody(BodyShape):
             p1, p2 = positions[1], positions[0]
         else:
             p1, p2 = positions[0], positions[1]
-        dx, dy = p2.x - p1.x, p2.y - p1.y
-        dist = math.hypot(dx, dy)
+        axis = p2 - p1  # Point − Point → Vector
+        dx, dy = axis.dx, axis.dy
+        dist = axis.length()
         if dist < 1e-9:
             return self._draw_bbox(positions, fill, border, alpha, z, theme)
 
@@ -565,10 +564,8 @@ class PackageBody(BodyShape):
             lead.setZValue(z - 0.01)
             upright.append(lead)
             neg_pin = positions[1]    # physical cathode, independent of flip
-            neg_angle = math.degrees(
-                math.atan2(neg_pin.y - anchor.y, neg_pin.x - anchor.x))
-            world_axis_deg = math.degrees(
-                math.atan2(other.y - anchor.y, other.x - anchor.x))
+            neg_angle = (neg_pin - anchor).angle_deg()
+            world_axis_deg = (other - anchor).angle_deg()
             flat = self._flat_side_world(pkg, world_axis_deg)
             upright.extend(self._radial_disc(
                 anchor, body_w, neg_angle, fill, border, alpha, z, theme,
@@ -578,7 +575,7 @@ class PackageBody(BodyShape):
 
         mid_x = (p1.x + p2.x) / 2.0
         mid_y = (p1.y + p2.y) / 2.0
-        angle_deg = math.degrees(math.atan2(dy, dx))
+        angle_deg = axis.angle_deg()
 
         items: list[QGraphicsItem] = []
 
@@ -675,14 +672,14 @@ class PackageBody(BodyShape):
         )
         # Direction from the body centre towards the negative lead — the side
         # the ``-`` segment marker goes on.
-        neg_angle = math.degrees(math.atan2(neg_pin.y - mid.y, neg_pin.x - mid.x))
+        neg_angle = (neg_pin - mid).angle_deg()
 
         pkg = self._pkg
         if isinstance(pkg, _PkgDisc):
             # A disc cap mounts on its edge: from above it is a thin side
             # profile, not the round face — a lens (its diameter along the lead
             # axis, its thickness across).
-            axis_angle = math.degrees(math.atan2(p2.y - p1.y, p2.x - p1.x))
+            axis_angle = (p2 - p1).angle_deg()
             items.append(self._radial_disc_side(
                 mid, pkg.diameter_mm / mm, pkg.thickness_mm / mm, axis_angle,
                 pkg.profile, fill, border, alpha, z, theme,
@@ -690,7 +687,7 @@ class PackageBody(BodyShape):
             return items
         if isinstance(pkg, _PkgCylinder):
             diam = pkg.diameter_mm / mm
-            world_axis_deg = math.degrees(math.atan2(p2.y - p1.y, p2.x - p1.x))
+            world_axis_deg = (p2 - p1).angle_deg()
             flat = self._flat_side_world(pkg, world_axis_deg)
             items.extend(self._radial_disc(
                 mid, diam, neg_angle, fill, border, alpha, z, theme,
@@ -702,7 +699,7 @@ class PackageBody(BodyShape):
         # the midpoint between the pads.
         bb = pkg.bbox()
         length_r, width_r = bb.height, bb.width
-        angle_deg = math.degrees(math.atan2(p2.y - p1.y, p2.x - p1.x))
+        angle_deg = (p2 - p1).angle_deg()
         rect_path = QPainterPath()
         r = self._effective_corner_radius_mm() / mm
         rect_path.addRoundedRect(
@@ -738,15 +735,15 @@ class PackageBody(BodyShape):
         local = pkg.pin_positions()
         if len(local) < 2:
             return None
-        dx, dy = local[-1].x - local[0].x, local[-1].y - local[0].y
-        if math.hypot(dx, dy) < 1e-9:
+        axis = local[-1] - local[0]  # Point − Point → Vector
+        if axis.length() < 1e-9:
             return None
-        local_axis_deg = math.degrees(math.atan2(dy, dx))
+        local_axis_deg = axis.angle_deg()
         rot = math.radians(world_axis_deg - local_axis_deg)
         n = pkg.flat_normal
         nx = n.x * math.cos(rot) - n.y * math.sin(rot)
         ny = n.x * math.sin(rot) + n.y * math.cos(rot)
-        normal_deg = math.degrees(math.atan2(ny, nx))
+        normal_deg = Vector(nx, ny).angle_deg()
         return normal_deg, pkg.flat_radius_mm / DEFAULT_THEME.raster_pitch_mm
 
     def _radial_disc(
@@ -1000,14 +997,14 @@ class PackageBody(BodyShape):
         body_len = bb.height  # along the terminal axis (package length)
 
         p1, p2 = positions[0], positions[1]
-        dx, dy = p2.x - p1.x, p2.y - p1.y
-        dist = math.hypot(dx, dy)
+        axis = p2 - p1  # Point − Point → Vector
+        dist = axis.length()
         if dist < 1e-9:
             return self._draw_bbox(positions, fill, border, alpha, z, theme)
 
         mid_x = (p1.x + p2.x) / 2.0
         mid_y = (p1.y + p2.y) / 2.0
-        angle_deg = math.degrees(math.atan2(dy, dx))
+        angle_deg = axis.angle_deg()
         # The chip is drawn at its declared body length, centred on the pad
         # midpoint — a real SMD chip is shorter than the pad pitch and sits
         # between the pads, leaving the metallised pads visible at each end.
