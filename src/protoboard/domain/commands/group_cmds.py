@@ -283,8 +283,20 @@ class DisbandGroupCommand(Command[ComponentState]):
 
 
 @dataclass
-class AddToGroupCommand(Command[ComponentState]):
-    """Add component IDs and/or child group IDs to an existing group."""
+class GroupMembershipCommand(Command[ComponentState]):
+    """Base for the add/remove-membership commands.
+
+    ``AddToGroupCommand`` and ``RemoveFromGroupCommand`` share one skeleton:
+    look the group up (raise if missing), snapshot it for undo, swap in a
+    group with recomputed membership, recompute the bbox-top-left origin, and
+    on revert restore the snapshot.  They differ only in how the new member
+    sets are formed (union ``|`` vs difference ``-``) and in whether a
+    pre-mutation check runs (Add rejects cycles; Remove can't create one).
+
+    Subclasses override :meth:`_new_membership` (the only required hook) and
+    optionally :meth:`_validate`.  ``_old_group`` is ``init=False`` so it
+    stays out of subclass ``__init__`` signatures.
+    """
 
     group_id: uuid.UUID
     component_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
@@ -293,26 +305,27 @@ class AddToGroupCommand(Command[ComponentState]):
         default=None, init=False, repr=False
     )
 
-    @property
-    def description(self) -> str:  # type: ignore[override]
-        return "Add to group"
+    def _new_membership(
+        self, group: ComponentGroup
+    ) -> tuple[frozenset[uuid.UUID], frozenset[uuid.UUID]]:
+        """Return the (component_ids, child_group_ids) to write into the group."""
+        raise NotImplementedError
+
+    def _validate(self, state: ComponentState, group: ComponentGroup) -> None:
+        """Pre-mutation check. Default no-op; Add overrides to reject cycles."""
 
     def apply(self, state: ComponentState) -> None:
         group = state.layout.groups.get(self.group_id)
         if group is None:
             raise KeyError(f"Group {self.group_id} not found")
-        # Validate no cycles.
-        for child_id in self.child_group_ids:
-            if would_create_cycle(state.layout.groups, self.group_id, child_id):
-                raise ValueError(
-                    f"Adding group {child_id} to {self.group_id} would create a cycle"
-                )
+        self._validate(state, group)
         self._old_group = group
+        new_components, new_children = self._new_membership(group)
         state.layout.groups[self.group_id] = group.replace(
-            component_ids=group.component_ids | self.component_ids,
-            child_group_ids=group.child_group_ids | self.child_group_ids,
+            component_ids=new_components,
+            child_group_ids=new_children,
         )
-        # Membership change ⇒ bbox top-left moves ⇒ origin recompute.
+        # Membership change ⇒ bbox top-left may move ⇒ origin recompute.
         # Old origin is captured inside _old_group above; revert restores it.
         _recompute_group_origin(state, self.group_id)
 
@@ -322,36 +335,44 @@ class AddToGroupCommand(Command[ComponentState]):
 
 
 @dataclass
-class RemoveFromGroupCommand(Command[ComponentState]):
-    """Remove component IDs and/or child group IDs from a group."""
+class AddToGroupCommand(GroupMembershipCommand):
+    """Add component IDs and/or child group IDs to an existing group."""
 
-    group_id: uuid.UUID
-    component_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
-    child_group_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
-    _old_group: ComponentGroup | None = field(
-        default=None, init=False, repr=False
-    )
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return "Add to group"
+
+    def _validate(self, state: ComponentState, group: ComponentGroup) -> None:
+        for child_id in self.child_group_ids:
+            if would_create_cycle(state.layout.groups, self.group_id, child_id):
+                raise ValueError(
+                    f"Adding group {child_id} to {self.group_id} would create a cycle"
+                )
+
+    def _new_membership(
+        self, group: ComponentGroup
+    ) -> tuple[frozenset[uuid.UUID], frozenset[uuid.UUID]]:
+        return (
+            group.component_ids | self.component_ids,
+            group.child_group_ids | self.child_group_ids,
+        )
+
+
+@dataclass
+class RemoveFromGroupCommand(GroupMembershipCommand):
+    """Remove component IDs and/or child group IDs from a group."""
 
     @property
     def description(self) -> str:  # type: ignore[override]
         return "Remove from group"
 
-    def apply(self, state: ComponentState) -> None:
-        group = state.layout.groups.get(self.group_id)
-        if group is None:
-            raise KeyError(f"Group {self.group_id} not found")
-        self._old_group = group
-        state.layout.groups[self.group_id] = group.replace(
-            component_ids=group.component_ids - self.component_ids,
-            child_group_ids=group.child_group_ids - self.child_group_ids,
+    def _new_membership(
+        self, group: ComponentGroup
+    ) -> tuple[frozenset[uuid.UUID], frozenset[uuid.UUID]]:
+        return (
+            group.component_ids - self.component_ids,
+            group.child_group_ids - self.child_group_ids,
         )
-        # Membership change ⇒ bbox top-left may change ⇒ origin recompute.
-        # Old origin is captured inside _old_group above; revert restores it.
-        _recompute_group_origin(state, self.group_id)
-
-    def revert(self, state: ComponentState) -> None:
-        if self._old_group is not None:
-            state.layout.groups[self.group_id] = self._old_group
 
 
 @dataclass
