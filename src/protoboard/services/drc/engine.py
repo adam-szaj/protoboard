@@ -927,8 +927,9 @@ def _check_off_board_pins(
         if defn is None:
             continue
         side = placement.side
-        for pin_num in range(1, defn.footprint.pin_count() + 1):
-            wp = pin_world_position(footprint_of(defn, inst), placement, pin_num)
+        fp = footprint_of(defn, inst)
+        for pin_num in range(1, fp.pin_count() + 1):
+            wp = pin_world_position(fp, placement, pin_num)
             on_pad = False
             if pad_index is not None:
                 pad = pad_index.pad_at(wp)

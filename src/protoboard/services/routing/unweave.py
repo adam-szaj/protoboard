@@ -552,10 +552,9 @@ def unweave_wires(
             defn = graph.components.get(inst.definition_ref)
             if defn is None:
                 continue
-            for pn in range(1, defn.footprint.pin_count() + 1):
-                forbidden_pads.add(
-                    pin_world_position(footprint_of(defn, inst), pl, pn)
-                )
+            comp_fp = footprint_of(defn, inst)
+            for pn in range(1, comp_fp.pin_count() + 1):
+                forbidden_pads.add(pin_world_position(comp_fp, pl, pn))
 
     # Foreign-wire vertices = every (pad, side) used by a wire on the board
     # that is NOT one of our unweave targets.  Used by Phase 0 to reject

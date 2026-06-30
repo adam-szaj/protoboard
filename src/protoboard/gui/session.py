@@ -739,6 +739,9 @@ class EditorSession(QObject):
         Returns an empty list if the component or its definition is not found.
         Every pin resolution delegates to the canonical safety chain.
         """
+        from protoboard.domain.layout.pad_conflict import (
+            resolved_footprint_or_default,
+        )
         from protoboard.domain.layout.placement import (
             resolve_pin_world_position,
         )
@@ -749,7 +752,7 @@ class EditorSession(QObject):
         if defn is None:
             return []
         result: list[tuple[int, Point]] = []
-        for n in range(defn.footprint.pin_count()):
+        for n in range(resolved_footprint_or_default(defn, inst).pin_count()):
             pin_num = n + 1
             pos = resolve_pin_world_position(
                 comp_id, pin_num,

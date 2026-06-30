@@ -1311,8 +1311,9 @@ def _build_pin_positions(
         defn = components.get(inst.definition_ref)
         if defn is None:
             continue
-        for pin_num in range(1, defn.footprint.pin_count() + 1):
-            p = pin_world_position(footprint_of(defn, inst), placement, pin_num)
+        fp = footprint_of(defn, inst)
+        for pin_num in range(1, fp.pin_count() + 1):
+            p = pin_world_position(fp, placement, pin_num)
             pos[PinRef(component_id=comp_id, pin_number=pin_num)] = (p, placement.side)
     return pos
 

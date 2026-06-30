@@ -84,11 +84,10 @@ def _build_pad_context(
             defn = components.get(inst.definition_ref)
             if defn is None:
                 continue
-            if ref.pin_number < 1 or ref.pin_number > defn.footprint.pin_count():
+            fp = footprint_of(defn, inst)
+            if ref.pin_number < 1 or ref.pin_number > fp.pin_count():
                 continue
-            pt = pin_world_position(
-                footprint_of(defn, inst), placement, ref.pin_number
-            )
+            pt = pin_world_position(fp, placement, ref.pin_number)
             point_side_to_net[(pt, "top")] = net.id
             point_side_to_net[(pt, "bottom")] = net.id
     for comp_id, placement in worker_layout.placements.items():
@@ -98,8 +97,9 @@ def _build_pad_context(
         defn = components.get(inst.definition_ref)
         if defn is None:
             continue
-        for pin_num in range(1, defn.footprint.pin_count() + 1):
-            pt = pin_world_position(footprint_of(defn, inst), placement, pin_num)
+        fp = footprint_of(defn, inst)
+        for pin_num in range(1, fp.pin_count() + 1):
+            pt = pin_world_position(fp, placement, pin_num)
             ps_top = (pt, "top")
             ps_bot = (pt, "bottom")
             net_id = point_side_to_net.get(ps_top, _FLOATING)

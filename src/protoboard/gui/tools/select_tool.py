@@ -3103,16 +3103,16 @@ class SelectTool(_Tool):
             if pl is None or inst is None:
                 continue
             defn = self._session.components.get(inst.definition_ref)
-            # pin_count is variant-invariant — the 2-pin gate stays on defn.
-            if defn is None or defn.footprint.pin_count() != 2:
+            if defn is None:
+                continue
+            fp = resolved_footprint(defn, inst, families)
+            if fp.pin_count() != 2:
                 continue
             cmds.append(
                 MoveComponentCommand(
                     component_id=cid,
                     # flip pivots around the pin span → variant-sensitive.
-                    new_placement=flip_component(
-                        resolved_footprint(defn, inst, families), pl
-                    ),
+                    new_placement=flip_component(fp, pl),
                     old_placement=pl.copy(),
                 )
             )
@@ -3223,15 +3223,15 @@ class SelectTool(_Tool):
             if pl is None or inst is None:
                 continue
             defn = self._session.components.get(inst.definition_ref)
-            # pin_count is variant-invariant — the 2-pin gate stays on defn.
-            if defn is None or defn.footprint.pin_count() != 2:
+            if defn is None:
+                continue
+            fp = resolved_footprint(defn, inst, families)
+            if fp.pin_count() != 2:
                 continue
             cmds.append(
                 MoveComponentCommand(
                     component_id=cid,
-                    new_placement=flip_component(
-                        resolved_footprint(defn, inst, families), pl
-                    ),
+                    new_placement=flip_component(fp, pl),
                     old_placement=pl.copy(),
                 )
             )
@@ -3527,7 +3527,11 @@ class SelectTool(_Tool):
             items[act_clear] = ("clear_all_pins", active_gid)
             sm.addSeparator()
             if is_direct:
-                pin_count = defn.footprint.pin_count()  # type: ignore[attr-defined]
+                from protoboard.domain.layout.pad_conflict import (
+                    resolved_footprint_or_default,
+                )
+                fp = resolved_footprint_or_default(defn, inst)  # type: ignore[arg-type]
+                pin_count = fp.pin_count()
                 pin_names = defn.pin_names  # type: ignore[attr-defined]
                 for pin_num in range(1, pin_count + 1):
                     ep = _PinRef(component_id=comp_id, pin_number=pin_num)

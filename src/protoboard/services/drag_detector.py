@@ -513,9 +513,9 @@ class DragDetector:
             if not incoming_bbox.intersects(other_bbox):
                 continue
             has_pin_overlap = False
-            for in_pin in range(1, defn.footprint.pin_count() + 1):
+            for in_pin in range(1, incoming_fp.pin_count() + 1):
                 in_pos = pin_world_position(incoming_fp, pl, in_pin)
-                for ot_pin in range(1, other_defn.footprint.pin_count() + 1):
+                for ot_pin in range(1, other_fp.pin_count() + 1):
                     ot_pos = pin_world_position(
                         other_fp, other_pl, ot_pin,
                     )

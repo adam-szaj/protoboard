@@ -185,6 +185,10 @@ class GroupTree:
     ) -> frozenset[PinRef]:
         """Pins that may legally appear in ``G.exported_pins``: every pin of
         every direct member ∪ each direct child's already-exported pins."""
+        from protoboard.domain.layout.pad_conflict import (
+            resolved_footprint_or_default,
+        )
+
         group = self._groups.get(group_id)
         if group is None:
             return frozenset()
@@ -196,7 +200,8 @@ class GroupTree:
             defn = definitions.get(inst.definition_ref)
             if defn is None:
                 continue
-            for pin_num in range(1, defn.footprint.pin_count() + 1):
+            fp = resolved_footprint_or_default(defn, inst)
+            for pin_num in range(1, fp.pin_count() + 1):
                 surface.add(PinRef(component_id=cid, pin_number=pin_num))
         for child_id in group.child_group_ids:
             child = self._groups.get(child_id)
@@ -381,6 +386,9 @@ class GroupTree:
         safety chain.
         """
         from protoboard.domain.components.definition import ComponentDefinition
+        from protoboard.domain.layout.pad_conflict import (
+            resolved_footprint_or_default,
+        )
         from protoboard.domain.layout.placement import (
             ComponentPlacement,
             resolve_pin_world_position,
@@ -397,7 +405,8 @@ class GroupTree:
                 defn, ComponentDefinition
             ):
                 continue
-            for n in range(defn.footprint.pin_count()):
+            fp = resolved_footprint_or_default(defn, inst)
+            for n in range(fp.pin_count()):
                 p = resolve_pin_world_position(
                     cid,
                     n + 1,

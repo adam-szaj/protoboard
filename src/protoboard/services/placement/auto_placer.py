@@ -38,7 +38,10 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.pad_conflict import footprint_of
+from protoboard.domain.layout.pad_conflict import (
+    footprint_of,
+    resolved_footprint_or_default,
+)
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
     component_bbox,
@@ -128,7 +131,7 @@ def auto_place(
             )
             result.skipped.append(inst.id)
             continue
-        if defn.footprint.pin_count() == 0:
+        if resolved_footprint_or_default(defn, inst).pin_count() == 0:
             _log.warning(
                 "auto_place.skip_zero_pins",
                 refdes=inst.refdes,

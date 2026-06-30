@@ -593,7 +593,7 @@ arg (or a `frozenset[PinRef]`), thread it through
 `NetsEditorPanel.sync_selection` select just the matching `f"{cid}:{pin}"` row.
 Keep the existing 3-arg slots working (default the pin arg to None).
 
-## Eliminate `defn.footprint` for placed components — RULE + audit (added 2026-06-30)
+## Eliminate `defn.footprint` for placed components — RULE + audit (added 2026-06-30, DONE 2026-06-30)
 
 **HARD RULE (user, 5th time):** any `defn.footprint` used for a component that is
 *placed on the board* is a **critical bug**. A placed component always has a
@@ -605,40 +605,44 @@ default pins along X `[(0,0),(1,0),(2,0)]` vs sil-3 along Y `[(0,0),(0,1),(0,2)]
 so after rotation pins 2/3 land on the wrong pads. Pin 1 (anchor, offset 0,0)
 usually still works, so the bug looks path-dependent / partial.
 
-Already fixed instances of this exact bug: place-tool ghost/king-move
-(`_resolved_footprint`), `component_bbox` margin (`footprint_of`), placement
-conflict, drag-pin.
+**New shared helper:** `pad_conflict.resolved_footprint_or_default(defn, inst)` —
+returns the instance's resolved variant footprint when bound, falls back to
+`defn.footprint` when unbound. Use it in build paths that can legitimately run
+before the session binds instances lazily (`load_project` returns unbound). Where
+the instance is *guaranteed* bound, prefer the strict `footprint_of(defn, inst)`
+(raises on unbound, surfacing the bug). Both live in `domain/layout/pad_conflict.py`.
 
-**Goal:** drive `defn.footprint` usage to minimum (ideally zero) outside
-picker/topology/fallback-for-unbound contexts.
+**Key invariant (verified across all 169 builtin definitions, 0 mismatches):**
+**pin _count_ is variant-invariant** — every variant of one definition has the
+same number of pins (a 3-pin MOSFET is 3-pin as TO-220 or SIL-3). Only pin
+*world positions* diverge. So `pin_count()` reads were never the bug; only
+geometry was. The fix still routes count through the resolved footprint for
+single-source-of-truth (one resolve per loop, used for both bound and geometry).
 
-### CRITICAL — compute pin *world positions* of a placed component from `defn.footprint` (wrong pads on a variant)
-- `domain/connectivity/incremental.py:576` (`_build_same_name_pin_merges`) and
-  `:658` (`_build_component_pin_map`) — **the open IRF9540 MISSING_NET bug.** Red
-  test: `tests/unit/test_connectivity_variant_footprint.py` (uncommitted). ⚠ some
-  of the 9 `ConnectivityGraph(...)` build sites (paint / unweave / autorouter /
-  drc_worker) may receive UNBOUND instances (`load_project` returns unbound;
-  session binds lazily), so `resolved_footprint()` would raise
-  `UnboundInstanceError` — the fix must use the variant when bound and fall back
-  to `defn.footprint` when not.
-- `gui/renderers/board_renderer.py:483` and `gui/renderers/component_renderer.py:677`
-  — pin glyph / body positions drawn from `defn.footprint`; a variant-placed part
-  renders pins at the wrong spots.
+### DONE — CRITICAL: pin *world positions* (real bug — wrong pads on a variant)
+- `domain/connectivity/incremental.py` `_build_same_name_pin_merges` /
+  `_build_component_pin_map` — **the IRF9540 MISSING_NET bug**, fixed in `5d00c8c`
+  with regression test `tests/unit/test_connectivity_variant_footprint.py` (green).
+- `gui/renderers/board_renderer.py` `pin_net_map` — pad-net overlay (`5d00c8c`).
+- `gui/renderers/component_renderer.py:677` — **not a bug**: ghost-preview path,
+  no placed instance; already resolves the variant when `package_variant` is set.
 
-### Likely-critical — pin *count*/iteration over a placed component (count is usually variant-stable, but verify and prefer resolved)
-- `services/drc/engine.py:930`, `domain/board/pad_state.py:874`,
-  `domain/layout/group_tree.py:199,400`, `services/routing/autorouter.py:1314`,
-  `services/routing/unweave.py:555`, `services/routing/builtin_optimizers.py:87,101`,
-  `services/placement/auto_placer.py:131`, `services/drag_detector.py:516,518`,
-  `gui/session.py:752`, `gui/main_window.py:2225`,
-  `gui/tools/select_tool.py:3107,3227`.
+### DONE — placed-component geometry/iteration repointed to resolved footprint
+Hoisted the resolved footprint before the loop (`fp = footprint_of(defn, inst)` or
+`resolved_footprint_or_default` where unbound is possible) and used `fp.pin_count()`
+as the bound: `services/drc/engine.py`, `services/routing/autorouter.py`,
+`services/routing/unweave.py`, `services/routing/builtin_optimizers.py` (×2),
+`services/placement/auto_placer.py`, `services/drag_detector.py` (repointed bounds
+to the already-hoisted `incoming_fp`/`other_fp`), `domain/layout/group_tree.py`
+(×2), `gui/session.py`, `gui/main_window.py`, `gui/tools/select_tool.py` (flip
+gates ×2 + export-pins picker). All variant-invariant pin-count reads, but now
+single-source-of-truth. Zero new `mypy --strict` errors.
 
-### Legitimate (leave) — no placed-component geometry
+### Legitimately left on `defn.footprint` (no placed-component geometry)
 - `instance.py:140` (the documented no-package default return — the ONE correct
-  fallback), `component_package.py` / `pad_conflict.py` docstrings, `loader.py:265`
-  / `footprint_choice.py` / `properties_panel.py:580` (picker over
-  `defn.footprints` list), `bom.py:33` (type name for the BOM).
-
-Tackle the CRITICAL group first (connectivity is an active user-facing bug);
-each needs the bound→resolved / unbound→defn.footprint fallback and a regression
-test asserting a rotated non-default-variant part wires up.
+  fallback), `domain/board/pad_state.py:874` (explicit `else:` branch for an
+  *unbound* instance; the `if instance is not None` branch already resolves the
+  variant — the model implementation), `component_package.py` / `pad_conflict.py`
+  docstrings, `place_tool.py:488` (`_resolved_footprint`'s documented no-variant
+  fallback), `loader.py` / `footprint_choice.py` / `properties_panel.py:580`
+  (picker over the `defn.footprints` *list*), `bom.py:33` (type name for the BOM).
