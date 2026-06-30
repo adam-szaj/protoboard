@@ -6,6 +6,7 @@ from __future__ import annotations
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeVar
 
 import structlog
@@ -169,6 +170,46 @@ class MacroCommand(Command[T], Generic[T]):
     def revert(self, state: T) -> None:
         for cmd in reversed(self._commands):
             cmd.revert(state)
+
+
+@dataclass
+class ConditionalCommand(Command[T], Generic[T]):
+    """A command whose ``revert`` is a no-op unless ``apply`` committed.
+
+    Several mutate-then-undo commands (``MoveComponentCommand``,
+    ``TranslateAnchoredWiresCommand``, ``MoveDragSetCommand``,
+    ``TransformDragSetCommand``) decide *at runtime* whether they actually
+    change anything: a locked or blocked move, for instance, silently does
+    nothing.  Each used to hand-roll the same guard — an ``_applied`` flag
+    set in ``apply`` and re-checked at the top of ``revert``.
+
+    This base factors that out.  Subclasses:
+
+    * call :meth:`mark_applied` inside their ``apply`` (``mark_applied(False)``
+      on the no-op paths, ``mark_applied(True)`` once they commit), and
+    * implement :meth:`_do_revert` with the real undo logic.
+
+    :meth:`revert` then guards on the flag and delegates, so the no-op
+    contract lives in exactly one place.  ``_applied`` is ``init=False`` so
+    it never enters a subclass dataclass's ``__init__`` signature — required
+    subclass fields keep working without a default.
+    """
+
+    _applied: bool = field(default=False, init=False, repr=False)
+
+    def mark_applied(self, applied: bool = True) -> None:
+        """Record whether ``apply`` committed (drives the ``revert`` guard)."""
+        self._applied = applied
+
+    @abstractmethod
+    def _do_revert(self, state: T) -> None:
+        """Undo the changes ``apply`` committed. Called only when applied."""
+        ...
+
+    def revert(self, state: T) -> None:
+        if not self._applied:
+            return
+        self._do_revert(state)
 
 
 class CommandStack(Generic[T]):
