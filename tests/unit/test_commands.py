@@ -157,6 +157,68 @@ class TestPlaceComponentCommand:
         assert "Place" in cmd.description or "place" in cmd.description
 
 
+class TestMoveComponentNoOpRevert:
+    """MoveComponentCommand's _applied guard (now ConditionalCommand).
+
+    A locked move declines to commit: apply() leaves the placement alone
+    and revert() must be a no-op (not blindly restore old_placement, which
+    on a redo-after-failed-apply could clobber a position set elsewhere).
+    The happy path commits and revert restores the old placement.
+    """
+
+    @staticmethod
+    def _placement(comp_id: uuid.UUID, pos: Point, *, locked: bool = False
+                   ) -> ComponentPlacement:
+        return ComponentPlacement(
+            component_id=comp_id, position=pos, rotation=0, side="top",
+            locked=locked,
+        )
+
+    def test_locked_move_is_noop_apply_and_noop_revert(self) -> None:
+        comp_id = uuid.uuid4()
+        locked_pl = self._placement(comp_id, Point(2.0, 3.0), locked=True)
+        sess = _FakeSession()
+        sess.layout.placements[comp_id] = locked_pl
+
+        from protoboard.domain.commands.component_cmds import MoveComponentCommand
+        cmd = MoveComponentCommand(
+            component_id=comp_id,
+            new_placement=self._placement(comp_id, Point(9.0, 9.0)),
+            old_placement=locked_pl,
+            skip_conflict_check=True,
+            placement_only=True,
+        )
+        cmd.apply(sess)
+        # apply declined: placement unchanged.
+        assert sess.layout.placements[comp_id].position == Point(2.0, 3.0)
+
+        # Mutate the placement after the no-op apply, then revert: a guarded
+        # revert must NOT touch it (the bug a naive `placements[id]=old` reintroduces).
+        sess.layout.placements[comp_id] = self._placement(comp_id, Point(5.0, 5.0))
+        cmd.revert(sess)
+        assert sess.layout.placements[comp_id].position == Point(5.0, 5.0)
+
+    def test_unlocked_move_commits_and_reverts(self) -> None:
+        comp_id = uuid.uuid4()
+        old_pl = self._placement(comp_id, Point(2.0, 3.0))
+        new_pl = self._placement(comp_id, Point(7.0, 8.0))
+        sess = _FakeSession()
+        sess.layout.placements[comp_id] = old_pl
+
+        from protoboard.domain.commands.component_cmds import MoveComponentCommand
+        cmd = MoveComponentCommand(
+            component_id=comp_id,
+            new_placement=new_pl,
+            old_placement=old_pl,
+            skip_conflict_check=True,
+            placement_only=True,
+        )
+        cmd.apply(sess)
+        assert sess.layout.placements[comp_id].position == Point(7.0, 8.0)
+        cmd.revert(sess)
+        assert sess.layout.placements[comp_id].position == Point(2.0, 3.0)
+
+
 class TestRemoveComponentCommand:
     def test_remove_and_undo(self) -> None:
         comp_id = uuid.uuid4()

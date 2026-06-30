@@ -17,6 +17,7 @@ import structlog
 from protoboard.domain.commands.base import (
     Command,
     ComponentState,
+    ConditionalCommand,
     SchematicState,
 )
 from protoboard.domain.components.instance import ComponentInstance
@@ -159,7 +160,7 @@ class PlaceComponentCommand(Command[ComponentState]):
 
 
 @dataclass
-class MoveComponentCommand(Command[ComponentState]):
+class MoveComponentCommand(ConditionalCommand[ComponentState]):
     component_id: uuid.UUID
     new_placement: ComponentPlacement
     old_placement: ComponentPlacement
@@ -178,7 +179,6 @@ class MoveComponentCommand(Command[ComponentState]):
     _saved_wires: list[Wire] = field(
         default_factory=list, init=False, repr=False
     )
-    _applied: bool = field(default=False, init=False, repr=False)
     # Pre-move origin of every group that recursively contained the moved
     # component.  Snapshotted at apply() and restored on revert() so the
     # bbox-top-left invariant survives undo/redo.  Empty until apply().
@@ -193,7 +193,7 @@ class MoveComponentCommand(Command[ComponentState]):
     def apply(self, state: ComponentState) -> None:
         # Locked components never move — silently treat as no-op.
         if state.layout.placements.get(self.component_id, self.old_placement).locked:
-            self._applied = False
+            self.mark_applied(False)
             return
         if not self.skip_conflict_check:
             blocked = _move_blocked(
@@ -204,10 +204,10 @@ class MoveComponentCommand(Command[ComponentState]):
             )
             if blocked:
                 # Conflict — silently keep old position; mark as no-op for undo.
-                self._applied = False
+                self.mark_applied(False)
                 state.layout.placements[self.component_id] = self.old_placement
                 return
-        self._applied = True
+        self.mark_applied(True)
         if not self.placement_only:
             self._saved_wires = list(state.layout.wires)
         state.layout.placements[self.component_id] = self.new_placement
@@ -251,9 +251,7 @@ class MoveComponentCommand(Command[ComponentState]):
             )
         self._saved_group_origins = saved
 
-    def revert(self, state: ComponentState) -> None:
-        if not self._applied:
-            return
+    def _do_revert(self, state: ComponentState) -> None:
         state.layout.placements[self.component_id] = self.old_placement
         if not self.placement_only:
             state.layout.wires[:] = self._saved_wires
@@ -650,7 +648,7 @@ class RemoveWireCommand(Command[ComponentState]):
 
 
 @dataclass
-class TranslateAnchoredWiresCommand(Command[ComponentState]):
+class TranslateAnchoredWiresCommand(ConditionalCommand[ComponentState]):
     """Translate wires anchored to a moved component's pins.
 
     Spun out of ``MoveComponentCommand`` so the drag-commit pipeline
@@ -681,7 +679,6 @@ class TranslateAnchoredWiresCommand(Command[ComponentState]):
     _saved_geometry: "dict[uuid.UUID, tuple[list[Point], list[Fragment]]]" = (
         field(default_factory=dict, init=False, repr=False)
     )
-    _applied: bool = field(default=False, init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -692,7 +689,7 @@ class TranslateAnchoredWiresCommand(Command[ComponentState]):
 
         self._saved_wires = list(state.layout.wires)
         self._saved_geometry = snapshot_wire_geometry(state.layout)
-        self._applied = True
+        self.mark_applied(True)
         wires_before = {w.id: list(w.path) for w in state.layout.wires}
         _update_wires_for_move(
             state.layout.wires,
@@ -744,9 +741,7 @@ class TranslateAnchoredWiresCommand(Command[ComponentState]):
                 changed=changed[:10],
             )
 
-    def revert(self, state: ComponentState) -> None:
-        if not self._applied:
-            return
+    def _do_revert(self, state: ComponentState) -> None:
         from protoboard.domain.layout.wire_utils import restore_wire_geometry
 
         state.layout.wires[:] = self._saved_wires
