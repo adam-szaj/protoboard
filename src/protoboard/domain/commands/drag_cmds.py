@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from protoboard.domain.layout.wire import Fragment, Wire
 
 
-__all__ = ["MoveDragSetCommand"]
+__all__ = ["MoveDragSetCommand", "TransformDragSetCommand"]
 
 
 _log = structlog.get_logger(__name__)
@@ -224,3 +224,85 @@ class MoveDragSetCommand(Command["ComponentState"]):
 
         # 4. Invalidate caches again so next paint sees the rewound state.
         state.layout.invalidate_interior_vertex_index()
+
+
+@dataclass
+class TransformDragSetCommand(Command["ComponentState"]):
+    """Atomic full-pose change of a component set — one undo entry.
+
+    The commit command for the unified *float-transform* mode (rotate +
+    translate + flip, applied in any order off the undo stack before the
+    user accepts).  Unlike :class:`MoveDragSetCommand` it is **purely
+    snapshot-based**: it carries the complete before/after geometry and on
+    ``apply`` writes the *after*, on ``revert`` writes the *before* — it
+    never re-derives a transform, so it absorbs an arbitrary mix of
+    operations.  Two differences from the move command:
+
+    * ``members`` may differ per component in **rotation** and **side**, not
+      just position — no single ``delta``.
+    * It snapshots/restores free-knot (:class:`JointKnot` /
+      :class:`WirePinKnot`) **positions**, because rotation moves them
+      whereas pure translation does not (so ``MoveDragSetCommand`` skips
+      them).  ``PinKnot`` positions are not stored — they resolve from the
+      placement, which ``members`` already carries.
+
+    Soft-conflict wire *removal* is deliberately NOT part of this command:
+    the caller wraps it with a :class:`DropWiresCommand` in a
+    :class:`MacroCommand` when the commit decision asks for drops, so the
+    two concerns stay separable while remaining one undo step.
+
+    Args:
+        members: ``component_id → (old_placement, new_placement)``.
+        wire_paths: ``wire_id → (old_path, new_path)`` for every wire whose
+            geometry the transform changed (path points).
+        wire_fragments: ``wire_id → (old_fragments, new_fragments)`` for the
+            same wires (empty lists when a wire has no fragments).
+        knot_positions: ``knot_id → (old_position, new_position)`` for every
+            free knot the transform moved.
+    """
+
+    members: dict[uuid.UUID, tuple["ComponentPlacement", "ComponentPlacement"]]
+    wire_paths: dict[uuid.UUID, tuple[list[Point], list[Point]]]
+    wire_fragments: dict[
+        uuid.UUID, tuple["list[Fragment]", "list[Fragment]"]
+    ]
+    knot_positions: dict[uuid.UUID, tuple[Point, Point]]
+
+    _applied: bool = field(default=False, init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        n = len(self.members)
+        return f"Transform {n} component{'s' if n != 1 else ''}"
+
+    def _write(self, state: "ComponentState", *, end: int) -> None:
+        """Write one end of every snapshot to the layout.
+
+        ``end`` indexes the (old, new) tuples: ``1`` writes the *after*
+        state (apply), ``0`` the *before* (revert).  apply and revert are
+        mirror images, so they share this single pass.
+        """
+        for cid, pls in self.members.items():
+            state.layout.placements[cid] = pls[end]
+        for wid, paths in self.wire_paths.items():
+            wire = state.layout.wires.get(wid)
+            if wire is not None:
+                wire.path = list(paths[end])
+        for wid, frags in self.wire_fragments.items():
+            wire = state.layout.wires.get(wid)
+            if wire is not None:
+                wire.fragments = list(frags[end])
+        for kid, positions in self.knot_positions.items():
+            knot = state.layout.knots.get(kid)
+            if knot is not None:
+                state.layout.knots[kid] = knot.moved_to(positions[end])
+        state.layout.invalidate_interior_vertex_index()
+
+    def apply(self, state: "ComponentState") -> None:
+        self._write(state, end=1)
+        object.__setattr__(self, "_applied", True)
+
+    def revert(self, state: "ComponentState") -> None:
+        if not self._applied:
+            return
+        self._write(state, end=0)
