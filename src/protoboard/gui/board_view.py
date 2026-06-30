@@ -543,33 +543,7 @@ class BoardView(QGraphicsView):
                 profile_obj = self._highlight_profile
 
         if not any_source:
-            for grp in self._comp_groups.values():
-                if isinstance(grp, QGraphicsItemGroup):
-                    grp.setOpacity(1.0)
-            for grp in self._comp_label_groups.values():
-                if isinstance(grp, QGraphicsItemGroup):
-                    grp.setOpacity(1.0)
-            for grp in self._wire_groups.values():
-                if isinstance(grp, QGraphicsItemGroup):
-                    grp.setOpacity(1.0)
-            # A component can be selected with no net context (RelationClass.
-            # NONE) — keep the cyan outline in sync even on this no-dim path.
-            self._recolour_selected_outlines()
-            # No net in context → no net-pad discs.
-            self._redraw_net_pad_highlights(set())
-            # No-highlight branch — also invalidate the back cache when
-            # we just transitioned out of a non-empty highlight state.
-            # Without this, the cached pixmap keeps the old dimmed
-            # back-side items even though every front item is now back
-            # at opacity 1.0 (user-visible: third Esc looks like a
-            # no-op because the back-cache pixmap is stale).
-            cleared_signature = hash((
-                frozenset(), frozenset(), frozenset(), id(None),
-            ))
-            if cleared_signature != self._last_highlight_signature:
-                self._last_highlight_signature = cleared_signature
-                self._invalidate_back_cache()
-                self.viewport().update()
+            self._clear_highlight_dimming()
             return
 
         # Determine dim values from whichever profile we ended up with.
@@ -646,6 +620,37 @@ class BoardView(QGraphicsView):
             # Re-trigger a paint so the back cache gets rebuilt now
             # rather than on the next mouse move; otherwise the user
             # sees the stale pixmap until they wiggle the cursor.
+            self.viewport().update()
+
+    def _clear_highlight_dimming(self) -> None:
+        """Restore every comp/wire/label group to full opacity (no highlight).
+
+        The no-source branch of :meth:`_apply_highlight_opacity_impl`, pulled
+        out so that method reads as "aggregate sources → if none, clear → else
+        dim".  Keeps the cyan selection outline in sync (a component can be
+        selected with no net context) and invalidates the back cache when we
+        just left a non-empty highlight state — otherwise the cached pixmap
+        keeps stale dimmed back-side items (the "third Esc looks like a no-op"
+        bug).
+        """
+        from PySide6.QtWidgets import QGraphicsItemGroup
+
+        for groups in (
+            self._comp_groups, self._comp_label_groups, self._wire_groups,
+        ):
+            for grp in groups.values():
+                if isinstance(grp, QGraphicsItemGroup):
+                    grp.setOpacity(1.0)
+        # Selected-but-no-net components keep their cyan outline.
+        self._recolour_selected_outlines()
+        # No net in context → no net-pad discs.
+        self._redraw_net_pad_highlights(set())
+        cleared_signature = hash((
+            frozenset(), frozenset(), frozenset(), id(None),
+        ))
+        if cleared_signature != self._last_highlight_signature:
+            self._last_highlight_signature = cleared_signature
+            self._invalidate_back_cache()
             self.viewport().update()
 
     def _recolour_selected_outlines(self) -> set[uuid.UUID]:
@@ -1152,7 +1157,7 @@ class BoardView(QGraphicsView):
         and call moveBy(delta) when the placement changes — this translates all child
         items without rebuilding the scene.
         """
-        from PySide6.QtWidgets import QGraphicsItemGroup, QGraphicsRectItem
+        from PySide6.QtWidgets import QGraphicsItemGroup
         placements = self._session.layout.placements
         for comp_id, grp in self._comp_groups.items():
             if not isinstance(grp, QGraphicsItemGroup):
@@ -1162,14 +1167,13 @@ class BoardView(QGraphicsView):
             if pl is None or orig is None:
                 continue
             # Delta from the position when items were baked into the scene.
-            dx = pl.position.x - orig.x
-            dy = pl.position.y - orig.y
-            grp.setPos(dx, dy)
+            delta = pl.position - orig
+            grp.setPos(delta.x, delta.y)
             # Move the matching label group by the same delta so labels track
             # the drag (they live in a separate group at Z_LABELS_TOP).
             lbl = self._comp_label_groups.get(comp_id)
             if isinstance(lbl, QGraphicsItemGroup):
-                lbl.setPos(dx, dy)
+                lbl.setPos(delta.x, delta.y)
 
         # Recompute outline rect for each group from the live pin positions
         # of its members.  Outline overlay items live outside _comp_groups
@@ -1189,9 +1193,23 @@ class BoardView(QGraphicsView):
             orig = self._drag_orig_wire_pose.get(wire.id)
             if orig is None:
                 continue
-            dx = wire.path[0].x - orig.x
-            dy = wire.path[0].y - orig.y
-            grp.setPos(dx, dy)
+            delta = wire.path[0] - orig
+            grp.setPos(delta.x, delta.y)
+
+        self._update_group_outlines_on_drag()
+
+    def _update_group_outlines_on_drag(self) -> None:
+        """Recompute each group's outline rect from live member geometry.
+
+        Outline overlay rects live in ``self._overlay_items`` (not the moved
+        comp groups), so a drag's ``setPos`` doesn't touch them — this resizes
+        each in place to the bbox of its members' pins plus owned-wire
+        vertices, so the live outline matches the statically-rendered one
+        instead of shrinking at drag-start and re-growing at release.  Pulled
+        out of ``_on_drag_moved`` so that method reads as "move groups, move
+        wires, refresh outlines".
+        """
+        from PySide6.QtWidgets import QGraphicsRectItem
 
         from protoboard.domain.layout.group_ownership import OwnershipResolver
         from protoboard.domain.layout.group_tree import GroupTree
@@ -1274,9 +1292,9 @@ class BoardView(QGraphicsView):
                 pass
             x0 = min(xs) - margin
             y0 = min(ys) - margin
-            w = max(xs) - min(xs) + 2 * margin
-            h = max(ys) - min(ys) + 2 * margin
-            rect_item.setRect(QRectF(x0, y0, w, h))
+            rect_w = max(xs) - min(xs) + 2 * margin
+            rect_h = max(ys) - min(ys) + 2 * margin
+            rect_item.setRect(QRectF(x0, y0, rect_w, rect_h))
 
     def set_wire_drag_state(
         self,

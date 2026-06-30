@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 if TYPE_CHECKING:
     from protoboard.domain.commands.base import Command, CommandStack
     from protoboard.domain.commands.net_cmds import NetState
+    from protoboard.domain.schematic.net import Net
     from protoboard.gui.session import EditorSession
 
 # Column indices for the net list tree.
@@ -278,26 +279,36 @@ class NetsEditorPanel(QWidget):
         effective = build_net_color_map(self._session.schematic.nets, theme=theme)
         for net in sorted(self._session.schematic.nets.values(), key=lambda n: n.name):
             eff_hex = effective.get(net.id)
-            if net.color:
-                color_label = net.color
-            elif eff_hex:
-                color_label = f"{eff_hex} (auto)"
-            else:
-                color_label = "auto"
-            global_label = "✓" if net.global_net else ""
-            item = QTreeWidgetItem([net.name, str(len(net.pins)), color_label, global_label])
-            item.setData(_NET_COL_NAME, _ROLE, str(net.id))
-            bg_hex = net.color or eff_hex
-            if bg_hex:
-                bg = QColor(bg_hex)
-                item.setBackground(_NET_COL_COLOR, QBrush(bg))
-                # Use black or white text depending on luminance.
-                lum = 0.299 * bg.redF() + 0.587 * bg.greenF() + 0.114 * bg.blueF()
-                fg = QColor("#000000") if lum > 0.5 else QColor("#ffffff")
-                item.setForeground(_NET_COL_COLOR, QBrush(fg))
-            if net.global_net:
-                item.setForeground(_NET_COL_GLOBAL, QBrush(QColor("#888888")))
+            item = self._make_net_tree_item(net, eff_hex)
             self._net_tree.addTopLevelItem(item)
+
+    def _make_net_tree_item(self, net: Net, eff_hex: str | None) -> QTreeWidgetItem:
+        """Build the styled net row from its effective colour.
+
+        ``eff_hex`` is the renderer's effective colour for ``net`` (palette or
+        golden-ratio extension); a manual ``net.color`` override takes
+        precedence for both the label and the background swatch.
+        """
+        if net.color:
+            color_label = net.color
+        elif eff_hex:
+            color_label = f"{eff_hex} (auto)"
+        else:
+            color_label = "auto"
+        global_label = "✓" if net.global_net else ""
+        item = QTreeWidgetItem([net.name, str(len(net.pins)), color_label, global_label])
+        item.setData(_NET_COL_NAME, _ROLE, str(net.id))
+        bg_hex = net.color or eff_hex
+        if bg_hex:
+            bg = QColor(bg_hex)
+            item.setBackground(_NET_COL_COLOR, QBrush(bg))
+            # Use black or white text depending on luminance.
+            lum = 0.299 * bg.redF() + 0.587 * bg.greenF() + 0.114 * bg.blueF()
+            fg = QColor("#000000") if lum > 0.5 else QColor("#ffffff")
+            item.setForeground(_NET_COL_COLOR, QBrush(fg))
+        if net.global_net:
+            item.setForeground(_NET_COL_GLOBAL, QBrush(QColor("#888888")))
+        return item
 
     def _rebuild_pins(self) -> None:
         self._pin_tree.clear()

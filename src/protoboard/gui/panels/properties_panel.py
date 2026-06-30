@@ -251,14 +251,7 @@ class PropertiesPanel(QWidget):
         package_families: "dict | None" = None,
     ) -> None:
         self._current_id = inst.id
-        self._refdes_edit.setText(inst.refdes)
-        self._value_edit.setText(inst.value)
-        self._footprint_label.setText(inst.definition_ref)
-        if placement is not None:
-            idx = placement.rotation // 90
-            self._rotation_combo.setCurrentIndex(idx)
-            self._label_x_spin.setValue(placement.label_offset.x)
-            self._label_y_spin.setValue(placement.label_offset.y)
+        self._populate_basic_fields(inst, placement)
         self._rebuild_pin_offsets(
             defn,
             placement.pin_offsets if placement is not None else {},
@@ -271,6 +264,21 @@ class PropertiesPanel(QWidget):
             defn, inst.package_variant, package_families or {},
         )
         self._rebuild_parameters(defn, inst, package_families or {})
+
+    def _populate_basic_fields(
+        self,
+        inst: ComponentInstance,
+        placement: ComponentPlacement | None,
+    ) -> None:
+        """Write the refdes/value/footprint and (if placed) rotation/label fields."""
+        self._refdes_edit.setText(inst.refdes)
+        self._value_edit.setText(inst.value)
+        self._footprint_label.setText(inst.definition_ref)
+        if placement is not None:
+            idx = placement.rotation // 90
+            self._rotation_combo.setCurrentIndex(idx)
+            self._label_x_spin.setValue(placement.label_offset.x)
+            self._label_y_spin.setValue(placement.label_offset.y)
 
     def clear_component(self) -> None:
         self._current_id = None

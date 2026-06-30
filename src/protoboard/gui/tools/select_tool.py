@@ -53,8 +53,12 @@ if TYPE_CHECKING:
     from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
     from PySide6.QtWidgets import QGraphicsItem
 
+    from protoboard.domain.components.definition import ComponentDefinition
+    from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.components.package import RedragResult
+    from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.group_tree import GroupTree
+    from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.domain.layout.wire import Wire
     from protoboard.gui.board_view import BoardView
     from protoboard.gui.drag_set import DragSet
@@ -1184,22 +1188,15 @@ class SelectTool(_Tool):
             extra_catch=self._band_catch_extras,
         )
 
-    def _band_catch_extras(
+    def _collect_caught_wires(
         self, rx0: float, ry0: float, rx1: float, ry1: float, ltr: bool
     ) -> list[object]:
-        """Wires + groups the band rectangle catches, as Selectables.
+        """Wires the band rectangle catches, as Selectables.
 
-        LTR (left-to-right): only fully-enclosed (every wire vertex inside / all
-        group members inside).  RTL: anything touching (a wire vertex inside or a
-        segment crossing the rect / any group member intersecting).  Mirrors the
-        legacy band's wire + group catching, lost in the v2 rewrite where the
-        band only collected component bboxes.
+        LTR: only fully-enclosed (every wire vertex inside).  RTL: anything
+        touching (a wire vertex inside or a segment crossing the rect).
         """
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        from protoboard.gui.selection.adapters import (
-            GroupSelectable,
-            WireSelectable,
-        )
+        from protoboard.gui.selection.adapters import WireSelectable
 
         out: list[object] = []
         for wire in self._session.layout.wires:
@@ -1215,6 +1212,20 @@ class SelectTool(_Tool):
                 )
             if hit:
                 out.append(WireSelectable(wire=wire))
+        return out
+
+    def _collect_caught_groups(
+        self, rx0: float, ry0: float, rx1: float, ry1: float, ltr: bool
+    ) -> list[object]:
+        """Groups the band rectangle catches, as Selectables.
+
+        LTR: only fully-enclosed (all group members inside).  RTL: anything
+        touching (any group member intersecting the rect).
+        """
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.gui.selection.adapters import GroupSelectable
+
+        out: list[object] = []
         tree = self._session.group_tree()
         for gid, grp in self._session.layout.groups.items():
             if gid == ROOT_GROUP_ID:
@@ -1242,6 +1253,21 @@ class SelectTool(_Tool):
             if hit:
                 out.append(GroupSelectable(group=grp))
         return out
+
+    def _band_catch_extras(
+        self, rx0: float, ry0: float, rx1: float, ry1: float, ltr: bool
+    ) -> list[object]:
+        """Wires + groups the band rectangle catches, as Selectables.
+
+        LTR (left-to-right): only fully-enclosed (every wire vertex inside / all
+        group members inside).  RTL: anything touching (a wire vertex inside or a
+        segment crossing the rect / any group member intersecting).  Mirrors the
+        legacy band's wire + group catching, lost in the v2 rewrite where the
+        band only collected component bboxes.
+        """
+        wires = self._collect_caught_wires(rx0, ry0, rx1, ry1, ltr)
+        groups = self._collect_caught_groups(rx0, ry0, rx1, ry1, ltr)
+        return wires + groups
 
     @traced("SelectTool._arm_drag")
     def _arm_drag(
@@ -2086,6 +2112,60 @@ class SelectTool(_Tool):
             for p in self._view.board_pad_positions()
         )
 
+    def _add_redrag_pad_marker(self, pt: Point, r: float, green: QColor) -> None:
+        """Add one filled green landing-pad dot to the redrag overlay."""
+        from PySide6.QtGui import QBrush, QPen
+        from PySide6.QtWidgets import QGraphicsEllipseItem
+
+        item = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
+        item.setBrush(QBrush(green))
+        item.setPen(QPen(Qt.GlobalColor.transparent, 0))
+        item.setZValue(20.0)
+        self._view.scene().addItem(item)
+        self._redrag_items.append(item)
+
+    def _draw_reach_disc_outline(
+        self,
+        defn: ComponentDefinition,
+        inst: ComponentInstance,
+        pl: ComponentPlacement,
+        pin: int,
+    ) -> None:
+        """Outline the grabbed pin's reach disc, centred on its default hole.
+
+        Only drawn for a bendable (free) grab with a positive reach; a no-op
+        otherwise.
+        """
+        from PySide6.QtGui import QBrush, QPen
+        from PySide6.QtWidgets import QGraphicsEllipseItem
+
+        from protoboard.domain.components.package import (
+            effective_bend_specs,
+            resolved_footprint,
+        )
+        from protoboard.domain.layout.placement import pin_world_position
+
+        families = getattr(self._session, "package_families", None)
+        spec = effective_bend_specs(defn, inst, families).get(pin)
+        if spec is None or not spec.is_free() or spec.max_reach <= 0.0:
+            return
+        temp = pl.copy()
+        temp.pin_offsets = {
+            k: v for k, v in pl.pin_offsets.items() if k != pin
+        }
+        centre = pin_world_position(
+            resolved_footprint(defn, inst, families), temp, pin
+        )
+        rad = spec.max_reach
+        ring = QGraphicsEllipseItem(
+            centre.x - rad, centre.y - rad, 2 * rad, 2 * rad
+        )
+        ring.setBrush(QBrush(Qt.GlobalColor.transparent))
+        ring.setPen(QPen(QColor(0, 200, 80, 160), 0))
+        ring.setZValue(19.5)
+        self._view.scene().addItem(ring)
+        self._redrag_items.append(ring)
+
     def _draw_redrag_overlay(self, comp_id: uuid.UUID) -> None:
         """Light every legal landing pad + outline the grabbed pin's reach disc.
 
@@ -2094,12 +2174,6 @@ class SelectTool(_Tool):
         set.  For a bendable grab the grabbed pin's reach disc is outlined,
         centred on that pin's default hole.
         """
-        from PySide6.QtGui import QBrush, QPen
-        from PySide6.QtWidgets import QGraphicsEllipseItem
-
-        from protoboard.domain.components.package import effective_bend_specs
-        from protoboard.domain.layout.placement import pin_world_position
-
         self._clear_redrag_overlay()
         pin = self._redrag_pin
         inst = self._session.instances.get(comp_id)
@@ -2113,41 +2187,14 @@ class SelectTool(_Tool):
         r = 0.18
         green = QColor(0, 200, 80, 120)
 
-        def _dot(pt: Point) -> None:
-            item = QGraphicsEllipseItem(pt.x - r, pt.y - r, 2 * r, 2 * r)
-            item.setBrush(QBrush(green))
-            item.setPen(QPen(Qt.GlobalColor.transparent, 0))
-            item.setZValue(20.0)
-            self._view.scene().addItem(item)
-            self._redrag_items.append(item)
-
         # Legal landing pads — feasibility per pad (overlay == commit).
         for pt in self._view.board_pad_positions():
             result = self._redrag_feasibility(comp_id, pin, pt)
             if result is not None and result.ok:
-                _dot(pt)
+                self._add_redrag_pad_marker(pt, r, green)
 
         # Reach-disc outline for a bendable grab, centred on the pin's default.
-        from protoboard.domain.components.package import resolved_footprint
-        families = getattr(self._session, "package_families", None)
-        spec = effective_bend_specs(defn, inst, families).get(pin)
-        if spec is not None and spec.is_free() and spec.max_reach > 0.0:
-            temp = pl.copy()
-            temp.pin_offsets = {
-                k: v for k, v in pl.pin_offsets.items() if k != pin
-            }
-            centre = pin_world_position(
-                resolved_footprint(defn, inst, families), temp, pin
-            )
-            rad = spec.max_reach
-            ring = QGraphicsEllipseItem(
-                centre.x - rad, centre.y - rad, 2 * rad, 2 * rad
-            )
-            ring.setBrush(QBrush(Qt.GlobalColor.transparent))
-            ring.setPen(QPen(QColor(0, 200, 80, 160), 0))
-            ring.setZValue(19.5)
-            self._view.scene().addItem(ring)
-            self._redrag_items.append(ring)
+        self._draw_reach_disc_outline(defn, inst, pl, pin)
 
     def _redrag_preview(self, scene_pt: Point, _mods: Mods) -> None:
         """Live validity tint under the cursor during the re-drag pad pick.
@@ -3517,27 +3564,54 @@ class SelectTool(_Tool):
             items[act_clear] = ("clear_all_pins", active_gid)
             sm.addSeparator()
             if is_direct:
-                from protoboard.domain.layout.pad_conflict import (
-                    resolved_footprint_or_default,
-                )
-                fp = resolved_footprint_or_default(defn, inst)  # type: ignore[arg-type]
-                pin_count = fp.pin_count()
-                pin_names = defn.pin_names  # type: ignore[attr-defined]
-                for pin_num in range(1, pin_count + 1):
-                    ep = _PinRef(component_id=comp_id, pin_number=pin_num)
-                    pin_name = pin_names.get(pin_num, str(pin_num))
-                    already = ep in active_grp.exported_pins
-                    marker = " ◀" if pin_num == clicked_pin else ""
-                    label = (
-                        f"✓ Unexport pin {pin_num} ({pin_name}){marker}"
-                        if already
-                        else f"  Export pin {pin_num} ({pin_name}){marker}"
-                    )
-                    act = sm.addAction(label)
-                    items[act] = ("export_pin", active_gid, ep, already)
+                for act, data in self._build_pin_export_actions(
+                    sm, comp_id, defn, active_gid, active_grp, clicked_pin
+                ):
+                    items[act] = data
 
         act_ar = menu.addAction("Autoroute group (internal connections)")
         items[act_ar] = ("autoroute_group", active_gid)
+
+    def _build_pin_export_actions(
+        self,
+        sm: object,
+        comp_id: uuid.UUID,
+        defn: object,
+        active_gid: uuid.UUID,
+        active_grp: ComponentGroup,
+        clicked_pin: int | None,
+    ) -> list[tuple[object, tuple[object, ...]]]:
+        """Per-pin export/unexport actions for a directly-grouped component.
+
+        Adds one action per pin to submenu *sm* (preserving insertion order) and
+        returns the ``(action, menu-item-data)`` pairs for the caller to register.
+        """
+        from PySide6.QtWidgets import QMenu
+
+        from protoboard.domain.layout.pad_conflict import (
+            resolved_footprint_or_default,
+        )
+        from protoboard.domain.schematic.net import PinRef as _PinRef
+
+        assert isinstance(sm, QMenu)
+        inst = self._session.instances.get(comp_id)
+        fp = resolved_footprint_or_default(defn, inst)  # type: ignore[arg-type]
+        pin_count = fp.pin_count()
+        pin_names = defn.pin_names  # type: ignore[attr-defined]
+        out: list[tuple[object, tuple[object, ...]]] = []
+        for pin_num in range(1, pin_count + 1):
+            ep = _PinRef(component_id=comp_id, pin_number=pin_num)
+            pin_name = pin_names.get(pin_num, str(pin_num))
+            already = ep in active_grp.exported_pins
+            marker = " ◀" if pin_num == clicked_pin else ""
+            label = (
+                f"✓ Unexport pin {pin_num} ({pin_name}){marker}"
+                if already
+                else f"  Export pin {pin_num} ({pin_name}){marker}"
+            )
+            act = sm.addAction(label)
+            out.append((act, ("export_pin", active_gid, ep, already)))
+        return out
 
     def _menu_add_select_section(
         self,
@@ -4032,13 +4106,9 @@ class SelectTool(_Tool):
 
         from protoboard.domain.commands.group_cmds import (
             AddToGroupCommand,
-            CreateGroupCommand,
             RemoveFromGroupCommand,
             SetExportedPinsCommand,
         )
-        from protoboard.domain.layout.group import ComponentGroup
-        from protoboard.domain.layout.group_tree import GroupTree
-        from protoboard.domain.schematic.net import PinRef
         from protoboard.gui.dialogs.group_target_dialog import GroupTargetDialog
 
         groups = self._session.layout.groups
@@ -4060,63 +4130,18 @@ class SelectTool(_Tool):
             return None
 
         if dlg.mode == "new":
-            promoted_free, promoted_groups = (
-                self._session.group_tree().promote_selection_to_top_level(
-                    active_gid, ids
+            new_group, promoted_free, promoted_groups = (
+                self._prepare_new_group_promoted(
+                    active_gid,
+                    ids,
+                    default_name,
+                    dlg.auto_export_external,
+                    dlg.new_name,
                 )
             )
-            _log.info(
-                "group_for_selection.promotion",
-                active_gid=str(active_gid)[:8],
-                n_selected=len(ids),
-                n_free_after=len(promoted_free),
-                n_promoted_groups=len(promoted_groups),
+            return self._execute_group_promotion(
+                active_gid, new_group, promoted_free, promoted_groups
             )
-            new_group_id = uuid.uuid4()
-            exported: frozenset[PinRef] = frozenset()
-            if dlg.auto_export_external:
-                transient = ComponentGroup(
-                    id=new_group_id,
-                    name=dlg.new_name or default_name,
-                    component_ids=promoted_free,
-                    child_group_ids=promoted_groups,
-                )
-                groups_with_new = dict(self._session.layout.groups)
-                groups_with_new[new_group_id] = transient
-                exported = GroupTree(groups_with_new).external_pins_for_group(
-                    new_group_id, self._session.schematic
-                )
-            new_group = ComponentGroup(
-                id=new_group_id,
-                name=dlg.new_name or default_name,
-                component_ids=promoted_free,
-                child_group_ids=promoted_groups,
-                exported_pins=exported,
-            )
-            self._exec_command(CreateGroupCommand(group=new_group))
-            for promoted_gid in promoted_groups:
-                old_parent = self._session.group_tree().parent_group_of(promoted_gid)
-                if old_parent is not None:
-                    self._exec_command(
-                        RemoveFromGroupCommand(
-                            group_id=old_parent,
-                            child_group_ids=frozenset({promoted_gid}),
-                        )
-                    )
-            self._exec_command(
-                AddToGroupCommand(
-                    group_id=active_gid, child_group_ids=frozenset({new_group.id})
-                )
-            )
-            if promoted_free:
-                self._exec_command(
-                    RemoveFromGroupCommand(
-                        group_id=active_gid, component_ids=promoted_free
-                    )
-                )
-            self._session.layout_changed.emit()
-            self._select_group(new_group.id)
-            return new_group.id
 
         # Add to an existing group.
         target_id = dlg.target_group_id
@@ -4142,6 +4167,105 @@ class SelectTool(_Tool):
         self._session.layout_changed.emit()
         self._select_group(target_id)
         return target_id
+
+    def _prepare_new_group_promoted(
+        self,
+        active_gid: uuid.UUID,
+        ids: frozenset[uuid.UUID],
+        default_name: str,
+        auto_export_external: bool,
+        new_name: str | None,
+    ) -> tuple[ComponentGroup, frozenset[uuid.UUID], frozenset[uuid.UUID]]:
+        """Promote the selection and build the (still uncommitted) new group.
+
+        Splits *ids* into free components + top-level groups under *active_gid*,
+        mints the new group id, computes its auto-exported pins (against a
+        transient tree that already contains the prospective group) when
+        requested, and returns ``(new_group, promoted_free, promoted_groups)``.
+        """
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.layout.group_tree import GroupTree
+        from protoboard.domain.schematic.net import PinRef
+
+        promoted_free, promoted_groups = (
+            self._session.group_tree().promote_selection_to_top_level(
+                active_gid, ids
+            )
+        )
+        _log.info(
+            "group_for_selection.promotion",
+            active_gid=str(active_gid)[:8],
+            n_selected=len(ids),
+            n_free_after=len(promoted_free),
+            n_promoted_groups=len(promoted_groups),
+        )
+        new_group_id = uuid.uuid4()
+        exported: frozenset[PinRef] = frozenset()
+        if auto_export_external:
+            transient = ComponentGroup(
+                id=new_group_id,
+                name=new_name or default_name,
+                component_ids=promoted_free,
+                child_group_ids=promoted_groups,
+            )
+            groups_with_new = dict(self._session.layout.groups)
+            groups_with_new[new_group_id] = transient
+            exported = GroupTree(groups_with_new).external_pins_for_group(
+                new_group_id, self._session.schematic
+            )
+        new_group = ComponentGroup(
+            id=new_group_id,
+            name=new_name or default_name,
+            component_ids=promoted_free,
+            child_group_ids=promoted_groups,
+            exported_pins=exported,
+        )
+        return new_group, promoted_free, promoted_groups
+
+    def _execute_group_promotion(
+        self,
+        active_gid: uuid.UUID,
+        new_group: ComponentGroup,
+        promoted_free: frozenset[uuid.UUID],
+        promoted_groups: frozenset[uuid.UUID],
+    ) -> uuid.UUID:
+        """Run the create + reparent command sequence for a new promoted group.
+
+        Order is undo-sensitive: create the group, detach each promoted child
+        from its old parent, attach the new group under *active_gid*, then detach
+        the promoted free components from *active_gid*.  Selects the new group
+        and returns its id.
+        """
+        from protoboard.domain.commands.group_cmds import (
+            AddToGroupCommand,
+            CreateGroupCommand,
+            RemoveFromGroupCommand,
+        )
+
+        self._exec_command(CreateGroupCommand(group=new_group))
+        for promoted_gid in promoted_groups:
+            old_parent = self._session.group_tree().parent_group_of(promoted_gid)
+            if old_parent is not None:
+                self._exec_command(
+                    RemoveFromGroupCommand(
+                        group_id=old_parent,
+                        child_group_ids=frozenset({promoted_gid}),
+                    )
+                )
+        self._exec_command(
+            AddToGroupCommand(
+                group_id=active_gid, child_group_ids=frozenset({new_group.id})
+            )
+        )
+        if promoted_free:
+            self._exec_command(
+                RemoveFromGroupCommand(
+                    group_id=active_gid, component_ids=promoted_free
+                )
+            )
+        self._session.layout_changed.emit()
+        self._select_group(new_group.id)
+        return new_group.id
 
     # -- worker-backed wire operations (simplify / unweave / merge) ---------
     #
@@ -4300,41 +4424,23 @@ class SelectTool(_Tool):
         )
         self._status_msg(f"Unweave: {before} → {after} crossings{seg}")
 
-    def _merge_wires_and_fragments(
-        self, wire_ids: frozenset[uuid.UUID] | None
-    ) -> None:
-        """Two-phase wire merge — fuse touching wires + coalesce same-side fragments."""
-        from typing import cast
+    def _compute_fragment_collapse_commands(
+        self, post_fuse_ids: set[uuid.UUID]
+    ) -> tuple[list[object], int, int]:
+        """Phase-2: build fragment-collapse commands against the post-fuse layout.
 
-        from protoboard.domain.commands.base import ComponentState
+        Must be called while the fuse is applied; examines each surviving wire's
+        fragments and emits a :class:`ReplaceWireFragmentsCommand` per wire whose
+        same-side fragments coalesce.  Returns ``(commands, n_fragment_wires,
+        n_fragments_removed)``.
+        """
         from protoboard.domain.commands.component_cmds import (
-            FuseTouchingWiresCommand,
             ReplaceWireFragmentsCommand,
         )
         from protoboard.domain.layout.wire import Fragment
         from protoboard.domain.layout.wire_utils import coalesce_same_side_fragments
 
         session = self._session
-        state = cast("ComponentState", session)
-
-        # Phase 1: apply the fuse to observe the post-fuse layout, build the
-        # phase-2 fragment commands against it, then revert so the final macro
-        # re-applies both phases atomically.
-        fuse_cmd = FuseTouchingWiresCommand(wire_ids=wire_ids)
-        fuse_cmd.apply(state)
-        n_fused = len(fuse_cmd._records)  # noqa: SLF001 — legacy command contract
-
-        if wire_ids is None:
-            post_fuse_ids: set[uuid.UUID] = {w.id for w in session.layout.wires}
-        else:
-            survived = {wid for wid in wire_ids if wid in session.layout.wires}
-            merged = {
-                rec.merged_wire_id
-                for rec in fuse_cmd._records  # noqa: SLF001
-                if rec.merged_wire_id is not None
-            }
-            post_fuse_ids = survived | merged
-
         all_wires = session.layout.wires
         frag_cmds: list[object] = []
         n_fragment_wires = 0
@@ -4359,6 +4465,43 @@ class SelectTool(_Tool):
                     old_fragments=old_fragments,
                 )
             )
+        return frag_cmds, n_fragment_wires, n_fragments_removed
+
+    def _merge_wires_and_fragments(
+        self, wire_ids: frozenset[uuid.UUID] | None
+    ) -> None:
+        """Two-phase wire merge — fuse touching wires + coalesce same-side fragments."""
+        from typing import cast
+
+        from protoboard.domain.commands.base import ComponentState
+        from protoboard.domain.commands.component_cmds import (
+            FuseTouchingWiresCommand,
+        )
+
+        session = self._session
+        state = cast("ComponentState", session)
+
+        # Phase 1: apply the fuse to observe the post-fuse layout, build the
+        # phase-2 fragment commands against it, then revert so the final macro
+        # re-applies both phases atomically.
+        fuse_cmd = FuseTouchingWiresCommand(wire_ids=wire_ids)
+        fuse_cmd.apply(state)
+        n_fused = len(fuse_cmd._records)  # noqa: SLF001 — legacy command contract
+
+        if wire_ids is None:
+            post_fuse_ids: set[uuid.UUID] = {w.id for w in session.layout.wires}
+        else:
+            survived = {wid for wid in wire_ids if wid in session.layout.wires}
+            merged = {
+                rec.merged_wire_id
+                for rec in fuse_cmd._records  # noqa: SLF001
+                if rec.merged_wire_id is not None
+            }
+            post_fuse_ids = survived | merged
+
+        frag_cmds, n_fragment_wires, n_fragments_removed = (
+            self._compute_fragment_collapse_commands(post_fuse_ids)
+        )
 
         fuse_cmd.revert(state)
 

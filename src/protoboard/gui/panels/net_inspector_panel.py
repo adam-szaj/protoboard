@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import math
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor
@@ -21,10 +21,15 @@ from PySide6.QtWidgets import (
 from protoboard.gui.panels.tree_panel_mixin import TreePanelMixin
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from protoboard.domain.board.pad_state import PadIndex
     from protoboard.domain.layout.wire import Wire
+    from protoboard.domain.schematic.net import Net
     from protoboard.geometry import Point
     from protoboard.gui.board_view import BoardView
     from protoboard.gui.session import EditorSession
+    from protoboard.services.routing.cost_model import RoutingCostModel
 
 _COL_NAME   = 0
 _COL_PINS   = 1
@@ -194,7 +199,6 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
 
         for net in sorted(session.schematic.nets.values(), key=lambda n: n.name):
             wires = net_wires.get(net.id, [])
-            length     = _manhattan_length(wires)
             pin_count  = len(net.pins)
             wire_count = len(wires)
 
@@ -205,71 +209,52 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
                 if pos is not None:
                     pin_pts.append(pos)
 
-            # Wire/MST ratio.
-            mst = _mst_manhattan(pin_pts)
-            if mst > 0.0:
-                ratio     = length / mst
-                ratio_txt = f"{ratio:.2f}"
-                ratio_key: float = ratio
-            else:
-                ratio_txt = _NA
-                ratio_key = _NA_SORT
+            metrics = _compute_net_metrics(
+                wires,
+                pin_pts,
+                cost_model=cm,
+                under_component_pads=cost_under_pads,
+                plated_through_pads=cost_plated_pads,
+                all_board_wires=all_wires,
+                pad_index=pad_idx,
+                analyze_wires=analyze_wires,
+            )
 
-            # Hull ratio.
-            wire_pts: list[Point] = []
-            for w in wires:
-                wire_pts.extend(w.path)  # type: ignore[arg-type]
-            hull_w = _convex_hull_area(wire_pts)
-            hull_p = _pin_hull_area(pin_pts)
-            if hull_p > 0.0:
-                hull_ratio     = hull_w / hull_p
-                hull_txt       = f"{hull_ratio:.2f}"
-                hull_key: float = hull_ratio
-            else:
-                hull_txt = _NA
-                hull_key = _NA_SORT
-
-            # Routing cost for this net's wires under the current cost model.
-            # Cheap (O(steps)); precomputed pad sets above keep this fast
-            # even with hundreds of nets.  ``all_board_wires`` is the full
-            # board's wire list so crossings with wires of *other* nets
-            # are charged against this net too.
-            if wires:
-                cost = analyze_wires(
-                    wires,
-                    cost_model=cm,
-                    under_component_pads=cost_under_pads,
-                    plated_through_pads=cost_plated_pads,
-                    all_board_wires=all_wires,
-                    pad_index=pad_idx,
-                ).total
-                cost_txt = f"{cost:.1f}"
-                cost_key: float = cost
-            else:
-                cost_txt = _NA
-                cost_key = _NA_SORT
-
-            item = _SortableItem()
-            item.setText(_COL_NAME,   net.name)
-            item.setText(_COL_PINS,   str(pin_count))
-            item.setText(_COL_WIRES,  str(wire_count))
-            item.setText(_COL_LENGTH, f"{length:.1f}")
-            item.setText(_COL_RATIO,  ratio_txt)
-            item.setText(_COL_HULL,   hull_txt)
-            item.setText(_COL_COST,   cost_txt)
-
-            item.setData(_COL_NAME,   _ROLE, str(net.id))
-            item.setData(_COL_PINS,   _ROLE, pin_count)
-            item.setData(_COL_WIRES,  _ROLE, wire_count)
-            item.setData(_COL_LENGTH, _ROLE, length)
-            item.setData(_COL_RATIO,  _ROLE, ratio_key)
-            item.setData(_COL_HULL,   _ROLE, hull_key)
-            item.setData(_COL_COST,   _ROLE, cost_key)
-
-            if net.id not in routed:
-                item.setForeground(_COL_NAME, unrouted_brush)
-
+            item = self._make_net_item(
+                net, pin_count, wire_count, metrics, unrouted_brush, routed
+            )
             self._tree.addTopLevelItem(item)
+
+    def _make_net_item(
+        self,
+        net: "Net",
+        pin_count: int,
+        wire_count: int,
+        metrics: "_NetMetrics",
+        unrouted_brush: QBrush,
+        routed: "set[uuid.UUID]",
+    ) -> _SortableItem:
+        """Build the sortable tree row for one net from its computed metrics."""
+        item = _SortableItem()
+        item.setText(_COL_NAME,   net.name)
+        item.setText(_COL_PINS,   str(pin_count))
+        item.setText(_COL_WIRES,  str(wire_count))
+        item.setText(_COL_LENGTH, f"{metrics.length:.1f}")
+        item.setText(_COL_RATIO,  metrics.ratio_txt)
+        item.setText(_COL_HULL,   metrics.hull_txt)
+        item.setText(_COL_COST,   metrics.cost_txt)
+
+        item.setData(_COL_NAME,   _ROLE, str(net.id))
+        item.setData(_COL_PINS,   _ROLE, pin_count)
+        item.setData(_COL_WIRES,  _ROLE, wire_count)
+        item.setData(_COL_LENGTH, _ROLE, metrics.length)
+        item.setData(_COL_RATIO,  _ROLE, metrics.ratio_key)
+        item.setData(_COL_HULL,   _ROLE, metrics.hull_key)
+        item.setData(_COL_COST,   _ROLE, metrics.cost_key)
+
+        if net.id not in routed:
+            item.setForeground(_COL_NAME, unrouted_brush)
+        return item
 
     def _on_item_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
         if self._syncing or self._session is None:
@@ -285,6 +270,95 @@ class NetInspectorPanel(TreePanelMixin, QWidget):
         # selecting the whole net lights its pads/wires AND, looping back through
         # selection_changed, re-selects this row and the Nets-panel net row.
         self._session.request_select_net(net_id)
+
+
+# ---------------------------------------------------------------------------
+# Metric aggregation
+# ---------------------------------------------------------------------------
+
+class _NetMetrics(NamedTuple):
+    """Computed per-net display metrics: cell text plus numeric sort keys."""
+
+    length: float
+    ratio_txt: str
+    ratio_key: float
+    hull_txt: str
+    hull_key: float
+    cost_txt: str
+    cost_key: float
+
+
+def _compute_net_metrics(
+    wires: list["Wire"],
+    pin_pts: list["Point"],
+    *,
+    cost_model: "RoutingCostModel",
+    under_component_pads: "set[Point]",
+    plated_through_pads: "set[Point]",
+    all_board_wires: list["Wire"],
+    pad_index: "PadIndex",
+    analyze_wires: "Callable[..., object]",
+) -> _NetMetrics:
+    """Compute length / MST ratio / hull ratio / routing cost for one net.
+
+    Returns the formatted cell text and the numeric sort keys; the formulas
+    and formatting are identical to the inline loop they replaced.
+    """
+    length = _manhattan_length(wires)
+
+    # Wire/MST ratio.
+    mst = _mst_manhattan(pin_pts)
+    if mst > 0.0:
+        ratio     = length / mst
+        ratio_txt = f"{ratio:.2f}"
+        ratio_key: float = ratio
+    else:
+        ratio_txt = _NA
+        ratio_key = _NA_SORT
+
+    # Hull ratio.
+    wire_pts: list[Point] = []
+    for w in wires:
+        wire_pts.extend(w.path)  # type: ignore[arg-type]
+    hull_w = _convex_hull_area(wire_pts)
+    hull_p = _pin_hull_area(pin_pts)
+    if hull_p > 0.0:
+        hull_ratio     = hull_w / hull_p
+        hull_txt       = f"{hull_ratio:.2f}"
+        hull_key: float = hull_ratio
+    else:
+        hull_txt = _NA
+        hull_key = _NA_SORT
+
+    # Routing cost for this net's wires under the current cost model.
+    # Cheap (O(steps)); precomputed pad sets above keep this fast
+    # even with hundreds of nets.  ``all_board_wires`` is the full
+    # board's wire list so crossings with wires of *other* nets
+    # are charged against this net too.
+    if wires:
+        cost = analyze_wires(
+            wires,
+            cost_model=cost_model,
+            under_component_pads=under_component_pads,
+            plated_through_pads=plated_through_pads,
+            all_board_wires=all_board_wires,
+            pad_index=pad_index,
+        ).total  # type: ignore[attr-defined]
+        cost_txt = f"{cost:.1f}"
+        cost_key: float = cost
+    else:
+        cost_txt = _NA
+        cost_key = _NA_SORT
+
+    return _NetMetrics(
+        length=length,
+        ratio_txt=ratio_txt,
+        ratio_key=ratio_key,
+        hull_txt=hull_txt,
+        hull_key=hull_key,
+        cost_txt=cost_txt,
+        cost_key=cost_key,
+    )
 
 
 # ---------------------------------------------------------------------------

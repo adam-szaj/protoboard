@@ -56,7 +56,7 @@ from protoboard.services.export.png import export_png
 from protoboard.services.export.svg import export_svg
 from protoboard.services.kicad.exporter import KiCadNetlistExporter
 from protoboard.services.kicad.importer import ImportWarning, KiCadNetlistImporter
-from protoboard.services.placement.auto_placer import auto_place
+from protoboard.services.placement.auto_placer import AutoPlaceResult, auto_place
 from protoboard.services.placement.spreader import spread_components
 from protoboard.services.persistence import git_repo
 from protoboard.services.persistence.project_yaml import (
@@ -923,11 +923,23 @@ class MainWindow(QMainWindow):
         self._update_stats()
         self._update_undo_redo()
 
+        msg = self._format_auto_place_result(n, result)
+        self._status.showMessage(msg, 8000)
+        if result.outside_board:
+            QMessageBox.information(self, "Auto-place", msg)
+
+    def _format_auto_place_result(
+        self, n_placed: int, result: "AutoPlaceResult"
+    ) -> str:
+        """Build the auto-place status line from the placement result.
+
+        Pulls the message plumbing — pluralisation, off-board refdes truncation,
+        skipped-count tail — out of ``_auto_place_instances`` so its body reads
+        as the placement workflow, not string assembly.
+        """
         n_outside = len(result.outside_board)
-        n_skipped = len(result.skipped)
-        msg = f"Auto-placed {n} component{'s' if n != 1 else ''}."
+        msg = f"Auto-placed {n_placed} component{'s' if n_placed != 1 else ''}."
         if n_outside:
-            n_inst = {pl.component_id for pl in result.placements}
             outside_refs = [
                 self._session.instances[iid].refdes
                 for iid in result.outside_board
@@ -938,11 +950,12 @@ class MainWindow(QMainWindow):
                 f" ({', '.join(outside_refs[:5])}{'…' if n_outside > 5 else ''})"
                 " — consider resizing the board."
             )
-        if n_skipped:
-            msg += f" {n_skipped} could not be placed (unknown footprint or no space)."
-        self._status.showMessage(msg, 8000)
-        if n_outside:
-            QMessageBox.information(self, "Auto-place", msg)
+        if result.skipped:
+            msg += (
+                f" {len(result.skipped)} could not be placed "
+                "(unknown footprint or no space)."
+            )
+        return msg
 
     def _spread_components(self) -> None:
         """Spread placed components more evenly using force-directed relaxation."""
