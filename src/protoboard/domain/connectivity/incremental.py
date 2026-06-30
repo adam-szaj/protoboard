@@ -37,7 +37,7 @@ from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import resolved_footprint_or_default
 from protoboard.domain.layout.placement import pin_world_position
-from protoboard.domain.layout.wire import Wire, Wire
+from protoboard.domain.layout.wire import Fragment, Wire
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 
@@ -288,46 +288,78 @@ class ConnectivityGraph:
         intermediate_all: list[_NodeKey] = []
         is_loop_any = False
         for frag in wire.fragments:
-            side = frag.side
-            path = list(frag.path)
-            if not wire.insulated:
-                path = self._enrich_bare_path(path, side)
-            n_pts = len(path)
-            path_entries: list[NodeEntry] = []
-            for i, pt in enumerate(path):
-                key: _NodeKey = _qkey(pt, side)
-                is_endpoint = (i == 0 or i == n_pts - 1)
-                entry = self._pad_index.get(key)
-                if wire.insulated and not is_endpoint:
-                    private_key: _NodeKey = _qkey(
-                        pt, side + f"_ins_{wire.id.int}_{id(frag)}"
-                    )
-                    private_entry = self._make_node(private_key)
-                    intermediate_all.append(private_key)
-                    entry = private_entry
-                elif entry is None:
-                    transient_key: _NodeKey = _qkey(
-                        pt, side + f"_tr_{wire.id.int}_{id(frag)}"
-                    )
-                    entry = self._make_node(transient_key)
-                    intermediate_all.append(transient_key)
-                path_entries.append(entry)
-            for i in range(len(path_entries) - 1):
-                a = path_entries[i]
-                b = path_entries[i + 1]
-                if a.electric_set is b.electric_set:
-                    is_loop_any = True
-                    continue
-                merged, evicted, split_idx = self._merge(a.electric_set, b.electric_set)
-                merges_all.append(
-                    MergeRecord(merged=merged, evicted=evicted, split_idx=split_idx)
-                )
+            entries, intermediate = self._resolve_fragment_nodes(frag, wire)
+            intermediate_all.extend(intermediate)
+            merges, frag_is_loop = self._merge_along_path(entries)
+            merges_all.extend(merges)
+            is_loop_any = is_loop_any or frag_is_loop
         self._wire_records[wire.id] = WireRecord(
             wire_id=wire.id,
             merges=merges_all,
             is_loop=is_loop_any,
             intermediate_keys=intermediate_all,
         )
+
+    def _resolve_fragment_nodes(
+        self, frag: Fragment, wire: Wire,
+    ) -> tuple[list[NodeEntry], list[_NodeKey]]:
+        """Map each vertex of *frag* to the node it contributes to the graph.
+
+        Endpoints (and bare-wire interior vertices, which physically contact
+        their pads) resolve to the shared pad node at that position; insulated
+        interior vertices and any vertex with no pad node get a fresh
+        *private*/*transient* node so they don't electrically fuse foreign
+        nets passing through the same coordinate.  Bare paths are first
+        enriched with the board pads they cross.
+
+        Returns the per-vertex ``NodeEntry`` list (for the merge pass) and the
+        keys of the freshly-minted intermediate nodes (so ``remove_wire`` can
+        drop them).
+        """
+        side = frag.side
+        path = list(frag.path)
+        if not wire.insulated:
+            path = self._enrich_bare_path(path, side)
+        n_pts = len(path)
+        entries: list[NodeEntry] = []
+        intermediate: list[_NodeKey] = []
+        for i, pt in enumerate(path):
+            is_endpoint = (i == 0 or i == n_pts - 1)
+            if wire.insulated and not is_endpoint:
+                key = _qkey(pt, side + f"_ins_{wire.id.int}_{id(frag)}")
+                entry: NodeEntry = self._make_node(key)
+                intermediate.append(key)
+            else:
+                shared = self._pad_index.get(_qkey(pt, side))
+                if shared is not None:
+                    entry = shared
+                else:
+                    key = _qkey(pt, side + f"_tr_{wire.id.int}_{id(frag)}")
+                    entry = self._make_node(key)
+                    intermediate.append(key)
+            entries.append(entry)
+        return entries, intermediate
+
+    def _merge_along_path(
+        self, entries: list[NodeEntry],
+    ) -> tuple[list[MergeRecord], bool]:
+        """Union the electric sets of consecutive nodes along one fragment.
+
+        Returns the merge records (for undo) and whether any adjacent pair was
+        already in the same set — a self-loop, which contributes no merge but
+        must be remembered so ``remove_wire`` handles the loop-only case.
+        """
+        merges: list[MergeRecord] = []
+        is_loop = False
+        for a, b in zip(entries, entries[1:]):
+            if a.electric_set is b.electric_set:
+                is_loop = True
+                continue
+            merged, evicted, split_idx = self._merge(a.electric_set, b.electric_set)
+            merges.append(
+                MergeRecord(merged=merged, evicted=evicted, split_idx=split_idx)
+            )
+        return merges, is_loop
 
     def remove_wire(self, wire: Wire) -> None:
         """Remove a Wire from the graph, replaying merges across all fragments."""

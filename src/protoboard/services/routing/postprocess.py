@@ -457,13 +457,12 @@ def _point_on_segment_interior(
     ap = p - a
     if abs(ab.cross(ap)) > eps:
         return False  # not collinear
-    # Parameterise along the longer axis for numerical stability.
-    if abs(ab.x) >= abs(ab.y):
-        if abs(ab.x) < eps:
-            return False
-        t = ap.x / ab.x
-    else:
-        t = ap.y / ab.y
+    # Collinear, so t = (ap · ab) / |ab|² is the projection parameter
+    # (degenerate ab guarded by the near-zero length check).
+    ab_sq = ab.dot(ab)
+    if ab_sq < eps * eps:
+        return False
+    t = ap.dot(ab) / ab_sq
     return eps < t < 1.0 - eps
 
 
@@ -1043,13 +1042,12 @@ def _seg_passes_through_pad(a: Point, b: Point, pad: Point) -> bool:
     ap = pad - a
     if abs(ab.cross(ap)) > _EPS:
         return False
-    # Parameterise: pad = a + t*(b - a); use longest axis for stability.
-    if abs(ab.x) >= abs(ab.y):
-        if abs(ab.x) < _EPS:
-            return False
-        t = ap.x / ab.x
-    else:
-        t = ap.y / ab.y
+    # Collinear, so t = (ap · ab) / |ab|² is the projection parameter
+    # (degenerate ab guarded by the near-zero length check).
+    ab_sq = ab.dot(ab)
+    if ab_sq < _EPS * _EPS:
+        return False
+    t = ap.dot(ab) / ab_sq
     return -_EPS <= t <= 1.0 + _EPS
 
 

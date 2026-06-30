@@ -368,17 +368,16 @@ def _point_on_segment_interior(
     the segment endpoint, not its interior.
     """
     # Collinearity: cross product (b-a) × (p-a) must be zero.
-    cross = (b - a).cross(p - a)
-    if abs(cross) > eps:
+    ab = b - a
+    ap = p - a
+    if abs(ab.cross(ap)) > eps:
         return False
-    # Parameter t such that p = a + t·(b - a); reject endpoints and out-of-range.
-    span = b - a  # Point − Point → Vector
-    if abs(span.x) >= abs(span.y):
-        if span.x == 0:
-            return False
-        t = (p.x - a.x) / span.x
-    else:
-        t = (p.y - a.y) / span.y
+    # Collinear, so t = (ap · ab) / |ab|² is the projection parameter
+    # (degenerate ab guarded by the near-zero length check).
+    ab_sq = ab.dot(ab)
+    if ab_sq == 0:
+        return False
+    t = ap.dot(ab) / ab_sq
     return eps < t < 1.0 - eps
 
 

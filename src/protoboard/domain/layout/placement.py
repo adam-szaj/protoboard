@@ -12,7 +12,7 @@ import structlog
 
 from protoboard.domain.components.footprints import Footprint
 from protoboard.types import Side
-from protoboard.geometry import Point, Rect, Vector
+from protoboard.geometry import Point, Rect, Vector, round_coord
 from protoboard.services.call_counters import counted
 
 if TYPE_CHECKING:
@@ -375,6 +375,22 @@ def warn_pins_off_pads(
         )
 
 
+def _pin_position_set(
+    footprint: Footprint, placement: ComponentPlacement,
+) -> set[tuple[float, float]]:
+    """Rounded ``(x, y)`` world position of every pin — a coincidence key set.
+
+    Rounding to the canonical coordinate precision makes two pins on the same
+    pad compare equal despite float noise, so ``isdisjoint`` answers "do these
+    two components share any pad?".
+    """
+    return {
+        (round_coord(p.x), round_coord(p.y))
+        for n in range(1, footprint.pin_count() + 1)
+        for p in (pin_world_position(footprint, placement, n),)
+    }
+
+
 def move_blocked(
     comp_id: uuid.UUID,
     new_pl: ComponentPlacement,
@@ -402,12 +418,7 @@ def move_blocked(
 
     fp = resolved_footprint(defn, inst, inst.families)
     new_bbox = component_bbox(fp, new_pl, defn.component_class)
-
-    n_pins = fp.pin_count()
-    new_pin_positions: set[tuple[float, float]] = set()
-    for pin_num in range(1, n_pins + 1):
-        p = pin_world_position(fp, new_pl, pin_num)
-        new_pin_positions.add((round(p.x, 4), round(p.y, 4)))
+    new_pin_positions = _pin_position_set(fp, new_pl)
 
     for other_id, other_pl in layout.placements.items():
         if other_id == comp_id:
@@ -427,11 +438,7 @@ def move_blocked(
             # Only block when no pin of the moved component coincides with a pin
             # of the other — that would be a shared-pad scenario which the GUI
             # conflict resolver handles separately.
-            other_pin_positions: set[tuple[float, float]] = set()
-            for pin_num in range(1, other_fp.pin_count() + 1):
-                p = pin_world_position(other_fp, other_pl, pin_num)
-                other_pin_positions.add((round(p.x, 4), round(p.y, 4)))
-            if new_pin_positions.isdisjoint(other_pin_positions):
+            if new_pin_positions.isdisjoint(_pin_position_set(other_fp, other_pl)):
                 return True
 
     return False
