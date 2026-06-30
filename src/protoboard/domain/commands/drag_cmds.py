@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from protoboard.domain.commands.base import Command
+from protoboard.domain.commands.base import ConditionalCommand
 from protoboard.domain.layout.knot import JointKnot, WirePinKnot
 from protoboard.geometry import Point, Vector
 
@@ -49,7 +49,7 @@ _log = structlog.get_logger(__name__)
 
 
 @dataclass
-class MoveDragSetCommand(Command["ComponentState"]):
+class MoveDragSetCommand(ConditionalCommand["ComponentState"]):
     """Atomic move of a drag set with one-delta translation of internal wires.
 
     Args:
@@ -102,7 +102,6 @@ class MoveDragSetCommand(Command["ComponentState"]):
     _saved_orphan_joints: list[JointKnot | WirePinKnot] = field(
         default_factory=list, init=False, repr=False,
     )
-    _applied: bool = field(default=False, init=False, repr=False)
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -171,7 +170,7 @@ class MoveDragSetCommand(Command["ComponentState"]):
         # 6. Invalidate caches dependent on wire path geometry.
         state.layout.invalidate_interior_vertex_index()
 
-        self._applied = True
+        self.mark_applied(True)
         _log.debug(
             "drag.move_drag_set.applied",
             members=[str(c)[:8] for c in self.members],
@@ -184,10 +183,7 @@ class MoveDragSetCommand(Command["ComponentState"]):
     # Revert
     # ------------------------------------------------------------------
 
-    def revert(self, state: "ComponentState") -> None:
-        if not self._applied:
-            return
-
+    def _do_revert(self, state: "ComponentState") -> None:
         # 1. Restore dropped wires (+ orphan joints) first, so the
         #    sibling re-translation below sees the full wire set.
         from protoboard.domain.layout.wire_utils import (
@@ -213,7 +209,7 @@ class MoveDragSetCommand(Command["ComponentState"]):
 
 
 @dataclass
-class TransformDragSetCommand(Command["ComponentState"]):
+class TransformDragSetCommand(ConditionalCommand["ComponentState"]):
     """Atomic full-pose change of a component set — one undo entry.
 
     The commit command for the unified *float-transform* mode (rotate +
@@ -254,8 +250,6 @@ class TransformDragSetCommand(Command["ComponentState"]):
     ]
     knot_positions: dict[uuid.UUID, tuple[Point, Point]]
 
-    _applied: bool = field(default=False, init=False, repr=False)
-
     @property
     def description(self) -> str:  # type: ignore[override]
         n = len(self.members)
@@ -286,9 +280,7 @@ class TransformDragSetCommand(Command["ComponentState"]):
 
     def apply(self, state: "ComponentState") -> None:
         self._write(state, end=1)
-        self._applied = True
+        self.mark_applied(True)
 
-    def revert(self, state: "ComponentState") -> None:
-        if not self._applied:
-            return
+    def _do_revert(self, state: "ComponentState") -> None:
         self._write(state, end=0)
