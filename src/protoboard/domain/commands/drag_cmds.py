@@ -93,11 +93,8 @@ class MoveDragSetCommand(Command["ComponentState"]):
     _saved_placements: dict[uuid.UUID, "ComponentPlacement"] = field(
         default_factory=dict, init=False, repr=False,
     )
-    _saved_paths: dict[uuid.UUID, list[Point]] = field(
-        default_factory=dict, init=False, repr=False,
-    )
-    _saved_fragments: dict[uuid.UUID, "list[Fragment]"] = field(
-        default_factory=dict, init=False, repr=False,
+    _saved_geometry: "dict[uuid.UUID, tuple[list[Point], list[Fragment]]]" = (
+        field(default_factory=dict, init=False, repr=False)
     )
     _saved_dropped_wires: list["Wire"] = field(
         default_factory=list, init=False, repr=False,
@@ -126,16 +123,12 @@ class MoveDragSetCommand(Command["ComponentState"]):
         object.__setattr__(self, "_saved_placements", saved_pl)
 
         # 2. Snapshot internal wire paths + fragments.
-        saved_paths: dict[uuid.UUID, list[Point]] = {}
-        saved_frags: dict[uuid.UUID, "list[Fragment]"] = {}
-        for wid in self.internal_wire_ids:
-            wire = state.layout.wires.get(wid)
-            if wire is None:
-                continue
-            saved_paths[wid] = list(wire.path)
-            saved_frags[wid] = list(wire.fragments) if wire.fragments else []
-        object.__setattr__(self, "_saved_paths", saved_paths)
-        object.__setattr__(self, "_saved_fragments", saved_frags)
+        from protoboard.domain.layout.wire_utils import snapshot_wire_geometry
+
+        object.__setattr__(
+            self, "_saved_geometry",
+            snapshot_wire_geometry(state.layout, self.internal_wire_ids),
+        )
 
         # 3. Set new placements.
         for cid, (_old_pl, new_pl) in self.members.items():
@@ -207,16 +200,9 @@ class MoveDragSetCommand(Command["ComponentState"]):
             )
 
         # 2. Untranslate internal wires.
-        for wid, old_path in self._saved_paths.items():
-            w = state.layout.wires.get(wid)
-            if w is None:
-                continue
-            w.path = list(old_path)
-        for wid, old_frags in self._saved_fragments.items():
-            w = state.layout.wires.get(wid)
-            if w is None:
-                continue
-            w.fragments = list(old_frags)
+        from protoboard.domain.layout.wire_utils import restore_wire_geometry
+
+        restore_wire_geometry(state.layout, self._saved_geometry)
 
         # 3. Restore old placements.
         for cid, old_pl in self._saved_placements.items():

@@ -26,7 +26,7 @@ from protoboard.domain.layout.placement import (
     warn_pins_off_pads as _warn_pins_off_pads,
 )
 from protoboard.domain.layout.knot import JointKnot, WirePinKnot
-from protoboard.domain.layout.wire import KnotRef, Wire
+from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
 # Wire-path helpers that operate on Wire/Layout (not command state) live in
 # wire_utils next to their collaborators; imported under the historic private
 # names so the command call-sites read the same.
@@ -673,11 +673,8 @@ class TranslateAnchoredWiresCommand(Command[ComponentState]):
     _saved_wires: list[Wire] = field(
         default_factory=list, init=False, repr=False,
     )
-    _saved_paths: dict[uuid.UUID, list[Point]] = field(
-        default_factory=dict, init=False, repr=False,
-    )
-    _saved_fragments: dict[uuid.UUID, list[object]] = field(
-        default_factory=dict, init=False, repr=False,
+    _saved_geometry: "dict[uuid.UUID, tuple[list[Point], list[Fragment]]]" = (
+        field(default_factory=dict, init=False, repr=False)
     )
     _applied: bool = field(default=False, init=False, repr=False)
 
@@ -686,14 +683,11 @@ class TranslateAnchoredWiresCommand(Command[ComponentState]):
         return f"Translate wires anchored to component {self.component_id}"
 
     def apply(self, state: ComponentState) -> None:
+        from protoboard.domain.layout.wire_utils import snapshot_wire_geometry
+
         object.__setattr__(self, "_saved_wires", list(state.layout.wires))
         object.__setattr__(
-            self, "_saved_paths",
-            {w.id: list(w.path) for w in state.layout.wires},
-        )
-        object.__setattr__(
-            self, "_saved_fragments",
-            {w.id: list(w.fragments) for w in state.layout.wires},
+            self, "_saved_geometry", snapshot_wire_geometry(state.layout),
         )
         object.__setattr__(self, "_applied", True)
         wires_before = {w.id: list(w.path) for w in state.layout.wires}
@@ -750,14 +744,10 @@ class TranslateAnchoredWiresCommand(Command[ComponentState]):
     def revert(self, state: ComponentState) -> None:
         if not self._applied:
             return
+        from protoboard.domain.layout.wire_utils import restore_wire_geometry
+
         state.layout.wires[:] = self._saved_wires
-        for wire in state.layout.wires:
-            old_path = self._saved_paths.get(wire.id)
-            if old_path is not None:
-                wire.path = list(old_path)
-            old_frags = self._saved_fragments.get(wire.id)
-            if old_frags is not None:
-                wire.fragments = list(old_frags)  # type: ignore[assignment]
+        restore_wire_geometry(state.layout, self._saved_geometry)
 
 
 @dataclass

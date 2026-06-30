@@ -1427,6 +1427,8 @@ __all__ = [
     "find_skewed_wires",
     "remove_wire_capturing_orphans",
     "restore_wire_with_orphans",
+    "snapshot_wire_geometry",
+    "restore_wire_geometry",
 ]
 
 
@@ -2504,3 +2506,45 @@ def restore_colocated_fuse(layout: Layout, rec: ColocatedFuseRecord) -> None:
             moved_wire.a = _KnotRef(id=rec.loser_knot_id)
         else:
             moved_wire.b = _KnotRef(id=rec.loser_knot_id)
+
+
+def snapshot_wire_geometry(
+    layout: "Layout",
+    wire_ids: "Iterable[uuid.UUID] | None" = None,
+) -> "dict[uuid.UUID, tuple[list[Point], list[Fragment]]]":
+    """Snapshot ``{wire_id: (path, fragments)}`` for undo.
+
+    Captures the path + fragment list of each wire so a command's revert can
+    restore the geometry verbatim (via :func:`restore_wire_geometry`).  Pass
+    ``wire_ids`` to snapshot a subset (e.g. a drag's internal wires); omit it
+    to snapshot every wire on the layout.  Missing ids are skipped.
+
+    Single source of truth for the ``{wid: path}`` + ``{wid: fragments}``
+    snapshot that ``TranslateAnchoredWiresCommand`` / ``MoveDragSetCommand``
+    previously inlined identically.
+    """
+    if wire_ids is None:
+        wires = list(layout.wires)
+    else:
+        wires = [w for wid in wire_ids if (w := layout.wires.get(wid)) is not None]
+    return {
+        w.id: (list(w.path), list(w.fragments) if w.fragments else [])
+        for w in wires
+    }
+
+
+def restore_wire_geometry(
+    layout: "Layout",
+    saved: "dict[uuid.UUID, tuple[list[Point], list[Fragment]]]",
+) -> None:
+    """Restore wire path + fragments from a :func:`snapshot_wire_geometry`.
+
+    Wires that have since vanished from the layout are skipped (a sibling
+    command may have removed them mid-macro).
+    """
+    for wid, (path, fragments) in saved.items():
+        wire = layout.wires.get(wid)
+        if wire is None:
+            continue
+        wire.path = list(path)
+        wire.fragments = list(fragments)
