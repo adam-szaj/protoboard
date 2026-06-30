@@ -56,3 +56,24 @@ class TestPlacementSnapshot:
         restore_placements(live, saved)
         assert live[cid].position == original.position
         assert live[cid].rotation == original.rotation
+
+
+class TestRebuildFragments:
+    def test_swaps_sides_preserves_paths(self) -> None:
+        from protoboard.domain.layout.wire import Fragment, rebuild_fragments
+
+        frags = [
+            Fragment(path=[Point(0, 0), Point(1, 0)], side="top"),
+            Fragment(path=[Point(1, 0), Point(2, 0)], side="top"),
+        ]
+        out = rebuild_fragments(frags, ["bottom", "top"])
+        assert [f.side for f in out] == ["bottom", "top"]
+        assert [f.path for f in out] == [f.path for f in frags]
+
+    def test_deep_copies_paths(self) -> None:
+        from protoboard.domain.layout.wire import Fragment, rebuild_fragments
+
+        frags = [Fragment(path=[Point(0, 0), Point(1, 0)], side="top")]
+        out = rebuild_fragments(frags, ["top"])
+        out[0].path.append(Point(2, 0))  # mutate the copy
+        assert len(frags[0].path) == 2  # original untouched

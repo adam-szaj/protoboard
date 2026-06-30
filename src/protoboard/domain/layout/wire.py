@@ -74,6 +74,23 @@ def flatten_fragments(fragments: list[Fragment]) -> list[Point]:
     return out
 
 
+def rebuild_fragments(
+    fragments: "list[Fragment]", sides: "list[Side]"
+) -> list[Fragment]:
+    """Return a copy of *fragments* with each fragment's ``side`` replaced.
+
+    Paths are preserved verbatim (deep-copied); only the per-fragment ``side``
+    is swapped to the matching entry of *sides* (paired by index).  The named
+    home for the ``[Fragment(path, side) for frag, side in zip(...)]`` rebuild
+    that fragment-side commands (flip / set-side) do on apply and revert — so
+    the command bodies read as intent, not list-comprehension plumbing.
+    """
+    return [
+        Fragment(path=list(frag.path), side=side)
+        for frag, side in zip(fragments, sides)
+    ]
+
+
 @dataclass
 class Wire:
     """A single electrical conductor between two Knots.

@@ -26,7 +26,12 @@ from protoboard.domain.layout.placement import (
     warn_pins_off_pads as _warn_pins_off_pads,
 )
 from protoboard.domain.layout.knot import JointKnot, WirePinKnot
-from protoboard.domain.layout.wire import Fragment, KnotRef, Wire
+from protoboard.domain.layout.wire import (
+    Fragment,
+    KnotRef,
+    Wire,
+    rebuild_fragments,
+)
 # Wire-path helpers that operate on Wire/Layout (not command state) live in
 # wire_utils next to their collaborators; imported under the historic private
 # names so the command call-sites read the same.
@@ -851,12 +856,9 @@ class SetWireSideCommand(Command[ComponentState]):
                 self._old_side = wire.side
                 self._old_fragment_sides = [f.side for f in wire.fragments]
                 wire.side = self.side  # type: ignore[assignment]
-                new_fragments = []
-                for frag in wire.fragments:
-                    new_fragments.append(
-                        type(frag)(path=list(frag.path), side=self.side),  # type: ignore[arg-type]
-                    )
-                wire.fragments = new_fragments  # type: ignore[assignment]
+                wire.fragments = rebuild_fragments(
+                    wire.fragments, [self.side] * len(wire.fragments),  # type: ignore[list-item]
+                )
                 return
         raise KeyError(f"Wire {self.wire_id} not found")
 
@@ -865,14 +867,9 @@ class SetWireSideCommand(Command[ComponentState]):
             if wire.id == self.wire_id:
                 wire.side = self._old_side  # type: ignore[assignment]
                 if self._old_fragment_sides:
-                    new_fragments = []
-                    for frag, old_side in zip(
-                        wire.fragments, self._old_fragment_sides,
-                    ):
-                        new_fragments.append(
-                            type(frag)(path=list(frag.path), side=old_side),  # type: ignore[arg-type]
-                        )
-                    wire.fragments = new_fragments  # type: ignore[assignment]
+                    wire.fragments = rebuild_fragments(
+                        wire.fragments, self._old_fragment_sides,  # type: ignore[arg-type]
+                    )
                 return
 
 
@@ -1277,12 +1274,8 @@ class FlipWireFragmentCommand(Command[ComponentState]):
     start_idx: int
     end_idx: int
     target_side: str  # "top" or "bottom"
-    # Undo state — snapshot of the wire's pre-apply fragment composition.
-    # Kept as parallel lists so revert can reconstruct each Fragment.
-    _old_fragment_paths: list[list[Point]] = field(
-        default_factory=list, init=False, repr=False,
-    )
-    _old_fragment_sides: list[str] = field(
+    # Undo state — the wire's pre-apply fragment list, restored verbatim.
+    _old_fragments: list[Fragment] = field(
         default_factory=list, init=False, repr=False,
     )
 
@@ -1352,11 +1345,13 @@ class FlipWireFragmentCommand(Command[ComponentState]):
         wire = state.layout.wires.get(self.wire_id)
         if wire is None:
             raise KeyError(f"Wire {self.wire_id} not found")
-        # Snapshot pre-apply fragments for revert.  ``Wire.fragments`` is
-        # always populated (``Wire.__post_init__`` derives it from path
-        # if absent), so this captures the full per-fragment state.
-        self._old_fragment_paths = [list(f.path) for f in wire.fragments]
-        self._old_fragment_sides = [f.side for f in wire.fragments]
+        # Snapshot the pre-apply fragment list for revert.  ``Wire.fragments``
+        # is always populated (``Wire.__post_init__`` derives it from path if
+        # absent).  Fragments are mutable, so deep-copy each (path + side) —
+        # ``rebuild_fragments`` with the same sides is exactly that copy.
+        self._old_fragments = rebuild_fragments(
+            wire.fragments, [f.side for f in wire.fragments],
+        )
 
         new_fragments = self._build_fragments_for_flip(wire)
         # Single source of truth: replace_wire_fragments preserves wire
@@ -1366,14 +1361,9 @@ class FlipWireFragmentCommand(Command[ComponentState]):
         state.layout.replace_wire_fragments(self.wire_id, new_fragments)
 
     def revert(self, state: ComponentState) -> None:
-        from protoboard.domain.layout.wire import Fragment as _Fragment
-        if not self._old_fragment_paths:
+        if not self._old_fragments:
             return
-        old_fragments = [
-            _Fragment(path=list(p), side=s)  # type: ignore[arg-type]
-            for p, s in zip(self._old_fragment_paths, self._old_fragment_sides)
-        ]
-        state.layout.replace_wire_fragments(self.wire_id, old_fragments)
+        state.layout.replace_wire_fragments(self.wire_id, self._old_fragments)
 
 
 @dataclass
