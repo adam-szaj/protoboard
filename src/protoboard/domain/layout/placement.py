@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, overload
 
@@ -79,6 +80,39 @@ class ComponentPlacement:
             )
         if self.side not in ("top", "bottom"):
             raise ValueError(f"side must be 'top' or 'bottom'; got {self.side!r}")
+
+
+def snapshot_placements(
+    placements: dict[uuid.UUID, ComponentPlacement],
+    comp_ids: "Iterable[uuid.UUID]",
+) -> dict[uuid.UUID, ComponentPlacement]:
+    """Deep-copy each placement in *comp_ids* for undo.
+
+    Single source of truth for the ``{cid: pl.copy()}`` snapshot that the
+    rotate helper / drag commands previously inlined — copying preserves every
+    field (position, rotation, side, offsets, flip, locked) so a later
+    :func:`restore_placements` rewinds the pose exactly.  Missing ids are
+    skipped.
+    """
+    out: dict[uuid.UUID, ComponentPlacement] = {}
+    for cid in comp_ids:
+        pl = placements.get(cid)
+        if pl is not None:
+            out[cid] = pl.copy()
+    return out
+
+
+def restore_placements(
+    placements: dict[uuid.UUID, ComponentPlacement],
+    saved: dict[uuid.UUID, ComponentPlacement],
+) -> None:
+    """Write a batch of saved placements back (inverse of a mutation).
+
+    The shared restore loop behind ``MoveDragSetCommand`` / ``restore_rotation``
+    — they each iterated ``saved.items()`` writing ``placements[cid] = pl``.
+    """
+    for cid, pl in saved.items():
+        placements[cid] = pl
 
 
 @overload

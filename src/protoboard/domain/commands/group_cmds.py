@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from protoboard.domain.commands.base import Command, ComponentState
 from protoboard.domain.layout.group import ComponentGroup, all_component_ids, would_create_cycle
@@ -12,6 +13,9 @@ from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
+
+if TYPE_CHECKING:
+    from protoboard.domain.layout.placement import ComponentPlacement
 
 
 def _rotate_point_around(p: Point, origin: Point, delta: int) -> Point:
@@ -40,7 +44,7 @@ class RotateSnapshot:
 
     origin: Point
     delta: int
-    old_placements: dict[uuid.UUID, object]
+    old_placements: dict[uuid.UUID, ComponentPlacement]
     old_wire_paths: dict[uuid.UUID, list[Point]]
 
 
@@ -69,7 +73,7 @@ def rotate_components_around(
     from protoboard.domain.layout.knot import JointKnot, WirePinKnot
     from protoboard.domain.layout.placement import ComponentPlacement
 
-    old_placements: dict[uuid.UUID, object] = {}
+    old_placements: dict[uuid.UUID, ComponentPlacement] = {}
     for cid in comp_ids:
         pl = state.layout.placements.get(cid)
         if not isinstance(pl, ComponentPlacement):
@@ -120,11 +124,9 @@ def restore_rotation(state: ComponentState, snap: RotateSnapshot) -> None:
     pivot (paths are restored verbatim from the snapshot).
     """
     from protoboard.domain.layout.knot import JointKnot, WirePinKnot
-    from protoboard.domain.layout.placement import ComponentPlacement
+    from protoboard.domain.layout.placement import restore_placements
 
-    for cid, pl in snap.old_placements.items():
-        if isinstance(pl, ComponentPlacement):
-            state.layout.placements[cid] = pl
+    restore_placements(state.layout.placements, snap.old_placements)
 
     inv_delta = (360 - snap.delta) % 360
     for wire in state.layout.wires:

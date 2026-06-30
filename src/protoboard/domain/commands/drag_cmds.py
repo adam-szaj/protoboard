@@ -205,8 +205,9 @@ class MoveDragSetCommand(Command["ComponentState"]):
         restore_wire_geometry(state.layout, self._saved_geometry)
 
         # 3. Restore old placements.
-        for cid, old_pl in self._saved_placements.items():
-            state.layout.placements[cid] = old_pl
+        from protoboard.domain.layout.placement import restore_placements
+
+        restore_placements(state.layout.placements, self._saved_placements)
 
         # 4. Invalidate caches again so next paint sees the rewound state.
         state.layout.invalidate_interior_vertex_index()
