@@ -225,7 +225,7 @@ class CreateGroupCommand(Command[ComponentState]):
 
     def apply(self, state: ComponentState) -> None:
         if self._orig_group is None:
-            object.__setattr__(self, "_orig_group", self.group)
+            self._orig_group = self.group
         state.layout.groups[self.group.id] = self.group
         # Sync origin to the bbox top-left of the new group's current
         # placements.  Callers (PPM "create group") usually pass origin=
@@ -236,7 +236,7 @@ class CreateGroupCommand(Command[ComponentState]):
         # the synced origin.
         synced = state.layout.groups.get(self.group.id)
         if synced is not None:
-            object.__setattr__(self, "group", synced)
+            self.group = synced
 
     def revert(self, state: ComponentState) -> None:
         state.layout.groups.pop(self.group.id, None)
@@ -261,11 +261,11 @@ class DisbandGroupCommand(Command[ComponentState]):
 
     def apply(self, state: ComponentState) -> None:
         group = state.layout.groups.pop(self.group_id, None)
-        object.__setattr__(self, "_saved_group", group)
+        self._saved_group = group
         # Find and patch parent group that references this group.
         for gid, g in state.layout.groups.items():
             if self.group_id in g.child_group_ids:
-                object.__setattr__(self, "_saved_parent_id", gid)
+                self._saved_parent_id = gid
                 state.layout.groups[gid] = g.replace(
                     child_group_ids=g.child_group_ids - {self.group_id}
                 )
@@ -307,7 +307,7 @@ class AddToGroupCommand(Command[ComponentState]):
                 raise ValueError(
                     f"Adding group {child_id} to {self.group_id} would create a cycle"
                 )
-        object.__setattr__(self, "_old_group", group)
+        self._old_group = group
         state.layout.groups[self.group_id] = group.replace(
             component_ids=group.component_ids | self.component_ids,
             child_group_ids=group.child_group_ids | self.child_group_ids,
@@ -340,7 +340,7 @@ class RemoveFromGroupCommand(Command[ComponentState]):
         group = state.layout.groups.get(self.group_id)
         if group is None:
             raise KeyError(f"Group {self.group_id} not found")
-        object.__setattr__(self, "_old_group", group)
+        self._old_group = group
         state.layout.groups[self.group_id] = group.replace(
             component_ids=group.component_ids - self.component_ids,
             child_group_ids=group.child_group_ids - self.child_group_ids,
@@ -368,7 +368,7 @@ class RenameGroupCommand(Command[ComponentState]):
         group = state.layout.groups.get(self.group_id)
         if group is None:
             raise KeyError(f"Group {self.group_id} not found")
-        object.__setattr__(self, "_old_name", group.name)
+        self._old_name = group.name
         state.layout.groups[self.group_id] = group.replace(name=self.new_name)
 
     def revert(self, state: ComponentState) -> None:
@@ -395,7 +395,7 @@ class SetExportedPinsCommand(Command[ComponentState]):
         group = state.layout.groups.get(self.group_id)
         if group is None:
             raise KeyError(f"Group {self.group_id} not found")
-        object.__setattr__(self, "_old_exported", group.exported_pins)
+        self._old_exported = group.exported_pins
         state.layout.groups[self.group_id] = group.replace(
             exported_pins=self.new_exported
         )
@@ -429,7 +429,7 @@ class RotateGroupCommand(Command[ComponentState]):
         group = state.layout.groups.get(self.group_id)
         if group is None:
             return
-        object.__setattr__(self, "_old_group", group)
+        self._old_group = group
 
         comp_ids = all_component_ids(state.layout.groups, self.group_id)
         origin = group.origin or GroupTree.group_origin(
@@ -466,7 +466,7 @@ class RotateGroupCommand(Command[ComponentState]):
             state, comp_ids, origin, self.delta,
             wire_ids=frozenset(internal_wire_ids),
         )
-        object.__setattr__(self, "_snapshot", snapshot)
+        self._snapshot = snapshot
 
         # Update group metadata.
         new_rot = (group.rotation + self.delta) % 360
@@ -514,7 +514,7 @@ class RotateComponentsCommand(Command[ComponentState]):
                 state, frozenset({cid}), pl.position, self.delta,
                 wire_ids=frozenset(),
             ))
-        object.__setattr__(self, "_snapshots", snapshots)
+        self._snapshots = snapshots
 
     def revert(self, state: ComponentState) -> None:
         for snap in reversed(self._snapshots):
@@ -581,7 +581,7 @@ class RotateAroundPointCommand(Command[ComponentState]):
             state, self.comp_ids, self.origin, self.delta,
             wire_ids=frozenset(owned_wire_ids),
         )
-        object.__setattr__(self, "_snapshot", snapshot)
+        self._snapshot = snapshot
 
     def revert(self, state: ComponentState) -> None:
         if self._snapshot is not None:

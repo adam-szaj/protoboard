@@ -188,7 +188,7 @@ class MoveComponentCommand(Command[ComponentState]):
     def apply(self, state: ComponentState) -> None:
         # Locked components never move — silently treat as no-op.
         if state.layout.placements.get(self.component_id, self.old_placement).locked:
-            object.__setattr__(self, "_applied", False)
+            self._applied = False
             return
         if not self.skip_conflict_check:
             blocked = _move_blocked(
@@ -199,12 +199,12 @@ class MoveComponentCommand(Command[ComponentState]):
             )
             if blocked:
                 # Conflict — silently keep old position; mark as no-op for undo.
-                object.__setattr__(self, "_applied", False)
+                self._applied = False
                 state.layout.placements[self.component_id] = self.old_placement
                 return
-        object.__setattr__(self, "_applied", True)
+        self._applied = True
         if not self.placement_only:
-            object.__setattr__(self, "_saved_wires", list(state.layout.wires))
+            self._saved_wires = list(state.layout.wires)
         state.layout.placements[self.component_id] = self.new_placement
         if not self.placement_only:
             _update_wires_for_move(
@@ -244,7 +244,7 @@ class MoveComponentCommand(Command[ComponentState]):
                 instances=state.instances,
                 components=state.components,
             )
-        object.__setattr__(self, "_saved_group_origins", saved)
+        self._saved_group_origins = saved
 
     def revert(self, state: ComponentState) -> None:
         if not self._applied:
@@ -569,7 +569,7 @@ class AddWireWithNetsCommand(Command[ComponentState]):
             self._collapses = new_collapses
         if self._first_apply:
             # Net mutations already applied by resolver — nothing more to do.
-            object.__setattr__(self, "_first_apply", False)
+            self._first_apply = False
             return
         # Redo path: re-apply recorded net mutations.
         schematic = getattr(state, "schematic")  # EditorSession always has this
@@ -623,14 +623,14 @@ class RemoveWireCommand(Command[ComponentState]):
             # crashing the macro.  Revert is a no-op too — when undo
             # walks back through the macro, the sibling command that
             # actually removed the wire will restore it.
-            object.__setattr__(self, "_saved_wire", None)
-            object.__setattr__(self, "_saved_orphan_joints", [])
+            self._saved_wire = None
+            self._saved_orphan_joints = []
             _log.debug(
                 "remove_wire.skipped_already_gone",
                 wire_id=str(self.wire_id),
             )
             return
-        object.__setattr__(self, "_saved_wire", wire)
+        self._saved_wire = wire
         self._saved_orphan_joints = orphans
 
     def revert(self, state: ComponentState) -> None:
@@ -685,11 +685,9 @@ class TranslateAnchoredWiresCommand(Command[ComponentState]):
     def apply(self, state: ComponentState) -> None:
         from protoboard.domain.layout.wire_utils import snapshot_wire_geometry
 
-        object.__setattr__(self, "_saved_wires", list(state.layout.wires))
-        object.__setattr__(
-            self, "_saved_geometry", snapshot_wire_geometry(state.layout),
-        )
-        object.__setattr__(self, "_applied", True)
+        self._saved_wires = list(state.layout.wires)
+        self._saved_geometry = snapshot_wire_geometry(state.layout)
+        self._applied = True
         wires_before = {w.id: list(w.path) for w in state.layout.wires}
         _update_wires_for_move(
             state.layout.wires,
@@ -786,8 +784,8 @@ class DropWiresCommand(Command[ComponentState]):
                 continue
             saved.append(wire)
             orphans.extend(w_orphans)
-        object.__setattr__(self, "_saved_wires", saved)
-        object.__setattr__(self, "_saved_orphan_joints", orphans)
+        self._saved_wires = saved
+        self._saved_orphan_joints = orphans
 
     def revert(self, state: ComponentState) -> None:
         from protoboard.domain.layout.wire_utils import (

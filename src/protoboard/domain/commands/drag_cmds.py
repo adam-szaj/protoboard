@@ -120,14 +120,13 @@ class MoveDragSetCommand(Command["ComponentState"]):
         saved_pl: dict[uuid.UUID, "ComponentPlacement"] = {}
         for cid, (old_pl, _new_pl) in self.members.items():
             saved_pl[cid] = old_pl
-        object.__setattr__(self, "_saved_placements", saved_pl)
+        self._saved_placements = saved_pl
 
         # 2. Snapshot internal wire paths + fragments.
         from protoboard.domain.layout.wire_utils import snapshot_wire_geometry
 
-        object.__setattr__(
-            self, "_saved_geometry",
-            snapshot_wire_geometry(state.layout, self.internal_wire_ids),
+        self._saved_geometry = snapshot_wire_geometry(
+            state.layout, self.internal_wire_ids,
         )
 
         # 3. Set new placements.
@@ -166,13 +165,13 @@ class MoveDragSetCommand(Command["ComponentState"]):
                 continue
             saved_dropped.append(wire)
             saved_orphans.extend(orphans)
-        object.__setattr__(self, "_saved_dropped_wires", saved_dropped)
-        object.__setattr__(self, "_saved_orphan_joints", saved_orphans)
+        self._saved_dropped_wires = saved_dropped
+        self._saved_orphan_joints = saved_orphans
 
         # 6. Invalidate caches dependent on wire path geometry.
         state.layout.invalidate_interior_vertex_index()
 
-        object.__setattr__(self, "_applied", True)
+        self._applied = True
         _log.debug(
             "drag.move_drag_set.applied",
             members=[str(c)[:8] for c in self.members],
@@ -287,7 +286,7 @@ class TransformDragSetCommand(Command["ComponentState"]):
 
     def apply(self, state: "ComponentState") -> None:
         self._write(state, end=1)
-        object.__setattr__(self, "_applied", True)
+        self._applied = True
 
     def revert(self, state: "ComponentState") -> None:
         if not self._applied:
