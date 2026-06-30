@@ -456,6 +456,9 @@ def build_pad_net_map(
     ``session.layout.placements``, ``session.instances``,
     ``session.components``, ``session.schematic``.
     """
+    from protoboard.domain.layout.pad_conflict import (
+        resolved_footprint_or_default,
+    )
     from protoboard.domain.layout.placement import pin_world_position
     from protoboard.domain.schematic.net import PinRef
     from protoboard.gui.renderers.net_color import build_net_color_map
@@ -480,7 +483,7 @@ def build_pad_net_map(
         defn = components.get(inst.definition_ref)
         if defn is None:
             continue
-        fp = defn.footprint
+        fp = resolved_footprint_or_default(defn, inst)
         for n in range(fp.pin_count()):
             pin_number = n + 1
             pos = pin_world_position(fp, placement, pin_number)

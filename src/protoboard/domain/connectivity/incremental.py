@@ -35,6 +35,7 @@ from protoboard.domain.board.boxes import PadAtom, StripAtom
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.pad_conflict import resolved_footprint_or_default
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.layout.wire import Wire, Wire
 from protoboard.domain.schematic.net import PinRef
@@ -573,7 +574,7 @@ class ConnectivityGraph:
             defn = self._components.get(inst.definition_ref)
             if defn is None:
                 continue
-            fp = defn.footprint
+            fp = resolved_footprint_or_default(defn, inst)
             for pins in defn.pins_grouped_by_name(inst.pin_variant).values():
                 anchor: NodeEntry | None = None
                 for pin_num in pins:
@@ -655,7 +656,7 @@ class ConnectivityGraph:
             defn = self._components.get(inst.definition_ref)
             if defn is None:
                 continue
-            fp = defn.footprint
+            fp = resolved_footprint_or_default(defn, inst)
             for pin_num in range(1, fp.pin_count() + 1):
                 world_pos = pin_world_position(fp, placement, pin_num)
                 side = placement.side
