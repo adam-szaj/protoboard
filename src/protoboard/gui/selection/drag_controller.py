@@ -497,41 +497,20 @@ class DragController:
     def _resolve_drops(
         self, decision: DragCommitDecision
     ) -> tuple[set[uuid.UUID], set[uuid.UUID]] | None:
-        """Run the three preference resolvers; merge the kept drops + reroutes."""
-        prefs = self._prefs
-        free_pref = None if prefs is None else prefs.free_wire
-        sgroup_pref = None if prefs is None else prefs.stationary_group_wire
-        disc_pref = None if prefs is None else prefs.cross_group_disconnect
-        free_ids = frozenset(decision.free_drop_wire_ids)
-        sgroup_ids = frozenset(decision.stationary_group_drop_wire_ids)
-        disc_ids = frozenset(decision.cross_group_disconnect_wire_ids)
+        """Run the three preference resolvers; merge the kept drops + reroutes.
 
-        free = self._run_resolver(self._resolve_free, free_pref, free_ids)
-        if free is None:
-            return None
-        sgroup = self._run_resolver(self._resolve_sgroup, sgroup_pref, sgroup_ids)
-        if sgroup is None:
-            return None
-        disc = self._run_resolver(self._resolve_disconnect, disc_pref, disc_ids)
-        if disc is None:
-            return None
+        Delegates to the shared :func:`drop_resolution.resolve_drops` so a
+        float-transform commit resolves drops identically (same dialogs).
+        """
+        from protoboard.gui.selection.drop_resolution import resolve_drops
 
-        dropped = free[0] | sgroup[0] | disc[0]
-        reroute = free[1] | sgroup[1] | disc[1]
-        return dropped, reroute
-
-    @staticmethod
-    def _run_resolver(
-        resolver: ResolveFreeFn | None,
-        preference: str | None,
-        wire_ids: frozenset[uuid.UUID],
-    ) -> tuple[set[uuid.UUID], set[uuid.UUID]] | None:
-        """Resolve one bucket; default to dropping all when no resolver wired."""
-        if not wire_ids:
-            return set(), set()
-        if resolver is None or preference is None:
-            return set(wire_ids), set()  # headless default: auto-remove
-        return resolver(preference, wire_ids)
+        return resolve_drops(
+            decision,
+            preferences=self._prefs,
+            resolve_free=self._resolve_free,
+            resolve_sgroup=self._resolve_sgroup,
+            resolve_disconnect=self._resolve_disconnect,
+        )
 
     def _build_move_command(
         self, delta: Vector, dropped: set[uuid.UUID]
