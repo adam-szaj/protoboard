@@ -670,6 +670,81 @@ class TestArmedAtomic:
         assert tool._armed.finished is False
 
 
+class TestFloatTransformSwitch:
+    """The merge's reason for being: switch rotate<->move while floating,
+    without committing, and commit the whole thing as one undo entry."""
+
+    def _armed_rotate(self, board_view, session):
+        inst = _place(board_view, session, 2.5, 2.5)
+        tool = _v2(board_view)
+        _press(tool, 2.5, 2.5)
+        _key(tool, Qt.Key.Key_R)  # arm in rotate sub-mode
+        assert tool._armed is not None
+        return inst, tool
+
+    def test_rotate_then_switch_to_move_preserves_float(
+        self, board_view, session
+    ) -> None:
+        from protoboard.gui.selection.float_transform import FloatTransform
+
+        inst, tool = self._armed_rotate(board_view, session)
+        base_rot = session.layout.placements[inst.id].rotation
+        _key(tool, Qt.Key.Key_R)  # rotate +90 (per-object)
+        assert session.layout.placements[inst.id].rotation == (base_rot + 90) % 360
+        # [G] switches sub-mode WITHOUT committing or re-arming.
+        _key(tool, Qt.Key.Key_G)
+        assert isinstance(tool._armed, FloatTransform)
+        assert tool._armed.mode == "move"
+        assert tool._armed.finished is False
+        # Rotation survived the switch (float pose carried over).
+        assert session.layout.placements[inst.id].rotation == (base_rot + 90) % 360
+
+    def test_mixed_transform_commits_as_one_undo_entry(
+        self, board_view, session
+    ) -> None:
+        inst, tool = self._armed_rotate(board_view, session)
+        base = session.layout.placements[inst.id]
+        base_pos, base_rot = base.position, base.rotation
+        depth = len(session.stack._undo)  # type: ignore[attr-defined]
+
+        _key(tool, Qt.Key.Key_R)        # rotate +90
+        _key(tool, Qt.Key.Key_G)        # -> move sub-mode (no commit)
+        _key(tool, Qt.Key.Key_Right)    # nudge +1x
+        _key(tool, Qt.Key.Key_Return)   # accept the whole transform
+
+        assert tool._armed is None
+        # Exactly ONE undo entry for the combined rotate+move.
+        assert len(session.stack._undo) == depth + 1  # type: ignore[attr-defined]
+        after = session.layout.placements[inst.id]
+        assert after.rotation == (base_rot + 90) % 360
+        assert after.position.x == base_pos.x + 1.0
+
+        # One undo restores the *original* pose (before any operation).
+        session.stack.undo(session)  # type: ignore[arg-type]
+        restored = session.layout.placements[inst.id]
+        assert restored.rotation == base_rot
+        assert (restored.position.x, restored.position.y) == (
+            base_pos.x, base_pos.y,
+        )
+
+    def test_cancel_from_mixed_state_returns_to_original(
+        self, board_view, session
+    ) -> None:
+        inst, tool = self._armed_rotate(board_view, session)
+        base = session.layout.placements[inst.id]
+        base_pos, base_rot = base.position, base.rotation
+
+        _key(tool, Qt.Key.Key_R)        # rotate +90
+        _key(tool, Qt.Key.Key_G)        # -> move
+        _key(tool, Qt.Key.Key_Right)    # nudge
+        _key(tool, Qt.Key.Key_Escape)   # cancel — back to the pristine pose
+
+        assert tool._armed is None
+        now = session.layout.placements[inst.id]
+        assert now.rotation == base_rot
+        assert (now.position.x, now.position.y) == (base_pos.x, base_pos.y)
+
+
 class TestDragGesture:
     def test_drag_component_moves_and_commits(
         self, board_view: BoardView, session: EditorSession

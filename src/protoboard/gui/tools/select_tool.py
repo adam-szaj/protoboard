@@ -3011,41 +3011,41 @@ class SelectTool(_Tool):
     def arm_move(self) -> None:
         """Arm keyboard float-move on the selection — the ``[G]`` entry point.
 
-        Builds the same :class:`DragController` a mouse drag would (snap /
-        conflict-classify / live preview), driven by the keyboard: arrows / WASD
-        step the anchor one grid cell.  ``[Enter]`` drops (only when
-        committable), ``[Esc]`` cancels.
+        Arms the shared :class:`FloatTransform` in its *move* sub-mode (arrows /
+        WASD nudge one cell, ``[Enter]`` drops when committable, ``[Esc]``
+        cancels).  When a transform is already armed — e.g. mid-rotate — this
+        only switches the sub-mode, so the float pose carries over and the user
+        can slide a rotated part clear of a conflict without committing first.
         """
-        from protoboard.gui.selection.armed_move import ArmedMove
+        from typing import cast
 
+        from protoboard.gui.selection.drag_controller import DragContext
+        from protoboard.gui.selection.float_transform import FloatTransform
+
+        if isinstance(self._armed, FloatTransform):
+            self._armed.switch_mode("move")  # already floating — just re-aim
+            self._status(self._armed.status_hint(), 0)
+            return
         if self._armed is not None:
             return
         if self._selection.is_empty():
             self._status("Move: select component(s) or a group first")
             return
-        sel = self._primary_selectable()
-        if sel is None:
+        comp_ids, group_id = self._rotatable_affected()
+        if not comp_ids:
             self._status("Move: nothing movable in the selection")
             return
-        anchor_pt = self._move_anchor_point(sel)
-        if anchor_pt is None:
-            self._status("Move: selection has no placed anchor")
-            return
-        drag = self._arm_drag(sel, anchor_pt)
-        if drag is None:
-            self._status("Move: selection is not draggable")
-            return
-        self._mouse = drag  # parked so the drag-preview glide path is shared
-        self._armed = ArmedMove(
-            drag,
-            anchor=Point(anchor_pt.x(), anchor_pt.y()),
+        self._cancel_gesture()
+        self._armed = FloatTransform(
+            cast("DragContext", self._session),
+            comp_ids=comp_ids,
+            group_id=group_id,
+            snap=self._snap_free,
+            execute=self._execute_command,
             matches=self._key_matches,
-            steps={
-                _ACT_STEP_LEFT: (-1.0, 0.0),
-                _ACT_STEP_RIGHT: (1.0, 0.0),
-                _ACT_STEP_UP: (0.0, -1.0),
-                _ACT_STEP_DOWN: (0.0, 1.0),
-            },
+            mode="move",
+            preview=self._rotate_preview,
+            status=lambda msg: self._status(msg, 0),
         )
         self._status(self._armed.status_hint(), 0)
 
