@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Callable, cast
 from PySide6.QtCore import Qt
 
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 
 if TYPE_CHECKING:
     from PySide6.QtGui import QKeyEvent, QWheelEvent
@@ -335,35 +335,28 @@ class FloatTransform:
         self._emit_preview()
 
     def _move(self, dx: float, dy: float) -> None:
+        from protoboard.domain.layout.wire import transform_wire_geometry
+
         layout = self._layout
+        delta = Vector(dx, dy)
         for cid in self._comp_ids:
             pl = layout.placements.get(cid)
             if isinstance(pl, ComponentPlacement):
                 moved = pl.copy()
-                moved.position = Point(pl.position.x + dx, pl.position.y + dy)
+                moved.position = pl.position + delta
                 layout.placements[cid] = moved
         for wid in self._affected_wire_ids():
             wire = layout.wires.get(wid)
             if wire is None:
                 continue
-            wire.path = [Point(p.x + dx, p.y + dy) for p in wire.path]
-            if wire.fragments:
-                wire.fragments = [
-                    type(f)(
-                        path=[Point(p.x + dx, p.y + dy) for p in f.path],
-                        side=f.side,
-                    )
-                    for f in wire.fragments
-                ]
+            transform_wire_geometry(wire, lambda p: p + delta)
             for ref in (wire.a, wire.b):
                 if ref is None:
                     continue
                 knot = layout.knots.get(ref.id)
                 pos = getattr(knot, "position", None)
                 if isinstance(pos, Point) and knot is not None:
-                    layout.knots[ref.id] = knot.moved_to(
-                        Point(pos.x + dx, pos.y + dy)
-                    )
+                    layout.knots[ref.id] = knot.moved_to(pos + delta)
         layout.invalidate_interior_vertex_index()
         self._emit_preview()
 

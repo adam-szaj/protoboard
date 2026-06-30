@@ -305,14 +305,12 @@ class DragController:
         stick and block a clean drop (2026-06-19).
         """
         # Snap the anchor (grab offset applied), then derive one shared delta.
-        raw_anchor = Point(scene_pt.x + self._grab[0], scene_pt.y + self._grab[1])
+        raw_anchor = scene_pt + Vector(self._grab[0], self._grab[1])
         if self._snap is not None:
             anchor_new = self._snap(raw_anchor, self._member_ids)
         else:
             anchor_new = raw_anchor
-        delta = Vector(
-            anchor_new.x - self._anchor_pos.x, anchor_new.y - self._anchor_pos.y
-        )
+        delta = anchor_new - self._anchor_pos  # Point − Point → Vector
         self._last_delta = delta
 
         self._apply_delta(delta)
@@ -326,11 +324,11 @@ class DragController:
         for cid, orig in self._orig_positions.items():
             pl = self._ctx.layout.placements.get(cid)
             if pl is not None:
-                pl.position = Point(orig.x + delta.x, orig.y + delta.y)
+                pl.position = orig + delta
         for wire in self._ctx.layout.wires:
             orig_path = self._orig_wire_paths.get(wire.id)
             if orig_path is not None:
-                wire.path = [Point(p.x + delta.x, p.y + delta.y) for p in orig_path]
+                wire.path = [p + delta for p in orig_path]
 
     def _resync_trial_pad_index(self) -> None:
         """Clone the session PadIndex once, then re-sync moved components.
