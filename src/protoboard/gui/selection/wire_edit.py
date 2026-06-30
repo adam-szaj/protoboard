@@ -338,7 +338,10 @@ def build_reroute_command(
 
     if state.is_cross:
         start_wire = _find_wire(wires, state.start_wire_id)
-        side = start_wire.side if start_wire is not None else "top"
+        side = start_wire.side if start_wire is not None else "bottom"
+        # Inherit insulation from the rerouted wire — a bare reroute must
+        # stay bare (forcing insulated=True silently changed bare wires).
+        insulated = start_wire.insulated if start_wire is not None else False
         excise = excise_cross_wire_range(wires, wire_net_map, state)
         if excise is None:
             return None
@@ -346,7 +349,9 @@ def build_reroute_command(
         new_path = dedupe_adjacent([start_pt, *waypoints, end_pt])
         if len(new_path) < 2:
             return excise_macro
-        new_wire = Wire(id=uuid.uuid4(), path=new_path, insulated=True, side=side)
+        new_wire = Wire(
+            id=uuid.uuid4(), path=new_path, insulated=insulated, side=side
+        )
         add_cmd = AddWireCommand(wire=new_wire)
         macro = MacroCommand(
             [excise_macro, cast("Command[ComponentState]", add_cmd)],

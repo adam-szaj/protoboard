@@ -205,9 +205,11 @@ class MainWindow(QMainWindow):
         self._register_actions()
         self._build_menu()
 
-        # Wire routing state (persisted across tool switches).
-        self._wire_insulated: bool = True
-        self._wire_side: str = "top"
+        # Wire routing state — seeded from the persisted app-settings
+        # default (bare / bottom out of the box).  The [I]/[T]/[B] keys and
+        # toolbar toggles flip them per-session and save the new default.
+        self._wire_insulated: bool = self._app_settings.wire_default_insulated
+        self._wire_side: str = self._app_settings.wire_default_side
 
         # Highlight toggle: snapshot of persistent entries when the
         # user hits the toggle to hide them, restored on next press.
@@ -1047,10 +1049,19 @@ class MainWindow(QMainWindow):
         self._update_route_status(self._wire_insulated, self._wire_side)
         self._sync_tool_check(KB.ACTION_TOOL_ROUTE)
 
+    def _persist_wire_defaults(self) -> None:
+        """Save the current manual-wire choice as the persistent default."""
+        from protoboard.gui.app_settings import save_app_settings
+
+        self._app_settings.wire_default_insulated = self._wire_insulated
+        self._app_settings.wire_default_side = self._wire_side
+        save_app_settings(self._app_settings)
+
     def _set_wire_insulated(self, insulated: bool) -> None:
         self._wire_insulated = insulated
         # One QAction lives in both menu and toolbar — setChecked updates both.
         self._act_wire_insulated.setChecked(insulated)
+        self._persist_wire_defaults()
         tool = self._board_view._active_tool
         if isinstance(tool, RouteTool):
             tool._insulated = insulated
@@ -1060,6 +1071,7 @@ class MainWindow(QMainWindow):
         self._wire_side = side
         self._act_wire_top.setChecked(side == "top")
         self._act_wire_bottom.setChecked(side == "bottom")
+        self._persist_wire_defaults()
         tool = self._board_view._active_tool
         if isinstance(tool, RouteTool):
             tool._side = side

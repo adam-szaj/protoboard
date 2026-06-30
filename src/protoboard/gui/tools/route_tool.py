@@ -45,8 +45,8 @@ class RouteTool(_Tool):
 
     def __init__(
         self,
-        insulated: bool = True,
-        side: str = "top",
+        insulated: bool = False,
+        side: str = "bottom",
     ) -> None:
         super().__init__()
         self._insulated = insulated
@@ -116,13 +116,31 @@ class RouteTool(_Tool):
             self._cancel()
             event.accept()
         elif key == Qt.Key.Key_I:
-            self._insulated = not self._insulated
-            self._notify_status()
+            self._set_insulated(not self._insulated)
         elif key == Qt.Key.Key_T:
-            self._side = "top"
-            self._notify_status()
+            self._set_side("top")
         elif key == Qt.Key.Key_B:
-            self._side = "bottom"
+            self._set_side("bottom")
+
+    def _set_insulated(self, insulated: bool) -> None:
+        """Flip insulation via the window so the choice is remembered and
+        persisted (toolbar action + app-settings default), falling back to a
+        local mutation when there is no window (standalone tool / tests)."""
+        win = self._view.window()
+        setter = getattr(win, "_set_wire_insulated", None)
+        if setter is not None:
+            setter(insulated)
+        else:
+            self._insulated = insulated
+            self._notify_status()
+
+    def _set_side(self, side: str) -> None:
+        win = self._view.window()
+        setter = getattr(win, "_set_wire_side", None)
+        if setter is not None:
+            setter(side)
+        else:
+            self._side = side
             self._notify_status()
 
     def _notify_status(self) -> None:

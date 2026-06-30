@@ -60,6 +60,33 @@ class TestRoundTrip:
         assert load_app_settings().show_selection_bbox is False
 
 
+class TestWireDefaults:
+    def test_defaults_are_bare_and_bottom(self) -> None:
+        s = AppSettings()
+        assert s.wire_default_insulated is False
+        assert s.wire_default_side == "bottom"
+
+    def test_roundtrip(self) -> None:
+        save_app_settings(
+            AppSettings(wire_default_insulated=True, wire_default_side="top")
+        )
+        loaded = load_app_settings()
+        assert loaded.wire_default_insulated is True
+        assert loaded.wire_default_side == "top"
+
+    def test_missing_wire_section_uses_defaults(self, _isolate_settings_file):
+        _isolate_settings_file.write_text("default_projects_dir: ~/projects\n")
+        loaded = load_app_settings()
+        assert loaded.wire_default_insulated is False
+        assert loaded.wire_default_side == "bottom"
+
+    def test_garbage_side_ignored(self, _isolate_settings_file):
+        _isolate_settings_file.write_text("wire:\n  default_side: sideways\n")
+        loaded = load_app_settings()
+        # An invalid side falls back to the default rather than cementing.
+        assert loaded.wire_default_side == "bottom"
+
+
 class TestClamping:
     def test_garbage_value_clamped(self, _isolate_settings_file):
         """A hand-edited YAML with an out-of-range value cannot lock

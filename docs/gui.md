@@ -116,6 +116,13 @@ User overrides land in `~/.config/protoboard/keybindings.yaml`. Common
 overrides observed in the wild: `redrag_pins=E`, `unweave_wires=U`,
 `highlight_toggle=Space`.
 
+The Route-tool wire default (insulated vs. bare, top vs. bottom side) is
+**bare / bottom** out of the box and is **persisted**: changing it via the
+`I` / `T` / `B` keys or the toolbar toggles writes the new default to the
+`wire:` section of `~/.config/protoboard/app_settings.yaml`, so it survives a
+restart. `MainWindow._wire_insulated` / `_wire_side` seed from those settings
+on launch.
+
 ## SelectTool
 
 `MainWindow` keeps a single persistent `SelectTool` instance so that

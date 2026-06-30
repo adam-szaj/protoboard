@@ -225,6 +225,30 @@ class TestBuildReroute:
         # The outer macro = [excise_macro, AddWire(new_path)].
         assert any(isinstance(c, AddWireCommand) for c in cmd._commands)
 
+    @pytest.mark.parametrize("insulated", [False, True])
+    def test_cross_wire_reroute_inherits_insulation(self, insulated: bool) -> None:
+        """A cross-wire reroute must keep the rerouted wire's insulation —
+        a bare reroute stays bare (it used to be forced insulated)."""
+        sess = _session()
+        wire_a = _wire(
+            (2.5, 9.5), (3.5, 10.5), (4.5, 11.5), (5.5, 12.5),
+            insulated=insulated,
+        )
+        wire_b = _wire((1.5, 10.5), (2.5, 9.5), insulated=insulated)
+        sess.layout.wires.extend([wire_a, wire_b])
+        nm = _net_map(wire_a, wire_b)
+        state = WireEditState(
+            start_wire_id=wire_a.id, start_idx=2,
+            end_wire_id=wire_b.id, end_idx=0,
+            waypoints=(Point(3.0, 9.0),),
+        )
+        cmd = build_reroute_command(
+            sess.layout, cast(Sequence[Wire], sess.layout.wires), nm, state
+        )
+        assert isinstance(cmd, MacroCommand)
+        add = next(c for c in cmd._commands if isinstance(c, AddWireCommand))
+        assert add.wire.insulated is insulated
+
 
 # -- build_delete_command -----------------------------------------------------
 

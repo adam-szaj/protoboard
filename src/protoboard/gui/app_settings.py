@@ -79,6 +79,12 @@ class AppSettings:
     # readable on dense designs.  Multi-island nets always use the
     # ``ratsnest_islands_color`` from Theme regardless of mode.
     ratsnest_mode: str = "full"  # "full" | "closest"
+    # Defaults for a manually-drawn wire (RouteTool).  Bare on the bottom
+    # side is the natural perfboard default — solder-side links with no
+    # insulation.  Persisted so the user's last choice survives a restart;
+    # the [I]/[T]/[B] keys and toolbar toggles still flip them per-session.
+    wire_default_insulated: bool = False
+    wire_default_side: str = "bottom"  # "top" | "bottom"
 
 
 def load_app_settings() -> AppSettings:
@@ -130,6 +136,14 @@ def load_app_settings() -> AppSettings:
             rmode = render.get("ratsnest_mode")
             if isinstance(rmode, str) and rmode in ("full", "closest"):
                 s.ratsnest_mode = rmode
+        wire = data.get("wire")
+        if isinstance(wire, dict):
+            ins = wire.get("default_insulated")
+            if isinstance(ins, bool):
+                s.wire_default_insulated = ins
+            wside = wire.get("default_side")
+            if isinstance(wside, str) and wside in ("top", "bottom"):
+                s.wire_default_side = wside
         drag = data.get("drag")
         if isinstance(drag, dict):
             for yaml_key, attr_name in (
@@ -191,6 +205,10 @@ def save_app_settings(settings: AppSettings) -> None:
             "antialiasing": settings.antialiasing,
             "show_selection_bbox": settings.show_selection_bbox,
             "ratsnest_mode": settings.ratsnest_mode,
+        }
+        data["wire"] = {
+            "default_insulated": settings.wire_default_insulated,
+            "default_side": settings.wire_default_side,
         }
         data["drag"] = {
             "free_wire_conflict": settings.drag_free_wire_conflict,
