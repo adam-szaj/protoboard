@@ -1,9 +1,20 @@
 # Armed-rotate mode + sub-tool delegation (design)
 
-Status: **armed-rotate + armed-move SHIPPED** (2026-06-19); the sub-tool
-delegation direction (§2) is still design-only.  Captures the agreed shape of
-the armed transform interactions and the larger direction they belong to
-(SelectTool sheds operations to delegated sub-tools).
+Status: **armed-rotate + armed-move SHIPPED** (2026-06-19); **MERGED into one
+`FloatTransform` sub-tool** (2026-06-30, §2.1 B / §5.2 below — DONE).  The
+remaining §2 delegation of *other* operations (wire-edit, redrag) is still
+design-only.  Captures the agreed shape of the armed transform interactions and
+the larger direction they belong to (SelectTool sheds operations to delegated
+sub-tools).
+
+**Merge (2026-06-30):** `ArmedRotate` + `ArmedMove` collapsed into a single
+`gui/selection/float_transform.py::FloatTransform` holding one float state with
+an active *sub-mode* (`rotate` | `move`).  `[R]`/`[G]` arm it and — crucially —
+switch the sub-mode **while floating, without committing**, so a conflict raised
+by one operation can be cleared by the other (the workflow the split blocked).
+A mixed rotate+move commits as one `TransformDragSetCommand` (one undo entry);
+soft-conflict wire drops go through the shared `drop_resolution.resolve_drops` +
+`DropWiresCommand`.  `armed_rotate.py` / `armed_move.py` deleted.
 
 Shipped so far:
 

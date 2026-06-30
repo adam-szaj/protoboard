@@ -1,25 +1,24 @@
 # SPDX-License-Identifier: MIT
-"""Armed transform sub-tools — one shape behind a shared protocol.
+"""Armed transform sub-tool — one shape behind a shared protocol.
 
-SelectTool offers a few *armed modes*: float-rotate (``[R]``) and keyboard
-float-move (``[G]``).  Each one is armed on a selection, stays live while the
-user steps it (keys / wheel / a pivot click), and ends with either an
-**accept** (commit) or a **cancel** (revert).  They share that whole shape, so
-rather than branching on *which* mode is live, SelectTool holds one
-:class:`ArmedSubTool` and dispatches through it.
+SelectTool offers an *armed transform mode* entered by ``[R]`` (rotate) or
+``[G]`` (move).  It is armed on a selection, stays live while the user steps it
+(keys / wheel / a pivot click) — and lets the user switch the active sub-mode
+between rotate and move *without committing* — then ends with either an
+**accept** (commit) or a **cancel** (revert).  Rather than branching on *which*
+mode is live, SelectTool holds one :class:`ArmedSubTool` and dispatches through
+it.
 
-The contract that makes the modes more than a mechanical merge:
+The contract that makes this more than a mechanical merge:
 
 **Disarm is conditional on the state being committable.**  ``accept()`` commits
 *and* finishes only when :meth:`ArmedSubTool.can_commit` is true; if the action
 left a conflict the user cannot accept, the sub-tool **stays armed** and waits
-(the floating-drag feel, restored for rotate).  ``cancel()`` always reverts and
-finishes.
+(the floating-drag feel).  ``cancel()`` always reverts and finishes.
 
 This module is Qt-light: it takes :class:`QKeyEvent` / wheel events at the
-boundary but holds no scene.  The concrete sub-tools live next to it
-(:mod:`armed_rotate`, and the keyboard-move adapter over
-:class:`~protoboard.gui.selection.drag_controller.DragController`).
+boundary but holds no scene.  The single concrete implementation is
+:class:`~protoboard.gui.selection.float_transform.FloatTransform`.
 """
 
 from __future__ import annotations

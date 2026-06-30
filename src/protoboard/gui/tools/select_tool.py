@@ -3049,20 +3049,6 @@ class SelectTool(_Tool):
         )
         self._status(self._armed.status_hint(), 0)
 
-    def _move_anchor_point(self, sel: Selectable) -> QPointF | None:
-        """The current world position of the drag anchor, as a QPointF.
-
-        Keyboard-move grabs the anchor at its own centre (zero grab offset), so
-        ``_arm_drag`` receives this as the "press" and derives grab = 0.
-        """
-        anchor_id = self._anchor_component(sel)
-        if anchor_id is None:
-            return None
-        pl = self._session.layout.placements.get(anchor_id)
-        if pl is None:
-            return None
-        return QPointF(pl.position.x, pl.position.y)
-
     def _selected_comp_ids(self) -> frozenset[uuid.UUID]:
         import uuid as _uuid
 
