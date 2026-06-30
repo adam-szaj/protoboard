@@ -529,12 +529,12 @@ class TestArmedRotate:
         assert session.layout.placements[inst.id].rotation == (base + 90) % 360
 
     def test_pad_click_sets_shared_pivot(self, board_view, session) -> None:
-        from protoboard.gui.selection.armed_rotate import ArmedRotate
+        from protoboard.gui.selection.float_transform import FloatTransform
 
         inst, tool = self._armed(board_view, session)
         before = session.layout.placements[inst.id].position
         _press(tool, 3.0, 3.0)  # click a pad away from the part → shared pivot
-        assert isinstance(tool._armed, ArmedRotate) and tool._armed.pivot is not None
+        assert isinstance(tool._armed, FloatTransform) and tool._armed.pivot is not None
         _key(tool, Qt.Key.Key_R)  # step → orbit the pivot, position changes
         after = session.layout.placements[inst.id].position
         assert (after.x, after.y) != (before.x, before.y)
@@ -542,13 +542,13 @@ class TestArmedRotate:
     def test_pivot_markers_shown_while_armed_cleared_on_disarm(
         self, board_view, session
     ) -> None:
-        from protoboard.gui.selection.armed_rotate import ArmedRotate
+        from protoboard.gui.selection.float_transform import FloatTransform
 
         # Visual feedback: arming draws pivot marker(s); disarm clears them.
         inst, tool = self._armed(board_view, session)
         assert tool._pivot_marker_items  # per-object marker drawn on arm
         _press(tool, 3.0, 3.0)  # shared pad pivot
-        assert isinstance(tool._armed, ArmedRotate) and tool._armed.pivot is not None
+        assert isinstance(tool._armed, FloatTransform) and tool._armed.pivot is not None
         assert tool._pivot_marker_items  # re-drawn on the shared pad
         _key(tool, Qt.Key.Key_Escape)  # cancel → disarm
         assert tool._armed is None

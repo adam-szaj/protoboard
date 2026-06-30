@@ -1391,14 +1391,16 @@ class SelectTool(_Tool):
 
         Shared pad pivot → one marker on that pad; per-object → one on each
         rotating component's centre.  Re-drawn after every preview ``refresh``
-        (which clears the scene), and cleared on disarm.  No-op unless an
-        :class:`ArmedRotate` is active.
+        (which clears the scene), and cleared on disarm.  No-op unless a
+        :class:`FloatTransform` is armed in its rotate sub-mode.
         """
-        from protoboard.gui.selection.armed_rotate import ArmedRotate
+        from protoboard.gui.selection.float_transform import FloatTransform
 
         self._clear_pivot_markers()
         armed = self._armed
-        if not isinstance(armed, ArmedRotate) or self._view is None:
+        if not isinstance(armed, FloatTransform) or self._view is None:
+            return
+        if armed.mode != "rotate":
             return
         if armed.pivot is not None:
             self._add_pivot_marker(armed.pivot, shared=True)
@@ -2941,9 +2943,13 @@ class SelectTool(_Tool):
         """
         from typing import cast
 
-        from protoboard.gui.selection.armed_rotate import ArmedRotate
         from protoboard.gui.selection.drag_controller import DragContext
+        from protoboard.gui.selection.float_transform import FloatTransform
 
+        if isinstance(self._armed, FloatTransform):
+            self._armed.switch_mode("rotate")  # already floating — just re-aim
+            self._status(self._armed.status_hint(), 0)
+            return
         if self._armed is not None:
             return
         if self._selection.is_empty():
@@ -2956,16 +2962,14 @@ class SelectTool(_Tool):
         self._cancel_gesture()  # drop any stray drag/pick first
         seed = self._rotate_pivot if isinstance(self._rotate_pivot, Point) else None
         self._pivot_capture_pending = False
-        self._armed = ArmedRotate(
+        self._armed = FloatTransform(
             cast("DragContext", self._session),
             comp_ids=comp_ids,
             group_id=group_id,
             snap=self._snap_free,
-            commit=self._execute_command,
+            execute=self._execute_command,
             matches=self._key_matches,
-            # CW = step-up / the rotate action; CCW = step-down.
-            cw_ids=(_ACT_STEP_UP, _ACT_ROTATE),
-            ccw_ids=(_ACT_STEP_DOWN,),
+            mode="rotate",
             pivot=seed,
             preview=self._rotate_preview,
             status=lambda msg: self._status(msg, 0),
