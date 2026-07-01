@@ -17,7 +17,7 @@ every pin of a TO-92 as bendable (`tests/unit/test_package_reach.py::test_to92_b
 but there is no way to choose *which* lead to bend, and the reach is a single
 ring shared by all pins rather than a disc per pin.
 
-Related: [docs/footprints/spec.md](footprints/spec.md),
+Related: [docs/footprints/package-model.md](footprints/package-model.md),
 [docs/armed-rotate-and-subtool-delegation.md](armed-rotate-and-subtool-delegation.md),
 [docs/drag-pipeline-architecture.md](drag-pipeline-architecture.md),
 [docs/gui.md](gui.md), [docs/geometry.md](geometry.md).

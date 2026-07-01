@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Collision masks — side-aware per-hole bits + AND-based collision.
 
-See ``docs/footprints/spec.md`` and ``package_interface_sketch.py``. Collision
+See ``docs/footprints/package-model.md`` and ``package_interface_sketch.py``. Collision
 between two components = bitwise AND of their masks per hole; non-zero → physical
 conflict. The bits are arranged so this AND suffices: a body that BLOCKS mounting
 beneath it lights the *pin-side* bits in its holes, so "low part under blocking

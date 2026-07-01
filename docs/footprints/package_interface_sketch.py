@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: MIT
 """SZKIC interfejsu Package — NIE jest to produkcyjny moduł.
 
-Szkic architektoniczny do `docs/footprints/spec.md` (sekcja „Architektura:
-generic_package + interfejs Package"). Sygnatury są kierunkiem, nie zamrożonym
-API — doprecyzujemy przy pierwszej implementacji. Plik mieszka w docs/, nie w
-src/, dopóki nie zacznie być realnie używany.
+Architecture sketch for `docs/footprints/package-model.md` §7 ("The Package
+interface"). The signatures were a direction, not a frozen API. NOTE: the
+interface is now implemented for real in
+`src/protoboard/domain/components/package/shapes.py` (Package/Cylinder/Prism/
+Disc) and `mask.py`; this file is a superseded historical sketch.
 
 Wykorzystuje istniejące typy projektu: geometry.Point / Rect / Size / Insets.
 

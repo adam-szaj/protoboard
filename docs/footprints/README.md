@@ -2,7 +2,7 @@
 
 > To **author** components and packages (library YAML — fields, generics, colour
 > customisation, dev-board modules) see [authoring.md](authoring.md); for the
-> design rationale (lead/offset model) see [spec.md](spec.md). This file is the
+> design rationale (lead/offset model) see [package-model.md](package-model.md). This file is the
 > rendered gallery.
 >
 > Note: the "How footprints map to body shapes" table below still names the old
@@ -17,7 +17,7 @@ uv run python tools/render_footprints.py
 
 ## How footprints map to body shapes
 
-`body_shape_for(defn, placement, instance, package_families)` in `gui/renderers/body_shapes.py` is the dispatcher. A component's body comes first from its **parametric package** (`docs/footprints/spec.md`): `resolve_component_package` picks the package from the instance's `package_variant`, the definition's `package_family_ref` (both against the `package_families` catalogue), or an inline `defn.package`. When a package resolves it renders through `PackageBody`; otherwise the dispatch falls back to the **footprint type**:
+`body_shape_for(defn, placement, instance, package_families)` in `gui/renderers/body_shapes.py` is the dispatcher. A component's body comes first from its **parametric package** (`docs/footprints/package-model.md`): `resolve_component_package` picks the package from the instance's `package_variant`, the definition's `package_family_ref` (both against the `package_families` catalogue), or an inline `defn.package`. When a package resolves it renders through `PackageBody`; otherwise the dispatch falls back to the **footprint type**:
 
 | Source | Body shape |
 |---|---|

@@ -360,7 +360,7 @@ _TRANSISTOR_CLASSES = frozenset({
 # PackageBody — draw the body from a parametric Package (spec model)
 #
 # When a ComponentDefinition carries a ``package`` (the new parametric model,
-# see docs/footprints/spec.md) the body is drawn directly from that geometry
+# see docs/footprints/package-model.md) the body is drawn directly from that geometry
 # instead of the legacy per-footprint renderers.  Cylinders render as a
 # side-view capsule between the leads (the axial-resistor / diode look);
 # every other shape renders its ``bbox()`` rectangle (in holes) centred on

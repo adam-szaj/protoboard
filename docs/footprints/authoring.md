@@ -6,7 +6,7 @@ you can extend, what is **generated in code**, and what you can **customise** an
 how.
 
 For the underlying design rationale (the lead/offset model, the two offset
-domains, the axial solver) see [spec.md](spec.md). For a rendered gallery see
+domains, the axial solver) see [package-model.md](package-model.md). For a rendered gallery see
 [README.md](README.md). This document is the *authoring* reference and is grounded
 in the loader as implemented (`src/protoboard/services/library/loader.py`,
 `src/protoboard/domain/components/package/loader.py`).
@@ -115,13 +115,13 @@ Common fields on a package:
 | `edge` | `sharp` \| `rounded`. |
 | `margin` | (prism) PCB margin in mm from outer pin centres — when present, `dims` may be derived from the pin bbox. |
 | `bend` | Lead "give": one radius in **holes** the pin may move from its default (rigid = `0`). |
-| `leads` | Lead geometry — `direction`, `body_offset`, `board_offset`, … (see §3.1 and spec.md). |
+| `leads` | Lead geometry — `direction`, `body_offset`, `board_offset`, … (see §3.1 and package-model.md §2). |
 
 ### 3.1 Pin geometry — aggregated offsets
 
 Pin positions are a chain of **consecutive offset vectors**, cumulative from pin 1
 at the origin `[0,0]`. For N pins you give **N−1** step vectors. Two domains
-(see spec.md §"Dwa offsety"):
+(see package-model.md §2.3, "Two offsets"):
 
 - **`body_offset`** — where leads exit the body. Declares its own `unit` (mm per
   step); `{unit: 2.5, value: [...]}` (or a bare list, unit defaults to 1.0).
@@ -242,6 +242,10 @@ choose one (label `symbol_name`, e.g. `R_DIN-0207`).
   (header), `dip_switch` (plain dual-row, no notch). The renderer draws the
   declared look (the notch for a DIP-IC, plain for a DIP-switch) instead of
   guessing from the pin columns; an unknown kind falls back to that guess.
+  A `kind` is a **procedural generator** (`package/kind.py`) that synthesises the
+  body from the pin count — a *separate* build path from the YAML `dims` /
+  `schema` families (`footprints:` refs above). See
+  [package-model.md](package-model.md) §6 (`kind`) vs §5 (schema/families).
 
 ```yaml
 - name: 74HC00

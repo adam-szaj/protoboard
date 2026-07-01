@@ -13,7 +13,7 @@ touch ``leads`` geometry or build shapes — the loader applies a parsed
 validate types) before handing values to ``build_package``.
 
 Validation is **loose**: a value with no matching schema leaf passes through
-untouched (see ``docs/footprints/schema-design.md`` §2.1). The ``auto`` sentinel
+untouched (see ``docs/footprints/package-model.md`` §5.2). The ``auto`` sentinel
 marks a value computed later by a kind generator — it satisfies ``required`` and
 is skipped by type validation (the generator replaces it before the type check
 that matters runs in the loader).
@@ -44,7 +44,7 @@ AUTO = "auto"
 # below (a list whose every element is a known shape-or-shape-list is a union).
 #
 # Four *dict* constructors extend the grammar for the richer ``leads`` fields
-# (see ``docs/footprints/leads-schema-proposal.md``). A dict is never a plain
+# (see ``docs/footprints/package-model.md`` §5.5). A dict is never a plain
 # shape, so these compose with the rules above without ambiguity:
 #
 #   * ``{list: <shape>}``            — a variable-length list whose every element
@@ -119,7 +119,7 @@ class FieldSpec:
 class FieldStatus(enum.Enum):
     """Why a field is editable or not, read off the resolved value tree.
 
-    The read-only rule (decided 2026-06-27, schema-design.md §2.5): a field is
+    The read-only rule (decided 2026-06-27, package-model.md §5.3): a field is
     **editable iff its resolved value is null** — an authored hole the user must
     fill. Any concrete value (set in YAML, or a filled ``default``) and the
     ``auto`` sentinel (a generator computes it) are read-only. To make a
@@ -360,7 +360,7 @@ class ParamSchema:
         (``REQUIRED_EMPTY``), a concrete value ⇒ ``SET`` (read-only), ``auto`` ⇒
         ``AUTO`` (read-only). Order follows the schema's declaration order. This
         is the single read-only source of truth — there is no stored flag; the
-        answer is a pure function of the value tree (schema-design.md §2.5).
+        answer is a pure function of the value tree (package-model.md §5.3).
         """
         out: list[FieldView] = []
         for path, spec in self.fields.items():

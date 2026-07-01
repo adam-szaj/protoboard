@@ -148,31 +148,86 @@ Layers are addressed by `LayerId` strings: `"top"`, `"bottom"`, and (future)
 ## 4. Components and footprints
 
 Full geometry — including rotation, flip and bbox — is documented in
-[geometry.md](geometry.md).
+[geometry.md](geometry.md). The package model a definition *points at* (bodies,
+leads, `kind`, schema) is in
+[footprints/package-model.md](footprints/package-model.md); the YAML-authoring
+guide in [footprints/authoring.md](footprints/authoring.md).
 
 ```python
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ComponentDefinition:
     name: str                          # "LM358"
-    footprint: FootprintTemplate       # DIP(8)
+    footprint: Footprint               # DIP(8) — topology + the default geometry
     pin_names: dict[int, str]          # {1: "OUT_A", 2: "IN-_A", ...}
     description: str = ""
-    body_blocks_routing: bool = False  # SMD / tight-fit packages set this
-                                       # True; default False lets autoroute
-                                       # pass under THT bodies
+    component_class: ComponentClass = ComponentClass.OTHER
+    body_blocks_routing: bool = False  # SMD / tight-fit packages set this True
+    # Package model (see footprints/package-model.md). Any of these may point at
+    # the body used for placement geometry:
+    package: Package | None = None            # inline parametric package
+    package_family_ref: str | None = None     # "{family}/{variant_id}", catalogue ref
+    footprints: tuple[FootprintOption, ...] = ()  # picker choices (first = default)
+    symbol: str | None = None          # refdes prefix + picker label root
+    variants: tuple[PinVariant, ...] = ()      # alt pin-name mappings
+    appearance: Appearance | None = None       # visual-only override (colour/radius)
     metadata: dict[str, Any] = field(default_factory=dict)
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ComponentInstance:
     id: UUID
     definition_ref: str                # name from the library
     refdes: str                        # "U1", "R5"
     value: str                         # "LM358", "10k"
+    package_variant: str | None = None # per-instance override of the family variant
+    pin_variant: str | None = None     # per-instance pin-name variant
+    appearance: Appearance | None = None
+    # Live back-references, bound by `bind()`, NEVER serialized (see below):
+    definition: ComponentDefinition | None = None
+    families: dict[str, PackageFamily] | None = None
 ```
 
 Library: a `library/` directory of YAML files (`opamps.yaml`,
 `transistors.yaml`, `connectors.yaml`). Custom user library:
 `~/.config/protoboard-designer/library/`.
+
+### 4.1 Placement geometry — the source of truth (decided 2026-06-28)
+
+A **placed** component always resolves its concrete package/footprint through its
+*instance*, never through `ComponentDefinition.footprint`. `defn.footprint` is
+the *default variant's* pin cloud, which is the wrong body whenever the instance
+chose another variant (e.g. an `R` placed as `SMD-0805`: the default axial
+3.2-hole pitch vs the SMD 1-hole pitch). Every "components drift / pin-pad
+highlight off / reach ring wrong / can't place" bug in this area was the same
+root: a consumer read `defn.footprint` instead of the resolved variant.
+
+`defn.footprint` legitimately stays for **topology only**: `pin_count`,
+`pin_names` validation, union-find membership, BOM type name — identical across
+all variants.
+
+**The mechanism — the instance carries its definition.** Rather than thread a
+`families` catalogue through a dozen signatures, a placed instance holds a live
+back-reference to the definition it was placed from and the package-family
+catalogue. These fields are bound by `instance.bind(definition, families)` when
+the instance enters a project (the same ritual as `build_pin_identities`) and are
+**never serialized** — the loader reconstructs them from `definition_ref` + the
+session catalogue. So the instance can resolve its own variant geometry:
+
+- `instance.resolved_footprint()` — the single source of truth for "the footprint
+  this placed component actually uses". Requires `bind()`; an **unbound** instance
+  raises `UnboundInstanceError` (falling back to the definition default in a
+  placement context is the exact silent-wrong-body bug this removes). When the
+  instance *is* bound but the part declares no package/variant, `defn.footprint`
+  is its genuine default geometry — not a fallback — so it is returned.
+
+**Resolution precedence** (`resolve_component_package`, in
+`domain/components/package/component_package.py`):
+
+```
+instance.package_variant  →  defn.package_family_ref  →  inline defn.package  →  defn.footprint (topology default)
+```
+
+The first three resolve to a real `Package` via the catalogue; the last is the
+bare topology default used only when the part carries no package at all.
 
 ## 5. Schematic — the logical graph (netlist)
 

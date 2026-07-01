@@ -3,7 +3,7 @@
 
 For axial components with ``body_offset == 0`` the on-board pin spacing is not
 fixed — we compute the minimal spacing from geometry (see
-``docs/footprints/spec.md``, section "Solver"). Linear approximation; the
+``docs/footprints/package-model.md`` §2.5, "Solver"). Linear approximation; the
 minimum bend radius (3·lead_r) is added as slack.
 """
 

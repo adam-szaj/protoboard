@@ -3,7 +3,7 @@
 
 The YAML for ``body_offset`` / ``board_offset`` accepts compact forms; this
 module expands them to a flat ``list[Point]`` of N−1 consecutive step vectors
-(see ``docs/footprints/spec.md``). Pure functions, no Qt.
+(see ``docs/footprints/package-model.md``). Pure functions, no Qt.
 
 Accepted element forms in a raw offset list:
   * ``[count, [x, y]]`` — run-length: repeat vector ``[x, y]`` ``count`` times

@@ -2,7 +2,7 @@
 """Package shapes — Cylinder / Prism implement the Package protocol.
 
 Geometry is computed from data (``dims`` + ``leads``); see
-``docs/footprints/spec.md`` and ``docs/footprints/package_interface_sketch.py``.
+``docs/footprints/package-model.md`` and ``docs/footprints/package_interface_sketch.py``.
 The loader normalises YAML into ``Leads`` before reaching this layer — this
 module knows nothing about YAML syntax.
 

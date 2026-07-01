@@ -5,7 +5,7 @@ Pure data transformation (no file I/O here; callers read YAML into dicts). Handl
 ``extends`` (dict merge with monotonic closing), ``null`` = required, the three
 ``direction`` forms, run-length offsets, and ``{unit, value}`` body offsets.
 Dispatch to a shape class is by the ``shape`` field (registry), NOT by the
-``extends`` chain (see ``docs/footprints/spec.md``).
+``extends`` chain (see ``docs/footprints/package-model.md``).
 """
 
 from __future__ import annotations
@@ -380,7 +380,7 @@ def _apply_schema(
     build stamps schema + raw_values onto the body so the resolved definition
     survives for the UI. Validation is loose: a value with no schema leaf is
     untouched. The ``auto`` sentinel satisfies ``required`` and is skipped by the
-    type check (a kind generator resolves it later — see schema-design.md §3).
+    type check (a kind generator resolves it later — see package-model.md §5.4).
 
     Type checking happens here (before shape build) for fields that are not
     ``auto``; ``auto`` slots reach ``build_package`` unresolved on the YAML path

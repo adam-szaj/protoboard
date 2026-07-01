@@ -43,7 +43,7 @@ class GeneratorContext:
     and ``values`` (current values, including any computed by an earlier
     generator in a future chain) and returns a *new* context with ``package``
     set (and possibly more ``values``). Frozen so the steps compose cleanly; the
-    chain driver itself is deferred (see docs/footprints/schema-design.md §7).
+    chain driver itself is deferred (see docs/footprints/package-model.md §6).
 
     - ``pin_count``: the owning component's pin count (drives DIP/SIL geometry).
     - ``values``: extra package fields (e.g. a connector's ``rows``); a builder
@@ -237,7 +237,7 @@ def build_kind_package(
     values; generators ignore keys they do not use. *schema* is accepted so a
     generator may read field declarations (types/defaults) — the procedural
     builders here do not consult it yet, and no generator *chain* is wired
-    (deferred; see docs/footprints/schema-design.md §7).
+    (deferred; see docs/footprints/package-model.md §6).
 
     The declared *kind* (and any per-kind colour) is stamped onto the built body
     (a :class:`Prism`) so the renderer can draw the declared look instead of

@@ -204,7 +204,27 @@ Pin 5 lands at world position (6.5, 1.5), which is the centre of the hole at col
 
 - Draws a **square** pad marker for pin 1, **circle** for all others.
 - Colours pads by net (each net gets a deterministic colour from its UUID hash).
-- Draws the component body via `body_shape_for(component_class, footprint, placement)`.
+- Draws the component body via
+  `body_shape_for(defn, placement, instance, package_families)`
+  (`gui/renderers/body_shapes.py`) — see the dispatch below.
 - Draws the refdes label at `component_bbox().center + placement.label_offset`.
 - For ghost items (during placement): dashed border, 50 % opacity pins.
 - `render_groups()` draws a dotted rectangle around the union bbox of all components in a group visible at the current navigation level.
+
+**Body-shape dispatch.** A component's body comes first from its **parametric
+package** (see [footprints/package-model.md](footprints/package-model.md)):
+`resolve_component_package` picks the package from the instance's
+`package_variant`, the definition's `package_family_ref` (both against the
+`package_families` catalogue), or an inline `defn.package`. When a package
+resolves it renders through `PackageBody`; otherwise the dispatch falls back to
+the **footprint type** (generic bbox, or the dedicated `TO92Body` / `TO220Body`
+for those packages).
+
+**Prism silhouette — declared `kind` first.** A multi-row prism body picks its
+silhouette from `silhouette_for_prism` (`gui/renderers/prism_silhouette.py`):
+when the prism carries a declared `kind` (built from a package `kind:` field) the
+look is **declared** — `dip_ic` gets the notch, `dip_switch` is a plain dual-row
+body, `sil` a housing. Only when the kind is unknown/absent does it fall back to
+`silhouette_for`, the column-count guess (1 column of ≥3 → SIL; 2 columns of ≥2 →
+DIP; else plain bbox). A dev-board module suppresses the silhouette regardless
+(plain PCB rectangle).

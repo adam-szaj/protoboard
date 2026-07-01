@@ -420,7 +420,7 @@ def _component_from_dict(
     if "name" not in data or not isinstance(data["name"], str):
         raise SerializationError(f"{source}: component requires string 'name'")
 
-    # Parametric package (docs/footprints/spec.md). When present, it is the
+    # Parametric package (docs/footprints/package-model.md). When present, it is the
     # source of geometry: the footprint is derived via PackageFootprint, and an
     # explicit ``footprint:`` is optional. A malformed package raises
     # PackageDefError, which the caller turns into a skipped component (the user

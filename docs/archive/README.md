@@ -14,6 +14,8 @@ see the files one level up.
 | `pad-state-refactor-questions.md` | Design questions about a unified pad-state structure. | Answered by `PadIndex`, `PadStrategy`, `pad_state.Item` union. |
 | `wire-pin-implementation.md` | 7-commit plan for the virtual goldpin (`WirePinKnot`). | Implemented. See [`docs/data-model.md`](../data-model.md) §6.1. |
 | `group-export-encapsulation.md` | 6-commit plan for the encapsulated `exported_pins` re-export chain. | Implemented. See [`docs/data-model.md`](../data-model.md) §9 and DRC `GROUP_INVALID_EXPORT`. |
+| `component-geometry-map.md` | Read-only audit of how pin layout and body appearance were tangled (body look **inferred** from pin-column count). | Untangled: body silhouette now driven by a **declared `kind`** (`silhouette_for_prism`), column-guess only a fallback. See [`docs/footprints/package-model.md`](../footprints/package-model.md) §6 and [`docs/geometry.md`](../geometry.md) §11. |
+| `footprint-source-of-truth.md` | Refactor removing `defn.footprint` as the source of placement geometry; the instance carries its definition + catalogue. | Implemented (2026-06-28). The live model — `bind()` / `resolved_footprint()` / resolution precedence — is now in [`docs/data-model.md`](../data-model.md) §4. |
 
 Open follow-up plans that are still relevant (e.g. kapton tape modifier,
 hierarchical autoroute) live in the parent folder until shipped, then

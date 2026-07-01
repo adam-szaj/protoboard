@@ -223,7 +223,7 @@ class ComponentDefinition:
     # touches the board.  Autoroute additionally soft-penalises via
     # the ``under_component_top`` cost knob regardless of this flag.
     body_blocks_routing: bool = False
-    # Optional parametric package model (docs/footprints/spec.md). When set, it
+    # Optional parametric package model (docs/footprints/package-model.md). When set, it
     # is the source of truth for pin geometry and bend/reach; ``footprint`` is
     # derived from it (via PackageFootprint) and ``bendable_pins`` is superseded
     # by the package's bend/solver. Consumers migrate to query ``package``
