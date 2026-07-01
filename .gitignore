@@ -17,6 +17,9 @@ build/
 *.egg-info/
 *.egg
 
+# Rendered docs (docs/Makefile output)
+docs/_html/
+
 # uv
 .uv/
 
