@@ -7,3 +7,5 @@ pre code{background:none;padding:0}
 table{border-collapse:collapse}th,td{border:1px solid #d0d7de;padding:.4rem .6rem}
 h1,h2,h3{line-height:1.25}#TOC{font-size:.9rem}
 blockquote{border-left:3px solid #d0d7de;margin:0;padding-left:1rem;color:#555}
+.docnav{font-size:.85rem;margin-bottom:1.5rem;padding-bottom:.5rem;
+  border-bottom:1px solid #eaecef}.docnav a{text-decoration:none}

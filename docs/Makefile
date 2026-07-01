@@ -35,10 +35,14 @@ PANDOC_FLAGS := --standalone --from=gfm --to=html5 \
                 --metadata=lang:en \
                 --lua-filter=$(LINK_FILTER)
 
-# css_rel: the relative path from a page's stem back to the shared style.css.
-# Turns each directory segment of the stem into '..' (top-level → style.css,
-# archive/x → ../style.css).
+# css_rel / nav_rel: relative paths from a page's stem back to the shared
+# style.css and the landing index.html. Each directory segment of the stem
+# becomes '..' (top-level → style.css / index.html, archive/x → ../style.css /
+# ../index.html). The backlink is injected below via --include-before-body.
 css_rel = $(shell echo '$*' | sed 's|[^/]*/|../|g; s|[^/]*$$|style.css|')
+nav_rel = $(shell echo '$*' | sed 's|[^/]*/|../|g; s|[^/]*$$|index.html|')
+# Backlink banner prepended to every page (a sub-page → main-TOC "up" link).
+backlink = <nav class="docnav"><a href="$(nav_rel)">&#8617; Docs index</a></nav>
 
 .PHONY: all open clean check
 .DEFAULT_GOAL := all
@@ -58,13 +62,15 @@ check:
 # relative depth to style.css is derived by turning each dir segment into '..'.
 $(OUT)/%.html: %.md $(LINK_FILTER) style.css
 	@mkdir -p $(dir $@)
-	$(PANDOC) $(PANDOC_FLAGS) --css=$(css_rel) \
+	printf '%s\n' '$(backlink)' | $(PANDOC) $(PANDOC_FLAGS) --css=$(css_rel) \
+	  --include-before-body=/dev/stdin \
 	  --metadata=title:"$(notdir $*)" \
 	  -o $@ $<
 
 $(OUT)/%.html: %.txt $(LINK_FILTER) style.css
 	@mkdir -p $(dir $@)
-	$(PANDOC) $(PANDOC_FLAGS) --css=$(css_rel) \
+	printf '%s\n' '$(backlink)' | $(PANDOC) $(PANDOC_FLAGS) --css=$(css_rel) \
+	  --include-before-body=/dev/stdin \
 	  --metadata=title:"$(notdir $*)" \
 	  -o $@ $<
 
@@ -95,6 +101,8 @@ style.css:
 	  'table{border-collapse:collapse}th,td{border:1px solid #d0d7de;padding:.4rem .6rem}' \
 	  'h1,h2,h3{line-height:1.25}#TOC{font-size:.9rem}' \
 	  'blockquote{border-left:3px solid #d0d7de;margin:0;padding-left:1rem;color:#555}' \
+	  '.docnav{font-size:.85rem;margin-bottom:1.5rem;padding-bottom:.5rem;' \
+	  '  border-bottom:1px solid #eaecef}.docnav a{text-decoration:none}' \
 	  > $@
 
 open: all

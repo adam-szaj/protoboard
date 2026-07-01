@@ -224,18 +224,25 @@ ask-reroute / block` knobs.
 
 ## Render
 
+The full draw chain — draw order, the Z-stack (0.0–10.0), the `LayerState`
+model (camera-side front/back, alpha, per-layer visibility), the board pixmap
+"sandwich", and how a component's body shape is chosen — is documented in
+[rendering.md](rendering.md). In brief:
+
 `render_groups()` in `component_renderer.py`:
 
 - Draws outlines only for child groups of the active group (full opacity)
   and other groups (dimmed).
 - The root group and the currently active group have no outline.
-- Exported pads of child groups are drawn as green diamonds (Z = 12.0).
+- Exported pads of child groups are drawn as green diamonds at the overlay Z.
 - `BoardView._active_group_id` is passed to every renderer on each
   refresh.
 
-The board view paints in Z-banded layers (board → bottom wires →
-components → top wires → overlay). The `pin-pads` overlay (Z ≈ 3.5)
-and the top-glyph overlay (Z ≈ 9.5) are toggled with keys `9` and `0`.
+The board view paints in Z-banded layers (back labels/components/wires →
+board → pin-pads → front wires/components → overlay → highlights → selection).
+Ten layers are toggled by the View → Layers panel with keys `1`–`0` (`9` =
+pin-pads, `0` = pin-modifiers). Full Z anchors and toggle map: see
+[rendering.md](rendering.md) §1.
 
 ## Zoom and pan
 

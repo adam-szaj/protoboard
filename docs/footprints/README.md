@@ -3,11 +3,8 @@
 > To **author** components and packages (library YAML — fields, generics, colour
 > customisation, dev-board modules) see [authoring.md](authoring.md); for the
 > design rationale (lead/offset model) see [package-model.md](package-model.md). This file is the
-> rendered gallery.
->
-> Note: the "How footprints map to body shapes" table below still names the old
-> `Svg*Body` generators; those were replaced by `PackageBody` + prism silhouettes
-> (`gui/renderers/prism_silhouette.py`). The mapping is otherwise current.
+> rendered gallery. For the full render chain (draw order, Z-stack, body
+> dispatch) see [../rendering.md](../rendering.md).
 
 Every entry below is rendered headless via `tools/render_footprints.py`. Re-generate with:
 
@@ -17,18 +14,17 @@ uv run python tools/render_footprints.py
 
 ## How footprints map to body shapes
 
-`body_shape_for(defn, placement, instance, package_families)` in `gui/renderers/body_shapes.py` is the dispatcher. A component's body comes first from its **parametric package** (`docs/footprints/package-model.md`): `resolve_component_package` picks the package from the instance's `package_variant`, the definition's `package_family_ref` (both against the `package_families` catalogue), or an inline `defn.package`. When a package resolves it renders through `PackageBody`; otherwise the dispatch falls back to the **footprint type**:
+`body_shape_for(defn, placement, instance, package_families)` in `gui/renderers/body_shapes.py` is the dispatcher — a **two-branch** decision (see [../rendering.md](../rendering.md) §4 for the full chain). A component's body comes from its **parametric package** (`docs/footprints/package-model.md`): `resolve_component_package` picks the package from the instance's `package_variant`, the definition's `package_family_ref`, or an inline `defn.package` (DIP / SIL parts get a *generated* `dip-N` / `sil-N` family variant). When a package resolves it renders through `PackageBody`; otherwise a bare footprint is only a pin cloud and draws a `GenericBody` plain bbox.
 
 | Source | Body shape |
 |---|---|
-| any resolved `Package` (cylinder / prism / disc) | `PackageBody` — geometry + colour from the package |
-| `TO220Footprint` | `TO220Body` (metal-tab body) |
-| `TwoPin` (no package) | `GenericBody` (plain bbox) |
-| `SingleRow(n=3)`, transistor class | `TO92Body` (half-circle) |
-| `SingleRow(n>=3)` (other classes) | `SvgSILBody` (filled strip) |
-| `DualRow(n_per_row, rows_spacing)` | `SvgDIPBody` (DIP with notch + pin-1 marker) |
-| `QuadRow(n_per_col, col_spacings)` | `SvgQuadDIPBody` |
-| `GridFootprint` / anything else | `GenericBody` (plain rectangle) |
+| any resolved `Package` (cylinder / prism / disc) — incl. TO-92, TO-220, DIP, SIL | `PackageBody` — geometry + colour from the package |
+| no package resolves (bare footprint / pin cloud) | `GenericBody` (plain bbox) |
+
+> There are **no** dedicated `TO92Body` / `TO220Body` / `Svg*Body` dispatch
+> targets: TO-92 (flat-sided cylinder), TO-220 (prism), DIP and SIL all render
+> through `PackageBody`. The `TO92Body` / `TO220Body` classes survive only in
+> unit tests; the `Svg*Body` renderers were removed.
 
 `PackageBody` dispatches on the package's `arrangement` × shape:
 
@@ -130,7 +126,7 @@ The body colour comes from the package (`color`); polarity (diode cathode stripe
 
 **Transistor — TO-92 (BC547 …)**
 
-`SingleRow(n=3)`, `component_class=transistor_npn`. Rendered with `TO92Body`. Half-circle, three legs.
+`SingleRow(n=3)`, `component_class=transistor_npn`. Rendered through `PackageBody` (a flat-sided cylinder, RADIAL arrangement). Half-circle, three legs.
 
 ![transistor_to92](transistor_to92.png)
 
@@ -170,7 +166,7 @@ The body colour comes from the package (`color`); polarity (diode cathode stripe
 
 **DIP-8 (LM358, NE555 …)**
 
-`DualRow(n_per_row=4, rows_spacing=3.0)`. Pin 1 marker is drawn by `SvgDIPBody`.
+`DualRow(n_per_row=4, rows_spacing=3.0)`, resolving the generated `dip-8` family. Rendered through `PackageBody` → prism → the `dip_ic` silhouette (notch + pin-1 marker).
 
 ![dip8](dip8.png)
 
