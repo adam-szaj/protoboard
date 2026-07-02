@@ -174,6 +174,122 @@ class Rotate2D:
         return ROTATE2D_TRANSFORM[self.steps % 4](v)
 
 
+@dataclass(frozen=True, slots=True)
+class Transform2D:
+    """A 2-D affine transform in homogeneous form.
+
+    Maps a point through ``[x', y'] = [[a, b, tx], [c, d, ty]] · [x, y, 1]``:
+    the linear part ``[[a, b], [c, d]]`` rotates/reflects, ``(tx, ty)``
+    translates.  This is the single mechanism for component placement —
+    rotation, board-side flip and translation are all instances of it,
+    composed and inverted algebraically.
+
+    For the placement use-case every entry is exact: 90° rotations and axis
+    reflections give integer entries in ``{-1, 0, 1}``, so world coordinates
+    never drift through trigonometry.  The class carries no Qt dependency; the
+    GUI builds a ``QTransform`` from :meth:`coeffs`.
+
+    A reflection has ``determinant() == -1`` — the chirality flip that a
+    physical board-side flip introduces, and that a symmetric pin cloud would
+    otherwise hide.
+    """
+
+    a: float = 1.0
+    b: float = 0.0
+    c: float = 0.0
+    d: float = 1.0
+    tx: float = 0.0
+    ty: float = 0.0
+
+    @staticmethod
+    def identity() -> Transform2D:
+        return Transform2D()
+
+    @staticmethod
+    def translation(v: Vector) -> Transform2D:
+        return Transform2D(1.0, 0.0, 0.0, 1.0, v.dx, v.dy)
+
+    @staticmethod
+    def rotation(steps: int) -> Transform2D:
+        """Clockwise rotation by ``steps`` × 90° about the origin.
+
+        Matches the legacy ``_rotate``: one step sends ``(x, y) → (y, -x)``.
+        """
+        # Column images of (x̂, ŷ) under CW 90°·steps, exact integers.
+        a, b, c, d = ((1.0, 0.0, 0.0, 1.0),
+                      (0.0, 1.0, -1.0, 0.0),
+                      (-1.0, 0.0, 0.0, -1.0),
+                      (0.0, -1.0, 1.0, 0.0))[steps % 4]
+        return Transform2D(a, b, c, d, 0.0, 0.0)
+
+    @staticmethod
+    def reflection() -> Transform2D:
+        """Reflection across the y-axis: ``(x, y) → (-x, y)``.
+
+        The board-side flip in local frame.  ``determinant() == -1``.
+        """
+        return Transform2D(-1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+
+    @overload
+    def apply(self, p: Point) -> Point: ...
+    @overload
+    def apply(self, p: Vector) -> Vector: ...
+
+    def apply(self, p: Point | Vector) -> Point | Vector:
+        """Transform a point (full affine) or a vector (linear part only).
+
+        A ``Point`` carries the homogeneous ``1`` and picks up the translation;
+        a ``Vector`` is a displacement, so only the linear part applies.
+        """
+        if isinstance(p, Point):
+            return Point(self.a * p.x + self.b * p.y + self.tx,
+                         self.c * p.x + self.d * p.y + self.ty)
+        return Vector(self.a * p.dx + self.b * p.dy,
+                      self.c * p.dx + self.d * p.dy)
+
+    def compose(self, other: Transform2D) -> Transform2D:
+        """Return ``self ∘ other`` — apply *other* first, then *self*.
+
+        ``(self.compose(other)).apply(p) == self.apply(other.apply(p))``.
+        In homogeneous form this is the 3×3 matrix product ``self · other``.
+        """
+        return Transform2D(
+            self.a * other.a + self.b * other.c,
+            self.a * other.b + self.b * other.d,
+            self.c * other.a + self.d * other.c,
+            self.c * other.b + self.d * other.d,
+            self.a * other.tx + self.b * other.ty + self.tx,
+            self.c * other.tx + self.d * other.ty + self.ty,
+        )
+
+    def determinant(self) -> float:
+        """Determinant of the linear part: ``+1`` orientation-preserving
+        (rotation), ``-1`` orientation-reversing (reflection / physical flip)."""
+        return self.a * self.d - self.b * self.c
+
+    def inverse(self) -> Transform2D:
+        """The inverse transform (raises for a singular linear part)."""
+        det = self.determinant()
+        if det == 0.0:
+            raise ValueError("Transform2D is singular; no inverse")
+        ia = self.d / det
+        ib = -self.b / det
+        ic = -self.c / det
+        id_ = self.a / det
+        # Inverse translation: -(L⁻¹ · t)
+        itx = -(ia * self.tx + ib * self.ty)
+        ity = -(ic * self.tx + id_ * self.ty)
+        return Transform2D(ia, ib, ic, id_, itx, ity)
+
+    def coeffs(self) -> tuple[float, float, float, float, float, float]:
+        """The six affine coefficients ``(a, b, c, d, tx, ty)``.
+
+        The bridge the GUI uses to build a ``QTransform`` without importing Qt
+        into the domain.
+        """
+        return (self.a, self.b, self.c, self.d, self.tx, self.ty)
+
+
 def _transform_vectors(rotate: Rotate2D, vectors: Iterable[Vector]) -> Iterator[Vector]:
     return map(rotate, vectors)
 
