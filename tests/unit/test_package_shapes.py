@@ -28,13 +28,18 @@ from protoboard.domain.components.package.shapes import (
     Prism,
 )
 from protoboard.domain.components.package.solver import MountOrientation
-from protoboard.geometry import Insets, Vector
+from protoboard.geometry import Insets, Point, Vector
 
 from geometry_utils import _pt, _ve
 
 
 def _steps_mm(raw: list, unit: float) -> tuple[Vector, ...]:
     return tuple(scale_offsets(expand_offsets(raw), unit))
+
+
+def _pt_key(p: Point) -> tuple[float, float]:
+    """Rounded (x, y) for float-safe pad-position comparison."""
+    return (round(p.x, 4), round(p.y, 4))
 
 
 class TestResistorAxial:
@@ -296,6 +301,99 @@ class TestFlatSidedCylinder:
         # No flat side → the zero default normal is fine, no validation error.
         c = Cylinder(diameter_mm=4.55, length_mm=4.6, leads=_radial_leads())
         assert c.flat_radius_mm is None
+
+
+class TestFlipTransform:
+    """Package.flip_transform() — the board-side-flip reflection in local frame.
+
+    A physical flip is a 180° rotation about an axis lying in the board plane;
+    its 2-D projection is a reflection.  The axis runs ALONG the pin row (so the
+    pins stay on their pads) and passes through the pin-cloud centre, so applying
+    the transform permutes pins onto other pins' positions — never off-grid.
+    """
+
+    def _to92(self) -> Cylinder:
+        # 3 inline leads along +x at holes (0,0),(1,0),(2,0).
+        leads = Leads(
+            direction=((0, 0, -1), (0, 0, -1), (0, 0, -1)),
+            body_offset_mm=(_ve(2.5, 0.0), _ve(2.5, 0.0)),
+            board_offset=(_ve(1.0, 0.0), _ve(1.0, 0.0)),
+            lead_r_mm=0.25,
+        )
+        return Cylinder(
+            diameter_mm=4.55, length_mm=4.6, leads=leads,
+            flat_radius_mm=1.175, flat_normal=Vector(0.0, 1.0),
+        )
+
+    def _dip8(self) -> Prism:
+        body = _steps_mm([[3, [0, 1]], [3, 0], [3, [0, -1]]], 2.5)
+        leads = Leads(
+            direction=((0, 0, -1),) * 8,
+            body_offset_mm=body,
+            board_offset=BOARD_DEFAULT,
+        )
+        return Prism(leads=leads, width_mm=9.8, length_mm=10.2, height_mm=4.0)
+
+    def _sil5(self) -> Prism:
+        # 5 leads down +y at (0,0),(0,1)…(0,4).
+        body = _steps_mm([[4, [0, 1]]], 2.5)
+        leads = Leads(
+            direction=((0, 0, -1),) * 5,
+            body_offset_mm=body,
+            board_offset=BOARD_DEFAULT,
+        )
+        return Prism(leads=leads, margin_mm=Insets(0.0, 2.5, 0.0, 2.5))
+
+    @staticmethod
+    def _permutes_onto_pads(pkg: Package) -> None:
+        """Applying flip_transform maps every pin onto some pin's position."""
+        pins = pkg.pin_positions()
+        m = pkg.flip_transform()
+        pad_set = {(_pt_key(p)) for p in pins}
+        for p in pins:
+            fp = m.apply(p)
+            assert _pt_key(fp) in pad_set, f"{p} → {fp} landed off-pad"
+
+    def test_to92_pins_stay_on_pads(self) -> None:
+        self._permutes_onto_pads(self._to92())
+
+    def test_to92_pins_unchanged(self) -> None:
+        # TO-92 pins run along x (y=0); the flip axis lies on them, so every
+        # pin maps to itself — only body orientation changes (render).
+        pkg = self._to92()
+        m = pkg.flip_transform()
+        for p in pkg.pin_positions():
+            assert _pt_key(m.apply(p)) == _pt_key(p)
+
+    def test_dip8_columns_swap_on_pads(self) -> None:
+        # DIP columns are the longer axis; flip reflects X about x=1.5, so the
+        # left column (x=0) swaps with the right (x=3) — pins stay on holes.
+        pkg = self._dip8()
+        self._permutes_onto_pads(pkg)
+        pins = pkg.pin_positions()
+        m = pkg.flip_transform()
+        # pin 1 (0,0) lands where pin 8 (3,0) was, and vice-versa.
+        assert _pt_key(m.apply(pins[0])) == _pt_key(pins[7])
+        assert _pt_key(m.apply(pins[7])) == _pt_key(pins[0])
+
+    def test_sil5_pins_stay_on_pads(self) -> None:
+        # SIL along y: axis lies on the pins → they map to themselves.
+        pkg = self._sil5()
+        m = pkg.flip_transform()
+        for p in pkg.pin_positions():
+            assert _pt_key(m.apply(p)) == _pt_key(p)
+
+    def test_flip_is_a_reflection(self) -> None:
+        # A physical flip reverses orientation: determinant -1.
+        assert self._to92().flip_transform().determinant() == -1.0
+        assert self._dip8().flip_transform().determinant() == -1.0
+
+    def test_flip_is_its_own_inverse(self) -> None:
+        # Applying the same reflection twice is the identity.
+        for pkg in (self._to92(), self._dip8(), self._sil5()):
+            m = pkg.flip_transform()
+            for p in pkg.pin_positions():
+                assert _pt_key(m.apply(m.apply(p))) == _pt_key(p)
 
 
 class TestRegistry:
