@@ -114,6 +114,46 @@ class TestConstants:
         assert TO220.pin_count() == 3
 
 
+class TestFlipTransform:
+    """Footprint.flip_transform() — the board-side-flip reflection, derived from
+    the footprint's own pin geometry (the axis never depends on side)."""
+
+    @staticmethod
+    def _key(p: Point) -> tuple[float, float]:
+        return (round(p.x, 4), round(p.y, 4))
+
+    def test_sil_pins_stay_on_pads(self) -> None:
+        # SIL pins run down +y (x=0) → axis parallel to y → reflect x about x=0,
+        # so every pin maps to itself.
+        fp = SIL(4)
+        m = fp.flip_transform()
+        for p in fp.pin_positions():
+            assert self._key(m.apply(p)) == self._key(p)
+
+    def test_dil_columns_swap_on_pads(self) -> None:
+        # DIP columns (x=0 / x=3) are the longer axis → reflect x about x=1.5;
+        # pin 1 (0,0) lands where pin 8 (3,0) was.
+        fp = DIL(n=8)
+        pins = fp.pin_positions()
+        m = fp.flip_transform()
+        assert self._key(m.apply(pins[0])) == self._key(pins[7])
+        assert self._key(m.apply(pins[7])) == self._key(pins[0])
+        # Every pin lands on some pad.
+        pad_set = {self._key(p) for p in pins}
+        for p in pins:
+            assert self._key(m.apply(p)) in pad_set
+
+    def test_is_a_reflection(self) -> None:
+        assert SIL(4).flip_transform().determinant() == -1.0
+        assert DIL(n=8).flip_transform().determinant() == -1.0
+
+    def test_self_inverse(self) -> None:
+        for fp in (SIL(4), DIL(n=8), TO92):
+            m = fp.flip_transform()
+            for p in fp.pin_positions():
+                assert self._key(m.apply(m.apply(p))) == self._key(p)
+
+
 class TestFootprintProtocol:
     def test_factories_produce_footprints(self) -> None:
         for fp in (

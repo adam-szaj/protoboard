@@ -15,8 +15,10 @@ from protoboard.geometry import (
     Point,
     PointList,
     Rotate2D,
+    Transform2D,
     Vector,
     VectorList,
+    flip_reflection_from_pins,
     make_points_from_offsets,
     transform_vectors,
 )
@@ -40,6 +42,20 @@ class Footprint(ABC):
     @abstractmethod
     def rotate(self, cw: int):
         ...
+
+    def flip_transform(self) -> Transform2D:
+        """Reflection (local frame) for a physical board-side flip.
+
+        A flip is a 180° rotation about an axis in the board plane; its 2-D
+        projection is a reflection whose axis runs ALONG the pin row, so the
+        pins stay on their pads.  The axis is a property of the geometry and
+        never depends on which side the part sits on.
+
+        The default derives it from this footprint's pins; a package-backed
+        footprint overrides to use the package's axis (which may be declared
+        explicitly) — see ``PackageFootprint``.
+        """
+        return flip_reflection_from_pins(self.pin_positions())
 
 
 @dataclass(frozen=False, slots=True)

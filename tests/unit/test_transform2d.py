@@ -16,7 +16,16 @@ translation — composed and inverted algebraically.
 
 import pytest
 
-from protoboard.geometry import Point, Transform2D, Vector
+from protoboard.geometry import (
+    Point,
+    Transform2D,
+    Vector,
+    flip_reflection_from_pins,
+)
+
+
+def _key(p: Point) -> tuple[float, float]:
+    return (round(p.x, 4), round(p.y, 4))
 
 
 class TestConstructors:
@@ -155,6 +164,51 @@ class TestDeterminant:
     def test_flip_then_rotate_stays_negative(self) -> None:
         place = Transform2D.rotation(1).compose(Transform2D.reflection())
         assert place.determinant() == -1.0
+
+
+class TestFlipReflectionFromPins:
+    """flip_reflection_from_pins — the geometry primitive that derives the
+    board-side-flip axis from a pin cloud (shared by Footprint and Package)."""
+
+    def test_pins_along_x_reflect_y(self) -> None:
+        # TO-92: 3 pins along +x → axis parallel to x → reflect y about y=0,
+        # so the pins (all y=0) stay put.
+        pins = [Point(0.0, 0.0), Point(1.0, 0.0), Point(2.0, 0.0)]
+        m = flip_reflection_from_pins(pins)
+        for p in pins:
+            assert _key(m.apply(p)) == _key(p)
+
+    def test_pins_along_y_reflect_x(self) -> None:
+        # SIL: 5 pins down +y → axis parallel to y → reflect x about x=0,
+        # pins (all x=0) stay put.
+        pins = [Point(0.0, float(i)) for i in range(5)]
+        m = flip_reflection_from_pins(pins)
+        for p in pins:
+            assert _key(m.apply(p)) == _key(p)
+
+    def test_two_columns_swap(self) -> None:
+        # DIP: columns at x=0 and x=3 (longer along y) → reflect x about x=1.5,
+        # columns swap onto each other's pads.
+        pins = [Point(0.0, float(i)) for i in range(4)] + [
+            Point(3.0, float(3 - i)) for i in range(4)
+        ]
+        m = flip_reflection_from_pins(pins)
+        assert _key(m.apply(pins[0])) == _key(pins[7])  # (0,0) → (3,0)
+        assert _key(m.apply(pins[7])) == _key(pins[0])
+
+    def test_is_reflection(self) -> None:
+        pins = [Point(0.0, 0.0), Point(1.0, 0.0)]
+        assert flip_reflection_from_pins(pins).determinant() == -1.0
+
+    def test_tie_defaults_to_reflect_x(self) -> None:
+        # A square 2×2 layout: equal spread → reflect X (the documented default).
+        pins = [Point(0.0, 0.0), Point(1.0, 1.0)]
+        m = flip_reflection_from_pins(pins)
+        assert m.coeffs()[:4] == (-1.0, 0.0, 0.0, 1.0)  # negate x
+
+    def test_single_pin_is_reflection(self) -> None:
+        # Degenerate: one pin sits on any axis — return a plain reflection.
+        assert flip_reflection_from_pins([Point(2.0, 2.0)]).determinant() == -1.0
 
 
 class TestExactness:

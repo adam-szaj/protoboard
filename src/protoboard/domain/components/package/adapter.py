@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from protoboard.domain.components.footprints import Footprint
 from protoboard.domain.components.package.shapes import Package
 from protoboard.domain.components.package.solver import MountOrientation
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Transform2D
 
 
 @dataclass(frozen=True)
@@ -44,3 +44,8 @@ class PackageFootprint(Footprint):
         # geometry is driven by the package's own mount orientation, not by
         # rotating a flat offset list. Rotation is a no-op here.
         return None
+
+    def flip_transform(self) -> Transform2D:
+        # Defer to the package: it owns how the part physically flips (a future
+        # explicit axis flows through here without the pipeline knowing).
+        return self.package.flip_transform()

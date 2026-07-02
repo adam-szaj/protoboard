@@ -412,14 +412,15 @@ class TestFlatSidedCylinderRender:
     def test_flat_normal_mirrors_on_bottom_side(self, qtbot: QtBot) -> None:
         # An asymmetric body (a flat face perpendicular to the lead axis) is
         # physically flipped on the bottom side: the flat-side normal reflects
-        # across the lead axis so the face points the other way. Pins run down
-        # +y, flat_normal [-1,0] (perpendicular to the axis) → the normal's
-        # perpendicular component flips sign top vs bottom.
+        # about the package flip axis so the face points the other way.  The
+        # test package's pins run along +x, so the flip axis is parallel to x
+        # (reflect y); a flat_normal of [0,-1] (perpendicular to the pin row)
+        # flips sign top vs bottom.
         pkg = _radial_cylinder_package(flat_radius=1.175,
-                                       flat_normal=[-1.0, 0.0])
+                                       flat_normal=[0.0, -1.0])
         top = PackageBody(pkg, side="top")  # type: ignore[arg-type]
         bot = PackageBody(pkg, side="bottom")  # type: ignore[arg-type]
-        world_axis_deg = 90.0  # pins run down +y
+        world_axis_deg = 0.0  # pins run along +x
         flat_top = top._flat_side_world(pkg, world_axis_deg)  # type: ignore[arg-type]
         flat_bot = bot._flat_side_world(pkg, world_axis_deg)  # type: ignore[arg-type]
         assert flat_top is not None and flat_bot is not None
@@ -427,6 +428,25 @@ class TestFlatSidedCylinderRender:
         assert flat_top[1] == pytest.approx(flat_bot[1])
         diff = (flat_top[0] - flat_bot[0]) % 360.0
         assert diff == pytest.approx(180.0, abs=1e-6)
+
+    def test_flat_normal_along_pin_row_unchanged_on_bottom(
+        self, qtbot: QtBot
+    ) -> None:
+        # A flat normal PARALLEL to the pin row lies on the flip axis, so a
+        # board-side flip leaves it unchanged (rotating about the row can't move
+        # a direction along that row).  Pins run along +x, flat_normal [-1,0].
+        pkg = _radial_cylinder_package(flat_radius=1.175,
+                                       flat_normal=[-1.0, 0.0])
+        top = PackageBody(pkg, side="top")  # type: ignore[arg-type]
+        bot = PackageBody(pkg, side="bottom")  # type: ignore[arg-type]
+        flat_top = top._flat_side_world(pkg, 0.0)  # type: ignore[arg-type]
+        flat_bot = bot._flat_side_world(pkg, 0.0)  # type: ignore[arg-type]
+        assert flat_top is not None and flat_bot is not None
+        # Same direction (compare mod 360: 180° ≡ -180°).
+        diff = (flat_top[0] - flat_bot[0]) % 360.0
+        assert diff == pytest.approx(0.0, abs=1e-4) or diff == pytest.approx(
+            360.0, abs=1e-4
+        )
 
 
 def _dip8_prism() -> Prism:

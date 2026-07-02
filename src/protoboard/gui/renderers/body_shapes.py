@@ -58,11 +58,23 @@ from protoboard.domain.components.package.shapes import (
     Prism as _PkgPrism,
 )
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.geometry import Point, Vector
+from protoboard.geometry import Point, Transform2D, Vector
 from protoboard.gui.renderers.prism_silhouette import silhouette_for_prism
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 
 _big_body_alpha: float = 0.90
+
+
+def _qtransform(t: Transform2D) -> QTransform:
+    """Bridge a domain :class:`Transform2D` to a Qt ``QTransform``.
+
+    Qt's constructor takes column-major ``(m11, m12, m21, m22, dx, dy)`` mapping
+    ``x' = m11·x + m21·y + dx``, ``y' = m12·x + m22·y + dy``.  Our coefficients
+    ``(a, b, c, d, tx, ty)`` map ``x' = a·x + b·y + tx``, ``y' = c·x + d·y + ty``
+    — the transpose of the linear part, so the arguments interleave as below.
+    """
+    a, b, c, d, tx, ty = t.coeffs()
+    return QTransform(a, c, b, d, tx, ty)
 # ---------------------------------------------------------------------------
 # Base class
 # ---------------------------------------------------------------------------
@@ -395,6 +407,7 @@ class PackageBody(BodyShape):
         vertical_flipped: bool = False,
         appearance: Appearance = Appearance(),
         side: str = "top",
+        placement: ComponentPlacement | None = None,
     ) -> None:
         self._pkg = package
         self._component_class = component_class
@@ -405,6 +418,7 @@ class PackageBody(BodyShape):
         # faces the opposite way — the flat side's normal is mirrored across the
         # lead axis. See _flat_side_world.
         self._side = side
+        self._placement = placement
 
     @property
     def _is_polar(self) -> bool:
@@ -520,6 +534,32 @@ class PackageBody(BodyShape):
             if prism_items is not None:
                 return prism_items
         return self._draw_bbox(positions, fill, border, alpha, z, theme)
+
+    def _body_placement(self, positions: list[Point]) -> QTransform:
+        """Local→world placement for the silhouette (pin 1 at the local origin).
+
+        With a placement, this is the canonical ``placement_transform`` — the
+        exact pipeline the pins go through, so the body follows the pins on both
+        sides (the bottom-side reflection included).  Without one (a bare
+        ``draw`` in tests / previews), reconstruct the top-side placement from
+        the pin heading: translate to pin 1, rotate by the pin1→pin2 heading.
+        """
+        if self._placement is not None:
+            from protoboard.domain.components.package.adapter import (
+                PackageFootprint,
+            )
+            from protoboard.domain.layout.placement import placement_transform
+            return _qtransform(
+                placement_transform(PackageFootprint(self._pkg), self._placement)
+            )
+        p1 = positions[0]
+        dx = positions[1].x - p1.x if len(positions) > 1 else 0.0
+        dy = positions[1].y - p1.y if len(positions) > 1 else 0.0
+        angle_deg = -math.degrees(math.atan2(dx, dy)) if (dx or dy) else 0.0
+        place = QTransform()
+        place.translate(p1.x, p1.y)
+        place.rotate(angle_deg)
+        return place
 
     # ------------------------------------------------------------------
     # Cylinder — side-view capsule along the lead axis (axial parts)
@@ -747,14 +787,14 @@ class PackageBody(BodyShape):
         local_axis_deg = axis.angle_deg()
         rot = math.radians(world_axis_deg - local_axis_deg)
         n = pkg.flat_normal
-        # On the bottom side the body is physically flipped: mirror the flat
-        # normal's local X (the pins are X-mirrored before rotation in
-        # pin_world_position, so the body must follow) — this negates the
-        # component perpendicular to the lead axis, turning the flat face to the
-        # correct side. Same-side geometry is unchanged for a single-row part.
-        n_local_x = -n.x if self._side == "bottom" else n.x
-        nx = n_local_x * math.cos(rot) - n.y * math.sin(rot)
-        ny = n_local_x * math.sin(rot) + n.y * math.cos(rot)
+        # On the bottom side the body is physically flipped: reflect the flat
+        # normal about the package flip axis (the same reflection the pins
+        # undergo in pin_world_position), so the flat face turns to the correct
+        # side.  Applied as a direction (the linear part; translation ignored).
+        if self._side == "bottom":
+            n = pkg.flip_transform().apply(n)
+        nx = n.x * math.cos(rot) - n.y * math.sin(rot)
+        ny = n.x * math.sin(rot) + n.y * math.cos(rot)
         normal_deg = Vector(nx, ny).angle_deg()
         return normal_deg, pkg.flat_radius_mm / DEFAULT_THEME.raster_pitch_mm
 
@@ -951,16 +991,13 @@ class PackageBody(BodyShape):
         )
         drawing = sil.build(pkg, theme, corner_r=corner_holes)
 
-        # Place: translate to the anchor pad, rotate by the pin1→pin2 heading.
-        # The package-local +y axis runs pin1→pin2 down the first column, so
-        # the rotation is derived the same way the SVG bodies did.
-        p1 = positions[0]
-        dx = positions[1].x - p1.x
-        dy = positions[1].y - p1.y
-        angle_deg = -math.degrees(math.atan2(dx, dy)) if (dx or dy) else 0.0
-        place = QTransform()
-        place.translate(p1.x, p1.y)
-        place.rotate(angle_deg)
+        # Place the local-frame silhouette (pin 1 at the origin) through the
+        # SAME local→world transform the pins use in pin_world_position:
+        # reflect about the package flip axis on the bottom side, rotate, then
+        # translate to the anchor.  Reconstructing orientation from the world
+        # pins alone can't recover the reflection's chirality, which is why the
+        # bottom-side DIP body used to drift to pin 1's old corner.
+        place = self._body_placement(positions)
 
         fill_c = QColor(fill)
         fill_c.setAlphaF(fill_c.alphaF() * alpha)
@@ -1180,6 +1217,7 @@ def body_shape_for(
         return PackageBody(
             pkg, component_class=cls, vertical_flipped=vf,
             appearance=eff_appearance, side=side,
+            placement=placement,
         )
 
     # No explicit package resolved: a footprint is only a pin cloud (pin count

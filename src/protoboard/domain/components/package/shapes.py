@@ -38,6 +38,7 @@ from protoboard.geometry import (
     Transform2D,
     Vector,
     Vector3D,
+    flip_reflection_from_pins,
 )
 from protoboard.services.debug_trace import traced
 
@@ -92,49 +93,6 @@ class Leads:
     @property
     def pin_count(self) -> int:
         return len(self.direction)
-
-
-def flip_reflection_from_pins(positions: list[Point]) -> Transform2D:
-    """The board-side-flip reflection derived from the pin layout (local frame).
-
-    A physical flip is a 180° rotation about an axis in the board plane; in 2-D
-    that is a reflection about the line running ALONG the pin row.  Reflect the
-    coordinate PERPENDICULAR to that row, about the pin cloud's centre in that
-    coordinate — then the pins stay on their pads (the row lies on the axis) and
-    a multi-row part's rows swap onto each other.
-
-    Axis direction: the row runs along whichever axis the pins spread further on,
-    measured as the total absolute step ``Σ|Δx|`` vs ``Σ|Δy|`` between successive
-    pins.  Reflect the *other* coordinate.  A tie (a square layout, e.g. a QFP)
-    defaults to reflecting X.
-
-    Axis position: the midpoint ``(min + max) / 2`` of the pins in the reflected
-    coordinate, so a symmetric raster layout maps pin-onto-pin exactly.
-
-    Returned as ``translate(+c) ∘ reflect ∘ translate(-c)`` — one matrix.
-    """
-    if len(positions) < 2:
-        return Transform2D.reflection()  # trivial; single pin sits on any axis
-    xs = [p.x for p in positions]
-    ys = [p.y for p in positions]
-    spread_x = sum(abs(b - a) for a, b in zip(xs, xs[1:]))
-    spread_y = sum(abs(b - a) for a, b in zip(ys, ys[1:]))
-    # Reflect the coordinate perpendicular to the dominant pin-row axis.
-    reflect_x = spread_x <= spread_y  # tie → reflect X
-    if reflect_x:
-        centre = (min(xs) + max(xs)) / 2.0
-        pivot = Vector(centre, 0.0)
-        reflect = Transform2D.reflection()  # negate x
-    else:
-        centre = (min(ys) + max(ys)) / 2.0
-        pivot = Vector(0.0, centre)
-        # Reflect y: R(180) about x-axis is diag(1, -1) — build it directly.
-        reflect = Transform2D(1.0, 0.0, 0.0, -1.0, 0.0, 0.0)
-    return (
-        Transform2D.translation(pivot)
-        .compose(reflect)
-        .compose(Transform2D.translation(-pivot))
-    )
 
 
 class Package(ABC):

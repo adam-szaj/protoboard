@@ -12,7 +12,7 @@ import structlog
 
 from protoboard.domain.components.footprints import Footprint
 from protoboard.types import Side
-from protoboard.geometry import Point, Rect, Vector, round_coord
+from protoboard.geometry import Point, Rect, Transform2D, Vector, round_coord
 from protoboard.services.call_counters import counted
 
 if TYPE_CHECKING:
@@ -242,34 +242,46 @@ def flip_component_side(
 ) -> ComponentPlacement:
     """Move a component to the other board side (a physical 3-D flip).
 
-    Models flipping the part about an axis lying in the board plane: ``side`` is
-    toggled and ``position`` is shifted so the reflection stays over the same
-    pads. The ``side == "bottom"`` X-mirror in :func:`pin_world_position` reflects
-    the pins about the Y-axis through **pin 1** (local ``x = 0``); the physical
-    flip is about the **body centre**, so we translate the anchor by the mirror's
-    offset — ``min_x + max_x`` of the local pin cloud (twice the centre), rotated
-    into world space by the placement rotation.
+    Toggling ``side`` is the whole operation.  :func:`pin_world_position`
+    reflects the bottom-side geometry about the footprint's flip axis
+    (``footprint.flip_transform``), which is an *in-place* reflection — it maps
+    the pin cloud onto itself.  So the pins land back on their own pads (a
+    single-row part maps pin-onto-itself; a multi-row part's rows swap), with
+    no change to ``position``, ``rotation`` or ``pin_offsets``.  Applying twice
+    is the identity because the reflection is its own inverse.
 
     Pins keep their identity (no renumbering); which pad each pin occupies is a
-    geometric consequence — for a multi-row DIP-N, pin ``i`` lands where pin
-    ``N+1-i`` was. For a single-row part (all pins on ``x = 0``) the shift is
-    zero and the pins do not move; the change is purely in body orientation,
-    handled by the renderer. ``rotation``, ``pin_offsets`` and
-    ``vertical_flipped`` are untouched. Applying twice is the identity.
+    geometric consequence of the reflection.  The ``footprint`` argument is kept
+    for API symmetry with the previous signature and future explicit-axis
+    packages (the axis now lives on the footprint/package).
     """
-    xs = [p.x for p in footprint.pin_positions()]
-    span_x = (min(xs) + max(xs)) if xs else 0.0
-    # The shift is directional so the flip is its own inverse: going to bottom
-    # adds +span (compensating the X-mirror that bottom introduces), going back
-    # to top subtracts it. Carried into world space by the placement rotation,
-    # since the flip axis rotates with the component.
-    signed = span_x if placement.side == "top" else -span_x
-    shift = _rotate(Vector(signed, 0.0), placement.rotation)
-
+    del footprint  # axis is applied in pin_world_position, not here
     new_pl = placement.copy()
     new_pl.side = "bottom" if placement.side == "top" else "top"
-    new_pl.position = placement.position + shift  # Point + Vector → Point
     return new_pl
+
+
+def placement_transform(
+    footprint: Footprint,
+    placement: ComponentPlacement,
+) -> Transform2D:
+    """The affine local→world transform for a placed component.
+
+    ``world = translate(position) ∘ R(rotation) ∘ M_flip(side)`` — the same
+    pipeline :func:`pin_world_position` applies to each pin, expressed once as a
+    matrix so callers that place whole shapes (the body renderer's silhouette)
+    use the identical transform instead of reconstructing orientation from the
+    world pins (which loses the flip's chirality).  ``M_flip`` is the footprint's
+    in-place flip reflection on the bottom side, identity on top.  ``pin_offsets``
+    are per-pin and are *not* part of this shape transform.
+    """
+    steps = placement.rotation // 90
+    m = Transform2D.rotation(steps)
+    if placement.side == "bottom":
+        m = m.compose(footprint.flip_transform())
+    return Transform2D.translation(
+        Vector(placement.position.x, placement.position.y)
+    ).compose(m)
 
 
 @counted("pin_world_position")
@@ -291,12 +303,13 @@ def pin_world_position(
     off = placement.pin_offsets.get(pin_number)
     if off is not None:
         rel = rel + off  # Point + Vector → Point
-    # Components mounted on the bottom side are physically flipped — their
-    # local X axis is mirrored relative to the top view.  We apply this flip
-    # before rotation so that rotation=0 on bottom means "same anchor point,
-    # mirrored geometry", matching real-world PCB conventions.
+    # A component on the bottom side is physically flipped: reflect the local
+    # geometry about the footprint's flip axis (``flip_transform``) before
+    # rotation.  The axis runs along the pin row — a property of the geometry,
+    # not of the side — so the pins stay on their pads (single-row parts map
+    # onto themselves; a multi-row part's rows swap).
     if placement.side == "bottom":
-        rel = Point(-rel.x, rel.y)
+        rel = footprint.flip_transform().apply(rel)
     rotated = _rotate(rel, placement.rotation)
     return Point(
         placement.position.x + rotated.x,
