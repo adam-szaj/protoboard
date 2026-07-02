@@ -46,6 +46,7 @@ ACTION_UNGROUP = "ungroup"
 ACTION_EXIT_GROUP = "exit_group"
 
 ACTION_REDRAG_PINS = "redrag_pins"
+ACTION_COMPONENT_MOVE_TO_SIDE = "component_move_to_side"
 
 ACTION_WIRE_SET_INSULATED = "wire_set_insulated"
 ACTION_WIRE_SET_BARE = "wire_set_bare"
@@ -205,6 +206,7 @@ DEFAULTS: dict[str, str] = {
     ACTION_UNGROUP: "Ctrl+Shift+G",
     ACTION_EXIT_GROUP: "",
     ACTION_REDRAG_PINS: "Ctrl+R",
+    ACTION_COMPONENT_MOVE_TO_SIDE: "Alt+B",
     ACTION_WIRE_SET_INSULATED: "Ctrl+Shift+I",
     ACTION_WIRE_SET_BARE: "Ctrl+Shift+B",
     ACTION_WIRE_MOVE_TO_TOP: "Ctrl+T",
@@ -311,6 +313,7 @@ DISPLAY_NAMES: dict[str, str] = {
     ACTION_UNGROUP: "Ungroup",
     ACTION_EXIT_GROUP: "Exit Group",
     ACTION_REDRAG_PINS: "Re-drag Pins",
+    ACTION_COMPONENT_MOVE_TO_SIDE: "Move to Other Side",
     ACTION_WIRE_SET_INSULATED: "Wire: Set Insulated",
     ACTION_WIRE_SET_BARE: "Wire: Set Bare",
     ACTION_WIRE_MOVE_TO_TOP: "Wire: Move to Top Layer",

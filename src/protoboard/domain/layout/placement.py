@@ -236,6 +236,42 @@ def flip_component(
     return new_pl
 
 
+def flip_component_side(
+    footprint: Footprint,
+    placement: ComponentPlacement,
+) -> ComponentPlacement:
+    """Move a component to the other board side (a physical 3-D flip).
+
+    Models flipping the part about an axis lying in the board plane: ``side`` is
+    toggled and ``position`` is shifted so the reflection stays over the same
+    pads. The ``side == "bottom"`` X-mirror in :func:`pin_world_position` reflects
+    the pins about the Y-axis through **pin 1** (local ``x = 0``); the physical
+    flip is about the **body centre**, so we translate the anchor by the mirror's
+    offset — ``min_x + max_x`` of the local pin cloud (twice the centre), rotated
+    into world space by the placement rotation.
+
+    Pins keep their identity (no renumbering); which pad each pin occupies is a
+    geometric consequence — for a multi-row DIP-N, pin ``i`` lands where pin
+    ``N+1-i`` was. For a single-row part (all pins on ``x = 0``) the shift is
+    zero and the pins do not move; the change is purely in body orientation,
+    handled by the renderer. ``rotation``, ``pin_offsets`` and
+    ``vertical_flipped`` are untouched. Applying twice is the identity.
+    """
+    xs = [p.x for p in footprint.pin_positions()]
+    span_x = (min(xs) + max(xs)) if xs else 0.0
+    # The shift is directional so the flip is its own inverse: going to bottom
+    # adds +span (compensating the X-mirror that bottom introduces), going back
+    # to top subtracts it. Carried into world space by the placement rotation,
+    # since the flip axis rotates with the component.
+    signed = span_x if placement.side == "top" else -span_x
+    shift = _rotate(Vector(signed, 0.0), placement.rotation)
+
+    new_pl = placement.copy()
+    new_pl.side = "bottom" if placement.side == "top" else "top"
+    new_pl.position = placement.position + shift  # Point + Vector → Point
+    return new_pl
+
+
 @counted("pin_world_position")
 def pin_world_position(
     footprint: Footprint,

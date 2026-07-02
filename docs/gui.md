@@ -37,8 +37,8 @@ File
 Edit
   Undo / Redo
   Design ►
-    Component ► (Add Component, Rotate CW, Rotate CCW, Flip, Re-drag Pins,
-                 Lock / Unlock, Delete)
+    Component ► (Add Component, Rotate CW, Rotate CCW, Flip, Move to Other Side,
+                 Re-drag Pins, Lock / Unlock, Delete)
     Wire      ► (Route Tool, Insulated toggle, Side: Top, Side: Bottom,
                  Set Insulated / Set Bare, Move to Top / Bottom,
                  Flip to Opposite Layer, Simplify Tool, Simplify Selected,
@@ -99,6 +99,7 @@ can bind them through Preferences. The non-empty defaults:
 | Group / Ungroup | `Ctrl+G` / `Ctrl+Shift+G` |
 | Delete | `Del` |
 | Rotate CW / CCW / Flip / Re-drag Pins | `R` / `Shift+R` / `Alt+R` / `Ctrl+R` |
+| Move component to other board side | `Alt+B` |
 | Tools: Select / Route / Cut / Simplify | `S` / `W` / `C` / `Shift+S` |
 | Add Component (focus Library) | `A` |
 | Route options: Insulated / Side Top / Side Bottom | `I` / `T` / `B` |
@@ -175,8 +176,9 @@ an orthogonal `Alt(basis) × Ctrl/Ctrl+Shift(set-op)` modifier matrix).
 
 - On a pin: list of nets plus *Disconnect pin from net*
   (`DisconnectPinCommand`).
-- On a component inside a group: *Export / Unexport pin N*
-  (`SetExportedPinsCommand`).
+- On a component: *Move to {other} side* — flips the component to the opposite
+  board side (`flip_component_side`, see geometry.md §5), plus lock/unlock and
+  (inside a group) *Export / Unexport pin N* (`SetExportedPinsCommand`).
 - On a wire: Flip fragment, Move to layer, Set bare / insulated, Convert
   endpoint to / from wire-pin (when the endpoint qualifies), Simplify,
   Unweave, Merge.

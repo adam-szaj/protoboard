@@ -409,6 +409,25 @@ class TestFlatSidedCylinderRender:
         assert body_v.transform().m11() != pytest.approx(body_h.transform().m11()) \
             or body_v.transform().m12() != pytest.approx(body_h.transform().m12())
 
+    def test_flat_normal_mirrors_on_bottom_side(self, qtbot: QtBot) -> None:
+        # An asymmetric body (a flat face perpendicular to the lead axis) is
+        # physically flipped on the bottom side: the flat-side normal reflects
+        # across the lead axis so the face points the other way. Pins run down
+        # +y, flat_normal [-1,0] (perpendicular to the axis) → the normal's
+        # perpendicular component flips sign top vs bottom.
+        pkg = _radial_cylinder_package(flat_radius=1.175,
+                                       flat_normal=[-1.0, 0.0])
+        top = PackageBody(pkg, side="top")  # type: ignore[arg-type]
+        bot = PackageBody(pkg, side="bottom")  # type: ignore[arg-type]
+        world_axis_deg = 90.0  # pins run down +y
+        flat_top = top._flat_side_world(pkg, world_axis_deg)  # type: ignore[arg-type]
+        flat_bot = bot._flat_side_world(pkg, world_axis_deg)  # type: ignore[arg-type]
+        assert flat_top is not None and flat_bot is not None
+        # Same offset, opposite normal direction (180° apart, mod 360).
+        assert flat_top[1] == pytest.approx(flat_bot[1])
+        diff = (flat_top[0] - flat_bot[0]) % 360.0
+        assert diff == pytest.approx(180.0, abs=1e-6)
+
 
 def _dip8_prism() -> Prism:
     """The prism synthesized for a DIP-8 footprint (the parametric DIP body)."""

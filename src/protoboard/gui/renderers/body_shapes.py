@@ -394,11 +394,17 @@ class PackageBody(BodyShape):
         component_class: ComponentClass = ComponentClass.OTHER,
         vertical_flipped: bool = False,
         appearance: Appearance = Appearance(),
+        side: str = "top",
     ) -> None:
         self._pkg = package
         self._component_class = component_class
         self._vertical_flipped = vertical_flipped
         self._appearance = appearance
+        # Board side of the placement. On the bottom the body is physically
+        # flipped, so an asymmetric silhouette (a TO-92 flat face, a TO-220 tab)
+        # faces the opposite way — the flat side's normal is mirrored across the
+        # lead axis. See _flat_side_world.
+        self._side = side
 
     @property
     def _is_polar(self) -> bool:
@@ -741,8 +747,14 @@ class PackageBody(BodyShape):
         local_axis_deg = axis.angle_deg()
         rot = math.radians(world_axis_deg - local_axis_deg)
         n = pkg.flat_normal
-        nx = n.x * math.cos(rot) - n.y * math.sin(rot)
-        ny = n.x * math.sin(rot) + n.y * math.cos(rot)
+        # On the bottom side the body is physically flipped: mirror the flat
+        # normal's local X (the pins are X-mirrored before rotation in
+        # pin_world_position, so the body must follow) — this negates the
+        # component perpendicular to the lead axis, turning the flat face to the
+        # correct side. Same-side geometry is unchanged for a single-row part.
+        n_local_x = -n.x if self._side == "bottom" else n.x
+        nx = n_local_x * math.cos(rot) - n.y * math.sin(rot)
+        ny = n_local_x * math.sin(rot) + n.y * math.cos(rot)
         normal_deg = Vector(nx, ny).angle_deg()
         return normal_deg, pkg.flat_radius_mm / DEFAULT_THEME.raster_pitch_mm
 
@@ -1148,6 +1160,7 @@ def body_shape_for(
     """
     cls = defn.component_class
     vf = placement.vertical_flipped if placement is not None else False
+    side = placement.side if placement is not None else "top"
     # Visual-only override (fill colour, corner radius) layered over the
     # package/theme defaults — instance wins over definition, per field.
     eff_appearance = Appearance.resolve(
@@ -1166,7 +1179,7 @@ def body_shape_for(
     if pkg is not None:
         return PackageBody(
             pkg, component_class=cls, vertical_flipped=vf,
-            appearance=eff_appearance,
+            appearance=eff_appearance, side=side,
         )
 
     # No explicit package resolved: a footprint is only a pin cloud (pin count

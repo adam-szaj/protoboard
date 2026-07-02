@@ -1625,6 +1625,7 @@ class MainWindow(QMainWindow):
         KB.ACTION_UNGROUP,
         KB.ACTION_EXIT_GROUP,
         KB.ACTION_REDRAG_PINS,
+        KB.ACTION_COMPONENT_MOVE_TO_SIDE,
         KB.ACTION_WIRE_SET_INSULATED,
         KB.ACTION_WIRE_SET_BARE,
         KB.ACTION_WIRE_MOVE_TO_TOP,
@@ -1985,6 +1986,17 @@ class MainWindow(QMainWindow):
             tool._flip_multi()
         elif tool._selected_id is not None:
             tool._flip_selected()
+
+    def _move_component_to_side(self) -> None:
+        """Move the selected component(s) to the other board side (Alt+B)."""
+        tool = self._get_select_tool()
+        if tool is None:
+            return
+        targets = set(tool._selected_ids)
+        if tool._selected_id is not None:
+            targets.add(tool._selected_id)
+        for cid in targets:
+            tool._menu_flip_component_side(cid)
 
     def _exit_group(self) -> None:
         tool = self._get_select_tool()

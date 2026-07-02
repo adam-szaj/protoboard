@@ -2147,6 +2147,25 @@ class TestContextMenu:
         wire_after = next(iter(session.layout.wires))
         assert wire_after.side != side_before
 
+    def test_component_side_action_present_and_executes(
+        self, board_view, session
+    ) -> None:
+        from PySide6.QtCore import QPointF
+
+        inst = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        _press(tool, 0.5, 0.5)  # select the component
+        side_before = session.layout.placements[inst.id].side
+        depth = _depth(session)
+
+        datas = self._menu_datas(tool, 0.5, 0.5)
+        assert any(d[0] == "component_side" for d in datas)
+        data = next(d for d in datas if d[0] == "component_side")
+        tool._menu_dispatch(data, QPointF(0.5, 0.5))
+
+        assert _depth(session) == depth + 1  # a command ran
+        assert session.layout.placements[inst.id].side != side_before
+
     def test_tool_actions_added_to_menu(self, qtbot) -> None:
         """The menu augments — it carries the tool's own action shortcuts too."""
         from PySide6.QtCore import QPointF

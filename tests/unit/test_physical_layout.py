@@ -452,3 +452,123 @@ class TestLayout:
         )
         lay = Layout(placements={}, wires=WireCollection([w]))
         assert len(lay.wires) == 1
+
+
+class TestFlipComponentSide:
+    """flip_component_side moves a component to the other board side.
+
+    The model is a physical flip about an axis in the board plane: toggle
+    ``side`` and shift ``position`` so the reflection axis passes through the
+    body centre (not pin 1). Pins keep their identity; the mapping of which pad
+    each pin occupies changes as a geometric consequence.
+    """
+
+    def _make_pl(
+        self,
+        position: Point,
+        rotation: int = 0,
+        side: str = "top",
+        pin_offsets: dict[int, Vector] | None = None,
+    ) -> ComponentPlacement:
+        return ComponentPlacement(
+            component_id=uuid.uuid4(),
+            position=position,
+            rotation=rotation,
+            side=side,  # type: ignore[arg-type]
+            pin_offsets=pin_offsets or {},
+        )
+
+    def test_dil8_pin1_lands_where_pinN_was(self) -> None:
+        from protoboard.domain.layout.placement import (
+            flip_component_side,
+            pin_world_position,
+        )
+
+        fp = DIL(8)  # two columns; pin 1..4 down left, 5..8 up right
+        pl = self._make_pl(Point(10.0, 10.0), rotation=0)
+        before = {n: pin_world_position(fp, pl, n) for n in range(1, 9)}
+
+        flipped = flip_component_side(fp, pl)
+
+        assert flipped.side == "bottom"
+        # (1+n) ↔ (N-n): pin i lands where pin (9-i) was.
+        for n in range(1, 9):
+            assert _approx_point(
+                pin_world_position(fp, flipped, n), before[9 - n]
+            )
+
+    def test_sil_pins_unchanged(self) -> None:
+        from protoboard.domain.layout.placement import (
+            flip_component_side,
+            pin_world_position,
+        )
+
+        fp = SIL(4)  # single column on x=0 → pins sit on the flip axis
+        pl = self._make_pl(Point(10.0, 10.0), rotation=0)
+        before = {n: pin_world_position(fp, pl, n) for n in range(1, 5)}
+
+        flipped = flip_component_side(fp, pl)
+
+        assert flipped.side == "bottom"
+        for n in range(1, 5):
+            assert _approx_point(pin_world_position(fp, flipped, n), before[n])
+
+    def test_two_pin_toggles_side(self) -> None:
+        from protoboard.domain.layout.placement import (
+            flip_component_side,
+            pin_world_position,
+        )
+
+        fp = SIL(2)
+        pl = self._make_pl(Point(2.0, 3.0), rotation=0)
+        before = {n: pin_world_position(fp, pl, n) for n in (1, 2)}
+
+        flipped = flip_component_side(fp, pl)
+
+        assert flipped.side == "bottom"
+        for n in (1, 2):
+            assert _approx_point(pin_world_position(fp, flipped, n), before[n])
+
+    def test_roundtrip_is_identity(self) -> None:
+        from protoboard.domain.layout.placement import (
+            flip_component_side,
+            pin_world_position,
+        )
+
+        fp = DIL(8)
+        pl = self._make_pl(Point(10.0, 10.0), rotation=90)
+        before = {n: pin_world_position(fp, pl, n) for n in range(1, 9)}
+
+        twice = flip_component_side(fp, flip_component_side(fp, pl))
+
+        assert twice.side == "top"
+        for n in range(1, 9):
+            assert _approx_point(pin_world_position(fp, twice, n), before[n])
+
+    def test_preserves_rotation_and_pin_offsets(self) -> None:
+        from protoboard.domain.layout.placement import flip_component_side
+
+        fp = DIL(8)
+        offs = {3: Vector(0.5, 0.0)}
+        pl = self._make_pl(Point(10.0, 10.0), rotation=90, pin_offsets=offs)
+
+        flipped = flip_component_side(fp, pl)
+
+        assert flipped.rotation == 90
+        assert flipped.pin_offsets == offs
+
+    def test_dil8_rotated_pins_land_on_same_pads(self) -> None:
+        from protoboard.domain.layout.placement import (
+            flip_component_side,
+            pin_world_position,
+        )
+
+        fp = DIL(8)
+        pl = self._make_pl(Point(10.0, 10.0), rotation=90)
+        before = {n: pin_world_position(fp, pl, n) for n in range(1, 9)}
+
+        flipped = flip_component_side(fp, pl)
+
+        # Same pad-set occupied (order permuted); the body stays on its pads.
+        after = {pin_world_position(fp, flipped, n) for n in range(1, 9)}
+        assert after == {before[n] for n in range(1, 9)}

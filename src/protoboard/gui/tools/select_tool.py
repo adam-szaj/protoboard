@@ -3521,6 +3521,13 @@ class SelectTool(_Tool):
                 items[act_unlock_all] = ("lock", set(present), False)
                 act_unlock_all.setEnabled(any_locked)
 
+        # ── Move to the other board side (top ↔ bottom) ──────────────────────
+        cur_pl = placements.get(comp_id)
+        if cur_pl is not None and not cur_pl.locked:
+            other = "bottom" if cur_pl.side == "top" else "top"
+            act_side = menu.addAction(f"Move to {other} side")
+            items[act_side] = ("component_side", comp_id)
+
         # ── Export pins + autoroute, inside a non-root active group ───────────
         self._menu_add_export_section(menu, items, comp_id, defn, clicked_pin)
 
@@ -3820,6 +3827,8 @@ class SelectTool(_Tool):
             self._menu_set_wire_side(
                 cast("set[uuid.UUID]", data[1]), cast(str, data[2])
             )
+        elif action == "component_side":
+            self._menu_flip_component_side(cast("uuid.UUID", data[1]))
         elif action == "flip_fragment":
             self._flip_wire_fragment(cast("str", data[1]))
         elif action == "simplify_wire":
@@ -3880,6 +3889,37 @@ class SelectTool(_Tool):
         )
         self._execute_command(cmd)
         self._session.layout_changed.emit()
+
+    def _menu_flip_component_side(self, comp_id: uuid.UUID) -> None:
+        """Move a component to the other board side (top ↔ bottom).
+
+        A physical flip: :func:`flip_component_side` toggles ``side`` and shifts
+        ``position`` so the body lands back on the same pads (see
+        docs/geometry.md §5). Committed through :class:`MoveComponentCommand`,
+        which runs the same conflict check as a move — a hard conflict (body
+        overlap / different-net pad) leaves the component where it is.
+        """
+        from protoboard.domain.commands.component_cmds import MoveComponentCommand
+        from protoboard.domain.components.package import resolved_footprint
+        from protoboard.domain.layout.placement import flip_component_side
+
+        pl = self._session.layout.placements.get(comp_id)
+        inst = self._session.instances.get(comp_id)
+        if pl is None or inst is None:
+            return
+        defn = self._session.components.get(inst.definition_ref)
+        if defn is None:
+            return
+        families = getattr(self._session, "package_families", None)
+        fp = resolved_footprint(defn, inst, families)
+        self._execute(
+            MoveComponentCommand(
+                component_id=comp_id,
+                new_placement=flip_component_side(fp, pl),
+                old_placement=pl.copy(),
+            )
+        )
+        self._notify_selection()  # refresh Properties panel (side changed)
 
     def _menu_lock(self, comp_ids: set[uuid.UUID], locked: bool) -> None:
         from protoboard.domain.commands.base import MacroCommand

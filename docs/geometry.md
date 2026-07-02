@@ -98,6 +98,29 @@ This mirrors the footprint through the Y-axis, matching real PCB convention: whe
 
 After the X-mirror the same clockwise rotation formula is applied, so the rotation semantics remain consistent regardless of side.
 
+### Moving a component to the other side (flip)
+
+`flip_component_side(footprint, placement)` in `placement.py` performs a
+**physical flip** about an axis in the board plane — the SelectTool "Move to
+other side" action (`Alt+B` / context menu). The X-mirror above reflects about
+the Y-axis through **pin 1** (local `x = 0`), but a real flip rotates about the
+**body centre**, so the helper toggles `side` and shifts `position` by the
+mirror's offset: `min_x + max_x` of the local pin cloud (twice the centre),
+signed by direction and rotated into world space by `placement.rotation`.
+
+Pins keep their identity (no renumbering); which pad each pin occupies is a
+geometric consequence:
+
+- **Single-row (SIL, 2-pin)** — pins sit on the flip axis (`x = 0`), so the shift
+  is zero and the pins do **not** move. The change is purely in body orientation
+  (§11: the renderer mirrors an asymmetric silhouette's flat normal per side).
+- **Multi-row (DIP-N)** — the shift is `rows_spacing`, so pin `i` lands where pin
+  `N+1-i` was; the whole body settles back onto the same pads.
+
+`rotation`, `pin_offsets` and `vertical_flipped` are untouched, and applying it
+twice is the identity. A hard conflict (body overlap / different-net pad) is
+rejected by the move's conflict check, leaving the component in place.
+
 ---
 
 ## 6. Pin bending (flexible leads)
@@ -116,6 +139,10 @@ For through-hole components with flexible leads (resistors, diodes, axial parts)
 ---
 
 ## 7. Flip (Alt+R)
+
+> This is the in-plane 2-pin flip (electrical reversal, same board side). To move
+> a component to the **other board side**, see the flip-to-side helper in §5
+> (`Alt+B` / "Move to other side").
 
 Flip is defined only for 2-pin components. It swaps the two pins' local positions purely by adjusting `pin_offsets` — `placement.position` and `rotation` are never touched.
 
@@ -228,3 +255,10 @@ body, `sil` a housing. Only when the kind is unknown/absent does it fall back to
 `silhouette_for`, the column-count guess (1 column of ≥3 → SIL; 2 columns of ≥2 →
 DIP; else plain bbox). A dev-board module suppresses the silhouette regardless
 (plain PCB rectangle).
+
+**Asymmetric body per side.** For a part with an asymmetric silhouette (a TO-92
+flat face, a TO-220 tab), `PackageBody` takes the placement `side`: on the bottom
+the flat-side normal is mirrored across the lead axis (`_flat_side_world` negates
+the local-X component of `flat_normal`), so the body faces the correct way after a
+flip to the other side (§5). Pin positions are unchanged for a single-row part —
+only the drawn face flips.
