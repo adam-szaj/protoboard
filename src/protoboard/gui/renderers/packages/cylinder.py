@@ -1,22 +1,31 @@
 # SPDX-License-Identifier: MIT
-"""Cylinder renderer — axial side-view capsule, upright disc, polarity stripe."""
+"""Cylinder renderer — axial side-view capsule, upright / radial disc with
+flat-side (D-shape) support, and the polarity markers (stripe / segment)."""
 
 from __future__ import annotations
 
+import math
+
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QBrush, QColor, QPainterPath, QTransform
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsLineItem, QGraphicsPathItem
+from PySide6.QtWidgets import (
+    QAbstractGraphicsShapeItem,
+    QGraphicsEllipseItem,
+    QGraphicsItem,
+    QGraphicsLineItem,
+    QGraphicsPathItem,
+)
 
 from protoboard.domain.components.package.shapes import (
     Cylinder as _PkgCylinder,
 )
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Vector
 from protoboard.gui.renderers.packages.base import (
     PackageRenderer,
     _body_pen,
     _lead_pen,
 )
-from protoboard.gui.theme import Theme
+from protoboard.gui.theme import DEFAULT_THEME, Theme
 
 
 class CylinderRenderer(PackageRenderer):
@@ -43,6 +52,168 @@ class CylinderRenderer(PackageRenderer):
             return self._draw_cylinder(pkg, positions, fill, border, alpha, z,
                                        theme)
         return self._draw_bbox(positions, fill, border, alpha, z, theme)
+
+    # ------------------------------------------------------------------
+    # Radial — top-view disc (full circle or D-shape) with the ``-`` segment
+    # ------------------------------------------------------------------
+
+    def _radial_silhouette(
+        self,
+        mid: Point, p1: Point, p2: Point, neg_pin: Point,
+        fill: QColor, border: QColor, alpha: float, z: float,
+        theme: Theme,
+    ) -> list[QGraphicsItem]:
+        pkg = self._pkg
+        if not isinstance(pkg, _PkgCylinder):
+            return super()._radial_silhouette(
+                mid, p1, p2, neg_pin, fill, border, alpha, z, theme,
+            )
+        diam = pkg.diameter_mm / theme.raster_pitch_mm
+        world_axis_deg = (p2 - p1).angle_deg()
+        flat = self._flat_side_world(pkg, world_axis_deg)
+        # Direction from the body centre towards the negative lead — the side
+        # the ``-`` segment marker goes on.
+        neg_angle = (neg_pin - mid).angle_deg()
+        return self._radial_disc(
+            mid, diam, neg_angle, fill, border, alpha, z, theme, flat=flat,
+        )
+
+    def _radial_body_radius(self, mm: float) -> float:
+        pkg = self._pkg
+        if isinstance(pkg, _PkgCylinder):
+            return pkg.diameter_mm / mm / 2.0
+        return super()._radial_body_radius(mm)
+
+    def _flat_side_world(
+        self, pkg: _PkgCylinder, world_axis_deg: float,
+    ) -> tuple[float, float] | None:
+        """The flat side as ``(normal_angle_deg, offset_holes)`` in world space.
+
+        ``None`` for a full circle (no flat side). ``flat_normal`` is given in
+        the package's *local* frame (the same frame the lead offsets use), so we
+        rotate it by the local→world rotation. That rotation is the difference
+        between the world pad axis (``world_axis_deg``) and the local pad axis
+        derived from ``pkg.pin_positions()`` — the pads carry the part's
+        rotation/flip, so the flat side follows the body automatically.
+        """
+        if pkg.flat_radius_mm is None:
+            return None
+        local = pkg.pin_positions()
+        if len(local) < 2:
+            return None
+        axis = local[-1] - local[0]  # Point − Point → Vector
+        if axis.length() < 1e-9:
+            return None
+        local_axis_deg = axis.angle_deg()
+        rot = math.radians(world_axis_deg - local_axis_deg)
+        n = pkg.flat_normal
+        # On the bottom side the body is physically flipped: reflect the flat
+        # normal about the package flip axis (the same reflection the pins
+        # undergo in pin_world_position), so the flat face turns to the correct
+        # side.  Applied as a direction (the linear part; translation ignored).
+        if self._side == "bottom":
+            n = pkg.flip_transform().apply(n)
+        nx = n.x * math.cos(rot) - n.y * math.sin(rot)
+        ny = n.x * math.sin(rot) + n.y * math.cos(rot)
+        normal_deg = Vector(nx, ny).angle_deg()
+        return normal_deg, pkg.flat_radius_mm / DEFAULT_THEME.raster_pitch_mm
+
+    def _radial_disc(
+        self,
+        centre: Point,
+        diam: float,
+        neg_angle_deg: float,
+        fill: QColor, border: QColor, alpha: float, z: float,
+        theme: Theme,
+        *,
+        flat: tuple[float, float] | None = None,
+    ) -> list[QGraphicsItem]:
+        """Top-view (looking at the body face) disc centred between the pads.
+
+        Non-polar parts draw a plain filled circle. For polar parts the body
+        face shows no end-cap marker (both leads exit the same face), so the
+        negative terminal is marked the way a real radial electrolytic is: a
+        dark circular segment (a chord-cut slice of the disc) on the side of the
+        ``-`` lead, leaving the rest of the disc in the body colour.
+
+        ``flat`` (``(normal_angle_deg, offset_holes)``) cuts a chord off the
+        circle — a D-shaped cross-section such as a TO-92 — leaving the body a
+        full circle when ``None``.
+        """
+        r = diam / 2.0
+        fill_c = QColor(fill)
+        fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        body: QAbstractGraphicsShapeItem
+        if flat is not None:
+            body = self._d_shape(centre, r, flat[0], flat[1])
+        else:
+            body = QGraphicsEllipseItem(
+                QRectF(centre.x - r, centre.y - r, diam, diam),
+            )
+        body.setZValue(z)
+        body.setBrush(QBrush(fill_c))
+        body.setPen(_body_pen(border, alpha))
+        if not self._is_polar:
+            return [body]
+        return [body, self._disc_segment(centre, r, neg_angle_deg, theme, alpha, z)]
+
+    def _d_shape(
+        self, centre: Point, radius: float, normal_deg: float, offset: float,
+    ) -> QGraphicsPathItem:
+        """A circle with one chord cut off, normal to ``normal_deg`` at distance
+        ``offset`` (holes) from the centre. The remaining arc spans the far side;
+        the chord is the flat face."""
+        # Half-angle subtended by the chord: the chord sits at +offset along the
+        # flat normal, so the arc we KEEP runs the long way around the far side.
+        c = max(-1.0, min(1.0, offset / radius))
+        half = math.degrees(math.acos(c))
+        rect = QRectF(-radius, -radius, 2 * radius, 2 * radius)
+        path = QPainterPath()
+        # Arc from +half to (360 − half) around the back, then the chord closes
+        # it. Angles are in the local frame where the flat normal points +x;
+        # Qt arc angles are counter-clockwise from +x.
+        path.arcMoveTo(rect, half)
+        path.arcTo(rect, half, 360.0 - 2.0 * half)
+        path.closeSubpath()
+        item = QGraphicsPathItem(path)
+        t = QTransform()
+        t.translate(centre.x, centre.y)
+        t.rotate(normal_deg)
+        item.setTransform(t)
+        return item
+
+    def _disc_segment(
+        self,
+        centre: Point,
+        radius: float,
+        neg_angle_deg: float,
+        theme: Theme,
+        alpha: float,
+        z: float,
+    ) -> QGraphicsItem:
+        """A dark circular segment cut by a chord perpendicular to the lead
+        axis, on the negative-lead side — the radial ``-`` polarity marker."""
+        # Chord at 0.45·radius from the centre → the slice is ~the outer third
+        # of the disc, on the side ``neg_angle_deg`` points to (local +x after
+        # the rotation below).
+        d = 0.45 * radius
+        half = math.degrees(math.acos(max(-1.0, min(1.0, d / radius))))
+        rect = QRectF(-radius, -radius, 2 * radius, 2 * radius)
+        path = QPainterPath()
+        path.arcMoveTo(rect, -half)
+        path.arcTo(rect, -half, 2 * half)
+        path.closeSubpath()
+        seg = QGraphicsPathItem(path)
+        dark = QColor(theme.body_diode_cathode_color)
+        dark.setAlphaF(alpha)
+        seg.setBrush(QBrush(dark))
+        seg.setPen(_body_pen(dark, alpha, width=0.0))
+        seg.setZValue(z + 0.01)
+        t = QTransform()
+        t.translate(centre.x, centre.y)
+        t.rotate(neg_angle_deg)
+        seg.setTransform(t)
+        return seg
 
     # ------------------------------------------------------------------
     # Cylinder — side-view capsule along the lead axis (axial parts)

@@ -199,20 +199,24 @@ blocks on a package the registry does not know.
 
 ```
 PackageRenderer            # shared: colours/appearance, placement transform,
-│                          # radial top-view machinery, bbox fallback
-├── CylinderRenderer       # renders = "cylinder": axial capsule, upright disc
+│                          # radial template (leads + centroid), bbox fallback
+├── CylinderRenderer       # renders = "cylinder": axial capsule, upright disc,
+│                          # radial disc / D-shape / "-" segment
 ├── PrismRenderer          # renders = "prism": column-guess silhouette, SMD chip
 │   ├── DipIcRenderer      # renders = ("dip_ic", "wdip_ic"): notched DIP body
 │   ├── SilHeaderRenderer  # renders = "sil": rounded SIL housing
 │   ├── PlainBodyRenderer  # renders = ("dip_switch", "pin_header", "jst"): plain rect
 │   └── TO220Renderer      # renders = "TO-220" (plugin): prism + metal tab
-└── DiscRenderer           # renders = "disc": radial lens (base radial branch)
+└── DiscRenderer           # renders = "disc": edge-mounted radial lens
 ```
 
-`PackageRenderer.draw()` handles the **RADIAL** arrangement once for every
-shape (top-down silhouette on the lead centroid, a lead stub per pad; an
-axial-vertical part instead stands over one pad — `_radial_disc`); everything
-else goes to the subclass's `render_body()`.
+The **RADIAL** arrangement is handled once for every shape in the base
+(`_maybe_radial` → `_draw_radial`: a lead stub per pad, body on the lead
+centroid); the silhouette itself is the per-shape `_radial_silhouette()` hook
+— bbox rounded-rect by default (prism/generic), disc / D-shape in
+`CylinderRenderer`, lens in `DiscRenderer`. An axial-vertical part instead
+stands over one pad (`_radial_disc` on the anchor). Everything else goes to
+the subclass's `render_body()`.
 
 **Registration is declarative:** a subclass that sets `renders = "<name>"`
 enters the registry at class-creation time (`__init_subclass__`); later

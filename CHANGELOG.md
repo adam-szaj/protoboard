@@ -54,6 +54,19 @@ The remaining hard-wired body looks moved into the renderer registry:
 * Devboard stays gated by `ComponentClass.DEVBOARD` (a class trait valid for
   any package) — extraction noted in docs/todo.md.
 
+### Refactor: radial silhouettes are per-shape, base renderer slimmed (2026-07-04)
+
+`PackageRenderer` no longer type-branches on Disc/Cylinder/Prism inside its
+radial machinery. `_draw_radial` keeps only what is shape-agnostic (lead
+stubs + pad centroid) and delegates to a new `_radial_silhouette()` hook —
+the base default is the bbox rounded-rect (prism/generic look). The cylinder
+disc / D-shape / `-` segment moved to `CylinderRenderer`
+(`_flat_side_world`, `_radial_disc`, `_d_shape`, `_disc_segment`); the
+edge-mounted lens moved to `DiscRenderer` (`_radial_disc_side`).
+`_radial_body_radius` follows the same pattern (bbox default, round-shape
+overrides). Dead `_big_body_alpha` removed. Pure refactor — no visual change;
+guarded by the existing renderer/parity suites.
+
 ### Fix: false BODY_OVERLAP for adjacent radial parts — Cylinder/Disc bbox centred (2026-07-03)
 
 Two 2.5 mm LEDs placed side by side tripped DRC `BODY_OVERLAP`. Root cause:
