@@ -82,7 +82,13 @@ def export_png_from_snapshot(
         paint_snapshot(painter, snapshot, QRectF(0, 0, img_w, img_h))
     finally:
         painter.end()
-    img.save(str(path), b"PNG")
+    # Let Qt infer the format from the ``.png`` extension.  Passing an explicit
+    # format is fragile here: this PySide6's runtime rejects a ``bytes`` format
+    # ("QImage.save called with wrong argument values") even though the type
+    # stub asks for ``bytes`` — a stub-vs-runtime mismatch — so the safe call is
+    # no format arg at all.  ``save`` returns False (does not raise) on failure.
+    if not img.save(str(path)):
+        raise OSError(f"failed to write PNG to {path}")
 
 
 __all__ = ["export_png", "export_png_from_snapshot"]

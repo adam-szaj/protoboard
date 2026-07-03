@@ -249,9 +249,49 @@ To restore it as part of the model — not a per-package renderer — give the
 `Cylinder` carries `flat_radius_mm`/`flat_normal` for its D-shape) and have the
 radial-prism branch of `body_shapes._draw_radial` draw the tab strip when
 present.  That makes the tab reusable for other tab packages (TO-247, TO-126).
-The legacy `TO220Body`/`theme.to220_*` can then be removed once the prism path
-proves parity (it currently survives only as the bare-`TO220Footprint` legacy
-fallback — `TestBodyShapeFor.test_to220_footprint_returns_to220body`).
+The legacy `TO220Body` (and `TO92Body`) can then be removed once the prism path
+proves parity.  **Update (2026-07-03):** parity is already proven
+(`TestTO220PackageParity` / `TestTO92PackageParity` pass) and `body_shape_for`
+no longer dispatches to either legacy body — the named fallback test
+(`test_to220_footprint_returns_to220body`) no longer exists.  So `TO220Body` /
+`TO92Body` are now **fully dead code** (instantiated only by their own direct
+unit tests), not fallbacks.  Deleting them is unblocked — but fold the metal tab
+into `Prism` + `_draw_radial` FIRST, or the tab capability is lost with the
+class.  `GenericBody` stays (it is the live no-package 2-pin fallback).
+
+## PNG export crashed on save — FIXED (2026-07-03)
+
+`export_png_from_snapshot` called `img.save(str(path), b"PNG")`.  This PySide6's
+`QImage.save` runtime rejects a `bytes` format arg (`ValueError: called with
+wrong argument values`) even though the type stub asks for `bytes` — a
+stub-vs-runtime mismatch — so **every File → Export PNG raised** and the feature
+was completely broken.  There was **zero** test coverage, which is how it
+shipped.  Fixed by dropping the explicit format (Qt infers `PNG` from the `.png`
+extension) and checking the boolean return (`save` returns False, does not raise,
+on a bad path).  Guarded by `tests/gui/test_export_paint_smoke.py::TestExportPng`
+(writes a real file, verifies PNG magic bytes + reloads a non-null QImage; covers
+both `export_png_from_snapshot` and the top-level `export_png`).  SVG/PDF export
+were checked — no sibling `.save(..., b"...")` calls (svg uses `QSvgGenerator`).
+
+## Package body rendering — remaining open threads (surveyed 2026-07-03)
+
+A full render survey (this session) inventoried the still-open package-render
+threads.  Only the PNG-export crash above was fixed now (user scope decision);
+the rest are tracked here / in their existing entries.  Ranked:
+- **TO-220 metal tab + delete dead legacy bodies** — see the TO-220 section
+  above (tab as a `Prism` feature, then remove the now-dead `TO220Body`/`TO92Body`).
+- **Body-variant picker returns `[]`** — see "Footprint→body cleanup" item 1
+  (xfail `TestLibraryPanelBodyPicker` = 7 methods, `TestBodyVariantDropdown` = 10
+  methods; the "(5)"/"(4)" counts in that entry are stale).
+- **Generated DIP body not JEDEC-sized** — see "Footprint→body cleanup" item 2
+  (xfail `test_body_width_matches_measured_mm`, `test_body_sits_between_rows_not_over_pins`).
+- **Appearance override on `GenericBody` + per-corner corner-radius** — see the
+  "Appearance override" section gaps 0 and 1.  `TO92Body`/`TO220Body` recolor is
+  moot once they are deleted (dead code); `GenericBody` is the live gap.
+- **Pin-name labels never rotate / overlap on rotated dense parts** — labels use
+  `ItemIgnoresTransformations` (`component_renderer.py:78,149,164`) so they draw
+  screen-axis-aligned regardless of placement rotation; a rotated devboard's pin
+  names smear.  DEFERRED by user ("later") — do not start unprompted.
 
 ## Component-declaration rework — IC repoint deferred (added 2026-06-21) — IC repoint DONE (2026-06-21)
 

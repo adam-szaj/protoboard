@@ -129,6 +129,44 @@ class TestPaintSnapshot:
         assert img1 == img2, "Same snapshot should paint identical images"
 
 
+class TestExportPng:
+    """Regression: PNG export writes a real file.
+
+    ``export_png_from_snapshot`` used to call ``img.save(path, b"PNG")`` — this
+    PySide6 rejects a ``bytes`` format arg with ValueError, so every File →
+    Export PNG raised.  The call now lets Qt infer the format from the ``.png``
+    extension and checks the boolean result.  There was no test at all, which is
+    how the crash shipped.
+    """
+
+    def test_export_png_writes_valid_file(self, qtbot: QtBot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        from protoboard.services.export.png import export_png_from_snapshot
+
+        out = tmp_path / "board.png"
+        # Must not raise (the bug was a ValueError here) and must write a file.
+        export_png_from_snapshot(out, _snapshot_with_resistor())
+        assert out.exists()
+        assert out.stat().st_size > 0
+        # It is a real PNG (magic bytes) and loads back as a non-empty image.
+        assert out.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+        loaded = QImage(str(out))
+        assert not loaded.isNull()
+        assert loaded.width() > 0 and loaded.height() > 0
+
+    def test_export_png_top_level_helper(self, qtbot: QtBot, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        # The public export_png(...) that MainWindow._export_png calls.
+        from protoboard.services.export.png import export_png
+
+        snap = _snapshot_with_resistor()
+        out = tmp_path / "board2.png"
+        export_png(
+            out, snap.board, snap.layout, snap.components, snap.instances,
+            schematic=snap.schematic,
+        )
+        assert out.exists() and out.stat().st_size > 0
+        assert QImage(str(out)).isNull() is False
+
+
 class TestSnapshotWithView:
     def test_with_view_overrides_camera(self, qtbot: QtBot) -> None:
         snap = _snapshot_with_resistor()
