@@ -19,7 +19,12 @@ class TestBuiltinCatalogue:
         assert "DO-35" in fams
         assert "DIN-0207" in fams
         assert "Ceramic-Disc-D5" in fams
-        assert "LED-5mm" in fams
+        # LED sizes were consolidated into one family with per-size variants
+        # (LED/led25 · led30 · led50) — data change of 2026-07-03.
+        assert "LED" in fams
+        assert {v.variant_id for v in fams["LED"].variants} == {
+            "led25", "led30", "led50",
+        }
         assert "HC-49" in fams
         # SMD chip bodies.
         assert "SMD-0805" in fams

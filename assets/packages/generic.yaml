@@ -32,6 +32,7 @@ packages:
           type:
             oneof:
               - float                                          # scalar sugar
+              - [float, float]                                 # single-vector sugar
               - {list: {oneof: [[float, float],                # bare [x,y]
                                 {seq: [int, [float, float]]}]}}  # run-length
         board_offset:
@@ -39,6 +40,7 @@ packages:
             oneof:
               - {const: default}
               - {const: solve}
+              - [float, float]                                 # single-vector sugar
               - {list: {oneof: [[float, float], {seq: [int, [float, float]]}]}}
 
   # --- abstract base shapes ---

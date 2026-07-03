@@ -12,6 +12,11 @@ Accepted element forms in a raw offset list:
 
 Distinguished by the *type* of the second element: list → run-length,
 number → bare vector.
+
+Sugar (spec §2.3): a 2-pin component may give its single pair as a bare
+vector — ``body_offset: [1, 0]`` instead of ``[[1, 0]]``. A top-level list
+whose *both* elements are numbers is unambiguously that form (a valid offset
+list has sequence elements), so it expands to one step vector.
 """
 
 from __future__ import annotations
@@ -40,7 +45,7 @@ def _as_vector(value: object) -> Vector:
     return Vector(float(parts[0]), float(parts[1]))
 
 
-def expand_offsets(raw: RawOffsetList) -> list[Vector]:
+def expand_offsets(raw: RawOffsetList | Sequence[float]) -> list[Vector]:
     """Expand a raw (possibly run-length) offset list to flat step vectors.
 
     Each output element is the step from pin *i* to pin *i+1*. Returns N−1
@@ -49,6 +54,11 @@ def expand_offsets(raw: RawOffsetList) -> list[Vector]:
     >>> expand_offsets([[3, [0, 1]], [3, 0], [3, [0, -1]]])  # DIP-8
     [Vector(0.0, 1.0), Vector(0.0, 1.0), Vector(0.0, 1.0), Vector(3.0, 0.0), ...]
     """
+    # Single-vector sugar: ``[x, y]`` (both elements numbers) is one pair —
+    # the 2-pin shorthand the spec allows alongside the scalar form.
+    if (isinstance(raw, Sequence) and not isinstance(raw, (str, bytes))
+            and len(raw) == 2 and all(_is_number(p) for p in raw)):
+        return [_as_vector(raw)]
     out: list[Vector] = []
     for element in raw:
         if not isinstance(element, Sequence) or isinstance(

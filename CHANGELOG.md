@@ -36,6 +36,19 @@ Rendering of component bodies is now modular and user-extensible:
 167 body/parity tests pass unchanged; +13 new registry/lineage/discovery
 tests. Groundwork for per-kind silhouette renderers and the TO-220 plugin.
 
+### Offset single-vector sugar implemented; LED family consolidated (2026-07-03)
+
+Spec §2.3 always promised that a 2-pin package may write its one offset pair
+as a bare vector (`body_offset: [1, 0]` ≡ `[[1, 0]]`), but `expand_offsets`
+only implemented the scalar sugar — a bare vector aborted the whole family
+file ("offset element must be a list"), which silently dropped the LED
+families and made every LED fall back to the generic bbox **rectangle**
+instead of the radial cylinder. The sugar now expands in `expand_offsets`
+(one point for both offset domains; a top-level 2-list of numbers is
+unambiguous) and the `schema` declarations accept the form. Library data:
+LED sizes consolidated into one `LED` family (`led25` / `led30` / `led50`)
+with a cathode flat side and translucent lens colours (`#rrggbbaa`).
+
 ### Body colours accept an alpha channel — CSS `#rrggbbaa` / `#rgba` (2026-07-03)
 
 `style: "color: …"` (definition and instance) and the package-level `color:`

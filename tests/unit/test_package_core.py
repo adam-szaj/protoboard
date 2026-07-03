@@ -53,6 +53,18 @@ class TestExpandOffsets:
         with pytest.raises(ValueError):
             expand_offsets([[1, 2, 3]])
 
+    def test_single_vector_sugar(self) -> None:
+        # Spec §2.3: a 2-pin component may give its single pair as a bare
+        # vector — [1, 0] ≡ [[1, 0]] (both top-level elements are numbers,
+        # so the form is unambiguous). This is the LED-family regression:
+        # {unit: 1.25, value: [1, 0]} used to abort the whole family file.
+        assert expand_offsets([1, 0]) == [_ve(1, 0)]
+        assert expand_offsets([0.5, -1.5]) == [_ve(0.5, -1.5)]
+        # The wrapped form is unchanged, and a lone number is still an error.
+        assert expand_offsets([[1, 0]]) == [_ve(1, 0)]
+        with pytest.raises(ValueError):
+            expand_offsets([1])
+
 
 class TestScaleAndCumulative:
     def test_scale_by_unit(self) -> None:
