@@ -28,7 +28,7 @@ from protoboard.domain.components.package.reach import is_pin_bendable
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.pad_conflict import footprint_of
-from protoboard.domain.layout.placement import _rotate, pin_world_position
+from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point
@@ -340,10 +340,11 @@ def _placed_pad_mask(
 
     ``build_pad_mask`` works in the package's local frame (pin 1 at the origin,
     no rotation); we transform each hole into world coordinates with the same
-    pipeline as ``pin_world_position`` — X-mirror on the bottom side, clockwise
-    rotation, ``+ placement.position``. ``mount_side`` is the placement side so
-    the mask lights the correct PIN_/BODY_ side bits; ``body_blocks`` follows the
-    definition flag so a flush/metal body lights the pin-side bits too.
+    ``placement_transform`` as ``pin_world_position`` — the bottom-side flip
+    reflection about the package axis, rotation, translation. ``mount_side`` is
+    the placement side so the mask lights the correct PIN_/BODY_ side bits;
+    ``body_blocks`` follows the definition flag so a flush/metal body lights the
+    pin-side bits too.
     """
     assert defn.package is not None
     side: LayerId = "bottom" if placement.side == "bottom" else "top"
@@ -352,14 +353,12 @@ def _placed_pad_mask(
         mount_side=side,
         body_blocks=getattr(defn, "body_blocks_routing", False),
     )
+    from protoboard.domain.components.package.adapter import PackageFootprint
+    from protoboard.domain.layout.placement import placement_transform
+    to_world = placement_transform(PackageFootprint(defn.package), placement)
     out: dict[Point, PadCell] = {}
     for hole, bits in local.items():
-        rel = Point(-hole.x, hole.y) if placement.side == "bottom" else hole
-        rot = _rotate(rel, placement.rotation)
-        world = Point(
-            placement.position.x + rot.x,
-            placement.position.y + rot.y,
-        )
+        world = to_world.apply(hole)
         out[world] = out.get(world, PadCell(0)) | bits
     return out
 

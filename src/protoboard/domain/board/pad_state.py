@@ -975,21 +975,18 @@ class PadIndex:
 
         The package mask (:func:`body_holes`) is computed in the package's own
         local frame (pin 1 at the origin, no rotation); we apply the same
-        transform as ``pin_world_position`` — X-mirror on the bottom side, then
-        clockwise rotation, then ``+ placement.position`` — so the marked holes
-        line up with the placed pins.
+        ``placement_transform`` as ``pin_world_position`` — the bottom-side flip
+        reflection about the package axis, then rotation, then translation — so
+        the marked holes line up with the placed pins.
         """
         from protoboard.domain.components.package import body_holes
-        from protoboard.domain.layout.placement import _rotate
+        from protoboard.domain.components.package.adapter import PackageFootprint
+        from protoboard.domain.layout.placement import placement_transform
 
+        to_world = placement_transform(PackageFootprint(package), placement)
         out: list[Pad] = []
         for hole in body_holes(package):
-            rel = Point(-hole.x, hole.y) if placement.side == "bottom" else hole
-            rot = _rotate(rel, placement.rotation)
-            world = Point(
-                placement.position.x + rot.x,
-                placement.position.y + rot.y,
-            )
+            world = to_world.apply(hole)
             pad = self._pads.get(qpair(world))
             if pad is not None:
                 out.append(pad)

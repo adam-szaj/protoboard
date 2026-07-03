@@ -255,18 +255,22 @@ def _pin_baseline_world(
 
 
 def _world_delta_to_local_offset(
-    world_delta: Vector, placement: "ComponentPlacement"
+    world_delta: Vector,
+    placement: "ComponentPlacement",
+    footprint: Footprint,
 ) -> Vector:
     """Invert the placement pipeline: world delta → local pin offset.
 
-    Mirrors the forward pipeline (local → X-mirror(bottom) → rotate → +position)
-    used by ``pin_world_position``: unrotate, then un-mirror on the bottom side.
+    Mirrors the forward pipeline (local → flip(bottom) → rotate → +position)
+    used by ``pin_world_position``: unrotate, then un-flip on the bottom side.
+    The flip reflection is its own inverse, so applying the footprint's
+    ``flip_transform`` (as a direction — translation ignored) undoes it.
     """
     from protoboard.domain.layout.placement import unrotate
 
     local = unrotate(world_delta, placement.rotation)
     if placement.side == "bottom":
-        local = Vector(-local.dx, local.dy)
+        local = footprint.flip_transform().apply(local)
     return local
 
 
@@ -307,7 +311,9 @@ def redrag_feasibility(
         baseline = _pin_baseline_world(footprint, placement, grabbed_pin)
         if not spec.is_within_bend_disc(baseline, target):
             return RedragResult(ok=False)
-        local_off = _world_delta_to_local_offset(target - baseline, placement)
+        local_off = _world_delta_to_local_offset(
+            target - baseline, placement, footprint
+        )
         new_pl = placement.copy()
         new_offsets = dict(placement.pin_offsets)
         if local_off.x == 0.0 and local_off.y == 0.0:
@@ -338,7 +344,9 @@ def redrag_feasibility(
             baseline_new = _pin_baseline_world(footprint, new_pl, other)
             if not other_spec.is_within_bend_disc(baseline_new, old_world):
                 return RedragResult(ok=False)
-            local_off = _world_delta_to_local_offset(old_world - baseline_new, new_pl)
+            local_off = _world_delta_to_local_offset(
+                old_world - baseline_new, new_pl, footprint
+            )
             if local_off.x == 0.0 and local_off.y == 0.0:
                 new_offsets.pop(other, None)
             else:
