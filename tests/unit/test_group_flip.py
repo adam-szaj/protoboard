@@ -171,6 +171,47 @@ class TestFlipGroupCommand:
             id=gid, name="G"
         ).transform  # back to identity
 
+    def test_undo_stores_no_member_placements(self) -> None:
+        """Group flip snapshots NO per-member placement — the scene-graph
+        invariant (mirror of the rotate case in test_group_rotation.py).
+
+        The flip folds a reflection into ``group.transform``; each member's
+        *stored local* placement is unchanged (the mirror + side toggle are
+        composed on read).  ``FlipGroupCommand`` therefore carries no member
+        placement snapshot at all — it holds only the old group + the
+        reflection + the owned-wire ids.  Undo restores the world pose by
+        putting back the old group transform, not by rewinding baked coords.
+        """
+        st = _make_state()
+        a = _place(st, 10.0, 10.0, rot=0)
+        b = _place(st, 14.0, 13.0, rot=90)
+        gid = _attach_group(st, frozenset({a, b}))
+
+        local_before = {
+            cid: st.layout.placements.local_get(cid) for cid in (a, b)
+        }
+
+        cmd = FlipGroupCommand(group_id=gid, axis="v")
+        cmd.apply(st)
+
+        # The command holds no per-member placement snapshot (only the group,
+        # the reflection and the owned-wire ids are saved for revert).
+        assert not hasattr(cmd, "old_placements")
+        assert not hasattr(cmd, "_saved_placements")
+
+        # The stored local placement is untouched by apply — the world mirror +
+        # side toggle came from the group transform, not from baking.
+        for cid in (a, b):
+            local_now = st.layout.placements.local_get(cid)
+            before = local_before[cid]
+            assert local_now is not None and before is not None
+            assert local_now.position == before.position
+            assert local_now.rotation == before.rotation
+            assert local_now.side == before.side
+
+        # The group carries the flip as a det=-1 transform.
+        assert st.layout.groups[gid].transform.determinant() == -1.0
+
     def test_explicit_pivot_overrides_centroid(self) -> None:
         st = _make_state()
         a = _place(st, 10.0, 10.0)

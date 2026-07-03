@@ -67,6 +67,13 @@ class RotateSnapshot:
     Holds the pivot + delta and the pre-rotation placements / wire paths so
     :func:`restore_rotation` can invert the operation exactly. Group metadata
     (rotation/origin) is the caller's concern — not stored here.
+
+    Shared by three commands. The loose-rotation commands
+    (:class:`RotateComponentsCommand`, :class:`RotateAroundPointCommand`) pass a
+    non-empty ``comp_ids`` and so populate ``old_placements``. The scene-graph
+    :class:`RotateGroupCommand` passes an empty ``comp_ids`` (members rotate via
+    the group transform on read, not by baking), so its ``old_placements`` is
+    always empty and only ``old_wire_paths`` carries state.
     """
 
     origin: Point
@@ -503,7 +510,11 @@ class RotateGroupCommand(Command[ComponentState]):
         # WIRES, whose ``path``/``fragments``/free-knots are still absolute and
         # do NOT compose through the seam, so they must be rotated in place to
         # stay attached to the (now-rotated) pins.  Wires becoming group-local
-        # is a separate follow-on (docs plan, Phase 6+).
+        # is a separate follow-on (docs plan, Phase 6+).  Consequence for undo:
+        # with empty ``comp_ids`` the returned ``RotateSnapshot.old_placements``
+        # is empty — the snapshot holds only wire geometry, and revert restores
+        # the group pose by putting back ``_old_group`` (which carries the old
+        # transform), not by rewinding baked member coords.
         #
         # ``find_owned_wires`` and ``group_origin`` above read placements
         # through the seam, so they must run BEFORE the transform changes — at

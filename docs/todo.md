@@ -647,3 +647,68 @@ single-source-of-truth. Zero new `mypy --strict` errors.
   docstrings, `place_tool.py:488` (`_resolved_footprint`'s documented no-variant
   fallback), `loader.py` / `footprint_choice.py` / `properties_panel.py:580`
   (picker over the `defn.footprints` *list*), `bom.py:33` (type name for the BOM).
+
+## Group scene-graph migration — transitional debts (added 2026-07-03)
+
+The FLATTEN→scene-graph group migration shipped in phases 0–6 (commits
+`55d488a`→Phase 6): a `ComponentGroup` now carries its own `Transform2D`; a
+member's world pose is composed from the ancestor group transforms at read time
+through the `PlacementCollection` seam (`domain/layout/placement.py`,
+`GroupTree.world_transform`); group rotate/flip fold a matrix into
+`group.transform` instead of baking member coords, so their undo snapshots hold
+no per-member placements. Two deliberate transitional debts remain — both work
+correctly today, neither is a bug, and each is its own future change.
+
+### 1. `group.rotation` / `group.origin` are still authoritative, not derived views
+
+`group.transform` is the scene-graph source of truth, but the legacy
+`rotation:int` + `origin:Point` fields are still **written** (kept in sync by the
+group commands and the v2→v3 load migration) and **read**. Making them derived
+views (`rotation` = the transform's rotation steps; `origin` = a pure
+bbox-top-left read) is the end-state of the linear-algebra unification
+(`feedback_prefer_linear_algebra_math_physics`), deferred so this migration
+could ship incrementally.
+
+**Important:** geometry render / hit-test do NOT read these fields — they read
+`group.transform` via `GroupTree.world_transform` → the compose seam
+(`layout.py` `_compose_placement`). So the conversion touches only two
+subsystems plus one GUI dirty-check:
+
+- **Persistence (save):** `services/persistence/project_yaml.py:363-364`
+  (write rotation/origin), `services/recording/serialization.py:225-228`
+  (command-recorder group serialization).
+- **Persistence (v2→v3 load migration):** `project_yaml.py:499` (trigger:
+  `rotation != 0 and transform == identity`), `:509` (`origin is None` skip
+  guard), `:512` (`_rotation_about(origin, rotation)` derives the transform from
+  the baked pair). This path *must* keep reading the legacy pair to migrate old
+  files even after the live model stops writing them.
+- **Origin-recompute (bbox-top-left invariant):** `domain/layout/group_tree.py`
+  `recompute_group_origin` (~:477-498, mirrored by `_recompute_group_origin` in
+  `group_cmds.py`); also the rotate-pivot lookup `group.origin or
+  GroupTree.group_origin(...)` in `RotateGroupCommand.apply`.
+- **GUI dirty-check:** `gui/selection/float_transform.py:418` reads `.rotation`
+  in a transform-diff check.
+
+Constraint to preserve (riskiest-surface #3 in the plan): `origin` means "bbox
+top-left" for hit-test/render — do NOT conflate it with the transform pivot when
+converting. Do the conversion as its own change with the parity corpus green
+(`test_pin_world_parity`, `test_project_01/02`, `gold_performance_test`,
+`tangled_*`).
+
+### 2. The float-transform live *preview* never routes through the group transform
+
+`gui/selection/float_transform.py` `_rotate` / `_move` / `_flip` (~:318/:340/:366)
+mutate member placements directly off-stack to draw the **drag preview**; they do
+not fold into `group.transform`. This is harmless for a single flat group — the
+committed result goes through the snapshot-based `TransformDragSetCommand` /
+`MoveDragSetCommand` or the group commands, which are correct — but a
+**nested-group** preview can diverge from what the commit produces, because the
+preview bakes world coords while the commit composes. The plan flagged this as
+"audit in Phase 4"; Phase 4 was folded into Phase 3, which rewrote only
+`RotateGroupCommand`, so this preview path still thinks in world coordinates.
+
+Follow-up: make the preview compose through the group transform (or explicitly
+document + gate the flat-only limitation). Coverage here is thin, so add a
+preview-vs-commit parity test (drive a nested-group drag preview, then commit,
+and assert the two produce identical world pins) BEFORE changing the preview
+math.

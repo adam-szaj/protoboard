@@ -194,6 +194,52 @@ def test_rotate_group_command_undo() -> None:
     assert state.layout.placements[cid1].rotation == 0
 
 
+def test_rotate_group_undo_stores_no_member_placements() -> None:
+    """Group rotate snapshots NO per-member placement — the scene-graph invariant.
+
+    Under the compose-on-read model a group rotate folds the rotation into
+    ``group.transform``; the member's *stored local* placement never changes
+    (its world pose is composed on read).  So the command's ``RotateSnapshot``
+    must carry an empty ``old_placements`` — undo restores the world pose purely
+    by putting back the old group transform, not by rewinding baked member
+    coords.  This locks the invariant so a future refactor can't silently
+    regress to baking (which would re-inflate the undo snapshot).
+    """
+    cid1, cid2 = uuid.uuid4(), uuid.uuid4()
+    pl1 = _make_placement(cid1, 2.0, 1.0, rotation=0)
+    pl2 = _make_placement(cid2, 2.0, 3.0, rotation=90)
+    origin = Point(1.0, 1.0)
+    group = _simple_group(frozenset([cid1, cid2]), origin)
+    layout = _layout_with_group(group, {cid1: pl1, cid2: pl2})
+    state = _FakeState(layout=layout)
+
+    # Capture the stored LOCAL placements (bypass the compose seam).
+    local_before = {
+        cid: layout.placements.local_get(cid) for cid in (cid1, cid2)
+    }
+
+    cmd = RotateGroupCommand(group_id=group.id, delta=90)
+    cmd.apply(state)
+
+    # The snapshot holds only wire geometry — no member placements.
+    assert cmd._snapshot is not None
+    assert cmd._snapshot.old_placements == {}
+
+    # The stored local placement is untouched by apply (the world change came
+    # from the group transform, not from baking into the placement).
+    for cid in (cid1, cid2):
+        local_now = layout.placements.local_get(cid)
+        before = local_before[cid]
+        assert local_now is not None and before is not None
+        assert local_now.position == before.position
+        assert local_now.rotation == before.rotation
+        assert local_now.side == before.side
+
+    # And the group carries the rotation as a det=+1 transform.
+    assert state.layout.groups[group.id].transform.determinant() == 1.0
+    assert state.layout.groups[group.id].transform != group.transform
+
+
 def test_rotate_group_rotates_internal_wire() -> None:
     cid1 = uuid.uuid4()
     pl1 = _make_placement(cid1, 0.0, 0.0, rotation=0)
