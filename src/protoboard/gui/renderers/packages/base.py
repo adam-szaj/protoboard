@@ -223,7 +223,6 @@ class PackageRenderer(BodyShape):
     _POLAR_CLASSES = frozenset({
         ComponentClass.DIODE,
         ComponentClass.DIODE_ZENER,
-        ComponentClass.DIODE_LED,
         ComponentClass.CAPACITOR_POLAR,
     })
 

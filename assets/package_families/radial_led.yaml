@@ -11,23 +11,23 @@ families:
       - id: led25
         label: "Typical (2.5 mm dia)"
         dims:
-          diameter: 2.5
+          diameter: 2.50
           length: 4.5
-          flat_radius: 1.22
-          flat_normal: [0.0, 1.0]
+          flat_radius: 1.15
+          flat_normal: [1.0, 0.0]
         leads:
           body_offset:
               unit: 1.25
-              value: [[1, 0]]
-          board_offset: default
+              value: [1, 0]
+          board_offset: [1, 0]
           lead_r: 0.25
       - id: led30
         label: "Typical (3 mm dia)"
         dims:
           diameter: 3.0
           length: 5.6
-          flat_radius: 1.45
-          flat_normal: [0.0, 1.0]
+          flat_radius: 1.35
+          flat_normal: [1.0, 0.0]
         leads:
           body_offset:
               unit: 2.5
@@ -39,8 +39,8 @@ families:
         dims:
           diameter: 5.0
           length: 7.2
-          flat_radius: 2.45
-          flat_normal: [0.0, 1.0]
+          flat_radius: 2.35
+          flat_normal: [1.0, 0.0]
         leads:
           body_offset:
               unit: 2.5
