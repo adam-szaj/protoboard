@@ -712,3 +712,61 @@ document + gate the flat-only limitation). Coverage here is thin, so add a
 preview-vs-commit parity test (drive a nested-group drag preview, then commit,
 and assert the two produce identical world pins) BEFORE changing the preview
 math.
+
+### 3. `FlipGroupCommand` has no GUI entry point (unwired)
+
+`FlipGroupCommand` (`group_cmds.py`, shipped Phase 5, serialization registered
+2026-07-03) is fully implemented and replay-ready, but **nothing constructs it
+from the GUI** — no menu action, no keybinding, no `select_tool` dispatch. Flip
+is asymmetric with rotate: `select_tool._rotate_multi` routes a selected group to
+`RotateGroupCommand` (`select_tool.py:3238-3239`), but `_flip_multi`
+(`select_tool.py:3246`) only flips 2-pin **components** individually via
+`MoveComponentCommand` + `flip_component` — a selected group is not flipped as a
+rigid body.
+
+Wiring it is a feature, not a mechanical entry-add, because the command needs an
+`axis` (`'v'`/`'h'`) and an optional `pivot`, and the intended UX is the armed
+**FlipMode** (sibling to armed Rotate/Move) with `[v]`/`[h]` axis choice + a
+pickable axis position — which is designed but not built (see the group
+live-compose plan, Phase 5 notes). Minimum viable wiring without FlipMode: in
+`_flip_multi`, when the selection is a single group, emit
+`FlipGroupCommand(group_id, axis=…)` with a default axis (the plan's default is
+the arithmetic pin centroid, already the command's `pivot=None` behaviour). Do it
+with the armed-FlipMode UX or as a deliberate minimal default — either way it is
+its own change with its own tests. Until then, group flip is reachable only
+programmatically / via replay, not by the user.
+
+## Command serialization coverage — gap closed + totality guard (added 2026-07-03)
+
+Audit of "every Command must be serializable" found **6 concrete commands with no
+serializer** — the recorder *silently skips* unregistered commands
+(`test_unknown_command_is_skipped`), so any recorded session containing them
+replayed **divergently**. Registered them in
+`services/recording/serialization.py` with round-trip tests
+(`test_command_recording.py::TestNewlyRegisteredRoundtrip`):
+`MoveDragSetCommand`, `TransformDragSetCommand` (multi-select drag / float
+transform — the biggest blind spot, common ops), `DropWiresCommand` (macro
+companion of the transform commit), `FuseTouchingWiresCommand` (wire-fuse macro
+member), `ConvertEndpointToWirePinCommand` / `ConvertWirePinToEndpointCommand`
+(wire-pin conversion via main_window). Also registered `FlipGroupCommand` so it is
+replay-ready the moment it gets a GUI entry (see item 3 above).
+
+New guard: `test_command_recording.py::TestSerializationTotality` iterates every
+concrete `Command` subclass and asserts each is registered **or** listed in
+`_INTENTIONALLY_UNREGISTERED` with a reason (discovery is scoped to the
+`protoboard.domain.commands` package, so throwaway `Command` subclasses defined in
+other test modules and the deserialize-only `_DeferredSplitStrip` wrapper in
+`serialization.py` are out of scope by construction). Currently excused:
+`ConditionalCommand` / `GroupMembershipCommand` (abstract bases) and
+`TranslateAnchoredWiresCommand` (**dead code** — superseded by the drag pipeline,
+no constructor anywhere in `src/`; a candidate for deletion in a separate
+cleanup). A new command that reaches `CommandStack.execute` now fails the suite
+unless registered or explicitly excused.
+
+Note on the keybinding half of the audit: the request "every command has a
+keybinding-panel entry" is not 1:1 achievable by design — the panel binds
+**actions** (`ALL_ACTIONS` ⟷ `KB.DEFAULTS`, 103 specs, totality already enforced
+by `test_action_registry.py`), not commands (~33). One action fires ≥1 command and
+many commands are mouse/dialog-only (drag, place-tool click) with no meaningful
+shortcut. The only command lacking *any* user-facing entry is `FlipGroupCommand`
+(item 3); all others are reachable via an action, menu, PPM, or direct interaction.

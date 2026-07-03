@@ -25,8 +25,12 @@ from protoboard.domain.commands.board_cmds import (
 from protoboard.domain.commands.component_cmds import (
     AddWireCommand,
     AddWireWithNetsCommand,
+    ConvertEndpointToWirePinCommand,
+    ConvertWirePinToEndpointCommand,
     DisconnectPinCommand,
+    DropWiresCommand,
     FlipWireFragmentCommand,
+    FuseTouchingWiresCommand,
     LockComponentCommand,
     MoveComponentCommand,
     PlaceComponentCommand,
@@ -38,10 +42,15 @@ from protoboard.domain.commands.component_cmds import (
     SetWireInsulatedCommand,
     SetWireSideCommand,
 )
+from protoboard.domain.commands.drag_cmds import (
+    MoveDragSetCommand,
+    TransformDragSetCommand,
+)
 from protoboard.domain.commands.group_cmds import (
     AddToGroupCommand,
     CreateGroupCommand,
     DisbandGroupCommand,
+    FlipGroupCommand,
     RemoveFromGroupCommand,
     RenameGroupCommand,
     RotateAroundPointCommand,
@@ -538,6 +547,79 @@ _register(
 )
 
 
+def _convert_to_wire_pin_to(cmd: ConvertEndpointToWirePinCommand) -> dict[str, Any]:
+    return {
+        "wire_id": _uuid_to(cmd.wire_id),
+        "endpoint": cmd.endpoint,
+        "net_id": _uuid_to(cmd.net_id) if cmd.net_id is not None else None,
+    }
+
+
+def _convert_to_wire_pin_from(d: dict[str, Any]) -> ConvertEndpointToWirePinCommand:
+    raw_net = d.get("net_id")
+    return ConvertEndpointToWirePinCommand(
+        wire_id=_uuid_from(d["wire_id"]),
+        endpoint=str(d["endpoint"]),
+        net_id=_uuid_from(raw_net) if raw_net is not None else None,
+    )
+
+
+_register(
+    ConvertEndpointToWirePinCommand, "convert_endpoint_to_wire_pin",
+    _convert_to_wire_pin_to, _convert_to_wire_pin_from,
+)
+
+
+def _convert_from_wire_pin_to(cmd: ConvertWirePinToEndpointCommand) -> dict[str, Any]:
+    return {"wire_pin_id": _uuid_to(cmd.wire_pin_id)}
+
+
+def _convert_from_wire_pin_from(d: dict[str, Any]) -> ConvertWirePinToEndpointCommand:
+    return ConvertWirePinToEndpointCommand(wire_pin_id=_uuid_from(d["wire_pin_id"]))
+
+
+_register(
+    ConvertWirePinToEndpointCommand, "convert_wire_pin_to_endpoint",
+    _convert_from_wire_pin_to, _convert_from_wire_pin_from,
+)
+
+
+def _drop_wires_to(cmd: DropWiresCommand) -> dict[str, Any]:
+    return {"wire_ids": sorted(_uuid_to(w) for w in cmd.wire_ids)}
+
+
+def _drop_wires_from(d: dict[str, Any]) -> DropWiresCommand:
+    return DropWiresCommand(
+        wire_ids=frozenset(_uuid_from(w) for w in (d.get("wire_ids") or []))
+    )
+
+
+_register(DropWiresCommand, "drop_wires", _drop_wires_to, _drop_wires_from)
+
+
+def _fuse_wires_to(cmd: FuseTouchingWiresCommand) -> dict[str, Any]:
+    # wire_ids is None → whole-layout scope; else the caller-supplied scope.
+    return {
+        "wire_ids": (
+            None if cmd.wire_ids is None
+            else sorted(_uuid_to(w) for w in cmd.wire_ids)
+        ),
+    }
+
+
+def _fuse_wires_from(d: dict[str, Any]) -> FuseTouchingWiresCommand:
+    raw = d.get("wire_ids")
+    return FuseTouchingWiresCommand(
+        wire_ids=None if raw is None else frozenset(_uuid_from(w) for w in raw)
+    )
+
+
+_register(
+    FuseTouchingWiresCommand, "fuse_touching_wires",
+    _fuse_wires_to, _fuse_wires_from,
+)
+
+
 def _disconnect_pin_to(cmd: DisconnectPinCommand) -> dict[str, Any]:
     return {
         "component_id": _uuid_to(cmd.component_id),
@@ -983,6 +1065,170 @@ def _rotate_around_point_from(d: dict[str, Any]) -> RotateAroundPointCommand:
 _register(
     RotateAroundPointCommand, "rotate_around_point",
     _rotate_around_point_to, _rotate_around_point_from,
+)
+
+
+def _flip_group_to(cmd: FlipGroupCommand) -> dict[str, Any]:
+    return {
+        "group_id": _uuid_to(cmd.group_id),
+        "axis": cmd.axis,
+        "pivot": _pt_to(cmd.pivot) if cmd.pivot is not None else None,
+    }
+
+
+def _flip_group_from(d: dict[str, Any]) -> FlipGroupCommand:
+    raw_pivot = d.get("pivot")
+    return FlipGroupCommand(
+        group_id=_uuid_from(d["group_id"]),
+        axis=d["axis"],
+        pivot=_pt_from(raw_pivot) if raw_pivot is not None else None,
+    )
+
+
+_register(FlipGroupCommand, "flip_group", _flip_group_to, _flip_group_from)
+
+
+# ---------------------------------------------------------------------------
+# Drag commands — the atomic move / transform of a drag set
+# ---------------------------------------------------------------------------
+
+
+def _member_pair_to(
+    pair: tuple[ComponentPlacement, ComponentPlacement]
+) -> dict[str, Any]:
+    old_pl, new_pl = pair
+    return {"old": _placement_to(old_pl), "new": _placement_to(new_pl)}
+
+
+def _member_pair_from(
+    d: dict[str, Any]
+) -> tuple[ComponentPlacement, ComponentPlacement]:
+    return (_placement_from(d["old"]), _placement_from(d["new"]))
+
+
+def _members_to(
+    members: dict[uuid.UUID, tuple[ComponentPlacement, ComponentPlacement]]
+) -> list[dict[str, Any]]:
+    # A list of {id, old, new} keeps the record order-stable and YAML-friendly
+    # (dict keys would be UUID objects).  Sorted by id for deterministic output.
+    return [
+        {"id": _uuid_to(cid), **_member_pair_to(pair)}
+        for cid, pair in sorted(members.items(), key=lambda kv: str(kv[0]))
+    ]
+
+
+def _members_from(
+    raw: list[dict[str, Any]]
+) -> dict[uuid.UUID, tuple[ComponentPlacement, ComponentPlacement]]:
+    return {_uuid_from(m["id"]): _member_pair_from(m) for m in raw}
+
+
+def _move_drag_set_to(cmd: MoveDragSetCommand) -> dict[str, Any]:
+    return {
+        "members": _members_to(cmd.members),
+        "internal_wire_ids": sorted(_uuid_to(w) for w in cmd.internal_wire_ids),
+        "dropped_wire_ids": sorted(_uuid_to(w) for w in cmd.dropped_wire_ids),
+        "delta": _vec_to(cmd.delta),
+    }
+
+
+def _move_drag_set_from(d: dict[str, Any]) -> MoveDragSetCommand:
+    return MoveDragSetCommand(
+        members=_members_from(d.get("members") or []),
+        internal_wire_ids=frozenset(
+            _uuid_from(w) for w in (d.get("internal_wire_ids") or [])
+        ),
+        dropped_wire_ids=frozenset(
+            _uuid_from(w) for w in (d.get("dropped_wire_ids") or [])
+        ),
+        delta=_vec_from(d["delta"]),
+    )
+
+
+_register(
+    MoveDragSetCommand, "move_drag_set",
+    _move_drag_set_to, _move_drag_set_from,
+)
+
+
+def _path_pair_to(pair: tuple[list[Point], list[Point]]) -> dict[str, Any]:
+    old_path, new_path = pair
+    return {
+        "old": [_pt_to(p) for p in old_path],
+        "new": [_pt_to(p) for p in new_path],
+    }
+
+
+def _path_pair_from(d: dict[str, Any]) -> tuple[list[Point], list[Point]]:
+    return (
+        [_pt_from(p) for p in d["old"]],
+        [_pt_from(p) for p in d["new"]],
+    )
+
+
+def _frag_pair_to(pair: tuple[list[Any], list[Any]]) -> dict[str, Any]:
+    old_frags, new_frags = pair
+    return {
+        "old": [_fragment_to(f) for f in old_frags],
+        "new": [_fragment_to(f) for f in new_frags],
+    }
+
+
+def _frag_pair_from(d: dict[str, Any]) -> tuple[list[Any], list[Any]]:
+    return (
+        [_fragment_from(f) for f in d["old"]],
+        [_fragment_from(f) for f in d["new"]],
+    )
+
+
+def _pt_pair_to(pair: tuple[Point, Point]) -> dict[str, Any]:
+    return {"old": _pt_to(pair[0]), "new": _pt_to(pair[1])}
+
+
+def _pt_pair_from(d: dict[str, Any]) -> tuple[Point, Point]:
+    return (_pt_from(d["old"]), _pt_from(d["new"]))
+
+
+def _keyed_to(
+    mapping: dict[uuid.UUID, Any], value_to: Any
+) -> list[dict[str, Any]]:
+    return [
+        {"id": _uuid_to(k), "v": value_to(v)}
+        for k, v in sorted(mapping.items(), key=lambda kv: str(kv[0]))
+    ]
+
+
+def _keyed_from(
+    raw: list[dict[str, Any]], value_from: Any
+) -> dict[uuid.UUID, Any]:
+    return {_uuid_from(e["id"]): value_from(e["v"]) for e in raw}
+
+
+def _transform_drag_set_to(cmd: TransformDragSetCommand) -> dict[str, Any]:
+    return {
+        "members": _members_to(cmd.members),
+        "wire_paths": _keyed_to(cmd.wire_paths, _path_pair_to),
+        "wire_fragments": _keyed_to(cmd.wire_fragments, _frag_pair_to),
+        "knot_positions": _keyed_to(cmd.knot_positions, _pt_pair_to),
+    }
+
+
+def _transform_drag_set_from(d: dict[str, Any]) -> TransformDragSetCommand:
+    return TransformDragSetCommand(
+        members=_members_from(d.get("members") or []),
+        wire_paths=_keyed_from(d.get("wire_paths") or [], _path_pair_from),
+        wire_fragments=_keyed_from(
+            d.get("wire_fragments") or [], _frag_pair_from
+        ),
+        knot_positions=_keyed_from(
+            d.get("knot_positions") or [], _pt_pair_from
+        ),
+    )
+
+
+_register(
+    TransformDragSetCommand, "transform_drag_set",
+    _transform_drag_set_to, _transform_drag_set_from,
 )
 
 

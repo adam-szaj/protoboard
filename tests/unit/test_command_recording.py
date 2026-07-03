@@ -181,8 +181,253 @@ class TestSerializationRoundtrip:
 
 
 # ---------------------------------------------------------------------------
+# Registry totality — every concrete Command must be serializable
+# ---------------------------------------------------------------------------
+
+
+def _all_concrete_command_classes() -> set[type]:
+    """Every concrete production Command subclass, discovered recursively.
+
+    Imports every module under ``domain.commands`` first so all subclasses are
+    registered on ``Command.__subclasses__()``.  Restricted to classes defined
+    in the ``protoboard.domain.commands`` package — throwaway ``Command``
+    subclasses that other test modules define (``_UnknownCmd``, ``_IncrCmd`` …)
+    also live on ``__subclasses__()`` once their module has imported, and must
+    not count as production gaps (this test's result would otherwise depend on
+    collection order).
+    """
+    import importlib
+    import pkgutil
+
+    import protoboard.domain.commands as cmd_pkg
+    from protoboard.domain.commands.base import Command
+
+    for mod in pkgutil.iter_modules(cmd_pkg.__path__):
+        importlib.import_module(f"protoboard.domain.commands.{mod.name}")
+
+    def walk(cls: type) -> set[type]:
+        out: set[type] = set()
+        for sub in cls.__subclasses__():
+            if sub.__module__.startswith("protoboard.domain.commands"):
+                out.add(sub)
+            out |= walk(sub)
+        return out
+
+    return walk(Command)
+
+
+class TestSerializationTotality:
+    """Every concrete Command a user action can put on the stack must be
+    registered for serialization — otherwise the recorder silently skips it
+    (``test_unknown_command_is_skipped``) and headless replay diverges from
+    the original session.
+
+    New commands that reach ``CommandStack.execute`` (directly or as a
+    ``MacroCommand`` member — the macro serializer recurses) MUST either be
+    registered in ``serialization.py`` or added to ``_INTENTIONALLY_UNREGISTERED``
+    below with a one-line reason.  A bare new command fails this test.
+    """
+
+    # Concrete Command subclasses that are deliberately NOT serialized, each
+    # with the reason it can never reach the recorder as a stack command.
+    _INTENTIONALLY_UNREGISTERED: dict[str, str] = {
+        # Abstract intermediate bases — never instantiated directly; their
+        # concrete subclasses are registered.  (Not caught by inspect.isabstract
+        # because they don't declare abstractmethods, only override contracts.)
+        "ConditionalCommand": "abstract base; subclasses are registered",
+        "GroupMembershipCommand": "abstract base; subclasses are registered",
+        # Dead legacy command — superseded by the drag pipeline
+        # (MoveDragSetCommand); no constructor call exists anywhere in src/.
+        "TranslateAnchoredWiresCommand": "dead code; never constructed",
+    }
+
+    def test_every_concrete_command_is_registered_or_excused(self) -> None:
+        from protoboard.services.recording.serialization import _TYPE_TO_NAME
+
+        registered = {t.__name__ for t in _TYPE_TO_NAME}
+        excused = set(self._INTENTIONALLY_UNREGISTERED)
+        concrete = {c.__name__ for c in _all_concrete_command_classes()}
+
+        missing = sorted(concrete - registered - excused)
+        assert missing == [], (
+            "Concrete Command subclasses with no serializer and no documented "
+            f"exclusion: {missing}. Register them in serialization.py, or add "
+            "them to _INTENTIONALLY_UNREGISTERED with a reason."
+        )
+
+    def test_exclusions_are_still_real_unregistered_classes(self) -> None:
+        # Guard the guard: an excused name that becomes registered (or is
+        # deleted) should be pruned from the exclusion list so it can't mask a
+        # future regression.
+        from protoboard.services.recording.serialization import _TYPE_TO_NAME
+
+        registered = {t.__name__ for t in _TYPE_TO_NAME}
+        concrete = {c.__name__ for c in _all_concrete_command_classes()}
+        for name in self._INTENTIONALLY_UNREGISTERED:
+            assert name in concrete, (
+                f"{name!r} in _INTENTIONALLY_UNREGISTERED is not a concrete "
+                "Command subclass any more — remove the stale exclusion."
+            )
+            assert name not in registered, (
+                f"{name!r} is now registered — remove it from "
+                "_INTENTIONALLY_UNREGISTERED."
+            )
+
+
+# ---------------------------------------------------------------------------
 # Recorder behavior
 # ---------------------------------------------------------------------------
+
+
+class TestNewlyRegisteredRoundtrip:
+    """Round-trip coverage for the commands registered to close the recorder
+    blind spot (drag / transform / drop / fuse / wire-pin convert / group flip).
+    Each was previously skipped silently, diverging replay.
+    """
+
+    def test_convert_endpoint_to_wire_pin(self) -> None:
+        from protoboard.domain.commands.component_cmds import (
+            ConvertEndpointToWirePinCommand,
+        )
+
+        wid, nid = uuid.uuid4(), uuid.uuid4()
+        cmd = ConvertEndpointToWirePinCommand(
+            wire_id=wid, endpoint="b", net_id=nid,
+        )
+        d = serialize_command(cmd)
+        assert d["type"] == "convert_endpoint_to_wire_pin"
+        r = deserialize_command(d)
+        assert isinstance(r, ConvertEndpointToWirePinCommand)
+        assert r.wire_id == wid and r.endpoint == "b" and r.net_id == nid
+
+    def test_convert_endpoint_none_net(self) -> None:
+        from protoboard.domain.commands.component_cmds import (
+            ConvertEndpointToWirePinCommand,
+        )
+
+        cmd = ConvertEndpointToWirePinCommand(
+            wire_id=uuid.uuid4(), endpoint="a", net_id=None,
+        )
+        r = deserialize_command(serialize_command(cmd))
+        assert isinstance(r, ConvertEndpointToWirePinCommand)
+        assert r.net_id is None
+
+    def test_convert_wire_pin_to_endpoint(self) -> None:
+        from protoboard.domain.commands.component_cmds import (
+            ConvertWirePinToEndpointCommand,
+        )
+
+        wpid = uuid.uuid4()
+        r = deserialize_command(
+            serialize_command(ConvertWirePinToEndpointCommand(wire_pin_id=wpid))
+        )
+        assert isinstance(r, ConvertWirePinToEndpointCommand)
+        assert r.wire_pin_id == wpid
+
+    def test_drop_wires(self) -> None:
+        from protoboard.domain.commands.component_cmds import DropWiresCommand
+
+        ids = frozenset({uuid.uuid4(), uuid.uuid4()})
+        r = deserialize_command(
+            serialize_command(DropWiresCommand(wire_ids=ids))
+        )
+        assert isinstance(r, DropWiresCommand)
+        assert r.wire_ids == ids
+
+    def test_fuse_touching_wires_scoped_and_whole_layout(self) -> None:
+        from protoboard.domain.commands.component_cmds import (
+            FuseTouchingWiresCommand,
+        )
+
+        ids = frozenset({uuid.uuid4()})
+        scoped = deserialize_command(
+            serialize_command(FuseTouchingWiresCommand(wire_ids=ids))
+        )
+        assert isinstance(scoped, FuseTouchingWiresCommand)
+        assert scoped.wire_ids == ids
+        whole = deserialize_command(
+            serialize_command(FuseTouchingWiresCommand(wire_ids=None))
+        )
+        assert isinstance(whole, FuseTouchingWiresCommand)
+        assert whole.wire_ids is None
+
+    def test_flip_group(self) -> None:
+        from protoboard.domain.commands.group_cmds import FlipGroupCommand
+
+        gid = uuid.uuid4()
+        cmd = FlipGroupCommand(group_id=gid, axis="v", pivot=Point(3.0, 4.0))
+        d = serialize_command(cmd)
+        assert d["type"] == "flip_group"
+        r = deserialize_command(d)
+        assert isinstance(r, FlipGroupCommand)
+        assert r.group_id == gid and r.axis == "v"
+        assert r.pivot == Point(3.0, 4.0)
+
+    def test_flip_group_default_pivot(self) -> None:
+        from protoboard.domain.commands.group_cmds import FlipGroupCommand
+
+        r = deserialize_command(
+            serialize_command(FlipGroupCommand(group_id=uuid.uuid4(), axis="h"))
+        )
+        assert isinstance(r, FlipGroupCommand)
+        assert r.axis == "h" and r.pivot is None
+
+    def test_move_drag_set(self) -> None:
+        from protoboard.domain.commands.drag_cmds import MoveDragSetCommand
+        from protoboard.geometry import Vector
+
+        cid = uuid.uuid4()
+        old = ComponentPlacement(
+            component_id=cid, position=Point(0, 0), rotation=0, side="top",
+        )
+        new = ComponentPlacement(
+            component_id=cid, position=Point(2, 3), rotation=0, side="top",
+        )
+        wid = uuid.uuid4()
+        cmd = MoveDragSetCommand(
+            members={cid: (old, new)},
+            internal_wire_ids=frozenset({wid}),
+            dropped_wire_ids=frozenset(),
+            delta=Vector(2.0, 3.0),
+        )
+        d = serialize_command(cmd)
+        assert d["type"] == "move_drag_set"
+        r = deserialize_command(d)
+        assert isinstance(r, MoveDragSetCommand)
+        assert set(r.members) == {cid}
+        assert r.members[cid][1].position == Point(2, 3)
+        assert r.internal_wire_ids == frozenset({wid})
+        assert r.delta == Vector(2.0, 3.0)
+
+    def test_transform_drag_set(self) -> None:
+        from protoboard.domain.commands.drag_cmds import TransformDragSetCommand
+        from protoboard.domain.layout.wire import Fragment
+
+        cid, wid, kid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        old = ComponentPlacement(
+            component_id=cid, position=Point(0, 0), rotation=0, side="top",
+        )
+        new = ComponentPlacement(
+            component_id=cid, position=Point(0, 0), rotation=90, side="top",
+        )
+        cmd = TransformDragSetCommand(
+            members={cid: (old, new)},
+            wire_paths={wid: ([Point(0, 0), Point(1, 0)],
+                              [Point(0, 0), Point(0, 1)])},
+            wire_fragments={wid: (
+                [Fragment(path=[Point(0, 0), Point(1, 0)], side="top")],
+                [Fragment(path=[Point(0, 0), Point(0, 1)], side="top")],
+            )},
+            knot_positions={kid: (Point(1, 0), Point(0, 1))},
+        )
+        d = serialize_command(cmd)
+        assert d["type"] == "transform_drag_set"
+        r = deserialize_command(d)
+        assert isinstance(r, TransformDragSetCommand)
+        assert r.members[cid][1].rotation == 90
+        assert r.wire_paths[wid][1] == [Point(0, 0), Point(0, 1)]
+        assert r.wire_fragments[wid][1][0].path == [Point(0, 0), Point(0, 1)]
+        assert r.knot_positions[kid] == (Point(1, 0), Point(0, 1))
 
 
 class TestCommandRecorder:
