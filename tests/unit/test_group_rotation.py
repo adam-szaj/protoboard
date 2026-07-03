@@ -13,7 +13,7 @@ from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.commands.group_cmds import (
     RotateGroupCommand,
-    _rotate_point_around,
+    _rotation_about,
 )
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
@@ -59,8 +59,12 @@ def _make_placement(cid: uuid.UUID, x: float, y: float, rotation: int = 0) -> Co
 
 
 # ---------------------------------------------------------------------------
-# Unit tests for _rotate_point_around
+# Unit tests for _rotation_about (rotate a point CW about an origin)
 # ---------------------------------------------------------------------------
+
+def _rotate_point_around(p: Point, origin: Point, delta: int) -> Point:
+    return _rotation_about(origin, delta).apply(p)
+
 
 def test_rotate_around_0() -> None:
     p = Point(3.0, 1.0)

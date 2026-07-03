@@ -13,11 +13,15 @@ import pytest
 from protoboard.domain.commands.base import ComponentState
 from protoboard.domain.commands.group_cmds import (
     RotateAroundPointCommand,
-    _rotate_point_around,
+    _rotation_about,
 )
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point
+
+
+def _rotate_point_around(p: Point, origin: Point, delta: int) -> Point:
+    return _rotation_about(origin, delta).apply(p)
 
 
 @dataclass

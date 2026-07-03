@@ -13,25 +13,24 @@ from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.wire import transform_wire_geometry
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Transform2D, Vector
 
 if TYPE_CHECKING:
     from protoboard.domain.layout.placement import ComponentPlacement
 
 
-def _rotate_point_around(p: Point, origin: Point, delta: int) -> Point:
-    """Rotate *p* clockwise by *delta* degrees around *origin*."""
-    dx, dy = p.x - origin.x, p.y - origin.y
-    d = delta % 360
-    if d == 90:
-        rx, ry = dy, -dx
-    elif d == 180:
-        rx, ry = -dx, -dy
-    elif d == 270:
-        rx, ry = -dy, dx
-    else:
-        rx, ry = dx, dy
-    return Point(origin.x + rx, origin.y + ry)
+def _rotation_about(origin: Point, delta: int) -> Transform2D:
+    """Clockwise rotation by *delta* degrees about *origin* as one matrix.
+
+    ``translate(origin) ∘ R(delta) ∘ translate(-origin)`` — a point rotates
+    about an arbitrary pivot, wires and knots rotate through the same transform.
+    """
+    o = Vector(origin.x, origin.y)
+    return (
+        Transform2D.translation(o)
+        .compose(Transform2D.rotation(delta // 90))
+        .compose(Transform2D.translation(-o))
+    )
 
 
 @dataclass
@@ -74,6 +73,7 @@ def rotate_components_around(
     from protoboard.domain.layout.knot import JointKnot, WirePinKnot
     from protoboard.domain.layout.placement import ComponentPlacement
 
+    rotate = _rotation_about(origin, delta)
     old_placements: dict[uuid.UUID, ComponentPlacement] = {}
     for cid in comp_ids:
         pl = state.layout.placements.get(cid)
@@ -81,7 +81,7 @@ def rotate_components_around(
             continue
         old_placements[cid] = pl.copy()
         new_pl = pl.copy()
-        new_pl.position = _rotate_point_around(pl.position, origin, delta)
+        new_pl.position = rotate.apply(pl.position)
         new_pl.rotation = (pl.rotation + delta) % 360
         state.layout.placements[cid] = new_pl
 
@@ -90,16 +90,14 @@ def rotate_components_around(
         if wire.id not in wire_ids:
             continue
         old_wire_paths[wire.id] = list(wire.path)
-        transform_wire_geometry(
-            wire, lambda p: _rotate_point_around(p, origin, delta)
-        )
+        transform_wire_geometry(wire, rotate.apply)
         for ref in (wire.a, wire.b):
             if ref is None:
                 continue
             k = state.layout.knots.get(ref.id)
             if isinstance(k, (JointKnot, WirePinKnot)):
                 state.layout.knots[ref.id] = k.moved_to(
-                    _rotate_point_around(k.position, origin, delta)
+                    rotate.apply(k.position)
                 )
 
     return RotateSnapshot(
@@ -122,15 +120,13 @@ def restore_rotation(state: ComponentState, snap: RotateSnapshot) -> None:
 
     restore_placements(state.layout.placements, snap.old_placements)
 
-    inv_delta = (360 - snap.delta) % 360
+    unrotate = _rotation_about(snap.origin, snap.delta).inverse()
     for wire in state.layout.wires:
         if wire.id not in snap.old_wire_paths:
             continue
         # Path is restored verbatim from the snapshot; fragments are
         # inverse-rotated (their vertices weren't snapshotted).
-        transform_wire_geometry(
-            wire, lambda p: _rotate_point_around(p, snap.origin, inv_delta)
-        )
+        transform_wire_geometry(wire, unrotate.apply)
         wire.path = snap.old_wire_paths[wire.id]
         for ref in (wire.a, wire.b):
             if ref is None:
@@ -138,7 +134,7 @@ def restore_rotation(state: ComponentState, snap: RotateSnapshot) -> None:
             k = state.layout.knots.get(ref.id)
             if isinstance(k, (JointKnot, WirePinKnot)):
                 state.layout.knots[ref.id] = k.moved_to(
-                    _rotate_point_around(k.position, snap.origin, inv_delta)
+                    unrotate.apply(k.position)
                 )
 
 
