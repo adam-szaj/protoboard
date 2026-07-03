@@ -34,6 +34,9 @@ class PrismRenderer(PackageRenderer):
         z: float,
         theme: Theme,
     ) -> list[QGraphicsItem]:
+        radial = self._maybe_radial(positions, fill, border, alpha, z, theme)
+        if radial is not None:
+            return radial
         pkg = self._pkg
         if isinstance(pkg, _PkgPrism) and len(positions) >= 2:
             prism_items = self._draw_prism(

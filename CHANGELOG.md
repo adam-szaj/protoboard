@@ -36,6 +36,21 @@ Rendering of component bodies is now modular and user-extensible:
 167 body/parity tests pass unchanged; +13 new registry/lineage/discovery
 tests. Groundwork for per-kind silhouette renderers and the TO-220 plugin.
 
+### TO-220 metal tab restored — as the reference renderer plugin (2026-07-03)
+
+`library/renderers/to220.py` — `TO220Renderer(PrismRenderer)` with
+`renders = "TO-220"` — draws the radial prism body via `super().render_body()`
+and appends the light metal mounting tab (`theme.to220_tab_height_mm`), paying
+off the "TO-220 metal tab render" debt from docs/todo.md. The builtin plugin
+loads through the same `renderers/` discovery as user plugins (dogfooding).
+The radial top-view branch moved from `draw()` into
+`PackageRenderer.render_body()` (`_maybe_radial`), so subclasses extend any
+body — radial included — with the plain `super().render_body()` + extra-items
+pattern. Flipping the part flips the tab side (the pad axis carries the flip),
+matching the physical package. `vertical_flipped`/family lineage covered by
+`TestTO220Plugin`; legacy `TO92Body`/`TO220Body` deletion is now unblocked
+(tracked in docs/todo.md).
+
 ### Fix: kalibracja kółka w armed-rotate (wheel-bounce) (2026-06-19)
 
 Mysz emitująca kilka eventów `angleDelta` na jeden fizyczny step powodowała

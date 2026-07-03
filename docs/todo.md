@@ -244,20 +244,22 @@ rectangle** — the characteristic light metal mounting tab the legacy
 `TO220Body` drew (using `theme.to220_tab_height_mm`) was consciously dropped
 (user decision 2026-06-22: "goły prostokąt na razie").
 
-To restore it as part of the model — not a per-package renderer — give the
-`Prism` an optional tab feature (e.g. `tab_height_mm`, mirroring how the
-`Cylinder` carries `flat_radius_mm`/`flat_normal` for its D-shape) and have the
-radial-prism branch of `body_shapes._draw_radial` draw the tab strip when
-present.  That makes the tab reusable for other tab packages (TO-247, TO-126).
-The legacy `TO220Body` (and `TO92Body`) can then be removed once the prism path
-proves parity.  **Update (2026-07-03):** parity is already proven
-(`TestTO220PackageParity` / `TestTO92PackageParity` pass) and `body_shape_for`
-no longer dispatches to either legacy body — the named fallback test
-(`test_to220_footprint_returns_to220body`) no longer exists.  So `TO220Body` /
-`TO92Body` are now **fully dead code** (instantiated only by their own direct
-unit tests), not fallbacks.  Deleting them is unblocked — but fold the metal tab
-into `Prism` + `_draw_radial` FIRST, or the tab capability is lost with the
-class.  `GenericBody` stays (it is the live no-package 2-pin fallback).
+**DONE (2026-07-03) — restored as a renderer plugin.** With the modular
+renderer architecture (lineage-dispatched `PackageRenderer` hierarchy +
+`renderers/` plugin discovery, see docs/rendering.md §4.1-4.2), the tab is
+drawn by `library/renderers/to220.py` — `TO220Renderer(PrismRenderer)` with
+`renders = "TO-220"` extends `super().render_body()` with the metal tab strip
+(guarded by `tests/gui/test_renderer_registry.py::TestTO220Plugin`).  This
+supersedes the earlier "fold the tab into `Prism` + `_draw_radial`" plan: the
+per-*family* renderer is now the sanctioned extension mechanism (user
+decision 2026-07-03), and TO-247 / TO-126 get their tabs by registering for
+their own family names (or by a shared renderer registered for several keys).
+
+Remaining follow-up: `TO220Body` / `TO92Body` are **fully dead code**
+(parity proven by `TestTO220PackageParity` / `TestTO92PackageParity`;
+production dispatch never reaches them; the tab capability now lives in the
+plugin).  Repoint their remaining direct unit tests at the package renderers,
+then delete both classes.  `GenericBody` stays (the live no-package fallback).
 
 ## PNG export crashed on save — FIXED (2026-07-03)
 

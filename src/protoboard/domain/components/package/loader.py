@@ -449,9 +449,11 @@ def build_package(
     shape = merged.get("shape")
     if shape not in SHAPE_REGISTRY:
         raise PackageDefError(f"{pkg}: unknown or missing shape {shape!r}")
-    # Lineage is root-first and always starts at the shape name, so renderer
-    # dispatch can fall back to the per-shape base renderer.
-    if not lineage or lineage[0] != shape:
+    # Lineage is root-first and always contains the shape name, so renderer
+    # dispatch can fall back to the per-shape base renderer.  Chains rooted at
+    # the abstract ``package`` base already pass through the shape generic
+    # (e.g. ``package → prism → prism_radial``) — only prepend when absent.
+    if shape not in lineage:
         lineage = (str(shape), *lineage)
     leads = build_leads(merged, pkg)
     dims = merged.get("dims") or {}

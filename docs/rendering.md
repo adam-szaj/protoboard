@@ -227,13 +227,20 @@ defining a registered subclass is the entire plugin:
 from protoboard.gui.renderers.packages import PrismRenderer
 
 class TO220Renderer(PrismRenderer):
-    renders = "to220"                      # lineage name of the TO-220 package
+    renders = "TO-220"                     # family id on the package lineage
 
     def render_body(self, positions, fill, border, alpha, z, theme):
         items = super().render_body(positions, fill, border, alpha, z, theme)
         items.append(self._metal_tab(...))  # extra geometry on top of the prism
         return items
 ```
+
+The **reference plugin is `library/renderers/to220.py`** (the builtin library
+ships it, loaded through the exact same discovery path as user plugins): the
+TO-220 family renders the radial prism rectangle via `super().render_body()`
+and appends the light metal mounting tab. Registering a family id covers every
+variant of the family; a variant leaf name (`"TO-220/std"`) would be more
+specific and win.
 
 A plugin that fails to import is logged and skipped — one broken file never
 blocks the rest of the library. Plugins are ordinary Python executed in the

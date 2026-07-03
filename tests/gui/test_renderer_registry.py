@@ -22,6 +22,7 @@ from protoboard.domain.components.package.loader import (
     extends_chain,
     load_packages,
 )
+from protoboard.geometry import Point
 from protoboard.gui.renderers.body_shapes import PackageBody
 from protoboard.gui.renderers.packages import (
     BODY_RENDERERS,
@@ -185,3 +186,49 @@ class TestPluginDiscovery:
 
     def test_missing_renderers_dir_is_fine(self, tmp_path: Path) -> None:
         assert load_renderer_plugins([tmp_path]) == []
+
+
+# ---------------------------------------------------------------------------
+# TO-220 builtin plugin — the reference plugin, loaded via the same discovery
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def to220_package():
+    from protoboard.services.library.package_family_loader import (
+        load_full_package_catalogue,
+    )
+    family = load_full_package_catalogue()["TO-220"]
+    return family.variants[0].package
+
+
+class TestTO220Plugin:
+    def test_family_lineage_carries_family_id(self, to220_package) -> None:
+        assert "prism_radial" in to220_package.lineage
+        assert to220_package.lineage[-2:] == ("TO-220", "TO-220/std")
+
+    def test_builtin_plugin_registers_and_draws_tab(
+        self, qtbot, to220_package,
+    ) -> None:
+        from PySide6.QtGui import QColor
+
+        from protoboard.gui.theme import DEFAULT_THEME
+        from protoboard.paths import BUILTIN_LIBRARY_DIR
+
+        loaded = load_renderer_plugins([BUILTIN_LIBRARY_DIR])
+        assert any(p.name == "to220.py" for p in loaded)
+        assert "TO-220" in BODY_RENDERERS
+
+        pads = [Point(0.0, 0.0), Point(1.0, 0.0), Point(2.0, 0.0)]
+        fill = QColor("#888888")
+        border = QColor("#222222")
+
+        base_items = PrismRenderer(to220_package).draw(
+            pads, fill, border, 1.0, 5.0, DEFAULT_THEME)
+        plugin_items = PackageBody(to220_package).draw(
+            pads, fill, border, 1.0, 5.0, DEFAULT_THEME)
+        # Lineage dispatch picks the plugin, which adds exactly one item —
+        # the light metal tab strip on top of the plastic body.
+        assert type(PackageBody(to220_package)).__name__ == "TO220Renderer"
+        assert len(plugin_items) == len(base_items) + 1
+        tab = plugin_items[-1]
+        assert tab.zValue() > max(i.zValue() for i in base_items)

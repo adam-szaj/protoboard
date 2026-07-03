@@ -35,6 +35,9 @@ class CylinderRenderer(PackageRenderer):
         z: float,
         theme: Theme,
     ) -> list[QGraphicsItem]:
+        radial = self._maybe_radial(positions, fill, border, alpha, z, theme)
+        if radial is not None:
+            return radial
         pkg = self._pkg
         if isinstance(pkg, _PkgCylinder) and len(positions) >= 2:
             return self._draw_cylinder(pkg, positions, fill, border, alpha, z,

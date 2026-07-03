@@ -318,21 +318,6 @@ class PackageRenderer(BodyShape):
         if not positions:
             return []
         fill, border = self._resolve_colors(fill, border)
-        # Radial 2-pin: top-view silhouette on the anchor pad (vertical_flipped
-        # swaps which pad anchors).  Everything else is a side view.
-        if self._arrangement is LeadArrangement.RADIAL and len(positions) >= 2:
-            if self._vertical_flipped:
-                p1, p2 = positions[1], positions[0]
-            else:
-                p1, p2 = positions[0], positions[1]
-            if math.hypot(p2.x - p1.x, p2.y - p1.y) >= 1e-9:
-                # The ``-`` marker sits towards the physical cathode (pin 2),
-                # independent of the p1/p2 swap above.
-                neg_pin = positions[1]
-                return self._draw_radial(
-                    p1, p2, neg_pin, fill, border, alpha, z, theme,
-                    pads=positions,
-                )
         return self.render_body(positions, fill, border, alpha, z, theme)
 
     def render_body(
@@ -344,8 +329,54 @@ class PackageRenderer(BodyShape):
         z: float,
         theme: Theme,
     ) -> list[QGraphicsItem]:
-        """The shape-specific (non-radial) body. Default: the bbox rectangle."""
+        """The body silhouette — THE override point for renderer subclasses.
+
+        A subclass adds geometry by extending the base drawing::
+
+            def render_body(self, positions, fill, border, alpha, z, theme):
+                items = super().render_body(positions, fill, border, alpha, z, theme)
+                items.append(...)   # e.g. the TO-220 metal tab
+                return items
+
+        The default draws the radial top-view when the arrangement calls for
+        it, else the bbox rectangle.  Shape subclasses keep the same radial
+        precedence and insert their side-view drawing between the two.
+        """
+        radial = self._maybe_radial(positions, fill, border, alpha, z, theme)
+        if radial is not None:
+            return radial
         return self._draw_bbox(positions, fill, border, alpha, z, theme)
+
+    def _maybe_radial(
+        self,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme,
+    ) -> list[QGraphicsItem] | None:
+        """The radial top-view branch, or ``None`` when it does not apply.
+
+        Radial 2-pin: top-view silhouette on the anchor pad (vertical_flipped
+        swaps which pad anchors).  Everything else is a side view drawn by the
+        shape subclass.
+        """
+        if self._arrangement is not LeadArrangement.RADIAL or len(positions) < 2:
+            return None
+        if self._vertical_flipped:
+            p1, p2 = positions[1], positions[0]
+        else:
+            p1, p2 = positions[0], positions[1]
+        if math.hypot(p2.x - p1.x, p2.y - p1.y) < 1e-9:
+            return None
+        # The ``-`` marker sits towards the physical cathode (pin 2),
+        # independent of the p1/p2 swap above.
+        neg_pin = positions[1]
+        return self._draw_radial(
+            p1, p2, neg_pin, fill, border, alpha, z, theme,
+            pads=positions,
+        )
 
     def drawn_pin_numbers(
         self,
