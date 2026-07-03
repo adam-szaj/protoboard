@@ -111,7 +111,7 @@ Common fields on a package:
 | `extends` | Name of a package to inherit from and close (deep-merge, §4). |
 | `abstract: true` | A base meant only for `extends`, never used directly. |
 | `dims` | Body dimensions in **mm** (datasheet numbers). |
-| `color` | Body fill, `#rrggbb` (see §8). |
+| `color` | Body fill, `#rrggbb` or `#rrggbbaa` (CSS order, alpha last; see §8). |
 | `edge` | `sharp` \| `rounded`. |
 | `margin` | (prism) PCB margin in mm from outer pin centres — when present, `dims` may be derived from the pin bbox. |
 | `bend` | Lead "give": one radius in **holes** the pin may move from its default (rigid = `0`). |
@@ -318,7 +318,7 @@ properties are supported:
 
 | Property | Meaning |
 |---|---|
-| `color` | `#rgb` / `#rrggbb` body fill; the border is derived by darkening. |
+| `color` | `#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa` body fill (CSS channel order — **alpha last**); the border is derived by darkening. A declared alpha (e.g. `#ff000080` ≈ 50 % red, a translucent LED lens) **multiplies** with the layer alpha at render time (ghosting/back-side dimming), it does not replace it. |
 | `corner-radius` | 1–4 bare millimetre numbers in CSS `border-radius` order. **`0` = sharp (square)**, **`> 0` = rounded** with that radius; overrides the package edge either way. |
 
 An unknown property is an error; a duplicate property keeps the **last**

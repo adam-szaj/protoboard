@@ -36,6 +36,17 @@ Rendering of component bodies is now modular and user-extensible:
 167 body/parity tests pass unchanged; +13 new registry/lineage/discovery
 tests. Groundwork for per-kind silhouette renderers and the TO-220 plugin.
 
+### Body colours accept an alpha channel — CSS `#rrggbbaa` / `#rgba` (2026-07-03)
+
+`style: "color: …"` (definition and instance) and the package-level `color:`
+now accept 4- and 8-digit CSS hex colours with the alpha channel **last**
+(`#ff000080` ≈ 50 % red — translucent LED lenses). The value is stored in the
+authored CSS form; `qcolor_from_css` (`gui/renderers/packages`) reorders to
+Qt's alpha-first form at the single QColor construction point. The declared
+alpha **multiplies** with the layer alpha (ghosting / back-side dimming).
+Previously an 8-digit colour failed validation and **aborted the whole library
+load** (`SerializationError` on `leds.yaml`-style entries).
+
 ### TO-220 metal tab restored — as the reference renderer plugin (2026-07-03)
 
 `library/renderers/to220.py` — `TO220Renderer(PrismRenderer)` with

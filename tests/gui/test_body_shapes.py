@@ -877,6 +877,31 @@ class TestAppearanceOverride:
         assert self._body_brush(plain.draw(pts, _RED, _DARK, 1.0,
                                            _Z)).name() == "#cdd2d6"
 
+    def test_color_alpha_channel_flows_to_brush(self, qtbot: QtBot) -> None:
+        # CSS #rrggbbaa (alpha last): the declared alpha lands on the body
+        # brush and MULTIPLIES with the layer alpha (ghosting/dimming) rather
+        # than replacing it.
+        from protoboard.domain.components.appearance import Appearance
+        pkg = _colored_prism("#cdd2d6")
+        body = PackageBody(
+            pkg,
+            appearance=Appearance(color="#1a1a1a80"))  # type: ignore[arg-type]
+        pts = _pts((0, 0), (1, 0))
+        brush = self._body_brush(body.draw(pts, _RED, _DARK, 1.0, _Z))
+        assert brush.name() == "#1a1a1a"
+        assert brush.alphaF() == pytest.approx(0x80 / 255, abs=0.01)
+        dimmed = self._body_brush(body.draw(pts, _RED, _DARK, 0.5, _Z))
+        assert dimmed.alphaF() == pytest.approx(0.5 * 0x80 / 255, abs=0.01)
+
+    def test_package_color_alpha_channel(self, qtbot: QtBot) -> None:
+        # The package-level ``color:`` uses the same CSS convention.
+        pkg = _colored_prism("#cdd2d680")
+        brush = self._body_brush(
+            PackageBody(pkg).draw(  # type: ignore[arg-type]
+                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z))
+        assert brush.name() == "#cdd2d6"
+        assert brush.alphaF() == pytest.approx(0x80 / 255, abs=0.01)
+
     def test_dip_body_fill_follows_override(self, qtbot: QtBot) -> None:
         from protoboard.domain.components.appearance import Appearance
         body = PackageBody(  # type: ignore[arg-type]

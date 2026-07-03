@@ -92,6 +92,25 @@ def _darken(c: QColor) -> QColor:
     return c.darker(150)
 
 
+def qcolor_from_css(value: str) -> QColor:
+    """``QColor`` from a CSS hex colour string.
+
+    CSS puts the alpha channel LAST (``#rrggbbaa`` / ``#rgba``); Qt's
+    ``QColor`` constructor expects it FIRST (``#aarrggbb`` / ``#argb``).
+    Reorder the 4- and 8-digit forms; every other value passes through
+    unchanged.  All colours authored in YAML (``style:`` strings, package
+    ``color:``) use the CSS convention.
+    """
+    v = value.strip()
+    if v.startswith("#"):
+        digits = v[1:]
+        if len(digits) == 8:
+            return QColor(f"#{digits[6:]}{digits[:6]}")
+        if len(digits) == 4:
+            return QColor(f"#{digits[3]}{digits[:3]}")
+    return QColor(v)
+
+
 def _package_corner_radius(pkg: Package) -> float:
     """Corner radius (mm) declared by the package shape, or 0.
 
@@ -280,13 +299,13 @@ class PackageRenderer(BodyShape):
         """
         override = self._appearance.color
         if override is not None:
-            override_fill = QColor(override)
+            override_fill = qcolor_from_css(override)
             if override_fill.isValid():
                 return override_fill, _darken(override_fill)
         pkg_color = getattr(self._pkg, "color", None)
         if pkg_color is None:
             return fill, border
-        body_fill = QColor(pkg_color)
+        body_fill = qcolor_from_css(pkg_color)
         if not body_fill.isValid():
             return fill, border
         return body_fill, _darken(body_fill)

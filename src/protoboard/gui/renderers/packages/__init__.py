@@ -15,6 +15,7 @@ from protoboard.gui.renderers.packages.base import (
     BodyShape,
     GenericBody,
     PackageRenderer,
+    qcolor_from_css,
     renderer_for,
 )
 from protoboard.gui.renderers.packages.cylinder import CylinderRenderer
@@ -31,5 +32,6 @@ __all__ = [
     "PackageRenderer",
     "PrismRenderer",
     "load_renderer_plugins",
+    "qcolor_from_css",
     "renderer_for",
 ]

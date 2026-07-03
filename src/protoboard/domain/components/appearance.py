@@ -19,9 +19,12 @@ It is authored as a single CSS-like ``style:`` string, e.g.::
 
 Grammar: ``;``-separated declarations, each ``property: value`` (the first ``:``
 splits property from value). Property names use the CSS hyphen. Supported
-properties are ``color`` (``#rgb`` / ``#rrggbb``) and ``corner-radius`` (1–4 bare
-millimetre numbers, CSS ``border-radius`` order). Unknown properties are an error;
-a duplicate property keeps the last declaration (CSS behaviour).
+properties are ``color`` (``#rgb`` / ``#rgba`` / ``#rrggbb`` / ``#rrggbbaa`` —
+CSS convention, the alpha channel LAST; the renderer reorders it for Qt) and
+``corner-radius`` (1–4 bare millimetre numbers, CSS ``border-radius`` order).
+Unknown properties are an error; a duplicate property keeps the last
+declaration (CSS behaviour). A declared alpha multiplies with the layer alpha
+at render time (ghosting/dimming), it does not replace it.
 
 ``corner-radius`` follows a single convention: ``0`` = sharp (square) corners,
 ``> 0`` = rounded with that radius in millimetres (like ``dims``). It is stored as
@@ -34,14 +37,16 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-_HEX_RE = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})\Z")
+_HEX_RE = re.compile(
+    r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\Z")
 
 
 @dataclass(frozen=True, slots=True)
 class Appearance:
     """A visual-only override of a body's fill colour and corner radius.
 
-    ``color`` is a ``#rgb`` / ``#rrggbb`` hex string, or ``None`` to inherit.
+    ``color`` is a ``#rgb`` / ``#rgba`` / ``#rrggbb`` / ``#rrggbbaa`` hex
+    string (CSS channel order — alpha last), or ``None`` to inherit.
     ``corner_radius_mm`` is a tuple of 1–4 radii in millimetres (CSS
     ``border-radius`` order), each ``0`` for sharp / ``> 0`` for rounded, or
     ``None`` to inherit the package's edge behaviour. The render path currently
@@ -121,7 +126,8 @@ def _fmt_mm(value: float) -> str:
 def _validate_hex(value: str, ctx: str) -> str:
     if not _HEX_RE.match(value):
         raise ValueError(
-            f"{ctx}: color must be a #rgb or #rrggbb hex string, got {value!r}"
+            f"{ctx}: color must be a #rgb / #rgba / #rrggbb / #rrggbbaa hex "
+            f"string (CSS order, alpha last), got {value!r}"
         )
     return value
 

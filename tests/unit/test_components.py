@@ -86,6 +86,22 @@ class TestAppearance:
         with pytest.raises(ValueError):
             parse_style("corner-radius: 1 1 1 1 1", ctx="t")  # > 4 values
 
+    def test_parse_alpha_hex_forms(self) -> None:
+        # CSS channel order — alpha LAST (#rrggbbaa / #rgba); stored verbatim,
+        # the renderer reorders for Qt (qcolor_from_css).
+        from protoboard.domain.components.appearance import (
+            Appearance,
+            parse_style,
+        )
+        assert parse_style("color: #ff000080", ctx="t") == Appearance(
+            color="#ff000080")
+        assert parse_style("color: #f008", ctx="t") == Appearance(
+            color="#f008")
+        with pytest.raises(ValueError):
+            parse_style("color: #ff00080", ctx="t")      # 7 digits
+        with pytest.raises(ValueError):
+            parse_style("color: #ff0000801", ctx="t")    # 9 digits
+
     def test_to_style_string_roundtrip(self) -> None:
         from protoboard.domain.components.appearance import (
             Appearance,
@@ -93,6 +109,7 @@ class TestAppearance:
         )
         for a in (
             Appearance(color="#1a1a1a"),
+            Appearance(color="#1a1a1a80"),
             Appearance(corner_radius_mm=(0.4,)),
             Appearance(color="#1a1a1a", corner_radius_mm=(0.3,)),
             Appearance(corner_radius_mm=(2.0, 2.0, 0.0, 0.0)),
