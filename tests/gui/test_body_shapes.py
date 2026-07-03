@@ -78,6 +78,31 @@ def _pts(*coords: tuple[float, float]) -> list[Point]:
     return [Point(x, y) for x, y in coords]
 
 
+def _path_is_rounded(item: QGraphicsPathItem) -> bool:
+    """True when the item's path has curved (rounded) corners.
+
+    The bbox body draws through a placed ``QPainterPath`` (so it can rotate with
+    the pins), so square vs rounded corners is a path-geometry distinction, not a
+    ``QGraphicsRectItem`` vs ``QGraphicsPathItem`` type distinction: a square
+    corner is straight line/move elements, a rounded one adds ``CurveToElement``.
+    """
+    from PySide6.QtGui import QPainterPath
+
+    path = item.path()
+    curve = QPainterPath.ElementType.CurveToElement
+    return any(path.elementAt(i).type == curve for i in range(path.elementCount()))
+
+
+def _largest_path(items: list[QGraphicsItem]) -> QGraphicsPathItem:
+    """The biggest ``QGraphicsPathItem`` — the body fill, not the pin-1 marker."""
+    paths = [it for it in items if isinstance(it, QGraphicsPathItem)]
+    return max(
+        paths,
+        key=lambda it: it.sceneBoundingRect().width()
+        * it.sceneBoundingRect().height(),
+    )
+
+
 def _make_defn(
     cls: ComponentClass,
     n_pins: int,
@@ -553,18 +578,21 @@ class TestDeclaredKindSilhouette:
             prism)  # type: ignore[arg-type]
 
     def test_dip_switch_renders_without_notch(self, qtbot: QtBot) -> None:
-        # End-to-end: a dip_switch body draws the plain bbox (a rect), not the
-        # notched path a column-guessed DIP would produce.
+        # End-to-end: a dip_switch body draws the plain bbox rectangle, not the
+        # notched silhouette a column-guessed DIP would produce.  Both bodies are
+        # placed QGraphicsPathItems (so they rotate with the pins); the
+        # distinction is the notch — the plain bbox rectangle is a 4-corner path,
+        # the dip_ic silhouette carries extra elements for the pin-1 notch.
         sw = _kind_pkg("dip_switch", 8)
         ic = _kind_pkg("dip_ic", 8)
-        sw_items = PackageBody(sw).draw(  # type: ignore[arg-type]
-            _dip8_positions(), _RED, _DARK, 1.0, _Z)
-        ic_items = PackageBody(ic).draw(  # type: ignore[arg-type]
-            _dip8_positions(), _RED, _DARK, 1.0, _Z)
-        # dip_switch → plain bbox rect; dip_ic → notched path.
-        assert any(isinstance(it, QGraphicsRectItem) for it in sw_items)
-        assert any(isinstance(it, QGraphicsPathItem) for it in ic_items)
-        assert not any(isinstance(it, QGraphicsPathItem) for it in sw_items)
+        sw_body = _largest_path(PackageBody(sw).draw(  # type: ignore[arg-type]
+            _dip8_positions(), _RED, _DARK, 1.0, _Z))
+        ic_body = _largest_path(PackageBody(ic).draw(  # type: ignore[arg-type]
+            _dip8_positions(), _RED, _DARK, 1.0, _Z))
+        # The plain bbox rectangle is a simple 5-element closed rect; the notched
+        # DIP silhouette has strictly more path elements (the notch geometry).
+        assert sw_body.path().elementCount() <= 6
+        assert ic_body.path().elementCount() > sw_body.path().elementCount()
 
 
 class TestConnectorKind:
@@ -861,9 +889,10 @@ class TestAppearanceOverride:
 
     def test_corner_radius_zero_is_square_gt0_is_rounded(self,
                                                          qtbot: QtBot) -> None:
-        # The bbox/devboard path: override 0 → QGraphicsRectItem (square),
-        # > 0 → QGraphicsPathItem (rounded). Use a 3-column prism (no silhouette
-        # → bbox path).
+        # The bbox/devboard path: override 0 → square body path, > 0 → rounded
+        # body path.  Use a 3-column prism (no silhouette → bbox path).  The
+        # body is always a placed QGraphicsPathItem (so it rotates with the
+        # pins); square vs rounded is read off the path geometry.
         from protoboard.domain.components.appearance import Appearance
         prism = _bbox_prism_package()
         sharp = PackageBody(  # type: ignore[arg-type]
@@ -873,11 +902,10 @@ class TestAppearanceOverride:
             prism,
             appearance=Appearance(corner_radius_mm=(0.5, )))
         pts = _bbox_prism_positions()
-        s_items = sharp.draw(pts, _RED, _DARK, 1.0, _Z)
-        r_items = rounded.draw(pts, _RED, _DARK, 1.0, _Z)
-        assert any(isinstance(it, QGraphicsRectItem) for it in s_items)
-        assert not any(isinstance(it, QGraphicsRectItem) for it in r_items)
-        assert any(isinstance(it, QGraphicsPathItem) for it in r_items)
+        s_body = _largest_path(sharp.draw(pts, _RED, _DARK, 1.0, _Z))
+        r_body = _largest_path(rounded.draw(pts, _RED, _DARK, 1.0, _Z))
+        assert not _path_is_rounded(s_body)
+        assert _path_is_rounded(r_body)
 
 
 class TestDevboardBody:
@@ -1325,11 +1353,15 @@ class TestPackageBodyColor:
 
     def test_sharp_edge_squares_prism_corners(self, qtbot: QtBot) -> None:
         # A bbox prism (no DIP/SIL silhouette) honours edge style: corner_radius
-        # is declared but edge=sharp forces 0 → a plain QGraphicsRectItem.
+        # is declared but edge=sharp forces 0 → a square (non-rounded) body path.
+        # (The body is a placed QPainterPath so it rotates with the pins; square
+        # vs rounded is a path-geometry distinction, not a Rect-vs-Path type one.)
         shape = PackageBody(
             _bbox_prism_package(edge="sharp"))  # type: ignore[arg-type]
         items = shape.draw(_bbox_prism_positions(), _RED, _DARK, 1.0, _Z)
-        assert isinstance(self._body_item(items), QGraphicsRectItem)
+        body = self._body_item(items)
+        assert isinstance(body, QGraphicsPathItem)
+        assert not _path_is_rounded(body)
 
     def test_rounded_edge_rounds_prism_corners(self, qtbot: QtBot) -> None:
         shape = PackageBody(

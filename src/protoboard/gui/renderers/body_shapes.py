@@ -1103,28 +1103,26 @@ class PackageBody(BodyShape):
 
         # bbox() is in the package-local frame (pin 1 at the origin); its x/y is
         # the body's top-left there (negative for a body centred on the pin
-        # cloud).  Shift it onto the placed pins by the anchor (pin 1) world pos.
-        anchor = positions[0]
-        x0 = anchor.x + box.x
-        y0 = anchor.y + box.y
+        # cloud).  Build the rectangle in that LOCAL frame and place it through
+        # the SAME local→world transform the pins use (rotation + bottom-side
+        # reflection): reconstructing the rect in world coords and only shifting
+        # it by the anchor draws an axis-aligned box that ignores the placement
+        # rotation — the body then stays upright while the pins rotate.
         r = self._effective_corner_radius_mm() / theme.raster_pitch_mm
-        rect = QRectF(x0, y0, box.width, box.height)
+        local_rect = QRectF(box.x, box.y, box.width, box.height)
+        place = self._body_placement(positions)
+        path = QPainterPath()
+        if r > 0:
+            path.addRoundedRect(local_rect, r, r)
+        else:
+            path.addRect(local_rect)
+        path_item = QGraphicsPathItem(place.map(path))
         fill_c = QColor(fill)
         fill_c.setAlphaF(fill_c.alphaF() * alpha)
-        if r > 0:
-            path = QPainterPath()
-            path.addRoundedRect(rect, r, r)
-            path_item = QGraphicsPathItem(path)
-            path_item.setBrush(QBrush(fill_c))
-            path_item.setPen(_body_pen(border, alpha))
-            path_item.setZValue(z)
-            items: list[QGraphicsItem] = [path_item]
-        else:
-            rect_item = QGraphicsRectItem(rect)
-            rect_item.setBrush(QBrush(fill_c))
-            rect_item.setPen(_body_pen(border, alpha))
-            rect_item.setZValue(z)
-            items = [rect_item]
+        path_item.setBrush(QBrush(fill_c))
+        path_item.setPen(_body_pen(border, alpha))
+        path_item.setZValue(z)
+        items: list[QGraphicsItem] = [path_item]
         # A dev-board's pins sit on the PCB's top surface — mark each with a
         # faint pad-sized ring (the click-active area) drawn on top of the body.
         # The real pin glyph / modifier is drawn by the component renderer on a
