@@ -217,7 +217,9 @@ def _build_component_package(name: str,
     node = {**raw, "name": name}
     registry[name] = node
     merged = resolve_extends(name, registry)
-    return build_package(merged, name)
+    from protoboard.domain.components.package.loader import extends_chain
+    return build_package(
+        merged, name, lineage=extends_chain(name, registry))
 
 
 @dataclass

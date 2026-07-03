@@ -94,6 +94,28 @@ def resolve_extends(name: str, registry: dict[str,
     return _resolve(name)
 
 
+def extends_chain(name: str, registry: dict[str, PackageDict]) -> tuple[str, ...]:
+    """The ``extends`` ancestry of *name*, root-first (root, …, name).
+
+    Mirrors the walk in :func:`resolve_extends` (including its cycle guard) but
+    collects the chain of *names* instead of merging values. Feeds the package
+    ``lineage`` used by renderer dispatch.
+    """
+    chain: list[str] = []
+    seen: set[str] = set()
+    n: str | None = name
+    while n is not None:
+        if n in seen:
+            raise PackageDefError(f"cyclic extends involving {n!r}")
+        seen.add(n)
+        if n not in registry:
+            raise PackageDefError(f"unknown package {n!r} in extends")
+        chain.append(n)
+        parent = registry[n].get("extends")
+        n = None if parent is None else str(parent)
+    return tuple(reversed(chain))
+
+
 # --------------------------------------------------------------------------- #
 # Leads construction
 # --------------------------------------------------------------------------- #
@@ -417,11 +439,20 @@ def _resolved_values(merged: PackageDict) -> dict[str, Any]:
 
 
 @traced("build_package")
-def build_package(merged: PackageDict, pkg: str) -> Package:
+def build_package(
+    merged: PackageDict,
+    pkg: str,
+    *,
+    lineage: tuple[str, ...] = (),
+) -> Package:
     merged, schema, raw_values = _apply_schema(merged, pkg)
     shape = merged.get("shape")
     if shape not in SHAPE_REGISTRY:
         raise PackageDefError(f"{pkg}: unknown or missing shape {shape!r}")
+    # Lineage is root-first and always starts at the shape name, so renderer
+    # dispatch can fall back to the per-shape base renderer.
+    if not lineage or lineage[0] != shape:
+        lineage = (str(shape), *lineage)
     leads = build_leads(merged, pkg)
     dims = merged.get("dims") or {}
     bend = float(merged.get("bend", 0.0))
@@ -448,6 +479,7 @@ def build_package(merged: PackageDict, pkg: str) -> Package:
             flat_normal=_flat_normal(dims.get("flat_normal"), pkg),
             schema=schema,
             raw_values=raw_values,
+            lineage=lineage,
         )
     if shape == "disc":
         return Disc(
@@ -467,6 +499,7 @@ def build_package(merged: PackageDict, pkg: str) -> Package:
             color=color,
             schema=schema,
             raw_values=raw_values,
+            lineage=lineage,
         )
     # prism
     margin = _margin_insets(merged.get("margin"))
@@ -489,6 +522,7 @@ def build_package(merged: PackageDict, pkg: str) -> Package:
         mount_points=_mount_points(merged.get("mount_points"), pkg),
         schema=schema,
         raw_values=raw_values,
+        lineage=lineage,
     )
 
 
@@ -501,5 +535,6 @@ def load_packages(raw_list: list[PackageDict]) -> dict[str, Package]:
         if node.get("abstract"):
             continue
         merged = resolve_extends(name, registry)
-        out[name] = build_package(merged, name)
+        out[name] = build_package(
+            merged, name, lineage=extends_chain(name, registry))
     return out

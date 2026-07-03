@@ -161,10 +161,10 @@ budget from ~700–900 ms to ~85 ms (see [performance.md](performance.md),
 
 ---
 
-## 4. Choosing a component body — `body_shape_for`
+## 4. Choosing a component body — `body_shape_for` + the renderer registry
 
 The decision "how do I draw this component?" is `body_shape_for(defn, placement,
-instance, package_families)` (`gui/renderers/body_shapes.py:1132`). It is
+instance, package_families)` (`gui/renderers/body_shapes.py`). It is
 deliberately a **two-branch** dispatch:
 
 ```
@@ -184,22 +184,62 @@ the source-of-truth rule.
 
 > **Note:** `TO92Body` / `TO220Body` still exist as classes but are **not** in
 > this dispatch — they are exercised only by unit tests. In production, TO-92 and
-> TO-220 render through `PackageBody` (a flat-sided cylinder and a prism
+> TO-220 render through the package renderers (a flat-sided cylinder and a prism
 > respectively). See [footprints/package-model.md](footprints/package-model.md).
 
-### 4.1 `PackageBody` internal dispatch
+### 4.1 Renderer hierarchy — lineage dispatch (`gui/renderers/packages/`)
 
-`PackageBody.draw()` (`body_shapes.py:476`) picks the drawing by the package's
-lead **arrangement** and shape:
+`PackageBody(pkg, …)` constructs a `PackageRenderer` subclass picked by
+`renderer_for(pkg)` (`packages/base.py`): the package's **`lineage`** — its
+ancestry root-first, e.g. `("cylinder", "cylinder_axial", "DO-35")` or
+`("prism", "dip_ic")`, stamped by the package loaders — is walked **leaf-first**
+against the `BODY_RENDERERS` registry. The most specific registered renderer
+wins; an unknown name steps outward towards the shape root, so rendering never
+blocks on a package the registry does not know.
 
-- **RADIAL** (electrolytic, TO-92 upright, disc cap) → `_draw_radial` — a
-  top-down silhouette centred on the leads' centroid, with a lead stub to each
-  pad. An axial-vertical part instead stands over one pad (`_radial_disc`).
-- **AXIAL cylinder** → `_draw_cylinder` — the body between the two pads.
-- **PRISM** → `_draw_prism` — a multi-pin box, whose outline comes from the
-  silhouette below.
+```
+PackageRenderer            # shared: colours/appearance, placement transform,
+│                          # radial top-view machinery, bbox fallback
+├── CylinderRenderer       # renders = "cylinder": axial capsule, upright disc
+├── PrismRenderer          # renders = "prism": DIP/SIL silhouette, SMD chip
+└── DiscRenderer           # renders = "disc": radial lens (base radial branch)
+```
 
-### 4.2 Prism silhouette — declared `kind` first
+`PackageRenderer.draw()` handles the **RADIAL** arrangement once for every
+shape (top-down silhouette on the lead centroid, a lead stub per pad; an
+axial-vertical part instead stands over one pad — `_radial_disc`); everything
+else goes to the subclass's `render_body()`.
+
+**Registration is declarative:** a subclass that sets `renders = "<name>"`
+enters the registry at class-creation time (`__init_subclass__`); later
+registrations win, so user code overrides builtins. A subclass *without* its
+own `renders` inherits behaviour but never steals its parent's slot.
+
+### 4.2 Renderer plugins (`renderers/` in a library dir)
+
+Any component-library directory (`component_library_dirs`) may carry a
+`renderers/` subdirectory. Every `*.py` in it is imported at library load and
+on a preferences reload (`load_renderer_plugins`, `packages/discovery.py`);
+defining a registered subclass is the entire plugin:
+
+```python
+# <library>/renderers/to220.py
+from protoboard.gui.renderers.packages import PrismRenderer
+
+class TO220Renderer(PrismRenderer):
+    renders = "to220"                      # lineage name of the TO-220 package
+
+    def render_body(self, positions, fill, border, alpha, z, theme):
+        items = super().render_body(positions, fill, border, alpha, z, theme)
+        items.append(self._metal_tab(...))  # extra geometry on top of the prism
+        return items
+```
+
+A plugin that fails to import is logged and skipped — one broken file never
+blocks the rest of the library. Plugins are ordinary Python executed in the
+application process (same trust level as the app itself).
+
+### 4.3 Prism silhouette — declared `kind` first
 
 `_draw_prism` gets its outline from `silhouette_for_prism(prism)`
 (`gui/renderers/prism_silhouette.py:210`):
@@ -218,7 +258,7 @@ unknown/absent kind falls back to the column guess so rendering never blocks on 
 kind it does not recognise. A dev-board module suppresses the silhouette entirely
 (plain PCB rectangle).
 
-### 4.3 Appearance
+### 4.4 Appearance
 
 Fill colour and corner radius are a visual-only override resolved per field,
 instance winning over definition: `Appearance.resolve(instance.appearance,

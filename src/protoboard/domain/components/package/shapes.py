@@ -113,10 +113,19 @@ class Package(ABC):
     Concrete shapes declare ``schema`` / ``raw_values`` as their own trailing
     dataclass fields (default ``None``, ``compare=False``) — keeping the existing
     positional field order intact — and this base unifies their type.
+
+    ``lineage`` is the package's ancestry, root-first: the ``shape`` name
+    followed by every name on the resolved ``extends`` chain (and the ``kind``
+    for generator-built bodies), e.g. ``("cylinder", "cylinder_axial",
+    "DO-35")``.  Renderer dispatch walks it leaf-first so the most specific
+    registered renderer wins and unknown names fall back towards the shape
+    root (see ``gui/renderers/packages``).  Metadata only — geometry never
+    reads it.
     """
 
     schema: ParamSchema | None
     raw_values: Mapping[str, Any] | None
+    lineage: tuple[str, ...]
 
     @abstractmethod
     def pin_count(self) -> int:
@@ -268,6 +277,8 @@ class Cylinder(Package):
     schema: ParamSchema | None = field(default=None, compare=False, hash=False)
     raw_values: Mapping[str, Any] | None = field(
         default=None, compare=False, hash=False)
+    # Ancestry for renderer dispatch (see ``Package``). Not part of geometry.
+    lineage: tuple[str, ...] = field(default=(), compare=False, hash=False)
 
     def __post_init__(self) -> None:
         if self.flat_radius_mm is not None:
@@ -389,6 +400,8 @@ class Prism(Package):
     schema: ParamSchema | None = field(default=None, compare=False, hash=False)
     raw_values: Mapping[str, Any] | None = field(
         default=None, compare=False, hash=False)
+    # Ancestry for renderer dispatch (see ``Package``). Not part of geometry.
+    lineage: tuple[str, ...] = field(default=(), compare=False, hash=False)
 
     def pin_count(self) -> int:
         return self.leads.pin_count
@@ -488,6 +501,8 @@ class Disc(Package):
     schema: ParamSchema | None = field(default=None, compare=False, hash=False)
     raw_values: Mapping[str, Any] | None = field(
         default=None, compare=False, hash=False)
+    # Ancestry for renderer dispatch (see ``Package``). Not part of geometry.
+    lineage: tuple[str, ...] = field(default=(), compare=False, hash=False)
 
     def pin_count(self) -> int:
         return self.leads.pin_count

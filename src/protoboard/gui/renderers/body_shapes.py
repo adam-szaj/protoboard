@@ -1,13 +1,19 @@
 # SPDX-License-Identifier: MIT
-"""Per-package body shape renderers.
+"""Per-package body shape renderers — compatibility surface.
 
-A component's body is drawn by a :class:`BodyShape`; ``body_shape_for`` picks
-the right one.  The parametric package model (:class:`PackageBody`) is the
-source of truth for every multi-pin in-line body — DIP / SIL / dev-board
-modules synthesize a prism package (see
-and render through it.  The remaining concrete shapes are hand-coded
-``QPainterPath`` renderers for the special transistor/power packages
-(``GenericBody``, ``TO92Body``, ``TO220Body``).
+The implementation lives in :mod:`protoboard.gui.renderers.packages`: one
+renderer class per package lineage node (``CylinderRenderer`` /
+``PrismRenderer`` / ``DiscRenderer`` + user plugins), dispatched by
+:func:`~protoboard.gui.renderers.packages.renderer_for` over the package's
+``lineage``.  This module keeps the historical entry points stable:
+
+- :func:`body_shape_for` — the production dispatch (unchanged signature);
+- :func:`PackageBody` — constructor-compatible factory returning the
+  lineage-dispatched renderer (tests build bodies directly through it);
+- ``GenericBody`` — the bare-bbox fallback for a component with no package;
+- ``TO92Body`` / ``TO220Body`` — legacy hand-coded renderers, no longer in
+  the production dispatch (kept until their behaviour tests are repointed at
+  the package renderers; see docs/todo.md).
 
 Usage::
 
@@ -20,140 +26,54 @@ Usage::
 from __future__ import annotations
 
 import math
-from abc import ABC, abstractmethod
 
-from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
+from PySide6.QtCore import QRectF
+from PySide6.QtGui import QBrush, QColor, QPainterPath, QTransform
 from PySide6.QtWidgets import (
-    QAbstractGraphicsShapeItem,
-    QGraphicsEllipseItem,
     QGraphicsItem,
     QGraphicsLineItem,
     QGraphicsPathItem,
-    QGraphicsRectItem,
 )
 
 from protoboard.domain.components.appearance import Appearance
-from protoboard.domain.components.definition import (
-    ComponentClass,
-    ComponentDefinition,
-)
+from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
-from protoboard.domain.components.package.body import (
-    DiscProfile,
-    EdgeStyle,
-    LeadArrangement,
-)
 from protoboard.domain.components.package.family import PackageFamily
-from protoboard.domain.components.package.shapes import (
-    Cylinder as _PkgCylinder,
-)
-from protoboard.domain.components.package.shapes import (
-    Disc as _PkgDisc,
-)
-from protoboard.domain.components.package.shapes import (
-    Package,
-)
-from protoboard.domain.components.package.shapes import (
-    Prism as _PkgPrism,
-)
 from protoboard.domain.layout.placement import ComponentPlacement
-from protoboard.geometry import Point, Transform2D, Vector
-from protoboard.gui.renderers.prism_silhouette import silhouette_for_prism
+from protoboard.geometry import Point
+from protoboard.gui.renderers.packages import (
+    BodyShape,
+    GenericBody,
+    PackageRenderer,
+)
+from protoboard.gui.renderers.packages.base import (
+    _big_body_alpha,
+    _body_pen,
+    _lead_pen,
+)
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 
-_big_body_alpha: float = 0.90
+__all__ = [
+    "BodyShape",
+    "GenericBody",
+    "PackageBody",
+    "TO92Body",
+    "TO220Body",
+    "body_shape_for",
+]
 
 
-def _qtransform(t: Transform2D) -> QTransform:
-    """Bridge a domain :class:`Transform2D` to a Qt ``QTransform``.
-
-    Qt's constructor takes column-major ``(m11, m12, m21, m22, dx, dy)`` mapping
-    ``x' = m11·x + m21·y + dx``, ``y' = m12·x + m22·y + dy``.  Our coefficients
-    ``(a, b, c, d, tx, ty)`` map ``x' = a·x + b·y + tx``, ``y' = c·x + d·y + ty``
-    — the transpose of the linear part, so the arguments interleave as below.
-    """
-    a, b, c, d, tx, ty = t.coeffs()
-    return QTransform(a, c, b, d, tx, ty)
-# ---------------------------------------------------------------------------
-# Base class
-# ---------------------------------------------------------------------------
-
-class BodyShape(ABC):
-    @abstractmethod
-    def draw(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme = DEFAULT_THEME,
-    ) -> list[QGraphicsItem]:
-        """Return scene items (not yet added to scene)."""
-
-    def drawn_pin_numbers(
-        self,
-        positions: list[Point],
-        theme: Theme = DEFAULT_THEME,
-    ) -> frozenset[int]:
-        """Pin numbers whose markers are already drawn by this shape.
-
-        component_renderer skips its own pin markers for these pins to avoid
-        double-drawing (e.g. CylinderBody in vertical mode draws the circle
-        itself and does not want the generic dot on top).
-        """
-        return frozenset()
+# Historically ``PackageBody`` was one class whose ``draw`` branched on the
+# package shape; the branches are now ``PackageRenderer`` subclasses and the
+# dispatch lives in ``PackageRenderer.__new__`` (constructing the base class
+# yields the lineage-matched subclass).  The old name stays valid for both
+# construction (``PackageBody(pkg)``) and ``isinstance`` checks.
+PackageBody = PackageRenderer
 
 
 # ---------------------------------------------------------------------------
-# Helper
-# ---------------------------------------------------------------------------
-
-def _lead_pen(theme: Theme, alpha: float) -> QPen:
-    c = QColor(theme.lead_color)
-    c.setAlphaF(alpha)
-    return QPen(c, theme.lead_width)
-
-
-def _body_pen(border: QColor, alpha: float, width: float = 0.06) -> QPen:
-    c = QColor(border)
-    c.setAlphaF(alpha)
-    return QPen(c, width)
-
-
-# ---------------------------------------------------------------------------
-# GenericBody — existing bbox rectangle (fallback)
-# ---------------------------------------------------------------------------
-
-class GenericBody(BodyShape):
-    def draw(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme = DEFAULT_THEME,
-    ) -> list[QGraphicsItem]:
-        if not positions:
-            return []
-        margin = 0.35
-        xs = [p.x for p in positions]
-        ys = [p.y for p in positions]
-        x0 = min(xs) - margin
-        y0 = min(ys) - margin
-        w = max(xs) - min(xs) + 2 * margin
-        h = max(ys) - min(ys) + 2 * margin
-        rect = QGraphicsRectItem(QRectF(x0, y0, w, h))
-        rect.setBrush(QBrush(fill))
-        rect.setPen(_body_pen(border, alpha))
-        rect.setZValue(z)
-        return [rect]
-
-
-# ---------------------------------------------------------------------------
-# TO92Body — transistor / small 3-pin package
+# TO92Body — legacy hand-coded transistor body (tests only; production TO-92
+# renders through the flat-sided Cylinder package)
 #
 #  [1] [2] [3]
 #   |   |   |
@@ -174,58 +94,36 @@ class TO92Body(BodyShape):
             return GenericBody().draw(positions, fill, border, alpha, z, theme)
 
         fill = QColor(0x40, 0x40, 0x40)
-        fill.setAlphaF(alpha*_big_body_alpha)
+        fill.setAlphaF(alpha * _big_body_alpha)
         # Pin 2 is the middle pin; body centred above it.
-        # "Above" = lower Y value (Qt Y grows downward, but scene coords
-        #  can go either way — we use pin positions as reference).
         p_mid = positions[1]
-        p_left = positions[0]
 
-        # Determine "up" direction: perpendicular to the pin row, pointing
-        # away from the user (negative Y in unrotated component).
         pin_dx = positions[2].x - positions[0].x
         pin_dy = positions[2].y - positions[0].y
-        # Perpendicular (rotate 90° CCW)
         perp_len = math.hypot(pin_dx, pin_dy)
         if perp_len < 1e-6:
             return GenericBody().draw(positions, fill, border, alpha, z, theme)
-        # Unit vector perpendicular, pointing "above" pins (negative Y side for rot=0)
-        ux = -pin_dy / perp_len
-        uy = pin_dx / perp_len
-        # Ensure it points away from "below" (choose direction by sign)
-        # For unrotated TO-92 pins at y=0,1,2 the row is vertical, not horizontal.
-        # Recalculate: pin row direction
         row = positions[2] - positions[0]  # Point − Point → Vector
         # Perpendicular pointing left of row direction
         perp_x = -row.dy / perp_len
         perp_y = -row.dx / perp_len
 
         mm = theme.raster_pitch_mm
-        w = theme.to92_body_width_mm  / mm
+        w = theme.to92_body_width_mm / mm
         h = theme.to92_body_height_mm / mm
-        body_offset = 0 # 0.50 / mm   # ~1 mm gap from pin row to body edge
+        body_offset = 0.0
 
-        # Body centre
         cx = p_mid.x + perp_x * body_offset
-        # cx = p_mid.x + perp_x * (h / 2) + 2
         cy = p_mid.y + perp_y * body_offset
-        # cy = p_mid.y + perp_y * (h / 2)
 
-        # Angle of the pin row
         row_angle = row.angle_deg()
 
         # D-shape path (flat on pin side, rounded on top)
         path = QPainterPath()
-        # In local frame: flat bottom at y=+h/2, rounded top at y=-h/2
-        # bottom flat edge
-        # print(f"w/2: {w/2} h: {h/2}")
         path.moveTo(-w / 2, h / 2)
         path.lineTo(w / 2, h / 2)
-        # right side up
         path.lineTo(w / 2, 0)
-        # semicircle top (from right to left)
         path.arcTo(QRectF(-w / 2, -h / 2, w, h), 0, 180)
-        # left side down
         path.lineTo(-w / 2, h / 2)
         path.closeSubpath()
 
@@ -236,7 +134,6 @@ class TO92Body(BodyShape):
 
         t = QTransform()
         t.translate(cx, cy)
-        # print(f"cx: {cx} cy: {cy}")
         t.rotate(row_angle)
         body.setTransform(t)
 
@@ -244,7 +141,6 @@ class TO92Body(BodyShape):
         items: list[QGraphicsItem] = []
         lead = _lead_pen(theme, alpha)
         for p in positions:
-            # End of lead = pin + perp * body_offset
             ex = p.x + perp_x * body_offset
             ey = p.y + perp_y * body_offset
             line = QGraphicsLineItem(p.x, p.y, ex, ey)
@@ -257,7 +153,8 @@ class TO92Body(BodyShape):
 
 
 # ---------------------------------------------------------------------------
-# TO220Body — voltage regulator / power transistor in TO-220
+# TO220Body — legacy hand-coded power package (tests only; the production
+# TO-220 will render through a Prism package + the TO-220 renderer plugin)
 #
 #  [1] [2] [3]
 #   |   |   |
@@ -287,15 +184,15 @@ class TO220Body(BodyShape):
 
         # Perpendicular unit vector pointing "away" from user (left of row dir)
         perp_x = -row.dy / perp_len
-        perp_y =  row.dx / perp_len
+        perp_y = row.dx / perp_len
 
         p_mid = positions[1]
         row_angle = row.angle_deg()
 
         mm = theme.raster_pitch_mm
-        w     = theme.to220_body_width_mm  / mm
-        h     = theme.to220_body_height_mm / mm
-        tab_h = theme.to220_tab_height_mm  / mm
+        w = theme.to220_body_width_mm / mm
+        h = theme.to220_body_height_mm / mm
+        tab_h = theme.to220_tab_height_mm / mm
         body_offset = -1.50 / mm   # ~1 mm gap from pin row to body edge
 
         # Body centre (rectangular, no D-shape)
@@ -320,7 +217,6 @@ class TO220Body(BodyShape):
             line.setZValue(z - 0.01)
             items.append(line)
 
-
         # Main body (rectangular)
         body_path = QPainterPath()
         body_path.addRoundedRect(QRectF(-w / 2, -h / 2, w, h), r, r)
@@ -339,9 +235,12 @@ class TO220Body(BodyShape):
         # Metal tab (slightly wider, darker)
         tab_path = QPainterPath()
         overhang = 0.0 / mm
-        tab_path.addRoundedRect(QRectF(-w / 2 - overhang, -tab_h / 2, w + 2 * overhang, tab_h), 0.1 / mm, 0.1 / mm)
+        tab_path.addRoundedRect(
+            QRectF(-w / 2 - overhang, -tab_h / 2, w + 2 * overhang, tab_h),
+            0.1 / mm, 0.1 / mm,
+        )
         tab = QGraphicsPathItem(tab_path)
-        tab_color = QColor(0xdd,0xdd,0xdd)
+        tab_color = QColor(0xdd, 0xdd, 0xdd)
         tab_color.setAlphaF(alpha * _big_body_alpha)
         tab.setBrush(QBrush(tab_color))
         tab.setPen(_body_pen(border, alpha, width=theme.body_tab_pen_width))
@@ -359,823 +258,6 @@ class TO220Body(BodyShape):
 # Dispatcher
 # ---------------------------------------------------------------------------
 
-_TRANSISTOR_CLASSES = frozenset({
-    ComponentClass.TRANSISTOR_NPN,
-    ComponentClass.TRANSISTOR_PNP,
-    ComponentClass.TRANSISTOR_NMOS,
-    ComponentClass.TRANSISTOR_PMOS,
-    ComponentClass.TRANSISTOR_NJFET,
-    ComponentClass.TRANSISTOR_PJFET,
-})
-
-# ---------------------------------------------------------------------------
-# PackageBody — draw the body from a parametric Package (spec model)
-#
-# When a ComponentDefinition carries a ``package`` (the new parametric model,
-# see docs/footprints/package-model.md) the body is drawn directly from that geometry
-# instead of the legacy per-footprint renderers.  Cylinders render as a
-# side-view capsule between the leads (the axial-resistor / diode look);
-# every other shape renders its ``bbox()`` rectangle (in holes) centred on
-# the pin cloud.  This is the rendering counterpart to the package wiring in
-# DRC / place_tool / library, on the same optional-field + fallback footing.
-# ---------------------------------------------------------------------------
-
-class PackageBody(BodyShape):
-    """Render a component body from its :class:`Package` geometry.
-
-    Presentation (colour, edge) comes from the package; polarity and which
-    pad is the anchor are *not* package properties — a package is class
-    agnostic (the same DO-41 hosts a diode, a Zener or a fuse), so the
-    polarity marker is driven by ``component_class`` and ``vertical_flipped``
-    exactly as the legacy ``TwoPinParametricBody`` did.
-    """
-
-    # ComponentClasses that show a polarity marker — diodes get a cathode
-    # stripe (axial) or a solid-vs-hollow disc (radial); polar electrolytics
-    # share the treatment.  Mirrors TwoPinParametricBody._POLAR_CLASSES.
-    _POLAR_CLASSES = frozenset({
-        ComponentClass.DIODE,
-        ComponentClass.DIODE_ZENER,
-        ComponentClass.DIODE_LED,
-        ComponentClass.CAPACITOR_POLAR,
-    })
-
-    def __init__(
-        self,
-        package: Package,
-        component_class: ComponentClass = ComponentClass.OTHER,
-        vertical_flipped: bool = False,
-        appearance: Appearance = Appearance(),
-        side: str = "top",
-        placement: ComponentPlacement | None = None,
-    ) -> None:
-        self._pkg = package
-        self._component_class = component_class
-        self._vertical_flipped = vertical_flipped
-        self._appearance = appearance
-        # Board side of the placement. On the bottom the body is physically
-        # flipped, so an asymmetric silhouette (a TO-92 flat face, a TO-220 tab)
-        # faces the opposite way — the flat side's normal is mirrored across the
-        # lead axis. See _flat_side_world.
-        self._side = side
-        self._placement = placement
-
-    @property
-    def _is_polar(self) -> bool:
-        return self._component_class in self._POLAR_CLASSES
-
-    @property
-    def _arrangement(self) -> LeadArrangement:
-        return getattr(self._pkg, "arrangement", LeadArrangement.AXIAL)
-
-    def _resolve_colors(
-        self, fill: QColor, border: QColor,
-    ) -> tuple[QColor, QColor]:
-        """Body fill/border for this package.
-
-        Precedence: the per-component / per-instance ``appearance`` colour wins;
-        then the package's own ``color`` (the border is derived by darkening the
-        fill); otherwise the caller-supplied colours are used unchanged.
-        """
-        override = self._appearance.color
-        if override is not None:
-            override_fill = QColor(override)
-            if override_fill.isValid():
-                return override_fill, _darken(override_fill)
-        pkg_color = getattr(self._pkg, "color", None)
-        if pkg_color is None:
-            return fill, border
-        body_fill = QColor(pkg_color)
-        if not body_fill.isValid():
-            return fill, border
-        return body_fill, _darken(body_fill)
-
-    def _effective_corner_radius_mm(self) -> float:
-        """Corner radius (mm): the appearance override wins (0 = sharp, > 0 =
-        rounded), else the package's own edge/radius via ``_package_corner_radius``.
-
-        Only the first radius is used (per-corner render is deferred); the full
-        tuple is preserved on the appearance value object."""
-        scalar = self._appearance.corner_radius_mm_scalar
-        if scalar is not None:
-            return scalar
-        return _package_corner_radius(self._pkg)
-
-    def drawn_pin_numbers(
-        self,
-        positions: list[Point],
-        theme: Theme = DEFAULT_THEME,
-    ) -> frozenset[int]:
-        # The radial top-view body sits centred between the pads and may cover
-        # one or both of them depending on the spacing. Report every pin that
-        # falls under the body silhouette so the renderer does not draw its own
-        # marker on top of it.
-        if self._arrangement is not LeadArrangement.RADIAL or len(positions) < 2:
-            return frozenset()
-        mm = theme.raster_pitch_mm
-        mid = Point(
-            (positions[0].x + positions[1].x) / 2.0,
-            (positions[0].y + positions[1].y) / 2.0,
-        )
-        radius = self._radial_body_radius(mm)
-        covered = {
-            i + 1
-            for i, p in enumerate(positions)
-            if math.hypot(p.x - mid.x, p.y - mid.y) <= radius + 1e-9
-        }
-        return frozenset(covered)
-
-    def _radial_body_radius(self, mm: float) -> float:
-        """Half-extent (in holes) of the radial body across the lead axis."""
-        pkg = self._pkg
-        if isinstance(pkg, (_PkgCylinder, _PkgDisc)):
-            return pkg.diameter_mm / mm / 2.0
-        # Prism: half its length (the bbox dimension along the lead axis).
-        return pkg.bbox().height / 2.0
-
-    def draw(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme = DEFAULT_THEME,
-    ) -> list[QGraphicsItem]:
-        if not positions:
-            return []
-        fill, border = self._resolve_colors(fill, border)
-        # Radial 2-pin: top-view silhouette on the anchor pad (vertical_flipped
-        # swaps which pad anchors).  Everything else is a side view.
-        if self._arrangement is LeadArrangement.RADIAL and len(positions) >= 2:
-            if self._vertical_flipped:
-                p1, p2 = positions[1], positions[0]
-            else:
-                p1, p2 = positions[0], positions[1]
-            if math.hypot(p2.x - p1.x, p2.y - p1.y) >= 1e-9:
-                # The ``-`` marker sits towards the physical cathode (pin 2),
-                # independent of the p1/p2 swap above.
-                neg_pin = positions[1]
-                return self._draw_radial(
-                    p1, p2, neg_pin, fill, border, alpha, z, theme,
-                    pads=positions,
-                )
-        if isinstance(self._pkg, _PkgCylinder) and len(positions) >= 2:
-            return self._draw_cylinder(
-                self._pkg, positions, fill, border, alpha, z, theme,
-            )
-        # A multi-pin prism (DIP / SIL / quad) draws its class-agnostic
-        # silhouette — notch, slots, outer strips, pin-1 marker — placed onto
-        # the pins.  Layouts without a dedicated silhouette fall to the bbox.
-        if isinstance(self._pkg, _PkgPrism) and len(positions) >= 2:
-            prism_items = self._draw_prism(
-                self._pkg, positions, fill, border, alpha, z, theme,
-            )
-            if prism_items is not None:
-                return prism_items
-        return self._draw_bbox(positions, fill, border, alpha, z, theme)
-
-    def _body_placement(self, positions: list[Point]) -> QTransform:
-        """Local→world placement for the silhouette (pin 1 at the local origin).
-
-        With a placement, this is the canonical ``placement_transform`` — the
-        exact pipeline the pins go through, so the body follows the pins on both
-        sides (the bottom-side reflection included).  Without one (a bare
-        ``draw`` in tests / previews), reconstruct the top-side placement from
-        the pin heading: translate to pin 1, rotate by the pin1→pin2 heading.
-        """
-        if self._placement is not None:
-            from protoboard.domain.components.package.adapter import (
-                PackageFootprint,
-            )
-            from protoboard.domain.layout.placement import placement_transform
-            return _qtransform(
-                placement_transform(PackageFootprint(self._pkg), self._placement)
-            )
-        p1 = positions[0]
-        dx = positions[1].x - p1.x if len(positions) > 1 else 0.0
-        dy = positions[1].y - p1.y if len(positions) > 1 else 0.0
-        angle_deg = -math.degrees(math.atan2(dx, dy)) if (dx or dy) else 0.0
-        place = QTransform()
-        place.translate(p1.x, p1.y)
-        place.rotate(angle_deg)
-        return place
-
-    # ------------------------------------------------------------------
-    # Cylinder — side-view capsule along the lead axis (axial parts)
-    # ------------------------------------------------------------------
-
-    def _draw_cylinder(
-        self,
-        pkg: _PkgCylinder,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
-    ) -> list[QGraphicsItem]:
-        mm = theme.raster_pitch_mm
-        body_len = pkg.length_mm / mm
-        body_w = pkg.diameter_mm / mm
-
-        # vertical_flipped swaps the anchor end so the polarity stripe mirrors
-        # when the part is mounted the other way round (legacy convention).
-        if self._vertical_flipped:
-            p1, p2 = positions[1], positions[0]
-        else:
-            p1, p2 = positions[0], positions[1]
-        axis = p2 - p1  # Point − Point → Vector
-        dx, dy = axis.dx, axis.dy
-        dist = axis.length()
-        if dist < 1e-9:
-            return self._draw_bbox(positions, fill, border, alpha, z, theme)
-
-        # Upright mount: when the pad spacing is shorter than the body, the part
-        # cannot lie flat — an axial resistor/diode placed on adjacent pads
-        # STANDS UPRIGHT, the body sitting directly OVER ONE pad (its anchor),
-        # with the bent lead reaching the other. This is NOT the radial centroid
-        # silhouette: an axial part mounts over a single pad (which pad = the
-        # Flip / ``vertical_flipped`` end, already swapped into ``p1`` above),
-        # whereas a radial part sits per its leads (centroid). Seen from above
-        # the upright body is a disc (diameter = body width) on ``p1``; the ``-``
-        # marker points towards the physical cathode (pin 2). (User rule,
-        # 2026-06-28.)
-        if dist < body_len - 1e-6:
-            anchor = p1               # the Flip-chosen pad the body stands on
-            other = p2                # the bent lead reaches here
-            upright: list[QGraphicsItem] = []
-            lead = QGraphicsLineItem(anchor.x, anchor.y, other.x, other.y)
-            lead.setPen(_lead_pen(theme, alpha))
-            lead.setZValue(z - 0.01)
-            upright.append(lead)
-            neg_pin = positions[1]    # physical cathode, independent of flip
-            neg_angle = (neg_pin - anchor).angle_deg()
-            world_axis_deg = (other - anchor).angle_deg()
-            flat = self._flat_side_world(pkg, world_axis_deg)
-            upright.extend(self._radial_disc(
-                anchor, body_w, neg_angle, fill, border, alpha, z, theme,
-                flat=flat,
-            ))
-            return upright
-
-        mid_x = (p1.x + p2.x) / 2.0
-        mid_y = (p1.y + p2.y) / 2.0
-        angle_deg = axis.angle_deg()
-
-        items: list[QGraphicsItem] = []
-
-        # Leads — only when the pad spacing exceeds the body length.
-        if dist > body_len + 1e-6:
-            unit_x, unit_y = dx / dist, dy / dist
-            attach = dist / 2.0 - body_len / 2.0
-            lead_pen = _lead_pen(theme, alpha)
-            l1 = QGraphicsLineItem(
-                p1.x, p1.y, p1.x + unit_x * attach, p1.y + unit_y * attach,
-            )
-            l2 = QGraphicsLineItem(
-                p2.x - unit_x * attach, p2.y - unit_y * attach, p2.x, p2.y,
-            )
-            for ln in (l1, l2):
-                ln.setPen(lead_pen)
-                ln.setZValue(z - 0.01)
-            items.extend([l1, l2])
-
-        # Edge rounding is a package property (edge_radius_mm, default 0 → a
-        # plain rectangular body); only packages that declare it (e.g. a glass
-        # DO-35) get a capsule. Clamp to half the shorter side so the rounded
-        # rect never degenerates.
-        r = min(pkg.edge_radius_mm / mm, body_w / 2.0, body_len / 2.0)
-        path = QPainterPath()
-        path.addRoundedRect(
-            QRectF(-body_len / 2.0, -body_w / 2.0, body_len, body_w), r, r,
-        )
-        body = QGraphicsPathItem(path)
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
-        body.setBrush(QBrush(fill_c))
-        body.setPen(_body_pen(border, alpha))
-        body.setZValue(z)
-        t = QTransform()
-        t.translate(mid_x, mid_y)
-        t.rotate(angle_deg)
-        body.setTransform(t)
-        items.append(body)
-
-        # Polar cathode stripe near the p2 end (class flavour, not a package
-        # property); vertical_flipped already swapped p1/p2 above.
-        if self._is_polar:
-            stripe_w = min(body_len * 0.12, body_w * 0.4)
-            # Keep the whole stripe on the straight ("cylindrical") part of the
-            # body: its outer edge sits where the end rounding begins
-            # (body_len/2 - r), so even a fully-rounded capsule shows the stripe
-            # on the flat segment, never on the curved end cap.
-            stripe_right = max(body_len / 2.0 - r, stripe_w)
-            stripe_x = stripe_right - stripe_w
-            stripe_path = QPainterPath()
-            stripe_path.addRect(QRectF(stripe_x, -body_w / 2.0, stripe_w, body_w))
-            stripe = QGraphicsPathItem(stripe_path)
-            dark = QColor(theme.body_led_stripe_color)
-            dark.setAlphaF(alpha)
-            stripe.setBrush(QBrush(dark))
-            stripe.setPen(_body_pen(border, alpha, width=0.0))
-            stripe.setZValue(z + 0.01)
-            t_stripe = QTransform()
-            t_stripe.translate(mid_x, mid_y)
-            t_stripe.rotate(angle_deg)
-            stripe.setTransform(t_stripe)
-            items.append(stripe)
-        return items
-
-    # ------------------------------------------------------------------
-    # Radial — top-view silhouette centred between the two pads
-    # ------------------------------------------------------------------
-
-    def _draw_radial(
-        self,
-        p1: Point, p2: Point, neg_pin: Point,
-        fill: QColor, border: QColor, alpha: float, z: float,
-        theme: Theme,
-        *,
-        pads: list[Point] | None = None,
-    ) -> list[QGraphicsItem]:
-        # The body sits over every pad (a 3-lead TO-92 is centred on its three
-        # pins, not just the first two); a lead stub is drawn to each.  ``pads``
-        # defaults to the anchor pair for the legacy two-pin path.
-        all_pads = pads if pads is not None else [p1, p2]
-        items: list[QGraphicsItem] = []
-        for a, b in zip(all_pads, all_pads[1:]):
-            lead = QGraphicsLineItem(a.x, a.y, b.x, b.y)
-            lead.setPen(_lead_pen(theme, alpha))
-            lead.setZValue(z - 0.01)
-            items.append(lead)
-
-        mm = theme.raster_pitch_mm
-        # Centroid of all pads — the body's geometric centre.
-        mid = Point(
-            sum(p.x for p in all_pads) / len(all_pads),
-            sum(p.y for p in all_pads) / len(all_pads),
-        )
-        # Direction from the body centre towards the negative lead — the side
-        # the ``-`` segment marker goes on.
-        neg_angle = (neg_pin - mid).angle_deg()
-
-        pkg = self._pkg
-        if isinstance(pkg, _PkgDisc):
-            # A disc cap mounts on its edge: from above it is a thin side
-            # profile, not the round face — a lens (its diameter along the lead
-            # axis, its thickness across).
-            axis_angle = (p2 - p1).angle_deg()
-            items.append(self._radial_disc_side(
-                mid, pkg.diameter_mm / mm, pkg.thickness_mm / mm, axis_angle,
-                pkg.profile, fill, border, alpha, z, theme,
-            ))
-            return items
-        if isinstance(pkg, _PkgCylinder):
-            diam = pkg.diameter_mm / mm
-            world_axis_deg = (p2 - p1).angle_deg()
-            flat = self._flat_side_world(pkg, world_axis_deg)
-            items.extend(self._radial_disc(
-                mid, diam, neg_angle, fill, border, alpha, z, theme,
-                flat=flat,
-            ))
-            return items
-
-        # Prism radial → rectangle aligned with the lead direction, centred on
-        # the midpoint between the pads.
-        bb = pkg.bbox()
-        length_r, width_r = bb.height, bb.width
-        angle_deg = (p2 - p1).angle_deg()
-        rect_path = QPainterPath()
-        r = self._effective_corner_radius_mm() / mm
-        rect_path.addRoundedRect(
-            QRectF(-length_r / 2.0, -width_r / 2.0, length_r, width_r), r, r,
-        )
-        body = QGraphicsPathItem(rect_path)
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
-        body.setBrush(QBrush(fill_c))
-        body.setPen(_body_pen(border, alpha))
-        body.setZValue(z)
-        t = QTransform()
-        t.translate(mid.x, mid.y)
-        t.rotate(angle_deg)
-        body.setTransform(t)
-        items.append(body)
-        return items
-
-    def _flat_side_world(
-        self, pkg: _PkgCylinder, world_axis_deg: float,
-    ) -> tuple[float, float] | None:
-        """The flat side as ``(normal_angle_deg, offset_holes)`` in world space.
-
-        ``None`` for a full circle (no flat side). ``flat_normal`` is given in
-        the package's *local* frame (the same frame the lead offsets use), so we
-        rotate it by the local→world rotation. That rotation is the difference
-        between the world pad axis (``world_axis_deg``) and the local pad axis
-        derived from ``pkg.pin_positions()`` — the pads carry the part's
-        rotation/flip, so the flat side follows the body automatically.
-        """
-        if pkg.flat_radius_mm is None:
-            return None
-        local = pkg.pin_positions()
-        if len(local) < 2:
-            return None
-        axis = local[-1] - local[0]  # Point − Point → Vector
-        if axis.length() < 1e-9:
-            return None
-        local_axis_deg = axis.angle_deg()
-        rot = math.radians(world_axis_deg - local_axis_deg)
-        n = pkg.flat_normal
-        # On the bottom side the body is physically flipped: reflect the flat
-        # normal about the package flip axis (the same reflection the pins
-        # undergo in pin_world_position), so the flat face turns to the correct
-        # side.  Applied as a direction (the linear part; translation ignored).
-        if self._side == "bottom":
-            n = pkg.flip_transform().apply(n)
-        nx = n.x * math.cos(rot) - n.y * math.sin(rot)
-        ny = n.x * math.sin(rot) + n.y * math.cos(rot)
-        normal_deg = Vector(nx, ny).angle_deg()
-        return normal_deg, pkg.flat_radius_mm / DEFAULT_THEME.raster_pitch_mm
-
-    def _radial_disc(
-        self,
-        centre: Point,
-        diam: float,
-        neg_angle_deg: float,
-        fill: QColor, border: QColor, alpha: float, z: float,
-        theme: Theme,
-        *,
-        flat: tuple[float, float] | None = None,
-    ) -> list[QGraphicsItem]:
-        """Top-view (looking at the body face) disc centred between the pads.
-
-        Non-polar parts draw a plain filled circle. For polar parts the body
-        face shows no end-cap marker (both leads exit the same face), so the
-        negative terminal is marked the way a real radial electrolytic is: a
-        dark circular segment (a chord-cut slice of the disc) on the side of the
-        ``-`` lead, leaving the rest of the disc in the body colour.
-
-        ``flat`` (``(normal_angle_deg, offset_holes)``) cuts a chord off the
-        circle — a D-shaped cross-section such as a TO-92 — leaving the body a
-        full circle when ``None``.
-        """
-        r = diam / 2.0
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
-        body: QAbstractGraphicsShapeItem
-        if flat is not None:
-            body = self._d_shape(centre, r, flat[0], flat[1])
-        else:
-            body = QGraphicsEllipseItem(
-                QRectF(centre.x - r, centre.y - r, diam, diam),
-            )
-        body.setZValue(z)
-        body.setBrush(QBrush(fill_c))
-        body.setPen(_body_pen(border, alpha))
-        if not self._is_polar:
-            return [body]
-        return [body, self._disc_segment(centre, r, neg_angle_deg, theme, alpha, z)]
-
-    def _d_shape(
-        self, centre: Point, radius: float, normal_deg: float, offset: float,
-    ) -> QGraphicsPathItem:
-        """A circle with one chord cut off, normal to ``normal_deg`` at distance
-        ``offset`` (holes) from the centre. The remaining arc spans the far side;
-        the chord is the flat face."""
-        # Half-angle subtended by the chord: the chord sits at +offset along the
-        # flat normal, so the arc we KEEP runs the long way around the far side.
-        c = max(-1.0, min(1.0, offset / radius))
-        half = math.degrees(math.acos(c))
-        rect = QRectF(-radius, -radius, 2 * radius, 2 * radius)
-        path = QPainterPath()
-        # Arc from +half to (360 − half) around the back, then the chord closes
-        # it. Angles are in the local frame where the flat normal points +x;
-        # Qt arc angles are counter-clockwise from +x.
-        path.arcMoveTo(rect, half)
-        path.arcTo(rect, half, 360.0 - 2.0 * half)
-        path.closeSubpath()
-        item = QGraphicsPathItem(path)
-        t = QTransform()
-        t.translate(centre.x, centre.y)
-        t.rotate(normal_deg)
-        item.setTransform(t)
-        return item
-
-    def _radial_disc_side(
-        self,
-        centre: Point,
-        length: float,   # the disc diameter, along the lead axis
-        width: float,    # the disc thickness, across the lead axis
-        axis_angle_deg: float,
-        profile: DiscProfile,
-        fill: QColor, border: QColor, alpha: float, z: float,
-        theme: Theme,
-    ) -> QGraphicsItem:
-        """Side-view silhouette of a disc cap mounted on its edge: a lens
-        ``length`` long bulging to ``width`` across.  ``CANDY`` meets in sharp
-        tips on the lead axis; ``FLAT`` has the tips ground down to rounded
-        ends.  Quadratic Béziers reach half their control offset at the apex,
-        so a control point at ``width`` yields a mid bulge of ``width / 2``."""
-        half_l = length / 2.0
-        half_w = width / 2.0
-        path = QPainterPath()
-        if profile is DiscProfile.CANDY:
-            # Strongly bulged lens meeting in sharp tips on the lead axis: the
-            # arc reaches full half-thickness at the centre. Quadratic Béziers
-            # reach half their control offset, so control y = ±width gives the
-            # ±width/2 bulge.
-            path.moveTo(-half_l, 0.0)
-            path.quadTo(0.0, -width, half_l, 0.0)
-            path.quadTo(0.0, width, -half_l, 0.0)
-            path.closeSubpath()
-        else:
-            # FLAT: a flat disc (usually thicker, less bulged) is well
-            # approximated by a smooth ellipse of diameter × thickness — a
-            # gentle, large-radius lens with rounded ends rather than tips.
-            path.addEllipse(QRectF(-half_l, -half_w, length, width))
-        lens = QGraphicsPathItem(path)
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
-        lens.setBrush(QBrush(fill_c))
-        lens.setPen(_body_pen(border, alpha))
-        lens.setZValue(z)
-        t = QTransform()
-        t.translate(centre.x, centre.y)
-        t.rotate(axis_angle_deg)
-        lens.setTransform(t)
-        return lens
-
-    def _disc_segment(
-        self,
-        centre: Point,
-        radius: float,
-        neg_angle_deg: float,
-        theme: Theme,
-        alpha: float,
-        z: float,
-    ) -> QGraphicsItem:
-        """A dark circular segment cut by a chord perpendicular to the lead
-        axis, on the negative-lead side — the radial ``-`` polarity marker."""
-        # Chord at 0.45·radius from the centre → the slice is ~the outer third
-        # of the disc, on the side ``neg_angle_deg`` points to (local +x after
-        # the rotation below).
-        d = 0.45 * radius
-        half = math.degrees(math.acos(max(-1.0, min(1.0, d / radius))))
-        rect = QRectF(-radius, -radius, 2 * radius, 2 * radius)
-        path = QPainterPath()
-        path.arcMoveTo(rect, -half)
-        path.arcTo(rect, -half, 2 * half)
-        path.closeSubpath()
-        seg = QGraphicsPathItem(path)
-        dark = QColor(theme.body_diode_cathode_color)
-        dark.setAlphaF(alpha)
-        seg.setBrush(QBrush(dark))
-        seg.setPen(_body_pen(dark, alpha, width=0.0))
-        seg.setZValue(z + 0.01)
-        t = QTransform()
-        t.translate(centre.x, centre.y)
-        t.rotate(neg_angle_deg)
-        seg.setTransform(t)
-        return seg
-
-    # ------------------------------------------------------------------
-    # Prism — DIP / SIL / quad silhouette placed onto the pins
-    # ------------------------------------------------------------------
-
-    def _draw_prism(
-        self,
-        pkg: _PkgPrism,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
-    ) -> list[QGraphicsItem] | None:
-        """Render a multi-pin prism body from its column silhouette.
-
-        Returns ``None`` when the prism has no dedicated silhouette (an odd
-        column count) so the caller falls back to the plain bbox rectangle.
-        The silhouette is built in the package-local frame (pin 1 at the
-        origin) and placed with the pin1→pin2 transform, mirroring the legacy
-        ``Svg*Body`` generators.
-        """
-        # A two-pin prism is an SMD chip (0805 / 0603): a flat body that lies on
-        # the two pads, centred on their midpoint and aligned to the pad axis
-        # (so ortho and diagonal placements both render correctly).  It has no
-        # column silhouette.
-        if pkg.pin_count() == 2 and len(positions) >= 2:
-            return self._draw_smd_chip(pkg, positions, fill, border, alpha, z, theme)
-
-        # A dev-board module renders as a plain PCB rectangle — no DIP notch /
-        # SIL slots — regardless of how its pins cluster into columns.  Suppress
-        # the silhouette so the caller falls through to the plain bbox body, and
-        # mark the pins with a faint pad-sized active-area ring (drawn there).
-        if self._component_class is ComponentClass.DEVBOARD:
-            sil = None
-        else:
-            # Declared body kind (dip_ic notch / dip_switch plain / …) when the
-            # package carries one; otherwise the column-guessed silhouette.
-            sil = silhouette_for_prism(pkg)
-        if sil is None:
-            return None
-        # An appearance corner-radius override (mm) reaches the DIP/SIL body via
-        # the silhouette builder, converted to holes; absent → the builder keeps
-        # using theme.body_corner_radius (the notch radius is unaffected either way).
-        corner_scalar = self._appearance.corner_radius_mm_scalar
-        corner_holes = (
-            corner_scalar / theme.raster_pitch_mm
-            if corner_scalar is not None
-            else None
-        )
-        drawing = sil.build(pkg, theme, corner_r=corner_holes)
-
-        # Place the local-frame silhouette (pin 1 at the origin) through the
-        # SAME local→world transform the pins use in pin_world_position:
-        # reflect about the package flip axis on the bottom side, rotate, then
-        # translate to the anchor.  Reconstructing orientation from the world
-        # pins alone can't recover the reflection's chirality, which is why the
-        # bottom-side DIP body used to drift to pin 1's old corner.
-        place = self._body_placement(positions)
-
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
-        items: list[QGraphicsItem] = []
-
-        body = QGraphicsPathItem(place.map(drawing.body))
-        body.setBrush(QBrush(fill_c))
-        body.setPen(_body_pen(border, alpha))
-        body.setZValue(z)
-        items.append(body)
-
-        if drawing.marker is not None:
-            marker = QGraphicsPathItem(place.map(drawing.marker))
-            marker.setBrush(QBrush(_body_pen(border, alpha).color()))
-            marker.setPen(_body_pen(border, alpha, width=0.0))
-            marker.setZValue(z + 0.01)
-            items.append(marker)
-        return items
-
-    # ------------------------------------------------------------------
-    # SMD chip — flat two-terminal body centred on the pad pair
-    # ------------------------------------------------------------------
-
-    def _draw_smd_chip(
-        self,
-        pkg: _PkgPrism,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
-    ) -> list[QGraphicsItem]:
-        """A surface-mount chip (0805 / 0603): a flat rounded rectangle centred
-        on the two pads and aligned to the pad axis.
-
-        The chip's two terminals end on the pads, so the body bridges them: its
-        length spans the pad gap plus a small overhang (the terminals tuck just
-        under the chip ends), its width is the package body width.  Aligning to
-        the pad axis makes ortho and diagonal placements both render correctly.
-        No leads and no pin-1 marker — a chip carries neither.
-        """
-        mm = theme.raster_pitch_mm
-        bb = pkg.bbox()
-        body_w = bb.width    # across the terminal axis (package width)
-        body_len = bb.height  # along the terminal axis (package length)
-
-        p1, p2 = positions[0], positions[1]
-        axis = p2 - p1  # Point − Point → Vector
-        dist = axis.length()
-        if dist < 1e-9:
-            return self._draw_bbox(positions, fill, border, alpha, z, theme)
-
-        mid_x = (p1.x + p2.x) / 2.0
-        mid_y = (p1.y + p2.y) / 2.0
-        angle_deg = axis.angle_deg()
-        # The chip is drawn at its declared body length, centred on the pad
-        # midpoint — a real SMD chip is shorter than the pad pitch and sits
-        # between the pads, leaving the metallised pads visible at each end.
-        # (It is *not* stretched to span the pad gap, which read as a long thin
-        # rectangle.)
-        length = body_len
-        r = min(self._effective_corner_radius_mm() / mm, body_w / 2.0, length / 2.0)
-
-        path = QPainterPath()
-        path.addRoundedRect(
-            QRectF(-length / 2.0, -body_w / 2.0, length, body_w), r, r,
-        )
-        body = QGraphicsPathItem(path)
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
-        body.setBrush(QBrush(fill_c))
-        body.setPen(_body_pen(border, alpha))
-        body.setZValue(z)
-        t = QTransform()
-        t.translate(mid_x, mid_y)
-        t.rotate(angle_deg)
-        body.setTransform(t)
-        return [body]
-
-    # ------------------------------------------------------------------
-    # Generic — bbox() rectangle in holes (prism, devboard, fallback)
-    # ------------------------------------------------------------------
-
-    def _draw_bbox(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
-    ) -> list[QGraphicsItem]:
-        try:
-            box = self._pkg.bbox()
-        except ValueError:
-            # bbox needs dims/margin the package doesn't carry — fall back to
-            # a rectangle hugging the pin cloud (same as GenericBody).
-            generic: list[QGraphicsItem] = GenericBody().draw(
-                positions, fill, border, alpha, z, theme,
-            )
-            return generic
-
-        # bbox() is in the package-local frame (pin 1 at the origin); its x/y is
-        # the body's top-left there (negative for a body centred on the pin
-        # cloud).  Build the rectangle in that LOCAL frame and place it through
-        # the SAME local→world transform the pins use (rotation + bottom-side
-        # reflection): reconstructing the rect in world coords and only shifting
-        # it by the anchor draws an axis-aligned box that ignores the placement
-        # rotation — the body then stays upright while the pins rotate.
-        r = self._effective_corner_radius_mm() / theme.raster_pitch_mm
-        local_rect = QRectF(box.x, box.y, box.width, box.height)
-        place = self._body_placement(positions)
-        path = QPainterPath()
-        if r > 0:
-            path.addRoundedRect(local_rect, r, r)
-        else:
-            path.addRect(local_rect)
-        path_item = QGraphicsPathItem(place.map(path))
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
-        path_item.setBrush(QBrush(fill_c))
-        path_item.setPen(_body_pen(border, alpha))
-        path_item.setZValue(z)
-        items: list[QGraphicsItem] = [path_item]
-        # A dev-board's pins sit on the PCB's top surface — mark each with a
-        # faint pad-sized ring (the click-active area) drawn on top of the body.
-        # The real pin glyph / modifier is drawn by the component renderer on a
-        # higher layer, so these rings are additive and not claimed.
-        if self._component_class is ComponentClass.DEVBOARD:
-            items.extend(self._pad_active_rings(positions, border, alpha, z, theme))
-        return items
-
-    def _pad_active_rings(
-        self,
-        positions: list[Point],
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
-    ) -> list[QGraphicsItem]:
-        """A faint pad-sized ring per pin, marking the click-active area."""
-        pad_r = theme.pad_radius
-        ring_c = QColor(border)
-        ring_c.setAlphaF(ring_c.alphaF() * alpha * 0.35)
-        pen = QPen(ring_c, theme.pad_outline_width)
-        rings: list[QGraphicsItem] = []
-        for p in positions:
-            ring = QGraphicsEllipseItem(
-                QRectF(p.x - pad_r, p.y - pad_r, 2 * pad_r, 2 * pad_r)
-            )
-            ring.setPen(pen)
-            ring.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-            ring.setZValue(z + 0.02)
-            rings.append(ring)
-        return rings
-
-
-def _darken(c: QColor) -> QColor:
-    """Border colour derived from a body fill — a darker shade of it."""
-    return c.darker(150)
-
-
-def _package_corner_radius(pkg: Package) -> float:
-    """Corner radius (mm) declared by the package shape, or 0.
-
-    A ``SHARP`` edge style forces square corners regardless of any declared
-    radius; ``ROUNDED`` uses the shape's radius field.
-    """
-    if getattr(pkg, "edge", None) is EdgeStyle.SHARP:
-        return 0.0
-    if isinstance(pkg, _PkgCylinder):
-        return pkg.edge_radius_mm
-    if isinstance(pkg, _PkgPrism):
-        return pkg.corner_radius_mm
-    return 0.0
-
-
 def body_shape_for(
     defn: ComponentDefinition,
     placement: ComponentPlacement | None = None,
@@ -1186,12 +268,9 @@ def body_shape_for(
 
     A parametric package (resolved from the instance/definition/catalogue via
     :func:`resolve_component_package`) is the source of truth for the body and
-    renders through :class:`PackageBody`; a two-pin part without a package draws
-    a generic bbox.
-
-    Larger packages keep their dedicated renderers: TO-92 for 3-pin
-    transistor, TO-220 for power packages, SVG-based DIP for two-row
-    dual in-line packages, SIL header for three-or-more in-line headers.
+    renders through the lineage-dispatched :class:`PackageRenderer` subclass
+    (see :func:`protoboard.gui.renderers.packages.renderer_for`); a part
+    without a package draws a generic bbox.
     """
     cls = defn.component_class
     vf = placement.vertical_flipped if placement is not None else False

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Modular package rendering: lineage-dispatched renderer hierarchy + plugins (2026-07-03)
+
+Rendering of component bodies is now modular and user-extensible:
+
+* **Package lineage.** Every built `Package` carries `lineage` — its ancestry
+  root-first: shape (`cylinder`/`prism`/`disc`) → resolved `extends` chain →
+  family id → variant (or the `kind` for generator-built bodies). Stamped by
+  the loaders (`load_packages`, inline component packages, family variants,
+  kind generators); pure metadata, geometry never reads it.
+* **Renderer hierarchy + registry.** The `PackageBody` god-class in
+  `gui/renderers/body_shapes.py` is split into
+  `gui/renderers/packages/` — `PackageRenderer` (shared radial machinery,
+  colours, placement, bbox fallback) with `CylinderRenderer` /
+  `PrismRenderer` / `DiscRenderer` subclasses. Dispatch walks `lineage`
+  leaf-first over the `BODY_RENDERERS` registry, so the most specific
+  renderer wins and unknown names degrade towards the shape root — rendering
+  never blocks on an unknown package. `PackageBody` stays valid as a name
+  (constructing the base class dispatches via `__new__`); `body_shape_for`
+  is unchanged for callers.
+* **Renderer plugins.** Any component-library directory may carry a
+  `renderers/` subdirectory; every `*.py` in it is imported at library load
+  (and on preferences reload). Declaring a `PackageRenderer` subclass with
+  `renders = "<lineage-name>"` registers it automatically
+  (`__init_subclass__`) — dropping a file in is the whole registration.
+  A broken plugin is logged and skipped.
+
+167 body/parity tests pass unchanged; +13 new registry/lineage/discovery
+tests. Groundwork for per-kind silhouette renderers and the TO-220 plugin.
+
 ### Fix: kalibracja kółka w armed-rotate (wheel-bounce) (2026-06-19)
 
 Mysz emitująca kilka eventów `angleDelta` na jeden fizyczny step powodowała

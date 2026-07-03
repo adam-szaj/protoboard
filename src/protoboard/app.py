@@ -154,6 +154,11 @@ def main() -> None:
     app_settings = load_app_settings()
     extra_dirs = [d for d in app_settings.component_library_dirs if d.exists()]
     library_dirs = ([BUILTIN_LIBRARY_DIR] if BUILTIN_LIBRARY_DIR.exists() else []) + extra_dirs
+    # Renderer plugins ride along with the component libraries: any library
+    # dir may carry a ``renderers/`` subdirectory whose *.py files register
+    # PackageRenderer subclasses on import (see gui/renderers/packages).
+    from protoboard.gui.renderers.packages import load_renderer_plugins
+    load_renderer_plugins(library_dirs)
     # The body catalogue lets the loader resolve a rigid package_family_ref
     # (SMD / DIP) into a fixed footprint; the session rebuilds the same
     # catalogue for the picker.

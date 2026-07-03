@@ -185,7 +185,13 @@ def _build_variant(
     registry[synthetic_name] = node
     try:
         merged = resolve_extends(synthetic_name, registry)
-        package = build_package(merged, synthetic_name)
+        from protoboard.domain.components.package.loader import extends_chain
+        # Lineage: extends ancestry, with the family id spliced in before the
+        # variant leaf — a renderer registered for the family (e.g. "TO-220")
+        # covers every variant unless a more specific one claims the leaf.
+        chain = extends_chain(synthetic_name, registry)
+        lineage = (*chain[:-1], family_id, synthetic_name)
+        package = build_package(merged, synthetic_name, lineage=lineage)
     except PackageDefError as exc:
         raise ValueError(f"{path}:{synthetic_name}: {exc}") from exc
     return PackageVariant(variant_id=variant_id, label=label, package=package)

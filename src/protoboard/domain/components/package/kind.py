@@ -145,7 +145,11 @@ def _synth_generic_by_pins(
     except PackageDefError:
         return None
     if isinstance(pkg, Prism):
-        pkg = dataclasses.replace(pkg, kind=GENERIC_PACKAGE_KIND)
+        pkg = dataclasses.replace(
+            pkg,
+            kind=GENERIC_PACKAGE_KIND,
+            lineage=("prism", GENERIC_PACKAGE_KIND),
+        )
     return pkg
 
 
@@ -254,7 +258,12 @@ def build_kind_package(
         raise PackageDefError(
             f"kind {kind!r} cannot build a body for {ctx.pin_count} pins")
     if isinstance(pkg, Prism):
-        changes: dict[str, Any] = {"kind": kind}
+        changes: dict[str, Any] = {
+            "kind": kind,
+            # A kind-generated body descends from its shape root; the kind name
+            # is the leaf, so a renderer registered for it wins the dispatch.
+            "lineage": ("prism", kind),
+        }
         if kind in _KIND_COLOR:
             changes["color"] = _KIND_COLOR[kind]
         pkg = dataclasses.replace(pkg, **changes)

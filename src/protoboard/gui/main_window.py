@@ -3074,6 +3074,10 @@ class MainWindow(QMainWindow):
         self._app_settings = settings
         extra_dirs = [d for d in settings.component_library_dirs if d.exists()]
         library_dirs = ([BUILTIN_LIBRARY_DIR] if BUILTIN_LIBRARY_DIR.exists() else []) + extra_dirs
+        # Pick up renderer plugins from any newly-added library dir (already
+        # loaded modules are skipped — the loader is idempotent).
+        from protoboard.gui.renderers.packages import load_renderer_plugins
+        load_renderer_plugins(library_dirs)
         new_library = load_library(library_dirs, self._session.package_families)
         self._session.library = new_library
         self._session.components = {
