@@ -39,11 +39,13 @@ from protoboard.domain.components.package import (
     PackageFamily,
     PackageFootprint,
     PackageVariant,
+    Prism,
     build_package,
     is_rigid_package,
     resolve_extends,
     resolve_variant,
 )
+from protoboard.domain.components.package.generators import ResidualKind
 from protoboard.errors import SerializationError
 from protoboard.paths import BUILTIN_ASSETS_DIR
 from protoboard.services.debug_trace import traced
@@ -149,8 +151,15 @@ def _parse_footprints(
             name_raw = entry
         elif isinstance(entry, dict):
             if isinstance(entry.get("package"), dict):
-                package = _build_component_package(cname, entry["package"],
-                                                   pin_count)
+                built = _build_component_package(cname, entry["package"],
+                                                 pin_count)
+                if isinstance(built, ResidualKind):
+                    # A footprint option must be a concrete body — partial
+                    # kinds are only supported on the component-level package.
+                    raise SerializationError(
+                        f"{source}: footprint entry for {cname!r} leaves kind "
+                        f"{built.kind!r} parameters unfilled")
+                package = built
             elif entry.get("ref") is not None:
                 ref = str(entry["ref"])
             else:
@@ -180,17 +189,21 @@ def _parse_footprints(
 
 
 @traced("_build_component_package")
-def _build_component_package(name: str,
-                             raw: dict[str, Any],
-                             pin_count: int | None = None) -> Package:
+def _build_component_package(
+    name: str,
+    raw: dict[str, Any],
+    pin_count: int | None = None,
+) -> Package | ResidualKind:
     """Build a Package from a component's inline ``package:`` block.
 
     A ``kind:`` field (e.g. ``dip_ic``) names a parameterized package whose
     geometry is built from *pin_count* via the kind generator — the look is known
-    but the size follows the part. Otherwise the block may ``extends`` a builtin
-    generic; we register it as a temporary named package alongside the builtins,
-    resolve the extends chain, and build. Raises ``PackageDefError`` on a
-    malformed / incompletely-closed definition (or an unrealisable kind).
+    but the size follows the part. A kind whose required parameters are only
+    partially supplied returns a :class:`ResidualKind` (the package-picker
+    collects the rest at place time). Otherwise the block may ``extends`` a
+    builtin generic; we register it as a temporary named package alongside the
+    builtins, resolve the extends chain, and build. Raises ``PackageDefError``
+    on a malformed / incompletely-closed definition (or an unrealisable kind).
     """
     from protoboard.domain.components.package.kind import (
         GeneratorContext,
@@ -210,7 +223,9 @@ def _build_component_package(name: str,
         values = {k: v for k, v in raw.items() if k not in ("kind", "pins")}
         ctx = build_kind_package(
             str(kind), GeneratorContext(pin_count=n, values=values))
-        assert ctx.package is not None  # build_kind_package always sets it
+        if ctx.residual is not None:
+            return ctx.residual
+        assert ctx.package is not None  # driver sets package XOR residual
         return ctx.package
 
     registry = dict(_load_builtin_package_defs())
@@ -433,10 +448,18 @@ def _component_from_dict(
     comp_pin_count = _component_pin_count(data)
 
     package_obj: Package | None = None
+    # A kind whose required parameters the component leaves unfilled: no body
+    # can be built at load time — the placeholder synthesized below carries the
+    # pending kind so the place-tool picker collects the rest.
+    pending_kind: ResidualKind | None = None
     package_raw = data.get("package")
     if isinstance(package_raw, dict):
-        package_obj = _build_component_package(data["name"], package_raw,
-                                               comp_pin_count)
+        built = _build_component_package(data["name"], package_raw,
+                                         comp_pin_count)
+        if isinstance(built, ResidualKind):
+            pending_kind = built
+        else:
+            package_obj = built
 
     # The available footprints (the picker offers these). The default/first entry
     # is the singular geometry source when there is no inline ``package`` /
@@ -463,6 +486,11 @@ def _component_from_dict(
                 f"{source}: component {data['name']!r} default footprint "
                 f"{footprints[0].name!r} did not resolve to a package")
         package_obj, footprint = pkg, fp
+    elif pending_kind is not None and comp_pin_count:
+        # A partially-parameterised kind has no geometry yet — a provisional
+        # single-row footprint stands in until the picker builds the concrete
+        # variant (placement resolves geometry from that variant's package).
+        footprint = SIL(n=comp_pin_count)
     else:
         raise SerializationError(
             f"{source}: component {data.get('name')!r} requires 'footprint', "
@@ -652,6 +680,22 @@ def _component_from_dict(
         )
         synth = synth_generic_package(footprint)
         if synth is not None:
+            if pending_kind is not None and isinstance(synth, Prism):
+                # Pending-kind placeholder: geometry stays the generic bbox
+                # (``_generic`` remains in the lineage, so generic consumers —
+                # DRC, bend specs — keep treating it as such), but the target
+                # kind + its parameter state ride along so the picker can offer
+                # the remaining holes and rebuild a concrete body.
+                from protoboard.domain.components.package.generators import (
+                    KIND_GENERATORS,
+                )
+                gen_cls = KIND_GENERATORS.get(pending_kind.kind)
+                synth = dataclasses.replace(
+                    synth,
+                    kind=pending_kind.kind,
+                    schema=gen_cls().params if gen_cls is not None else None,
+                    raw_values=dict(pending_kind.values),
+                )
             package_obj = synth
 
     try:

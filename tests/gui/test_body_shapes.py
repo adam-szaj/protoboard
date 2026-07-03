@@ -27,9 +27,11 @@ from protoboard.domain.components.footprints import (
     GenericFootprint,
 )
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.components.package.generators import (
+    prism_from_footprint as _prism_from_footprint,
+)
 from protoboard.domain.components.package.kind import (
     GeneratorContext,
-    _prism_from_footprint,
     build_kind_package,
 )
 from protoboard.domain.components.package.loader import build_package

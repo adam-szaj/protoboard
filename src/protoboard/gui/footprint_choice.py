@@ -19,11 +19,12 @@ questions the picker needs:
   built recently?
 * build a concrete (package) address from a kind address + the user's values.
 
-:class:`DefaultFootprintChoiceProvider` ships today: every footprint resolves as
-a *package* unless its resolved body carries a ``kind`` (then it is reported as a
-kind), no kind parameters are offered, and ``build_variant`` is a pass-through.
-With it the first pop-up works and the second never triggers; when the parameter
-model lands behind a new provider, the second pop-up comes alive unchanged.
+:class:`DefaultFootprintChoiceProvider` is backed by the kind-generator
+registry (:mod:`protoboard.domain.components.package.generators`): a footprint
+resolves as a *kind* when its body carries one; the kind's parameters are the
+*holes* (explicit-null fields) of the generator's ``params`` schema stamped on
+the body; ``build_variant`` re-runs the generator with the user's values and
+registers the concrete result in the session package catalogue.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.package.family import PackageFamily
+    from protoboard.domain.components.package.schema import ParamSchema
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,25 +105,40 @@ class FootprintChoiceProvider(Protocol):
 
 
 class DefaultFootprintChoiceProvider:
-    """Today's behaviour: footprints are packages unless their resolved body
-    carries a ``kind``; no kind parameters / recent variants are offered.
+    """Registry-backed provider: footprints are packages unless their resolved
+    body carries a ``kind``; kind parameters come from the generator's schema.
 
-    *package_families* is the session catalogue (used to resolve ref addresses
-    and to read ``kind`` off the resolved body). It may be empty before a session
-    is wired — then ``is_kind`` simply reports ``False`` (never blocks placement).
+    *package_families* is the session catalogue (used to resolve ref addresses,
+    to read ``kind`` off the resolved body, and as the registration target for
+    variants built by :meth:`build_variant` — the session shares the dict, so a
+    freshly-built variant resolves at placement with no extra wiring). It may
+    be empty before a session is wired — then ``is_kind`` simply reports
+    ``False`` (never blocks placement).
+
+    The provider remembers the definition of the last :meth:`options` call:
+    the picker's follow-up questions (``kind_params`` / ``build_variant``)
+    arrive with only an *address*, and the component-level inline kind
+    (address ``""``) plus the pin count are properties of that definition.
+    The dialogs run one interaction at a time, so the latch is safe.
     """
 
     def __init__(self, package_families: dict[str, PackageFamily] | None = None):
-        self._families: dict[str, PackageFamily] = package_families or {}
+        # Keep the caller's dict object (even when empty): build_variant
+        # registers freshly-built variants into it, and the session must see
+        # them — ``or {}`` would silently swap in a private copy.
+        self._families: dict[str, PackageFamily] = (
+            package_families if package_families is not None else {})
+        self._last_defn: ComponentDefinition | None = None
 
     def set_package_families(
         self, families: dict[str, PackageFamily] | None
     ) -> None:
-        self._families = families or {}
+        self._families = families if families is not None else {}
 
     def options(self, defn: ComponentDefinition) -> list[FootprintOptionView]:
         from protoboard.services.library.loader import inline_option_address
 
+        self._last_defn = defn
         out: list[FootprintOptionView] = []
         root = defn.refdes_prefix
         if defn.footprints:
@@ -191,18 +208,145 @@ class DefaultFootprintChoiceProvider:
         return out
 
     def kind_params(self, address: str) -> list[ParamSpec]:
-        # No parameter model yet: a kind builds from the component's own data
-        # (pin count / declared rows). The model-backed provider fills this in.
-        return []
+        """The kind's *holes*: schema fields whose stamped value is null.
+
+        The generator's ``params`` schema and the declared value tree ride on
+        the resolved body (stamped by the kind driver / the pending-kind
+        placeholder); a field is an input iff it is editable under the
+        "editable iff null" rule. A concrete (fully-parameterised) kind body
+        therefore offers nothing — one confirm, no second stage.
+        """
+        found = self._kind_package(address)
+        if found is None:
+            return []
+        _kind, schema, declared = found
+        if schema is None or schema.is_empty():
+            return []
+        out: list[ParamSpec] = []
+        for view in schema.fields_view(declared):
+            if view.editable:
+                spec_type = view.spec.type
+                out.append(ParamSpec(
+                    name=view.path,
+                    type=spec_type if isinstance(spec_type, str) else "str",
+                ))
+        return out
 
     def recent_variants(self, address: str) -> list[KindVariantView]:
         return []
 
     def build_variant(self, address: str, values: dict[str, str]) -> str | None:
-        # No parameters to apply — the kind address resolves as-is.
-        return address
+        """Run the kind generator with the user's *values*; register + address.
+
+        Without values the kind resolves as-is (the component's own data —
+        pin count, declared parameters — already fixes the body). With values,
+        the concrete result is registered as a single-variant family in the
+        session catalogue and its ``family/variant`` address returned; the
+        placement then resolves it like any other package variant.
+        """
+        if not values:
+            return address
+        found = self._kind_package(address)
+        defn = self._last_defn
+        if found is None or defn is None:
+            return None
+        kind, schema, declared = found
+
+        from protoboard.domain.components.package.family import (
+            PackageFamily,
+            PackageVariant,
+        )
+        from protoboard.domain.components.package.generated_families import STD
+        from protoboard.domain.components.package.generators import (
+            KIND_GENERATORS,
+            GeneratorContext,
+        )
+        from protoboard.domain.components.package.kind import (
+            build_kind_package,
+        )
+        from protoboard.errors import ProtoboardError
+
+        merged = {k: v for k, v in declared.items() if v is not None}
+        merged.update(self._coerce(values, schema))
+        ctx = GeneratorContext(pin_count=defn.pin_count, values=merged)
+        try:
+            result = build_kind_package(kind, ctx)
+        except (ProtoboardError, ValueError):
+            # ValueError covers PackageDefError (unrealisable parameters).
+            return None
+        if result.package is None:
+            return None  # still-missing parameters — nothing to place yet
+
+        gen_cls = KIND_GENERATORS.get(kind)
+        label = (gen_cls().variant_label(kind, ctx) if gen_cls is not None
+                 else f"{kind}-{defn.pin_count}")
+        slug = "".join(
+            f"-{k}{merged[k]}" for k in sorted(merged) if merged[k] is not None
+        )
+        family_id = f"{kind}-{defn.pin_count}{slug}"
+        self._families[family_id] = PackageFamily(
+            family_id=family_id,
+            label=label,
+            variants=(PackageVariant(variant_id=STD, label=label,
+                                     package=result.package),),
+        )
+        return f"{family_id}/{STD}"
 
     # -- helpers -------------------------------------------------------------
+
+    def _kind_package(
+        self, address: str
+    ) -> tuple[str, ParamSchema | None, dict[str, object]] | None:
+        """Resolve *address* to ``(kind, schema, declared values)`` — or None.
+
+        Address ``""`` is the component-level inline kind (the definition of
+        the last ``options()`` call); anything else is a catalogue ref.
+        """
+        pkg: object | None = None
+        if address:
+            from protoboard.domain.components.package.family import (
+                resolve_variant,
+            )
+            variant = resolve_variant(self._families, address)
+            pkg = variant.package if variant is not None else None
+        elif self._last_defn is not None:
+            pkg = self._last_defn.package
+        kind = getattr(pkg, "kind", None)
+        if pkg is None or not isinstance(kind, str):
+            return None
+        from protoboard.domain.components.package.generators import (
+            KIND_GENERATORS,
+        )
+        schema = getattr(pkg, "schema", None)
+        if schema is None:
+            gen_cls = KIND_GENERATORS.get(kind)
+            schema = gen_cls().params if gen_cls is not None else None
+        raw = getattr(pkg, "raw_values", None)
+        declared = dict(raw) if raw is not None else {}
+        return kind, schema, declared
+
+    @staticmethod
+    def _coerce(
+        values: dict[str, str], schema: ParamSchema | None
+    ) -> dict[str, object]:
+        """User input (strings from the dialog) → typed parameter values."""
+        specs = schema.fields if schema is not None else {}
+        out: dict[str, object] = {}
+        for name, raw in values.items():
+            spec = specs.get(name)
+            spec_type = spec.type if spec is not None else "str"
+            try:
+                if spec_type == "int":
+                    out[name] = int(raw)
+                elif spec_type == "float":
+                    out[name] = float(raw)
+                elif spec_type == "bool":
+                    out[name] = raw.strip().lower() in ("1", "true", "yes")
+                else:
+                    out[name] = raw
+            except ValueError:
+                out[name] = raw
+        return out
 
     def _ref_is_kind(self, address: str) -> bool:
         from protoboard.domain.components.package.family import resolve_variant

@@ -54,6 +54,37 @@ The remaining hard-wired body looks moved into the renderer registry:
 * Devboard stays gated by `ComponentClass.DEVBOARD` (a class trait valid for
   any package) — extraction noted in docs/todo.md.
 
+### Kind generators: pluggable registry, partial application, picker wiring (2026-07-04)
+
+Package **kinds** (parameterized bodies — `package: {kind: pin_header, rows: 2}`)
+are now generated through a pluggable registry mirroring the renderer registry:
+
+* **Generator contract** (`domain/components/package/generators/`): a
+  `PackageGenerator` subclass declares `generates = "<kind>"` (registration at
+  class-creation, later wins), its parameter set as a `ParamSchema` (`params` —
+  one source of truth for validation, the picker, and docs), an optional body
+  `color`, and implements `generate(ctx) -> ctx`. The old hardcoded
+  `_KIND_GEOMETRY` / `_KIND_COLOR` tables are gone; the builtin kinds
+  (`dip_ic`/`wdip_ic`/`dip_switch`/`sil`/`pin_header`/`jst`) are now ordinary
+  registered generators.
+* **Driver** (`build_kind_package`): default-fill + required/type checks
+  against the generator's schema, totality guard, `kind`/`lineage`/colour/
+  schema stamping. Explicit-`null` parameter values are *holes*: the build
+  substitutes the default, the hole is preserved on the body for the picker.
+* **Partial application + redirects** (`ResidualKind`): a kind with missing
+  required parameters loads as a generic-bbox placeholder carrying the pending
+  kind + bound values (still generic for DRC/bend consumers); a generator may
+  redirect to a *different* kind — complete redirects re-dispatch
+  (cycle-guarded), incomplete ones surface to the picker.
+* **Generator plugins**: `<library>/generators/*.py` auto-import at startup and
+  preferences reload (`services/library/plugin_discovery.py` — the same
+  machinery now also backs the renderer plugins).
+* **Package-picker wired**: `DefaultFootprintChoiceProvider.kind_params` turns
+  the body's stamped holes into input rows; `build_variant` re-runs the
+  generator with the user's values and registers the concrete variant in the
+  session catalogue (fixes a latent bug: an empty catalogue dict was silently
+  replaced by a private copy).
+
 ### Refactor: radial silhouettes are per-shape, base renderer slimmed (2026-07-04)
 
 `PackageRenderer` no longer type-branches on Disc/Cylinder/Prism inside its

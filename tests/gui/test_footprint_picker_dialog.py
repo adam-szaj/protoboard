@@ -206,9 +206,70 @@ class TestDefaultProvider:
             opts = provider.options(lib.get(name))
             assert len(opts) == 1 and opts[0].is_kind, name
 
-    def test_default_has_no_params_or_variants(self, lib_and_cat) -> None:
+    def test_unresolvable_address_offers_nothing(self, lib_and_cat) -> None:
         _lib, cat = lib_and_cat
         provider = DefaultFootprintChoiceProvider(cat)
         assert provider.kind_params("anything") == []
         assert provider.recent_variants("anything") == []
-        assert provider.build_variant("addr", {"x": "1"}) == "addr"
+        # No values → pass-through; values on an unresolvable kind → None.
+        assert provider.build_variant("addr", {}) == "addr"
+        assert provider.build_variant("addr", {"x": "1"}) is None
+
+    def test_fully_parameterised_kind_offers_no_params(
+        self, lib_and_cat
+    ) -> None:
+        # PinHeader_1x04 fixes rows=1 in YAML — nothing left to ask; the
+        # picker's one-confirm path applies.
+        lib, cat = lib_and_cat
+        provider = DefaultFootprintChoiceProvider(cat)
+        provider.options(lib.get("PinHeader_1x04"))
+        assert provider.kind_params("") == []
+
+
+class TestProviderKindParams:
+    """Registry-backed holes → picker inputs → built variant."""
+
+    def _defn_with_hole(self, tmp_path):
+        from protoboard.services.library.loader import load_library
+        (tmp_path / "lib.yaml").write_text(
+            "components:\n"
+            "  - name: HDR_ASK\n"
+            "    component_class: connector\n"
+            "    pins: {count: 6}\n"
+            "    package: {kind: pin_header, rows: null}\n"
+        )
+        return load_library([tmp_path]).get("HDR_ASK")
+
+    def test_hole_becomes_param_row(self, tmp_path) -> None:
+        defn = self._defn_with_hole(tmp_path)
+        assert defn is not None
+        provider = DefaultFootprintChoiceProvider({})
+        opts = provider.options(defn)
+        assert len(opts) == 1 and opts[0].is_kind
+        params = provider.kind_params(opts[0].address)
+        assert [(p.name, p.type) for p in params] == [("rows", "int")]
+
+    def test_build_variant_registers_and_resolves(self, tmp_path) -> None:
+        from protoboard.domain.components.package.family import (
+            resolve_variant,
+        )
+        defn = self._defn_with_hole(tmp_path)
+        assert defn is not None
+        families: dict = {}
+        provider = DefaultFootprintChoiceProvider(families)
+        opts = provider.options(defn)
+        address = provider.build_variant(opts[0].address, {"rows": "2"})
+        assert address is not None and "/" in address
+        variant = resolve_variant(families, address)
+        assert variant is not None
+        assert variant.package.kind == "pin_header"
+        # 2×6 header: dual-row geometry (shorter along the row than 1×6).
+        assert variant.package.bbox().height < 6
+
+    def test_build_variant_invalid_values_returns_none(self, tmp_path) -> None:
+        defn = self._defn_with_hole(tmp_path)
+        assert defn is not None
+        provider = DefaultFootprintChoiceProvider({})
+        opts = provider.options(defn)
+        # rows=3 is unrealisable for a pin header → generator raises → None.
+        assert provider.build_variant(opts[0].address, {"rows": "3"}) is None

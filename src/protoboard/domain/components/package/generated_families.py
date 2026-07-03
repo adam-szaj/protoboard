@@ -27,7 +27,7 @@ from protoboard.domain.components.package.family import (
     PackageFamily,
     PackageVariant,
 )
-from protoboard.domain.components.package.kind import _prism_from_footprint
+from protoboard.domain.components.package.generators import prism_from_footprint
 
 # Row pitch (in holes) for the two DIP widths.  0.3 in / 0.6 in at a 0.1 in
 # (one-hole) grid → 3 and 6 holes between the columns.
@@ -49,7 +49,7 @@ _SIL_COUNTS = range(3, 41)
 def _family(
     family_id: str, label: str, footprint: Footprint,
 ) -> PackageFamily | None:
-    pkg = _prism_from_footprint(footprint)
+    pkg = prism_from_footprint(footprint)
     if pkg is None:
         return None
     return PackageFamily(

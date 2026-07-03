@@ -437,6 +437,53 @@ package — so even a plain `footprint: {type: DIP, pins: 16}` gets a proper DIP
 
 ---
 
+## 10b. Custom kind generators (plugins)
+
+A package **kind** (`package: {kind: pin_header, rows: 2}`) is a parameterized
+body recipe. To add your own, drop a `.py` file into a `generators/`
+subdirectory of any component-library directory — it is imported at startup
+and on a preferences reload, and defining the class **is** the registration:
+
+```python
+# <library>/generators/my_relay.py
+from protoboard.domain.components.footprints import DIL
+from protoboard.domain.components.package.generators import (
+    PackageGenerator, prism_from_footprint,
+)
+from protoboard.domain.components.package.schema import parse_schema
+
+class RelayGenerator(PackageGenerator):
+    generates = "relay_dpdt"                      # the kind name
+    params = parse_schema({                       # the parameter set {K}
+        "rows_spacing": {"type": "float", "default": 3.0},
+    })
+    color = "#3355aa"                             # optional body colour
+
+    def generate(self, ctx):
+        pkg = prism_from_footprint(
+            DIL(n=ctx.pin_count, rows_spacing=ctx.values["rows_spacing"]))
+        return ctx.with_package(pkg)
+```
+
+Components then declare `package: {kind: relay_dpdt}`. Rules of the game:
+
+- **Later registration wins** — your plugin may override a builtin kind.
+- **Parameters** are validated against `params` before `generate` runs; a
+  field left `null` by the component is a *hole* the place-tool picker asks
+  the user to fill (the build itself uses the default).
+- Missing **required** parameters make the kind *partially applied*: the
+  component loads with a placeholder body and the picker collects the rest.
+  `generate` may also return `ctx.with_residual(ResidualKind(other_kind,
+  values))` to redirect to a different kind.
+- A generator is **pure domain** — no Qt, no I/O; it must be importable
+  headless. A broken plugin file is logged and skipped.
+- Pair it with a **renderer plugin** for the same kind name (`renders =
+  "relay_dpdt"` in `<library>/renderers/…` — see
+  [../rendering.md](../rendering.md) §4.2) for a custom look; without one the
+  body renders through the shape-root renderer.
+
+---
+
 ## 11. Quick recipes
 
 - **Real part on a standard body** → `footprint:` + `package_family_ref` into a

@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: MIT
+"""Package-kind generators: contract, registry, and the builtin recipes.
+
+Importing this package registers the builtin generators (the module-level
+class bodies execute ``__init_subclass__``); library plugins under a
+``generators/`` directory register the same way when the service layer imports
+them (:mod:`protoboard.services.library.plugin_discovery`).
+"""
+
+from protoboard.domain.components.package.generators import (  # noqa: F401
+    connectors as _connectors,
+)
+from protoboard.domain.components.package.generators import (  # noqa: F401
+    dip as _dip,
+)
+from protoboard.domain.components.package.generators import (  # noqa: F401
+    sil as _sil,
+)
+from protoboard.domain.components.package.generators.base import (
+    KIND_GENERATORS,
+    GeneratorContext,
+    PackageGenerator,
+    ResidualKind,
+    prism_from_footprint,
+)
+
+__all__ = [
+    "KIND_GENERATORS",
+    "GeneratorContext",
+    "PackageGenerator",
+    "ResidualKind",
+    "prism_from_footprint",
+]

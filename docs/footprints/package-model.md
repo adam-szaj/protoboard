@@ -714,32 +714,59 @@ field name, an editor by `type`, read-only when not `editable`).
 
 ## 6. Procedural `kind` (generators)
 
-> **Implemented** (`package/kind.py`: `_KIND_GEOMETRY`, `build_kind_package`,
-> `GeneratorContext`).
+> **Implemented** (`package/generators/`: `PackageGenerator`,
+> `KIND_GENERATORS`; `package/kind.py`: `build_kind_package` — the driver).
 
-`kind:` in a `package:` block names a **parameterized body** built from the pin
-count: `dip_ic` / `wdip_ic` (DIP narrow/wide), `sil` (header), `dip_switch`
-(plain dual-row, no notch), connectors. This is a **separate mechanism** from the
-YAML/families path (§5) — a kind synthesises a whole `Package` from `pin_count`,
-bypassing the `dims` parsing in `build_package`. The renderer draws the declared
-look (the notch for a DIP-IC, plain for a DIP-switch) **instead of** guessing from
-the pin-column count; an unknown kind falls back to that guess (see
-`silhouette_for_prism`, [../geometry.md](../geometry.md) §11).
+`kind:` in a `package:` block names a **parameterized body** — a C++-template
+analogue: the kind is the template, the parameter set *{K}* (pin count, rows,
+…) instantiates it. Builtins: `dip_ic` / `wdip_ic` (DIP narrow/wide), `sil`
+(header), `dip_switch` (plain dual-row, no notch), `pin_header` / `jst`
+(connectors). This is a **separate mechanism** from the YAML/families path
+(§5) — a kind synthesises a whole `Package` from `pin_count` + parameters,
+bypassing the `dims` parsing in `build_package`. A pure kind cannot be
+rendered or assigned — only the generated concrete package can. The renderer
+draws the declared look via the kind's registered renderer (the notch for a
+DIP-IC — see [../rendering.md](../rendering.md) §4); an unknown kind falls
+back to the shape-root renderer's guess.
 
-**The generator interface** (frozen in → frozen out, composable) — open to a
-future chain, but the chain driver itself is **not built**:
+**The generator contract** (`package/generators/base.py`) mirrors the renderer
+registry: a `PackageGenerator` subclass declaring `generates = "<kind>"`
+registers itself at class-creation time; later registrations win (a plugin in
+a library's `generators/` directory overrides a builtin —
+`services/library/plugin_discovery.py`). The subclass declares its parameter
+set as a `ParamSchema` (`params`, one source of truth for build validation,
+picker inputs and docs) and implements `generate(ctx) -> ctx`:
 
 ```python
 @dataclass(frozen=True, slots=True)
 class GeneratorContext:
     pin_count: int
-    values: Mapping[str, object]      # current values incl. earlier-computed
-    package: Package | None = None    # the built body (None on input)
+    values: Mapping[str, object]        # default-filled by the driver
+    package: Package | None = None      # the built body (output), XOR
+    residual: ResidualKind | None = None  # parameters still to collect
 ```
 
-`build_kind_package(kind, ctx, schema) -> GeneratorContext`. **Deferred**
-(tracked in [../todo.md](../todo.md)): the chain driver, `auto`-resolution
-*through* generators, and emitting `dims` from generators.
+`build_kind_package(kind, ctx, schema) -> GeneratorContext` is the driver:
+default-fill + required/type checks against the generator's `params`, the
+`generate` call, a totality guard, and the `kind` / `lineage` / colour /
+schema stamp on the built body.
+
+**Partial application (`ResidualKind`).** A component may fill only part of a
+kind's required parameters: the driver then returns a *residual* — the kind +
+the values bound so far — instead of failing. The library loader gives such a
+component a generic-bbox placeholder (still `_generic` in lineage, so DRC /
+bend consumers keep generic behaviour) carrying the pending kind + parameter
+state; the place-tool picker collects the remaining holes ("editable iff
+null", §5.3) and `build_variant` re-runs the generator, registering the
+concrete result in the session catalogue. A generator may also return a
+residual naming a **different kind** (a different parameter set) — a
+*redirect*; the driver re-dispatches complete redirects (cycle-guarded) and
+surfaces incomplete ones to the picker.
+
+**Deferred** (tracked in [../todo.md](../todo.md)): the multi-step chain
+driver, `auto`-resolution *through* generators, emitting `dims` from
+generators, and partial kinds in `footprints:` option entries (today only the
+component-level `package:` supports them).
 
 ### Two independent "inheritance" axes
 
