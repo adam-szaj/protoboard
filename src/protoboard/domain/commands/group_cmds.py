@@ -467,17 +467,37 @@ class RotateGroupCommand(Command[ComponentState]):
             definitions=state.components,
         )
 
-        # Rotate placements + internal wires around the group origin.
+        # Scene-graph rotate: the group's own ``transform`` gains the rotation
+        # about ``origin``; member placements stay group-LOCAL and pick up the
+        # rotation on read through the compose-on-read seam (verified: the
+        # composed world pin positions are bit-identical to the previous
+        # bake-into-placements behaviour).  Member ``comp_ids`` is therefore
+        # empty here — ``rotate_components_around`` only rotates the owned
+        # WIRES, whose ``path``/``fragments``/free-knots are still absolute and
+        # do NOT compose through the seam, so they must be rotated in place to
+        # stay attached to the (now-rotated) pins.  Wires becoming group-local
+        # is a separate follow-on (docs plan, Phase 6+).
+        #
+        # ``find_owned_wires`` and ``group_origin`` above read placements
+        # through the seam, so they must run BEFORE the transform changes — at
+        # that point the seam still returns the pre-rotation world positions,
+        # matching the pre-rotation wire paths.
         snapshot = rotate_components_around(
-            state, comp_ids, origin, self.delta,
+            state, frozenset(), origin, self.delta,
             wire_ids=frozenset(internal_wire_ids),
         )
         self._snapshot = snapshot
 
-        # Update group metadata.
+        # Fold the rotation into the group transform (the scene-graph source of
+        # truth) and keep the legacy ``rotation``/``origin`` metadata in sync —
+        # both stay authoritative during the FLATTEN→scene-graph transition
+        # (docs plan); readers still consult ``origin`` for hit-test/render.
+        new_transform = _rotation_about(origin, self.delta).compose(
+            group.transform
+        )
         new_rot = (group.rotation + self.delta) % 360
         state.layout.groups[self.group_id] = group.replace(
-            rotation=new_rot, origin=origin
+            transform=new_transform, rotation=new_rot, origin=origin
         )
 
     def revert(self, state: ComponentState) -> None:

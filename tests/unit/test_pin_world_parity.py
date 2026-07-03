@@ -22,12 +22,23 @@ from __future__ import annotations
 import uuid
 
 from protoboard.domain.components.footprints import DIL, SIL, Footprint
-from protoboard.domain.layout.layout import Layout
+from protoboard.domain.layout.group import ComponentGroup
+from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
 from protoboard.domain.layout.placement import (
     ComponentPlacement,
+    compose_placement,
     pin_world_position,
 )
-from protoboard.geometry import Point, Vector
+from protoboard.geometry import Point, Transform2D, Vector
+
+
+def _rotation_about(origin: Point, delta: int) -> Transform2D:
+    o = Vector(origin.x, origin.y)
+    return (
+        Transform2D.translation(o)
+        .compose(Transform2D.rotation(delta // 90))
+        .compose(Transform2D.translation(-o))
+    )
 
 
 def _key(p: Point) -> tuple[float, float]:
@@ -133,3 +144,62 @@ class TestPinWorldParityThroughPlacements:
         via_get = _world_pins(fp, layout.placements.get(cid))  # type: ignore[arg-type]
         via_values = _world_pins(fp, next(iter(layout.placements.values())))
         assert via_index == via_get == via_values
+
+
+class TestGroupedMemberComposesThroughSeam:
+    """A grouped member with a non-identity group transform reads its WORLD pins
+    through the seam (Phase 3, the scene-graph read path).
+
+    The stored placement is group-LOCAL; ``layout.placements[cid]`` folds the
+    group transform on read.  These snapshots pin the composed world positions
+    for a group rotated about an origin — the same Points the pre-scene-graph
+    FLATTEN produced by baking the rotation into the placement.
+    """
+
+    def _grouped_layout(
+        self, cid: uuid.UUID, local: ComponentPlacement, transform: Transform2D
+    ) -> Layout:
+        gid = uuid.uuid4()
+        return Layout(
+            placements={cid: local},
+            groups={
+                ROOT_GROUP_ID: ComponentGroup(
+                    id=ROOT_GROUP_ID, name="", child_group_ids=frozenset({gid})
+                ),
+                gid: ComponentGroup(
+                    id=gid,
+                    name="G",
+                    component_ids=frozenset({cid}),
+                    transform=transform,
+                ),
+            },
+        )
+
+    def test_group_rotation_90_composes(self) -> None:
+        # Local SIL(3) at (10,10) rot 0; group rotated 90° CW about (10,10).
+        # Pin1 sits on the pivot → stays; the row swings from +y to +x.
+        fp = SIL(3)
+        cid = uuid.uuid4()
+        local = _placed(position=Point(10.0, 10.0), rotation=0, side="top")
+        layout = self._grouped_layout(
+            cid, local, _rotation_about(Point(10.0, 10.0), 90)
+        )
+        assert _world_pins(fp, layout.placements[cid]) == [
+            (10.0, 10.0), (11.0, 10.0), (12.0, 10.0),
+        ]
+
+    def test_group_rotation_matches_baked_flatten(self) -> None:
+        # For every rotation the composed (local + group transform) world pins
+        # equal the FLATTEN result (baking the same rotation into the placement).
+        fp = DIL(8)
+        cid = uuid.uuid4()
+        origin = Point(4.0, 7.0)
+        local = _placed(position=Point(4.0, 7.0), rotation=90, side="bottom")
+        for delta in (90, 180, 270):
+            t = _rotation_about(origin, delta)
+            layout = self._grouped_layout(cid, local, t)
+            baked = compose_placement(t, local)  # the FLATTEN equivalent
+            assert (
+                _world_pins(fp, layout.placements[cid])
+                == _world_pins(fp, baked)
+            ), delta

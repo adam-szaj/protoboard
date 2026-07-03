@@ -554,6 +554,219 @@ class TestGroupTransformRoundtrip:
         assert "transform:" not in layout_yaml
 
 
+class _StubLibrary:
+    """Migration-library stub: the ``get``/``names`` surface ``load_project``
+    needs to resolve a definition during the v2→v3 group migration."""
+
+    def __init__(self, by_name: "dict[str, object]") -> None:
+        self._by_name = by_name
+
+    def names(self):  # type: ignore[no-untyped-def]
+        return self._by_name.keys()
+
+    def get(self, name: str):  # type: ignore[no-untyped-def]
+        return self._by_name.get(name)
+
+
+class TestGroupV2ToV3Migration:
+    """A rotated group survives save/load with bit-identical world pins, and a
+    hand-authored v2 file (baked placements + group rotation, no transform)
+    migrates to identical world positions (Phase 3).
+
+    Under the scene-graph model the on-disk placements are group-LOCAL and the
+    group carries the rotation as a ``transform``; the read seam recomposes the
+    world pose.  These tests are the persistence half of the Phase-3 parity
+    guarantee (the in-memory half is ``test_pin_world_parity``).
+    """
+
+    def _resistor_defn(self):  # type: ignore[no-untyped-def]
+        from protoboard.domain.components.definition import ComponentDefinition
+        from protoboard.domain.components.footprints import SIL
+        return ComponentDefinition(
+            name="R", footprint=SIL(3), pin_names={1: "A", 2: "B", 3: "C"}
+        )
+
+    def _big_board(self) -> Board:
+        return Board(root=BoardGrid(
+            width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+            cell=PadAtom(
+                width_policy=SizePolicy.HUG, height_policy=SizePolicy.HUG,
+                layers=PadLayers(top=True, bottom=True, plated_through=True),
+            ),
+            rows=40, cols=40, row_gap=0.0, col_gap=0.0,
+        ))
+
+    def _world_pins(self, defn, layout, cids):  # type: ignore[no-untyped-def]
+        from protoboard.domain.layout.placement import pin_world_position
+        fp = defn.footprint
+        return {
+            cid: [
+                (round(pin_world_position(fp, layout.placements[cid], n).x, 4),
+                 round(pin_world_position(fp, layout.placements[cid], n).y, 4))
+                for n in range(1, fp.pin_count() + 1)
+            ]
+            for cid in cids
+        }
+
+    def test_rotated_group_round_trips_world_positions(
+        self, tmp_path: Path
+    ) -> None:
+        from dataclasses import dataclass, field
+
+        from protoboard.domain.commands.group_cmds import RotateGroupCommand
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID
+        from protoboard.services.persistence.project_yaml import (
+            set_migration_families,
+            set_migration_library,
+        )
+
+        defn = self._resistor_defn()
+        lib = _StubLibrary({"R": defn})
+
+        @dataclass
+        class _State:
+            layout: Layout
+            instances: dict = field(default_factory=dict)
+            components: dict = field(default_factory=dict)
+            schematic: Schematic = field(default_factory=lambda: Schematic(nets={}))
+            board: Board = field(default_factory=self._big_board)
+
+        layout = Layout(placements={}, wires=cast(WireCollection, []))
+        layout.ensure_root_group()
+        state = _State(layout=layout, components={"R": defn})
+        cids = []
+        for i, (x, y) in enumerate([(10, 10), (13, 10), (10, 14)]):
+            inst = ComponentInstance.new(
+                definition_ref="R", refdes=f"R{i}", value="1k"
+            ).bind(defn, {})
+            state.instances[inst.id] = inst
+            layout.placements[inst.id] = ComponentPlacement(
+                component_id=inst.id, position=Point(x, y), rotation=0, side="top",
+            )
+            cids.append(inst.id)
+        g = ComponentGroup(
+            id=uuid.uuid4(), name="G",
+            component_ids=frozenset(cids), origin=Point(10, 10),
+        )
+        layout.groups[g.id] = g
+        root = layout.groups[ROOT_GROUP_ID]
+        layout.groups[ROOT_GROUP_ID] = root.replace(
+            child_group_ids=root.child_group_ids | {g.id}
+        )
+
+        RotateGroupCommand(group_id=g.id, delta=90).apply(state)
+        before = self._world_pins(defn, layout, cids)
+        # The rotation is carried by the group transform, not baked positions.
+        assert layout.groups[g.id].transform != g.transform
+
+        set_migration_library(lib)
+        set_migration_families(None)
+        try:
+            save_project(
+                tmp_path, state.board, layout, state.schematic, state.instances
+            )
+            # The group transform must be on disk (scene-graph encoding).
+            assert "transform:" in (tmp_path / "layout.yaml").read_text()
+            _b, loaded, _s, _i, *_ = load_project(tmp_path)
+        finally:
+            set_migration_library(None)
+            set_migration_families(None)
+
+        after = self._world_pins(defn, loaded, cids)
+        assert after == before
+
+    def test_v2_file_migrates_to_identical_world_positions(
+        self, tmp_path: Path
+    ) -> None:
+        import io
+
+        from ruamel.yaml import YAML
+
+        from protoboard.domain.commands.group_cmds import _rotation_about
+        from protoboard.domain.layout.placement import (
+            compose_placement,
+            pin_world_position,
+        )
+        from protoboard.services.persistence.board_yaml import board_to_yaml
+        from protoboard.services.persistence.project_yaml import (
+            set_migration_families,
+            set_migration_library,
+        )
+
+        defn = self._resistor_defn()
+        fp = defn.footprint
+        lib = _StubLibrary({"R": defn})
+        c1, c2 = uuid.uuid4(), uuid.uuid4()
+        gid = uuid.uuid4()
+        origin = Point(10.0, 10.0)
+
+        # v2 BAKED placements = the rotation flattened into each pose.
+        t_g = _rotation_about(origin, 90)
+        baked1 = compose_placement(
+            t_g, ComponentPlacement(c1, Point(10.0, 10.0), 0, "top")
+        )
+        baked2 = compose_placement(
+            t_g, ComponentPlacement(c2, Point(13.0, 10.0), 0, "top")
+        )
+
+        def _world(pl):  # type: ignore[no-untyped-def]
+            return [
+                (round(pin_world_position(fp, pl, n).x, 4),
+                 round(pin_world_position(fp, pl, n).y, 4))
+                for n in range(1, fp.pin_count() + 1)
+            ]
+
+        expected = {c1: _world(baked1), c2: _world(baked2)}
+
+        # Hand-author a v2 layout.yaml: baked placements, group rotation=90,
+        # and NO ``transform`` key — exactly what a pre-scene-graph save wrote.
+        def _pl(pl):  # type: ignore[no-untyped-def]
+            return {
+                "component_id": str(pl.component_id),
+                "position": {"x": pl.position.x, "y": pl.position.y},
+                "rotation": pl.rotation, "side": pl.side,
+            }
+        data = {
+            "format_version": 2,
+            "placements": [_pl(baked1), _pl(baked2)],
+            "knots": [], "wires": [],
+            "groups": [
+                {"id": "00000000-0000-0000-0000-000000000001", "name": ""},
+                {"id": str(gid), "name": "G",
+                 "component_ids": sorted([str(c1), str(c2)]),
+                 "rotation": 90, "origin": {"x": 10.0, "y": 10.0}},
+            ],
+        }
+        yaml = YAML(typ="safe")
+        yaml.default_flow_style = False
+        buf = io.StringIO()
+        yaml.dump(data, buf)
+        (tmp_path / "layout.yaml").write_text(buf.getvalue())
+        (tmp_path / "board.yaml").write_text(board_to_yaml(self._big_board()))
+        (tmp_path / "schematic.yaml").write_text("nets: []\n")
+        ibuf = io.StringIO()
+        yaml.dump({"instances": [
+            {"id": str(c1), "definition_ref": "R", "refdes": "R0", "value": "1k"},
+            {"id": str(c2), "definition_ref": "R", "refdes": "R1", "value": "1k"},
+        ]}, ibuf)
+        (tmp_path / "instances.yaml").write_text(ibuf.getvalue())
+
+        set_migration_library(lib)
+        set_migration_families(None)
+        try:
+            _b, loaded, _s, _i, *_ = load_project(tmp_path)
+        finally:
+            set_migration_library(None)
+            set_migration_families(None)
+
+        # World positions reconstructed identically, and the group gained a
+        # non-identity transform (the v2→v3 conversion).
+        from protoboard.geometry import Transform2D
+        assert loaded.groups[gid].transform != Transform2D.identity()
+        got = {c1: _world(loaded.placements[c1]), c2: _world(loaded.placements[c2])}
+        assert got == expected
+
+
 class TestWirePinPersistence:
     """Wire-pin knots survive save/load with their position + net snapshot
     (docs/archive/wire-pin-implementation.md §3.9).

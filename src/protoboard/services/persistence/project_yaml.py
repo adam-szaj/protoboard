@@ -286,13 +286,26 @@ def _wire_to_yaml_dict(wire: object) -> dict[str, Any]:
 
 
 def _layout_to_yaml(layout: Layout) -> str:
-    # Single knot-aware format (format_version: 2).  Save ensures every wire
-    # has endpoint knots so the on-disk format is uniform; downstream tools
-    # rely on this invariant.
+    # Knot-aware format, now v3: placements are group-LOCAL and groups carry a
+    # scene-graph ``transform`` (pre-scene-graph projects with no rotated group
+    # serialise byte-identically to v2 because local == world there).  The
+    # loader detects the frame from content (a group's ``transform`` vs a baked
+    # ``rotation``), not from this header, so the bump is informational; the wire
+    # format is still detected via ``a_knot_id``.  Save ensures every wire has
+    # endpoint knots so the on-disk format is uniform; downstream tools rely on
+    # this invariant.
     for wire in layout.wires:
         layout.ensure_wire_knots(wire)
     data: dict[str, Any] = {
-        "format_version": 2,
+        "format_version": 3,
+        # Serialize the stored GROUP-RELATIVE (local) placements — not the
+        # composed world ones.  A grouped component's world position is the
+        # group transform ∘ its local placement; persisting the local one plus
+        # the group ``transform`` (below) is the scene-graph v3 encoding.  The
+        # ``.values()`` read path would compose the transform, so a save+load
+        # would apply it twice; ``local_items`` bypasses the compose.  For an
+        # ungrouped component (or an identity-transform group) local == world,
+        # so pre-scene-graph projects round-trip byte-identically.
         "placements": [
             {
                 "component_id": str(pl.component_id),
@@ -320,7 +333,7 @@ def _layout_to_yaml(layout: Layout) -> str:
                 **({"vertical_flipped": True} if pl.vertical_flipped else {}),
                 **({"locked": True} if pl.locked else {}),
             }
-            for pl in layout.placements.values()
+            for _cid, pl in layout.placements.local_items()
         ],
         "knots": [_knot_to_yaml_dict(k) for k in layout.knots.values()],
         "wires": [_wire_to_yaml_dict(w) for w in layout.wires],
@@ -448,6 +461,79 @@ def _drop_dangling_instances(
         layout.pin_knots.pop(pin, None)
 
 
+def _migrate_groups_v2_to_v3(layout: Layout) -> None:
+    """Convert a v2 layout (baked group rotation) to the v3 scene-graph frame.
+
+    In v2 a group rotation was *flattened*: every member's ``ComponentPlacement``
+    was rewritten to its absolute (world) pose and the group kept only a
+    ``rotation`` int + ``origin`` as metadata.  In v3 the group carries its own
+    ``transform`` and members store group-LOCAL placements that compose through
+    the read seam.
+
+    For each group that still looks v2 — a non-zero ``rotation`` with an
+    identity ``transform`` (a v3 file already carries a real ``transform`` and is
+    left untouched) — this:
+
+    1. builds ``T_g = translate(origin) ∘ R(rotation) ∘ translate(-origin)`` and
+       stores it as the group's ``transform`` (relative to its parent, matching
+       the v2 flatten which rotated each group about its own origin);
+    2. rewrites every recursively-reachable member's placement to
+       ``compose_placement(W⁻¹, pl_absolute)`` where ``W`` is the cumulative
+       ancestor transform, so the seam's ``compose_placement(W, local)`` returns
+       the original absolute pose bit-for-bit.
+
+    Invariant (guarded by ``test_pin_world_parity`` / the fixture corpus): for a
+    migrated file, ``pin_world_position(fp, layout.placements[cid], n)`` returns
+    the exact same Point as before migration.  A no-op for the common case — no
+    group, or every group already identity/v3 — so pre-scene-graph projects load
+    unchanged.  Ordered BEFORE the wire-migration/normalize passes because those
+    resolve pin world positions and must see the composed (world) placements.
+    """
+    from protoboard.domain.commands.group_cmds import _rotation_about
+    from protoboard.domain.layout.group_tree import GroupTree
+    from protoboard.domain.layout.placement import compose_placement
+
+    to_migrate = {
+        gid: g
+        for gid, g in layout.groups.items()
+        if g.rotation != 0 and g.transform == _IDENTITY_TRANSFORM
+    }
+    if not to_migrate:
+        return
+
+    # Set every migrating group's own transform from its baked (rotation, origin)
+    # FIRST, so the cumulative ancestor fold below reads real transforms.  A
+    # group with rotation but no origin can't define a pivot — skip it (its
+    # members stay absolute, which is the pre-migration behaviour).
+    for gid, g in to_migrate.items():
+        if g.origin is None:
+            continue
+        layout.groups[gid] = g.replace(
+            transform=_rotation_about(g.origin, g.rotation)
+        )
+
+    tree = GroupTree(layout.groups)
+    migrated_components: set[uuid.UUID] = set()
+    for gid in to_migrate:
+        for cid in tree.all_component_ids(gid):
+            if cid in migrated_components:
+                continue  # a component belongs to one group subtree only
+            pl_abs = layout.placements.local_get(cid)
+            if pl_abs is None:
+                continue
+            world = tree.world_transform(cid)
+            if world == _IDENTITY_TRANSFORM:
+                continue
+            layout.placements[cid] = compose_placement(world.inverse(), pl_abs)
+            migrated_components.add(cid)
+
+    _log.info(
+        "project.migrated_groups_v2_to_v3",
+        groups=len(to_migrate),
+        components=len(migrated_components),
+    )
+
+
 def load_project(
     directory: Path,
 ) -> tuple[
@@ -508,6 +594,13 @@ def load_project(
             _defn = _mig_lib.get(_inst.definition_ref)
             if _defn is not None:
                 instances[_cid] = _inst.bind(_defn, _mig_families)
+
+    # Convert v2 groups (baked rotation flattened into member placements) to the
+    # v3 scene-graph frame (group carries a transform, members are group-local).
+    # Runs BEFORE every wire/normalize pass below, which resolve pin world
+    # positions and must see the composed (world) placements the seam now
+    # reconstructs.  No-op for v3 files and for groups that were never rotated.
+    _migrate_groups_v2_to_v3(layout)
 
     # Enrich every insulated wire with pad-position vertices wherever its
     # path geometrically crosses a board pad.  Legacy projects saved before
