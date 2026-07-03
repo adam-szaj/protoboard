@@ -48,7 +48,22 @@ from protoboard.gui.layer_state import LayerOverrides, LayerVisibility
 from protoboard.domain.schematic.net import Net, PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.errors import SerializationError
-from protoboard.geometry import Point, Vector
+from protoboard.geometry import Point, Transform2D, Vector
+
+# Identity transform sentinel — a group with this transform is a no-op in the
+# scene-graph model, so it is not written to disk (keeps files clean).
+_IDENTITY_TRANSFORM = Transform2D.identity()
+
+
+def _transform_from_raw(raw: object) -> Transform2D:
+    """Parse a group ``transform`` field (``[a,b,c,d,tx,ty]``) → Transform2D.
+
+    Absent / malformed → identity (a group without a stored transform is a
+    no-op; older files have no ``transform`` key at all)."""
+    if not isinstance(raw, (list, tuple)) or len(raw) != 6:
+        return _IDENTITY_TRANSFORM
+    a, b, c, d, tx, ty = (float(v) for v in raw)
+    return Transform2D(a, b, c, d, tx, ty)
 import structlog
 from protoboard.services.persistence.board_yaml import board_from_yaml, board_to_yaml
 
@@ -334,6 +349,10 @@ def _layout_to_yaml(layout: Layout) -> str:
                         ),
                         **({"rotation": g.rotation} if g.rotation != 0 else {}),
                         **({"origin": {"x": g.origin.x, "y": g.origin.y}} if g.origin is not None else {}),
+                        **(
+                            {"transform": list(g.transform.coeffs())}
+                            if g.transform != _IDENTITY_TRANSFORM else {}
+                        ),
                         **(
                             {"lock_internal_wires": True}
                             if g.lock_internal_wires else {}
@@ -1023,6 +1042,7 @@ def _layout_from_yaml(text: str) -> Layout:
             exported_pins=exported_pins,
             rotation=int(raw.get("rotation", 0)),
             origin=origin,
+            transform=_transform_from_raw(raw.get("transform")),
             lock_internal_wires=bool(raw.get("lock_internal_wires", False)),
         )
 
@@ -1105,16 +1125,9 @@ def _migrate_encapsulated_exports(
             continue
         g = groups[gid]
         new_exported = g.exported_pins - invalid
-        groups[gid] = ComponentGroup(
-            id=g.id,
-            name=g.name,
-            component_ids=g.component_ids,
-            child_group_ids=g.child_group_ids,
-            exported_pins=new_exported,
-            rotation=g.rotation,
-            origin=g.origin,
-            lock_internal_wires=g.lock_internal_wires,
-        )
+        # ``replace`` carries every field (incl. ``transform``) — re-listing
+        # them by hand would silently drop new fields.
+        groups[gid] = g.replace(exported_pins=new_exported)
         _log.info(
             "load.migrate_encapsulated_exports",
             group_id=str(gid)[:8],

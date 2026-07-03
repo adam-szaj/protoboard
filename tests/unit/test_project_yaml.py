@@ -11,6 +11,7 @@ from protoboard.domain.board.board import Board
 from protoboard.domain.board.boxes import BoardGrid, PadAtom, SizePolicy
 from protoboard.domain.board.pads import PadLayers
 from protoboard.domain.components.instance import ComponentInstance
+from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.layout import Layout
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire, WireCollection
@@ -487,6 +488,70 @@ class TestEncapsulatedExportMigration:
         save_project(tmp_path, board, lay_loaded, sch, instances=insts)
         _, lay_again, *_ = load_project(tmp_path)
         assert lay_again.groups[g.id].exported_pins == frozenset({ep})
+
+
+class TestGroupTransformRoundtrip:
+    """A group's scene-graph ``transform`` survives save/load (Phase 1).
+
+    The default (identity) transform is not written and reloads as identity; a
+    non-identity transform round-trips via its ``coeffs``.
+    """
+
+    def _round_trip(
+        self, tmp_path: Path, group: "ComponentGroup"
+    ) -> "ComponentGroup":
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
+        root = ComponentGroup(
+            id=ROOT_GROUP_ID, name="root",
+            child_group_ids=frozenset({group.id}),
+        )
+        lay = Layout(
+            placements={}, wires=cast(WireCollection, []),
+            groups={ROOT_GROUP_ID: root, group.id: group},
+        )
+        save_project(tmp_path, _perfboard(), lay, Schematic(nets={}))
+        _, lay_loaded, *_ = load_project(tmp_path)
+        return lay_loaded.groups[group.id]
+
+    def test_identity_transform_round_trips(self, tmp_path: Path) -> None:
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.geometry import Transform2D
+        g = ComponentGroup(id=uuid.uuid4(), name="G")
+        loaded = self._round_trip(tmp_path, g)
+        assert loaded.transform == Transform2D.identity()
+
+    def test_non_identity_transform_round_trips(self, tmp_path: Path) -> None:
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.geometry import Transform2D, Vector
+        # translate(10,20) ∘ rotate(90) ∘ reflect — a det=−1 transform with
+        # translation, exercising all six coefficients.
+        t = (
+            Transform2D.translation(Vector(10.0, 20.0))
+            .compose(Transform2D.rotation(1))
+            .compose(Transform2D.reflection())
+        )
+        g = ComponentGroup(id=uuid.uuid4(), name="G", transform=t)
+        loaded = self._round_trip(tmp_path, g)
+        assert loaded.transform == t
+        assert loaded.transform.determinant() == -1.0
+
+    def test_identity_transform_not_written(self, tmp_path: Path) -> None:
+        # A default-transform group must not add a `transform` key to disk.
+        from protoboard.domain.layout.group import ComponentGroup
+        from protoboard.domain.layout.layout import ROOT_GROUP_ID, Layout
+        g = ComponentGroup(id=uuid.uuid4(), name="G")
+        root = ComponentGroup(
+            id=ROOT_GROUP_ID, name="root",
+            child_group_ids=frozenset({g.id}),
+        )
+        lay = Layout(
+            placements={}, wires=cast(WireCollection, []),
+            groups={ROOT_GROUP_ID: root, g.id: g},
+        )
+        save_project(tmp_path, _perfboard(), lay, Schematic(nets={}))
+        layout_yaml = (tmp_path / "layout.yaml").read_text()
+        assert "transform:" not in layout_yaml
 
 
 class TestWirePinPersistence:

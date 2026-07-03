@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from protoboard.domain.schematic.net import PinRef
-from protoboard.geometry import Point
+from protoboard.geometry import Point, Transform2D
 
 if TYPE_CHECKING:
     from protoboard.domain.components.instance import ComponentInstance
@@ -37,6 +37,15 @@ class ComponentGroup:
     exported_pins: frozenset[PinRef] = field(default_factory=frozenset)
     rotation: int = 0
     origin: Point | None = None
+    # The group's own affine transform in its parent's frame (scene-graph
+    # model). A member's world position composes the ancestor group transforms
+    # with the member-local placement (see PlacementCollection / GroupTree.
+    # world_transform). Identity default → composes to a no-op, so a group with
+    # the default transform reads exactly as an ungrouped component. During the
+    # FLATTEN→compose migration ``rotation``/``origin`` remain the source of
+    # truth; ``transform`` is populated by the group commands and the v2→v3
+    # persistence migration.
+    transform: Transform2D = field(default_factory=Transform2D.identity)
     # Unified drag model (2026-06-02): when True, this group's internal
     # wires are treated as a HARD obstacle for foreign drags (a moved
     # pin landing on one of them blocks the commit instead of being
