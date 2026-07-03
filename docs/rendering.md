@@ -201,7 +201,11 @@ blocks on a package the registry does not know.
 PackageRenderer            # shared: colours/appearance, placement transform,
 │                          # radial top-view machinery, bbox fallback
 ├── CylinderRenderer       # renders = "cylinder": axial capsule, upright disc
-├── PrismRenderer          # renders = "prism": DIP/SIL silhouette, SMD chip
+├── PrismRenderer          # renders = "prism": column-guess silhouette, SMD chip
+│   ├── DipIcRenderer      # renders = ("dip_ic", "wdip_ic"): notched DIP body
+│   ├── SilHeaderRenderer  # renders = "sil": rounded SIL housing
+│   ├── PlainBodyRenderer  # renders = ("dip_switch", "pin_header", "jst"): plain rect
+│   └── TO220Renderer      # renders = "TO-220" (plugin): prism + metal tab
 └── DiscRenderer           # renders = "disc": radial lens (base radial branch)
 ```
 
@@ -246,24 +250,31 @@ A plugin that fails to import is logged and skipped — one broken file never
 blocks the rest of the library. Plugins are ordinary Python executed in the
 application process (same trust level as the app itself).
 
-### 4.3 Prism silhouette — declared `kind` first
+### 4.3 Prism silhouette — declared `kind` renderers first
 
-`_draw_prism` gets its outline from `silhouette_for_prism(prism)`
-(`gui/renderers/prism_silhouette.py:210`):
+`_draw_prism` gets its outline from the renderer's overridable
+`_silhouette(pkg)` hook. The **declared look** lives in the per-kind renderer
+subclasses (`gui/renderers/packages/prism_kinds.py`), registered for their
+kind names and picked by the ordinary lineage dispatch:
 
 ```
-silhouette_for_prism:
-  if prism.kind in _KIND_SILHOUETTE:   return that silhouette   # DECLARED
-      # dip_ic / wdip_ic → notch; dip_switch / pin_header / jst → plain; sil → housing
-  else:                                return silhouette_for(prism)  # column GUESS
+lineage dispatch (renderer_for):
+  dip_ic / wdip_ic     → DipIcRenderer      → notched DIP body + pin-1 marker
+  sil                  → SilHeaderRenderer  → rounded housing
+  dip_switch / pin_header / jst → PlainBodyRenderer → plain rect (colour per kind)
+  <no renderer for the kind>    → PrismRenderer     → silhouette_for (column GUESS)
       # 1 column ≥3 pins → SIL housing; 2 columns ≥2 each → DIP notch; else plain bbox
 ```
 
-The declared `kind` (built from a package `kind:` field) wins so a 2-row relay
-is not forced into a DIP notch just because its pins cluster into two columns; an
-unknown/absent kind falls back to the column guess so rendering never blocks on a
-kind it does not recognise. A dev-board module suppresses the silhouette entirely
-(plain PCB rectangle).
+The declared `kind` wins so a 2-row `dip_switch` is not forced into a DIP
+notch just because its pins cluster into two columns; a kind with no
+registered renderer falls back to the base `PrismRenderer`'s column guess, so
+rendering never blocks on a kind it does not recognise. A dev-board module
+suppresses the silhouette entirely (plain PCB rectangle + pad-active rings) —
+deliberately gated by `ComponentClass.DEVBOARD` in `_draw_prism`, not by
+lineage: it is a component-*class* trait that must hold for any package a
+devboard carries (extraction into a lineage renderer would need devboard
+packages to declare a shared base first).
 
 ### 4.4 Appearance
 

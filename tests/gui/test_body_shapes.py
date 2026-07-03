@@ -50,8 +50,6 @@ from protoboard.gui.renderers.body_shapes import (
     BodyShape,
     GenericBody,
     PackageBody,
-    TO92Body,
-    TO220Body,
     body_shape_for,
 )
 from protoboard.gui.renderers.prism_silhouette import (
@@ -323,29 +321,10 @@ class TestGenericBody:
         assert items[0].zValue() == pytest.approx(_Z)
 
 
-# ---------------------------------------------------------------------------
-# TO92Body
-# ---------------------------------------------------------------------------
-
-
-class TestTO92Body:
-
-    def test_three_pins_produces_items(self, qtbot: QtBot) -> None:
-        items = TO92Body().draw(_pts((0, 0), (1, 0), (2, 0)), _RED, _DARK, 1.0,
-                                _Z)
-        assert len(items) >= 1
-
-    def test_fewer_than_three_falls_back(self, qtbot: QtBot) -> None:
-        items = TO92Body().draw(_pts((0, 0)), _RED, _DARK, 1.0, _Z)
-        assert isinstance(items[0], QGraphicsRectItem)
-
-
-class TestTO220Body:
-
-    def test_three_pins_produces_items(self, qtbot: QtBot) -> None:
-        items = TO220Body().draw(_pts((0, 0), (1, 0), (2, 0)), _RED, _DARK,
-                                 1.0, _Z)
-        assert len(items) >= 1
+# Legacy TO92Body / TO220Body were deleted: TO-92 renders through the
+# flat-sided radial CylinderRenderer (TestTO92PackageParity, TestFlatSide*),
+# TO-220 through the renderer plugin (TestTO220PackageParity + the
+# TestTO220Plugin tab tests in test_renderer_registry.py).
 
 
 def _radial_cylinder_package(
@@ -539,43 +518,48 @@ class TestParametricDIPBody:
 
 class TestDeclaredKindSilhouette:
     """A package's declared ``kind`` chooses the body look (notch vs plain)
-    instead of the renderer guessing from the pin columns. An unknown / absent
-    kind falls back to the column guess, so render never blocks."""
+    via the renderer registry — a kind renderer's ``_silhouette`` is the
+    declared look — instead of the base renderer guessing from the pin
+    columns. An unknown / absent kind falls back to the column guess, so
+    render never blocks."""
 
     def test_dip_ic_kind_selects_notch(self) -> None:
-        from protoboard.gui.renderers.prism_silhouette import (
-            silhouette_for_prism,
-        )
+        from protoboard.gui.renderers.packages import DipIcRenderer
         pkg = _kind_pkg("dip_ic", 8)
-        assert isinstance(silhouette_for_prism(pkg),
-                          DipSilhouette)  # type: ignore[arg-type]
+        shape = PackageBody(pkg)  # type: ignore[arg-type]
+        assert type(shape) is DipIcRenderer
+        assert isinstance(shape._silhouette(pkg),  # type: ignore[arg-type]
+                          DipSilhouette)
 
     def test_dip_switch_kind_is_plain_overriding_the_column_guess(
             self) -> None:
         # dip_switch has DIP geometry (two columns) so the COLUMN guess would put
-        # a notch on it — the declared kind says "plain", and that wins.
-        from protoboard.gui.renderers.prism_silhouette import (
-            silhouette_for,
-            silhouette_for_prism,
-        )
+        # a notch on it — the declared kind dispatches PlainBodyRenderer, and
+        # that wins.
+        from protoboard.gui.renderers.packages import PlainBodyRenderer
+        from protoboard.gui.renderers.prism_silhouette import silhouette_for
         pkg = _kind_pkg("dip_switch", 8)
         assert isinstance(silhouette_for(pkg),
                           DipSilhouette)  # type: ignore[arg-type]
-        assert silhouette_for_prism(
-            pkg) is None  # type: ignore[arg-type]  # plain wins
+        shape = PackageBody(pkg)  # type: ignore[arg-type]
+        assert type(shape) is PlainBodyRenderer
+        assert shape._silhouette(pkg) is None  # type: ignore[arg-type]
 
     def test_unknown_kind_falls_back_to_column_guess(self) -> None:
-        # A prism with an unrecognised kind renders by the column guess, not a
-        # crash — render never blocks on an unknown kind.
+        # A prism with an unrecognised kind (no registered renderer) renders by
+        # the base PrismRenderer's column guess, not a crash — render never
+        # blocks on an unknown kind.
         import dataclasses
 
-        from protoboard.gui.renderers.prism_silhouette import (
-            silhouette_for,
-            silhouette_for_prism,
+        from protoboard.gui.renderers.packages import PrismRenderer
+        from protoboard.gui.renderers.prism_silhouette import silhouette_for
+        prism = dataclasses.replace(
+            _dip8_prism(), kind="totally_new_kind",
+            lineage=("prism", "totally_new_kind"),
         )
-        prism = dataclasses.replace(_dip8_prism(), kind="totally_new_kind")
-        assert silhouette_for_prism(prism) == silhouette_for(
-            prism)  # type: ignore[arg-type]
+        shape = PackageBody(prism)  # type: ignore[arg-type]
+        assert type(shape) is PrismRenderer
+        assert shape._silhouette(prism) == silhouette_for(prism)
 
     def test_dip_switch_renders_without_notch(self, qtbot: QtBot) -> None:
         # End-to-end: a dip_switch body draws the plain bbox rectangle, not the
@@ -626,10 +610,9 @@ class TestConnectorKind:
 
     def test_connectors_render_plain_no_notch(self, qtbot: QtBot) -> None:
         # Neither a 1×N (SIL-like) nor a 2×N (DIP-like) connector gets the SIL
-        # slots / DIP notch the column guess would add — they are plain rects.
-        from protoboard.gui.renderers.prism_silhouette import (
-            silhouette_for_prism,
-        )
+        # slots / DIP notch the column guess would add — the kind dispatches
+        # PlainBodyRenderer, whose declared silhouette is None (plain rect).
+        from protoboard.gui.renderers.packages import PlainBodyRenderer
         for kind, n, params in [
             ("pin_header", 6, {
                 "rows": 1
@@ -640,8 +623,9 @@ class TestConnectorKind:
             ("jst", 4, {}),
         ]:
             pkg = _kind_pkg(kind, n, params)
-            assert silhouette_for_prism(pkg) is None, (
-                kind, params)  # type: ignore[arg-type]
+            shape = PackageBody(pkg)  # type: ignore[arg-type]
+            assert type(shape) is PlainBodyRenderer, (kind, params)
+            assert shape._silhouette(pkg) is None  # type: ignore[arg-type]
 
 
 class TestConnectorPlacement:
@@ -752,7 +736,7 @@ class TestTO92PackageParity:
                                 _make_placement(),
                                 inst,
                                 package_families=cat)
-        assert not isinstance(placed, (GenericBody, TO92Body))
+        assert not isinstance(placed, GenericBody)
 
 
 class TestTO220PackageParity:
@@ -1711,7 +1695,6 @@ class TestBodyShapeContract:
         (lambda: GenericBody(), _pts((0, 0), (2, 0))),
         (lambda: PackageBody(_cylinder_package()), _pts((0, 0), (4, 0))),
         (lambda: PackageBody(_radial_cyl_package()), _pts((0, 0), (1, 0))),
-        (lambda: TO92Body(), _pts((0, 0), (1, 0), (2, 0))),
         (lambda: PackageBody(_dip8_prism()),
          _pts(*([(0, i) for i in range(4)] + [(3, 3 - i) for i in range(4)]))),
         (lambda: PackageBody(_sil6_prism()), _pts(*[(0, i)

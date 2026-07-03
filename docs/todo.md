@@ -255,11 +255,16 @@ per-*family* renderer is now the sanctioned extension mechanism (user
 decision 2026-07-03), and TO-247 / TO-126 get their tabs by registering for
 their own family names (or by a shared renderer registered for several keys).
 
-Remaining follow-up: `TO220Body` / `TO92Body` are **fully dead code**
-(parity proven by `TestTO220PackageParity` / `TestTO92PackageParity`;
-production dispatch never reaches them; the tab capability now lives in the
-plugin).  Repoint their remaining direct unit tests at the package renderers,
-then delete both classes.  `GenericBody` stays (the live no-package fallback).
+**Follow-up DONE (2026-07-04):** `TO220Body` / `TO92Body` deleted (their
+direct unit tests removed; behaviour stays guarded by `TestTO92PackageParity`
+/ `TestTO220PackageParity` / `TestTO220Plugin` / `TestFlatSide*`).  The
+`_KIND_SILHOUETTE` table also moved into the renderer registry
+(`packages/prism_kinds.py`: `DipIcRenderer` / `SilHeaderRenderer` /
+`PlainBodyRenderer`) — one dispatch system.  `GenericBody` stays (the live
+no-package fallback).  Devboard rendering remains gated by
+`ComponentClass.DEVBOARD` (a class trait, holds for any package); extracting
+a `DevboardRenderer` would first need devboard inline packages to declare a
+shared `extends: devboard` base so the lineage carries a dispatch key.
 
 ## PNG export crashed on save — FIXED (2026-07-03)
 

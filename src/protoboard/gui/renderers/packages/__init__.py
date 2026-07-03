@@ -22,15 +22,23 @@ from protoboard.gui.renderers.packages.cylinder import CylinderRenderer
 from protoboard.gui.renderers.packages.disc import DiscRenderer
 from protoboard.gui.renderers.packages.discovery import load_renderer_plugins
 from protoboard.gui.renderers.packages.prism import PrismRenderer
+from protoboard.gui.renderers.packages.prism_kinds import (
+    DipIcRenderer,
+    PlainBodyRenderer,
+    SilHeaderRenderer,
+)
 
 __all__ = [
     "BODY_RENDERERS",
     "BodyShape",
     "CylinderRenderer",
+    "DipIcRenderer",
     "DiscRenderer",
     "GenericBody",
     "PackageRenderer",
+    "PlainBodyRenderer",
     "PrismRenderer",
+    "SilHeaderRenderer",
     "load_renderer_plugins",
     "qcolor_from_css",
     "renderer_for",

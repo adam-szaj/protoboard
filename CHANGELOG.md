@@ -36,6 +36,24 @@ Rendering of component bodies is now modular and user-extensible:
 167 body/parity tests pass unchanged; +13 new registry/lineage/discovery
 tests. Groundwork for per-kind silhouette renderers and the TO-220 plugin.
 
+### Kind silhouettes as registry renderers; legacy TO92Body/TO220Body deleted (2026-07-04)
+
+The remaining hard-wired body looks moved into the renderer registry:
+
+* **Per-kind renderers** (`gui/renderers/packages/prism_kinds.py`) replace the
+  `_KIND_SILHOUETTE` table: `DipIcRenderer` (`dip_ic`/`wdip_ic` — notch),
+  `SilHeaderRenderer` (`sil` — housing), `PlainBodyRenderer`
+  (`dip_switch`/`pin_header`/`jst` — plain rect). The declared look is an
+  override of the new `PrismRenderer._silhouette()` hook; the base keeps the
+  column guess, so an unregistered kind still renders. One dispatch system —
+  `silhouette_for_prism` and the kind table are gone.
+* **Legacy `TO92Body` / `TO220Body` deleted** (dead since the parametric
+  package model took over): TO-92 renders through the flat-sided radial
+  `CylinderRenderer`, TO-220 through the renderer plugin; behaviour guarded by
+  the parity/plugin tests.
+* Devboard stays gated by `ComponentClass.DEVBOARD` (a class trait valid for
+  any package) — extraction noted in docs/todo.md.
+
 ### Fix: false BODY_OVERLAP for adjacent radial parts — Cylinder/Disc bbox centred (2026-07-03)
 
 Two 2.5 mm LEDs placed side by side tripped DRC `BODY_OVERLAP`. Root cause:

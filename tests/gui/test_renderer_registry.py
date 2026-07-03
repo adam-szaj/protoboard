@@ -98,11 +98,19 @@ class TestRendererDispatch:
     def test_shape_root_fallback(self, do_test_package) -> None:
         assert renderer_for(do_test_package) is CylinderRenderer
 
-    def test_kind_falls_back_to_prism(self) -> None:
+    def test_kind_dispatches_its_renderer(self) -> None:
+        from protoboard.gui.renderers.packages import SilHeaderRenderer
         ctx = build_kind_package("sil", GeneratorContext(pin_count=3))
         assert ctx.package is not None
-        # No renderer registered for "sil" → the prism base takes it.
-        assert renderer_for(ctx.package) is PrismRenderer
+        assert renderer_for(ctx.package) is SilHeaderRenderer
+
+    def test_unregistered_kind_falls_back_to_prism(self) -> None:
+        import dataclasses
+        ctx = build_kind_package("sil", GeneratorContext(pin_count=3))
+        assert ctx.package is not None
+        pkg = dataclasses.replace(
+            ctx.package, lineage=("prism", "no_such_kind"))
+        assert renderer_for(pkg) is PrismRenderer
 
     def test_specific_renderer_wins_over_root(self, do_test_package) -> None:
         class DoTestRenderer(CylinderRenderer):

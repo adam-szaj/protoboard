@@ -431,16 +431,17 @@ class TestMigratedICs:
         from typing import cast
 
         from protoboard.domain.components.package.shapes import Prism
-        from protoboard.gui.renderers.prism_silhouette import (
-            DipSilhouette,
-            silhouette_for_prism,
-        )
+        from protoboard.gui.renderers.packages import DipIcRenderer, renderer_for
+        from protoboard.gui.renderers.prism_silhouette import DipSilhouette
         lib = self._lib()
         d = lib.get("74HC00")
         assert d.package is not None
         prism = cast(Prism, d.package)
         assert prism.kind == "dip_ic"
-        assert isinstance(silhouette_for_prism(prism), DipSilhouette)
+        # The declared kind dispatches the DIP-IC renderer (notched body).
+        assert renderer_for(prism) is DipIcRenderer
+        assert isinstance(
+            DipIcRenderer(prism)._silhouette(prism), DipSilhouette)
         # DIP-28 parts are wide.
         wide = lib.get("ATmega328P").package
         assert wide is not None

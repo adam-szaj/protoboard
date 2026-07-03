@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QBrush, QColor, QPainterPath, QTransform
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem
@@ -16,14 +18,29 @@ from protoboard.gui.renderers.packages.base import (
     PackageRenderer,
     _body_pen,
 )
-from protoboard.gui.renderers.prism_silhouette import silhouette_for_prism
+from protoboard.gui.renderers.prism_silhouette import (
+    PrismSilhouette,
+    silhouette_for,
+)
 from protoboard.gui.theme import Theme
 
 
 class PrismRenderer(PackageRenderer):
     """Multi-pin prism (DIP / SIL / quad / dev-board module / SMD chip)."""
 
-    renders = "prism"
+    # Re-annotated so subclasses may register several names (a tuple) without
+    # mypy narrowing the attribute to ``str`` from this assignment.
+    renders: ClassVar[str | tuple[str, ...] | None] = "prism"
+
+    def _silhouette(self, pkg: _PkgPrism) -> PrismSilhouette | None:
+        """The body silhouette — the kind renderers' override point.
+
+        The base *guesses* from the pin-column layout (``silhouette_for``); a
+        renderer registered for a declared ``kind`` / family overrides this
+        with its declared look (``prism_kinds``: DIP notch, SIL housing, plain
+        connector).  ``None`` → the plain bbox rectangle.
+        """
+        return silhouette_for(pkg)
 
     def render_body(
         self,
@@ -76,15 +93,16 @@ class PrismRenderer(PackageRenderer):
             return self._draw_smd_chip(pkg, positions, fill, border, alpha, z, theme)
 
         # A dev-board module renders as a plain PCB rectangle — no DIP notch /
-        # SIL slots — regardless of how its pins cluster into columns.  Suppress
-        # the silhouette so the caller falls through to the plain bbox body, and
-        # mark the pins with a faint pad-sized active-area ring (drawn there).
+        # SIL slots — regardless of how its pins cluster into columns.  This is
+        # a component-CLASS trait (any package a devboard carries stays plain),
+        # so it gates the silhouette hook here rather than living in a
+        # lineage-dispatched renderer.  Otherwise the silhouette comes from
+        # ``_silhouette`` — the column guess here, a declared look in the kind
+        # renderer subclasses.
         if self._component_class is ComponentClass.DEVBOARD:
             sil = None
         else:
-            # Declared body kind (dip_ic notch / dip_switch plain / …) when the
-            # package carries one; otherwise the column-guessed silhouette.
-            sil = silhouette_for_prism(pkg)
+            sil = self._silhouette(pkg)
         if sil is None:
             return None
         # An appearance corner-radius override (mm) reaches the DIP/SIL body via
