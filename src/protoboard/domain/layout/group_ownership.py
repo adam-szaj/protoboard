@@ -48,7 +48,10 @@ if TYPE_CHECKING:
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.knot import Knot
-    from protoboard.domain.layout.placement import ComponentPlacement
+    from protoboard.domain.layout.placement import (
+        ComponentPlacement,
+        PlacementMap,
+    )
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.schematic import Schematic
 
@@ -72,16 +75,16 @@ _PIN_PATH_MATCH_TOL = 0.4
 
 @counted("find_owned_wires")
 def find_owned_wires(
-    wires: list["Wire"],
-    group: "ComponentGroup",
+    wires: list[Wire],
+    group: ComponentGroup,
     *,
     wire_net_map: dict[uuid.UUID, uuid.UUID],
-    knots: dict[uuid.UUID, "Knot"],
+    knots: dict[uuid.UUID, Knot],
     group_comp_ids: frozenset[uuid.UUID],
-    schematic: "Schematic | None",
-    placements: "dict[uuid.UUID, ComponentPlacement] | None" = None,
-    instances: "dict[uuid.UUID, ComponentInstance] | None" = None,
-    definitions: "dict[str, ComponentDefinition] | None" = None,
+    schematic: Schematic | None,
+    placements: PlacementMap | None = None,
+    instances: dict[uuid.UUID, ComponentInstance] | None = None,
+    definitions: dict[str, ComponentDefinition] | None = None,
 ) -> set[uuid.UUID]:
     """Return the IDs of all wires structurally owned by *group*.
 
@@ -119,9 +122,9 @@ def find_owned_wires(
 
 def net_is_internal_to_group(
     net_id: uuid.UUID | None,
-    group: "ComponentGroup",
-    schematic: "Schematic | None",
-    groups: "dict[uuid.UUID, ComponentGroup] | None" = None,
+    group: ComponentGroup,
+    schematic: Schematic | None,
+    groups: dict[uuid.UUID, ComponentGroup] | None = None,
 ) -> bool:
     """True iff *net_id* identifies a net living entirely inside *group*.
 
@@ -168,7 +171,7 @@ def net_is_internal_to_group(
 
 @counted("endpoint_pin_component")
 def endpoint_pin_component(
-    knot: "Knot | None",
+    knot: Knot | None,
 ) -> uuid.UUID | None:
     """Return ``knot.pin.component_id`` if knot is a PinKnot, else None.
 
@@ -191,12 +194,12 @@ _endpoint_pin_component = endpoint_pin_component
 
 @counted("_pin_endpoint_matches_path")
 def _pin_endpoint_matches_path(
-    knot: "Knot",
+    knot: Knot,
     wire_endpoint: object,
-    placements: "dict[uuid.UUID, ComponentPlacement]",
-    instances: "dict[uuid.UUID, ComponentInstance]",
-    definitions: "dict[str, ComponentDefinition]",
-    pin_world_cache: "dict[tuple[uuid.UUID, int], object] | None" = None,
+    placements: PlacementMap,
+    instances: dict[uuid.UUID, ComponentInstance],
+    definitions: dict[str, ComponentDefinition],
+    pin_world_cache: dict[tuple[uuid.UUID, int], object] | None = None,
 ) -> bool:
     """True iff *knot* is a PinKnot whose resolved world position matches
     *wire_endpoint* within ``_PIN_PATH_MATCH_TOL``.
@@ -272,17 +275,17 @@ _MISSING: object = object()
 
 @counted("wire_is_owned_by_group")
 def wire_is_owned_by_group(
-    wire: "Wire",
-    group: "ComponentGroup",
+    wire: Wire,
+    group: ComponentGroup,
     *,
     wire_net_map: dict[uuid.UUID, uuid.UUID],
-    knots: dict[uuid.UUID, "Knot"],
+    knots: dict[uuid.UUID, Knot],
     group_comp_ids: frozenset[uuid.UUID],
-    schematic: "Schematic | None",
-    placements: "dict[uuid.UUID, ComponentPlacement] | None" = None,
-    instances: "dict[uuid.UUID, ComponentInstance] | None" = None,
-    definitions: "dict[str, ComponentDefinition] | None" = None,
-    _pin_world_cache: "dict[tuple[uuid.UUID, int], object] | None" = None,
+    schematic: Schematic | None,
+    placements: PlacementMap | None = None,
+    instances: dict[uuid.UUID, ComponentInstance] | None = None,
+    definitions: dict[str, ComponentDefinition] | None = None,
+    _pin_world_cache: dict[tuple[uuid.UUID, int], object] | None = None,
 ) -> bool:
     """True iff *wire* structurally belongs to *group*.
 
@@ -400,7 +403,7 @@ def wire_is_owned_by_group(
 
 
 def wire_in_group_bbox(
-    wire: "Wire",
+    wire: Wire,
     bbox: tuple[float, float, float, float],
     tol: float = 0.5,
 ) -> bool:
@@ -421,16 +424,16 @@ def wire_in_group_bbox(
 
 
 def group_bbox_with_owned_wires(
-    group: "ComponentGroup",
+    group: ComponentGroup,
     group_comp_ids: frozenset[uuid.UUID],
-    placements: dict[uuid.UUID, "ComponentPlacement"],
-    instances: dict[uuid.UUID, "ComponentInstance"],
-    definitions: dict[str, "ComponentDefinition"],
-    wires: list["Wire"],
+    placements: PlacementMap,
+    instances: dict[uuid.UUID, ComponentInstance],
+    definitions: dict[str, ComponentDefinition],
+    wires: list[Wire],
     *,
     wire_net_map: dict[uuid.UUID, uuid.UUID],
-    knots: dict[uuid.UUID, "Knot"],
-    schematic: "Schematic | None",
+    knots: dict[uuid.UUID, Knot],
+    schematic: Schematic | None,
     pad: float = 0.5,
 ) -> tuple[float, float, float, float] | None:
     """Compute the outline bounding rect of *group*.
@@ -508,21 +511,21 @@ class OwnershipResolver:
     :meth:`from_session` or directly with the context dicts.
     """
 
-    knots: dict[uuid.UUID, "Knot"]
+    knots: dict[uuid.UUID, Knot]
     wire_net_map: dict[uuid.UUID, uuid.UUID]
-    schematic: "Schematic | None"
-    placements: "dict[uuid.UUID, ComponentPlacement] | None" = None
-    instances: "dict[uuid.UUID, ComponentInstance] | None" = None
-    definitions: "dict[str, ComponentDefinition] | None" = None
+    schematic: Schematic | None
+    placements: PlacementMap | None = None
+    instances: dict[uuid.UUID, ComponentInstance] | None = None
+    definitions: dict[str, ComponentDefinition] | None = None
     # Batch-scoped memo shared across this resolver's whole lifetime. Only
     # populated when the geometric sanity check is active (full layout context
     # present); a sentinel ``False`` value caches "resolution failed".
-    _pin_world_cache: "dict[tuple[uuid.UUID, int], object]" = field(
+    _pin_world_cache: dict[tuple[uuid.UUID, int], object] = field(
         default_factory=dict, init=False, repr=False
     )
 
     @classmethod
-    def from_session(cls, session: object) -> "OwnershipResolver":
+    def from_session(cls, session: object) -> OwnershipResolver:
         """Build a resolver from an ``EditorSession``-like object.
 
         Reads ``layout.knots``, ``cached_wire_net_map()``, ``schematic``,
@@ -540,7 +543,7 @@ class OwnershipResolver:
         )
 
     def is_owned(
-        self, wire: "Wire", group: "ComponentGroup",
+        self, wire: Wire, group: ComponentGroup,
         group_comp_ids: frozenset[uuid.UUID],
     ) -> bool:
         """Whether *wire* structurally belongs to *group* (single wire)."""
@@ -557,7 +560,7 @@ class OwnershipResolver:
         )
 
     def owned_wire_ids(
-        self, wires: list["Wire"], group: "ComponentGroup",
+        self, wires: list[Wire], group: ComponentGroup,
         group_comp_ids: frozenset[uuid.UUID],
     ) -> set[uuid.UUID]:
         """IDs of all wires structurally owned by *group*.
@@ -573,16 +576,16 @@ class OwnershipResolver:
         return result
 
     def net_is_internal(
-        self, net_id: uuid.UUID | None, group: "ComponentGroup",
-        groups: "dict[uuid.UUID, ComponentGroup] | None" = None,
+        self, net_id: uuid.UUID | None, group: ComponentGroup,
+        groups: dict[uuid.UUID, ComponentGroup] | None = None,
     ) -> bool:
         """Whether *net_id* is a net living entirely inside *group*."""
         return net_is_internal_to_group(net_id, group, self.schematic, groups)
 
     def group_bbox(
-        self, group: "ComponentGroup",
+        self, group: ComponentGroup,
         group_comp_ids: frozenset[uuid.UUID],
-        wires: list["Wire"],
+        wires: list[Wire],
         *,
         pad: float = 0.5,
     ) -> tuple[float, float, float, float] | None:

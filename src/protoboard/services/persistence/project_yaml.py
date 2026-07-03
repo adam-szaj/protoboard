@@ -1049,7 +1049,7 @@ def _layout_from_yaml(text: str) -> Layout:
     _migrate_encapsulated_exports(groups)
 
     layout = Layout(
-        placements=placements,
+        placements=placements,  # type: ignore[arg-type]  # dict normalised in Layout.__post_init__
         groups=groups,
     )
     if knot_aware:

@@ -21,7 +21,11 @@ from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.group_tree import GroupTree
 from protoboard.domain.layout.layout import Layout, ROOT_GROUP_ID
-from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
+from protoboard.domain.layout.placement import (
+    ComponentPlacement,
+    PlacementMap,
+    pin_world_position,
+)
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
 from protoboard.geometry import Point, Vector
@@ -213,7 +217,7 @@ def comp_fingerprint(
 
 def update_component_groups(
     scene: QGraphicsScene,
-    placements: dict[uuid.UUID, ComponentPlacement],
+    placements: PlacementMap,
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
     existing_groups: dict[uuid.UUID, QGraphicsItemGroup],
@@ -370,7 +374,7 @@ def update_component_groups(
 
 def render_components(
     scene: QGraphicsScene,
-    placements: dict[uuid.UUID, ComponentPlacement],
+    placements: PlacementMap,
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
     schematic: Schematic | None = None,
@@ -756,14 +760,14 @@ def make_ghost_item(
 def render_groups(
     scene: QGraphicsScene,
     layout: Layout,
-    placements: dict[uuid.UUID, ComponentPlacement],
+    placements: PlacementMap,
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
     wires: list[object] | None = None,
     theme: Theme = DEFAULT_THEME,
     active_group_id: uuid.UUID | None = None,
     view_scale: float = 1.0,
-    wire_net_map: "dict[uuid.UUID, uuid.UUID] | None" = None,
+    wire_net_map: dict[uuid.UUID, uuid.UUID] | None = None,
     schematic: object | None = None,
     label_z: float = Z_LABELS_TOP,
 ) -> list[QGraphicsItem]:
@@ -839,8 +843,8 @@ def render_groups(
         m = t.group_margin
         x0 = min(xs) - m
         y0 = min(ys) - m
-        w = max(xs) - min(xs) + 2 * m
-        h = max(ys) - min(ys) + 2 * m
+        bw = max(xs) - min(xs) + 2 * m
+        bh = max(ys) - min(ys) + 2 * m
 
         # Choose style: active group = solid; child = normal; others = dimmed.
         if is_active:
@@ -862,7 +866,7 @@ def render_groups(
             name_col = QColor(t.group_name_color)
             name_col.setAlpha(t.group_dim_name_alpha)
 
-        rect = QGraphicsRectItem(QRectF(x0, y0, w, h))
+        rect = QGraphicsRectItem(QRectF(x0, y0, bw, bh))
         rect.setPen(pen)
         rect.setBrush(QBrush(fill))
         # Tag the rect so SelectTool can identify it as a group outline.

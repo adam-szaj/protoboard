@@ -21,7 +21,12 @@ def _dbg_enabled() -> bool:
     import logging
     return logging.getLogger(__name__).isEnabledFor(logging.DEBUG)
 
-from protoboard.domain.layout.placement import ComponentPlacement, component_bbox, pin_world_position
+from protoboard.domain.layout.placement import (
+    ComponentPlacement,
+    PlacementMap,
+    component_bbox,
+    pin_world_position,
+)
 from protoboard.geometry import Point
 
 if TYPE_CHECKING:
@@ -34,9 +39,9 @@ if TYPE_CHECKING:
 
 
 def footprint_of(
-    defn: "ComponentDefinition",
-    inst: "ComponentInstance | None",
-) -> "Footprint":
+    defn: ComponentDefinition,
+    inst: ComponentInstance | None,
+) -> Footprint:
     """The variant-aware footprint of a placed component.
 
     Delegates to :meth:`ComponentInstance.resolved_footprint`. It does NOT
@@ -57,9 +62,9 @@ def footprint_of(
 
 
 def resolved_footprint_or_default(
-    defn: "ComponentDefinition",
-    inst: "ComponentInstance | None",
-) -> "Footprint":
+    defn: ComponentDefinition,
+    inst: ComponentInstance | None,
+) -> Footprint:
     """The variant-aware footprint of a placed component, tolerating unbound.
 
     Like :func:`footprint_of` but *does not raise* when the instance is missing
@@ -117,12 +122,12 @@ def find_conflicts(
     incoming_placement: ComponentPlacement,
     incoming_defn: ComponentDefinition,
     incoming_instance_id: uuid.UUID,
-    layout_placements: dict[uuid.UUID, ComponentPlacement],
+    layout_placements: PlacementMap,
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
     schematic: Schematic,
-    pad_index: "PadIndex | None" = None,
-    incoming_instance: "ComponentInstance | None" = None,
+    pad_index: PadIndex | None = None,
+    incoming_instance: ComponentInstance | None = None,
 ) -> list[PadConflict]:
     """Return all pad-on-pad conflicts for *incoming_placement*.
 
@@ -222,8 +227,8 @@ def find_wire_conflicts(
     schematic: Schematic,
     point_to_net: dict[tuple[float, float], tuple[uuid.UUID, str]],
     already_conflicted: set[tuple[float, float]],
-    pad_index: "PadIndex | None" = None,
-    incoming_instance: "ComponentInstance | None" = None,
+    pad_index: PadIndex | None = None,
+    incoming_instance: ComponentInstance | None = None,
 ) -> list[PadConflict]:
     """Return wire conflicts for *incoming_placement*.
 
@@ -344,7 +349,7 @@ from protoboard.geometry import round_coord as _round  # noqa: E402
 
 
 def _wire_hit_via_pad_index(
-    pad_index: "PadIndex",
+    pad_index: PadIndex,
     position: Point,
     side: str,
     net_name_by_id: dict[uuid.UUID, str],
@@ -435,7 +440,7 @@ def _wire_hit_via_pad_index(
 
 
 def _pin_hit_via_pad_index(
-    pad_index: "PadIndex",
+    pad_index: PadIndex,
     position: Point,
     exclude_comp_id: uuid.UUID,
 ) -> tuple[uuid.UUID, int] | None:
@@ -478,12 +483,12 @@ def _seg_point_dist(px: float, py: float,
 def find_wires_crossing_pads(
     wires: list[Wire],
     moved_comp_ids: set[uuid.UUID],
-    layout_placements: dict[uuid.UUID, ComponentPlacement],
+    layout_placements: PlacementMap,
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
     schematic: Schematic,
     moved_wire_ids: set[uuid.UUID] | None = None,
-    pad_index: "PadIndex | None" = None,
+    pad_index: PadIndex | None = None,
 ) -> list[uuid.UUID]:
     """Return IDs of wires whose path passes within _CROSS_EPS of an alien pad.
 
@@ -637,15 +642,15 @@ class MoveConflictResult:
 def check_group_move_conflicts(
     moved_ids: set[uuid.UUID],
     active_group_id: uuid.UUID,
-    layout_placements: dict[uuid.UUID, ComponentPlacement],
+    layout_placements: PlacementMap,
     layout_wires: list[Wire],
     layout_groups: dict[uuid.UUID, object],
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
     schematic: Schematic,
     moved_wire_ids: set[uuid.UUID] | None = None,
-    pad_index: "PadIndex | None" = None,
-    extra_protected_group_ids: "set[uuid.UUID] | None" = None,
+    pad_index: PadIndex | None = None,
+    extra_protected_group_ids: set[uuid.UUID] | None = None,
 ) -> MoveConflictResult:
     """Classify conflicts that arise when *moved_ids* are at their current (post-drag) positions.
 
@@ -877,16 +882,16 @@ def check_group_move_conflicts(
 
 
 def check_multi_group_move_conflicts(
-    drag_set: "object",  # protoboard.gui.drag_set.DragSet
+    drag_set: object,  # protoboard.gui.drag_set.DragSet
     active_group_id: uuid.UUID,
-    layout_placements: dict[uuid.UUID, ComponentPlacement],
+    layout_placements: PlacementMap,
     layout_wires: list[Wire],
     layout_groups: dict[uuid.UUID, object],
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
     schematic: Schematic,
     moved_wire_ids: set[uuid.UUID] | None = None,
-    pad_index: "PadIndex | None" = None,
+    pad_index: PadIndex | None = None,
 ) -> MoveConflictResult:
     """Multi-group / mixed-drag conflict classifier (Phase 3, spec rev 3).
 
@@ -949,7 +954,7 @@ def check_multi_group_move_conflicts(
 
 def _compute_bbox(
     comp_ids: frozenset[uuid.UUID],
-    placements: dict[uuid.UUID, ComponentPlacement],
+    placements: PlacementMap,
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
 ) -> tuple[float, float, float, float] | None:
@@ -1015,15 +1020,15 @@ class ConflictScanner:
     kept (each free function builds and discards its own maps).
     """
 
-    placements: dict[uuid.UUID, ComponentPlacement]
+    placements: PlacementMap
     instances: dict[uuid.UUID, ComponentInstance]
     components: dict[str, ComponentDefinition]
     schematic: Schematic
-    pad_index: "PadIndex | None" = None
+    pad_index: PadIndex | None = None
 
     @classmethod
     def from_session(cls, session: object, *,
-                     pad_index: "PadIndex | None" = None) -> "ConflictScanner":
+                     pad_index: PadIndex | None = None) -> ConflictScanner:
         """Build a scanner from an ``EditorSession``-like object.
 
         Reads ``layout.placements``, ``instances``, ``components``,
@@ -1115,7 +1120,7 @@ class ConflictScanner:
         layout_wires: list[Wire],
         layout_groups: dict[uuid.UUID, object],
         moved_wire_ids: set[uuid.UUID] | None = None,
-        extra_protected_group_ids: "set[uuid.UUID] | None" = None,
+        extra_protected_group_ids: set[uuid.UUID] | None = None,
     ) -> MoveConflictResult:
         """Classify an atomic single-group move (see
         :func:`check_group_move_conflicts`)."""

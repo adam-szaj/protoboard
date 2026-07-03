@@ -58,7 +58,10 @@ if TYPE_CHECKING:
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.group import ComponentGroup
     from protoboard.domain.layout.knot import Knot
-    from protoboard.domain.layout.placement import ComponentPlacement
+    from protoboard.domain.layout.placement import (
+        ComponentPlacement,
+        PlacementMap,
+    )
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.schematic import Schematic
 
@@ -99,7 +102,7 @@ class DragSnapshot:
     """
 
     pad_index: "PadIndex | None"
-    placements: dict[uuid.UUID, "ComponentPlacement"]
+    placements: "PlacementMap"
     instances: dict[uuid.UUID, "ComponentInstance"]
     components: dict[str, "ComponentDefinition"]
     schematic: "Schematic"

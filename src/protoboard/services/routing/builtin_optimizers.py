@@ -123,7 +123,7 @@ def _build_pad_context(
     )
 
     layout_for_pads = Layout(
-        placements=dict(worker_layout.placements),
+        placements=dict(worker_layout.placements),  # type: ignore[arg-type]
         wires=WireCollection(list(wires)),
     )
     layout_for_pads.ensure_root_group()

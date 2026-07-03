@@ -25,9 +25,12 @@ from protoboard.domain.schematic.net import PinRef
 if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
-    from protoboard.domain.layout.placement import ComponentPlacement
+    from protoboard.domain.layout.placement import (
+        ComponentPlacement,
+        PlacementMap,
+    )
     from protoboard.domain.schematic.schematic import Schematic
-    from protoboard.geometry import Point
+    from protoboard.geometry import Point, Transform2D
 
 
 @dataclass(frozen=True)
@@ -131,6 +134,46 @@ class GroupTree:
             pending.append(parent)
         return result
 
+    def world_transform(self, component_id: uuid.UUID) -> Transform2D:
+        """The composed group transform mapping *component_id*'s LOCAL placement
+        to WORLD (scene-graph model).
+
+        Folds the ancestor group transforms outermost→innermost:
+        ``T_root ∘ … ∘ T_leaf``.  Because ``Transform2D.compose`` is
+        ``self ∘ other`` (other applied first), this fold applies the leaf
+        (innermost) group first and the root last — the correct order for a
+        local point travelling out through the hierarchy.  A component in no
+        group (or only in identity-transform groups) yields identity.
+        """
+        from protoboard.geometry import Transform2D
+
+        # Direct group containing the component, then the parent chain to root.
+        direct: uuid.UUID | None = None
+        for gid, g in self._groups.items():
+            if component_id in g.component_ids:
+                direct = gid
+                break
+        if direct is None:
+            return Transform2D.identity()
+
+        parent_map: dict[uuid.UUID, uuid.UUID] = {}
+        for gid, g in self._groups.items():
+            for child_id in g.child_group_ids:
+                parent_map[child_id] = gid
+
+        chain_leaf_to_root: list[uuid.UUID] = [direct]
+        current = direct
+        while current in parent_map:
+            current = parent_map[current]
+            chain_leaf_to_root.append(current)
+
+        world = Transform2D.identity()
+        for gid in reversed(chain_leaf_to_root):  # root → leaf
+            grp = self._groups.get(gid)
+            if grp is not None:
+                world = world.compose(grp.transform)
+        return world
+
     def would_create_cycle(
         self, parent_id: uuid.UUID, child_id: uuid.UUID
     ) -> bool:
@@ -180,8 +223,8 @@ class GroupTree:
     def exposable_surface(
         self,
         group_id: uuid.UUID,
-        instances: dict[uuid.UUID, "ComponentInstance"],
-        definitions: dict[str, "ComponentDefinition"],
+        instances: dict[uuid.UUID, ComponentInstance],
+        definitions: dict[str, ComponentDefinition],
     ) -> frozenset[PinRef]:
         """Pins that may legally appear in ``G.exported_pins``: every pin of
         every direct member ∪ each direct child's already-exported pins."""
@@ -235,7 +278,7 @@ class GroupTree:
         return frozenset(invalid)
 
     def external_pins_for_group(
-        self, group_id: uuid.UUID, schematic: "Schematic"
+        self, group_id: uuid.UUID, schematic: Schematic
     ) -> frozenset[PinRef]:
         """Minimal re-export set for *group_id*: for every net reaching outside
         G's recursive members (or global), at least one pin from G's exposable
@@ -290,7 +333,7 @@ class GroupTree:
     def internal_net_ids_for_components(
         self,
         component_ids: frozenset[uuid.UUID],
-        schematic: "Schematic",
+        schematic: Schematic,
     ) -> frozenset[uuid.UUID]:
         """IDs of nets fully internal to *component_ids* (all pins inside, not
         global)."""
@@ -307,8 +350,8 @@ class GroupTree:
     def schematic_projection_for_group(
         self,
         component_ids: frozenset[uuid.UUID],
-        schematic: "Schematic",
-    ) -> "Schematic":
+        schematic: Schematic,
+    ) -> Schematic:
         """Projection of *schematic* keeping only pins on *component_ids*; nets
         with fewer than two surviving pins are dropped."""
         from protoboard.domain.schematic.net import Net
@@ -333,10 +376,10 @@ class GroupTree:
     @staticmethod
     def group_origin(
         component_ids: frozenset[uuid.UUID],
-        placements: dict[uuid.UUID, "ComponentPlacement"],
-        instances: dict[uuid.UUID, "ComponentInstance"],
-        definitions: dict[str, "ComponentDefinition"],
-    ) -> "Point | None":
+        placements: PlacementMap,
+        instances: dict[uuid.UUID, ComponentInstance],
+        definitions: dict[str, ComponentDefinition],
+    ) -> Point | None:
         """The pad closest to the top-left of the group bbox (min x+y).
 
         Pure geometry over the supplied dicts — does not read the tree, hence
@@ -350,7 +393,7 @@ class GroupTree:
             pin_world_position,
         )
 
-        best: "Point | None" = None
+        best: Point | None = None
         best_key = float("inf")
         for cid in component_ids:
             pl = placements.get(cid)
@@ -374,9 +417,9 @@ class GroupTree:
     @staticmethod
     def pin_world_positions(
         component_ids: frozenset[uuid.UUID],
-        placements: dict[uuid.UUID, "ComponentPlacement"],
-        instances: dict[uuid.UUID, "ComponentInstance"],
-        definitions: dict[str, "ComponentDefinition"],
+        placements: PlacementMap,
+        instances: dict[uuid.UUID, ComponentInstance],
+        definitions: dict[str, ComponentDefinition],
     ) -> set[tuple[float, float]]:
         """World ``(x, y)`` positions of every pin of *component_ids*.
 
@@ -423,7 +466,7 @@ def recompute_group_origin(
     groups: dict[uuid.UUID, ComponentGroup],
     group_id: uuid.UUID,
     *,
-    placements: dict[uuid.UUID, ComponentPlacement],
+    placements: PlacementMap,
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
 ) -> Point | None:

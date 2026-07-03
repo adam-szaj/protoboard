@@ -79,7 +79,7 @@ class LayoutSnapshot:
         from protoboard.domain.layout.layout import Layout
         from protoboard.domain.layout.wire import WireCollection
         return Layout(
-            placements=dict(self.placements),
+            placements=dict(self.placements),  # type: ignore[arg-type]
             wires=WireCollection(list(self.wires)),
         )
 

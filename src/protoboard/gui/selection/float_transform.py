@@ -33,7 +33,10 @@ from typing import TYPE_CHECKING, Callable, cast
 
 from PySide6.QtCore import Qt
 
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import (
+        ComponentPlacement,
+        PlacementMap,
+    )
 from protoboard.geometry import Point, Vector
 
 if TYPE_CHECKING:
@@ -76,9 +79,9 @@ _STEP_VECTORS: dict[str, tuple[float, float]] = {
 class _Original:
     """Immutable snapshot of the pre-transform pose (the undo / cancel base)."""
 
-    placements: dict[uuid.UUID, ComponentPlacement]
+    placements: PlacementMap
     wire_paths: dict[uuid.UUID, list[Point]]
-    wire_fragments: dict[uuid.UUID, "list[Fragment]"]
+    wire_fragments: dict[uuid.UUID, list[Fragment]]
     knot_positions: dict[uuid.UUID, Point]
 
 
@@ -87,21 +90,21 @@ class FloatTransform:
 
     def __init__(
         self,
-        ctx: "DragContext",
+        ctx: DragContext,
         *,
         comp_ids: frozenset[uuid.UUID],
         group_id: uuid.UUID | None,
-        snap: "SnapFn",
-        execute: "ExecuteFn",
-        matches: "Matcher",
+        snap: SnapFn,
+        execute: ExecuteFn,
+        matches: Matcher,
         mode: str = "rotate",
         pivot: Point | None = None,
-        preview: "Callable[[DragCommitDecision | None], None] | None" = None,
-        status: "StatusFn | None" = None,
-        preferences: "DragPreferences | None" = None,
-        resolve_free: "ResolveFn | None" = None,
-        resolve_sgroup: "ResolveFn | None" = None,
-        resolve_disconnect: "ResolveFn | None" = None,
+        preview: Callable[[DragCommitDecision | None], None] | None = None,
+        status: StatusFn | None = None,
+        preferences: DragPreferences | None = None,
+        resolve_free: ResolveFn | None = None,
+        resolve_sgroup: ResolveFn | None = None,
+        resolve_disconnect: ResolveFn | None = None,
     ) -> None:
         self._ctx = ctx
         self._comp_ids = comp_ids
@@ -123,7 +126,7 @@ class FloatTransform:
         self._original = self._snapshot_original()
 
     @property
-    def _layout(self) -> "Layout":
+    def _layout(self) -> Layout:
         """The full :class:`Layout` (via the ``ComponentState`` view).
 
         ``DragContext.layout`` is a *narrow* protocol (no ``knots`` /
@@ -200,7 +203,7 @@ class FloatTransform:
             if isinstance(pl, ComponentPlacement):
                 placements[cid] = pl.copy()
         wire_paths: dict[uuid.UUID, list[Point]] = {}
-        wire_fragments: dict[uuid.UUID, "list[Fragment]"] = {}
+        wire_fragments: dict[uuid.UUID, list[Fragment]] = {}
         knot_positions: dict[uuid.UUID, Point] = {}
         for wid in self._affected_wire_ids():
             wire = layout.wires.get(wid)
@@ -219,7 +222,7 @@ class FloatTransform:
 
     # -- input --------------------------------------------------------------
 
-    def on_key(self, event: "QKeyEvent") -> bool:
+    def on_key(self, event: QKeyEvent) -> bool:
         key = event.key()
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.accept()
@@ -271,16 +274,16 @@ class FloatTransform:
             self._status(self.status_hint())
         return True
 
-    def _step_for(self, event: "QKeyEvent") -> tuple[float, float] | None:
+    def _step_for(self, event: QKeyEvent) -> tuple[float, float] | None:
         for action_id, vec in _STEP_VECTORS.items():
             if self._matches(event, action_id):
                 return vec
         return None
 
-    def wants_wheel(self, event: "QWheelEvent") -> bool:
+    def wants_wheel(self, event: QWheelEvent) -> bool:
         return True  # the wheel rotates
 
-    def on_wheel(self, event: "QWheelEvent") -> bool:
+    def on_wheel(self, event: QWheelEvent) -> bool:
         dy = event.angleDelta().y()
         if dy == 0:
             return True
@@ -389,7 +392,7 @@ class FloatTransform:
 
     # -- commit-readiness + terminal ---------------------------------------
 
-    def _classify(self) -> "DragCommitDecision | None":
+    def _classify(self) -> DragCommitDecision | None:
         from protoboard.gui.placement_conflict import classify_drag_commit
 
         if not self._is_transformed():
@@ -459,8 +462,8 @@ class FloatTransform:
     # -- command assembly ---------------------------------------------------
 
     def _build_commit_command(
-        self, decision: "DragCommitDecision | None"
-    ) -> "Command[ComponentState] | None":
+        self, decision: DragCommitDecision | None
+    ) -> Command[ComponentState] | None:
         from protoboard.domain.commands.drag_cmds import TransformDragSetCommand
 
         layout = self._layout
@@ -476,7 +479,7 @@ class FloatTransform:
 
         wire_paths: dict[uuid.UUID, tuple[list[Point], list[Point]]] = {}
         wire_fragments: dict[
-            uuid.UUID, tuple["list[Fragment]", "list[Fragment]"]
+            uuid.UUID, tuple[list[Fragment], list[Fragment]]
         ] = {}
         for wid, old_path in self._original.wire_paths.items():
             wire = layout.wires.get(wid)
@@ -515,7 +518,7 @@ class FloatTransform:
         )
 
     def _resolve_soft_drops(
-        self, decision: "DragCommitDecision | None"
+        self, decision: DragCommitDecision | None
     ) -> set[uuid.UUID]:
         if decision is None:
             return set()

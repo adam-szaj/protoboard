@@ -10,7 +10,11 @@ from dataclasses import dataclass, field, replace
 import structlog
 from protoboard.domain.layout.group import ComponentGroup
 from protoboard.domain.layout.knot import JointKnot, Knot, PinKnot, WirePinKnot
-from protoboard.domain.layout.placement import ComponentPlacement
+from protoboard.domain.layout.placement import (
+    ComponentPlacement,
+    PlacementCollection,
+    compose_placement,
+)
 from protoboard.domain.layout.wire import (
     Fragment, Wire, WireCollection,
     flatten_fragments as _flatten_fragments,
@@ -27,7 +31,12 @@ _log = structlog.get_logger(__name__)
 
 @dataclass
 class Layout:
-    placements: dict[uuid.UUID, ComponentPlacement] = field(default_factory=dict)
+    # Stored as a PlacementCollection (compose-on-read).  A plain dict passed at
+    # construction (loaders, tests) is normalised in __post_init__; those few
+    # call sites annotate the dict-arg with a type: ignore since the field type
+    # is the collection.  Readers get the collection, which offers the full
+    # dict-style API plus compose-on-read.
+    placements: PlacementCollection = field(default_factory=PlacementCollection)
     # Dict-keyed wire storage with list-like API (see ``WireCollection`` for
     # the migration shim).  Legacy ``for w in layout.wires``,
     # ``layout.wires.append(w)`` and ``layout.wires.remove(w)`` keep working;
@@ -67,6 +76,25 @@ class Layout:
         # ``Layout(wires=[w1, w2])`` from existing tests stays valid.
         if not isinstance(self.wires, WireCollection):
             self.wires = WireCollection(list(self.wires))
+        # ``Layout(placements={cid: pl})`` from existing tests / loaders stays
+        # valid: wrap a plain dict in the compose-on-read collection.
+        if not isinstance(self.placements, PlacementCollection):
+            self.placements = PlacementCollection(dict(self.placements))
+        self.placements.set_compose_fn(self._compose_placement)
+
+    def _compose_placement(
+        self, cid: uuid.UUID, pl: ComponentPlacement
+    ) -> ComponentPlacement:
+        """Fold the component's ancestor group transform into its local placement.
+
+        The compose-on-read hook the ``PlacementCollection`` calls.  For an
+        ungrouped component, or while every group transform is identity, the
+        world transform is identity and the stored placement is returned
+        unchanged (zero cost)."""
+        from protoboard.domain.layout.group_tree import GroupTree
+
+        world = GroupTree(self.groups).world_transform(cid)
+        return compose_placement(world, pl)
 
     def set_pin_resolver(self, resolver: PinResolver) -> None:
         self._pin_resolver = resolver

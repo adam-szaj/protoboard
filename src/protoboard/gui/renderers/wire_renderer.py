@@ -15,7 +15,11 @@ from PySide6.QtWidgets import (
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package import resolved_footprint
-from protoboard.domain.layout.placement import ComponentPlacement, pin_world_position
+from protoboard.domain.layout.placement import (
+    ComponentPlacement,
+    PlacementMap,
+    pin_world_position,
+)
 from protoboard.domain.layout.wire import Fragment, Wire, Wire
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -511,12 +515,12 @@ _draw_bare = _fill_bare            # type: ignore[assignment]
 
 def render_wire_pins(
     scene: QGraphicsScene,
-    wire_pins: "list[tuple[Point, uuid.UUID | None]]",
-    net_color_map: "dict[uuid.UUID, str | None] | None" = None,
+    wire_pins: list[tuple[Point, uuid.UUID | None]],
+    net_color_map: dict[uuid.UUID, str | None] | None = None,
     theme: Theme = DEFAULT_THEME,
     layers: LayerState = _DEFAULT_LAYERS,
-    routing_target_net_id: "uuid.UUID | None" = None,
-) -> "list[QGraphicsItem]":
+    routing_target_net_id: uuid.UUID | None = None,
+) -> list[QGraphicsItem]:
     """Draw wire-pin glyphs on top of their pads.
 
     A wire-pin renders as a concentric ring in the owning wire's net
@@ -535,7 +539,7 @@ def render_wire_pins(
     """
     if not wire_pins:
         return []
-    added: "list[QGraphicsItem]" = []
+    added: list[QGraphicsItem] = []
     outer_r = theme.pad_radius * 1.1
     inner_r = theme.pad_radius * 0.45
     # Wire-pins live on the topmost layer the board has — render with
@@ -590,13 +594,13 @@ def render_wire_pins(
 def render_ratsnest(
     scene: QGraphicsScene,
     schematic: Schematic,
-    placements: dict[uuid.UUID, ComponentPlacement],
+    placements: PlacementMap,
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
     routed_nets: set[uuid.UUID] | None,
     theme: Theme = DEFAULT_THEME,
     *,
-    graph: "object | None" = None,
+    graph: object | None = None,
     mode: str = "full",
     ghost: bool = False,
 ) -> list[QGraphicsLineItem]:
@@ -694,11 +698,11 @@ def render_ratsnest(
 
 
 def _pin_islands_for_net(
-    pins: "set[PinRef]",
-    placements: dict[uuid.UUID, ComponentPlacement],
+    pins: set[PinRef],
+    placements: PlacementMap,
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
-    graph: "object | None",
+    graph: object | None,
 ) -> list[list[Point]]:
     """Partition the net's placed pin positions by electric set.
 
@@ -857,7 +861,7 @@ def _dist_sq(a: Point, b: Point) -> float:
 
 def _placed_pin_positions(
     pins: set[PinRef],
-    placements: dict[uuid.UUID, ComponentPlacement],
+    placements: PlacementMap,
     instances: dict[uuid.UUID, ComponentInstance],
     components: dict[str, ComponentDefinition],
 ) -> list[Point]:

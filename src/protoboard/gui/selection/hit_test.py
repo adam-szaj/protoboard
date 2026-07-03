@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from protoboard.domain.layout.group import ComponentGroup
-    from protoboard.domain.layout.placement import ComponentPlacement
+    from protoboard.domain.layout.placement import PlacementMap
     from protoboard.domain.layout.wire import Wire
     from protoboard.geometry import Point, Rect
     from protoboard.gui.selection.selectable import Selectable
@@ -104,7 +104,7 @@ class LayoutLike(Protocol):
     """The ``layout`` attributes HitTester reads."""
 
     @property
-    def placements(self) -> dict[uuid.UUID, ComponentPlacement]: ...
+    def placements(self) -> PlacementMap: ...
 
     @property
     def groups(self) -> dict[uuid.UUID, ComponentGroup]: ...

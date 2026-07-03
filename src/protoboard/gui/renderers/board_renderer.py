@@ -24,6 +24,10 @@ Two-tier API:
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from protoboard.domain.layout.placement import PlacementMap
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import QPointF, QRectF, Qt
@@ -431,7 +435,7 @@ def render_board(
 
 
 def build_pad_net_map(
-    placements: dict,
+    placements: PlacementMap,
     instances: dict,
     components: dict,
     schematic: object,

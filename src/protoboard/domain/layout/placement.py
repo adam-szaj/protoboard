@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, overload
 
@@ -82,9 +82,150 @@ class ComponentPlacement:
             raise ValueError(f"side must be 'top' or 'bottom'; got {self.side!r}")
 
 
+class PlacementCollection:
+    """Dict-keyed placement storage that COMPOSES group transforms on read.
+
+    Stores each member's **group-relative (local)** placement.  On any *value*
+    read (``[cid]``, ``.get``, ``.values``, ``.items``, value-iteration) it
+    returns the **effective (world)** placement — the stored local one folded
+    through the composed ancestor-group transform via an injected ``compose_fn``
+    (the owning :class:`Layout` supplies it; the collection itself does not know
+    about groups, avoiding an import cycle).
+
+    Key-only ops (``for cid in placements``, ``.keys``, ``in``, ``len``,
+    ``.pop``, ``del``) and writes operate on the raw local dict — writers store
+    verbatim local placements.  Persistence uses ``local_items`` to serialize
+    the stored locals without composing.
+
+    Modeled on :class:`WireCollection`.  When ``compose_fn`` is unset (or every
+    group transform is identity) reads return the stored placement unchanged, so
+    the shim is transparent — the state through Phase 2 and for every ungrouped
+    component.
+    """
+
+    def __init__(
+        self,
+        initial: dict[uuid.UUID, ComponentPlacement] | None = None,
+    ) -> None:
+        self._by_id: dict[uuid.UUID, ComponentPlacement] = dict(initial or {})
+        self._compose: Callable[[uuid.UUID, ComponentPlacement], ComponentPlacement] | None = None
+
+    def set_compose_fn(
+        self,
+        fn: Callable[[uuid.UUID, ComponentPlacement], ComponentPlacement] | None,
+    ) -> None:
+        """Register the group-transform composer (called on every value read)."""
+        self._compose = fn
+
+    def _composed(
+        self, cid: uuid.UUID, pl: ComponentPlacement
+    ) -> ComponentPlacement:
+        if self._compose is None:
+            return pl
+        return self._compose(cid, pl)
+
+    # ----- value reads (composed) -----
+
+    def __getitem__(self, cid: uuid.UUID) -> ComponentPlacement:
+        return self._composed(cid, self._by_id[cid])
+
+    @overload
+    def get(self, cid: uuid.UUID) -> ComponentPlacement | None: ...
+    @overload
+    def get(
+        self, cid: uuid.UUID, default: ComponentPlacement
+    ) -> ComponentPlacement: ...
+
+    def get(
+        self, cid: uuid.UUID, default: ComponentPlacement | None = None
+    ) -> ComponentPlacement | None:
+        pl = self._by_id.get(cid)
+        if pl is None:
+            return default
+        return self._composed(cid, pl)
+
+    def values(self) -> list[ComponentPlacement]:
+        return [self._composed(cid, pl) for cid, pl in self._by_id.items()]
+
+    def items(self) -> list[tuple[uuid.UUID, ComponentPlacement]]:
+        return [(cid, self._composed(cid, pl)) for cid, pl in self._by_id.items()]
+
+    # ----- raw local access (no compose) — persistence / migration -----
+
+    def local_get(self, cid: uuid.UUID) -> ComponentPlacement | None:
+        return self._by_id.get(cid)
+
+    def local_items(self) -> list[tuple[uuid.UUID, ComponentPlacement]]:
+        return list(self._by_id.items())
+
+    def local_values(self) -> list[ComponentPlacement]:
+        return list(self._by_id.values())
+
+    # ----- key-only ops (no compose) -----
+
+    def __iter__(self) -> Iterator[uuid.UUID]:
+        return iter(self._by_id)
+
+    def __len__(self) -> int:
+        return len(self._by_id)
+
+    def __contains__(self, cid: object) -> bool:
+        return cid in self._by_id
+
+    def __bool__(self) -> bool:
+        return bool(self._by_id)
+
+    def keys(self) -> list[uuid.UUID]:
+        return list(self._by_id.keys())
+
+    # ----- writes (store verbatim local) -----
+
+    def __setitem__(self, cid: uuid.UUID, pl: ComponentPlacement) -> None:
+        self._by_id[cid] = pl
+
+    def __delitem__(self, cid: uuid.UUID) -> None:
+        del self._by_id[cid]
+
+    def pop(
+        self, cid: uuid.UUID, *default: ComponentPlacement | None
+    ) -> ComponentPlacement | None:
+        return self._by_id.pop(cid, *default)
+
+    def clear(self) -> None:
+        self._by_id.clear()
+
+    def update(
+        self, other: PlacementMap | dict[uuid.UUID, ComponentPlacement]
+    ) -> None:
+        """Bulk-store local placements (verbatim, no compose)."""
+        items = other.local_items() if isinstance(other, PlacementCollection) \
+            else other.items()
+        for cid, pl in items:
+            self._by_id[cid] = pl
+
+    def setdefault(
+        self, cid: uuid.UUID, default: ComponentPlacement
+    ) -> ComponentPlacement:
+        if cid not in self._by_id:
+            self._by_id[cid] = default
+        return self._composed(cid, self._by_id[cid])
+
+    def copy(self) -> PlacementCollection:
+        """A shallow copy of the stored (local) placements; compose_fn reset."""
+        return PlacementCollection(dict(self._by_id))
+
+
+# A read surface accepting either a plain dict (loaders, snapshots, local scratch
+# dicts) or the compose-on-read collection (``Layout.placements``). Helpers that
+# only READ placements (origin/ownership/conflict queries, renderers) take this so
+# both a dict and the collection are accepted; the type change stops at the read
+# boundary instead of rippling to every caller.
+PlacementMap = dict[uuid.UUID, ComponentPlacement] | PlacementCollection
+
+
 def snapshot_placements(
-    placements: dict[uuid.UUID, ComponentPlacement],
-    comp_ids: "Iterable[uuid.UUID]",
+    placements: dict[uuid.UUID, ComponentPlacement] | PlacementCollection,
+    comp_ids: Iterable[uuid.UUID],
 ) -> dict[uuid.UUID, ComponentPlacement]:
     """Deep-copy each placement in *comp_ids* for undo.
 
@@ -103,7 +244,7 @@ def snapshot_placements(
 
 
 def restore_placements(
-    placements: dict[uuid.UUID, ComponentPlacement],
+    placements: PlacementMap,
     saved: dict[uuid.UUID, ComponentPlacement],
 ) -> None:
     """Write a batch of saved placements back (inverse of a mutation).
@@ -284,6 +425,58 @@ def placement_transform(
     ).compose(m)
 
 
+_IDENTITY_TRANSFORM = Transform2D.identity()
+
+
+def _rotation_steps_of(t: Transform2D) -> int:
+    """CW 90°-steps encoded in the linear part of a det=+1 quantised transform.
+
+    The group transforms in the scene-graph model are built from 90° rotations
+    and translations, so the linear part is one of the four rotation matrices.
+    ``Transform2D.rotation(k)`` has linear part ``[[cos,sin],[-sin,cos]]`` for
+    the CW convention — read ``k`` back from the (a, c) entries.
+    """
+    a, c = round(t.a), round(t.c)
+    # rotation(0)=(1,0) rotation(1)=(0,-1) rotation(2)=(-1,0) rotation(3)=(0,1)
+    return {(1, 0): 0, (0, -1): 1, (-1, 0): 2, (0, 1): 3}.get((a, c), 0)
+
+
+def compose_placement(
+    transform: Transform2D,
+    placement: ComponentPlacement,
+) -> ComponentPlacement:
+    """Fold a group WORLD transform into a member-LOCAL placement.
+
+    Returns the effective (world) placement such that
+    ``pin_world_position(fp, result, n) == transform.apply(
+    pin_world_position(fp, placement, n))`` for every pin — i.e. the member's
+    pins land where the group transform sends them.
+
+    Identity fast-path returns the input unchanged (the common case: an
+    ungrouped component, or a group whose transform is identity), so the ~57
+    scattered readers pay nothing when nothing is grouped.
+
+    - **det > 0** (group rotation + translation, the only kind produced by group
+      rotate/move): ``position`` maps through the transform, ``rotation`` gains
+      the group's 90°-steps, ``side`` and ``pin_offsets`` are unchanged (offsets
+      live inside the rotate, in the same relative frame — verified by parity).
+    - **det < 0** (group FLIP): handled in a later phase; raises for now so a
+      premature flip is loud, not silently wrong.
+    """
+    if transform == _IDENTITY_TRANSFORM:
+        return placement
+    if transform.determinant() < 0:
+        raise NotImplementedError(
+            "group flip (det<0) placement composition is not implemented yet"
+        )
+    steps = _rotation_steps_of(transform)
+    new_pl = placement.copy()
+    new_pl.position = transform.apply(placement.position)
+    new_pl.rotation = (steps * 90 + placement.rotation) % 360
+    # side and pin_offsets unchanged.
+    return new_pl
+
+
 @counted("pin_world_position")
 def pin_world_position(
     footprint: Footprint,
@@ -321,10 +514,10 @@ def resolve_pin_world_position(
     comp_id: uuid.UUID,
     pin_number: int,
     *,
-    placements: dict[uuid.UUID, ComponentPlacement],
-    instances: "dict[uuid.UUID, ComponentInstance]",
-    components: "dict[str, ComponentDefinition]",
-    families: "dict[str, PackageFamily] | None" = None,
+    placements: PlacementMap,
+    instances: dict[uuid.UUID, ComponentInstance],
+    components: dict[str, ComponentDefinition],
+    families: dict[str, PackageFamily] | None = None,
 ) -> Point | None:
     """Resolve world position of *(comp_id, pin_number)* with full safety chain.
 

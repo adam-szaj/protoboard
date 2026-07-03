@@ -50,7 +50,10 @@ if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.instance import ComponentInstance
     from protoboard.domain.layout.group import ComponentGroup
-    from protoboard.domain.layout.placement import ComponentPlacement
+    from protoboard.domain.layout.placement import (
+        ComponentPlacement,
+        PlacementMap,
+    )
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.schematic import Schematic
     from protoboard.gui.drag_preferences import DragPreferences
@@ -93,7 +96,7 @@ class DragOutcome:
 class _LayoutLike(Protocol):
     """The layout surface the controller touches (placements / wires / groups)."""
 
-    placements: dict[uuid.UUID, ComponentPlacement]
+    placements: PlacementMap
     wires: list[Wire]
     groups: dict[uuid.UUID, ComponentGroup]
 

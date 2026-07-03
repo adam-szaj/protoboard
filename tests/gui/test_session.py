@@ -39,7 +39,7 @@ class TestSessionInit:
         assert len(session.components) > 0
 
     def test_layout_empty_on_init(self, session: EditorSession) -> None:
-        assert session.layout.placements == {}
+        assert len(session.layout.placements) == 0
         assert session.layout.wires == []
 
     def test_instances_empty_on_init(self, session: EditorSession) -> None:
