@@ -3,6 +3,7 @@
 'blocking body lights pin-side bits' mechanism (see spec)."""
 
 from protoboard.domain.board.layer import BOTTOM, TOP
+from protoboard.domain.components.package.body import LeadArrangement
 from protoboard.domain.components.package.mask import (
     PadCell,
     build_pad_mask,
@@ -11,12 +12,14 @@ from protoboard.domain.components.package.mask import (
 )
 from protoboard.domain.components.package.shapes import (
     BOARD_DEFAULT,
+    Cylinder,
     Leads,
     Prism,
 )
 from protoboard.geometry import Vector, Vector3D
 
 from ..geometry_utils import _pt
+
 VectorList = list[Vector]
 def _two_pin_prism(steps_holes: list[Vector]) -> Prism:
     leads = Leads(
@@ -103,3 +106,43 @@ class TestMasksCollide:
         )
         part = {_pt(1, 0): PadCell.PIN | PadCell.PIN_BOTTOM}
         assert not masks_collide(body, part)
+
+
+class TestRadialCylinderMask:
+    """Regression: radial-cylinder bbox is centred on the pad centroid.
+
+    The old pin-1-anchored ``Rect(0, 0, d, d)`` claimed a phantom row of
+    holes below every radial part, so two 2.5 mm LEDs placed side by side
+    (adjacent rows or columns) tripped DRC BODY_OVERLAP even though the
+    bodies at most touch (tangent discs at the raster pitch are legal).
+    """
+
+    @staticmethod
+    def _led25() -> Cylinder:
+        # The LED/led25 shape: 2.5 mm disc over two pads one hole apart.
+        leads = Leads(
+            direction=(Vector3D(0, 0, -1), Vector3D(0, 0, -1)),
+            body_offset_mm=(Vector(1.25, 0.0),),
+            board_offset=(Vector(1.0, 0.0),),
+        )
+        return Cylinder(
+            diameter_mm=2.5, length_mm=4.5, leads=leads,
+            arrangement=LeadArrangement.RADIAL,
+        )
+
+    def test_bbox_centred_between_pads(self) -> None:
+        bb = self._led25().bbox()
+        assert (bb.x, bb.y, bb.width, bb.height) == (0.0, -0.5, 1.0, 1.0)
+
+    def test_mask_claims_only_pin_holes(self) -> None:
+        mask = build_pad_mask(self._led25())
+        assert set(mask.keys()) == {_pt(0, 0), _pt(1, 0)}
+
+    def test_side_by_side_leds_do_not_collide(self) -> None:
+        mask = build_pad_mask(self._led25())
+        next_row = {_pt(p.x, p.y + 1): b for p, b in mask.items()}
+        next_col = {_pt(p.x + 2, p.y): b for p, b in mask.items()}
+        assert not masks_collide(mask, next_row)
+        assert not masks_collide(mask, next_col)
+        # Directly on top of each other still collides, of course.
+        assert masks_collide(mask, dict(mask))

@@ -195,8 +195,11 @@ class TestDisc:
     def test_disc_pin_positions_and_bbox(self) -> None:
         d = Disc(diameter_mm=5.0, thickness_mm=2.0, leads=_radial_leads())
         assert d.pin_positions() == [_pt(0, 0), _pt(1, 0)]
+        # Edge-mounted lens: diameter ALONG the pad axis (x here), thickness
+        # across it, centred on the pin centroid — not a d×d square at pin 1.
         bb = d.bbox()
-        assert (bb.width, bb.height) == (5.0 / 2.5, 5.0 / 2.5)
+        assert (bb.width, bb.height) == (5.0 / 2.5, 2.0 / 2.5)
+        assert (bb.x, bb.y) == pytest.approx((0.5 - 1.0, -0.4))
 
     def test_disc_rejects_solver(self) -> None:
         leads = Leads(

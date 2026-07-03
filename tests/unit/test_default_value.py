@@ -126,7 +126,7 @@ class TestBundledLibrary:
         )
         lib = load_library([Path("library")], load_full_package_catalogue())
         for name in (
-            "BC547", "2N3904", "1N4148", "1N4007", "LED_Red",
+            "BC547", "2N3904", "1N4148", "1N4007", "LED_2_5_Red",
             "NE555", "ATmega328P", "AT24C02", "IRF540_N",
             "XTAL_4MHz",
         ):

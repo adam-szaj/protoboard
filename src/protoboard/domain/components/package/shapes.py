@@ -241,6 +241,36 @@ def _pins_bbox(positions: list[Point]) -> Rect:
     return Rect(x0, y0, max(xs) - x0, max(ys) - y0)
 
 
+def _body_centre_holes(pins: list[Point], eccentricity_mm: Vector) -> Point:
+    """Body symmetry-axis position (holes): pin centroid + lead eccentricity.
+
+    ``body_eccentricity`` is the vector from the geometric midpoint of the
+    lead axis to the body's symmetry axis (spec §2.7), given in mm.
+    """
+    n = len(pins)
+    return Point(
+        sum(p.x for p in pins) / n + eccentricity_mm.x / RASTER_MM,
+        sum(p.y for p in pins) / n + eccentricity_mm.y / RASTER_MM,
+    )
+
+
+def _oriented_rect_aabb(
+    centre: Point, along: float, across: float, axis: Vector,
+) -> Rect:
+    """AABB (local frame) of a rectangle ``along × across`` oriented on *axis*.
+
+    The rectangle is centred on *centre* with its ``along`` extent parallel to
+    the (non-zero) *axis*; the AABB projects the oriented half-extents onto
+    the local axes: ``half = (along·|u| + across·|v|) / 2`` per component,
+    where ``u`` is the unit axis and ``v`` its perpendicular.
+    """
+    length = axis.length()
+    ux, uy = axis.dx / length, axis.dy / length
+    half_x = (along * abs(ux) + across * abs(uy)) / 2.0
+    half_y = (along * abs(uy) + across * abs(ux)) / 2.0
+    return Rect(centre.x - half_x, centre.y - half_y, 2 * half_x, 2 * half_y)
+
+
 def _lead_diameter_mm(leads: Leads) -> float:
     """Lead wire diameter (mm). ``2·lead_r``; falls back to a 0.5 mm default
     (the legacy ``TwoPinBodySpec`` default) when the radius is unspecified."""
@@ -361,9 +391,25 @@ class Cylinder(Package):
         )
 
     def bbox(self) -> Rect:
-        # Body extent on the grid: a square of side = diameter, in holes.
-        side = self.diameter_mm / RASTER_MM
-        return Rect(0.0, 0.0, side, side)
+        """Local-frame body extent over the default pin layout.
+
+        Centred on the pin centroid + lead eccentricity — the same place the
+        renderer puts the body — NOT anchored at pin 1 (the old pin-1-anchored
+        square claimed a phantom row of holes in the collision mask, flagging
+        adjacent radial parts as BODY_OVERLAP).  RADIAL: the top view is a
+        disc → a d×d square around the centre.  AXIAL: an L×d capsule along
+        the pin axis, projected to an AABB.
+        """
+        d = self.diameter_mm / RASTER_MM
+        pins = self.pin_positions()
+        centre = _body_centre_holes(pins, self.leads.body_eccentricity_mm)
+        if (self.arrangement is LeadArrangement.RADIAL or len(pins) < 2):
+            return Rect(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
+        axis = pins[-1] - pins[0]
+        if axis.length() < 1e-9:
+            return Rect(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
+        return _oriented_rect_aabb(
+            centre, self.length_mm / RASTER_MM, d, axis)
 
 
 @dataclass(frozen=True, slots=True)
@@ -531,8 +577,22 @@ class Disc(Package):
         return OffsetRange(base_mm, base_mm + self.bend_holes * RASTER_MM)
 
     def bbox(self) -> Rect:
-        side = self.diameter_mm / RASTER_MM
-        return Rect(0.0, 0.0, side, side)
+        """Local-frame body extent over the default pin layout.
+
+        An edge-mounted disc seen from above is a lens ``diameter`` long along
+        the lead axis and ``thickness`` across it, centred on the pin centroid
+        + lead eccentricity (mirrors the renderer's ``_radial_disc_side``).
+        """
+        d = self.diameter_mm / RASTER_MM
+        pins = self.pin_positions()
+        centre = _body_centre_holes(pins, self.leads.body_eccentricity_mm)
+        if len(pins) < 2:
+            return Rect(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
+        axis = pins[-1] - pins[0]
+        if axis.length() < 1e-9:
+            return Rect(centre.x - d / 2.0, centre.y - d / 2.0, d, d)
+        return _oriented_rect_aabb(
+            centre, d, self.thickness_mm / RASTER_MM, axis)
 
     def min_radial_pitch_mm(self) -> float:
         return (self.diameter_mm + _lead_diameter_mm(self.leads)) / 2.0

@@ -36,6 +36,22 @@ Rendering of component bodies is now modular and user-extensible:
 167 body/parity tests pass unchanged; +13 new registry/lineage/discovery
 tests. Groundwork for per-kind silhouette renderers and the TO-220 plugin.
 
+### Fix: false BODY_OVERLAP for adjacent radial parts — Cylinder/Disc bbox centred (2026-07-03)
+
+Two 2.5 mm LEDs placed side by side tripped DRC `BODY_OVERLAP`. Root cause:
+`Cylinder.bbox()` (and `Disc.bbox()`) returned a `d×d` square **anchored at
+pin 1** (`Rect(0, 0, d, d)`), while the physical (and rendered) radial body is
+a disc centred on the **pad centroid** — the collision mask rasterised from
+that bbox claimed a phantom row of holes below every radial part, colliding
+with the neighbour's pins. `bbox()` is now computed from the lead geometry,
+like `Prism` always did: centred on the pin centroid + `body_eccentricity`;
+RADIAL cylinder → `d×d` around the centre, AXIAL cylinder → `L×d` oriented
+along the pin axis (AABB), Disc → `diameter×thickness` lens along the axis.
+Consequences: the led25 mask claims exactly its two pin holes (tangent
+neighbours are legal); axial bodies (resistors) now honestly claim the
+in-between holes their body lies over. Regression tests in
+`test_package_mask.py::TestRadialCylinderMask`.
+
 ### Offset single-vector sugar implemented; LED family consolidated (2026-07-03)
 
 Spec §2.3 always promised that a 2-pin package may write its one offset pair
