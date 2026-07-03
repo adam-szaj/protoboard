@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
+    from protoboard.domain.components.footprints import Footprint
     from protoboard.domain.layout.group_tree import GroupTree
     from protoboard.domain.layout.pad_conflict import ConflictScanner
     from protoboard.domain.layout.wire import Wire
@@ -303,6 +304,25 @@ class EditorSession(QObject):
         layout.set_pin_resolver(
             lambda pin: self._resolve_pin_for_knot(pin)
         )
+        layout.set_footprint_resolver(self._resolve_footprint_for_flip)
+
+    def _resolve_footprint_for_flip(
+        self, comp_id: uuid.UUID
+    ) -> "Footprint | None":
+        """Resolve *comp_id*'s chosen-variant footprint for the seam's group-flip
+        compose branch.  Returns None (a flipped group then raises loudly) when
+        the chain instance→definition→footprint can't be resolved."""
+        from protoboard.domain.components.package import resolved_footprint
+        inst = self.instances.get(comp_id)
+        if inst is None:
+            return None
+        defn = self.components.get(inst.definition_ref)
+        if defn is None:
+            return None
+        try:
+            return resolved_footprint(defn, inst, self.package_families)
+        except (IndexError, ValueError):
+            return None
 
     def notify_selection(
         self,

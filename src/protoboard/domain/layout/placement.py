@@ -441,9 +441,67 @@ def _rotation_steps_of(t: Transform2D) -> int:
     return {(1, 0): 0, (0, -1): 1, (-1, 0): 2, (0, 1): 3}.get((a, c), 0)
 
 
+def _linear(t: Transform2D) -> Transform2D:
+    """The linear part of *t* (drop the translation)."""
+    return Transform2D(t.a, t.b, t.c, t.d, 0.0, 0.0)
+
+
+def _flip_placement(
+    transform: Transform2D,
+    placement: ComponentPlacement,
+    footprint: Footprint,
+) -> ComponentPlacement:
+    """Fold a group FLIP (``det < 0``) into a member-LOCAL placement.
+
+    A group flip reflects the whole group (and physically moves every member to
+    the other board side).  Expressed as affine maps over the pin cloud the
+    requirement is ``placement_transform(fp, result) == transform ∘
+    placement_transform(fp, placement)``, and — because
+    ``placement_transform = translate(pos) ∘ R(rot) ∘ M_flip(side)`` with
+    ``M_flip`` the footprint's in-place reflection ``f`` on the bottom side —
+    this solves in closed form (verified for every footprint / rotation / side /
+    offset combination, no ``pin_offsets`` residual needed):
+
+    * ``side'`` is the OPPOSITE side — a group flip toggles chirality, so the
+      per-member board-side flips too;
+    * the linear part ``L(R') = L_transform ∘ L(R) ∘ f`` (one reflection cancels
+      the toggled ``M_flip``), which is a pure 90° rotation → read ``rotation'``;
+    * ``position'`` is the residual placing pin 1 on ``transform.apply(pin1)``;
+    * ``pin_offsets`` are unchanged.
+
+    The ``footprint`` supplies both the flip axis ``f`` and pin 1's local
+    position; the seam resolves it via an injected resolver because
+    :class:`Layout` does not resolve footprints itself.
+    """
+    side2: Side = "top" if placement.side == "bottom" else "bottom"
+    f = _linear(footprint.flip_transform())
+    lw = _linear(transform)
+    lr = Transform2D.rotation(placement.rotation // 90)
+    steps = _rotation_steps_of(lw.compose(lr).compose(f))
+    rotation2 = (steps * 90) % 360
+
+    # Solve position so pin 1 lands on ``transform.apply(old pin 1)``.  A probe
+    # at position (0,0) with the new (rotation, side) reports where pin 1 would
+    # land; the residual to the target is the position (``position`` is added
+    # after rotation/flip, uniformly for every pin, so pin 1 fixes it).
+    probe = placement.copy()
+    probe.position = Point(0.0, 0.0)
+    probe.rotation = rotation2
+    probe.side = side2
+    base1 = pin_world_position(footprint, probe, 1)
+    want1 = transform.apply(pin_world_position(footprint, placement, 1))
+    new_pl = placement.copy()
+    new_pl.position = Point(want1.x - base1.x, want1.y - base1.y)
+    new_pl.rotation = rotation2
+    new_pl.side = side2
+    # pin_offsets unchanged.
+    return new_pl
+
+
 def compose_placement(
     transform: Transform2D,
     placement: ComponentPlacement,
+    footprint: Footprint | None = None,
 ) -> ComponentPlacement:
     """Fold a group WORLD transform into a member-LOCAL placement.
 
@@ -460,15 +518,20 @@ def compose_placement(
       rotate/move): ``position`` maps through the transform, ``rotation`` gains
       the group's 90°-steps, ``side`` and ``pin_offsets`` are unchanged (offsets
       live inside the rotate, in the same relative frame — verified by parity).
-    - **det < 0** (group FLIP): handled in a later phase; raises for now so a
-      premature flip is loud, not silently wrong.
+    - **det < 0** (group FLIP): toggles ``side`` and mixes the reflection into
+      ``rotation`` (see :func:`_flip_placement`).  Requires ``footprint`` (for
+      the flip axis + pin 1's local position); raising when it is missing keeps
+      a flip loud rather than silently wrong.
     """
     if transform == _IDENTITY_TRANSFORM:
         return placement
     if transform.determinant() < 0:
-        raise NotImplementedError(
-            "group flip (det<0) placement composition is not implemented yet"
-        )
+        if footprint is None:
+            raise NotImplementedError(
+                "group flip (det<0) placement composition needs the member's "
+                "footprint; none was supplied by the read seam"
+            )
+        return _flip_placement(transform, placement, footprint)
     steps = _rotation_steps_of(transform)
     new_pl = placement.copy()
     new_pl.position = transform.apply(placement.position)

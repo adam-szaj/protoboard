@@ -6,6 +6,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING
 
 import structlog
 from protoboard.domain.layout.group import ComponentGroup
@@ -22,7 +23,14 @@ from protoboard.domain.layout.wire import (
 from protoboard.domain.schematic.net import PinRef
 from protoboard.geometry import Point
 
+if TYPE_CHECKING:
+    from protoboard.domain.components.footprints import Footprint
+
 PinResolver = Callable[[PinRef], Point]
+# Resolves a component's footprint for the compose-on-read seam's group-FLIP
+# branch (det<0), which needs the flip axis + pin-1 position.  Injected by the
+# session (mirrors ``PinResolver``) so ``Layout`` need not import definitions.
+FootprintResolver = Callable[[uuid.UUID], "Footprint | None"]
 
 ROOT_GROUP_ID: uuid.UUID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
@@ -57,6 +65,14 @@ class Layout:
     # validate fragment endpoints against knot positions.
     _pin_resolver: PinResolver | None = field(default=None, repr=False)
 
+    # Resolver for a component's footprint, used ONLY by the seam's group-flip
+    # (det<0) compose branch.  ``None`` until ``set_footprint_resolver`` runs;
+    # while it is None a flipped group raises on read (a flip needs the axis).
+    # A non-flipped layout never calls it (identity / rotation fast-paths).
+    _footprint_resolver: "FootprintResolver | None" = field(
+        default=None, repr=False
+    )
+
     # Lazy spatial index of wire interior vertices.  Built on first
     # access; invalidated by any wire mutation (add/remove).  Maps
     # rounded (x, y) → list of (wire_id, vertex_idx) for every interior
@@ -90,14 +106,28 @@ class Layout:
         The compose-on-read hook the ``PlacementCollection`` calls.  For an
         ungrouped component, or while every group transform is identity, the
         world transform is identity and the stored placement is returned
-        unchanged (zero cost)."""
+        unchanged (zero cost).  A group FLIP (``det<0``) needs the member's
+        footprint (flip axis); it is resolved lazily only on that branch."""
         from protoboard.domain.layout.group_tree import GroupTree
 
         world = GroupTree(self.groups).world_transform(cid)
-        return compose_placement(world, pl)
+        footprint = (
+            self._footprint_resolver(cid)
+            if self._footprint_resolver is not None and world.determinant() < 0
+            else None
+        )
+        return compose_placement(world, pl, footprint)
 
     def set_pin_resolver(self, resolver: PinResolver) -> None:
         self._pin_resolver = resolver
+
+    def set_footprint_resolver(self, resolver: "FootprintResolver") -> None:
+        """Register the footprint resolver used by the seam's group-flip branch.
+
+        The session injects it (mirrors :meth:`set_pin_resolver`) so a flipped
+        group's members compose correctly on read without ``Layout`` importing
+        component definitions."""
+        self._footprint_resolver = resolver
 
     def ensure_root_group(self) -> None:
         """Ensure root group exists and all non-root groups are reachable from it.

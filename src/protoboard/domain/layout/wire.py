@@ -119,6 +119,29 @@ def transform_wire_geometry(
         ]
 
 
+def flip_wire_geometry(
+    wire: "Wire", point_fn: Callable[[Point], Point]
+) -> None:
+    """Reflect a wire's geometry AND toggle each fragment's board side, in place.
+
+    The flip analogue of :func:`transform_wire_geometry`: a physical board flip
+    both mirrors the wire's vertices (``point_fn`` is a reflection about the flip
+    axis) and moves the copper to the other side, so every ``Fragment.side`` is
+    swapped top↔bottom.  Applying twice with the same reflection is the identity
+    (the reflection is its own inverse and the double side-swap cancels), so undo
+    is a second call with the same ``point_fn``.
+    """
+    wire.path = [point_fn(p) for p in wire.path]
+    if wire.fragments:
+        wire.fragments = [
+            Fragment(
+                path=[point_fn(p) for p in frag.path],
+                side=("bottom" if frag.side == "top" else "top"),
+            )
+            for frag in wire.fragments
+        ]
+
+
 @dataclass
 class Wire:
     """A single electrical conductor between two Knots.
