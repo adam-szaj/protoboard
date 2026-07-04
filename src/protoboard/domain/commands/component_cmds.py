@@ -66,6 +66,7 @@ def _dbg_enabled() -> bool:
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
+    from protoboard.domain.components.appearance import Appearance
     from protoboard.domain.schematic.net import Net
     from protoboard.domain.schematic.schematic import PinGroupUndo
     from protoboard.services.pad_strategy import PadStrategy
@@ -1238,6 +1239,44 @@ class SetComponentPackageVariantCommand(Command[ComponentState]):
         import dataclasses as _dc
         state.instances[self.component_id] = _dc.replace(
             inst, package_variant=self._old_variant,
+        )
+
+
+@dataclass
+class SetComponentAppearanceCommand(Command[ComponentState]):
+    """Set or clear the per-instance visual style override.
+
+    ``new_appearance`` is an :class:`~protoboard.domain.components.appearance.
+    Appearance` (fill colour and/or corner radius), or ``None`` to clear the
+    override (falling back to the option/definition style, then the
+    package/theme defaults). Visual only — geometry, DRC and routing are
+    unaffected.
+    """
+
+    component_id: uuid.UUID
+    new_appearance: "Appearance | None"
+    _old: "Appearance | None" = field(default=None, init=False, repr=False)
+
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        return (
+            "Set appearance" if self.new_appearance is not None
+            else "Clear appearance"
+        )
+
+    def apply(self, state: ComponentState) -> None:
+        inst = state.instances[self.component_id]
+        self._old = inst.appearance
+        import dataclasses as _dc
+        state.instances[self.component_id] = _dc.replace(
+            inst, appearance=self.new_appearance,
+        )
+
+    def revert(self, state: ComponentState) -> None:
+        inst = state.instances[self.component_id]
+        import dataclasses as _dc
+        state.instances[self.component_id] = _dc.replace(
+            inst, appearance=self._old,
         )
 
 

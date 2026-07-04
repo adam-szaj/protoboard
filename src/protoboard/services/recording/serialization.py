@@ -37,6 +37,7 @@ from protoboard.domain.commands.component_cmds import (
     RemoveComponentCommand,
     RemoveWireCommand,
     ReplaceWireFragmentsCommand,
+    SetComponentAppearanceCommand,
     SetComponentPackageVariantCommand,
     SetPinVariantCommand,
     SetWireInsulatedCommand,
@@ -520,6 +521,31 @@ def _set_package_variant_from(
 _register(
     SetComponentPackageVariantCommand, "set_package_variant",
     _set_package_variant_to, _set_package_variant_from,
+)
+
+
+def _set_appearance_to(cmd: SetComponentAppearanceCommand) -> dict[str, Any]:
+    return {
+        "component_id": _uuid_to(cmd.component_id),
+        "style": (
+            cmd.new_appearance.to_style_string()
+            if cmd.new_appearance is not None
+            else None
+        ),
+    }
+
+
+def _set_appearance_from(d: dict[str, Any]) -> SetComponentAppearanceCommand:
+    from protoboard.domain.components.appearance import parse_style
+    return SetComponentAppearanceCommand(
+        component_id=_uuid_from(d["component_id"]),
+        new_appearance=parse_style(d.get("style"), ctx="set_appearance"),
+    )
+
+
+_register(
+    SetComponentAppearanceCommand, "set_appearance",
+    _set_appearance_to, _set_appearance_from,
 )
 
 

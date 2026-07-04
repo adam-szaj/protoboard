@@ -27,9 +27,10 @@ declaration (CSS behaviour). A declared alpha multiplies with the layer alpha
 at render time (ghosting/dimming), it does not replace it.
 
 ``corner-radius`` follows a single convention: ``0`` = sharp (square) corners,
-``> 0`` = rounded with that radius in millimetres (like ``dims``). It is stored as
-a tuple of 1–4 values; the current render path honours only the first value
-(per-corner render is deferred — see ``docs/todo.md``).
+``> 0`` = rounded with that radius in millimetres (like ``dims``). It is stored
+as a tuple of 1–4 values and rendered per corner: the renderer reads
+:attr:`Appearance.corner_radius_mm_corners`, the CSS ``border-radius``
+expansion to (top-left, top-right, bottom-right, bottom-left).
 """
 
 from __future__ import annotations
@@ -49,8 +50,8 @@ class Appearance:
     string (CSS channel order — alpha last), or ``None`` to inherit.
     ``corner_radius_mm`` is a tuple of 1–4 radii in millimetres (CSS
     ``border-radius`` order), each ``0`` for sharp / ``> 0`` for rounded, or
-    ``None`` to inherit the package's edge behaviour. The render path currently
-    uses :attr:`corner_radius_mm_scalar` (the first value) only.
+    ``None`` to inherit the package's edge behaviour. The render path reads
+    the per-corner expansion :attr:`corner_radius_mm_corners`.
     """
 
     color: str | None = None
@@ -76,13 +77,31 @@ class Appearance:
 
     @property
     def corner_radius_mm_scalar(self) -> float | None:
-        """First/only corner radius (mm) for the current single-radius render.
+        """First/only corner radius (mm) — a uniform-radius convenience view.
 
-        Per-corner render is deferred (see ``docs/todo.md``); the renderer reads
-        this scalar while the full :attr:`corner_radius_mm` tuple preserves the
-        authored values.
+        The render path uses :attr:`corner_radius_mm_corners`; this scalar
+        remains for callers that only need a single representative radius.
         """
         return None if self.corner_radius_mm is None else self.corner_radius_mm[0]
+
+    @property
+    def corner_radius_mm_corners(
+        self,
+    ) -> tuple[float, float, float, float] | None:
+        """Per-corner radii (mm) as (top-left, top-right, bottom-right,
+        bottom-left) — the CSS ``border-radius`` expansion of the stored
+        1–4 values, or ``None`` when no radius override is set.
+        """
+        radii = self.corner_radius_mm
+        if radii is None:
+            return None
+        if len(radii) == 1:
+            return (radii[0], radii[0], radii[0], radii[0])
+        if len(radii) == 2:
+            return (radii[0], radii[1], radii[0], radii[1])
+        if len(radii) == 3:
+            return (radii[0], radii[1], radii[2], radii[1])
+        return (radii[0], radii[1], radii[2], radii[3])
 
     @staticmethod
     def resolve(*layers: Appearance | None) -> Appearance:

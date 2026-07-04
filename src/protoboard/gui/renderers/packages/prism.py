@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import ClassVar
 
 from PySide6.QtCore import QRectF
-from PySide6.QtGui import QBrush, QColor, QPainterPath, QTransform
+from PySide6.QtGui import QBrush, QColor, QTransform
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem
 
 from protoboard.domain.components.definition import ComponentClass
@@ -20,6 +20,7 @@ from protoboard.gui.renderers.packages.base import (
 )
 from protoboard.gui.renderers.prism_silhouette import (
     PrismSilhouette,
+    rounded_rect_path,
     silhouette_for,
 )
 from protoboard.gui.theme import Theme
@@ -105,13 +106,15 @@ class PrismRenderer(PackageRenderer):
             sil = self._silhouette(pkg)
         if sil is None:
             return None
-        # An appearance corner-radius override (mm) reaches the DIP/SIL body via
-        # the silhouette builder, converted to holes; absent → the builder keeps
-        # using theme.body_corner_radius (the notch radius is unaffected either way).
-        corner_scalar = self._appearance.corner_radius_mm_scalar
-        corner_holes = (
-            corner_scalar / theme.raster_pitch_mm
-            if corner_scalar is not None
+        # An appearance corner-radius override (mm, per corner) reaches the
+        # DIP/SIL body via the silhouette builder, converted to holes; absent →
+        # the builder keeps using theme.body_corner_radius (the notch radius is
+        # unaffected either way).
+        corners = self._appearance.corner_radius_mm_corners
+        mm = theme.raster_pitch_mm
+        corner_holes: tuple[float, float, float, float] | None = (
+            (corners[0] / mm, corners[1] / mm, corners[2] / mm, corners[3] / mm)
+            if corners is not None
             else None
         )
         drawing = sil.build(pkg, theme, corner_r=corner_holes)
@@ -186,11 +189,10 @@ class PrismRenderer(PackageRenderer):
         # (It is *not* stretched to span the pad gap, which read as a long thin
         # rectangle.)
         length = body_len
-        r = min(self._effective_corner_radius_mm() / mm, body_w / 2.0, length / 2.0)
-
-        path = QPainterPath()
-        path.addRoundedRect(
-            QRectF(-length / 2.0, -body_w / 2.0, length, body_w), r, r,
+        tl, tr, br, bl = self._effective_corner_radii_mm()
+        path = rounded_rect_path(
+            QRectF(-length / 2.0, -body_w / 2.0, length, body_w),
+            (tl / mm, tr / mm, br / mm, bl / mm),
         )
         body = QGraphicsPathItem(path)
         fill_c = QColor(fill)

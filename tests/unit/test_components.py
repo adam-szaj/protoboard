@@ -48,6 +48,20 @@ class TestAppearance:
         assert Appearance(corner_radius_mm=(2.0, 3.0)).corner_radius_mm_scalar == 2.0
         assert Appearance().corner_radius_mm_scalar is None
 
+    def test_corner_expansion_css_border_radius_order(self) -> None:
+        # (top-left, top-right, bottom-right, bottom-left) per CSS shorthand:
+        # 1 value → all; 2 → TL/BR, TR/BL; 3 → TL, TR/BL, BR; 4 → verbatim.
+        from protoboard.domain.components.appearance import Appearance
+
+        def corners(*radii: float) -> tuple[float, float, float, float] | None:
+            return Appearance(corner_radius_mm=radii).corner_radius_mm_corners
+
+        assert corners(1.0) == (1.0, 1.0, 1.0, 1.0)
+        assert corners(1.0, 2.0) == (1.0, 2.0, 1.0, 2.0)
+        assert corners(1.0, 2.0, 3.0) == (1.0, 2.0, 3.0, 2.0)
+        assert corners(1.0, 2.0, 3.0, 4.0) == (1.0, 2.0, 3.0, 4.0)
+        assert Appearance().corner_radius_mm_corners is None
+
     def test_parse_validates(self) -> None:
         from protoboard.domain.components.appearance import (
             Appearance,

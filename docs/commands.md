@@ -38,6 +38,7 @@ Commands are parameterised over the state they mutate:
 | `RemoveComponentCommand` | Delete a component (also removes orphan knots). |
 | `LockComponentCommand` | Toggle `placement.locked`. |
 | `SetPinVariantCommand` | Choose a discrete `pin_offsets` variant (bendable leads). |
+| `SetComponentAppearanceCommand` | Set/clear the per-instance visual `style:` override (colour + corner radius); visual only. |
 | `DisconnectPinCommand` | Remove a `PinRef` from its net; drops empty nets. |
 
 ### Wires (`component_cmds.py`)

@@ -130,5 +130,6 @@ def body_shape_for(
     # + spacing) and does not determine a body — the same footprint fits many
     # bodies (a SIL-3 is a TO-92, a header, a trimmer…). A part that wants a
     # specific silhouette declares it via ``package`` / ``package_family_ref``
-    # (resolved above). Without one, draw the generic bbox body.
-    return GenericBody()
+    # (resolved above). Without one, draw the generic bbox body (which still
+    # honours the visual style override).
+    return GenericBody(appearance=eff_appearance)

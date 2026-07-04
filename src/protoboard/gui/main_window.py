@@ -343,6 +343,7 @@ class MainWindow(QMainWindow):
         self._props_panel.package_variant_changed.connect(
             self._on_package_variant_changed,
         )
+        self._props_panel.appearance_changed.connect(self._on_appearance_changed)
         self._props_panel.drc_issue_clicked.connect(self._on_drc_issue_clicked)
 
         self._groups_panel.group_disbanded.connect(lambda _: self._board_view.refresh())
@@ -2741,6 +2742,25 @@ class MainWindow(QMainWindow):
         variant_str = str(package_variant) if package_variant is not None else None
         cmd = SetComponentPackageVariantCommand(
             component_id=comp_id, new_variant=variant_str,
+        )
+        self._session.stack.execute(cmd, cast(ComponentState, self._session))
+        self._session.mark_dirty()
+        self._board_view.refresh()
+
+    def _on_appearance_changed(
+        self, comp_id: uuid.UUID, appearance: object,
+    ) -> None:
+        from typing import cast
+        from protoboard.domain.commands.component_cmds import (
+            ComponentState,
+            SetComponentAppearanceCommand,
+        )
+        from protoboard.domain.components.appearance import Appearance
+        new_appearance = (
+            appearance if isinstance(appearance, Appearance) else None
+        )
+        cmd = SetComponentAppearanceCommand(
+            component_id=comp_id, new_appearance=new_appearance,
         )
         self._session.stack.execute(cmd, cast(ComponentState, self._session))
         self._session.mark_dirty()

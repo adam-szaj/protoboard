@@ -25,7 +25,7 @@ from typing import ClassVar
 
 import structlog
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
+from PySide6.QtGui import QBrush, QColor, QPen, QTransform
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsItem,
@@ -54,6 +54,7 @@ from protoboard.domain.components.package.shapes import (
 )
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point, Transform2D
+from protoboard.gui.renderers.prism_silhouette import rounded_rect_path
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 
 _log = structlog.get_logger(__name__)
@@ -158,6 +159,18 @@ class BodyShape(ABC):
 # ---------------------------------------------------------------------------
 
 class GenericBody(BodyShape):
+    """Bare-bbox fallback body for a component with no resolved package.
+
+    Honours the visual :class:`Appearance` override the same way
+    ``PackageRenderer`` does: an override colour replaces the caller-supplied
+    fill (border derived by darkening), an override corner radius rounds the
+    bbox rectangle per corner. Without an override the historical plain
+    rectangle is drawn unchanged.
+    """
+
+    def __init__(self, appearance: Appearance = Appearance()) -> None:
+        self._appearance = appearance
+
     def draw(
         self,
         positions: list[Point],
@@ -169,6 +182,11 @@ class GenericBody(BodyShape):
     ) -> list[QGraphicsItem]:
         if not positions:
             return []
+        override = self._appearance.color
+        if override is not None:
+            override_fill = qcolor_from_css(override)
+            if override_fill.isValid():
+                fill, border = override_fill, _darken(override_fill)
         margin = 0.35
         xs = [p.x for p in positions]
         ys = [p.y for p in positions]
@@ -176,6 +194,18 @@ class GenericBody(BodyShape):
         y0 = min(ys) - margin
         w = max(xs) - min(xs) + 2 * margin
         h = max(ys) - min(ys) + 2 * margin
+        corners = self._appearance.corner_radius_mm_corners
+        if corners is not None and any(corners):
+            mm = theme.raster_pitch_mm
+            tl, tr, br, bl = corners
+            path_item = QGraphicsPathItem(rounded_rect_path(
+                QRectF(x0, y0, w, h),
+                (tl / mm, tr / mm, br / mm, bl / mm),
+            ))
+            path_item.setBrush(QBrush(fill))
+            path_item.setPen(_body_pen(border, alpha))
+            path_item.setZValue(z)
+            return [path_item]
         rect = QGraphicsRectItem(QRectF(x0, y0, w, h))
         rect.setBrush(QBrush(fill))
         rect.setPen(_body_pen(border, alpha))
@@ -305,16 +335,16 @@ class PackageRenderer(BodyShape):
             return fill, border
         return body_fill, _darken(body_fill)
 
-    def _effective_corner_radius_mm(self) -> float:
-        """Corner radius (mm): the appearance override wins (0 = sharp, > 0 =
-        rounded), else the package's own edge/radius via ``_package_corner_radius``.
-
-        Only the first radius is used (per-corner render is deferred); the full
-        tuple is preserved on the appearance value object."""
-        scalar = self._appearance.corner_radius_mm_scalar
-        if scalar is not None:
-            return scalar
-        return _package_corner_radius(self._pkg)
+    def _effective_corner_radii_mm(self) -> tuple[float, float, float, float]:
+        """Per-corner radii (mm), (top-left, top-right, bottom-right,
+        bottom-left): the appearance override wins (0 = sharp, > 0 = rounded,
+        CSS ``border-radius`` expansion), else the package's own edge/radius
+        via ``_package_corner_radius`` replicated to all four corners."""
+        corners = self._appearance.corner_radius_mm_corners
+        if corners is not None:
+            return corners
+        r = _package_corner_radius(self._pkg)
+        return (r, r, r, r)
 
     # ------------------------------------------------------------------
     # Template: radial branch here, shape-specific body in render_body()
@@ -508,10 +538,10 @@ class PackageRenderer(BodyShape):
         mm = theme.raster_pitch_mm
         length_r, width_r = lead_axis_extents(self._pkg)
         angle_deg = (p2 - p1).angle_deg()
-        rect_path = QPainterPath()
-        r = self._effective_corner_radius_mm() / mm
-        rect_path.addRoundedRect(
-            QRectF(-length_r / 2.0, -width_r / 2.0, length_r, width_r), r, r,
+        tl, tr, br, bl = self._effective_corner_radii_mm()
+        rect_path = rounded_rect_path(
+            QRectF(-length_r / 2.0, -width_r / 2.0, length_r, width_r),
+            (tl / mm, tr / mm, br / mm, bl / mm),
         )
         body = QGraphicsPathItem(rect_path)
         fill_c = QColor(fill)
@@ -542,8 +572,10 @@ class PackageRenderer(BodyShape):
             box = self._pkg.bbox()
         except ValueError:
             # bbox needs dims/margin the package doesn't carry — fall back to
-            # a rectangle hugging the pin cloud (same as GenericBody).
-            generic: list[QGraphicsItem] = GenericBody().draw(
+            # a rectangle hugging the pin cloud (same as GenericBody); the
+            # appearance rides along so the radius override still applies
+            # (fill/border are already resolved by draw()).
+            generic: list[QGraphicsItem] = GenericBody(self._appearance).draw(
                 positions, fill, border, alpha, z, theme,
             )
             return generic
@@ -555,14 +587,13 @@ class PackageRenderer(BodyShape):
         # reflection): reconstructing the rect in world coords and only shifting
         # it by the anchor draws an axis-aligned box that ignores the placement
         # rotation — the body then stays upright while the pins rotate.
-        r = self._effective_corner_radius_mm() / theme.raster_pitch_mm
+        mm = theme.raster_pitch_mm
+        tl, tr, br, bl = self._effective_corner_radii_mm()
         local_rect = QRectF(box.x, box.y, box.width, box.height)
         place = self._body_placement(positions)
-        path = QPainterPath()
-        if r > 0:
-            path.addRoundedRect(local_rect, r, r)
-        else:
-            path.addRect(local_rect)
+        path = rounded_rect_path(
+            local_rect, (tl / mm, tr / mm, br / mm, bl / mm),
+        )
         path_item = QGraphicsPathItem(place.map(path))
         fill_c = QColor(fill)
         fill_c.setAlphaF(fill_c.alphaF() * alpha)

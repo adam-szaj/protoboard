@@ -322,6 +322,30 @@ class TestGenericBody:
         items = GenericBody().draw(_pts((0, 0)), _RED, _DARK, 1.0, _Z)
         assert items[0].zValue() == pytest.approx(_Z)
 
+    def test_appearance_color_override(self, qtbot: QtBot) -> None:
+        # The bare-bbox fallback honours the style override like PackageBody:
+        # the declared colour replaces the caller-supplied fill.
+        from protoboard.domain.components.appearance import Appearance
+        items = GenericBody(Appearance(color="#123456")).draw(
+            _pts((0, 0), (2, 2)), _RED, _DARK, 1.0, _Z)
+        body = items[0]
+        assert isinstance(body, QGraphicsRectItem)
+        assert body.brush().color().name() == "#123456"
+
+    def test_appearance_corner_radius_rounds_bbox(self, qtbot: QtBot) -> None:
+        from protoboard.domain.components.appearance import Appearance
+        items = GenericBody(Appearance(corner_radius_mm=(1.0,))).draw(
+            _pts((0, 0), (2, 2)), _RED, _DARK, 1.0, _Z)
+        body = items[0]
+        assert isinstance(body, QGraphicsPathItem)
+        assert _path_is_rounded(body)
+
+    def test_no_override_keeps_plain_rect(self, qtbot: QtBot) -> None:
+        from protoboard.domain.components.appearance import Appearance
+        items = GenericBody(Appearance()).draw(
+            _pts((0, 0), (2, 2)), _RED, _DARK, 1.0, _Z)
+        assert isinstance(items[0], QGraphicsRectItem)
+
 
 # Legacy TO92Body / TO220Body were deleted: TO-92 renders through the
 # flat-sided radial CylinderRenderer (TestTO92PackageParity, TestFlatSide*),
@@ -917,6 +941,52 @@ class TestAppearanceOverride:
         r_body = _largest_path(rounded.draw(pts, _RED, _DARK, 1.0, _Z))
         assert not _path_is_rounded(s_body)
         assert _path_is_rounded(r_body)
+
+    def test_per_corner_radii_round_only_declared_corners(
+        self, qtbot: QtBot,
+    ) -> None:
+        # CSS border-radius order (TL, TR, BR, BL): only the third value is
+        # non-zero → only the bottom-right corner is cut, the other three stay
+        # sharp.  Probed geometrically: a point just inside a sharp corner is
+        # inside the path; the same probe at the rounded corner falls outside
+        # the cut.  Identity placement (pin 1 at origin, pin 2 straight down),
+        # so world path coords equal the package-local bbox.
+        from PySide6.QtCore import QPointF
+        from protoboard.domain.components.appearance import Appearance
+        prism = _bbox_prism_package()
+        body = PackageBody(  # type: ignore[arg-type]
+            prism,
+            appearance=Appearance(corner_radius_mm=(0.0, 0.0, 2.0, 0.0)))
+        path = _largest_path(
+            body.draw(_bbox_prism_positions(), _RED, _DARK, 1.0, _Z)).path()
+        box = prism.bbox()
+        x0, y0 = box.x, box.y
+        x1, y1 = box.x + box.width, box.y + box.height
+        eps = 0.08  # holes; well inside the 2 mm (≈0.79-hole) corner cut
+        assert path.contains(QPointF(x0 + eps, y0 + eps))      # TL sharp
+        assert path.contains(QPointF(x1 - eps, y0 + eps))      # TR sharp
+        assert path.contains(QPointF(x0 + eps, y1 - eps))      # BL sharp
+        assert not path.contains(QPointF(x1 - eps, y1 - eps))  # BR rounded
+
+    def test_per_corner_radii_reach_dip_silhouette(self, qtbot: QtBot) -> None:
+        # The DIP notched silhouette takes the same per-corner radii: the
+        # bottom-right corner rounds while the pin-1 notch stays carved.
+        from PySide6.QtCore import QPointF
+        from protoboard.domain.components.appearance import Appearance
+        prism = _dip8_prism()
+        body = PackageBody(  # type: ignore[arg-type]
+            prism,
+            component_class=ComponentClass.IC,
+            appearance=Appearance(corner_radius_mm=(0.0, 0.0, 2.0, 0.0)))
+        path = _largest_path(
+            body.draw(_dip8_positions(), _RED, _DARK, 1.0, _Z)).path()
+        box = prism.bbox()
+        x0, y0 = box.x, box.y
+        x1, y1 = box.x + box.width, box.y + box.height
+        eps = 0.08
+        assert not path.contains(QPointF(1.5, -0.4))            # notch carved
+        assert path.contains(QPointF(x0 + eps, y1 - eps))       # BL sharp
+        assert not path.contains(QPointF(x1 - eps, y1 - eps))   # BR rounded
 
 
 class TestDevboardBody:

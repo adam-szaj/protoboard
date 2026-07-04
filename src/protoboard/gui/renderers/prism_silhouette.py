@@ -70,49 +70,105 @@ class PrismDrawing:
     marker: QPainterPath | None = None
 
 
+#: A ``corner_r`` argument: one radius for all corners, a per-corner 4-tuple
+#: (top-left, top-right, bottom-right, bottom-left — the CSS ``border-radius``
+#: expansion), or ``None`` for the theme default.  All values are in holes.
+CornerRadii = float | tuple[float, float, float, float] | None
+
+
+def _expand_corner_r(corner_r: CornerRadii, theme: Theme) -> tuple[
+    float, float, float, float
+]:
+    """Normalise a ``corner_r`` argument to per-corner radii (holes)."""
+    if corner_r is None:
+        r = theme.body_corner_radius
+        return (r, r, r, r)
+    if isinstance(corner_r, tuple):
+        return corner_r
+    return (corner_r, corner_r, corner_r, corner_r)
+
+
+def rounded_rect_path(
+    rect: QRectF,
+    radii: tuple[float, float, float, float],
+) -> QPainterPath:
+    """A rectangle path with per-corner radii (top-left, top-right,
+    bottom-right, bottom-left), each clamped to the rect's half-extents.
+
+    Uniform radii take Qt's ``addRoundedRect`` (exact quarter-ellipse arcs,
+    byte-identical with the historical single-radius path); mixed radii build
+    the outline with ``quadTo`` corners, the house style of
+    :func:`_notched_rect_path`.
+    """
+    half = min(rect.width(), rect.height()) / 2.0
+    tl, tr, br, bl = (max(0.0, min(r, half)) for r in radii)
+    path = QPainterPath()
+    if tl == tr == br == bl:
+        if tl > 0:
+            path.addRoundedRect(rect, tl, tl)
+        else:
+            path.addRect(rect)
+        return path
+    x0, y0, x1, y1 = rect.left(), rect.top(), rect.right(), rect.bottom()
+    path.moveTo(x0 + tl, y0)
+    path.lineTo(x1 - tr, y0)
+    path.quadTo(x1, y0, x1, y0 + tr)
+    path.lineTo(x1, y1 - br)
+    path.quadTo(x1, y1, x1 - br, y1)
+    path.lineTo(x0 + bl, y1)
+    path.quadTo(x0, y1, x0, y1 - bl)
+    path.lineTo(x0, y0 + tl)
+    path.quadTo(x0, y0, x0 + tl, y0)
+    path.closeSubpath()
+    return path
+
+
 class PrismSilhouette(ABC):
     """Builds the local-frame outline of one prism column layout."""
 
     @abstractmethod
     def build(
-        self, prism: Prism, theme: Theme, *, corner_r: float | None = None
+        self, prism: Prism, theme: Theme, *, corner_r: CornerRadii = None
     ) -> PrismDrawing:
-        """Build the body outline.  ``corner_r`` (holes) overrides the theme's
-        ``body_corner_radius`` when given (an appearance override); ``None`` keeps
-        the theme default."""
+        """Build the body outline.  ``corner_r`` (holes; scalar or per-corner
+        4-tuple) overrides the theme's ``body_corner_radius`` when given (an
+        appearance override); ``None`` keeps the theme default."""
         ...
 
 
 def _notched_rect_path(
-    x0: float, y0: float, x1: float, y1: float, *, corner_r: float, notch_r: float,
+    x0: float, y0: float, x1: float, y1: float, *,
+    radii: tuple[float, float, float, float], notch_r: float,
     notch_cx: float,
 ) -> QPainterPath:
     """Rounded rectangle [x0,y0]-[x1,y1] with a semicircular notch cut into its
     top edge, centred at ``notch_cx`` — the DIP / quad pin-1 marker edge.
+    ``radii`` are the per-corner radii (top-left, top-right, bottom-right,
+    bottom-left).
 
     Mirrors the legacy two-arc SVG path: the top edge runs to the notch's left
     point, arcs (concave, into the body) to its right point, then continues.
     Degenerate notches (``notch_r <= 0``) collapse to a plain rounded rect.
     """
-    r = max(0.0, min(corner_r, (x1 - x0) / 2.0, (y1 - y0) / 2.0))
-    path = QPainterPath()
+    half = min((x1 - x0) / 2.0, (y1 - y0) / 2.0)
+    tl, tr, br, bl = (max(0.0, min(r, half)) for r in radii)
     if notch_r <= 0.0:
-        path.addRoundedRect(QRectF(x0, y0, x1 - x0, y1 - y0), r, r)
-        return path
+        return rounded_rect_path(QRectF(x0, y0, x1 - x0, y1 - y0), (tl, tr, br, bl))
     nx0 = notch_cx - notch_r
-    path.moveTo(x0 + r, y0)
+    path = QPainterPath()
+    path.moveTo(x0 + tl, y0)
     path.lineTo(nx0, y0)
     # Concave semicircle dipping into the body (sweep matches the SVG A 0,0);
     # the 180° arc lands at the notch's right point (notch_cx + notch_r).
     path.arcTo(QRectF(nx0, y0 - notch_r, 2 * notch_r, 2 * notch_r), 180.0, 180.0)
-    path.lineTo(x1 - r, y0)
-    path.quadTo(x1, y0, x1, y0 + r)
-    path.lineTo(x1, y1 - r)
-    path.quadTo(x1, y1, x1 - r, y1)
-    path.lineTo(x0 + r, y1)
-    path.quadTo(x0, y1, x0, y1 - r)
-    path.lineTo(x0, y0 + r)
-    path.quadTo(x0, y0, x0 + r, y0)
+    path.lineTo(x1 - tr, y0)
+    path.quadTo(x1, y0, x1, y0 + tr)
+    path.lineTo(x1, y1 - br)
+    path.quadTo(x1, y1, x1 - br, y1)
+    path.lineTo(x0 + bl, y1)
+    path.quadTo(x0, y1, x0, y1 - bl)
+    path.lineTo(x0, y0 + tl)
+    path.quadTo(x0, y0, x0 + tl, y0)
     path.closeSubpath()
     return path
 
@@ -136,12 +192,12 @@ class DipSilhouette(PrismSilhouette):
     notch_cx: float
 
     def build(
-        self, prism: Prism, theme: Theme, *, corner_r: float | None = None
+        self, prism: Prism, theme: Theme, *, corner_r: CornerRadii = None
     ) -> PrismDrawing:
         box = prism.bbox()
         body = _notched_rect_path(
             box.x, box.y, box.x + box.width, box.y + box.height,
-            corner_r=theme.body_corner_radius if corner_r is None else corner_r,
+            radii=_expand_corner_r(corner_r, theme),
             notch_r=theme.dip_notch_radius,
             notch_cx=self.notch_cx,
         )
@@ -158,12 +214,13 @@ class SilSilhouette(PrismSilhouette):
     """
 
     def build(
-        self, prism: Prism, theme: Theme, *, corner_r: float | None = None
+        self, prism: Prism, theme: Theme, *, corner_r: CornerRadii = None
     ) -> PrismDrawing:
         box = prism.bbox()
-        r = theme.body_corner_radius if corner_r is None else corner_r
-        body = QPainterPath()
-        body.addRoundedRect(QRectF(box.x, box.y, box.width, box.height), r, r)
+        body = rounded_rect_path(
+            QRectF(box.x, box.y, box.width, box.height),
+            _expand_corner_r(corner_r, theme),
+        )
         return PrismDrawing(body=body, marker=_pin1_marker_path(0.08))
 
 
@@ -198,10 +255,12 @@ def silhouette_for(prism: Prism) -> PrismSilhouette | None:
 
 
 __all__ = [
+    "CornerRadii",
     "DipSilhouette",
     "PrismDrawing",
     "PrismSilhouette",
     "SilSilhouette",
     "dip_silhouette",
+    "rounded_rect_path",
     "silhouette_for",
 ]

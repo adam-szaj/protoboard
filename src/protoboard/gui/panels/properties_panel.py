@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from protoboard.domain.components.appearance import Appearance, parse_style
 from protoboard.domain.components.definition import ComponentDefinition, PinBendSpec
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.family import PackageFamily
@@ -53,6 +54,9 @@ class PropertiesPanel(QWidget):
     pin_variant_changed = Signal(uuid.UUID, object)
     # id, package_variant (str "family/variant_id" or None for default)
     package_variant_changed = Signal(uuid.UUID, object)
+    # id, Appearance or None (None = clear the per-instance style override).
+    # Emitted from Apply, only when the fields differ from the shown value.
+    appearance_changed = Signal(uuid.UUID, object)
     # DRCIssue or None (None = the user clicked away or no issue selected).
     # MainWindow translates this into HighlightStack pushes + viewport centring.
     drc_issue_clicked = Signal(object)
@@ -107,6 +111,24 @@ class PropertiesPanel(QWidget):
             "variant overrides the library default for this instance only.",
         )
 
+        # Per-instance visual style override (Appearance): body fill colour +
+        # corner radius.  Text fields, committed via Apply like refdes/value;
+        # an EMPTY field means "no override" (falls back to the option /
+        # definition style, then the package / theme defaults).
+        self._style_color_edit = QLineEdit()
+        self._style_color_edit.setPlaceholderText("#RRGGBB[AA] — empty = default")
+        self._style_color_edit.setToolTip(
+            "Body fill colour override for this instance (CSS hex, alpha "
+            "last).  Clear the field to fall back to the package colour.",
+        )
+        self._style_radius_edit = QLineEdit()
+        self._style_radius_edit.setPlaceholderText("mm (1–4 values) — empty = default")
+        self._style_radius_edit.setToolTip(
+            "Body corner radius override in millimetres — 1 to 4 values in "
+            "CSS border-radius order (0 = sharp corners).  Clear the field "
+            "to fall back to the package edge style.",
+        )
+
         form.addRow("RefDes:", self._refdes_edit)
         form.addRow("Value:", self._value_edit)
         form.addRow("Rotation:", self._rotation_combo)
@@ -117,6 +139,8 @@ class PropertiesPanel(QWidget):
         form.addRow(self._pin_variant_form_row_label, self._pin_variant_combo)
         self._body_variant_form_row_label = QLabel("Body:")
         form.addRow(self._body_variant_form_row_label, self._body_variant_combo)
+        form.addRow("Body color:", self._style_color_edit)
+        form.addRow("Corner radius:", self._style_radius_edit)
         form.addRow(self._apply_btn)
         layout.addWidget(grp)
 
@@ -131,6 +155,9 @@ class PropertiesPanel(QWidget):
             self._on_package_variant_changed,
         )
         self._current_id: uuid.UUID | None = None
+        # The appearance the style fields were last populated with — Apply
+        # compares against it so an unchanged form emits no no-op command.
+        self._shown_appearance: Appearance | None = None
         # Set via set_session(); the panel fetches inst/placement/defn itself now
         # that it subscribes to selection directly (no MainWindow fan-out).
         self._session: "EditorSession | None" = None
@@ -274,6 +301,7 @@ class PropertiesPanel(QWidget):
         self._refdes_edit.setText(inst.refdes)
         self._value_edit.setText(inst.value)
         self._footprint_label.setText(inst.definition_ref)
+        self._populate_appearance_fields(inst.appearance)
         if placement is not None:
             idx = placement.rotation // 90
             self._rotation_combo.setCurrentIndex(idx)
@@ -285,6 +313,7 @@ class PropertiesPanel(QWidget):
         self._refdes_edit.clear()
         self._value_edit.clear()
         self._footprint_label.clear()
+        self._populate_appearance_fields(None)
         self._rebuild_pin_offsets(None, {})
         self._rebuild_pin_variant_combo(None, None)
         self._rebuild_body_variant_combo(None, None, {})
@@ -646,6 +675,39 @@ class PropertiesPanel(QWidget):
         self._label_x_spin.setValue(0.05)
         self._label_y_spin.setValue(0.05)
 
+    def _populate_appearance_fields(self, appearance: Appearance | None) -> None:
+        """Write *appearance* into the style fields (empty field = no override)."""
+        self._shown_appearance = appearance
+        color = appearance.color if appearance is not None else None
+        self._style_color_edit.setText(color or "")
+        radii = (
+            appearance.corner_radius_mm if appearance is not None else None
+        )
+        self._style_radius_edit.setText(
+            " ".join(f"{v:g}" for v in radii) if radii is not None else ""
+        )
+
+    def _collect_appearance(self) -> tuple[bool, Appearance | None]:
+        """``(valid, appearance)`` from the style fields.
+
+        Empty fields mean "no override" → ``(True, None)``.  Validation is the
+        domain's (``parse_style``); a bad colour / radius yields
+        ``(False, None)`` and the caller must not emit.
+        """
+        parts: list[str] = []
+        color = self._style_color_edit.text().strip()
+        radius = self._style_radius_edit.text().strip()
+        if color:
+            parts.append(f"color: {color}")
+        if radius:
+            parts.append(f"corner-radius: {radius}")
+        if not parts:
+            return True, None
+        try:
+            return True, parse_style("; ".join(parts), ctx="properties panel")
+        except ValueError:
+            return False, None
+
     def _on_apply(self) -> None:
         if self._current_id is None:
             return
@@ -663,6 +725,10 @@ class PropertiesPanel(QWidget):
                 self._current_id,
                 self._collect_pin_offsets(),
             )
+        valid, new_appearance = self._collect_appearance()
+        if valid and new_appearance != self._shown_appearance:
+            self._shown_appearance = new_appearance
+            self.appearance_changed.emit(self._current_id, new_appearance)
 
 
 class DRCPanel(QWidget):

@@ -312,9 +312,8 @@ the rest are tracked here / in their existing entries.  Ranked:
   methods; the "(5)"/"(4)" counts in that entry are stale).
 - **Generated DIP body not JEDEC-sized** — see "Footprint→body cleanup" item 2
   (xfail `test_body_width_matches_measured_mm`, `test_body_sits_between_rows_not_over_pins`).
-- **Appearance override on `GenericBody` + per-corner corner-radius** — see the
-  "Appearance override" section gaps 0 and 1.  `TO92Body`/`TO220Body` recolor is
-  moot once they are deleted (dead code); `GenericBody` is the live gap.
+- **Appearance override on `GenericBody` + per-corner corner-radius** — DONE
+  (2026-07-04), see the "Appearance override" section above.
 - **Pin-name labels never rotate / overlap on rotated dense parts** — labels use
   `ItemIgnoresTransformations` (`component_renderer.py:78,149,164`) so they draw
   screen-axis-aligned regardless of placement rotation; a rotated devboard's pin
@@ -344,7 +343,34 @@ Also deferred (per the passive work): predefined standard sizes as
 norms/catalogues — the generator already builds cylinder/prism bodies from
 `dims`, so this is adding named size presets, not new geometry.
 
-## Appearance override — deferred coverage (added 2026-06-20)
+## Appearance override — deferred coverage (added 2026-06-20) — DONE (2026-07-04)
+
+All three deferred gaps are closed (this branch):
+
+0. **Per-corner corner radius renders.** `Appearance.corner_radius_mm_corners`
+   expands the stored 1–4 values per CSS `border-radius` order (TL, TR, BR, BL);
+   `rounded_rect_path` (`gui/renderers/prism_silhouette.py`) draws each corner
+   with its own radius (uniform radii keep the exact `addRoundedRect` arcs).
+   Threaded through every body path: the bbox/devboard path, the radial
+   top-view rect, the SMD chip, and the DIP/SIL silhouettes
+   (`PrismSilhouette.build` takes a per-corner tuple).
+1. **`GenericBody` honours the override** (colour + per-corner radius) —
+   `TO92Body`/`TO220Body` were deleted earlier (2026-07-04), so the generic
+   bbox body was the only live gap.
+2. **GUI editor.** Properties panel: colour (`#RRGGBB[AA]`) + corner-radius
+   (1–4 mm values) text fields, committed via the existing Apply button;
+   empty field = no override; domain-validated (bad input → no emit);
+   emits only on change. `SetComponentAppearanceCommand`
+   (`component_cmds.py`) executes on the stack (undo/redo), registered in
+   the recorder as `set_appearance`. Tests: command apply/revert
+   (`test_set_appearance_command.py`), serializer round-trip
+   (`test_command_recording.py`), panel populate/emit/reject
+   (`test_panels.py::TestPropertiesPanelAppearance`), per-corner + generic
+   render (`test_body_shapes.py`). Docs: authoring.md §8.
+
+Original entry (kept for context):
+
+## Appearance override — deferred coverage (original, superseded)
 
 The per-component / per-instance visual override (fill `color` + corner radius)
 landed for **package-backed bodies** (`PackageBody`) — see

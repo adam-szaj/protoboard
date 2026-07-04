@@ -188,6 +188,124 @@ class TestPropertiesPanel:
         assert received == []
 
 
+class TestPropertiesPanelAppearance:
+    """The per-instance style override editor: two text fields (colour hex +
+    corner radius mm) committed via Apply; empty fields = no override."""
+
+    def _panel(self, qtbot: object) -> PropertiesPanel:
+        from pytestqt.qtbot import QtBot
+
+        assert isinstance(qtbot, QtBot)
+        panel = PropertiesPanel()
+        qtbot.addWidget(panel)
+        return panel
+
+    def test_show_component_populates_style_fields(self, qtbot: object) -> None:
+        from protoboard.domain.components.appearance import Appearance
+
+        panel = self._panel(qtbot)
+        inst = ComponentInstance.new(
+            definition_ref="R", refdes="R3", value="4k7",
+            appearance=Appearance(
+                color="#1a2b3c", corner_radius_mm=(0.5, 0.0),
+            ),
+        )
+        panel.show_component(inst)
+        assert panel._style_color_edit.text() == "#1a2b3c"
+        assert panel._style_radius_edit.text() == "0.5 0"
+
+    def test_no_override_shows_empty_fields(self, qtbot: object) -> None:
+        panel = self._panel(qtbot)
+        inst = ComponentInstance.new(definition_ref="R", refdes="R3", value="4k7")
+        panel.show_component(inst)
+        assert panel._style_color_edit.text() == ""
+        assert panel._style_radius_edit.text() == ""
+
+    def test_clear_component_empties_style_fields(self, qtbot: object) -> None:
+        from protoboard.domain.components.appearance import Appearance
+
+        panel = self._panel(qtbot)
+        inst = ComponentInstance.new(
+            definition_ref="R", refdes="R3", value="4k7",
+            appearance=Appearance(color="#1a2b3c"),
+        )
+        panel.show_component(inst)
+        panel.clear_component()
+        assert panel._style_color_edit.text() == ""
+        assert panel._style_radius_edit.text() == ""
+
+    def test_apply_emits_parsed_appearance(self, qtbot: object) -> None:
+        from protoboard.domain.components.appearance import Appearance
+
+        panel = self._panel(qtbot)
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        panel.show_component(inst)
+        received: list[tuple[object, object]] = []
+        panel.appearance_changed.connect(
+            lambda cid, app: received.append((cid, app))
+        )
+        panel._style_color_edit.setText("#1a1a1a")
+        panel._style_radius_edit.setText("0.5 0 0.5 0")
+        panel._apply_btn.click()
+        assert len(received) == 1
+        cid, app = received[0]
+        assert cid == inst.id
+        assert app == Appearance(
+            color="#1a1a1a", corner_radius_mm=(0.5, 0.0, 0.5, 0.0),
+        )
+
+    def test_apply_unchanged_fields_does_not_emit(self, qtbot: object) -> None:
+        from protoboard.domain.components.appearance import Appearance
+
+        panel = self._panel(qtbot)
+        inst = ComponentInstance.new(
+            definition_ref="R", refdes="R1", value="10k",
+            appearance=Appearance(color="#1a1a1a"),
+        )
+        panel.show_component(inst)
+        received: list[object] = []
+        panel.appearance_changed.connect(lambda *a: received.append(a))
+        panel._apply_btn.click()
+        assert received == []
+
+    def test_apply_cleared_fields_emits_none(self, qtbot: object) -> None:
+        from protoboard.domain.components.appearance import Appearance
+
+        panel = self._panel(qtbot)
+        inst = ComponentInstance.new(
+            definition_ref="R", refdes="R1", value="10k",
+            appearance=Appearance(color="#1a1a1a"),
+        )
+        panel.show_component(inst)
+        received: list[tuple[object, object]] = []
+        panel.appearance_changed.connect(
+            lambda cid, app: received.append((cid, app))
+        )
+        panel._style_color_edit.clear()
+        panel._apply_btn.click()
+        assert received == [(inst.id, None)]
+
+    def test_bad_colour_rejected_no_emit(self, qtbot: object) -> None:
+        panel = self._panel(qtbot)
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        panel.show_component(inst)
+        received: list[object] = []
+        panel.appearance_changed.connect(lambda *a: received.append(a))
+        panel._style_color_edit.setText("not-a-colour")
+        panel._apply_btn.click()
+        assert received == []
+
+    def test_bad_radius_rejected_no_emit(self, qtbot: object) -> None:
+        panel = self._panel(qtbot)
+        inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
+        panel.show_component(inst)
+        received: list[object] = []
+        panel.appearance_changed.connect(lambda *a: received.append(a))
+        panel._style_radius_edit.setText("0.5 x")
+        panel._apply_btn.click()
+        assert received == []
+
+
 @pytest.mark.xfail(
     reason="Body-variant picker stubbed — offered_body_families returns [] after "
     "the footprint→body cleanup (footprint no longer carries a body type); the "

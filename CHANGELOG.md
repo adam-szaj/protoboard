@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Appearance override completed: per-corner radius render, GenericBody, GUI editor (2026-07-04)
+
+The visual `style:` override (fill colour + corner radius) is now feature-complete:
+
+* **Per-corner corner radius renders.** The 1–4 `corner-radius` values are
+  drawn per corner using the CSS `border-radius` expansion
+  (`Appearance.corner_radius_mm_corners` → top-left, top-right, bottom-right,
+  bottom-left). New `rounded_rect_path` helper draws mixed radii; uniform
+  radii keep the exact historical `addRoundedRect` look. Applied across every
+  body path: bbox/devboard, radial top-view, SMD chip, DIP/SIL silhouettes.
+* **`GenericBody` honours the override** — the bare-bbox fallback (no package)
+  now applies the style colour and corner radius like the package renderers.
+* **GUI editor for per-instance style.** The Properties panel gained two text
+  fields (colour `#RRGGBB[AA]`, corner radius in mm, 1–4 values) committed via
+  Apply; an empty field clears the override. Backed by the new
+  `SetComponentAppearanceCommand` (undo/redo) and registered in the command
+  recorder as `set_appearance` (replay-safe).
+
 ### Modular package rendering: lineage-dispatched renderer hierarchy + plugins (2026-07-03)
 
 Rendering of component bodies is now modular and user-extensible:

@@ -328,9 +328,10 @@ properties are supported:
 | `corner-radius` | 1–4 bare millimetre numbers in CSS `border-radius` order. **`0` = sharp (square)**, **`> 0` = rounded** with that radius; overrides the package edge either way. |
 
 An unknown property is an error; a duplicate property keeps the **last**
-declaration (CSS behaviour). **Per-corner render is not implemented yet** — the
-parser accepts and stores 1–4 values, but the renderer currently draws using the
-**first** value only (see `docs/todo.md`).
+declaration (CSS behaviour). The 1–4 radius values are rendered **per corner**
+using the CSS `border-radius` expansion — `(top-left, top-right, bottom-right,
+bottom-left)`; e.g. `corner-radius: 2 0` rounds only the top-left and
+bottom-right corners.
 
 `style:` can sit on a **component** (override for the whole type) and on a placed
 **instance** (override for one part). Precedence per field is **instance →
@@ -366,8 +367,8 @@ instances:
     style: "color: #cc3030"                       # this one part is red
 ```
 
-Resolution at render time (`PackageBody._resolve_colors` /
-`_effective_corner_radius_mm`, `gui/renderers/body_shapes.py`):
+Resolution at render time (`PackageRenderer._resolve_colors` /
+`_effective_corner_radii_mm`, `gui/renderers/packages/base.py`):
 
 1. `color` (instance then definition) — **override wins**;
 2. else the resolved **package** `color:` (border = darkened);
@@ -385,10 +386,14 @@ Notes:
 - An inline `package:` may still set `color`/`corner_radius` on the package itself
   (it `extends:` a builtin base like `prism_smd` — not a family); `style:` is
   the lighter way to vary just the visuals on a shared family.
-- Coverage gap (see `docs/todo.md`): the non-package bodies `TO92Body`,
-  `TO220Body` and `GenericBody` do not honour `style:` yet — only
-  package-backed bodies (`PackageBody`) do. There is no GUI editor for per-instance
-  style yet; set it in YAML.
+- `GenericBody` (the bare-bbox fallback for a part with no package) honours the
+  override the same way the package-backed renderers do.
+- **GUI editing:** the Properties panel edits a selected instance's style — a
+  colour field (`#RRGGBB[AA]`) and a corner-radius field (1–4 mm values),
+  committed with the **Apply** button. An **empty field = no override** (falls
+  back to the option/definition style, then the package/theme defaults).
+  Changes go through `SetComponentAppearanceCommand` (undo/redo-able, recorded
+  for replay as `set_appearance`).
 
 ---
 
@@ -495,7 +500,7 @@ Components then declare `package: {kind: relay_dpdt}`. Rules of the game:
 - **Real part on a standard body** → `footprint:` + `package_family_ref` into a
   catalogue family, set `pin_names`. (Resistor → `TwoPin` + `SMD-0805/typ`.)
 - **Same body, two colours per part** → keep the shared `package_family_ref` and
-  add an `appearance: {color: "#…"}` block to each component (or instance) (§8).
+  add a `style: "color: #…"` string to each component (or instance) (§8).
 - **A new body size** → add a `variant` to an existing family, or a new named
   package with `extends:` a generic base + `dims`.
 - **A module / dev board** → `component_class: devboard` + inline prism with real

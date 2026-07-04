@@ -372,6 +372,38 @@ class TestNewlyRegisteredRoundtrip:
         assert isinstance(r, FlipGroupCommand)
         assert r.axis == "h" and r.pivot is None
 
+    def test_set_appearance(self) -> None:
+        from protoboard.domain.commands.component_cmds import (
+            SetComponentAppearanceCommand,
+        )
+        from protoboard.domain.components.appearance import Appearance
+
+        cid = uuid.uuid4()
+        app = Appearance(color="#1a1a1a80",
+                         corner_radius_mm=(0.5, 0.0, 0.5, 0.0))
+        cmd = SetComponentAppearanceCommand(component_id=cid, new_appearance=app)
+        d = serialize_command(cmd)
+        assert d["type"] == "set_appearance"
+        # Serialized as the canonical style string (matches the YAML authoring).
+        assert d["style"] == app.to_style_string()
+        r = deserialize_command(d)
+        assert isinstance(r, SetComponentAppearanceCommand)
+        assert r.component_id == cid
+        assert r.new_appearance == app
+
+    def test_set_appearance_none_clears(self) -> None:
+        from protoboard.domain.commands.component_cmds import (
+            SetComponentAppearanceCommand,
+        )
+
+        r = deserialize_command(serialize_command(
+            SetComponentAppearanceCommand(
+                component_id=uuid.uuid4(), new_appearance=None,
+            )
+        ))
+        assert isinstance(r, SetComponentAppearanceCommand)
+        assert r.new_appearance is None
+
     def test_move_drag_set(self) -> None:
         from protoboard.domain.commands.drag_cmds import MoveDragSetCommand
         from protoboard.geometry import Vector
