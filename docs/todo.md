@@ -808,7 +808,19 @@ preview-vs-commit parity test (drive a nested-group drag preview, then commit,
 and assert the two produce identical world pins) BEFORE changing the preview
 math.
 
-### 3. `FlipGroupCommand` has no GUI entry point (unwired)
+### 3. `FlipGroupCommand` has no GUI entry point (unwired) — minimal wiring DONE (2026-07-04)
+
+**Done (deliberate minimal default, this branch):** `SelectTool._flip_multi`
+routes a selected group to `FlipGroupCommand(group_id, axis='v')` (mirror
+left↔right about the pin centroid, `pivot=None`), mirroring the
+`RotateGroupCommand` dispatch — including the crossing-wire cleanup — instead
+of the per-component 2-pin loop. Guarded by
+`tests/gui/test_select_tool_parity.py::TestGroupFlipEntry`. Still open: the
+armed **FlipMode** UX (`[v]`/`[h]` axis choice + pickable axis position) from
+the group live-compose plan — with it, the default-axis shortcut becomes the
+quick path, not the only one.
+
+Original entry (kept for context):
 
 `FlipGroupCommand` (`group_cmds.py`, shipped Phase 5, serialization registered
 2026-07-03) is fully implemented and replay-ready, but **nothing constructs it

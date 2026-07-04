@@ -494,3 +494,49 @@ class TestGroupedComponentProtection:
         tool._selected_ids = {inst.id}
         tool._delete_selection()
         assert inst.id not in session.layout.placements  # now mutable
+
+
+class TestGroupFlipEntry:
+    """_flip_multi routes a selected group to FlipGroupCommand (rigid-body
+    flip folded into group.transform), mirroring the RotateGroupCommand
+    dispatch — not the per-component 2-pin flip loop."""
+
+    def test_selected_group_flips_as_rigid_body(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        i1 = _place(board_view, session, 0.5, 0.5)
+        i2 = _place(board_view, session, 2.5, 0.5)
+        gid = _make_group(session, [i1.id, i2.id])
+        tool = _v2(board_view)
+        tool._selected_group_id = gid
+        tool._flip_multi()
+        # The flip folded a reflection (det = -1) into the group transform;
+        # member placements are untouched (compose-on-read seam).
+        t = session.layout.groups[gid].transform
+        assert t.determinant() < 0
+
+    def test_group_flip_is_undoable(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        from protoboard.geometry import Transform2D
+
+        i1 = _place(board_view, session, 0.5, 0.5)
+        gid = _make_group(session, [i1.id])
+        tool = _v2(board_view)
+        tool._selected_group_id = gid
+        tool._flip_multi()
+        assert session.layout.groups[gid].transform.determinant() < 0
+        session.stack.undo(session)  # type: ignore[arg-type]
+        assert session.layout.groups[gid].transform == Transform2D.identity()
+
+    def test_loose_selection_still_uses_component_flip(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # No group selected → the historical 2-pin per-component flip path
+        # runs (no group transform is touched).
+        i1 = _place(board_view, session, 0.5, 0.5)
+        tool = _v2(board_view)
+        tool._selected_ids = {i1.id}
+        tool._flip_multi()
+        root = session.layout.groups[ROOT_GROUP_ID]
+        assert root.transform.determinant() > 0

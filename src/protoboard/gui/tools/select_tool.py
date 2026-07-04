@@ -3249,6 +3249,24 @@ class SelectTool(_Tool):
         from protoboard.domain.components.package import resolved_footprint
         from protoboard.domain.layout.placement import flip_component
 
+        # A selected group flips as a rigid body — the flip analogue of the
+        # RotateGroupCommand dispatch in _rotate_multi.  Default axis: 'v'
+        # (mirror left↔right) about the group's pin centroid (pivot=None);
+        # the armed FlipMode with a [v]/[h] pick is the designed follow-up
+        # (see docs/todo.md, group scene-graph item 3).
+        group_id = self._selected_group_id
+        if group_id is not None:
+            from protoboard.domain.commands.group_cmds import FlipGroupCommand
+            from protoboard.domain.layout.group import all_component_ids
+
+            affected = all_component_ids(self._session.layout.groups, group_id)
+            if affected:
+                self._apply_rotate(
+                    FlipGroupCommand(group_id=group_id, axis="v"),
+                    set(affected),
+                )
+            return
+
         families = getattr(self._session, "package_families", None)
         ids = [
             cid for cid in self._selected_ids if not self._is_locked_in_group(cid)
