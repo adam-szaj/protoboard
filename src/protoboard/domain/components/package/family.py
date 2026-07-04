@@ -85,12 +85,20 @@ def resolve_variant(
     """Resolve a ``"family_id/variant_id"`` address against *families*.
 
     Returns the variant, or ``None`` when the family or variant is unknown.
-    A bare ``"family_id"`` (no slash) resolves to that family's default.
+    A bare ``"family_id"`` resolves to that family's default.  A family id may
+    itself contain ``/`` (the inline-option families are ``@defn/option``), so
+    the split is at the LAST slash — splitting at the first silently failed
+    every ``@defn/option/variant`` address and the caller fell through to the
+    definition default (wrong body when a non-default inline option was
+    picked).
     """
-    family_id, _, variant_id = address.partition("/")
+    family = families.get(address)
+    if family is not None:
+        return family.default_variant()
+    family_id, sep, variant_id = address.rpartition("/")
+    if not sep:
+        return None
     family = families.get(family_id)
     if family is None:
         return None
-    if not variant_id:
-        return family.default_variant()
     return family.get_variant(variant_id)

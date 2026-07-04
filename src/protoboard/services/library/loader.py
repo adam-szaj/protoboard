@@ -154,12 +154,26 @@ def _parse_footprints(
                 built = _build_component_package(cname, entry["package"],
                                                  pin_count)
                 if isinstance(built, ResidualKind):
-                    # A footprint option must be a concrete body — partial
-                    # kinds are only supported on the component-level package.
-                    raise SerializationError(
-                        f"{source}: footprint entry for {cname!r} leaves kind "
-                        f"{built.kind!r} parameters unfilled")
-                package = built
+                    # Partially-parameterised kind: the option becomes a
+                    # pending-kind placeholder (generic-bbox geometry, target
+                    # kind + holes stamped) — the picker's second pop-up
+                    # collects the rest, exactly like the component-level
+                    # ``package:`` path.  A provisional single-row pin cloud
+                    # stands in for the geometry until the concrete variant is
+                    # built.
+                    if not pin_count:
+                        raise SerializationError(
+                            f"{source}: footprint entry for {cname!r} leaves "
+                            f"kind {built.kind!r} parameters unfilled and the "
+                            f"component declares no pin count")
+                    package = _pending_kind_placeholder(
+                        built, SIL(n=pin_count))
+                    if package is None:
+                        raise SerializationError(
+                            f"{source}: footprint entry for {cname!r} leaves "
+                            f"kind {built.kind!r} parameters unfilled")
+                else:
+                    package = built
             elif entry.get("ref") is not None:
                 ref = str(entry["ref"])
             else:
@@ -186,6 +200,36 @@ def _parse_footprints(
                 style=style if not style.is_empty else None,
             ))
     return tuple(options)
+
+
+def _pending_kind_placeholder(
+    residual: ResidualKind, footprint: Footprint,
+) -> Package | None:
+    """A generic-bbox stand-in carrying a partially-applied kind.
+
+    Geometry stays the synthetic generic bbox over *footprint*'s pin cloud
+    (``_generic`` remains in the lineage, so generic consumers — DRC, bend
+    specs — keep treating it as such), but the target kind + its parameter
+    state ride along so the picker can offer the remaining holes and rebuild
+    a concrete body.  ``None`` when no placeholder can be synthesized.
+    """
+    from protoboard.domain.components.package.generators import (
+        KIND_GENERATORS,
+    )
+    from protoboard.domain.components.package.kind import (
+        synth_generic_package,
+    )
+
+    synth = synth_generic_package(footprint)
+    if not isinstance(synth, Prism):
+        return synth
+    gen_cls = KIND_GENERATORS.get(residual.kind)
+    return dataclasses.replace(
+        synth,
+        kind=residual.kind,
+        schema=gen_cls().params if gen_cls is not None else None,
+        raw_values=dict(residual.values),
+    )
 
 
 @traced("_build_component_package")
@@ -673,30 +717,17 @@ def _component_from_dict(
     # False and the part keeps its authored bendable leads — bend-spec and DRC
     # consumers exclude the generic tag to preserve their pre-invariant behaviour.
     if package_obj is None and footprint.pin_count() >= 1:
-        # Local import (mirrors the build_kind_package import above) to avoid a
-        # module-load cycle: package.kind imports this package's loader.
-        from protoboard.domain.components.package.kind import (
-            synth_generic_package,
-        )
-        synth = synth_generic_package(footprint)
-        if synth is not None:
-            if pending_kind is not None and isinstance(synth, Prism):
-                # Pending-kind placeholder: geometry stays the generic bbox
-                # (``_generic`` remains in the lineage, so generic consumers —
-                # DRC, bend specs — keep treating it as such), but the target
-                # kind + its parameter state ride along so the picker can offer
-                # the remaining holes and rebuild a concrete body.
-                from protoboard.domain.components.package.generators import (
-                    KIND_GENERATORS,
-                )
-                gen_cls = KIND_GENERATORS.get(pending_kind.kind)
-                synth = dataclasses.replace(
-                    synth,
-                    kind=pending_kind.kind,
-                    schema=gen_cls().params if gen_cls is not None else None,
-                    raw_values=dict(pending_kind.values),
-                )
-            package_obj = synth
+        if pending_kind is not None:
+            # Pending-kind placeholder — see _pending_kind_placeholder.
+            package_obj = _pending_kind_placeholder(pending_kind, footprint)
+        else:
+            # Local import (mirrors the build_kind_package import above) to
+            # avoid a module-load cycle: package.kind imports this package's
+            # loader.
+            from protoboard.domain.components.package.kind import (
+                synth_generic_package,
+            )
+            package_obj = synth_generic_package(footprint)
 
     try:
         return ComponentDefinition(

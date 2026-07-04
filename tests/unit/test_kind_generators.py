@@ -296,3 +296,89 @@ class TestLoaderIntegration:
         assert defn.package.kind == "_t_pending"
         assert defn.package.schema is not None
         assert "rows" in defn.package.schema.fields
+
+
+class TestPartialKindFootprintOption:
+    """A ``footprints:`` entry with a partially-parameterised inline kind
+    becomes a per-option pending-kind placeholder (it used to raise at load);
+    the picker's second pop-up collects the rest and builds the concrete body.
+    """
+
+    def _register_needs_rows(self) -> None:
+        class NeedsRows(PackageGenerator):
+            generates = "_t_optpending"
+            params = parse_schema(
+                {"rows": {"type": "int", "required": True}})
+
+            def generate(self, ctx: GeneratorContext) -> GeneratorContext:
+                from protoboard.domain.components.footprints import SIL
+                pkg = prism_from_footprint(SIL(n=ctx.pin_count))
+                assert pkg is not None
+                return ctx.with_package(pkg)
+
+    def _load(self, tmp_path: Path):  # type: ignore[no-untyped-def]
+        from protoboard.services.library.loader import load_library
+        (tmp_path / "lib.yaml").write_text(
+            "components:\n"
+            "  - name: PART_OPT\n"
+            "    component_class: connector\n"
+            "    pins: {count: 4}\n"
+            "    footprints:\n"
+            "      - {name: matrix, package: {kind: _t_optpending}}\n"
+        )
+        return load_library([tmp_path], package_families={})
+
+    def test_option_loads_as_pending_placeholder(
+        self, tmp_path: Path, scratch_registry
+    ) -> None:
+        from protoboard.domain.components.package.kind import (
+            GENERIC_PACKAGE_KIND,
+            is_generic_package,
+        )
+        self._register_needs_rows()
+        defn = self._load(tmp_path).get("PART_OPT")
+        assert len(defn.footprints) == 1
+        opt = defn.footprints[0]
+        assert opt.package is not None
+        # Generic semantics preserved (geometry is the synthetic bbox)...
+        assert is_generic_package(opt.package)
+        assert GENERIC_PACKAGE_KIND in opt.package.lineage
+        # ...with the target kind + its holes riding along for the picker.
+        assert opt.package.kind == "_t_optpending"
+        assert opt.package.schema is not None
+        assert "rows" in opt.package.schema.fields
+
+    def test_picker_offers_kind_and_builds_concrete_variant(
+        self, tmp_path: Path, scratch_registry
+    ) -> None:
+        from protoboard.domain.components.package.family import (
+            resolve_variant,
+        )
+        from protoboard.domain.components.package.kind import (
+            is_generic_package,
+        )
+        from protoboard.gui.footprint_choice import (
+            DefaultFootprintChoiceProvider,
+        )
+        from protoboard.services.library.loader import (
+            inline_option_address,
+            inline_option_families,
+        )
+
+        self._register_needs_rows()
+        lib = self._load(tmp_path)
+        defn = lib.get("PART_OPT")
+        families = dict(inline_option_families(lib))
+        provider = DefaultFootprintChoiceProvider(families)
+
+        opts = provider.options(defn)
+        addr = inline_option_address("PART_OPT", "matrix")
+        assert [(o.address, o.is_kind) for o in opts] == [(addr, True)]
+        # The second pop-up asks for the missing required parameter...
+        assert [p.name for p in provider.kind_params(addr)] == ["rows"]
+        # ...and building with it yields a concrete, resolvable variant.
+        built = provider.build_variant(addr, {"rows": "2"})
+        assert built is not None and built != addr
+        variant = resolve_variant(families, built)
+        assert variant is not None
+        assert not is_generic_package(variant.package)

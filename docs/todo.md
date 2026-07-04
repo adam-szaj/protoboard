@@ -11,19 +11,18 @@ The pluggable generator registry shipped (`package/generators/`, driver in
 `build_kind_package`, plugins via `<library>/generators/*.py`, picker wiring in
 `DefaultFootprintChoiceProvider` — see package-model.md §6). Consciously left:
 
-1. **Partial kinds in `footprints:` option entries.** Only the component-level
-   `package:` block supports a partially-parameterised kind (pending-kind
-   placeholder + picker). A `footprints:` entry whose inline package leaves
-   required kind parameters unfilled raises at load
-   (`services/library/loader.py`, options path) — supporting it needs a
-   per-option pending state.
-2. **Multi-step chain driver** — `(ctx, schema) -> ctx` composition across
+1. **Multi-step chain driver** — `(ctx, schema) -> ctx` composition across
    several generators (`auto`-resolution through generators, emitting `dims`);
    the `schema` parameter of `build_kind_package` is reserved for it.
-3. **Recent variants in the kind dialog** — `recent_variants()` still returns
+2. **Recent variants in the kind dialog** — `recent_variants()` still returns
    `[]`; built variants are only re-offered via the top-level recent-footprints
    list. Persisting per-kind variant history would give the one-confirm path
    inside the second pop-up too.
+
+(Partial kinds in `footprints:` option entries shipped 2026-07-04: an option
+whose inline kind leaves required parameters unfilled loads as a per-option
+pending-kind placeholder — same mechanism as the component-level `package:` —
+and the picker's second pop-up builds the concrete variant.)
 
 ## Bendable leads — deferred extension (added 2026-06-26)
 

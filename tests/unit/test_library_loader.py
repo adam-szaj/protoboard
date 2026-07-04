@@ -160,6 +160,12 @@ class TestFootprintsList:
         )
         pkg = resolve_component_package(defn, inst, families)
         assert pkg is not None and pkg.pin_count() == 14
+        # The address must resolve to the option family's OWN package —
+        # not fall through to defn.package (the resolve_variant last-slash
+        # split; the first-slash split failed every @defn/option/variant
+        # address and this assertion passed vacuously via the fallback).
+        family_id = addr.rsplit("/", 1)[0]
+        assert pkg is families[family_id].variants[0].package
 
 
 class TestCrossFileExtends:
