@@ -15,10 +15,15 @@ from protoboard.geometry import Point, Vector
 
 
 class ComponentClass(StrEnum):
-    """Electrical/functional class of a component.
+    """The KNOWN electrical/functional classes of a component.
 
-    Determines the automatic refdes prefix (e.g. RESISTOR → "R") and
-    can be used for DRC categorisation.
+    The vocabulary the code attaches behaviour to: the automatic refdes
+    prefix (e.g. RESISTOR → "R"), the polarity marker, the devboard look.
+    ``ComponentDefinition.component_class`` is deliberately an OPEN ``str`` —
+    a library may tag parts with classes this build does not know (the loader
+    warns, everything degrades to neutral defaults), so newer libraries keep
+    loading on older code. Compare with ``==`` (a StrEnum member equals its
+    string), never ``is``.
     """
 
     RESISTOR = "resistor"
@@ -45,8 +50,9 @@ class ComponentClass(StrEnum):
     OTHER = "other"
 
 
-# Standard IPC/IEEE refdes prefixes per class.
-REFDES_PREFIX: dict[ComponentClass, str] = {
+# Standard IPC/IEEE refdes prefixes per KNOWN class (an unknown open-class
+# string falls back to "X" — same as OTHER; ``symbol:`` overrides either way).
+REFDES_PREFIX: dict[str, str] = {
     ComponentClass.RESISTOR: "R",
     ComponentClass.CAPACITOR_POLAR: "C",
     ComponentClass.CAPACITOR_NONPOLAR: "C",
@@ -207,7 +213,11 @@ class ComponentDefinition:
     package: Package
     pin_names: dict[int, str]
     description: str = ""
-    component_class: ComponentClass = ComponentClass.OTHER
+    # Open classification tag: one of the KNOWN ``ComponentClass`` values (the
+    # loader normalizes those to enum members) or any library-authored string
+    # the code does not know yet — unknown classes load fine and behave like
+    # OTHER, but keep the author's label (BOM / panels / future semantics).
+    component_class: str = ComponentClass.OTHER
     metadata: dict[str, Any] = field(default_factory=dict)
     # Per-pin bend specifications (local frame, before rotation).
     # Key = pin number (1-based). Value = PinBendSpec (discrete or continuous).
@@ -334,7 +344,7 @@ class ComponentDefinition:
 
         ``symbol`` (e.g. 'R', 'U', 'LED') is also the footprint-picker label root.
         """
-        return self.symbol or REFDES_PREFIX[self.component_class]
+        return self.symbol or REFDES_PREFIX.get(self.component_class, "X")
 
     def pin_name(self, pin_number: int) -> str:
         """Return the user-facing name of the given pin (1-indexed)."""

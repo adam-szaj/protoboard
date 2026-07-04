@@ -55,7 +55,7 @@ A `components:` entry. Fields (from `_component_from_dict`, `loader.py:226`, and
 | `name` | yes | Part identifier (`"BC547"`, `"R"`, `"NE555"`). |
 | `footprint` | yes¹ | Pin-cloud template — see §6. ¹Required **unless** an inline `package:` is given (the package then supplies the pins). A `package_family_ref` does **not** remove the need for a `footprint:` — ship both. |
 | `pin_names` | — | `{1: "C", 2: "B", 3: "E"}` — pin number → signal label. Belong to the component, not the package. |
-| `component_class` | — | One of the `ComponentClass` values (§7). Default `other`. Drives the refdes prefix and a few rendering specifics (polarity marker, devboard body). |
+| `component_class` | — | Open classification tag. Known values (§7) drive the refdes prefix and a few rendering specifics (polarity marker, devboard body); **any other string also loads** (warned as `library.unknown_component_class`, behaves like `other`, the label survives in BOM/panels). Default `other`. |
 | `description` | — | Human text. |
 | `package` | — | Inline parametric package (§3) — body + pin geometry. |
 | `package_family_ref` | — | `"family/variant"` into the family catalogue (§5). |

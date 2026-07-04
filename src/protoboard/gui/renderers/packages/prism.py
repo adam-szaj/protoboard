@@ -95,7 +95,7 @@ class PrismRenderer(PackageRenderer):
         # lineage-dispatched renderer.  Otherwise the silhouette comes from
         # ``_silhouette`` — the column guess here, a declared look in the kind
         # renderer subclasses.
-        if self._component_class is ComponentClass.DEVBOARD:
+        if self._component_class == ComponentClass.DEVBOARD:
             sil = None
         else:
             sil = self._silhouette(pkg)

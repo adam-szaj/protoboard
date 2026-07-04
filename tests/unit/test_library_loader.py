@@ -15,9 +15,6 @@ from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
 )
-from protoboard.domain.components.package import (
-    PackageFootprint,
-)
 from protoboard.domain.components.package.kind import is_generic_package
 from protoboard.errors import SerializationError
 from protoboard.services.library.loader import ComponentLibrary, load_library
@@ -293,6 +290,67 @@ class TestLibraryFilePackagesAndFamilies:
         assert "R_OK" in lib
         assert any(e["event"] == "library.unknown_section"
                    and e.get("section") == "familes" for e in logs)
+
+
+class TestOpenComponentClass:
+    """``component_class`` is an OPEN tag: known values normalize to the
+    ComponentClass enum, unknown ones load as-is with a warning — one new
+    class in a library must never sink the whole load."""
+
+    def test_unknown_class_loads_with_warning(self, tmp_path: Path) -> None:
+        from structlog.testing import capture_logs
+        (tmp_path / "k.yaml").write_text(
+            "components:\n"
+            "  - name: RELAY1\n"
+            "    component_class: relay\n"          # not in ComponentClass
+            "    symbol: K\n"
+            "    footprint: {type: SIL, pins: 5}\n"
+            "    pin_names: {}\n"
+        )
+        with capture_logs() as logs:
+            lib = load_library([tmp_path], package_families={})
+        defn = lib.get("RELAY1")
+        assert defn.component_class == "relay"       # author's label survives
+        assert defn.refdes_prefix == "K"             # symbol still wins
+        assert any(e["event"] == "library.unknown_component_class"
+                   and e.get("component_class") == "relay" for e in logs)
+
+    def test_unknown_class_without_symbol_gets_x_prefix(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "k.yaml").write_text(
+            "components:\n"
+            "  - name: THING\n"
+            "    component_class: frobnicator\n"
+            "    footprint: {type: TwoPin}\n"
+            "    pin_names: {}\n"
+        )
+        defn = load_library([tmp_path], package_families={}).get("THING")
+        assert defn.refdes_prefix == "X"             # same neutral as OTHER
+
+    def test_known_class_normalizes_to_enum_member(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "r.yaml").write_text(
+            "components:\n"
+            "  - name: R1\n"
+            "    component_class: resistor\n"
+            "    footprint: {type: TwoPin}\n"
+            "    pin_names: {}\n"
+        )
+        defn = load_library([tmp_path], package_families={}).get("R1")
+        assert defn.component_class is ComponentClass.RESISTOR
+
+    def test_empty_class_still_raises(self, tmp_path: Path) -> None:
+        (tmp_path / "e.yaml").write_text(
+            "components:\n"
+            "  - name: E1\n"
+            "    component_class: ''\n"
+            "    footprint: {type: TwoPin}\n"
+            "    pin_names: {}\n"
+        )
+        with pytest.raises(SerializationError):
+            load_library([tmp_path], package_families={})
 
 
 class TestCrossFileExtends:

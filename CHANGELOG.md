@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### `component_class` is an open tag (2026-07-04)
+
+* **Unknown component classes no longer sink the library.** One
+  `component_class: relay` used to raise and abort the whole `load_library`;
+  now `ComponentDefinition.component_class` is an open `str` — known values
+  normalize to the `ComponentClass` enum (which stays as the vocabulary the
+  code attaches behaviour to), unknown ones load as-is with a
+  `library.unknown_component_class` warning and neutral behaviour (refdes
+  prefix "X" unless `symbol:` is set, non-polar, plain body). The author's
+  label survives into BOM/panels, and newer libraries keep loading on older
+  code. Empty class still raises.
+
 ### BodyCanvas drawing API + SMD terminal caps (2026-07-04)
 
 * **`BodyCanvas`** (`gui/renderers/packages/canvas.py`): painter-style drawing

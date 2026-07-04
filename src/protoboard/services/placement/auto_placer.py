@@ -334,7 +334,7 @@ def _has_collision(
     margin (rigid vs. flexible leads).
     """
     raw_new = component_bbox(
-        footprint_of(new_defn, new_inst), new_pl, new_defn.component_class.value
+        footprint_of(new_defn, new_inst), new_pl, new_defn.component_class
     )
     new_bbox = Rect(
         x=raw_new.x - extra_gap,
@@ -346,7 +346,7 @@ def _has_collision(
         other_bbox = component_bbox(
             footprint_of(other_defn, other_inst),
             other_pl,
-            other_defn.component_class.value,
+            other_defn.component_class,
         )
         if new_bbox.intersects(other_bbox):
             return True

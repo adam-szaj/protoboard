@@ -185,4 +185,4 @@ class NetlistPanel(TreePanelMixin, QWidget):
 
     def _category(self, session: EditorSession, def_ref: str) -> str:
         defn = session.components.get(def_ref)
-        return defn.component_class.value if defn is not None else ""
+        return defn.component_class if defn is not None else ""

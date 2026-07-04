@@ -277,7 +277,7 @@ class PackageRenderer(BodyShape):
     def __init__(
         self,
         package: Package,
-        component_class: ComponentClass = ComponentClass.OTHER,
+        component_class: str = ComponentClass.OTHER,
         vertical_flipped: bool = False,
         appearance: Appearance = Appearance(),
         side: str = "top",
@@ -625,7 +625,7 @@ class PackageRenderer(BodyShape):
         # faint pad-sized ring (the click-active area) drawn on top of the body.
         # The real pin glyph / modifier is drawn by the component renderer on a
         # higher layer, so these rings are additive and not claimed.
-        if self._component_class is ComponentClass.DEVBOARD:
+        if self._component_class == ComponentClass.DEVBOARD:
             items.extend(self._pad_active_rings(positions, border, alpha, z, theme))
         return items
 

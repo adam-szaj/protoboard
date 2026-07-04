@@ -666,13 +666,25 @@ def _component_from_dict(
         raise SerializationError(
             f"{source}: metadata for {data['name']!r} must be a mapping")
 
+    # component_class is an OPEN tag: a known value normalizes to its
+    # ComponentClass member; an unknown one loads as-is (warned — it is a
+    # typo-catcher, not a gate) and behaves like OTHER everywhere, so newer
+    # libraries keep loading on older code.
     raw_class = str(data.get("component_class", "other"))
+    if not raw_class:
+        raise SerializationError(
+            f"{source}: empty component_class for {data['name']!r}")
+    comp_class: str
     try:
         comp_class = ComponentClass(raw_class)
     except ValueError:
-        raise SerializationError(
-            f"{source}: unknown component_class {raw_class!r} for {data['name']!r}"
+        _log.warning(
+            "library.unknown_component_class",
+            component=data["name"],
+            component_class=raw_class,
+            path=str(source),
         )
+        comp_class = raw_class
 
     from protoboard.geometry import Vector as _Vector
 
