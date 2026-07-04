@@ -168,6 +168,132 @@ class TestFootprintsList:
         assert pkg is families[family_id].variants[0].package
 
 
+class TestLibraryFilePackagesAndFamilies:
+    """Library files may carry ``packages:`` (reusable generics for ``extends``)
+    and ``families:`` (catalogue entries for ``ref:``) alongside ``components:``
+    — same file or same directory. Builtins win on a name clash."""
+
+    _PRISM_BODY = (
+        "    dims: {width: 12.5, length: 12.5, height: 1.6}\n"
+        "    leads:\n"
+        "      direction: [0, 0, -1]\n"
+        "      body_offset: {unit: 2.5, value: [[3, [0, 1]], [5, 0], [3, [0, -1]]]}\n"
+        "      board_offset: default\n"
+        "    bend: 0\n"
+    )
+
+    def test_component_extends_package_from_same_file(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "mod.yaml").write_text(
+            "packages:\n"
+            "  - name: my_module_base\n"
+            "    extends: prism\n"
+            + self._PRISM_BODY +
+            "components:\n"
+            "  - name: MOD_A\n"
+            "    component_class: devboard\n"
+            "    package: {extends: my_module_base}\n"
+            "    pin_names: {1: A}\n"
+        )
+        defn = load_library([tmp_path], package_families={}).get("MOD_A")
+        assert defn.footprint.pin_count() == 8       # body pins from the generic
+
+    def test_ref_resolves_family_from_same_file(self, tmp_path: Path) -> None:
+        (tmp_path / "d.yaml").write_text(
+            "families:\n"
+            "  - family: MY-DO\n"
+            "    extends: cylinder_axial\n"
+            "    label: My axial body\n"
+            "    color: '#112233'\n"
+            "    variants:\n"
+            "      - id: std\n"
+            "        dims: {diameter: 1.8, length: 3.7}\n"
+            "        leads: {lead_r: 0.2, lead_length: 5.6}\n"
+            "components:\n"
+            "  - name: D_MY\n"
+            "    component_class: diode\n"
+            "    symbol: D\n"
+            "    footprints:\n"
+            "      - ref: MY-DO/std\n"
+            "    pin_names: {1: A, 2: K}\n"
+        )
+        lib = load_library([tmp_path], package_families={})
+        defn = lib.get("D_MY")
+        assert defn.footprint.pin_count() == 2
+        assert defn.footprints[0].ref == "MY-DO/std"
+        # The family rides on the library so the session's picker offers it.
+        assert "MY-DO" in lib.package_families
+        assert lib.package_families["MY-DO"].variants[0].variant_id == "std"
+
+    def test_family_extends_package_across_files(self, tmp_path: Path) -> None:
+        # The family file sorts BEFORE the packages file — order-independent,
+        # like cross-file component extends (two-pass load).
+        (tmp_path / "aa_parts.yaml").write_text(
+            "families:\n"
+            "  - family: MY-MOD\n"
+            "    extends: my_module_base\n"
+            "    variants:\n"
+            "      - id: std\n"
+            "components:\n"
+            "  - name: MOD_B\n"
+            "    component_class: devboard\n"
+            "    footprints:\n"
+            "      - ref: MY-MOD/std\n"
+            "    pin_names: {}\n"
+        )
+        (tmp_path / "zz_bases.yaml").write_text(
+            "packages:\n"
+            "  - name: my_module_base\n"
+            "    extends: prism\n"
+            + self._PRISM_BODY
+        )
+        lib = load_library([tmp_path], package_families={})
+        assert lib.get("MOD_B").footprint.pin_count() == 8
+        assert "MY-MOD" in lib.package_families
+
+    def test_builtin_family_wins_on_id_clash(self, tmp_path: Path) -> None:
+        from protoboard.domain.components.package.generated_families import (
+            generate_inline_families,
+        )
+        (tmp_path / "clash.yaml").write_text(
+            "families:\n"
+            "  - family: dip-16\n"                    # clashes with generated
+            "    extends: prism\n"
+            + self._PRISM_BODY +
+            "    variants:\n"
+            "      - id: std\n"
+            "components:\n"
+            "  - name: U_CLASH\n"
+            "    component_class: ic\n    symbol: U\n"
+            "    footprints:\n"
+            "      - ref: dip-16/std\n"
+            "    pin_names: {}\n"
+        )
+        lib = load_library([tmp_path],
+                           package_families=generate_inline_families())
+        # The builtin dip-16 (16 pins) won — not the 8-pin library imposter.
+        assert lib.get("U_CLASH").footprint.pin_count() == 16
+        assert "dip-16" not in lib.package_families
+
+    def test_unknown_top_level_section_warns(self, tmp_path: Path) -> None:
+        from structlog.testing import capture_logs
+        (tmp_path / "typo.yaml").write_text(
+            "familes:\n"                              # typo for 'families'
+            "  - family: LOST\n"
+            "components:\n"
+            "  - name: R_OK\n"
+            "    component_class: resistor\n    symbol: R\n"
+            "    footprint: {type: TwoPin}\n"
+            "    pin_names: {}\n"
+        )
+        with capture_logs() as logs:
+            lib = load_library([tmp_path], package_families={})
+        assert "R_OK" in lib
+        assert any(e["event"] == "library.unknown_section"
+                   and e.get("section") == "familes" for e in logs)
+
+
 class TestCrossFileExtends:
     """`extends:` now resolves against a global index, so a base in one file can
     be extended from another (two-pass load)."""

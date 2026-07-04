@@ -35,9 +35,13 @@ component  ──references──▶  package        ──gives──▶  body 
   (`domain/components/package/component_package.py`). If none resolve, the
   component falls back to its bare `footprint:` (pin geometry only, generic body).
 
-Files: components load from `library/**/*.yaml` and `assets/**/*.yaml`; packages
-from `assets/packages/*.yaml`; families from `assets/package_families/*.yaml`
-(earlier directories win on name collision).
+Files: components load from `library/**/*.yaml`; builtin packages from
+`assets/packages/*.yaml`; builtin families from `assets/package_families/*.yaml`.
+Any library file may **also** carry its own `packages:` and `families:` sections
+next to `components:` — same schema as the assets; builtins win on a name clash
+(earlier directories win on component name collision). See
+[definition-variants.md](definition-variants.md) for examples of every
+combination.
 
 ---
 

@@ -120,6 +120,7 @@ def _parse_footprints(
     pin_count: int | None,
     source: Path,
     families: dict[str, PackageFamily],
+    generics: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[FootprintOption, ...]:
     """Parse a component's ``footprints:`` list into ``FootprintOption``s.
 
@@ -152,7 +153,7 @@ def _parse_footprints(
         elif isinstance(entry, dict):
             if isinstance(entry.get("package"), dict):
                 built = _build_component_package(cname, entry["package"],
-                                                 pin_count)
+                                                 pin_count, generics)
                 if isinstance(built, ResidualKind):
                     # Partially-parameterised kind: the option becomes a
                     # pending-kind placeholder (generic-bbox geometry, target
@@ -237,6 +238,7 @@ def _build_component_package(
     name: str,
     raw: dict[str, Any],
     pin_count: int | None = None,
+    generics: dict[str, dict[str, Any]] | None = None,
 ) -> Package | ResidualKind:
     """Build a Package from a component's inline ``package:`` block.
 
@@ -245,9 +247,11 @@ def _build_component_package(
     but the size follows the part. A kind whose required parameters are only
     partially supplied returns a :class:`ResidualKind` (the package-picker
     collects the rest at place time). Otherwise the block may ``extends`` a
-    builtin generic; we register it as a temporary named package alongside the
-    builtins, resolve the extends chain, and build. Raises ``PackageDefError``
-    on a malformed / incompletely-closed definition (or an unrealisable kind).
+    generic from *generics* (default: the builtin registry; ``load_library``
+    passes the builtins merged with the library files' own ``packages:``
+    sections); we register it as a temporary named package alongside them,
+    resolve the extends chain, and build. Raises ``PackageDefError`` on a
+    malformed / incompletely-closed definition (or an unrealisable kind).
     """
     from protoboard.domain.components.package.kind import (
         GeneratorContext,
@@ -279,7 +283,8 @@ def _build_component_package(
         assert ctx.package is not None  # driver sets package XOR residual
         return ctx.package
 
-    registry = dict(_load_builtin_package_defs())
+    registry = dict(
+        _load_builtin_package_defs() if generics is None else generics)
     node = {**raw, "name": name}
     registry[name] = node
     merged = resolve_extends(name, registry)
@@ -292,6 +297,11 @@ def _build_component_package(
 class ComponentLibrary:
     _by_name: dict[str, ComponentDefinition] = field(default_factory=dict)
     _source: dict[str, Path] = field(default_factory=dict)
+    # Families contributed by the library files' own ``families:`` sections
+    # (already merged into the catalogue used for resolution during the load).
+    # The session merges these into its picker catalogue so library-defined
+    # bodies are offered alongside the builtin ones.
+    package_families: dict[str, PackageFamily] = field(default_factory=dict)
 
     def names(self) -> Iterable[str]:
         return self._by_name.keys()
@@ -352,6 +362,13 @@ def load_library(
 ) -> ComponentLibrary:
     """Load a library from the given directories. Earlier directories win.
 
+    Besides ``components:``, a library file may carry ``packages:`` (reusable
+    generics that inline ``package:`` blocks and ``families:`` entries may
+    ``extends``) and ``families:`` (catalogue families for ``ref:`` /
+    ``package_family_ref``) — see docs/footprints/definition-variants.md.
+    Builtins win on a name clash. The library-contributed families ride on
+    the returned ``ComponentLibrary.package_families``.
+
     *package_families* is the package-family catalogue; when a component's
     ``package_family_ref`` names a **rigid** package (an SMD chip, a DIP — fixed
     pin geometry), its footprint is derived from that package and its bendable
@@ -373,22 +390,69 @@ def load_library(
     # Pass 1 — collect every raw component dict (templates included) across all
     # files, keyed by name, with first-wins (earlier directory/file keeps the
     # name). The global index lets ``extends`` reference a base in another file.
+    # Library files may also carry ``packages:`` (reusable generics for
+    # ``extends``) and ``families:`` (catalogue entries for ``ref:`` /
+    # ``package_family_ref``) sections — collected here, merged below.
     raw_by_name: dict[str, Any] = {}
     raw_source: dict[str, Path] = {}
+    lib_packages: dict[str, dict[str, Any]] = {}
+    lib_pkg_source: dict[str, Path] = {}
+    lib_family_entries: list[tuple[dict[str, Any], Path]] = []
     for directory in directories:
         if not directory.exists():
             raise FileNotFoundError(
                 f"Library directory not found: {directory}")
         for yaml_path in sorted(directory.glob("**/*.yaml")):
-            for raw in _read_raw_components(yaml_path):
+            sections = _read_library_file(yaml_path)
+            for raw in sections.components:
                 name = raw["name"]
                 if name not in raw_by_name:
                     raw_by_name[name] = raw
                     raw_source[name] = yaml_path
+            for raw in sections.packages:
+                if raw["name"] not in lib_packages:
+                    lib_packages[raw["name"]] = raw
+                    lib_pkg_source[raw["name"]] = yaml_path
+            lib_family_entries.extend(
+                (entry, yaml_path) for entry in sections.families)
+
+    # Generics registry: builtins plus the library files' ``packages:``. A
+    # builtin wins on a name clash (warn — the library entry is ignored), the
+    # same first-wins rule as components (the builtin dir is scanned first).
+    generics = dict(_load_builtin_package_defs())
+    for pkg_name, raw in lib_packages.items():
+        if pkg_name in generics:
+            _log.warning("library.package_name_clash", package=pkg_name,
+                         path=str(lib_pkg_source[pkg_name]))
+            continue
+        generics[pkg_name] = raw
+
+    # Families from library files, parsed against the merged generics. The
+    # passed-in catalogue wins on an id clash. The library-contributed ones are
+    # kept on the returned ComponentLibrary so the session can merge them into
+    # its picker catalogue.
+    lib_families: dict[str, PackageFamily] = {}
+    if lib_family_entries:
+        from protoboard.services.library.package_family_loader import (
+            parse_family,
+        )
+        for entry, yaml_path in lib_family_entries:
+            try:
+                fam = parse_family(entry, yaml_path, generics)
+            except ValueError as exc:
+                _log.warning("library.family_skipped", path=str(yaml_path),
+                             error=str(exc))
+                continue
+            if fam.family_id in families or fam.family_id in lib_families:
+                _log.warning("library.family_name_clash",
+                             family_id=fam.family_id, path=str(yaml_path))
+                continue
+            lib_families[fam.family_id] = fam
+    families = {**families, **lib_families}
 
     # Pass 2 — resolve extends against the global index and build the placeable
     # definitions (``_``-prefixed names are templates only).
-    lib = ComponentLibrary()
+    lib = ComponentLibrary(package_families=lib_families)
     for name, raw in raw_by_name.items():
         if name.startswith("_"):
             continue
@@ -397,7 +461,8 @@ def load_library(
         try:
             defn = _component_from_dict(resolved,
                                         source=path,
-                                        families=families)
+                                        families=families,
+                                        generics=generics)
         except PackageDefError as exc:
             # A malformed parametric package must not sink the whole library.
             # Skip this component; the user re-places it with a fresh definition.
@@ -420,26 +485,62 @@ def load_library(
     return lib
 
 
-def _read_raw_components(path: Path) -> list[dict[str, Any]]:
-    """Parse a library file into its raw ``components:`` dicts (each has a name)."""
+# Top-level sections a library YAML file may carry. Anything else is warned
+# about — a typo (``familes:``) must not vanish silently.
+_KNOWN_SECTIONS = frozenset({"components", "packages", "families"})
+
+
+@dataclass(frozen=True)
+class _LibraryFileSections:
+    """The raw top-level sections of one library YAML file."""
+
+    components: list[dict[str, Any]]
+    packages: list[dict[str, Any]]
+    families: list[dict[str, Any]]
+
+
+def _read_library_file(path: Path) -> _LibraryFileSections:
+    """Parse a library file into its raw top-level sections.
+
+    ``components:`` and ``packages:`` entries must be mappings with a string
+    ``name``; ``families:`` entries are validated later by the family parser.
+    Unknown top-level keys are logged (not fatal).
+    """
     try:
         data = _yaml.load(path.read_text())
     except YAMLError as exc:
         raise SerializationError(f"YAML parse error in {path}: {exc}") from exc
     if data is None:
-        return []
+        return _LibraryFileSections([], [], [])
     if not isinstance(data, dict):
         raise SerializationError(f"{path}: top-level must be a mapping")
-    components_raw = data.get("components", [])
-    if not isinstance(components_raw, list):
-        raise SerializationError(f"{path}: 'components' must be a list")
-    out: list[dict[str, Any]] = []
-    for raw in components_raw:
-        if not isinstance(raw, dict) or not isinstance(raw.get("name"), str):
-            raise SerializationError(
-                f"{path}: each component must be a mapping with 'name'")
-        out.append(raw)
-    return out
+    for key in data:
+        if key not in _KNOWN_SECTIONS:
+            _log.warning("library.unknown_section", path=str(path),
+                         section=str(key))
+
+    def _named_dicts(section: str) -> list[dict[str, Any]]:
+        raw_list = data.get(section, [])
+        if not isinstance(raw_list, list):
+            raise SerializationError(f"{path}: '{section}' must be a list")
+        out: list[dict[str, Any]] = []
+        for raw in raw_list:
+            if not isinstance(raw, dict) or not isinstance(
+                    raw.get("name"), str):
+                raise SerializationError(
+                    f"{path}: each {section[:-1]} must be a mapping with "
+                    f"'name'")
+            out.append(raw)
+        return out
+
+    families_raw = data.get("families", [])
+    if not isinstance(families_raw, list):
+        raise SerializationError(f"{path}: 'families' must be a list")
+    return _LibraryFileSections(
+        components=_named_dicts("components"),
+        packages=_named_dicts("packages"),
+        families=[f for f in families_raw if isinstance(f, dict)],
+    )
 
 
 def _resolve_extends(
@@ -482,6 +583,7 @@ def _component_from_dict(
     data: Any,
     source: Path,
     families: dict[str, PackageFamily] | None = None,
+    generics: dict[str, dict[str, Any]] | None = None,
 ) -> ComponentDefinition:
     if not isinstance(data, dict):
         raise SerializationError(f"{source}: each component must be a mapping")
@@ -506,7 +608,7 @@ def _component_from_dict(
     package_raw = data.get("package")
     if isinstance(package_raw, dict):
         built = _build_component_package(data["name"], package_raw,
-                                         comp_pin_count)
+                                         comp_pin_count, generics)
         if isinstance(built, ResidualKind):
             pending_kind = built
         else:
@@ -517,7 +619,7 @@ def _component_from_dict(
     # ``footprint`` block, so the ~10 consumers reading ``defn.footprint`` see one
     # footprint as before.
     footprints = _parse_footprints(data, comp_pin_count, source, families
-                                   or {})
+                                   or {}, generics)
 
     drop_bend_from_default = False
     if package_obj is not None:

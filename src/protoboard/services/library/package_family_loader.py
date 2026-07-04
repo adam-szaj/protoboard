@@ -122,11 +122,17 @@ def _load_one_file(path: Path,
     raw = data.get("families")
     if not raw or not isinstance(raw, list):
         raise ValueError(f"{path}: 'families:' must be a non-empty list")
-    return [_parse_family(entry, path, generics) for entry in raw]
+    return [parse_family(entry, path, generics) for entry in raw]
 
 
-def _parse_family(entry: dict[str, Any], path: Path,
-                  generics: dict[str, dict[str, Any]]) -> PackageFamily:
+def parse_family(entry: dict[str, Any], path: Path,
+                 generics: dict[str, dict[str, Any]]) -> PackageFamily:
+    """Parse one raw ``families:`` entry into a :class:`PackageFamily`.
+
+    *generics* is the registry the entry's ``extends`` may resolve against.
+    Also used by the component-library loader for ``families:`` sections
+    embedded in library files. Raises ``ValueError`` on a malformed entry.
+    """
     if not isinstance(entry, dict) or "family" not in entry:
         raise ValueError(f"{path}: every family needs a 'family' id")
     family_id = str(entry["family"])

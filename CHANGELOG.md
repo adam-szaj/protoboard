@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Library files may carry `packages:` and `families:` sections (2026-07-04)
+
+* **Reusable packages and catalogue families next to the components that use
+  them.** Any `library/**/*.yaml` file may now declare `packages:` (generics
+  usable as `extends` targets by inline `package:` blocks and by family
+  entries, across all library files) and `families:` (picker-catalogue
+  families resolvable via `ref:` / `package_family_ref`) alongside
+  `components:` — previously those sections loaded only from
+  `assets/packages/` / `assets/package_families/` and were silently ignored
+  in library files. Builtins win on a name clash (warning); unknown top-level
+  sections warn (`library.unknown_section`) instead of vanishing. The
+  library-contributed families join the session's picker catalogue. New doc:
+  [docs/footprints/definition-variants.md](docs/footprints/definition-variants.md)
+  — every definition variant by example.
+
 ### Kind generators completed: option partials, chain driver, recent variants (2026-07-04)
 
 * **Partial kinds in `footprints:` options.** An option whose inline kind

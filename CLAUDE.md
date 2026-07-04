@@ -55,6 +55,7 @@ display server.
 |---|---|
 | Data model (box model, pads, schematic, layout, groups, wire/knot) | [docs/data-model.md](docs/data-model.md) |
 | Defining components & packages (library YAML authoring guide) | [docs/footprints/authoring.md](docs/footprints/authoring.md) |
+| Definition variants by example (components / packages / families, where each may live) | [docs/footprints/definition-variants.md](docs/footprints/definition-variants.md) |
 | Package model (bodies, leads, schema, kind; design rationale) | [docs/footprints/package-model.md](docs/footprints/package-model.md) |
 | Geometry (placement, rotation, flip, bounding box) | [docs/geometry.md](docs/geometry.md) |
 | Routing (A*, cost model, autorouter) | [docs/routing.md](docs/routing.md) |

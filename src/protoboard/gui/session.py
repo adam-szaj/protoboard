@@ -200,10 +200,13 @@ class EditorSession(QObject):
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         # Package-family body catalogue, keyed by family id: the authored
         # two-pin families plus the generated in-line bodies (dip-N / wdip-N /
-        # sil-N), plus a one-variant family for each component's inline footprint
-        # options (so the picker can offer them and an instance can record the
-        # choice as a normal address).  Authored families win on an id clash.
+        # sil-N), plus families contributed by the library files' own
+        # ``families:`` sections, plus a one-variant family for each component's
+        # inline footprint options (so the picker can offer them and an instance
+        # can record the choice as a normal address).  The builtin catalogue
+        # wins on an id clash (matching the loader's first-wins rule).
         self.package_families: dict[str, PackageFamily] = {
+            **library.package_families,
             **load_full_package_catalogue(),
             **inline_option_families(library),
         }
