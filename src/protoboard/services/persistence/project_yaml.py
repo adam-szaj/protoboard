@@ -360,8 +360,6 @@ def _layout_to_yaml(layout: Layout) -> str:
                             ]}
                             if g.exported_pins else {}
                         ),
-                        **({"rotation": g.rotation} if g.rotation != 0 else {}),
-                        **({"origin": {"x": g.origin.x, "y": g.origin.y}} if g.origin is not None else {}),
                         **(
                             {"transform": list(g.transform.coeffs())}
                             if g.transform != _IDENTITY_TRANSFORM else {}
@@ -461,18 +459,22 @@ def _drop_dangling_instances(
         layout.pin_knots.pop(pin, None)
 
 
-def _migrate_groups_v2_to_v3(layout: Layout) -> None:
+def _migrate_groups_v2_to_v3(
+    layout: Layout,
+    legacy_baked: dict[uuid.UUID, tuple[Point, int]],
+) -> None:
     """Convert a v2 layout (baked group rotation) to the v3 scene-graph frame.
 
     In v2 a group rotation was *flattened*: every member's ``ComponentPlacement``
     was rewritten to its absolute (world) pose and the group kept only a
     ``rotation`` int + ``origin`` as metadata.  In v3 the group carries its own
     ``transform`` and members store group-LOCAL placements that compose through
-    the read seam.
+    the read seam.  ``ComponentGroup`` no longer stores the legacy pair, so the
+    YAML parser hands it over as *legacy_baked* (``gid → (origin, rotation)``,
+    collected only for groups with a non-zero rotation and no real transform —
+    a v3 file already carries a ``transform`` and arrives with an empty map).
 
-    For each group that still looks v2 — a non-zero ``rotation`` with an
-    identity ``transform`` (a v3 file already carries a real ``transform`` and is
-    left untouched) — this:
+    For each entry this:
 
     1. builds ``T_g = translate(origin) ∘ R(rotation) ∘ translate(-origin)`` and
        stores it as the group's ``transform`` (relative to its parent, matching
@@ -494,22 +496,21 @@ def _migrate_groups_v2_to_v3(layout: Layout) -> None:
     from protoboard.domain.layout.placement import compose_placement
 
     to_migrate = {
-        gid: g
-        for gid, g in layout.groups.items()
-        if g.rotation != 0 and g.transform == _IDENTITY_TRANSFORM
+        gid: pair
+        for gid, pair in legacy_baked.items()
+        if gid in layout.groups
+        and layout.groups[gid].transform == _IDENTITY_TRANSFORM
     }
     if not to_migrate:
         return
 
-    # Set every migrating group's own transform from its baked (rotation, origin)
-    # FIRST, so the cumulative ancestor fold below reads real transforms.  A
-    # group with rotation but no origin can't define a pivot — skip it (its
-    # members stay absolute, which is the pre-migration behaviour).
-    for gid, g in to_migrate.items():
-        if g.origin is None:
-            continue
-        layout.groups[gid] = g.replace(
-            transform=_rotation_about(g.origin, g.rotation)
+    # Set every migrating group's own transform from its baked (origin,
+    # rotation) FIRST, so the cumulative ancestor fold below reads real
+    # transforms.  (The parser only collects entries that carried both an
+    # origin and a non-zero rotation.)
+    for gid, (origin, rotation) in to_migrate.items():
+        layout.groups[gid] = layout.groups[gid].replace(
+            transform=_rotation_about(origin, rotation)
         )
 
     tree = GroupTree(layout.groups)
@@ -543,7 +544,9 @@ def load_project(
     _log.info("project.loading", path=str(directory))
     try:
         board = board_from_yaml((directory / "board.yaml").read_text())
-        layout = _layout_from_yaml((directory / "layout.yaml").read_text())
+        layout, legacy_baked_groups = _layout_from_yaml(
+            (directory / "layout.yaml").read_text()
+        )
         schematic = _schematic_from_yaml((directory / "schematic.yaml").read_text())
         instances_path = directory / "instances.yaml"
         if instances_path.exists():
@@ -600,7 +603,7 @@ def load_project(
     # Runs BEFORE every wire/normalize pass below, which resolve pin world
     # positions and must see the composed (world) placements the seam now
     # reconstructs.  No-op for v3 files and for groups that were never rotated.
-    _migrate_groups_v2_to_v3(layout)
+    _migrate_groups_v2_to_v3(layout, legacy_baked_groups)
 
     # Enrich every insulated wire with pad-position vertices wherever its
     # path geometrically crosses a board pad.  Legacy projects saved before
@@ -1040,7 +1043,17 @@ def _instances_from_yaml(text: str) -> dict[uuid.UUID, ComponentInstance]:
     return result
 
 
-def _layout_from_yaml(text: str) -> Layout:
+def _layout_from_yaml(
+    text: str,
+) -> tuple[Layout, dict[uuid.UUID, tuple[Point, int]]]:
+    """Parse ``layout.yaml``.
+
+    Returns the layout plus the *legacy baked pair* per group — the stored
+    ``(origin, rotation)`` of a v2 file whose group carries no ``transform``
+    yet.  ``ComponentGroup`` no longer stores that pair, so it rides alongside
+    for :func:`_migrate_groups_v2_to_v3` to fold into ``transform`` (empty for
+    v3 files and never-rotated groups).
+    """
     try:
         data = _yaml.load(text)
     except Exception as exc:
@@ -1111,6 +1124,7 @@ def _layout_from_yaml(text: str) -> Layout:
     from protoboard.domain.layout.group import ComponentGroup
 
     groups: dict[uuid.UUID, ComponentGroup] = {}
+    legacy_baked: dict[uuid.UUID, tuple[Point, int]] = {}
     for raw in data.get("groups") or []:
         gid = uuid.UUID(raw["id"])
         exported_pins: frozenset[PinRef] = frozenset(
@@ -1120,9 +1134,21 @@ def _layout_from_yaml(text: str) -> Layout:
             )
             for ep in (raw.get("exported_pins") or [])
         )
+        transform = _transform_from_raw(raw.get("transform"))
+        # Legacy v2 pair: a baked (origin, rotation) with no real transform.
+        # ComponentGroup no longer stores it — collect it for the v2→v3
+        # migration to fold into ``transform``.
         raw_origin = raw.get("origin")
-        from protoboard.geometry import Point as _Point
-        origin = _Point(float(raw_origin["x"]), float(raw_origin["y"])) if raw_origin else None
+        legacy_rotation = int(raw.get("rotation", 0))
+        if (
+            legacy_rotation != 0
+            and transform == _IDENTITY_TRANSFORM
+            and raw_origin is not None
+        ):
+            legacy_baked[gid] = (
+                Point(float(raw_origin["x"]), float(raw_origin["y"])),
+                legacy_rotation,
+            )
         groups[gid] = ComponentGroup(
             id=gid,
             name=str(raw["name"]),
@@ -1133,9 +1159,7 @@ def _layout_from_yaml(text: str) -> Layout:
                 uuid.UUID(c) for c in (raw.get("child_group_ids") or [])
             ),
             exported_pins=exported_pins,
-            rotation=int(raw.get("rotation", 0)),
-            origin=origin,
-            transform=_transform_from_raw(raw.get("transform")),
+            transform=transform,
             lock_internal_wires=bool(raw.get("lock_internal_wires", False)),
         )
 
@@ -1156,7 +1180,7 @@ def _layout_from_yaml(text: str) -> Layout:
         layout.invalidate_interior_vertex_index()
 
     layout.ensure_root_group()
-    return layout
+    return layout, legacy_baked
 
 
 def _migrate_encapsulated_exports(

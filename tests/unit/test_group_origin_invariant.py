@@ -1,17 +1,19 @@
 # SPDX-License-Identifier: MIT
-"""Tests for the group.origin invariant.
+"""Tests for the derived group pivot (the old ``group.origin`` invariant).
 
-User-facing rule (2026-06-05): ``group.origin`` is the world-coordinate
-pivot of the group.
+User-facing rule (2026-06-05, re-based 2026-07-04 on the scene-graph model):
+the group's rotate pivot is the world-coordinate **bbox top-left pad** of its
+members.  It used to be a stored ``group.origin`` field kept in sync by a
+recompute pass; it is now DERIVED on demand from the group transform's fixed
+point (``group_cmds._group_rotate_pivot``), so the behaviours below hold by
+construction rather than by bookkeeping:
 
-1. Recomputed on every group **edit** (create / add / remove / move
-   member, exit edit mode) to the bbox top-left of the group's pins.
-2. **Follows the group during drag** — every component move recomputes
-   origin, so for a uniform drag delta the new origin equals the old
-   origin translated by the same delta.
-3. **Stays put during rotate** — the immutable pivot of a rotation
-   stays at the same world point.
-4. Survives save/load bit-perfect (covered by persistence tests).
+1. For a fresh group it is the bbox top-left (min x+y) pad of the members.
+2. **Follows the group during drag** — a uniform drag delta translates it by
+   the same delta.
+3. **Stays put during rotate** — the immutable pivot of a rotation stays at
+   the same world point (consecutive rotations orbit the same pad).
+4. Membership changes re-derive it from the new member set.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from protoboard.domain.commands.group_cmds import (
     CreateGroupCommand,
     RemoveFromGroupCommand,
     RotateGroupCommand,
+    _group_rotate_pivot,
 )
 from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.footprints import SIL
@@ -117,18 +120,22 @@ def _attach_to_root(state: _State, group: ComponentGroup) -> None:
         component_ids=root.component_ids,
         child_group_ids=root.child_group_ids | {group.id},
         exported_pins=root.exported_pins,
-        rotation=root.rotation,
-        origin=root.origin,
     )
 
 
+def _pivot(state: _State, gid: uuid.UUID) -> Point:
+    p = _group_rotate_pivot(state, gid)  # type: ignore[arg-type]
+    assert p is not None
+    return p
+
+
 # ---------------------------------------------------------------------------
-# CreateGroupCommand
+# Fresh group → pivot at the bbox top-left pad
 # ---------------------------------------------------------------------------
 
 
-class TestCreateGroupOrigin:
-    def test_origin_recomputed_from_placements(self) -> None:
+class TestCreateGroupPivot:
+    def test_pivot_derives_from_placements(self) -> None:
         # SIL(2) at (3, 5) rotation=0 → pin1=(3, 5), pin2=(3, 6).
         # bbox top-left (min x+y) = (3, 5).
         state, cids = _build_state([(3.0, 5.0)])
@@ -136,52 +143,28 @@ class TestCreateGroupOrigin:
             id=uuid.uuid4(),
             name="G",
             component_ids=frozenset(cids),
-            origin=None,
         )
         CreateGroupCommand(group=group).apply(state)
-        synced = state.layout.groups[group.id]
-        assert synced.origin is not None
-        assert synced.origin.x == pytest.approx(3.0)
-        assert synced.origin.y == pytest.approx(5.0)
-
-    def test_origin_overrides_supplied_value(self) -> None:
-        # Callers sometimes pass an explicit origin; the canonical value
-        # is bbox-top-left of *current* placements, so apply overrides.
-        state, cids = _build_state([(3.0, 5.0)])
-        group = ComponentGroup(
-            id=uuid.uuid4(),
-            name="G",
-            component_ids=frozenset(cids),
-            origin=Point(99.0, 99.0),
-        )
-        CreateGroupCommand(group=group).apply(state)
-        synced = state.layout.groups[group.id]
-        assert synced.origin is not None
-        assert synced.origin.x == pytest.approx(3.0)
-        assert synced.origin.y == pytest.approx(5.0)
+        pivot = _pivot(state, group.id)
+        assert pivot.x == pytest.approx(3.0)
+        assert pivot.y == pytest.approx(5.0)
 
 
 # ---------------------------------------------------------------------------
-# MoveComponentCommand → origin follows the group
+# MoveComponentCommand → pivot follows the group
 # ---------------------------------------------------------------------------
 
 
-class TestMoveComponentOriginFollow:
-    def test_uniform_drag_translates_origin_by_delta(self) -> None:
+class TestMoveComponentPivotFollow:
+    def test_uniform_drag_translates_pivot_by_delta(self) -> None:
         # Two resistors forming a tight group at top-left (3, 5).
         state, cids = _build_state([(3.0, 5.0), (5.0, 5.0)])
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
-            component_ids=frozenset(cids), origin=None,
+            component_ids=frozenset(cids),
         )
         _attach_to_root(state, group)
-        # Sync origin via Create-style first call.
-        from protoboard.domain.commands.group_cmds import (
-            _recompute_group_origin,
-        )
-        _recompute_group_origin(state, group.id)
-        orig = state.layout.groups[group.id].origin
-        assert orig is not None
+        orig = _pivot(state, group.id)
         assert (orig.x, orig.y) == (pytest.approx(3.0), pytest.approx(5.0))
 
         # Move both resistors by (+10, +7) — group drag delta.
@@ -200,25 +183,19 @@ class TestMoveComponentOriginFollow:
                 placement_only=True,
             ).apply(state)
 
-        # Origin should now be (13, 12) — the old origin + delta.
-        new_origin = state.layout.groups[group.id].origin
-        assert new_origin is not None
-        assert new_origin.x == pytest.approx(13.0)
-        assert new_origin.y == pytest.approx(12.0)
+        # Pivot is now (13, 12) — the old pivot + delta.
+        new_pivot = _pivot(state, group.id)
+        assert new_pivot.x == pytest.approx(13.0)
+        assert new_pivot.y == pytest.approx(12.0)
 
-    def test_revert_restores_pre_move_origin(self) -> None:
+    def test_revert_restores_pre_move_pivot(self) -> None:
         state, cids = _build_state([(3.0, 5.0)])
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
-            component_ids=frozenset(cids), origin=None,
+            component_ids=frozenset(cids),
         )
         _attach_to_root(state, group)
-        from protoboard.domain.commands.group_cmds import (
-            _recompute_group_origin,
-        )
-        _recompute_group_origin(state, group.id)
-        pre_origin = state.layout.groups[group.id].origin
-        assert pre_origin is not None
+        pre = _pivot(state, group.id)
 
         cid = cids[0]
         old_pl = state.layout.placements[cid]
@@ -236,31 +213,25 @@ class TestMoveComponentOriginFollow:
         )
         cmd.apply(state)
         cmd.revert(state)
-        restored = state.layout.groups[group.id].origin
-        assert restored is not None
-        assert restored.x == pytest.approx(pre_origin.x)
-        assert restored.y == pytest.approx(pre_origin.y)
+        restored = _pivot(state, group.id)
+        assert restored.x == pytest.approx(pre.x)
+        assert restored.y == pytest.approx(pre.y)
 
     def test_move_outside_group_leaves_other_groups_alone(self) -> None:
-        # Two separate groups; moving a member of group A leaves group B.origin
-        # alone.  Sanity check on _groups_containing_component scope.
+        # Two separate groups; moving a member of group A leaves group B's
+        # pivot alone.
         state, cids = _build_state([(3.0, 5.0), (10.0, 10.0)])
         ga = ComponentGroup(
             id=uuid.uuid4(), name="A",
-            component_ids=frozenset({cids[0]}), origin=None,
+            component_ids=frozenset({cids[0]}),
         )
         gb = ComponentGroup(
             id=uuid.uuid4(), name="B",
-            component_ids=frozenset({cids[1]}), origin=None,
+            component_ids=frozenset({cids[1]}),
         )
         _attach_to_root(state, ga)
         _attach_to_root(state, gb)
-        from protoboard.domain.commands.group_cmds import (
-            _recompute_group_origin,
-        )
-        _recompute_group_origin(state, ga.id)
-        _recompute_group_origin(state, gb.id)
-        b_origin_before = state.layout.groups[gb.id].origin
+        b_pivot_before = _pivot(state, gb.id)
 
         # Move cids[0] (A's member) — B should be untouched.
         old_pl = state.layout.placements[cids[0]]
@@ -274,101 +245,107 @@ class TestMoveComponentOriginFollow:
             skip_conflict_check=True, placement_only=True,
         ).apply(state)
 
-        assert state.layout.groups[gb.id].origin == b_origin_before
+        b_after = _pivot(state, gb.id)
+        assert (b_after.x, b_after.y) == (
+            pytest.approx(b_pivot_before.x), pytest.approx(b_pivot_before.y),
+        )
 
 
 # ---------------------------------------------------------------------------
-# RotateGroupCommand → origin stays put
+# RotateGroupCommand → pivot stays put (the transform's fixed point)
 # ---------------------------------------------------------------------------
 
 
-class TestRotateGroupOriginInvariant:
-    def test_origin_unchanged_after_rotate(self) -> None:
+class TestRotateGroupPivotInvariant:
+    def test_pivot_unchanged_after_rotate(self) -> None:
         state, cids = _build_state([(3.0, 5.0), (5.0, 5.0)])
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
-            component_ids=frozenset(cids), origin=Point(3.0, 5.0),
+            component_ids=frozenset(cids),
         )
         _attach_to_root(state, group)
-        before = state.layout.groups[group.id].origin
-        assert before is not None
+        before = _pivot(state, group.id)
         RotateGroupCommand(group_id=group.id, delta=90).apply(state)
-        after = state.layout.groups[group.id].origin
-        assert after is not None
+        after = _pivot(state, group.id)
         assert (after.x, after.y) == (
             pytest.approx(before.x), pytest.approx(before.y),
         )
 
-    def test_origin_invariant_across_four_quarter_turns(self) -> None:
-        # 4× 90° = identity rotation; origin must end where it started.
+    def test_pivot_invariant_across_four_quarter_turns(self) -> None:
+        # 4× 90° = identity rotation; pivot AND members end where they
+        # started.
         state, cids = _build_state([(3.0, 5.0), (5.0, 5.0)])
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
-            component_ids=frozenset(cids), origin=Point(3.0, 5.0),
+            component_ids=frozenset(cids),
         )
         _attach_to_root(state, group)
+        world_before = {
+            cid: state.layout.placements[cid].position for cid in cids
+        }
         for _ in range(4):
             RotateGroupCommand(group_id=group.id, delta=90).apply(state)
-        ending = state.layout.groups[group.id].origin
-        assert ending is not None
+        ending = _pivot(state, group.id)
         assert ending.x == pytest.approx(3.0)
         assert ending.y == pytest.approx(5.0)
+        for cid in cids:
+            pos = state.layout.placements[cid].position
+            assert pos.x == pytest.approx(world_before[cid].x)
+            assert pos.y == pytest.approx(world_before[cid].y)
 
 
 # ---------------------------------------------------------------------------
-# AddToGroupCommand / RemoveFromGroupCommand
+# AddToGroupCommand / RemoveFromGroupCommand → pivot re-derives
 # ---------------------------------------------------------------------------
 
 
-class TestMembershipChangeRecomputesOrigin:
-    def test_add_member_pulls_origin_to_new_bbox_top_left(self) -> None:
+class TestMembershipChangeRederivesPivot:
+    def test_add_member_pulls_pivot_to_new_bbox_top_left(self) -> None:
         # Existing group at (5, 5).  Add a new component sitting at (2, 3)
         # — the new bbox top-left is (2, 3).
         state, cids = _build_state([(5.0, 5.0), (2.0, 3.0)])
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
-            component_ids=frozenset({cids[0]}), origin=Point(5.0, 5.0),
+            component_ids=frozenset({cids[0]}),
         )
         _attach_to_root(state, group)
         AddToGroupCommand(
             group_id=group.id, component_ids=frozenset({cids[1]}),
         ).apply(state)
-        after = state.layout.groups[group.id].origin
-        assert after is not None
+        after = _pivot(state, group.id)
         assert after.x == pytest.approx(2.0)
         assert after.y == pytest.approx(3.0)
 
-    def test_remove_member_releases_origin_to_remaining_bbox(self) -> None:
-        # Group with two components.  Remove the top-left one ⇒ origin
+    def test_remove_member_releases_pivot_to_remaining_bbox(self) -> None:
+        # Group with two components.  Remove the top-left one ⇒ pivot
         # snaps to the remaining one's pin1.
         state, cids = _build_state([(2.0, 3.0), (5.0, 5.0)])
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
-            component_ids=frozenset(cids), origin=Point(2.0, 3.0),
+            component_ids=frozenset(cids),
         )
         _attach_to_root(state, group)
         RemoveFromGroupCommand(
             group_id=group.id, component_ids=frozenset({cids[0]}),
         ).apply(state)
-        after = state.layout.groups[group.id].origin
-        assert after is not None
+        after = _pivot(state, group.id)
         assert after.x == pytest.approx(5.0)
         assert after.y == pytest.approx(5.0)
 
-    def test_remove_revert_restores_origin(self) -> None:
+    def test_remove_revert_restores_pivot(self) -> None:
         state, cids = _build_state([(2.0, 3.0), (5.0, 5.0)])
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
-            component_ids=frozenset(cids), origin=Point(2.0, 3.0),
+            component_ids=frozenset(cids),
         )
         _attach_to_root(state, group)
         cmd = RemoveFromGroupCommand(
             group_id=group.id, component_ids=frozenset({cids[0]}),
         )
         cmd.apply(state)
-        assert state.layout.groups[group.id].origin == Point(5.0, 5.0)
+        after = _pivot(state, group.id)
+        assert (after.x, after.y) == (pytest.approx(5.0), pytest.approx(5.0))
         cmd.revert(state)
-        restored = state.layout.groups[group.id].origin
-        assert restored is not None
+        restored = _pivot(state, group.id)
         assert restored.x == pytest.approx(2.0)
         assert restored.y == pytest.approx(3.0)

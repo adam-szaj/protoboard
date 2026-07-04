@@ -172,57 +172,53 @@ def restore_rotation(state: ComponentState, snap: RotateSnapshot) -> None:
                 )
 
 
-def _recompute_group_origin(
-    state: "ComponentState", group_id: uuid.UUID,
-) -> "Point | None":
-    """Snapshot the current group's origin, then recompute it from the
-    recursive component bbox top-left and replace the group with the new
-    value.  Returns the *old* origin so the caller can stash it for
-    revert.
+def _group_rotate_pivot(
+    state: ComponentState, group_id: uuid.UUID,
+) -> Point | None:
+    """The rotate pivot derived from the group transform's fixed point.
 
-    No-op (returns None) when the group is missing or has no resolvable
-    pins.  Calling this after every membership/placement mutation keeps
-    ``group.origin`` aligned with the bbox top-left invariant.
-
-    Drag follows automatically: every moved component triggers
-    recompute, the new top-left bbox is the translated old top-left,
-    so the origin moves by the drag delta.  Rotate is NOT a caller —
-    rotate must keep the pre-rotation origin as the immutable pivot.
+    The legacy stored ``origin`` was the members' bbox-top-left pad, kept in
+    place across rotations (the immutable pivot).  With ``transform`` as the
+    single source of truth the same point derives without storage: express
+    the member pins in the group's LOCAL frame (``Tg⁻¹ · world``), take the
+    top-left pad there — that cloud is invariant under group rotations, so
+    the pick is sticky — and map it back to world (``Tg``).  For an identity
+    transform this is exactly the world bbox-top-left pad; after a member
+    drag the pivot translates with the group, matching the old
+    recompute-on-drag behaviour.
     """
+    from protoboard.geometry import Point as _Point
+
     group = state.layout.groups.get(group_id)
     if group is None:
         return None
     comp_ids = all_component_ids(state.layout.groups, group_id)
     if not comp_ids:
-        return group.origin
-    # Tests may pass a minimal ComponentState stub that lacks instances
-    # or components — in that case we can't resolve pin positions, so
-    # the helper is a no-op (returns current origin).  Production callers
-    # always have a fully-populated state.
-    instances = getattr(state, "instances", None)
-    components = getattr(state, "components", None)
-    if instances is None or components is None:
-        return group.origin
-    new_origin = GroupTree.group_origin(
-        comp_ids,
-        state.layout.placements,
-        instances,
-        components,
+        return None
+    tg = GroupTree(state.layout.groups).group_world_transform(group_id)
+    inv = tg.inverse()
+    pins = GroupTree.pin_world_positions(
+        comp_ids, state.layout.placements, state.instances, state.components,
     )
-    if new_origin is None:
-        # No resolvable pin (placements without instances, broken refs).
-        # Leave origin as-is to avoid wiping a value that's still useful
-        # for rendering / hit-test.
-        return group.origin
-    old_origin = group.origin
-    if old_origin is not None and (
-        old_origin.x == new_origin.x and old_origin.y == new_origin.y
-    ):
-        # Unchanged — skip the dict mutation entirely to keep
-        # CommandStack and downstream caches quiet.
-        return old_origin
-    state.layout.groups[group_id] = group.replace(origin=new_origin)
-    return old_origin
+    if not pins:
+        # No resolvable pin (unbound instances / minimal test states): fall
+        # back to the placement anchors — position IS pin 1's pad.
+        pins = {
+            (pl.position.x, pl.position.y)
+            for cid in comp_ids
+            if (pl := state.layout.placements.get(cid)) is not None
+        }
+    if not pins:
+        return None
+    best: Point | None = None
+    best_key = float("inf")
+    for x, y in pins:
+        local = inv.apply(_Point(x, y))
+        key = local.x + local.y
+        if key < best_key:
+            best_key = key
+            best = local
+    return tg.apply(best) if best is not None else None
 
 
 @dataclass
@@ -246,16 +242,6 @@ class CreateGroupCommand(Command[ComponentState]):
         if self._orig_group is None:
             self._orig_group = self.group
         state.layout.groups[self.group.id] = self.group
-        # Sync origin to the bbox top-left of the new group's current
-        # placements.  Callers (PPM "create group") usually pass origin=
-        # None expecting the command to materialise it; this is the
-        # canonical place to do so.
-        _recompute_group_origin(state, self.group.id)
-        # Pick up any in-place mutation so subsequent applies (redo) see
-        # the synced origin.
-        synced = state.layout.groups.get(self.group.id)
-        if synced is not None:
-            self.group = synced
 
     def revert(self, state: ComponentState) -> None:
         state.layout.groups.pop(self.group.id, None)
@@ -344,9 +330,6 @@ class GroupMembershipCommand(Command[ComponentState]):
             component_ids=new_components,
             child_group_ids=new_children,
         )
-        # Membership change ⇒ bbox top-left may move ⇒ origin recompute.
-        # Old origin is captured inside _old_group above; revert restores it.
-        _recompute_group_origin(state, self.group_id)
 
     def revert(self, state: ComponentState) -> None:
         if self._old_group is not None:
@@ -472,9 +455,7 @@ class RotateGroupCommand(Command[ComponentState]):
         self._old_group = group
 
         comp_ids = all_component_ids(state.layout.groups, self.group_id)
-        origin = group.origin or GroupTree.group_origin(
-            comp_ids, state.layout.placements, state.instances, state.components
-        )
+        origin = _group_rotate_pivot(state, self.group_id)
         if origin is None:
             return
 
@@ -526,16 +507,17 @@ class RotateGroupCommand(Command[ComponentState]):
         )
         self._snapshot = snapshot
 
-        # Fold the rotation into the group transform (the scene-graph source of
-        # truth) and keep the legacy ``rotation``/``origin`` metadata in sync —
-        # both stay authoritative during the FLATTEN→scene-graph transition
-        # (docs plan); readers still consult ``origin`` for hit-test/render.
+        # Fold the rotation into the group transform — the scene-graph source
+        # of truth.  The legacy stored ``rotation``/``origin`` pair is gone:
+        # ``rotation`` derives from the transform, the pivot re-derives via
+        # ``_group_rotate_pivot`` (a transform fixed point, so consecutive
+        # rotations keep orbiting the same pad — the old sticky-origin
+        # behaviour).
         new_transform = _rotation_about(origin, self.delta).compose(
             group.transform
         )
-        new_rot = (group.rotation + self.delta) % 360
         state.layout.groups[self.group_id] = group.replace(
-            transform=new_transform, rotation=new_rot, origin=origin
+            transform=new_transform
         )
 
     def revert(self, state: ComponentState) -> None:

@@ -754,7 +754,39 @@ through the `PlacementCollection` seam (`domain/layout/placement.py`,
 no per-member placements. Two deliberate transitional debts remain — both work
 correctly today, neither is a bug, and each is its own future change.
 
-### 1. `group.rotation` / `group.origin` are still authoritative, not derived views
+### 1. `group.rotation` / `group.origin` are still authoritative, not derived views — DONE (2026-07-04)
+
+**Converted (this branch).** `group.transform` is now the single source of
+truth; the stored pair is gone from `ComponentGroup`:
+
+- `rotation` is a derived property (`Transform2D.rotation_steps() × 90`, new
+  public method on the matrix; `placement._rotation_steps_of` delegates).
+- The stored `origin` field, the whole recompute machinery
+  (`GroupTree.recompute_group_origin`, `group_cmds._recompute_group_origin`,
+  the `MoveComponentCommand` per-group origin snapshot/restore) and the
+  CreateGroup/AddToGroup/RemoveFromGroup sync calls are deleted. Whoever
+  needs the bbox top-left computes it (`GroupTree.group_origin`).
+- The **rotate pivot** derives from the transform's fixed point
+  (`group_cmds._group_rotate_pivot`): member pins expressed in the group's
+  local frame (`Tg⁻¹·world`, `Tg = GroupTree.group_world_transform`), the
+  top-left pad picked THERE (rotation-invariant → sticky across consecutive
+  rotations, exactly the legacy sticky-origin behaviour), mapped back through
+  `Tg`. After a drag the pivot translates with the group — also legacy-equal.
+  Fallback to placement anchors when no pin resolves (minimal test states).
+- **Persistence:** save no longer writes `rotation:`/`origin:`; the v2→v3
+  load migration still reads the legacy pair from raw YAML
+  (`_layout_from_yaml` returns it alongside the layout) and folds it into
+  `transform`. The command recorder mirrors this (writes `transform`,
+  tolerantly migrates old records).
+- Tests: the origin-invariant suite is repointed at the derived pivot
+  (`test_group_origin_invariant.py` — same user-facing behaviours, no stored
+  field), `test_group_rotation.py` asserts the transform/derived views.
+  Parity corpus green (`test_pin_world_parity`, project round-trips, full
+  unit + GUI suites).
+
+Original entry (kept for context):
+
+### 1. (original, superseded)
 
 `group.transform` is the scene-graph source of truth, but the legacy
 `rotation:int` + `origin:Point` fields are still **written** (kept in sync by the

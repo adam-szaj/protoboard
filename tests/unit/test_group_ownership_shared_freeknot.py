@@ -93,7 +93,6 @@ class TestSharedFreeKnotNotOwned:
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({cid}),
-            origin=Point(5.0, 5.0),
         )
         # Single-owner free knot → owned.
         owned = wire_is_owned_by_group(
@@ -145,7 +144,6 @@ class TestSharedFreeKnotNotOwned:
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({cid}),
-            origin=Point(5.0, 5.0),
         )
         # Shared joint → w1 NOT owned (guard kicks in).
         live_jk = ctx.layout.knots[jk.id]
@@ -187,7 +185,6 @@ class TestSharedFreeKnotNotOwned:
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({cid_a, cid_b}),
-            origin=Point(5.0, 5.0),
         )
         owned = wire_is_owned_by_group(
             w, group, wire_net_map={},
@@ -283,7 +280,6 @@ class TestSharedFreeKnotNotOwned:
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({cid}),
-            origin=Point(5.0, 5.0),
         )
         owned = wire_is_owned_by_group(
             w, group, wire_net_map={},

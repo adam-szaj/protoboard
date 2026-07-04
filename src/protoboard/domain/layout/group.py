@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from protoboard.domain.schematic.net import PinRef
-from protoboard.geometry import Point, Transform2D
+from protoboard.geometry import Transform2D
 
 if TYPE_CHECKING:
     from protoboard.domain.components.instance import ComponentInstance
@@ -35,16 +35,17 @@ class ComponentGroup:
     component_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
     child_group_ids: frozenset[uuid.UUID] = field(default_factory=frozenset)
     exported_pins: frozenset[PinRef] = field(default_factory=frozenset)
-    rotation: int = 0
-    origin: Point | None = None
     # The group's own affine transform in its parent's frame (scene-graph
-    # model). A member's world position composes the ancestor group transforms
-    # with the member-local placement (see PlacementCollection / GroupTree.
-    # world_transform). Identity default → composes to a no-op, so a group with
-    # the default transform reads exactly as an ungrouped component. During the
-    # FLATTEN→compose migration ``rotation``/``origin`` remain the source of
-    # truth; ``transform`` is populated by the group commands and the v2→v3
-    # persistence migration.
+    # model) — the SINGLE source of truth for the group pose. A member's world
+    # position composes the ancestor group transforms with the member-local
+    # placement (see PlacementCollection / GroupTree.world_transform).
+    # Identity default → composes to a no-op, so a group with the default
+    # transform reads exactly as an ungrouped component.  The legacy stored
+    # ``rotation`` / ``origin`` pair is gone: ``rotation`` is the derived view
+    # below, the bbox top-left is computed on demand
+    # (``GroupTree.group_origin``), and the rotate pivot derives from the
+    # transform (``RotateGroupCommand``).  Old files still load — the v2→v3
+    # persistence migration folds a stored pair into ``transform``.
     transform: Transform2D = field(default_factory=Transform2D.identity)
     # Unified drag model (2026-06-02): when True, this group's internal
     # wires are treated as a HARD obstacle for foreign drags (a moved
@@ -53,6 +54,17 @@ class ComponentGroup:
     # behaviour.  Toggled via PreferencesDialog default + per-group
     # Properties checkbox.
     lock_internal_wires: bool = False
+
+    @property
+    def rotation(self) -> int:
+        """Derived view: the transform's CW rotation in degrees (0/90/180/270).
+
+        Meaningful for ``det > 0`` transforms (rotation + translation — the
+        only kind group rotate/move produce); a flipped group (``det < 0``)
+        reports the quantiser's identity fallback. Kept under the legacy field
+        name so readers survive the stored-pair removal.
+        """
+        return (self.transform.rotation_steps() * 90) % 360
 
     def replace(self, **changes: object) -> "ComponentGroup":
         """Return a copy of this group with the given fields replaced.

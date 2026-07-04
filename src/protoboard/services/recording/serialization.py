@@ -74,7 +74,7 @@ from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.domain.layout.wire import Wire
 from protoboard.errors import SerializationError
-from protoboard.geometry import Point, Vector
+from protoboard.geometry import Point, Transform2D, Vector
 from protoboard.services.persistence.board_yaml import board_from_yaml, board_to_yaml
 
 
@@ -232,15 +232,27 @@ def _group_to(g: ComponentGroup) -> dict[str, Any]:
         out["child_group_ids"] = sorted(_uuid_to(c) for c in g.child_group_ids)
     if g.exported_pins:
         out["exported_pins"] = _exported_pins_to(g.exported_pins)
-    if g.rotation:
-        out["rotation"] = int(g.rotation)
-    if g.origin is not None:
-        out["origin"] = _pt_to(g.origin)
+    if g.transform != Transform2D.identity():
+        out["transform"] = list(g.transform.coeffs())
     return out
 
 
 def _group_from(d: dict[str, Any]) -> ComponentGroup:
-    raw_origin = d.get("origin")
+    # Old recordings may still carry the legacy stored (origin, rotation)
+    # pair instead of a transform — fold it in, mirroring the project-file
+    # v2→v3 migration, so replays of pre-conversion sessions keep the pose.
+    raw_transform = d.get("transform")
+    if raw_transform is not None:
+        a, b, c, d2, tx, ty = (float(v) for v in raw_transform)
+        transform = Transform2D(a, b, c, d2, tx, ty)
+    else:
+        raw_origin = d.get("origin")
+        rotation = int(d.get("rotation", 0))
+        if rotation != 0 and raw_origin:
+            from protoboard.domain.commands.group_cmds import _rotation_about
+            transform = _rotation_about(_pt_from(raw_origin), rotation)
+        else:
+            transform = Transform2D.identity()
     return ComponentGroup(
         id=_uuid_from(d["id"]),
         name=str(d["name"]),
@@ -249,8 +261,7 @@ def _group_from(d: dict[str, Any]) -> ComponentGroup:
             _uuid_from(c) for c in (d.get("child_group_ids") or [])
         ),
         exported_pins=_exported_pins_from(d.get("exported_pins")),
-        rotation=int(d.get("rotation", 0)),
-        origin=_pt_from(raw_origin) if raw_origin else None,
+        transform=transform,
     )
 
 

@@ -174,6 +174,31 @@ class GroupTree:
                 world = world.compose(grp.transform)
         return world
 
+    def group_world_transform(self, group_id: uuid.UUID) -> Transform2D:
+        """The composed transform mapping *group_id*'s LOCAL frame to WORLD.
+
+        Folds the ancestor chain outermost→innermost **including the group's
+        own transform** — the group sibling of :meth:`world_transform` (which
+        starts from a component). Identity when the group is unknown.
+        """
+        from protoboard.geometry import Transform2D
+
+        parent_map: dict[uuid.UUID, uuid.UUID] = {}
+        for gid, g in self._groups.items():
+            for child_id in g.child_group_ids:
+                parent_map[child_id] = gid
+        chain_leaf_to_root: list[uuid.UUID] = [group_id]
+        current = group_id
+        while current in parent_map:
+            current = parent_map[current]
+            chain_leaf_to_root.append(current)
+        world = Transform2D.identity()
+        for gid in reversed(chain_leaf_to_root):  # root → leaf
+            grp = self._groups.get(gid)
+            if grp is not None:
+                world = world.compose(grp.transform)
+        return world
+
     def would_create_cycle(
         self, parent_id: uuid.UUID, child_id: uuid.UUID
     ) -> bool:
@@ -462,46 +487,4 @@ class GroupTree:
         return positions
 
 
-def recompute_group_origin(
-    groups: dict[uuid.UUID, ComponentGroup],
-    group_id: uuid.UUID,
-    *,
-    placements: PlacementMap,
-    instances: dict[uuid.UUID, ComponentInstance],
-    components: dict[str, ComponentDefinition],
-) -> Point | None:
-    """Recompute *group_id*'s origin from the bbox top-left and write it back.
-
-    Returns the *old* origin so the caller can stash it for revert. No-op
-    (returns the current origin) when the group is missing, has no resolvable
-    pins, or the origin is unchanged. Keeps ``group.origin`` aligned with the
-    bbox-top-left invariant after a member moves — see MoveComponentCommand.
-
-    Unlike :class:`GroupTree` (a read-only view), this *mutates* the supplied
-    ``groups`` dict, so it is a free function rather than a tree method. The
-    read side delegates to :meth:`GroupTree.group_origin`. Lives here, not in
-    ``group_cmds``, so a component-move command never imports the group-command
-    module (that import was the component_cmds<->group_cmds cycle).
-    """
-    tree = GroupTree(groups)
-    group = groups.get(group_id)
-    if group is None:
-        return None
-    comp_ids = tree.all_component_ids(group_id)
-    if not comp_ids:
-        return group.origin
-    new_origin = GroupTree.group_origin(
-        comp_ids, placements, instances, components,
-    )
-    if new_origin is None:
-        return group.origin
-    old_origin = group.origin
-    if old_origin is not None and (
-        old_origin.x == new_origin.x and old_origin.y == new_origin.y
-    ):
-        return old_origin
-    groups[group_id] = group.replace(origin=new_origin)
-    return old_origin
-
-
-__all__ = ["GroupTree", "recompute_group_origin"]
+__all__ = ["GroupTree"]

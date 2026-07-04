@@ -92,7 +92,6 @@ def _make_group(
 ) -> ComponentGroup:
     g = ComponentGroup(
         id=uuid.uuid4(), name=name, component_ids=members,
-        origin=None,
     )
     ctx.layout.groups[g.id] = g
     par = ctx.layout.groups[parent]
@@ -101,7 +100,6 @@ def _make_group(
         component_ids=par.component_ids,
         child_group_ids=par.child_group_ids | {g.id},
         exported_pins=par.exported_pins,
-        rotation=par.rotation, origin=par.origin,
     )
     return g
 
@@ -321,7 +319,6 @@ class TestOwnershipByGroupContext:
             id=uuid.uuid4(), name="A",
             component_ids=frozenset(),
             child_group_ids=frozenset({gb.id}),
-            origin=None,
         )
         ctx.layout.groups[ga.id] = ga
         # Re-parent gb under ga instead of root.
@@ -331,7 +328,6 @@ class TestOwnershipByGroupContext:
             component_ids=root.component_ids,
             child_group_ids=(root.child_group_ids - {gb.id}) | {ga.id},
             exported_pins=root.exported_pins,
-            rotation=root.rotation, origin=root.origin,
         )
         # Both classify as owned (a and b are within recursive A).
         assert self._owned(ctx, w, gb) is True

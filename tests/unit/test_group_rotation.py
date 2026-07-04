@@ -125,12 +125,11 @@ def _wire(path: list[tuple[float, float]]) -> Wire:
 # We test position and rotation changes directly without a footprint.
 # ---------------------------------------------------------------------------
 
-def _simple_group(comp_ids: frozenset[uuid.UUID], origin: Point) -> ComponentGroup:
+def _simple_group(comp_ids: frozenset[uuid.UUID]) -> ComponentGroup:
     return ComponentGroup(
         id=uuid.uuid4(),
         name="test_group",
         component_ids=comp_ids,
-        origin=origin,
     )
 
 
@@ -152,12 +151,15 @@ def _layout_with_group(
 
 
 def test_rotate_group_command_rotates_positions() -> None:
-    """Two components at (2,1) and (2,3) with origin (1,1) rotated 90° CW."""
+    """Two components at (2,1) and (2,3) rotated 90° CW about the derived pivot.
+
+    The pivot derives from the group pose (no stored origin): the top-left
+    anchor (min x+y) of the members — here (2,1).
+    """
     cid1, cid2 = uuid.uuid4(), uuid.uuid4()
     pl1 = _make_placement(cid1, 2.0, 1.0, rotation=0)
     pl2 = _make_placement(cid2, 2.0, 3.0, rotation=90)
-    origin = Point(1.0, 1.0)
-    group = _simple_group(frozenset([cid1, cid2]), origin)
+    group = _simple_group(frozenset([cid1, cid2]))
     layout = _layout_with_group(group, {cid1: pl1, cid2: pl2})
     state = _FakeState(layout=layout)
 
@@ -166,27 +168,29 @@ def test_rotate_group_command_rotates_positions() -> None:
 
     new_pl1 = state.layout.placements[cid1]
     new_pl2 = state.layout.placements[cid2]
-    # (2,1) rotated 90° CW around (1,1): dx=1,dy=0 → rx=0,ry=-1 → (1,0)
-    assert new_pl1.position.x == pytest.approx(1.0)
-    assert new_pl1.position.y == pytest.approx(0.0)
+    # (2,1) is the pivot — it stays put, only the rotation bumps.
+    assert new_pl1.position.x == pytest.approx(2.0)
+    assert new_pl1.position.y == pytest.approx(1.0)
     assert new_pl1.rotation == 90
-    # (2,3) rotated 90° CW around (1,1): dx=1,dy=2 → rx=2,ry=-1 → (3,0)
-    assert new_pl2.position.x == pytest.approx(3.0)
-    assert new_pl2.position.y == pytest.approx(0.0)
+    # (2,3) rotated 90° CW around (2,1): dx=0,dy=2 → rx=2,ry=0 → (4,1)
+    assert new_pl2.position.x == pytest.approx(4.0)
+    assert new_pl2.position.y == pytest.approx(1.0)
     assert new_pl2.rotation == 180
 
 
 def test_rotate_group_command_undo() -> None:
+    # A single member sits at the derived pivot, so its position is the
+    # rotation's fixed point — only the composed rotation changes and undo
+    # restores it.
     cid1 = uuid.uuid4()
     pl1 = _make_placement(cid1, 2.0, 1.0, rotation=0)
-    origin = Point(1.0, 1.0)
-    group = _simple_group(frozenset([cid1]), origin)
+    group = _simple_group(frozenset([cid1]))
     layout = _layout_with_group(group, {cid1: pl1})
     state = _FakeState(layout=layout)
 
     cmd = RotateGroupCommand(group_id=group.id, delta=90)
     cmd.apply(state)
-    assert state.layout.placements[cid1].position != Point(2.0, 1.0)
+    assert state.layout.placements[cid1].rotation == 90
 
     cmd.revert(state)
     assert state.layout.placements[cid1].position.x == pytest.approx(2.0)
@@ -208,8 +212,7 @@ def test_rotate_group_undo_stores_no_member_placements() -> None:
     cid1, cid2 = uuid.uuid4(), uuid.uuid4()
     pl1 = _make_placement(cid1, 2.0, 1.0, rotation=0)
     pl2 = _make_placement(cid2, 2.0, 3.0, rotation=90)
-    origin = Point(1.0, 1.0)
-    group = _simple_group(frozenset([cid1, cid2]), origin)
+    group = _simple_group(frozenset([cid1, cid2]))
     layout = _layout_with_group(group, {cid1: pl1, cid2: pl2})
     state = _FakeState(layout=layout)
 
@@ -243,8 +246,7 @@ def test_rotate_group_undo_stores_no_member_placements() -> None:
 def test_rotate_group_rotates_internal_wire() -> None:
     cid1 = uuid.uuid4()
     pl1 = _make_placement(cid1, 0.0, 0.0, rotation=0)
-    origin = Point(0.0, 0.0)
-    group = _simple_group(frozenset([cid1]), origin)
+    group = _simple_group(frozenset([cid1]))
     # Wire from (0,0) to (2,0) — both end on pad positions we'll inject manually
     wire = _wire([(0.0, 0.0), (2.0, 0.0)])
     layout = _layout_with_group(group, {cid1: pl1}, wires=[wire])
@@ -261,11 +263,16 @@ def test_rotate_group_rotates_internal_wire() -> None:
 
 
 def test_rotate_group_preserves_group_metadata() -> None:
-    """After rotation, group.rotation increments and origin stays."""
+    """After rotation the transform carries the pose; ``rotation`` derives.
+
+    The stored (rotation, origin) pair is gone — ``group.rotation`` is a
+    derived view of the transform, and the pivot (the member anchor at
+    (2,1)) is the transform's fixed point, so consecutive rotations keep
+    orbiting the same pad (the old sticky-origin behaviour).
+    """
     cid1 = uuid.uuid4()
     pl1 = _make_placement(cid1, 2.0, 1.0)
-    origin = Point(1.0, 1.0)
-    group = _simple_group(frozenset([cid1]), origin)
+    group = _simple_group(frozenset([cid1]))
     layout = _layout_with_group(group, {cid1: pl1})
     state = _FakeState(layout=layout)
 
@@ -273,17 +280,19 @@ def test_rotate_group_preserves_group_metadata() -> None:
     cmd.apply(state)
 
     updated_group = state.layout.groups[group.id]
-    assert updated_group.rotation == 90
-    assert updated_group.origin is not None
-    assert updated_group.origin.x == pytest.approx(1.0)
-    assert updated_group.origin.y == pytest.approx(1.0)
+    assert updated_group.rotation == 90  # derived from the transform
+    # The pivot is the transform's fixed point.
+    pivot = updated_group.transform.apply(Point(2.0, 1.0))
+    assert pivot.x == pytest.approx(2.0)
+    assert pivot.y == pytest.approx(1.0)
 
 
 def test_rotate_group_undo_restores_group_metadata() -> None:
+    from protoboard.geometry import Transform2D
+
     cid1 = uuid.uuid4()
     pl1 = _make_placement(cid1, 2.0, 1.0)
-    origin = Point(1.0, 1.0)
-    group = _simple_group(frozenset([cid1]), origin)
+    group = _simple_group(frozenset([cid1]))
     layout = _layout_with_group(group, {cid1: pl1})
     state = _FakeState(layout=layout)
 
@@ -293,5 +302,4 @@ def test_rotate_group_undo_restores_group_metadata() -> None:
 
     restored = state.layout.groups[group.id]
     assert restored.rotation == 0
-    assert restored.origin is not None
-    assert restored.origin.x == pytest.approx(1.0)
+    assert restored.transform == Transform2D.identity()

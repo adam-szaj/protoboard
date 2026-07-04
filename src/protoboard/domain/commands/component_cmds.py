@@ -180,12 +180,6 @@ class MoveComponentCommand(ConditionalCommand[ComponentState]):
     _saved_wires: list[Wire] = field(
         default_factory=list, init=False, repr=False
     )
-    # Pre-move origin of every group that recursively contained the moved
-    # component.  Snapshotted at apply() and restored on revert() so the
-    # bbox-top-left invariant survives undo/redo.  Empty until apply().
-    _saved_group_origins: "dict[uuid.UUID, object]" = field(
-        default_factory=dict, init=False, repr=False
-    )
 
     @property
     def description(self) -> str:  # type: ignore[override]
@@ -229,41 +223,15 @@ class MoveComponentCommand(ConditionalCommand[ComponentState]):
             components=state.components,
             board=state.board,
         )
-        # Sync origin of every group that recursively contains this
-        # component.  In a group drag this fires once per moved member,
-        # but the final state (after all moves apply) has origin =
-        # bbox-top-left of the new placements — which is exactly the
-        # old origin translated by the drag delta.  Single-component
-        # drags get the same treatment, so origin always tracks the
-        # group's current bbox top-left, satisfying the user-facing
-        # invariant: "(0,0) of a group lives at the top-left pin".
-        from protoboard.domain.layout.group_tree import (
-            GroupTree,
-            recompute_group_origin,
-        )
-        tree = GroupTree(state.layout.groups)
-        saved: dict[uuid.UUID, object] = {}
-        for gid in tree.groups_containing_component(self.component_id):
-            saved[gid] = recompute_group_origin(
-                state.layout.groups, gid,
-                placements=state.layout.placements,
-                instances=state.instances,
-                components=state.components,
-            )
-        self._saved_group_origins = saved
+        # No group bookkeeping: the stored group origin is gone — the bbox
+        # top-left is computed on demand (GroupTree.group_origin) and the
+        # rotate pivot derives from the group transform, so a member move
+        # needs no per-group sync or undo state.
 
     def _do_revert(self, state: ComponentState) -> None:
         state.layout.placements[self.component_id] = self.old_placement
         if not self.placement_only:
             state.layout.wires[:] = self._saved_wires
-        # Restore the pre-move origin of every group we touched in apply.
-        # ComponentGroup.replace keeps the rest of the group intact.
-        if self._saved_group_origins:
-            for gid, old_origin in self._saved_group_origins.items():
-                grp = state.layout.groups.get(gid)
-                if grp is None:
-                    continue
-                state.layout.groups[gid] = grp.replace(origin=old_origin)
 
 
 @dataclass

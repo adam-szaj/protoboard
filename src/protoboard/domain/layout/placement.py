@@ -431,14 +431,10 @@ _IDENTITY_TRANSFORM = Transform2D.identity()
 def _rotation_steps_of(t: Transform2D) -> int:
     """CW 90°-steps encoded in the linear part of a det=+1 quantised transform.
 
-    The group transforms in the scene-graph model are built from 90° rotations
-    and translations, so the linear part is one of the four rotation matrices.
-    ``Transform2D.rotation(k)`` has linear part ``[[cos,sin],[-sin,cos]]`` for
-    the CW convention — read ``k`` back from the (a, c) entries.
+    Thin alias of :meth:`Transform2D.rotation_steps` (the math lives on the
+    matrix) kept for the existing call sites in this module.
     """
-    a, c = round(t.a), round(t.c)
-    # rotation(0)=(1,0) rotation(1)=(0,-1) rotation(2)=(-1,0) rotation(3)=(0,1)
-    return {(1, 0): 0, (0, -1): 1, (-1, 0): 2, (0, 1): 3}.get((a, c), 0)
+    return t.rotation_steps()
 
 
 def _linear(t: Transform2D) -> Transform2D:

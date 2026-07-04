@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Group scene-graph completed: transform is the single source of truth (2026-07-04)
+
+`ComponentGroup` no longer stores the legacy `rotation`/`origin` pair —
+`transform` carries the whole pose. `rotation` is a derived view
+(`Transform2D.rotation_steps()`), the bbox top-left computes on demand
+(`GroupTree.group_origin`), and the rotate pivot derives from the
+transform's fixed point (sticky across consecutive rotations, follows
+drags — exactly the old stored-origin behaviour, now by construction).
+The per-move origin-recompute machinery is deleted. Project files stop
+writing the pair; old v2 files still load (the migration folds the stored
+pair into `transform`), and the command recorder migrates old records the
+same way.
+
 ### Group scene-graph: float-transform frame fix + group flip in the GUI (2026-07-04)
 
 * **Float-transform preview/commit now frame-correct for transformed groups.**

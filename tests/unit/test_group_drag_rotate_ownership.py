@@ -107,7 +107,6 @@ def _attach_to_root(ctx: _Ctx, group: ComponentGroup) -> None:
         component_ids=root.component_ids,
         child_group_ids=root.child_group_ids | {group.id},
         exported_pins=root.exported_pins,
-        rotation=root.rotation, origin=root.origin,
     )
 
 
@@ -178,7 +177,6 @@ class TestRotateMovesOnlyInternalWires:
         g = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({a, b}),
-            origin=Point(5.0, 5.0),
         )
         _attach_to_root(ctx, g)
 
@@ -206,7 +204,6 @@ class TestRotateMovesOnlyInternalWires:
         g = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({a}),  # only a is in
-            origin=Point(5.0, 5.0),
         )
         _attach_to_root(ctx, g)
 
@@ -234,7 +231,6 @@ class TestRotateMovesOnlyInternalWires:
         g = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({a}),
-            origin=Point(5.0, 5.0),
         )
         _attach_to_root(ctx, g)
         pre = list(w.path)
@@ -272,7 +268,6 @@ class TestDragInternalAndExternalWires:
         g = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({a, b}),
-            origin=Point(5.0, 5.0),
         )
         _attach_to_root(ctx, g)
 
@@ -307,7 +302,6 @@ class TestDragInternalAndExternalWires:
         g = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({a}),
-            origin=Point(5.0, 5.0),
         )
         _attach_to_root(ctx, g)
         old_b_pos = _pin_pos(ctx, b, 1)
@@ -360,7 +354,6 @@ class TestSharedJointSurvivesDrag:
         g = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({a}),
-            origin=Point(5.0, 5.0),
         )
         _attach_to_root(ctx, g)
         # Drag a only — joint must stay where it is.
@@ -399,7 +392,6 @@ class TestNetAssignmentSurvivesGeometry:
         g = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({a, b}),
-            origin=Point(5.0, 5.0),
         )
         _attach_to_root(ctx, g)
         _drag_components(ctx, [a, b], 5.0, 5.0, drag_wire_paths=True)
@@ -439,7 +431,6 @@ class TestNetAssignmentSurvivesGeometry:
         g = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({a, b}),
-            origin=Point(5.0, 5.0),
         )
         _attach_to_root(ctx, g)
         RotateGroupCommand(group_id=g.id, delta=90).apply(ctx)

@@ -275,7 +275,6 @@ class TestFindOwnedWiresMemoisesPinWorldPos:
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({cid_a}),
-            origin=Point(5.0, 5.0),
         )
 
         # Reset counter so the test only measures the find_owned_wires call.

@@ -646,7 +646,7 @@ class TestGroupV2ToV3Migration:
             cids.append(inst.id)
         g = ComponentGroup(
             id=uuid.uuid4(), name="G",
-            component_ids=frozenset(cids), origin=Point(10, 10),
+            component_ids=frozenset(cids),
         )
         layout.groups[g.id] = g
         root = layout.groups[ROOT_GROUP_ID]

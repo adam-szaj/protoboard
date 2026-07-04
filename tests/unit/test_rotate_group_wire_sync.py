@@ -83,8 +83,6 @@ def _attach_to_root(state: _State, group: ComponentGroup) -> None:
         component_ids=root.component_ids,
         child_group_ids=root.child_group_ids | {group.id},
         exported_pins=root.exported_pins,
-        rotation=root.rotation,
-        origin=root.origin,
     )
 
 
@@ -214,7 +212,6 @@ class TestRotateGroupKeepsFragmentsAndKnotsInSync:
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({cid_a, cid_b}),
-            origin=Point(10.0, 10.0),  # bbox top-left
         )
         _attach_to_root(state, group)
 
@@ -257,11 +254,11 @@ class TestRotateGroupKeepsFragmentsAndKnotsInSync:
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({cid_a}),
-            origin=Point(10.0, 10.0),
         )
         _attach_to_root(state, group)
-        pivot = group.origin
-        assert pivot is not None
+        # Derived pivot: the top-left pad of the single member at (10,10)
+        # (the stored group origin is gone; RotateGroupCommand re-derives it).
+        pivot = Point(10.0, 10.0)
 
         before_path = list(wire.path)
         RotateGroupCommand(group_id=group.id, delta=90).apply(state)
@@ -294,7 +291,6 @@ class TestRotateGroupKeepsFragmentsAndKnotsInSync:
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({cid_a, cid_b}),
-            origin=Point(10.0, 10.0),
         )
         _attach_to_root(state, group)
         pre = list(wire.path)
@@ -324,11 +320,11 @@ class TestRotateGroupKeepsFragmentsAndKnotsInSync:
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({cid_a}),
-            origin=Point(10.0, 10.0),
         )
         _attach_to_root(state, group)
-        pivot = group.origin
-        assert pivot is not None
+        # Derived pivot: the top-left pad of the single member at (10,10)
+        # (the stored group origin is gone; RotateGroupCommand re-derives it).
+        pivot = Point(10.0, 10.0)
 
         # Single-component group with the wire entirely inside the
         # WirePinKnot's geometry — _find_internal_wires may still not
@@ -364,7 +360,6 @@ class TestRotateGroupKeepsFragmentsAndKnotsInSync:
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({cid_a, cid_b}),
-            origin=Point(10.0, 10.0),
         )
         _attach_to_root(state, group)
         RotateGroupCommand(group_id=group.id, delta=90).apply(state)
@@ -388,7 +383,6 @@ class TestRotateGroupKeepsFragmentsAndKnotsInSync:
         group = ComponentGroup(
             id=uuid.uuid4(), name="G",
             component_ids=frozenset({cid_a, cid_b}),
-            origin=Point(10.0, 10.0),
         )
         _attach_to_root(state, group)
         pre = list(wire.path)

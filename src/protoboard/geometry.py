@@ -267,6 +267,17 @@ class Transform2D:
         (rotation), ``-1`` orientation-reversing (reflection / physical flip)."""
         return self.a * self.d - self.b * self.c
 
+    def rotation_steps(self) -> int:
+        """CW 90°-steps encoded in a quantised ``det=+1`` linear part.
+
+        Reads ``k`` back from the column image of x̂ under :meth:`rotation`:
+        ``(1,0)→0, (0,-1)→1, (-1,0)→2, (0,1)→3``.  A reflection (``det<0``)
+        or a non-quantised linear part reports 0 — the identity fallback the
+        placement composer has always used.
+        """
+        a, c = round(self.a), round(self.c)
+        return {(1, 0): 0, (0, -1): 1, (-1, 0): 2, (0, 1): 3}.get((a, c), 0)
+
     def inverse(self) -> Transform2D:
         """The inverse transform (raises for a singular linear part)."""
         det = self.determinant()
