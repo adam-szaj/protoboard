@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.footprints import Footprint
     from protoboard.domain.components.instance import ComponentInstance
+    from protoboard.domain.components.package.shapes import Package
     from protoboard.domain.layout.wire import Wire
     from protoboard.domain.schematic.schematic import Schematic
 
@@ -59,6 +60,29 @@ def footprint_of(
             "component's geometry must come from its bound instance"
         )
     return inst.resolved_footprint()
+
+
+def package_of(
+    defn: ComponentDefinition,
+    inst: ComponentInstance | None,
+) -> Package | None:
+    """The variant-aware package (body) of a placed component, or ``None``.
+
+    The body-side twin of :func:`footprint_of`: delegates to
+    :meth:`ComponentInstance.resolved_package` and does NOT fall back to
+    ``defn.package`` for a missing instance — reading the definition's default
+    body for a placed part is the exact silent-wrong-body defect (a resistor
+    placed as SMD-0805 colliding via its phantom axial body). ``None`` from a
+    bound instance means the part genuinely declares no package.
+    """
+    if inst is None:
+        from protoboard.errors import UnboundInstanceError
+
+        raise UnboundInstanceError(
+            f"package_of called for {defn.name!r} with no instance; a placed "
+            "component's body must come from its bound instance"
+        )
+    return inst.resolved_package()
 
 
 def resolved_footprint_or_default(

@@ -54,6 +54,26 @@ The remaining hard-wired body looks moved into the renderer registry:
 * Devboard stays gated by `ComponentClass.DEVBOARD` (a class trait valid for
   any package) — extraction noted in docs/todo.md.
 
+### Fix: false BODY_OVERLAP for SMD variants — two collision-model defects (2026-07-04)
+
+An 0805 resistor flagged BODY_OVERLAP against a TO-220 five rasters away.
+Two independent defects compounded (3 + 2 = 5 holes of phantom footprint):
+
+* **DRC used the definition's default body, not the placed variant.** The
+  body-overlap mask came from ``defn.package`` (for `R`: the axial DIN-0207
+  default) regardless of ``instance.package_variant``. New strict helper
+  ``package_of(defn, inst)`` (the body-side twin of ``footprint_of``, backed
+  by ``ComponentInstance.resolved_package()``) now feeds the mask, the filter,
+  the placement transform, and both bendable-pin exemptions in the engine.
+* **Explicit prism dims were axis-transposed for row-along-x packages.**
+  ``Prism.bbox()`` hardcoded length→y; a TO-220 (10 mm ALONG its 3-pin row,
+  authored along x) claimed ±2 holes perpendicular to the row instead. The
+  dims now orient by the DOMINANT axis of the local pin cloud (devboards with
+  rows along y are unchanged), and the radial / SMD renderers read
+  ``(along, across)`` through the same rule (new ``lead_axis_extents``), so
+  geometry, render, and mask agree. SMD-0805/0603 masks shrink to their real
+  pad-pair footprint as a side effect.
+
 ### Footprint-option `style:` now renders (2026-07-04)
 
 A `footprints:` entry's `style:` (and the list-wide `footprint_style:`) was

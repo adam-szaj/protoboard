@@ -1521,3 +1521,121 @@ class TestDRCWirePinOffPlatedThrough:
             i for i in issues if i.code == "WIRE_PIN_OFF_PLATED_THROUGH"
         ]
         assert len(bad) == 1
+
+
+class TestDRCBodyOverlapResolvedVariant:
+    """The body-overlap mask must come from the INSTANCE-resolved package —
+    never ``defn.package`` (the default footprint option's body). Regression
+    for a placed SMD resistor colliding via its phantom axial default body
+    with a TO-220 five rasters away."""
+
+    @staticmethod
+    def _build(spec_leads: list, dims: dict, name: str):
+        from protoboard.domain.components.package.loader import build_package
+        return build_package(
+            {
+                "shape": "prism",
+                "dims": dims,
+                "bend": 0,
+                "leads": {
+                    "direction": [0, 0, -1],
+                    "body_offset": {"unit": 2.5, "value": spec_leads},
+                    "board_offset": "default",
+                },
+            },
+            name,
+        )
+
+    def _smd_resistor_defn_and_families(self):
+        """A part whose DEFAULT body is a long axial, offering an SMD variant."""
+        from protoboard.domain.components.package import (
+            PackageFamily,
+            PackageFootprint,
+            PackageVariant,
+        )
+        axial = self._build([[4, 0]], {"width": 2.5, "length": 7.5}, "AXIAL")
+        smd = self._build([[1, 0]], {"width": 1.25, "length": 2.0}, "SMD")
+        families = {
+            "smd-0805": PackageFamily(
+                family_id="smd-0805", label="SMD 0805",
+                variants=(PackageVariant(variant_id="typ", label="typ",
+                                         package=smd),),
+            )
+        }
+        defn = ComponentDefinition(
+            name="R",
+            footprint=PackageFootprint(axial),  # type: ignore[arg-type]
+            pin_names={},
+            package=axial,  # type: ignore[arg-type]
+        )
+        return defn, families
+
+    def _check(self, layout, comps, insts):
+        return DRCEngine().check(
+            board=_perfboard(16, 16), schematic=Schematic(nets={}),
+            layout=layout, components=comps, instances=insts,
+        )
+
+    def test_smd_variant_does_not_collide_via_phantom_default_body(
+        self,
+    ) -> None:
+        defn_r, families = self._smd_resistor_defn_and_families()
+        defn_u = _prism_defn()
+        r = bind(
+            ComponentInstance.new(definition_ref="R", refdes="R1", value="",
+                                  package_variant="smd-0805/typ"),
+            defn_r, families,
+        )
+        u = bind(ComponentInstance.new(definition_ref="U", refdes="U1",
+                                       value=""), defn_u, {})
+        insts = {r.id: r, u.id: u}
+        pls = {
+            # SMD chip on pads (1,1)-(2,1); the phantom axial default would
+            # reach 3 holes further right.
+            r.id: ComponentPlacement(component_id=r.id, position=Point(1, 1),
+                                     rotation=0, side="top"),
+            u.id: ComponentPlacement(component_id=u.id, position=Point(4, 1),
+                                     rotation=0, side="top"),
+        }
+        layout = Layout(placements=pls, wires=WireCollection())
+        issues = self._check(layout, {"R": defn_r, "U": defn_u}, insts)
+        assert [i for i in issues if i.code == "BODY_OVERLAP"] == []
+
+    def test_radial_prism_mask_lies_along_the_pin_row(self) -> None:
+        """A TO-220-style body (10 mm ALONG its 3-pin row, 4.5 mm across) must
+        not claim holes two rows away perpendicular to the row — and must
+        claim them along the row."""
+        from protoboard.domain.components.package import PackageFootprint
+        to220ish = self._build([[1, 0], [1, 0]],
+                               {"width": 4.5, "length": 10.0}, "TO220ISH")
+        defn_t = ComponentDefinition(
+            name="Q",
+            footprint=PackageFootprint(to220ish),  # type: ignore[arg-type]
+            pin_names={},
+            package=to220ish,  # type: ignore[arg-type]
+        )
+        defn_u = _prism_defn()
+
+        def place(upos: Point):
+            t = bind(ComponentInstance.new(definition_ref="Q", refdes="Q1",
+                                           value=""), defn_t, {})
+            u = bind(ComponentInstance.new(definition_ref="U", refdes="U1",
+                                           value=""), defn_u, {})
+            pls = {
+                t.id: ComponentPlacement(component_id=t.id,
+                                         position=Point(4, 4),
+                                         rotation=0, side="top"),
+                u.id: ComponentPlacement(component_id=u.id, position=upos,
+                                         rotation=0, side="top"),
+            }
+            layout = Layout(placements=pls, wires=WireCollection())
+            return self._check(layout, {"Q": defn_t, "U": defn_u},
+                               {t.id: t, u.id: u})
+
+        # Two rows BELOW the pin row (outside the 4.5 mm body depth): clean.
+        below = [i for i in place(Point(4, 7))
+                 if i.code == "BODY_OVERLAP"]
+        assert below == []
+        # ALONG the row just past the last pin (inside the 10 mm face): flags.
+        along = [i for i in place(Point(7, 4)) if i.code == "BODY_OVERLAP"]
+        assert len(along) == 1

@@ -166,9 +166,10 @@ class PrismRenderer(PackageRenderer):
         No leads and no pin-1 marker — a chip carries neither.
         """
         mm = theme.raster_pitch_mm
-        bb = pkg.bbox()
-        body_w = bb.width    # across the terminal axis (package width)
-        body_len = bb.height  # along the terminal axis (package length)
+        from protoboard.domain.components.package.shapes import (
+            lead_axis_extents,
+        )
+        body_len, body_w = lead_axis_extents(pkg)  # (along, across) the pads
 
         p1, p2 = positions[0], positions[1]
         axis = p2 - p1  # Point − Point → Vector

@@ -27,7 +27,7 @@ from protoboard.domain.components.package.kind import is_generic_package
 from protoboard.domain.components.package.reach import is_pin_bendable
 from protoboard.domain.connectivity.graph import ConnectivityGraph
 from protoboard.domain.layout.layout import Layout
-from protoboard.domain.layout.pad_conflict import footprint_of
+from protoboard.domain.layout.pad_conflict import footprint_of, package_of
 from protoboard.domain.layout.placement import pin_world_position
 from protoboard.domain.schematic.net import PinRef
 from protoboard.domain.schematic.schematic import Schematic
@@ -36,6 +36,7 @@ from protoboard.services.routing.astar import _segs_cross
 
 if TYPE_CHECKING:
     from protoboard.domain.board.pad_state import PadIndex
+    from protoboard.domain.components.package.shapes import Package
     from protoboard.domain.layout.placement import ComponentPlacement
 
 _log = structlog.get_logger(__name__)
@@ -306,8 +307,9 @@ def _check_overlap(
             defn = components.get(inst.definition_ref)
             if defn is None:
                 return False
-            if defn.package is not None and not is_generic_package(defn.package):
-                return is_pin_bendable(defn.package, pin_num)
+            pkg = package_of(defn, inst)
+            if pkg is not None and not is_generic_package(pkg):
+                return is_pin_bendable(pkg, pin_num)
             return pin_num in defn.bendable_pins
         if all(_is_bendable(cid, p) for cid, p in unshared):
             continue
@@ -333,29 +335,31 @@ def _check_overlap(
 
 
 def _placed_pad_mask(
+    package: "Package",
     defn: ComponentDefinition,
     placement: "ComponentPlacement",
 ) -> dict[Point, PadCell]:
     """World-space side-aware pad mask for a placed packaged component.
 
-    ``build_pad_mask`` works in the package's local frame (pin 1 at the origin,
-    no rotation); we transform each hole into world coordinates with the same
-    ``placement_transform`` as ``pin_world_position`` — the bottom-side flip
-    reflection about the package axis, rotation, translation. ``mount_side`` is
-    the placement side so the mask lights the correct PIN_/BODY_ side bits;
-    ``body_blocks`` follows the definition flag so a flush/metal body lights the
-    pin-side bits too.
+    *package* is the component's **instance-resolved** body (``package_of`` —
+    never ``defn.package``, whose default-footprint body may differ from the
+    variant actually placed). ``build_pad_mask`` works in the package's local
+    frame (pin 1 at the origin, no rotation); we transform each hole into
+    world coordinates with the same ``placement_transform`` as
+    ``pin_world_position`` — the bottom-side flip reflection about the package
+    axis, rotation, translation. ``mount_side`` is the placement side so the
+    mask lights the correct PIN_/BODY_ side bits; ``body_blocks`` follows the
+    definition flag so a flush/metal body lights the pin-side bits too.
     """
-    assert defn.package is not None
     side: LayerId = "bottom" if placement.side == "bottom" else "top"
     local = build_pad_mask(
-        defn.package,
+        package,
         mount_side=side,
         body_blocks=getattr(defn, "body_blocks_routing", False),
     )
     from protoboard.domain.components.package.adapter import PackageFootprint
     from protoboard.domain.layout.placement import placement_transform
-    to_world = placement_transform(PackageFootprint(defn.package), placement)
+    to_world = placement_transform(PackageFootprint(package), placement)
     out: dict[Point, PadCell] = {}
     for hole, bits in local.items():
         world = to_world.apply(hole)
@@ -382,21 +386,28 @@ def _check_body_overlap(
     only shared bits are pin bits, and whose pins are all bendable or shared,
     is intentional and is not re-reported. Bodies (BODY_/blocking) always flag.
     """
-    placed = [
-        (cid, pl, components[instances[cid].definition_ref])
-        for cid, pl in layout.placements.items()
-        if cid in instances
-        and instances[cid].definition_ref in components
-        and components[instances[cid].definition_ref].package is not None
-        and not is_generic_package(
-            components[instances[cid].definition_ref].package
-        )
-    ]
+    # The mask geometry comes from the INSTANCE-resolved package (package_of):
+    # the definition's default body may be a different footprint option than
+    # the variant actually placed (an SMD chip must not collide via the
+    # phantom axial body of its part's default option).
+    placed: list[tuple[uuid.UUID, ComponentPlacement,
+                       ComponentDefinition, Package]] = []
+    for cid, pl in layout.placements.items():
+        inst = instances.get(cid)
+        if inst is None:
+            continue
+        defn = components.get(inst.definition_ref)
+        if defn is None:
+            continue
+        pkg = package_of(defn, inst)
+        if pkg is None or is_generic_package(pkg):
+            continue
+        placed.append((cid, pl, defn, pkg))
     if len(placed) < 2:
         return []
 
     masks: dict[uuid.UUID, dict[Point, PadCell]] = {
-        cid: _placed_pad_mask(defn, pl) for cid, pl, defn in placed
+        cid: _placed_pad_mask(pkg, defn, pl) for cid, pl, defn, pkg in placed
     }
     _PIN_BITS = PadCell.PIN | PadCell.PIN_TOP | PadCell.PIN_BOTTOM
     _BODY_BITS = PadCell.BODY_TOP | PadCell.BODY_BOTTOM
@@ -420,12 +431,13 @@ def _check_body_overlap(
         if pin_num in pl.shared_pins:
             return True
         defn = components[instances[cid].definition_ref]
-        if defn.package is not None and not is_generic_package(defn.package):
-            return is_pin_bendable(defn.package, pin_num)
+        pkg = package_of(defn, instances[cid])
+        if pkg is not None and not is_generic_package(pkg):
+            return is_pin_bendable(pkg, pin_num)
         return pin_num in defn.bendable_pins
 
     issues: list[DRCIssue] = []
-    ids = [cid for cid, _, _ in placed]
+    ids = [cid for cid, _, _, _ in placed]
     for i in range(len(ids)):
         for j in range(i + 1, len(ids)):
             a, b = ids[i], ids[j]

@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from protoboard.domain.components.definition import ComponentDefinition
     from protoboard.domain.components.footprints import Footprint
     from protoboard.domain.components.package.family import PackageFamily
+    from protoboard.domain.components.package.shapes import Package
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +98,34 @@ class ComponentInstance:
             self, definition=definition, families=families
         )
 
+    def resolved_package(self) -> "Package | None":
+        """The *resolved* package of this placed instance, or ``None``.
+
+        The single source of truth for "the body this placed component
+        actually carries": the instance's ``package_variant``, then the
+        definition's family ref, then its inline package (see
+        ``resolve_component_package``). Requires :meth:`bind`; an unbound
+        instance raises :class:`~protoboard.errors.UnboundInstanceError` —
+        falling back to ``defn.package`` in a placement context is the exact
+        silent-wrong-body bug this accessor removes. ``None`` means the part
+        genuinely declares no package.
+        """
+        if self.definition is None:
+            from protoboard.errors import UnboundInstanceError
+
+            raise UnboundInstanceError(
+                f"ComponentInstance {self.refdes!r} (def "
+                f"{self.definition_ref!r}) is not bound to a definition; call "
+                "bind() before resolving its geometry"
+            )
+        from protoboard.domain.components.package.component_package import (
+            resolve_component_package,
+        )
+
+        return resolve_component_package(
+            self.definition, self, self.families or {}
+        )
+
     def resolved_footprint(self) -> "Footprint":
         """The footprint of this instance's *resolved* package variant.
 
@@ -114,21 +143,7 @@ class ComponentInstance:
         deliberate: unbound = programming error (raise); no package = correct
         default (use ``defn.footprint``).
         """
-        if self.definition is None:
-            from protoboard.errors import UnboundInstanceError
-
-            raise UnboundInstanceError(
-                f"ComponentInstance {self.refdes!r} (def "
-                f"{self.definition_ref!r}) is not bound to a definition; call "
-                "bind() before resolving its geometry"
-            )
-        from protoboard.domain.components.package.component_package import (
-            resolve_component_package,
-        )
-
-        pkg = resolve_component_package(
-            self.definition, self, self.families or {}
-        )
+        pkg = self.resolved_package()
         if pkg is not None:
             from protoboard.domain.components.package.adapter import (
                 PackageFootprint,
@@ -137,6 +152,7 @@ class ComponentInstance:
             return PackageFootprint(pkg)
         # Bound, but the part has no package/variant — its definition footprint
         # IS its real default geometry, not a silent fallback.
+        assert self.definition is not None  # resolved_package raised otherwise
         return self.definition.footprint
 
     @staticmethod

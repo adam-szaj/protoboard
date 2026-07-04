@@ -423,7 +423,11 @@ class PackageRenderer(BodyShape):
         generic silhouette); round shapes override with their radius.
         """
         del mm  # used by the round-shape overrides (mm → holes conversion)
-        return self._pkg.bbox().height / 2.0
+        from protoboard.domain.components.package.shapes import (
+            lead_axis_extents,
+        )
+        along, _across = lead_axis_extents(self._pkg)
+        return along / 2.0
 
     def _body_placement(self, positions: list[Point]) -> QTransform:
         """Local→world placement for the silhouette (pin 1 at the local origin).
@@ -498,9 +502,11 @@ class PackageRenderer(BodyShape):
         lets a polar override place the ``-`` marker.
         """
         del neg_pin  # only round polar silhouettes mark the negative lead
+        from protoboard.domain.components.package.shapes import (
+            lead_axis_extents,
+        )
         mm = theme.raster_pitch_mm
-        bb = self._pkg.bbox()
-        length_r, width_r = bb.height, bb.width
+        length_r, width_r = lead_axis_extents(self._pkg)
         angle_deg = (p2 - p1).angle_deg()
         rect_path = QPainterPath()
         r = self._effective_corner_radius_mm() / mm

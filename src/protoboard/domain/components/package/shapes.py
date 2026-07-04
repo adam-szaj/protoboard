@@ -234,6 +234,22 @@ def _require(value: float | None, name: str) -> float:
     return value
 
 
+def lead_axis_extents(package: Package) -> tuple[float, float]:
+    """Body bbox extents in holes, split ``(along, across)`` the pin-row axis.
+
+    "Along" is the DOMINANT axis of the pin cloud in the package-local frame
+    (a tie keeps the historical along=y convention). The one rule shared by
+    the radial / SMD renderers and any consumer that needs body length vs
+    width *relative to the leads* — ``Prism.bbox`` orients its explicit dims
+    by the same rule, so geometry and mask stay consistent.
+    """
+    bb = package.bbox()
+    pb = _pins_bbox(package.pin_positions())
+    if pb.width > pb.height:
+        return bb.width, bb.height
+    return bb.height, bb.width
+
+
 def _pins_bbox(positions: list[Point]) -> Rect:
     xs = [p.x for p in positions]
     ys = [p.y for p in positions]
@@ -498,10 +514,17 @@ class Prism(Package):
         # An explicit body is W (across the rows) × L (along the pin axis),
         # centred on the pin cloud — so a DIP body sits between the rows with
         # the legs showing, rather than anchored at pin 1 and overlapping them.
+        # "Along the pin axis" is the DOMINANT axis of the pin cloud in the
+        # local frame (a devboard's rows run along y, a TO-220's / SMD chip's
+        # single row along x) — L goes on that axis, W across it. A square or
+        # empty cloud keeps the historical W×L = x×y mapping.
         # ``body_offset_mm`` shifts the centre for asymmetric parts.
         w = self.width_mm / RASTER_MM
         h = self.length_mm / RASTER_MM
-        centre = _pins_bbox(self.pin_positions()).center
+        pb = _pins_bbox(self.pin_positions())
+        if pb.width > pb.height:
+            w, h = h, w  # pin row runs along x → length on x, width on y
+        centre = pb.center
         off = self.body_offset_mm
         return Rect(
             centre.x + off.x / RASTER_MM - w / 2.0,
