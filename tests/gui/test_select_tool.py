@@ -947,6 +947,114 @@ class TestGroupDrag:
         assert session.layout.placements[b.id].position == b0
 
 
+class TestFloatTransformGroupFrames:
+    """Armed float-transform on a group whose transform is non-identity.
+
+    Placements store LOCAL (group-frame) poses and compose to WORLD on read,
+    so a world-frame preview op must be conjugated into the member's local
+    frame (local' = W⁻¹∘O∘W · local).  These tests drive the preview AND the
+    commit and assert the world pose follows the op exactly — preview ==
+    commit, no double-compose, cancel restores the pre-arm pose.
+    """
+
+    def _rotated_group(self, board_view, session):  # type: ignore[no-untyped-def]
+        from protoboard.geometry import Transform2D
+
+        a = _place(board_view, session, 1.5, 1.5)
+        b = _place(board_view, session, 3.5, 1.5)
+        gid = _make_group(session, [a.id, b.id])
+        tool = _v2(board_view)
+        tool._selected_group_id = gid
+        tool._rotate_multi(delta=90)  # folds R90 into group.transform
+        assert session.layout.groups[gid].transform != Transform2D.identity()
+        # NOTE: do NOT re-assign _selected_group_id here — the setter goes
+        # through set_many, which TOGGLES an already-selected group off.
+        return a, b, gid, tool
+
+    def test_armed_move_nudge_shifts_world_by_exactly_one_cell(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        a, b, _gid, tool = self._rotated_group(board_view, session)
+        a0 = session.layout.placements[a.id].position
+        b0 = session.layout.placements[b.id].position
+        _key(tool, Qt.Key.Key_G)  # arm float-move on the group
+        assert tool._armed is not None
+        _key(tool, Qt.Key.Key_Right)  # nudge (1, 0) — a WORLD-frame step
+        a1 = session.layout.placements[a.id].position
+        b1 = session.layout.placements[b.id].position
+        # Preview: both members shifted by exactly (1, 0) in world coords —
+        # not teleported / rotated through the group transform.
+        assert (a1.x - a0.x, a1.y - a0.y) == (1.0, 0.0)
+        assert (b1.x - b0.x, b1.y - b0.y) == (1.0, 0.0)
+        _key(tool, Qt.Key.Key_Return)  # accept
+        a2 = session.layout.placements[a.id].position
+        b2 = session.layout.placements[b.id].position
+        # Commit produces the same world pose the preview showed.
+        assert (a2.x, a2.y) == (a1.x, a1.y)
+        assert (b2.x, b2.y) == (b1.x, b1.y)
+        session.stack.undo(session)  # type: ignore[arg-type]
+        assert session.layout.placements[a.id].position == a0
+        assert session.layout.placements[b.id].position == b0
+
+    def test_armed_move_cancel_restores_world_pose(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        a, b, _gid, tool = self._rotated_group(board_view, session)
+        a0 = session.layout.placements[a.id].position
+        b0 = session.layout.placements[b.id].position
+        _key(tool, Qt.Key.Key_G)
+        _key(tool, Qt.Key.Key_Right)
+        _key(tool, Qt.Key.Key_Escape)  # cancel — restore the pre-arm pose
+        assert session.layout.placements[a.id].position == a0
+        assert session.layout.placements[b.id].position == b0
+
+    def test_armed_rotate_step_keeps_world_positions_orbiting_pivot(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # Per-object armed rotate on a rotated group's member: the member
+        # rotates +90 about its own WORLD centre — its world position must
+        # not move at all.
+        a, _b, _gid, tool = self._rotated_group(board_view, session)
+        a0 = session.layout.placements[a.id].position
+        r0 = session.layout.placements[a.id].rotation
+        _key(tool, Qt.Key.Key_R)  # arm rotate (group selected)
+        assert tool._armed is not None
+        _key(tool, Qt.Key.Key_R)  # step +90 (per-object, own centre)
+        a1 = session.layout.placements[a.id].position
+        r1 = session.layout.placements[a.id].rotation
+        assert (a1.x, a1.y) == (a0.x, a0.y)
+        assert r1 == (r0 + 90) % 360
+
+    def test_nested_group_member_shifts_by_delta(
+        self, board_view: BoardView, session: EditorSession
+    ) -> None:
+        # A child group inside a rotated parent: the child's member still
+        # shifts by exactly the world delta (the conjugation walks the full
+        # ancestor chain).
+        from protoboard.domain.layout.group import ComponentGroup
+
+        a = _place(board_view, session, 1.5, 1.5)
+        b = _place(board_view, session, 3.5, 1.5)
+        child_gid = _make_group(session, [b.id], name="child")
+        parent_gid = _make_group(session, [a.id], name="parent")
+        parent = session.layout.groups[parent_gid]
+        session.layout.groups[parent_gid] = ComponentGroup(
+            id=parent_gid, name=parent.name,
+            component_ids=parent.component_ids,
+            child_group_ids=frozenset({child_gid}),
+        )
+        tool = _v2(board_view)
+        tool._selected_group_id = parent_gid
+        tool._rotate_multi(delta=90)
+        b0 = session.layout.placements[b.id].position
+        _key(tool, Qt.Key.Key_G)
+        assert tool._armed is not None
+        _key(tool, Qt.Key.Key_Right)
+        _key(tool, Qt.Key.Key_Return)
+        b1 = session.layout.placements[b.id].position
+        assert (b1.x - b0.x, b1.y - b0.y) == (1.0, 0.0)
+
+
 def _make_bendable(session: EditorSession, comp_id, pin: int = 1) -> None:
     """Give *comp_id*'s definition a free bendable lead on *pin* (in-place)."""
     from protoboard.domain.components.definition import PinBendSpec

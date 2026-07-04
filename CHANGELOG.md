@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Group scene-graph: float-transform frame fix + group flip in the GUI (2026-07-04)
+
+* **Float-transform preview/commit now frame-correct for transformed groups.**
+  `FloatTransform` read composed (world) placements and wrote them back as
+  locals, so on any group with a non-identity transform (after a group
+  rotate/flip) a `[G]` nudge teleported members, `[Esc]` corrupted the pose
+  and a rotate step over-rotated. Every op is now a world-frame rigid
+  transform conjugated into each member's local frame
+  (`local' = (W⁻¹∘O∘W)·local`); snapshot/cancel/commit diff local placements.
+  Loose parts and identity groups behave exactly as before; nested groups
+  compose through the full ancestor chain.
+* **Group flip is reachable from the GUI.** With a group selected, Flip
+  (`Alt+R`) emits `FlipGroupCommand` (rigid-body mirror about the pin
+  centroid) instead of flipping 2-pin members individually.
+
 ### Body-variant picker restored — offer derived from the explicit body (2026-07-04)
 
 The library/properties body picker offers alternatives again (it was stubbed

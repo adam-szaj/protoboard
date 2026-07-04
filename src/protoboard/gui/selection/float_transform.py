@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from protoboard.domain.commands.base import Command, ComponentState
     from protoboard.domain.layout.layout import Layout
     from protoboard.domain.layout.wire import Fragment
+    from protoboard.geometry import Transform2D
     from protoboard.gui.drag_preferences import DragPreferences
     from protoboard.gui.selection.drag_controller import DragContext
     from protoboard.gui.selection.drop_resolution import ResolveFn
@@ -196,10 +197,14 @@ class FloatTransform:
         return frozenset()
 
     def _snapshot_original(self) -> _Original:
+        # Placements are snapshotted in their stored LOCAL (group-relative)
+        # frame — writes to the collection store locals verbatim, so restore
+        # and the commit command must speak the same frame (a composed world
+        # read written back double-composes for any non-identity group).
         layout = self._layout
         placements: dict[uuid.UUID, ComponentPlacement] = {}
         for cid in self._comp_ids:
-            pl = layout.placements.get(cid)
+            pl = layout.placements.local_get(cid)
             if isinstance(pl, ComponentPlacement):
                 placements[cid] = pl.copy()
         wire_paths: dict[uuid.UUID, list[Point]] = {}
@@ -314,60 +319,84 @@ class FloatTransform:
         return True
 
     # -- operations (mutate the live layout off-stack) ----------------------
+    #
+    # Every op is a WORLD-frame rigid transform O.  Placements store the
+    # member's LOCAL (group-relative) pose and compose to world on read, so
+    # writing the op means conjugating it into each member's frame:
+    # ``local' = (W⁻¹ ∘ O ∘ W) · local`` where W is the member's composed
+    # ancestor-group transform.  For a loose component (or an identity
+    # group) W = I and this degenerates to applying O directly — the
+    # historical behaviour.  Wires are stored in world coordinates, so their
+    # geometry takes O verbatim.
 
-    def _rotate(self, delta: int) -> None:
-        from protoboard.domain.commands.group_cmds import (
-            rotate_components_around,
-        )
+    def _write_world_op(self, cid: uuid.UUID, op: Transform2D) -> None:
+        """Store the local-frame equivalent of world op *op* for member *cid*."""
+        from protoboard.domain.layout.group_tree import GroupTree
+        from protoboard.domain.layout.placement import compose_placement
 
-        state = cast("ComponentState", self._ctx)
-        wire_ids = self._affected_wire_ids()
-        if self._pivot is not None:
-            rotate_components_around(
-                state, self._comp_ids, self._pivot, delta, wire_ids=wire_ids,
-            )
-        else:
-            # Per-object: rotate each about its own current centre.
-            for cid in self._comp_ids:
-                pl = self._layout.placements.get(cid)
-                if isinstance(pl, ComponentPlacement):
-                    rotate_components_around(
-                        state, frozenset({cid}), pl.position, delta,
-                        wire_ids=wire_ids,
-                    )
-        self._emit_preview()
+        layout = self._layout
+        local = layout.placements.local_get(cid)
+        if not isinstance(local, ComponentPlacement):
+            return
+        w = GroupTree(getattr(layout, "groups", {})).world_transform(cid)
+        conj = w.inverse().compose(op).compose(w)
+        layout.placements[cid] = compose_placement(conj, local).copy()
 
-    def _move(self, dx: float, dy: float) -> None:
+    def _transform_wires(self, op: Transform2D) -> None:
+        """Apply world op *op* to the owned wires' geometry + free endpoints."""
         from protoboard.domain.layout.wire import transform_wire_geometry
 
         layout = self._layout
-        delta = Vector(dx, dy)
-        for cid in self._comp_ids:
-            pl = layout.placements.get(cid)
-            if isinstance(pl, ComponentPlacement):
-                moved = pl.copy()
-                moved.position = pl.position + delta
-                layout.placements[cid] = moved
         for wid in self._affected_wire_ids():
             wire = layout.wires.get(wid)
             if wire is None:
                 continue
-            transform_wire_geometry(wire, lambda p: p + delta)
+            transform_wire_geometry(wire, op.apply)
             for ref in (wire.a, wire.b):
                 if ref is None:
                     continue
                 knot = layout.knots.get(ref.id)
                 pos = getattr(knot, "position", None)
                 if isinstance(pos, Point) and knot is not None:
-                    layout.knots[ref.id] = knot.moved_to(pos + delta)
-        layout.invalidate_interior_vertex_index()
+                    layout.knots[ref.id] = knot.moved_to(op.apply(pos))
+
+    def _rotate(self, delta: int) -> None:
+        from protoboard.domain.commands.group_cmds import _rotation_about
+
+        if self._pivot is not None:
+            op = _rotation_about(self._pivot, delta)
+            for cid in self._comp_ids:
+                self._write_world_op(cid, op)
+            self._transform_wires(op)
+        else:
+            # Per-object: rotate each about its own current WORLD centre
+            # (wires follow each member's op — parity with the historical
+            # per-cid rotate_components_around calls).
+            for cid in self._comp_ids:
+                pl = self._layout.placements.get(cid)
+                if not isinstance(pl, ComponentPlacement):
+                    continue
+                op = _rotation_about(pl.position, delta)
+                self._write_world_op(cid, op)
+                self._transform_wires(op)
+        self._layout.invalidate_interior_vertex_index()
+        self._emit_preview()
+
+    def _move(self, dx: float, dy: float) -> None:
+        from protoboard.geometry import Transform2D
+
+        op = Transform2D.translation(Vector(dx, dy))
+        for cid in self._comp_ids:
+            self._write_world_op(cid, op)
+        self._transform_wires(op)
+        self._layout.invalidate_interior_vertex_index()
         self._emit_preview()
 
     def _flip(self) -> None:
         """Flip 2-pin members in place (keep the existing pin-count gate)."""
         layout = self._layout
         for cid in self._comp_ids:
-            pl = layout.placements.get(cid)
+            pl = layout.placements.local_get(cid)
             if not isinstance(pl, ComponentPlacement):
                 continue
             defn = self._defn_for(cid)
@@ -410,7 +439,7 @@ class FloatTransform:
     def _is_transformed(self) -> bool:
         """True when current placements differ from the original snapshot."""
         for cid, orig in self._original.placements.items():
-            cur = self._layout.placements.get(cid)
+            cur = self._layout.placements.local_get(cid)
             if not isinstance(cur, ComponentPlacement):
                 continue
             if (
@@ -470,8 +499,10 @@ class FloatTransform:
         members: dict[
             uuid.UUID, tuple[ComponentPlacement, ComponentPlacement]
         ] = {}
+        # Local-frame diff — TransformDragSetCommand writes placements
+        # verbatim (i.e. locals), so both ends of the snapshot must be local.
         for cid, old_pl in self._original.placements.items():
-            new_pl = layout.placements.get(cid)
+            new_pl = layout.placements.local_get(cid)
             if isinstance(new_pl, ComponentPlacement):
                 members[cid] = (old_pl, new_pl.copy())
         if not members:

@@ -790,7 +790,23 @@ converting. Do the conversion as its own change with the parity corpus green
 (`test_pin_world_parity`, `test_project_01/02`, `gold_performance_test`,
 `tangled_*`).
 
-### 2. The float-transform live *preview* never routes through the group transform
+### 2. The float-transform live *preview* never routes through the group transform — DONE (2026-07-04)
+
+**Fixed (this branch).** The real defect was a frame mismatch: `FloatTransform`
+read *composed world* placements and wrote them back into the *local* store, so
+any group with a non-identity transform (i.e. after any group rotate/flip)
+double-composed — a `[G]` nudge teleported members, cancel corrupted the pose,
+a rotate step over-rotated (empirically confirmed by the new tests before the
+fix). Now every op is a world-frame rigid transform O conjugated into each
+member's local frame (`local' = (W⁻¹∘O∘W)·local`, W = the composed
+ancestor-group transform); snapshot / cancel / commit diff LOCAL placements
+(`TransformDragSetCommand` writes locals verbatim); wires stay world-frame.
+For loose parts / identity groups W = I and behaviour is unchanged.  Nested
+groups fall out of the ancestor-chain W.  Guarded by
+`tests/gui/test_select_tool.py::TestFloatTransformGroupFrames` (preview ==
+commit, cancel restores, nested member shifts by the exact world delta).
+
+Original entry (kept for context):
 
 `gui/selection/float_transform.py` `_rotate` / `_move` / `_flip` (~:318/:340/:366)
 mutate member placements directly off-stack to draw the **drag preview**; they do
