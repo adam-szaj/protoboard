@@ -68,7 +68,7 @@ class _MiniLibrary:
 
 def _connector_lib() -> _MiniLibrary:
     """SIL2 connector definition keyed under ``CONN_1x2``."""
-    defn = ComponentDefinition(
+    defn = ComponentDefinition.from_footprint(
         name="CONN_1x2",
         footprint=SIL(2),
         pin_names={1: "1", 2: "2"},
@@ -107,7 +107,7 @@ def _build_two_connectors_with_wires(
     wire1 connects pins #1 of both connectors and wire2 connects pins #2.
     Both wires are routed on *first_side* with the requested insulation.
     """
-    defn = ComponentDefinition(
+    defn = ComponentDefinition.from_footprint(
         name="CONN_1x2", footprint=SIL(2), pin_names={1: "1", 2: "2"},
     )
     layout = Layout(placements={}, wires=WireCollection())
@@ -132,10 +132,10 @@ def _build_two_connectors_with_wires(
     )
 
     # Pin world positions.
-    a_pin1 = pin_world_position(defn.footprint, layout.placements[inst_a.id], 1)
-    a_pin2 = pin_world_position(defn.footprint, layout.placements[inst_a.id], 2)
-    b_pin1 = pin_world_position(defn.footprint, layout.placements[inst_b.id], 1)
-    b_pin2 = pin_world_position(defn.footprint, layout.placements[inst_b.id], 2)
+    a_pin1 = pin_world_position(defn.default_footprint(), layout.placements[inst_a.id], 1)
+    a_pin2 = pin_world_position(defn.default_footprint(), layout.placements[inst_a.id], 2)
+    b_pin1 = pin_world_position(defn.default_footprint(), layout.placements[inst_b.id], 1)
+    b_pin2 = pin_world_position(defn.default_footprint(), layout.placements[inst_b.id], 2)
 
     # PinKnots for endpoint anchoring.
     pka1 = layout.get_or_create_pin_knot(PinRef(inst_a.id, 1))

@@ -32,7 +32,7 @@ from protoboard.geometry import Point
 
 
 def _defn() -> ComponentDefinition:
-    return ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "1", 2: "2"})
+    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "1", 2: "2"})
 
 
 def _pin_knot(component_id: uuid.UUID, pin_number: int) -> PinKnot:

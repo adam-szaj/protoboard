@@ -46,7 +46,7 @@ def _perfboard(rows: int, cols: int) -> Board:
 
 
 def _sil2_def(name: str = "COMP") -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name=name,
         footprint=SIL(n=2),
         pin_names={1: "A", 2: "B"},
@@ -336,7 +336,7 @@ class TestAutorouter:
 
         board = _perfboard(8, 10)
         fp = DIL(n=8, pitch=1.0, rows_spacing=3.0)
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="DIP8", footprint=fp, pin_names={i: str(i) for i in range(1, 9)}
         )
         cid = uuid.uuid4()
@@ -379,7 +379,7 @@ class TestAutorouter:
 
         board = _perfboard(8, 10)
         fp = DIL(n=8, pitch=1.0, rows_spacing=3.0)
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="DIP8", footprint=fp, pin_names={i: str(i) for i in range(1, 9)}
         )
         cid = uuid.uuid4()

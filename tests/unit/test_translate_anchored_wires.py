@@ -63,7 +63,7 @@ def _perfboard(rows: int = 10, cols: int = 10) -> Board:
 
 
 def _defn(name: str, n: int = 2) -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name=name,
         footprint=SIL(n),
         pin_names={i: str(i) for i in range(1, n + 1)},
@@ -111,7 +111,7 @@ def _add_pin_anchored_wire(
     inst = state.instances[comp_id]
     defn = state.components[inst.definition_ref]
     from protoboard.domain.layout.placement import pin_world_position
-    start = pin_world_position(defn.footprint, pl, pin_num)
+    start = pin_world_position(defn.default_footprint(), pl, pin_num)
     wire = Wire(
         id=uuid.uuid4(),
         path=[start, end],

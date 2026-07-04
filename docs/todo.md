@@ -129,20 +129,21 @@ arg (or a `frozenset[PinRef]`), thread it through
 `NetsEditorPanel.sync_selection` select just the matching `f"{cid}:{pin}"` row.
 Keep the existing 3-arg slots working (default the pin arg to None).
 
-## HARD RULE — no `defn.footprint` for placed components (2026-06-30)
+## HARD RULE — no definition-default geometry for placed components (2026-06-30)
 
-Any `defn.footprint` used for a component that is *placed on the board* is a
-**critical bug**: a placed component always has a bound instance, and its real
-package/footprint is the chosen variant (`inst.resolved_footprint()` /
-`pad_conflict.footprint_of(defn, inst)` — strict; or
-`resolved_footprint_or_default(defn, inst)` where unbound is legitimate).
-Pin *count* is variant-invariant (verified across all builtin definitions);
-only pin *world positions* diverge, so geometry reads are the danger. The
-2026-06-30 audit repointed every placed-component site; the rule stays here
-so new code doesn't regress. Legitimate `defn.footprint` uses: the documented
-no-package default (`instance.py`), the explicit unbound-instance branch
-(`pad_state.py`), the picker over the `defn.footprints` *list*, and the BOM
-type name.
+Any definition-default geometry used for a component that is *placed on the
+board* is a **critical bug**: a placed component always has a bound instance,
+and its real package/footprint is the chosen variant
+(`inst.resolved_footprint()` / `pad_conflict.footprint_of(defn, inst)` —
+strict; or `resolved_footprint_or_default(defn, inst)` where unbound is
+legitimate). Pin *count* is variant-invariant (verified across all builtin
+definitions); only pin *world positions* diverge, so geometry reads are the
+danger. The 2026-06-30 audit repointed every placed-component site.
+**2026-07-04: the `defn.footprint` field was removed entirely** — the default
+geometry is `defn.package` (required), and the few legitimate instance-less
+consumers call `defn.default_footprint()`, whose name makes the intent
+auditable. New code must never call `default_footprint()` with an instance in
+scope.
 
 ## Group flip — armed FlipMode UX (added 2026-07-04)
 

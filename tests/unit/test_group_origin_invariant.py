@@ -72,7 +72,7 @@ class _State:
 
 
 def _resistor_defn() -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"},
     )
 

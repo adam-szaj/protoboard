@@ -703,7 +703,7 @@ class TestSimplifyNoNewPinContact:
             rows=rows, cols=cols, row_gap=0, col_gap=0,
         ))
         from tests.instance_utils import bind
-        defn = ComponentDefinition(name="X", footprint=SIL(1), pin_names={})
+        defn = ComponentDefinition.from_footprint(name="X", footprint=SIL(1), pin_names={})
         inst = bind(
             ComponentInstance.new(definition_ref="X", refdes="X1", value=""),
             defn, {},

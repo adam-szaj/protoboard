@@ -46,7 +46,7 @@ def _perfboard(rows: int, cols: int) -> Board:
 
 
 def _sil2() -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name="COMP", footprint=SIL(n=2), pin_names={1: "A", 2: "B"}
     )
 

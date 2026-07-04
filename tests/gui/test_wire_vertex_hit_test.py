@@ -68,7 +68,7 @@ def three_wire_knot(
     library = load_library([_LIBRARY_DIR])
     sess = EditorSession(board=_perfboard(), library=library)
 
-    defn = ComponentDefinition(name="STUB1", footprint=SIL(1), pin_names={1: "P1"})
+    defn = ComponentDefinition.from_footprint(name="STUB1", footprint=SIL(1), pin_names={1: "P1"})
     sess.components["STUB1"] = defn
     inst = ComponentInstance.new(definition_ref="STUB1", refdes="X1", value="")
     sess.instances[inst.id] = inst

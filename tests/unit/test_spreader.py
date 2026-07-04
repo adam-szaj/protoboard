@@ -63,7 +63,7 @@ def _make_perfboard(rows: int = 20, cols: int = 20) -> Board:
 
 
 def _resistor_defn(name: str = "R") -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name=name,
         footprint=SIL(n=2),
         pin_names={},
@@ -339,9 +339,9 @@ class TestSnapToGrid:
             session=session,
         )
         from protoboard.domain.layout.placement import component_bbox
-        fixed_bbox = component_bbox(defn.footprint, fixed_pl, defn.component_class.value)
+        fixed_bbox = component_bbox(defn.default_footprint(), fixed_pl, defn.component_class.value)
         mobile_bbox = component_bbox(
-            defn.footprint, result[mobile_id], defn.component_class.value
+            defn.default_footprint(), result[mobile_id], defn.component_class.value
         )
         assert not fixed_bbox.intersects(mobile_bbox)
 

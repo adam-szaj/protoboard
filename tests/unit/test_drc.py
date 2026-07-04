@@ -39,7 +39,7 @@ def _perfboard(rows: int, cols: int) -> Board:
 
 
 def _r_defn() -> ComponentDefinition:
-    return ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
 
 
 class TestDRCClean:
@@ -243,7 +243,7 @@ class TestDRCOverlap:
         board = _perfboard(1, 3)
         # Two component definitions where both pin 1 and pin 2 are bendable.
         bend_spec = PinBendSpec(default_offset=Vector(0.0, 0.0))
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="R_bend",
             footprint=SIL(2),
             pin_names={1: "A", 2: "B"},
@@ -291,7 +291,7 @@ class TestDRCOverlap:
 
         board = _perfboard(1, 3)
         defn = ComponentDefinition(
-            name="C_pkg", footprint=SIL(2), pin_names={1: "+", 2: "-"}, package=pkg,
+            name="C_pkg", pin_names={1: "+", 2: "-"}, package=pkg,
         )
         c1 = bind(ComponentInstance.new(definition_ref="C_pkg", refdes="C1", value="10u"), defn, {})
         c2 = bind(ComponentInstance.new(definition_ref="C_pkg", refdes="C2", value="10u"), defn, {})
@@ -315,7 +315,7 @@ class TestDRCOverlap:
         board = _perfboard(1, 3)
         bend_spec = PinBendSpec(default_offset=Vector(0.0, 0.0))
         # Only one of the two definitions declares bendable pins.
-        bendy = ComponentDefinition(
+        bendy = ComponentDefinition.from_footprint(
             name="R_bend",
             footprint=SIL(2),
             pin_names={1: "A", 2: "B"},
@@ -388,7 +388,7 @@ def _prism_defn() -> ComponentDefinition:
     )
     return ComponentDefinition(
         name="U",
-        footprint=PackageFootprint(pkg),  # type: ignore[arg-type]
+        # type: ignore[arg-type]
         pin_names={},
         package=pkg,  # type: ignore[arg-type]
     )
@@ -1564,7 +1564,7 @@ class TestDRCBodyOverlapResolvedVariant:
         }
         defn = ComponentDefinition(
             name="R",
-            footprint=PackageFootprint(axial),  # type: ignore[arg-type]
+            # type: ignore[arg-type]
             pin_names={},
             package=axial,  # type: ignore[arg-type]
         )
@@ -1610,7 +1610,7 @@ class TestDRCBodyOverlapResolvedVariant:
                                {"width": 4.5, "length": 10.0}, "TO220ISH")
         defn_t = ComponentDefinition(
             name="Q",
-            footprint=PackageFootprint(to220ish),  # type: ignore[arg-type]
+            # type: ignore[arg-type]
             pin_names={},
             package=to220ish,  # type: ignore[arg-type]
         )

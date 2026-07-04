@@ -186,7 +186,7 @@ class TestAssignPinToNetPropagation:
         from protoboard.domain.components.footprints import DIL
         from protoboard.domain.components.instance import ComponentInstance
 
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="IC", footprint=DIL(n=8),
             pin_names={1: "A", 2: "B", 3: "C", 4: "GND",
                        5: "E", 6: "F", 7: "G", 8: "GND"},
@@ -212,7 +212,7 @@ class TestAssignPinToNetPropagation:
         from protoboard.domain.components.footprints import DIL
         from protoboard.domain.components.instance import ComponentInstance
 
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="IC", footprint=DIL(n=8),
             pin_names={1: "A", 2: "B", 3: "C", 4: "GND",
                        5: "E", 6: "F", 7: "G", 8: "GND"},

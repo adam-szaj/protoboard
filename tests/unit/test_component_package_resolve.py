@@ -62,7 +62,9 @@ def _families() -> dict[str, PackageFamily]:
 
 
 def _defn(**kw: object) -> ComponentDefinition:
-    return ComponentDefinition(
+    if "package" in kw:
+        return ComponentDefinition(name="X", pin_names={}, **kw)  # type: ignore[arg-type]
+    return ComponentDefinition.from_footprint(
         name="X", footprint=SIL(n=2), pin_names={}, **kw,  # type: ignore[arg-type]
     )
 
@@ -107,8 +109,15 @@ class TestResolvePrecedence:
         # Instance ref unresolvable → falls to the definition default.
         assert resolve_component_package(d, inst, _families()).length_mm == 3.7  # type: ignore[union-attr]
 
-    def test_nothing_resolves_to_none(self) -> None:
-        assert resolve_component_package(_defn(), None, _families()) is None
+    def test_nothing_resolves_to_definition_default(self) -> None:
+        # ``package`` is required on the definition (the loader synthesizes a
+        # generic one), so the last rung is always the definition default —
+        # resolve never returns None for a real part.
+        from protoboard.domain.components.package.kind import (
+            is_generic_package,
+        )
+        pkg = resolve_component_package(_defn(), None, _families())
+        assert pkg is not None and is_generic_package(pkg)
 
 
 class TestFieldValidation:
@@ -122,7 +131,7 @@ class TestFieldValidation:
 
 class TestResolvedFootprint:
     """resolved_footprint gives the chosen variant's pin geometry, falling back
-    to defn.footprint when no package resolves."""
+    to defn.default_footprint() when no package resolves."""
 
     def test_variant_footprint_is_package_footprint(self) -> None:
         from protoboard.domain.components.package import resolved_footprint
@@ -156,13 +165,17 @@ class TestResolvedFootprint:
         from protoboard.domain.components.package import resolved_footprint
 
         d = _defn()  # no package / family_ref
-        # Bound instance whose part has no package: defn.footprint is its real
+        # Bound instance whose part has no package: defn.default_footprint() is its real
         # default geometry (correct default, not a silent fallback).
         inst = ComponentInstance.new(
             definition_ref="X", refdes="X1", value="",
         ).bind(d, {})
         fp = resolved_footprint(d, inst, _families())
-        assert fp is d.footprint
+        from protoboard.domain.components.package.adapter import (
+            PackageFootprint,
+        )
+        assert isinstance(fp, PackageFootprint)
+        assert fp.package is d.package  # the definition default, no variant
 
     def test_none_instance_raises(self) -> None:
         from protoboard.domain.components.package import resolved_footprint
@@ -170,7 +183,7 @@ class TestResolvedFootprint:
 
         d = _defn(package_family_ref="DO-35/S")
         # No instance reaching a geometry path is the silent-wrong-body bug this
-        # model removes: it must raise rather than fall back to defn.footprint.
+        # model removes: it must raise rather than fall back to defn.default_footprint().
         with pytest.raises(UnboundInstanceError):
             resolved_footprint(d, None, None)
 

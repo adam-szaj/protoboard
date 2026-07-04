@@ -72,7 +72,7 @@ class _Ctx:
 
 
 def _resistor_defn() -> ComponentDefinition:
-    return ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
 
 
 def _ctx() -> _Ctx:
@@ -95,7 +95,7 @@ def _place(ctx: _Ctx, x: float, y: float, refdes: str) -> uuid.UUID:
 def _pin_pos(ctx: _Ctx, cid: uuid.UUID, pin: int) -> Point:
     from protoboard.domain.layout.placement import pin_world_position
     return pin_world_position(
-        ctx.components["R"].footprint, ctx.layout.placements[cid], pin,
+        ctx.components["R"].default_footprint(), ctx.layout.placements[cid], pin,
     )
 
 
@@ -274,8 +274,8 @@ class TestDragInternalAndExternalWires:
         _drag_components(ctx, [a, b], 10.0, 7.0)
         defn = ctx.components["R"]
         # Resolved pin positions after drag.
-        new_a = pin_world_position(defn.footprint, ctx.layout.placements[a], 2)
-        new_b = pin_world_position(defn.footprint, ctx.layout.placements[b], 1)
+        new_a = pin_world_position(defn.default_footprint(), ctx.layout.placements[a], 2)
+        new_b = pin_world_position(defn.default_footprint(), ctx.layout.placements[b], 1)
         # Pin a/2 = placement + (0, 1) → (5, 6) → after drag → (15, 13).
         # Pin b/1 = placement + (0, 0) → (5, 9) → after drag → (15, 16).
         assert (new_a.x, new_a.y) == (15.0, 13.0)
@@ -308,8 +308,8 @@ class TestDragInternalAndExternalWires:
         _drag_components(ctx, [a], 10.0, 0.0)
 
         defn = ctx.components["R"]
-        new_a = pin_world_position(defn.footprint, ctx.layout.placements[a], 2)
-        new_b = pin_world_position(defn.footprint, ctx.layout.placements[b], 1)
+        new_a = pin_world_position(defn.default_footprint(), ctx.layout.placements[a], 2)
+        new_b = pin_world_position(defn.default_footprint(), ctx.layout.placements[b], 1)
         assert new_a.x == 15.0
         # B did not move.
         assert (new_b.x, new_b.y) == (old_b_pos.x, old_b_pos.y)

@@ -3,8 +3,9 @@
 
 The least-invasive bridge into the live pipeline. A ``Package`` already exposes
 ``pin_positions`` and ``pin_count``; this wraps it as a ``Footprint`` so
-anything that consumes ``ComponentDefinition.footprint`` works unchanged, with
-geometry now driven by the parametric package model.
+every footprint consumer works unchanged, with geometry driven by the
+parametric package model (``ComponentDefinition.default_footprint()`` and
+``ComponentInstance.resolved_footprint()`` both return one of these).
 
 ``Footprint.pin_positions()`` takes no arguments, so the mount
 orientation is fixed at construction (default horizontal).

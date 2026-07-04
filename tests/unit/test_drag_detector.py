@@ -47,9 +47,32 @@ def _perfboard(rows: int = 10, cols: int = 10) -> Board:
 
 
 def _defn(name: str, n: int = 2) -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name=name,
         footprint=SIL(n),
+        pin_names={i: str(i) for i in range(1, n + 1)},
+    )
+
+
+def _rigid_defn(name: str, n: int = 2) -> ComponentDefinition:
+    """A definition with a RIGID body (fixed pads, body blocks) over SIL(n).
+
+    The generic synth package is non-rigid by design (bodies float, only pads
+    matter for the bbox) — body-overlap severity needs a rigid body to fire.
+    """
+    import dataclasses
+
+    from protoboard.domain.components.package.kind import (
+        synth_generic_package,
+    )
+    from protoboard.domain.components.package.shapes import Prism
+
+    pkg = synth_generic_package(SIL(n))
+    assert isinstance(pkg, Prism)
+    pkg = dataclasses.replace(pkg, bend_holes=0.0, kind=None)
+    return ComponentDefinition(
+        name=name,
+        package=pkg,
         pin_names={i: str(i) for i in range(1, n + 1)},
     )
 
@@ -120,8 +143,10 @@ class TestSeverity:
         assert decision.description == ""
 
     def test_hard_on_body_overlap(self) -> None:
-        defn_a = _defn("A", 2)
-        defn_b = _defn("B", 2)
+        # Rigid bodies: the generic synth body floats (bendable), so only a
+        # rigid package's body bbox hard-blocks.
+        defn_a = _rigid_defn("A", 2)
+        defn_b = _rigid_defn("B", 2)
         inst_a = _inst(defn_a, "A1")
         inst_b = _inst(defn_b, "B1")
         # Bboxes overlap; no pin coincidence.

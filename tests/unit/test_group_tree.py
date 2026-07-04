@@ -170,7 +170,7 @@ def _two_resistors() -> tuple[
     from protoboard.domain.layout.placement import ComponentPlacement
     from protoboard.geometry import Point
 
-    defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
     inst_a = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k").bind(defn, {})
     inst_b = ComponentInstance.new(definition_ref="R", refdes="R2", value="10k").bind(defn, {})
     placements = {
@@ -198,8 +198,8 @@ class TestPinWorldPositions:
         for cid in comp_ids:
             pl = placements[cid]
             defn = components[instances[cid].definition_ref]
-            for n in range(defn.footprint.pin_count()):
-                p = pin_world_position(defn.footprint, pl, n + 1)
+            for n in range(defn.default_footprint().pin_count()):
+                p = pin_world_position(defn.default_footprint(), pl, n + 1)
                 expected.add((p.x, p.y))
         assert got == expected
         assert len(got) == 4  # two 2-pin resistors, no coincident pins

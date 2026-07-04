@@ -504,7 +504,7 @@ class TestTJunctionNetGate:
         import uuid as _uuid
 
         board = _perfboard(3, 10)
-        defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
 
         r1 = ComponentInstance.new(
             definition_ref="R", refdes="R1", value="10k"

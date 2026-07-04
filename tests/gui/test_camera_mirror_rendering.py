@@ -66,7 +66,7 @@ from protoboard.gui.session import EditorSession
 
 
 def _two_pin_def() -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name="CONN",
         footprint=SIL(2),
         pin_names={
@@ -88,8 +88,8 @@ class TestPinWorldPositionPerSide:
             rotation=0,
             side="top",
         )
-        p1 = pin_world_position(defn.footprint, pl, 1)
-        p2 = pin_world_position(defn.footprint, pl, 2)
+        p1 = pin_world_position(defn.default_footprint(), pl, 1)
+        p2 = pin_world_position(defn.default_footprint(), pl, 2)
         # SIL(2) has pins at (0,0) and (0,1) in local coords.
         assert p1 == Point(5.0, 3.0)
         assert p2 == Point(5.0, 4.0)
@@ -99,7 +99,7 @@ class TestPinWorldPositionPerSide:
         # x == 0), bottom-side X-flip is a no-op for pin positions but
         # the *behaviour* (mirror local X) is still applied — verify
         # with a footprint whose pins have non-zero local X.
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="RES",
             footprint=SIL(2),
             pin_names={
@@ -122,8 +122,8 @@ class TestPinWorldPositionPerSide:
             side="bottom",
             pin_offsets={2: Vector(1.0, -1.0)},
         )
-        top_p2 = pin_world_position(defn.footprint, pl_top, 2)
-        bot_p2 = pin_world_position(defn.footprint, pl_bottom, 2)
+        top_p2 = pin_world_position(defn.default_footprint(), pl_top, 2)
+        bot_p2 = pin_world_position(defn.default_footprint(), pl_bottom, 2)
         # Top: local (1, 0) + anchor (5, 3) = (6, 3)
         assert top_p2 == Point(6.0, 3.0)
         # Bottom: local (1, 0) → X-flip → (-1, 0) + anchor (5, 3) = (4, 3)
@@ -157,6 +157,8 @@ class _MiniLibrary:
 
     def __init__(self, defs: dict[str, ComponentDefinition]) -> None:
         self._defs = defs
+        # Session merges library-contributed families into its catalogue.
+        self.package_families: dict = {}
 
     def names(self) -> list[str]:
         return list(self._defs.keys())
@@ -194,9 +196,9 @@ def _build_session_with_one_bottom_wire() -> EditorSession:
         rotation=0,
         side="bottom",
     )
-    pa = pin_world_position(defn.footprint,
+    pa = pin_world_position(defn.default_footprint(),
                             session.layout.placements[inst_a.id], 1)
-    pb = pin_world_position(defn.footprint,
+    pb = pin_world_position(defn.default_footprint(),
                             session.layout.placements[inst_b.id], 1)
     pka = session.layout.get_or_create_pin_knot(PinRef(inst_a.id, 1))
     pkb = session.layout.get_or_create_pin_knot(PinRef(inst_b.id, 1))

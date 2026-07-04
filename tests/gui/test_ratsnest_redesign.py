@@ -136,7 +136,7 @@ class _StubGraph:
 
 
 def _two_pin_def() -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name="CONN", footprint=SIL(2), pin_names={1: "1", 2: "2"},
     )
 

@@ -124,7 +124,6 @@ class TestEffectiveBendSpecs:
         defn = ComponentDefinition(
             name="R_SMD",
             component_class=ComponentClass.RESISTOR,
-            footprint=PackageFootprint(pkg),
             pin_names={},
             package=pkg,
         )
@@ -138,7 +137,7 @@ class TestEffectiveBendSpecs:
             ComponentDefinition,
             PinBendSpec,
         )
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="R",
             component_class=ComponentClass.RESISTOR,
             footprint=SIL(n=2),

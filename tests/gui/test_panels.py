@@ -573,7 +573,7 @@ class TestBodyVariantDropdown:
             ComponentDefinition,
         )
         from protoboard.domain.components.footprints import SIL
-        return ComponentDefinition(
+        return ComponentDefinition.from_footprint(
             name="R", footprint=SIL(n=2),
             pin_names={}, component_class=ComponentClass.RESISTOR,
             package_family_ref="DIN-0207/typ",
@@ -656,7 +656,7 @@ class TestBodyVariantDropdown:
         assert isinstance(qtbot, QtBot)
         panel = PropertiesPanel()
         qtbot.addWidget(panel)
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="HDR3", footprint=SIL(3),
             pin_names={}, component_class=ComponentClass.CONNECTOR,
         )
@@ -752,7 +752,7 @@ class TestPropertiesParameters:
         }
         pkg = build_package(merged, "P")
         return ComponentDefinition(
-            name="P", footprint=SIL(2), pin_names={1: "1", 2: "2"},
+            name="P", pin_names={1: "1", 2: "2"},
             package=pkg,
         )
 

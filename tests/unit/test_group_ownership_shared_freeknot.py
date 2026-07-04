@@ -40,7 +40,7 @@ class _Ctx:
 
 
 def _resistor_defn() -> ComponentDefinition:
-    return ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
 
 
 def _place(ctx: _Ctx, x: float, y: float, refdes: str) -> uuid.UUID:
@@ -55,7 +55,7 @@ def _place(ctx: _Ctx, x: float, y: float, refdes: str) -> uuid.UUID:
 def _pin_pos(ctx: _Ctx, cid: uuid.UUID, pin: int) -> Point:
     from protoboard.domain.layout.placement import pin_world_position
     defn = ctx.components["R"]
-    return pin_world_position(defn.footprint, ctx.layout.placements[cid], pin)
+    return pin_world_position(defn.default_footprint(), ctx.layout.placements[cid], pin)
 
 
 # ---------------------------------------------------------------------------

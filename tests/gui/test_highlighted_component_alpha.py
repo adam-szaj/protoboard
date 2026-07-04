@@ -27,7 +27,7 @@ from protoboard.gui.theme import DEFAULT_THEME
 
 def _make_comp() -> tuple[ComponentDefinition, ComponentInstance, ComponentPlacement, uuid.UUID]:
     cid = uuid.uuid4()
-    defn = ComponentDefinition(
+    defn = ComponentDefinition.from_footprint(
         name="R", footprint=SIL(n=2), pin_names={1: "A", 2: "B"},
     )
     inst = ComponentInstance(id=cid, definition_ref="R", refdes="R1", value="").bind(defn, {})

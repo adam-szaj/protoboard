@@ -49,8 +49,8 @@ def astar_context(synthetic_medium_project):
         comp1 = components.get(inst1.definition_ref)
         if comp0 is None or comp1 is None:
             continue
-        src_pt = pin_world_position(comp0.footprint, layout.placements[p0.component_id], p0.pin_number)
-        tgt_pt = pin_world_position(comp1.footprint, layout.placements[p1.component_id], p1.pin_number)
+        src_pt = pin_world_position(comp0.default_footprint(), layout.placements[p0.component_id], p0.pin_number)
+        tgt_pt = pin_world_position(comp1.default_footprint(), layout.placements[p1.component_id], p1.pin_number)
         break
 
     assert src_pt is not None, "No suitable net found in synthetic_medium project"

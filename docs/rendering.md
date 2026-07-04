@@ -171,9 +171,9 @@ deliberately a **two-branch** dispatch:
 body_shape_for:
   pkg = resolve_component_package(defn, instance, package_families)
         # precedence: instance.package_variant → defn.package_family_ref
-        #             → inline defn.package → defn.footprint (topology default)
+        #             → defn.package (default body — always set)
   if pkg is not None:  return PackageBody(pkg, component_class, vertical_flipped, appearance)
-  else:                return GenericBody()          # bare bbox — a footprint is only a pin cloud
+  else:                return GenericBody()          # unreachable for loaded parts (package required)
 ```
 
 A footprint alone is only a pin cloud (a SIL-3 fits a TO-92, a header, a

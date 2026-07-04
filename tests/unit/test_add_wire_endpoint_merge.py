@@ -212,7 +212,7 @@ def _state_with_pin_at(pos: Point) -> _State:
     from protoboard.domain.components.footprints import SIL
     from protoboard.domain.layout.placement import ComponentPlacement
     state = _State()
-    defn = ComponentDefinition(
+    defn = ComponentDefinition.from_footprint(
         name="STUB", footprint=SIL(1), pin_names={1: "P1"},
     )
     state.components["STUB"] = defn
@@ -320,7 +320,7 @@ def _place_pin_at(
     from protoboard.domain.components.footprints import SIL
     from protoboard.domain.layout.placement import ComponentPlacement
     defn_name = f"_R_{refdes}"
-    defn = ComponentDefinition(name=defn_name, footprint=SIL(1), pin_names={1: "P"})
+    defn = ComponentDefinition.from_footprint(name=defn_name, footprint=SIL(1), pin_names={1: "P"})
     state.components[defn_name] = defn
     inst = ComponentInstance.new(
         definition_ref=defn_name, refdes=refdes, value="",

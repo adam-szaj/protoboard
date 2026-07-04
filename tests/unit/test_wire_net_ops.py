@@ -26,7 +26,7 @@ from protoboard.geometry import Point
 
 
 def _r_defn() -> ComponentDefinition:
-    return ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
 
 
 def _make_inst(refdes: str = "R1") -> ComponentInstance:

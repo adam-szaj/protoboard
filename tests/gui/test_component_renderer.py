@@ -53,7 +53,7 @@ def _make_placement(
 
 
 def _make_resistor_defn() -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name="R",
         component_class=ComponentClass.RESISTOR,
         footprint=SIL(n=2),
@@ -574,7 +574,7 @@ class TestPinNamesLayerIndependence:
     def _scene_texts(self, layers: LayerState) -> set[str]:
         from PySide6.QtWidgets import QGraphicsTextItem
 
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="U",
             component_class=ComponentClass.IC,
             footprint=SIL(n=2),

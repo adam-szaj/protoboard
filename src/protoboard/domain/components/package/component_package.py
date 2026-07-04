@@ -66,7 +66,7 @@ def resolved_footprint(
 
     Thin wrapper over :meth:`ComponentInstance.resolved_footprint` for call
     sites that hold ``(defn, instance, families)`` separately. It does **not**
-    silently fall back to ``defn.footprint`` for a missing/unbound instance:
+    silently fall back to the definition default for a missing/unbound instance:
     a placed component without a bound instance reaching a geometry path is the
     silent-wrong-body bug this model removes, so it raises
     :class:`~protoboard.errors.UnboundInstanceError`.
@@ -77,7 +77,7 @@ def resolved_footprint(
 
     For the legitimate *pre-placement* case — a picker/ghost that has no
     instance yet — call :func:`resolve_component_package` directly (or use
-    ``defn.footprint`` explicitly), so the no-instance path is visible at the
+    ``defn.default_footprint()`` explicitly), so the no-instance path is visible at the
     call site rather than hidden behind a fallback here.
     """
     if instance is None:

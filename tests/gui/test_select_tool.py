@@ -1151,7 +1151,7 @@ class TestRedrag:
         )
         defn = ComponentDefinition(
             name="R_SMD_T", component_class=ComponentClass.RESISTOR,
-            footprint=PackageFootprint(pkg), pin_names={}, package=pkg,
+            pin_names={}, package=pkg,
         )
         cid = uuid.uuid4()
         session.components["R_SMD_T"] = defn
@@ -1189,8 +1189,8 @@ class TestRedrag:
         _click(tool, 2.5, 2.5)
         pl = session.layout.placements[cid]
         defn = session.components["R_SMD_T"]
-        p1 = pin_world_position(defn.footprint, pl, 1)
-        p2 = pin_world_position(defn.footprint, pl, 2)
+        p1 = pin_world_position(defn.default_footprint(), pl, 1)
+        p2 = pin_world_position(defn.default_footprint(), pl, 2)
         assert (round(p2.x - p1.x), round(p2.y - p1.y)) == (1, 1)  # SE diagonal
         assert tool._selection.active_pick is None
 
@@ -1270,14 +1270,14 @@ class TestRedrag:
         assert tool._redrag_pin == 1
         defn = session.components[session.instances[inst.id].definition_ref]
         pin2_before = pin_world_position(
-            defn.footprint, session.layout.placements[inst.id], 2
+            defn.default_footprint(), session.layout.placements[inst.id], 2
         )
         _click(tool, 1.5, 0.5)  # move pin 1 one hole east
         pl = session.layout.placements[inst.id]
         assert pl.position == Point(1.5, 0.5)  # body translated
-        assert pin_world_position(defn.footprint, pl, 1) == Point(1.5, 0.5)
+        assert pin_world_position(defn.default_footprint(), pl, 1) == Point(1.5, 0.5)
         # Pin 2 absorbed the shift — its world position is unchanged.
-        assert pin_world_position(defn.footprint, pl, 2) == pin2_before
+        assert pin_world_position(defn.default_footprint(), pl, 2) == pin2_before
 
     def test_redrag_overlay_lights_only_feasible_pads(
         self, board_view: BoardView, session: EditorSession
@@ -1371,7 +1371,7 @@ def _wire_session(qtbot) -> tuple[EditorSession, BoardView]:
     library = load_library([Path(__file__).parent.parent / "fixtures" / "library"])
     sess = EditorSession(board=Board(root=grid), library=library)
 
-    defn = ComponentDefinition(name="STUB1", footprint=SIL(1), pin_names={1: "P1"})
+    defn = ComponentDefinition.from_footprint(name="STUB1", footprint=SIL(1), pin_names={1: "P1"})
     sess.components["STUB1"] = defn
     inst = ComponentInstance.new(definition_ref="STUB1", refdes="X1", value="")
     inst = inst.bind(defn, {})
@@ -1771,7 +1771,7 @@ class TestWireAndPadHighlight:
         )
         lib = load_library([Path(__file__).parent.parent / "fixtures" / "library"])
         session = EditorSession(board=Board(root=grid), library=lib)
-        defn = ComponentDefinition(name="D1", footprint=SIL(1), pin_names={1: "A"})
+        defn = ComponentDefinition.from_footprint(name="D1", footprint=SIL(1), pin_names={1: "A"})
         session.components["D1"] = defn
         c1 = ComponentInstance.new(definition_ref="D1", refdes="U1", value="").bind(defn, {})
         c2 = ComponentInstance.new(definition_ref="D1", refdes="U2", value="").bind(defn, {})
@@ -2146,7 +2146,7 @@ class TestNetContext:
         lib = load_library([Path(__file__).parent.parent / "fixtures" / "library"])
         sess = EditorSession(board=Board(root=grid), library=lib)
         # 2-pin component: pin1 on netA, pin2 on netB.
-        sess.components["D2"] = ComponentDefinition(
+        sess.components["D2"] = ComponentDefinition.from_footprint(
             name="D2", footprint=SIL(2), pin_names={1: "A", 2: "B"})
         inst = ComponentInstance.new(definition_ref="D2", refdes="U1", value="")
         inst = inst.bind(sess.components["D2"], {})

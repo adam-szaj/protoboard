@@ -175,7 +175,7 @@ class TestPinRefIdentity:
 
 def _ic_with_two_gnd() -> ComponentDefinition:
     """8-pin IC where pins 4 and 8 are both 'GND' → one shared node."""
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name="T",
         footprint=DIL(n=8),
         pin_names={1: "A", 2: "B", 3: "C", 4: "GND",
@@ -230,7 +230,7 @@ class TestPinIdentityFactory:
         inst.build_pin_identities(_ic_with_two_gnd())
         assert 4 in inst.pin_identities
         # Rebuilding with a definition that has no same-name groups clears it.
-        defn2 = ComponentDefinition(
+        defn2 = ComponentDefinition.from_footprint(
             name="T", footprint=DIL(n=8),
             pin_names={i: f"S{i}" for i in range(1, 9)},
             component_class=ComponentClass.IC,

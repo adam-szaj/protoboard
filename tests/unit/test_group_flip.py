@@ -47,7 +47,7 @@ def _board() -> Board:
     ))
 
 
-_DEFN = ComponentDefinition(name="R", footprint=SIL(3), pin_names={1: "A", 2: "B", 3: "C"})
+_DEFN = ComponentDefinition.from_footprint(name="R", footprint=SIL(3), pin_names={1: "A", 2: "B", 3: "C"})
 
 
 @dataclass
@@ -69,7 +69,7 @@ def _make_state() -> _State:
         inst = st.instances.get(cid)
         if inst is None:
             return None
-        return _DEFN.footprint
+        return _DEFN.default_footprint()
 
     layout.set_footprint_resolver(_resolve)
     return st
@@ -97,7 +97,7 @@ def _attach_group(st: _State, comp_ids: frozenset[uuid.UUID]) -> uuid.UUID:
 
 
 def _world(st: _State, cids: list[uuid.UUID]) -> dict[uuid.UUID, list[tuple[float, float]]]:
-    fp = _DEFN.footprint
+    fp = _DEFN.default_footprint()
     return {
         cid: [
             (round(pin_world_position(fp, st.layout.placements[cid], n).x, 4),
@@ -218,7 +218,7 @@ class TestFlipGroupCommand:
         gid = _attach_group(st, frozenset({a}))
         # Vertical flip about x=0 → pin1 world x negates.
         FlipGroupCommand(group_id=gid, axis="v", pivot=Point(0.0, 0.0)).apply(st)
-        p1 = pin_world_position(_DEFN.footprint, st.layout.placements[a], 1)
+        p1 = pin_world_position(_DEFN.default_footprint(), st.layout.placements[a], 1)
         assert p1.x == pytest.approx(-10.0)
 
     def test_nested_group_flip_propagates(self) -> None:

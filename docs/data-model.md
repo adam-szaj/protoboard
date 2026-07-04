@@ -157,14 +157,14 @@ guide in [footprints/authoring.md](footprints/authoring.md).
 @dataclass(frozen=True, slots=True)
 class ComponentDefinition:
     name: str                          # "LM358"
-    footprint: Footprint               # DIP(8) — topology + the default geometry
+    package: Package                   # the DEFAULT body — always set (loader
+                                       # synthesizes a generic bbox package when
+                                       # the YAML declares none)
     pin_names: dict[int, str]          # {1: "OUT_A", 2: "IN-_A", ...}
     description: str = ""
     component_class: ComponentClass = ComponentClass.OTHER
     body_blocks_routing: bool = False  # SMD / tight-fit packages set this True
-    # Package model (see footprints/package-model.md). Any of these may point at
-    # the body used for placement geometry:
-    package: Package | None = None            # inline parametric package
+    # Package model (see footprints/package-model.md):
     package_family_ref: str | None = None     # "{family}/{variant_id}", catalogue ref
     footprints: tuple[FootprintOption, ...] = ()  # picker choices (first = default)
     symbol: str | None = None          # refdes prefix + picker label root
@@ -193,16 +193,22 @@ Library: a `library/` directory of YAML files (`opamps.yaml`,
 ### 4.1 Placement geometry — the source of truth (decided 2026-06-28)
 
 A **placed** component always resolves its concrete package/footprint through its
-*instance*, never through `ComponentDefinition.footprint`. `defn.footprint` is
-the *default variant's* pin cloud, which is the wrong body whenever the instance
+*instance*, never through the definition default. The definition's `package` is
+the *default variant's* body, which is the wrong geometry whenever the instance
 chose another variant (e.g. an `R` placed as `SMD-0805`: the default axial
 3.2-hole pitch vs the SMD 1-hole pitch). Every "components drift / pin-pad
 highlight off / reach ring wrong / can't place" bug in this area was the same
-root: a consumer read `defn.footprint` instead of the resolved variant.
+root: a consumer read the definition default instead of the resolved variant.
 
-`defn.footprint` legitimately stays for **topology only**: `pin_count`,
-`pin_names` validation, union-find membership, BOM type name — identical across
-all variants.
+**There is no `defn.footprint` field** (removed 2026-07-04, after the 7th
+incarnation of that bug class): its innocent name kept inviting placement-path
+misuse. Topology (`defn.pin_count`, `pin_names` validation) derives from
+`defn.package`; instance-less contexts that genuinely need the default geometry
+(library preview, pre-placement ghost, BOM fallback) call
+`defn.default_footprint()` — the "default" in the name makes the intent
+auditable at every call site. `ComponentDefinition.from_footprint(...)`
+constructs a definition from a bare pin cloud (synthesizing the generic
+package), for YAML `footprint:`-only parts and test fixtures.
 
 **The mechanism — the instance carries its definition.** Rather than thread a
 `families` catalogue through a dozen signatures, a placed instance holds a live
@@ -216,18 +222,18 @@ session catalogue. So the instance can resolve its own variant geometry:
   this placed component actually uses". Requires `bind()`; an **unbound** instance
   raises `UnboundInstanceError` (falling back to the definition default in a
   placement context is the exact silent-wrong-body bug this removes). When the
-  instance *is* bound but the part declares no package/variant, `defn.footprint`
+  instance *is* bound but no variant/family resolves, the definition's `package`
   is its genuine default geometry — not a fallback — so it is returned.
 
 **Resolution precedence** (`resolve_component_package`, in
 `domain/components/package/component_package.py`):
 
 ```
-instance.package_variant  →  defn.package_family_ref  →  inline defn.package  →  defn.footprint (topology default)
+instance.package_variant  →  defn.package_family_ref  →  defn.package (default body — always set)
 ```
 
-The first three resolve to a real `Package` via the catalogue; the last is the
-bare topology default used only when the part carries no package at all.
+The first two resolve via the catalogue; the last rung always exists, so
+resolution never returns `None` for a loaded part.
 
 ## 5. Schematic — the logical graph (netlist)
 

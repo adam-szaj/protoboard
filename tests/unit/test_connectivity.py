@@ -99,7 +99,7 @@ class TestConnectivityGraphWithComponents:
         # Use a 2-row × 1-col board so both pads exist.
         # gap=0 → pad centers at (0.5, 0.5) and (0.5, 1.5).
         board = _perfboard(2, 1)
-        comp_defn = ComponentDefinition(
+        comp_defn = ComponentDefinition.from_footprint(
             name="R",
             footprint=SIL(2),
             pin_names={1: "A", 2: "B"},
@@ -128,7 +128,7 @@ class TestConnectivityGraphWithComponents:
     def test_wire_joins_component_pins(self) -> None:
         # Pad centers: (0.5,0), (1.5,0), (2.5,0).
         board = _perfboard(1, 3)
-        comp_defn = ComponentDefinition(
+        comp_defn = ComponentDefinition.from_footprint(
             name="R",
             footprint=SIL(2),
             pin_names={},
@@ -165,7 +165,7 @@ class TestInternalNetsSameNamePins:
     pre-routed internal net island — with no wire drawn between them."""
 
     def _ic_4pin(self, pin_names: dict[int, str]) -> ComponentDefinition:
-        return ComponentDefinition(
+        return ComponentDefinition.from_footprint(
             name="IC", footprint=SIL(4), pin_names=pin_names
         )
 

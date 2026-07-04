@@ -66,7 +66,7 @@ def _empty_layout() -> Layout:
 
 
 def _r_defn(pins: int = 2) -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name="R", footprint=SIL(pins),
         pin_names={i: chr(ord("A") + i - 1) for i in range(1, pins + 1)},
     )
@@ -404,7 +404,7 @@ class TestSameNamePinColouring:
 
     def _ic_two_gnd(self) -> ComponentDefinition:
         # SIL(4) vertical: pins at (0.5, 0.5/1.5/2.5/3.5). Pins 1 and 4 = GND.
-        return ComponentDefinition(
+        return ComponentDefinition.from_footprint(
             name="IC", footprint=SIL(4),
             pin_names={1: "GND", 2: "B", 3: "C", 4: "GND"},
         )

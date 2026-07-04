@@ -141,7 +141,7 @@ def make_perfboard(rows: int, cols: int) -> Board:
 
 
 def make_sil(name: str, n_pins: int = 2) -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name=name, footprint=SIL(n=n_pins),
         pin_names={i: str(i) for i in range(1, n_pins + 1)},
     )

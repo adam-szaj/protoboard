@@ -302,9 +302,9 @@ def _build_nets(
     for cid, placement in placements.items():
         inst = instances[cid]
         defn = components[inst.definition_ref]
-        for pin_no in range(1, defn.footprint.pin_count() + 1):
+        for pin_no in range(1, defn.default_footprint().pin_count() + 1):
             ref = PinRef(component_id=cid, pin_number=pin_no)
-            pin_pool.append((ref, pin_world_position(defn.footprint, placement, pin_no)))
+            pin_pool.append((ref, pin_world_position(defn.default_footprint(), placement, pin_no)))
 
     rng.shuffle(pin_pool)
     total = len(pin_pool)

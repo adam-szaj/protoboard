@@ -69,7 +69,7 @@ class TestComponentBboxRigidity:
         """The default axial R uses the BOARD_SOLVE solver → non-rigid → _PAD_MARGIN."""
         lib, _families = _catalogue()
         defn = lib.get("R")
-        fp = defn.footprint  # PackageFootprint over the axial DIN package
+        fp = defn.default_footprint()  # PackageFootprint over the axial DIN package
         pl = _pl()
 
         bbox = component_bbox(fp, pl, defn.component_class)
@@ -85,7 +85,7 @@ class TestComponentBboxRigidity:
         """A DIP IC is rigid → _BODY_MARGIN (class 'ic' was already non-flexible)."""
         lib, _families = _catalogue()
         defn = lib.get("74HC00")
-        fp = defn.footprint
+        fp = defn.default_footprint()
         pl = _pl()
 
         bbox = component_bbox(fp, pl, defn.component_class)

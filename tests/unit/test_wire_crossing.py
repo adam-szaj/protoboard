@@ -20,7 +20,7 @@ from protoboard.geometry import Point
 # ---------------------------------------------------------------------------
 
 def _defn(name: str, n_pins: int = 2) -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name=name,
         footprint=SIL(n_pins),
         pin_names={i: str(i) for i in range(1, n_pins + 1)},

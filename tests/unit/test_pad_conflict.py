@@ -47,12 +47,12 @@ def _perfboard(rows: int, cols: int) -> Board:
 
 
 def _r_defn() -> ComponentDefinition:
-    return ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
 
 
 def _make_inst(refdes: str = "R1") -> ComponentInstance:
     # The R defn has no package, so bind with families={} — resolved_footprint
-    # then returns defn.footprint (the part's genuine default geometry).
+    # then returns defn.default_footprint() (the part's genuine default geometry).
     return ComponentInstance.new(
         definition_ref="R", refdes=refdes, value="10k"
     ).bind(_r_defn(), {})
@@ -717,7 +717,7 @@ class TestPadIndexPath:
 
         board = _perfboard(7, 3)
         # 3-pin SIL connector at (1.5..3.5, 0.5) on top.
-        conn_defn = ComponentDefinition(
+        conn_defn = ComponentDefinition.from_footprint(
             name="J", footprint=SIL(3), pin_names={1: "A", 2: "B", 3: "C"},
         )
         conn = ComponentInstance.new(

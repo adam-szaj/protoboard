@@ -73,7 +73,7 @@ def _place(mw: MainWindow, x: float, y: float, refdes: str = "U1") -> ComponentI
     """Add a 1-pin component directly (no PlaceTool drag loop)."""
     sess = mw._session
     if "D1" not in sess.components:
-        sess.components["D1"] = ComponentDefinition(
+        sess.components["D1"] = ComponentDefinition.from_footprint(
             name="D1",
             footprint=SIL(1),
             pin_names={1: "A"},

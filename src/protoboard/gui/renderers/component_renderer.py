@@ -483,7 +483,7 @@ def _render_one(
     # The placed part's pins follow its CHOSEN variant, not the definition
     # default — an R placed as SMD-0805 has a 1-hole pitch, not the default
     # axial 3.2-hole pitch. Resolve the variant footprint (falls back to
-    # defn.footprint when none resolves).
+    # the definition's default package when none resolves).
     from protoboard.domain.components.package import resolved_footprint
     fp = resolved_footprint(defn, inst, theme.package_families)
     positions = [
@@ -678,7 +678,7 @@ def make_ghost_item(
     # The chosen variant drives both the body shape and the pin spacing: a
     # ghost instance carries the address, resolved against the theme catalogue.
     ghost_inst: ComponentInstance | None = None
-    fp = defn.footprint
+    fp = defn.default_footprint()
     if package_variant is not None:
         ghost_inst = ComponentInstance.new(
             definition_ref=defn.name, refdes="?", value="",

@@ -39,7 +39,7 @@ ROOT_GID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 # ---------------------------------------------------------------------------
 
 def _defn(name: str, n: int = 2) -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name=name, footprint=SIL(n), pin_names={i: str(i) for i in range(1, n + 1)}
     )
 

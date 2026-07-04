@@ -475,7 +475,7 @@ class PlaceTool(_Tool):
         (see ``make_ghost_item``); the drag-pin baseline, flip and pin-count
         logic must use that SAME geometry, or the offset is measured against one
         footprint and drawn against another — the body drifts, worse with
-        rotation. Falls back to ``defn.footprint`` when no variant resolves."""
+        rotation. Falls back to the definition default when no variant resolves."""
         if self._package_variant is not None:
             inst = ComponentInstance.new(
                 definition_ref=defn.name, refdes="?", value="",
@@ -485,7 +485,7 @@ class PlaceTool(_Tool):
             pkg = resolve_component_package(defn, inst, families)
             if pkg is not None:
                 return PackageFootprint(pkg)
-        return defn.footprint
+        return defn.default_footprint()
 
     def _pin_baseline_world(self, pin_number: int) -> Point | None:
         """World position of the pin ignoring any current offset."""

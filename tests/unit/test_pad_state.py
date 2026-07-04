@@ -376,7 +376,7 @@ class TestPadIndexBuild:
 
     def test_component_pin_adds_pin_item_and_net(self) -> None:
         board = _perfboard(3, 3)
-        defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={})
+        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
         inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="").bind(defn, {})
         pl = ComponentPlacement(
             component_id=inst.id, position=Point(0.5, 0.5),
@@ -560,7 +560,7 @@ def _packaged_defn(*, blocks_routing: bool = False) -> ComponentDefinition:
     pkg = _prism_package()
     return ComponentDefinition(
         name="U",
-        footprint=PackageFootprint(pkg),  # type: ignore[arg-type]
+        # type: ignore[arg-type]
         pin_names={},
         package=pkg,  # type: ignore[arg-type]
         body_blocks_routing=blocks_routing,

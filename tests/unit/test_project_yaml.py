@@ -582,7 +582,7 @@ class TestGroupV2ToV3Migration:
     def _resistor_defn(self):  # type: ignore[no-untyped-def]
         from protoboard.domain.components.definition import ComponentDefinition
         from protoboard.domain.components.footprints import SIL
-        return ComponentDefinition(
+        return ComponentDefinition.from_footprint(
             name="R", footprint=SIL(3), pin_names={1: "A", 2: "B", 3: "C"}
         )
 
@@ -598,7 +598,7 @@ class TestGroupV2ToV3Migration:
 
     def _world_pins(self, defn, layout, cids):  # type: ignore[no-untyped-def]
         from protoboard.domain.layout.placement import pin_world_position
-        fp = defn.footprint
+        fp = defn.default_footprint()
         return {
             cid: [
                 (round(pin_world_position(fp, layout.placements[cid], n).x, 4),
@@ -694,7 +694,7 @@ class TestGroupV2ToV3Migration:
         )
 
         defn = self._resistor_defn()
-        fp = defn.footprint
+        fp = defn.default_footprint()
         lib = _StubLibrary({"R": defn})
         c1, c2 = uuid.uuid4(), uuid.uuid4()
         gid = uuid.uuid4()

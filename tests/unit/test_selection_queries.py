@@ -169,7 +169,7 @@ class TestSessionAdapters:
         lib = load_library([Path(__file__).parent.parent / "fixtures" / "library"])
         sess = EditorSession(board=Board(root=grid), library=lib)
 
-        defn = ComponentDefinition(name="S1", footprint=SIL(1), pin_names={1: "P"})
+        defn = ComponentDefinition.from_footprint(name="S1", footprint=SIL(1), pin_names={1: "P"})
         sess.components["S1"] = defn
         i1 = ComponentInstance.new(definition_ref="S1", refdes="X1", value="")
         i2 = ComponentInstance.new(definition_ref="S1", refdes="X2", value="")

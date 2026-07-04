@@ -85,7 +85,7 @@ def _place(
     state: _State, refdes: str, pos: Point,
 ) -> tuple[ComponentInstance, ComponentPlacement]:
     defn_name = f"_J_{refdes}"
-    defn = ComponentDefinition(name=defn_name, footprint=SIL(1), pin_names={1: "P"})
+    defn = ComponentDefinition.from_footprint(name=defn_name, footprint=SIL(1), pin_names={1: "P"})
     state.components[defn_name] = defn
     inst = ComponentInstance.new(
         definition_ref=defn_name, refdes=refdes, value="",

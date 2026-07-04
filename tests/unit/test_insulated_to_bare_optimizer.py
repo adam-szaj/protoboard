@@ -63,7 +63,7 @@ def _perfboard(rows: int = 6, cols: int = 6) -> Board:
 
 
 def _sil2() -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name="COMP", footprint=SIL(n=2), pin_names={1: "A", 2: "B"}
     )
 
@@ -115,8 +115,8 @@ def _two_pin_project_with_insulated_wire(
     # pin2 at (position.x + 1, position.y).  Verify via the same helper
     # the optimizer uses.
     from protoboard.domain.layout.placement import pin_world_position
-    p_start = pin_world_position(defn.footprint, placements[cid_a], 2)
-    p_end = pin_world_position(defn.footprint, placements[cid_b], 1)
+    p_start = pin_world_position(defn.default_footprint(), placements[cid_a], 2)
+    p_end = pin_world_position(defn.default_footprint(), placements[cid_b], 1)
     # straight horizontal path
     path = [p_start]
     cur = p_start
@@ -300,14 +300,14 @@ class TestRefusesWhenUnsafe:
 
         from protoboard.domain.layout.placement import pin_world_position
         w1_path = [
-            pin_world_position(defn.footprint, placements[ids[0]], 1),
+            pin_world_position(defn.default_footprint(), placements[ids[0]], 1),
             Point(1.5, 0.5),
-            pin_world_position(defn.footprint, placements[ids[2]], 1),
+            pin_world_position(defn.default_footprint(), placements[ids[2]], 1),
         ]
         w2_path = [
-            pin_world_position(defn.footprint, placements[ids[1]], 1),
+            pin_world_position(defn.default_footprint(), placements[ids[1]], 1),
             Point(1.5, 2.5),
-            pin_world_position(defn.footprint, placements[ids[3]], 1),
+            pin_world_position(defn.default_footprint(), placements[ids[3]], 1),
         ]
         w1 = Wire(id=uuid.uuid4(), path=w1_path, insulated=True, side="top")
         w2 = Wire(id=uuid.uuid4(), path=w2_path, insulated=True, side="top")

@@ -32,7 +32,7 @@ def bound_instance(
 
     ``definition_ref`` is taken from ``defn.name``. When the part has no
     package, ``families`` may be ``{}`` / ``None`` — a bound instance with no
-    package legitimately resolves to ``defn.footprint`` (that is its real
+    package legitimately resolves to ``defn.default_footprint()`` (that is its real
     default geometry, not a silent fallback). Pass the real catalogue when the
     test exercises a chosen variant.
     """

@@ -44,7 +44,7 @@ from protoboard.geometry import Point
 
 
 def _defn(name: str = "R") -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name=name,
         footprint=SIL(2),
         pin_names={1: "1", 2: "2"},

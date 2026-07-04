@@ -66,7 +66,7 @@ def _two_wires_sharing_joint(
 
     Returns (state, wire1_id, wire2_id, joint_id).
     """
-    defn = ComponentDefinition(
+    defn = ComponentDefinition.from_footprint(
         name="CONN", footprint=SIL(2), pin_names={1: "1", 2: "2"},
     )
     layout = Layout(placements={}, wires=WireCollection([]))
@@ -79,8 +79,8 @@ def _two_wires_sharing_joint(
     layout.placements[inst_b.id] = ComponentPlacement(
         component_id=inst_b.id, position=Point(8.0, 5.0), rotation=0, side="top",
     )
-    pa = pin_world_position(defn.footprint, layout.placements[inst_a.id], 1)
-    pb = pin_world_position(defn.footprint, layout.placements[inst_b.id], 1)
+    pa = pin_world_position(defn.default_footprint(), layout.placements[inst_a.id], 1)
+    pb = pin_world_position(defn.default_footprint(), layout.placements[inst_b.id], 1)
     # Off-pin meeting point right between J1.pin1 and J2.pin1.
     hub = Point(round((pa.x + pb.x) / 2), pa.y)
 
@@ -189,7 +189,7 @@ class TestFuseTouchingWires:
         the internal ``progress`` loop to fire more than once."""
         # Build three wires in a row: P1—J1—J2—P2 split as
         #   w_a: P1→J1, w_b: J1→J2, w_c: J2→P2
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="CONN", footprint=SIL(2), pin_names={1: "1", 2: "2"},
         )
         layout = Layout(placements={}, wires=WireCollection([]))
@@ -202,8 +202,8 @@ class TestFuseTouchingWires:
         layout.placements[inst_b.id] = ComponentPlacement(
             component_id=inst_b.id, position=Point(10.0, 5.0), rotation=0, side="top",
         )
-        pa = pin_world_position(defn.footprint, layout.placements[inst_a.id], 1)
-        pb = pin_world_position(defn.footprint, layout.placements[inst_b.id], 1)
+        pa = pin_world_position(defn.default_footprint(), layout.placements[inst_a.id], 1)
+        pb = pin_world_position(defn.default_footprint(), layout.placements[inst_b.id], 1)
         hub1 = Point(5.0, pa.y)
         hub2 = Point(8.0, pa.y)
         pka = layout.get_or_create_pin_knot(PinRef(inst_a.id, 1))
@@ -238,7 +238,7 @@ class TestFuseTouchingWires:
         only one neighbouring wire.  The wire stays distinct."""
         # Single wire pin1 → pin2.  No 2-degree off-pin joint exists,
         # so the command should record zero collapses.
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="CONN", footprint=SIL(2), pin_names={1: "1", 2: "2"},
         )
         layout = Layout(placements={}, wires=WireCollection([]))
@@ -249,8 +249,8 @@ class TestFuseTouchingWires:
         layout.placements[inst.id] = ComponentPlacement(
             component_id=inst.id, position=Point(3.0, 5.0), rotation=0, side="top",
         )
-        p1 = pin_world_position(defn.footprint, layout.placements[inst.id], 1)
-        p2 = pin_world_position(defn.footprint, layout.placements[inst.id], 2)
+        p1 = pin_world_position(defn.default_footprint(), layout.placements[inst.id], 1)
+        p2 = pin_world_position(defn.default_footprint(), layout.placements[inst.id], 2)
         pk1 = layout.get_or_create_pin_knot(PinRef(inst.id, 1))
         pk2 = layout.get_or_create_pin_knot(PinRef(inst.id, 2))
         w = Wire(

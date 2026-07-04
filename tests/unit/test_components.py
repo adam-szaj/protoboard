@@ -163,7 +163,7 @@ class TestFootprintOption:
 
 class TestComponentSymbol:
     def test_symbol_drives_refdes_prefix(self) -> None:
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="LED_5mm", footprint=SIL(2), pin_names={},
             component_class=ComponentClass.DIODE_LED, symbol="LED",
         )
@@ -171,7 +171,7 @@ class TestComponentSymbol:
 
     def test_refdes_prefix_falls_back_to_class(self) -> None:
         # No explicit symbol → the class default (RESISTOR → "R").
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="R", footprint=SIL(2), pin_names={},
             component_class=ComponentClass.RESISTOR,
         )
@@ -179,13 +179,13 @@ class TestComponentSymbol:
         assert defn.refdes_prefix == "R"
 
     def test_footprints_default_empty(self) -> None:
-        defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={})
+        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
         assert defn.footprints == ()
 
 
 class TestComponentDefinition:
     def test_full_pin_names(self) -> None:
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="LM358",
             footprint=DIL(8),
             pin_names={
@@ -205,7 +205,7 @@ class TestComponentDefinition:
 
     def test_partial_pin_names_default_pn(self) -> None:
         # Per user decision: missing pin names default to "P{n}".
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="LM358",
             footprint=DIL(8),
             pin_names={1: "OUT_A", 4: "VEE", 8: "VCC"},
@@ -218,12 +218,12 @@ class TestComponentDefinition:
         assert defn.pin_name(8) == "VCC"
 
     def test_no_pin_names_all_defaults(self) -> None:
-        defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={})
+        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
         assert defn.pin_name(1) == "P1"
         assert defn.pin_name(2) == "P2"
 
     def test_pin_name_out_of_range_raises(self) -> None:
-        defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={})
+        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
         with pytest.raises(ValueError):
             defn.pin_name(0)
         with pytest.raises(ValueError):
@@ -232,18 +232,18 @@ class TestComponentDefinition:
     def test_pin_names_with_invalid_pin_number_raises(self) -> None:
         # Names referencing non-existent pins are a definition error.
         with pytest.raises(ValueError):
-            ComponentDefinition(
+            ComponentDefinition.from_footprint(
                 name="R",
                 footprint=SIL(2),
                 pin_names={1: "A", 5: "BOGUS"},
             )
 
     def test_pin_count_property(self) -> None:
-        defn = ComponentDefinition(name="LM358", footprint=DIL(8), pin_names={})
+        defn = ComponentDefinition.from_footprint(name="LM358", footprint=DIL(8), pin_names={})
         assert defn.pin_count == 8
 
     def test_optional_description(self) -> None:
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="LM358",
             footprint=DIL(8),
             pin_names={},
@@ -252,15 +252,15 @@ class TestComponentDefinition:
         assert defn.description == "Dual op-amp"
 
     def test_default_description_is_empty(self) -> None:
-        defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={})
+        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
         assert defn.description == ""
 
     def test_metadata_default_empty(self) -> None:
-        defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={})
+        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
         assert defn.metadata == {}
 
     def test_metadata_carries_user_data(self) -> None:
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="R",
             footprint=SIL(2),
             pin_names={},
@@ -269,7 +269,7 @@ class TestComponentDefinition:
         assert defn.metadata["datasheet"] == "https://example.com/r.pdf"
 
     def test_frozen(self) -> None:
-        defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={})
+        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
         with pytest.raises(dataclasses.FrozenInstanceError):
             defn.name = "C"  # type: ignore[misc]
 

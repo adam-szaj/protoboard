@@ -3,7 +3,7 @@
 variant's* footprint positions, not the definition default.
 
 Bug (IRF9540_P, rotated 90°): ``ConnectivityGraph`` built its pin→pad map from
-``defn.footprint`` instead of the instance's resolved variant footprint.  For a
+``defn.default_footprint()`` instead of the instance's resolved variant footprint.  For a
 part whose default footprint orients pins along one axis but whose chosen variant
 orients them along the other, pins 2/3 were registered at the *wrong* world
 positions.  A bare wire physically touching the real pad then found no pin node

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Component definitions — name + footprint + pin name mapping."""
+"""Component definitions — name + package + pin name mapping."""
 
 from __future__ import annotations
 
@@ -190,10 +190,21 @@ class FootprintOption:
 
 @dataclass(frozen=True, slots=True)
 class ComponentDefinition:
-    """Static definition of a component (a "type")."""
+    """Static definition of a component (a "type").
+
+    ``package`` is the single stored geometry source — the definition's
+    DEFAULT body (the loader synthesizes a non-rigid generic bbox package when
+    the YAML declares none, so it is always set). There is deliberately no
+    ``footprint`` field: a placed component's geometry is its **instance's**
+    resolved variant (``footprint_of`` / ``resolved_footprint``), and reading
+    a definition-level footprint in a placement context was a recurring
+    silent-wrong-body bug. Contexts that genuinely need the default (library
+    preview, pre-placement ghost) call :meth:`default_footprint`, which says
+    so in its name.
+    """
 
     name: str
-    footprint: Footprint
+    package: Package
     pin_names: dict[int, str]
     description: str = ""
     component_class: ComponentClass = ComponentClass.OTHER
@@ -223,12 +234,6 @@ class ComponentDefinition:
     # touches the board.  Autoroute additionally soft-penalises via
     # the ``under_component_top`` cost knob regardless of this flag.
     body_blocks_routing: bool = False
-    # Optional parametric package model (docs/footprints/package-model.md). When set, it
-    # is the source of truth for pin geometry and bend/reach; ``footprint`` is
-    # derived from it (via PackageFootprint) and ``bendable_pins`` is superseded
-    # by the package's bend/solver. Consumers migrate to query ``package``
-    # incrementally; when ``None`` the legacy footprint/bendable_pins apply.
-    package: Package | None = None
     # Default package-family variant as ``"{family}/{variant_id}"`` (e.g.
     # ``"DO-35/typ"``) referencing the package-family catalogue. This is the
     # package-model successor to ``default_body_variant``; it resolves to a real
@@ -247,19 +252,27 @@ class ComponentDefinition:
     symbol: str | None = None
     # Available footprints this component can be placed in (the picker offers
     # these; the user must choose one at place time). The default/first entry
-    # derives the singular ``footprint`` above so existing geometry consumers see
-    # one footprint. Empty = no choice (the part carries its ``footprint``
-    # directly). See docs/footprints/authoring.md.
+    # derives the ``package`` above so instance-less consumers see one default
+    # geometry. Empty = no choice (the part carries its ``package`` directly).
+    # See docs/footprints/authoring.md.
     footprints: tuple[FootprintOption, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.name:
             raise ValueError("ComponentDefinition.name must not be empty")
+        if not isinstance(self.package, Package):
+            # Loud guard for positional callers that used to pass a Footprint
+            # here (the removed ``footprint`` field's old slot).
+            raise TypeError(
+                f"ComponentDefinition.package must be a Package, got "
+                f"{type(self.package).__name__}; for a bare footprint use "
+                f"ComponentDefinition.from_footprint(...)"
+            )
         for pin_number in self.pin_names:
-            if pin_number < 1 or pin_number > self.footprint.pin_count():
+            if pin_number < 1 or pin_number > self.package.pin_count():
                 raise ValueError(
                     f"pin_names references pin {pin_number} which is outside "
-                    f"the footprint's pin range (1..{self.footprint.pin_count()})"
+                    f"the package's pin range (1..{self.package.pin_count()})"
                 )
         if self.package_family_ref is not None:
             parts = self.package_family_ref.split("/", 1)
@@ -269,9 +282,51 @@ class ComponentDefinition:
                     f"{self.package_family_ref!r}"
                 )
 
+    @classmethod
+    def from_footprint(
+        cls,
+        name: str,
+        footprint: Footprint,
+        pin_names: dict[int, str],
+        **kwargs: Any,
+    ) -> ComponentDefinition:
+        """A definition whose package is synthesized over *footprint*.
+
+        The loader's no-package invariant as a factory: the pin cloud comes
+        from *footprint*, the body is the non-rigid generic bbox package
+        (``kind="_generic"``). For YAML parts declaring only ``footprint:``,
+        and for test fixtures that used to pass ``footprint=`` directly.
+        """
+        from protoboard.domain.components.package.kind import (
+            synth_generic_package,
+        )
+
+        pkg = synth_generic_package(footprint)
+        if pkg is None:
+            raise ValueError(
+                f"{name}: cannot synthesize a package over a footprint with "
+                f"no pins")
+        return cls(name=name, package=pkg, pin_names=pin_names, **kwargs)
+
+    def default_footprint(self) -> Footprint:
+        """The DEFAULT-variant footprint — ``PackageFootprint`` over ``package``.
+
+        For anything *placed*, use the instance-resolved geometry
+        (``footprint_of`` / ``ComponentInstance.resolved_footprint``); reading
+        the definition default for a placed component is the silent-wrong-body
+        bug this method's name exists to make visible. Legitimate callers are
+        instance-less contexts only: library preview, pre-placement ghost,
+        BOM fallback.
+        """
+        from protoboard.domain.components.package.adapter import (
+            PackageFootprint,
+        )
+
+        return PackageFootprint(self.package)
+
     @property
     def pin_count(self) -> int:
-        return self.footprint.pin_count()
+        return self.package.pin_count()
 
     @property
     def refdes_prefix(self) -> str:

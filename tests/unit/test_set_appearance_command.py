@@ -52,7 +52,7 @@ _ROUNDED = Appearance(color="#d9c7a3", corner_radius_mm=(0.5, 0.0, 0.5, 0.0))
 
 def _make_state(appearance: Appearance | None = None) -> tuple[_State, uuid.UUID]:
     state = _State()
-    defn = ComponentDefinition(
+    defn = ComponentDefinition.from_footprint(
         name="R", footprint=SIL(n=2),
         pin_names={}, component_class=ComponentClass.RESISTOR,
     )

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### `ComponentDefinition.footprint` removed — `package` is the single default (2026-07-04)
+
+* **The `footprint` field is gone.** `defn.package` (now required; the loader
+  synthesizes a generic bbox package for YAML `footprint:`-only parts) is the
+  single stored default-geometry source; `defn.pin_count` and pin-name
+  validation derive from it. Instance-less contexts (library preview,
+  pre-placement ghost, BOM fallback) call the explicitly-named
+  `defn.default_footprint()`; placed components keep resolving through their
+  instance (`footprint_of` / `resolved_footprint`). This removes the field
+  whose innocent name caused seven incarnations of the silent-wrong-body bug
+  (a placed SMD colliding/rendering via its phantom axial default). New
+  `ComponentDefinition.from_footprint(...)` builds a definition from a bare
+  pin cloud. `resolve_component_package` never returns `None` for a loaded
+  part; the BOM "Footprint" column now prefers the placed variant address.
+
 ### Library files may carry `packages:` and `families:` sections (2026-07-04)
 
 * **Reusable packages and catalogue families next to the components that use

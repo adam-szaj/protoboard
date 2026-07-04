@@ -68,7 +68,7 @@ def _board() -> Board:
 
 
 def _make_resistor_library() -> _MiniLibrary:
-    defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
     lib = _MiniLibrary()
     lib._by_name["R"] = defn
     return lib
@@ -77,10 +77,10 @@ def _make_resistor_library() -> _MiniLibrary:
 def _build_pin_to_pin_wire_state() -> tuple[Layout, dict, Schematic]:
     """One internal pin-to-pin wire whose path matches both PinKnots."""
     from protoboard.domain.layout.placement import pin_world_position
-    defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
     layout = Layout(placements={}, wires=WireCollection())
     # The R defn has no package → bind with families={}; resolved_footprint then
-    # returns defn.footprint (the part's genuine default geometry).
+    # returns defn.default_footprint() (the part's genuine default geometry).
     inst_a = ComponentInstance.new(
         definition_ref="R", refdes="R1", value="10k").bind(defn, {})
     inst_b = ComponentInstance.new(
@@ -92,8 +92,8 @@ def _build_pin_to_pin_wire_state() -> tuple[Layout, dict, Schematic]:
     layout.placements[inst_b.id] = ComponentPlacement(
         component_id=inst_b.id, position=Point(3.0, 8.0), rotation=0, side="top",
     )
-    pos_a = pin_world_position(defn.footprint, layout.placements[inst_a.id], 2)
-    pos_b = pin_world_position(defn.footprint, layout.placements[inst_b.id], 1)
+    pos_a = pin_world_position(defn.default_footprint(), layout.placements[inst_a.id], 2)
+    pos_b = pin_world_position(defn.default_footprint(), layout.placements[inst_b.id], 1)
     pka = layout.get_or_create_pin_knot(PinRef(inst_a.id, 2))
     pkb = layout.get_or_create_pin_knot(PinRef(inst_b.id, 1))
     wire = Wire(
@@ -174,11 +174,11 @@ class TestStalePathSnapOnLoad:
         kb = snapped_layout.knots[w.b.id]
         assert isinstance(ka, PinKnot) and isinstance(kb, PinKnot)
         pos_a = pin_world_position(
-            defn.footprint, snapped_layout.placements[ka.pin.component_id],
+            defn.default_footprint(), snapped_layout.placements[ka.pin.component_id],
             ka.pin.pin_number,
         )
         pos_b = pin_world_position(
-            defn.footprint, snapped_layout.placements[kb.pin.component_id],
+            defn.default_footprint(), snapped_layout.placements[kb.pin.component_id],
             kb.pin.pin_number,
         )
         assert w.path[0] == pos_a
@@ -244,7 +244,7 @@ class TestStalePathSnapOnLoad:
         ka = l2.knots[w.a.id]
         assert isinstance(ka, PinKnot)
         pin_pos = pin_world_position(
-            defn.footprint, l2.placements[ka.pin.component_id],
+            defn.default_footprint(), l2.placements[ka.pin.component_id],
             ka.pin.pin_number,
         )
         # path[0] should still be ~+1 off in x (the corruption is preserved).
@@ -303,7 +303,7 @@ class TestVariantFootprintOnLoad:
 
         # Definition defaults to the FIRST variant; the instance overrides to a
         # variant with different pin spacing.
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="P", footprint=SIL(2), pin_names={1: "A", 2: "B"},
             package_family_ref=f"{family_id}/{default_vid}",
         )
@@ -340,7 +340,7 @@ class TestVariantFootprintOnLoad:
         fp = resolved_footprint(defn, inst, fam)
         pos2 = pin_world_position(fp, l2.placements[inst.id], 2)
         # The variant's pin-2 world position must match what resolved_footprint
-        # gives — i.e. load used the variant, not defn.footprint (SIL spacing).
+        # gives — i.e. load used the variant, not defn.default_footprint() (SIL spacing).
         from protoboard.domain.components.footprints import SIL as _SIL
         default_pos = pin_world_position(
             _SIL(2), l2.placements[inst.id], 2)
@@ -401,7 +401,7 @@ class TestPadIndexUsesVariantFootprint:
         assert variant is not None
         variant_fp = PackageFootprint(variant.package)
         variant_pin2 = pin_world_position(variant_fp, placement, 2)
-        default_pin2 = pin_world_position(defn.footprint, placement, 2)
+        default_pin2 = pin_world_position(defn.default_footprint(), placement, 2)
         # The variant and default must actually disagree, else the test proves
         # nothing.
         assert (variant_pin2.x, variant_pin2.y) != (

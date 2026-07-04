@@ -92,7 +92,7 @@ class _AlwaysRejectStrategy:
 
 def _build_one_resistor() -> tuple[_State, uuid.UUID]:
     """One SIL(2) resistor at (3, 5) so pin 1 sits at (3.5, 5.5)."""
-    defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
     inst = ComponentInstance.new(
         definition_ref="R", refdes="R1", value="10k"
     ).bind(defn, {})
@@ -111,7 +111,7 @@ def _build_one_resistor() -> tuple[_State, uuid.UUID]:
 def _pin_pos(state: _State, comp_id: uuid.UUID, pin: int) -> Point:
     from protoboard.domain.layout.placement import pin_world_position
     defn = state.components[state.instances[comp_id].definition_ref]
-    return pin_world_position(defn.footprint, state.layout.placements[comp_id], pin)
+    return pin_world_position(defn.default_footprint(), state.layout.placements[comp_id], pin)
 
 
 # ---------------------------------------------------------------------------

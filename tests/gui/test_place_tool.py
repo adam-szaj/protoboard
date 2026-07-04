@@ -108,7 +108,7 @@ class TestPlaceToolSmdMount:
         )
         defn = ComponentDefinition(
             name="R_SMD", component_class=ComponentClass.RESISTOR,
-            footprint=PackageFootprint(pkg), pin_names={}, package=pkg,
+            pin_names={}, package=pkg,
         )
         session.components["R_SMD"] = defn
         return "R_SMD"
@@ -184,7 +184,7 @@ class TestPlaceToolSmdMount:
     ) -> None:
         # Regression: the drag-pin baseline (and flip / pin-count) must use the
         # chosen variant's footprint, the same geometry the ghost renders. When
-        # it used defn.footprint instead, the offset was measured against one
+        # it used defn.default_footprint() instead, the offset was measured against one
         # body and drawn against another, so the ghost drifted in drag-pin —
         # worse with rotation. The pin-2 baseline must differ between the SMD
         # chip and the axial body (different pin spacing).
@@ -258,8 +258,8 @@ class TestPlaceToolSmdMount:
             component_id=uuid.uuid4(), position=Point(1.0, 1.0),
             rotation=0, side="top", pin_offsets={2: off},
         )
-        p1 = pin_world_position(defn.footprint, pl, 1)
-        p2 = pin_world_position(defn.footprint, pl, 2)
+        p1 = pin_world_position(defn.default_footprint(), pl, 1)
+        p2 = pin_world_position(defn.default_footprint(), pl, 2)
         assert (round(p1.x), round(p1.y)) == (1, 1)
         assert (round(p2.x), round(p2.y)) == (2, 2)  # SE diagonal neighbour
 

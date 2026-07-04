@@ -46,7 +46,7 @@ def footprint_of(
     """The variant-aware footprint of a placed component.
 
     Delegates to :meth:`ComponentInstance.resolved_footprint`. It does NOT
-    fall back to ``defn.footprint`` for a missing instance: a placed component
+    fall back to the definition default for a missing instance: a placed component
     in a conflict/geometry path must have a bound instance, so ``None`` raises
     :class:`~protoboard.errors.UnboundInstanceError` (surfacing the bug instead
     of silently using the wrong default body). ``defn`` is kept in the
@@ -92,7 +92,7 @@ def resolved_footprint_or_default(
     """The variant-aware footprint of a placed component, tolerating unbound.
 
     Like :func:`footprint_of` but *does not raise* when the instance is missing
-    or unbound — it falls back to ``defn.footprint``. Use this in build paths
+    or unbound — it falls back to ``defn.default_footprint()``. Use this in build paths
     that can legitimately run before :meth:`ComponentInstance.bind` (e.g.
     ``ConnectivityGraph`` is constructed from ``load_project`` output, which the
     session binds only lazily): there is genuinely no variant to resolve yet, so
@@ -104,7 +104,7 @@ def resolved_footprint_or_default(
     :func:`footprint_of` (strict) wherever the instance is guaranteed bound.
     """
     if inst is None or inst.definition is None:
-        return defn.footprint
+        return defn.default_footprint()
     return inst.resolved_footprint()
 
 

@@ -154,7 +154,7 @@ def measure_routing_quality(
             comp = components.get(inst.definition_ref)
             if comp is None:
                 continue
-            pt = pin_world_position(comp.footprint, pl, pin_ref.pin_number)
+            pt = pin_world_position(comp.default_footprint(), pl, pin_ref.pin_number)
             pin_pos_to_net[(round(pt.x, 4), round(pt.y, 4))] = net.id
 
     wire_net_id: dict[object, object] = {}  # wire.id → net.id
@@ -188,7 +188,7 @@ def measure_routing_quality(
             comp = components.get(inst.definition_ref)
             if comp is None:
                 continue
-            pin_pts.append(pin_world_position(comp.footprint, pl, pin_ref.pin_number))
+            pin_pts.append(pin_world_position(comp.default_footprint(), pl, pin_ref.pin_number))
 
         if len(pin_pts) < 2:
             continue

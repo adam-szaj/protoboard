@@ -39,7 +39,7 @@ def _perfboard(rows: int = 1, cols: int = 5) -> Board:
 
 
 def _r_defn() -> ComponentDefinition:
-    return ComponentDefinition(name="R", footprint=SIL(2), pin_names={})
+    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
 
 
 def _place(comp_id: uuid.UUID, x: float, rotation: int = 90) -> ComponentPlacement:

@@ -44,7 +44,7 @@ def _make_resistor_with_fractional_offset(
     board: Board, offset_y: float
 ) -> tuple[ConnectivityGraph, ComponentInstance, Wire]:
     """Place a 2-pin resistor whose pin-1 anchor sits at y=0.5+offset_y."""
-    defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={})
+    defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
     inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
     # Rotation 90 → pin 1 at position, pin 2 at position + (1, 0).
     pl = ComponentPlacement(
@@ -82,7 +82,7 @@ class TestConnectivityToleratesFractionalOffsets:
         # Even more aggressive: wire endpoint y differs from pin y by 5e-3.
         # Both should map to the same _NodeKey under _SNAP_TOL=5e-3.
         board = _perfboard(1, 3)
-        defn = ComponentDefinition(name="R", footprint=SIL(2), pin_names={})
+        defn = ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={})
         inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="")
         pl = ComponentPlacement(
             component_id=inst.id,

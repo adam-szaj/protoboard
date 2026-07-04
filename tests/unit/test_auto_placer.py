@@ -58,7 +58,7 @@ def _make_perfboard(rows: int = 10, cols: int = 10) -> Board:
 
 
 def _resistor_defn(name: str = "R") -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name=name,
         footprint=SIL(n=2),
         pin_names={},
@@ -67,7 +67,7 @@ def _resistor_defn(name: str = "R") -> ComponentDefinition:
 
 
 def _connector_defn(n: int = 2, name: str = "J") -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name=name,
         footprint=SIL(n=n),
         pin_names={},

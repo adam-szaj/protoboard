@@ -106,7 +106,7 @@ def test_bench_hit_test_component(
     if defn is None:
         pytest.skip("no component definition")
     from protoboard.domain.layout.placement import pin_world_position
-    pos = pin_world_position(defn.footprint, pl, 1)
+    pos = pin_world_position(defn.default_footprint(), pl, 1)
 
     benchmark(tester.hit, pos.x, pos.y, filters)
 

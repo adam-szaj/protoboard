@@ -47,7 +47,7 @@ class _State:
 
 def _make_state(package_variant: str | None = None) -> tuple[_State, uuid.UUID]:
     state = _State()
-    defn = ComponentDefinition(
+    defn = ComponentDefinition.from_footprint(
         name="R", footprint=SIL(n=2),
         pin_names={}, component_class=ComponentClass.RESISTOR,
         package_family_ref="DIN-0207/typ",

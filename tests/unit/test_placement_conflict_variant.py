@@ -5,7 +5,7 @@ chosen variant footprint, not the definition default.
 Bug: placing an R as a tight SMD-0805 (pin pitch 1 hole) was blocked by a bogus
 conflict because the conflict check measured the incoming part's pin-2 against
 the *default* axial footprint (pitch 3.2 holes). At placement time the instance
-is not yet in ``session.instances``, so the check fell back to ``defn.footprint``
+is not yet in ``session.instances``, so the check fell back to ``defn.default_footprint()``
 unless the caller passes the (bound) incoming instance.
 """
 
@@ -61,7 +61,7 @@ class TestIncomingVariantNotBlocked:
             side="top",
         )
         # Place the neighbour's pin-1 on the incoming DEFAULT pin-2 position.
-        default_pin2 = pin_world_position(defn.footprint, incoming_pl, 2)
+        default_pin2 = pin_world_position(defn.default_footprint(), incoming_pl, 2)
         variant = resolve_variant(families, "SMD-0805/typ")
         assert variant is not None
         variant_pin2 = pin_world_position(

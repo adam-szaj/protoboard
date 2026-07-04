@@ -837,11 +837,16 @@ def _component_from_dict(
                 synth_generic_package,
             )
             package_obj = synth_generic_package(footprint)
+    if package_obj is None:
+        # ComponentDefinition.package is required — a part whose geometry
+        # cannot produce even a synthesized generic body is unloadable.
+        raise SerializationError(
+            f"{source}: component {data['name']!r} yields no package "
+            f"(footprint has no pins?)")
 
     try:
         return ComponentDefinition(
             name=data["name"],
-            footprint=footprint,
             pin_names=pin_names,
             description=str(data.get("description", "")),
             component_class=comp_class,

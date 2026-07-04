@@ -67,7 +67,7 @@ def _place(mw: MainWindow, x: float, y: float):  # type: ignore[no-untyped-def]
 
     sess = mw._session
     if "D1" not in sess.components:
-        sess.components["D1"] = ComponentDefinition(
+        sess.components["D1"] = ComponentDefinition.from_footprint(
             name="D1", footprint=SIL(1), pin_names={1: "A"},
         )
     inst = ComponentInstance.new(definition_ref="D1", refdes="U1", value="")

@@ -199,9 +199,9 @@ def compute_metrics(
             placement = layout.placements.get(ref.component_id)
             if defn is None or placement is None:
                 continue
-            if ref.pin_number > defn.footprint.pin_count():
+            if ref.pin_number > defn.default_footprint().pin_count():
                 continue
-            wp = pin_world_position(defn.footprint, placement, ref.pin_number)
+            wp = pin_world_position(defn.default_footprint(), placement, ref.pin_number)
             pin_world[ref] = wp
             ck = graph.node_for_pin(ref)
             if ck is not None:

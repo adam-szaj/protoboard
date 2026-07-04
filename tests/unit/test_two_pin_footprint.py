@@ -65,7 +65,7 @@ components:
 """)
         lib = load_library([tmp_path])
         defn = lib.get("R")
-        assert defn.footprint.pin_count() == 2
+        assert defn.default_footprint().pin_count() == 2
 
     def test_sil_pins_3_geometry(self, tmp_path: Path) -> None:
         from protoboard.services.library.loader import load_library
@@ -79,7 +79,7 @@ components:
 """)
         lib = load_library([tmp_path])
         defn = lib.get("HDR3")
-        assert defn.footprint.pin_count() == 3
+        assert defn.default_footprint().pin_count() == 3
 
     def test_explicit_two_pin_type_in_yaml(self, tmp_path: Path) -> None:
         from protoboard.services.library.loader import load_library
@@ -93,8 +93,8 @@ components:
 """)
         lib = load_library([tmp_path])
         defn = lib.get("R_new")
-        assert defn.footprint.pin_count() == 2
-        assert defn.footprint.pin_positions() == [
+        assert defn.default_footprint().pin_count() == 2
+        assert defn.default_footprint().pin_positions() == [
             Point(0.0, 0.0), Point(0.0, 1.0)
         ]
 
@@ -110,8 +110,8 @@ components:
 """)
         lib = load_library([tmp_path])
         defn = lib.get("R_wide")
-        assert defn.footprint.pin_count() == 2
-        assert defn.footprint.pin_positions() == [
+        assert defn.default_footprint().pin_count() == 2
+        assert defn.default_footprint().pin_positions() == [
             Point(0.0, 0.0), Point(0.0, 3.0)
         ]
 

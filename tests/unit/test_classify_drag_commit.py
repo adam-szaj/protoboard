@@ -39,12 +39,35 @@ class _SessionStub:
         defn = self.components.get(inst.definition_ref)
         if defn is None:
             return None
-        return pin_world_position(defn.footprint, pl, pin_num)
+        return pin_world_position(defn.default_footprint(), pl, pin_num)
 
 
 def _defn(name: str, n: int = 2) -> ComponentDefinition:
-    return ComponentDefinition(
+    return ComponentDefinition.from_footprint(
         name=name, footprint=SIL(n), pin_names={i: str(i) for i in range(1, n + 1)}
+    )
+
+
+def _rigid_defn(name: str, n: int = 2) -> ComponentDefinition:
+    """A definition with a RIGID body over SIL(n) — see test_drag_detector.
+
+    The generic synth body is non-rigid (floats above the board), so pure
+    body-overlap severity needs a rigid package to fire.
+    """
+    import dataclasses
+
+    from protoboard.domain.components.package.kind import (
+        synth_generic_package,
+    )
+    from protoboard.domain.components.package.shapes import Prism
+
+    pkg = synth_generic_package(SIL(n))
+    assert isinstance(pkg, Prism)
+    pkg = dataclasses.replace(pkg, bend_holes=0.0, kind=None)
+    return ComponentDefinition(
+        name=name,
+        package=pkg,
+        pin_names={i: str(i) for i in range(1, n + 1)},
     )
 
 
@@ -107,9 +130,10 @@ class TestClassifyDragCommit:
         # Two 2-pin parts placed at the same position with no schematic — bodies
         # overlap, all pins overlap → "shared pad", which is BOTH_UNCONNECTED
         # (soft). To force pure body-overlap we offset so bboxes overlap but
-        # pins don't coincide.
-        defn_a = _defn("A", 2)
-        defn_b = _defn("B", 2)
+        # pins don't coincide. Rigid bodies: the generic synth body floats
+        # (bendable), so only a rigid package's body bbox hard-blocks.
+        defn_a = _rigid_defn("A", 2)
+        defn_b = _rigid_defn("B", 2)
         inst_a = _inst(defn_a, "A1")
         inst_b = _inst(defn_b, "B1")
         # A spans (0,0)-(1,0); B spans (0.3,0)-(1.3,0). Bboxes overlap, pins

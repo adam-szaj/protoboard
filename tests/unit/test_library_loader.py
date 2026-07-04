@@ -18,6 +18,7 @@ from protoboard.domain.components.definition import (
 from protoboard.domain.components.package import (
     PackageFootprint,
 )
+from protoboard.domain.components.package.kind import is_generic_package
 from protoboard.errors import SerializationError
 from protoboard.services.library.loader import ComponentLibrary, load_library
 
@@ -48,7 +49,7 @@ components:
         (tmp_path / "m.yaml").write_text(self._LIB)
         defn = load_library([tmp_path]).get("MOD_2x4")
         assert defn.component_class is ComponentClass.DEVBOARD
-        pins = defn.footprint.pin_positions()
+        pins = defn.default_footprint().pin_positions()
         # 8 pins, cumulative from pin 1 = (0,0): down col A, jump 5, down… up col B.
         assert len(pins) == 8
         coords = [(round(p.x), round(p.y)) for p in pins]
@@ -60,7 +61,7 @@ components:
 
 class TestFootprintsList:
     """A component offers a ``footprints:`` list (ref or inline) instead of a
-    single fixed footprint; the default/first entry derives ``defn.footprint``."""
+    single fixed footprint; the default/first entry derives ``defn.default_footprint()``."""
 
     def test_footprints_only_derives_default_geometry(self, tmp_path: Path) -> None:
         # No footprint:/package: block — geometry comes from the first entry.
@@ -78,7 +79,7 @@ class TestFootprintsList:
             "    pin_names: {7: GND, 14: VCC}\n"
         )
         defn = load_library([tmp_path]).get("U_DIP14")
-        assert defn.footprint.pin_count() == 14          # from the first entry
+        assert defn.default_footprint().pin_count() == 14          # from the first entry
         assert len(defn.footprints) == 2
         assert defn.footprints[0].name == "DIP-14"
         assert defn.footprints[1].package is not None    # inline package built
@@ -123,7 +124,7 @@ class TestFootprintsList:
         )
         lib = load_library([tmp_path], package_families=generate_inline_families())
         defn = lib.get("U_DIP16")
-        assert defn.footprint.pin_count() == 16
+        assert defn.default_footprint().pin_count() == 16
         assert defn.footprints[0].ref == "dip-16/std"
         assert defn.footprints[0].name == "dip-16/std"   # name defaults to ref
 
@@ -197,7 +198,7 @@ class TestLibraryFilePackagesAndFamilies:
             "    pin_names: {1: A}\n"
         )
         defn = load_library([tmp_path], package_families={}).get("MOD_A")
-        assert defn.footprint.pin_count() == 8       # body pins from the generic
+        assert defn.default_footprint().pin_count() == 8       # body pins from the generic
 
     def test_ref_resolves_family_from_same_file(self, tmp_path: Path) -> None:
         (tmp_path / "d.yaml").write_text(
@@ -220,7 +221,7 @@ class TestLibraryFilePackagesAndFamilies:
         )
         lib = load_library([tmp_path], package_families={})
         defn = lib.get("D_MY")
-        assert defn.footprint.pin_count() == 2
+        assert defn.default_footprint().pin_count() == 2
         assert defn.footprints[0].ref == "MY-DO/std"
         # The family rides on the library so the session's picker offers it.
         assert "MY-DO" in lib.package_families
@@ -249,7 +250,7 @@ class TestLibraryFilePackagesAndFamilies:
             + self._PRISM_BODY
         )
         lib = load_library([tmp_path], package_families={})
-        assert lib.get("MOD_B").footprint.pin_count() == 8
+        assert lib.get("MOD_B").default_footprint().pin_count() == 8
         assert "MY-MOD" in lib.package_families
 
     def test_builtin_family_wins_on_id_clash(self, tmp_path: Path) -> None:
@@ -273,7 +274,7 @@ class TestLibraryFilePackagesAndFamilies:
         lib = load_library([tmp_path],
                            package_families=generate_inline_families())
         # The builtin dip-16 (16 pins) won — not the 8-pin library imposter.
-        assert lib.get("U_CLASH").footprint.pin_count() == 16
+        assert lib.get("U_CLASH").default_footprint().pin_count() == 16
         assert "dip-16" not in lib.package_families
 
     def test_unknown_top_level_section_warns(self, tmp_path: Path) -> None:
@@ -315,7 +316,7 @@ class TestCrossFileExtends:
         )
         lib = load_library([tmp_path])
         defn = lib.get("74HC00")
-        assert defn.footprint.pin_count() == 14
+        assert defn.default_footprint().pin_count() == 14
         assert defn.refdes_prefix == "U"          # symbol inherited cross-file
         assert defn.pin_name(1) == "A1"           # child override
         assert defn.pin_name(7) == "GND"          # base pin_names deep-merged
@@ -364,7 +365,7 @@ class TestKindPackage:
             "    pin_names: {7: GND, 14: VCC}\n"
         )
         defn = load_library([tmp_path]).get("U_DIP14")
-        assert defn.footprint.pin_count() == 14
+        assert defn.default_footprint().pin_count() == 14
         assert defn.refdes_prefix == "U"
 
     def test_odd_pin_count_for_dip_is_rejected(self) -> None:
@@ -494,7 +495,7 @@ class TestConsolidatedPassives:
         # Default body = the first offered footprint (DIN-0207 axial) now that the
         # dead ``footprint: TwoPin`` default was dropped — the neutral generic
         # default is gone, the picker's first real body wins.
-        pins = [(round(p.x), round(p.y)) for p in defn.footprint.pin_positions()]
+        pins = [(round(p.x), round(p.y)) for p in defn.default_footprint().pin_positions()]
         assert pins == [(0, 0), (3, 0)]
         names = [o.name for o in defn.footprints]
         assert "DIN-0207" in names and "SMD-0805" in names
@@ -538,7 +539,7 @@ class TestMigratedICs:
             ("CD4001", 14, 7, "VSS"), ("74HC245", 20, 10, "GND"),
         ):
             d = lib.get(name)
-            assert d.footprint.pin_count() == pc
+            assert d.default_footprint().pin_count() == pc
             assert d.pin_name(pin) == label
 
     def test_kept_opamp_templates_still_feed_children(self) -> None:
@@ -556,7 +557,7 @@ class TestMigratedICs:
         assert "_SINGLE_OPAMP_741" not in lib
         for name in ("uA741", "TL071", "LM741"):
             d = lib.get(name)
-            assert d.footprint.pin_count() == 8
+            assert d.default_footprint().pin_count() == 8
             assert d.pin_name(4) == "VEE" and d.pin_name(8) == "NC"
 
     def test_dip_geometry_and_notch_via_kind(self) -> None:
@@ -584,7 +585,7 @@ class TestMigratedICs:
         lib = self._lib()
         assert lib.get("7805").pin_name(1) == "IN"
         assert lib.get("LM317").pin_name(1) == "ADJ"
-        assert lib.get("7805").footprint.pin_count() == 3
+        assert lib.get("7805").default_footprint().pin_count() == 3
 
 
 class TestRigidPackageFamilyRef:
@@ -623,8 +624,8 @@ components:
         defn = self._lib(tmp_path).get("R_SMD")
         # The SMD body fixes the geometry: a PackageFootprint with rigid
         # 1-hole pin spacing, and no bendable leads.
-        assert isinstance(defn.footprint, PackageFootprint)
-        xs = sorted({round(p.x, 1) for p in defn.footprint.pin_positions()})
+        assert isinstance(defn.default_footprint(), PackageFootprint)
+        xs = sorted({round(p.x, 1) for p in defn.default_footprint().pin_positions()})
         assert xs == [0.0, 1.0]
         assert defn.bendable_pins == {}
 
@@ -635,8 +636,8 @@ components:
         # An axial cylinder is not rigid (it bends), so the original
         # footprint-derived geometry (not a rigid PackageFootprint) and the
         # bendable leads survive.
-        assert not isinstance(defn.footprint, PackageFootprint)
-        assert defn.footprint.pin_count() == 2
+        assert is_generic_package(defn.package)
+        assert defn.default_footprint().pin_count() == 2
         assert defn.bendable_pins  # kept
 
     def test_no_catalogue_leaves_footprint_unchanged(
@@ -650,8 +651,8 @@ components:
         defn = load_library([tmp_path], {}).get("R_SMD")
         # Legacy footprint-only behaviour: footprint-derived geometry, not a
         # rigid PackageFootprint.
-        assert not isinstance(defn.footprint, PackageFootprint)
-        assert defn.footprint.pin_count() == 2
+        assert is_generic_package(defn.package)
+        assert defn.default_footprint().pin_count() == 2
         assert defn.bendable_pins  # kept
 
 
@@ -668,8 +669,8 @@ class TestLoadLibrary:
         assert isinstance(defn, ComponentDefinition)
         assert defn.name == "LM358"
         # DIP-8 geometry: two rows of 4 pins, columns 3 holes apart.
-        assert defn.footprint.pin_count() == 8
-        xs = sorted({round(p.x, 1) for p in defn.footprint.pin_positions()})
+        assert defn.default_footprint().pin_count() == 8
+        xs = sorted({round(p.x, 1) for p in defn.default_footprint().pin_positions()})
         assert xs == [0.0, 3.0]
         assert defn.pin_count == 8
         assert defn.pin_name(1) == "OUT_A"
@@ -680,9 +681,9 @@ class TestLoadLibrary:
         defn = lib.get("R")
         # Two-pin footprint-derived geometry: a single in-line pair of pads
         # (not a rigid package-derived footprint).
-        assert not isinstance(defn.footprint, PackageFootprint)
+        assert is_generic_package(defn.package)
         assert defn.pin_count == 2
-        pins = [(round(p.x), round(p.y)) for p in defn.footprint.pin_positions()]
+        pins = [(round(p.x), round(p.y)) for p in defn.default_footprint().pin_positions()]
         assert pins == [(0, 0), (0, 1)]
         # Pin names not declared → defaults.
         assert defn.pin_name(1) == "P1"
@@ -692,9 +693,9 @@ class TestLoadLibrary:
         lib = load_library([FIXTURES])
         defn = lib.get("BC547")
         # TO92 → single in-line row of 3 pins (footprint-derived geometry).
-        assert not isinstance(defn.footprint, PackageFootprint)
-        assert defn.footprint.pin_count() == 3
-        xs = {round(p.x) for p in defn.footprint.pin_positions()}
+        assert is_generic_package(defn.package)
+        assert defn.default_footprint().pin_count() == 3
+        xs = {round(p.x) for p in defn.default_footprint().pin_positions()}
         assert xs == {0}            # single column
         assert defn.pin_count == 3
         assert defn.pin_name(1) == "C"
@@ -860,9 +861,9 @@ components:
         defn = lib.get("MyNPN")
         from protoboard.domain.components.definition import ComponentClass
         # TO92 → single in-line row of 3 pins, inherited via extends.
-        assert not isinstance(defn.footprint, PackageFootprint)
-        assert defn.footprint.pin_count() == 3
-        assert {round(p.x) for p in defn.footprint.pin_positions()} == {0}
+        assert is_generic_package(defn.package)
+        assert defn.default_footprint().pin_count() == 3
+        assert {round(p.x) for p in defn.default_footprint().pin_positions()} == {0}
         assert defn.pin_count == 3
         assert defn.pin_name(1) == "C"
         assert defn.component_class == ComponentClass.TRANSISTOR_NPN
@@ -1097,7 +1098,7 @@ components:
         assert defn.package is not None          # package attached
         assert defn.pin_count == 2               # footprint derived from package
         # footprint pin positions come from the package
-        assert defn.footprint.pin_positions()[0].x == 0.0
+        assert defn.default_footprint().pin_positions()[0].x == 0.0
 
     def test_package_component_needs_no_footprint(self, tmp_path: Path) -> None:
         d = self._write(tmp_path, """

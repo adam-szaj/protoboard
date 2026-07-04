@@ -158,7 +158,7 @@ class TestOfferedBodyFamilies:
         assert pkg is not None
         fp = DIL(n=pins) if kind in ("dip_ic", "wdip_ic") else SIL(n=pins)
         return ComponentDefinition(
-            name="X", footprint=fp, pin_names={},
+            name="X", pin_names={},
             component_class=ComponentClass.IC,
             package=pkg,
         )
@@ -185,7 +185,7 @@ class TestOfferedBodyFamilies:
         # No declared body and not a two-pin part → no offer (a SIL-3 pin
         # cloud fits a TO-92, a header or a trimmer — the footprint cannot
         # decide).
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="HDR3", footprint=SIL(n=3), pin_names={},
             component_class=ComponentClass.CONNECTOR,
         )
@@ -207,7 +207,7 @@ class TestOfferedBodyFamilies:
     def test_bare_two_pin_part_offers_all_two_pin_families(self) -> None:
         # The resistor/diode body swap: a two-pin part with no declared body
         # is offered every two-pin family in the catalogue.
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="R", footprint=SIL(n=2), pin_names={},
             component_class=ComponentClass.RESISTOR,
         )
@@ -221,7 +221,7 @@ class TestOfferedBodyFamilies:
             synth_generic_package,
         )
         defn = ComponentDefinition(
-            name="R", footprint=SIL(n=2), pin_names={},
+            name="R", pin_names={},
             component_class=ComponentClass.RESISTOR,
             package=synth_generic_package(SIL(n=2)),
         )
@@ -232,7 +232,7 @@ class TestOfferedBodyFamilies:
 class TestEndToEndResolution:
     def test_picking_wdip_resolves_wide_package(self) -> None:
         fams = generate_inline_families()
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="U1", component_class=ComponentClass.IC,
             footprint=DIL(n=16), pin_names={},
         )

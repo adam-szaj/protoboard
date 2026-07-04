@@ -158,7 +158,7 @@ class TestDragDetectorLockPromotion:
         from protoboard.services.pad_strategy import DRCEnforcingStrategy
         from protoboard.gui.tools.drag_commit_decision import DragSeverity
 
-        defn = ComponentDefinition(
+        defn = ComponentDefinition.from_footprint(
             name="R", footprint=SIL(2),
             pin_names={i: str(i) for i in (1, 2)},
         )

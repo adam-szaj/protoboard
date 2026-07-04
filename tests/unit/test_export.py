@@ -24,7 +24,7 @@ from protoboard.services.export.bom import export_bom_csv
 
 
 def _r_defn() -> ComponentDefinition:
-    return ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
 
 
 class TestBomExport:

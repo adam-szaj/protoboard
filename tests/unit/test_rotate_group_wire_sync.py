@@ -60,7 +60,7 @@ class _State:
 
 
 def _resistor_defn() -> ComponentDefinition:
-    return ComponentDefinition(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
+    return ComponentDefinition.from_footprint(name="R", footprint=SIL(2), pin_names={1: "A", 2: "B"})
 
 
 def _place(state: _State, x: float, y: float, refdes: str) -> uuid.UUID:
@@ -94,8 +94,8 @@ def _make_internal_wire_pin_to_pin(
     """Both endpoints are PinKnot — classic 'internal to group' wire."""
     from protoboard.domain.layout.placement import pin_world_position
     defn = state.components["R"]
-    pos_a = pin_world_position(defn.footprint, state.layout.placements[comp_a], pin_a)
-    pos_b = pin_world_position(defn.footprint, state.layout.placements[comp_b], pin_b)
+    pos_a = pin_world_position(defn.default_footprint(), state.layout.placements[comp_a], pin_a)
+    pos_b = pin_world_position(defn.default_footprint(), state.layout.placements[comp_b], pin_b)
     pka = state.layout.get_or_create_pin_knot(PinRef(comp_a, pin_a))
     pkb = state.layout.get_or_create_pin_knot(PinRef(comp_b, pin_b))
     wire = Wire(
@@ -129,8 +129,8 @@ def _make_internal_pin_to_joint_pair(
     """
     from protoboard.domain.layout.placement import pin_world_position
     defn = state.components["R"]
-    pos_a = pin_world_position(defn.footprint, state.layout.placements[comp_a], pin_a)
-    pos_b = pin_world_position(defn.footprint, state.layout.placements[comp_b], pin_b)
+    pos_a = pin_world_position(defn.default_footprint(), state.layout.placements[comp_a], pin_a)
+    pos_b = pin_world_position(defn.default_footprint(), state.layout.placements[comp_b], pin_b)
     pka = state.layout.get_or_create_pin_knot(PinRef(comp_a, pin_a))
     pkb = state.layout.get_or_create_pin_knot(PinRef(comp_b, pin_b))
     jk = state.layout.create_joint_knot(hub)
@@ -161,7 +161,7 @@ def _make_internal_wire_pin_to_wirepin(
     """PinKnot - WirePinKnot wire; tests that WirePinKnot rotates too."""
     from protoboard.domain.layout.placement import pin_world_position
     defn = state.components["R"]
-    pos_a = pin_world_position(defn.footprint, state.layout.placements[comp_a], pin_a)
+    pos_a = pin_world_position(defn.default_footprint(), state.layout.placements[comp_a], pin_a)
     pka = state.layout.get_or_create_pin_knot(PinRef(comp_a, pin_a))
     wpk = WirePinKnot(id=uuid.uuid4(), position=end, net_id=None)
     state.layout.knots[wpk.id] = wpk
@@ -367,8 +367,8 @@ class TestRotateGroupKeepsFragmentsAndKnotsInSync:
         # After rotate, wire.path[0]/[-1] must equal the freshly-resolved
         # pin positions of the rotated placements.
         defn = state.components["R"]
-        new_a = pin_world_position(defn.footprint, state.layout.placements[cid_a], 2)
-        new_b = pin_world_position(defn.footprint, state.layout.placements[cid_b], 1)
+        new_a = pin_world_position(defn.default_footprint(), state.layout.placements[cid_a], 2)
+        new_b = pin_world_position(defn.default_footprint(), state.layout.placements[cid_b], 1)
         # One of these is path[0], the other is path[-1]; tolerate the
         # path-direction choice the wire stored at construction.
         assert {wire.path[0], wire.path[-1]} == {new_a, new_b}

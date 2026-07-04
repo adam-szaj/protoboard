@@ -137,11 +137,10 @@ class ComponentInstance:
         to the definition default in a placement context is the exact
         silent-wrong-body bug this model removes.
 
-        When the instance *is* bound but its part declares no package/variant
-        (a legacy part), the definition's own footprint is its genuine default
-        geometry — not a fallback — so that is returned. The distinction is
-        deliberate: unbound = programming error (raise); no package = correct
-        default (use ``defn.footprint``).
+        When the instance *is* bound but no variant/family resolves, the
+        definition's ``package`` (always set) is its genuine default geometry
+        — not a fallback. The distinction is deliberate: unbound = programming
+        error (raise); no variant = correct default.
         """
         pkg = self.resolved_package()
         if pkg is not None:
@@ -150,10 +149,10 @@ class ComponentInstance:
             )
 
             return PackageFootprint(pkg)
-        # Bound, but the part has no package/variant — its definition footprint
-        # IS its real default geometry, not a silent fallback.
+        # Bound, but nothing resolved — the definition's own package IS the
+        # part's real default geometry, not a silent fallback.
         assert self.definition is not None  # resolved_package raised otherwise
-        return self.definition.footprint
+        return self.definition.default_footprint()
 
     @staticmethod
     def new(
