@@ -92,9 +92,15 @@ def body_holes(package: Package) -> list[Point]:
     in the package's own frame (pin 1 at the origin, no rotation); the caller
     applies the placement transform. Pure geometry, side-independent: which board
     side the body sits on and whether it blocks routing are the caller's concern.
+
+    A package whose body extent cannot be derived (no explicit dims and no
+    margin) covers no holes — the part occupies only its pins.
     """
     pin_holes = {_hole_key(p) for p in package.pin_positions()}
-    bb = package.bbox()
+    try:
+        bb = package.bbox()
+    except ValueError:
+        return []
     x0, y0 = round(bb.x), round(bb.y)
     x1, y1 = round(bb.x + bb.width), round(bb.y + bb.height)
     out: list[Point] = []
@@ -133,8 +139,12 @@ def build_pad_mask(
         hole = _hole_key(pos)
         mask[hole] = mask.get(hole, PadCell(0)) | PadCell.PIN | pin_bit
 
-    # Body footprint.
-    bb = package.bbox()
+    # Body footprint. A package with no derivable body extent (no explicit
+    # dims, no margin) masks its pins only.
+    try:
+        bb = package.bbox()
+    except ValueError:
+        return mask
     x0, y0 = round(bb.x), round(bb.y)
     x1, y1 = round(bb.x + bb.width), round(bb.y + bb.height)
     for hx in range(x0, x1 + 1):

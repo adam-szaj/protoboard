@@ -75,6 +75,39 @@ class TestBuildPadMask:
                 assert b & PadCell.PIN_TOP  # blocking body lit the pin-side bit
 
 
+def _dimless_prism():
+    # Regression shape: no explicit dims and no margin, so ``bbox()`` raises —
+    # placing such a part used to crash PadIndex via ``body_holes``.
+    from protoboard.domain.components.package.loader import build_package
+    return build_package(
+        {
+            "shape": "prism",
+            "dims": {},
+            "leads": {
+                "direction": [0, 0, -1],
+                "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                "board_offset": "default",
+            },
+        },
+        "DIMLESS",
+    )
+
+
+class TestDimlessBodyMask:
+    """A package with no derivable body extent occupies only its pins."""
+
+    def test_body_holes_is_empty(self) -> None:
+        from protoboard.domain.components.package.mask import body_holes
+        assert body_holes(_dimless_prism()) == []
+
+    def test_pad_mask_carries_pins_only(self) -> None:
+        m = build_pad_mask(_dimless_prism(), mount_side=TOP)
+        assert len(m) == 2
+        for bits in m.values():
+            assert bits & PadCell.PIN
+            assert not (bits & PadCell.BODY_TOP)
+
+
 class TestMasksCollide:
     def test_low_part_under_blocking_body_collides(self) -> None:
         # Blocking body on top at holes 0..N, and a part with a pin in one of
