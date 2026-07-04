@@ -54,6 +54,31 @@ __all__ = [
 PackageBody = PackageRenderer
 
 
+def _active_option_style(
+    defn: ComponentDefinition,
+    instance: ComponentInstance | None,
+) -> Appearance | None:
+    """The ``style:`` of the footprint option the placed part uses, or None.
+
+    With an explicit ``instance.package_variant`` the option is matched by
+    address (a catalogue ``ref`` or the inline-option address). Without one,
+    the first ``footprints:`` entry is the part's geometry source (the loader
+    derived ``defn.package`` from it), so its style applies.
+    """
+    if not defn.footprints:
+        return None
+    address = instance.package_variant if instance is not None else None
+    if not address:
+        return defn.footprints[0].style
+    from protoboard.services.library.loader import inline_option_address
+    for opt in defn.footprints:
+        opt_address = (opt.ref if opt.ref is not None
+                       else inline_option_address(defn.name, opt.name))
+        if opt_address == address:
+            return opt.style
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
@@ -76,9 +101,13 @@ def body_shape_for(
     vf = placement.vertical_flipped if placement is not None else False
     side = placement.side if placement is not None else "top"
     # Visual-only override (fill colour, corner radius) layered over the
-    # package/theme defaults — instance wins over definition, per field.
+    # package/theme defaults, per field: an explicit instance override wins,
+    # then the placed footprint option's own ``style:`` (an SMD chip may be
+    # near-black while the axial variants keep the theme colour), then the
+    # component-wide definition style.
     eff_appearance = Appearance.resolve(
         instance.appearance if instance is not None else None,
+        _active_option_style(defn, instance),
         defn.appearance,
     )
 

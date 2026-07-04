@@ -975,6 +975,81 @@ class TestDevboardBody:
 # ---------------------------------------------------------------------------
 
 
+class TestFootprintOptionStyle:
+    """A ``footprints:`` entry's ``style:`` colours the body of the placed
+    option — instance override > option style > definition style."""
+
+    def _defn(self):
+        from protoboard.domain.components.appearance import Appearance
+        from protoboard.domain.components.definition import FootprintOption
+        return ComponentDefinition(
+            name="R",
+            component_class=ComponentClass.RESISTOR,
+            footprint=SIL(n=2),
+            pin_names={},
+            package=_colored_prism("#cdd2d6"),
+            footprints=(
+                FootprintOption(name="DIN-0207", ref="din-0207/typ"),
+                FootprintOption(name="SMD-0805", ref="smd-0805/typ",
+                                style=Appearance(color="#222222")),
+            ),
+        )
+
+    def _families(self):
+        from protoboard.domain.components.package.family import (
+            PackageFamily,
+            PackageVariant,
+        )
+        fams = {}
+        for fam in ("din-0207", "smd-0805"):
+            pkg = _colored_prism("#cdd2d6")
+            fams[fam] = PackageFamily(
+                family_id=fam, label=fam,
+                variants=(PackageVariant(variant_id="typ", label=fam,
+                                         package=pkg),),
+            )
+        return fams
+
+    def _instance(self, variant: str | None, appearance=None):
+        import uuid as _uuid
+        return ComponentInstance(
+            id=_uuid.uuid4(), definition_ref="R", refdes="R1", value="10k",
+            package_variant=variant, appearance=appearance,
+        )
+
+    def test_default_option_without_style_keeps_package_color(self) -> None:
+        shape = body_shape_for(self._defn(), instance=self._instance(None),
+                               package_families=self._families())
+        assert isinstance(shape, PackageBody)
+        assert shape._appearance.color is None
+
+    def test_picked_option_style_applies(self) -> None:
+        shape = body_shape_for(
+            self._defn(), instance=self._instance("smd-0805/typ"),
+            package_families=self._families())
+        assert isinstance(shape, PackageBody)
+        assert shape._appearance.color == "#222222"
+
+    def test_instance_override_beats_option_style(self) -> None:
+        from protoboard.domain.components.appearance import Appearance
+        shape = body_shape_for(
+            self._defn(),
+            instance=self._instance("smd-0805/typ",
+                                    appearance=Appearance(color="#ff0000")),
+            package_families=self._families())
+        assert isinstance(shape, PackageBody)
+        assert shape._appearance.color == "#ff0000"
+
+    def test_unmatched_variant_gets_no_option_style(self) -> None:
+        # An address not present in the options list (e.g. a picker-built kind
+        # variant) applies no per-option style.
+        shape = body_shape_for(
+            self._defn(), instance=self._instance("din-0207/typ"),
+            package_families=self._families())
+        assert isinstance(shape, PackageBody)
+        assert shape._appearance.color is None
+
+
 class TestBodyShapeFor:
 
     def test_two_pin_without_package_falls_back_to_generic(self) -> None:

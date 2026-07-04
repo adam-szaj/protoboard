@@ -231,6 +231,12 @@ choose one (label `symbol_name`, e.g. `R_DIN-0207`).
   footprint_style: "color: #228" # default style for every entry (overridable)
 ```
 
+A per-entry `style:` (or the list-wide `footprint_style:`) colours the body of
+the **placed option**: when the instance uses that footprint (its
+`package_variant` matches the entry, or the entry is the default first one),
+the style layers between the instance override and the component-wide `style:`
+(instance > footprint entry > component > package colour > theme).
+
 - **`symbol:`** is the refdes prefix and the picker-label root; omit it to fall
   back to the class default (`REFDES_PREFIX[component_class]`, e.g. resistor → `R`).
 - **`footprints:`** entries are a **ref** (`ref: "family/variant"`) or an **inline

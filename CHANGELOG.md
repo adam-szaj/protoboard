@@ -54,6 +54,16 @@ The remaining hard-wired body looks moved into the renderer registry:
 * Devboard stays gated by `ComponentClass.DEVBOARD` (a class trait valid for
   any package) — extraction noted in docs/todo.md.
 
+### Footprint-option `style:` now renders (2026-07-04)
+
+A `footprints:` entry's `style:` (and the list-wide `footprint_style:`) was
+parsed and stored on `FootprintOption.style` but never consumed. The body
+dispatcher (`body_shape_for`) now matches the placed option — the instance's
+`package_variant` address, or the default first entry — and layers its style
+into the appearance resolution: instance override > footprint entry >
+component `style:` > package colour > theme. An SMD chip option can be
+near-black while the axial options of the same part keep the theme colour.
+
 ### Kind generators: pluggable registry, partial application, picker wiring (2026-07-04)
 
 Package **kinds** (parameterized bodies — `package: {kind: pin_header, rows: 2}`)
