@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Body-variant picker restored — offer derived from the explicit body (2026-07-04)
+
+The library/properties body picker offers alternatives again (it was stubbed
+to `[]` by the footprint→body cleanup). `offered_body_families` now derives
+the offer from the component's **explicit body**, never the footprint type:
+a kind-generator body asks its generator for pin-count-matching alternatives
+(new `PackageGenerator.offered_family_ids` hook — DIP-16 offers
+`dip-16`/`wdip-16`, headers offer `sil-N`), a plain two-pin body (or a bare
+two-pin part) offers every two-pin family. The loader's synthetic `_generic`
+package is no longer surfaced by the footprint picker as a parameterisable
+kind option.
+
 ### Appearance override completed: per-corner radius render, GenericBody, GUI editor (2026-07-04)
 
 The visual `style:` override (fill colour + corner radius) is now feature-complete:

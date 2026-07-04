@@ -614,7 +614,7 @@ class PropertiesPanel(QWidget):
         self._body_variant_addresses = []
 
         offered = (
-            offered_body_families(defn.footprint, packages)
+            offered_body_families(defn, packages)
             if defn is not None and packages
             else []
         )

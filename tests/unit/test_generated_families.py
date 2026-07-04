@@ -141,18 +141,92 @@ class TestInlineFamilyIdsForPins:
 
 
 class TestOfferedBodyFamilies:
-    # The body-variant picker is a STUB under the new footprint model: a
-    # Footprint is only a pin count + spacing and no longer carries a body
-    # *kind*, so the old type-branch (TwoPin / DualRow / SingleRow → slice of
-    # the catalogue) is gone. The function now offers nothing for any
-    # footprint. The per-type "offers only matching DIP / SIL / two-pin"
-    # tests asserted that removed type-identity dispatch and were deleted.
+    """The offer is derived from the component's *explicit body* (its kind
+    generator, or a plain two-pin package), never from the footprint type."""
+
     def _catalogue(self) -> dict[str, PackageFamily]:
         return dict(generate_inline_families())
 
-    def test_offers_nothing_for_any_footprint(self) -> None:
-        assert offered_body_families(DIL(n=16), self._catalogue()) == []
-        assert offered_body_families(SIL(n=8), self._catalogue()) == []
+    def _kind_defn(self, kind: str, pins: int) -> ComponentDefinition:
+        from protoboard.domain.components.package.generators import (
+            GeneratorContext,
+        )
+        from protoboard.domain.components.package.kind import (
+            build_kind_package,
+        )
+        pkg = build_kind_package(kind, GeneratorContext(pin_count=pins)).package
+        assert pkg is not None
+        fp = DIL(n=pins) if kind in ("dip_ic", "wdip_ic") else SIL(n=pins)
+        return ComponentDefinition(
+            name="X", footprint=fp, pin_names={},
+            component_class=ComponentClass.IC,
+            package=pkg,
+        )
+
+    def test_dip_body_offers_both_widths_of_matching_count(self) -> None:
+        offered = offered_body_families(
+            self._kind_defn("dip_ic", 16), self._catalogue(),
+        )
+        assert [f.family_id for f in offered] == ["dip-16", "wdip-16"]
+
+    def test_wide_dip_body_offers_the_same_pair(self) -> None:
+        offered = offered_body_families(
+            self._kind_defn("wdip_ic", 28), self._catalogue(),
+        )
+        assert [f.family_id for f in offered] == ["dip-28", "wdip-28"]
+
+    def test_sil_body_offers_matching_sil(self) -> None:
+        offered = offered_body_families(
+            self._kind_defn("sil", 6), self._catalogue(),
+        )
+        assert [f.family_id for f in offered] == ["sil-6"]
+
+    def test_bare_multi_pin_part_offers_nothing(self) -> None:
+        # No declared body and not a two-pin part → no offer (a SIL-3 pin
+        # cloud fits a TO-92, a header or a trimmer — the footprint cannot
+        # decide).
+        defn = ComponentDefinition(
+            name="HDR3", footprint=SIL(n=3), pin_names={},
+            component_class=ComponentClass.CONNECTOR,
+        )
+        assert offered_body_families(defn, self._catalogue()) == []
+
+    def _two_pin_catalogue(self) -> dict[str, PackageFamily]:
+        # The generated in-line set plus one two-pin family (the generated
+        # catalogue starts SIL at 3 — two-pin bodies live in the authored
+        # catalogue in production).
+        from protoboard.domain.components.package.generated_families import (
+            sil_family,
+        )
+        catalogue = self._catalogue()
+        two_pin = sil_family(2)
+        assert two_pin is not None
+        catalogue[two_pin.family_id] = two_pin
+        return catalogue
+
+    def test_bare_two_pin_part_offers_all_two_pin_families(self) -> None:
+        # The resistor/diode body swap: a two-pin part with no declared body
+        # is offered every two-pin family in the catalogue.
+        defn = ComponentDefinition(
+            name="R", footprint=SIL(n=2), pin_names={},
+            component_class=ComponentClass.RESISTOR,
+        )
+        offered = offered_body_families(defn, self._two_pin_catalogue())
+        assert [f.family_id for f in offered] == ["sil-2"]
+
+    def test_synthetic_generic_body_is_not_a_declared_body(self) -> None:
+        # The loader's `_generic` fallback must not be treated as a declared
+        # body (nor as a parameterisable kind) — the two-pin offer still runs.
+        from protoboard.domain.components.package.kind import (
+            synth_generic_package,
+        )
+        defn = ComponentDefinition(
+            name="R", footprint=SIL(n=2), pin_names={},
+            component_class=ComponentClass.RESISTOR,
+            package=synth_generic_package(SIL(n=2)),
+        )
+        offered = offered_body_families(defn, self._two_pin_catalogue())
+        assert [f.family_id for f in offered] == ["sil-2"]
 
 
 class TestEndToEndResolution:

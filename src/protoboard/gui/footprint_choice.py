@@ -160,7 +160,13 @@ class DefaultFootprintChoiceProvider:
         # pin-header / IC) is the part's only body. Surface it as a single option
         # carrying its kind flag, so the picker can offer to parameterise it; a
         # plain inline package is not reported here (it places with no choice).
-        if self._package_is_kind(defn.package):
+        # The synthetic ``_generic`` fallback the loader stamps on package-less
+        # parts carries a kind tag but is NOT a declared body — never offer it.
+        from protoboard.domain.components.package.kind import (
+            is_generic_package,
+        )
+        if (self._package_is_kind(defn.package)
+                and not is_generic_package(defn.package)):
             return [
                 FootprintOptionView(
                     label=f"{root}_{defn.package.kind}",  # type: ignore[union-attr]
@@ -176,7 +182,7 @@ class DefaultFootprintChoiceProvider:
             offered_body_families,
         )
 
-        for pkg in offered_body_families(defn.footprint, self._families):
+        for pkg in offered_body_families(defn, self._families):
             for v in pkg.variants:
                 label = f"{pkg.family_id} / {v.variant_id}"
                 if v.label and v.label != v.variant_id:

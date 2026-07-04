@@ -234,15 +234,18 @@ The `isinstance(fp, …)` body fallback in `gui/renderers/body_shapes.py` and th
 behaviours were deferred as stubs (user decision 2026-06-25 "tylko odblokuj
 import (stub)") and are marked `xfail` so the suite stays green:
 
-1. **Body-variant picker offers nothing.**
-   `domain/components/package/generated_families.offered_body_families` now
-   returns `[]` unconditionally — it used to branch on the footprint *type* to
-   slice the catalogue, and that type is gone. The offer must be re-derived from
-   the component's **explicit** body (`package` / `package_family_ref` /
-   `footprints[]`), not from the footprint. Until then the library/properties
-   body picker shows no alternatives.
-   xfail: `tests/gui/test_panels.py::TestLibraryPanelBodyPicker` (5) and
-   `::TestBodyVariantDropdown` (4).
+1. **Body-variant picker offers nothing.** — DONE (2026-07-04, this branch).
+   `offered_body_families(defn, families)` now derives the offer from the
+   component's **explicit body**: a kind-generator body asks its generator
+   (`PackageGenerator.offered_family_ids(pin_count)` — DIP offers
+   `dip-N`/`wdip-N`, sil/pin_header offer `sil-N`, JST opts out); a plain
+   two-pin body (or a bare two-pin part) offers every two-pin family; anything
+   else offers nothing. The loader's synthetic `_generic` package is excluded
+   both here and in `DefaultFootprintChoiceProvider.options()` (it carried a
+   `kind` tag and was wrongly surfaced as a parameterisable single option).
+   The `TestLibraryPanelBodyPicker` / `TestBodyVariantDropdown` xfails are
+   removed (all green); generator-path coverage in
+   `tests/unit/test_generated_families.py::TestOfferedBodyFamilies`.
 
 2. **Generated DIP family body is a uniform-margin bbox, not JEDEC-sized.**
    `package/kind._prism_from_footprint` wraps the pin cloud with a fixed
@@ -307,9 +310,8 @@ threads.  Only the PNG-export crash above was fixed now (user scope decision);
 the rest are tracked here / in their existing entries.  Ranked:
 - **TO-220 metal tab + delete dead legacy bodies** — see the TO-220 section
   above (tab as a `Prism` feature, then remove the now-dead `TO220Body`/`TO92Body`).
-- **Body-variant picker returns `[]`** — see "Footprint→body cleanup" item 1
-  (xfail `TestLibraryPanelBodyPicker` = 7 methods, `TestBodyVariantDropdown` = 10
-  methods; the "(5)"/"(4)" counts in that entry are stale).
+- **Body-variant picker returns `[]`** — DONE (2026-07-04), see
+  "Footprint→body cleanup" item 1 (xfails removed).
 - **Generated DIP body not JEDEC-sized** — see "Footprint→body cleanup" item 2
   (xfail `test_body_width_matches_measured_mm`, `test_body_sits_between_rows_not_over_pins`).
 - **Appearance override on `GenericBody` + per-corner corner-radius** — DONE

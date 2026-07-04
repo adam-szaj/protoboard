@@ -54,6 +54,11 @@ class PinHeaderGenerator(PackageGenerator):
         rows = int(ctx.values.get("rows", 1))
         return ctx.with_package(_connector_body(ctx.pin_count, rows))
 
+    def offered_family_ids(self, pin_count: int) -> list[str]:
+        # A single-row header swaps to the bare sil-N shell.  (JST stays
+        # offer-less: its polarised housing has no generated equivalent.)
+        return [f"sil-{pin_count}"] if pin_count >= 2 else []
+
 
 class JstGenerator(PackageGenerator):
     """JST connector — always a single row, light housing."""

@@ -22,7 +22,12 @@ Pure domain: no Qt, no I/O.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from protoboard.domain.components.footprints import DIL, SIL, Footprint
+
+if TYPE_CHECKING:
+    from protoboard.domain.components.definition import ComponentDefinition
 from protoboard.domain.components.package.family import (
     PackageFamily,
     PackageVariant,
@@ -116,22 +121,65 @@ def inline_family_ids_for_pins(pin_count: int, *, dual_row: bool) -> list[str]:
     return [f"sil-{pin_count}"]
 
 
-def offered_body_families(
-    footprint: object, families: dict[str, PackageFamily],
-) -> list[PackageFamily]:
-    """The package families a body-variant picker should offer for *footprint*.
+def _explicit_body(
+    defn: ComponentDefinition, families: dict[str, PackageFamily],
+) -> object | None:
+    """The component's *declared* body package, or ``None``.
 
-    STUB (see docs/todo.md): the body-variant picker is temporarily disabled.
-
-    This used to branch on the footprint's *type* (``TwoPin`` / ``DualRow`` /
-    ``SingleRow``) to slice the catalogue. Under the new model a ``Footprint`` is
-    only a pin count + spacing and no longer carries a body *kind*, so the type
-    branch is gone and there is nothing to dispatch on. Re-deriving the offer
-    from the explicit body (package / package_family_ref) — not from the
-    footprint — is the follow-up; until then no alternative bodies are offered.
-
-    Returns an empty list (no body choice) for every footprint.
+    Resolution order mirrors the render path: the definition's
+    ``package_family_ref`` against the catalogue, else the (loader-derived or
+    inline) ``defn.package``. The synthetic ``_generic`` fallback the loader
+    stamps on package-less parts is NOT a declared body and is excluded.
     """
+    if defn.package_family_ref:
+        from protoboard.domain.components.package.family import resolve_variant
+        variant = resolve_variant(families, defn.package_family_ref)
+        if variant is not None:
+            return variant.package
+    from protoboard.domain.components.package.kind import is_generic_package
+    pkg = defn.package
+    if pkg is not None and not is_generic_package(pkg):
+        return pkg
+    return None
+
+
+def offered_body_families(
+    defn: ComponentDefinition, families: dict[str, PackageFamily],
+) -> list[PackageFamily]:
+    """The package families a body-variant picker should offer for *defn*.
+
+    Derived from the component's **explicit body** — never from the footprint
+    (a footprint is only a pin cloud and does not determine a body; the same
+    SIL-3 fits a TO-92, a header or a trimmer):
+
+    * body built by a kind generator → the generator decides which generated
+      families are its pin-count-matching alternatives
+      (``PackageGenerator.offered_family_ids`` — a DIP-16 offers ``dip-16`` /
+      ``wdip-16``, never ``dip-8``);
+    * plain two-pin body (or a bare two-pin part with no declared body) →
+      every two-pin family in the catalogue (swap a resistor for a brick or a
+      ceramic disc for a tantalum drop);
+    * anything else → nothing (no body choice).
+
+    Returns the families in offer order; unknown ids are skipped.
+    """
+    body = _explicit_body(defn, families)
+    kind = getattr(body, "kind", None)
+    if isinstance(kind, str):
+        from protoboard.domain.components.package.generators import (
+            KIND_GENERATORS,
+        )
+        gen_cls = KIND_GENERATORS.get(kind)
+        if gen_cls is None:
+            return []
+        ids = gen_cls().offered_family_ids(defn.pin_count)
+        return [families[i] for i in ids if i in families]
+    if defn.pin_count == 2:
+        return [
+            families[k]
+            for k in sorted(families)
+            if families[k].default_variant().package.pin_count() == 2
+        ]
     return []
 
 

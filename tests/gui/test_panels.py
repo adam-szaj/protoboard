@@ -306,13 +306,6 @@ class TestPropertiesPanelAppearance:
         assert received == []
 
 
-@pytest.mark.xfail(
-    reason="Body-variant picker stubbed — offered_body_families returns [] after "
-    "the footprint→body cleanup (footprint no longer carries a body type); the "
-    "offer must be re-derived from the explicit package. See docs/todo.md "
-    "(Footprint→body cleanup, item 1).",
-    strict=False,
-)
 class TestLibraryPanelBodyPicker:
     """LibraryPanel exposes a body-variant picker under the tree when a
     two-pin component is selected and a package catalogue is wired."""
@@ -570,12 +563,6 @@ class TestLibraryPanelBodyPicker:
         assert [r.address for r in recent] == ["DIN-0617/typ"]
 
 
-@pytest.mark.xfail(
-    reason="Body-variant dropdown stubbed — offered_body_families returns [] after "
-    "the footprint→body cleanup; the offer must be re-derived from the explicit "
-    "package. See docs/todo.md (Footprint→body cleanup, item 1).",
-    strict=False,
-)
 class TestBodyVariantDropdown:
     """The Properties panel offers a package-variant dropdown for TwoPin
     components when a package-family catalogue is provided."""

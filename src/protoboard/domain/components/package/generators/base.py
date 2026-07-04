@@ -168,6 +168,18 @@ class PackageGenerator(ABC):
     def generate(self, ctx: GeneratorContext) -> GeneratorContext:
         """Build the concrete body for *ctx* (see the module-level contract)."""
 
+    def offered_family_ids(self, pin_count: int) -> list[str]:
+        """Generated family ids the body-variant picker should offer as
+        alternatives for a part whose explicit body is this kind.
+
+        The naming convention is the generated-family one (``dip-N`` /
+        ``wdip-N`` / ``sil-N``, see
+        :mod:`~protoboard.domain.components.package.generated_families`).
+        Default: no alternatives — a kind opts in by overriding.
+        """
+        del pin_count
+        return []
+
     def variant_label(self, kind: str, ctx: GeneratorContext) -> str:
         """Human label for a variant built from *ctx* (picker / catalogue).
 
