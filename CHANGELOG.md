@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Value-decoding renderers — colour bands and SMD digit codes (2026-07-05)
+
+* **DIN axial bodies paint the IEC colour code from `instance.value`.** The
+  `resistor_bands.py` plugin (registered for the `DIN-0204`…`DIN-0922`
+  families) decodes a resistor's value (ohms) or a small inductor's (µH)
+  into the digit + multiplier band group at the pin-1 end plus the gold
+  tolerance band at the other. An inductor body renders in its moulded
+  green instead of the resistor beige the shared DIN family declares. Bands
+  draw only on the horizontal body (the side view); an upright part or an
+  undecodable value (`"?"`) keeps the plain body.
+* **SMD chips print the digit code.** `SmdChipRenderer` marks a resistor /
+  inductor chip with the standard code (`22k` → `223`, `4.7` → `4R7`,
+  `12.4k` → `1242`), scaled between the terminal caps and never upside-down.
+* Shared decoding lives in `gui/renderers/value_codes.py`
+  (`parse_resistance` / `parse_inductance` / `code_digits` / `smd_code`) —
+  pure, headless-testable.
+* **Fix: a package with no derivable body extent no longer crashes
+  placement.** `body_holes` / `build_pad_mask` treat a dims-less, margin-less
+  package as pins-only occupancy instead of raising from `bbox()` (the
+  PadIndex crash on placing such a part).
+
 ### `@register_renderer` / `@register_generator` — typed-axis registration (2026-07-05)
 
 * **Renderers register through a decorator with typed axes.**
