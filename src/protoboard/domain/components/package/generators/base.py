@@ -86,24 +86,30 @@ class GeneratorContext:
 
     A generator is ``generate(ctx) -> new_ctx``: it reads ``pin_count`` and
     ``values`` (default-filled by the driver; may include values computed by an
-    earlier generator in a future chain) and returns a *new* context with
-    ``package`` — or ``residual`` — set (and possibly more ``values``). Frozen
-    so the steps compose cleanly; the chain driver itself is deferred (see
+    earlier generator in a chain) and returns a *new* context with ``package``
+    — or ``residual`` — set (and possibly more ``values``). Frozen so the
+    steps compose cleanly; the chain driver runs steps left→right (see
+    :func:`~protoboard.domain.components.package.kind.build_kind_package` and
     docs/footprints/package-model.md §6).
 
     - ``pin_count``: the owning component's pin count (drives DIP/SIL geometry).
     - ``values``: extra package fields (e.g. a connector's ``rows``); a
       generator ignores keys it does not use. Carries earlier-computed values too.
+    - ``schema``: the owning package's declared :class:`ParamSchema` (the YAML
+      value-tree schema), when the caller has one — a compute step consults it
+      to resolve ``auto`` holes into concrete values. ``None`` outside that path.
     - ``package``: the built body — ``None`` on input, set on output.
     - ``residual``: set instead of ``package`` when parameters are still
       missing (or the generator redirects to another kind) — see
-      :class:`ResidualKind`. Exactly one of the two is set on output.
+      :class:`ResidualKind`.  An intermediate chain step may leave *both*
+      unset — a pure value transform whose output ``values`` feed the next step.
     """
 
     pin_count: int
     values: Mapping[str, Any] = dataclasses.field(default_factory=dict)
     package: Package | None = None
     residual: ResidualKind | None = None
+    schema: ParamSchema | None = None
 
     def with_package(self, package: Package) -> GeneratorContext:
         """Return a copy carrying *package* (the generator's output body)."""
@@ -112,6 +118,14 @@ class GeneratorContext:
     def with_residual(self, residual: ResidualKind) -> GeneratorContext:
         """Return a copy carrying *residual* (parameters still to collect)."""
         return dataclasses.replace(self, package=None, residual=residual)
+
+    def with_values(self, values: Mapping[str, Any]) -> GeneratorContext:
+        """Return a copy carrying *values* — a compute step's augmented tree
+        (no package, no residual: the chain driver feeds it to the next step).
+        """
+        return dataclasses.replace(
+            self, values=dict(values), package=None, residual=None,
+        )
 
 
 # kind name → generator class. Populated declaratively by

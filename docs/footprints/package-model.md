@@ -763,10 +763,23 @@ residual naming a **different kind** (a different parameter set) — a
 *redirect*; the driver re-dispatches complete redirects (cycle-guarded) and
 surfaces incomplete ones to the picker.
 
-**Deferred** (tracked in [../todo.md](../todo.md)): the multi-step chain
-driver, `auto`-resolution *through* generators, emitting `dims` from
-generators, and partial kinds in `footprints:` option entries (today only the
-component-level `package:` supports them).
+**Chains.** `kind:` may be a **list** — a left→right generator chain
+(`package: {kind: [my_dims, my_body]}`). Every step before the last is a
+*compute step*: a pure `(ctx) -> ctx` value transform (deriving `dims` from
+the pin count, resolving `auto` holes — the owning package's `ParamSchema`
+rides on `ctx.schema`) whose output `values` feed the next step. A compute
+step must be parameter-complete (missing required parameters raise, never
+surface to the picker) and must not build a package; only the **final** step
+builds the body, so a residual it surfaces already carries every
+chain-computed value — the picker re-runs just that kind and reproduces the
+chain's result. Partial kinds work in `footprints:` option entries too: an
+option whose inline kind leaves required parameters unfilled loads as a
+per-option pending-kind placeholder, exactly like the component-level
+`package:` block.
+
+**Deferred** (tracked in [../todo.md](../todo.md)): `auto`-resolution inside
+the *builtin* procedural builders (they do not consult `ctx.schema` yet), and
+per-kind recent-variant history in the kind dialog.
 
 ### Two independent "inheritance" axes
 

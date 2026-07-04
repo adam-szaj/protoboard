@@ -11,18 +11,16 @@ The pluggable generator registry shipped (`package/generators/`, driver in
 `build_kind_package`, plugins via `<library>/generators/*.py`, picker wiring in
 `DefaultFootprintChoiceProvider` — see package-model.md §6). Consciously left:
 
-1. **Multi-step chain driver** — `(ctx, schema) -> ctx` composition across
-   several generators (`auto`-resolution through generators, emitting `dims`);
-   the `schema` parameter of `build_kind_package` is reserved for it.
-2. **Recent variants in the kind dialog** — `recent_variants()` still returns
+1. **Recent variants in the kind dialog** — `recent_variants()` still returns
    `[]`; built variants are only re-offered via the top-level recent-footprints
    list. Persisting per-kind variant history would give the one-confirm path
    inside the second pop-up too.
 
-(Partial kinds in `footprints:` option entries shipped 2026-07-04: an option
-whose inline kind leaves required parameters unfilled loads as a per-option
-pending-kind placeholder — same mechanism as the component-level `package:` —
-and the picker's second pop-up builds the concrete variant.)
+(Shipped 2026-07-04: partial kinds in `footprints:` option entries — a
+per-option pending-kind placeholder, same mechanism as the component-level
+`package:`; and the multi-step chain driver — `kind:` may be a list of
+generators, compute steps transform values / resolve `auto` with the schema on
+`ctx.schema`, only the final step builds. See package-model.md §6.)
 
 ## Bendable leads — deferred extension (added 2026-06-26)
 

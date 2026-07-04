@@ -256,7 +256,14 @@ def _build_component_package(
     )
 
     kind = raw.get("kind")
+    # ``kind:`` may be a single name or a list — a left→right generator chain
+    # (compute steps deriving values, the last step building the body).
+    chain: tuple[str, ...] | None = None
     if is_kind(kind):
+        chain = (str(kind),)
+    elif isinstance(kind, list) and kind and all(is_kind(k) for k in kind):
+        chain = tuple(str(k) for k in kind)
+    if chain is not None:
         n = pin_count if raw.get("pins") is None else int(raw["pins"])
         if n is None:
             raise PackageDefError(
@@ -266,7 +273,7 @@ def _build_component_package(
         # generator values; the builder ignores keys it does not use.
         values = {k: v for k, v in raw.items() if k not in ("kind", "pins")}
         ctx = build_kind_package(
-            str(kind), GeneratorContext(pin_count=n, values=values))
+            chain, GeneratorContext(pin_count=n, values=values))
         if ctx.residual is not None:
             return ctx.residual
         assert ctx.package is not None  # driver sets package XOR residual

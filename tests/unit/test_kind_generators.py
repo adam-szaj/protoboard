@@ -298,6 +298,145 @@ class TestLoaderIntegration:
         assert "rows" in defn.package.schema.fields
 
 
+class TestChainDriver:
+    """Multi-step chains: compute steps transform values, the final step
+    builds; ``schema`` rides on the context for ``auto`` resolution."""
+
+    def _register_chain(self, record: dict) -> None:
+        """``_t_dims`` computes dims.length from the pin count (resolving an
+        ``auto`` hole); ``_t_body`` requires that value and builds a prism."""
+        from protoboard.domain.components.package.schema import AUTO
+
+        class Dims(PackageGenerator):
+            generates = "_t_dims"
+
+            def generate(self, ctx: GeneratorContext) -> GeneratorContext:
+                record["dims_schema"] = ctx.schema
+                values = dict(ctx.values)
+                dims = dict(values.get("dims") or {})
+                if dims.get("length") in (None, AUTO):
+                    dims["length"] = ctx.pin_count * 2.54
+                values["dims"] = dims
+                return ctx.with_values(values)
+
+        class Body(PackageGenerator):
+            generates = "_t_body"
+
+            def generate(self, ctx: GeneratorContext) -> GeneratorContext:
+                from protoboard.domain.components.footprints import SIL
+                dims = ctx.values.get("dims") or {}
+                record["seen_length"] = dims.get("length")
+                assert isinstance(dims.get("length"), float)
+                pkg = prism_from_footprint(SIL(n=ctx.pin_count))
+                assert pkg is not None
+                return ctx.with_package(pkg)
+
+    def test_compute_step_feeds_final_step(self, scratch_registry) -> None:
+        from protoboard.domain.components.package.schema import AUTO
+        record: dict = {}
+        self._register_chain(record)
+        out = build_kind_package(
+            ("_t_dims", "_t_body"),
+            GeneratorContext(pin_count=4,
+                             values={"dims": {"length": AUTO}}),
+        )
+        assert out.package is not None
+        # The compute step resolved the auto hole; the final step saw it.
+        assert record["seen_length"] == pytest.approx(4 * 2.54)
+        # The built body is stamped with the FINAL kind.
+        assert out.package.kind == "_t_body"
+        assert out.package.lineage[-1] == "_t_body"
+
+    def test_schema_rides_on_the_context(self, scratch_registry) -> None:
+        record: dict = {}
+        self._register_chain(record)
+        schema = parse_schema({"dims": {"length": {"type": "float"}}})
+        build_kind_package(
+            ("_t_dims", "_t_body"), GeneratorContext(pin_count=4),
+            schema=schema,
+        )
+        assert record["dims_schema"] is schema
+
+    def test_single_kind_string_unchanged(self, scratch_registry) -> None:
+        # Back-compat: a plain string is a one-step chain.
+        out = build_kind_package("sil", GeneratorContext(pin_count=3))
+        assert out.package is not None and out.package.kind == "sil"
+
+    def test_compute_step_must_not_build_a_package(
+        self, scratch_registry
+    ) -> None:
+        class Builds(PackageGenerator):
+            generates = "_t_builds"
+
+            def generate(self, ctx: GeneratorContext) -> GeneratorContext:
+                from protoboard.domain.components.footprints import SIL
+                pkg = prism_from_footprint(SIL(n=ctx.pin_count))
+                assert pkg is not None
+                return ctx.with_package(pkg)
+
+        with pytest.raises(PackageDefError, match="must not build"):
+            build_kind_package(
+                ("_t_builds", "sil"), GeneratorContext(pin_count=3))
+
+    def test_compute_step_missing_required_is_an_error_not_a_residual(
+        self, scratch_registry
+    ) -> None:
+        class NeedsX(PackageGenerator):
+            generates = "_t_needsx"
+            params = parse_schema({"x": {"type": "int", "required": True}})
+
+            def generate(self, ctx: GeneratorContext) -> GeneratorContext:
+                raise AssertionError("required missing — must not run")
+
+        with pytest.raises(PackageDefError, match="compute step"):
+            build_kind_package(
+                ("_t_needsx", "sil"), GeneratorContext(pin_count=3))
+
+    def test_final_step_residual_carries_computed_values(
+        self, scratch_registry
+    ) -> None:
+        # The chain's computed values land in the surfaced residual, so the
+        # picker can re-run just the final kind and reproduce the result.
+        record: dict = {}
+        self._register_chain(record)
+
+        class FinalNeeds(PackageGenerator):
+            generates = "_t_finalneeds"
+            params = parse_schema({"rows": {"type": "int", "required": True}})
+
+            def generate(self, ctx: GeneratorContext) -> GeneratorContext:
+                raise AssertionError("required missing — must not run")
+
+        out = build_kind_package(
+            ("_t_dims", "_t_finalneeds"), GeneratorContext(pin_count=4))
+        assert out.package is None and out.residual is not None
+        assert out.residual.kind == "_t_finalneeds"
+        dims = out.residual.values.get("dims") or {}
+        assert dims.get("length") == pytest.approx(4 * 2.54)
+
+    def test_empty_chain_raises(self) -> None:
+        with pytest.raises(PackageDefError, match="empty"):
+            build_kind_package((), GeneratorContext(pin_count=2))
+
+    def test_yaml_kind_list_builds_through_the_chain(
+        self, tmp_path: Path, scratch_registry
+    ) -> None:
+        record: dict = {}
+        self._register_chain(record)
+        from protoboard.services.library.loader import load_library
+        (tmp_path / "lib.yaml").write_text(
+            "components:\n"
+            "  - name: PART_CHAIN\n"
+            "    component_class: connector\n"
+            "    pins: {count: 6}\n"
+            "    package: {kind: [_t_dims, _t_body]}\n"
+        )
+        defn = load_library([tmp_path], package_families={}).get("PART_CHAIN")
+        assert defn.package is not None
+        assert defn.package.kind == "_t_body"
+        assert record["seen_length"] == pytest.approx(6 * 2.54)
+
+
 class TestPartialKindFootprintOption:
     """A ``footprints:`` entry with a partially-parameterised inline kind
     becomes a per-option pending-kind placeholder (it used to raise at load);
