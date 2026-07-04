@@ -47,6 +47,10 @@ class ComponentInstance:
     # ``package_family_ref`` (or inline ``package``).
     package_variant: str | None = None
     pin_variant: str | None = None   # variant id from ComponentDefinition.variants or None
+    # Manufacturing tolerance of ``value`` (e.g. "5%", "1%") — free text like
+    # ``value`` itself; renderers decode it (the resistor tolerance band).
+    # None = unspecified.
+    tolerance: str | None = None
     # Per-instance visual-only override (fill colour, corner radius), layered
     # over the definition's appearance and the package/theme defaults. None =
     # inherit. Geometry/mask/DRC/routing are unaffected.
@@ -160,6 +164,7 @@ class ComponentInstance:
         pin_variant: str | None = None,
         package_variant: str | None = None,
         appearance: Appearance | None = None,
+        tolerance: str | None = None,
     ) -> ComponentInstance:
         """Create an instance with a freshly generated UUID."""
         return ComponentInstance(
@@ -171,6 +176,7 @@ class ComponentInstance:
             pin_variant=pin_variant,
             package_variant=package_variant,
             appearance=appearance,
+            tolerance=tolerance,
         )
 
     def build_pin_identities(self, defn: "ComponentDefinition") -> None:

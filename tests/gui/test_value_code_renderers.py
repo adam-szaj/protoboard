@@ -56,12 +56,13 @@ def families():
 
 def _draw(library, families, defname: str, value: str, *,
           variant: str | None = None,
+          tolerance: str | None = None,
           pads: tuple[tuple[float, float], ...] = ((0.0, 0.0), (4.0, 0.0))):
     defn = library.get(defname)
     assert defn is not None
     inst = ComponentInstance(
         id=uuid.uuid4(), definition_ref=defname, refdes="X1", value=value,
-        package_variant=variant,
+        package_variant=variant, tolerance=tolerance,
     ).bind(defn, families)
     shape = body_shape_for(defn, instance=inst, package_families=families)
     return shape.draw([Point(*p) for p in pads], _RED, _DARK, 1.0, _Z,
@@ -105,6 +106,26 @@ class TestDinColorBands:
         # black ×10⁰-black + gold).
         fills = _fills(_draw(library, families, "L", "10uH"))
         assert fills == [_INDUCTOR_GREEN, _BROWN, _BLACK, _BLACK, _GOLD]
+
+    def test_declared_tolerance_drives_the_last_band(
+        self, qtbot, library, families,
+    ):
+        # instance.tolerance = 1% → the tolerance band is brown, not the
+        # default gold.
+        fills = _fills(_draw(library, families, "R", "10k", tolerance="1%"))
+        assert fills == [_DIN_BEIGE, _BROWN, _BLACK, _ORANGE, _BROWN]
+
+    def test_twenty_percent_encodes_as_no_band(self, qtbot, library, families):
+        # ±20 % has no colour in the IEC code — its encoding IS the missing
+        # band, so only the three code-group bands are drawn.
+        fills = _fills(_draw(library, families, "R", "10k", tolerance="20%"))
+        assert fills == [_DIN_BEIGE, _BROWN, _BLACK, _ORANGE]
+
+    def test_unspecified_tolerance_keeps_default_gold(
+        self, qtbot, library, families,
+    ):
+        fills = _fills(_draw(library, families, "R", "10k"))
+        assert fills[-1] == _GOLD
 
     def test_bands_lie_inside_the_body(self, qtbot, library, families):
         items = _draw(library, families, "R", "10k")

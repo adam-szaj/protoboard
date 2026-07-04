@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Shared decoding lives in `gui/renderers/value_codes.py`
   (`parse_resistance` / `parse_inductance` / `code_digits` / `smd_code`) —
   pure, headless-testable.
+* **The tolerance band decodes real data.** New `ComponentInstance.tolerance`
+  field (free text, e.g. `5%` / `1%`; editable in the properties panel,
+  persisted in `instances.yaml` and the recorder): the band renders its IEC
+  colour (silver 10 % … grey 0.05 %), ±20 % renders as *no* band (its real
+  encoding), unspecified keeps the canonical ±5 % gold.
 * **Fix: a package with no derivable body extent no longer crashes
   placement.** `body_holes` / `build_pad_mask` treat a dims-less, margin-less
   package as pins-only occupancy instead of raising from `bbox()` (the

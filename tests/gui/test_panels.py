@@ -142,17 +142,30 @@ class TestPropertiesPanel:
         panel.show_component(inst)
         assert panel._value_edit.text() == "4k7"
 
+    def test_show_component_fills_tolerance(self, qtbot: object) -> None:
+        from pytestqt.qtbot import QtBot
+
+        assert isinstance(qtbot, QtBot)
+        panel = PropertiesPanel()
+        qtbot.addWidget(panel)
+        inst = ComponentInstance.new(
+            definition_ref="R", refdes="R3", value="4k7", tolerance="1%")
+        panel.show_component(inst)
+        assert panel._tolerance_edit.text() == "1%"
+
     def test_clear_component_empties_fields(self, qtbot: object) -> None:
         from pytestqt.qtbot import QtBot
 
         assert isinstance(qtbot, QtBot)
         panel = PropertiesPanel()
         qtbot.addWidget(panel)
-        inst = ComponentInstance.new(definition_ref="R", refdes="R3", value="4k7")
+        inst = ComponentInstance.new(
+            definition_ref="R", refdes="R3", value="4k7", tolerance="1%")
         panel.show_component(inst)
         panel.clear_component()
         assert panel._refdes_edit.text() == ""
         assert panel._value_edit.text() == ""
+        assert panel._tolerance_edit.text() == ""
 
     def test_apply_emits_component_changed(self, qtbot: object) -> None:
         from pytestqt.qtbot import QtBot
@@ -162,18 +175,21 @@ class TestPropertiesPanel:
         qtbot.addWidget(panel)
         inst = ComponentInstance.new(definition_ref="R", refdes="R1", value="10k")
         panel.show_component(inst)
-        received: list[tuple[uuid.UUID, str, str, int]] = []
+        received: list[tuple[uuid.UUID, str, str, str, int]] = []
         panel.component_changed.connect(
-            lambda cid, rd, val, rot: received.append((cid, rd, val, rot))
+            lambda cid, rd, val, tol, rot:
+            received.append((cid, rd, val, tol, rot))
         )
         panel._refdes_edit.setText("R99")
         panel._value_edit.setText("22k")
+        panel._tolerance_edit.setText("1%")
         panel._rotation_combo.setCurrentIndex(1)  # 90°
         panel._apply_btn.click()
         assert len(received) == 1
-        _, refdes, value, rotation = received[0]
+        _, refdes, value, tolerance, rotation = received[0]
         assert refdes == "R99"
         assert value == "22k"
+        assert tolerance == "1%"
         assert rotation == 90
 
     def test_apply_without_selection_does_nothing(self, qtbot: object) -> None:

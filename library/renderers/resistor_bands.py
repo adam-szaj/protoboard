@@ -14,8 +14,9 @@ the placed part's ``instance.value``:
   not decode (``"?"``, text) — the plain base body, no bands.
 
 The code group (two or three significant digits + the multiplier) reads from
-the pin-1 end; a gold tolerance band sits at the other end (tolerance is not
-part of ``value``, so the canonical ±5 % gold is drawn).  Bands are visible
+the pin-1 end; the tolerance band at the other end decodes
+``instance.tolerance`` (unspecified → the canonical ±5 % gold; ±20 % → no
+band, its real IEC encoding).  Bands are visible
 only in the HORIZONTAL mount — the flat side view between the pads; a part
 standing upright (pad spacing shorter than the body) shows its top-view disc,
 where a band code cannot be seen, so none is drawn.
@@ -38,6 +39,7 @@ from protoboard.gui.renderers.value_codes import (
     code_digits,
     parse_inductance,
     parse_resistance,
+    parse_tolerance,
 )
 from protoboard.gui.theme import Theme
 
@@ -66,8 +68,21 @@ MULT_COLORS: dict[int, str] = {
     **DIGIT_COLORS,
 }
 
-#: The default tolerance band (±5 % gold) — ``value`` carries no tolerance.
+#: The default tolerance band (±5 % gold) when the instance declares none.
 TOLERANCE_COLOR = "#d4af37"
+
+#: Tolerance percent → band colour (IEC 60062).  ±20 % is deliberately absent:
+#: its encoding IS the missing band.
+TOLERANCE_COLORS: dict[float, str] = {
+    10.0: "#c0c0c0",   # silver
+    5.0: "#d4af37",    # gold
+    2.0: "#d0342c",    # red
+    1.0: "#8b5a2b",    # brown
+    0.5: "#2f8f2f",    # green
+    0.25: "#3667c8",   # blue
+    0.1: "#8a2be2",    # violet
+    0.05: "#8c8c8c",   # grey
+}
 
 
 def code_bands(value: float) -> list[str] | None:
@@ -127,6 +142,21 @@ class DinColorBandRenderer(CylinderRenderer):
             return None
         return code_bands(value)
 
+    def _tolerance_color(self) -> str | None:
+        """The tolerance-band colour, or ``None`` (draw no band).
+
+        Decoded from ``instance.tolerance``; an unspecified tolerance keeps
+        the canonical ±5 % gold.  ±20 % — and any percent the code cannot
+        express — is encoded as NO band (the IEC missing-band meaning).
+        """
+        raw = self._instance.tolerance if self._instance is not None else None
+        if raw is None or not raw.strip():
+            return TOLERANCE_COLOR
+        percent = parse_tolerance(raw)
+        if percent is None:
+            return TOLERANCE_COLOR
+        return TOLERANCE_COLORS.get(percent)
+
     def render_body(
         self,
         positions: list[Point],
@@ -173,9 +203,11 @@ class DinColorBandRenderer(CylinderRenderer):
             canvas.addRect((x, -body_w / 2.0), (x + band_w, body_w / 2.0),
                            fill=color, pen_width=0.0, z_offset=0.01)
             x += band_w + gap
-        # …and the tolerance band at the far end.
-        canvas.addRect((half - gap - band_w, -body_w / 2.0),
-                       (half - gap, body_w / 2.0),
-                       fill=TOLERANCE_COLOR, pen_width=0.0, z_offset=0.01)
+        # …and the tolerance band at the far end (±20 % = no band).
+        tolerance = self._tolerance_color()
+        if tolerance is not None:
+            canvas.addRect((half - gap - band_w, -body_w / 2.0),
+                           (half - gap, body_w / 2.0),
+                           fill=tolerance, pen_width=0.0, z_offset=0.01)
         items.extend(canvas.items)
         return items

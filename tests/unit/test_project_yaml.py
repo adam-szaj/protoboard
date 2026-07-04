@@ -352,6 +352,18 @@ class TestPinVariantRoundtrip:
         _, _, _, loaded_instances, _, _, _ = load_project(tmp_path)
         assert loaded_instances[inst.id].package_variant is None
 
+    def test_tolerance_preserved(self, tmp_path: Path) -> None:
+        board = _perfboard()
+        inst = ComponentInstance.new(
+            definition_ref="R", refdes="R1", value="10k", tolerance="1%",
+        )
+        bare = ComponentInstance.new(definition_ref="R", refdes="R2", value="")
+        instances = {inst.id: inst, bare.id: bare}
+        save_project(tmp_path, board, Layout(placements={}, wires=cast(WireCollection, [])), Schematic(nets={}), instances)
+        _, _, _, loaded_instances, _, _, _ = load_project(tmp_path)
+        assert loaded_instances[inst.id].tolerance == "1%"
+        assert loaded_instances[bare.id].tolerance is None
+
 
 class TestEncapsulatedExportMigration:
     """Loader strips group exports that violate the re-export chain

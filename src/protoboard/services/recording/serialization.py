@@ -161,6 +161,8 @@ def _instance_to(inst: ComponentInstance) -> dict[str, Any]:
     }
     if inst.type:
         out["type"] = inst.type
+    if inst.tolerance:
+        out["tolerance"] = inst.tolerance
     if inst.package_variant:
         out["package_variant"] = inst.package_variant
     if inst.pin_variant:
@@ -175,6 +177,7 @@ def _instance_from(d: dict[str, Any]) -> ComponentInstance:
         refdes=str(d["refdes"]),
         value=str(d["value"]),
         type=str(d.get("type", "")),
+        tolerance=str(d["tolerance"]) if d.get("tolerance") else None,
         package_variant=(
             str(d["package_variant"]) if d.get("package_variant") else None
         ),

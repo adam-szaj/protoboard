@@ -23,6 +23,7 @@ __all__ = [
     "code_digits",
     "parse_inductance",
     "parse_resistance",
+    "parse_tolerance",
     "smd_code",
 ]
 
@@ -73,6 +74,15 @@ def parse_inductance(text: str) -> float | None:
     scales = {"n": 1e-3, "µ": 1.0, "u": 1.0, "m": 1e3}
     scales[""] = 1e6 if had_h else 1.0
     return _scaled_number(s, scales)
+
+
+def parse_tolerance(text: str) -> float | None:
+    """A tolerance string → percent (``"5%"`` / ``"±5%"`` / ``"0.5"`` → 5.0 /
+    5.0 / 0.5); ``None`` when it doesn't parse."""
+    m = re.fullmatch(r"±?\s*(\d+(?:[.,]\d+)?)\s*%?", text.strip())
+    if not m:
+        return None
+    return float(m.group(1).replace(",", "."))
 
 
 def code_digits(value: float) -> tuple[list[int], int] | None:

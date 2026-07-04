@@ -9,6 +9,7 @@ from protoboard.gui.renderers.value_codes import (
     code_digits,
     parse_inductance,
     parse_resistance,
+    parse_tolerance,
     smd_code,
 )
 
@@ -58,6 +59,24 @@ class TestParseInductance:
     @pytest.mark.parametrize("text", ["?", "", "abc"])
     def test_rejects(self, text: str) -> None:
         assert parse_inductance(text) is None
+
+
+class TestParseTolerance:
+
+    @pytest.mark.parametrize(("text", "percent"), [
+        ("5%", 5.0),
+        ("±5%", 5.0),
+        ("5", 5.0),
+        ("0.5%", 0.5),
+        ("0,25 %", 0.25),
+        ("10", 10.0),
+    ])
+    def test_parses(self, text: str, percent: float) -> None:
+        assert parse_tolerance(text) == pytest.approx(percent)
+
+    @pytest.mark.parametrize("text", ["?", "", "gold", "5%%"])
+    def test_rejects(self, text: str) -> None:
+        assert parse_tolerance(text) is None
 
 
 class TestCodeDigits:

@@ -46,8 +46,8 @@ _SEVERITY_COLORS = {
 class PropertiesPanel(QWidget):
     """Shows editable fields for the selected component and DRC issues."""
 
-    # id, refdes, value, rotation, label_offset_x, label_offset_y
-    component_changed = Signal(uuid.UUID, str, str, int, float, float)
+    # id, refdes, value, tolerance, rotation, label_offset_x, label_offset_y
+    component_changed = Signal(uuid.UUID, str, str, str, int, float, float)
     # id, {pin_number: Vector} — emitted when Apply is clicked and offsets changed
     pin_offsets_changed = Signal(uuid.UUID, object)
     # id, pin_variant (str or None)
@@ -71,6 +71,13 @@ class PropertiesPanel(QWidget):
         form = QFormLayout(grp)
         self._refdes_edit = QLineEdit()
         self._value_edit = QLineEdit()
+        self._tolerance_edit = QLineEdit()
+        self._tolerance_edit.setPlaceholderText("e.g. 5% — empty = unspecified")
+        self._tolerance_edit.setToolTip(
+            "Manufacturing tolerance of the value (e.g. 5%, 1%). Drives the "
+            "tolerance colour band on axial resistors/inductors; 20% renders "
+            "as no band (its IEC encoding).",
+        )
         self._rotation_combo = QComboBox()
         self._rotation_combo.addItems(["0°", "90°", "180°", "270°"])
 
@@ -131,6 +138,7 @@ class PropertiesPanel(QWidget):
 
         form.addRow("RefDes:", self._refdes_edit)
         form.addRow("Value:", self._value_edit)
+        form.addRow("Tolerance:", self._tolerance_edit)
         form.addRow("Rotation:", self._rotation_combo)
         form.addRow("Label X:", label_x_row)
         form.addRow("Label Y:", self._label_y_spin)
@@ -300,6 +308,7 @@ class PropertiesPanel(QWidget):
         """Write the refdes/value/footprint and (if placed) rotation/label fields."""
         self._refdes_edit.setText(inst.refdes)
         self._value_edit.setText(inst.value)
+        self._tolerance_edit.setText(inst.tolerance or "")
         self._footprint_label.setText(inst.definition_ref)
         self._populate_appearance_fields(inst.appearance)
         if placement is not None:
@@ -312,6 +321,7 @@ class PropertiesPanel(QWidget):
         self._current_id = None
         self._refdes_edit.clear()
         self._value_edit.clear()
+        self._tolerance_edit.clear()
         self._footprint_label.clear()
         self._populate_appearance_fields(None)
         self._rebuild_pin_offsets(None, {})
@@ -716,6 +726,7 @@ class PropertiesPanel(QWidget):
             self._current_id,
             self._refdes_edit.text(),
             self._value_edit.text(),
+            self._tolerance_edit.text(),
             rotation,
             self._label_x_spin.value(),
             self._label_y_spin.value(),

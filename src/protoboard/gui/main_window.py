@@ -2695,6 +2695,7 @@ class MainWindow(QMainWindow):
         comp_id: uuid.UUID,
         refdes: str,
         value: str,
+        tolerance: str,
         rotation: int,
         label_offset_x: float,
         label_offset_y: float,
@@ -2704,7 +2705,8 @@ class MainWindow(QMainWindow):
         if inst is None or pl is None:
             return
         self._session.instances[comp_id] = dataclasses.replace(
-            inst, refdes=refdes, value=value
+            inst, refdes=refdes, value=value,
+            tolerance=tolerance.strip() or None,
         )
         pl.rotation = rotation
         pl.label_offset = Vector(label_offset_x, label_offset_y)
