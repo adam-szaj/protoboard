@@ -123,7 +123,7 @@ def body_shape_for(
         return PackageBody(
             pkg, component_class=cls, vertical_flipped=vf,
             appearance=eff_appearance, side=side,
-            placement=placement,
+            placement=placement, instance=instance,
         )
 
     # No explicit package resolved: a footprint is only a pin cloud (pin count

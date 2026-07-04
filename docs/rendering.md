@@ -287,6 +287,16 @@ and appends the light metal mounting tab. Registering a family id covers every
 variant of the family; a variant leaf name (`"TO-220/std"`) would be more
 specific and win.
 
+What a renderer sees: `self._pkg` (geometry; `pin_positions()` is the local
+pin cloud — world pad positions are the `positions` argument),
+`self._component_class`, `self._vertical_flipped` / `self._side` /
+`self._placement` (orientation), `self._appearance` (resolved visual
+override) and `self._instance` — the placed (bound) `ComponentInstance`, or
+`None` in bare previews/tests. The instance is the escape hatch to part
+identity: `instance.value` (e.g. a resistance for colour-band rendering),
+`instance.refdes`, `instance.definition` (part name, pin names) and
+`instance.resolved_package()`.
+
 A plugin that fails to import is logged and skipped — one broken file never
 blocks the rest of the library. Plugins are ordinary Python executed in the
 application process (same trust level as the app itself).

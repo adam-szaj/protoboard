@@ -1221,6 +1221,27 @@ class TestBodyShapeFor:
         shape = body_shape_for(defn)
         assert isinstance(shape, PackageBody)
 
+    def test_placed_instance_reaches_the_renderer(self) -> None:
+        # The renderer keeps the placed (bound) instance — the escape hatch
+        # for plugins that draw part identity: instance.value (a resistance
+        # for colour bands), instance.definition (part name), refdes.
+        import uuid as _uuid
+        defn = ComponentDefinition.from_footprint(
+            name="R",
+            component_class=ComponentClass.RESISTOR,
+            footprint=SIL(n=2),
+            pin_names={},
+        )
+        inst = ComponentInstance(
+            id=_uuid.uuid4(), definition_ref="R", refdes="R1", value="10k",
+        ).bind(defn, {})
+        shape = body_shape_for(defn, instance=inst)
+        assert isinstance(shape, PackageBody)
+        assert shape._instance is inst
+        # A bound instance reaches the rest: definition (part name) + value.
+        assert inst.definition is defn
+        assert inst.value == "10k"
+
     def test_single_row_footprint_synthesizes_sil_silhouette(self) -> None:
         # A single-column footprint still synthesizes a SIL silhouette when its
         # prism is built explicitly — body_shape_for no longer does this from a

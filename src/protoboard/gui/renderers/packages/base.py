@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 
 from protoboard.domain.components.appearance import Appearance
 from protoboard.domain.components.definition import ComponentClass
+from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.components.package.body import (
     EdgeStyle,
     LeadArrangement,
@@ -380,6 +381,7 @@ class PackageRenderer(BodyShape):
         appearance: Appearance = Appearance(),
         side: str = "top",
         placement: ComponentPlacement | None = None,
+        instance: ComponentInstance | None = None,
     ) -> None:
         self._pkg = package
         self._component_class = component_class
@@ -391,6 +393,13 @@ class PackageRenderer(BodyShape):
         # lead axis. See _flat_side_world.
         self._side = side
         self._placement = placement
+        # The placed part being drawn, when there is one (None in bare
+        # package previews / tests). The escape hatch for renderers that need
+        # the part's identity beyond the distilled facts above: a *bound*
+        # instance reaches its definition (part name, pin_names) and its
+        # ``value`` (e.g. a resistance for colour-band rendering) — see
+        # ``ComponentInstance.bind``. Renderers must tolerate ``None``.
+        self._instance = instance
 
     @property
     def _is_polar(self) -> bool:
