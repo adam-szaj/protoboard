@@ -22,6 +22,7 @@ from protoboard.domain.components.package.shapes import (
     lead_axis_extents,
 )
 from protoboard.geometry import Point
+from protoboard.gui.renderers.packages.base import register_renderer
 from protoboard.gui.renderers.packages.prism import PrismRenderer
 from protoboard.gui.renderers.prism_silhouette import (
     PrismSilhouette,
@@ -31,10 +32,9 @@ from protoboard.gui.renderers.prism_silhouette import (
 from protoboard.gui.theme import Theme
 
 
+@register_renderer(kind=("dip_ic", "wdip_ic"))
 class DipIcRenderer(PrismRenderer):
     """DIP IC (narrow / wide): the notched dual-row body with a pin-1 marker."""
-
-    renders = ("dip_ic", "wdip_ic")
 
     def _silhouette(self, pkg: _PkgPrism) -> PrismSilhouette | None:
         # Parameterized by the two pin columns; a degenerate layout (not two
@@ -42,15 +42,15 @@ class DipIcRenderer(PrismRenderer):
         return dip_silhouette(pkg)
 
 
+@register_renderer(kind="sil")
 class SilHeaderRenderer(PrismRenderer):
     """SIL header: the rounded housing hugging the single pin row."""
-
-    renders = "sil"
 
     def _silhouette(self, pkg: _PkgPrism) -> PrismSilhouette | None:
         return SilSilhouette()
 
 
+@register_renderer(package_name="prism_smd")
 class SmdChipRenderer(PrismRenderer):
     """SMD chip family: the base chip outline plus metallised terminal caps.
 
@@ -59,8 +59,6 @@ class SmdChipRenderer(PrismRenderer):
     every catalogue chip family extends — overlays the real part's visible
     detail: the light metallised terminal band at each end of the body.
     """
-
-    renders = "prism_smd"
 
     #: Metallised band length as a fraction of the body length (a real 0805's
     #: terminals are ~0.4 mm of a 2.0 mm body per end).
@@ -101,6 +99,7 @@ class SmdChipRenderer(PrismRenderer):
         return items
 
 
+@register_renderer(kind=("dip_switch", "pin_header", "jst"))
 class PlainBodyRenderer(PrismRenderer):
     """Kinds whose declared look is a plain rectangle — no notch, no housing.
 
@@ -108,8 +107,6 @@ class PlainBodyRenderer(PrismRenderer):
     real DIP-IC (same two columns, deliberately plain); ``pin_header`` / ``jst``
     connectors carry their look in the per-kind fill colour instead.
     """
-
-    renders = ("dip_switch", "pin_header", "jst")
 
     def _silhouette(self, pkg: _PkgPrism) -> PrismSilhouette | None:
         return None

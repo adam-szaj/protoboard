@@ -13,7 +13,10 @@ from protoboard.domain.components.package.shapes import (
     Prism as _PkgPrism,
 )
 from protoboard.geometry import Point
-from protoboard.gui.renderers.packages.base import PackageRenderer
+from protoboard.gui.renderers.packages.base import (
+    PackageRenderer,
+    register_renderer,
+)
 from protoboard.gui.renderers.prism_silhouette import (
     PrismSilhouette,
     silhouette_for,
@@ -100,17 +103,10 @@ class PrismRenderer(PackageRenderer):
         if pkg.pin_count() == 2 and len(positions) >= 2:
             return self._draw_smd_chip(pkg, positions, fill, border, alpha, z, theme)
 
-        # A dev-board module renders as a plain PCB rectangle — no DIP notch /
-        # SIL slots — regardless of how its pins cluster into columns.  This is
-        # a component-CLASS trait (any package a devboard carries stays plain),
-        # so it gates the silhouette hook here rather than living in a
-        # lineage-dispatched renderer.  Otherwise the silhouette comes from
-        # ``_silhouette`` — the column guess here, a declared look in the kind
-        # renderer subclasses.
-        if self._component_class == ComponentClass.DEVBOARD:
-            sil = None
-        else:
-            sil = self._silhouette(pkg)
+        # The silhouette comes from ``_silhouette`` — the column guess here, a
+        # declared look in the kind renderer subclasses, suppressed entirely in
+        # the class-dispatched :class:`DevboardRenderer`.
+        sil = self._silhouette(pkg)
         if sil is None:
             return None
         # An appearance corner-radius override (mm, per corner) reaches the
@@ -188,3 +184,37 @@ class PrismRenderer(PackageRenderer):
             round=(canvas.mm(tl), canvas.mm(tr), canvas.mm(br), canvas.mm(bl)),
         )
         return canvas.items
+
+
+@register_renderer(component_class=ComponentClass.DEVBOARD)
+class DevboardRenderer(PrismRenderer):
+    """Dev-board module: a plain PCB rectangle plus faint per-pin pad rings.
+
+    Registered on the **component-class axis** — any package a devboard
+    carries renders plain (no DIP notch / SIL housing, however its pins
+    cluster into columns), because the trait belongs to the part's class, not
+    the body lineage.  This registration replaces the historical hardcoded
+    ``component_class == DEVBOARD`` gates in ``PrismRenderer._draw_prism`` and
+    ``PackageRenderer._draw_bbox``.
+    """
+
+    def _silhouette(self, pkg: _PkgPrism) -> PrismSilhouette | None:
+        del pkg
+        return None
+
+    def _draw_bbox(
+        self,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme,
+    ) -> list[QGraphicsItem]:
+        # A dev-board's pins sit on the PCB's top surface — mark each with a
+        # faint pad-sized ring (the click-active area) drawn on top of the
+        # body.  The real pin glyph / modifier is drawn by the component
+        # renderer on a higher layer, so these rings are additive.
+        items = super()._draw_bbox(positions, fill, border, alpha, z, theme)
+        items.extend(self._pad_active_rings(positions, border, alpha, z, theme))
+        return items

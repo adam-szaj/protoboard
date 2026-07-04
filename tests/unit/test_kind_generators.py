@@ -13,6 +13,7 @@ from protoboard.domain.components.package.generators import (
     PackageGenerator,
     ResidualKind,
     prism_from_footprint,
+    register_generator,
 )
 from protoboard.domain.components.package.kind import (
     build_kind_package,
@@ -50,6 +51,28 @@ class TestRegistration:
                 raise NotImplementedError
 
         assert scratch_registry["_t_reg"] is G
+
+    def test_register_generator_decorator(self, scratch_registry) -> None:
+        # The decorator spelling — the counterpart of @register_renderer.
+        @register_generator(kind="_t_deco")
+        class G(PackageGenerator):
+            def generate(self, ctx: GeneratorContext) -> GeneratorContext:
+                raise NotImplementedError
+
+        assert scratch_registry["_t_deco"] is G
+
+    def test_register_generator_tuple_of_kinds(self, scratch_registry) -> None:
+        @register_generator(kind=("_t_deco_a", "_t_deco_b"))
+        class G(PackageGenerator):
+            def generate(self, ctx: GeneratorContext) -> GeneratorContext:
+                raise NotImplementedError
+
+        assert scratch_registry["_t_deco_a"] is G
+        assert scratch_registry["_t_deco_b"] is G
+
+    def test_register_generator_requires_a_kind(self) -> None:
+        with pytest.raises(ValueError):
+            register_generator(kind=())
 
     def test_subclass_without_generates_keeps_parent_slot(
         self, scratch_registry

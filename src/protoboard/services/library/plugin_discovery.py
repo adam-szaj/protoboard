@@ -82,15 +82,16 @@ def load_plugin_modules(
 def load_generator_plugins(library_dirs: Iterable[Path]) -> list[Path]:
     """Import every ``generators/*.py`` under *library_dirs*.
 
-    A plugin defines a ``PackageGenerator`` subclass with a ``generates``
-    attribute; the class body registers it in ``KIND_GENERATORS``::
+    A plugin defines a ``PackageGenerator`` subclass decorated with
+    ``@register_generator`` (or carrying the legacy ``generates`` attribute);
+    the class body registers it in ``KIND_GENERATORS``::
 
         from protoboard.domain.components.package.generators import (
-            PackageGenerator, prism_from_footprint,
+            PackageGenerator, prism_from_footprint, register_generator,
         )
 
+        @register_generator(kind="my_kind")
         class MyKindGenerator(PackageGenerator):
-            generates = "my_kind"
             def generate(self, ctx):
                 return ctx.with_package(...)
     """

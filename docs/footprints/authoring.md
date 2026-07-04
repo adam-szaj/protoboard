@@ -461,12 +461,12 @@ and on a preferences reload, and defining the class **is** the registration:
 # <library>/generators/my_relay.py
 from protoboard.domain.components.footprints import DIL
 from protoboard.domain.components.package.generators import (
-    PackageGenerator, prism_from_footprint,
+    PackageGenerator, prism_from_footprint, register_generator,
 )
 from protoboard.domain.components.package.schema import parse_schema
 
+@register_generator(kind="relay_dpdt")           # the kind name
 class RelayGenerator(PackageGenerator):
-    generates = "relay_dpdt"                      # the kind name
     params = parse_schema({                       # the parameter set {K}
         "rows_spacing": {"type": "float", "default": 3.0},
     })
@@ -490,8 +490,8 @@ Components then declare `package: {kind: relay_dpdt}`. Rules of the game:
   values))` to redirect to a different kind.
 - A generator is **pure domain** — no Qt, no I/O; it must be importable
   headless. A broken plugin file is logged and skipped.
-- Pair it with a **renderer plugin** for the same kind name (`renders =
-  "relay_dpdt"` in `<library>/renderers/…` — see
+- Pair it with a **renderer plugin** for the same kind name
+  (`@register_renderer(kind="relay_dpdt")` in `<library>/renderers/…` — see
   [../rendering.md](../rendering.md) §4.2) for a custom look; without one the
   body renders through the shape-root renderer.
 

@@ -1042,6 +1042,16 @@ class TestDevboardBody:
         assert not body.path().contains(QPointF(1.5,
                                                 -0.4))  # notch still carved
 
+    def test_devboard_dispatches_class_axis_renderer(self, qtbot: QtBot) -> None:
+        # The devboard look is a component-class registration
+        # (@register_renderer(component_class="devboard")), threaded from the
+        # PackageBody constructor through renderer_for — not a hardcoded gate.
+        from protoboard.gui.renderers.packages import DevboardRenderer
+        body = PackageBody(  # type: ignore[arg-type]
+            _dip8_prism(),
+            component_class=ComponentClass.DEVBOARD)
+        assert type(body) is DevboardRenderer
+
     def test_pad_active_rings_one_per_pin(self, qtbot: QtBot) -> None:
         # Each pin gets a faint pad-sized ring (the click-active marker) on top
         # of the body; the body itself is one item, so rings == pin count.

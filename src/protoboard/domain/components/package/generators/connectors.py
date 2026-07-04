@@ -12,6 +12,7 @@ from protoboard.domain.components.package.generators.base import (
     GeneratorContext,
     PackageGenerator,
     prism_from_footprint,
+    register_generator,
 )
 from protoboard.domain.components.package.loader import PackageDefError
 from protoboard.domain.components.package.schema import parse_schema
@@ -43,10 +44,10 @@ def _connector_body(pins: int, rows: int) -> Package:
     return pkg
 
 
+@register_generator(kind="pin_header")
 class PinHeaderGenerator(PackageGenerator):
     """Gold-pin header, 1×N or 2×N (the ``rows`` parameter)."""
 
-    generates = "pin_header"
     params = parse_schema({"rows": {"type": "int", "default": 1}})
     color = "#222222"  # near-black plastic strip
 
@@ -60,10 +61,10 @@ class PinHeaderGenerator(PackageGenerator):
         return [f"sil-{pin_count}"] if pin_count >= 2 else []
 
 
+@register_generator(kind="jst")
 class JstGenerator(PackageGenerator):
     """JST connector — always a single row, light housing."""
 
-    generates = "jst"
     color = "#dddddd"
 
     def generate(self, ctx: GeneratorContext) -> GeneratorContext:

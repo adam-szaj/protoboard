@@ -190,12 +190,16 @@ the source-of-truth rule.
 ### 4.1 Renderer hierarchy — lineage dispatch (`gui/renderers/packages/`)
 
 `PackageBody(pkg, …)` constructs a `PackageRenderer` subclass picked by
-`renderer_for(pkg)` (`packages/base.py`): the package's **`lineage`** — its
-ancestry root-first, e.g. `("cylinder", "cylinder_axial", "DO-35")` or
-`("prism", "dip_ic")`, stamped by the package loaders — is walked **leaf-first**
-against the `BODY_RENDERERS` registry. The most specific registered renderer
-wins; an unknown name steps outward towards the shape root, so rendering never
-blocks on a package the registry does not know.
+`renderer_for(pkg, component_class)` (`packages/base.py`). A
+**`component_class`** registration (`CLASS_RENDERERS`) wins outright — the
+class is the part author's intent for the whole part, whatever body it
+carries (`DevboardRenderer` is the builtin case). Otherwise the package's
+**`lineage`** — its ancestry root-first, e.g. `("cylinder", "cylinder_axial",
+"DO-35")` or `("prism", "dip_ic")`, stamped by the package loaders — is
+walked **leaf-first** against the `BODY_RENDERERS` registry. The most
+specific registered renderer wins; an unknown name steps outward towards the
+shape root, so rendering never blocks on a package or class the registry does
+not know.
 
 ```
 PackageRenderer            # shared: colours/appearance, placement transform,
@@ -204,10 +208,14 @@ PackageRenderer            # shared: colours/appearance, placement transform,
 │                          # radial disc / D-shape / "-" segment
 ├── PrismRenderer          # renders = "prism": plain declared rect; column-guess
 │                          #   ONLY for _generic (bare-footprint) bodies; SMD chip
-│   ├── DipIcRenderer      # renders = ("dip_ic", "wdip_ic"): notched DIP body
-│   ├── SilHeaderRenderer  # renders = "sil": rounded SIL housing
-│   ├── PlainBodyRenderer  # renders = ("dip_switch", "pin_header", "jst"): plain rect
-│   └── TO220Renderer      # renders = "TO-220" (plugin): prism + metal tab
+│   ├── DipIcRenderer      # @register_renderer(kind=("dip_ic", "wdip_ic")): notched DIP
+│   ├── SilHeaderRenderer  # @register_renderer(kind="sil"): rounded SIL housing
+│   ├── PlainBodyRenderer  # @register_renderer(kind=("dip_switch", "pin_header",
+│   │                      #   "jst")): plain rect
+│   ├── SmdChipRenderer    # @register_renderer(package_name="prism_smd"): chip + caps
+│   ├── DevboardRenderer   # @register_renderer(component_class="devboard"):
+│   │                      #   plain PCB + pad rings (CLASS axis — wins dispatch)
+│   └── TO220Renderer      # @register_renderer(family="TO-220") (plugin): + metal tab
 └── DiscRenderer           # renders = "disc": edge-mounted radial lens
 ```
 
@@ -219,10 +227,33 @@ centroid); the silhouette itself is the per-shape `_radial_silhouette()` hook
 stands over one pad (`_radial_disc` on the anchor). Everything else goes to
 the subclass's `render_body()`.
 
-**Registration is declarative:** a subclass that sets `renders = "<name>"`
-enters the registry at class-creation time (`__init_subclass__`); later
-registrations win, so user code overrides builtins. A subclass *without* its
-own `renders` inherits behaviour but never steals its parent's slot.
+**Registration is declarative**, two spellings. The preferred one is the
+`@register_renderer` decorator with **typed axes** — each key says what it
+is, instead of the one string-bag `renders` used to be:
+
+```python
+@register_renderer(kind="dip_ic")              # a package kind
+@register_renderer(family="TO-220")            # a catalogue family id
+@register_renderer(package_name="prism_smd")   # a generic package name
+@register_renderer(shape_name="prism")         # a shape root
+@register_renderer(component_class="led_bar")  # a component class (CLASS axis)
+```
+
+The first four are lineage axes (kinds, family ids, generic names and shape
+roots all appear on a package's `lineage` — they share `BODY_RENDERERS`);
+`component_class=` writes `CLASS_RENDERERS` and wins over every lineage
+entry. Classes are open strings, so a library may ship
+`component_class: led_bar` on a part plus a renderer plugin for it without
+touching the builtin enum. Each axis takes one name or a tuple; a collision
+on the same key logs a warning and the later registration wins (user code
+overrides builtins). The legacy spelling — a subclass that sets
+`renders = "<name>"` — still registers at class-creation time
+(`__init_subclass__`) into the same lineage registry. A subclass *without*
+a registration inherits behaviour but never steals its parent's slot. The
+same interface exists for package-kind **generators**:
+`@register_generator(kind=...)` in `domain/components/package/generators`
+(legacy `generates = "<kind>"`), so a plugin registers both halves of a kind
+through one consistent decorator idiom.
 
 ### 4.2 Renderer plugins (`renderers/` in a library dir)
 
@@ -233,10 +264,10 @@ defining a registered subclass is the entire plugin:
 
 ```python
 # <library>/renderers/to220.py
-from protoboard.gui.renderers.packages import PrismRenderer
+from protoboard.gui.renderers.packages import PrismRenderer, register_renderer
 
+@register_renderer(family="TO-220")        # family id on the package lineage
 class TO220Renderer(PrismRenderer):
-    renders = "TO-220"                     # family id on the package lineage
 
     def render_body(self, positions, fill, border, alpha, z, theme):
         items = super().render_body(positions, fill, border, alpha, z, theme)
@@ -287,9 +318,9 @@ returns a finished, collected `QGraphicsPathItem`.
 
 The built-in prism/radial/bbox/SMD paths draw through the same canvas, so a
 plugin's output composes with them pixel-identically. `SmdChipRenderer`
-(`prism_kinds.py`, `renders = "prism_smd"`) is the in-tree example of the
-"base outline + per-type detail" pattern: the base chip rectangle plus the
-metallised terminal caps.
+(`prism_kinds.py`, `@register_renderer(package_name="prism_smd")`) is the
+in-tree example of the "base outline + per-type detail" pattern: the base
+chip rectangle plus the metallised terminal caps.
 
 ### 4.3 Prism silhouette — declared `kind` renderers first
 
@@ -319,11 +350,12 @@ look. The pin-column guess (`silhouette_for`) applies ONLY to the synthesized
 generated `dip-N` / `wdip-N` / `sil-N` catalogue bodies carry their kind on
 the lineage, so their notch/housing is a declared look, not a guess.
 Rendering never blocks on a kind it does not recognise. A dev-board module
-suppresses the silhouette entirely (plain PCB rectangle + pad-active rings) —
-deliberately gated by `ComponentClass.DEVBOARD` in `_draw_prism`, not by
-lineage: it is a component-*class* trait that must hold for any package a
-devboard carries (extraction into a lineage renderer would need devboard
-packages to declare a shared base first).
+suppresses the silhouette entirely (plain PCB rectangle + pad-active rings)
+via `DevboardRenderer`, registered on the **component-class axis**
+(`@register_renderer(component_class="devboard")`), not by lineage: it is a
+component-*class* trait that must hold for any package a devboard carries —
+the class axis exists precisely for such traits (this replaced the historical
+hardcoded `ComponentClass.DEVBOARD` gates in `_draw_prism` / `_draw_bbox`).
 
 ### 4.4 Appearance
 

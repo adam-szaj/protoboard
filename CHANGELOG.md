@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### `@register_renderer` / `@register_generator` — typed-axis registration (2026-07-05)
+
+* **Renderers register through a decorator with typed axes.**
+  `@register_renderer(kind=… / family=… / package_name=… / shape_name=… /
+  component_class=…)` is the preferred registration spelling — same
+  registries as the legacy `renders = "…"` attribute (which keeps working),
+  but each key says what it is instead of living in one string bag. The
+  four lineage axes share `BODY_RENDERERS`; the new **component-class axis**
+  (`CLASS_RENDERERS`) dispatches on the component's open `component_class`
+  tag and wins over every lineage entry, so a library can ship
+  `component_class: led_bar` plus a renderer plugin for it without touching
+  the builtin enum. `renderer_for` / `PackageBody` thread the class through.
+  Collisions on the same key log a warning; later registrations win.
+* **The devboard look is now a class-axis registration.** The hardcoded
+  `ComponentClass.DEVBOARD` gates in `PrismRenderer._draw_prism` and
+  `PackageRenderer._draw_bbox` became `DevboardRenderer`
+  (`@register_renderer(component_class="devboard")`: plain PCB rectangle +
+  per-pin pad rings) — the mechanism the old comment said the extraction
+  was waiting for.
+* **Kind generators get the same interface.** `@register_generator(kind=…)`
+  registers a `PackageGenerator` (legacy `generates = "…"` stays), so a
+  plugin registers both halves of a kind — geometry and look — through one
+  consistent decorator idiom. Builtin generators, kind renderers and the
+  TO-220 reference plugin migrated to the decorators.
+
 ### The YAML `footprint:` field is removed (2026-07-04)
 
 * **Every part declares a real body now.** The legacy `footprint:` block —

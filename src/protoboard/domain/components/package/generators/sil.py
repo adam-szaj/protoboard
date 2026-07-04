@@ -8,14 +8,14 @@ from protoboard.domain.components.package.generators.base import (
     GeneratorContext,
     PackageGenerator,
     prism_from_footprint,
+    register_generator,
 )
 from protoboard.domain.components.package.loader import PackageDefError
 
 
+@register_generator(kind="sil")
 class SilGenerator(PackageGenerator):
     """Single-in-line prism — one straight row of *pin_count* pins."""
-
-    generates = "sil"
 
     def generate(self, ctx: GeneratorContext) -> GeneratorContext:
         n = ctx.pin_count

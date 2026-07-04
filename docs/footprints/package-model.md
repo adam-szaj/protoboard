@@ -730,10 +730,11 @@ DIP-IC — see [../rendering.md](../rendering.md) §4); an unknown kind falls
 back to the shape-root renderer's guess.
 
 **The generator contract** (`package/generators/base.py`) mirrors the renderer
-registry: a `PackageGenerator` subclass declaring `generates = "<kind>"`
-registers itself at class-creation time; later registrations win (a plugin in
-a library's `generators/` directory overrides a builtin —
-`services/library/plugin_discovery.py`). The subclass declares its parameter
+registry: a `PackageGenerator` subclass decorated with
+`@register_generator(kind="<kind>")` (or declaring the legacy
+`generates = "<kind>"`) registers itself at class-creation time; later
+registrations win (a plugin in a library's `generators/` directory overrides
+a builtin — `services/library/plugin_discovery.py`). The subclass declares its parameter
 set as a `ParamSchema` (`params`, one source of truth for build validation,
 picker inputs and docs) and implements `generate(ctx) -> ctx`:
 

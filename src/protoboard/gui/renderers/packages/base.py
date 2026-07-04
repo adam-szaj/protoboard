@@ -8,20 +8,27 @@ Concrete shapes override :meth:`PackageRenderer.render_body`; the radial
 top-view branch is handled once in :meth:`PackageRenderer.draw` (it is a
 property of the lead arrangement, not of one shape).
 
-Registration is declarative: a subclass that sets ``renders = "<name>"`` is
-entered into ``BODY_RENDERERS`` the moment the class body executes — dropping
-a plugin file into a library's ``renderers/`` directory is all it takes (see
-:mod:`.discovery`).  Dispatch (:func:`renderer_for`) walks the package's
-``lineage`` leaf-first, so the most specific renderer wins and unknown names
-degrade towards the per-shape base renderer — rendering never blocks on an
-unknown package.
+Registration is declarative, two spellings: the :func:`register_renderer`
+decorator with **typed axes** (``@register_renderer(kind="dip_ic")``,
+``@register_renderer(component_class="devboard")``) is the preferred one; a
+subclass that sets ``renders = "<name>"`` (the historical lineage-bag
+spelling) registers the same way the moment the class body executes.  Either
+way, dropping a plugin file into a library's ``renderers/`` directory is all
+it takes (see :mod:`.discovery`).
+
+Dispatch (:func:`renderer_for`): a ``component_class`` registration wins
+first (the class is the part author's intent, whatever body it carries),
+then the package's ``lineage`` is walked leaf-first, so the most specific
+renderer wins and unknown names degrade towards the per-shape base renderer
+— rendering never blocks on an unknown package or class.
 """
 
 from __future__ import annotations
 
 import math
 from abc import ABC, abstractmethod
-from typing import ClassVar
+from collections.abc import Callable
+from typing import ClassVar, TypeVar
 
 import structlog
 from PySide6.QtCore import QRectF, Qt
@@ -68,6 +75,7 @@ __all__ = [
     "GenericBody",
     "PackageRenderer",
     "qcolor_from_css",
+    "register_renderer",
     "renderer_for",
 ]
 
@@ -206,10 +214,102 @@ class GenericBody(BodyShape):
 # Registry
 # ---------------------------------------------------------------------------
 
-# lineage name → renderer class. Populated declaratively by
-# ``PackageRenderer.__init_subclass__``; later registrations win (a user
-# plugin overrides a builtin, mirroring the library-loader precedence).
+# lineage name → renderer class. Populated declaratively — by the
+# ``register_renderer`` decorator's lineage axes (shape_name / package_name /
+# kind / family) or by ``PackageRenderer.__init_subclass__`` (``renders``);
+# later registrations win (a user plugin overrides a builtin, mirroring the
+# library-loader precedence).
 BODY_RENDERERS: dict[str, type[PackageRenderer]] = {}
+
+# component class → renderer class. The class axis of the decorator — a
+# registration here wins the dispatch outright (see ``renderer_for``): the
+# component class is the part author's intent for the WHOLE part, whatever
+# body lineage it happens to carry (a devboard stays a plain PCB whether its
+# package is a bare prism or extends someone's DIP base). Classes are open
+# strings (a library may ship ``component_class: led_bar`` + a renderer
+# plugin for it without touching this build's enum).
+CLASS_RENDERERS: dict[str, type[PackageRenderer]] = {}
+
+
+def _register(
+    registry: dict[str, type[PackageRenderer]],
+    axis: str,
+    key: str,
+    cls: type[PackageRenderer],
+) -> None:
+    """Enter *cls* under *key*; later registrations win, collisions are loud."""
+    prev = registry.get(key)
+    if prev is not None and prev is not cls:
+        _log.warning(
+            "body renderer overridden",
+            axis=axis,
+            key=key,
+            old=f"{prev.__module__}.{prev.__qualname__}",
+            new=f"{cls.__module__}.{cls.__qualname__}",
+        )
+    registry[key] = cls
+
+
+def _axis_keys(value: str | tuple[str, ...] | None) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    return (value,) if isinstance(value, str) else tuple(value)
+
+
+_RendererT = TypeVar("_RendererT", bound="type[PackageRenderer]")
+
+
+def register_renderer(
+    *,
+    shape_name: str | tuple[str, ...] | None = None,
+    package_name: str | tuple[str, ...] | None = None,
+    kind: str | tuple[str, ...] | None = None,
+    family: str | tuple[str, ...] | None = None,
+    component_class: str | tuple[str, ...] | None = None,
+) -> Callable[[_RendererT], _RendererT]:
+    """Register a :class:`PackageRenderer` subclass on one or more typed axes.
+
+    The preferred registration spelling — same registries as the historical
+    ``renders = "<name>"`` attribute, but each key says *what it is*::
+
+        @register_renderer(kind="dip_ic")             # a package kind
+        @register_renderer(family="TO-220")           # a catalogue family id
+        @register_renderer(package_name="prism_smd")  # a generic package name
+        @register_renderer(shape_name="prism")        # a shape root
+        @register_renderer(component_class="led_bar") # a component class
+
+    The first four are **lineage axes**: package kinds, family ids, generic
+    package names and shape roots all appear on a package's ``lineage``, so
+    their keys share ``BODY_RENDERERS`` and resolve leaf-first, exactly like
+    ``renders``.  ``component_class`` is the **class axis**
+    (``CLASS_RENDERERS``): it dispatches on the *component's* declared class
+    rather than the package, and wins over every lineage entry.  Each axis
+    accepts one name or a tuple; at least one axis is required.  Later
+    registrations win (a plugin overrides a builtin); a collision on the same
+    key logs a warning.
+    """
+    lineage_keys: tuple[tuple[str, str], ...] = tuple(
+        (axis, key)
+        for axis, value in (
+            ("shape_name", shape_name),
+            ("package_name", package_name),
+            ("kind", kind),
+            ("family", family),
+        )
+        for key in _axis_keys(value)
+    )
+    class_keys = _axis_keys(component_class)
+    if not lineage_keys and not class_keys:
+        raise ValueError("register_renderer: at least one axis is required")
+
+    def _decorate(cls: _RendererT) -> _RendererT:
+        for axis, key in lineage_keys:
+            _register(BODY_RENDERERS, axis, key, cls)
+        for key in class_keys:
+            _register(CLASS_RENDERERS, "component_class", key, cls)
+        return cls
+
+    return _decorate
 
 
 class PackageRenderer(BodyShape):
@@ -248,12 +348,18 @@ class PackageRenderer(BodyShape):
         **kwargs: object,
     ) -> PackageRenderer:
         # Constructing the base class dispatches to the most specific
-        # registered subclass for the package's lineage — ``PackageRenderer(
-        # pkg)`` (the historical ``PackageBody(pkg)``) transparently yields a
-        # ``CylinderRenderer`` / ``PrismRenderer`` / plugin instance.
-        # Constructing a concrete subclass directly bypasses the dispatch.
-        del args, kwargs  # consumed by __init__
-        target = renderer_for(package) if cls is PackageRenderer else cls
+        # registered subclass — class axis first, then the package's lineage —
+        # so ``PackageRenderer(pkg)`` (the historical ``PackageBody(pkg)``)
+        # transparently yields a ``CylinderRenderer`` / ``PrismRenderer`` /
+        # plugin instance.  The ``component_class`` argument (positional or
+        # keyword, mirroring ``__init__``) feeds the class axis.  Constructing
+        # a concrete subclass directly bypasses the dispatch.
+        if cls is not PackageRenderer:
+            return object.__new__(cls)
+        cc = args[0] if args else kwargs.get("component_class")
+        target = renderer_for(
+            package, component_class=cc if isinstance(cc, str) else None,
+        )
         instance: PackageRenderer = object.__new__(target)
         return instance
 
@@ -264,15 +370,7 @@ class PackageRenderer(BodyShape):
             return
         keys = (declared,) if isinstance(declared, str) else tuple(declared)
         for key in keys:
-            prev = BODY_RENDERERS.get(key)
-            if prev is not None and prev is not cls:
-                _log.info(
-                    "body renderer overridden",
-                    key=key,
-                    old=f"{prev.__module__}.{prev.__qualname__}",
-                    new=f"{cls.__module__}.{cls.__qualname__}",
-                )
-            BODY_RENDERERS[key] = cls
+            _register(BODY_RENDERERS, "renders", key, cls)
 
     def __init__(
         self,
@@ -621,12 +719,6 @@ class PackageRenderer(BodyShape):
             round=(canvas.mm(tl), canvas.mm(tr), canvas.mm(br), canvas.mm(bl)),
         )
         items: list[QGraphicsItem] = canvas.items
-        # A dev-board's pins sit on the PCB's top surface — mark each with a
-        # faint pad-sized ring (the click-active area) drawn on top of the body.
-        # The real pin glyph / modifier is drawn by the component renderer on a
-        # higher layer, so these rings are additive and not claimed.
-        if self._component_class == ComponentClass.DEVBOARD:
-            items.extend(self._pad_active_rings(positions, border, alpha, z, theme))
         return items
 
     def _pad_active_rings(
@@ -654,14 +746,22 @@ class PackageRenderer(BodyShape):
         return rings
 
 
-def renderer_for(pkg: Package) -> type[PackageRenderer]:
+def renderer_for(
+    pkg: Package, component_class: str | None = None,
+) -> type[PackageRenderer]:
     """The most specific registered renderer for *pkg*.
 
-    Walks the package ``lineage`` leaf-first (variant → family → extends chain
-    → shape root); an unknown name simply steps outward, so rendering never
-    blocks on a package the registry does not know.  Packages without a
-    lineage (hand-built in tests) fall back to their shape root.
+    A ``component_class`` registration wins outright (the class is the part
+    author's intent for the whole part, whatever body it carries); then the
+    package ``lineage`` is walked leaf-first (variant → family → extends chain
+    → shape root).  An unknown name simply steps outward, so rendering never
+    blocks on a package or class the registry does not know.  Packages without
+    a lineage (hand-built in tests) fall back to their shape root.
     """
+    if component_class is not None:
+        by_class = CLASS_RENDERERS.get(component_class)
+        if by_class is not None:
+            return by_class
     for name in reversed(getattr(pkg, "lineage", ()) or ()):
         renderer = BODY_RENDERERS.get(name)
         if renderer is not None:

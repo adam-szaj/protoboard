@@ -10,6 +10,7 @@ from protoboard.domain.components.package.generators.base import (
     GeneratorContext,
     PackageGenerator,
     prism_from_footprint,
+    register_generator,
 )
 from protoboard.domain.components.package.loader import PackageDefError
 
@@ -18,13 +19,10 @@ DIP_NARROW_ROWS = 3.0
 DIP_WIDE_ROWS = 6.0
 
 
+@register_generator(kind=("dip_ic", "dip_switch"))
 class DipGenerator(PackageGenerator):
     """Narrow (0.3") dual-row prism. ``dip_switch`` shares the geometry — the
     notch / plain distinction is a renderer concern (kind drives dispatch)."""
-
-    # Re-annotated: a bare assignment would narrow the inherited ClassVar to
-    # ``tuple[str, str]`` and reject the subclass's single-string override.
-    generates: ClassVar[str | tuple[str, ...] | None] = ("dip_ic", "dip_switch")
 
     rows_spacing: ClassVar[float] = DIP_NARROW_ROWS
 
@@ -48,9 +46,8 @@ class DipGenerator(PackageGenerator):
         return [f"dip-{pin_count}", f"wdip-{pin_count}"]
 
 
+@register_generator(kind="wdip_ic")
 class WideDipGenerator(DipGenerator):
     """Wide (0.6") dual-row prism — the classic wide DIP."""
-
-    generates = "wdip_ic"
 
     rows_spacing: ClassVar[float] = DIP_WIDE_ROWS

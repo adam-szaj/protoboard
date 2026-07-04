@@ -8,10 +8,13 @@ defines the generator contract; :func:`~..kind.build_kind_package` is the
 driver that dispatches through the registry and enforces the contract.
 
 Registration is declarative and mirrors the renderer registry
-(:mod:`protoboard.gui.renderers.packages.base`): a subclass that sets
-``generates = "<kind>"`` enters ``KIND_GENERATORS`` the moment the class body
-executes — dropping a plugin file into a library's ``generators/`` directory
-is all it takes (see :mod:`protoboard.services.library.plugin_discovery`).
+(:mod:`protoboard.gui.renderers.packages.base`), with the same two spellings:
+the :func:`register_generator` decorator (``@register_generator(
+kind="dip_ic")``, the preferred one — the counterpart of
+``@register_renderer``) or a subclass that sets ``generates = "<kind>"``;
+either enters ``KIND_GENERATORS`` the moment the class body executes —
+dropping a plugin file into a library's ``generators/`` directory is all it
+takes (see :mod:`protoboard.services.library.plugin_discovery`).
 Later registrations win, so a user plugin overrides a builtin. A generator is
 correlated with an (optional) renderer purely by the shared kind name — the
 generator side is pure domain, the renderer side is GUI; neither imports the
@@ -41,8 +44,8 @@ from __future__ import annotations
 
 import dataclasses
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
-from typing import Any, ClassVar
+from collections.abc import Callable, Mapping
+from typing import Any, ClassVar, TypeVar
 
 import structlog
 
@@ -128,10 +131,57 @@ class GeneratorContext:
         )
 
 
-# kind name → generator class. Populated declaratively by
-# ``PackageGenerator.__init_subclass__``; later registrations win (a user
-# plugin overrides a builtin, mirroring the renderer registry).
+# kind name → generator class. Populated declaratively — by the
+# ``register_generator`` decorator or by ``PackageGenerator.__init_subclass__``
+# (``generates``); later registrations win (a user plugin overrides a builtin,
+# mirroring the renderer registry).
 KIND_GENERATORS: dict[str, type[PackageGenerator]] = {}
+
+
+def _register(key: str, cls: type[PackageGenerator], axis: str) -> None:
+    """Enter *cls* under *key*; later registrations win, collisions are loud."""
+    prev = KIND_GENERATORS.get(key)
+    if prev is not None and prev is not cls:
+        _log.warning(
+            "kind generator overridden",
+            axis=axis,
+            kind=key,
+            old=f"{prev.__module__}.{prev.__qualname__}",
+            new=f"{cls.__module__}.{cls.__qualname__}",
+        )
+    KIND_GENERATORS[key] = cls
+
+
+_GeneratorT = TypeVar("_GeneratorT", bound="type[PackageGenerator]")
+
+
+def register_generator(
+    *,
+    kind: str | tuple[str, ...],
+) -> Callable[[_GeneratorT], _GeneratorT]:
+    """Register a :class:`PackageGenerator` subclass for one or more kinds.
+
+    The preferred registration spelling — the domain-side counterpart of the
+    renderer registry's ``@register_renderer`` decorator, so plugins register
+    both halves of a kind through one consistent interface::
+
+        @register_generator(kind="dip_ic")
+        class DipGenerator(PackageGenerator): ...
+
+    Same registry and semantics as the legacy ``generates = "<kind>"``
+    attribute: one name or a tuple, later registrations win (a plugin
+    overrides a builtin), a collision on the same kind logs a warning.
+    """
+    keys = (kind,) if isinstance(kind, str) else tuple(kind)
+    if not keys:
+        raise ValueError("register_generator: at least one kind is required")
+
+    def _decorate(cls: _GeneratorT) -> _GeneratorT:
+        for key in keys:
+            _register(key, cls, "kind")
+        return cls
+
+    return _decorate
 
 
 class PackageGenerator(ABC):
@@ -168,15 +218,7 @@ class PackageGenerator(ABC):
             return
         keys = (declared,) if isinstance(declared, str) else tuple(declared)
         for key in keys:
-            prev = KIND_GENERATORS.get(key)
-            if prev is not None and prev is not cls:
-                _log.info(
-                    "kind generator overridden",
-                    kind=key,
-                    old=f"{prev.__module__}.{prev.__qualname__}",
-                    new=f"{cls.__module__}.{cls.__qualname__}",
-                )
-            KIND_GENERATORS[key] = cls
+            _register(key, cls, "generates")
 
     @abstractmethod
     def generate(self, ctx: GeneratorContext) -> GeneratorContext:

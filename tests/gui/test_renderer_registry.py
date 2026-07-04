@@ -26,10 +26,12 @@ from protoboard.geometry import Point
 from protoboard.gui.renderers.body_shapes import PackageBody
 from protoboard.gui.renderers.packages import (
     BODY_RENDERERS,
+    CLASS_RENDERERS,
     CylinderRenderer,
     DiscRenderer,
     PrismRenderer,
     load_renderer_plugins,
+    register_renderer,
     renderer_for,
 )
 
@@ -151,6 +153,86 @@ class TestRendererDispatch:
         assert BODY_RENDERERS["cylinder"] is CylinderRenderer
         assert BODY_RENDERERS["prism"] is PrismRenderer
         assert BODY_RENDERERS["disc"] is DiscRenderer
+
+
+# ---------------------------------------------------------------------------
+# @register_renderer — typed-axis registration + the component-class axis
+# ---------------------------------------------------------------------------
+
+class TestRegisterRendererDecorator:
+
+    def test_lineage_axes_share_body_renderers(self) -> None:
+        # kind / family / package_name / shape_name all resolve through the
+        # package lineage, so they land in the same registry as ``renders``.
+        @register_renderer(kind="_t_deco_kind", family="_T-DECO-FAM")
+        class _DecoRenderer(PrismRenderer):
+            pass
+
+        try:
+            assert BODY_RENDERERS["_t_deco_kind"] is _DecoRenderer
+            assert BODY_RENDERERS["_T-DECO-FAM"] is _DecoRenderer
+        finally:
+            del BODY_RENDERERS["_t_deco_kind"]
+            del BODY_RENDERERS["_T-DECO-FAM"]
+
+    def test_component_class_axis_wins_over_lineage_leaf(self) -> None:
+        from protoboard.gui.renderers.packages import SilHeaderRenderer
+
+        @register_renderer(component_class="_t_led_bar")
+        class _LedBarRenderer(PrismRenderer):
+            pass
+
+        ctx = build_kind_package("sil", GeneratorContext(pin_count=3))
+        assert ctx.package is not None
+        try:
+            # The class registration beats the package's own registered kind…
+            assert renderer_for(
+                ctx.package, component_class="_t_led_bar",
+            ) is _LedBarRenderer
+            # …while the same package without the class keeps its kind renderer.
+            assert renderer_for(ctx.package) is SilHeaderRenderer
+        finally:
+            del CLASS_RENDERERS["_t_led_bar"]
+
+    def test_package_body_threads_component_class(self) -> None:
+        @register_renderer(component_class="_t_led_bar")
+        class _LedBarRenderer(PrismRenderer):
+            pass
+
+        ctx = build_kind_package("sil", GeneratorContext(pin_count=3))
+        assert ctx.package is not None
+        try:
+            body = PackageBody(ctx.package, component_class="_t_led_bar")
+            assert type(body) is _LedBarRenderer
+        finally:
+            del CLASS_RENDERERS["_t_led_bar"]
+
+    def test_unknown_component_class_falls_back_to_lineage(self) -> None:
+        from protoboard.gui.renderers.packages import SilHeaderRenderer
+
+        ctx = build_kind_package("sil", GeneratorContext(pin_count=3))
+        assert ctx.package is not None
+        assert renderer_for(
+            ctx.package, component_class="_t_no_such_class",
+        ) is SilHeaderRenderer
+
+    def test_no_axis_is_an_error(self) -> None:
+        with pytest.raises(ValueError):
+            register_renderer()
+
+    def test_later_registration_wins(self) -> None:
+        @register_renderer(kind="_t_collide")
+        class _First(PrismRenderer):
+            pass
+
+        @register_renderer(kind="_t_collide")
+        class _Second(PrismRenderer):
+            pass
+
+        try:
+            assert BODY_RENDERERS["_t_collide"] is _Second
+        finally:
+            del BODY_RENDERERS["_t_collide"]
 
 
 # ---------------------------------------------------------------------------

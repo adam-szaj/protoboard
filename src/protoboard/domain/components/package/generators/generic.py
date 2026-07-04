@@ -20,14 +20,14 @@ from protoboard.domain.components.footprints import SIL
 from protoboard.domain.components.package.generators.base import (
     GeneratorContext,
     PackageGenerator,
+    register_generator,
 )
 from protoboard.domain.components.package.loader import PackageDefError
 
 
+@register_generator(kind="generic")
 class GenericGenerator(PackageGenerator):
     """Generic bbox body — a declared ``_generic`` over a single pin row."""
-
-    generates = "generic"
 
     def generate(self, ctx: GeneratorContext) -> GeneratorContext:
         # Local import: kind.py imports this package's registry at module

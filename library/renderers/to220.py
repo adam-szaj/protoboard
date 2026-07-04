@@ -3,10 +3,14 @@
 
 This file doubles as the reference for user renderer plugins: it lives in the
 builtin library's ``renderers/`` directory and is loaded by the exact same
-discovery mechanism as user plugins (``load_renderer_plugins``).  Declaring
-``renders = "TO-220"`` registers the class for the whole TO-220 package family
-(the family id sits on the package ``lineage`` just above the variant), so
-every variant gets the tab unless a more specific renderer claims its leaf.
+discovery mechanism as user plugins (``load_renderer_plugins``).
+``@register_renderer(family="TO-220")`` registers the class for the whole
+TO-220 package family (the family id sits on the package ``lineage`` just
+above the variant), so every variant gets the tab unless a more specific
+renderer claims its leaf.  Other axes: ``kind=`` (a package kind such as
+``dip_ic``), ``package_name=`` (a generic such as ``prism_smd``),
+``shape_name=`` (a shape root) and ``component_class=`` (dispatch on the
+component's class — wins over every lineage entry).
 
 The base ``PrismRenderer`` draws the radial rectangle (the plastic body,
 centred on the pad centroid, aligned to the lead axis); this subclass appends
@@ -28,14 +32,13 @@ from PySide6.QtWidgets import QGraphicsItem
 
 from protoboard.domain.components.package.shapes import Prism
 from protoboard.geometry import Point
-from protoboard.gui.renderers.packages import PrismRenderer
+from protoboard.gui.renderers.packages import PrismRenderer, register_renderer
 from protoboard.gui.theme import Theme
 
 
+@register_renderer(family="TO-220")
 class TO220Renderer(PrismRenderer):
     """TO-220 (and friends): the prism body + a metal tab on the back edge."""
-
-    renders = "TO-220"
 
     #: Light metal tab colour (the exposed heatsink flange).
     TAB_COLOR = "#dddddd"
