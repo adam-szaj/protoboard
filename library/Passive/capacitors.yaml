@@ -18,8 +18,8 @@ components:
       - {name: Disc-D5, ref: "Ceramic-Disc-D5/typ"}   # 5 mm ceramic disc (default)
       - {name: Disc-D7, ref: "Ceramic-Disc-D7/typ"}   # 7 mm disc
       - {name: Disc-D10, ref: "Ceramic-Disc-D10/typ"} # 10 mm disc
-      - {name: SMD-0805, ref: "SMD-0805/typ"}         # rigid chip
-      - {name: SMD-0603, ref: "SMD-0603/typ"}         # rigid chip
+      - {name: SMD-0805, ref: "SMD-0805/typ", style: "color: #aa5"}         # rigid chip
+      - {name: SMD-0603, ref: "SMD-0603/typ", style:  "color: #aa5"}         # rigid chip
 
   # One generic polar (electrolytic / tantalum) capacitor.  The footprints: list
   # offers the radial electrolytic cans (5 mm default, 6.3 / 8 / 10 mm).

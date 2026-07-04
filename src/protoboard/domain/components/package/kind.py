@@ -58,20 +58,27 @@ from protoboard.domain.components.package.shapes import (
 # pre-invariant behaviour (authored ``bendable_pins``, DRC body-overlap skip).
 GENERIC_PACKAGE_KIND = "_generic"
 
+# The user-facing spelling: ``package: {kind: generic}`` builds the same body
+# through the kind chain, which stamps the DECLARED kind name over the
+# synthetic tag — both spellings mean "generic bbox" to every consumer.
+_GENERIC_KINDS = frozenset({GENERIC_PACKAGE_KIND, "generic"})
+
 
 def is_generic_package(package: object) -> bool:
-    """True when *package* is the synthetic generic bbox fallback (not declared).
+    """True when *package* is the generic bbox body (synthetic or declared).
 
-    Single predicate so the ``_generic`` tag-check is not duplicated across
+    Single predicate so the generic-tag check is not duplicated across
     ``effective_bend_specs`` and the DRC engine. Checked on the ``kind`` tag
     *and* the lineage: a pending-kind placeholder (a partially-parameterised
     kind awaiting the package-picker) carries the target kind in ``kind`` but
     keeps ``_generic`` in its lineage — its geometry is still the synthetic
-    bbox, so generic consumers must keep treating it as such.
+    bbox, so generic consumers must keep treating it as such. The declared
+    ``kind: generic`` spelling counts the same as the synthetic ``_generic``.
     """
-    if getattr(package, "kind", None) == GENERIC_PACKAGE_KIND:
+    if getattr(package, "kind", None) in _GENERIC_KINDS:
         return True
-    return GENERIC_PACKAGE_KIND in (getattr(package, "lineage", ()) or ())
+    lineage = getattr(package, "lineage", ()) or ()
+    return any(tag in _GENERIC_KINDS for tag in lineage)
 
 
 @lru_cache(maxsize=None)

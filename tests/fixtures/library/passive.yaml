@@ -2,17 +2,20 @@ components:
   - name: R
     description: "Resistor (axial through-hole)"
     component_class: resistor
-    footprint: {type: SIL, pins: 2}
+    pins: {count: 2}
+    package: {kind: generic}
     pin_names: {}
 
   - name: C
     description: "Capacitor (radial)"
     component_class: capacitor_nonpolar
-    footprint: {type: SIL, pins: 2}
+    pins: {count: 2}
+    package: {kind: generic}
     pin_names: {}
 
   - name: SW_Push
     description: "Tactile push button (4-pin)"
     component_class: switch
-    footprint: {type: DIP, pins: 4}
+    pins: {count: 4}
+    package: {kind: dip_switch}
     pin_names: {1: A1, 2: A2, 3: B1, 4: B2}

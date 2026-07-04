@@ -4,8 +4,6 @@ components:
   # -----------------------------------------------------------------------
   - name: _LED_2_5mm
     component_class: diode_led
-    footprint:
-      type: TwoPin
     pin_names:
       1: A
       2: K
@@ -19,8 +17,6 @@ components:
           y: 1
   - name: _LED_3_0mm
     component_class: diode_led
-    footprint:
-      type: TwoPin
     pin_names:
       1: A
       2: K
@@ -34,8 +30,6 @@ components:
           y: 1
   - name: _LED_5_0mm
     component_class: diode_led
-    footprint:
-      type: TwoPin
     pin_names:
       1: A
       2: K
@@ -117,8 +111,8 @@ components:
     style: 'color: #ffffff80'
     description: LED 5mm white
   - name: LED_BAR
-    component_class: diode_led
-    description: "10-segment LED bar graph (DIP-20 style body)"
+    component_class: led_bar
+    description: "10-segment LED bar graph"
     pins: {count: 20}
     pin_names: {1: A1, 2: A2, 3: A3, 4: A4, 5: A5, 6: A6, 7: A7, 8: A8, 9: A9,
                 10: A10, 11: K1, 12: K2, 13: K3, 14: K4, 15: K5, 16: K6, 17: K7,

@@ -15,7 +15,6 @@ from protoboard.domain.components.definition import (
     ComponentClass,
     ComponentDefinition,
 )
-from protoboard.domain.components.package.kind import is_generic_package
 from protoboard.errors import SerializationError
 from protoboard.services.library.loader import ComponentLibrary, load_library
 
@@ -282,7 +281,7 @@ class TestLibraryFilePackagesAndFamilies:
             "components:\n"
             "  - name: R_OK\n"
             "    component_class: resistor\n    symbol: R\n"
-            "    footprint: {type: TwoPin}\n"
+            "    pins: {count: 2}\n    package: {kind: sil}\n"
             "    pin_names: {}\n"
         )
         with capture_logs() as logs:
@@ -304,7 +303,7 @@ class TestOpenComponentClass:
             "  - name: RELAY1\n"
             "    component_class: relay\n"          # not in ComponentClass
             "    symbol: K\n"
-            "    footprint: {type: SIL, pins: 5}\n"
+            "    pins: {count: 5}\n    package: {kind: sil}\n"
             "    pin_names: {}\n"
         )
         with capture_logs() as logs:
@@ -322,7 +321,7 @@ class TestOpenComponentClass:
             "components:\n"
             "  - name: THING\n"
             "    component_class: frobnicator\n"
-            "    footprint: {type: TwoPin}\n"
+            "    pins: {count: 2}\n    package: {kind: sil}\n"
             "    pin_names: {}\n"
         )
         defn = load_library([tmp_path], package_families={}).get("THING")
@@ -335,7 +334,7 @@ class TestOpenComponentClass:
             "components:\n"
             "  - name: R1\n"
             "    component_class: resistor\n"
-            "    footprint: {type: TwoPin}\n"
+            "    pins: {count: 2}\n    package: {kind: sil}\n"
             "    pin_names: {}\n"
         )
         defn = load_library([tmp_path], package_families={}).get("R1")
@@ -346,7 +345,7 @@ class TestOpenComponentClass:
             "components:\n"
             "  - name: E1\n"
             "    component_class: ''\n"
-            "    footprint: {type: TwoPin}\n"
+            "    pins: {count: 2}\n    package: {kind: sil}\n"
             "    pin_names: {}\n"
         )
         with pytest.raises(SerializationError):
@@ -363,7 +362,7 @@ class TestCrossFileExtends:
             "  - name: _DIP14_BASE\n"
             "    component_class: ic\n"
             "    symbol: U\n"
-            "    footprint: {type: DIP, pins: 14}\n"
+            "    pins: {count: 14}\n    package: {kind: dip_ic}\n"
             "    pin_names: {7: GND, 14: VCC}\n"
         )
         (tmp_path / "parts.yaml").write_text(
@@ -384,7 +383,7 @@ class TestCrossFileExtends:
         (tmp_path / "p.yaml").write_text(
             "components:\n"
             "  - name: Orphan\n    extends: _NOPE\n"
-            "    footprint: {type: TwoPin}\n    pin_names: {}\n"
+            "    pins: {count: 2}\n    package: {kind: sil}\n    pin_names: {}\n"
         )
         with pytest.raises(SerializationError):
             load_library([tmp_path])
@@ -454,7 +453,7 @@ class TestComponentStyle:
             "components:\n"
             "  - name: R_BLACK\n"
             "    component_class: resistor\n"
-            "    footprint: {type: TwoPin}\n"
+            "    pins: {count: 2}\n    package: {kind: sil}\n"
             "    style: 'color: #1a1a1a; corner-radius: 0.4'\n"
             "    pin_names: {}\n"
         )
@@ -467,7 +466,7 @@ class TestComponentStyle:
         (tmp_path / "c.yaml").write_text(
             "components:\n"
             "  - name: R_PLAIN\n    component_class: resistor\n"
-            "    footprint: {type: TwoPin}\n    pin_names: {}\n"
+            "    pins: {count: 2}\n    package: {kind: sil}\n    pin_names: {}\n"
         )
         assert load_library([tmp_path]).get("R_PLAIN").appearance is None
 
@@ -476,7 +475,7 @@ class TestComponentStyle:
         (tmp_path / "c.yaml").write_text(
             "components:\n"
             "  - name: R3\n    component_class: resistor\n"
-            "    footprint: {type: TwoPin}\n    style: 'color: #abc'\n"
+            "    pins: {count: 2}\n    package: {kind: sil}\n    style: 'color: #abc'\n"
             "    pin_names: {}\n"
         )
         assert load_library([tmp_path]).get("R3").appearance == Appearance(color="#abc")
@@ -486,7 +485,8 @@ class TestComponentStyle:
         (tmp_path / "c.yaml").write_text(
             "components:\n"
             "  - name: R4\n    component_class: resistor\n"
-            "    footprint: {type: TwoPin}\n    style: 'corner-radius: 2 2 0 0'\n"
+            "    pins: {count: 2}\n    package: {kind: sil}\n"
+            "    style: 'corner-radius: 2 2 0 0'\n"
             "    pin_names: {}\n"
         )
         assert load_library([tmp_path]).get("R4").appearance == Appearance(
@@ -497,7 +497,7 @@ class TestComponentStyle:
         (tmp_path / "c.yaml").write_text(
             "components:\n"
             "  - name: RBAD\n    component_class: resistor\n"
-            "    footprint: {type: TwoPin}\n    style: 'color: red'\n"
+            "    pins: {count: 2}\n    package: {kind: sil}\n    style: 'color: red'\n"
             "    pin_names: {}\n"
         )
         with pytest.raises(SerializationError):
@@ -507,7 +507,8 @@ class TestComponentStyle:
         (tmp_path / "c.yaml").write_text(
             "components:\n"
             "  - name: RNEG\n    component_class: resistor\n"
-            "    footprint: {type: TwoPin}\n    style: 'corner-radius: -1'\n"
+            "    pins: {count: 2}\n    package: {kind: sil}\n"
+            "    style: 'corner-radius: -1'\n"
             "    pin_names: {}\n"
         )
         with pytest.raises(SerializationError):
@@ -517,7 +518,7 @@ class TestComponentStyle:
         (tmp_path / "c.yaml").write_text(
             "components:\n"
             "  - name: RUNK\n    component_class: resistor\n"
-            "    footprint: {type: TwoPin}\n    style: 'fill: #abc'\n"
+            "    pins: {count: 2}\n    package: {kind: sil}\n    style: 'fill: #abc'\n"
             "    pin_names: {}\n"
         )
         with pytest.raises(SerializationError):
@@ -529,7 +530,7 @@ class TestComponentStyle:
         (tmp_path / "c.yaml").write_text(
             "components:\n"
             "  - name: ROLD\n    component_class: resistor\n"
-            "    footprint: {type: TwoPin}\n"
+            "    pins: {count: 2}\n    package: {kind: sil}\n"
             "    appearance: {color: '#1a1a1a'}\n    pin_names: {}\n"
         )
         assert load_library([tmp_path]).get("ROLD").appearance is None
@@ -553,7 +554,8 @@ class TestConsolidatedPassives:
         # Default body = the first offered footprint (DIN-0207 axial) now that the
         # dead ``footprint: TwoPin`` default was dropped — the neutral generic
         # default is gone, the picker's first real body wins.
-        pins = [(round(p.x), round(p.y)) for p in defn.default_footprint().pin_positions()]
+        pins = [(round(p.x), round(p.y))
+                for p in defn.default_footprint().pin_positions()]
         assert pins == [(0, 0), (3, 0)]
         names = [o.name for o in defn.footprints]
         assert "DIN-0207" in names and "SMD-0805" in names
@@ -654,14 +656,14 @@ class TestRigidPackageFamilyRef:
 components:
   - name: R_SMD
     component_class: resistor
-    footprint: {type: TwoPin}
+    pins: {count: 2}
     pin_names: {}
     package_family_ref: "SMD-0805/typ"
     bendable_pins:
       2: {min_reach: 1, max_reach: 23, default: {x: 0, y: 4}}
   - name: R_AXIAL
     component_class: resistor
-    footprint: {type: TwoPin}
+    pins: {count: 2}
     pin_names: {}
     package_family_ref: "DIN-0207/typ"
     bendable_pins:
@@ -691,27 +693,26 @@ components:
         self, tmp_path: Path,
     ) -> None:
         defn = self._lib(tmp_path).get("R_AXIAL")
-        # An axial cylinder is not rigid (it bends), so the original
-        # footprint-derived geometry (not a rigid PackageFootprint) and the
-        # bendable leads survive.
-        assert is_generic_package(defn.package)
+        # An axial cylinder is not rigid (it bends): the referenced variant IS
+        # the default geometry now, and the bendable leads survive.
+        from protoboard.domain.components.package import is_rigid_package
+        assert not is_rigid_package(defn.package)
         assert defn.default_footprint().pin_count() == 2
         assert defn.bendable_pins  # kept
 
-    def test_no_catalogue_leaves_footprint_unchanged(
+    def test_no_catalogue_skips_ref_only_parts(
         self, tmp_path: Path,
     ) -> None:
-        # An explicit empty catalogue is the escape hatch: the loader can't
-        # resolve the ref → legacy footprint-only behaviour (no rigid override).
-        # (Omitting the argument now defaults to the full shipped catalogue, so
-        # this opts out explicitly with ``{}``.)
+        # With an explicit empty catalogue the ref — the parts' ONLY geometry
+        # source — cannot resolve: the parts are skipped with a warning
+        # instead of sinking the library (same policy as a malformed package).
+        from structlog.testing import capture_logs
         (tmp_path / "p.yaml").write_text(self._LIB)
-        defn = load_library([tmp_path], {}).get("R_SMD")
-        # Legacy footprint-only behaviour: footprint-derived geometry, not a
-        # rigid PackageFootprint.
-        assert is_generic_package(defn.package)
-        assert defn.default_footprint().pin_count() == 2
-        assert defn.bendable_pins  # kept
+        with capture_logs() as logs:
+            lib = load_library([tmp_path], {})
+        assert "R_SMD" not in lib and "R_AXIAL" not in lib
+        assert sum(1 for e in logs
+                   if e["event"] == "library.package_skipped") == 2
 
 
 class TestLoadLibrary:
@@ -737,11 +738,13 @@ class TestLoadLibrary:
     def test_get_resistor(self) -> None:
         lib = load_library([FIXTURES])
         defn = lib.get("R")
-        # Two-pin footprint-derived geometry: a single in-line pair of pads
-        # (not a rigid package-derived footprint).
-        assert is_generic_package(defn.package)
+        # Two-pin declared prism: a single in-line pair of pads, non-rigid
+        # (bend: 1) so the bendable-lead semantics survive.
+        from protoboard.domain.components.package import is_rigid_package
+        assert not is_rigid_package(defn.package)
         assert defn.pin_count == 2
-        pins = [(round(p.x), round(p.y)) for p in defn.default_footprint().pin_positions()]
+        pins = [(round(p.x), round(p.y))
+                for p in defn.default_footprint().pin_positions()]
         assert pins == [(0, 0), (0, 1)]
         # Pin names not declared → defaults.
         assert defn.pin_name(1) == "P1"
@@ -750,11 +753,10 @@ class TestLoadLibrary:
     def test_get_to92_transistor(self) -> None:
         lib = load_library([FIXTURES])
         defn = lib.get("BC547")
-        # TO92 → single in-line row of 3 pins (footprint-derived geometry).
-        assert is_generic_package(defn.package)
+        # TO-92 catalogue body → single in-line row of 3 pins (along x).
         assert defn.default_footprint().pin_count() == 3
-        xs = {round(p.x) for p in defn.default_footprint().pin_positions()}
-        assert xs == {0}            # single column
+        ys = {round(p.y) for p in defn.default_footprint().pin_positions()}
+        assert ys == {0}            # single row
         assert defn.pin_count == 3
         assert defn.pin_name(1) == "C"
         assert defn.pin_name(2) == "B"
@@ -780,9 +782,8 @@ class TestLibraryOverride:
 components:
   - name: LM358
     description: "Customized op-amp"
-    footprint:
-      type: DIP
-      pins: 8
+    pins: {count: 8}
+    package: {kind: dip_ic}
     pin_names: {}
 """)
         lib = load_library([override_dir, FIXTURES])
@@ -797,9 +798,8 @@ components:
 components:
   - name: NEW_PART
     description: "New"
-    footprint:
-      type: SIL
-      pins: 4
+    pins: {count: 4}
+    package: {kind: sil}
     pin_names: {}
 """)
         lib = load_library([FIXTURES, extra_dir])
@@ -821,7 +821,8 @@ components:
   - name: R
     description: "Resistor"
     component_class: resistor
-    footprint: {type: TwoPin}
+    pins: {count: 2}
+    package: {kind: sil}
     pin_names: {}
     package_family_ref: "DIN-0207/typ"
     default_value: "?"
@@ -846,19 +847,24 @@ class TestLibraryErrors:
         with pytest.raises(SerializationError):
             load_library([bad_dir])
 
-    def test_unknown_footprint_type_raises(self, tmp_path: Path) -> None:
+    def test_removed_footprint_field_skips_part(self, tmp_path: Path) -> None:
+        # The legacy field is rejected per-part (skip + hint), not per-library.
+        from structlog.testing import capture_logs
         bad_dir = tmp_path / "bad"
         bad_dir.mkdir()
         (bad_dir / "x.yaml").write_text("""
 components:
   - name: X
     footprint:
-      type: NotAFootprint
+      type: SIL
       pins: 4
     pin_names: {}
 """)
-        with pytest.raises(SerializationError):
-            load_library([bad_dir])
+        with capture_logs() as logs:
+            lib = load_library([bad_dir])
+        assert "X" not in lib
+        assert any("'footprint:' field was removed" in str(e.get("error"))
+                   for e in logs)
 
     def test_missing_footprint_raises(self, tmp_path: Path) -> None:
         bad_dir = tmp_path / "bad"
@@ -871,19 +877,19 @@ components:
         with pytest.raises(SerializationError):
             load_library([bad_dir])
 
-    def test_dip_odd_pins_raises(self, tmp_path: Path) -> None:
+    def test_dip_odd_pins_skips_part(self, tmp_path: Path) -> None:
+        # An unrealisable kind (odd DIP) is a PackageDefError → part skipped.
         bad_dir = tmp_path / "bad"
         bad_dir.mkdir()
         (bad_dir / "x.yaml").write_text("""
 components:
   - name: X
-    footprint:
-      type: DIP
-      pins: 7
+    pins: {count: 7}
+    package: {kind: dip_ic}
     pin_names: {}
 """)
-        with pytest.raises(SerializationError):
-            load_library([bad_dir])
+        lib = load_library([bad_dir])
+        assert "X" not in lib
 
     def test_nonexistent_directory_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
@@ -910,7 +916,7 @@ class TestExtendsResolution:
 components:
   - name: _BASE
     component_class: transistor_npn
-    footprint: {type: TO92}
+    footprints: [{name: TO92, ref: "TO-92"}]
     pin_names: {1: C, 2: B, 3: E}
   - name: MyNPN
     extends: _BASE
@@ -918,10 +924,10 @@ components:
 """)
         defn = lib.get("MyNPN")
         from protoboard.domain.components.definition import ComponentClass
-        # TO92 → single in-line row of 3 pins, inherited via extends.
-        assert is_generic_package(defn.package)
+        # TO-92 catalogue body → single in-line row of 3 pins, inherited
+        # via extends (the row runs along x in the package frame).
         assert defn.default_footprint().pin_count() == 3
-        assert {round(p.x) for p in defn.default_footprint().pin_positions()} == {0}
+        assert {round(p.y) for p in defn.default_footprint().pin_positions()} == {0}
         assert defn.pin_count == 3
         assert defn.pin_name(1) == "C"
         assert defn.component_class == ComponentClass.TRANSISTOR_NPN
@@ -932,7 +938,7 @@ components:
 components:
   - name: _TMPL
     component_class: transistor_npn
-    footprint: {type: TO92}
+    footprints: [{name: TO92, ref: "TO-92"}]
     pin_names: {1: C, 2: B, 3: E}
   - name: RealPart
     extends: _TMPL
@@ -945,7 +951,7 @@ components:
 components:
   - name: _BASE
     component_class: transistor_npn
-    footprint: {type: TO92}
+    footprints: [{name: TO92, ref: "TO-92"}]
     pin_names: {1: C, 2: B, 3: E}
   - name: AltPinout
     extends: _BASE
@@ -960,7 +966,7 @@ components:
 components:
   - name: _NPN
     component_class: transistor_npn
-    footprint: {type: TO92}
+    footprints: [{name: TO92, ref: "TO-92"}]
     pin_names: {}
   - name: _NPN_CBE
     extends: _NPN
@@ -979,11 +985,11 @@ components:
 components:
   - name: A
     extends: B
-    footprint: {type: TO92}
+    footprints: [{name: TO92, ref: "TO-92"}]
     pin_names: {}
   - name: B
     extends: A
-    footprint: {type: TO92}
+    footprints: [{name: TO92, ref: "TO-92"}]
     pin_names: {}
 """)
 
@@ -993,7 +999,7 @@ components:
 components:
   - name: MyPart
     extends: _NONEXISTENT
-    footprint: {type: TO92}
+    footprints: [{name: TO92, ref: "TO-92"}]
     pin_names: {}
 """)
 
@@ -1021,7 +1027,8 @@ class TestPinVariants:
 components:
   - name: Header4
     component_class: connector
-    footprint: {type: SIL, pins: 4}
+    pins: {count: 4}
+    package: {kind: sil}
     pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
     variants:
       - id: i2c
@@ -1042,7 +1049,8 @@ components:
 components:
   - name: Header4
     component_class: connector
-    footprint: {type: SIL, pins: 4}
+    pins: {count: 4}
+    package: {kind: sil}
     pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
 """)
         defn = lib.get("Header4")
@@ -1053,7 +1061,8 @@ components:
 components:
   - name: Header4
     component_class: connector
-    footprint: {type: SIL, pins: 4}
+    pins: {count: 4}
+    package: {kind: sil}
     pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
     variants:
       - id: i2c
@@ -1068,7 +1077,8 @@ components:
 components:
   - name: Header4
     component_class: connector
-    footprint: {type: SIL, pins: 4}
+    pins: {count: 4}
+    package: {kind: sil}
     pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
     variants:
       - id: i2c
@@ -1084,7 +1094,8 @@ components:
 components:
   - name: Header4
     component_class: connector
-    footprint: {type: SIL, pins: 4}
+    pins: {count: 4}
+    package: {kind: sil}
     pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
     variants:
       - id: partial
@@ -1103,7 +1114,8 @@ components:
 components:
   - name: Header4
     component_class: connector
-    footprint: {type: SIL, pins: 4}
+    pins: {count: 4}
+    package: {kind: sil}
     pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
     variants:
       - id: i2c
@@ -1184,7 +1196,8 @@ components:
       extends: cylinder_axial
       leads: {lead_r: 0.27, lead_length: 32.0}
   - name: GoodPart
-    footprint: {type: SIL, pins: 2}
+    pins: {count: 2}
+    package: {kind: sil}
     pin_names: {}
 """)
         lib = load_library([d])

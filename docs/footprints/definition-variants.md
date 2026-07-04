@@ -30,19 +30,22 @@ three sections from library files; `load_package_families`
 A component must obtain its **pins + body** one way or another. From simplest
 to most featureful:
 
-### 2a. Bare `footprint:` — pin cloud only, generic body
+### 2a. `kind: generic` — pin cloud only, generic bbox body
 
 ```yaml
 components:
   - name: TestPoint
     component_class: other
     symbol: TP
-    footprint: {type: SIL, pins: 1}
+    pins: {count: 1}
+    package: {kind: generic}
     pin_names: {1: TP}
 ```
 
-No package anywhere: the loader synthesizes a non-rigid generic bbox package
-over the pin cloud, so `defn.package` still resolves (tagged `_generic`).
+The declared spelling of "no particular body" (the legacy bare `footprint:`
+field was removed 2026-07-04): a non-rigid generic bbox package over a single
+1-hole-pitch pin row, tagged `_generic` — authored `bendable_pins` stay in
+force, the body is excluded from the DRC body mask and the body picker.
 
 ### 2b. Inline `package:` with explicit geometry
 
@@ -127,14 +130,13 @@ components:
   - name: LED_5mm
     component_class: diode
     symbol: D
-    footprint: {type: TwoPin, spacing: 1}
     package_family_ref: "LED/led50"
     pin_names: {1: A, 2: K}
 ```
 
-A **rigid** referenced body (SMD chip, DIP) becomes the geometry source and
-drops bendable leads; a bendable body (axial R/D) keeps the footprint and
-bends. Resolution precedence at render/DRC time: instance `package_variant` →
+The referenced variant is the default geometry when nothing else declares
+one; a **rigid** body (SMD chip, DIP) additionally drops the bendable leads,
+while a bendable body (axial R/D) keeps its bend. Resolution precedence at render/DRC time: instance `package_variant` →
 definition `package_family_ref` → inline `package:`.
 
 ### Component reuse: `extends:` and `aliases:`
@@ -147,7 +149,8 @@ components:
   - name: _DIP14_BASE
     component_class: ic
     symbol: U
-    footprint: {type: DIP, pins: 14}
+    pins: {count: 14}
+    package: {kind: dip_ic}
     pin_names: {7: GND, 14: VCC}
   - name: 74HC00
     extends: _DIP14_BASE

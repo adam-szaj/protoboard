@@ -22,9 +22,9 @@ from protoboard.domain.components.package.shapes import (
 from protoboard.geometry import Point, Vector
 from protoboard.gui.renderers.packages.base import (
     PackageRenderer,
-    _body_pen,
     _lead_pen,
 )
+from protoboard.gui.renderers.packages.canvas import _body_pen
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 
 

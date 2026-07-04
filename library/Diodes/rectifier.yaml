@@ -5,7 +5,6 @@ components:
 
   - name: _D_DO35
     component_class: diode
-    footprint: {type: TwoPin}
     pin_names: {1: A, 2: K}
     package_family_ref: "DO-35/typ"
     bendable_pins:
@@ -19,7 +18,6 @@ components:
 
   - name: _D_DO41
     component_class: diode
-    footprint: {type: TwoPin}
     pin_names: {1: A, 2: K}
     package_family_ref: "DO-41/typ"
     bendable_pins:
@@ -33,7 +31,6 @@ components:
 
   - name: _D_DO201
     component_class: diode
-    footprint: {type: TwoPin}
     pin_names: {1: A, 2: K}
     package_family_ref: "DO-201/typ"
     bendable_pins:

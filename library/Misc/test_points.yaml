@@ -2,7 +2,15 @@ components:
   - name: TestPoint
     description: "Test point (single pad)"
     component_class: mechanical
-    footprint: {type: SIL, pins: 1}
+    pins: {count: 1}
+    package:
+      shape: prism
+      margin: 1.27
+      leads:
+        direction: [0, 0, -1]
+        body_offset: {unit: 2.5, value: []}
+        board_offset: default
+      bend: 0
     pin_names: {1: TP}
     aliases:
       - TestPoint_Pad_2_0x2_0mm
@@ -12,5 +20,12 @@ components:
   - name: TestPoint_2Pole
     description: "2-pin test point"
     component_class: mechanical
-    footprint: {type: TwoPin}
+    pins: {count: 2}
+    package:
+      shape: prism
+      leads:
+        direction: [0, 0, -1]
+        body_offset: {unit: 2.5, value: [[0, 1]]}
+        board_offset: default
+      bend: 0
     pin_names: {1: "1", 2: "2"}

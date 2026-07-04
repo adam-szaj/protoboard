@@ -64,13 +64,17 @@ class TestPackageInvariant:
         missing = [n for n in lib.names() if lib.get(n).package is None]
         assert missing == []
 
-    def test_formerly_unpackaged_parts_are_generic(self) -> None:
+    def test_family_ref_part_defaults_to_its_variant(self) -> None:
         families = load_full_package_catalogue()
         lib = load_library([BUILTIN_LIBRARY_DIR], families)
-        # A diode declares no package → it now carries the synthetic generic one.
+        # A diode declares only a package_family_ref — since the 'footprint:'
+        # field removal, the referenced variant IS its default geometry
+        # (a real bendable axial body, not the synthetic generic).
+        from protoboard.domain.components.package import is_rigid_package
         diode = lib.get("1N4148")
         assert diode.package is not None
-        assert is_generic_package(diode.package)
+        assert not is_generic_package(diode.package)
+        assert not is_rigid_package(diode.package)
 
 
 class TestBendSpecParityFrozen:
@@ -82,12 +86,13 @@ class TestBendSpecParityFrozen:
         families = load_full_package_catalogue()
         return load_library([BUILTIN_LIBRARY_DIR], families)
 
-    def test_diode_keeps_authored_bend_ring(self) -> None:
+    def test_diode_bend_comes_from_its_axial_package(self) -> None:
+        # The diode's default is the real DO-35 axial body now (like R): the
+        # lead reach comes from that package, both leads bend.
         defn = self._lib().get("1N4148")
-        # Generic package present, but effective_bend_specs defers to the
-        # authored bendable_pins (not the synth ring).
-        assert is_generic_package(defn.package)
-        assert effective_bend_specs(defn) == defn.bendable_pins
+        assert not is_generic_package(defn.package)
+        specs = effective_bend_specs(defn)
+        assert set(specs) == {1, 2}
 
     def test_generic_resistor_uses_package_bend_specs(self) -> None:
         # R's default is now the real DIN-0207 axial body (the dead

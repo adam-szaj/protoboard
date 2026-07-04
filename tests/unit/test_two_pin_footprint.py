@@ -41,76 +41,100 @@ class TestTwoPinGeometry:
     # both of which no longer exist (footprints are pin count + spacing only).
 
 
-class TestLibraryLoaderRedirect:
-    """The library YAML schema is unchanged: the loader accepts both
-    ``type: SIL`` and ``type: TwoPin`` catalogue names and produces the
-    pin geometry the part declares.  The old type-redirect (pins:2 → a
-    distinct ``TwoPin`` type) is gone, so we assert pin geometry instead.
-    """
+class TestYamlGeometryDeclarations:
+    """The removed ``footprint:`` field is rejected (component skipped with a
+    migration hint); the same geometry is declared via ``package:`` — a kind
+    for raster bodies, an explicit prism for non-raster pitches."""
 
     def _write(self, dir_: Path, content: str) -> Path:
         f = dir_ / "lib.yaml"
         f.write_text(content, encoding="utf-8")
         return f
 
-    def test_sil_pins_2_is_two_pin_geometry(self, tmp_path: Path) -> None:
+    def test_removed_footprint_field_skips_part_with_hint(
+        self, tmp_path: Path
+    ) -> None:
+        from structlog.testing import capture_logs
+
+        from protoboard.services.library.loader import load_library
+        self._write(tmp_path, """\
+components:
+  - name: OLD_R
+    component_class: resistor
+    footprint: {type: TwoPin}
+    pin_names: {}
+  - name: NEW_R
+    component_class: resistor
+    pins: {count: 2}
+    package: {kind: sil}
+    pin_names: {}
+""")
+        with capture_logs() as logs:
+            lib = load_library([tmp_path], package_families={})
+        # The legacy part is skipped (not a whole-library failure); the log
+        # carries the migration hint.
+        assert "OLD_R" not in lib
+        assert "NEW_R" in lib
+        assert any(e["event"] == "library.package_skipped"
+                   and "'footprint:' field was removed" in str(e.get("error"))
+                   for e in logs)
+
+    def test_kind_sil_pins_2_geometry(self, tmp_path: Path) -> None:
         from protoboard.services.library.loader import load_library
         self._write(tmp_path, """\
 components:
   - name: R
     description: "Resistor"
     component_class: resistor
-    footprint: {type: SIL, pins: 2}
+    pins: {count: 2}
+    package: {kind: sil}
     pin_names: {}
 """)
-        lib = load_library([tmp_path])
+        lib = load_library([tmp_path], package_families={})
         defn = lib.get("R")
         assert defn.default_footprint().pin_count() == 2
+        assert defn.default_footprint().pin_positions() == [
+            Point(0.0, 0.0), Point(0.0, 1.0)
+        ]
 
-    def test_sil_pins_3_geometry(self, tmp_path: Path) -> None:
+    def test_kind_sil_pins_3_geometry(self, tmp_path: Path) -> None:
         from protoboard.services.library.loader import load_library
         self._write(tmp_path, """\
 components:
   - name: HDR3
     description: "3-pin SIL header"
     component_class: connector
-    footprint: {type: SIL, pins: 3}
+    pins: {count: 3}
+    package: {kind: sil}
     pin_names: {}
 """)
-        lib = load_library([tmp_path])
-        defn = lib.get("HDR3")
-        assert defn.default_footprint().pin_count() == 3
+        lib = load_library([tmp_path], package_families={})
+        assert lib.get("HDR3").default_footprint().pin_count() == 3
 
-    def test_explicit_two_pin_type_in_yaml(self, tmp_path: Path) -> None:
-        from protoboard.services.library.loader import load_library
-        self._write(tmp_path, """\
-components:
-  - name: R_new
-    description: "Resistor (TwoPin)"
-    component_class: resistor
-    footprint: {type: TwoPin}
-    pin_names: {}
-""")
-        lib = load_library([tmp_path])
-        defn = lib.get("R_new")
-        assert defn.default_footprint().pin_count() == 2
-        assert defn.default_footprint().pin_positions() == [
-            Point(0.0, 0.0), Point(0.0, 1.0)
-        ]
-
-    def test_explicit_two_pin_with_pitch(self, tmp_path: Path) -> None:
+    def test_explicit_prism_declares_non_raster_pitch(
+        self, tmp_path: Path
+    ) -> None:
+        # The old ``footprint: {type: TwoPin, pitch: 3.0}`` becomes an explicit
+        # prism whose body_offset spells the 3-hole pitch out.
         from protoboard.services.library.loader import load_library
         self._write(tmp_path, """\
 components:
   - name: R_wide
     description: "Wide resistor"
     component_class: resistor
-    footprint: {type: TwoPin, pitch: 3.0}
+    pins: {count: 2}
+    package:
+      shape: prism
+      margin: 1.25
+      leads:
+        direction: [0, 0, -1]
+        body_offset: {unit: 2.5, value: [[0, 3]]}
+        board_offset: default
+      bend: 0
     pin_names: {}
 """)
-        lib = load_library([tmp_path])
+        lib = load_library([tmp_path], package_families={})
         defn = lib.get("R_wide")
-        assert defn.default_footprint().pin_count() == 2
         assert defn.default_footprint().pin_positions() == [
             Point(0.0, 0.0), Point(0.0, 3.0)
         ]

@@ -6,7 +6,6 @@ components:
   - name: L
     description: "Inductor (axial, generic)"
     component_class: inductor
-    footprint: {type: TwoPin}
     pin_names: {}
     package_family_ref: "DIN-0207/typ"
     default_value: "?"

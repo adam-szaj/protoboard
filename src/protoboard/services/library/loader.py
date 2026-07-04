@@ -9,7 +9,7 @@ directories, the *first* directory wins (so users can override built-ins).
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -27,10 +27,7 @@ from protoboard.domain.components.definition import (
     PinVariant,
 )
 from protoboard.domain.components.footprints import (
-    DIL,
     SIL,
-    TO92,
-    TO220,
     Footprint,
 )
 from protoboard.domain.components.package import (
@@ -590,11 +587,11 @@ def _component_from_dict(
     if "name" not in data or not isinstance(data["name"], str):
         raise SerializationError(f"{source}: component requires string 'name'")
 
-    # Parametric package (docs/footprints/package-model.md). When present, it is the
-    # source of geometry: the footprint is derived via PackageFootprint, and an
-    # explicit ``footprint:`` is optional. A malformed package raises
-    # PackageDefError, which the caller turns into a skipped component (the user
-    # re-places it with a fresh definition) rather than failing the whole load.
+    # Parametric package (docs/footprints/package-model.md). When present, it
+    # is the source of geometry (the footprint is derived via PackageFootprint).
+    # A malformed package raises PackageDefError, which the caller turns into a
+    # skipped component (the user re-places it with a fresh definition) rather
+    # than failing the whole load.
     # A component may declare its pin count directly (``pins: {count: N}`` or
     # ``pins: N``) — the logical-identity-first authoring. A ``kind:`` package
     # is parameterized by it.
@@ -615,22 +612,38 @@ def _component_from_dict(
             package_obj = built
 
     # The available footprints (the picker offers these). The default/first entry
-    # is the singular geometry source when there is no inline ``package`` /
-    # ``footprint`` block, so the ~10 consumers reading ``defn.footprint`` see one
-    # footprint as before.
+    # is the singular geometry source when there is no inline ``package``
+    # block, so instance-less consumers see one default geometry.
     footprints = _parse_footprints(data, comp_pin_count, source, families
                                    or {}, generics)
 
+    # ``package_family_ref`` — references the package-family catalogue as
+    # ``"family/variant_id"``. Parsed before the geometry chain: when nothing
+    # else declares geometry, the referenced variant IS the default geometry.
+    package_family_ref_raw = data.get("package_family_ref")
+    package_family_ref: str | None = None
+    if package_family_ref_raw is not None:
+        if not isinstance(package_family_ref_raw, str):
+            raise SerializationError(
+                f"{source}: package_family_ref for {data['name']!r} must be a "
+                f"string 'family/variant_id'; got {package_family_ref_raw!r}")
+        package_family_ref = package_family_ref_raw
+
+    # The removed legacy field. A loud, actionable error — raised as
+    # PackageDefError so ONE legacy part is skipped (with the migration hint
+    # in the log) instead of sinking the whole library load.
+    if "footprint" in data:
+        raise PackageDefError(
+            f"{data['name']}: the 'footprint:' field was removed — declare "
+            f"geometry via 'package:' (inline or kind:), 'footprints:' "
+            f"(catalogue refs), or a resolvable 'package_family_ref'")
+
+    # Geometry chain — the definition's DEFAULT body. Precedence: inline
+    # ``package:`` → first ``footprints:`` option → the ``package_family_ref``
+    # variant → the pending-kind placeholder.
     drop_bend_from_default = False
     if package_obj is not None:
         footprint: Footprint = PackageFootprint(package_obj)
-    elif "footprint" in data:
-        try:
-            footprint = _footprint_from_dict(data["footprint"])
-        except (TypeError, ValueError) as exc:
-            raise SerializationError(
-                f"{source}: invalid footprint for {data['name']!r}: {exc}"
-            ) from exc
     elif footprints:
         pkg, fp, drop_bend_from_default = _geometry_from_option(
             footprints[0], families or {})
@@ -639,6 +652,21 @@ def _component_from_dict(
                 f"{source}: component {data['name']!r} default footprint "
                 f"{footprints[0].name!r} did not resolve to a package")
         package_obj, footprint = pkg, fp
+    elif package_family_ref is not None:
+        variant = resolve_variant(families or {}, package_family_ref)
+        if variant is None:
+            raise PackageDefError(
+                f"{data['name']}: package_family_ref "
+                f"{package_family_ref!r} does not resolve and no other "
+                f"geometry is declared")
+        # The referenced variant is the default geometry. A rigid body (SMD
+        # chip, DIP — fixed pin geometry) supersedes the bendable leads, so
+        # the body fixes the pad spacing; a bendable body (axial R / D) keeps
+        # its bend, and its pin positions come from the package (the axial
+        # solver's default span).
+        package_obj = variant.package
+        footprint = PackageFootprint(package_obj)
+        drop_bend_from_default = is_rigid_package(package_obj)
     elif pending_kind is not None and comp_pin_count:
         # A partially-parameterised kind has no geometry yet — a provisional
         # single-row footprint stands in until the picker builds the concrete
@@ -646,8 +674,8 @@ def _component_from_dict(
         footprint = SIL(n=comp_pin_count)
     else:
         raise SerializationError(
-            f"{source}: component {data.get('name')!r} requires 'footprint', "
-            f"'package', or 'footprints'")
+            f"{source}: component {data.get('name')!r} requires 'package', "
+            f"'footprints', or a resolvable 'package_family_ref'")
 
     pin_names_raw = data.get("pin_names") or {}
     if not isinstance(pin_names_raw, dict):
@@ -774,33 +802,6 @@ def _component_from_dict(
                     pin_names=v_pins,
                 ))
 
-    # ``package_family_ref`` — references the package-family catalogue,
-    # references the package-family catalogue as ``"family/variant_id"``.
-    package_family_ref_raw = data.get("package_family_ref")
-    package_family_ref: str | None = None
-    if package_family_ref_raw is not None:
-        if not isinstance(package_family_ref_raw, str):
-            raise SerializationError(
-                f"{source}: package_family_ref for {data['name']!r} must be a "
-                f"string 'family/variant_id'; got {package_family_ref_raw!r}")
-        package_family_ref = package_family_ref_raw
-
-    # A rigid catalogue body (SMD chip, DIP — fixed pin geometry) referenced via
-    # package_family_ref becomes the source of geometry, exactly like an inline
-    # ``package``: derive the footprint from it and drop the bendable leads, so
-    # the body fixes the pad spacing.  Bendable/axial bodies (resistor, diode)
-    # are not rigid, so they keep their footprint and bend.  An inline package
-    # already drove the footprint above, so skip then.
-    if (package_obj is None and package_family_ref is not None and families):
-        variant = resolve_variant(families, package_family_ref)
-        if variant is not None and is_rigid_package(variant.package):
-            footprint = PackageFootprint(variant.package)
-            bendable_pins = {}
-            # The resolved package is the geometry source — record it on the
-            # definition (like an inline ``package``) so package-driven consumers
-            # (effective_bend_specs → the SMD mount picker) see it.
-            package_obj = variant.package
-
     default_value_raw = data.get("default_value")
     default_value: str = ""
     if default_value_raw is not None:
@@ -876,59 +877,5 @@ def _component_from_dict(
         raise SerializationError(
             f"{source}: invalid component {data['name']!r}: {exc}") from exc
 
-
-def _footprint_from_dict(data: Any) -> Footprint:
-    if not isinstance(data, dict):
-        raise SerializationError("footprint must be a mapping")
-    kind = data.get("type")
-    if not isinstance(kind, str):
-        raise SerializationError("footprint requires string 'type'")
-    builder = _FOOTPRINT_BUILDERS.get(kind)
-    if builder is None:
-        raise SerializationError(f"unknown footprint type: {kind}")
-    return builder(data)
-
-
-def _build_dip(data: dict[str, Any]) -> Footprint:
-    if "pins" not in data:
-        raise SerializationError("DIP footprint requires 'pins'")
-    return DIL(
-        n=int(data["pins"]),
-        pitch=float(data.get("pitch", 1.0)),
-        rows_spacing=float(data.get("rows_spacing", 3.0)),
-    )
-
-
-def _build_sil(data: dict[str, Any]) -> Footprint:
-    if "pins" not in data:
-        raise SerializationError("SIL footprint requires 'pins'")
-    n = int(data["pins"])
-    pitch = float(data.get("pitch", 1.0))
-    return SIL(n=n, pitch=pitch)
-
-
-def _build_two_pin(data: dict[str, Any]) -> Footprint:
-    # A two-pin part is geometrically a SIL of two pads in a line; the
-    # axial-vs-radial distinction lives in the body/package, not the
-    # footprint (which is only pin count + spacing). The old ``TwoPin``
-    # type carried no extra geometry, so it maps to ``SIL(2)``.
-    return SIL(n=2, pitch=float(data.get("pitch", 1.0)))
-
-
-def _build_to92(_: dict[str, Any]) -> Footprint:
-    return TO92
-
-
-def _build_to220(_: dict[str, Any]) -> Footprint:
-    return TO220
-
-
-_FOOTPRINT_BUILDERS: dict[str, Callable[[dict[str, Any]], Footprint]] = {
-    "DIP": _build_dip,
-    "SIL": _build_sil,
-    "TwoPin": _build_two_pin,
-    "TO92": _build_to92,
-    "TO220": _build_to220,
-}
 
 __all__ = ["ComponentLibrary", "load_library"]

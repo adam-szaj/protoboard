@@ -81,7 +81,8 @@ components:
   - name: IC_SOT23_6
     description: "Generic 6-pin SOT-23 / TSOP-6 IC (SMD, treated as SIL)"
     component_class: ic
-    footprint: {type: SIL, pins: 6}
+    pins: {count: 6}
+    package: {kind: sil}
     pin_names: {1: "1", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6"}
     aliases:
       - TSOP_6_1_65x3_05mm

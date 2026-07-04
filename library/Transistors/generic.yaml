@@ -5,7 +5,8 @@ components:
   - name: Q_SOT23
     description: "Generic SOT-23 transistor (3-pin SMD, treated as SIL)"
     component_class: transistor_npn
-    footprint: {type: SIL, pins: 3}
+    pins: {count: 3}
+    package: {kind: sil}
     pin_names: {1: "1", 2: "2", 3: "3"}
     aliases:
       - SOT_23
@@ -14,7 +15,8 @@ components:
   - name: Q_TO126
     description: "Generic TO-126 transistor (3-pin THT)"
     component_class: transistor_npn
-    footprint: {type: SIL, pins: 3}
+    pins: {count: 3}
+    package: {kind: sil}
     pin_names: {1: "1", 2: "2", 3: "3"}
     aliases:
       - TO_126_3_Vertical

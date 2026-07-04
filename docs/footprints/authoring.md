@@ -32,8 +32,9 @@ component  ──references──▶  package        ──gives──▶  body 
   3. an **inline `package:`** block on the component.
 
   Resolved in `resolve_component_package`
-  (`domain/components/package/component_package.py`). If none resolve, the
-  component falls back to its bare `footprint:` (pin geometry only, generic body).
+  (`domain/components/package/component_package.py`). The last rung always
+  exists — `defn.package` is required (a `kind: generic` bbox body is the
+  spelling for "no particular body").
 
 Files: components load from `library/**/*.yaml`; builtin packages from
 `assets/packages/*.yaml`; builtin families from `assets/package_families/*.yaml`.
@@ -53,7 +54,8 @@ A `components:` entry. Fields (from `_component_from_dict`, `loader.py:226`, and
 | Field | Req. | Meaning |
 |---|---|---|
 | `name` | yes | Part identifier (`"BC547"`, `"R"`, `"NE555"`). |
-| `footprint` | yes¹ | Pin-cloud template — see §6. ¹Required **unless** an inline `package:` is given (the package then supplies the pins). A `package_family_ref` does **not** remove the need for a `footprint:` — ship both. |
+| `footprint` | — | **REMOVED (2026-07-04).** Declare geometry via `package:` (inline or `kind:`), `footprints:` (catalogue refs), or a resolvable `package_family_ref` (the referenced variant is then the default geometry). A part still using `footprint:` is skipped at load with a migration hint. |
+| `pins` | — | `pins: {count: N}` (or bare `pins: N`) — the logical pin count a `kind:` package is parameterized by. |
 | `pin_names` | — | `{1: "C", 2: "B", 3: "E"}` — pin number → signal label. Belong to the component, not the package. |
 | `component_class` | — | Open classification tag. Known values (§7) drive the refdes prefix and a few rendering specifics (polarity marker, devboard body); **any other string also loads** (warned as `library.unknown_component_class`, behaves like `other`, the label survives in BOM/panels). Default `other`. |
 | `description` | — | Human text. |
@@ -71,22 +73,20 @@ Minimal examples:
 ```yaml
 components:
   # A) component that points at a catalogue family (preferred for real parts).
-  #    NOTE: a footprint: is still required alongside package_family_ref — the
-  #    family supplies the body, the footprint supplies the pin grid.
+  #    The referenced variant IS the default geometry — nothing else needed.
   - name: R_SMD_0805
     component_class: resistor
-    footprint: {type: TwoPin}
     package_family_ref: SMD-0805/typ
     pin_names: {}
 
-  # B) component with just a footprint (generic body, no catalogue package)
+  # B) component with a parametric kind (a 4-pin single-row header)
   - name: J1
     component_class: connector
-    footprint: {type: SIL, pins: 4}
+    pins: {count: 4}
+    package: {kind: sil}
     pin_names: {1: VCC, 2: GND, 3: TX, 4: RX}
 
-  # C) component with an inline package (body + pins defined right here; no
-  #    footprint: needed — the package supplies the pins)
+  # C) component with an inline package (body + pins defined right here)
   - name: BC547
     component_class: transistor_npn
     package: {extends: TO-92}
@@ -269,25 +269,25 @@ the style layers between the instance override and the component-wide `style:`
 
 ---
 
-## 6. Footprint types (the `footprint:` block)
+## 6. The removed `footprint:` block — migration map
 
-When a component has no package, `footprint:` supplies the pin cloud (generic
-body). Builders registry `_FOOTPRINT_BUILDERS` (`loader.py:538`):
+The legacy `footprint:` field was **removed 2026-07-04**: it only fed the
+synthesized generic body, and every use has a declared equivalent. A part
+still using it is skipped at load with the hint in the log. Migration map:
 
-| `type` | Params (defaults) | Pins |
-|---|---|---|
-| `DIP` | `pins`, `pitch=1.0`, `rows_spacing=3.0` | two rows of `pins/2` |
-| `SIL` | `pins`, `pitch=1.0` | one row (`pins`=2 redirects to `TwoPin`) |
-| `TwoPin` | `pitch=1.0` | 2 |
-| `DualRow` | `n_per_row`, `pitch=1.0`, `rows_spacing=3.0` | `2·n_per_row` |
-| `SingleRow` | `n`, `pitch=1.0` | `n` |
-| `QuadRow` | `n_per_col`, `col_spacings=[1,8,1]`, `pitch=1.0` | `4·n_per_col` |
-| `Grid` / `GridFootprint` | `rows`, `cols`, `pitch=1.0` | `rows·cols` |
-| `TO92` | — | 3 (`SingleRow(n=3)`) |
-| `TO220` | — | 3 (`TO220Footprint`) |
+| Legacy | Declared equivalent |
+|---|---|
+| `footprint: {type: DIP, pins: N}` | `pins: {count: N}` + `package: {kind: dip_ic}` (IC look) or `{kind: dip_switch}` (plain) |
+| `footprint: {type: SIL, pins: N}` | `pins: {count: N}` + `package: {kind: sil}` (or `pin_header`) |
+| `footprint: {type: TwoPin}` + `package_family_ref` | drop the footprint — the family variant is the default geometry |
+| `footprint: {type: TwoPin}` (no ref) | `pins: {count: 2}` + `package: {kind: generic}` — or an explicit prism |
+| `footprint: {type: TO92}` | `footprints: [{name: TO92, ref: "TO-92"}]` |
+| non-raster pitch (`pitch: 2.0`) | an explicit inline `package:` prism whose `body_offset` spells the pitch out |
 
-Spacings/pitch are in **holes** (raster 2.5 mm). Example:
-`footprint: {type: DIP, pins: 16, rows_spacing: 3}`.
+`kind: generic` is the declared spelling of the old bare-footprint semantics:
+a plain bbox body over a single 1-hole pin row that keeps every `_generic`
+behaviour (authored `bendable_pins` stay in force, excluded from the DRC body
+mask and the body picker).
 
 ---
 
@@ -347,13 +347,11 @@ components:
   # Two parts share the SMD-0805 body; only the colour differs.
   - name: R_0805
     component_class: resistor
-    footprint: {type: TwoPin}
     package_family_ref: SMD-0805/typ
     style: "color: #1a1a1a"                       # black-ish
     pin_names: {}
   - name: C_0805
     component_class: capacitor_nonpolar
-    footprint: {type: TwoPin}
     package_family_ref: SMD-0805/typ
     style: "color: #d9c7a3; corner-radius: 0.3"   # beige, slightly rounded
     pin_names: {}

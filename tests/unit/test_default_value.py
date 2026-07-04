@@ -63,7 +63,8 @@ class TestLibraryLoader:
 components:
   - name: R
     component_class: resistor
-    footprint: {type: TwoPin}
+    pins: {count: 2}
+    package: {kind: sil}
     pin_names: {}
     default_value: "?"
 """)
@@ -77,7 +78,8 @@ components:
 components:
   - name: BC547
     component_class: transistor_npn
-    footprint: {type: TwoPin}
+    pins: {count: 2}
+    package: {kind: sil}
     pin_names: {}
 """)
         lib = load_library([tmp_path])
@@ -91,7 +93,8 @@ components:
 components:
   - name: R
     component_class: resistor
-    footprint: {type: TwoPin}
+    pins: {count: 2}
+    package: {kind: sil}
     pin_names: {}
     default_value: 4711
 """)

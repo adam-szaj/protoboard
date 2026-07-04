@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### The YAML `footprint:` field is removed (2026-07-04)
+
+* **Every part declares a real body now.** The legacy `footprint:` block —
+  which only fed the synthesized generic body — is gone: declare geometry via
+  `package:` (inline or `kind:`), `footprints:` (catalogue refs), or a
+  resolvable `package_family_ref`, whose variant is now the default geometry
+  even for **bendable** bodies (axial diodes keep their bend; rigid bodies
+  keep dropping it). A part still using `footprint:` is skipped at load with
+  a migration hint (one legacy part never sinks the library). New
+  `package: {kind: generic}` is the declared spelling of the old
+  bare-footprint semantics (plain bbox body, `_generic` behaviours:
+  authored `bendable_pins` honoured, DRC body-mask and picker exclusion).
+  All 26 builtin library entries migrated (switches → `dip_switch`,
+  single-row parts → `sil`, family-ref parts just drop the line, screw
+  terminals / transformer / test points → explicit prisms). Migration map in
+  docs/footprints/authoring.md §6.
+
 ### Declared beats guessed — no column-guess for explicit packages (2026-07-04)
 
 * **An explicitly declared package renders as written.** An inline `package:`

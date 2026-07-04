@@ -5,7 +5,8 @@ components:
 
   - name: _OSC_DIP14
     component_class: crystal
-    footprint: {type: DIP, pins: 14}
+    pins: {count: 14}
+    package: {kind: dip_ic}
     pin_names: {1: NC, 7: GND, 8: OUT, 14: VCC}
 
   # -----------------------------------------------------------------------

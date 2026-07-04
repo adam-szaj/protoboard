@@ -121,13 +121,29 @@ components:
 
   - name: Screw_Term_1x02
     component_class: connector
-    footprint: {type: SIL, pins: 2, pitch: 2.0}
+    pins: {count: 2}
+    package:
+      shape: prism
+      # 2-hole (5.08 mm) screw-terminal pitch — no generator kind takes
+      # a pitch, so the body is declared explicitly.
+      leads:
+        direction: [0, 0, -1]
+        body_offset: {unit: 2.5, value: [[0, 2]]}
+        board_offset: default
+      bend: 0
     pin_names: {1: "+", 2: "-"}
     description: "2-pin screw terminal 5.08mm"
 
   - name: Screw_Term_1x03
     component_class: connector
-    footprint: {type: SIL, pins: 3, pitch: 2.0}
+    pins: {count: 3}
+    package:
+      shape: prism
+      leads:
+        direction: [0, 0, -1]
+        body_offset: {unit: 2.5, value: [[2, [0, 2]]]}
+        board_offset: default
+      bend: 0
     pin_names: {1: "1", 2: "2", 3: "3"}
     description: "3-pin screw terminal 5.08mm"
 

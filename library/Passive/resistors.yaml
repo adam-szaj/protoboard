@@ -22,26 +22,29 @@ components:
       - {name: DIN-0204, ref: "DIN-0204/typ"}   # smaller axial
       - {name: DIN-0411, ref: "DIN-0411/typ"}   # bigger axial
       - {name: DIN-0617, ref: "DIN-0617/typ"}   # power axial
-      - {name: SMD-0805, ref: "SMD-0805/typ"}   # rigid chip
-      - {name: SMD-0603, ref: "SMD-0603/typ"}   # rigid chip
+      - {name: SMD-0805, ref: "SMD-0805/typ", style: "color: #222"}   # rigid chip
+      - {name: SMD-0603, ref: "SMD-0603/typ", style: "color: #222"}   # rigid chip
 
   - name: R_Net_4
     description: "4-resistor SIL network (common bus pin 1)"
     component_class: resistor
-    footprint: {type: SIL, pins: 5}
+    pins: {count: 5}
+    package: {kind: sil}
     pin_names: {1: COM, 2: R1, 3: R2, 4: R3, 5: R4}
     default_value: "?"
 
   - name: R_Net_8
     description: "8-resistor SIL network (common bus pin 1)"
     component_class: resistor
-    footprint: {type: SIL, pins: 9}
+    pins: {count: 9}
+    package: {kind: sil}
     pin_names: {1: COM, 2: R1, 3: R2, 4: R3, 5: R4, 6: R5, 7: R6, 8: R7, 9: R8}
     default_value: "?"
 
   - name: Pot
     description: "Potentiometer / trimmer (3-pin)"
     component_class: resistor
-    footprint: {type: SIL, pins: 3}
+    pins: {count: 3}
+    package: {kind: sil}
     pin_names: {1: "1", 2: W, 3: "3"}
     default_value: "?"

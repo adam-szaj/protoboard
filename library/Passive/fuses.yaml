@@ -6,7 +6,6 @@ components:
   - name: F
     description: "Fuse (axial, glass tube, PCB holder)"
     component_class: fuse
-    footprint: {type: TwoPin}
     pin_names: {1: A, 2: B}
     package_family_ref: "DIN-0617/typ"
     default_value: "?"

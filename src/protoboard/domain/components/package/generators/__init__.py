@@ -14,6 +14,9 @@ from protoboard.domain.components.package.generators import (  # noqa: F401
     dip as _dip,
 )
 from protoboard.domain.components.package.generators import (  # noqa: F401
+    generic as _generic,
+)
+from protoboard.domain.components.package.generators import (  # noqa: F401
     sil as _sil,
 )
 from protoboard.domain.components.package.generators.base import (
