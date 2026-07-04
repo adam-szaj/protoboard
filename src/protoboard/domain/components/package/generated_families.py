@@ -53,10 +53,25 @@ _SIL_COUNTS = range(3, 41)
 
 def _family(
     family_id: str, label: str, footprint: Footprint,
+    kind: str | None = None,
 ) -> PackageFamily | None:
+    """Build a one-variant generated family; *kind* stamps the lineage.
+
+    A generated body IS a declared look (``dip-14`` is a DIP by construction,
+    not by guesswork), so the kind name goes onto the package ``lineage`` and
+    the ordinary renderer dispatch picks the declared-look renderer
+    (``DipIcRenderer`` / ``SilHeaderRenderer``) — the base prism renderer
+    never column-guesses a silhouette for a declared package.
+    """
+    import dataclasses
+
+    from protoboard.domain.components.package.shapes import Prism
+
     pkg = prism_from_footprint(footprint)
     if pkg is None:
         return None
+    if kind is not None and isinstance(pkg, Prism):
+        pkg = dataclasses.replace(pkg, lineage=("prism", kind))
     return PackageFamily(
         family_id=family_id,
         label=label,
@@ -75,14 +90,16 @@ def dip_family(pins: int, *, wide: bool) -> PackageFamily | None:
     fp = DIL(n=pins, rows_spacing=float(rows))
     prefix = "wdip" if wide else "dip"
     width = "wide 0.6\"" if wide else "narrow 0.3\""
-    return _family(f"{prefix}-{pins}", f"DIP-{pins} ({width})", fp)
+    return _family(f"{prefix}-{pins}", f"DIP-{pins} ({width})", fp,
+                   kind="wdip_ic" if wide else "dip_ic")
 
 
 def sil_family(pins: int) -> PackageFamily | None:
     """The generated ``sil-N`` header family for *pins* (>= 2)."""
     if pins < 2:
         return None
-    return _family(f"sil-{pins}", f"SIL-{pins} header", SIL(n=pins))
+    return _family(f"sil-{pins}", f"SIL-{pins} header", SIL(n=pins),
+                   kind="sil")
 
 
 def generate_inline_families() -> dict[str, PackageFamily]:

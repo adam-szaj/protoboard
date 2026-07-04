@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Declared beats guessed — no column-guess for explicit packages (2026-07-04)
+
+* **An explicitly declared package renders as written.** An inline `package:`
+  prism (e.g. a 2×10 LED bar) used to be column-guessed into a DIP-20 notch
+  by the base prism renderer; now the pin-column guess (`silhouette_for`)
+  applies ONLY to the synthesized `_generic` body of a bare `footprint:` part
+  — where nothing was declared. Declared kinds/families keep their looks via
+  lineage dispatch; an unknown declared kind renders as the plain rectangle
+  (never a guessed notch). The generated `dip-N` / `wdip-N` / `sil-N`
+  catalogue bodies now carry their kind on the package lineage, so their
+  notch/housing is a declared look too, unaffected by the guess removal.
+
 ### `component_class` is an open tag (2026-07-04)
 
 * **Unknown component classes no longer sink the library.** One

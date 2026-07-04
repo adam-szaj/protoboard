@@ -202,7 +202,8 @@ PackageRenderer            # shared: colours/appearance, placement transform,
 │                          # radial template (leads + centroid), bbox fallback
 ├── CylinderRenderer       # renders = "cylinder": axial capsule, upright disc,
 │                          # radial disc / D-shape / "-" segment
-├── PrismRenderer          # renders = "prism": column-guess silhouette, SMD chip
+├── PrismRenderer          # renders = "prism": plain declared rect; column-guess
+│                          #   ONLY for _generic (bare-footprint) bodies; SMD chip
 │   ├── DipIcRenderer      # renders = ("dip_ic", "wdip_ic"): notched DIP body
 │   ├── SilHeaderRenderer  # renders = "sil": rounded SIL housing
 │   ├── PlainBodyRenderer  # renders = ("dip_switch", "pin_header", "jst"): plain rect
@@ -302,14 +303,22 @@ lineage dispatch (renderer_for):
   dip_ic / wdip_ic     → DipIcRenderer      → notched DIP body + pin-1 marker
   sil                  → SilHeaderRenderer  → rounded housing
   dip_switch / pin_header / jst → PlainBodyRenderer → plain rect (colour per kind)
-  <no renderer for the kind>    → PrismRenderer     → silhouette_for (column GUESS)
+  <no renderer for the kind>    → PrismRenderer     → PLAIN bbox rectangle
+      # declared beats guessed: an explicit package renders as written
+  <_generic (bare footprint:)>  → PrismRenderer     → silhouette_for (column GUESS)
       # 1 column ≥3 pins → SIL housing; 2 columns ≥2 each → DIP notch; else plain bbox
 ```
 
-The declared `kind` wins so a 2-row `dip_switch` is not forced into a DIP
-notch just because its pins cluster into two columns; a kind with no
-registered renderer falls back to the base `PrismRenderer`'s column guess, so
-rendering never blocks on a kind it does not recognise. A dev-board module
+**Declared beats guessed** (decided 2026-07-04, after an explicit LED-bar
+prism was column-guessed into a DIP-20 notch): a package the author declared
+— an inline `package:` block, an authored family variant, a declared `kind`
+with no registered renderer — renders as exactly what was written (the plain
+bbox rectangle) unless a lineage-registered renderer supplies its declared
+look. The pin-column guess (`silhouette_for`) applies ONLY to the synthesized
+`_generic` body of a bare `footprint:` part, where nothing was declared. The
+generated `dip-N` / `wdip-N` / `sil-N` catalogue bodies carry their kind on
+the lineage, so their notch/housing is a declared look, not a guess.
+Rendering never blocks on a kind it does not recognise. A dev-board module
 suppresses the silhouette entirely (plain PCB rectangle + pad-active rings) —
 deliberately gated by `ComponentClass.DEVBOARD` in `_draw_prism`, not by
 lineage: it is a component-*class* trait that must hold for any package a

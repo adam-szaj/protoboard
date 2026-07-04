@@ -159,8 +159,14 @@ def _cylinder_package(edge_radius: float = 0.0) -> Package:
 
 
 def _prism_package() -> Package:
-    """A DIP-8 style prism built through the package loader."""
-    return build_package(
+    """A DIP-8 style prism built through the package loader.
+
+    Declared as a DIP via the lineage (kind ``dip_ic``): the base renderer no
+    longer column-guesses a silhouette for explicitly declared packages.
+    """
+    import dataclasses
+    from protoboard.domain.components.package.shapes import Prism as _Prism
+    pkg = build_package(
         {
             "shape": "prism",
             "dims": {
@@ -179,6 +185,8 @@ def _prism_package() -> Package:
         },
         "TEST_DIP",
     )
+    assert isinstance(pkg, _Prism)
+    return dataclasses.replace(pkg, lineage=("prism", "dip_ic"))
 
 
 def _smd_chip_package() -> Package:
@@ -480,10 +488,17 @@ class TestFlatSidedCylinderRender:
 
 
 def _dip8_prism() -> Prism:
-    """The prism synthesized for a DIP-8 footprint (the parametric DIP body)."""
+    """The prism synthesized for a DIP-8 footprint, declared as a DIP.
+
+    The ``dip_ic`` lineage makes it a DECLARED look (like the generated
+    ``dip-N`` families) — the base renderer only guesses for ``_generic``
+    bodies of bare-footprint parts.
+    """
+    import dataclasses
     prism = _prism_from_footprint(DIL(n=8, rows_spacing=3))
     assert prism is not None
-    return prism  # type: ignore[return-value]
+    return dataclasses.replace(  # type: ignore[type-var]
+        prism, lineage=("prism", "dip_ic"))
 
 
 def _dip8_positions() -> list[Point]:
@@ -571,21 +586,21 @@ class TestDeclaredKindSilhouette:
         assert type(shape) is PlainBodyRenderer
         assert shape._silhouette(pkg) is None  # type: ignore[arg-type]
 
-    def test_unknown_kind_falls_back_to_column_guess(self) -> None:
-        # A prism with an unrecognised kind (no registered renderer) renders by
-        # the base PrismRenderer's column guess, not a crash — render never
-        # blocks on an unknown kind.
+    def test_unknown_kind_renders_plain_not_guessed(self) -> None:
+        # A prism with an unrecognised kind (no registered renderer) renders
+        # by the base PrismRenderer as the PLAIN declared rectangle — a
+        # declared package is never column-guessed into a DIP notch, and an
+        # unknown kind never crashes the render.
         import dataclasses
 
         from protoboard.gui.renderers.packages import PrismRenderer
-        from protoboard.gui.renderers.prism_silhouette import silhouette_for
         prism = dataclasses.replace(
             _dip8_prism(), kind="totally_new_kind",
             lineage=("prism", "totally_new_kind"),
         )
         shape = PackageBody(prism)  # type: ignore[arg-type]
         assert type(shape) is PrismRenderer
-        assert shape._silhouette(prism) == silhouette_for(prism)
+        assert shape._silhouette(prism) is None  # type: ignore[arg-type]
 
     def test_dip_switch_renders_without_notch(self, qtbot: QtBot) -> None:
         # End-to-end: a dip_switch body draws the plain bbox rectangle, not the

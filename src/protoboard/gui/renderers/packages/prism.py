@@ -31,12 +31,24 @@ class PrismRenderer(PackageRenderer):
     def _silhouette(self, pkg: _PkgPrism) -> PrismSilhouette | None:
         """The body silhouette — the kind renderers' override point.
 
-        The base *guesses* from the pin-column layout (``silhouette_for``); a
-        renderer registered for a declared ``kind`` / family overrides this
-        with its declared look (``prism_kinds``: DIP notch, SIL housing, plain
-        connector).  ``None`` → the plain bbox rectangle.
+        **Declared beats guessed.** A package the author declared explicitly
+        (an inline ``package:`` block, an authored family variant) renders as
+        exactly what was written — the plain bbox rectangle — unless a
+        renderer registered for its ``kind`` / family / lineage provides a
+        declared look (``prism_kinds``: DIP notch, SIL housing, plain
+        connector; generated ``dip-N`` / ``sil-N`` families carry their kind
+        on the lineage). Only the synthesized ``_generic`` body of a bare
+        ``footprint:`` part — where nothing was declared — falls back to the
+        pin-column guess (``silhouette_for``), preserving the historical look
+        of footprint-only DIP/SIL parts.  ``None`` → the plain bbox rectangle.
         """
-        return silhouette_for(pkg)
+        from protoboard.domain.components.package.kind import (
+            is_generic_package,
+        )
+
+        if is_generic_package(pkg):
+            return silhouette_for(pkg)
+        return None
 
     def render_body(
         self,
