@@ -1497,6 +1497,35 @@ class TestSmdChipBody:
                 _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
         assert len(items) == 1
 
+    def test_dimless_two_pin_prism_degrades_to_generic(
+        self, qtbot: QtBot,
+    ) -> None:
+        # Regression: a two-pin prism with neither dims nor a margin used to
+        # crash the SMD-chip branch (lead_axis_extents → bbox() ValueError,
+        # which only the bbox fallback caught).  It must degrade to the
+        # generic pin-cloud rectangle instead — rendering never blocks.
+        from protoboard.domain.components.package.loader import build_package
+        pkg = build_package(
+            {
+                "shape": "prism",
+                "dims": {},
+                "leads": {
+                    "direction": [0, 0, -1],
+                    "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                    "board_offset": "default",
+                },
+            },
+            "DIMLESS_CHIP",
+        )
+        items = PackageBody(pkg).draw(  # type: ignore[arg-type]
+            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        assert items  # generic bbox body, not a ValueError
+        # The prism_smd caps overlay must survive the same degenerate package.
+        import dataclasses
+        smd = dataclasses.replace(pkg, lineage=("prism", "prism_smd"))
+        assert PackageBody(smd).draw(  # type: ignore[arg-type]
+            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+
     def test_body_shorter_than_pad_span(self, qtbot: QtBot) -> None:
         # A real chip sits *between* its pads at its declared length, shorter
         # than the hole pitch — it does not stretch to reach the pad centres.

@@ -162,7 +162,12 @@ class PrismRenderer(PackageRenderer):
         from protoboard.domain.components.package.shapes import (
             lead_axis_extents,
         )
-        body_len, body_w = lead_axis_extents(pkg)  # (along, across) the pads
+        try:
+            body_len, body_w = lead_axis_extents(pkg)  # (along, across) the pads
+        except ValueError:
+            # No explicit dims/margin to size the chip — degrade to the bbox
+            # fallback, which handles the same ValueError with a generic body.
+            return self._draw_bbox(positions, fill, border, alpha, z, theme)
 
         p1, p2 = positions[0], positions[1]
         axis = p2 - p1  # Point − Point → Vector

@@ -84,7 +84,10 @@ class SmdChipRenderer(PrismRenderer):
         if (p2 - p1).length() < 1e-9:
             return items
 
-        body_len, body_w = lead_axis_extents(pkg)
+        try:
+            body_len, body_w = lead_axis_extents(pkg)
+        except ValueError:
+            return items  # no dims to size the caps — keep the base drawing
         cap = body_len * self.CAP_FRAC
         canvas = self.axis_canvas(positions[:2], p1, p2, fill, border, alpha,
                                   z, theme)
