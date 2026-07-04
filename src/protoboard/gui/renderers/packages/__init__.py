@@ -15,8 +15,11 @@ from protoboard.gui.renderers.packages.base import (
     BodyShape,
     GenericBody,
     PackageRenderer,
-    qcolor_from_css,
     renderer_for,
+)
+from protoboard.gui.renderers.packages.canvas import (
+    BodyCanvas,
+    qcolor_from_css,
 )
 from protoboard.gui.renderers.packages.cylinder import CylinderRenderer
 from protoboard.gui.renderers.packages.disc import DiscRenderer
@@ -26,9 +29,11 @@ from protoboard.gui.renderers.packages.prism_kinds import (
     DipIcRenderer,
     PlainBodyRenderer,
     SilHeaderRenderer,
+    SmdChipRenderer,
 )
 
 __all__ = [
+    "BodyCanvas",
     "BODY_RENDERERS",
     "BodyShape",
     "CylinderRenderer",
@@ -39,6 +44,7 @@ __all__ = [
     "PlainBodyRenderer",
     "PrismRenderer",
     "SilHeaderRenderer",
+    "SmdChipRenderer",
     "load_renderer_plugins",
     "qcolor_from_css",
     "renderer_for",

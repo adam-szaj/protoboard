@@ -5,22 +5,17 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from PySide6.QtCore import QRectF
-from PySide6.QtGui import QBrush, QColor, QTransform
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QGraphicsItem
 
 from protoboard.domain.components.definition import ComponentClass
 from protoboard.domain.components.package.shapes import (
     Prism as _PkgPrism,
 )
 from protoboard.geometry import Point
-from protoboard.gui.renderers.packages.base import (
-    PackageRenderer,
-    _body_pen,
-)
+from protoboard.gui.renderers.packages.base import PackageRenderer
 from protoboard.gui.renderers.prism_silhouette import (
     PrismSilhouette,
-    rounded_rect_path,
     silhouette_for,
 )
 from protoboard.gui.theme import Theme
@@ -119,31 +114,19 @@ class PrismRenderer(PackageRenderer):
         )
         drawing = sil.build(pkg, theme, corner_r=corner_holes)
 
-        # Place the local-frame silhouette (pin 1 at the origin) through the
-        # SAME local→world transform the pins use in pin_world_position:
-        # reflect about the package flip axis on the bottom side, rotate, then
-        # translate to the anchor.  Reconstructing orientation from the world
-        # pins alone can't recover the reflection's chirality, which is why the
-        # bottom-side DIP body used to drift to pin 1's old corner.
-        place = self._body_placement(positions)
-
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
-        items: list[QGraphicsItem] = []
-
-        body = QGraphicsPathItem(place.map(drawing.body))
-        body.setBrush(QBrush(fill_c))
-        body.setPen(_body_pen(border, alpha))
-        body.setZValue(z)
-        items.append(body)
-
+        # Draw on a canvas in the package-local frame (pin 1 at the origin),
+        # placed through the SAME local→world transform the pins use in
+        # pin_world_position: reflect about the package flip axis on the
+        # bottom side, rotate, then translate to the anchor.  Reconstructing
+        # orientation from the world pins alone can't recover the reflection's
+        # chirality, which is why the bottom-side DIP body used to drift to
+        # pin 1's old corner.
+        canvas = self.body_canvas(positions, fill, border, alpha, z, theme)
+        canvas.addPath(drawing.body)
         if drawing.marker is not None:
-            marker = QGraphicsPathItem(place.map(drawing.marker))
-            marker.setBrush(QBrush(_body_pen(border, alpha).color()))
-            marker.setPen(_body_pen(border, alpha, width=0.0))
-            marker.setZValue(z + 0.01)
-            items.append(marker)
-        return items
+            canvas.addPath(drawing.marker, fill=border, pen_width=0.0,
+                           z_offset=0.01)
+        return canvas.items
 
     # ------------------------------------------------------------------
     # SMD chip — flat two-terminal body centred on the pad pair
@@ -168,7 +151,6 @@ class PrismRenderer(PackageRenderer):
         the pad axis makes ortho and diagonal placements both render correctly.
         No leads and no pin-1 marker — a chip carries neither.
         """
-        mm = theme.raster_pitch_mm
         from protoboard.domain.components.package.shapes import (
             lead_axis_extents,
         )
@@ -180,28 +162,17 @@ class PrismRenderer(PackageRenderer):
         if dist < 1e-9:
             return self._draw_bbox(positions, fill, border, alpha, z, theme)
 
-        mid_x = (p1.x + p2.x) / 2.0
-        mid_y = (p1.y + p2.y) / 2.0
-        angle_deg = axis.angle_deg()
         # The chip is drawn at its declared body length, centred on the pad
         # midpoint — a real SMD chip is shorter than the pad pitch and sits
         # between the pads, leaving the metallised pads visible at each end.
         # (It is *not* stretched to span the pad gap, which read as a long thin
         # rectangle.)
-        length = body_len
+        canvas = self.axis_canvas(positions[:2], p1, p2, fill, border, alpha,
+                                  z, theme)
         tl, tr, br, bl = self._effective_corner_radii_mm()
-        path = rounded_rect_path(
-            QRectF(-length / 2.0, -body_w / 2.0, length, body_w),
-            (tl / mm, tr / mm, br / mm, bl / mm),
+        canvas.addRect(
+            (-body_len / 2.0, -body_w / 2.0),
+            (body_len / 2.0, body_w / 2.0),
+            round=(canvas.mm(tl), canvas.mm(tr), canvas.mm(br), canvas.mm(bl)),
         )
-        body = QGraphicsPathItem(path)
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
-        body.setBrush(QBrush(fill_c))
-        body.setPen(_body_pen(border, alpha))
-        body.setZValue(z)
-        t = QTransform()
-        t.translate(mid_x, mid_y)
-        t.rotate(angle_deg)
-        body.setTransform(t)
-        return [body]
+        return canvas.items

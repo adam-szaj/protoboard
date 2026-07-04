@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### BodyCanvas drawing API + SMD terminal caps (2026-07-04)
+
+* **`BodyCanvas`** (`gui/renderers/packages/canvas.py`): painter-style drawing
+  API for body renderers and plugins — `addRect` (uniform/per-corner
+  rounding) / `addCircle` / `addEllipse` / `addArc` / `addPath`, with
+  `setFillColor` / `setBorderColor` / `setPen` state, per-call kwarg
+  overrides, `mm()` unit conversion and `zAbove()` / `zBelow()` /` track()`
+  z-stacking. Renderer factories `body_canvas()` (package-local frame, baked
+  transform) and `axis_canvas()` (pad-axis frame, item transform). The
+  built-in prism / radial / bbox / SMD paths now draw through it; the TO-220
+  plugin (the reference for user plugins) shrank to a single `addRect`.
+* **`SmdChipRenderer`** (`renders = "prism_smd"`): catalogue SMD chips draw
+  the base outline plus light metallised terminal caps at each body end —
+  the "base outline + per-type detail" pattern for renderer subclasses.
+  Plain two-pin prisms without the lineage keep the single-rectangle look.
+
 ### `ComponentDefinition.footprint` removed — `package` is the single default (2026-07-04)
 
 * **The `footprint` field is gone.** `defn.package` (now required; the loader

@@ -54,8 +54,22 @@ from protoboard.domain.components.package.shapes import (
 )
 from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point, Transform2D
+from protoboard.gui.renderers.packages.canvas import (
+    BodyCanvas,
+    _body_pen,
+    qcolor_from_css,
+)
 from protoboard.gui.renderers.prism_silhouette import rounded_rect_path
 from protoboard.gui.theme import DEFAULT_THEME, Theme
+
+__all__ = [
+    "BodyCanvas",
+    "BodyShape",
+    "GenericBody",
+    "PackageRenderer",
+    "qcolor_from_css",
+    "renderer_for",
+]
 
 _log = structlog.get_logger(__name__)
 
@@ -78,34 +92,9 @@ def _lead_pen(theme: Theme, alpha: float) -> QPen:
     return QPen(c, theme.lead_width)
 
 
-def _body_pen(border: QColor, alpha: float, width: float = 0.06) -> QPen:
-    c = QColor(border)
-    c.setAlphaF(alpha)
-    return QPen(c, width)
-
-
 def _darken(c: QColor) -> QColor:
     """Border colour derived from a body fill — a darker shade of it."""
     return c.darker(150)
-
-
-def qcolor_from_css(value: str) -> QColor:
-    """``QColor`` from a CSS hex colour string.
-
-    CSS puts the alpha channel LAST (``#rrggbbaa`` / ``#rgba``); Qt's
-    ``QColor`` constructor expects it FIRST (``#aarrggbb`` / ``#argb``).
-    Reorder the 4- and 8-digit forms; every other value passes through
-    unchanged.  All colours authored in YAML (``style:`` strings, package
-    ``color:``) use the CSS convention.
-    """
-    v = value.strip()
-    if v.startswith("#"):
-        digits = v[1:]
-        if len(digits) == 8:
-            return QColor(f"#{digits[6:]}{digits[:6]}")
-        if len(digits) == 4:
-            return QColor(f"#{digits[3]}{digits[:3]}")
-    return QColor(v)
 
 
 def _package_corner_radius(pkg: Package) -> float:
@@ -486,6 +475,49 @@ class PackageRenderer(BodyShape):
         return place
 
     # ------------------------------------------------------------------
+    # Canvas factories — the drawing API for subclasses and plugins
+    # ------------------------------------------------------------------
+
+    def body_canvas(
+        self,
+        positions: list[Point],
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme,
+    ) -> BodyCanvas:
+        """A :class:`BodyCanvas` in the package-local frame (pin 1 at the
+        origin), mapped through the SAME local→world transform as the pins —
+        rotation and the bottom-side reflection included
+        (:meth:`_body_placement`). The transform is baked into the item paths
+        (the historical ``place.map`` convention of this frame)."""
+        return BodyCanvas(theme, fill=fill, border=border, alpha=alpha, z=z,
+                          transform=self._body_placement(positions), bake=True)
+
+    def axis_canvas(
+        self,
+        positions: list[Point],
+        p1: Point,
+        p2: Point,
+        fill: QColor,
+        border: QColor,
+        alpha: float,
+        z: float,
+        theme: Theme,
+    ) -> BodyCanvas:
+        """A :class:`BodyCanvas` in the pad-axis frame: origin at the pad
+        centroid, local +x along the *p1*→*p2* lead axis — the frame the
+        radial / SMD-chip bodies (and the TO-220 tab) draw in."""
+        mid_x = sum(p.x for p in positions) / len(positions)
+        mid_y = sum(p.y for p in positions) / len(positions)
+        t = QTransform()
+        t.translate(mid_x, mid_y)
+        t.rotate((p2 - p1).angle_deg())
+        return BodyCanvas(theme, fill=fill, border=border, alpha=alpha, z=z,
+                          transform=t)
+
+    # ------------------------------------------------------------------
     # Radial — top-view silhouette centred between the pads (all shapes)
     # ------------------------------------------------------------------
 
@@ -535,25 +567,19 @@ class PackageRenderer(BodyShape):
         from protoboard.domain.components.package.shapes import (
             lead_axis_extents,
         )
-        mm = theme.raster_pitch_mm
         length_r, width_r = lead_axis_extents(self._pkg)
-        angle_deg = (p2 - p1).angle_deg()
-        tl, tr, br, bl = self._effective_corner_radii_mm()
-        rect_path = rounded_rect_path(
-            QRectF(-length_r / 2.0, -width_r / 2.0, length_r, width_r),
-            (tl / mm, tr / mm, br / mm, bl / mm),
-        )
-        body = QGraphicsPathItem(rect_path)
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
-        body.setBrush(QBrush(fill_c))
-        body.setPen(_body_pen(border, alpha))
-        body.setZValue(z)
         t = QTransform()
         t.translate(mid.x, mid.y)
-        t.rotate(angle_deg)
-        body.setTransform(t)
-        return [body]
+        t.rotate((p2 - p1).angle_deg())
+        canvas = BodyCanvas(theme, fill=fill, border=border, alpha=alpha, z=z,
+                            transform=t)
+        tl, tr, br, bl = self._effective_corner_radii_mm()
+        canvas.addRect(
+            (-length_r / 2.0, -width_r / 2.0),
+            (length_r / 2.0, width_r / 2.0),
+            round=(canvas.mm(tl), canvas.mm(tr), canvas.mm(br), canvas.mm(bl)),
+        )
+        return canvas.items
 
     # ------------------------------------------------------------------
     # Generic — bbox() rectangle in holes (fallback for every shape)
@@ -587,20 +613,14 @@ class PackageRenderer(BodyShape):
         # reflection): reconstructing the rect in world coords and only shifting
         # it by the anchor draws an axis-aligned box that ignores the placement
         # rotation — the body then stays upright while the pins rotate.
-        mm = theme.raster_pitch_mm
+        canvas = self.body_canvas(positions, fill, border, alpha, z, theme)
         tl, tr, br, bl = self._effective_corner_radii_mm()
-        local_rect = QRectF(box.x, box.y, box.width, box.height)
-        place = self._body_placement(positions)
-        path = rounded_rect_path(
-            local_rect, (tl / mm, tr / mm, br / mm, bl / mm),
+        canvas.addRect(
+            (box.x, box.y),
+            (box.x + box.width, box.y + box.height),
+            round=(canvas.mm(tl), canvas.mm(tr), canvas.mm(br), canvas.mm(bl)),
         )
-        path_item = QGraphicsPathItem(place.map(path))
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
-        path_item.setBrush(QBrush(fill_c))
-        path_item.setPen(_body_pen(border, alpha))
-        path_item.setZValue(z)
-        items: list[QGraphicsItem] = [path_item]
+        items: list[QGraphicsItem] = canvas.items
         # A dev-board's pins sit on the PCB's top surface — mark each with a
         # faint pad-sized ring (the click-active area) drawn on top of the body.
         # The real pin glyph / modifier is drawn by the component renderer on a

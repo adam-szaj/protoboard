@@ -1445,6 +1445,33 @@ class TestSmdChipBody:
         c = items[0].sceneBoundingRect().center()
         assert (round(c.x(), 2), round(c.y(), 2)) == (1.0, 0.0)
 
+    def test_smd_lineage_adds_metallised_caps(self, qtbot: QtBot) -> None:
+        # A catalogue chip (lineage carries the ``prism_smd`` generic) draws
+        # through SmdChipRenderer: the base outline plus a light metallised
+        # terminal band at each end, stacked just above the body.
+        import dataclasses
+        pkg = dataclasses.replace(
+            _smd_chip_package(), lineage=("prism", "prism_smd"))
+        items = PackageBody(pkg).draw(  # type: ignore[arg-type]
+            _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        assert len(items) == 3           # body + 2 caps
+        body, cap_a, cap_b = items
+        assert cap_a.zValue() > body.zValue()
+        assert cap_a.zValue() == cap_b.zValue()
+        # Caps sit at the body ends, symmetric about the pad midpoint (0.5, 0).
+        ca = cap_a.sceneBoundingRect().center()
+        cb = cap_b.sceneBoundingRect().center()
+        assert round(ca.x() + cb.x(), 2) == 1.0
+        assert ca.x() != cb.x()
+
+    def test_plain_two_pin_prism_keeps_single_body(self, qtbot: QtBot) -> None:
+        # Without the ``prism_smd`` lineage the base renderer draws exactly
+        # the historical single chip rectangle — no caps (parity guard).
+        items = PackageBody(
+            _smd_chip_package()).draw(  # type: ignore[arg-type]
+                _pts((0, 0), (1, 0)), _RED, _DARK, 1.0, _Z)
+        assert len(items) == 1
+
     def test_body_shorter_than_pad_span(self, qtbot: QtBot) -> None:
         # A real chip sits *between* its pads at its declared length, shorter
         # than the hole pitch — it does not stretch to reach the pad centres.

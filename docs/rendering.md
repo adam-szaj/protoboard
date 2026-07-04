@@ -239,8 +239,13 @@ class TO220Renderer(PrismRenderer):
 
     def render_body(self, positions, fill, border, alpha, z, theme):
         items = super().render_body(positions, fill, border, alpha, z, theme)
-        items.append(self._metal_tab(...))  # extra geometry on top of the prism
-        return items
+        canvas = self.axis_canvas(positions, positions[0], positions[1],
+                                  fill, border, alpha, z, theme)
+        canvas.track(items)                # z bookkeeping over the base body
+        canvas.setFillColor("#dddddd")
+        canvas.addRect((-1.0, 0.5), (1.0, 0.9), round=canvas.mm(0.1),
+                       z=canvas.zAbove())  # a strip just above the body
+        return items + canvas.items
 ```
 
 The **reference plugin is `library/renderers/to220.py`** (the builtin library
@@ -253,6 +258,37 @@ specific and win.
 A plugin that fails to import is logged and skipped — one broken file never
 blocks the rest of the library. Plugins are ordinary Python executed in the
 application process (same trust level as the app itself).
+
+### 4.2a The drawing API — `BodyCanvas`
+
+Plugins and renderer subclasses draw through a **canvas**
+(`packages/canvas.py`), not raw Qt: a `BodyCanvas` carries theme / alpha / z /
+fill / border and the frame transform once, and every `add<Shape>` call
+returns a finished, collected `QGraphicsPathItem`.
+
+- **Frames** (renderer factory methods): `self.body_canvas(positions, …)` —
+  the package-local frame (pin 1 at the origin) through the same
+  local→world transform as the pins (rotation + bottom-side reflection;
+  transform baked into the paths); `self.axis_canvas(positions, p1, p2, …)` —
+  the pad-axis frame (origin at the pad centroid, +x along the p1→p2 lead
+  axis; transform set on the items). Units are raster holes;
+  `canvas.mm(x)` converts millimetres.
+- **Shapes**: `addRect(p1, p2, round=r | (tl,tr,br,bl))`, `addCircle(c, r)`,
+  `addEllipse(c, rx, ry)`, `addArc(c, r, start_deg, span_deg)` (stroke-only),
+  `addPath(qpainter_path)`.
+- **State vs inline**: `setFillColor()` / `setBorderColor()` / `setPen()`
+  set the defaults for subsequent calls; every `add<Shape>` accepts the same
+  as per-call kwargs (`fill=`, `border=`, `pen=`, `pen_width=`).
+- **Z stacking**: `zAbove()` / `zBelow()` return a Z one `Z_STEP` above/below
+  everything drawn so far; `canvas.track(items)` includes the base class's
+  items in that bookkeeping, so a detail lands just above the body
+  (`z=canvas.zAbove()`), matching the historical `z + 0.005` idiom.
+
+The built-in prism/radial/bbox/SMD paths draw through the same canvas, so a
+plugin's output composes with them pixel-identically. `SmdChipRenderer`
+(`prism_kinds.py`, `renders = "prism_smd"`) is the in-tree example of the
+"base outline + per-type detail" pattern: the base chip rectangle plus the
+metallised terminal caps.
 
 ### 4.3 Prism silhouette — declared `kind` renderers first
 
