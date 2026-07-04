@@ -322,3 +322,36 @@ class TestTO220Plugin:
         assert len(plugin_items) == len(base_items) + 1
         tab = plugin_items[-1]
         assert tab.zValue() > max(i.zValue() for i in base_items)
+
+    def test_tab_hugs_the_body_long_edge(self, qtbot, to220_package) -> None:
+        # Regression: the tab used bbox width/height transposed (the bbox is
+        # oriented by the dominant pin axis, x for TO-220's pin row), so it
+        # spanned half the body and floated outside it.  The tab must lie
+        # INSIDE the body rectangle and run its full length along the pin row.
+        from PySide6.QtGui import QColor
+
+        from protoboard.gui.theme import DEFAULT_THEME
+        from protoboard.paths import BUILTIN_LIBRARY_DIR
+
+        load_renderer_plugins([BUILTIN_LIBRARY_DIR])
+        pads = [Point(0.0, 0.0), Point(1.0, 0.0), Point(2.0, 0.0)]
+        fill = QColor("#888888")
+        border = QColor("#222222")
+
+        base_items = PrismRenderer(to220_package).draw(
+            pads, fill, border, 1.0, 5.0, DEFAULT_THEME)
+        body = max(
+            base_items,
+            key=lambda it: (it.sceneBoundingRect().width()
+                            * it.sceneBoundingRect().height()),
+        ).sceneBoundingRect()
+        plugin_items = PackageBody(to220_package).draw(
+            pads, fill, border, 1.0, 5.0, DEFAULT_THEME)
+        tab = plugin_items[-1].sceneBoundingRect()
+
+        assert body.contains(tab)
+        # Full body length along the pin row (pen-width tolerance)…
+        assert tab.width() == pytest.approx(body.width(), abs=0.1)
+        # …as a thin strip on the +y long edge, not a half-width block.
+        assert tab.height() < body.height() / 2.0
+        assert abs(tab.bottom() - body.bottom()) < 0.1
