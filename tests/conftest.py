@@ -41,7 +41,11 @@ def _isolate_user_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     aliases at import time, so patch the bound names directly rather than
     ``protoboard.paths``.
     """
-    from protoboard.gui import recent_footprints, recent_projects
+    from protoboard.gui import (
+        recent_footprints,
+        recent_kind_variants,
+        recent_projects,
+    )
 
     cfg = tmp_path / "config"
     cfg.mkdir(parents=True, exist_ok=True)
@@ -49,6 +53,11 @@ def _isolate_user_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(
         recent_footprints, "_RECENT_FILE", cfg / "recent_footprints.json",
         raising=False,
+    )
+    monkeypatch.setattr(recent_kind_variants, "_CONFIG_DIR", cfg, raising=False)
+    monkeypatch.setattr(
+        recent_kind_variants, "_RECENT_FILE",
+        cfg / "recent_kind_variants.json", raising=False,
     )
     monkeypatch.setattr(recent_projects, "_CONFIG_DIR", cfg, raising=False)
     monkeypatch.setattr(

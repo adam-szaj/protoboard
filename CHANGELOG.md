@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Kind generators completed: option partials, chain driver, recent variants (2026-07-04)
+
+* **Partial kinds in `footprints:` options.** An option whose inline kind
+  leaves required parameters unfilled loads as a per-option pending-kind
+  placeholder (it used to fail the load); the picker's second pop-up collects
+  the rest and builds the concrete variant. Also fixes a latent
+  `resolve_variant` bug: inline-option addresses (`@defn/option/variant`)
+  never resolved (first-slash split) and silently fell back to the default
+  body.
+* **Generator chain driver.** `kind:` may be a list — compute steps transform
+  values (resolving `auto` holes against the schema riding on `ctx.schema`)
+  and feed the next step; only the final step builds the body.
+* **Recent variants in the kind dialog.** Built parameter sets persist per
+  kind (`recent_kind_variants.json`); the kind pop-up re-offers them as
+  one-confirm rows, rebuilt for the current part's pin count.
+
 ### Group scene-graph completed: transform is the single source of truth (2026-07-04)
 
 `ComponentGroup` no longer stores the legacy `rotation`/`origin` pair —

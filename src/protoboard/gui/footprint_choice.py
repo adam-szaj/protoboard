@@ -239,7 +239,39 @@ class DefaultFootprintChoiceProvider:
         return out
 
     def recent_variants(self, address: str) -> list[KindVariantView]:
-        return []
+        """Previously-built parameter sets of this kind, rebuilt for offer.
+
+        A built variant's family lives only in the session catalogue, so each
+        persisted parameter set is **re-run** through the generator here (and
+        registered, so confirming the row resolves with no further work).  The
+        rebuild uses the *current* component's pin count — the remembered
+        thing is the parameter set, not a fixed geometry.  Entries whose kind
+        no longer builds (plugin gone, parameters now unrealisable) are
+        skipped silently.
+        """
+        found = self._kind_package(address)
+        defn = self._last_defn
+        if found is None or defn is None:
+            return []
+        kind, _schema, _declared = found
+
+        from protoboard.gui import recent_kind_variants
+
+        out: list[KindVariantView] = []
+        seen: set[str] = set()
+        for entry in recent_kind_variants.load():
+            if entry.kind != kind:
+                continue
+            built = self._build_and_register(
+                kind, dict(entry.values), defn.pin_count)
+            if built is None:
+                continue
+            built_address, label = built
+            if built_address in seen:
+                continue
+            seen.add(built_address)
+            out.append(KindVariantView(label=label, address=built_address))
+        return out
 
     def build_variant(self, address: str, values: dict[str, str]) -> str | None:
         """Run the kind generator with the user's *values*; register + address.
@@ -248,7 +280,9 @@ class DefaultFootprintChoiceProvider:
         pin count, declared parameters — already fixes the body). With values,
         the concrete result is registered as a single-variant family in the
         session catalogue and its ``family/variant`` address returned; the
-        placement then resolves it like any other package variant.
+        placement then resolves it like any other package variant.  The full
+        parameter set is remembered (``recent_kind_variants``) so the kind
+        dialog can re-offer it as a one-confirm row.
         """
         if not values:
             return address
@@ -258,6 +292,27 @@ class DefaultFootprintChoiceProvider:
             return None
         kind, schema, declared = found
 
+        merged = {k: v for k, v in declared.items() if v is not None}
+        merged.update(self._coerce(values, schema))
+        built = self._build_and_register(kind, merged, defn.pin_count)
+        if built is None:
+            return None
+        built_address, label = built
+        from protoboard.gui import recent_kind_variants
+        recent_kind_variants.add(kind, merged, label)
+        return built_address
+
+    def _build_and_register(
+        self, kind: str, merged: dict[str, object], pin_count: int,
+    ) -> tuple[str, str] | None:
+        """Build *kind* from the full parameter set *merged* and register it.
+
+        Returns ``(address, label)`` of the registered single-variant family
+        in the session catalogue, or ``None`` when the parameters cannot
+        realise a body (or leave required holes).  Shared by
+        :meth:`build_variant` (fresh user input) and :meth:`recent_variants`
+        (persisted parameter sets).
+        """
         from protoboard.domain.components.package.family import (
             PackageFamily,
             PackageVariant,
@@ -272,9 +327,7 @@ class DefaultFootprintChoiceProvider:
         )
         from protoboard.errors import ProtoboardError
 
-        merged = {k: v for k, v in declared.items() if v is not None}
-        merged.update(self._coerce(values, schema))
-        ctx = GeneratorContext(pin_count=defn.pin_count, values=merged)
+        ctx = GeneratorContext(pin_count=pin_count, values=merged)
         try:
             result = build_kind_package(kind, ctx)
         except (ProtoboardError, ValueError):
@@ -285,18 +338,18 @@ class DefaultFootprintChoiceProvider:
 
         gen_cls = KIND_GENERATORS.get(kind)
         label = (gen_cls().variant_label(kind, ctx) if gen_cls is not None
-                 else f"{kind}-{defn.pin_count}")
+                 else f"{kind}-{pin_count}")
         slug = "".join(
             f"-{k}{merged[k]}" for k in sorted(merged) if merged[k] is not None
         )
-        family_id = f"{kind}-{defn.pin_count}{slug}"
+        family_id = f"{kind}-{pin_count}{slug}"
         self._families[family_id] = PackageFamily(
             family_id=family_id,
             label=label,
             variants=(PackageVariant(variant_id=STD, label=label,
                                      package=result.package),),
         )
-        return f"{family_id}/{STD}"
+        return f"{family_id}/{STD}", label
 
     # -- helpers -------------------------------------------------------------
 

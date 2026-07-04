@@ -273,3 +273,105 @@ class TestProviderKindParams:
         opts = provider.options(defn)
         # rows=3 is unrealisable for a pin header → generator raises → None.
         assert provider.build_variant(opts[0].address, {"rows": "3"}) is None
+
+
+class TestRecentVariants:
+    """Per-kind variant history: build_variant remembers the parameter set,
+    recent_variants re-runs it (registering the family) so the kind dialog's
+    one-confirm row works — across provider instances, i.e. across sessions."""
+
+    def _defn_with_hole(self, tmp_path, name="HDR_ASK", pins=6):
+        from protoboard.services.library.loader import load_library
+        (tmp_path / f"{name}.yaml").write_text(
+            f"components:\n"
+            f"  - name: {name}\n"
+            f"    component_class: connector\n"
+            f"    pins: {{count: {pins}}}\n"
+            f"    package: {{kind: pin_header, rows: null}}\n"
+        )
+        return load_library([tmp_path]).get(name)
+
+    def test_build_variant_is_reoffered_in_a_fresh_session(
+        self, tmp_path
+    ) -> None:
+        from protoboard.domain.components.package.family import (
+            resolve_variant,
+        )
+        defn = self._defn_with_hole(tmp_path)
+        provider = DefaultFootprintChoiceProvider({})
+        opts = provider.options(defn)
+        built = provider.build_variant(opts[0].address, {"rows": "2"})
+        assert built is not None
+
+        # A fresh provider + empty catalogue = a new session.
+        families: dict = {}
+        fresh = DefaultFootprintChoiceProvider(families)
+        addr = fresh.options(defn)[0].address
+        views = fresh.recent_variants(addr)
+        assert [v.address for v in views] == [built]
+        # The rebuild registered the family, so confirming the row resolves.
+        variant = resolve_variant(families, built)
+        assert variant is not None and variant.package.kind == "pin_header"
+
+    def test_remembered_parameters_follow_the_pin_count(
+        self, tmp_path
+    ) -> None:
+        # The history stores the PARAMETER SET, not a geometry: rows=2 built
+        # on a 6-pin part re-offers as a 2×5 on a 10-pin part.
+        defn6 = self._defn_with_hole(tmp_path, name="HDR6", pins=6)
+        provider = DefaultFootprintChoiceProvider({})
+        provider.options(defn6)
+        assert provider.build_variant(
+            provider.options(defn6)[0].address, {"rows": "2"}) is not None
+
+        defn10 = self._defn_with_hole(tmp_path, name="HDR10", pins=10)
+        families: dict = {}
+        fresh = DefaultFootprintChoiceProvider(families)
+        addr = fresh.options(defn10)[0].address
+        views = fresh.recent_variants(addr)
+        assert len(views) == 1
+        assert views[0].address.startswith("pin_header-10")
+
+    def test_unbuildable_history_entry_is_skipped(self, tmp_path) -> None:
+        from protoboard.gui import recent_kind_variants
+        recent_kind_variants.add("no_such_kind", {"x": 1}, "ghost")
+        defn = self._defn_with_hole(tmp_path)
+        provider = DefaultFootprintChoiceProvider({})
+        addr = provider.options(defn)[0].address
+        # Entries for other/vanished kinds never surface for this kind...
+        assert provider.recent_variants(addr) == []
+        # ...and an unrealisable parameter set for THIS kind is skipped too.
+        recent_kind_variants.add("pin_header", {"rows": 3}, "bad rows")
+        assert provider.recent_variants(addr) == []
+
+    def test_history_dedupes_by_parameter_set(self, tmp_path) -> None:
+        defn = self._defn_with_hole(tmp_path)
+        provider = DefaultFootprintChoiceProvider({})
+        addr = provider.options(defn)[0].address
+        assert provider.build_variant(addr, {"rows": "2"}) is not None
+        assert provider.build_variant(addr, {"rows": "1"}) is not None
+        assert provider.build_variant(addr, {"rows": "2"}) is not None  # re-pick
+        views = provider.recent_variants(addr)
+        # Two distinct parameter sets; the re-picked one is most recent.
+        assert len(views) == 2
+        assert views[0].address.endswith("-rows2/std")
+
+    def test_dialog_one_confirm_uses_the_history(
+        self, qtbot: QtBot, tmp_path
+    ) -> None:
+        # End-to-end: a previously-built variant shows in the pop-up's
+        # "Recently used" list and OK confirms it with no input.
+        defn = self._defn_with_hole(tmp_path)
+        provider = DefaultFootprintChoiceProvider({})
+        addr = provider.options(defn)[0].address
+        built = provider.build_variant(addr, {"rows": "2"})
+        assert built is not None
+
+        fresh = DefaultFootprintChoiceProvider({})
+        fresh_addr = fresh.options(defn)[0].address
+        dlg = KindVariantDialog(fresh, fresh_addr)
+        qtbot.addWidget(dlg)
+        assert dlg._recent_list.count() == 1
+        assert dlg._recent_list.currentRow() == 0   # top pre-selected
+        dlg._confirm_recent(dlg._recent_list.item(0))  # the one-confirm path
+        assert dlg.chosen_address == built

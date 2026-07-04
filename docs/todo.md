@@ -5,22 +5,18 @@ Open follow-ups that don't fit into the closed plans archived under
 the work cold.  Completed entries are pruned (2026-07-04) — recover
 their full write-ups from this file's git history.
 
-## Kind generators — deferred edges (added 2026-07-04)
+## Kind generators — remaining edge (added 2026-07-04)
 
-The pluggable generator registry shipped (`package/generators/`, driver in
-`build_kind_package`, plugins via `<library>/generators/*.py`, picker wiring in
-`DefaultFootprintChoiceProvider` — see package-model.md §6). Consciously left:
+The pluggable generator registry is feature-complete (partial kinds in
+`footprints:` options, the multi-step chain driver, per-kind recent-variant
+history — all shipped 2026-07-04; see package-model.md §6). One edge left:
 
-1. **Recent variants in the kind dialog** — `recent_variants()` still returns
-   `[]`; built variants are only re-offered via the top-level recent-footprints
-   list. Persisting per-kind variant history would give the one-confirm path
-   inside the second pop-up too.
-
-(Shipped 2026-07-04: partial kinds in `footprints:` option entries — a
-per-option pending-kind placeholder, same mechanism as the component-level
-`package:`; and the multi-step chain driver — `kind:` may be a list of
-generators, compute steps transform values / resolve `auto` with the schema on
-`ctx.schema`, only the final step builds. See package-model.md §6.)
+- **`auto` resolution inside the *builtin* procedural builders** — the DIP/SIL
+  /connector generators do not consult `ctx.schema` yet; an unresolved `auto`
+  on the YAML families path is still rejected downstream by `_require_float`
+  (the intended failure). The chain machinery supports it — wiring a builtin
+  compute step (e.g. DIP `length` from `pins_per_row`) is the remaining piece
+  (also listed under "Package parameter schema" below).
 
 ## Bendable leads — deferred extension (added 2026-06-26)
 
