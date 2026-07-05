@@ -7,6 +7,10 @@ only the housing colour differs (declared per generator).
 
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
+from typing import Any
+
 from protoboard.domain.components.footprints import DIL, SIL
 from protoboard.domain.components.package.generators.base import (
     GeneratorContext,
@@ -59,6 +63,26 @@ class PinHeaderGenerator(PackageGenerator):
         # A single-row header swaps to the bare sil-N shell.  (JST stays
         # offer-less: its polarised housing has no generated equivalent.)
         return [f"sil-{pin_count}"] if pin_count >= 2 else []
+
+    def variant_suffix(
+        self, pin_count: int, values: Mapping[str, Any],
+    ) -> str:
+        # The historical catalogue names: PinHeader_1x05, PinHeader_2x08 —
+        # ``{rows}x{pins-per-row:02d}``.
+        rows = int(values.get("rows", 1) or 1)
+        per_row = pin_count // rows if rows > 0 else pin_count
+        return f"{rows}x{per_row:02d}"
+
+    def parse_variant_suffix(
+        self, suffix: str,
+    ) -> tuple[int, dict[str, Any]] | None:
+        m = re.fullmatch(r"([12])x(\d+)", suffix)
+        if m is None:
+            return None
+        rows, per_row = int(m.group(1)), int(m.group(2))
+        if per_row < 1:
+            return None
+        return rows * per_row, {"rows": rows}
 
 
 @register_generator(kind="jst")

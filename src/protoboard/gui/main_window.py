@@ -7,8 +7,12 @@ import dataclasses
 import uuid
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import structlog
+
+if TYPE_CHECKING:
+    from protoboard.domain.components.definition import ComponentDefinition
 
 from protoboard.gui.app_settings import AppSettings
 from protoboard.gui.window_state import load_window_state, save_window_state
@@ -810,6 +814,15 @@ class MainWindow(QMainWindow):
         pin_variant: object = None,
         package_variant: object = None,
     ) -> None:
+        # A parametric entry (variable pin count — PinHeader, JST) first
+        # collects its parameters; placement proceeds with the synthesized
+        # concrete definition.
+        parametric = self._session.components.get(definition_ref)
+        if parametric is not None and parametric.parametric_pins:
+            concrete = self._prompt_parametric_pins(parametric)
+            if concrete is None:
+                return  # cancelled
+            definition_ref = concrete.name
         variant_str = str(pin_variant) if pin_variant is not None else None
         package_variant_str = (
             str(package_variant) if package_variant is not None else None
@@ -830,6 +843,30 @@ class MainWindow(QMainWindow):
         self._mode_label.setText(f"Place {label}  [R] rotate")
         # PlaceTool has no ACTION_TOOL_* — clear the radio.
         self._sync_tool_check(None)
+
+    def _prompt_parametric_pins(
+        self, defn: "ComponentDefinition",
+    ) -> "ComponentDefinition | None":
+        """Ask for a parametric part's pin count; return the concrete
+        definition (registered in the session), or ``None`` on cancel."""
+        from protoboard.domain.components.package.kind import KIND_GENERATORS
+        from protoboard.gui.dialogs.parametric_pins_dialog import (
+            ParametricPinsDialog,
+        )
+        from protoboard.services.library.parametric import (
+            parametric_generator_kind,
+        )
+        kind = parametric_generator_kind(defn)
+        if kind is None:
+            return None
+        dialog = ParametricPinsDialog(defn, KIND_GENERATORS[kind](), self)
+        if dialog.exec() != ParametricPinsDialog.DialogCode.Accepted:
+            return None
+        concrete = dialog.concrete_definition()
+        if concrete is None:
+            return None
+        self._session.components[concrete.name] = concrete
+        return concrete
 
     def _tool_place_instance(self, instance_id: uuid.UUID) -> None:
         """Activate PlaceTool for a specific netlist-imported instance."""
@@ -3106,9 +3143,10 @@ class MainWindow(QMainWindow):
         load_generator_plugins(library_dirs)
         new_library = load_library(library_dirs, self._session.package_families)
         self._session.library = new_library
-        self._session.components = {
-            name: new_library.get(name) for name in new_library.names()
-        }
+        from protoboard.services.library.parametric import ComponentCatalog
+        self._session.components = ComponentCatalog(
+            (name, new_library.get(name)) for name in new_library.names()
+        )
         self._library_panel.set_library(new_library)
         # Re-apply render throttles in case the user adjusted them in
         # PreferencesDialog → Performance.  Cheap (just QTimer.setInterval).

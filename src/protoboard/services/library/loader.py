@@ -230,6 +230,32 @@ def _pending_kind_placeholder(
     )
 
 
+def _parametric_preview_count(raw: dict[str, Any]) -> int | None:
+    """Preview pin count for a parametric ``package: {kind: …}`` block.
+
+    A kind package whose component declares no ``pins:`` anywhere is a
+    PARAMETRIC (variable-pin-count) entry — the user chooses the count at
+    placement (see ``services/library/parametric.py``). The preview body
+    (library-panel icon, pre-placement ghost) is built at the last-step
+    generator's ``preview_pin_count``. ``None`` when the block is not a
+    kind package (then the ordinary "needs a pin count" error applies).
+    """
+    from protoboard.domain.components.package.kind import (
+        KIND_GENERATORS,
+        is_kind,
+    )
+
+    kind = raw.get("kind")
+    if is_kind(kind):
+        last = str(kind)
+    elif isinstance(kind, list) and kind and all(is_kind(k) for k in kind):
+        last = str(kind[-1])
+    else:
+        return None
+    gen_cls = KIND_GENERATORS.get(last)
+    return None if gen_cls is None else gen_cls.preview_pin_count
+
+
 @traced("_build_component_package")
 def _build_component_package(
     name: str,
@@ -304,7 +330,24 @@ class ComponentLibrary:
         return self._by_name.keys()
 
     def get(self, name: str) -> ComponentDefinition:
-        return self._by_name[name]
+        """The definition *name* (raises ``KeyError`` when unknown).
+
+        A missing name that parses against a parametric base entry
+        (``PinHeader_1x05`` → base ``PinHeader``) synthesizes the concrete
+        definition, caches and returns it — a project saved with such a
+        ``definition_ref`` keeps resolving (services/library/parametric.py).
+        """
+        found = self._by_name.get(name)
+        if found is not None:
+            return found
+        from protoboard.services.library.parametric import (
+            resolve_parametric_name,
+        )
+        synth = resolve_parametric_name(self._by_name, name)
+        if synth is None:
+            raise KeyError(name)
+        self._by_name[synth.name] = synth
+        return synth
 
     def source_path(self, name: str) -> Path | None:
         """Return the YAML file that defines *name*, or None if unknown."""
@@ -602,10 +645,20 @@ def _component_from_dict(
     # can be built at load time — the placeholder synthesized below carries the
     # pending kind so the place-tool picker collects the rest.
     pending_kind: ResidualKind | None = None
+    # Variable-pin-count entry: a kind package with no ``pins:`` anywhere —
+    # the count is the user's placement-time choice; the load builds only a
+    # preview body (see services/library/parametric.py).
+    parametric_pins = False
     package_raw = data.get("package")
     if isinstance(package_raw, dict):
+        build_pin_count = comp_pin_count
+        if comp_pin_count is None and package_raw.get("pins") is None:
+            preview_count = _parametric_preview_count(package_raw)
+            if preview_count is not None:
+                parametric_pins = True
+                build_pin_count = preview_count
         built = _build_component_package(data["name"], package_raw,
-                                         comp_pin_count, generics)
+                                         build_pin_count, generics)
         if isinstance(built, ResidualKind):
             pending_kind = built
         else:
@@ -872,6 +925,7 @@ def _component_from_dict(
             appearance=appearance,
             symbol=symbol,
             footprints=footprints,
+            parametric_pins=parametric_pins,
         )
     except ValueError as exc:
         raise SerializationError(

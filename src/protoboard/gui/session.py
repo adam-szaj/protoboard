@@ -193,10 +193,14 @@ class EditorSession(QObject):
         self._layout: Layout = Layout()
         self._wire_resolver_to(self._layout)
         self._layout.ensure_root_group()
-        # Pre-populate components from library so renderers can look up definitions.
-        self.components: dict[str, ComponentDefinition] = {
-            name: library.get(name) for name in library.names()
-        }
+        # Pre-populate components from library so renderers can look up
+        # definitions. A ComponentCatalog synthesizes parametric variants
+        # (PinHeader_1x05) on miss, so instance refs from loaded projects and
+        # the placement dialog resolve transparently.
+        from protoboard.services.library.parametric import ComponentCatalog
+        self.components: dict[str, ComponentDefinition] = ComponentCatalog(
+            (name, library.get(name)) for name in library.names()
+        )
         self.instances: dict[uuid.UUID, ComponentInstance] = {}
         # Package-family body catalogue, keyed by family id: the authored
         # two-pin families plus the generated in-line bodies (dip-N / wdip-N /

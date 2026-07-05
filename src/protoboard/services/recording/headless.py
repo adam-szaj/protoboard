@@ -41,7 +41,10 @@ class ReplayState:
     ) -> "ReplayState":
         """Load a project directory and bind it to a fresh ReplayState."""
         board, layout, schematic, instances, *_rest = load_project(project_dir)
-        components = {name: library.get(name) for name in library.names()}
+        from protoboard.services.library.parametric import ComponentCatalog
+        components = ComponentCatalog(
+            (name, library.get(name)) for name in library.names()
+        )
         # Deserialized instances arrive unbound: bind each to its definition so
         # replayed commands that touch geometry (move/conflict/render) can
         # resolve the instance footprint instead of raising

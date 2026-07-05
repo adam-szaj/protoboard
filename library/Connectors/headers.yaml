@@ -1,118 +1,28 @@
 components:
   # -----------------------------------------------------------------------
-  # Generic pin headers (2.54mm) — fully defined by pin count + arrangement, so
-  # they use the generated ``pin_header`` package kind (no footprint choice):
-  # ``rows: 1`` → 1×N single row, ``rows: 2`` → 2×N dual row.  Rendered as a
-  # plain near-black (#222) rectangle.  ``pins.count`` drives the geometry.
+  # Parametric connectors — the entry declares only its package kind; the pin
+  # count (and the header's row count) are chosen by the user at placement
+  # time (variable pin count).  The chosen parameters synthesize a concrete
+  # definition under the historical catalogue name (PinHeader_1x05,
+  # JST_XH_4pin), so existing projects keep resolving.  Pin-name presets
+  # (UART/I2C/SPI/…) will return as generator-side configuration per
+  # pin-count — deliberately NOT authored here.
   # -----------------------------------------------------------------------
 
-  - name: PinHeader_1x02
+  - name: PinHeader
     component_class: connector
-    pins: {count: 2}
-    package: {kind: pin_header, rows: 1}
-    description: "2-pin header 2.54mm"
-    variants:
-      - id: power_vcc_gnd
-        label: "Power (VCC/GND)"
-        pin_names: {1: VCC, 2: GND}
-      - id: power_gnd_vcc
-        label: "Power (GND/VCC)"
-        pin_names: {1: GND, 2: VCC}
+    package: {kind: pin_header}
+    description: "Pin header 2.54mm — 1×N / 2×N, count chosen at placement"
 
-  - name: PinHeader_1x03
+  - name: JST_PH
     component_class: connector
-    pins: {count: 3}
-    package: {kind: pin_header, rows: 1}
-    description: "3-pin header 2.54mm"
-    variants:
-      - id: power_sig
-        label: "Power+Signal (VCC/GND/SIG)"
-        pin_names: {1: VCC, 2: GND, 3: SIG}
-      - id: uart3
-        label: "UART (TX/RX/GND)"
-        pin_names: {1: TX, 2: RX, 3: GND}
-      - id: swd3
-        label: "SWD 3-pin (SWDIO/SWDCLK/GND)"
-        pin_names: {1: SWDIO, 2: SWDCLK, 3: GND}
+    package: {kind: jst}
+    description: "JST PH (2.0mm pitch, through-hole) — count chosen at placement"
 
-  - name: PinHeader_1x04
+  - name: JST_XH
     component_class: connector
-    pins: {count: 4}
-    package: {kind: pin_header, rows: 1}
-    description: "4-pin header 2.54mm"
-    variants:
-      - id: i2c_vcc_gnd_sda_scl
-        label: "I2C (VCC/GND/SDA/SCL)"
-        pin_names: {1: VCC, 2: GND, 3: SDA, 4: SCL}
-      - id: i2c_vcc_gnd_scl_sda
-        label: "I2C (VCC/GND/SCL/SDA)"
-        pin_names: {1: VCC, 2: GND, 3: SCL, 4: SDA}
-      - id: i2c_gnd_vcc_sda_scl
-        label: "I2C (GND/VCC/SDA/SCL)"
-        pin_names: {1: GND, 2: VCC, 3: SDA, 4: SCL}
-      - id: i2c_gnd_vcc_scl_sda
-        label: "I2C (GND/VCC/SCL/SDA)"
-        pin_names: {1: GND, 2: VCC, 3: SCL, 4: SDA}
-      - id: i2c_gnd_sda_scl_vcc
-        label: "I2C (GND/SDA/SCL/VCC)"
-        pin_names: {1: GND, 2: SDA, 3: SCL, 4: VCC}
-      - id: i2c_gnd_scl_sda_vcc
-        label: "I2C (GND/SCL/SDA/VCC)"
-        pin_names: {1: GND, 2: SCL, 3: SDA, 4: VCC}
-      - id: uart_vcc_gnd_tx_rx
-        label: "UART (VCC/GND/TX/RX)"
-        pin_names: {1: VCC, 2: GND, 3: TX, 4: RX}
-      - id: uart_vcc_gnd_rx_tx
-        label: "UART (VCC/GND/RX/TX)"
-        pin_names: {1: VCC, 2: GND, 3: RX, 4: TX}
-      - id: spi4_cs_sck_mosi_miso
-        label: "SPI 4-pin (CS/SCK/MOSI/MISO)"
-        pin_names: {1: CS, 2: SCK, 3: MOSI, 4: MISO}
-      - id: spi4_cs_sck_miso_mosi
-        label: "SPI 4-pin (CS/SCK/MISO/MOSI)"
-        pin_names: {1: CS, 2: SCK, 3: MISO, 4: MOSI}
-
-  - name: PinHeader_1x05
-    component_class: connector
-    pins: {count: 5}
-    package: {kind: pin_header, rows: 1}
-    description: "5-pin header 2.54mm"
-
-  - name: PinHeader_1x06
-    component_class: connector
-    pins: {count: 6}
-    package: {kind: pin_header, rows: 1}
-    description: "6-pin header 2.54mm"
-
-  - name: PinHeader_1x08
-    component_class: connector
-    pins: {count: 8}
-    package: {kind: pin_header, rows: 1}
-    description: "8-pin header 2.54mm"
-
-  - name: PinHeader_2x02
-    component_class: connector
-    pins: {count: 4}
-    package: {kind: pin_header, rows: 2}
-    description: "4-pin dual-row header 2.54mm"
-
-  - name: PinHeader_2x03
-    component_class: connector
-    pins: {count: 6}
-    package: {kind: pin_header, rows: 2}
-    description: "6-pin dual-row header 2.54mm"
-
-  - name: PinHeader_2x05
-    component_class: connector
-    pins: {count: 10}
-    package: {kind: pin_header, rows: 2}
-    description: "10-pin dual-row header 2.54mm (IDC)"
-
-  - name: PinHeader_2x08
-    component_class: connector
-    pins: {count: 16}
-    package: {kind: pin_header, rows: 2}
-    description: "16-pin dual-row header 2.54mm (IDC)"
+    package: {kind: jst}
+    description: "JST XH (2.5mm pitch, through-hole) — count chosen at placement"
 
   # -----------------------------------------------------------------------
   # Screw terminals (5.08mm pitch — 2 raster units).  Kept on the explicit SIL
@@ -146,58 +56,3 @@ components:
       bend: 0
     pin_names: {1: "1", 2: "2", 3: "3"}
     description: "3-pin screw terminal 5.08mm"
-
-  # -----------------------------------------------------------------------
-  # JST connectors — single-row cable connectors.  The ``jst`` kind is always
-  # 1×N; rendered as a light (#ddd) rectangle.  (Pitch detail — PH 2.0mm vs XH
-  # 2.5mm — is cosmetic here; the body lands on the 0.1" raster.)
-  # -----------------------------------------------------------------------
-
-  - name: JST_PH_2pin
-    component_class: connector
-    pins: {count: 2}
-    package: {kind: jst}
-    pin_names: {1: "1", 2: "2"}
-    description: "JST PH 2-pin (2.0mm pitch, through-hole)"
-
-  - name: JST_PH_3pin
-    component_class: connector
-    pins: {count: 3}
-    package: {kind: jst}
-    pin_names: {1: "1", 2: "2", 3: "3"}
-    description: "JST PH 3-pin (2.0mm pitch, through-hole)"
-
-  - name: JST_PH_4pin
-    component_class: connector
-    pins: {count: 4}
-    package: {kind: jst}
-    pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
-    description: "JST PH 4-pin (2.0mm pitch, through-hole)"
-
-  - name: JST_XH_2pin
-    component_class: connector
-    pins: {count: 2}
-    package: {kind: jst}
-    pin_names: {1: "1", 2: "2"}
-    description: "JST XH 2-pin (2.5mm pitch, through-hole)"
-
-  - name: JST_XH_3pin
-    component_class: connector
-    pins: {count: 3}
-    package: {kind: jst}
-    pin_names: {1: "1", 2: "2", 3: "3"}
-    description: "JST XH 3-pin (2.5mm pitch, through-hole)"
-
-  - name: JST_XH_4pin
-    component_class: connector
-    pins: {count: 4}
-    package: {kind: jst}
-    pin_names: {1: "1", 2: "2", 3: "3", 4: "4"}
-    description: "JST XH 4-pin (2.5mm pitch, through-hole)"
-
-  - name: JST_XH_5pin
-    component_class: connector
-    pins: {count: 5}
-    package: {kind: jst}
-    pin_names: {1: "1", 2: "2", 3: "3", 4: "4", 5: "5"}
-    description: "JST XH 5-pin (2.5mm pitch, through-hole)"

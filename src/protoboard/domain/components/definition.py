@@ -266,6 +266,13 @@ class ComponentDefinition:
     # geometry. Empty = no choice (the part carries its ``package`` directly).
     # See docs/footprints/authoring.md.
     footprints: tuple[FootprintOption, ...] = ()
+    # Parametric (variable-pin-count) entry: the library YAML declared a
+    # ``package: {kind: …}`` with NO ``pins:``, so the pin count (and any open
+    # generator parameters, e.g. a pin header's ``rows``) are chosen by the
+    # user at placement time. ``package`` then holds a PREVIEW body built at
+    # the generator's ``preview_pin_count``; placing the part concretizes the
+    # entry into an ordinary definition (services/library/parametric.py).
+    parametric_pins: bool = False
 
     def __post_init__(self) -> None:
         if not self.name:

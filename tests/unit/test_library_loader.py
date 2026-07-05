@@ -1126,7 +1126,11 @@ components:
         names = defn.effective_pin_names("nonexistent")
         assert names == {1: "1", 2: "2", 3: "3", 4: "4"}
 
-    def test_connectors_yaml_has_variants(self) -> None:
+    def test_connectors_resolve_parametrically(self) -> None:
+        # headers.yaml carries parametric entries (variable pin count); the
+        # historical fixed-count names synthesize on lookup.  The pin-name
+        # presets (UART/I2C/…) were deliberately dropped with that rewrite —
+        # they return as generator-side per-count config (docs/todo.md).
         from protoboard.services.library.package_family_loader import (
             load_full_package_catalogue,
         )
@@ -1134,11 +1138,11 @@ components:
             [FIXTURES.parent.parent.parent / "library"],
             load_full_package_catalogue(),
         )
+        assert lib.get("PinHeader").parametric_pins
         defn = lib.get("PinHeader_1x04")
-        assert len(defn.variants) >= 4
-        ids = [v.id for v in defn.variants]
-        assert "i2c_vcc_gnd_sda_scl" in ids
-        assert "uart_vcc_gnd_tx_rx" in ids
+        assert defn.pin_count == 4
+        assert not defn.parametric_pins
+        assert defn.variants == ()
 
 
 class TestPackageInLibrary:

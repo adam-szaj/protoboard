@@ -43,6 +43,7 @@ Pure domain: no Qt, no I/O.
 from __future__ import annotations
 
 import dataclasses
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from typing import Any, ClassVar, TypeVar
@@ -246,6 +247,36 @@ class PackageGenerator(ABC):
         )
         base = f"{kind}-{ctx.pin_count}"
         return f"{base} ({extras})" if extras else base
+
+    # ------------------------------------------------------------------
+    # Parametric (variable-pin-count) component entries
+    # ------------------------------------------------------------------
+
+    #: Pin count used to build the library-panel PREVIEW body of a parametric
+    #: component entry (one that leaves the count to the placement dialog).
+    preview_pin_count: ClassVar[int] = 4
+
+    def variant_suffix(
+        self, pin_count: int, values: Mapping[str, Any],
+    ) -> str:
+        """Deterministic name suffix of a concretized parametric entry.
+
+        ``{base}_{suffix}`` names the synthesized definition; the suffix must
+        round-trip through :meth:`parse_variant_suffix` so a saved project
+        referencing the name re-synthesizes the same definition on load.
+        """
+        del values
+        return f"{pin_count}pin"
+
+    def parse_variant_suffix(
+        self, suffix: str,
+    ) -> tuple[int, dict[str, Any]] | None:
+        """Inverse of :meth:`variant_suffix`: ``(pin_count, values)`` or
+        ``None`` when *suffix* is not one of this generator's names."""
+        m = re.fullmatch(r"(\d+)pin", suffix)
+        if m is None:
+            return None
+        return int(m.group(1)), {}
 
 
 def prism_from_footprint(fp: Footprint) -> Package | None:

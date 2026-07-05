@@ -5,6 +5,18 @@ Open follow-ups that don't fit into the closed plans archived under
 the work cold.  Completed entries are pruned (2026-07-04) — recover
 their full write-ups from this file's git history.
 
+## Connector pin-name presets → generator config (added 2026-07-06)
+
+The parametric-connector rewrite (variable pin count chosen at placement;
+`library/Connectors/headers.yaml`) deliberately DROPPED the authored
+`variants:` pin-name presets the fixed-count headers carried (UART/I2C/SPI/SWD
+labellings on `PinHeader_1x03` / `_1x04` — recover the data from this file's
+git history at the rewrite commit). Decision: presets belong to the
+**generator** — equip `PackageGenerator` (pin_header first) with a per-pin-count
+preset configuration the concretization copies into the synthesized
+definition's `variants`, so the pin-variant picker works again. Related: the
+planned `idc` kind should join `pin_header`/`jst` when added.
+
 ## Kind generators — remaining edge (added 2026-07-04)
 
 The pluggable generator registry is feature-complete (partial kinds in

@@ -3,7 +3,7 @@ components:
   # Templates (prefix _ → not placeable)
   # -----------------------------------------------------------------------
 
-  - name _D
+  - name: _D
     component_class: diode
     pin_names: {1: A, 2: K}
 
