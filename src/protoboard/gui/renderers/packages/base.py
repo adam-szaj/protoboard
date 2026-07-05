@@ -56,6 +56,7 @@ from protoboard.domain.components.package.shapes import (
 )
 from protoboard.domain.components.package.shapes import (
     Package,
+    bbox_or_none,
 )
 from protoboard.domain.components.package.shapes import (
     Prism as _PkgPrism,
@@ -369,8 +370,7 @@ class PackageRenderer(BodyShape):
         declared = cls.__dict__.get("renders")
         if declared is None:
             return
-        keys = (declared,) if isinstance(declared, str) else tuple(declared)
-        for key in keys:
+        for key in _axis_keys(declared):
             _register(BODY_RENDERERS, "renders", key, cls)
 
     def __init__(
@@ -701,13 +701,12 @@ class PackageRenderer(BodyShape):
         z: float,
         theme: Theme,
     ) -> list[QGraphicsItem]:
-        try:
-            box = self._pkg.bbox()
-        except ValueError:
-            # bbox needs dims/margin the package doesn't carry — fall back to
-            # a rectangle hugging the pin cloud (same as GenericBody); the
-            # appearance rides along so the radius override still applies
-            # (fill/border are already resolved by draw()).
+        box = bbox_or_none(self._pkg)
+        if box is None:
+            # No derivable body extent — fall back to a rectangle hugging the
+            # pin cloud (same as GenericBody); the appearance rides along so
+            # the radius override still applies (fill/border are already
+            # resolved by draw()).
             generic: list[QGraphicsItem] = GenericBody(self._appearance).draw(
                 positions, fill, border, alpha, z, theme,
             )

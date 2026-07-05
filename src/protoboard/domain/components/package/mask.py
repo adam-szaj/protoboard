@@ -15,7 +15,7 @@ from __future__ import annotations
 from enum import IntFlag
 
 from protoboard.domain.board.layer import BOTTOM, TOP, LayerId
-from protoboard.domain.components.package.shapes import Package
+from protoboard.domain.components.package.shapes import Package, bbox_or_none
 from protoboard.geometry import Point
 
 
@@ -97,9 +97,8 @@ def body_holes(package: Package) -> list[Point]:
     margin) covers no holes — the part occupies only its pins.
     """
     pin_holes = {_hole_key(p) for p in package.pin_positions()}
-    try:
-        bb = package.bbox()
-    except ValueError:
+    bb = bbox_or_none(package)
+    if bb is None:
         return []
     x0, y0 = round(bb.x), round(bb.y)
     x1, y1 = round(bb.x + bb.width), round(bb.y + bb.height)
@@ -141,9 +140,8 @@ def build_pad_mask(
 
     # Body footprint. A package with no derivable body extent (no explicit
     # dims, no margin) masks its pins only.
-    try:
-        bb = package.bbox()
-    except ValueError:
+    bb = bbox_or_none(package)
+    if bb is None:
         return mask
     x0, y0 = round(bb.x), round(bb.y)
     x1, y1 = round(bb.x + bb.width), round(bb.y + bb.height)

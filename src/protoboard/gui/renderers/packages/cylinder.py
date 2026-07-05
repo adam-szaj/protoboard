@@ -219,6 +219,38 @@ class CylinderRenderer(PackageRenderer):
     # Cylinder — side-view capsule along the lead axis (axial parts)
     # ------------------------------------------------------------------
 
+    def _anchor_ordered(self, positions: list[Point]) -> tuple[Point, Point]:
+        """The two pad ends, anchor end first.
+
+        ``vertical_flipped`` swaps the ends so every end-anchored marking
+        (the cathode stripe, a colour-band code group) mirrors with the part.
+        """
+        if self._vertical_flipped:
+            return positions[1], positions[0]
+        return positions[0], positions[1]
+
+    @staticmethod
+    def _capsule_metrics(
+        pkg: _PkgCylinder, mm: float,
+    ) -> tuple[float, float, float]:
+        """``(length, width, end-cap radius)`` of the side-view capsule, in
+        holes.
+
+        The cap radius is clamped so the rounded rect never degenerates;
+        end markings (the cathode stripe, colour bands) must stay on the
+        straight segment — within ±(length/2 − radius) of the centre.
+        """
+        body_len = pkg.length_mm / mm
+        body_w = pkg.diameter_mm / mm
+        r = min(pkg.edge_radius_mm / mm, body_w / 2.0, body_len / 2.0)
+        return body_len, body_w, r
+
+    @staticmethod
+    def _mounts_upright(dist: float, body_len: float) -> bool:
+        """Pad spacing shorter than the body → the axial part stands upright
+        (top-view disc; the flat side view and its markings don't apply)."""
+        return dist < body_len - 1e-6
+
     def _draw_cylinder(
         self,
         pkg: _PkgCylinder,
@@ -230,15 +262,8 @@ class CylinderRenderer(PackageRenderer):
         theme: Theme,
     ) -> list[QGraphicsItem]:
         mm = theme.raster_pitch_mm
-        body_len = pkg.length_mm / mm
-        body_w = pkg.diameter_mm / mm
-
-        # vertical_flipped swaps the anchor end so the polarity stripe mirrors
-        # when the part is mounted the other way round (legacy convention).
-        if self._vertical_flipped:
-            p1, p2 = positions[1], positions[0]
-        else:
-            p1, p2 = positions[0], positions[1]
+        body_len, body_w, r = self._capsule_metrics(pkg, mm)
+        p1, p2 = self._anchor_ordered(positions)
         axis = p2 - p1  # Point − Point → Vector
         dx, dy = axis.dx, axis.dy
         dist = axis.length()
@@ -255,7 +280,7 @@ class CylinderRenderer(PackageRenderer):
         # the upright body is a disc (diameter = body width) on ``p1``; the ``-``
         # marker points towards the physical cathode (pin 2). (User rule,
         # 2026-06-28.)
-        if dist < body_len - 1e-6:
+        if self._mounts_upright(dist, body_len):
             anchor = p1               # the Flip-chosen pad the body stands on
             other = p2                # the bent lead reaches here
             upright: list[QGraphicsItem] = []
@@ -297,9 +322,8 @@ class CylinderRenderer(PackageRenderer):
 
         # Edge rounding is a package property (edge_radius_mm, default 0 → a
         # plain rectangular body); only packages that declare it (e.g. a glass
-        # DO-35) get a capsule. Clamp to half the shorter side so the rounded
-        # rect never degenerates.
-        r = min(pkg.edge_radius_mm / mm, body_w / 2.0, body_len / 2.0)
+        # DO-35) get a capsule. ``r`` is the clamped cap radius from
+        # _capsule_metrics.
         path = QPainterPath()
         path.addRoundedRect(
             QRectF(-body_len / 2.0, -body_w / 2.0, body_len, body_w), r, r,

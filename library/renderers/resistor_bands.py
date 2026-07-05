@@ -37,9 +37,8 @@ from protoboard.gui.renderers.packages import (
 )
 from protoboard.gui.renderers.value_codes import (
     code_digits,
-    parse_inductance,
-    parse_resistance,
     parse_tolerance,
+    parse_value,
 )
 from protoboard.gui.theme import Theme
 
@@ -132,12 +131,7 @@ class DinColorBandRenderer(CylinderRenderer):
         """The code group for the placed part, or ``None`` (no bands)."""
         if self._instance is None:
             return None
-        if self._component_class == ComponentClass.RESISTOR:
-            value = parse_resistance(self._instance.value)
-        elif self._component_class == ComponentClass.INDUCTOR:
-            value = parse_inductance(self._instance.value)
-        else:
-            return None
+        value = parse_value(self._component_class, self._instance.value)
         if value is None:
             return None
         return code_bands(value)
@@ -173,24 +167,19 @@ class DinColorBandRenderer(CylinderRenderer):
             return items
 
         mm = theme.raster_pitch_mm
-        body_len = pkg.length_mm / mm
-        body_w = pkg.diameter_mm / mm
-        # Same anchor-end swap as the base body, so the code group mirrors
+        body_len, body_w, edge_r = self._capsule_metrics(pkg, mm)
+        # Same anchor-end order as the base body, so the code group mirrors
         # with the part exactly like the cathode stripe does.
-        if self._vertical_flipped:
-            p1, p2 = positions[1], positions[0]
-        else:
-            p1, p2 = positions[0], positions[1]
+        p1, p2 = self._anchor_ordered(positions)
         dist = (p2 - p1).length()
         # Bands are visible only on the HORIZONTAL body (the side view). An
-        # upright part (pad spacing shorter than the body) draws its top-view
-        # disc, and a degenerate spacing draws the bbox — neither shows a code.
-        if dist < 1e-9 or dist < body_len - 1e-6:
+        # upright part draws its top-view disc, and a degenerate spacing draws
+        # the bbox — neither shows a code.
+        if dist < 1e-9 or self._mounts_upright(dist, body_len):
             return items
 
         # Keep every band on the straight segment of the capsule, clear of the
         # rounded end caps (the cathode-stripe rule).
-        edge_r = min(pkg.edge_radius_mm / mm, body_w / 2.0, body_len / 2.0)
         half = body_len / 2.0 - edge_r
         band_w = body_len * self.BAND_FRAC
         gap = body_len * self.GAP_FRAC

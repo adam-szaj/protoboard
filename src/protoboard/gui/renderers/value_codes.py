@@ -19,11 +19,14 @@ from __future__ import annotations
 
 import re
 
+from protoboard.domain.components.definition import ComponentClass
+
 __all__ = [
     "code_digits",
     "parse_inductance",
     "parse_resistance",
     "parse_tolerance",
+    "parse_value",
     "smd_code",
 ]
 
@@ -83,6 +86,20 @@ def parse_tolerance(text: str) -> float | None:
     if not m:
         return None
     return float(m.group(1).replace(",", "."))
+
+
+def parse_value(component_class: str, text: str) -> float | None:
+    """A part's ``value`` string → the number its marking encodes, or ``None``.
+
+    The single policy for which component classes carry a decodable value
+    code, and in which unit: a resistor decodes as ohms, an inductor as µH;
+    any other class (or a value that does not parse) has no code.
+    """
+    if component_class == ComponentClass.RESISTOR:
+        return parse_resistance(text)
+    if component_class == ComponentClass.INDUCTOR:
+        return parse_inductance(text)
+    return None
 
 
 def code_digits(value: float) -> tuple[list[int], int] | None:

@@ -250,6 +250,31 @@ def lead_axis_extents(package: Package) -> tuple[float, float]:
     return bb.height, bb.width
 
 
+def bbox_or_none(package: Package) -> Rect | None:
+    """``package.bbox()``, or ``None`` when no body extent is derivable.
+
+    The degrade contract shared by masking and rendering: a package with no
+    explicit dims and no margin has no body rectangle — the part occupies /
+    draws only its pins (or a caller-chosen generic fallback).
+    """
+    try:
+        return package.bbox()
+    except ValueError:
+        return None
+
+
+def lead_axis_extents_or_none(package: Package) -> tuple[float, float] | None:
+    """:func:`lead_axis_extents`, or ``None`` when no dims are derivable.
+
+    Same degrade contract as :func:`bbox_or_none`, split along/across the
+    pin-row axis.
+    """
+    try:
+        return lead_axis_extents(package)
+    except ValueError:
+        return None
+
+
 def _pins_bbox(positions: list[Point]) -> Rect:
     xs = [p.x for p in positions]
     ys = [p.y for p in positions]

@@ -15,27 +15,25 @@ from __future__ import annotations
 from PySide6.QtGui import QBrush, QColor, QTransform
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsSimpleTextItem
 
-from protoboard.domain.components.definition import ComponentClass
 from protoboard.domain.components.package.shapes import (
     Prism as _PkgPrism,
 )
 from protoboard.domain.components.package.shapes import (
-    lead_axis_extents,
+    lead_axis_extents_or_none,
 )
 from protoboard.geometry import Point
 from protoboard.gui.renderers.packages.base import register_renderer
-from protoboard.gui.renderers.packages.canvas import BodyCanvas
+from protoboard.gui.renderers.packages.canvas import (
+    BodyCanvas,
+    qcolor_from_css,
+)
 from protoboard.gui.renderers.packages.prism import PrismRenderer
 from protoboard.gui.renderers.prism_silhouette import (
     PrismSilhouette,
     SilSilhouette,
     dip_silhouette,
 )
-from protoboard.gui.renderers.value_codes import (
-    parse_inductance,
-    parse_resistance,
-    smd_code,
-)
+from protoboard.gui.renderers.value_codes import parse_value, smd_code
 from protoboard.gui.theme import Theme
 
 
@@ -94,10 +92,10 @@ class SmdChipRenderer(PrismRenderer):
         if (p2 - p1).length() < 1e-9:
             return items
 
-        try:
-            body_len, body_w = lead_axis_extents(pkg)
-        except ValueError:
+        extents = lead_axis_extents_or_none(pkg)
+        if extents is None:
             return items  # no dims to size the caps — keep the base drawing
+        body_len, body_w = extents
         cap = body_len * self.CAP_FRAC
         canvas = self.axis_canvas(positions[:2], p1, p2, fill, border, alpha,
                                   z, theme)
@@ -125,12 +123,7 @@ class SmdChipRenderer(PrismRenderer):
         """
         if self._instance is None:
             return None
-        if self._component_class == ComponentClass.RESISTOR:
-            value = parse_resistance(self._instance.value)
-        elif self._component_class == ComponentClass.INDUCTOR:
-            value = parse_inductance(self._instance.value)
-        else:
-            return None
+        value = parse_value(self._component_class, self._instance.value)
         if value is None:
             return None
         return smd_code(value)
@@ -151,7 +144,7 @@ class SmdChipRenderer(PrismRenderer):
         if not code or avail_len <= 0:
             return None
         label = QGraphicsSimpleTextItem(code)
-        ink = QColor(self.CODE_COLOR)
+        ink = qcolor_from_css(self.CODE_COLOR)
         ink.setAlphaF(ink.alphaF() * alpha)
         label.setBrush(QBrush(ink))
         br = label.boundingRect()
