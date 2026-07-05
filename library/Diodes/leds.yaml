@@ -2,48 +2,23 @@ components:
   # -----------------------------------------------------------------------
   # Templates per LED package size
   # -----------------------------------------------------------------------
+  - name: _LED
+    component_class: diode_led
+    pin_names:
+      1: A
+      2: K
   - name: _LED_2_5mm
-    component_class: diode_led
-    pin_names:
-      1: A
-      2: K
-    package_family_ref: LED/led25
-    bendable_pins:
-      2:
-        min_reach: 1
-        max_reach: 7
-        default:
-          x: 0
-          y: 1
+    extends: _LED
+    footprints:
+        - ref: "LED/led25"
   - name: _LED_3_0mm
-    component_class: diode_led
-    pin_names:
-      1: A
-      2: K
-    package_family_ref: LED/led30
-    bendable_pins:
-      2:
-        min_reach: 1
-        max_reach: 7
-        default:
-          x: 0
-          y: 1
+    extends: _LED
+    footprints:
+        - ref: "LED/led30"
   - name: _LED_5_0mm
-    component_class: diode_led
-    pin_names:
-      1: A
-      2: K
-    package_family_ref: LED/led50
-    bendable_pins:
-      2:
-        min_reach: 1
-        max_reach: 9
-        default:
-          x: 0
-          y: 1
-          # -----------------------------------------------------------------------
-          # 2.5 mm LEDs by colour
-          # -----------------------------------------------------------------------
+    extends: _LED
+    footprints:
+        - ref: "LED/led50"
   - name: LED_2_5_Red
     extends: _LED_2_5mm
     style: 'color: #ff000080'
@@ -110,13 +85,15 @@ components:
     extends: _LED_5_0mm
     style: 'color: #ffffff80'
     description: LED 5mm white
-  - name: LED_BAR
+  - name: _LED_BAR
     component_class: led_bar
     description: "10-segment LED bar graph"
+    style: 'color: #aaa'
     pins: {count: 20}
     pin_names: {1: A1, 2: A2, 3: A3, 4: A4, 5: A5, 6: A6, 7: A7, 8: A8, 9: A9,
-                10: A10, 11: K1, 12: K2, 13: K3, 14: K4, 15: K5, 16: K6, 17: K7,
-                18: K8, 19: K9, 20: K10}
+                10: A10,
+                11: K10, 12: K9, 13: K8, 14: K7, 15: K6, 16: K5, 17: K4,
+                18: K3, 19: K2, 20: K1}
     package:
       shape: prism
       dims:
@@ -134,3 +111,18 @@ components:
             - [3, 0]
             - [9, [0, -1]]
         board_offset: default
+  - name: LED_BAR
+    extends: _LED_BAR
+    style: 'color: #a00'
+  - name: LED_BAR_RED
+    extends: _LED_BAR
+    style: 'color: #a00'
+  - name: LED_BAR_GREEN
+    extends: _LED_BAR
+    style: 'color: #0a0'
+  - name: LED_BAR_BLUE
+    extends: _LED_BAR
+    style: 'color: #00a'
+  - name: LED_BAR_YELLOW
+    extends: _LED_BAR
+    style: 'color: #cc0'

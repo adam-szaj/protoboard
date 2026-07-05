@@ -23,6 +23,7 @@ from protoboard.gui.renderers.packages.base import (
 )
 from protoboard.gui.renderers.packages.canvas import (
     BodyCanvas,
+    PaintState,
     qcolor_from_css,
 )
 from protoboard.gui.renderers.packages.cylinder import CylinderRenderer
@@ -50,6 +51,7 @@ __all__ = [
     "DiscRenderer",
     "GenericBody",
     "PackageRenderer",
+    "PaintState",
     "PlainBodyRenderer",
     "PrismRenderer",
     "SilHeaderRenderer",

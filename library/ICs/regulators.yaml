@@ -78,3 +78,9 @@ components:
     extends: _TO92_3
     pin_names: {1: OUT, 2: GND, 3: IN}
     description: "+3.3V 100mA LDO (TO-92)"
+
+  - name: TL431
+    description: "Programable Zener Diode IC"
+    component_class: ic
+    pin_names: {1: Ref, 2: A, 3: K}
+    package_family_ref: "TO-92/std"

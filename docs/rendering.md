@@ -269,15 +269,27 @@ from protoboard.gui.renderers.packages import PrismRenderer, register_renderer
 @register_renderer(family="TO-220")        # family id on the package lineage
 class TO220Renderer(PrismRenderer):
 
-    def render_body(self, positions, fill, border, alpha, z, theme):
-        items = super().render_body(positions, fill, border, alpha, z, theme)
-        canvas = self.axis_canvas(positions, positions[0], positions[1],
-                                  fill, border, alpha, z, theme)
+    def render_body(self, positions):
+        items = super().render_body(positions)
+        canvas = self.axis_canvas(positions, positions[0], positions[1])
         canvas.track(items)                # z bookkeeping over the base body
         canvas.setFillColor("#dddddd")
         canvas.addRect((-1.0, 0.5), (1.0, 0.9), round=canvas.mm(0.1),
                        z=canvas.zAbove())  # a strip just above the body
         return items + canvas.items
+```
+
+`render_body` receives only the pad `positions`; everything else a draw needs
+lives on **`self.paint`** — a frozen `PaintState` with the resolved `fill` /
+`border`, the layer `alpha`, the base `z` and the `theme`, set by `draw()`
+for the duration of the call. To re-colour the base drawing without losing
+the resolved colours for your own details, wrap the `super()` call in
+`self.paint_override(fill=…, border=…)`:
+
+```python
+with self.paint_override(fill="#000000"):   # base body in black
+    items = super().render_body(positions)
+canvas = self.body_canvas(positions)        # details in the resolved fill
 ```
 
 The **reference plugin is `library/renderers/to220.py`** (the builtin library
@@ -308,13 +320,20 @@ Plugins and renderer subclasses draw through a **canvas**
 fill / border and the frame transform once, and every `add<Shape>` call
 returns a finished, collected `QGraphicsPathItem`.
 
-- **Frames** (renderer factory methods): `self.body_canvas(positions, …)` —
+- **Frames** (renderer factory methods): `self.body_canvas(positions)` —
   the package-local frame (pin 1 at the origin) through the same
   local→world transform as the pins (rotation + bottom-side reflection;
-  transform baked into the paths); `self.axis_canvas(positions, p1, p2, …)` —
+  transform baked into the paths); `self.axis_canvas(positions, p1, p2)` —
   the pad-axis frame (origin at the pad centroid, +x along the p1→p2 lead
-  axis; transform set on the items). Units are raster holes;
-  `canvas.mm(x)` converts millimetres.
+  axis; transform set on the items). Paint state comes from `self.paint`.
+- **Units**: geometry inputs are raster holes by default; `canvas.mm(x)`
+  converts a single millimetre value. A body authored purely from datasheet
+  dimensions can instead ask for a millimetre canvas —
+  `self.axis_canvas(positions, p1, p2, units="mm")` — which converts every
+  coordinate, radius and path on input. Style is unit-less either way (pen
+  widths stay in holes, Z is a layer index). Don't mix domains on one mm
+  canvas: pad positions and `bbox()` / `lead_axis_extents()` extents are in
+  HOLES and must not be fed to a `units="mm"` canvas.
 - **Shapes**: `addRect(p1, p2, round=r | (tl,tr,br,bl))`, `addCircle(c, r)`,
   `addEllipse(c, rx, ry)`, `addArc(c, r, start_deg, span_deg)` (stroke-only),
   `addPath(qpainter_path)`.

@@ -27,7 +27,6 @@ above what the base drew.
 
 from __future__ import annotations
 
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsItem
 
 from protoboard.domain.components.package.shapes import (
@@ -36,7 +35,6 @@ from protoboard.domain.components.package.shapes import (
 )
 from protoboard.geometry import Point
 from protoboard.gui.renderers.packages import PrismRenderer, register_renderer
-from protoboard.gui.theme import Theme
 
 
 @register_renderer(family="TO-220")
@@ -46,21 +44,13 @@ class TO220Renderer(PrismRenderer):
     #: Light metal tab colour (the exposed heatsink flange).
     TAB_COLOR = "#dddddd"
 
-    def render_body(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
-    ) -> list[QGraphicsItem]:
-        items = super().render_body(positions, fill, border, alpha, z, theme)
+    def render_body(self, positions: list[Point]) -> list[QGraphicsItem]:
+        items = super().render_body(positions)
 
         # Geometry mirrors the radial-rectangle frame the base class used: the
         # frame origin is the pad centroid, local +x runs along the lead axis
         # (pin 1 → last pin), so the body spans ``length × width`` around it.
-        # The tab is a ``length × tab_h`` strip attached to the +y long edge —
+        # The tab is a ``length × tab_h`` strip attached to the −y long edge —
         # flipping the part (``vertical_flipped`` reverses the pad axis) turns
         # the tab to the other side, matching the physical package flip.
         pkg = self._pkg
@@ -81,15 +71,15 @@ class TO220Renderer(PrismRenderer):
         # convention (the tab used to float outside the body, half its length).
         body_len, body_w = lead_axis_extents(pkg)
 
-        canvas = self.axis_canvas(positions, p1, p2, fill, border, alpha, z,
-                                  theme)
+        theme = self.paint.theme
+        canvas = self.axis_canvas(positions, p1, p2)
         canvas.track(items)
         canvas.setFillColor(self.TAB_COLOR)
-        tab_h = canvas.mm(theme.to220_tab_height_mm)
+        tab_h = canvas.mm(theme.to220_tab_thickness_mm)
         # Just above the plastic body so the strip reads as a separate part.
         canvas.addRect(
-            (-body_len / 2.0, body_w / 2.0 - tab_h),
-            (body_len / 2.0, body_w / 2.0),
+            (-body_len / 2.0, -body_w / 2.0 + tab_h),
+            (body_len / 2.0, -body_w / 2.0),
             round=canvas.mm(0.1),
             pen_width=theme.body_tab_pen_width,
             z=canvas.zAbove(),

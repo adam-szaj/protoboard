@@ -19,9 +19,9 @@ creation, so no explicit call is needed.  Example plugin
     @register_renderer(family="TO-220")
     class TO220Renderer(PrismRenderer):
 
-        def render_body(self, positions, fill, border, alpha, z, theme):
-            items = super().render_body(positions, fill, border, alpha, z, theme)
-            items.append(self._metal_tab(...))
+        def render_body(self, positions):
+            items = super().render_body(positions)
+            items.append(self._metal_tab(...))  # paint state: self.paint
             return items
 
 The actual import machinery is shared with the generator plugins — see

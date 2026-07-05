@@ -40,7 +40,6 @@ from protoboard.gui.renderers.value_codes import (
     parse_tolerance,
     parse_value,
 )
-from protoboard.gui.theme import Theme
 
 # ---------------------------------------------------------------------------
 # The IEC 60062 colour code
@@ -151,22 +150,14 @@ class DinColorBandRenderer(CylinderRenderer):
             return TOLERANCE_COLOR
         return TOLERANCE_COLORS.get(percent)
 
-    def render_body(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
-    ) -> list[QGraphicsItem]:
-        items = super().render_body(positions, fill, border, alpha, z, theme)
+    def render_body(self, positions: list[Point]) -> list[QGraphicsItem]:
+        items = super().render_body(positions)
         code = self._band_colors()
         pkg = self._pkg
         if code is None or not isinstance(pkg, Cylinder) or len(positions) < 2:
             return items
 
-        mm = theme.raster_pitch_mm
+        mm = self.paint.theme.raster_pitch_mm
         body_len, body_w, edge_r = self._capsule_metrics(pkg, mm)
         # Same anchor-end order as the base body, so the code group mirrors
         # with the part exactly like the cathode stripe does.
@@ -184,8 +175,7 @@ class DinColorBandRenderer(CylinderRenderer):
         band_w = body_len * self.BAND_FRAC
         gap = body_len * self.GAP_FRAC
 
-        canvas = self.axis_canvas(positions[:2], p1, p2, fill, border, alpha,
-                                  z, theme)
+        canvas = self.axis_canvas(positions[:2], p1, p2)
         # Code group from the pin-1 end…
         x = -half + gap
         for color in code:

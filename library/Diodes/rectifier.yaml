@@ -3,36 +3,34 @@ components:
   # Templates (prefix _ → not placeable)
   # -----------------------------------------------------------------------
 
-  - name: _D_DO35
+  - name _D
     component_class: diode
     pin_names: {1: A, 2: K}
-    package_family_ref: "DO-35/typ"
+
+  - name: _D_DO35
+    extends: _D
+    footprints:
+        - ref: "DO-35/typ"
     bendable_pins:
       2:
         min_reach: 1
         max_reach: 11
         default: {x: 0, y: 2}
-    aliases:
-      - D_DO_35_SOD27
-      - D_DO35_SOD27
 
   - name: _D_DO41
-    component_class: diode
-    pin_names: {1: A, 2: K}
-    package_family_ref: "DO-41/typ"
+    extends: _D
+    footprints:
+        - ref: "DO-41/typ"
     bendable_pins:
       2:
         min_reach: 1
         max_reach: 17
         default: {x: 0, y: 3}
-    aliases:
-      - D_DO_201
-      - D_DO41
 
   - name: _D_DO201
-    component_class: diode
-    pin_names: {1: A, 2: K}
-    package_family_ref: "DO-201/typ"
+    extends: _D
+    footprints:
+        - ref: "DO-201/typ"
     bendable_pins:
       2:
         min_reach: 2

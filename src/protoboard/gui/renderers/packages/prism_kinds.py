@@ -12,7 +12,7 @@ guess) — rendering never blocks on an unknown kind.
 
 from __future__ import annotations
 
-from PySide6.QtGui import QBrush, QColor, QTransform
+from PySide6.QtGui import QBrush, QTransform
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsSimpleTextItem
 
 from protoboard.domain.components.package.shapes import (
@@ -34,7 +34,6 @@ from protoboard.gui.renderers.prism_silhouette import (
     dip_silhouette,
 )
 from protoboard.gui.renderers.value_codes import parse_value, smd_code
-from protoboard.gui.theme import Theme
 
 
 @register_renderer(kind=("dip_ic", "wdip_ic"))
@@ -74,16 +73,8 @@ class SmdChipRenderer(PrismRenderer):
     #: Printed-code ink — the light silkscreen marking of a real chip.
     CODE_COLOR = "#e8e8e8"
 
-    def render_body(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
-    ) -> list[QGraphicsItem]:
-        items = super().render_body(positions, fill, border, alpha, z, theme)
+    def render_body(self, positions: list[Point]) -> list[QGraphicsItem]:
+        items = super().render_body(positions)
         pkg = self._pkg
         if (not isinstance(pkg, _PkgPrism) or pkg.pin_count() != 2
                 or len(positions) < 2):
@@ -97,8 +88,7 @@ class SmdChipRenderer(PrismRenderer):
             return items  # no dims to size the caps — keep the base drawing
         body_len, body_w = extents
         cap = body_len * self.CAP_FRAC
-        canvas = self.axis_canvas(positions[:2], p1, p2, fill, border, alpha,
-                                  z, theme)
+        canvas = self.axis_canvas(positions[:2], p1, p2)
         canvas.track(items)
         canvas.setFillColor(self.CAP_COLOR)
         cap_z = canvas.zAbove()
@@ -108,7 +98,7 @@ class SmdChipRenderer(PrismRenderer):
                        (body_len / 2.0, body_w / 2.0), z=cap_z)
         items.extend(canvas.items)
 
-        label = self._code_label(p1, p2, body_len, body_w, cap, alpha, z)
+        label = self._code_label(p1, p2, body_len, body_w, cap)
         if label is not None:
             items.append(label)
         return items
@@ -135,8 +125,6 @@ class SmdChipRenderer(PrismRenderer):
         body_len: float,
         body_w: float,
         cap: float,
-        alpha: float,
-        z: float,
     ) -> QGraphicsItem | None:
         """The printed value code, scaled into the body between the caps."""
         code = self._smd_code_text()
@@ -145,7 +133,7 @@ class SmdChipRenderer(PrismRenderer):
             return None
         label = QGraphicsSimpleTextItem(code)
         ink = qcolor_from_css(self.CODE_COLOR)
-        ink.setAlphaF(ink.alphaF() * alpha)
+        ink.setAlphaF(ink.alphaF() * self.paint.alpha)
         label.setBrush(QBrush(ink))
         br = label.boundingRect()
         if br.width() < 1e-9 or br.height() < 1e-9:
@@ -162,7 +150,7 @@ class SmdChipRenderer(PrismRenderer):
         t.scale(scale, scale)
         t.translate(-br.width() / 2.0, -br.height() / 2.0)
         label.setTransform(t)
-        label.setZValue(z + 2 * BodyCanvas.Z_STEP)
+        label.setZValue(self.paint.z + 2 * BodyCanvas.Z_STEP)
         return label
 
 

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import pytest
 from PySide6.QtGui import QColor, QPen, QTransform
 
 from protoboard.gui.renderers.packages import BodyCanvas
@@ -119,6 +120,51 @@ class TestCanvasShapes:
         assert not uniform.path().contains(_pt(0.02, 0.02))
         assert not mixed.path().contains(_pt(0.02, 0.02))    # tl rounded
         assert mixed.path().contains(_pt(1.98, 1.98))        # br sharp
+
+
+class TestCanvasUnits:
+    def test_mm_units_scale_rect_inputs_to_holes(self, qtbot) -> None:
+        pitch = DEFAULT_THEME.raster_pitch_mm
+        c = _canvas(units="mm")
+        item = c.addRect((0.0, 0.0), (2 * pitch, pitch))
+        br = item.path().boundingRect()
+        assert br.width() == pytest.approx(2.0)
+        assert br.height() == pytest.approx(1.0)
+
+    def test_mm_units_scale_radii_and_arcs(self, qtbot) -> None:
+        pitch = DEFAULT_THEME.raster_pitch_mm
+        c = _canvas(units="mm")
+        circle = c.addCircle((0.0, 0.0), pitch)
+        assert circle.path().boundingRect().width() == pytest.approx(2.0)
+        arc = c.addArc((0.0, 0.0), pitch, 0.0, 360.0)
+        assert arc.path().boundingRect().width() == pytest.approx(2.0)
+
+    def test_mm_units_scale_corner_round(self, qtbot) -> None:
+        pitch = DEFAULT_THEME.raster_pitch_mm
+        c = _canvas(units="mm")
+        rounded = c.addRect((0.0, 0.0), (2 * pitch, 2 * pitch), round=pitch)
+        # A 1-hole corner radius on a 2×2-hole rect: the corner point is cut.
+        assert not rounded.path().contains(_pt(0.05, 0.05))
+
+    def test_mm_units_scale_paths(self, qtbot) -> None:
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QPainterPath
+
+        pitch = DEFAULT_THEME.raster_pitch_mm
+        path = QPainterPath()
+        path.addRect(QRectF(0.0, 0.0, pitch, pitch))
+        c = _canvas(units="mm")
+        item = c.addPath(path)
+        assert item.path().boundingRect().width() == pytest.approx(1.0)
+
+    def test_pen_width_is_not_scaled(self, qtbot) -> None:
+        holes = _canvas().addRect((0, 0), (1, 1), pen_width=0.2)
+        mm = _canvas(units="mm").addRect((0, 0), (2.54, 2.54), pen_width=0.2)
+        assert mm.pen().widthF() == holes.pen().widthF()
+
+    def test_unknown_units_raise(self, qtbot) -> None:
+        with pytest.raises(ValueError, match="units"):
+            _canvas(units="inches")
 
 
 def _pt(x: float, y: float):

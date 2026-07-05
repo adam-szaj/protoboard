@@ -18,6 +18,8 @@ parameters as keyword arguments for that one item.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem
@@ -25,12 +27,31 @@ from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem
 from protoboard.geometry import Point
 from protoboard.gui.renderers.prism_silhouette import rounded_rect_path
 from protoboard.gui.theme import Theme
+from protoboard.services.debug_trace import traced
 
 #: Rounding for addRect: a single radius, per-corner radii
 #: (top-left, top-right, bottom-right, bottom-left), or None for sharp corners.
 CornerRound = float | tuple[float, float, float, float] | None
 
 _XY = Point | tuple[float, float]
+
+
+@dataclass(frozen=True)
+class PaintState:
+    """The per-draw paint parameters of one ``draw()`` call.
+
+    Bundles what every body-drawing helper needs: the resolved body colours,
+    the layer alpha, the base Z and the theme.  ``PackageRenderer.draw``
+    builds one per call and exposes it as ``self.paint`` for the duration of
+    the draw, so ``render_body`` overrides, internal helpers and the canvas
+    factories need no parameter threading.
+    """
+
+    fill: QColor
+    border: QColor
+    alpha: float
+    z: float
+    theme: Theme
 
 
 def qcolor_from_css(value: str) -> QColor:
@@ -96,17 +117,28 @@ class BodyCanvas:
         z: float = 0.0,
         transform: QTransform | None = None,
         bake: bool = False,
+        units: str = "holes",
     ) -> None:
         """*bake* selects how the transform reaches the items: ``False``
         (default) sets it as the item transform (paths stay in the canvas
         frame — the axis-frame convention); ``True`` maps every path through
         it (world-frame paths, identity item transform — the body-placement
-        convention of ``_draw_bbox`` / ``_draw_prism``)."""
+        convention of ``_draw_bbox`` / ``_draw_prism``).
+
+        *units* selects the unit of the GEOMETRY inputs — coordinates, radii
+        and prebuilt paths: ``"holes"`` (raster units, the default) or
+        ``"mm"`` (converted to holes on input, for bodies authored straight
+        from datasheet dimensions).  Style stays unit-less either way: pen
+        widths remain in holes and Z is a layer index, so switching units
+        never changes stroke weight or stacking."""
+        if units not in ("holes", "mm"):
+            raise ValueError(f"unknown canvas units: {units!r}")
         self._theme = theme
         self._alpha = alpha
         self._z = z
         self._transform = QTransform() if transform is None else transform
         self._bake = bake
+        self._scale = 1.0 if units == "holes" else 1.0 / theme.raster_pitch_mm
         self._fill = _as_qcolor(fill)
         self._border = _as_qcolor(border)
         self._pen: QPen | None = None
@@ -128,8 +160,17 @@ class BodyCanvas:
         self._pen = pen
 
     def mm(self, value_mm: float) -> float:
-        """Convert millimetres to raster units (holes)."""
+        """Convert millimetres to raster units (holes).
+
+        For per-value conversion on a ``units="holes"`` canvas; a
+        ``units="mm"`` canvas converts its geometry inputs itself.
+        """
         return value_mm / self._theme.raster_pitch_mm
+
+    def _pt(self, p: _XY) -> tuple[float, float]:
+        """A geometry input point, converted to holes per the canvas units."""
+        x, y = _xy(p)
+        return x * self._scale, y * self._scale
 
     @property
     def items(self) -> list[QGraphicsItem]:
@@ -165,6 +206,7 @@ class BodyCanvas:
 
     # -- shapes ---------------------------------------------------------
 
+    @traced("addRect")
     def addRect(
         self,
         p1: _XY,
@@ -182,12 +224,15 @@ class BodyCanvas:
 
         ``round`` gives a uniform or per-corner (tl, tr, br, bl) radius.
         """
-        x1, y1 = _xy(p1)
-        x2, y2 = _xy(p2)
+        x1, y1 = self._pt(p1)
+        x2, y2 = self._pt(p2)
         rect = QRectF(min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1))
-        path = rounded_rect_path(rect, _radii(round))
+        s = self._scale
+        tl, tr, br, bl = _radii(round)
+        path = rounded_rect_path(rect, (tl * s, tr * s, br * s, bl * s))
         return self._emit(path, fill, border, pen, pen_width, z_offset, z)
 
+    @traced("addCircle")
     def addCircle(
         self,
         center: _XY,
@@ -204,6 +249,7 @@ class BodyCanvas:
         return self.addEllipse(center, r, r, fill=fill, border=border, pen=pen,
                                pen_width=pen_width, z_offset=z_offset, z=z)
 
+    @traced("addEllipse")
     def addEllipse(
         self,
         center: _XY,
@@ -218,11 +264,13 @@ class BodyCanvas:
         z: float | None = None,
     ) -> QGraphicsPathItem:
         """An axis-aligned ellipse with half-extents *rx*/*ry*."""
-        cx, cy = _xy(center)
+        cx, cy = self._pt(center)
+        rx, ry = rx * self._scale, ry * self._scale
         path = QPainterPath()
         path.addEllipse(QRectF(cx - rx, cy - ry, 2 * rx, 2 * ry))
         return self._emit(path, fill, border, pen, pen_width, z_offset, z)
 
+    @traced("addArc")
     def addArc(
         self,
         center: _XY,
@@ -241,7 +289,8 @@ class BodyCanvas:
         Angles are Qt-style degrees: 0° at 3 o'clock, positive
         counter-clockwise.
         """
-        cx, cy = _xy(center)
+        cx, cy = self._pt(center)
+        r = r * self._scale
         rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
         path = QPainterPath()
         path.arcMoveTo(rect, start_deg)
@@ -250,6 +299,7 @@ class BodyCanvas:
         item.setBrush(QBrush())  # stroke only
         return item
 
+    @traced("addPath")
     def addPath(
         self,
         path: QPainterPath,
@@ -262,6 +312,8 @@ class BodyCanvas:
         z: float | None = None,
     ) -> QGraphicsPathItem:
         """An arbitrary canvas-frame path (e.g. a prebuilt silhouette)."""
+        if self._scale != 1.0:
+            path = QTransform.fromScale(self._scale, self._scale).map(path)
         return self._emit(path, fill, border, pen, pen_width, z_offset, z)
 
     # -- internals ------------------------------------------------------

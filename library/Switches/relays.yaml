@@ -1,0 +1,97 @@
+components:
+    - name: RELPOL_RM40B_1P
+      pin_count: 5
+      description: "RelPOL Miniature Relay RM40B 1P"
+      component_class: "switch"
+      style: "color: #222"
+      package:
+          shape: prism
+          dims: {width: 10, length: 20, height: 10.6}
+          leads:
+              direction: [0,0,-1]
+              body_offset:
+                  unit: 2.5
+                  value: [[0, 7], [3, 0], [0, -3], [0, -4]]
+              board_offset: default
+      pin_names: {1: A1, 2: A2, 3: 12, 4: 14, 5: 11}
+
+    - name: RELPOL_RM40B_1Z
+      pin_count: 4
+      description: "RelPOL Miniature Relay RM40B 1Z"
+      component_class: "switch"
+      style: "color: #222"
+      package:
+          shape: prism
+          dims: {width: 10, length: 20, height: 10.6}
+          leads:
+              direction: [0,0,-1]
+              body_offset:
+                  unit: 2.5
+                  value: [[3, 7], [0, -3], [0, -4]]
+              board_offset: default
+      pin_names: {1: A1, 2: 14, 3: 11, 4: A2}
+
+    - name: RELPOL_RM85_1P
+      pin_count: 8
+      description: "RelPOL Miniature Relay RM40B 1P"
+      component_class: "switch"
+      style: "color: #eee"
+      package:
+          shape: prism
+          dims: {width: 12.7, length: 29, height: 15.7}
+          leads:
+              direction: [0,0,-1]
+              body_offset:
+                  unit: 2.5
+                  value: [[-3, 0], [0, 6], [0, 2], [0, 2], [3, -4], [0, 2], [0,2]]
+              board_offset: default
+      pin_names: {1: A1, 2: A2, 3: 22, 4: 21, 5: 24, 6: 12, 7: 11, 8: 14}
+
+    - name: RELPOL_RM85_1Z
+      pin_count: 6
+      description: "RelPOL Miniature Relay RM40B 1P"
+      component_class: "switch"
+      style: "color: #eee"
+      package:
+          shape: prism
+          dims: {width: 12.7, length: 29, height: 15.7}
+          leads:
+              direction: [0,0,-1]
+              body_offset:
+                  unit: 2.5
+                  value: [[-3, 0], [0, 8], [0, 2], [3, -2], [0,2]]
+              board_offset: default
+      pin_names: {1: A1, 2: A2, 3: 21, 4: 24, 5: 11, 6: 14}
+
+    - name: RELPOL_RM83_1P
+      pin_count: 8
+      description: "RelPOL Miniature Relay RM40B 1P"
+      component_class: "switch"
+      style: "color: #eee"
+      package:
+          shape: prism
+          dims: {width: 12.7, length: 29, height: 15.7}
+          leads:
+              direction: [0,0,-1]
+              body_offset:
+                  unit: 2.5
+                  value: [[-3, 0], [0, 6], [0, 2], [0, 2], [3, -4], [0, 2], [0,2]]
+              board_offset: default
+      pin_names: {1: A1, 2: A2, 3: 22, 4: 21, 5: 24, 6: 12, 7: 11, 8: 14}
+
+    - name: RELPOL_RM83_1Z
+      pin_count: 6
+      description: "RelPOL Miniature Relay RM40B 1P"
+      component_class: "switch"
+      style: "color: #eee"
+      package:
+          shape: prism
+          dims: {width: 12.7, length: 29, height: 15.7}
+          leads:
+              direction: [0,0,-1]
+              body_offset:
+                  unit: 2.5
+                  value: [[-3, 0], [0, 8], [0, 2], [3, -2], [0,2]]
+              board_offset: default
+      pin_names: {1: A1, 2: A2, 3: 21, 4: 24, 5: 11, 6: 14}
+

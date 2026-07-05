@@ -3,24 +3,40 @@ components:
     description: "Tactile push button (4-pin, standard)"
     component_class: switch
     pins: {count: 4}
-    package: {kind: dip_switch}
-    pin_names: {1: A1, 2: A2, 3: B1, 4: B2}
+    pin_names: { 1: A, 2: A, 3: B, 4: B }
+    package:
+      shape: prism
+      dims:
+          width: 9.5
+          langth: 9.5
+          height: 4
+      leads:
+        direction: [0, 0, -1]
+        body_offset: {unit: 2.5, value: [[0, 2], [3,0], [0, -2]]}
+        board_offset: default
+      bend: 0
 
   - name: SW_SPDT
-    description: "SPDT slide/toggle switch"
+    description: "SPDT toggle switch"
     component_class: switch
     pins: {count: 3}
-    package: {kind: sil}
-    pin_names: {1: COM, 2: NC, 3: NO}
-    aliases:
-      - SW_SPDT_2
+    pin_names: {1: nc, 2: com, 3: no}
+    package:
+      shape: prism
+      dims: {width: 3.5, langth: 8.5, height: 10}
+      leads:
+        direction: [0, 0, -1]
+        body_offset: {unit: 2.5, value: [[0, 1], [0,1]]}
+        board_offset: default
+      bend: 0
 
   - name: SW_SPST
-    description: "SPST switch (2-pin)"
+    description: "SPST toggle switch"
     component_class: switch
     pins: {count: 2}
     package:
       shape: prism
+      dims: {width: 3.5, langth: 8.5, height: 10}
       leads:
         direction: [0, 0, -1]
         body_offset: {unit: 2.5, value: [[0, 1]]}

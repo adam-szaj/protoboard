@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QGraphicsItem
 
 from protoboard.domain.components.definition import ComponentClass
@@ -21,7 +20,6 @@ from protoboard.gui.renderers.prism_silhouette import (
     PrismSilhouette,
     silhouette_for,
 )
-from protoboard.gui.theme import Theme
 
 
 class PrismRenderer(PackageRenderer):
@@ -53,26 +51,16 @@ class PrismRenderer(PackageRenderer):
             return silhouette_for(pkg)
         return None
 
-    def render_body(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
-    ) -> list[QGraphicsItem]:
-        radial = self._maybe_radial(positions, fill, border, alpha, z, theme)
+    def render_body(self, positions: list[Point]) -> list[QGraphicsItem]:
+        radial = self._maybe_radial(positions)
         if radial is not None:
             return radial
         pkg = self._pkg
         if isinstance(pkg, _PkgPrism) and len(positions) >= 2:
-            prism_items = self._draw_prism(
-                pkg, positions, fill, border, alpha, z, theme,
-            )
+            prism_items = self._draw_prism(pkg, positions)
             if prism_items is not None:
                 return prism_items
-        return self._draw_bbox(positions, fill, border, alpha, z, theme)
+        return self._draw_bbox(positions)
 
     # ------------------------------------------------------------------
     # Prism — DIP / SIL / quad silhouette placed onto the pins
@@ -82,11 +70,6 @@ class PrismRenderer(PackageRenderer):
         self,
         pkg: _PkgPrism,
         positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
     ) -> list[QGraphicsItem] | None:
         """Render a multi-pin prism body from its column silhouette.
 
@@ -101,7 +84,7 @@ class PrismRenderer(PackageRenderer):
         # (so ortho and diagonal placements both render correctly).  It has no
         # column silhouette.
         if pkg.pin_count() == 2 and len(positions) >= 2:
-            return self._draw_smd_chip(pkg, positions, fill, border, alpha, z, theme)
+            return self._draw_smd_chip(pkg, positions)
 
         # The silhouette comes from ``_silhouette`` — the column guess here, a
         # declared look in the kind renderer subclasses, suppressed entirely in
@@ -114,6 +97,7 @@ class PrismRenderer(PackageRenderer):
         # the builder keeps using theme.body_corner_radius (the notch radius is
         # unaffected either way).
         corners = self._appearance.corner_radius_mm_corners
+        theme = self.paint.theme
         mm = theme.raster_pitch_mm
         corner_holes: tuple[float, float, float, float] | None = (
             (corners[0] / mm, corners[1] / mm, corners[2] / mm, corners[3] / mm)
@@ -129,11 +113,11 @@ class PrismRenderer(PackageRenderer):
         # orientation from the world pins alone can't recover the reflection's
         # chirality, which is why the bottom-side DIP body used to drift to
         # pin 1's old corner.
-        canvas = self.body_canvas(positions, fill, border, alpha, z, theme)
+        canvas = self.body_canvas(positions)
         canvas.addPath(drawing.body)
         if drawing.marker is not None:
-            canvas.addPath(drawing.marker, fill=border, pen_width=0.0,
-                           z_offset=0.01)
+            canvas.addPath(drawing.marker, fill=self.paint.border,
+                           pen_width=0.0, z_offset=0.01)
         return canvas.items
 
     # ------------------------------------------------------------------
@@ -144,11 +128,6 @@ class PrismRenderer(PackageRenderer):
         self,
         pkg: _PkgPrism,
         positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
     ) -> list[QGraphicsItem]:
         """A surface-mount chip (0805 / 0603): a flat rounded rectangle centred
         on the two pads and aligned to the pad axis.
@@ -166,22 +145,21 @@ class PrismRenderer(PackageRenderer):
         if extents is None:
             # No explicit dims/margin to size the chip — degrade to the bbox
             # fallback, which handles the same case with a generic body.
-            return self._draw_bbox(positions, fill, border, alpha, z, theme)
+            return self._draw_bbox(positions)
         body_len, body_w = extents
 
         p1, p2 = positions[0], positions[1]
         axis = p2 - p1  # Point − Point → Vector
         dist = axis.length()
         if dist < 1e-9:
-            return self._draw_bbox(positions, fill, border, alpha, z, theme)
+            return self._draw_bbox(positions)
 
         # The chip is drawn at its declared body length, centred on the pad
         # midpoint — a real SMD chip is shorter than the pad pitch and sits
         # between the pads, leaving the metallised pads visible at each end.
         # (It is *not* stretched to span the pad gap, which read as a long thin
         # rectangle.)
-        canvas = self.axis_canvas(positions[:2], p1, p2, fill, border, alpha,
-                                  z, theme)
+        canvas = self.axis_canvas(positions[:2], p1, p2)
         tl, tr, br, bl = self._effective_corner_radii_mm()
         canvas.addRect(
             (-body_len / 2.0, -body_w / 2.0),
@@ -207,19 +185,11 @@ class DevboardRenderer(PrismRenderer):
         del pkg
         return None
 
-    def _draw_bbox(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
-    ) -> list[QGraphicsItem]:
+    def _draw_bbox(self, positions: list[Point]) -> list[QGraphicsItem]:
         # A dev-board's pins sit on the PCB's top surface — mark each with a
         # faint pad-sized ring (the click-active area) drawn on top of the
         # body.  The real pin glyph / modifier is drawn by the component
         # renderer on a higher layer, so these rings are additive.
-        items = super()._draw_bbox(positions, fill, border, alpha, z, theme)
-        items.extend(self._pad_active_rings(positions, border, alpha, z, theme))
+        items = super()._draw_bbox(positions)
+        items.extend(self._pad_active_rings(positions))
         return items

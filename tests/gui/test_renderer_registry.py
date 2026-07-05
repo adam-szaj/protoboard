@@ -352,6 +352,65 @@ class TestTO220Plugin:
         assert body.contains(tab)
         # Full body length along the pin row (pen-width tolerance)…
         assert tab.width() == pytest.approx(body.width(), abs=0.1)
-        # …as a thin strip on the +y long edge, not a half-width block.
+        # …as a thin strip on the −y long edge, not a half-width block.
         assert tab.height() < body.height() / 2.0
-        assert abs(tab.bottom() - body.bottom()) < 0.1
+        assert abs(tab.top() - body.top()) < 0.1
+
+
+# ---------------------------------------------------------------------------
+# Per-draw paint state (self.paint / paint_override)
+# ---------------------------------------------------------------------------
+
+class TestPaintState:
+    def test_paint_raises_outside_draw(self, do_test_package) -> None:
+        renderer = CylinderRenderer(do_test_package)
+        with pytest.raises(RuntimeError, match="draw"):
+            _ = renderer.paint
+
+    def test_draw_exposes_resolved_paint(self, qtbot, do_test_package) -> None:
+        from PySide6.QtGui import QColor
+
+        from protoboard.gui.theme import DEFAULT_THEME
+
+        seen = {}
+
+        class Probe(CylinderRenderer):
+            def render_body(self, positions):
+                seen["paint"] = self.paint
+                return super().render_body(positions)
+
+        Probe(do_test_package).draw(
+            [Point(0.0, 0.0), Point(4.0, 0.0)],
+            QColor("#888888"), QColor("#222222"), 0.5, 7.0, DEFAULT_THEME,
+        )
+        paint = seen["paint"]
+        assert paint.fill.name() == "#888888"
+        assert paint.alpha == 0.5
+        assert paint.z == 7.0
+        assert paint.theme is DEFAULT_THEME
+
+    def test_paint_override_recolours_base_and_restores(
+        self, qtbot, do_test_package,
+    ) -> None:
+        from PySide6.QtGui import QColor
+
+        from protoboard.gui.theme import DEFAULT_THEME
+
+        class Overrider(CylinderRenderer):
+            def render_body(self, positions):
+                with self.paint_override(fill="#000000"):
+                    items = super().render_body(positions)
+                assert self.paint.fill.name() == "#888888"  # restored
+                extra = self.axis_canvas(positions[:2], positions[0],
+                                         positions[1])
+                extra.addRect((-0.5, -0.5), (0.5, 0.5))
+                return items + extra.items
+
+        items = Overrider(do_test_package).draw(
+            [Point(0.0, 0.0), Point(4.0, 0.0)],
+            QColor("#888888"), QColor("#222222"), 1.0, 5.0, DEFAULT_THEME,
+        )
+        fills = [it.brush().color().name() for it in items
+                 if hasattr(it, "brush")]
+        assert "#000000" in fills   # the base body took the override
+        assert "#888888" in fills   # the detail kept the resolved fill

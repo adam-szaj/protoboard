@@ -25,7 +25,7 @@ from protoboard.gui.renderers.packages.base import (
     _lead_pen,
 )
 from protoboard.gui.renderers.packages.canvas import _body_pen
-from protoboard.gui.theme import DEFAULT_THEME, Theme
+from protoboard.gui.theme import DEFAULT_THEME
 
 
 class CylinderRenderer(PackageRenderer):
@@ -35,23 +35,14 @@ class CylinderRenderer(PackageRenderer):
 
     renders = "cylinder"
 
-    def render_body(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
-    ) -> list[QGraphicsItem]:
-        radial = self._maybe_radial(positions, fill, border, alpha, z, theme)
+    def render_body(self, positions: list[Point]) -> list[QGraphicsItem]:
+        radial = self._maybe_radial(positions)
         if radial is not None:
             return radial
         pkg = self._pkg
         if isinstance(pkg, _PkgCylinder) and len(positions) >= 2:
-            return self._draw_cylinder(pkg, positions, fill, border, alpha, z,
-                                       theme)
-        return self._draw_bbox(positions, fill, border, alpha, z, theme)
+            return self._draw_cylinder(pkg, positions)
+        return self._draw_bbox(positions)
 
     # ------------------------------------------------------------------
     # Radial — top-view disc (full circle or D-shape) with the ``-`` segment
@@ -60,23 +51,17 @@ class CylinderRenderer(PackageRenderer):
     def _radial_silhouette(
         self,
         mid: Point, p1: Point, p2: Point, neg_pin: Point,
-        fill: QColor, border: QColor, alpha: float, z: float,
-        theme: Theme,
     ) -> list[QGraphicsItem]:
         pkg = self._pkg
         if not isinstance(pkg, _PkgCylinder):
-            return super()._radial_silhouette(
-                mid, p1, p2, neg_pin, fill, border, alpha, z, theme,
-            )
-        diam = pkg.diameter_mm / theme.raster_pitch_mm
+            return super()._radial_silhouette(mid, p1, p2, neg_pin)
+        diam = pkg.diameter_mm / self.paint.theme.raster_pitch_mm
         world_axis_deg = (p2 - p1).angle_deg()
         flat = self._flat_side_world(pkg, world_axis_deg)
         # Direction from the body centre towards the negative lead — the side
         # the ``-`` segment marker goes on.
         neg_angle = (neg_pin - mid).angle_deg()
-        return self._radial_disc(
-            mid, diam, neg_angle, fill, border, alpha, z, theme, flat=flat,
-        )
+        return self._radial_disc(mid, diam, neg_angle, flat=flat)
 
     def _radial_body_radius(self, mm: float) -> float:
         pkg = self._pkg
@@ -123,8 +108,6 @@ class CylinderRenderer(PackageRenderer):
         centre: Point,
         diam: float,
         neg_angle_deg: float,
-        fill: QColor, border: QColor, alpha: float, z: float,
-        theme: Theme,
         *,
         flat: tuple[float, float] | None = None,
     ) -> list[QGraphicsItem]:
@@ -140,9 +123,10 @@ class CylinderRenderer(PackageRenderer):
         circle — a D-shaped cross-section such as a TO-92 — leaving the body a
         full circle when ``None``.
         """
+        paint = self.paint
         r = diam / 2.0
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        fill_c = QColor(paint.fill)
+        fill_c.setAlphaF(fill_c.alphaF() * paint.alpha)
         body: QAbstractGraphicsShapeItem
         if flat is not None:
             body = self._d_shape(centre, r, flat[0], flat[1])
@@ -150,12 +134,12 @@ class CylinderRenderer(PackageRenderer):
             body = QGraphicsEllipseItem(
                 QRectF(centre.x - r, centre.y - r, diam, diam),
             )
-        body.setZValue(z)
+        body.setZValue(paint.z)
         body.setBrush(QBrush(fill_c))
-        body.setPen(_body_pen(border, alpha))
+        body.setPen(_body_pen(paint.border, paint.alpha))
         if not self._is_polar:
             return [body]
-        return [body, self._disc_segment(centre, r, neg_angle_deg, theme, alpha, z)]
+        return [body, self._disc_segment(centre, r, neg_angle_deg)]
 
     def _d_shape(
         self, centre: Point, radius: float, normal_deg: float, offset: float,
@@ -187,9 +171,6 @@ class CylinderRenderer(PackageRenderer):
         centre: Point,
         radius: float,
         neg_angle_deg: float,
-        theme: Theme,
-        alpha: float,
-        z: float,
     ) -> QGraphicsItem:
         """A dark circular segment cut by a chord perpendicular to the lead
         axis, on the negative-lead side — the radial ``-`` polarity marker."""
@@ -203,12 +184,13 @@ class CylinderRenderer(PackageRenderer):
         path.arcMoveTo(rect, -half)
         path.arcTo(rect, -half, 2 * half)
         path.closeSubpath()
+        paint = self.paint
         seg = QGraphicsPathItem(path)
-        dark = QColor(theme.body_diode_cathode_color)
-        dark.setAlphaF(alpha)
+        dark = QColor(paint.theme.body_diode_cathode_color)
+        dark.setAlphaF(paint.alpha)
         seg.setBrush(QBrush(dark))
-        seg.setPen(_body_pen(dark, alpha, width=0.0))
-        seg.setZValue(z + 0.01)
+        seg.setPen(_body_pen(dark, paint.alpha, width=0.0))
+        seg.setZValue(paint.z + 0.01)
         t = QTransform()
         t.translate(centre.x, centre.y)
         t.rotate(neg_angle_deg)
@@ -255,20 +237,16 @@ class CylinderRenderer(PackageRenderer):
         self,
         pkg: _PkgCylinder,
         positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
     ) -> list[QGraphicsItem]:
-        mm = theme.raster_pitch_mm
+        paint = self.paint
+        mm = paint.theme.raster_pitch_mm
         body_len, body_w, r = self._capsule_metrics(pkg, mm)
         p1, p2 = self._anchor_ordered(positions)
         axis = p2 - p1  # Point − Point → Vector
         dx, dy = axis.dx, axis.dy
         dist = axis.length()
         if dist < 1e-9:
-            return self._draw_bbox(positions, fill, border, alpha, z, theme)
+            return self._draw_bbox(positions)
 
         # Upright mount: when the pad spacing is shorter than the body, the part
         # cannot lie flat — an axial resistor/diode placed on adjacent pads
@@ -285,16 +263,15 @@ class CylinderRenderer(PackageRenderer):
             other = p2                # the bent lead reaches here
             upright: list[QGraphicsItem] = []
             lead = QGraphicsLineItem(anchor.x, anchor.y, other.x, other.y)
-            lead.setPen(_lead_pen(theme, alpha))
-            lead.setZValue(z - 0.01)
+            lead.setPen(_lead_pen(paint.theme, paint.alpha))
+            lead.setZValue(paint.z - 0.01)
             upright.append(lead)
             neg_pin = positions[1]    # physical cathode, independent of flip
             neg_angle = (neg_pin - anchor).angle_deg()
             world_axis_deg = (other - anchor).angle_deg()
             flat = self._flat_side_world(pkg, world_axis_deg)
             upright.extend(self._radial_disc(
-                anchor, body_w, neg_angle, fill, border, alpha, z, theme,
-                flat=flat,
+                anchor, body_w, neg_angle, flat=flat,
             ))
             return upright
 
@@ -308,7 +285,7 @@ class CylinderRenderer(PackageRenderer):
         if dist > body_len + 1e-6:
             unit_x, unit_y = dx / dist, dy / dist
             attach = dist / 2.0 - body_len / 2.0
-            lead_pen = _lead_pen(theme, alpha)
+            lead_pen = _lead_pen(paint.theme, paint.alpha)
             l1 = QGraphicsLineItem(
                 p1.x, p1.y, p1.x + unit_x * attach, p1.y + unit_y * attach,
             )
@@ -317,7 +294,7 @@ class CylinderRenderer(PackageRenderer):
             )
             for ln in (l1, l2):
                 ln.setPen(lead_pen)
-                ln.setZValue(z - 0.01)
+                ln.setZValue(paint.z - 0.01)
             items.extend([l1, l2])
 
         # Edge rounding is a package property (edge_radius_mm, default 0 → a
@@ -329,11 +306,11 @@ class CylinderRenderer(PackageRenderer):
             QRectF(-body_len / 2.0, -body_w / 2.0, body_len, body_w), r, r,
         )
         body = QGraphicsPathItem(path)
-        fill_c = QColor(fill)
-        fill_c.setAlphaF(fill_c.alphaF() * alpha)
+        fill_c = QColor(paint.fill)
+        fill_c.setAlphaF(fill_c.alphaF() * paint.alpha)
         body.setBrush(QBrush(fill_c))
-        body.setPen(_body_pen(border, alpha))
-        body.setZValue(z)
+        body.setPen(_body_pen(paint.border, paint.alpha))
+        body.setZValue(paint.z)
         t = QTransform()
         t.translate(mid_x, mid_y)
         t.rotate(angle_deg)
@@ -353,11 +330,11 @@ class CylinderRenderer(PackageRenderer):
             stripe_path = QPainterPath()
             stripe_path.addRect(QRectF(stripe_x, -body_w / 2.0, stripe_w, body_w))
             stripe = QGraphicsPathItem(stripe_path)
-            dark = QColor(theme.body_led_stripe_color)
-            dark.setAlphaF(alpha)
+            dark = QColor(paint.theme.body_led_stripe_color)
+            dark.setAlphaF(paint.alpha)
             stripe.setBrush(QBrush(dark))
-            stripe.setPen(_body_pen(border, alpha, width=0.0))
-            stripe.setZValue(z + 0.01)
+            stripe.setPen(_body_pen(paint.border, paint.alpha, width=0.0))
+            stripe.setZValue(paint.z + 0.01)
             t_stripe = QTransform()
             t_stripe.translate(mid_x, mid_y)
             t_stripe.rotate(angle_deg)

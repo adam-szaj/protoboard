@@ -27,7 +27,9 @@ from __future__ import annotations
 
 import math
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import replace
 from typing import ClassVar, TypeVar
 
 import structlog
@@ -65,17 +67,21 @@ from protoboard.domain.layout.placement import ComponentPlacement
 from protoboard.geometry import Point, Transform2D
 from protoboard.gui.renderers.packages.canvas import (
     BodyCanvas,
+    PaintState,
+    _as_qcolor,
     _body_pen,
     qcolor_from_css,
 )
 from protoboard.gui.renderers.prism_silhouette import rounded_rect_path
 from protoboard.gui.theme import DEFAULT_THEME, Theme
+from protoboard.services.debug_trace import traced
 
 __all__ = [
     "BodyCanvas",
     "BodyShape",
     "GenericBody",
     "PackageRenderer",
+    "PaintState",
     "qcolor_from_css",
     "register_renderer",
     "renderer_for",
@@ -400,6 +406,50 @@ class PackageRenderer(BodyShape):
         # ``value`` (e.g. a resistance for colour-band rendering) — see
         # ``ComponentInstance.bind``. Renderers must tolerate ``None``.
         self._instance = instance
+        # Per-draw paint parameters; set by draw() for the duration of the
+        # call (see the ``paint`` property).
+        self._paint: PaintState | None = None
+
+    @property
+    def paint(self) -> PaintState:
+        """The paint parameters of the draw in progress.
+
+        Resolved fill/border, layer alpha, base Z and the theme — set by
+        :meth:`draw` before :meth:`render_body` runs, so overrides and
+        helpers read them here instead of threading five parameters.
+        """
+        if self._paint is None:
+            raise RuntimeError(
+                "paint is only available inside draw(); call draw(), "
+                "not render_body(), on a fresh renderer"
+            )
+        return self._paint
+
+    @contextmanager
+    def paint_override(
+        self,
+        *,
+        fill: QColor | str | None = None,
+        border: QColor | str | None = None,
+    ) -> Iterator[None]:
+        """Temporarily replace the paint colours — e.g. to re-colour the base
+        body from a subclass while keeping one's own details in the resolved
+        colours::
+
+            with self.paint_override(fill="#000000"):
+                items = super().render_body(positions)
+        """
+        prev = self.paint
+        state = prev
+        if fill is not None:
+            state = replace(state, fill=_as_qcolor(fill))
+        if border is not None:
+            state = replace(state, border=_as_qcolor(border))
+        self._paint = state
+        try:
+            yield
+        finally:
+            self._paint = prev
 
     @property
     def _is_polar(self) -> bool:
@@ -458,23 +508,21 @@ class PackageRenderer(BodyShape):
         if not positions:
             return []
         fill, border = self._resolve_colors(fill, border)
-        return self.render_body(positions, fill, border, alpha, z, theme)
+        self._paint = PaintState(
+            fill=fill, border=border, alpha=alpha, z=z, theme=theme,
+        )
+        return self.render_body(positions)
 
-    def render_body(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
-    ) -> list[QGraphicsItem]:
+    @traced("render_body")
+    def render_body(self, positions: list[Point]) -> list[QGraphicsItem]:
         """The body silhouette — THE override point for renderer subclasses.
 
-        A subclass adds geometry by extending the base drawing::
+        The draw parameters (resolved fill/border, alpha, z, theme) live on
+        ``self.paint``; a subclass adds geometry by extending the base
+        drawing::
 
-            def render_body(self, positions, fill, border, alpha, z, theme):
-                items = super().render_body(positions, fill, border, alpha, z, theme)
+            def render_body(self, positions):
+                items = super().render_body(positions)
                 items.append(...)   # e.g. the TO-220 metal tab
                 return items
 
@@ -482,19 +530,14 @@ class PackageRenderer(BodyShape):
         it, else the bbox rectangle.  Shape subclasses keep the same radial
         precedence and insert their side-view drawing between the two.
         """
-        radial = self._maybe_radial(positions, fill, border, alpha, z, theme)
+        radial = self._maybe_radial(positions)
         if radial is not None:
             return radial
-        return self._draw_bbox(positions, fill, border, alpha, z, theme)
+        return self._draw_bbox(positions)
 
     def _maybe_radial(
         self,
         positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
     ) -> list[QGraphicsItem] | None:
         """The radial top-view branch, or ``None`` when it does not apply.
 
@@ -513,10 +556,7 @@ class PackageRenderer(BodyShape):
         # The ``-`` marker sits towards the physical cathode (pin 2),
         # independent of the p1/p2 swap above.
         neg_pin = positions[1]
-        return self._draw_radial(
-            p1, p2, neg_pin, fill, border, alpha, z, theme,
-            pads=positions,
-        )
+        return self._draw_radial(p1, p2, neg_pin, pads=positions)
 
     def drawn_pin_numbers(
         self,
@@ -588,41 +628,44 @@ class PackageRenderer(BodyShape):
     def body_canvas(
         self,
         positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
+        *,
+        units: str = "holes",
     ) -> BodyCanvas:
         """A :class:`BodyCanvas` in the package-local frame (pin 1 at the
         origin), mapped through the SAME local→world transform as the pins —
         rotation and the bottom-side reflection included
         (:meth:`_body_placement`). The transform is baked into the item paths
-        (the historical ``place.map`` convention of this frame)."""
-        return BodyCanvas(theme, fill=fill, border=border, alpha=alpha, z=z,
-                          transform=self._body_placement(positions), bake=True)
+        (the historical ``place.map`` convention of this frame).  Paint state
+        comes from ``self.paint``; ``units="mm"`` makes the canvas convert
+        geometry inputs from millimetres."""
+        paint = self.paint
+        return BodyCanvas(paint.theme, fill=paint.fill, border=paint.border,
+                          alpha=paint.alpha, z=paint.z,
+                          transform=self._body_placement(positions), bake=True,
+                          units=units)
 
     def axis_canvas(
         self,
         positions: list[Point],
         p1: Point,
         p2: Point,
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
+        *,
+        units: str = "holes",
     ) -> BodyCanvas:
         """A :class:`BodyCanvas` in the pad-axis frame: origin at the pad
         centroid, local +x along the *p1*→*p2* lead axis — the frame the
-        radial / SMD-chip bodies (and the TO-220 tab) draw in."""
+        radial / SMD-chip bodies (and the TO-220 tab) draw in.  Paint state
+        comes from ``self.paint``; ``units="mm"`` makes the canvas convert
+        geometry inputs from millimetres."""
+        paint = self.paint
         mid_x = sum(p.x for p in positions) / len(positions)
         mid_y = sum(p.y for p in positions) / len(positions)
         t = QTransform()
         t.translate(mid_x, mid_y)
         t.rotate((p2 - p1).angle_deg())
-        return BodyCanvas(theme, fill=fill, border=border, alpha=alpha, z=z,
-                          transform=t)
+        return BodyCanvas(paint.theme, fill=paint.fill, border=paint.border,
+                          alpha=paint.alpha, z=paint.z, transform=t,
+                          units=units)
 
     # ------------------------------------------------------------------
     # Radial — top-view silhouette centred between the pads (all shapes)
@@ -631,20 +674,19 @@ class PackageRenderer(BodyShape):
     def _draw_radial(
         self,
         p1: Point, p2: Point, neg_pin: Point,
-        fill: QColor, border: QColor, alpha: float, z: float,
-        theme: Theme,
         *,
         pads: list[Point] | None = None,
     ) -> list[QGraphicsItem]:
         # The body sits over every pad (a 3-lead TO-92 is centred on its three
         # pins, not just the first two); a lead stub is drawn to each.  ``pads``
         # defaults to the anchor pair for the legacy two-pin path.
+        paint = self.paint
         all_pads = pads if pads is not None else [p1, p2]
         items: list[QGraphicsItem] = []
         for a, b in zip(all_pads, all_pads[1:]):
             lead = QGraphicsLineItem(a.x, a.y, b.x, b.y)
-            lead.setPen(_lead_pen(theme, alpha))
-            lead.setZValue(z - 0.01)
+            lead.setPen(_lead_pen(paint.theme, paint.alpha))
+            lead.setZValue(paint.z - 0.01)
             items.append(lead)
 
         # Centroid of all pads — the body's geometric centre.
@@ -652,16 +694,12 @@ class PackageRenderer(BodyShape):
             sum(p.x for p in all_pads) / len(all_pads),
             sum(p.y for p in all_pads) / len(all_pads),
         )
-        items.extend(self._radial_silhouette(
-            mid, p1, p2, neg_pin, fill, border, alpha, z, theme,
-        ))
+        items.extend(self._radial_silhouette(mid, p1, p2, neg_pin))
         return items
 
     def _radial_silhouette(
         self,
         mid: Point, p1: Point, p2: Point, neg_pin: Point,
-        fill: QColor, border: QColor, alpha: float, z: float,
-        theme: Theme,
     ) -> list[QGraphicsItem]:
         """Top-view body silhouette centred on ``mid`` — the per-shape hook.
 
@@ -674,12 +712,13 @@ class PackageRenderer(BodyShape):
         from protoboard.domain.components.package.shapes import (
             lead_axis_extents,
         )
+        paint = self.paint
         length_r, width_r = lead_axis_extents(self._pkg)
         t = QTransform()
         t.translate(mid.x, mid.y)
         t.rotate((p2 - p1).angle_deg())
-        canvas = BodyCanvas(theme, fill=fill, border=border, alpha=alpha, z=z,
-                            transform=t)
+        canvas = BodyCanvas(paint.theme, fill=paint.fill, border=paint.border,
+                            alpha=paint.alpha, z=paint.z, transform=t)
         tl, tr, br, bl = self._effective_corner_radii_mm()
         canvas.addRect(
             (-length_r / 2.0, -width_r / 2.0),
@@ -692,23 +731,18 @@ class PackageRenderer(BodyShape):
     # Generic — bbox() rectangle in holes (fallback for every shape)
     # ------------------------------------------------------------------
 
-    def _draw_bbox(
-        self,
-        positions: list[Point],
-        fill: QColor,
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
-    ) -> list[QGraphicsItem]:
+    @traced("_draw_bbox")
+    def _draw_bbox(self, positions: list[Point]) -> list[QGraphicsItem]:
         box = bbox_or_none(self._pkg)
         if box is None:
             # No derivable body extent — fall back to a rectangle hugging the
             # pin cloud (same as GenericBody); the appearance rides along so
             # the radius override still applies (fill/border are already
             # resolved by draw()).
+            paint = self.paint
             generic: list[QGraphicsItem] = GenericBody(self._appearance).draw(
-                positions, fill, border, alpha, z, theme,
+                positions, paint.fill, paint.border, paint.alpha, paint.z,
+                paint.theme,
             )
             return generic
 
@@ -719,7 +753,7 @@ class PackageRenderer(BodyShape):
         # reflection): reconstructing the rect in world coords and only shifting
         # it by the anchor draws an axis-aligned box that ignores the placement
         # rotation — the body then stays upright while the pins rotate.
-        canvas = self.body_canvas(positions, fill, border, alpha, z, theme)
+        canvas = self.body_canvas(positions)
         tl, tr, br, bl = self._effective_corner_radii_mm()
         canvas.addRect(
             (box.x, box.y),
@@ -729,19 +763,13 @@ class PackageRenderer(BodyShape):
         items: list[QGraphicsItem] = canvas.items
         return items
 
-    def _pad_active_rings(
-        self,
-        positions: list[Point],
-        border: QColor,
-        alpha: float,
-        z: float,
-        theme: Theme,
-    ) -> list[QGraphicsItem]:
+    def _pad_active_rings(self, positions: list[Point]) -> list[QGraphicsItem]:
         """A faint pad-sized ring per pin, marking the click-active area."""
-        pad_r = theme.pad_radius
-        ring_c = QColor(border)
-        ring_c.setAlphaF(ring_c.alphaF() * alpha * 0.35)
-        pen = QPen(ring_c, theme.pad_outline_width)
+        paint = self.paint
+        pad_r = paint.theme.pad_radius
+        ring_c = QColor(paint.border)
+        ring_c.setAlphaF(ring_c.alphaF() * paint.alpha * 0.35)
+        pen = QPen(ring_c, paint.theme.pad_outline_width)
         rings: list[QGraphicsItem] = []
         for p in positions:
             ring = QGraphicsEllipseItem(
@@ -749,7 +777,7 @@ class PackageRenderer(BodyShape):
             )
             ring.setPen(pen)
             ring.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-            ring.setZValue(z + 0.02)
+            ring.setZValue(paint.z + 0.02)
             rings.append(ring)
         return rings
 
