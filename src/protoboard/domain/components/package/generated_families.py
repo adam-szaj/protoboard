@@ -195,7 +195,7 @@ def offered_body_families(
         gen_cls = KIND_GENERATORS.get(kind)
         if gen_cls is None:
             return []
-        ids = gen_cls().offered_family_ids(defn.pin_count)
+        ids = gen_cls(kind).offered_family_ids(defn.pin_count)
         return [families[i] for i in ids if i in families]
     if defn.pin_count == 2:
         return [

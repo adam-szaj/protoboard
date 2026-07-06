@@ -169,7 +169,7 @@ class DefaultFootprintChoiceProvider:
                 and not is_generic_package(defn.package)):
             return [
                 FootprintOptionView(
-                    label=f"{root}_{defn.package.kind}",  # type: ignore[union-attr]
+                    label=f"{root}_{defn.package.kind}",  # type: ignore[attr-defined]
                     address="",  # inherits defn.package; no instance variant
                     is_kind=True,
                 )
@@ -337,7 +337,7 @@ class DefaultFootprintChoiceProvider:
             return None  # still-missing parameters — nothing to place yet
 
         gen_cls = KIND_GENERATORS.get(kind)
-        label = (gen_cls().variant_label(kind, ctx) if gen_cls is not None
+        label = (gen_cls(kind).variant_label(kind, ctx) if gen_cls is not None
                  else f"{kind}-{pin_count}")
         slug = "".join(
             f"-{k}{merged[k]}" for k in sorted(merged) if merged[k] is not None
@@ -360,6 +360,14 @@ class DefaultFootprintChoiceProvider:
 
         Address ``""`` is the component-level inline kind (the definition of
         the last ``options()`` call); anything else is a catalogue ref.
+
+        The schema is the kind's OWN parameter set — ``generator.params``
+        (which serves the YAML-declared schema when the kind node binds one).
+        A node-built body also carries the package *value-tree* schema
+        (``dims.*`` / ``leads.*``) and a full-tree ``raw_values`` — those are
+        Properties-panel metadata, not picker parameters, so the declared
+        values are filtered down to the parameter schema's fields (a DIP
+        yields ``{}`` — one confirm, no second pop-up).
         """
         pkg: object | None = None
         if address:
@@ -376,12 +384,16 @@ class DefaultFootprintChoiceProvider:
         from protoboard.domain.components.package.generators import (
             KIND_GENERATORS,
         )
-        schema = getattr(pkg, "schema", None)
-        if schema is None:
-            gen_cls = KIND_GENERATORS.get(kind)
-            schema = gen_cls().params if gen_cls is not None else None
+        gen_cls = KIND_GENERATORS.get(kind)
+        schema: ParamSchema | None
+        if gen_cls is not None:
+            schema = gen_cls(kind).params
+        else:
+            schema = getattr(pkg, "schema", None)  # generator gone — best effort
         raw = getattr(pkg, "raw_values", None)
         declared = dict(raw) if raw is not None else {}
+        if schema is not None:
+            declared = {k: v for k, v in declared.items() if k in schema.fields}
         return kind, schema, declared
 
     @staticmethod

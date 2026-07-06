@@ -79,7 +79,7 @@ def concretize(
         raise PackageDefError(
             f"{defn.name}: kind {kind!r} left parameters unfilled for "
             f"pin_count={pin_count}, values={vals!r}")
-    suffix = KIND_GENERATORS[kind]().variant_suffix(pin_count, vals)
+    suffix = KIND_GENERATORS[kind](kind).variant_suffix(pin_count, vals)
     return dataclasses.replace(
         defn,
         name=f"{defn.name}_{suffix}",
@@ -109,7 +109,7 @@ def resolve_parametric_name(
         kind = parametric_generator_kind(base)
         if kind is None:
             continue
-        parsed = KIND_GENERATORS[kind]().parse_variant_suffix(
+        parsed = KIND_GENERATORS[kind](kind).parse_variant_suffix(
             name[len(prefix):])
         if parsed is None:
             continue

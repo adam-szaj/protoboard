@@ -21,6 +21,7 @@ from protoboard.domain.components.package.generators import (  # noqa: F401
     sil as _sil,
 )
 from protoboard.domain.components.package.generators.base import (
+    KIND_DECLARED_SCHEMAS,
     KIND_GENERATORS,
     GeneratorContext,
     PackageGenerator,
@@ -30,6 +31,7 @@ from protoboard.domain.components.package.generators.base import (
 )
 
 __all__ = [
+    "KIND_DECLARED_SCHEMAS",
     "KIND_GENERATORS",
     "GeneratorContext",
     "PackageGenerator",

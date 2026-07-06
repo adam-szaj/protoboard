@@ -52,7 +52,7 @@ def _connector_body(pins: int, rows: int) -> Package:
 class PinHeaderGenerator(PackageGenerator):
     """Gold-pin header, 1×N or 2×N (the ``rows`` parameter)."""
 
-    params = parse_schema({"rows": {"type": "int", "default": 1}})
+    code_params = parse_schema({"rows": {"type": "int", "default": 1}})
     color = "#222222"  # near-black plastic strip
 
     def generate(self, ctx: GeneratorContext) -> GeneratorContext:

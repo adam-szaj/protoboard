@@ -138,6 +138,15 @@ class GeneratorContext:
 # mirroring the renderer registry).
 KIND_GENERATORS: dict[str, type[PackageGenerator]] = {}
 
+# kind name → the parameter schema DECLARED on the kind's YAML node (its own
+# ``schema:`` block — new kind parameters like a pin-header's ``rows``). The
+# YAML is the source of truth; a generator instantiated *for that kind*
+# exposes the bound schema through ``PackageGenerator.params``, so callers
+# keep talking only to the generator and the two cannot drift. Populated by
+# ``kind_nodes.register_kind_node`` (which lives one package up to keep this
+# module free of loader-side concerns).
+KIND_DECLARED_SCHEMAS: dict[str, ParamSchema] = {}
+
 
 def _register(key: str, cls: type[PackageGenerator], axis: str) -> None:
     """Enter *cls* under *key*; later registrations win, collisions are loud."""
@@ -203,14 +212,41 @@ class PackageGenerator(ABC):
     #: without stealing its registry slot.
     generates: ClassVar[str | tuple[str, ...] | None] = None
 
-    #: Declaration of the parameter set {K}: names, types, defaults, required.
-    #: The driver default-fills and validates ``ctx.values`` against it before
-    #: :meth:`generate` runs; the place-tool picker renders its editable holes.
-    params: ClassVar[ParamSchema] = ParamSchema({})
+    #: Code-side declaration of the parameter set {K}: names, types, defaults,
+    #: required. The fallback behind :attr:`params` — a kind whose YAML node
+    #: declares its own ``schema:`` binds that instead (YAML wins; see
+    #: :data:`KIND_DECLARED_SCHEMAS`). Legacy plugins that still set a
+    #: ``params`` class attribute keep working: the attribute shadows the
+    #: property and is served as-is.
+    code_params: ClassVar[ParamSchema] = ParamSchema({})
 
     #: Convenience body fill colour (CSS hex). Stamped by the driver onto the
     #: built body unless the generator already set one itself.
     color: ClassVar[str | None] = None
+
+    def __init__(self, kind: str | None = None) -> None:
+        """*kind* binds the instance to a registered kind name.
+
+        Callers that read :attr:`params` (the driver, the picker, dialogs)
+        pass the kind they dispatched on, so a YAML-declared schema for that
+        kind wins over :attr:`code_params`. ``None`` (the default) keeps the
+        code-side schema — existing zero-arg instantiations stay valid.
+        """
+        self._kind = kind
+
+    @property
+    def params(self) -> ParamSchema:
+        """Declaration of the parameter set {K}: names, types, defaults,
+        required. The driver default-fills and validates ``ctx.values``
+        against it before :meth:`generate` runs; the place-tool picker
+        renders its editable holes. Resolution: the schema declared on the
+        bound kind's YAML node when there is one, else :attr:`code_params`.
+        """
+        if self._kind is not None:
+            declared = KIND_DECLARED_SCHEMAS.get(self._kind)
+            if declared is not None:
+                return declared
+        return self.code_params
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
@@ -224,6 +260,23 @@ class PackageGenerator(ABC):
     @abstractmethod
     def generate(self, ctx: GeneratorContext) -> GeneratorContext:
         """Build the concrete body for *ctx* (see the module-level contract)."""
+
+    def resolve_auto(self, ctx: GeneratorContext) -> GeneratorContext:
+        """Fill the ``auto`` slots of a declarative kind node's value tree.
+
+        The **declarative** half of the kind contract (package-model.md §5.4):
+        when a kind is bound to a YAML node, the body is built by the ordinary
+        ``build_package`` and the generator's job shrinks to this pure value
+        transform — ``ctx.values`` is the node's defaults-filled value tree
+        (``dims`` / ``leads`` / …); the override replaces every slot that
+        still reads ``auto`` with the parameter-derived value (pin count,
+        declared parameters) and returns ``ctx.with_values(...)``. It must
+        touch ONLY ``auto`` slots (an explicit value always wins) and raise
+        :class:`PackageDefError` for parameters the kind cannot realise.
+        Default: identity — a node with ``auto`` slots but no override fails
+        loudly in the loader's no-auto-left check.
+        """
+        return ctx
 
     def offered_family_ids(self, pin_count: int) -> list[str]:
         """Generated family ids the body-variant picker should offer as
@@ -323,6 +376,7 @@ def prism_from_footprint(
 
 
 __all__ = [
+    "KIND_DECLARED_SCHEMAS",
     "KIND_GENERATORS",
     "GeneratorContext",
     "MARGIN_HOLES",

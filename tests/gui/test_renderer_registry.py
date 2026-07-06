@@ -86,10 +86,15 @@ class TestLineage:
             "cylinder", "cylinder_base", "axial_test", "DO-TEST",
         )
 
-    def test_kind_package_lineage_is_shape_plus_kind(self) -> None:
+    def test_kind_package_lineage_ends_in_the_kind(self) -> None:
+        # Leaf checks, not tuple equality: the declarative-node path carries
+        # the full extends ancestry (package, prism, prism_dil, dip_ic), the
+        # legacy pure-code path only (prism, dip_ic). Renderer dispatch only
+        # needs the kind at the leaf and a prism root to fall back to.
         ctx = build_kind_package("dip_ic", GeneratorContext(pin_count=8))
         assert ctx.package is not None
-        assert ctx.package.lineage == ("prism", "dip_ic")
+        assert ctx.package.lineage[-1] == "dip_ic"
+        assert "prism" in ctx.package.lineage
 
 
 # ---------------------------------------------------------------------------

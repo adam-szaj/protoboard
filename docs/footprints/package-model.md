@@ -609,6 +609,12 @@ required field (geometry needs a number) — correctly, because holes never reac
 
 ### 5.4 Loader — order of operations (the contract)
 
+> **Implemented** (2026-07-06): `build_package(…, resolve_auto=…)` runs the
+> generator's value transform between steps 3 and 5 (`_apply_schema`); the
+> kind driver passes the closure for node-bound kinds (§6, *Declarative kind
+> nodes*). Any `auto` still left after step 4 is a loud `PackageDefError`
+> naming the dotted paths (`_check_no_auto`).
+
 1. **Resolve `extends`** — deep-merge the `schema` and value subtrees
    independently.
 2. **Apply `default`** — for every `schema` leaf without a value, fill from
@@ -621,7 +627,9 @@ required field (geometry needs a number) — correctly, because holes never reac
    `schema.….type` (union-aware). The layer that did not exist before.
 6. **Build the shape** — dispatch by `shape` into `Cylinder`/`Prism`/`Disc`.
 
-Step 5-after-4 is the crux: `_require_float` never sees `auto`.
+Step 5-after-4 is the crux: `_require_float` never sees `auto`. `raw_values`
+are captured *before* step 4, so the UI keeps seeing the authored `auto`
+(read-only, §5.3) while the geometry gets the computed number.
 
 A declaration lives at the `extends` level that **introduces** the field:
 `package` (root) → `schema.leads.direction`; `prism` →
@@ -721,8 +729,10 @@ field name, an editor by `type`, read-only when not `editable`).
 analogue: the kind is the template, the parameter set *{K}* (pin count, rows,
 …) instantiates it. Builtins: `dip_ic` / `wdip_ic` (DIP narrow/wide), `sil`
 (header), `dip_switch` (plain dual-row, no notch), `pin_header` / `jst`
-(connectors). This is a **separate mechanism** from the YAML/families path
-(§5) — a kind synthesises a whole `Package` from `pin_count` + parameters,
+(connectors). A kind **bound to a declarative node** (see *Declarative kind
+nodes* below — the DIP kinds) builds through the ordinary `build_package`
+flow, the generator only resolving the node's `auto` slots; a node-less kind
+synthesises the whole `Package` from `pin_count` + parameters in code,
 bypassing the `dims` parsing in `build_package`. A pure kind cannot be
 rendered or assigned — only the generated concrete package can. The renderer
 draws the declared look via the kind's registered renderer (the notch for a
@@ -778,9 +788,56 @@ option whose inline kind leaves required parameters unfilled loads as a
 per-option pending-kind placeholder, exactly like the component-level
 `package:` block.
 
-**Deferred** (tracked in [../todo.md](../todo.md)): `auto`-resolution inside
-the *builtin* procedural builders (they do not consult `ctx.schema` yet), and
-per-kind recent-variant history in the kind dialog.
+### Declarative kind nodes (`kinds.yaml`)
+
+> **Implemented** (2026-07-06, DIP pilot: `dip_ic` / `wdip_ic` / `dip_switch`;
+> `assets/packages/kinds.yaml`, `package/kind_nodes.py`,
+> `PackageGenerator.resolve_auto`).
+
+A kind is **hybrid**: the parameter-INdependent part is declared in YAML, the
+generator only fills the parameter-dependent values. A *kind node* is a
+package definition carrying a `kind:` field (the generator linkage — in
+practice the node name equals the kind, validated with a warning):
+
+```yaml
+- name: dip_ic
+  kind: dip_ic          # linkage to the registered generator
+  extends: prism_dil    # inherits leads geometry + schema — full validation
+  color: "#2b2b30"      # default body colour (dark epoxy)
+  dims: {width: auto, length: auto}
+  leads: {body_offset: auto}
+```
+
+The `kind:` field makes `load_packages` skip the node (never built eagerly);
+instead it is **bound** into `KIND_NODES` (`register_kind_node` — the services
+loader binds the builtin `assets/packages` files and any library `packages:`
+section entries). When `build_kind_package` dispatches a **final-step** kind
+with a bound node, it builds through the **ordinary `build_package`** flow:
+the caller's values (component overrides, defaults-filled kind parameters,
+`None` holes stripped) deep-merge onto the node's extends-resolved tree, and
+the generator participates only as `resolve_auto(ctx) -> ctx` — a pure value
+transform run inside `_apply_schema` (§5.4 step 4) that replaces every `auto`
+slot with the parameter-derived value (and raises `PackageDefError` for
+counts the kind cannot realise). The built body therefore carries what the
+legacy pure-code path never had: the full extends lineage (kind as the leaf,
+e.g. `(package, prism, prism_dil, dip_ic)`), the merged value-tree schema,
+`raw_values` with the authored `auto` (read-only in the Properties panel),
+and the node's declared `color` (the generator's `color` is only a fallback).
+An explicit component value always beats `auto`
+(`package: {kind: dip_ic, dims: {width: 7.0}}`).
+
+A node may declare its own `schema:` block for NEW kind parameters (a
+pin-header's `rows`): it binds into `KIND_DECLARED_SCHEMAS` and is served
+through `generator.params` (a generator instantiated *for that kind* — YAML
+is the source of truth, callers keep talking only to the generator; the
+code-side `code_params` is the fallback). Node-bound kinds don't redirect; a
+kind with **no** node keeps the legacy pure-code `generate()` path unchanged —
+a plugin that only registers a generator keeps working.
+
+**Deferred** (tracked in [../todo.md](../todo.md)): migrating `sil` /
+`pin_header` / `jst` to nodes, rewiring the generated `dip-N`/`wdip-N` picker
+families through `build_kind_package`, and deleting the node-less
+`DipGenerator.generate` fallback.
 
 ### Two independent "inheritance" axes
 

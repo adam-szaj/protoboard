@@ -25,7 +25,7 @@ Pure domain: no Qt, no I/O.
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from functools import lru_cache
 from typing import Any
 
@@ -41,9 +41,18 @@ from protoboard.domain.components.package.generators.base import (
 from protoboard.domain.components.package.generators.base import (
     RASTER_MM as _RASTER_MM,
 )
+from protoboard.domain.components.package.generators.base import (
+    PackageGenerator,
+)
+from protoboard.domain.components.package.kind_nodes import (
+    KIND_NODES,
+    KindNode,
+)
 from protoboard.domain.components.package.loader import (
     PackageDefError,
+    PackageDict,
     build_package,
+    deep_merge,
 )
 from protoboard.domain.components.package.schema import ParamSchema, SchemaError
 from protoboard.domain.components.package.shapes import (
@@ -145,6 +154,53 @@ def _shape_root(pkg: Package) -> str:
     return "prism"
 
 
+def _strip_none(tree: Mapping[str, Any]) -> dict[str, Any]:
+    """Drop ``None`` holes (recursively) so they never override node values."""
+    out: dict[str, Any] = {}
+    for key, val in tree.items():
+        if val is None:
+            continue
+        out[key] = _strip_none(val) if isinstance(val, Mapping) else val
+    return out
+
+
+def _build_node_package(
+    node: KindNode,
+    gen: PackageGenerator,
+    ctx: GeneratorContext,
+    values: Mapping[str, Any],
+) -> GeneratorContext:
+    """Build a node-bound kind through the ordinary ``build_package`` flow.
+
+    The caller's *values* (component overrides, defaults-filled kind
+    parameters) are deep-merged onto the node's extends-resolved tree — an
+    explicit value beats the node's ``auto``. The generator participates only
+    as the ``resolve_auto`` value transform (run inside ``_apply_schema``,
+    after the required check and before validation, so ``raw_values`` keep
+    ``auto`` for the UI). The built body then carries the node's full lineage
+    (kind as the leaf), the merged schema and the node's declared ``color``;
+    the generator's convenience colour is only a fallback.
+    """
+    tree = deep_merge(node.merged, _strip_none(values))
+
+    def _fill(filled: PackageDict) -> PackageDict:
+        out = gen.resolve_auto(dataclasses.replace(ctx, values=filled))
+        return dict(out.values)
+
+    pkg: Package = build_package(tree, node.kind, lineage=node.lineage,
+                                 resolve_auto=_fill)
+    if isinstance(pkg, (Prism, Cylinder, Disc)):
+        changes: dict[str, Any] = {}
+        if "kind" in {f.name for f in dataclasses.fields(pkg)}:
+            changes["kind"] = node.kind
+        if gen.color is not None and pkg.color is None:
+            changes["color"] = gen.color
+        if changes:
+            pkg = dataclasses.replace(pkg, **changes)
+    return dataclasses.replace(
+        ctx, values=dict(values), package=pkg, residual=None)
+
+
 def build_kind_package(
     kind: str | Sequence[str],
     ctx: GeneratorContext,
@@ -211,7 +267,7 @@ def build_kind_package(
             gen_cls = KIND_GENERATORS.get(current)
             if gen_cls is None:
                 raise PackageDefError(f"unknown package kind {current!r}")
-            gen = gen_cls()
+            gen = gen_cls(current)
             # The declared tree keeps explicit-null holes; the build tree
             # replaces them with defaults (a hole is "ask the user", never a
             # build input).
@@ -233,6 +289,15 @@ def build_kind_package(
                     ctx, package=None,
                     residual=ResidualKind(kind=current, values=declared))
             gen.params.validate(values)
+            if final:
+                # A kind bound to a declarative YAML node builds through the
+                # ordinary build_package flow (validation, schema, raw_values,
+                # full lineage) — the generator only fills the ``auto`` slots.
+                # Node-bound kinds don't redirect; node-less kinds keep the
+                # legacy pure-code path below (plugins keep working).
+                node = KIND_NODES.get(current)
+                if node is not None:
+                    return _build_node_package(node, gen, ctx, values)
             out = gen.generate(
                 dataclasses.replace(ctx, values=values, package=None,
                                     residual=None))

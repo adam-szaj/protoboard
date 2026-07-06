@@ -14,6 +14,7 @@ from protoboard.domain.components.package.generators.base import (
     register_generator,
 )
 from protoboard.domain.components.package.loader import PackageDefError
+from protoboard.domain.components.package.schema import AUTO
 
 # DIP row spacing in holes (0.3" narrow / 0.6" wide at a 0.1" grid).
 DIP_NARROW_ROWS = 3.0
@@ -46,6 +47,30 @@ def dip_body_dims_mm(
     return width, length
 
 
+def dil_steps_mm(
+    pin_count: int, rows_spacing: float,
+) -> list[list[float]]:
+    """Pin→pin ``leads.body_offset`` step vectors of a DIL, in mm (bare list).
+
+    The DIL footprint's hole-grid deltas scaled by the raster — exactly the
+    steps the legacy ``prism_from_footprint`` path derives, in the bare-list
+    form the leads schema declares (the ``{unit, value}`` wrapper is a YAML
+    sugar the generator never needs).
+    """
+    pins = DIL(n=pin_count, rows_spacing=rows_spacing).pin_positions()
+    return [
+        [(b.x - a.x) * RASTER_MM, (b.y - a.y) * RASTER_MM]
+        for a, b in zip(pins, pins[1:])
+    ]
+
+
+def _check_dip_pin_count(n: int) -> None:
+    if n < 4 or n % 2 != 0:
+        raise PackageDefError(
+            f"a DIP kind cannot build a body for {n} pins "
+            f"(needs an even count >= 4)")
+
+
 @register_generator(kind=("dip_ic", "dip_switch"))
 class DipGenerator(PackageGenerator):
     """Narrow (0.3") dual-row prism. ``dip_switch`` shares the geometry — the
@@ -53,12 +78,33 @@ class DipGenerator(PackageGenerator):
 
     rows_spacing: ClassVar[float] = DIP_NARROW_ROWS
 
+    def resolve_auto(self, ctx: GeneratorContext) -> GeneratorContext:
+        """Fill the DIP node's ``auto`` slots: body dims + lead steps."""
+        values = dict(ctx.values)
+        dims = dict(values.get("dims") or {})
+        leads = dict(values.get("leads") or {})
+        needs_dims = AUTO in (dims.get("width"), dims.get("length"))
+        needs_steps = leads.get("body_offset") == AUTO
+        if not (needs_dims or needs_steps):
+            return ctx
+        _check_dip_pin_count(ctx.pin_count)
+        width, length = dip_body_dims_mm(ctx.pin_count, self.rows_spacing)
+        if dims.get("width") == AUTO:
+            dims["width"] = width
+        if dims.get("length") == AUTO:
+            dims["length"] = length
+        if needs_steps:
+            leads["body_offset"] = dil_steps_mm(
+                ctx.pin_count, self.rows_spacing)
+        values["dims"] = dims
+        values["leads"] = leads
+        return ctx.with_values(values)
+
     def generate(self, ctx: GeneratorContext) -> GeneratorContext:
+        # Node-less fallback (a registry without the kinds.yaml node bound);
+        # geometry-identical to the declarative path via the shared helpers.
         n = ctx.pin_count
-        if n < 4 or n % 2 != 0:
-            raise PackageDefError(
-                f"a DIP kind cannot build a body for {n} pins "
-                f"(needs an even count >= 4)")
+        _check_dip_pin_count(n)
         pkg = prism_from_footprint(
             DIL(n=n, rows_spacing=self.rows_spacing),
             dims_mm=dip_body_dims_mm(n, self.rows_spacing),

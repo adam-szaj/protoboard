@@ -55,10 +55,21 @@ def _load_builtin_package_defs() -> dict[str, dict[str, Any]]:
     """Raw builtin package definitions (name → dict) from assets/packages/*.yaml.
 
     These are the generics/named bases a component's inline ``package:`` may
-    ``extends``. Cached after first load.
+    ``extends``. Cached after first load. Every call (re)binds the declarative
+    kind nodes the files carry (``kinds.yaml``) — binding identical content is
+    silent, so this keeps the global KIND_NODES registry deterministic even
+    after a test snapshot/restore cleared it.
     """
+    from protoboard.domain.components.package.kind_nodes import (
+        KIND_NODES,
+        register_kind_nodes,
+    )
     cached = getattr(_load_builtin_package_defs, "_cache", None)
     if cached is not None:
+        if any(
+                isinstance(d.get("kind"), str) and d["kind"] not in KIND_NODES
+                for d in cached.values()):
+            register_kind_nodes(cached)
         return cached  # type: ignore[no-any-return]
     defs: dict[str, dict[str, Any]] = {}
     pkg_dir = BUILTIN_ASSETS_DIR / "packages"
@@ -68,6 +79,7 @@ def _load_builtin_package_defs() -> dict[str, dict[str, Any]]:
             for d in (data or {}).get("packages", []):
                 if isinstance(d, dict) and isinstance(d.get("name"), str):
                     defs[d["name"]] = d
+    register_kind_nodes(defs)
     _load_builtin_package_defs._cache = defs  # type: ignore[attr-defined]
     return defs
 
@@ -225,7 +237,7 @@ def _pending_kind_placeholder(
     return dataclasses.replace(
         synth,
         kind=residual.kind,
-        schema=gen_cls().params if gen_cls is not None else None,
+        schema=gen_cls(residual.kind).params if gen_cls is not None else None,
         raw_values=dict(residual.values),
     )
 
@@ -282,6 +294,11 @@ def _build_component_package(
         is_kind,
     )
 
+    # Load the builtin package defs BEFORE kind dispatch — the load binds the
+    # declarative kind nodes (kinds.yaml), which the kind driver consults.
+    registry = dict(
+        _load_builtin_package_defs() if generics is None else generics)
+
     kind = raw.get("kind")
     # ``kind:`` may be a single name or a list — a left→right generator chain
     # (compute steps deriving values, the last step building the body).
@@ -306,8 +323,6 @@ def _build_component_package(
         assert ctx.package is not None  # driver sets package XOR residual
         return ctx.package
 
-    registry = dict(
-        _load_builtin_package_defs() if generics is None else generics)
     node = {**raw, "name": name}
     registry[name] = node
     merged = resolve_extends(name, registry)
@@ -466,6 +481,19 @@ def load_library(
                          path=str(lib_pkg_source[pkg_name]))
             continue
         generics[pkg_name] = raw
+        # A library ``packages:`` entry may itself be a declarative kind node
+        # (a plugin shipping generator + node together) — bind it like the
+        # builtin ones. Resolution runs against the merged generics registry.
+        if isinstance(raw.get("kind"), str):
+            from protoboard.domain.components.package.kind_nodes import (
+                register_kind_node,
+            )
+            try:
+                register_kind_node(pkg_name, generics)
+            except PackageDefError as exc:
+                _log.warning("library.kind_node_skipped", package=pkg_name,
+                             path=str(lib_pkg_source[pkg_name]),
+                             error=str(exc))
 
     # Families from library files, parsed against the merged generics. The
     # passed-in catalogue wins on an id clash. The library-contributed ones are

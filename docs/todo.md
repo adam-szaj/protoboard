@@ -17,18 +17,27 @@ preset configuration the concretization copies into the synthesized
 definition's `variants`, so the pin-variant picker works again. Related: the
 planned `idc` kind should join `pin_header`/`jst` when added.
 
-## Kind generators — remaining edge (added 2026-07-04)
+## Kind generators — declarative-node follow-ups (updated 2026-07-06)
 
 The pluggable generator registry is feature-complete (partial kinds in
 `footprints:` options, the multi-step chain driver, per-kind recent-variant
-history — all shipped 2026-07-04; see package-model.md §6). One edge left:
+history — all shipped 2026-07-04; see package-model.md §6). The remaining
+edge — **`auto` resolution** — shipped 2026-07-06 as the declarative kind
+nodes pilot (`assets/packages/kinds.yaml` + `kind_nodes.py` +
+`PackageGenerator.resolve_auto`; DIP kinds only). Follow-ups from that pilot:
 
-- **`auto` resolution inside the *builtin* procedural builders** — the DIP/SIL
-  /connector generators do not consult `ctx.schema` yet; an unresolved `auto`
-  on the YAML families path is still rejected downstream by `_require_float`
-  (the intended failure). The chain machinery supports it — wiring a builtin
-  compute step (e.g. DIP `length` from `pins_per_row`) is the remaining piece
-  (also listed under "Package parameter schema" below).
+- **Migrate the remaining builtin kinds to nodes** — `sil`, `pin_header`
+  (its `rows` schema moves to the node's own `schema:` block, becoming the
+  first `KIND_DECLARED_SCHEMAS` user in production) and `jst` still build
+  through the legacy pure-code path.
+- **Rewire the generated `dip-N`/`wdip-N` picker families through
+  `build_kind_package`** — `generated_families.dip_family` still builds via
+  `prism_from_footprint` directly (geometry identical through the shared
+  `dip_body_dims_mm`, but no schema/raw_values/full lineage/color on those
+  bodies). Deferred from the pilot 2026-07-06.
+- **Delete `DipGenerator.generate` (the node-less fallback)** once the
+  generated families above stop calling the legacy path and test registries
+  bind nodes everywhere.
 
 ## Bendable leads — deferred extension (added 2026-06-26)
 
@@ -98,13 +107,10 @@ new geometry.
 
 Phase 1 (declarations under `schema:` + loose validation) and a limited
 Phase 2 (`build_kind_package(kind, ctx, schema) -> GeneratorContext`) shipped.
-Deferred (chain driver is Kind-generators item 2 above):
+`auto` resolution *through* generators shipped 2026-07-06 (declarative kind
+nodes — package-model.md §5.4 and §6; an unresolved `auto` is now a loud
+`PackageDefError` naming the dotted paths). Still deferred:
 
-- **`auto` resolution *through* generators** — the procedural builders do
-  not consult `schema` or resolve `auto`; an unresolved `auto` on the YAML path
-  is rejected downstream by `_require_float` (the intended failure). Wiring a
-  kind generator to compute `auto` dims (e.g. DIP `length` from `pins_per_row`)
-  is the next step.
 - **Strict schema mode** — an unknown field (no schema leaf) is currently *not*
   an error (loose). A strict mode (unknown ⇒ `PackageDefError`) would need every
   optional field declared in every base first.

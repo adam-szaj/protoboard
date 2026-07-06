@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: MIT
+# Declarative kind nodes (see docs/footprints/package-model.md §5.4 and
+# src/protoboard/domain/components/package/kind_nodes.py).
+#
+# A node's `kind:` field links it to the registered generator; `extends:` pulls
+# in the abstract base's leads geometry and schema (so the ordinary
+# build_package validation applies); `auto` marks every parameter-dependent
+# slot the generator's resolve_auto fills (for a DIP: the body dims follow the
+# pin count AND the row spacing, and the lead steps follow the pin count).
+# `null` would mean "required, user-editable" — a picker hole, not used here.
+#
+# These nodes are BOUND (registered as kind nodes), never built eagerly — the
+# `kind:` field makes load_packages skip them.
+packages:
+  - name: dip_ic
+    kind: dip_ic
+    extends: prism_dil
+    color: "#2b2b30"        # dark moulded epoxy
+    dims: {width: auto, length: auto}
+    leads: {body_offset: auto}
+
+  - name: wdip_ic
+    kind: wdip_ic
+    extends: prism_dil
+    color: "#2b2b30"
+    dims: {width: auto, length: auto}
+    leads: {body_offset: auto}
+
+  - name: dip_switch
+    kind: dip_switch
+    extends: prism_dil
+    color: "#c8433c"        # red switch housing
+    dims: {width: auto, length: auto}
+    leads: {body_offset: auto}

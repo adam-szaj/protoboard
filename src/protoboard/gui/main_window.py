@@ -859,7 +859,7 @@ class MainWindow(QMainWindow):
         kind = parametric_generator_kind(defn)
         if kind is None:
             return None
-        dialog = ParametricPinsDialog(defn, KIND_GENERATORS[kind](), self)
+        dialog = ParametricPinsDialog(defn, KIND_GENERATORS[kind](kind), self)
         if dialog.exec() != ParametricPinsDialog.DialogCode.Accepted:
             return None
         concrete = dialog.concrete_definition()

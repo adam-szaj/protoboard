@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Declarative kind nodes — YAML-declared kinds, generator fills `auto` (2026-07-06)
+
+* **Kinds become hybrid: declared in YAML, computed by the generator.** New
+  `assets/packages/kinds.yaml` declares the DIP kinds (`dip_ic` / `wdip_ic` /
+  `dip_switch`) as ordinary package nodes: `kind:` links the generator,
+  `extends: prism_dil` pulls in the leads geometry + schema, and every
+  parameter-dependent slot reads `auto` (`dims.width/length`,
+  `leads.body_offset`). Bound via the new `domain/…/package/kind_nodes.py`
+  registry (`KIND_NODES`); a kind with no node keeps the legacy pure-code
+  path, so generator plugins keep working.
+* **`auto` resolution wired into `build_package`** (package-model.md §5.4,
+  documented since 2026-06-27, now real): a new `resolve_auto` callback runs
+  between the required check and type validation; the generator's new
+  `PackageGenerator.resolve_auto(ctx)` hook is a pure value transform filling
+  only `auto` slots. Any `auto` left after it is a loud `PackageDefError`
+  naming the dotted paths. `raw_values` keep the authored `auto`, so the
+  Properties panel shows those fields read-only.
+* **Node-built DIP bodies gain what the code path never had**: full extends
+  lineage (`package, prism, prism_dil, dip_ic`), the merged value-tree
+  schema, per-field editability, component overrides
+  (`package: {kind: dip_ic, dims: {width: 7.0}}` beats `auto`) — and a
+  declared default colour: dark epoxy `#2b2b30` for DIP ICs, red `#c8433c`
+  for DIP switches (previously theme-filled). Geometry is unchanged
+  (equivalence-tested against the legacy path).
+* **Kind-parameter schemas can now live on the node** (`schema:` block →
+  `KIND_DECLARED_SCHEMAS`, served through `generator.params`; the code-side
+  schema was renamed to `code_params` and remains the fallback). Follow-ups
+  (sil/pin_header/jst nodes, generated `dip-N` families, deleting the DIP
+  fallback) tracked in docs/todo.md.
+
 ### Value-decoding renderers — colour bands and SMD digit codes (2026-07-05)
 
 * **DIN axial bodies paint the IEC colour code from `instance.value`.** The

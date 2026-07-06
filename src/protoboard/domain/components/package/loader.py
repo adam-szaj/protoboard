@@ -10,6 +10,7 @@ Dispatch to a shape class is by the ``shape`` field (registry), NOT by the
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import structlog
@@ -27,6 +28,7 @@ from protoboard.domain.components.package.offsets import (
     scale_offsets,
 )
 from protoboard.domain.components.package.schema import (
+    AUTO,
     ParamSchema,
     SchemaError,
     parse_schema,
@@ -59,7 +61,7 @@ class PackageDefError(ValueError):
 # --------------------------------------------------------------------------- #
 
 
-def _deep_merge(base: PackageDict, override: PackageDict) -> PackageDict:
+def deep_merge(base: PackageDict, override: PackageDict) -> PackageDict:
     """Merge *override* onto *base*. Nested dicts merge; scalars/lists replace.
 
     Monotonic closing: an override may fill a ``null`` (required) but the merge
@@ -69,7 +71,7 @@ def _deep_merge(base: PackageDict, override: PackageDict) -> PackageDict:
     out: PackageDict = dict(base)
     for key, val in override.items():
         if key in out and isinstance(out[key], dict) and isinstance(val, dict):
-            out[key] = _deep_merge(out[key], val)
+            out[key] = deep_merge(out[key], val)
         else:
             out[key] = val
     return out
@@ -91,7 +93,7 @@ def resolve_extends(name: str, registry: dict[str,
         if parent_name is None:
             return dict(node)
         parent = _resolve(str(parent_name))
-        merged = _deep_merge(parent, node)
+        merged = deep_merge(parent, node)
         merged.pop("extends", None)
         return merged
 
@@ -392,9 +394,41 @@ def _normalise_body_offset(filled: PackageDict, pkg: str) -> None:
     leads["body_offset"] = [[v.x, v.y] for v in body_mm]
 
 
+def _check_no_auto(tree: PackageDict, pkg: str) -> None:
+    """Reject any ``auto`` slot still unresolved after the generator step.
+
+    ``auto`` means "a kind generator computes this" (package-model.md §5.4); a
+    value tree entering shape build with one left is a definition error — the
+    node is bound to no generator, or the generator does not fill that slot.
+    The dotted paths make the message actionable.
+    """
+    stuck: list[str] = []
+
+    def _walk(node: object, path: str) -> None:
+        if isinstance(node, dict):
+            for key, val in node.items():
+                _walk(val, f"{path}.{key}" if path else str(key))
+        elif node == AUTO:
+            stuck.append(path)
+
+    _walk({k: v for k, v in tree.items() if k != "schema"}, "")
+    if stuck:
+        raise PackageDefError(
+            f"{pkg}: 'auto' left unresolved at {', '.join(sorted(stuck))} — "
+            f"a kind generator must fill these before the body can build")
+
+
+# A kind generator's value transform: fills ``auto`` slots in the (defaults-
+# filled) value tree with parameter-derived values. Plain values-in/values-out
+# so the loader stays generator-agnostic — ``kind.py`` builds the closure.
+ResolveAuto = Callable[[PackageDict], PackageDict]
+
+
 def _apply_schema(
-        merged: PackageDict,
-        pkg: str) -> tuple[PackageDict, ParamSchema | None, dict[str, Any]]:
+    merged: PackageDict,
+    pkg: str,
+    resolve_auto: ResolveAuto | None = None,
+) -> tuple[PackageDict, ParamSchema | None, dict[str, Any]]:
     """Fill defaults, check required, and type-check declared fields.
 
     Reads the ``schema:`` block (path-mirrored field declarations), applies it to
@@ -406,21 +440,26 @@ def _apply_schema(
     build stamps schema + raw_values onto the body so the resolved definition
     survives for the UI. Validation is loose: a value with no schema leaf is
     untouched. The ``auto`` sentinel satisfies ``required`` and is skipped by the
-    type check (a kind generator resolves it later — see package-model.md §5.4).
-
-    Type checking happens here (before shape build) for fields that are not
-    ``auto``; ``auto`` slots reach ``build_package`` unresolved on the YAML path
-    only when no generator runs, which the per-shape ``_require_float`` then
-    rejects as a non-number — the intended failure for an unresolved ``auto``.
+    type check; *resolve_auto* (a kind generator's value transform, when the
+    caller has one) runs between the required check and the real type check to
+    replace every ``auto`` with a concrete value — ``raw_values`` are captured
+    earlier, so the UI keeps seeing ``auto`` (read-only, per §5.3/§5.4). Any
+    ``auto`` still left afterwards is a loud :class:`PackageDefError`.
     """
     raw_schema = merged.get("schema")
     if raw_schema is None:
+        if resolve_auto is not None:
+            merged = resolve_auto(merged)
+        _check_no_auto(merged, pkg)
         return merged, None, _resolved_values(merged)
     try:
         schema = parse_schema(raw_schema)
         filled = schema.apply_to(merged)
         raw_values = _resolved_values(filled)  # before the body_offset unwrap
         schema.check_required(filled)
+        if resolve_auto is not None:
+            filled = resolve_auto(filled)      # §5.4: generator fills ``auto``
+        _check_no_auto(filled, pkg)
         _normalise_body_offset(filled, pkg)    # §5b: fold {unit,value} → mm list
         schema.validate(filled)
     except SchemaError as exc:
@@ -503,8 +542,9 @@ def build_package(
     pkg: str,
     *,
     lineage: tuple[str, ...] = (),
+    resolve_auto: ResolveAuto | None = None,
 ) -> Package:
-    merged, schema, raw_values = _apply_schema(merged, pkg)
+    merged, schema, raw_values = _apply_schema(merged, pkg, resolve_auto)
     shape = merged.get("shape")
     if shape not in SHAPE_REGISTRY:
         raise PackageDefError(f"{pkg}: unknown or missing shape {shape!r}")
@@ -594,7 +634,9 @@ def load_packages(raw_list: list[PackageDict]) -> dict[str, Package]:
     registry = {str(d["name"]): d for d in raw_list if "name" in d}
     out: dict[str, Package] = {}
     for name, node in registry.items():
-        if node.get("abstract"):
+        # A ``kind:``-bearing node is a declarative kind (its ``auto`` slots
+        # need the generator) — bound via kind_nodes, never built eagerly here.
+        if node.get("abstract") or node.get("kind"):
             continue
         merged = resolve_extends(name, registry)
         out[name] = build_package(

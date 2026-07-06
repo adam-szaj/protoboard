@@ -1,0 +1,247 @@
+# SPDX-License-Identifier: MIT
+"""Declarative kind nodes: registration, binding, and the resolve_auto flow."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from protoboard.domain.components.package.generators import (
+    KIND_DECLARED_SCHEMAS,
+    KIND_GENERATORS,
+    GeneratorContext,
+    PackageGenerator,
+)
+from protoboard.domain.components.package.kind import build_kind_package
+from protoboard.domain.components.package.kind_nodes import (
+    KIND_NODES,
+    register_kind_node,
+    register_kind_nodes,
+)
+from protoboard.domain.components.package.loader import (
+    PackageDefError,
+    load_packages,
+)
+from protoboard.domain.components.package.schema import AUTO
+from protoboard.domain.components.package.shapes import Prism
+
+
+@pytest.fixture()
+def scratch_registries():
+    """Snapshot every kind registry and restore after the test."""
+    gens = dict(KIND_GENERATORS)
+    nodes = dict(KIND_NODES)
+    schemas = dict(KIND_DECLARED_SCHEMAS)
+    yield
+    KIND_GENERATORS.clear()
+    KIND_GENERATORS.update(gens)
+    KIND_NODES.clear()
+    KIND_NODES.update(nodes)
+    KIND_DECLARED_SCHEMAS.clear()
+    KIND_DECLARED_SCHEMAS.update(schemas)
+
+
+def _base_registry() -> dict[str, dict]:
+    """A minimal abstract base + one kind node, mirroring kinds.yaml."""
+    return {
+        "prismish": {
+            "name": "prismish",
+            "abstract": True,
+            "shape": "prism",
+            "schema": {
+                "dims": {
+                    "width": {"type": "float"},
+                    "length": {"type": "float"},
+                },
+            },
+            "leads": {"direction": [0, 0, -1], "board_offset": "default"},
+            "bend": 0.0,
+        },
+        "_t_nodekind": {
+            "name": "_t_nodekind",
+            "kind": "_t_nodekind",
+            "extends": "prismish",
+            "color": "#123456",
+            "dims": {"width": "auto", "length": "auto"},
+            "leads": {"body_offset": "auto"},
+        },
+    }
+
+
+class _NodeGen(PackageGenerator):
+    """Scratch generator whose resolve_auto fills the node's auto slots."""
+
+    def resolve_auto(self, ctx: GeneratorContext) -> GeneratorContext:
+        values = dict(ctx.values)
+        dims = dict(values.get("dims") or {})
+        leads = dict(values.get("leads") or {})
+        if dims.get("width") == AUTO:
+            dims["width"] = 5.0
+        if dims.get("length") == AUTO:
+            dims["length"] = float(ctx.pin_count) * 2.5
+        if leads.get("body_offset") == AUTO:
+            leads["body_offset"] = [[2.5, 0.0]] * (ctx.pin_count - 1)
+        values["dims"] = dims
+        values["leads"] = leads
+        return ctx.with_values(values)
+
+    def generate(self, ctx: GeneratorContext) -> GeneratorContext:
+        raise AssertionError("node-bound build must not call generate()")
+
+
+class TestRegistration:
+
+    def test_register_binds_node_with_kind_as_lineage_leaf(
+        self, scratch_registries
+    ) -> None:
+        register_kind_node("_t_nodekind", _base_registry())
+        node = KIND_NODES["_t_nodekind"]
+        assert node.kind == "_t_nodekind"
+        assert node.lineage == ("prismish", "_t_nodekind")
+        # name/kind stripped; extends resolved (parent schema merged in).
+        assert "name" not in node.merged and "kind" not in node.merged
+        assert node.merged["shape"] == "prism"
+        assert node.merged["dims"]["width"] == "auto"
+
+    def test_register_kind_nodes_walks_only_kind_bearing_entries(
+        self, scratch_registries
+    ) -> None:
+        register_kind_nodes(_base_registry())
+        assert "_t_nodekind" in KIND_NODES
+        assert "prismish" not in KIND_NODES
+
+    def test_own_schema_binds_into_declared_schemas_and_params(
+        self, scratch_registries
+    ) -> None:
+        class Gen(_NodeGen):
+            generates = "_t_schemakind"
+
+        registry = _base_registry()
+        registry["_t_schemakind"] = {
+            "name": "_t_schemakind",
+            "kind": "_t_schemakind",
+            "extends": "prismish",
+            "schema": {"rows": {"type": "int", "default": 1}},
+            "dims": {"width": 1.0, "length": 1.0},
+            "leads": {"body_offset": [[2.5, 0.0]]},
+        }
+        register_kind_node("_t_schemakind", registry)
+        assert "rows" in KIND_DECLARED_SCHEMAS["_t_schemakind"].fields
+        # The generator serves the bound schema when instantiated FOR the
+        # kind — and its code-side schema otherwise.
+        assert "rows" in Gen("_t_schemakind").params.fields
+        assert Gen().params.is_empty()
+
+    def test_unknown_extends_raises(self, scratch_registries) -> None:
+        registry = {
+            "_t_orphan": {"name": "_t_orphan", "kind": "_t_orphan",
+                          "extends": "_no_such_base"},
+        }
+        with pytest.raises(PackageDefError):
+            register_kind_node("_t_orphan", registry)
+
+
+class TestLoadPackagesSkip:
+
+    def test_kind_nodes_are_not_built_eagerly(self) -> None:
+        built = load_packages(list(_base_registry().values()))
+        # The abstract base is skipped as before; the kind node's ``auto``
+        # slots make it unbuildable without a generator — it must be skipped.
+        assert built == {}
+
+
+class TestNodeBuild:
+
+    def test_resolve_auto_fills_and_build_package_validates(
+        self, scratch_registries
+    ) -> None:
+        class Gen(_NodeGen):
+            generates = "_t_nodekind"
+
+        register_kind_node("_t_nodekind", _base_registry())
+        out = build_kind_package(
+            "_t_nodekind", GeneratorContext(pin_count=3))
+        pkg = out.package
+        assert isinstance(pkg, Prism)
+        assert pkg.kind == "_t_nodekind"
+        # build_package prepends the shape root when the extends chain does
+        # not already pass through it (the real kinds.yaml chain does).
+        assert pkg.lineage == ("prism", "prismish", "_t_nodekind")
+        assert pkg.color == "#123456"          # node's declared colour
+        assert pkg.width_mm == 5.0
+        assert pkg.length_mm == 7.5
+        assert len(pkg.leads.body_offset_mm) == 2
+        # raw_values keep the authored ``auto`` for the UI.
+        assert pkg.raw_values is not None
+        assert pkg.raw_values["dims"]["width"] == "auto"
+
+    def test_generator_color_is_only_a_fallback(
+        self, scratch_registries
+    ) -> None:
+        class Gen(_NodeGen):
+            generates = "_t_nodekind"
+            color = "#abcdef"
+
+        registry = _base_registry()
+        del registry["_t_nodekind"]["color"]
+        register_kind_node("_t_nodekind", registry)
+        pkg = build_kind_package(
+            "_t_nodekind", GeneratorContext(pin_count=2)).package
+        assert pkg is not None and pkg.color == "#abcdef"
+
+    def test_unresolved_auto_is_a_loud_error(
+        self, scratch_registries
+    ) -> None:
+        class Identity(PackageGenerator):
+            generates = "_t_nodekind"
+
+            def generate(self, ctx: GeneratorContext) -> GeneratorContext:
+                raise AssertionError("must not fall back to generate()")
+
+        register_kind_node("_t_nodekind", _base_registry())
+        with pytest.raises(PackageDefError, match="auto.*dims.width"):
+            build_kind_package("_t_nodekind", GeneratorContext(pin_count=2))
+
+    def test_explicit_value_beats_auto(self, scratch_registries) -> None:
+        class Gen(_NodeGen):
+            generates = "_t_nodekind"
+
+        register_kind_node("_t_nodekind", _base_registry())
+        pkg = build_kind_package(
+            "_t_nodekind",
+            GeneratorContext(pin_count=3, values={"dims": {"width": 9.0}}),
+        ).package
+        assert isinstance(pkg, Prism)
+        assert pkg.width_mm == 9.0             # explicit override
+        assert pkg.length_mm == 7.5            # auto still filled
+
+
+class TestLibraryPackagesSection:
+
+    def test_library_file_can_ship_a_kind_node(
+        self, tmp_path: Path, scratch_registries
+    ) -> None:
+        class Gen(_NodeGen):
+            generates = "_t_libnode"
+
+        from protoboard.services.library.loader import load_library
+        (tmp_path / "lib.yaml").write_text(
+            "packages:\n"
+            "  - name: _t_libnode\n"
+            "    kind: _t_libnode\n"
+            "    extends: prism_dil\n"
+            "    color: '#654321'\n"
+            "    dims: {width: auto, length: auto}\n"
+            "    leads: {body_offset: auto}\n"
+            "components:\n"
+            "  - name: PART_NODE\n"
+            "    component_class: ic\n"
+            "    pins: {count: 4}\n"
+            "    package: {kind: _t_libnode}\n"
+        )
+        defn = load_library([tmp_path], package_families={}).get("PART_NODE")
+        assert defn.package is not None
+        assert defn.package.kind == "_t_libnode"
+        assert defn.package.color == "#654321"
+        assert defn.package.lineage[-1] == "_t_libnode"

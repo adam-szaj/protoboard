@@ -36,6 +36,19 @@ def scratch_registry():
     KIND_GENERATORS.update(before)
 
 
+@pytest.fixture()
+def builtin_kind_nodes():
+    """Bind the builtin declarative kind nodes (assets/packages/kinds.yaml).
+
+    Binding otherwise rides on the first library load, so a dispatch test
+    that asserts node-path behaviour must request it explicitly — without
+    this the result would depend on test order (whether any earlier test
+    loaded a library).
+    """
+    from protoboard.services.library.loader import _load_builtin_package_defs
+    _load_builtin_package_defs()
+
+
 class TestRegistration:
 
     def test_builtins_registered(self) -> None:
@@ -109,14 +122,18 @@ class TestRegistration:
 class TestBuiltinDispatch:
     """Parity: the registry builds the same bodies the old table did."""
 
-    def test_dip_narrow_vs_wide(self) -> None:
+    def test_dip_narrow_vs_wide(self, builtin_kind_nodes) -> None:
         narrow = build_kind_package(
             "dip_ic", GeneratorContext(pin_count=16)).package
         wide = build_kind_package(
             "wdip_ic", GeneratorContext(pin_count=16)).package
         assert isinstance(narrow, Prism) and isinstance(wide, Prism)
         assert narrow.kind == "dip_ic" and wide.kind == "wdip_ic"
-        assert narrow.lineage == ("prism", "dip_ic")
+        # Leaf checks, not tuple equality: the node path carries the full
+        # extends ancestry, the legacy path only (shape, kind) — both must
+        # end in the kind and start at a prism root.
+        assert narrow.lineage[-1] == "dip_ic"
+        assert "prism" in narrow.lineage
         # Wide rows are further apart → a wider bbox across the rows.
         assert wide.bbox().width > narrow.bbox().width
 
@@ -544,3 +561,109 @@ class TestPartialKindFootprintOption:
         variant = resolve_variant(families, built)
         assert variant is not None
         assert not is_generic_package(variant.package)
+
+
+class TestDeclarativeNodes:
+    """kinds.yaml nodes: DIP kinds build through the ordinary build_package
+    flow (full lineage, schema, raw_values, declared color) with geometry
+    identical to the legacy pure-code path."""
+
+    @pytest.mark.parametrize("kind,pins", [
+        ("dip_ic", 16), ("wdip_ic", 16), ("dip_switch", 8),
+    ])
+    def test_node_body_equivalent_to_legacy(
+        self, builtin_kind_nodes, kind: str, pins: int
+    ) -> None:
+        from protoboard.domain.components.package.generators import (
+            KIND_GENERATORS,
+        )
+        from protoboard.domain.components.package.shapes import (
+            is_rigid_package,
+        )
+
+        node_pkg = build_kind_package(
+            kind, GeneratorContext(pin_count=pins)).package
+        # The generator's own generate() is the node-less fallback — the
+        # legacy body, built without consulting the node registry.
+        legacy_pkg = KIND_GENERATORS[kind](kind).generate(
+            GeneratorContext(pin_count=pins)).package
+        assert isinstance(node_pkg, Prism) and isinstance(legacy_pkg, Prism)
+        assert node_pkg.pin_positions() == legacy_pkg.pin_positions()
+        assert node_pkg.width_mm == legacy_pkg.width_mm
+        assert node_pkg.length_mm == legacy_pkg.length_mm
+        assert node_pkg.leads == legacy_pkg.leads
+        assert is_rigid_package(node_pkg) == is_rigid_package(legacy_pkg)
+
+    @pytest.mark.parametrize("kind,color", [
+        ("dip_ic", "#2b2b30"), ("wdip_ic", "#2b2b30"),
+        ("dip_switch", "#c8433c"),
+    ])
+    def test_node_stamps_kind_color_lineage(
+        self, builtin_kind_nodes, kind: str, color: str
+    ) -> None:
+        pkg = build_kind_package(kind, GeneratorContext(pin_count=8)).package
+        assert isinstance(pkg, Prism)
+        assert pkg.kind == kind
+        assert pkg.color == color
+        assert pkg.lineage == ("package", "prism", "prism_dil", kind)
+
+    def test_raw_values_keep_auto_for_the_ui(self, builtin_kind_nodes) -> None:
+        pkg = build_kind_package(
+            "dip_ic", GeneratorContext(pin_count=8)).package
+        assert isinstance(pkg, Prism)
+        assert pkg.raw_values is not None
+        assert pkg.raw_values["dims"]["width"] == "auto"
+        assert pkg.raw_values["dims"]["length"] == "auto"
+        assert pkg.schema is not None
+        assert "dims.width" in pkg.schema.fields  # inherited prism schema
+        # ...and the geometry itself is concrete.
+        assert isinstance(pkg.width_mm, float)
+
+    def test_component_override_beats_auto_and_merges(
+        self, builtin_kind_nodes
+    ) -> None:
+        pkg = build_kind_package(
+            "dip_ic",
+            GeneratorContext(
+                pin_count=16,
+                values={"dims": {"width": 7.0, "height": 4.0}}),
+        ).package
+        assert isinstance(pkg, Prism)
+        assert pkg.width_mm == 7.0          # explicit beats auto
+        assert pkg.height_mm == 4.0         # sibling key deep-merges
+        assert pkg.length_mm is not None and pkg.length_mm > 0  # auto filled
+
+    def test_odd_pin_count_raises_through_the_node_path(
+        self, builtin_kind_nodes
+    ) -> None:
+        with pytest.raises(PackageDefError, match="even count"):
+            build_kind_package("dip_ic", GeneratorContext(pin_count=7))
+
+    def test_component_yaml_end_to_end_and_one_confirm_picker(
+        self, tmp_path: Path, builtin_kind_nodes
+    ) -> None:
+        from protoboard.gui.footprint_choice import (
+            DefaultFootprintChoiceProvider,
+        )
+        from protoboard.services.library.loader import load_library
+
+        (tmp_path / "lib.yaml").write_text(
+            "components:\n"
+            "  - name: IC_8\n"
+            "    component_class: ic\n"
+            "    pins: {count: 8}\n"
+            "    package: {kind: dip_ic}\n"
+        )
+        defn = load_library([tmp_path], package_families={}).get("IC_8")
+        assert defn.package is not None
+        assert defn.package.kind == "dip_ic"
+        assert defn.package.color == "#2b2b30"
+        assert defn.package.lineage == (
+            "package", "prism", "prism_dil", "dip_ic")
+        # The picker offers the kind, but with no parameter holes — a DIP's
+        # value-tree schema/raw_values are Properties metadata, not picker
+        # inputs, so placement stays one confirm (no second pop-up).
+        provider = DefaultFootprintChoiceProvider({})
+        opts = provider.options(defn)
+        assert [o.is_kind for o in opts] == [True]
+        assert provider.kind_params(opts[0].address) == []
