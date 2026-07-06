@@ -73,14 +73,13 @@ the `_generic` tag so their behaviour is frozen. Two follow-ups remain:
 
 ## Footprint→body cleanup — remaining parity (added 2026-06-25)
 
-**Generated DIP family body is a uniform-margin bbox, not JEDEC-sized.**
-`package/kind._prism_from_footprint` wraps the pin cloud with a fixed
-0.5-hole margin for every kind. The old `prism_for_footprint` had a DualRow
-branch sizing the DIP body to the measured fit `2.54·R − 1.35` mm and
-centring it *between* the rows (legs showing). Restore DIP body dims in the
-prism path (or as a `Prism` feature, like the TO-220 tab renderer plugin).
-xfail: `tests/unit/test_generated_families.py::TestDipFamily::`
-`test_body_width_matches_measured_mm` and `::test_body_sits_between_rows_not_over_pins`.
+~~Generated DIP family body is a uniform-margin bbox, not JEDEC-sized.~~
+RESTORED 2026-07-06: `dip_body_dims_mm` (generators/dip.py) applies the
+measured fit `width = 2.54·R − 1.35` mm / `length = pin span + 2×1.27` mm in
+both DIP build paths (`DipGenerator` and the generated `dip-N`/`wdip-N`
+families); the two xfails in test_generated_families.py are live asserts
+again. Follow-up still open: per-component width override (e.g. ATmega328
+at 7.20 mm).
 
 ## Pin-name labels never rotate (surveyed 2026-07-03) — user-deferred
 

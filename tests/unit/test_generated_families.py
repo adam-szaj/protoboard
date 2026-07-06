@@ -36,12 +36,6 @@ class TestDipFamily:
         # The wide body is physically wider.
         assert w_pkg.bbox().width > n_pkg.bbox().width
 
-    @pytest.mark.xfail(
-        reason="DIP body sizing deferred — _prism_from_footprint uses a uniform "
-        "margin, not the JEDEC 2.54·R−1.35 fit; see docs/todo.md "
-        "(Footprint→body cleanup, item 2)",
-        strict=True,
-    )
     def test_body_width_matches_measured_mm(self) -> None:
         # Moulded-body width is a linear fit of the row spacing R (in 2.54 mm
         # units), measured off real parts: width = 2.54·R − 1.35 mm.  So a
@@ -62,12 +56,6 @@ class TestDipFamily:
         assert fam.family_id == "dip-28"
         assert fam.variants[0].package.pin_count() == 28
 
-    @pytest.mark.xfail(
-        reason="DIP body sizing deferred — _prism_from_footprint wraps the pin "
-        "cloud with a uniform margin instead of sitting between the rows; see "
-        "docs/todo.md (Footprint→body cleanup, item 2)",
-        strict=True,
-    )
     def test_body_sits_between_rows_not_over_pins(self) -> None:
         # Regression: the body must be narrower than the row spacing and centred
         # on the pin cloud, so the legs show on both sides and pins aren't

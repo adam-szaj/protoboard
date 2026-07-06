@@ -279,13 +279,20 @@ class PackageGenerator(ABC):
         return int(m.group(1)), {}
 
 
-def prism_from_footprint(fp: Footprint) -> Package | None:
+def prism_from_footprint(
+    fp: Footprint,
+    *,
+    dims_mm: tuple[float, float] | None = None,
+) -> Package | None:
     """Build a plain prism :class:`Package` whose pins follow *fp*.
 
-    Geometry only: the body bbox is derived from the pin cloud plus a uniform
-    margin, leads point rigidly down. The shared funnel of the builtin
-    generators — richer per-kind silhouettes (DIP notch, etc.) are a renderer
-    concern. Returns ``None`` for a footprint with no body (< 2 pins).
+    Geometry only: leads point rigidly down; the body is either the given
+    explicit ``dims_mm`` (``(width, length)`` — a kind with a real moulded
+    body size, e.g. the DIP measured fit) centred on the pin cloud, or —
+    when ``None`` — the pin-cloud bbox plus a uniform margin. The shared
+    funnel of the builtin generators — richer per-kind silhouettes (DIP
+    notch, etc.) are a renderer concern. Returns ``None`` for a footprint
+    with no body (< 2 pins).
     """
     pins = fp.pin_positions()
     if len(pins) < 2:
@@ -294,7 +301,7 @@ def prism_from_footprint(fp: Footprint) -> Package | None:
         [pins[i + 1].x - pins[i].x, pins[i + 1].y - pins[i].y]
         for i in range(len(pins) - 1)
     ]
-    spec = {
+    spec: dict[str, Any] = {
         "shape": "prism",
         "dims": {},  # bbox derived from pins + margin
         "bend": 0,
@@ -305,6 +312,10 @@ def prism_from_footprint(fp: Footprint) -> Package | None:
             "board_offset": "default",
         },
     }
+    if dims_mm is not None:
+        width_mm, length_mm = dims_mm
+        spec["dims"] = {"width": width_mm, "length": length_mm}
+        del spec["margin"]
     try:
         return build_package(spec, "synth/kind")
     except PackageDefError:

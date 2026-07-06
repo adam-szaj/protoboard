@@ -54,6 +54,7 @@ _SIL_COUNTS = range(3, 41)
 def _family(
     family_id: str, label: str, footprint: Footprint,
     kind: str | None = None,
+    dims_mm: tuple[float, float] | None = None,
 ) -> PackageFamily | None:
     """Build a one-variant generated family; *kind* stamps the lineage.
 
@@ -67,7 +68,7 @@ def _family(
 
     from protoboard.domain.components.package.shapes import Prism
 
-    pkg = prism_from_footprint(footprint)
+    pkg = prism_from_footprint(footprint, dims_mm=dims_mm)
     if pkg is None:
         return None
     if kind is not None and isinstance(pkg, Prism):
@@ -86,12 +87,17 @@ def dip_family(pins: int, *, wide: bool) -> PackageFamily | None:
     """
     if pins < 4 or pins % 2 != 0:
         return None
+    from protoboard.domain.components.package.generators.dip import (
+        dip_body_dims_mm,
+    )
+
     rows = _DIP_WIDE_ROWS if wide else _DIP_NARROW_ROWS
     fp = DIL(n=pins, rows_spacing=float(rows))
     prefix = "wdip" if wide else "dip"
     width = "wide 0.6\"" if wide else "narrow 0.3\""
     return _family(f"{prefix}-{pins}", f"DIP-{pins} ({width})", fp,
-                   kind="wdip_ic" if wide else "dip_ic")
+                   kind="wdip_ic" if wide else "dip_ic",
+                   dims_mm=dip_body_dims_mm(pins, float(rows)))
 
 
 def sil_family(pins: int) -> PackageFamily | None:
