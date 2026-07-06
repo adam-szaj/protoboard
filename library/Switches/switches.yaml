@@ -8,7 +8,7 @@ components:
       shape: prism
       dims:
           width: 9.5
-          langth: 9.5
+          length: 9.5
           height: 4
       leads:
         direction: [0, 0, -1]
@@ -23,7 +23,7 @@ components:
     pin_names: {1: nc, 2: com, 3: no}
     package:
       shape: prism
-      dims: {width: 3.5, langth: 8.5, height: 10}
+      dims: {width: 3.5, length: 8.5, height: 10}
       leads:
         direction: [0, 0, -1]
         body_offset: {unit: 2.5, value: [[0, 1], [0,1]]}
@@ -36,7 +36,7 @@ components:
     pins: {count: 2}
     package:
       shape: prism
-      dims: {width: 3.5, langth: 8.5, height: 10}
+      dims: {width: 3.5, length: 8.5, height: 10}
       leads:
         direction: [0, 0, -1]
         body_offset: {unit: 2.5, value: [[0, 1]]}

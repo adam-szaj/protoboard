@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import structlog
+
 from protoboard.domain.components.package.body import (
     DiscProfile,
     EdgeStyle,
@@ -42,6 +44,8 @@ from protoboard.domain.components.package.shapes import (
 from protoboard.domain.components.package.solver import RASTER_MM
 from protoboard.geometry import Insets, Point, Vector
 from protoboard.services.debug_trace import traced
+
+_log = structlog.get_logger(__name__)
 
 PackageDict = dict[str, Any]
 
@@ -438,6 +442,61 @@ def _resolved_values(merged: PackageDict) -> dict[str, Any]:
     return out
 
 
+#: Recognized ``dims:`` keys per shape — the typo-catcher's vocabulary.
+_KNOWN_DIMS_KEYS: dict[str, frozenset[str]] = {
+    "cylinder": frozenset({
+        "diameter", "length", "edge_radius", "flat_radius", "flat_r",
+        "flat_normal",
+    }),
+    "disc": frozenset({"diameter", "thickness"}),
+    "prism": frozenset({"width", "length", "height", "corner_radius"}),
+}
+
+
+def _validate_dims(
+    dims: dict[str, Any],
+    shape: str,
+    pkg: str,
+    schema: ParamSchema | None,
+) -> None:
+    """Typo-catcher for an authored ``dims:`` block.
+
+    An unknown key WARNS (dims is an open data bag — never a gate; a family
+    schema may declare extra ``dims.*`` fields, those count as known). A
+    prism giving exactly ONE of width/length ERRORS: the half pair can never
+    derive a body, so the part would silently degrade to the pin-hug
+    rectangle at render — the ``langth``-typo class of bug, better refused
+    loudly at load (the component is skipped with this message as the hint).
+    A dims-less prism stays legal: no dims at all (or an empty block) means
+    "derive from pins/margin" — the generators build exactly that.
+    """
+    known = _KNOWN_DIMS_KEYS.get(shape, frozenset())
+    if schema is not None:
+        known = known | {
+            path.split(".", 1)[1]
+            for path in schema.fields
+            if path.startswith("dims.")
+        }
+    for key in dims:
+        if key not in known:
+            _log.warning(
+                "package.unknown_dims_key",
+                package=pkg,
+                shape=shape,
+                key=key,
+                known=sorted(known),
+            )
+    if shape == "prism":
+        has_width = dims.get("width") is not None
+        has_length = dims.get("length") is not None
+        if has_width != has_length:
+            missing = "length" if has_width else "width"
+            raise PackageDefError(
+                f"{pkg}: prism dims gives only one extent — missing "
+                f"dims.{missing} (a half pair cannot derive the body and "
+                f"would silently degrade to the pin-hug rectangle)")
+
+
 @traced("build_package")
 def build_package(
     merged: PackageDict,
@@ -457,6 +516,7 @@ def build_package(
         lineage = (str(shape), *lineage)
     leads = build_leads(merged, pkg)
     dims = merged.get("dims") or {}
+    _validate_dims(dims, str(shape), pkg, schema)
     bend = float(merged.get("bend", 0.0))
     color = _color(merged.get("color"))
     edge_raw = merged.get("edge")

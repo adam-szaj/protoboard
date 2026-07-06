@@ -511,3 +511,45 @@ class TestSchemaBodyOffsetUnwrap:
         raw = pkgs["Pr"].raw_values
         assert raw is not None
         assert raw["leads"]["body_offset"] == {"unit": 2.5, "value": [[1, 0]]}
+
+
+class TestDimsValidation:
+    """The dims typo-catcher: unknown keys warn, a prism half-pair errors."""
+
+    def _prism(self, dims: dict) -> list[dict]:
+        return GENERICS + [
+            {"name": "P1", "extends": "prism_dil", "dims": dims,
+             "leads": {"direction": [0, 0, -1],
+                       "body_offset": {"unit": 2.5, "value": [[1, 0]]},
+                       "board_offset": "default"}},
+        ]
+
+    def test_unknown_dims_key_warns_but_loads(self) -> None:
+        from structlog.testing import capture_logs
+        with capture_logs() as logs:
+            pkgs = load_packages(self._prism(
+                {"width": 3.5, "length": 8.5, "heigth": 10}))
+        assert pkgs["P1"].width_mm == 3.5
+        assert any(e["event"] == "package.unknown_dims_key"
+                   and e.get("key") == "heigth" for e in logs)
+
+    def test_known_dims_keys_stay_silent(self) -> None:
+        from structlog.testing import capture_logs
+        with capture_logs() as logs:
+            load_packages(self._prism(
+                {"width": 3.5, "length": 8.5, "height": 10}))
+        assert not any(
+            e["event"] == "package.unknown_dims_key" for e in logs)
+
+    def test_prism_half_pair_raises(self) -> None:
+        # The langth-typo class of bug: one extent present, the other absent
+        # would silently degrade to the pin-hug body at render — refuse loud.
+        with pytest.raises(PackageDefError, match="missing dims.length"):
+            load_packages(self._prism({"width": 3.5, "height": 10}))
+        with pytest.raises(PackageDefError, match="missing dims.width"):
+            load_packages(self._prism({"length": 8.5}))
+
+    def test_dims_less_prism_stays_legal(self) -> None:
+        # No dims at all = "derive from pins/margin" — the generator path.
+        pkgs = load_packages(self._prism({}))
+        assert pkgs["P1"].width_mm is None
