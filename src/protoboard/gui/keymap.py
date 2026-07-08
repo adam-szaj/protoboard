@@ -34,7 +34,7 @@ global action is rejected (raises :class:`FinalShortcutError`).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import override
 
 from PySide6.QtCore import Qt
@@ -84,6 +84,13 @@ def _global_id(name: str) -> str:
     return f"global.action.{name}"
 
 
+def _shortcut_text(shortcuts: list[str] | str | None) -> str | None:
+    """Canonical ``"A|B"`` text of a stored shortcut value; ``None`` = inherit."""
+    if shortcuts is None or isinstance(shortcuts, str):
+        return shortcuts
+    return "|".join(shortcuts)
+
+
 # ---------------------------------------------------------------------------
 # KeyAction
 # ---------------------------------------------------------------------------
@@ -93,19 +100,20 @@ def _global_id(name: str) -> str:
 class KeyAction:
     """One bindable action.
 
-    ``default`` is the shortcut string (``QKeySequence`` syntax — ``"W"``,
-    ``"Ctrl+Shift+S"``, ``"Del"``) or ``None`` to inherit the matching generic
-    global default.  ``final`` (only meaningful on ``global.*`` actions) marks a
-    shortcut no tool may claim.
+    ``shortcuts`` is the declared binding — a list of alternatives, a legacy
+    ``"Up|W"`` string (``QKeySequence`` syntax — ``"W"``, ``"Ctrl+Shift+S"``,
+    ``"Del"``), or ``None`` to inherit the matching generic global default.
+    ``final`` (only meaningful on ``global.*`` actions) marks a shortcut no
+    tool may claim.
     """
 
     id: str
-    shortcuts: list[str] = field(default_factory=list)
+    shortcuts: list[str] | str | None = None
     display: str = ""
     final: bool = False
 
     @property
-    def default(self) -> list[str]:
+    def default(self) -> list[str] | str | None:
         return self.shortcuts
 
     def __json_repr__(self) -> dict:
@@ -139,8 +147,8 @@ GLOBAL_ACTIONS: tuple[KeyAction, ...] = (
     # flat table so behaviour is identical until the Stage-2 migration).
     KeyAction(_global_id("rotate_cw"), ["R"], "Rotate CW"),
     KeyAction(_global_id("rotate_ccw"), ["Shift+R"], "Rotate CCW"),
-    KeyAction(_global_id("flip"), ["Shift+F"], "Flip"),
-    KeyAction(_global_id("redrag"), ["P"], "Re-drag Pins"),
+    KeyAction(_global_id("flip"), ["Alt+R"], "Flip"),
+    KeyAction(_global_id("redrag"), ["Ctrl+R"], "Re-drag Pins"),
     KeyAction(_global_id("show_shortcuts"), ["?"],
               "Show Shortcuts",
               final=True),
@@ -198,7 +206,7 @@ class AbstractKeyMap(ABC):
 
     @abstractmethod
     def register_tool_actions(
-            self, actions: dict[str, list[str]]) -> None:
+            self, actions: dict[str, str | None]) -> None:
         ...
 
     @abstractmethod
@@ -224,7 +232,7 @@ class AbstractKeyMap(ABC):
 
     @abstractmethod
     def set_override(self, action_id: str,
-                     shortcuts: list[str]) -> KeyAction | None:
+                     shortcuts: list[str] | str) -> KeyAction | None:
         ...
 
     @abstractmethod
@@ -259,6 +267,11 @@ class KeyMap(AbstractKeyMap):
 
     _parent: AbstractKeyMap | None = field(default=None)
     _actions: dict[str, KeyAction] = field(default_factory=dict)
+    # User rebinds, keyed by action id.  Kept apart from ``_actions`` so a
+    # tool re-registering its declared actions (every activate()) can never
+    # clobber a rebind, and so an override may target an action that is not
+    # registered *yet*.
+    _overrides: dict[str, str] = field(default_factory=dict)
 
     def __json_repr__(self) -> dict[str, dict]:
         json_repr = dict()
@@ -271,7 +284,7 @@ class KeyMap(AbstractKeyMap):
     # -- registration -------------------------------------------------------
     @traced()
     @override
-    def register_tool_actions(self, actions: dict[str, list[str]]) -> None:
+    def register_tool_actions(self, actions: dict[str, str | None]) -> None:
         """Register a tool's declared actions (``key_actions()`` output).
 
         *actions* maps ``"<category>.action.<name>" -> shortcut | None``.  A
@@ -291,7 +304,7 @@ class KeyMap(AbstractKeyMap):
 
     @traced()
     def _inherited_display(self, action_id: str) -> str:
-        glob = self._get_action(_global_id(name_of(action_id)))
+        glob = self.resolve_action(_global_id(name_of(action_id)))
         return glob.display if glob is not None else name_of(action_id).title()
 
     # -- resolution ---------------------------------------------------------
@@ -300,10 +313,29 @@ class KeyMap(AbstractKeyMap):
         return self._actions.get(action_id)
 
     @traced()
+    @override
     def resolve(self, action_id: str) -> str:
+        """The shortcut string that currently fires *action_id* (``""`` if none).
+
+        Order: user override on this map (taken verbatim; ``""`` means
+        explicitly unbound) → the action declared on this map (a ``None``
+        binding inherits the generic ``global.action.<name>`` through the
+        chain) → the parent map.
+        """
+        if action_id in self._overrides:
+            return self._overrides[action_id]
         action = self._get_action(action_id)
-        return action_id if action else (
-            self._parent.resolve(action_id) if self._parent else "")
+        if action is None:
+            return self._parent.resolve(action_id) if self._parent else ""
+        text = _shortcut_text(action.shortcuts)
+        if text is not None:
+            return text
+        gid = _global_id(name_of(action_id))
+        if gid == action_id:
+            return ""  # an unbound global action
+        # Restart at *self*, not the parent: an override on the generic
+        # global id may live on this map (rebinds land on the leaf).
+        return self.resolve(gid)
 
     @traced()
     def resolve_display(self, action_id: str) -> str:
@@ -370,15 +402,17 @@ class KeyMap(AbstractKeyMap):
     # -- overrides / persistence -------------------------------------------
 
     @traced()
+    @override
     def set_override(self, action_id: str,
-                     shortcuts: list[str]) -> KeyAction | None:
-        """Set a user override for *action_id* (does not persist by itself)."""
-        action: KeyAction | None = self.resolve_action(action_id)
-        if action:
-            new_override = replace(action, shortcuts=shortcuts)
-            self._actions[action_id] = new_override
-            return new_override
-        return None
+                     shortcuts: list[str] | str) -> KeyAction | None:
+        """Set a user override for *action_id* (does not persist by itself).
+
+        The override sticks even when the action is not registered yet (a
+        tool registers its actions on activate) and survives re-registration.
+        Returns the declared action if one is known anywhere in the chain.
+        """
+        self._overrides[action_id] = _shortcut_text(shortcuts) or ""
+        return self.resolve_action(action_id)
 
     @traced()
     def known_actions(self) -> tuple[KeyAction, ...]:
@@ -434,13 +468,9 @@ class KeyMap(AbstractKeyMap):
                         entries, dict):
                     continue
                 for name, value in entries.items():
-                    action_id = f"{category}.{name}"
-                    display = self._inherited_display(action_id)
                     if not isinstance(name, str) or not isinstance(value, str):
                         continue  # null / non-string → inherit (skip)
-                    self._actions[action_id] = KeyAction(action_id,
-                                                         shortcuts=[value],
-                                                         display=display)
+                    self._overrides[f"{category}.{name}"] = value
         except Exception:  # noqa: BLE001 — corrupt file → defaults
             return
 
@@ -454,9 +484,9 @@ class KeyMap(AbstractKeyMap):
         from protoboard.paths import CONFIG_DIR, KEYBINDINGS_V2_FILE
 
         tree: dict[str, dict[str, str]] = {}
-        for action_id, shortcut in self._actions.items():
-            action = self._get_action(action_id)
-            if action is not None and action.shortcuts == shortcut:
+        for action_id, shortcut in self._overrides.items():
+            action = self.resolve_action(action_id)
+            if action is not None and _shortcut_text(action.shortcuts) == shortcut:
                 continue  # equals declared default → don't persist
             category, _, name = action_id.partition(".")
             if not name:
@@ -478,10 +508,22 @@ class KeyMap(AbstractKeyMap):
 
     @override
     def resolve_action(self, action_id: str) -> KeyAction | None:
-        resolved_id = self.resolve(action_id)
-        return self._get_action(resolved_id)
+        """The declared :class:`KeyAction`, searching up the map chain."""
+        action = self._get_action(action_id)
+        if action is not None:
+            return action
+        parent = self._parent
+        return parent.resolve_action(action_id) if parent else None
+
 
 class GlobalKeyMap(KeyMap):
+    """Root of the map chain: the built-in generic ``global.action.*`` set.
+
+    A tool action id that reaches this map unregistered falls back to the
+    generic global default sharing its bare name — that is the two-level
+    inherit rule's last stop.
+    """
+
     @classmethod
     def with_globals(cls) -> KeyMap:
         """A fresh map carrying only the built-in global actions."""
@@ -492,7 +534,9 @@ class GlobalKeyMap(KeyMap):
 
     @override
     def resolve(self, action_id: str) -> str:
+        if action_id in self._overrides or action_id in self._actions:
+            return super().resolve(action_id)
         global_id = _global_id(name_of(action_id))
         if global_id == action_id:
-            return ""  # a global action with a None default = unbound
-        return self.resolve(global_id)
+            return ""  # unknown global action = unbound
+        return self.resolve(global_id)  # tool action → its generic default

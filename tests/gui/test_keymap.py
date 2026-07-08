@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 from PySide6.QtCore import Qt
 
-from protoboard.gui.keymap import KeyMap, _has_shift, _is_symbol_key
+from protoboard.gui.keymap import GlobalKeyMap, KeyMap, _has_shift, _is_symbol_key
 from PySide6.QtGui import QKeySequence
 
 _SHIFT = Qt.KeyboardModifier.ShiftModifier
@@ -21,7 +21,7 @@ _NONE = Qt.KeyboardModifier.NoModifier
 
 @pytest.fixture()
 def km() -> KeyMap:
-    return KeyMap.with_globals()
+    return GlobalKeyMap.with_globals()
 
 
 class TestShiftedSymbol:
