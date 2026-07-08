@@ -36,11 +36,11 @@ class TestRefresh:
         # into the background cache by drawBackground.  Verify that the
         # display list has the expected primitives after a refresh.
         board_view.refresh()
-        board_view._ensure_bg_cache()
+        board_view.paint._ensure_bg_cache()
         from protoboard.gui.renderers.board_renderer import BoardDisplayList
-        assert isinstance(board_view._bg_display_list, BoardDisplayList)
+        assert isinstance(board_view.paint._bg_display_list, BoardDisplayList)
         # 5×5 = 25 pads expected for the test fixture board.
-        assert len(board_view._bg_display_list.pads) >= 25
+        assert len(board_view.paint._bg_display_list.pads) >= 25
 
     def test_refresh_is_idempotent(self, board_view: BoardView) -> None:
         board_view.refresh()
@@ -109,10 +109,10 @@ class TestBoardSandwichCache:
         self, board_view: BoardView, session: EditorSession, qtbot: QtBot
     ) -> None:
         # Build cache once.
-        board_view._back_cache_dirty = False
-        board_view._back_cache = object()  # opaque sentinel
+        board_view.paint._back_cache_dirty = False
+        board_view.paint._back_cache = object()  # opaque sentinel
         board_view.refresh()
-        assert board_view._back_cache_dirty, (
+        assert board_view.paint._back_cache_dirty, (
             "refresh() must invalidate _back_cache_dirty so the next paint rebuilds"
         )
 
@@ -137,7 +137,7 @@ class TestBoardSandwichCache:
         # Force a viewport size so the cache build is exercised.
         board_view.resize(400, 300)
         qtbot.wait(20)
-        board_view._ensure_back_cache()
+        board_view.paint._ensure_back_cache()
 
         # Back-side group exists in scene but was hidden after rasterisation.
         wire_group = cast(QGraphicsItemGroup, board_view._wire_groups.get(wire.id))
@@ -146,8 +146,8 @@ class TestBoardSandwichCache:
         # the wire we just added it should be present.
         # (If render failed silently the test still passes — we mainly
         # assert the hidden-items list got populated.)
-        if board_view._back_cache is not None:
-            assert wire_group in board_view._back_hidden_items
+        if board_view.paint._back_cache is not None:
+            assert wire_group in board_view.paint._back_hidden_items
             assert wire_group.isVisible() is False
 
     def test_alpha_for_board_mid_default(self) -> None:

@@ -78,7 +78,8 @@ fingerprint is `(position, rotation, net, layer)`. Highlight changes use
 **Back-cache and Z-banding**: items with Z < 3.0 are part of the bottom-side
 "back band" and may be marked invisible to keep paint cost down. Anything
 that needs to be hit-testable from the back band must be excluded from the
-back-cache filter (see `_ensure_back_cache`).
+back-cache filter (see `PaintPipeline._ensure_back_cache`,
+`gui/paint_pipeline.py`).
 
 **Board layer caching** (`_board_layer_dirty`): `render_board()` only runs
 when the theme, camera side, transform, or board alpha changes.

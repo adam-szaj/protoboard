@@ -134,9 +134,10 @@ Selection / highlight overlays are applied on top of this by the highlight pass
 ## 3. The board "sandwich" — `drawBackground()`
 
 The board itself (pads, strips, frames) is **not** scene items — it is
-rasterised into a pixmap and blitted in `drawBackground()` (`board_view.py`,
-docstring at `:215`). Back-side scene items (Z 0–2.999) are also rasterised into
-`_back_cache`. The composite, in Z order:
+rasterised into a pixmap and blitted by `PaintPipeline.draw_background()`
+(`gui/paint_pipeline.py`, owned by `BoardView` as `view.paint`; the Qt
+`drawBackground()` override just delegates). Back-side scene items (Z 0–2.999)
+are also rasterised into `_back_cache`. The composite, in Z order:
 
 ```
 1. fillRect(viewport background)

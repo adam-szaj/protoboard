@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
     from protoboard.geometry import Point
     from protoboard.gui.keymap import KeyMap
+    from protoboard.gui.layer_state import LayerState
     from protoboard.gui.session import EditorSession
     from protoboard.gui.theme import Theme
 
@@ -87,6 +88,23 @@ class AbstractBoardView(QGraphicsView, metaclass=QtABCMeta):
     @abstractmethod
     def active_tool(self) -> BoardViewTool | None:
         """The tool currently receiving delegated input events."""
+
+    @property
+    @abstractmethod
+    def antialiasing(self) -> bool:
+        """Whether render passes (scene + cached pixmaps) antialias."""
+
+    @abstractmethod
+    def layer_state(self) -> LayerState:
+        """The resolved per-layer visibility/alpha state for this paint."""
+
+    @abstractmethod
+    def mirror_flags(self) -> tuple[bool, bool]:
+        """(mirror_h, mirror_v) of the current view transform."""
+
+    @abstractmethod
+    def in_transform_burst(self) -> bool:
+        """True while a wheel-zoom or pan-scroll burst is in flight."""
 
     # -- scene-item registries (read-only; consumed by extracted services) ----
 
