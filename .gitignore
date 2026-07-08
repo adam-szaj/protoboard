@@ -61,3 +61,4 @@ standard_pinouts.txt
 /simpleamp/
 docs/ogrod_slawe.net
 *.log
+.claude/*
