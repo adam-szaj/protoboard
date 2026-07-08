@@ -414,8 +414,9 @@ board side through a plated-through pad has fragments on both Z bands. Each
 fragment paints a glow + outline below the core; via markers mark the
 side-transition boundaries.
 
-**Highlights** (applied after the main passes, `board_view.py`) — selecting a
-wire/net dims everything else by a highlight factor (`_apply_highlight_opacity`)
+**Highlights** (applied after the main passes, `gui/highlight/renderer.py` —
+`HighlightRenderer`, owned by `BoardView` as `view.highlight`) — selecting a
+wire/net dims everything else by a highlight factor (`HighlightRenderer.apply`)
 and draws bright overlays: the selected-wire thick overlay at `Z_WIRE_HIGHLIGHT`
 (9.4) and bright net-pad discs at `Z_NET_PAD_HIGHLIGHT` (9.4), both below the
 pin-modifier glyph so pin markers on the route stay visible. The

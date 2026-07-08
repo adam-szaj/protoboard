@@ -422,7 +422,7 @@ class TestRoutingNetUnion:
         net = _net(session, (i1.id, 1), (i2.id, 1), name="N1")
         board_view.refresh()
         session.set_routing_net(net.id)
-        board_view._apply_highlight_opacity()
+        board_view.highlight.apply()
         assert session.routing_net_id == net.id
         session.set_routing_net(None)
         assert session.routing_net_id is None

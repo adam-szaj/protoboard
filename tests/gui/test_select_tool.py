@@ -202,12 +202,12 @@ class TestCyanSelectionOutline:
 
         # Simulate the scene wipe + rebuild that a drag refresh performs.
         board_view._invalidate_all_groups()
-        assert not board_view._selection_bbox_overlays  # refs dropped, not dangling
-        assert not board_view._cyan_outlined
+        assert not board_view.highlight._selection_bbox_overlays  # refs dropped, not dangling
+        assert not board_view.highlight._cyan_outlined
         board_view.refresh()
 
         # A subsequent highlight pass (the one that crashed) must be clean.
-        board_view._apply_highlight_opacity_impl()
+        board_view.highlight.apply_impl()
         tool._refresh_highlight()
 
 
@@ -1703,18 +1703,18 @@ class TestWireAndPadHighlight:
         """Select the wire and run the highlight pass (what a real click does)."""
         _select_wire(tool, session)
         tool._refresh_highlight()  # publish to the highlight stack
-        view._apply_highlight_opacity_impl()  # draw overlays now (no debounce wait)
+        view.highlight.apply_impl()  # draw overlays now (no debounce wait)
 
     def test_selected_wire_gets_bright_overlay(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
         view.refresh()
         tool = _v2(view)
-        assert not view._wire_select_overlays  # nothing selected yet
+        assert not view.highlight._wire_select_overlays  # nothing selected yet
 
         self._select_wire_and_highlight(tool, view, session)
         wire = next(iter(session.layout.wires))
         # A bright overlay group now exists for the selected wire.
-        assert wire.id in view._wire_select_overlays
+        assert wire.id in view.highlight._wire_select_overlays
 
     def test_deselect_removes_wire_overlay(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
@@ -1722,22 +1722,22 @@ class TestWireAndPadHighlight:
         tool = _v2(view)
         self._select_wire_and_highlight(tool, view, session)
         wire = next(iter(session.layout.wires))
-        assert wire.id in view._wire_select_overlays
+        assert wire.id in view.highlight._wire_select_overlays
 
         tool._selection.clear()
         tool._refresh_highlight()
-        view._apply_highlight_opacity_impl()
-        assert wire.id not in view._wire_select_overlays
+        view.highlight.apply_impl()
+        assert wire.id not in view.highlight._wire_select_overlays
 
     def test_selected_wire_net_pads_get_discs(self, qtbot) -> None:
         session, view = _wire_session(qtbot)
         view.refresh()  # populate the pin-pad record cache
         tool = _v2(view)
-        assert not view._net_pad_highlight_items
+        assert not view.highlight._net_pad_highlight_items
 
         self._select_wire_and_highlight(tool, view, session)
         # The wire's net has a 1-pin component (X1) → at least one pad disc.
-        assert view._net_pad_highlight_items
+        assert view.highlight._net_pad_highlight_items
 
     def test_discs_follow_selected_component_net_not_arbitrary(self, qtbot) -> None:
         """Selecting a component lights ITS net's pads — not one constant net.
@@ -1799,7 +1799,7 @@ class TestWireAndPadHighlight:
 
             discs = [
                 cast(QGraphicsEllipseItem, i)
-                for i in view._net_pad_highlight_items
+                for i in view.highlight._net_pad_highlight_items
             ]
             return {
                 (round(i.rect().center().x(), 1), round(i.rect().center().y(), 1))
@@ -1812,11 +1812,11 @@ class TestWireAndPadHighlight:
         # not all nets of selected components.  Drive the context directly.
         tool._select_primary(c1.id)
         tool._context_net_id = net_a
-        view._apply_highlight_opacity_impl()
+        view.highlight.apply_impl()
         u1_discs = _disc_centers()
         tool._select_primary(c2.id)
         tool._context_net_id = net_b
-        view._apply_highlight_opacity_impl()
+        view.highlight.apply_impl()
         u2_discs = _disc_centers()
 
         # Each context lights its own net's pad — and the two sets differ.
@@ -1837,8 +1837,8 @@ class TestWireAndPadHighlight:
         tool._selection.set(ComponentSelectable(component_id=inst.id, placement=pl))
         tool._context_net_id = None
         tool._refresh_highlight()
-        view._apply_highlight_opacity_impl()
-        assert view._net_pad_highlight_items == []
+        view.highlight.apply_impl()
+        assert view.highlight._net_pad_highlight_items == []
 
     def test_scene_rebuild_while_wire_selected_is_clean(self, qtbot) -> None:
         """Scene wipe must drop overlay refs, not leave dead C++ wrappers."""
@@ -1846,14 +1846,14 @@ class TestWireAndPadHighlight:
         view.refresh()
         tool = _v2(view)
         self._select_wire_and_highlight(tool, view, session)
-        assert view._wire_select_overlays
+        assert view.highlight._wire_select_overlays
 
         view._invalidate_all_groups()
-        assert not view._wire_select_overlays  # refs dropped, not dangling
-        assert not view._net_pad_highlight_items
+        assert not view.highlight._wire_select_overlays  # refs dropped, not dangling
+        assert not view.highlight._net_pad_highlight_items
         view.refresh()
         # The post-rebuild highlight pass (which would crash on dead refs) is clean.
-        view._apply_highlight_opacity_impl()
+        view.highlight.apply_impl()
 
 
 class TestDragConflictOutline:
@@ -1877,21 +1877,21 @@ class TestDragConflictOutline:
         tool._show_conflict_corner(
             DragCommitDecision(severity=DragSeverity.HARD, description="x")
         )
-        hard = board_view._select_outline_override
+        hard = board_view.highlight._select_outline_override
         assert hard is not None and hard.red() > hard.green()  # reddish
 
         # SOFT → amber override (more green than red's, still warm).
         tool._show_conflict_corner(
             DragCommitDecision(severity=DragSeverity.SOFT, description="y")
         )
-        soft = board_view._select_outline_override
+        soft = board_view.highlight._select_outline_override
         assert soft is not None and soft.green() > hard.green()  # amber vs red
 
         # CLEAR → back to cyan (override removed).
         tool._show_conflict_corner(
             DragCommitDecision(severity=DragSeverity.CLEAR)
         )
-        assert board_view._select_outline_override is None
+        assert board_view.highlight._select_outline_override is None
 
     def test_wire_ghosting_dims_drop_wires(self, qtbot) -> None:
         """A drop decision ghost-dims its drop/disconnect wires; CLEAR restores."""
@@ -1964,7 +1964,7 @@ class TestDragConflictOutline:
         tool = _v2(board_view)
         tool._select_primary(inst.id)
         board_view.refresh()
-        rect = board_view._selection_bbox_overlays.get(inst.id)
+        rect = board_view.highlight._selection_bbox_overlays.get(inst.id)
         assert rect is not None  # dashed bbox drawn for the selection
         before = (round(rect.rect().width(), 2), round(rect.rect().height(), 2))
 
@@ -1988,20 +1988,20 @@ class TestDragConflictOutline:
         tool = _v2(board_view)
         tool._select_primary(inst.id)
         board_view.refresh()
-        rect = board_view._selection_bbox_overlays.get(inst.id)
+        rect = board_view.highlight._selection_bbox_overlays.get(inst.id)
         assert rect is not None
         assert rect.pen().style() == _Qt.PenStyle.DashLine  # dashed, not solid
 
         # Deselect → overlay removed.
         tool._deselect()
         board_view.refresh()
-        assert inst.id not in board_view._selection_bbox_overlays
+        assert inst.id not in board_view.highlight._selection_bbox_overlays
 
         # Toggle off → no overlay even when selected.
         board_view.set_show_selection_bbox(False)
         tool._select_primary(inst.id)
         board_view.refresh()
-        assert inst.id not in board_view._selection_bbox_overlays
+        assert inst.id not in board_view.highlight._selection_bbox_overlays
 
     def test_clear_drag_corner_resets_outline(
         self, board_view: BoardView, session: EditorSession
@@ -2017,10 +2017,10 @@ class TestDragConflictOutline:
         tool._show_conflict_corner(
             DragCommitDecision(severity=DragSeverity.HARD, description="x")
         )
-        assert board_view._select_outline_override is not None
+        assert board_view.highlight._select_outline_override is not None
         # Any drag-end path routes through _clear_drag_corner → outline resets.
         tool._clear_drag_corner()
-        assert board_view._select_outline_override is None
+        assert board_view.highlight._select_outline_override is None
 
 
 class TestFreePinHint:

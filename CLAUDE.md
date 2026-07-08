@@ -116,7 +116,8 @@ src/protoboard/
 │   │                   # queries.py (net relation), wire_edit.py, wire_ops.py,
 │   │                   # mouse_input.py, point_pick_controller.py,
 │   │                   # drag_controller.py, rubber_band_controller.py, adapters.py
-│   ├── highlight/      # controller.py (HighlightController service)
+│   ├── highlight/      # controller.py (policy: what to highlight),
+│   │                   # renderer.py (mechanism: dimming/outlines/overlays)
 │   ├── renderers/      # board_renderer.py, component_renderer.py, wire_renderer.py
 │   ├── dialogs/        # preferences_dialog.py, group_target_dialog.py,
 │   │                   # pad_conflict_dialog.py, drag_disconnect_dialog.py,

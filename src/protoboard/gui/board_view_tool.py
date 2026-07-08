@@ -22,6 +22,8 @@ from PySide6.QtWidgets import QGraphicsView
 from protoboard.services.debug_trace import traced
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from protoboard.geometry import Point
     from protoboard.gui.keymap import KeyMap
     from protoboard.gui.session import EditorSession
@@ -70,6 +72,39 @@ class AbstractBoardView(QGraphicsView, metaclass=QtABCMeta):
     @abstractmethod
     def keymap(self) -> KeyMap:
         """The namespaced keybindings map tools resolve their actions in."""
+
+    @property
+    @abstractmethod
+    def session(self) -> EditorSession:
+        """The editor session this canvas currently renders."""
+
+    @property
+    @abstractmethod
+    def theme(self) -> Theme:
+        """The resolved theme (Preferences override or the default)."""
+
+    @property
+    @abstractmethod
+    def active_tool(self) -> BoardViewTool | None:
+        """The tool currently receiving delegated input events."""
+
+    # -- scene-item registries (read-only; consumed by extracted services) ----
+
+    @abstractmethod
+    def component_groups(self) -> Mapping[uuid.UUID, object]:
+        """comp_id → its persistent ``QGraphicsItemGroup`` (or stand-in)."""
+
+    @abstractmethod
+    def component_label_groups(self) -> Mapping[uuid.UUID, object]:
+        """comp_id → its label ``QGraphicsItemGroup`` (refdes / pin names)."""
+
+    @abstractmethod
+    def wire_groups(self) -> Mapping[uuid.UUID, object]:
+        """wire_id → its persistent ``QGraphicsItemGroup`` (or stand-in)."""
+
+    @abstractmethod
+    def invalidate_back_cache(self) -> None:
+        """Drop the rasterised back-side pixmap; next paint rebuilds it."""
 
     # -- geometry / hit helpers ----------------------------------------------
 
