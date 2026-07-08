@@ -111,7 +111,9 @@ src/protoboard/
 │   ├── main_window.py, session.py, board_view.py, board_view_tool.py
 │   │                   # (AbstractBoardView + BoardViewTool seam),
 │   │                   # paint_pipeline.py (bg/back pixmap caches),
-│   │                   # view_camera.py (zoom/pan-burst/mirror/fit), selection_fsm.py,
+│   │                   # view_camera.py (zoom/pan-burst/mirror/fit),
+│   │                   # tool_host.py (tool lifecycle, input dispatch, canvas
+│   │                   # menu, [?] overlay), selection_fsm.py,
 │   │                   # drag_set.py, keybindings.py, …
 │   ├── selection/      # SelectTool-as-a-service: selectable.py (protocol+adapters),
 │   │                   # service.py (SelectionService + pick-API), hit_test.py,

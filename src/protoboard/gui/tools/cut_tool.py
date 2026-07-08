@@ -10,7 +10,7 @@ from PySide6.QtGui import QMouseEvent
 
 from protoboard.domain.board.boxes import StripAtom
 from protoboard.domain.commands.board_cmds import SplitStripCommand
-from protoboard.gui.board_view import _Tool
+from protoboard.gui.board_view_tool import _Tool
 
 if TYPE_CHECKING:
     from protoboard.domain.commands.base import ComponentState

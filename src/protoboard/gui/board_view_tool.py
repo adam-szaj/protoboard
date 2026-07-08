@@ -25,10 +25,14 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from protoboard.geometry import Point
+    from protoboard.gui.highlight.renderer import HighlightRenderer
     from protoboard.gui.keymap import KeyMap
     from protoboard.gui.layer_state import LayerState
+    from protoboard.gui.paint_pipeline import PaintPipeline
     from protoboard.gui.session import EditorSession
     from protoboard.gui.theme import Theme
+    from protoboard.gui.tool_host import ToolHost
+    from protoboard.gui.view_camera import ViewCamera
 
 
 if TYPE_CHECKING:
@@ -61,6 +65,13 @@ class AbstractBoardView(QGraphicsView, metaclass=QtABCMeta):
     cursor_moved = Signal(float, float)  # raster x, y of cursor
     pad_clicked = Signal(float, float)  # snapped raster x, y
     escape_tool = Signal()  # right-click or Esc — return to Select
+
+    # Composed services — the extracted BoardView collaborators (declared as
+    # typed attributes so services can reach each other through this surface).
+    highlight: HighlightRenderer
+    paint: PaintPipeline
+    camera: ViewCamera
+    tools: ToolHost
 
     # -- view state ----------------------------------------------------------
 

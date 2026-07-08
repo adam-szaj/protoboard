@@ -35,7 +35,7 @@ from PySide6.QtWidgets import QGraphicsRectItem
 
 from protoboard.domain.layout.layout import ROOT_GROUP_ID
 from protoboard.geometry import Point
-from protoboard.gui.board_view import _Tool
+from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.highlight.controller import HighlightController
 from protoboard.gui.selection.drag_controller import DragController, FloatingPhase
 from protoboard.gui.selection.hit_test import HitTester, SelectionFilters

@@ -162,7 +162,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self._board_view)
         # Single persistent SelectTool instance — preserves group navigation state.
         self._select_tool = SelectTool()
-        self._board_view._permanent_tools.append(self._select_tool)
+        self._board_view.tools.permanent_tools.append(self._select_tool)
         self._apply_selection_settings_to_tool(self._select_tool)
 
         # Left dock — tabbed: Library | Netlist/BOM | Groups | Nets | Components
@@ -608,7 +608,7 @@ class MainWindow(QMainWindow):
         self._props_panel.drc_issue_clicked.connect(self._on_drc_issue_clicked)
         # Reset select tool state (group stack etc.) for the new session.
         self._select_tool = SelectTool()
-        self._board_view._permanent_tools = [self._select_tool]
+        self._board_view.tools.permanent_tools = [self._select_tool]
         self._apply_selection_settings_to_tool(self._select_tool)
         self._sel_filter_widget.set_tool(self._select_tool)
         self._hl_mode_widget.set_tool(self._select_tool)

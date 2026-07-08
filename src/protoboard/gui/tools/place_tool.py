@@ -41,7 +41,7 @@ from protoboard.domain.components.package.reach import effective_bend_specs
 from protoboard.domain.components.instance import ComponentInstance
 from protoboard.domain.layout.placement import ComponentPlacement, flip_component, pin_world_position, unrotate
 from protoboard.geometry import Point, Vector
-from protoboard.gui.board_view import _Tool
+from protoboard.gui.board_view_tool import _Tool
 from protoboard.gui.placement_conflict import check_and_resolve
 from protoboard.gui.renderers.component_renderer import make_ghost_item
 

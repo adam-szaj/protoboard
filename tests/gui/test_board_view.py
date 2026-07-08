@@ -179,11 +179,11 @@ class TestShortcutsHelp:
 
     def test_overlay_toggles(self, board_view: BoardView) -> None:
         board_view.set_tool(SelectTool())
-        assert not board_view._shortcuts_overlay_visible()
-        board_view._toggle_shortcuts_overlay()
-        assert board_view._shortcuts_overlay_visible()
-        board_view._toggle_shortcuts_overlay()
-        assert not board_view._shortcuts_overlay_visible()
+        assert not board_view.tools._shortcuts_overlay_visible()
+        board_view.tools._toggle_shortcuts_overlay()
+        assert board_view.tools._shortcuts_overlay_visible()
+        board_view.tools._toggle_shortcuts_overlay()
+        assert not board_view.tools._shortcuts_overlay_visible()
 
     def test_question_keystroke_opens_overlay(self, board_view: BoardView) -> None:
         """Regression: the real ``?`` keystroke toggles the overlay.
@@ -198,20 +198,20 @@ class TestShortcutsHelp:
         from PySide6.QtGui import QKeyEvent
 
         board_view.set_tool(SelectTool())
-        assert not board_view._shortcuts_overlay_visible()
+        assert not board_view.tools._shortcuts_overlay_visible()
         ev = QKeyEvent(
             QKeyEvent.Type.KeyPress,
             Qt.Key.Key_Question,
             Qt.KeyboardModifier.ShiftModifier,
         )
         board_view.keyPressEvent(ev)
-        assert board_view._shortcuts_overlay_visible()
+        assert board_view.tools._shortcuts_overlay_visible()
 
     def test_overlay_lists_tool_actions(self, board_view: BoardView) -> None:
         from PySide6.QtWidgets import QLabel
         board_view.set_tool(SelectTool())
-        board_view._show_shortcuts_overlay()
-        ov = board_view._shortcuts_overlay
+        board_view.tools._show_shortcuts_overlay()
+        ov = board_view.tools._shortcuts_overlay
         assert isinstance(ov, QLabel)
         text = ov.text()
         # A SelectTool action and its shortcut appear.
@@ -224,8 +224,8 @@ class TestShortcutsHelp:
         # actual app shortcuts (Save, Undo, DRC…) appear, grouped by menu.
         from PySide6.QtWidgets import QLabel
         board_view.set_tool(SelectTool())
-        board_view._show_shortcuts_overlay()
-        ov = board_view._shortcuts_overlay
+        board_view.tools._show_shortcuts_overlay()
+        ov = board_view.tools._shortcuts_overlay
         assert isinstance(ov, QLabel)
         text = ov.text()
         assert "Save" in text and "Ctrl+S" in text  # File
@@ -236,8 +236,8 @@ class TestShortcutsHelp:
         from PySide6.QtWidgets import QLabel
         board_view.keymap.set_override("select-tool.action.reroute", "Q")
         board_view.set_tool(SelectTool())
-        board_view._show_shortcuts_overlay()
-        ov = board_view._shortcuts_overlay
+        board_view.tools._show_shortcuts_overlay()
+        ov = board_view.tools._shortcuts_overlay
         assert isinstance(ov, QLabel)
         # The rebound key, not the default, is shown.
         assert ">Q<" in ov.text() or "<code>Q</code>" in ov.text()
