@@ -3465,6 +3465,9 @@ class _Tool(BoardViewTool):
         self._session: EditorSession = None  # type: ignore[assignment]
         self._view: BoardView = None  # type: ignore[assignment]
 
+    def __json_repr__(self) -> str:
+        return str(type(self))
+
     @override
     @traced()
     def activate(self, session: EditorSession, view: BoardView) -> None:

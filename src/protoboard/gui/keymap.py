@@ -41,6 +41,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
 
 from protoboard.errors import ProtoboardError
+from protoboard.services.call_counters import disable
 from protoboard.services.debug_trace import traced
 
 __all__ = [
@@ -106,6 +107,9 @@ class KeyAction:
     @property
     def default(self) -> list[str]:
         return self.shortcuts
+
+    def __json_repr__(self) -> dict:
+        return {'id': self.id, 'shortcuts': self.shortcuts, 'display': self.display, 'final': self.final}
 
     def clone(self) -> KeyAction:
         return KeyAction(id=self.id,
@@ -194,7 +198,7 @@ class AbstractKeyMap(ABC):
 
     @abstractmethod
     def register_tool_actions(
-            self, actions: dict[str, str | list[str] | None]) -> None:
+            self, actions: dict[str, list[str]]) -> None:
         ...
 
     @abstractmethod
@@ -228,6 +232,9 @@ class AbstractKeyMap(ABC):
         ...
 
     @abstractmethod
+    def __json_repr__(self) -> dict[str, dict]: ...
+
+    @abstractmethod
     def actions_in(self, category: str) -> tuple[KeyAction, ...]:
         ...
 
@@ -253,8 +260,15 @@ class KeyMap(AbstractKeyMap):
     _parent: AbstractKeyMap | None = field(default=None)
     _actions: dict[str, KeyAction] = field(default_factory=dict)
 
-    # -- registration -------------------------------------------------------
+    def __json_repr__(self) -> dict[str, dict]:
+        json_repr = dict()
+        if self._parent:
+            json_repr = self._parent.__json_repr__()
+        for action_id, key_action in self._actions.items():
+            json_repr[action_id] = key_action.__json_repr__()
+        return json_repr
 
+    # -- registration -------------------------------------------------------
     @traced()
     @override
     def register_tool_actions(self, actions: dict[str, list[str]]) -> None:

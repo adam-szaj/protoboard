@@ -66,6 +66,44 @@ def _abbr(value: object) -> str:
         return f"<unreprable {type(value).__name__}>"
 
 
+from json import JSONEncoder
+
+from PySide6.QtCore import Qt
+
+class TraceJSONEncoder(JSONEncoder):
+    def default(self, o):
+        from enum import Flag
+        try:
+            if hasattr(o, "__json_repr__"):
+                return o.__json_repr__()
+        except Exception as e:
+            _log.error(f"Failed to jsonize type: {type(o)} -> '{e}'")
+        return super().default(o)
+
+    def __call__(self, o):
+        return self.default(o)
+
+# Step: 1
+# create the patch
+from json import JSONEncoder
+def wrapped_default(self, obj):
+    return getattr(obj.__class__, "__json_repr__", wrapped_default.default)(obj)
+wrapped_default.default = JSONEncoder().default
+# apply the patch
+
+JSONEncoder.original_default = JSONEncoder.default
+JSONEncoder.default = wrapped_default
+
+
+def _json(value: object) -> str:
+    import json
+    try:
+        return json.dumps(value, default=TraceJSONEncoder())
+    except Exception as e:
+        # _log.warning(f"Can't convert '{value}' to json: {e}")
+        return repr(value)
+
+
 class _TracedWrapper:
     """Callable wrapper that logs args/return then forwards.
 
@@ -85,8 +123,8 @@ class _TracedWrapper:
             return self.fn(*args, **kwargs)
         _log.debug(
             f"trace.call[{self.label}]",
-            args=[_abbr(a) for a in args],
-            kwargs={k: _abbr(v) for k, v in kwargs.items()},
+            args=[_json(a) for a in args],
+            kwargs={k: _json(v) for k, v in kwargs.items()},
         )
         try:
             result = self.fn(*args, **kwargs)
