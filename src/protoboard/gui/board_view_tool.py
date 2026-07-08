@@ -124,6 +124,28 @@ class AbstractBoardView(QGraphicsView, metaclass=QtABCMeta):
     def invalidate_back_cache(self) -> None:
         """Drop the rasterised back-side pixmap; next paint rebuilds it."""
 
+    @abstractmethod
+    def invalidate_bg_cache(self, *, keep_anchor: bool = False) -> None:
+        """Mark the board pixmap stale (*keep_anchor* preserves the
+        stale-blit anchor for pan/zoom/resize bursts)."""
+
+    @abstractmethod
+    def mark_board_layer_dirty(self) -> None:
+        """Force a board-layer rebuild on the next refresh()."""
+
+    @abstractmethod
+    def apply_label_visibility(self, *, deferred: bool = False) -> None:
+        """Re-evaluate label visibility for the current zoom.
+
+        ``deferred=True`` debounces the O(scene items) sweep behind the
+        zoom-refresh timer instead of running it synchronously.
+        """
+
+    @property
+    @abstractmethod
+    def active_group_id(self) -> uuid.UUID:
+        """The group whose context drives rendering (set by SelectTool)."""
+
     # -- geometry / hit helpers ----------------------------------------------
 
     @abstractmethod

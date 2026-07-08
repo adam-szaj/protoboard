@@ -16,11 +16,7 @@ if TYPE_CHECKING:
 
 _click_log = structlog.get_logger("protoboard.gui.board_view.click")
 _CLICK_PROFILE = os.environ.get("PROTOBOARD_CLICK_PROFILE") not in (None, "", "0")
-# PROTOBOARD_PAINT_PROFILE — log per-phase paint timings on every paintEvent.
-# Unlike PROTOBOARD_CLICK_PROFILE this is NOT gated on a recent mouse press,
-# so it captures the ghost-follow paints in PlaceTool too.
-_paint_log = structlog.get_logger("protoboard.gui.board_view.paint")
-_PAINT_PROFILE = os.environ.get("PROTOBOARD_PAINT_PROFILE") not in (None, "", "0")
+# PROTOBOARD_PAINT_PROFILE logging lives in gui/paint_pipeline.py.
 
 _DRAG_REFRESH_INTERVAL = 0.033  # 30 fps max during live drag
 
@@ -49,11 +45,7 @@ from protoboard.gui.layer_state import (
     LayerState,
     layer_state_for_tool,
 )
-from protoboard.gui.renderers.board_renderer import (
-    BOARD_BG,
-    build_board_display_list,
-    paint_board,
-)
+from protoboard.gui.renderers.board_renderer import BOARD_BG
 from protoboard.gui.renderers.component_renderer import (
     render_groups,
     update_component_groups,
@@ -64,6 +56,8 @@ from protoboard.gui.renderers.wire_renderer import (
 )
 from protoboard.gui.highlight.renderer import HighlightRenderer
 from protoboard.gui.paint_pipeline import PaintPipeline
+from protoboard.gui.view_camera import GRID_PX as _GRID_PX
+from protoboard.gui.view_camera import ViewCamera
 from protoboard.gui.session import EditorSession
 from protoboard.gui.theme import DEFAULT_THEME, Theme
 from protoboard.services.debug_trace import traced
@@ -72,8 +66,6 @@ from protoboard.services.routing.net_status import routed_net_ids
 # module still imports it from board_view (repointing them is a later phase).
 from protoboard.gui.board_view_tool import AbstractBoardView, _Tool
 
-# Scene units = raster units. 1 raster unit = 1 "pixel" in scene space.
-_GRID_PX = 60.0  # initial pixels-per-raster-unit
 
 
 class BoardView(AbstractBoardView):
@@ -149,9 +141,10 @@ class BoardView(AbstractBoardView):
         # ``[?]`` shortcut-help overlay — a QLabel parked over the viewport,
         # built lazily on first toggle.
         self._shortcuts_overlay: object | None = None
-        # View state — camera side and visual transform are independent.
-        self._camera_side: str = "top"           # "top" | "bottom"
-        self._view_transform: str = "normal"     # "normal" | "mirror_h" | "mirror_v"
+        # Camera: zoom, pan-burst, mirror + fit — extracted service
+        # (see gui/view_camera.py).  Owns the wheel/pan timers behind
+        # ``in_transform_burst()``.
+        self.camera = ViewCamera(self)
         self._layer_overrides: LayerOverrides = LayerOverrides()
         self._pad_positions: list[Point] = []
         # Active group for rendering context (set by SelectTool on navigation).
@@ -239,26 +232,6 @@ class BoardView(AbstractBoardView):
         # can adjust the value live (call ``apply_throttle_settings``)
         # without rebuilding the tool.
         self._rubber_band_throttle_ms: int = 33
-        # Wheel-zoom accumulator.  Each ``wheelEvent`` adds its delta
-        # (in 1/120-of-a-degree units, Qt's angleDelta) into the buffer
-        # and parks the most-recent cursor viewport position.  A short
-        # timer collapses bursts of ticks into a single scale + scroll
-        # pass, so over SSH the wheel handler returns in microseconds
-        # and Qt processes the next tick without waiting for a paint.
-        self._wheel_accum_delta: int = 0
-        self._wheel_pivot_vp: QPoint | None = None
-        self._wheel_timer = QTimer(self)
-        self._wheel_timer.setSingleShot(True)
-        self._wheel_timer.setInterval(16)  # ~1 frame; tunable via apply_throttle_settings
-        self._wheel_timer.timeout.connect(self._flush_wheel_zoom)
-        # Pan-burst detector — restarted on each scrollContentsBy.  While
-        # this timer is active we treat the view as in mid-pan and paint
-        # the board pixmap by stretching the anchor instead of rebuilding.
-        # When it fires (settle), the next paint rebuilds the cache fresh.
-        self._pan_burst_timer = QTimer(self)
-        self._pan_burst_timer.setSingleShot(True)
-        self._pan_burst_timer.setInterval(120)
-        self._pan_burst_timer.timeout.connect(self._on_pan_settled)
         session.layout_changed.connect(self._schedule_refresh)
         session.layout_changed.connect(session.invalidate_graph)
         session.drag_moved.connect(self._on_drag_moved)
@@ -310,7 +283,7 @@ class BoardView(AbstractBoardView):
             return
         self._antialiasing = enabled
         self.setRenderHint(QPainter.RenderHint.Antialiasing, enabled)
-        self._invalidate_bg_cache()
+        self.invalidate_bg_cache()
         self.viewport().update()
 
     @traced()
@@ -321,12 +294,12 @@ class BoardView(AbstractBoardView):
     @property
     @traced()
     def camera_side(self) -> str:
-        return self._camera_side
+        return self.camera.camera_side
 
     @property
     @traced()
     def view_transform(self) -> str:
-        return self._view_transform
+        return self.camera.view_transform
 
     @property
     @traced()
@@ -575,212 +548,50 @@ class BoardView(AbstractBoardView):
 
     @traced()
     def set_camera_side(self, side: str) -> None:
-        """Switch between top and bottom camera.  Syncs tool side."""
-        if side == self._camera_side:
-            return
-        self._camera_side = side
-        self._board_layer_dirty = True
-        self._sync_tool_side(side)
-        self._apply_view_transform()
-        self.refresh()
+        """Switch between top and bottom camera (delegates to the camera)."""
+        self.camera.set_camera_side(side)
 
     @traced()
     def set_view_transform(self, transform: str) -> None:
-        """Set the visual transform: 'normal', 'mirror_h', 'mirror_v', or 'mirror_hv'."""
-        if transform == self._view_transform:
-            return
-        self._view_transform = transform
-        self._board_layer_dirty = True
-        self._apply_view_transform()
-        self.refresh()
+        """Set the visual transform (delegates to the camera)."""
+        self.camera.set_view_transform(transform)
 
-    @traced()
-    def _has_mirror_h(self) -> bool:
-        return self._view_transform in ("mirror_h", "mirror_hv")
-
-    @traced()
-    def _has_mirror_v(self) -> bool:
-        return self._view_transform in ("mirror_v", "mirror_hv")
-
-    @staticmethod
-    @traced()
-    def _compose_view_transform(*, h: bool, v: bool) -> str:
-        if h and v:
-            return "mirror_hv"
-        if h:
-            return "mirror_h"
-        if v:
-            return "mirror_v"
-        return "normal"
-
-    @traced()
-    def _apply_view_transform(self) -> None:
-        """Recompute the QGraphicsView scale matrix from current state."""
-        sx = -1.0 if self._has_mirror_h() else 1.0
-        sy = -1.0 if self._has_mirror_v() else 1.0
-        # Preserve current zoom magnitude, apply sign flips.  Clamp to
-        # current viewport-derived limits so a window resize that shrank
-        # the allowed window doesn't leave us out of range.
-        mag = abs(self.transform().m11()) or _GRID_PX
-        try:
-            m11_min, m11_max = self._compute_zoom_limits()
-            mag = max(m11_min, min(m11_max, mag))
-        except Exception:  # noqa: BLE001 — session may be detached during shutdown
-            pass
-        # Remember the scene point currently at the viewport centre so we can
-        # restore it after setTransform (which resets scroll position).
-        vp = self.viewport()
-        cx, cy = vp.width() / 2, vp.height() / 2
-        center_scene = self.mapToScene(int(cx), int(cy))
-        from PySide6.QtGui import QTransform
-        self.setTransform(QTransform(sx * mag, 0.0, 0.0, sy * mag, 0.0, 0.0))
-        # Re-centre on the same scene point.
-        self.centerOn(center_scene)
-        # Transform changed → bg cache pixmap is in the wrong space, but
-        # the pixmap *content* is still valid — the bridge transform
-        # handles the mirror.  Keep the anchor for a smooth visual jump.
-        self._invalidate_bg_cache(keep_anchor=True)
-
-    @traced()
-    def _sync_tool_side(self, side: str) -> None:
-        from protoboard.gui.tools.route_tool import RouteTool
-        if isinstance(self._active_tool, RouteTool):
-            self._active_tool._side = side  # type: ignore[assignment]
-        win = self.window()
-        updater = getattr(win, "_set_wire_side", None)
-        if updater is not None:
-            updater(side)
-
-    # Convenience toggles (used by menu/keyboard).  Each axis flips
-    # independently so combining H + V produces ``mirror_hv``.
     @traced()
     def toggle_mirror_h(self) -> None:
-        self.set_view_transform(self._compose_view_transform(
-            h=not self._has_mirror_h(), v=self._has_mirror_v(),
-        ))
+        self.camera.toggle_mirror_h()
 
     @traced()
     def toggle_mirror_v(self) -> None:
-        self.set_view_transform(self._compose_view_transform(
-            h=self._has_mirror_h(), v=not self._has_mirror_v(),
-        ))
+        self.camera.toggle_mirror_v()
 
     @traced()
     def toggle_camera(self) -> None:
-        self.set_camera_side(
-            "bottom" if self._camera_side == "top" else "top"
-        )
+        self.camera.toggle_camera()
 
     # Legacy alias used by MainWindow._mirror_view (now means Mirror H).
     @traced()
     def toggle_mirror(self) -> None:
-        self.toggle_mirror_h()
+        self.camera.toggle_mirror()
 
     @property
     @traced()
     def is_mirrored(self) -> bool:
-        return self._has_mirror_h()
+        return self.camera.is_mirrored
 
     @traced()
     def fit_board(self) -> None:
         """Scale and center the view to fit the board bounds."""
-        b = self._session.board.bounds
-        self.fitInView(
-            QRectF(b.x - 1, b.y - 1, b.width + 2, b.height + 2),
-            Qt.AspectRatioMode.KeepAspectRatio,
-        )
-        # fit_* / mirror: transform jumps but the pixmap content is still
-        # valid — keep the anchor so the next paint can stretch-blit it
-        # while the fresh rebuild happens.
-        self._invalidate_bg_cache(keep_anchor=True)
-        self._apply_label_visibility()
+        self.camera.fit_board()
 
     @traced()
     def fit_area(self) -> None:
-        """Fit view to the active group's components; falls back to fit_board() for ROOT."""
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-
-        session = self._session
-        active = self._active_group_id
-
-        import uuid as _uuid
-        if active == ROOT_GROUP_ID:
-            comp_ids: frozenset[_uuid.UUID] = frozenset(session.layout.placements.keys())
-        else:
-            comp_ids = session.group_tree().all_component_ids(active)
-
-        xs: list[float] = []
-        ys: list[float] = []
-        for cid in comp_ids:
-            bbox = session.component_bbox(cid)
-            if bbox is None:
-                continue
-            xs += [bbox.x, bbox.x + bbox.width]
-            ys += [bbox.y, bbox.y + bbox.height]
-
-        if not xs:
-            self.fit_board()
-            return
-
-        margin = 1.0
-        self.fitInView(
-            QRectF(min(xs) - margin, min(ys) - margin,
-                   max(xs) - min(xs) + 2 * margin,
-                   max(ys) - min(ys) + 2 * margin),
-            Qt.AspectRatioMode.KeepAspectRatio,
-        )
-        # fit_* / mirror: transform jumps but the pixmap content is still
-        # valid — keep the anchor so the next paint can stretch-blit it
-        # while the fresh rebuild happens.
-        self._invalidate_bg_cache(keep_anchor=True)
-        self._apply_label_visibility()
+        """Fit view to the active group's components (ROOT → whole board)."""
+        self.camera.fit_area()
 
     @traced()
     def fit_selection(self) -> None:
-        """Fit view to the bounding box of selected components and wires."""
-        tool = self._active_tool
-        sel_comp_ids: set = getattr(tool, "_selected_ids", set())
-        sel_wire_ids: set = getattr(tool, "_selected_wire_ids", set())
-
-        if not sel_comp_ids and not sel_wire_ids:
-            self.fit_area()
-            return
-
-        session = self._session
-        xs: list[float] = []
-        ys: list[float] = []
-
-        for cid in sel_comp_ids:
-            bbox = session.component_bbox(cid)
-            if bbox is None:
-                continue
-            xs += [bbox.x, bbox.x + bbox.width]
-            ys += [bbox.y, bbox.y + bbox.height]
-
-        for wid in sel_wire_ids:
-            wire = next((w for w in session.layout.wires if w.id == wid), None)
-            if wire is None:
-                continue
-            for pt in wire.path:
-                xs.append(pt.x)
-                ys.append(pt.y)
-
-        if not xs:
-            self.fit_area()
-            return
-
-        margin = 1.0
-        self.fitInView(
-            QRectF(min(xs) - margin, min(ys) - margin,
-                   max(xs) - min(xs) + 2 * margin,
-                   max(ys) - min(ys) + 2 * margin),
-            Qt.AspectRatioMode.KeepAspectRatio,
-        )
-        # fit_* / mirror: transform jumps but the pixmap content is still
-        # valid — keep the anchor so the next paint can stretch-blit it
-        # while the fresh rebuild happens.
-        self._invalidate_bg_cache(keep_anchor=True)
-        self._apply_label_visibility()
+        """Fit view to the selected components and wires."""
+        self.camera.fit_selection()
 
     @traced()
     def set_session(self, session: EditorSession) -> None:
@@ -872,19 +683,31 @@ class BoardView(AbstractBoardView):
         """The resolved per-layer visibility/alpha state for this paint."""
         return layer_state_for_tool(
             self._active_tool,
-            self._camera_side,  # type: ignore[arg-type]
-            self._view_transform,  # type: ignore[arg-type]
+            self.camera.camera_side,  # type: ignore[arg-type]
+            self.camera.view_transform,  # type: ignore[arg-type]
             overrides=self._layer_overrides,
             theme=self.theme,
         )
 
     def mirror_flags(self) -> tuple[bool, bool]:
         """(mirror_h, mirror_v) of the current view transform."""
-        return (self._has_mirror_h(), self._has_mirror_v())
+        return self.camera.mirror_flags()
 
     def in_transform_burst(self) -> bool:
         """True while a wheel-zoom or pan-scroll burst is in flight."""
-        return self._wheel_timer.isActive() or self._pan_burst_timer.isActive()
+        return self.camera.in_transform_burst()
+
+    def mark_board_layer_dirty(self) -> None:
+        """Force a board-layer rebuild on the next refresh()."""
+        self._board_layer_dirty = True
+
+    def apply_label_visibility(self, *, deferred: bool = False) -> None:
+        """Re-evaluate label visibility now, or debounced after a zoom."""
+        if deferred:
+            if not self._label_vis_timer.isActive():
+                self._label_vis_timer.start()
+            return
+        self._apply_label_visibility()
 
     @traced()
     def _register_tool_keymap(self, tool: _Tool) -> None:
@@ -983,8 +806,8 @@ class BoardView(AbstractBoardView):
         _base = self._theme_override if self._theme_override is not None else DEFAULT_THEME
         layers = layer_state_for_tool(
             self._active_tool,
-            self._camera_side,  # type: ignore[arg-type]
-            self._view_transform,  # type: ignore[arg-type]
+            self.camera.camera_side,  # type: ignore[arg-type]
+            self.camera.view_transform,  # type: ignore[arg-type]
             overrides=self._layer_overrides,
             theme=_base,
         )
@@ -1006,7 +829,7 @@ class BoardView(AbstractBoardView):
             # Board state changed — drop both pixmap and display list so
             # the next drawBackground rebuilds from current board state.
             self.paint.invalidate_display_list()
-            self._invalidate_bg_cache()
+            self.invalidate_bg_cache()
             self._board_layer_dirty = False
             self._last_board_alpha = current_board_alpha
         else:
@@ -1025,7 +848,7 @@ class BoardView(AbstractBoardView):
             }
             if current_positions != prev_positions:
                 self.paint.invalidate_display_list()
-                self._invalidate_bg_cache()
+                self.invalidate_bg_cache()
 
         # ── Remove stale overlay items (ratsnest + group outlines) ───────────
         for item in self._overlay_items:
@@ -1639,221 +1462,22 @@ class BoardView(AbstractBoardView):
     # ------------------------------------------------------------------
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        """Accumulate wheel ticks; defer the scale + scroll to a timer.
+        """Tool wheel veto, then camera zoom accumulation.
 
-        Each ``self.scale()`` triggers a QGraphicsScene repaint, and at
-        Qt's default ``SmartViewportUpdate`` the next ``wheelEvent`` is
-        not delivered until that paint completes — over SSH that means
-        a burst of fast wheel ticks gets queued behind hundreds of ms
-        of X11 round-trips.  We park the *raw* angleDelta into a buffer
-        and let a short single-shot timer fold the burst into one
-        geometric pass.  Qt's wheelEvent handler returns in microseconds.
-
-        Cursor pivot uses the *latest* event's position: a user spinning
-        the wheel intends to zoom around wherever the cursor currently
-        is, not the position where the burst started.
+        An armed tool (e.g. float-rotate) may claim the wheel to step its
+        own state instead of zooming — consulted before any accumulation so
+        the zoom path is byte-for-byte unchanged when no tool opts in.
         """
-        # An armed tool (e.g. float-rotate) may claim the wheel to step its
-        # own state instead of zooming — consulted before any accumulation so
-        # the zoom path is byte-for-byte unchanged when no tool opts in.
         tool = self._active_tool
         if tool is not None and tool.wants_wheel(event):
             tool.on_wheel(event)
             event.accept()
             return
-        self._wheel_accum_delta += event.angleDelta().y()
-        self._wheel_pivot_vp = event.position().toPoint()
-        if not self._wheel_timer.isActive():
-            self._wheel_timer.start()
-
-    def _flush_wheel_zoom(self) -> None:
-        """Apply the accumulated wheel-zoom delta in one pass.
-
-        Translates the buffered angleDelta into a number of asymmetric
-        zoom steps (1.1 in, 1.0/1.08 out — preserved from the user's
-        tuned values; see memory ``feedback_zoom_factor``) and applies
-        the net factor as a single ``self.scale(...)``.  Cursor-pivot
-        correction is identical to the legacy code path; the only
-        difference is that *N ticks* of wheel input cost one paint
-        instead of N.
-        """
-        delta = self._wheel_accum_delta
-        pivot = self._wheel_pivot_vp
-        self._wheel_accum_delta = 0
-        self._wheel_pivot_vp = None
-        if delta == 0 or pivot is None:
-            return
-        # Qt reports angleDelta in 1/8-degree units; a standard mouse
-        # tick is 15° = 120.  Use the sign-counted tick count so the
-        # geometric factors stay exactly the same as the per-event
-        # path (1.1 in, 1.0/1.08 out) — burst of 3 ticks zooms in by
-        # 1.1^3 ≈ 1.331, identical to three separate calls.
-        ticks = delta // 120 if delta > 0 else -((-delta) // 120)
-        # Sub-tick fractional residue is rare on standard mice but
-        # common on high-resolution scroll wheels; treat any positive
-        # remainder as a partial in-tick to avoid losing input.
-        if ticks == 0:
-            ticks = 1 if delta > 0 else -1
-        if ticks > 0:
-            factor = 1.1 ** ticks
-        else:
-            factor = (1.0 / 1.08) ** (-ticks)
-        factor, hit_floor = self._clamp_zoom_factor(factor)
-        if abs(factor - 1.0) < 1e-6 and not hit_floor:
-            return  # at limit — no scale change, no scroll-bar correction needed
-
-        old_scene = self.mapToScene(pivot)
-        self.scale(factor, factor)
-        if hit_floor:
-            # Snap to the board's centre on the zoom-out floor so the
-            # user doesn't end up parked over canvas margin.
-            b = self._session.board.bounds
-            self.centerOn(b.x + b.width / 2.0, b.y + b.height / 2.0)
-        else:
-            new_scene = self.mapToScene(pivot)
-            delta_scene = new_scene - old_scene
-            new_scale = self.transform().m11()
-            hbar = self.horizontalScrollBar()
-            vbar = self.verticalScrollBar()
-            hbar.setValue(hbar.value() - round(delta_scene.x() * new_scale))
-            vbar.setValue(vbar.value() - round(delta_scene.y() * new_scale))
-        # Zoom changed the world→viewport transform; the cached pixmap
-        # was rendered for the previous mapping.  Keep the anchor so a
-        # follow-up tick of the same burst can stretch-blit it instead
-        # of waiting for the new full-quality rebuild.
-        self._invalidate_bg_cache(keep_anchor=True)
-        # Defer the O(scene items) visibility sweep — same reasoning
-        # as before, just relative to the (now batched) zoom paint.
-        if not self._label_vis_timer.isActive():
-            self._label_vis_timer.start()
-
-    # ------------------------------------------------------------------
-    # Zoom limits — derived from physical DPI + board bounds
-    # ------------------------------------------------------------------
-    #
-    # Two anchors:
-    #   * MAX (zoom in cap): 1 raster cell on screen ≈ 10 × cell-in-real-mm.
-    #     i.e. 10 mm of board occupies ~100 mm of screen.  Equivalent to
-    #     ``m11 == 10 × (px/mm) × pitch_mm`` which simplifies to
-    #     ``physicalDpi`` (since pitch_mm == 2.54 and 1 inch == 25.4 mm).
-    #     For a non-2.54 pitch it scales accordingly.
-    #
-    #   * MIN (zoom out cap): the LATER of two conditions:
-    #       (a) board's long edge spans half the viewport's long edge
-    #           (so the user never zooms out far enough to lose the board
-    #           in canvas chrome);
-    #       (b) board renders at real physical size (1:1 mm-on-screen ==
-    #           mm-on-board) — relevant for tiny boards on big monitors.
-    #     "Later" == whichever gives a LARGER m11 (kicks in first while
-    #     zooming out).
-    #
-    # Limits are cached and recomputed on resizeEvent / board change.
-
-    def _compute_zoom_limits(self) -> tuple[float, float]:
-        """Return ``(m11_min, m11_max)`` for the current viewport + board."""
-        screen = self.screen() or (self.window().screen() if self.window() else None)
-        # ``physicalDotsPerInch`` reports the *true* hardware DPI Qt can
-        # see; falls back to logicalDpi if unavailable (e.g. headless).
-        if screen is not None:
-            phys_dpi = float(screen.physicalDotsPerInch() or 96.0)
-        else:
-            phys_dpi = 96.0
-        pitch_mm = float(self._session.board.raster_pitch_mm)
-        px_per_mm = phys_dpi / 25.4
-        # m11 such that 1 cell == pitch_mm × px_per_mm (real size).
-        m11_real = px_per_mm * pitch_mm
-        # Cap at 10× real size for zoom in.
-        m11_max = 10.0 * m11_real
-
-        # Half-viewport-fit cap: at this scale ``fitInView(board)`` would
-        # show the board centred and filling the viewport exactly along
-        # the *more constrained* axis (width or height, whichever runs
-        # out first).  Use HALF of that — i.e. board fills 50 % of the
-        # visible window — as the zoom-out floor.  Computing it as
-        # ``min(vp_w/board_w, vp_h/board_h)`` matches Qt's own KeepAspectRatio
-        # logic, so the floor and ``fit_board()`` agree visually.
-        b = self._session.board.bounds
-        board_w = max(float(b.width), 1.0)
-        board_h = max(float(b.height), 1.0)
-        vp = self.viewport().rect()
-        vp_w = max(vp.width(), 1)
-        vp_h = max(vp.height(), 1)
-        m11_fit = min(vp_w / board_w, vp_h / board_h)
-        m11_half = 0.5 * m11_fit
-
-        # Both conditions must HOLD for zoom-out to continue → floor is
-        # the EARLIER kicker = the one with the lower m11 (more zoom-out
-        # allowed).  Concretely: stop zoom-out as soon as either
-        # "half viewport" OR "real size" is reached.
-        #   Big board on small window  → m11_half kicks in first (small).
-        #   Small board on big window  → m11_real kicks in first (small).
-        m11_min = min(m11_half, m11_real)
-        # Safety: never let min exceed max (degenerate small viewport).
-        if m11_min > m11_max:
-            m11_min = m11_max
-        return m11_min, m11_max
-
-    def _clamp_zoom_factor(self, factor: float) -> tuple[float, bool]:
-        """Cap *factor* so applying it keeps m11 inside the limit window.
-
-        Returns ``(clamped_factor, hit_floor)`` where *hit_floor* is True
-        when the user pushed zoom-out into (or already past) the minimum
-        scale.  Callers use that to auto-centre the board so the viewport
-        doesn't end up parked over the canvas-margin area.
-        """
-        if factor <= 0.0:
-            return 1.0, False
-        current = abs(self.transform().m11()) or _GRID_PX
-        target = current * factor
-        m11_min, m11_max = self._compute_zoom_limits()
-        hit_floor = False
-        if target > m11_max:
-            target = m11_max
-        elif target < m11_min:
-            target = m11_min
-            hit_floor = True
-        if current <= 0.0:
-            return 1.0, hit_floor
-        return target / current, hit_floor
+        self.camera.on_wheel(event)
 
     def zoom_by(self, factor: float) -> None:
-        """Scale the view by *factor*, keeping the viewport centre fixed.
-
-        Used by keyboard / toolbar zoom actions (Ctrl++ / Ctrl+-).  Plain
-        ``self.scale(...)`` zooms around scene origin (0,0) because the
-        view's TransformationAnchor is ``NoAnchor`` — for wheel zoom we
-        compensate around the cursor; here we compensate around the
-        viewport centre so the user keeps looking at the same spot on the
-        board.  Also invalidates the rasterised background which would
-        otherwise stay frozen at the previous zoom level while scene
-        items rescale.
-        """
-        if factor <= 0.0:
-            return
-        factor, hit_floor = self._clamp_zoom_factor(factor)
-        if abs(factor - 1.0) < 1e-6 and not hit_floor:
-            return  # already at limit — no-op
-        vp = self.viewport().rect()
-        pivot_vp = vp.center()
-        old_scene = self.mapToScene(pivot_vp)
-        self.scale(factor, factor)
-        if hit_floor:
-            # Snap to board centre when hitting the zoom-out floor.
-            b = self._session.board.bounds
-            self.centerOn(b.x + b.width / 2.0, b.y + b.height / 2.0)
-        else:
-            new_scene = self.mapToScene(pivot_vp)
-            delta_scene = new_scene - old_scene
-            new_scale = self.transform().m11()
-            hbar = self.horizontalScrollBar()
-            vbar = self.verticalScrollBar()
-            hbar.setValue(hbar.value() - round(delta_scene.x() * new_scale))
-            vbar.setValue(vbar.value() - round(delta_scene.y() * new_scale))
-        # Ctrl+/- zoom: keep the anchor so successive presses paint
-        # cheaply during the burst, then settle to a fresh pixmap.
-        self._invalidate_bg_cache(keep_anchor=True)
-        if not self._label_vis_timer.isActive():
-            self._label_vis_timer.start()
+        """Keyboard / toolbar zoom (delegates to the camera)."""
+        self.camera.zoom_by(factor)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         left = Qt.MouseButton.LeftButton
@@ -1894,13 +1518,7 @@ class BoardView(AbstractBoardView):
         """Delegate the layered background composition to the pipeline."""
         self.paint.draw_background(painter)
 
-    def _on_pan_settled(self) -> None:
-        """Force a paint right after a pan burst ends so the user sees the
-        fresh full-quality pixmap immediately instead of waiting for the
-        next event-driven repaint."""
-        self.viewport().update()
-
-    def _invalidate_bg_cache(self, *, keep_anchor: bool = False) -> None:
+    def invalidate_bg_cache(self, *, keep_anchor: bool = False) -> None:
         """Delegate board-pixmap invalidation to the pipeline."""
         self.paint.invalidate_bg_cache(keep_anchor=keep_anchor)
 
@@ -1916,17 +1534,9 @@ class BoardView(AbstractBoardView):
         # anchor so a burst of resize events (Qt batches window-drag)
         # can fall back on the previous full-quality pixmap stretched
         # to the new viewport.
-        self._invalidate_bg_cache(keep_anchor=True)
-        # Resizing changes the half-viewport-fit zoom-out floor; if the
-        # current zoom has slid below the new floor, snap back to it so
-        # the user doesn't end up with a board lost in canvas chrome.
-        try:
-            m11_min, m11_max = self._compute_zoom_limits()
-            current = abs(self.transform().m11())
-            if current and (current < m11_min - 1e-6 or current > m11_max + 1e-6):
-                self._apply_view_transform()
-        except Exception:  # noqa: BLE001
-            pass
+        self.invalidate_bg_cache(keep_anchor=True)
+        # The camera snaps zoom back inside the new limit window.
+        self.camera.on_resize()
 
     def scrollContentsBy(self, dx: int, dy: int) -> None:  # type: ignore[override]
         """Invalidate the bg cache on every pan, restart the pan-burst timer.
@@ -1939,8 +1549,8 @@ class BoardView(AbstractBoardView):
         during the active burst, then rebuild fresh once the burst ends.
         """
         super().scrollContentsBy(dx, dy)
-        self._invalidate_bg_cache(keep_anchor=True)
-        self._pan_burst_timer.start()
+        self.invalidate_bg_cache(keep_anchor=True)
+        self.camera.note_pan_scroll()
 
     def _mousePressEvent_impl(self, event: QMouseEvent) -> None:
         ctrl = event.modifiers() & Qt.KeyboardModifier.ControlModifier
