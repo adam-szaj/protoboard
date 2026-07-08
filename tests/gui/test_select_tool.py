@@ -136,7 +136,7 @@ class TestCyanSelectionOutline:
             QGraphicsItemGroup,
         )
 
-        grp = board_view._comp_groups.get(comp_id)
+        grp = board_view.composer._comp_groups.get(comp_id)
         if not isinstance(grp, QGraphicsItemGroup):
             return []
         out = []
@@ -201,7 +201,7 @@ class TestCyanSelectionOutline:
         assert inst.id in _comp_ids(tool)
 
         # Simulate the scene wipe + rebuild that a drag refresh performs.
-        board_view._invalidate_all_groups()
+        board_view.composer._invalidate_all_groups()
         assert not board_view.highlight._selection_bbox_overlays  # refs dropped, not dangling
         assert not board_view.highlight._cyan_outlined
         board_view.refresh()
@@ -1848,7 +1848,7 @@ class TestWireAndPadHighlight:
         self._select_wire_and_highlight(tool, view, session)
         assert view.highlight._wire_select_overlays
 
-        view._invalidate_all_groups()
+        view.composer._invalidate_all_groups()
         assert not view.highlight._wire_select_overlays  # refs dropped, not dangling
         assert not view.highlight._net_pad_highlight_items
         view.refresh()
@@ -1907,7 +1907,7 @@ class TestDragConflictOutline:
         tool = _v2(view)
         wire = next(iter(session.layout.wires))
 
-        grp = view._wire_groups.get(wire.id)
+        grp = view.composer._wire_groups.get(wire.id)
         assert isinstance(grp, QGraphicsItemGroup) and grp.opacity() == 1.0
 
         # SOFT decision marking the wire as a free drop → dimmed.
@@ -1944,7 +1944,7 @@ class TestDragConflictOutline:
                 severity=DragSeverity.SOFT, free_drop_wire_ids=(wire.id,)
             )
         )
-        grp = view._wire_groups.get(wire.id)
+        grp = view.composer._wire_groups.get(wire.id)
         assert isinstance(grp, QGraphicsItemGroup) and grp.opacity() < 1.0
         # Any drag-end path routes through _clear_drag_corner → wires restored.
         tool._clear_drag_corner()

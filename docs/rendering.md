@@ -96,9 +96,10 @@ override them.
 
 ---
 
-## 2. Draw order — `BoardView.refresh()`
+## 2. Draw order — `SceneComposer.refresh()`
 
-`refresh()` (`board_view.py:1663`) rebuilds the scene from session state. On the
+`refresh()` (`gui/scene_composer.py`, owned by `BoardView` as `view.composer`;
+`BoardView.refresh()` delegates) rebuilds the scene from session state. On the
 warm path only changed component/wire groups are recreated (fingerprint reuse);
 the board layer rebuilds only when its visual inputs change. The order, top of
 `refresh()` down:

@@ -99,7 +99,7 @@ class TestToolManagement:
         # Pad/board items no longer live in the scene (they're rasterised
         # into the background cache), so counting scene items is no
         # longer a useful proxy for "refresh happened".
-        assert wire.id in board_view._wire_groups
+        assert wire.id in board_view.composer._wire_groups
 
 
 class TestBoardSandwichCache:
@@ -140,7 +140,7 @@ class TestBoardSandwichCache:
         board_view.paint._ensure_back_cache()
 
         # Back-side group exists in scene but was hidden after rasterisation.
-        wire_group = cast(QGraphicsItemGroup, board_view._wire_groups.get(wire.id))
+        wire_group = cast(QGraphicsItemGroup, board_view.composer._wire_groups.get(wire.id))
         assert wire_group is not None
         # Cache may be None if no back items existed at viewport — but with
         # the wire we just added it should be present.

@@ -49,16 +49,16 @@ class TestRoutingNetTriggersRefresh:
         # Pre-populate fingerprint caches with arbitrary entries.
         cid = uuid.uuid4()
         wid = uuid.uuid4()
-        board_view._comp_fingerprints[cid] = ("stale",)
-        board_view._wire_fingerprints[wid] = ("stale",)
+        board_view.composer._comp_fingerprints[cid] = ("stale",)
+        board_view.composer._wire_fingerprints[wid] = ("stale",)
 
         nid = uuid.uuid4()
         session.schematic.nets[nid] = Net(id=nid, name="NET1")
         session.set_routing_net(nid)
 
         # Both caches must be empty so the next refresh rebuilds groups.
-        assert board_view._comp_fingerprints == {}
-        assert board_view._wire_fingerprints == {}
+        assert board_view.composer._comp_fingerprints == {}
+        assert board_view.composer._wire_fingerprints == {}
 
     def test_clearing_routing_net_also_clears_caches(
         self, board_view: BoardView, session: EditorSession
@@ -69,7 +69,7 @@ class TestRoutingNetTriggersRefresh:
 
         # Repopulate after the first event.
         cid = uuid.uuid4()
-        board_view._comp_fingerprints[cid] = ("stale",)
+        board_view.composer._comp_fingerprints[cid] = ("stale",)
 
         session.set_routing_net(None)
-        assert board_view._comp_fingerprints == {}
+        assert board_view.composer._comp_fingerprints == {}

@@ -28,7 +28,9 @@ if TYPE_CHECKING:
     from protoboard.gui.highlight.renderer import HighlightRenderer
     from protoboard.gui.keymap import KeyMap
     from protoboard.gui.layer_state import LayerState
+    from protoboard.gui.layer_state import LayerOverrides
     from protoboard.gui.paint_pipeline import PaintPipeline
+    from protoboard.gui.scene_composer import SceneComposer
     from protoboard.gui.session import EditorSession
     from protoboard.gui.theme import Theme
     from protoboard.gui.tool_host import ToolHost
@@ -72,6 +74,7 @@ class AbstractBoardView(QGraphicsView, metaclass=QtABCMeta):
     paint: PaintPipeline
     camera: ViewCamera
     tools: ToolHost
+    composer: SceneComposer
 
     # -- view state ----------------------------------------------------------
 
@@ -143,6 +146,15 @@ class AbstractBoardView(QGraphicsView, metaclass=QtABCMeta):
     @abstractmethod
     def mark_board_layer_dirty(self) -> None:
         """Force a board-layer rebuild on the next refresh()."""
+
+    @abstractmethod
+    def rebuild_pad_cache(self) -> None:
+        """Rebuild the pad-position list + spatial snap index from the board."""
+
+    @property
+    @abstractmethod
+    def layer_overrides(self) -> LayerOverrides:
+        """User per-layer visibility overrides (Layers panel state)."""
 
     @abstractmethod
     def apply_label_visibility(self, *, deferred: bool = False) -> None:

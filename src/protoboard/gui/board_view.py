@@ -30,9 +30,7 @@ from PySide6.QtGui import (
     QResizeEvent,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QGraphicsItem as _QGItem  # noqa: E402 – used in refresh()
 from PySide6.QtWidgets import (
-    QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
     QWidget,
@@ -45,26 +43,17 @@ from protoboard.gui.layer_state import (
     LayerState,
     layer_state_for_tool,
 )
-from protoboard.gui.renderers.board_renderer import BOARD_BG
-from protoboard.gui.renderers.component_renderer import (
-    render_groups,
-    update_component_groups,
-)
-from protoboard.gui.renderers.wire_renderer import (
-    render_ratsnest,
-    update_wire_groups,
-)
+from protoboard.gui.board_view_tool import AbstractBoardView, _Tool
 from protoboard.gui.highlight.renderer import HighlightRenderer
 from protoboard.gui.paint_pipeline import PaintPipeline
+from protoboard.gui.renderers.board_renderer import BOARD_BG
+from protoboard.gui.scene_composer import SceneComposer
+from protoboard.gui.session import EditorSession
+from protoboard.gui.theme import DEFAULT_THEME, Theme
 from protoboard.gui.tool_host import ToolHost
 from protoboard.gui.view_camera import GRID_PX as _GRID_PX
 from protoboard.gui.view_camera import ViewCamera
-from protoboard.gui.session import EditorSession
-from protoboard.gui.theme import DEFAULT_THEME, Theme
 from protoboard.services.debug_trace import traced
-from protoboard.services.routing.net_status import routed_net_ids
-from protoboard.gui.board_view_tool import AbstractBoardView, _Tool
-
 
 
 class BoardView(AbstractBoardView):
@@ -93,12 +82,6 @@ class BoardView(AbstractBoardView):
         # runtime and invalidates cached pixmaps.
         self._antialiasing: bool = True
         self.setRenderHint(QPainter.RenderHint.Antialiasing, self._antialiasing)
-        # Connections (ratsnest) layer render mode — mirrors
-        # ``AppSettings.ratsnest_mode``.  "full" = K_n graph per island;
-        # "closest" = nearest-other-pin per pin.  MainWindow pushes
-        # changes via ``set_ratsnest_mode`` so the dialog edit lands
-        # without a full session reload.
-        self._ratsnest_mode: str = "full"
         # DontSavePainterState avoids QPainter.save()/restore() around every
         # item — meaningful at 14k items per paint.  Items in this app set
         # their own pen/brush per draw, so the saved state was unused anyway.
@@ -124,7 +107,6 @@ class BoardView(AbstractBoardView):
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-        self._scale = _GRID_PX
         self.scale(_GRID_PX, _GRID_PX)
         # Tool lifecycle + input dispatch + canvas menu + [?] overlay —
         # extracted service (see gui/tool_host.py).  Owns the active tool,
@@ -165,32 +147,9 @@ class BoardView(AbstractBoardView):
         # Theme — overridden by MainWindow after Preferences apply.
         self._theme_override: Theme | None = None
         self._last_drag_refresh: float = 0.0
-        # comp_id → QGraphicsItemGroup; persists across refreshes for reuse.
-        self._comp_groups: dict[uuid.UUID, object] = {}
-        # comp_id → label QGraphicsItemGroup (refdes / pin names / lock) drawn
-        # at Z_LABELS_TOP, above the pin-modifier glyphs.  Kept parallel to
-        # _comp_groups so it follows live drag and group dimming.
-        self._comp_label_groups: dict[uuid.UUID, object] = {}
-        self._comp_fingerprints: dict[uuid.UUID, tuple[object, ...]] = {}
-        # wire_id → QGraphicsItemGroup; persists across refreshes for reuse.
-        self._wire_groups: dict[uuid.UUID, object] = {}
-        self._wire_fingerprints: dict[uuid.UUID, tuple[object, ...]] = {}
-        # Wire-pin glyph items — rebuilt from scratch on each refresh
-        # since the set is typically small.
-        self._wire_pin_items: list[object] = []
-        # Pin-pads + modifier overlay items — rebuilt every refresh because
-        # they're cheap to compute from pad_index and the layer reflects
-        # schematic-aware state that fingerprinting wire/comp groups
-        # would not capture cleanly.
-        self._pin_pad_items: list[object] = []
-        self._pin_modifier_items: list[object] = []
-        # comp_id → placement.position at last full refresh (drag delta origin).
-        self._drag_orig_group_pos: dict[uuid.UUID, Point] = {}
-        # wire_id → wire.path[0] at last full refresh (drag delta origin for wires).
-        self._drag_orig_wire_pose: dict[uuid.UUID, Point] = {}
-        # Board layer: rebuilt only when board geometry / theme / alpha changes.
-        self._board_layer_dirty: bool = True
-        self._last_board_alpha: float = -1.0   # sentinel: never matches
+        # Scene construction (groups, fingerprints, overlays, drag anchors,
+        # refresh debounce) — extracted service (see gui/scene_composer.py).
+        self.composer = SceneComposer(self)
         # Layered background composition + bg/back pixmap caches + the
         # stale-blit anchor — extracted service (see gui/paint_pipeline.py).
         # ``paintEvent`` / ``drawBackground`` stay as Qt overrides below and
@@ -198,13 +157,6 @@ class BoardView(AbstractBoardView):
         self.paint = PaintPipeline(self)
         # Spatial index over board pad positions for fast snap().
         self._pad_spatial: dict[tuple[int, int], list[Point]] = {}
-        # Overlay items (ratsnest + group outlines) for targeted removal.
-        self._overlay_items: list[object] = []
-        # Debounce refresh so rapid layout_changed bursts only redraw once.
-        self._refresh_timer = QTimer(self)
-        self._refresh_timer.setSingleShot(True)
-        self._refresh_timer.setInterval(16)   # ~1 frame
-        self._refresh_timer.timeout.connect(self.refresh)
         # Label-visibility refresh after zoom is O(scene items) — on a
         # busy board it costs tens of ms.  Running it synchronously
         # inside ``wheelEvent`` made Qt drop / queue subsequent wheel
@@ -250,13 +202,8 @@ class BoardView(AbstractBoardView):
 
     @traced()
     def set_ratsnest_mode(self, mode: str) -> None:
-        """Switch the Connections layer between ``"full"`` (K_n graph)
-        and ``"closest"`` (nearest-other-pin) line modes.  No-op when
-        the mode is already active; otherwise refresh the overlay."""
-        if mode not in ("full", "closest") or mode == self._ratsnest_mode:
-            return
-        self._ratsnest_mode = mode
-        self.refresh()
+        """Switch the Connections layer line mode (delegates to composer)."""
+        self.composer.set_ratsnest_mode(mode)
 
     @traced()
     def set_antialiasing(self, enabled: bool) -> None:
@@ -313,9 +260,8 @@ class BoardView(AbstractBoardView):
         render the glow rings on pads belonging to the routed net.
         """
         self.highlight.apply()
-        self._comp_fingerprints.clear()
-        self._wire_fingerprints.clear()
-        self._schedule_refresh()
+        self.composer.clear_group_fingerprints()
+        self.composer.schedule_refresh()
 
     @traced()
     def set_highlighted_net(self, net_id: uuid.UUID | None) -> None:
@@ -364,152 +310,8 @@ class BoardView(AbstractBoardView):
 
     @traced()
     def _on_drag_moved(self) -> None:
-        """Live drag: move scene groups to current placement positions (no rebuild).
-
-        Items inside each group are rendered at absolute world coordinates, so the
-        group itself sits at (0,0).  We track the *last rendered* position per group
-        and call moveBy(delta) when the placement changes — this translates all child
-        items without rebuilding the scene.
-        """
-        from PySide6.QtWidgets import QGraphicsItemGroup
-        placements = self._session.layout.placements
-        for comp_id, grp in self._comp_groups.items():
-            if not isinstance(grp, QGraphicsItemGroup):
-                continue
-            pl = placements.get(comp_id)
-            orig = self._drag_orig_group_pos.get(comp_id)
-            if pl is None or orig is None:
-                continue
-            # Delta from the position when items were baked into the scene.
-            delta = pl.position - orig
-            grp.setPos(delta.x, delta.y)
-            # Move the matching label group by the same delta so labels track
-            # the drag (they live in a separate group at Z_LABELS_TOP).
-            lbl = self._comp_label_groups.get(comp_id)
-            if isinstance(lbl, QGraphicsItemGroup):
-                lbl.setPos(delta.x, delta.y)
-
-        # Recompute outline rect for each group from the live pin positions
-        # of its members.  Outline overlay items live outside _comp_groups
-        # (they're owned by self._overlay_items), so a setPos on a comp
-        # group does not move them.  We update each outline rect in-place;
-        # the matching group-name label is moved alongside.
-        # Wires: items inside each wire group sit at world coords (just like
-        # components), so a setPos(delta) translates the visible polyline.
-        # Live drag mutates wire.path in place — we compare current path[0]
-        # against the snapshot taken at the previous refresh.  After drag
-        # release, the upcoming refresh() rebuilds the wire group from the
-        # new path and resets pos to (0, 0).
-        for wire in self._session.layout.wires:
-            grp = self._wire_groups.get(wire.id)
-            if not isinstance(grp, QGraphicsItemGroup) or not wire.path:
-                continue
-            orig = self._drag_orig_wire_pose.get(wire.id)
-            if orig is None:
-                continue
-            delta = wire.path[0] - orig
-            grp.setPos(delta.x, delta.y)
-
-        self._update_group_outlines_on_drag()
-
-    @traced()
-    def _update_group_outlines_on_drag(self) -> None:
-        """Recompute each group's outline rect from live member geometry.
-
-        Outline overlay rects live in ``self._overlay_items`` (not the moved
-        comp groups), so a drag's ``setPos`` doesn't touch them — this resizes
-        each in place to the bbox of its members' pins plus owned-wire
-        vertices, so the live outline matches the statically-rendered one
-        instead of shrinking at drag-start and re-growing at release.  Pulled
-        out of ``_on_drag_moved`` so that method reads as "move groups, move
-        wires, refresh outlines".
-        """
-        from PySide6.QtWidgets import QGraphicsRectItem
-
-        from protoboard.domain.layout.group_ownership import OwnershipResolver
-        from protoboard.domain.layout.group_tree import GroupTree
-        from protoboard.domain.layout.layout import ROOT_GROUP_ID
-        layout = self._session.layout
-        # Used by the OwnershipResolver below (group-outline ownership classifier).
-        placements = layout.placements
-        instances = self._session.instances
-        components = self._session.components
-        theme = self._theme_override if self._theme_override is not None else DEFAULT_THEME
-        margin = theme.group_margin
-        # Index outline rects + labels by group id.
-        outline_by_gid: dict[uuid.UUID, QGraphicsRectItem] = {}
-        for item in self._overlay_items:
-            if not isinstance(item, QGraphicsRectItem):
-                continue
-            tag = item.data(1) if hasattr(item, "data") else None
-            if tag != "group_outline":
-                continue
-            raw = item.data(0)
-            if not raw:
-                continue
-            try:
-                outline_by_gid[uuid.UUID(str(raw))] = item
-            except (ValueError, TypeError):
-                continue
-        if not outline_by_gid:
-            return
-        # Pre-resolve once: which wires are internal to each group?
-        # Net-aware classifier (group_ownership.find_owned_wires) handles
-        # T-junction half-orphans correctly: tails of internal nets are
-        # owned, tails of exported nets are not — so the outline neither
-        # shrinks at drag-start nor stretches over interface wires.
-        # Resolve wire→net once for this paint; cached on session.
-        try:
-            wire_net_map = self._session.cached_wire_net_map() if self._session is not None else {}
-        except Exception:  # noqa: BLE001
-            wire_net_map = {}
-        schematic = getattr(self._session, "schematic", None) if self._session is not None else None
-        _tree = GroupTree(layout.groups)
-        # Bind the LOCAL outline context (may be a drag-time snapshot, not
-        # session state) — build the resolver directly, not from_session.
-        _ownership = OwnershipResolver(
-            knots=layout.knots,  # type: ignore[arg-type]
-            wire_net_map=wire_net_map,
-            schematic=schematic,
-            placements=placements,
-            instances=instances,
-            definitions=components,
-        )
-        for gid, rect_item in outline_by_gid.items():
-            grp_obj = layout.groups.get(gid)
-            if grp_obj is None or gid == ROOT_GROUP_ID:
-                continue
-            comp_ids = _tree.all_component_ids(gid)
-            xs: list[float] = []
-            ys: list[float] = []
-            for cid in comp_ids:
-                for _pn, p in self._session.iter_pin_positions(cid):
-                    xs.append(p.x)
-                    ys.append(p.y)
-            if not xs:
-                continue
-            # Include owned-wire vertices so the live outline matches
-            # the statically-rendered one (otherwise outline shrinks
-            # at drag-start and re-grows at release).
-            try:
-                owned_wire_ids = _ownership.owned_wire_ids(
-                    list(layout.wires), grp_obj, comp_ids,
-                )
-                for w in layout.wires:
-                    if w.id not in owned_wire_ids:
-                        continue
-                    for p in w.path:
-                        xs.append(p.x)
-                        ys.append(p.y)
-            except Exception:  # noqa: BLE001
-                # Defensive: never let a wire-classification glitch
-                # break live drag — fall back to pin-only bbox.
-                pass
-            x0 = min(xs) - margin
-            y0 = min(ys) - margin
-            rect_w = max(xs) - min(xs) + 2 * margin
-            rect_h = max(ys) - min(ys) + 2 * margin
-            rect_item.setRect(QRectF(x0, y0, rect_w, rect_h))
+        """Live drag (delegates to the composer; parked Qt slot)."""
+        self.composer.on_drag_moved()
 
     @traced()
     def set_wire_drag_state(
@@ -528,7 +330,7 @@ class BoardView(AbstractBoardView):
             # as a scene item — re-apply it explicitly so the canvas around
             # the board picks up theme changes without an app restart.
             self.setBackgroundBrush(QBrush(QColor(theme.board_bg)))
-            self._board_layer_dirty = True
+            self.mark_board_layer_dirty()
             self.refresh()
 
     # ------------------------------------------------------------------
@@ -599,7 +401,7 @@ class BoardView(AbstractBoardView):
             pass
         self._session = session
         self.highlight.set_highlighted_net_silent(None)
-        self._board_layer_dirty = True
+        self.mark_board_layer_dirty()
         session.layout_changed.connect(self._schedule_refresh)
         session.layout_changed.connect(session.invalidate_graph)
         session.drag_moved.connect(self._on_drag_moved)
@@ -641,15 +443,15 @@ class BoardView(AbstractBoardView):
 
     def component_groups(self) -> dict[uuid.UUID, object]:
         """comp_id → its persistent ``QGraphicsItemGroup`` (or stand-in)."""
-        return self._comp_groups
+        return self.composer._comp_groups
 
     def component_label_groups(self) -> dict[uuid.UUID, object]:
         """comp_id → its label ``QGraphicsItemGroup`` (refdes / pin names)."""
-        return self._comp_label_groups
+        return self.composer._comp_label_groups
 
     def wire_groups(self) -> dict[uuid.UUID, object]:
         """wire_id → its persistent ``QGraphicsItemGroup`` (or stand-in)."""
-        return self._wire_groups
+        return self.composer._wire_groups
 
     @property
     def antialiasing(self) -> bool:
@@ -676,7 +478,12 @@ class BoardView(AbstractBoardView):
 
     def mark_board_layer_dirty(self) -> None:
         """Force a board-layer rebuild on the next refresh()."""
-        self._board_layer_dirty = True
+        self.composer.mark_board_layer_dirty()
+
+    @property
+    def layer_overrides(self) -> LayerOverrides:
+        """User per-layer visibility overrides (Layers panel state)."""
+        return self._layer_overrides
 
     def apply_label_visibility(self, *, deferred: bool = False) -> None:
         """Re-evaluate label visibility now, or debounced after a zoom."""
@@ -692,7 +499,7 @@ class BoardView(AbstractBoardView):
         return self._pad_positions
 
     @traced()
-    def _rebuild_pad_cache(self) -> None:
+    def rebuild_pad_cache(self) -> None:
         """Rebuild _pad_positions and _pad_spatial from the current board layout."""
         from collections import defaultdict
         positions: list[Point] = []
@@ -720,330 +527,13 @@ class BoardView(AbstractBoardView):
 
     @traced()
     def _schedule_refresh(self) -> None:
-        """Schedule a refresh for the next event-loop tick (debounce)."""
-        if not self._refresh_timer.isActive():
-            self._refresh_timer.start()
-
-    @traced()
-    def _invalidate_all_groups(self) -> None:
-        """Drop all persistent group caches (called when scene is fully cleared)."""
-        self._comp_groups.clear()
-        self._comp_label_groups.clear()
-        self._comp_fingerprints.clear()
-        self._wire_groups.clear()
-        self._wire_fingerprints.clear()
-        self._overlay_items.clear()
-        # Highlight overlays reference items the scene clear just destroyed —
-        # the renderer drops those refs (do NOT removeItem; the C++ objects are
-        # already gone).
-        self.highlight.on_scene_cleared()
+        """Debounced refresh (delegates to the composer; parked Qt slot)."""
+        self.composer.schedule_refresh()
 
     @traced()
     def refresh(self) -> None:
-        """Update the scene to reflect current session state.
-
-        On the warm path (most layout_changed events) only changed items are
-        recreated; unchanged component/wire groups survive untouched.
-        The board layer (pads/strips) is rebuilt only when its visual inputs change.
-        """
-        _t0 = time.monotonic()
-        self._refresh_timer.stop()
-        self._rebuild_pad_cache()
-
-        from dataclasses import replace as _dc_replace
-        _base = self._theme_override if self._theme_override is not None else DEFAULT_THEME
-        layers = layer_state_for_tool(
-            self._active_tool,
-            self.camera.camera_side,  # type: ignore[arg-type]
-            self.camera.view_transform,  # type: ignore[arg-type]
-            overrides=self._layer_overrides,
-            theme=_base,
-        )
-        _theme = _dc_replace(_base,
-                             raster_pitch_mm=self._session.board.raster_pitch_mm,
-                             package_families=self._session.package_families)
-
-        # ── Board layer ──────────────────────────────────────────────────────
-        # Board pads/strips/frames no longer live in the scene — they are
-        # rasterised into ``self._bg_cache`` and blitted by
-        # ``drawBackground``.  Here we just invalidate the cache when
-        # geometry/theme/alpha change and clear any leftover scene items
-        # that legacy code may still create.
-        current_board_alpha = layers.alpha_for_board()
-        if self._board_layer_dirty or current_board_alpha != self._last_board_alpha:
-            self._scene.clear()
-            self._invalidate_all_groups()
-            self.tools.fire_on_scene_cleared()
-            # Board state changed — drop both pixmap and display list so
-            # the next drawBackground rebuilds from current board state.
-            self.paint.invalidate_display_list()
-            self.invalidate_bg_cache()
-            self._board_layer_dirty = False
-            self._last_board_alpha = current_board_alpha
-        else:
-            # Placement-only change (drag-move commit, undo, paste, etc.):
-            # don't tear down the scene, but the pad-net colour map depends
-            # on which pad each pin lands on — drop the bg display list +
-            # pixmap so they rebuild from the current placements.  Cheap
-            # detection: compare per-component positions against the snapshot
-            # taken at the end of the previous refresh.
-            current_positions = {
-                cid: (pl.position.x, pl.position.y)
-                for cid, pl in self._session.layout.placements.items()
-            }
-            prev_positions = {
-                cid: (p.x, p.y) for cid, p in self._drag_orig_group_pos.items()
-            }
-            if current_positions != prev_positions:
-                self.paint.invalidate_display_list()
-                self.invalidate_bg_cache()
-
-        # ── Remove stale overlay items (ratsnest + group outlines) ───────────
-        for item in self._overlay_items:
-            if not isinstance(item, _QGItem):
-                continue
-            try:
-                if item.scene() is self._scene:
-                    self._scene.removeItem(item)
-            except RuntimeError:
-                pass  # C++ object already deleted by scene.clear()
-        self._overlay_items.clear()
-
-        # ── Shared render inputs ─────────────────────────────────────────────
-        wire_net_map = self._session.cached_wire_net_map()
-        # Resolved per-net colour: manual ``net.color`` wins, then static
-        # palette, then golden-ratio hue spin once palette is exhausted.
-        # Same map drives wire colour AND pad colour so they always match.
-        from protoboard.gui.renderers.net_color import build_net_color_map
-        net_color_map: dict[uuid.UUID, str | None] = dict(
-            build_net_color_map(self._session.schematic.nets, theme=_theme)
-        )
-        routed: set[uuid.UUID] | None = None
-        if self._session.schematic.nets:
-            routed = routed_net_ids(
-                self._session.schematic, self._session.connectivity_graph()
-            )
-
-        # ── Wires (group reuse) ───────────────────────────────────────────────
-        update_wire_groups(
-            self._scene,
-            list(self._session.layout.wires),
-            wire_net_map,
-            self._wire_groups,        # type: ignore[arg-type]
-            self._wire_fingerprints,  # type: ignore[arg-type]
-            net_color_map=net_color_map,
-            theme=_theme,
-            layers=layers,
-            highlighted_net_id=self.highlight.effective_highlighted_net(),
-            routing_target_net_id=self._session.routing_net_id,
-        )
-
-        # ── Wire-pin glyphs ───────────────────────────────────────────────────
-        # Clear and rebuild the small wire-pin overlay each refresh —
-        # the set is typically tiny and fingerprinting would be overkill.
-        from protoboard.domain.layout.knot import WirePinKnot
-        from protoboard.gui.renderers.wire_renderer import render_wire_pins
-
-        for it in self._wire_pin_items:
-            try:
-                self._scene.removeItem(it)  # type: ignore[arg-type]
-            except Exception:
-                pass
-        self._wire_pin_items.clear()
-        wire_pins: list[tuple[Point, uuid.UUID | None]] = [
-            (k.position, k.net_id)
-            for k in self._session.layout.knots.values()
-            if isinstance(k, WirePinKnot)
-        ]
-        if wire_pins:
-            self._wire_pin_items = list(render_wire_pins(  # type: ignore[arg-type]
-                self._scene,
-                wire_pins,
-                net_color_map=net_color_map,
-                theme=_theme,
-                layers=layers,
-                routing_target_net_id=self._session.routing_net_id,
-            ))
-
-        # ── Components (group reuse) ──────────────────────────────────────────
-        update_component_groups(
-            self._scene,
-            self._session.layout.placements,
-            self._session.instances,
-            self._session.components,
-            self._comp_groups,        # type: ignore[arg-type]
-            self._comp_fingerprints,  # type: ignore[arg-type]
-            schematic=self._session.schematic if self._session.schematic.nets else None,
-            routed_nets=routed,
-            theme=_theme,
-            layers=layers,
-            active_group_id=self._active_group_id,
-            layout=self._session.layout,
-            highlighted_net_id=self.highlight.effective_highlighted_net(),
-            existing_label_groups=self._comp_label_groups,  # type: ignore[arg-type]
-        )
-
-        # Snapshot positions so _on_drag_moved can compute deltas.
-        self._drag_orig_group_pos = {
-            cid: pl.position
-            for cid, pl in self._session.layout.placements.items()
-        }
-        # Per-wire pose anchor — first point of the wire's path at the time
-        # the scene group was built.  Live drag mutates wire.path in place
-        # (translation only for group drag, free-form for single-wire drag);
-        # _on_drag_moved compares current path[0] against this anchor and
-        # calls setPos(delta) so the wire glides with the drag, without
-        # rebuilding the scene group on every snap step.
-        self._drag_orig_wire_pose = {
-            w.id: w.path[0] for w in self._session.layout.wires if w.path
-        }
-
-        # ── Pin-pads layer (schematic-aware overlay above board) ─────────────
-        # Cherry-on-top of the board layer: every pad carrying a net is
-        # repainted in the net colour with the modifier shape (pin1 /
-        # exported / star) carved out.  Routing target gets neon yellow.
-        for it in self._pin_pad_items:
-            try:
-                self._scene.removeItem(it)  # type: ignore[arg-type]
-            except Exception:  # noqa: BLE001
-                pass
-        self._pin_pad_items.clear()
-        try:
-            from protoboard.domain.layout.pin_pad_classification import (
-                classify_pin_pads,
-            )
-            from protoboard.gui.renderers.pin_pad_renderer import (
-                render_pin_pads,
-            )
-            pp_records = classify_pin_pads(
-                self._session.pad_index(), self._session.layout,
-            )
-            self._pin_pad_items = list(render_pin_pads(  # type: ignore[arg-type]
-                self._scene,
-                pp_records,
-                theme=_theme,
-                layers=layers,
-                net_color_map=net_color_map,
-                routing_target_net_id=self._session.routing_net_id,
-            ))
-        except Exception:  # noqa: BLE001
-            # Defensive: never let pin-pads classification glitch crash
-            # the whole paint pipeline.  The layer is purely visual.
-            self._pin_pad_items = []
-            pp_records = []
-        # Cache the records so the highlight pass can draw bright net-pad discs
-        # without recomputing the classification.
-        self.highlight.set_pin_pad_records(list(pp_records))
-
-        # ── Overlays (always recreated — fast, few items) ────────────────────
-        new_overlays: list[object] = []
-        from protoboard.gui.layer_state import LayerVisibility
-        ratsnest_vis = self._layer_overrides.ratsnest
-        if (self._session.schematic.nets
-                and ratsnest_vis != LayerVisibility.HIDDEN):
-            # Ghost mode: only unrouted nets are drawn (current
-            # legacy behaviour).  Full mode: every net gets at least
-            # its missing-link or multi-island warning lines.
-            ghost_mode = (ratsnest_vis == LayerVisibility.GHOST)
-            rmode = self._ratsnest_mode
-            new_overlays.extend(render_ratsnest(
-                self._scene,
-                self._session.schematic,
-                self._session.layout.placements,
-                self._session.instances,
-                self._session.components,
-                routed_nets=routed,
-                theme=_theme,
-                graph=self._session.connectivity_graph(),
-                mode=rmode,
-                ghost=ghost_mode,
-            ))
-        if self._session.layout.groups:
-            new_overlays.extend(render_groups(
-                self._scene,
-                self._session.layout,
-                self._session.layout.placements,
-                self._session.instances,
-                self._session.components,
-                wires=list(self._session.layout.wires),
-                theme=_theme,
-                active_group_id=self._active_group_id,
-                view_scale=self._scale,
-                wire_net_map=self._session.cached_wire_net_map(),
-                schematic=self._session.schematic,
-            ))
-        if self._session.axis_label_settings.any_enabled():
-            from protoboard.gui.renderers.axis_labels_renderer import (
-                render_axis_labels,
-            )
-            new_overlays.extend(render_axis_labels(
-                self._scene,
-                self._session.board,
-                self._session.axis_label_settings,
-                theme=_theme,
-                alpha=layers.alpha_for_axis_labels(),
-                view_scale=self._scale,
-            ))
-        self._overlay_items = new_overlays
-
-        # ── Scene rect ───────────────────────────────────────────────────────
-        b = self._session.board.bounds
-        mx, my = b.width * 0.5, b.height * 0.5
-        self._scene.setSceneRect(QRectF(b.x - mx, b.y - my, b.width + 2 * mx, b.height + 2 * my))
-
-        # ── Label visibility (hide text that would be too small to read) ────────
-        self._apply_label_visibility()
-
-        # ── Pin modifiers (top-most overlay) ─────────────────────────────────
-        # Repeats pin1 / exported / star glyphs above wires + components in
-        # the net colour so the marker remains visible when something
-        # covers the underlying pin-pad.
-        for it in self._pin_modifier_items:
-            try:
-                self._scene.removeItem(it)  # type: ignore[arg-type]
-            except Exception:  # noqa: BLE001
-                pass
-        self._pin_modifier_items.clear()
-        # Suppress the modifier glyphs while a wire is being edited: the
-        # editable vertex handles sit above the modifiers, so the markers
-        # would clutter / occlude the handles the user is dragging.
-        _wire_editing = (
-            hasattr(self._active_tool, "is_wire_editing")
-            and self._active_tool.is_wire_editing()  # type: ignore[attr-defined]
-        )
-        if pp_records and not _wire_editing:
-            try:
-                from protoboard.gui.renderers.pin_pad_renderer import (
-                    render_pin_modifiers,
-                )
-                self._pin_modifier_items = list(render_pin_modifiers(  # type: ignore[arg-type]
-                    self._scene,
-                    pp_records,
-                    theme=_theme,
-                    layers=layers,
-                    net_color_map=net_color_map,
-                    routing_target_net_id=self._session.routing_net_id,
-                ))
-            except Exception:  # noqa: BLE001
-                self._pin_modifier_items = []
-
-        # Scene contents changed — drop the back-side raster cache so the
-        # next paint re-rasterises with current items.  Restores any items
-        # we'd previously hidden so they're available to be re-rendered.
-        self.invalidate_back_cache()
-
-        # ── Final highlight pass ─────────────────────────────────────────────
-        # ``update_component_groups`` no longer applies net-highlight dimming
-        # (it would clobber the route-active profile during a wire drag).
-        # The canonical highlight pass therefore has to run after every
-        # refresh, otherwise Net Inspector / Selection highlights would be
-        # lost the moment any unrelated refresh fires (drag, undo, theme
-        # change, etc.).
-        self.highlight.apply()
-
-        _ms = (time.monotonic() - _t0) * 1000
-        self._session.perf.record_refresh(_ms)
-        self._session.perf.scene_items = len(self._scene.items())
+        """Rebuild the scene from the session (delegates to the composer)."""
+        self.composer.refresh()
 
     @traced()
     def select_component(self, comp_id: uuid.UUID) -> None:
@@ -1148,7 +638,7 @@ class BoardView(AbstractBoardView):
                 _sp[(int(round(_p.x)), int(round(_p.y)))].append(_p)
             self._pad_spatial = dict(_sp)
         elif not self._pad_spatial:
-            self._rebuild_pad_cache()
+            self.rebuild_pad_cache()
         cx, cy = int(round(sx)), int(round(sy))
         for dcx in (-1, 0, 1):
             for dcy in (-1, 0, 1):

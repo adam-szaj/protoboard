@@ -325,7 +325,7 @@ class TestOppositeSideWireBackCache:
 
         baseline_rects = [
             grp.sceneBoundingRect()  # type: ignore[attr-defined]
-            for grp in board_view._wire_groups.values()
+            for grp in board_view.composer._wire_groups.values()
         ]
         assert baseline_rects, "Expected at least one wire group."
 
@@ -336,7 +336,7 @@ class TestOppositeSideWireBackCache:
 
         moved_rects = [
             grp.sceneBoundingRect()  # type: ignore[attr-defined]
-            for grp in board_view._wire_groups.values()
+            for grp in board_view.composer._wire_groups.values()
         ]
 
         # We don't rely on order; compare normalised tuples of bounds.
@@ -511,8 +511,8 @@ class TestSceneContentsStableAcrossToggles:
         board_view.refresh()
 
         def _count() -> tuple[int, int]:
-            wires = len(board_view._wire_groups)
-            comps = len(getattr(board_view, "_comp_groups", {}))
+            wires = len(board_view.composer._wire_groups)
+            comps = len(board_view.composer._comp_groups)
             return wires, comps
 
         baseline = _count()
